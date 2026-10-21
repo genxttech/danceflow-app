@@ -605,7 +605,7 @@ commit;`);
       expect(owners.map((r) => r.user_id)).toEqual([w.owner]);
       expect(owners[0]).toMatchObject({ recipient_kind: "owner", studio_id: w.studio, email_verified: true, email: `o-${RUN}-${w.n}@rfl-ops.test` });
       const admins = recips(mkAlert(w, { audience: "admin" }));
-      expect(admins.every((r) => r.recipient_kind === "admin" && r.studio_id === null && r.email_verified)).toBe(true);
+      expect(admins.every((r) => r.recipient_kind === "admin" && r.studio_id === w.studio && r.email_verified === true)).toBe(true); // an admin row carries the alert's own location
       expect(admins.map((r) => r.user_id)).toEqual(expect.arrayContaining([P, P2, P3]));
       expect(admins.map((r) => r.user_id)).not.toContain(w.owner);
       const both = recips(mkAlert(w, { audience: "both" }));
@@ -616,6 +616,20 @@ commit;`);
       expect(recips(mkAlert(w, { audience: "admin" })).map((r) => r.user_id)).not.toContain(unverifiedAdmin);
       replica(`update public.profiles set platform_role = null where id = '${unverifiedAdmin}';`);
       expect(Object.keys(rows(`select * from public.tw4_rfl_alert_recipients('${mkAlert(w, { audience: "owner" })}')`)[0]).sort()).toEqual(["email", "email_verified", "recipient_kind", "studio_id", "user_id"]);
+    });
+
+    it("an administrator row always carries a non-null studio_id: the alert's own, else the earliest-linked location of its legal business", () => {
+      const w = world();
+      const second = addLocation(w);
+      expect(second.studio).toBeTruthy();
+      replica(`update public.studio_sms_entity_studios set linked_at = now() - interval '1 day' where studio_id = '${w.studio}';`);
+      const entityAlert = recips(mkAlert(w, { studio: null, audience: "both" }));
+      expect(entityAlert.filter((r) => r.recipient_kind === "admin").length).toBeGreaterThanOrEqual(1);
+      expect(entityAlert.every((r) => typeof r.studio_id === "string" && r.studio_id.length > 0)).toBe(true);
+      expect(entityAlert.filter((r) => r.recipient_kind === "admin").every((r) => r.studio_id === w.studio)).toBe(true);
+      replica(`update public.studio_sms_entity_studios set linked_at = now() - interval '2 days' where studio_id = '${second.studio}';`);
+      expect(recips(mkAlert(w, { studio: null, audience: "admin" })).every((r) => r.studio_id === second.studio)).toBe(true);
+      expect(recips(mkAlert(w, { studio: second.studio, audience: "admin" })).every((r) => r.studio_id === second.studio)).toBe(true);
     });
 
     it("an entity-level alert reaches the owners of EVERY location of that legal business and nobody else's; a location alert only that location's owners", () => {

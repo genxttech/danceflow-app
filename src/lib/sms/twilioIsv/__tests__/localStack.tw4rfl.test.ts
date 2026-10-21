@@ -1405,7 +1405,7 @@ commit;`);
       expect(Number(psql(`select count(*) from public.studio_sms_provider_cancel_ops where resource_id = '${camp.resource_id}'`))).toBe(0);
       // and a cancellation reference cannot later authorize a fee
       const cancelRef = `Founder note ${RUN} release the number in writing`;
-      call("tw4_rfl_cancel_authorize", num.resource_id, P, cancelRef, "founder_written", "The founder approved releasing this number in writing", true);
+      authorizeCancel(num.resource_id, P, cancelRef, "founder_written", "The founder approved releasing this number in writing", true);
       expect(psql(`select source from public.studio_sms_approval_refs where ref_norm = public._tw4fi_ref_norm($q$${cancelRef}$q$)`)).toBe("cancellation");
       expect(hasCode(callErr("tw4_spend_authorize", w.entity, "monthly", PRICE.monthly, cancelRef.toLowerCase(), P, "pilot", w.studio), "TW019")).toBe(true);
     });
@@ -1589,6 +1589,8 @@ commit;`);
         sh(`pg_dump -U postgres -s --no-owner ${DB} | psql -U postgres -d ${scratch} -q > /dev/null 2>&1; true`);
         const run = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-d", scratch, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
         expect(run(`select to_regclass('public.studio_sms_provider_resources') is not null`)).toBe("t");
+        // the ops migration (20261211) sits on top of this one: it is rolled back first (it refuses while its own evidence exists; this copy has none)
+        run(readFileSync(join(process.cwd(), "src/lib/supabase/migrations/rollback/20261211090000_twilio_rfl_ops_rollback.sql"), "utf8"));
         run(rollbackSql);
         expect(run(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and (p.proname like 'tw4\\_rfl%' or p.proname like '\\_tw4rfl%' or p.proname like 'sms\\_rfl%')`)).toBe("0");
         expect(run(`select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname like 'studio\\_sms\\_provider\\_%' and c.relkind = 'r'`)).toBe("1");   // studio_sms_provider_charges (3b-0) is not ours

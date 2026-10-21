@@ -407,12 +407,16 @@ returns table (recipient_kind text, user_id uuid, studio_id uuid, email text, em
 language plpgsql stable security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
-declare a public.studio_sms_provider_alerts;
+declare
+  a public.studio_sms_provider_alerts;
+  v_loc uuid;
 begin
   select * into a from public.studio_sms_provider_alerts x where x.id = p_alert_id;
   if a.id is null or a.status = 'delivered' then
     return;
   end if;
+  -- an administrator row carries a location too (the delivery sink needs one): the alert's own, else the earliest-linked location of the alert's legal business
+  v_loc := coalesce(a.studio_id, (select es.studio_id from public.studio_sms_entity_studios es where es.legal_entity_id = a.legal_entity_id order by es.linked_at, es.studio_id limit 1));
   if a.audience in ('owner', 'both') then
     -- active studio owners of the alert's location, or of EVERY location of the alert's legal business (never another business's: the link row ties the location to it)
     return query
@@ -428,7 +432,7 @@ begin
   end if;
   if a.audience in ('admin', 'both') then
     return query
-    select 'admin'::text, pr.id, null::uuid, u.email::text, true
+    select 'admin'::text, pr.id, v_loc, u.email::text, true
       from public.profiles pr join auth.users u on u.id = pr.id
      where pr.platform_role = 'platform_admin' and u.email is not null and btrim(u.email) <> '' and u.email_confirmed_at is not null and u.deleted_at is null
        and (u.banned_until is null or u.banned_until <= now())
