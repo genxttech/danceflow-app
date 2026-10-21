@@ -21,6 +21,7 @@ export function scrubSummary(value: unknown): string | null {
   const cleaned = value
     .replace(/[^\x20-\x7e]/g, "")
     .replace(/[A-Za-z0-9]{24,}/g, "(id)")
+    .replace(/[A-Za-z]{0,2}[0-9a-fA-F]{12,}/g, "(id)")
     .replace(/https?:\/\/\S+/g, "(link)")
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/g, "(email)")
     .replace(/[0-9]{3,}/g, "(number)")

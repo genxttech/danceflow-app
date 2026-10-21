@@ -88,11 +88,13 @@ begin
 
   if v_cp = 'rejected' then
     -- bounded and redacted: provider text can carry identifiers, links, addresses, error codes and phone numbers. Order matters: printable only; any long
-    -- alphanumeric token (a SID, even next to an underscore, or a fragment of one) -> [id]; links; addresses; every run of 3+ digits (error codes, phone
-    -- numbers) -> [number]; the structural characters of the provider's JSON are removed.
-    v_reason := nullif(btrim(left(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(coalesce(cp.failure_reasons, ''),
+    -- alphanumeric token (a SID, even next to an underscore) -> (id); then any run of 12+ hex characters with an optional 2-letter prefix, which catches a SID
+    -- cut short by the 500-character limit upstream; links; addresses; every run of 3+ digits (error codes, phone numbers) -> (number); the structural
+    -- characters of the provider's JSON are removed.
+    v_reason := nullif(btrim(left(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(coalesce(cp.failure_reasons, ''),
       '[^\x20-\x7e]', '', 'g'),
       '[A-Za-z0-9]{24,}', '(id)', 'g'),
+      '[A-Za-z]{0,2}[0-9a-fA-F]{12,}', '(id)', 'g'),
       'https?://\S+', '(link)', 'g'),
       '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+', '(email)', 'g'),
       '[0-9]{3,}', '(number)', 'g'),

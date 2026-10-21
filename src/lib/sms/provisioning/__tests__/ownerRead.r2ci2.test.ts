@@ -40,6 +40,13 @@ describe("parseOwnerProvisioning: strict and fail-closed", () => {
     expect(json).not.toMatch(/30896|[{}[\]"]/);
     expect(json).toContain("Opt-in flow missing");
     expect(scrubSummary("call (555) 123-4567")).not.toMatch(/\d{3}/);
+    // a SID cut short by the upstream 500-character limit (any prefix of 12+ hex characters, with or without the two-letter prefix, at the end of the text)
+    for (const cut of [`QE${"a1".repeat(6)}`, `QE${"f".repeat(20)}`, "a1b2c3d4e5f6a7", `MG${"0".repeat(12)}`]) {
+      const out = scrubSummary(`Rejected, see ${cut}`)!;
+      expect(out, cut).toBe("Rejected, see (id)");
+    }
+    // ordinary reasons survive: long words and short ids are not mangled
+    expect(scrubSummary("Opt-in flow described incorrectly; telecommunications consent missing")).toBe("Opt-in flow described incorrectly; telecommunications consent missing");
     expect(scrubSummary(42)).toBeNull();
   });
 });

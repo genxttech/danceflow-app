@@ -237,6 +237,9 @@ describe.skipIf(!enabled)("TW-4F R2c-I2: get_studio_sms_provisioning (real schem
     const j = (await campaign(asUser(U.owner1))).campaign.rejection_summary!;
     expect(j).not.toMatch(/30896|QE[0-9a-f]{8}|d{12}|[{}[\]"]/);
     expect(j).toContain("Opt-in flow missing");
+    // a SID cut short by the upstream 500-character limit (here: 500 chars of text ending mid-SID) must not leave a recognizable fragment
+    setOps(S1, O1, E1, ACC[1], [{ kind: "campaign", op: "succeeded", res: "failed", failure: `Rejected, see QE${"a1".repeat(6)}` }]);
+    expect((await campaign(asUser(U.owner1))).campaign.rejection_summary).toBe("Rejected, see (id)");
     setOps(S1, O1, E1, ACC[1], [{ kind: "campaign", op: "unknown_outcome" }]);
     expect((await campaign(asUser(U.owner1))).campaign).toMatchObject({ rejection_summary: null, checked_at: null });
   });
