@@ -502,7 +502,8 @@ export async function refreshNumber(input: Omit<NumberInput, "confirmFee">): Pro
  */
 export async function refreshInventory(input: { store: NumberStore; adapter: IsvNumberAdapter; studioId: string; actorId: string; scheduled?: boolean }): Promise<NumberResult> {
   const { store, adapter, studioId, actorId } = input;
-  const leaseOwner = `num-inv-${randomUUID().slice(0, 8)}`;
+  // a scheduled pass holds a 'recon:' lease, which the database refuses to let start any provider operation
+  const leaseOwner = `${input.scheduled ? "recon:" : "num-inv-"}${randomUUID().slice(0, 8)}`;
   const steps: NumKind[] = [];
   let claim;
   try {
@@ -583,7 +584,7 @@ export type ReconcileSummary = {
   clean: number;
   findings: number;
   skipped: { studioId: string; reason: string }[];
-  escalation: { outbox: boolean; raised: number; deferred?: number } | { error: string };
+  escalation: { outbox: boolean; raised: number; deferred?: number; considered?: number; failed?: number } | { error: string };
 };
 
 /**
@@ -625,7 +626,7 @@ export async function reconcileInventories(input: {
   }
   try {
     const escalated = await store.escalateOrphans(100);
-    summary.escalation = { outbox: escalated.outbox, raised: escalated.raised, deferred: escalated.deferred };
+    summary.escalation = { outbox: escalated.outbox, raised: escalated.raised, deferred: escalated.deferred, considered: escalated.considered, failed: escalated.failed };
   } catch (error) {
     summary.escalation = { error: `escalate:${storeCode(error)}` };
   }

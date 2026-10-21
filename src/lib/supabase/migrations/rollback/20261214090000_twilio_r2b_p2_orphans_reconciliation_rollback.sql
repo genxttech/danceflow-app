@@ -110,6 +110,8 @@ begin
   return jsonb_build_object('listed', cardinality(p_sids), 'unknown', v_unknown, 'missing', v_missing);
 end $$;
 
+drop trigger if exists studio_sms_num_operations_no_recon on public.studio_sms_num_operations;
+drop function if exists public._tw4p2_no_recon_ops();
 drop function if exists public._tw4num_health(uuid);
 drop function if exists public._tw4num_send_blocked(text, text, text);
 drop table public.studio_sms_num_orphan_events;

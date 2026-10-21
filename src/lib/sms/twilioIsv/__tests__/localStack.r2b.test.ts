@@ -1230,6 +1230,22 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect(blocked()).toBe("t");   // stays blocked until a person disposes of the finding: the provider's absence is evidence, not a verdict
       expect((await resolve(orphanOf(dup, "id"), U.padmin, "dispose")).error).toBeNull();
       expect(blocked()).toBe("f");
+      // 4. a ledger_missing finding closes when its purchase is retired (the contradiction goes with the purchase)
+      a.universe.owned.delete(liveSid);
+      expect(await refresh(studio, ACC.A)).toMatchObject({ outcome: "inventory_unknown" });
+      expect(orphanOf(liveSid, "kind || ':' || status")).toBe("ledger_missing:open");
+      aged(`update public.studio_sms_num_operations set superseded_at = now() where provider_sid = '${liveSid}' and op_kind = 'number_purchase'`);
+      await refresh(studio, ACC.A);
+      expect(orphanOf(liveSid, "status")).toBe("cleared");
+      aged(`update public.studio_sms_num_operations set superseded_at = null where provider_sid = '${liveSid}' and op_kind = 'number_purchase'`);
+      a.universe.owned.set(liveSid, row);
+      expect(await refresh(studio, ACC.A)).toMatchObject({ outcome: "inventory_clean" });
+      // 5. a reconciliation lease can never start a provider operation
+      const reconLease = "recon:sa1";
+      expect((await rpc("tw4_num_recon_claim", { p_studio_id: studio, p_lease_owner: "num-run-1", p_lease_seconds: 60 })).error?.code).toBe("22023");
+      expect((await rpc("tw4_num_recon_claim", { p_studio_id: studio, p_lease_owner: reconLease, p_lease_seconds: 60 })).error).toBeNull();
+      expect(psqlError(`begin; insert into public.studio_sms_num_operations select * from public.studio_sms_num_operations where provider_sid = '${liveSid}' and op_kind = 'number_purchase'; rollback;`)).toContain("reconciliation lease");
+      await store.release(psql(`select id from public.studio_sms_onboarding where studio_id = '${studio}'`), reconLease);
     });
 
     it("suspension revokes the sender at once; reactivation needs the whole checklist again (a revoked sender is not ready)", async () => {
@@ -1357,6 +1373,42 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       await refresh(SD1, ACC.D);
     });
 
+    it("findings survive their edge cases: an acknowledged number that reappears reopens, an older listing never moves a finding, a non-US number is recorded rather than wedging the inventory, a lost purchase's number is a contradiction", async () => {
+      const b = adapterOf(ACC.B);
+      // F1: becomes known (acknowledged), is un-acknowledged, is listed again: it reopens
+      const x = b.seedOwned("+12025550196");
+      await refresh(SB1, ACC.B);
+      expect(orphanOf(x, "status")).toBe("open");
+      expect((await readId(SB1, ACC.B, x)).outcome).toBe("identity_recorded");
+      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SB1, p_actor: U.padmin, p_phone_number_sid: x, p_note: "bought by hand before the system" })).error).toBeNull();
+      await refresh(SB1, ACC.B);
+      expect(orphanOf(x, "status")).toBe("acknowledged");
+      aged(`delete from public.studio_sms_num_inventory_acks where phone_number_sid = '${x}'`);
+      expect(await refresh(SB1, ACC.B)).toMatchObject({ outcome: "inventory_unknown" });
+      expect(orphanOf(x, "status || ':' || reopen_count")).toBe("open:1");
+      // F2: a listing OLDER than one already recorded is kept as a check and moves nothing
+      const lease = "r2b-p2-old";
+      const claim = await store.claim(SB1, U.padmin, lease, 120, "refresh");
+      const old = await rpc("tw4_num_inventory_observe", { p_onboarding_id: claim.onboarding_id, p_lease_owner: lease, p_numbers: [], p_source: "fake", p_listed_at: new Date(Date.now() - 5 * 60_000).toISOString() });
+      expect(old.error).toBeNull();
+      await store.release(claim.onboarding_id, lease);
+      expect(orphanOf(x, "absent_since is null")).toBe("t");
+      // F6: a non-US number is a finding, not a wedge
+      const uk = b.seedOwned("+442071234567");
+      expect(await refresh(SB1, ACC.B)).toMatchObject({ outcome: "inventory_unknown" });
+      expect(orphanOf(uk, "kind || ':' || e164")).toBe("unknown:+442071234567");
+      b.universe.owned.delete(uk);
+      b.universe.owned.delete(x);
+      await refresh(SB1, ACC.B);
+      // F4: the number of a purchase declared NOT created (or refused, or retired) is a contradiction, escalated at once
+      const d = adapterOf(ACC.D);
+      const lost = d.seedOwned(NUM.d2);
+      await refresh(SD1, ACC.D);
+      expect(orphanOf(lost, "kind")).toBe("duplicate_e164");
+      d.universe.owned.delete(lost);
+      await refresh(SD1, ACC.D);
+    });
+
     it("the worklist, the scheduled pass and the escalation: due businesses only, leases respected, nothing treated as clean when it was not listed, alerts idempotent and concurrency-safe", async () => {
       expect((await rpc("tw4_num_recon_targets", { p_limit: 0, p_max_age_seconds: 600 })).error?.code).toBe("22023");
       expect((await rpc("tw4_num_recon_targets", { p_limit: 10, p_max_age_seconds: 5 })).error?.code).toBe("22023");
@@ -1403,7 +1455,7 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       aged(`update public.studio_sms_num_orphans set first_seen_at = now() - interval '25 hours' where id = '${id}'`);
       expect((await run()).raised).toBeGreaterThanOrEqual(1);
       expect(psql(`select count(*) from public.tw4_p2_stub_alerts where dedupe like 'numorphan:${id}:%'`)).toBe("2");
-      expect(psql(`select severity from public.tw4_p2_stub_alerts where dedupe = 'numorphan:${id}:L2'`)).toBe("critical");
+      expect(psql(`select severity from public.tw4_p2_stub_alerts where dedupe = 'numorphan:${id}:0:L2'`)).toBe("critical");
       // concurrent escalation never raises the same level twice
       aged(`update public.studio_sms_num_orphans set first_seen_at = now() - interval '73 hours' where id = '${id}'`);
       await Promise.all([run(), run(), run()]);

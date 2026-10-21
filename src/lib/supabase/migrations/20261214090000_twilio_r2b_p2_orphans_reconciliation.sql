@@ -45,7 +45,7 @@ create table public.studio_sms_num_orphans (
   legal_entity_id uuid not null references public.studio_sms_legal_entities(id) on delete restrict,
   twilio_account_sid text not null check (twilio_account_sid ~ '^AC[0-9a-fA-F]{32}$'),
   phone_number_sid text not null check (phone_number_sid ~ '^PN[0-9a-fA-F]{32}$'),
-  e164 text null check (e164 is null or e164 ~ '^\+1[2-9][0-9]{9}$'),
+  e164 text null check (e164 is null or e164 ~ '^\+[1-9][0-9]{6,14}$'),
   kind text not null check (kind in ('unknown', 'ownership_mismatch', 'duplicate_e164', 'ledger_missing')),
   status text not null default 'open' check (status in ('open', 'cleared', 'acknowledged', 'adopted', 'disposed')),
   ledger_operation_id uuid null references public.studio_sms_num_operations(id) on delete restrict,
@@ -56,6 +56,7 @@ create table public.studio_sms_num_orphans (
   absent_since timestamptz null,
   last_check_id uuid null,
   escalation_level int not null default 0 check (escalation_level between 0 and 3),
+  reopen_count int not null default 0 check (reopen_count >= 0),
   cost_bearer text null check (cost_bearer = 'danceflow'),
   resolved_by uuid null,
   resolved_at timestamptz null,
@@ -166,6 +167,7 @@ declare
   v_kind text;
   v_ledger uuid;
   v_new boolean;
+  v_apply boolean;
 begin
   o := public._tw4_r1_lease(p_onboarding_id, p_lease_owner);
   if p_numbers is null or jsonb_typeof(p_numbers) <> 'array' or jsonb_array_length(p_numbers) > 1000 then
@@ -173,7 +175,7 @@ begin
   end if;
   -- every listed number carries its sid AND its E.164 (a listing without them cannot be judged), and a sid appears once
   if exists (select 1 from jsonb_array_elements(p_numbers) e where jsonb_typeof(e.value) <> 'object' or (e.value ->> 'sid') is null or (e.value ->> 'sid') !~ '^PN[0-9a-fA-F]{32}$'
-                or (e.value ->> 'phone_number') is null or (e.value ->> 'phone_number') !~ '^\+1[2-9][0-9]{9}$')
+                or (e.value ->> 'phone_number') is null or (e.value ->> 'phone_number') !~ '^\+[1-9][0-9]{6,14}$')
      or (select count(*) <> count(distinct e.value ->> 'sid') from jsonb_array_elements(p_numbers) e) then
     raise exception 'an inventory of numbers is required' using errcode = '22023';
   end if;
@@ -192,6 +194,8 @@ begin
   perform pg_advisory_xact_lock(hashtextextended('num_inventory:' || v_account, 0));
   v_known := public._tw4num_known(v_entity);
   select coalesce(array_agg(e.value ->> 'sid'), '{}'::text[]) into v_sids from jsonb_array_elements(p_numbers) e;
+  -- out-of-order listings (a slower, older one committing after a newer one) must not move findings: they are recorded as checks, nothing more
+  v_apply := p_listed_at >= coalesce((select max(x.listed_at) from public.studio_sms_num_inventory_checks x where x.twilio_account_sid = v_account and x.legal_entity_id = v_entity), '-infinity'::timestamptz);
   v_check := gen_random_uuid();   -- the check row is append-only: it is inserted once, at the end, with its final counts
 
   for n in select e.value ->> 'sid' sid, e.value ->> 'phone_number' e164 from jsonb_array_elements(p_numbers) e loop
@@ -209,14 +213,16 @@ begin
       v_unknown := v_unknown + 1;
       v_kind := 'unknown';
       -- the provider shows a DIFFERENT sid for an E.164 that a purchase of this business is about
-      if exists (select 1 from public.studio_sms_num_operations x where x.legal_entity_id = v_entity and x.op_kind = 'number_purchase' and x.e164 = n.e164 and x.superseded_at is null
-                   and x.status <> 'abandoned' and x.provider_sid is distinct from n.sid) then
+      if exists (select 1 from public.studio_sms_num_operations x where x.legal_entity_id = v_entity and x.op_kind = 'number_purchase' and x.e164 = n.e164
+                   and x.provider_sid is distinct from n.sid) then
         v_kind := 'duplicate_e164';
         v_unknown := v_unknown - 1;
         v_duplicate := v_duplicate + 1;
       end if;
     end if;
-    if v_kind is not null then
+    if not v_apply then
+      null;
+    elsif v_kind is not null then
       insert into public.studio_sms_num_orphans (legal_entity_id, twilio_account_sid, phone_number_sid, e164, kind, ledger_operation_id, first_seen_at, last_seen_at, last_check_id)
       values (v_entity, v_account, n.sid, n.e164, v_kind, v_ledger, p_listed_at, p_listed_at, v_check)
       on conflict (twilio_account_sid, phone_number_sid) do nothing returning * into z;
@@ -228,10 +234,10 @@ begin
         if z.legal_entity_id is distinct from v_entity then
           raise exception 'the number is recorded for another business' using errcode = '22023';
         end if;
-        if z.status in ('cleared', 'disposed') then
+        if z.status in ('cleared', 'disposed', 'acknowledged') then
           update public.studio_sms_num_orphans set status = 'open', kind = v_kind, e164 = n.e164, ledger_operation_id = v_ledger, last_seen_at = p_listed_at, seen_count = z.seen_count + 1,
-                 absent_since = null, last_check_id = v_check, escalation_level = 0, resolved_by = null, resolved_at = null, resolution_note = null where id = z.id;
-          perform public._tw4p2_event(z.id, 'reopened', null, 'kind=' || v_kind);
+                 absent_since = null, last_check_id = v_check, escalation_level = 0, reopen_count = z.reopen_count + 1, resolved_by = null, resolved_at = null, resolution_note = null where id = z.id;
+          perform public._tw4p2_event(z.id, 'reopened', null, 'kind=' || v_kind || ';was=' || z.status || ';note=' || coalesce(left(z.resolution_note, 150), ''));
         elsif z.status = 'open' then
           update public.studio_sms_num_orphans set kind = v_kind, e164 = n.e164, ledger_operation_id = v_ledger, last_seen_at = greatest(z.last_seen_at, p_listed_at), seen_count = z.seen_count + 1,
                  absent_since = null, last_check_id = v_check where id = z.id;
@@ -256,6 +262,7 @@ begin
             where p.legal_entity_id = v_entity and p.op_kind = 'number_purchase' and p.status = 'succeeded' and p.superseded_at is null and p.twilio_account_sid = v_account
               and exists (select 1 from public.studio_sms_num_resources r where r.operation_id = p.id and r.status = 'owned') and not (p.provider_sid = any (v_sids)) loop
     v_missing := v_missing + 1;
+    continue when not v_apply;
     insert into public.studio_sms_num_orphans (legal_entity_id, twilio_account_sid, phone_number_sid, e164, kind, ledger_operation_id, first_seen_at, last_seen_at, last_check_id)
     values (v_entity, v_account, n.sid, n.e164, 'ledger_missing', n.opid, p_listed_at, p_listed_at, v_check)
     on conflict (twilio_account_sid, phone_number_sid) do nothing returning * into z;
@@ -263,19 +270,28 @@ begin
       perform public._tw4p2_event(z.id, 'detected', null, 'kind=ledger_missing');
     else
       select * into z from public.studio_sms_num_orphans x where x.twilio_account_sid = v_account and x.phone_number_sid = n.sid for update;
-      if z.status in ('cleared', 'disposed') then
+      if z.status in ('cleared', 'disposed', 'acknowledged') then
         update public.studio_sms_num_orphans set status = 'open', kind = 'ledger_missing', e164 = n.e164, ledger_operation_id = n.opid, last_seen_at = p_listed_at, seen_count = z.seen_count + 1,
-               absent_since = null, last_check_id = v_check, escalation_level = 0, resolved_by = null, resolved_at = null, resolution_note = null where id = z.id;
-        perform public._tw4p2_event(z.id, 'reopened', null, 'kind=ledger_missing');
+               absent_since = null, last_check_id = v_check, escalation_level = 0, reopen_count = z.reopen_count + 1, resolved_by = null, resolved_at = null, resolution_note = null where id = z.id;
+        perform public._tw4p2_event(z.id, 'reopened', null, 'kind=ledger_missing;was=' || z.status || ';note=' || coalesce(left(z.resolution_note, 150), ''));
       elsif z.status = 'open' then
         update public.studio_sms_num_orphans set kind = 'ledger_missing', last_seen_at = greatest(z.last_seen_at, p_listed_at), seen_count = z.seen_count + 1, last_check_id = v_check where id = z.id;
       end if;
     end if;
   end loop;
 
+  -- a ledger_missing finding whose purchase was retired, superseded or is no longer a live one is closed (the contradiction is gone with the purchase)
+  if v_apply then
+    for z in select * from public.studio_sms_num_orphans x where x.twilio_account_sid = v_account and x.status = 'open' and x.kind = 'ledger_missing'
+              and not exists (select 1 from public.studio_sms_num_operations o2 where o2.id = x.ledger_operation_id and o2.superseded_at is null and o2.status = 'succeeded') for update loop
+      update public.studio_sms_num_orphans set status = 'cleared', last_check_id = v_check where id = z.id;
+      perform public._tw4p2_event(z.id, 'cleared', null, 'the purchase is no longer live');
+    end loop;
+  end if;
+
   -- open findings the listing no longer shows: absence is recorded (never closes anything by itself)
   for z in select * from public.studio_sms_num_orphans x where x.twilio_account_sid = v_account and x.status = 'open' and x.kind <> 'ledger_missing' and not (x.phone_number_sid = any (v_sids))
-            and x.absent_since is null for update loop
+            and x.absent_since is null and v_apply for update loop
     update public.studio_sms_num_orphans set absent_since = p_listed_at where id = z.id;
     perform public._tw4p2_event(z.id, 'absent', null, 'a complete listing no longer shows it');
   end loop;
@@ -301,11 +317,12 @@ begin
   if p_orphan_id is null or p_resolution is null or p_resolution not in ('adopt', 'dispose') or p_note is null or char_length(btrim(p_note)) not between 10 and 300 then
     raise exception 'a resolution (adopt or dispose) and a written reason (10-300 characters) are required' using errcode = '22023';
   end if;
-  select * into z from public.studio_sms_num_orphans x where x.id = p_orphan_id for update;
+  select * into z from public.studio_sms_num_orphans x where x.id = p_orphan_id;
   if z.id is null then
     raise exception 'unknown finding' using errcode = '22023';
   end if;
   perform pg_advisory_xact_lock(hashtextextended('num_inventory:' || z.twilio_account_sid, 0));
+  select * into z from public.studio_sms_num_orphans x where x.id = p_orphan_id for update;
   if z.status <> 'open' then
     raise exception 'this finding is not open' using errcode = 'TW034';
   end if;
@@ -320,7 +337,8 @@ begin
     end if;
     select * into i from public.studio_sms_num_identity_reads x where x.twilio_account_sid = z.twilio_account_sid and x.phone_number_sid = z.phone_number_sid and x.legal_entity_id = z.legal_entity_id
      order by x.observed_at desc, x.id limit 1;
-    if i.id is null or i.observed_at < clock_timestamp() - interval '30 minutes' or i.e164 is distinct from z.e164 then
+    if i.id is null or i.observed_at < clock_timestamp() - interval '30 minutes' or i.e164 is distinct from z.e164 or (i.source <> 'provider_read' and not public._tw4sr_fake_allowed())
+       or i.observed_at < coalesce(z.absent_since, '-infinity'::timestamptz) then
       raise exception 'a provider identity read of this number (within 30 minutes) that matches the finding is required' using errcode = 'TW048';
     end if;
     if exists (select 1 from public.studio_sms_num_operations x where x.legal_entity_id = z.legal_entity_id and x.op_kind = 'number_purchase' and x.status in ('abandoned', 'in_flight', 'unknown_outcome'))
@@ -328,7 +346,7 @@ begin
       raise exception 'this business has a purchase that was lost or is unresolved, or the number belongs to one of its purchases: resolve the purchase, do not adopt the number' using errcode = 'TW034';
     end if;
     update public.studio_sms_num_orphans set status = 'adopted', cost_bearer = 'danceflow', resolved_by = p_actor, resolved_at = clock_timestamp(), resolution_note = btrim(p_note) where id = z.id;
-    perform public._tw4p2_event(z.id, 'adopted', p_actor, 'danceflow-borne; no studio charge, no authorization or reservation touched');
+    perform public._tw4p2_event(z.id, 'adopted', p_actor, 'danceflow-borne; no studio charge, no authorization or reservation touched; note=' || left(btrim(p_note), 150));
     return jsonb_build_object('status', 'adopted', 'cost_bearer', 'danceflow');
   end if;
   -- dispose: the provider's own listing no longer shows it (taken after it was last seen, fresh now), and no provider read of it since
@@ -339,11 +357,14 @@ begin
   if c.id is null or (c.source <> 'provider_read' and not public._tw4sr_fake_allowed()) or c.listed_at < z.absent_since or c.listed_at < z.last_seen_at or c.listed_at < clock_timestamp() - interval '30 minutes' then
     raise exception 'the latest provider listing does not show it as absent (stale, untrusted or older than the finding)' using errcode = 'TW047';
   end if;
+  if z.phone_number_sid = any (c.listed_sids) then
+    raise exception 'the latest provider listing still shows this number' using errcode = 'TW047';
+  end if;
   if exists (select 1 from public.studio_sms_num_identity_reads x where x.twilio_account_sid = z.twilio_account_sid and x.phone_number_sid = z.phone_number_sid and x.observed_at >= z.absent_since) then
     raise exception 'the provider answered a read of this number after it was listed absent' using errcode = 'TW047';
   end if;
   update public.studio_sms_num_orphans set status = 'disposed', cost_bearer = null, resolved_by = p_actor, resolved_at = clock_timestamp(), resolution_note = btrim(p_note) where id = z.id;
-  perform public._tw4p2_event(z.id, 'disposed', p_actor, 'released by DanceFlow at the provider console; provider listing confirms absence');
+  perform public._tw4p2_event(z.id, 'disposed', p_actor, 'released by DanceFlow at the provider console; provider listing confirms absence; note=' || left(btrim(p_note), 150));
   return jsonb_build_object('status', 'disposed');
 end $$;
 
@@ -457,7 +478,7 @@ as $$
 declare
   o public.studio_sms_onboarding;
 begin
-  if p_lease_owner is null or char_length(p_lease_owner) not between 1 and 64 or p_lease_seconds is null or p_lease_seconds not between 30 and 900 then
+  if p_lease_owner is null or p_lease_owner !~ '^recon:[A-Za-z0-9_-]{1,50}$' or p_lease_seconds is null or p_lease_seconds not between 30 and 900 then
     raise exception 'invalid lease' using errcode = '22023';
   end if;
   if not public._sms_onb_access_enabled(p_studio_id) then
@@ -475,6 +496,19 @@ begin
   perform public._tw4_r1_audit(o, null, 'runner_lease', o.state, o.state, 'claimed scheduled inventory reconciliation');
   return jsonb_build_object('onboarding_id', o.id, 'studio_id', o.studio_id, 'state', o.state, 'submission_seq', o.submission_seq);
 end $$;
+
+-- a reconciliation lease (owner 'recon:...') is for listings only: the database refuses any operation row it would start
+create or replace function public._tw4p2_no_recon_ops()
+returns trigger language plpgsql
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  if exists (select 1 from public.studio_sms_onboarding o where o.id = new.onboarding_id and o.lease_owner like 'recon:%' and o.lease_expires_at > now()) then
+    raise exception 'a reconciliation lease cannot start a provider operation' using errcode = '42501';
+  end if;
+  return new;
+end $$;
+create trigger studio_sms_num_operations_no_recon before insert on public.studio_sms_num_operations for each row execute function public._tw4p2_no_recon_ops();
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- idempotent, age-based escalation into the recurring-fee-lifecycle alert outbox (when installed). Without it nothing is advanced and the deferral is reported.
@@ -510,7 +544,7 @@ begin
     v_target := case when z.kind = 'unknown' then case when z.first_seen_at < clock_timestamp() - interval '72 hours' then 3 when z.first_seen_at < clock_timestamp() - interval '24 hours' then 2 else 1 end
                       else case when z.first_seen_at < clock_timestamp() - interval '72 hours' then 3 else 2 end end;
     begin
-      execute format('select public._tw4rfl_alert(%L::uuid, null::uuid, null::uuid, %L, %L, %L, %L, %L)', z.legal_entity_id, 'inventory_gap', 'numorphan:' || z.id || ':L' || v_target, 'admin',
+      execute format('select public._tw4rfl_alert(%L::uuid, null::uuid, null::uuid, %L, %L, %L, %L, %L)', z.legal_entity_id, 'inventory_gap', 'numorphan:' || z.id || ':' || z.reopen_count || ':L' || v_target, 'admin',
                      case when v_target >= 2 then 'critical' else 'warning' end,
                      'Unaccounted number in a business subaccount (' || z.kind || ', ...' || right(z.phone_number_sid, 6) || '), escalation level ' || v_target) into v_new;
       update public.studio_sms_num_orphans set escalation_level = v_target where id = z.id;
@@ -568,7 +602,7 @@ begin
   return s;
 end $$;
 
-revoke all on function public._tw4p2_guard(), public._tw4p2_event(uuid, text, uuid, text), public._tw4num_send_blocked(text, text, text), public._tw4num_health(uuid) from public, anon, authenticated, service_role;
+revoke all on function public._tw4p2_no_recon_ops(), public._tw4p2_guard(), public._tw4p2_event(uuid, text, uuid, text), public._tw4num_send_blocked(text, text, text), public._tw4num_health(uuid) from public, anon, authenticated, service_role;
 revoke all on function public.tw4_num_inventory_observe(uuid, text, jsonb, text, timestamptz), public.tw4_num_orphan_resolve(uuid, uuid, text, text), public.tw4_num_inventory_status(uuid, uuid),
   public.tw4_num_orphan_exposure(uuid), public.tw4_num_recon_targets(integer, integer), public.tw4_num_recon_claim(uuid, text, integer), public.tw4_num_orphan_escalate(integer) from public, anon, authenticated;
 grant execute on function public.tw4_num_inventory_observe(uuid, text, jsonb, text, timestamptz), public.tw4_num_orphan_resolve(uuid, uuid, text, text), public.tw4_num_inventory_status(uuid, uuid),
