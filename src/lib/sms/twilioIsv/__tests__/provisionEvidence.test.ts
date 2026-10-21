@@ -15,17 +15,18 @@ const op = (over: Partial<Op>): Op => ({ id: OP_CAMPAIGN, kind: "campaign", stat
 function setup(opts: { ops?: Op[]; account?: Partial<{ accountSid: string | null; status: string | null }>; claimError?: string; recordError?: string } = {}) {
   const calls: string[] = [];
   const store = {
-    claim: vi.fn(async () => {
-      calls.push("claim");
-      if (opts.claimError) throw new RunnerStoreError(opts.claimError);
-      return { onboarding_id: "o1", studio_id: "s1", state: "campaign_pending", submission_seq: 1 };
-    }),
     getAccount: vi.fn(async () => ({ legalEntityId: "e1", accountSid: ACC, status: "active", ...(opts.account ?? {}) })),
     context: vi.fn(async () => ({ operations: opts.ops ?? [op({}), op({ id: "m", kind: "messaging_service", status: "succeeded", fee_bearing: false, provider_sid: MS })] })),
     release: vi.fn(async () => { calls.push("release"); }),
   };
   const recorded: { operationId: string; facts: ListingFacts; source: string; digest: string; leaseOwner: string }[] = [];
   const evidence = {
+    // the evidence-only lease works in any non-cancelled state, including `exception` (where an unknown fee outcome parks the onboarding)
+    claim: vi.fn(async () => {
+      calls.push("claim");
+      if (opts.claimError) throw new RunnerStoreError(opts.claimError);
+      return { onboarding_id: "o1", studio_id: "s1", state: "exception", submission_seq: 1 };
+    }),
     recordListing: vi.fn(async (a: { operationId: string; facts: ListingFacts; source: "provider_read" | "fake"; digest: string; leaseOwner: string }): Promise<ListingResult> => {
       if (opts.recordError) throw new RunnerStoreError(opts.recordError);
       recorded.push(a);

@@ -19,7 +19,10 @@ end $$;
 drop trigger if exists studio_sms_prov_operations_orphan_block on public.studio_sms_prov_operations;
 drop trigger if exists studio_sms_num_operations_orphan_block on public.studio_sms_num_operations;
 drop trigger if exists studio_sms_prov_operations_refusal_disposition on public.studio_sms_prov_operations;
+drop trigger if exists studio_sms_prov_operations_refusal_guard on public.studio_sms_prov_operations;
+drop trigger if exists studio_sms_credit_reservations_prov_disposition on public.studio_sms_credit_reservations;
 
+drop function if exists public.tw4_prov_evidence_claim(uuid, uuid, text, integer);
 drop function if exists public.tw4_prov_evidence(uuid, uuid);
 drop function if exists public.tw4_prov_orphan_close(uuid, uuid, text);
 drop function if exists public.tw4_prov_orphan_register(uuid, uuid);
@@ -111,8 +114,11 @@ begin
 end $$;
 
 drop function if exists public._tw4prov2_refusal_disposition();
+drop function if exists public._tw4prov2_refusal_guard();
+drop function if exists public._tw4prov2_reservation_disposition();
 drop function if exists public._tw4prov2_orphan_block();
 drop function if exists public._tw4prov2_proof(uuid);
+drop function if exists public._tw4prov2_is_pilot_op(uuid, uuid);
 drop function if exists public._tw4prov2_is_pilot(uuid);
 drop table public.studio_sms_prov_dispositions;
 drop table public.studio_sms_prov_orphans;

@@ -245,7 +245,7 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
   const check = (studio: string, adapter: FakeProvisioningAdapter) => checkCampaignAbsence({ store, evidence: evidence(), adapter, studioId: studio, actorId: U.padmin });
   const resolveNotCreated = (id: string, note = "fixture: checked the Twilio console, no campaign exists") =>
     rpc("tw4_prov_resolve", { p_operation_id: id, p_actor: U.padmin, p_resolution: "not_created", p_provider_sid: null, p_note: note });
-  const dispositions = (id: string) => psql(`select coalesce(string_agg(disposition || ':' || coalesce(fee_kind, '-') || ':' || cardinality(listing_ids), ',' order by disposition, fee_kind), '') from public.studio_sms_prov_dispositions where operation_id = '${id}'`);
+  const dispositions = (id: string) => psql(`select coalesce(string_agg(disposition || ':' || coalesce(fee_kind, '-') || ':' || cardinality(listing_ids), ',' order by disposition, fee_kind), '') from public.studio_sms_prov_dispositions where operation_id = '${id}' and disposition not like 'reservation_%'`);
   const auditCount = (studio: string, action: string) => Number(psql(`select count(*) from public.studio_sms_onboarding_audit where studio_id = '${studio}' and action = '${action}'`));
   const withLease = async <T,>(studio: string, fn: (onboardingId: string, lease: string) => Promise<T>): Promise<T> => {
     const lease = `f-${RUN}-${(n += 1)}`;
@@ -676,9 +676,114 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       expect(out.outcome).not.toBe("campaign_submitted");
       const second = opId(SC1, "campaign", 2);
       expect(ops(SC1, "campaign")).toMatch(/2:failed:false$/);
-      expect(psql(`select string_agg(disposition || ':' || fee_kind, ',' order by fee_kind) from public.studio_sms_prov_dispositions where operation_id = '${second}'`)).toBe("provider_refusal:campaign_vetting,provider_refusal:monthly");
+      expect(psql(`select string_agg(disposition || ':' || fee_kind, ',' order by fee_kind) from public.studio_sms_prov_dispositions where operation_id = '${second}' and disposition = 'provider_refusal'`)).toBe("provider_refusal:campaign_vetting,provider_refusal:monthly");
       expect(reservations(EC, "campaign_vetting")).toContain(`released:${PRICE.vetting}:pilot`);
       expect(c.count("createCampaign")).toBe(2);
+      // every settlement, by any path, also left an automatic reservation disposition (one per released fee kind)
+      expect(psql(`select string_agg(disposition || ':' || fee_kind, ',' order by fee_kind) from public.studio_sms_prov_dispositions where operation_id = '${second}' and disposition like 'reservation\\_%'`)).toBe("reservation_released:campaign_vetting,reservation_released:monthly");
+    });
+  });
+
+  describe("review hardening", () => {
+    const anyCampaign = (messagingServiceSid: string, brandSid: string) => ({
+      messagingServiceSid, brandSid, useCase: "MIXED" as const, description: "x", messageFlow: "x", messageSamples: ["a", "b"], hasEmbeddedLinks: false, hasEmbeddedPhone: false,
+      subscriberOptIn: true, ageGated: false, directLending: false, optInMessage: "o", optOutMessage: "o", helpMessage: "h", optInKeywords: ["START"], optOutKeywords: ["STOP"], helpKeywords: ["HELP"],
+    });
+
+    it("the evidence lease works while the onboarding is parked in 'exception' (where an unknown fee outcome leaves it); the runner's own claim does not", async () => {
+      const c = hub.adapterFor(ACC.C);
+      const prior = psql(`select state from public.studio_sms_onboarding where studio_id = '${SC1}'`);
+      aged(`update public.studio_sms_onboarding set state = 'exception', last_error_code = 'prov_unknown_fee' where studio_id = '${SC1}'`);
+      try {
+        await expect(store.claim(SC1, U.padmin, `r-${RUN}`, 60, "refresh")).rejects.toMatchObject({ code: "TW030" });
+        const out = await checkCampaignAbsence({ store, evidence: evidence(), adapter: c, studioId: SC1, actorId: U.padmin });
+        expect(out.outcome).toBe("recorded");
+        expect(psql(`select state from public.studio_sms_onboarding where studio_id = '${SC1}'`)).toBe("exception"); // the evidence lease changed no state
+        expect(psql(`select coalesce(lease_owner, '') from public.studio_sms_onboarding where studio_id = '${SC1}'`)).toBe(""); // and released the lease
+      } finally {
+        aged(`update public.studio_sms_onboarding set state = '${prior}', last_error_code = null where studio_id = '${SC1}'`);
+      }
+      // only a platform administrator can take it, and a held lease excludes it
+      expect((await rpc("tw4_prov_evidence_claim", { p_studio_id: SC1, p_actor: U.owner_a, p_lease_owner: "x", p_lease_seconds: 60 })).error?.code).toBe("42501");
+      const held = await store.claim(SC1, U.padmin, `held-${RUN}`, 60, "refresh");
+      expect((await rpc("tw4_prov_evidence_claim", { p_studio_id: SC1, p_actor: U.padmin, p_lease_owner: "other", p_lease_seconds: 60 })).error?.code).toBe("55P03");
+      await store.release(held.onboarding_id, `held-${RUN}`);
+    });
+
+    it("a still-open attempt's own resource is NOT filed as an orphan (the runner adopts it); more candidates than open attempts are all recorded", async () => {
+      const b = hub.adapterFor(ACC.B);
+      // business B has no open attempt (its operation was closed in the concurrency test): a found campaign is an orphan
+      const ms = msSid(SB1);
+      const sid1 = await b.createCampaign(anyCampaign(ms, BRAND.B1));
+      ageListings(SB1, 20);
+      expect((await check(SB1, b)).outcome).toBe("recorded");
+      expect(psql(`select provider_sid from public.studio_sms_prov_orphans where studio_id = '${SB1}'`)).toBe(sid1);
+      // with the ledger now accounting for it, the orphan closes without any administrator claim; before that it cannot
+      const orphan = psql(`select id from public.studio_sms_prov_orphans where studio_id = '${SB1}'`);
+      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphan, p_actor: U.padmin, p_note: "fixture: the resource is really ours, I say" })).error?.code).toBe("TW046");
+      // pilot business: one open attempt, one found campaign = the attempt's own resource, no orphan
+      const c = hub.adapterFor(ACC.C);
+      const cSid = await c.createCampaign(anyCampaign(msSid(SC1), BRAND.C1));
+      expect((await check(SC1, c)).outcome).toBe("recorded");
+      expect(psql(`select count(*) from public.studio_sms_prov_orphans where studio_id = '${SC1}'`)).toBe("0");
+      expect(listingRows(SC1)).toMatch(/present$/);
+      c.campaigns.delete(cSid);
+      // the ledger comes to account for the first orphan's SID: it closes (database-checked), idempotently
+      aged(`update public.studio_sms_prov_operations set provider_sid = '${sid1}', status = 'succeeded' where id = (select id from public.studio_sms_prov_operations where studio_id = '${SB1}' and op_kind = 'campaign' order by attempt desc limit 1)`);
+      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphan, p_actor: U.padmin, p_note: "fixture: the ledger now accounts for this resource" })).error).toBeNull();
+      expect(psql(`select status from public.studio_sms_prov_orphans where id = '${orphan}'`)).toBe("closed");
+    });
+
+    it("an orphan also closes when two later complete provider listings, 10+ minutes apart, no longer show it; one listing, or a listing that still shows it, does not", async () => {
+      const a = hub.adapterFor(ACC.A);
+      const ms = msSid(SA1);
+      const gone = await a.createCampaign(anyCampaign(ms, BRAND.A1));
+      ageListings(SA1, 120);
+      expect((await check(SA1, a)).outcome).toBe("recorded");
+      const orphan = psql(`select id from public.studio_sms_prov_orphans where provider_sid = '${gone}'`);
+      aged(`update public.studio_sms_prov_orphans set discovered_at = discovered_at - interval '3 hours' where id = '${orphan}'`); // the test moves time, not the rule
+      const note = "fixture: the listings no longer show it";
+      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphan, p_actor: U.padmin, p_note: note })).error?.code).toBe("TW046"); // still listed
+      a.campaigns.delete(gone);
+      ageListings(SA1, 15);
+      expect((await check(SA1, a)).outcome).toBe("recorded");
+      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphan, p_actor: U.padmin, p_note: note })).error?.code).toBe("TW046"); // one clean listing is not enough
+      ageListings(SA1, 15);
+      expect((await check(SA1, a)).outcome).toBe("recorded");
+      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphan, p_actor: U.owner_a, p_note: note })).error?.code).toBe("42501");
+      expect((await rpc("tw4_prov_orphan_close", { p_orphan_id: orphan, p_actor: U.padmin, p_note: note })).error).toBeNull();
+    });
+
+    it("a SUCCEEDED operation is never released by the administrator settlement, even with a lifecycle 'cancellation' digest (it is administrator-typed, not provider-verified)", () => {
+      const id = opId(SD1, "campaign");
+      const out = psqlError(`begin; set local session_replication_role = replica;
+        update public.studio_sms_prov_operations set status = 'succeeded', provider_sid = 'QE${"e".repeat(32)}' where id = '${id}';
+        update public.studio_sms_credit_reservations set status = 'reserved', closed_at = null where reservation_key = 'prov:${id}:campaign_vetting';
+        update public.studio_sms_spend_events set status = 'reserved' where reservation_key = 'prov:${id}:campaign_vetting';
+        insert into public.studio_sms_provider_resources (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, fee_kind, source, source_operation_id, provider_state, registered_by, cancelled_at, cancel_evidence_digest)
+          values ('${ED}', '${SD1}', '${ACC.D}', 'campaign', 'QE${"e".repeat(32)}', 'monthly', 'admin', '${id}', 'cancelled', '${U.padmin}', now(), '${"ab".repeat(32)}');
+        set local session_replication_role = origin;
+        select public.tw4_prov_settle_admin('${id}', '${U.padmin}', 'campaign_vetting', 'released', 'fixture: a cancellation digest an administrator typed');
+        rollback;`);
+      expect(out).toMatch(/TW046/);
+    });
+
+    it("a 'refusal' is refused while a provider listing shows a resource for the operation; without that listing the same update is allowed", () => {
+      const id = opId(SC1, "campaign", 1);
+      const attempt = (withPresent: boolean) =>
+        psqlError(`begin; set local session_replication_role = replica;
+          update public.studio_sms_prov_operations set status = 'in_flight', superseded_at = null where id = '${id}';
+          ${withPresent ? "" : `delete from public.studio_sms_prov_listings where operation_id = '${id}' and verdict = 'present';`}
+          set local session_replication_role = origin;
+          update public.studio_sms_prov_operations set status = 'failed', error_code = 'api' where id = '${id}';
+          rollback;`);
+      expect(attempt(true)).toMatch(/TW046/);
+      expect(attempt(false)).toBe("");
+    });
+
+    it("the new evidence tables have row-level security enabled (no policies: no API role can read them)", () => {
+      expect(psql(`select string_agg(relname || ':' || relrowsecurity::text, ',' order by relname) from pg_class where relname in ('studio_sms_prov_listings', 'studio_sms_prov_orphans', 'studio_sms_prov_dispositions')`))
+        .toBe("studio_sms_prov_dispositions:true,studio_sms_prov_listings:true,studio_sms_prov_orphans:true");
     });
   });
 });

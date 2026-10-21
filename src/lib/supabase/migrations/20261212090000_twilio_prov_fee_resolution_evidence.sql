@@ -9,8 +9,11 @@
 --     after the attempt, at least 10 minutes apart, the latest no older than 60 minutes, with NO present / inconclusive observation ever recorded for it.
 --     Incomplete, stale, conflicting or unverifiable evidence fails closed. The ConfiDance pilot business can NEVER resolve a fee-bearing operation as not created: its cumulative
 --     ceiling is not replenished by an absence determination (only a definitive provider refusal, recorded by tw4_prov_finish, releases for it).
---   * tw4_prov_settle_admin('released') no longer releases on a note alone: it needs a recorded verified-absence disposition, or a provider-confirmed cancellation of the resource
---     (RFL cancel evidence); never for the pilot business.
+--   * tw4_prov_settle_admin('released') no longer releases on a note alone: an abandoned operation needs its recorded verified-absence disposition; a SUCCEEDED operation (it
+--     exists at the provider) is not releasable at all until a provider-verified cancellation exists (the lifecycle's cancellation digest is administrator-typed, so it is not proof);
+--     never for the pilot business (judged by the exception OR by the operation's own pilot-funded reservations).
+--   * tw4_prov_evidence_claim: an evidence-only lease for any non-cancelled onboarding (an unknown fee outcome parks the onboarding in 'exception', which the runner's claim refuses).
+--   * Every settlement of a prov: reservation, by any path, leaves a disposition row (trigger); a "refusal" is refused while a provider listing shows a resource for the operation.
 --   * studio_sms_prov_dispositions: append-only record of HOW a fee reservation was disposed (provider_refusal | verified_absence | created_claim | settled_released | settled_captured),
 --     with the listing ids that justify it.
 --   * studio_sms_prov_orphans: a provider resource found by a listing that the ledger does not account for (typically after an operation was resolved not created). It is recorded
@@ -119,7 +122,7 @@ create table public.studio_sms_prov_dispositions (
   legal_entity_id uuid not null,
   studio_id uuid not null,
   fee_kind text null,
-  disposition text not null check (disposition in ('provider_refusal', 'verified_absence', 'created_claim', 'settled_released', 'settled_captured')),
+  disposition text not null check (disposition in ('provider_refusal', 'verified_absence', 'created_claim', 'settled_released', 'settled_captured', 'reservation_released', 'reservation_captured')),
   listing_ids uuid[] not null default '{}',
   actor uuid null,
   note text null check (note is null or char_length(note) <= 500),
@@ -128,6 +131,9 @@ create table public.studio_sms_prov_dispositions (
 create unique index studio_sms_prov_dispositions_once on public.studio_sms_prov_dispositions (operation_id, disposition, coalesce(fee_kind, ''));
 
 revoke all on public.studio_sms_prov_listings, public.studio_sms_prov_orphans, public.studio_sms_prov_dispositions from public, anon, authenticated, service_role;
+alter table public.studio_sms_prov_listings enable row level security;
+alter table public.studio_sms_prov_orphans enable row level security;
+alter table public.studio_sms_prov_dispositions enable row level security;
 
 create or replace function public._tw4prov2_guard()
 returns trigger language plpgsql
@@ -162,6 +168,15 @@ create or replace function public._tw4prov2_is_pilot(p_entity uuid)
 returns boolean language sql stable security definer
 set search_path = pg_catalog, public, pg_temp
 as $$ select exists (select 1 from public.studio_sms_pilot_exceptions pe where pe.legal_entity_id = p_entity) $$;
+
+-- ... or the operation's own reservations were funded from the pilot ceiling (so removing the exception row never makes them releasable by absence)
+create or replace function public._tw4prov2_is_pilot_op(p_op uuid, p_entity uuid)
+returns boolean language sql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+  select public._tw4prov2_is_pilot(p_entity)
+      or exists (select 1 from public.studio_sms_credit_reservations cr where cr.reservation_key like 'prov:' || p_op::text || ':%' and cr.funding = 'pilot')
+$$;
 
 -- Proof that a fee-bearing campaign operation does NOT exist at the provider. Pure over the recorded listings; never trusts a caller.
 create or replace function public._tw4prov2_proof(p_op uuid)
@@ -202,6 +217,10 @@ begin
   if v_a1.id is null then
     return jsonb_build_object('ok', false, 'reason', 'need_two_independent_listings');
   end if;
+  -- both observations are about the same scope and the same subaccount
+  if v_a1.scope_sid <> v_last.scope_sid or v_a1.twilio_account_sid <> v_last.twilio_account_sid or v_last.twilio_account_sid <> r.twilio_account_sid then
+    return jsonb_build_object('ok', false, 'reason', 'scope_changed');
+  end if;
   if v_last.read_started_at <= v_a1.observed_at then
     return jsonb_build_object('ok', false, 'reason', 'reads_not_independent');
   end if;
@@ -241,6 +260,46 @@ begin
 end $$;
 create trigger studio_sms_prov_operations_refusal_disposition after update of status on public.studio_sms_prov_operations for each row execute function public._tw4prov2_refusal_disposition();
 
+-- a "definitive refusal" claimed by the runner is refused while the ledger holds a provider listing that SHOWS a resource for the operation (conflicting evidence)
+create or replace function public._tw4prov2_refusal_guard()
+returns trigger language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  if new.fee_bearing and new.status = 'failed' and old.status is distinct from 'failed'
+     and exists (select 1 from public.studio_sms_prov_listings l where l.operation_id = new.id and l.verdict = 'present') then
+    raise exception 'a provider listing shows a resource for this operation: it cannot be closed as a refusal' using errcode = 'TW046';
+  end if;
+  return new;
+end $$;
+create trigger studio_sms_prov_operations_refusal_guard before update of status on public.studio_sms_prov_operations for each row execute function public._tw4prov2_refusal_guard();
+
+-- every settlement of a provisioning reservation, by ANY path (refusal, observation, resolution, administrator), leaves a disposition row
+create or replace function public._tw4prov2_reservation_disposition()
+returns trigger language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  v_op uuid;
+  v_o public.studio_sms_prov_operations;
+begin
+  if new.reservation_key like 'prov:%' and old.status = 'reserved' and new.status in ('released', 'captured') then
+    begin
+      v_op := split_part(new.reservation_key, ':', 2)::uuid;
+    exception when others then
+      return new;
+    end;
+    select * into v_o from public.studio_sms_prov_operations x where x.id = v_op;
+    if v_o.id is not null then
+      insert into public.studio_sms_prov_dispositions (operation_id, legal_entity_id, studio_id, fee_kind, disposition, note)
+      values (v_o.id, v_o.legal_entity_id, v_o.studio_id, new.kind, case new.status when 'released' then 'reservation_released' else 'reservation_captured' end, left(new.funding, 20))
+      on conflict do nothing;
+    end if;
+  end if;
+  return new;
+end $$;
+create trigger studio_sms_credit_reservations_prov_disposition after update of status on public.studio_sms_credit_reservations for each row execute function public._tw4prov2_reservation_disposition();
+
 -- ---------------------------------------------------------------------------------------------------------------
 -- recording a provider listing (the ONLY way evidence enters)
 -- ---------------------------------------------------------------------------------------------------------------
@@ -265,6 +324,7 @@ declare
   v_sid text;
   v_inserted uuid;
   v_orphans int := 0;
+  v_open int;
   v_active text;
 begin
   o := public._tw4_r1_lease(p_onboarding_id, p_lease_owner);
@@ -334,10 +394,15 @@ begin
   returning * into v_row;
 
   if v_verdict = 'present' then
-    -- anything listed that no operation of the business accounts for is an orphan (an open operation's single candidate is the resource it is waiting for: the runner adopts it)
+    -- anything listed that no operation of the business accounts for is an orphan. Each STILL-OPEN fee-bearing attempt of this studio (any, not only the one listed)
+    -- may own one such resource: the runner adopts it by lookup, so up to that many candidates are adoption candidates, not orphans. More candidates than open attempts
+    -- are ambiguous and are ALL recorded (visibility over convenience; `tw4_prov_orphan_close` clears one the ledger turns out to account for).
     select coalesce(array_agg(distinct x.provider_sid), '{}') into v_known from public.studio_sms_prov_operations x where x.legal_entity_id = r.legal_entity_id and x.provider_sid is not null;
     select coalesce(array_agg(s), '{}') into v_new from unnest(v_listed) s where s <> all (v_known);
-    if not (r.status in ('in_flight', 'unknown_outcome') and cardinality(v_new) = 1) then
+    select count(*) into v_open from public.studio_sms_prov_operations x
+     where x.studio_id = r.studio_id and x.op_kind = 'campaign' and x.fee_bearing and x.status in ('in_flight', 'unknown_outcome') and x.superseded_at is null;
+    if cardinality(v_new) > v_open then
+      perform 1 from public.studio_sms_legal_entities le where le.id = r.legal_entity_id for no key update;   -- the order tw4_prov_begin uses: onboarding, then the entity
       foreach v_sid in array v_new loop
         v_inserted := null;
         insert into public.studio_sms_prov_orphans (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, scope_sid, first_listing_id, source_operation_id)
@@ -347,7 +412,7 @@ begin
           v_orphans := v_orphans + 1;
           -- idempotent alerts through the lifecycle's own queue: no identifier, no amount in the owner text; never a charge
           perform public._tw4rfl_alert(r.legal_entity_id, r.studio_id, null, 'inventory_gap', 'prov_orphan:' || v_inserted || ':owner', 'owner', 'warning',
-            'DanceFlow found a texting registration on your account that it did not expect and is looking into it. You do not need to do anything, and you will not be charged for it without your approval.');
+            'DanceFlow found a texting registration on your account that it did not expect and is looking into it. You do not need to do anything. You will not be charged for it.');
           perform public._tw4rfl_alert(r.legal_entity_id, r.studio_id, null, 'inventory_gap', 'prov_orphan:' || v_inserted || ':admin', 'admin', 'critical',
             'A provider campaign not accounted for by the ledger was found for this business (orphan ' || v_inserted || '). Fee-bearing provisioning is blocked until it is reconciled.');
           perform public._tw4_r1_audit(o, null, 'prov_orphan', o.state, o.state, 'orphan=' || v_inserted || ';op=' || r.id || ';listing=' || v_row.id);
@@ -399,7 +464,7 @@ begin
   v_proof := null;
   if r.fee_bearing and p_resolution = 'not_created' then
     -- the ConfiDance pilot business: an absence determination never returns headroom to the cumulative ceiling
-    if public._tw4prov2_is_pilot(r.legal_entity_id) then
+    if public._tw4prov2_is_pilot_op(r.id, r.legal_entity_id) then
       raise exception 'a fee-bearing operation of the pilot business is never released by a not-created determination' using errcode = 'TW048';
     end if;
     v_proof := public._tw4prov2_proof(r.id);
@@ -470,16 +535,16 @@ begin
   end if;
   if p_outcome = 'released' then
     -- releasing money needs evidence the provider is not (or no longer) billing for the resource, never an administrator's note alone
-    if public._tw4prov2_is_pilot(r.legal_entity_id) then
+    if public._tw4prov2_is_pilot_op(r.id, r.legal_entity_id) then
       raise exception 'a pilot reservation is released only by a definitive provider refusal' using errcode = 'TW048';
     end if;
     if r.status = 'abandoned' then
       v_basis := exists (select 1 from public.studio_sms_prov_dispositions d where d.operation_id = r.id and d.disposition = 'verified_absence' and d.fee_kind = p_kind)
                  and not exists (select 1 from public.studio_sms_prov_orphans x where x.source_operation_id = r.id);
     else
-      -- a succeeded operation EXISTS at the provider: only a lifecycle cancellation confirmed with provider evidence ends its cost
-      v_basis := r.provider_sid is not null and exists (select 1 from public.studio_sms_provider_resources pr
-                  where pr.provider_sid = r.provider_sid and pr.legal_entity_id = r.legal_entity_id and pr.provider_state = 'cancelled' and pr.cancel_evidence_digest is not null);
+      -- a succeeded operation EXISTS at the provider. The lifecycle's cancellation digest is typed by an administrator and is not verified by the lifecycle, so it is NOT
+      -- provider-backed proof: no release for a succeeded operation until a provider-verified cancellation exists (a later slice). Fail closed.
+      v_basis := false;
     end if;
     if not v_basis then
       raise exception 'provider-backed evidence is required to release this reservation' using errcode = 'TW046';
@@ -548,9 +613,21 @@ begin
   if x.status = 'closed' then
     return jsonb_build_object('status', 'closed', 'replayed', true);
   end if;
-  -- it stays exposure until the lifecycle shows the resource cancelled, with provider evidence
-  if x.status <> 'registered' or not exists (select 1 from public.studio_sms_provider_resources pr where pr.id = x.rfl_resource_id and pr.provider_state = 'cancelled' and pr.cancel_evidence_digest is not null) then
-    raise exception 'an orphan is closed only after the lifecycle shows its resource cancelled with provider evidence' using errcode = 'TW046';
+  -- it stays exposure until ONE of these database-checked facts holds (never an administrator's word):
+  --   (a) the ledger now accounts for the SID (an operation of the business owns it: the "orphan" was the resource of a later attempt);
+  --   (b) two complete provider listings of its own scope, recorded after it was found, at least 10 minutes apart, the latest within 60 minutes, neither listing it (it is gone);
+  --   (c) the lifecycle shows the registered resource cancelled with its cancellation evidence.
+  if not (
+    exists (select 1 from public.studio_sms_prov_operations o where o.provider_sid = x.provider_sid and o.legal_entity_id = x.legal_entity_id and o.status = 'succeeded')
+    or (select count(*) >= 2 and max(l.observed_at) >= clock_timestamp() - interval '60 minutes' and max(l.observed_at) - min(l.observed_at) >= interval '10 minutes'
+          from (select l.observed_at from public.studio_sms_prov_listings l
+                 where l.studio_id = x.studio_id and l.scope_sid = x.scope_sid and l.twilio_account_sid = x.twilio_account_sid and l.complete and l.observed_at > x.discovered_at
+                   and (l.source = 'provider_read' or public._tw4sr_fake_allowed()) and x.provider_sid <> all (l.listed_sids)
+                   and not exists (select 1 from public.studio_sms_prov_listings m where m.studio_id = l.studio_id and m.scope_sid = l.scope_sid and m.observed_at > x.discovered_at
+                                    and m.observed_at >= l.observed_at and x.provider_sid = any (m.listed_sids))) l(observed_at)) l
+    or (x.status = 'registered' and exists (select 1 from public.studio_sms_provider_resources pr where pr.id = x.rfl_resource_id and pr.provider_state = 'cancelled' and pr.cancel_evidence_digest is not null))
+  ) then
+    raise exception 'an orphan is closed only when the ledger accounts for it, provider listings show it gone, or the lifecycle shows it cancelled with evidence' using errcode = 'TW046';
   end if;
   update public.studio_sms_prov_orphans set status = 'closed', closed_by = p_actor, closed_at = clock_timestamp(), close_note = btrim(p_note) where id = x.id;
   return jsonb_build_object('status', 'closed', 'replayed', false);
@@ -581,13 +658,45 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
+-- an evidence-only lease: an unknown fee outcome parks the onboarding in 'exception', which tw4_prov_claim refuses, so the proof would be unreachable exactly where it is
+-- needed. This claim takes the SAME onboarding lease (mutual exclusion with every runner), for any non-cancelled onboarding, changes no state and permits only reads
+-- and evidence records (it does not open the runner window and cannot start a provisioning step: tw4_prov_begin still needs the window and a provisionable state).
+-- ---------------------------------------------------------------------------------------------------------------
+create or replace function public.tw4_prov_evidence_claim(p_studio_id uuid, p_actor uuid, p_lease_owner text, p_lease_seconds integer default 120)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  o public.studio_sms_onboarding;
+begin
+  if not public._tw4_r1_is_platform_admin(p_actor) then
+    raise exception 'actor must be a platform admin' using errcode = '42501';
+  end if;
+  if p_lease_owner is null or char_length(p_lease_owner) not between 1 and 64 or p_lease_seconds is null or p_lease_seconds not between 30 and 300 then
+    raise exception 'invalid lease' using errcode = '22023';
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended('sms_onboarding:' || p_studio_id::text, 0));
+  select * into o from public.studio_sms_onboarding x where x.studio_id = p_studio_id and x.state <> 'cancelled' for update;
+  if o.id is null then
+    raise exception 'there is no onboarding to read evidence for' using errcode = '22023';
+  end if;
+  if o.lease_owner is not null and o.lease_expires_at > now() and o.lease_owner <> p_lease_owner then
+    raise exception 'another run holds the lease' using errcode = '55P03';
+  end if;
+  update public.studio_sms_onboarding set lease_owner = p_lease_owner, lease_expires_at = now() + make_interval(secs => p_lease_seconds) where id = o.id returning * into o;
+  perform public._tw4_r1_audit(o, p_actor, 'runner_lease', o.state, o.state, 'claimed provider evidence read');
+  return jsonb_build_object('onboarding_id', o.id, 'studio_id', o.studio_id, 'state', o.state, 'submission_seq', o.submission_seq);
+end $$;
+
+-- ---------------------------------------------------------------------------------------------------------------
 -- privileges
 -- ---------------------------------------------------------------------------------------------------------------
-revoke all on function public._tw4prov2_guard(), public._tw4prov2_is_pilot(uuid), public._tw4prov2_proof(uuid), public._tw4prov2_orphan_block(), public._tw4prov2_refusal_disposition() from public, anon, authenticated, service_role;
+revoke all on function public._tw4prov2_guard(), public._tw4prov2_is_pilot(uuid), public._tw4prov2_is_pilot_op(uuid, uuid), public._tw4prov2_proof(uuid), public._tw4prov2_orphan_block(),
+  public._tw4prov2_refusal_disposition(), public._tw4prov2_refusal_guard(), public._tw4prov2_reservation_disposition() from public, anon, authenticated, service_role;
 revoke all on function public.tw4_prov_listing_record(uuid, text, uuid, jsonb, text, text), public.tw4_prov_orphan_register(uuid, uuid), public.tw4_prov_orphan_close(uuid, uuid, text),
-  public.tw4_prov_evidence(uuid, uuid) from public, anon, authenticated;
+  public.tw4_prov_evidence(uuid, uuid), public.tw4_prov_evidence_claim(uuid, uuid, text, integer) from public, anon, authenticated;
 grant execute on function public.tw4_prov_listing_record(uuid, text, uuid, jsonb, text, text), public.tw4_prov_orphan_register(uuid, uuid), public.tw4_prov_orphan_close(uuid, uuid, text),
-  public.tw4_prov_evidence(uuid, uuid) to service_role;
+  public.tw4_prov_evidence(uuid, uuid), public.tw4_prov_evidence_claim(uuid, uuid, text, integer) to service_role;
 -- the replaced functions keep R2a's grants (create or replace preserves them); assert it
 do $$
 begin

@@ -36,6 +36,11 @@ export class ProvisionEvidenceStore {
     return data as T;
   }
 
+  /** An evidence-only lease on the studio's onboarding: works in any non-cancelled state (an unknown fee outcome parks it in `exception`) and permits only reads and evidence records. */
+  claim(studioId: string, actorId: string, leaseOwner: string, leaseSeconds = 120): Promise<{ onboarding_id: string; studio_id: string; state: string; submission_seq: number }> {
+    return this.call("tw4_prov_evidence_claim", { p_studio_id: studioId, p_actor: actorId, p_lease_owner: leaseOwner, p_lease_seconds: leaseSeconds });
+  }
+
   recordListing(args: { onboardingId: string; leaseOwner: string; operationId: string; facts: ListingFacts; source: "provider_read" | "fake"; digest: string }): Promise<ListingResult> {
     return this.call<ListingResult>("tw4_prov_listing_record", {
       p_onboarding_id: args.onboardingId, p_lease_owner: args.leaseOwner, p_operation_id: args.operationId, p_facts: args.facts, p_source: args.source, p_digest: args.digest,
@@ -87,7 +92,7 @@ export async function checkCampaignAbsence(input: {
   const leaseOwner = `prov-evidence-${randomUUID().slice(0, 8)}`;
   let claim;
   try {
-    claim = await store.claim(studioId, actorId, leaseOwner, 120, "refresh");
+    claim = await evidence.claim(studioId, actorId, leaseOwner, 300);
   } catch (error) {
     const code = storeCode(error);
     return { outcome: code === "55P03" ? "lease_busy" : "not_runnable", detail: code };

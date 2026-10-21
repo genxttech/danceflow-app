@@ -93,10 +93,23 @@ describe("real provisioning adapter request shapes (no live Twilio)", () => {
     await expect(missing.adapter.findMessagingServices("x")).rejects.toMatchObject({ kind: "transient" });
     const unfinished = adapterWith(Array.from({ length: 11 }, () => ({ status: 200, body: { services: [], meta: { next_page_url: "https://messaging.twilio.com/v1/Services?Page=1" } } })));
     await expect(unfinished.adapter.findMessagingServices("x")).rejects.toMatchObject({ kind: "transient" });
-    // a next-page link to another host is not followed
+    // a next-page link to another host is not followed, and it is not "the last page" either: the listing is incomplete, so it cannot certify absence
     const hostile = adapterWith([{ status: 200, body: { services: [], meta: { next_page_url: "https://evil.example/v1/Services" } } }]);
-    expect(await hostile.adapter.findMessagingServices("x")).toEqual([]);
+    await expect(hostile.adapter.findMessagingServices("x")).rejects.toMatchObject({ kind: "transient" });
     expect(hostile.stub.calls).toHaveLength(1);
+  });
+
+  it("the campaign listing is evidence-grade: a foreign or unlabeled row, or an unexpected next page, makes it throw instead of reading as a clean listing", async () => {
+    const ok = adapterWith([{ status: 200, body: { compliance: [{ sid: QE, account_sid: SUB }], meta: { next_page_url: null } } }]);
+    expect(await ok.adapter.findCampaigns(MG)).toEqual([QE]);
+    const foreign = adapterWith([{ status: 200, body: { compliance: [{ sid: QE, account_sid: SUB }, { sid: `QE${"f".repeat(32)}`, account_sid: PARENT }], meta: { next_page_url: null } } }]);
+    await expect(foreign.adapter.findCampaigns(MG)).rejects.toMatchObject({ kind: "transient" });
+    const unlabeled = adapterWith([{ status: 200, body: { compliance: [{ sid: QE }], meta: { next_page_url: null } } }]);
+    await expect(unlabeled.adapter.findCampaigns(MG)).rejects.toMatchObject({ kind: "transient" });
+    const truncated = adapterWith([{ status: 200, body: { compliance: [], meta: { next_page_url: "https://evil.example/v1/Services" } } }]);
+    await expect(truncated.adapter.findCampaigns(MG)).rejects.toMatchObject({ kind: "transient" });
+    const empty = adapterWith([{ status: 200, body: { compliance: [], meta: { next_page_url: null } } }]);
+    expect(await empty.adapter.findCampaigns(MG)).toEqual([]);
   });
 
   it("submits the campaign under its service with repeated list parameters and the declared flags", async () => {
