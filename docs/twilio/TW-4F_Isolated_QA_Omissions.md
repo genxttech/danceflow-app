@@ -1,6 +1,6 @@
 # TW-4F isolated QA: replay omissions and what they mean (2026-10-21)
 
-The isolated baseline is the production schema dump of 2026-07-15 plus the repo's migrations replayed in version order through 20261205. **It is not production-equivalent.** 24 of the 240 replayed migrations cannot run in a throwaway database and are skipped (`scripts/qa/known-unreplayable.txt`); the baseline build fails on any OTHER failing migration, in particular on any TW-4F one. This document classifies every omission and states, with evidence, whether it can affect a TW-4F conclusion (authorization, financial controls, tenant isolation, sender provisioning). Regenerate the evidence with `node scripts/qa/audit-omissions.mjs --baseline <container>`; it exits non-zero ("fail closed") if a skipped migration creates or replaces an object that TW-4F SQL references, or if any TW-4F function body has a dangling reference in the baseline.
+The isolated baseline is the production schema dump of 2026-07-15 plus the repo's migrations replayed in version order through 20261205. **It is not production-equivalent.** 24 of the 240 replayed migrations cannot run in a throwaway database and are skipped (`scripts/qa/known-unreplayable.txt`); the baseline build fails on any OTHER failing migration, in particular on any TW-4F one. This document classifies every omission and states, with evidence, whether it can affect a TW-4F conclusion (authorization, financial controls, tenant isolation, sender provisioning). Regenerate the evidence with `node scripts/qa/audit-omissions.mjs --baseline <container> --reference <container>`; it exits non-zero ("fail closed") if a skipped migration creates or replaces an object that TW-4F SQL references, or if any TW-4F function body has a dangling reference in the baseline.
 
 ## 1. Why they fail (three causes)
 
@@ -8,14 +8,12 @@ The isolated baseline is the production schema dump of 2026-07-15 plus the repo'
 |---|---|---|
 | **A. Supabase storage-api tables absent** | 20260721234500, 20261005090000, 20261006090000 | `storage.buckets` is created by the storage-api service, not by the Postgres image. |
 | **B. Production-state preflights** | 20260918030000 (landmark 5A: named target rows), 20261007090000 and 20261007093000 (LAUNCH-SEC-1C-0 / 1C-0-R: reviewed definition of `user_has_client_portal_access`), 20261011090000 (LAUNCH-SEC-2B: reviewed appointments policies), 20261027090000 / 20261028090000 (REFUND-RECON: reviewed bodies), 20261102090000 / 20261103090000 / 20261104090000 (Phase 9A-C: reviewed payroll definitions), 20261110090000 (10C.4) | The migration asserts that the database holds the exact production definitions (md5 of function bodies, specific rows) and aborts otherwise. A schema replayed from July cannot satisfy them. |
-| **C. Cascades from A or B** | 20260715 accountant delivery x2, 20261008090000 (needs `auth.users.deleted_at`, a GoTrue column), 20261009090000, 20261026090000, 20261109090000, 20261111090000, 20261112090000, 20261113090000, 20261114090000, 20261115090000 | They need objects the failed migrations in A/B would have created (`my_verified_email`, `verified_email_for_user`, the competition and payroll families) or a GoTrue column. |
+| **C. Cascades from A or B** | 20261008090000 (needs `auth.users.deleted_at`, a GoTrue column), 20261009090000, 20261026090000, 20261109090000, 20261111090000, 20261112090000, 20261113090000, 20261114090000, 20261115090000 | They need objects the failed migrations in A/B would have created (`my_verified_email`, `verified_email_for_user`, the competition and payroll families) or a GoTrue column. |
 
 Per migration, the exact error and the objects it creates:
 
 | Migration | Why it cannot replay | Objects it creates / replaces | Referenced by TW-4F SQL |
 |---|---|---|---|
-| 20260715_accountant_delivery_recurring_v1_1.sql | relation "public.studio_accountant_profiles" does not exist | studio_accountant_delivery_schedules | none |
-| 20260715_accountant_delivery_scheduling_v1.sql | relation "public.studio_accountant_profiles" does not exist | studio_accountant_deliveries | none |
 | 20260721234500_create_commerce_cover_images.sql | relation "storage.buckets" does not exist |  | none |
 | 20260918030000_landmark1a_slice5a_capability_activation_bridge.sql | Slice 5A guard failed: 5 of 5 named target rows no longer match expected state (studio_id/user_id/active=true/ |  | none |
 | 20261005090000_launchsec1b_client_photos_private_storage.sql | relation "storage.buckets" does not exist |  | none |
@@ -41,13 +39,13 @@ Per migration, the exact error and the objects it creates:
 
 ## 2. Impact on TW-4F conclusions
 
-- **No skipped migration touches a TW-4F object.** None of the 24 mentions `studio_sms*`, `tw4`, `twilio` or `sms`. The "Referenced by TW-4F SQL" column above is computed, not asserted: it matches the objects each skipped migration creates against every TW-4F migration text (22 files scanned).
+- **No skipped migration touches a TW-4F object.** None of the 22 mentions `studio_sms*`, `tw4`, `twilio` or `sms`. The "Referenced by TW-4F SQL" column above is computed, not asserted: it matches the objects each skipped migration creates against every TW-4F migration text (22 files scanned).
 - **No dangling references.** Dangling references from TW-4F function bodies (in the baseline): 0 (every public function and table that a TW-4F function body in the baseline calls exists in the baseline).
-- **Security surface of the core tables TW-4F relies on is identical to the reference database.** - identical entries: 30; only in the reference: 0; only in the baseline: 0 TW-4F authorization reads `profiles.platform_role` and `user_studio_roles` (and `studios` for names) only through SECURITY DEFINER functions; the policies, triggers, grants and RLS flags on those tables match, so a TW-4F authorization or tenant-isolation test cannot pass here because of a weaker core-table surface.
-- **What is genuinely different** (and therefore NOT validated by this baseline): the payroll, accounting, commerce, competition, verified-email, accountant-delivery and storage families, and the functions listed as differing by the audit. They are outside TW-4F. A defect in how TW-4F interacts with them (for example a payroll function reading an SMS table) would not be caught; none exists today (see the dangling-reference check), and any future TW-4F dependency on those families must re-run this audit.
+- **Security surface of the core tables TW-4F relies on** (policies, triggers, grants, RLS flag of profiles, user_studio_roles, studios, clients, payments, events): 50 entries identical to the reference database; exactly one differs: the trigger `protect_competition_event_operations` on `events` exists only in the reference, created by the skipped Phase 10C.5 competition migration (20261114090000). It is a competition-events guard, unrelated to TW-4F, and is listed so it is not mistaken for a hidden difference. TW-4F authorization reads `profiles.platform_role` and `user_studio_roles` (and `studios` for names) only through SECURITY DEFINER functions, so a TW-4F authorization or tenant-isolation test cannot pass here because of a weaker core-table surface.
+- **What is genuinely different** (and therefore NOT validated by this baseline): the payroll, accounting, commerce, competition, verified-email and storage families, and the functions listed as differing by the audit. They are outside TW-4F. A defect in how TW-4F interacts with them (for example a payroll function reading an SMS table) would not be caught; none exists today (see the dangling-reference check), and any future TW-4F dependency on those families must re-run this audit.
 - **Equivalent objects restored through the baseline snapshot?** No object created by a skipped migration is restored: the July dump predates them. Where a TW-4F function needs an older object, it exists in the dump (the audit's zero dangling references proves it).
-- - functions: baseline 637, reference 766; only in reference 132 (TW-4F-named: 56); only in baseline 3; body differs 74 (TW-4F-named: 5)
-- - tables: baseline 365, reference 386; only in reference 22 (TW-4F-named: 9); only in baseline 1
+- Catalog comparison against the shared QA database (read-only): functions baseline 630 vs reference 767 (140 only in the reference, 57 of them TW-4F-named: unmerged or later work); 74 bodies differ, 5 of them TW-4F-named (unmerged work in the shared database).
+- tables baseline 367 vs reference 386 (20 only in the reference, 9 TW-4F-named).
 
 ### Verdict
 

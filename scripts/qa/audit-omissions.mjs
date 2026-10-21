@@ -10,7 +10,7 @@
  *
  *   node scripts/qa/audit-omissions.mjs --baseline <df-isoqa container> [--reference <container>] [--ref origin/main]
  *
- * The reference defaults to the shared QA database and is only READ (catalog queries). Exit 1 when a TW-4F-relevant dependency on a skipped migration is found.
+ * The reference (required, e.g. the shared QA database) is only READ (catalog queries). Exit 1 when a TW-4F-relevant dependency on a skipped migration is found.
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -22,7 +22,8 @@ const REPO = path.resolve(here, "..", "..");
 const args = process.argv.slice(2);
 const flag = (n, d) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : d; };
 const BASELINE = flag("baseline", "");
-const REFERENCE = flag("reference", "supabase_db_danceflow-e2e-qa");
+const REFERENCE = flag("reference", "");
+if (!REFERENCE) { console.error("--reference <container> is required (it is only READ: catalog queries); pass supabase_db_danceflow-e2e-qa explicitly to compare with the shared QA database"); process.exit(2); }
 const REF = flag("ref", "origin/main");
 const MIG = "src/lib/supabase/migrations";
 if (!BASELINE.startsWith("df-isoqa-")) { console.error("--baseline must be a df-isoqa-* container"); process.exit(2); }
@@ -51,7 +52,7 @@ const touched = (sql) => {
   return [...t];
 };
 const CORE_READ_BY_TW4F = new Set(["studios", "profiles", "user_studio_roles", "clients", "payments", "events"]);
-const generic = new Set(["on", "if", "public", "table", "function", "policy", "index", "for", "as", "to", "set", "add", "drop"]);
+const generic = new Set(["on", "if", "public", "table", "function", "policy", "index", "for", "as", "to", "set", "add", "drop", "pg_temp", "pg_catalog", "auth", "storage", "extensions"]);
 
 console.log("# Replay omissions (generated)\n");
 console.log(`Baseline ${BASELINE}; reference ${REFERENCE} (read-only); migrations from ${REF}; ${tw4Files.length} TW-4F migrations scanned.\n`);
@@ -91,7 +92,7 @@ const list = (title, items, max = 40) => { if (items.length) console.log(`\n${ti
 list("Functions only in the reference (restored there by migrations the baseline skipped, or by later/unmerged work)", onlyRefFn.filter((k) => !isTw4(k)));
 list("TW-4F-named functions only in the reference (unmerged or later work in the shared database)", onlyRefFn.filter(isTw4));
 list("TW-4F-named functions whose body differs", diffFn.filter(isTw4).map((k) => k.slice(0, 110)));
-list("Other functions whose body differs (application areas outside TW-4F; the 24 skipped migrations account for the payroll / accounting / commerce / competition / verified-email families)", diffFn.filter((k) => !isTw4(k)).map((k) => k.slice(0, 70)), 12);
+list("Other functions whose body differs (application areas outside TW-4F; the skipped migrations account for the payroll / accounting / commerce / competition / verified-email families)", diffFn.filter((k) => !isTw4(k)).map((k) => k.slice(0, 70)), 12);
 {
   // the security surface of the core tables TW-4F reads (profiles.platform_role, user_studio_roles, studios): policies, triggers, grants
   const surfaceSql = `select 'policy ' || tablename || ' ' || policyname || ' ' || cmd || ' ' || md5(coalesce(qual, '') || coalesce(with_check, '')) from pg_policies where schemaname = 'public' and tablename in ('profiles', 'user_studio_roles', 'studios', 'clients', 'payments', 'events')

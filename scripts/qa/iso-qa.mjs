@@ -189,7 +189,7 @@ const claimPort = (instance) => withLock("start", async () => {
   writeClaims(claims);
   return port;
 });
-const releasePort = (instance) => { try { withLockSync("start", () => { const c = readClaims(); delete c[instance]; writeClaims(c); }); } catch (e) { log(`could not release the port claim of ${instance}: ${e.message}`); } };
+const releasePort = (instance, onlyOwn = false) => { try { withLockSync("start", () => { const c = readClaims(); if (!onlyOwn || !c[instance] || Number(c[instance].pid) === process.pid) delete c[instance]; writeClaims(c); }); } catch (e) { log(`could not release the port claim of ${instance}: ${e.message}`); } };
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 // baseline: the production schema dump of 2026-07-15 (schema only, local and git-ignored) + the repo's own migrations replayed from a git REF up to the cutoff
@@ -319,8 +319,21 @@ async function cmdUp(scenarioName, flags, instance) {
   const identity = baselineIdentity(image);
   // the baseline must come from the dump and the known list that are on disk now
   const dumpFile = process.env.ISO_QA_BASE_SCHEMA ?? defaultBaseSchema();
-  if (existsSync(dumpFile) && identity.dump !== sha256(readFileSync(dumpFile, "utf8")).slice(0, 16)) throw new Error("the baseline image was built from a different base schema dump: rebuild it (`baseline`)");
+  if (!existsSync(dumpFile)) throw new Error(`the base schema dump ${dumpFile} is missing: the baseline image cannot be verified against it (set ISO_QA_BASE_SCHEMA)`);
+  if (identity.dump !== sha256(readFileSync(dumpFile, "utf8")).slice(0, 16)) throw new Error("the baseline image was built from a different base schema dump: rebuild it (`baseline`)");
   if (identity.known !== sha256(readFileSync(KNOWN_UNREPLAYABLE, "utf8")).slice(0, 16)) throw new Error("the baseline image was built with a different known-unreplayable.txt: rebuild it (`baseline`)");
+  // completeness: a TW-4F migration newer than the baseline cutoff that exists at a ref the scenario uses, but is neither applied by the scenario nor listed as excluded, would make the result certify a schema that ref does not have
+  if (!flags["allow-incomplete"] && scenarioName !== "baseline") {
+    const applied = new Set(list.map(([, v]) => String(v).slice(0, 14)));
+    const excluded = new Set((MANIFEST.excluded ?? []).map((v) => String(v)));
+    const missing = [];
+    for (const ref of new Set(list.map(([r]) => r))) {
+      for (const f of git("ls-tree", "--name-only", `${ref}:${MIGRATIONS}`).split("\n").filter((x) => /^\d{14}.*\.sql$/.test(x) && /(sms|twilio|tw4)/i.test(x) && x.slice(0, 14) > cutoff)) {
+        if (![...applied, ...excluded].some((v) => f.startsWith(v))) missing.push(`${f} (at ${ref})`);
+      }
+    }
+    if (missing.length) throw Object.assign(new Error(`scenario ${scenarioName} omits TW-4F migration(s) that exist at its refs: ${[...new Set(missing)].join(", ")}; add them to scenarios.json (or to "excluded" with a reason) so the result does not certify a schema the ref does not have`), { usage: true });
+  }
   const n = names(instance);
   for (const c of [n.kong, n.rest, n.db]) if (dockerTry("inspect", c).ok) { assertOurs(c); assertNotForeignLive(c); }
   const jwt = randomBytes(24).toString("hex");
@@ -329,8 +342,10 @@ async function cmdUp(scenarioName, flags, instance) {
   mkdirSync(QA_HOME, { recursive: true });
   writeFileSync(ymlPath, kongYml(n.rest));
   const apiPort = noApi ? 0 : await claimPort(instance);
-  for (const c of [n.kong, n.rest, n.db]) if (dockerTry("inspect", c).ok) docker("rm", "-f", c);
-  docker("run", "-d", "--name", n.db, ...OWNER(), "--network", NET, ...LIMITS.db, "-e", "POSTGRES_PASSWORD=postgres", image, ...PG_ARGS);
+  withLockSync("start", () => {
+    for (const c of [n.kong, n.rest, n.db]) if (dockerTry("inspect", c).ok) { assertOurs(c); assertNotForeignLive(c); docker("rm", "-f", c); }
+    docker("run", "-d", "--name", n.db, ...OWNER(), "--network", NET, ...LIMITS.db, "-e", "POSTGRES_PASSWORD=postgres", image, ...PG_ARGS);
+  });
   await waitReady(n.db);
   const since = dbState(n.db);
   const applied = [];
@@ -357,7 +372,7 @@ async function cmdUp(scenarioName, flags, instance) {
     "-e", `PGRST_DB_URI=postgres://authenticator:postgres@${n.db}:5432/postgres`, "-e", "PGRST_DB_SCHEMAS=public", "-e", "PGRST_DB_ANON_ROLE=anon",
     "-e", `PGRST_JWT_SECRET=${jwt}`, "-e", "PGRST_DB_USE_LEGACY_GUCS=false", REST_IMAGE);
   docker("create", "--name", n.kong, ...OWNER(), "--network", NET, ...LIMITS.kong, "-p", `127.0.0.1:${apiPort}:8000`,
-    "-e", "KONG_DATABASE=off", "-e", "KONG_NGINX_WORKER_PROCESSES=1", "-e", "KONG_DECLARATIVE_CONFIG=/home/kong/kong.yml", "-e", "KONG_PROXY_LISTEN=0.0.0.0:8000", "-e", "KONG_DNS_ORDER=LAST,A,CNAME", KONG_IMAGE);
+    "-e", "KONG_DATABASE=off", "-e", "KONG_NGINX_WORKER_PROCESSES=1", "-e", "KONG_NGINX_HTTP_KEEPALIVE_TIMEOUT=3600s", "-e", "KONG_NGINX_HTTP_KEEPALIVE_REQUESTS=100000", "-e", "KONG_DECLARATIVE_CONFIG=/home/kong/kong.yml", "-e", "KONG_PROXY_LISTEN=0.0.0.0:8000", "-e", "KONG_DNS_ORDER=LAST,A,CNAME", KONG_IMAGE);
   docker("cp", ymlPath, `${n.kong}:/home/kong/kong.yml`);
   docker("start", n.kong);
   for (const [c, want] of [[n.db, "{}"], [n.rest, "{}"], [n.kong, `{"8000/tcp":[{"HostIp":"127.0.0.1","HostPort":"${apiPort}"}]}`]]) {
@@ -375,12 +390,13 @@ async function cmdUp(scenarioName, flags, instance) {
   return { env, meta };
 }
 
-function cmdDown(instance, { force = false } = {}) {
-  releasePort(instance);
+function cmdDown(instance, { force = false, ownOnly = false } = {}) {
+  releasePort(instance, ownOnly);
   const n = names(instance);
   for (const c of [n.kong, n.rest, n.db]) {
     if (!dockerTry("inspect", c).ok) continue;
     assertOurs(c);
+    if (ownOnly && Number(labelOf(c, "df.isoqa.owner")) !== process.pid) continue; // never remove a stack another process started
     if (!force) assertNotForeignLive(c);
     docker("rm", "-f", c);
   }
@@ -416,7 +432,7 @@ function testWorktree(ref) {
 }
 
 async function cmdRun(scenarioName, flags, vitestArgs, instance) {
-  const cleanup = () => { try { cmdDown(instance, { force: true }); } catch { /* best effort */ } };
+  const cleanup = () => { try { cmdDown(instance, { force: true, ownOnly: true }); } catch { /* best effort */ } };
   for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => { cleanup(); process.exit(130); });
   const t0 = Date.now();
   let up;
@@ -439,13 +455,21 @@ async function cmdRun(scenarioName, flags, vitestArgs, instance) {
     const jsonOut = path.join(runDir, "vitest.json");
     const timeouts = [...(vitestArgs.some((a) => a.startsWith("--testTimeout")) ? [] : ["--testTimeout=60000"]), ...(vitestArgs.some((a) => a.startsWith("--hookTimeout")) ? [] : ["--hookTimeout=120000"])];
     const args = [vitestBin, "run", "--no-file-parallelism", "--reporter=default", "--reporter=json", `--outputFile.json=${jsonOut}`, ...timeouts, ...vitestArgs];
-    const r = spawnSync(process.execPath, args, { cwd: tests.dir, env: { ...process.env, ...up.env }, encoding: "utf8", maxBuffer: 1 << 28 });
+    // the suites keep cross-process mutexes under os.tmpdir(): give every run its own temp dir so concurrent runs and other sessions never share (or wait on, or inherit a stale) lock
+    const tmp = path.join(runDir, "tmp"); mkdirSync(tmp, { recursive: true });
+    const r = spawnSync(process.execPath, args, { cwd: tests.dir, env: { ...process.env, ...up.env, TMP: tmp, TEMP: tmp, TMPDIR: tmp }, encoding: "utf8", maxBuffer: 1 << 28, timeout: Number(process.env.ISO_QA_TEST_TIMEOUT_MS ?? 45 * 60_000), killSignal: "SIGKILL" });
     const out = `${r.stdout ?? ""}\n${r.stderr ?? ""}`;
     writeFileSync(path.join(runDir, "vitest.log"), out);
     const dbName = names(instance).db;
     writeFileSync(path.join(runDir, "postgres.log"), dockerLogs(dbName));
     let unhealthy = null;
     try { assertHealthy(dbName, up.meta.since); } catch (e) { unhealthy = e.message; }
+    if (r.error || r.status === null) unhealthy = `${unhealthy ? unhealthy + "; " : ""}the test process did not exit normally (${r.error ? r.error.code ?? r.error.message : "signal " + r.signal}): timeout, kill or output overflow`;
+    // the API containers too: a Kong / PostgREST that died mid-suite shows up as empty-code (network) errors in the tests, never as a database crash
+    for (const c of [names(instance).kong, names(instance).rest]) {
+      const st = dbState(c);
+      if (!st.running || st.oom || st.restarts > 0) unhealthy = `${unhealthy ? unhealthy + "; " : ""}API container ${c} unhealthy (running=${st.running} oomKilled=${st.oom} restarts=${st.restarts})`;
+    }
     let counts = { passed: 0, failed: 0, skipped: 0, todo: 0, total: 0 };
     let failedTests = [];
     try {
@@ -478,13 +502,14 @@ async function cmdRun(scenarioName, flags, vitestArgs, instance) {
 // compare: a wide catalog fingerprint of the public schema
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 const FINGERPRINT_SQL = `
-select 'fn ' || p.oid::regprocedure::text || ' ' || md5(p.prosrc) || ' secdef=' || p.prosecdef || ' cfg=' || coalesce(p.proconfig::text, '-') || ' owner=' || p.proowner::regrole::text
+select 'fn ' || p.oid::regprocedure::text || ' ' || md5(p.prosrc) || ' args=' || pg_get_function_arguments(p.oid) || ' secdef=' || p.prosecdef || ' cfg=' || coalesce(p.proconfig::text, '-') || ' owner=' || p.proowner::regrole::text
   || ' ret=' || pg_get_function_result(p.oid) || ' vol=' || p.provolatile::text || ' strict=' || p.proisstrict || ' lang=' || (select l.lanname from pg_language l where l.oid = p.prolang) || ' acl=' || coalesce(p.proacl::text, '-')
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'
 union all select 'tbl ' || c.relname || ' rls=' || c.relrowsecurity || '/' || c.relforcerowsecurity || ' owner=' || c.relowner::regrole::text || ' acl=' || coalesce(c.relacl::text, '-') || ' cols=' ||
   (select string_agg(a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull || ':' || coalesce(pg_get_expr(d.adbin, d.adrelid), '-') || ':' || a.attidentity::text || a.attgenerated::text, ',' order by a.attnum)
      from pg_attribute a left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum where a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped)
   from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind in ('r', 'p')
+union all select 'colacl ' || attrelid::regclass::text || ' ' || attname || ' ' || attacl::text from pg_attribute where attacl is not null and attrelid in (select oid from pg_class where relnamespace = 'public'::regnamespace)
 union all select 'con ' || conrelid::regclass::text || ' ' || conname || ' ' || md5(pg_get_constraintdef(oid)) from pg_constraint where connamespace = 'public'::regnamespace
 union all select 'idx ' || tablename || ' ' || indexname || ' ' || md5(indexdef) from pg_indexes where schemaname = 'public'
 union all select 'pol ' || tablename || ' ' || policyname || ' ' || cmd || ' ' || permissive || ' ' || roles::text || ' ' || md5(coalesce(qual, '') || '|' || coalesce(with_check, '')) from pg_policies where schemaname = 'public'
@@ -539,19 +564,22 @@ async function cmdCompare(a, b, flags) {
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 /** Failures that are KNOWN and explained (scripts/qa/expected-results.json). A suite is "known" only when EVERY failing test is listed and EVERY listed test still fails. */
 const EXPECTED = JSON.parse(readFileSync(path.join(here, "expected-results.json"), "utf8")).known;
-const appliesTo = (e, scenarioName, ref) => (e.scenarios.includes("*") || e.scenarios.includes(scenarioName)) && (!e.testsRef || (ref ?? "").includes(e.testsRef));
+const appliesTo = (e, scenarioName, ref) => (e.scenarios.includes("*") || e.scenarios.includes(scenarioName)) && (!e.testsRef || (ref ?? "").includes(e.testsRef)) && (!e.workingTreeOnly || !ref);
 function classify(file, scenarioName, runDirFromTail, ref) {
   let r;
   try { r = JSON.parse(readFileSync(path.join(runDirFromTail, "result.json"), "utf8")); } catch { return null; }
   if (r.exit !== 1) return null;
   const rules = EXPECTED.filter((e) => e.suite === file && appliesTo(e, scenarioName, ref));
   if (rules.length === 0) return null;
+  if (r.counts.skipped > 0 || r.counts.todo > 0) return null; // a skip next to a known failure is not explained
   const listed = rules.flatMap((e) => e.failing);
   const byCount = rules.find((e) => typeof e.count === "number");
-  if (byCount) return r.counts.failed === byCount.count ? { reason: byCount.reason } : null;
-  const allKnown = r.failedTests.every((t) => listed.some((k) => t.includes(k)));
-  const allStillFail = listed.every((k) => r.failedTests.some((t) => t.includes(k)));
-  return allKnown && allStillFail ? { reason: rules[0].reason } : null;
+  // a listed phrase must be part of a failing test name, each failing test must match exactly one listed phrase and each phrase exactly one failing test (a swapped or additional failure is never masked)
+  const hits = (k) => r.failedTests.filter((t) => t.includes(k));
+  const allKnown = r.failedTests.every((t) => listed.filter((k) => t.includes(k)).length === 1);
+  const allStillFail = listed.every((k) => hits(k).length === 1);
+  if (byCount) return r.counts.failed === byCount.count && allKnown && allStillFail ? { reason: byCount.reason } : null;
+  return allKnown && allStillFail && r.failedTests.length === listed.length ? { reason: rules[0].reason } : null;
 }
 
 async function cmdMatrix(scenarioName, flags) {
@@ -592,7 +620,7 @@ async function cmdMatrix(scenarioName, flags) {
   mkdirSync(QA_HOME, { recursive: true });
   writeFileSync(path.join(QA_HOME, `matrix-${scenarioName}${ref ? "-" + resolveRef(ref).slice(0, 8) : ""}.json`), JSON.stringify({ scenario: scenarioName, testsRef: ref ?? null, files, results }, null, 2));
   // 0 all passed; 6 only KNOWN, explained failures (never reported as green); 3 / 4 / 1 as before for anything unexpected
-  process.exit(!complete ? 4 : stale.length ? 1 : bad.length === 0 ? 0 : unexpected.length === 0 ? 6 : unexpected.some((r) => r.status === 3) ? 3 : unexpected.some((r) => r.status === 4) ? 4 : 1);
+  process.exit(!complete ? 4 : bad.some((r) => r.status === 3) ? 3 : bad.some((r) => r.status === 4 && !r.known) ? 4 : stale.length ? 1 : bad.length === 0 ? 0 : unexpected.length === 0 ? 6 : 1);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------

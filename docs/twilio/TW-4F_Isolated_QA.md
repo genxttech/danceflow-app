@@ -35,25 +35,48 @@ Conclusion: the `supautils` extension's `hint_roles` feature (it appends "Grant 
 
 ## 2. Isolation strategy
 
-- One disposable stack per scenario instance: Postgres (Supabase image, own container) + PostgREST + Kong (`/rest/v1`), all labelled `df.isoqa=1`, prefixed `df-isoqa-`, on their own docker network `df-isoqa-net`, host ports 56600-56799 on 127.0.0.1. The harness refuses to touch a container without the label; the shared `supabase_*_danceflow-e2e-qa` / `-local-staging` stacks are never read or written.
-- Baseline (`baseline` command): the production schema dump of 2026-07-15 (schema only, local and git-ignored: `backups/danceflow-production-pre-accounting-v1-2026-07-15.sql`; override with `ISO_QA_BASE_SCHEMA`) plus the repo's own migrations replayed in version order from a git REF up to a cutoff (default `20261205090000`) and committed as the local image `df-isoqa/base:<cutoff>`. Nothing is copied from the shared database, so another session's unmerged objects (the shared database already holds R2b's) cannot leak in. 24 application migrations that cannot be replayed onto the July dump (production-state preflights, Supabase storage tables) are listed with reasons in `scripts/qa/known-unreplayable.txt`; a failure of any OTHER migration, in particular any TW-4F one, fails the baseline build.
-- Scenarios apply further migrations from git refs (never from a working tree): `main` (R2a), `r2a-then-pr251` (the real merge order), `pr251-then-r2a` (numeric order), `baseline`; extra files with `--migration <ref>:<version>`. R2b joins with `--migration <ref>:20261208`.
-- `run` classifies results: exit 0 pass, 1 test failure on a healthy database, 3 INFRASTRUCTURE failure (database crashed / never ready). Evidence per run is kept under `C:\Dev\danceflow-iso-qa\runs\<time>-<instance>` (vitest log, postgres log, result.json).
-- `matrix <scenario>` runs every local-stack suite in its own fresh database (default 3 in parallel) and prints PASS / FAIL / INFRA per suite. `compare A B` diffs the resulting catalogs (functions with body hashes, table columns and ACLs, constraints, triggers) of two scenarios: it answers "does applying these migrations in a different order change the schema?". `--tests-ref <ref>` runs another commit's own suites (for example PR #251's) from a private detached worktree under the QA home.
+- One disposable stack per instance: Postgres (Supabase image, own container) + PostgREST + Kong (`/rest/v1`), all labelled `df.isoqa=1` and `df.isoqa.owner=<pid>`, prefixed `df-isoqa-<instance>-`, on their own docker network `df-isoqa-net`. Only Kong publishes a port (127.0.0.1:56600-56799); Postgres is never published. Resource limits: database 1.5 GB / 2 CPUs, Kong 1280 MB / 1 CPU, PostgREST 256 MB (override with `ISO_QA_*` variables). Instance names carry the process id, so two harness processes can never collide.
+- The harness refuses to touch a container without the label; the shared `supabase_*_danceflow-e2e-qa` / `-local-staging` stacks and other sessions' databases are never read or written. `down --all` removes only stacks whose owner process is dead (`--force` for the rest).
+- Cross-process start lock plus a port-claims registry (holder pid, 30 minute expiry) make concurrent starts safe; every start asserts the port binding and the database health afterwards.
+- Every vitest run gets its own TEMP directory, because the suites keep cross-process mutexes under `os.tmpdir()` (a shared one makes concurrent runs, and other sessions, wait on or inherit each other's stale locks).
+- Kong keep-alive is raised (3600 s): a test that blocks the event loop in synchronous psql calls otherwise returns an empty-code network error on its next request.
+- Baseline (`baseline` command): the production schema dump of 2026-07-15 (schema only, local and git-ignored: `backups/danceflow-production-pre-accounting-v1-2026-07-15.sql`; override with `ISO_QA_BASE_SCHEMA`), a bootstrap that supplies GoTrue-equivalent `auth.uid()/role()/email()/jwt()` (with an identity round-trip guard), then the repo's own migrations replayed from a git REF in version order (git add-time tie-break for date-only files), all-or-nothing per file, committed as the local image `df-isoqa/base:<cutoff>`. Nothing is copied from the shared database. 22 application migrations that cannot be replayed onto the July dump are listed with reasons in `scripts/qa/known-unreplayable.txt` (218 apply); a failure of any OTHER migration fails the baseline build, a stale entry errors, and the list refuses any TW-4F migration. See `TW-4F_Isolated_QA_Omissions.md`.
+- Scenarios (`scripts/qa/scenarios.json`) apply further migrations from git refs, never from a working tree: `baseline`; `main` (origin/main as merged: R2a 20261207, R2b 20261208, recurring-fee lifecycle 20261209, R2c owner read 20261210); `main-then-pr251` (PR #251 = 20261206 applied last); `pr251-then-main` (numeric order); `pr251-mid` (PR #251 between R2b and the lifecycle migration). **Completeness check:** every TW-4F (sms|twilio|tw4) migration above the cutoff that exists at a ref a scenario uses must be applied by the scenario or listed under `excluded`, otherwise the scenario refuses to start (exit 2), so a green `main` can never certify a schema main does not have. The baseline itself stops at 20261205090000.
 
-## 3. Usage
+## 3. Commands and exit codes
 
 ```bash
-node scripts/qa/iso-qa.mjs baseline                                   # once per baseline change (about 7 minutes)
+node scripts/qa/iso-qa.mjs baseline                                   # once per baseline change
+node scripts/qa/iso-qa.mjs selftest                                   # harness negative controls (pass/fail/skip/crash/ports/cleanup/ownership)
 node scripts/qa/iso-qa.mjs run main -- src/lib/sms/twilioIsv/__tests__/localStack.r2a.test.ts
-node scripts/qa/iso-qa.mjs matrix main                                # every local-stack suite, one fresh database each
-node scripts/qa/iso-qa.mjs compare pr251-then-r2a r2a-then-pr251      # migration order
-node scripts/qa/iso-qa.mjs run r2a-then-pr251 --tests-ref origin/twilio-tw4f-sender-reverify -- src/lib/sms/__tests__/localStack.tw4sender.test.ts
-node scripts/qa/iso-qa.mjs down --all                                 # remove every isolated container
+node scripts/qa/iso-qa.mjs matrix main --parallel 2                   # every local-stack suite, one fresh database each
+node scripts/qa/iso-qa.mjs compare pr251-then-r2a r2a-then-pr251      # catalogs of two migration orders (functions, tables, constraints, indexes, policies, triggers, views, ACLs)
+node scripts/qa/iso-qa.mjs run r2a-r2b --tests-ref origin/twilio-r2b-number-activation -- <suite>
+node scripts/qa/iso-qa.mjs repro                                      # the three-line signal-11 reproduction (crash / survive / survive)
+node scripts/qa/iso-qa.mjs down --all                                 # remove isolated stacks of dead owners
 ```
 
-Requires Docker, the images `public.ecr.aws/supabase/{postgres:17.6.1.106,postgrest:v14.8,kong:2.8.1}` (already present locally), Node 20+. No network access, no Twilio, no hosted database.
+| Exit | Meaning |
+|---|---|
+| 0 | all tests passed on a healthy database (matrix: every suite; compare: identical) |
+| 1 | tests failed on a healthy database (compare: catalogs differ) |
+| 2 | usage error |
+| 3 | infrastructure failure: database or API container crashed, restarted, OOM-killed, never became ready, or a migration failed (never reported as a test result) |
+| 4 | nothing ran / tests skipped / matrix incomplete (never green) |
+| 6 | matrix only: every failure is a KNOWN, explained one (`scripts/qa/expected-results.json`); a listed suite that now passes is a stale expectation and fails the matrix |
 
-## 4. Results
+Requires Docker, the images `public.ecr.aws/supabase/{postgres:17.6.1.106,postgrest:v14.8,kong:2.8.1}`, Node 20+. No network access to Twilio or any hosted database. Evidence per run: `<QA home>/runs/<time>-<instance>/` (vitest.log, postgres.log, result.json with provenance and failed-test names).
 
-Recorded in the PR description and in section 5 once the runs complete.
+## 4. Known limits (read before trusting a PASS)
+
+- Local / developer tool: the July dump is git-ignored, so CI cannot build the baseline. The CI check is limited to typecheck and lint of the harness-adjacent TypeScript.
+- Not production-equivalent (22 omitted migrations, schema-only).
+- Known failures that are not caused by TW-4F work: `tw4a` "TW-1/2 code is untouched", `tw4f1b` "evaluation events" (pins 14 runner functions, main has 16), R2a rollback test when R2b is applied (2BP01), `tw4sender` count 8 when main's version of the suite runs against #251's migration.
+- Load sensitivity: `tw4payhardening` has a property test pinned at 90 s in the test file; it passes on an idle machine and times out (cascading to two later assertions in that file) when other sessions saturate the CPU. It is reported as a failure, not suppressed.
+- `localStack.tw4fi` returns early (vacuously) when the pilot slot is already taken; `localStack.r2ci2` needs R2b migrations newer than the scenarios carry (it skips and the matrix reports that).
+
+## 5. Results (2026-10-21, origin/main 54ca06be, PR #251 head 0fe7a622)
+
+- Catalog comparison (6,494 entries: functions with bodies, argument defaults, owner, security-definer, config, ACL; tables with columns, defaults, constraints, RLS, ACL; column ACLs; indexes; policies; triggers; views; sequences; enums; default ACLs): `main-then-pr251` = `pr251-then-main` = `pr251-mid` (0 differences each); `main` vs `main-then-pr251` differs only by #251's own objects (intended).
+- Matrices (one fresh database per suite): all TW-4F suites pass except the known, explained items in `expected-results.json` and the load-sensitive `tw4payhardening` (section 4). R2b's own suite passes 41/41 in three sequential runs in two migration orders.
+- Independent Opus review (read-only) of the harness: no false-PASS path found in crash detection; findings fixed in this PR: a failed start could remove another process's live stack (now removes only what the process owns), check/remove/create now happen under the start lock, matrix exit precedence (infrastructure/skips before stale expectations), known-failure matching (no skip, one phrase per failing test, exact count), vitest timeout and signal death classified as infrastructure, missing dump refused, scenario completeness check, argument defaults and column ACLs in the catalog fingerprint, audit reference is explicit. Not fixed (documented): `up` stacks are owned by the short-lived `up` process, so a concurrent `down --all` without `--force` can remove them (use `run`/`matrix`, which own their stacks, or `--force` discipline); the baseline image is not re-verified against the current ref sha (rebuild after migrations at or below the cutoff change).

@@ -24,10 +24,10 @@
     {
       "suite": "src/lib/sms/twilioIsv/__tests__/localStack.r2a.test.ts",
       "scenarios": [
-        "r2a-r2b",
-        "pr251-r2a-r2b",
-        "r2a-pr251-r2b",
-        "r2a-r2b-pr251"
+        "main",
+        "main-then-pr251",
+        "pr251-then-main",
+        "pr251-mid"
       ],
       "failing": [
         "rollback parses and completes where there is no evidence"
@@ -37,16 +37,23 @@
     {
       "suite": "src/lib/sms/__tests__/localStack.tw4sender.test.ts",
       "scenarios": [
-        "r2a-r2b-pr251",
-        "r2a-pr251-r2b",
-        "pr251-r2a-r2b",
-        "r2a-then-pr251",
-        "pr251-then-r2a"
+        "main-then-pr251",
+        "pr251-then-main",
+        "pr251-mid"
       ],
       "count": 8,
-      "failing": [],
-      "reason": "the version of this suite that comes from the R2b branch is main's, which pins sender-readiness behaviour that PR #251's migration deliberately changes; PR #251's own version of the suite passes 18/18 in the same databases (matrix with --tests-ref origin/twilio-tw4f-sender-reverify).",
-      "testsRef": "r2b"
+      "failing": [
+        "llback fails it at once; a re-verify restores it",
+        "replaced: not ready, and a re-verify records why",
+        "won the race) or released, and the money matches",
+        "one reaches the provider marker after the revoke",
+        "maps to nothing; a revoked one still maps (STOP)",
+        "; the overview is admin-only and shows readiness",
+        "rom credit; the $150 pilot ceiling is never used",
+        "the rollback refuses once sender evidence exists"
+      ],
+      "reason": "main's version of this suite pins sender-readiness behaviour that PR #251's migration deliberately changes (8 named tests, matched by the end of their title); PR #251's own version of the suite passes 18/18 in the same databases (matrix with --tests-ref origin/twilio-tw4f-sender-reverify).",
+      "workingTreeOnly": true
     }
   ]
 }

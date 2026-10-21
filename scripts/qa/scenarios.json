@@ -1,18 +1,110 @@
 {
-  "_comment": "Explicit migration manifests. Each scenario is the baseline (through 20261205090000) plus these migrations IN THIS ORDER, each taken from a git ref (never a working tree). ref names are resolved from the environment first (ISO_QA_REF_<NAME>), then the default below. A migration that fails to apply, or whose version is not found exactly once at its ref, fails the scenario.",
+  "_comment": "Explicit migration manifests. Each scenario is the baseline (through 20261205090000) plus these migrations IN THIS ORDER, each taken from a git ref (never a working tree). ref names are resolved from the environment first (ISO_QA_REF_<NAME>), then the default below. A migration that fails to apply, or whose version is not found exactly once at its ref, fails the scenario. Completeness: every TW-4F (sms|twilio|tw4) migration above the cutoff that exists at a ref a scenario uses must be applied by that scenario or listed in excluded, otherwise the scenario refuses to start.",
   "refs": {
     "MAIN": "origin/main",
-    "PR251": "origin/twilio-tw4f-sender-reverify",
-    "R2B": "origin/twilio-r2b-number-activation"
+    "PR251": "origin/twilio-tw4f-sender-reverify"
   },
+  "excluded": [],
   "scenarios": {
-    "baseline": { "description": "baseline only (through 20261205)", "migrations": [] },
-    "main": { "description": "main as merged: R2a (20261207)", "migrations": [["MAIN", "20261207"]] },
-    "pr251-then-r2a": { "description": "PR #251 (20261206) then R2a (20261207): numeric order", "migrations": [["PR251", "20261206"], ["MAIN", "20261207"]] },
-    "r2a-then-pr251": { "description": "R2a then PR #251: the order they actually merge in", "migrations": [["MAIN", "20261207"], ["PR251", "20261206"]] },
-    "r2a-r2b": { "description": "R2a then R2b (20261208), without PR #251", "migrations": [["MAIN", "20261207"], ["R2B", "20261208"]] },
-    "pr251-r2a-r2b": { "description": "numeric order: PR #251, R2a, R2b", "migrations": [["PR251", "20261206"], ["MAIN", "20261207"], ["R2B", "20261208"]] },
-    "r2a-pr251-r2b": { "description": "R2a, PR #251, then R2b", "migrations": [["MAIN", "20261207"], ["PR251", "20261206"], ["R2B", "20261208"]] },
-    "r2a-r2b-pr251": { "description": "R2a, R2b, then PR #251 last", "migrations": [["MAIN", "20261207"], ["R2B", "20261208"], ["PR251", "20261206"]] }
+    "baseline": {
+      "description": "baseline only (through 20261205)",
+      "migrations": []
+    },
+    "main": {
+      "description": "origin/main as merged: R2a 20261207, R2b 20261208, recurring-fee lifecycle 20261209, R2c owner read 20261210",
+      "migrations": [
+        [
+          "MAIN",
+          "20261207"
+        ],
+        [
+          "MAIN",
+          "20261208"
+        ],
+        [
+          "MAIN",
+          "20261209"
+        ],
+        [
+          "MAIN",
+          "20261210"
+        ]
+      ]
+    },
+    "main-then-pr251": {
+      "description": "main, then PR #251 (20261206) last: the order they merge in if #251 lands after main",
+      "migrations": [
+        [
+          "MAIN",
+          "20261207"
+        ],
+        [
+          "MAIN",
+          "20261208"
+        ],
+        [
+          "MAIN",
+          "20261209"
+        ],
+        [
+          "MAIN",
+          "20261210"
+        ],
+        [
+          "PR251",
+          "20261206"
+        ]
+      ]
+    },
+    "pr251-then-main": {
+      "description": "numeric order: PR #251 (20261206) first, then main",
+      "migrations": [
+        [
+          "PR251",
+          "20261206"
+        ],
+        [
+          "MAIN",
+          "20261207"
+        ],
+        [
+          "MAIN",
+          "20261208"
+        ],
+        [
+          "MAIN",
+          "20261209"
+        ],
+        [
+          "MAIN",
+          "20261210"
+        ]
+      ]
+    },
+    "pr251-mid": {
+      "description": "PR #251 lands between R2b and the recurring-fee lifecycle",
+      "migrations": [
+        [
+          "MAIN",
+          "20261207"
+        ],
+        [
+          "MAIN",
+          "20261208"
+        ],
+        [
+          "PR251",
+          "20261206"
+        ],
+        [
+          "MAIN",
+          "20261209"
+        ],
+        [
+          "MAIN",
+          "20261210"
+        ]
+      ]
+    }
   }
 }
