@@ -53,8 +53,10 @@ class ScriptedStore implements NumberStore {
     this.finishes.push({ id, outcome });
     return { state: "campaign_pending" };
   }
-  async observe(_o: string, _l: string, id: string): Promise<NumObserveResult> {
+  readonly observedFacts: Record<string, unknown>[] = [];
+  async observe(_o: string, _l: string, id: string, facts: Record<string, unknown> = {}): Promise<NumObserveResult> {
     this.log.push(`observe:${id}`);
+    this.observedFacts.push(facts);
     const next = this.observeResults.shift();
     if (next instanceof RunnerStoreError) throw next;
     return next ?? { status: /purchase/.test(id) ? "owned" : "attached", code: null, state: "campaign_pending" };
@@ -193,12 +195,9 @@ describe("number runner decisions", () => {
     const adapter = world();
     adapter.failNext("getNumber", { kind: "validation", code: "20404", status: 404 });
     store.observeResults = [{ status: "mismatch", code: "sid_mismatch", state: "exception" }];
-    const seen: Record<string, unknown>[] = [];
-    const original = store.observe.bind(store);
-    store.observe = async (o, l, id, facts, source, digest) => { seen.push(facts); return original(o, l, id, facts, source, digest); };
     const result = await runNumberAcquisition(base(store, adapter));
     expect(result.outcome).toBe("exception");
-    expect(seen[0]).toMatchObject({ not_found: true, sid: null });
+    expect(store.observedFacts[0]).toMatchObject({ not_found: true, sid: null });
   });
 
   it("a network error, a timeout, a 5xx or a lost response is an UNKNOWN outcome: recorded as such, never closed as failed, never repeated by the same run", async () => {
