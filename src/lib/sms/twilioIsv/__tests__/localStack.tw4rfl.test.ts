@@ -6,13 +6,16 @@
  * Migration 20261211090000 (RFL ops) is also required: absorbing an exposure and authorizing a phone-number cancellation now need an approved dual-control
  * request (see absorb() / authorizeCancel() below), and the alert outbox is claimed only while the delivery switch is on. Nothing else in a scenario changed.
  *
+ * The suites that touch the RFL switch / run tables (this one and localStack.tw4rflops.test.ts) share ONE database and global switch state: run them SERIALLY
+ * (`vitest run --no-file-parallelism`, or one after the other), or give each its own database. Never run two at once against the same database.
+ *
  * LOCAL QA DATABASE ONLY. Skipped unless both variables are set and the database carries the local-QA marker table (created by LOCAL QA fixtures only; no migration
  * creates it) with the migrations through 20261209090000 applied. Use an ISOLATED database cloned from the QA stack, not the stack's shared one:
  *
  *   TW4A_LOCAL_DB_CONTAINER=supabase_db_danceflow-e2e-qa  TW4RFL_DB=rfl_qa
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -211,18 +214,19 @@ const absorb = (resourceId: string, period: string, actor: string, note: string)
 /** D3 (20261211): authorizing the cancellation of a phone NUMBER needs an approved request (same approval reference and reason); other resources are unchanged. */
 const authorizeCancel = <T = Record<string, unknown>>(resourceId: string, actor: string, approval: string, decidedBy: string, reason: string, ack: boolean): T => {
   if (psql(`select resource_kind from public.studio_sms_provider_resources where id = '${resourceId}'`) === "number") {
-    const req = call<{ request_id: string }>("tw4_rfl_dual_request", P, "cancel_number", resourceId, null, reason, approval);
+    const req = call<{ request_id: string }>("tw4_rfl_dual_request", P, "cancel_number", resourceId, null, reason, approval, decidedBy);
     call("tw4_rfl_dual_approve", req.request_id, P2, "second administrator approves this number cancellation");
   }
   return call<T>("tw4_rfl_cancel_authorize", resourceId, actor, approval, decidedBy, reason, ack);
 };
 /** The outbox is claimed only while the delivery switch is on (20261211); scenarios that claim switch it on and restore it afterwards. */
 const withDelivery = <T>(body: () => T): T => {
+  const was = psql(`select public.tw4_rfl_switch_enabled('delivery')::text`) === "true";
   call("tw4_rfl_set_switch", "delivery", true, P, "fixture: delivery on for an alert-claim scenario");
   try {
     return body();
   } finally {
-    call("tw4_rfl_set_switch", "delivery", false, P, "fixture: delivery restored to off after the scenario");
+    call("tw4_rfl_set_switch", "delivery", was, P, "fixture: delivery restored to its previous state after the scenario");
   }
 };
 
@@ -1589,8 +1593,16 @@ commit;`);
         sh(`pg_dump -U postgres -s --no-owner ${DB} | psql -U postgres -d ${scratch} -q > /dev/null 2>&1; true`);
         const run = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-d", scratch, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
         expect(run(`select to_regclass('public.studio_sms_provider_resources') is not null`)).toBe("t");
-        // the ops migration (20261211) sits on top of this one: it is rolled back first (it refuses while its own evidence exists; this copy has none)
+        // the ops migration (20261211) sits on top of this one: it is rolled back first (it refuses while its own evidence exists; this copy has none).
+        // The outbound_deliveries SELECT policies it narrowed come back exactly as they were (compared with the originals saved in the source database; a schema-only copy carries no rows).
+        const saved = JSON.parse(psql(`select coalesce(json_agg(json_build_object('n', policy_name, 'q', original_qual, 'r', rewritten_qual)), '[]'::json)::text from public.studio_sms_rfl_policy_backup`)) as Array<{ n: string; q: string; r: string }>;
+        expect(saved.length).toBeGreaterThanOrEqual(1);
+        // the schema-only copy carries no rows: give it the same saved originals the real rollback reads
+        for (const p of saved) run(`insert into public.studio_sms_rfl_policy_backup (policy_name, table_name, original_qual, rewritten_qual) values ($n$${p.n}$n$, 'outbound_deliveries', $q$${p.q}$q$, $r$${p.r}$r$);`);
         run(readFileSync(join(process.cwd(), "src/lib/supabase/migrations/rollback/20261211090000_twilio_rfl_ops_rollback.sql"), "utf8"));
+        for (const p of saved) {
+          expect(run(`select md5(pg_get_expr(polqual, polrelid)) from pg_policy where polrelid = 'public.outbound_deliveries'::regclass and polname = '${p.n.replace(/'/g, "''")}'`), p.n).toBe(createHash("md5").update(p.q).digest("hex"));
+        }
         run(rollbackSql);
         expect(run(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and (p.proname like 'tw4\\_rfl%' or p.proname like '\\_tw4rfl%' or p.proname like 'sms\\_rfl%')`)).toBe("0");
         expect(run(`select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname like 'studio\\_sms\\_provider\\_%' and c.relkind = 'r'`)).toBe("1");   // studio_sms_provider_charges (3b-0) is not ours

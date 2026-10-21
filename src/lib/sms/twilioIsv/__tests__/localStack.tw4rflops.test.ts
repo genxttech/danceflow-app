@@ -9,14 +9,15 @@
  *
  *   TW4A_LOCAL_DB_CONTAINER=rfl-pg-qa  TW4RFL_DB=rfl_ops1
  *
- * The switches and the run table are global: scenarios that depend on them reset what they need first (superuser, session_replication_role = replica), which is only
- * possible in a throwaway database.
+ * The switches and the run table are GLOBAL state of the database: run this suite and localStack.tw4rfl.test.ts SERIALLY (`vitest run --no-file-parallelism`, or one after the
+ * other), or give each its own database; never two at once against one database. Every scenario restores the switch state it found (afterEach); "no row" checks run inside a
+ * transaction that is rolled back, and the only direct fixture edits are of rows this suite created or of runs still marked running (closed as failed).
  */
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 300_000 });
 
@@ -211,8 +212,9 @@ const isolateAlerts = (keep: string[]) =>
 const claimAll = () => rows<{ alert_id: string; claim_token: string; legal_entity_id: string }>(`select * from public.tw4_rfl_alerts_claim(100)`);
 const absorbRequest = (resourceId: string, period: string, note: string, actor = P) => call<{ request_id: string; facts_hash: string; expires_at: string; status: string; replayed: boolean }>(
   "tw4_rfl_dual_request", actor, "absorb_exposure", resourceId, period, note, null);
-const cancelRequest = (resourceId: string, approval: string, reason: string, actor = P) => call<{ request_id: string; facts_hash: string; expires_at: string; status: string; replayed: boolean }>(
-  "tw4_rfl_dual_request", actor, "cancel_number", resourceId, null, reason, approval);
+const cancelRequest = (resourceId: string, approval: string, reason: string, actor = P, decidedBy = "owner_written") => call<{ request_id: string; facts_hash: string; expires_at: string; status: string; replayed: boolean }>(
+  "tw4_rfl_dual_request", actor, "cancel_number", resourceId, null, reason, approval, decidedBy);
+const swState = (name: "scan" | "delivery") => psql(`select public.tw4_rfl_switch_enabled('${name}')::text`) === "true";
 const dispose = (resourceId: string, period: string, note: string, actor = P) => callErr("tw4_rfl_exposure_dispose", resourceId, period, actor, "absorbed", note);
 const REASON = "DanceFlow accepts the cost of this lapsed period";
 
@@ -238,6 +240,15 @@ commit;`);
     replica(`update public.profiles set platform_role = null where platform_role = 'platform_admin' and id not in ('${P}', '${P2}', '${P3}');`);
   });
 
+  let savedSwitches = { scan: false, delivery: false };
+  beforeEach(() => {
+    savedSwitches = { scan: swState("scan"), delivery: swState("delivery") };
+  });
+  afterEach(() => {
+    // each scenario restores the switch state it found (the log is append-only, so this adds rows rather than editing any)
+    for (const name of ["scan", "delivery"] as const) if (swState(name) !== savedSwitches[name]) setSwitch(name, savedSwitches[name]);
+  });
+
   afterAll(() => {
     // the switches are global: leave both OFF (fail closed) for whatever runs next
     if (!enabled) return;
@@ -251,8 +262,9 @@ commit;`);
 
   describe("kill switches (fail closed)", () => {
     it("default OFF: with no log row both switches are off, an unknown switch is off; the latest audited row wins; invalid requests change nothing", () => {
-      replica(`truncate public.studio_sms_rfl_switch_log;`);
-      expect(psql(`select public.tw4_rfl_switch_enabled('scan')::text || public.tw4_rfl_switch_enabled('delivery')::text || public.tw4_rfl_switch_enabled('bogus')::text || public.tw4_rfl_switch_enabled(null)::text`)).toBe("falsefalsefalsefalse");
+      // no row at all (inside a transaction that is rolled back): every switch is off
+      expect(psql(`begin; set local session_replication_role = replica; truncate public.studio_sms_rfl_switch_log; set local session_replication_role = origin;
+        select public.tw4_rfl_switch_enabled('scan')::text || public.tw4_rfl_switch_enabled('delivery')::text || public.tw4_rfl_switch_enabled('bogus')::text || public.tw4_rfl_switch_enabled(null)::text; rollback;`)).toBe("falsefalsefalsefalse");
       expect(call<{ switch: string; enabled: boolean }>("tw4_rfl_set_switch", "scan", true, P, "fixture: scan on for the ops suite")).toEqual({ switch: "scan", enabled: true });
       expect(psql(`select public.tw4_rfl_switch_enabled('scan')::text || public.tw4_rfl_switch_enabled('delivery')::text`)).toBe("truefalse"); // switches are independent
       setSwitch("delivery", true);
@@ -267,9 +279,7 @@ commit;`);
       expect(hasCode(callErr("tw4_rfl_set_switch", "scan", true, randomUUID(), "a long enough written reason"), "42501")).toBe(true);
       expect(hasCode(callErr("tw4_rfl_set_switch", "scan", true, mkUser(), "a long enough written reason"), "42501")).toBe(true);
       expect(num(`select count(*) from public.studio_sms_rfl_switch_log`)).toBe(n);
-      // the absence of a row is OFF again (fail closed)
-      replica(`truncate public.studio_sms_rfl_switch_log;`);
-      expect(psql(`select public.tw4_rfl_switch_enabled('delivery')::text`)).toBe("false");
+      expect(psql(`begin; set local session_replication_role = replica; truncate public.studio_sms_rfl_switch_log; set local session_replication_role = origin; select public.tw4_rfl_switch_enabled('delivery')::text; rollback;`)).toBe("false");
     });
 
     it("every change is audited, and the log is append-only evidence (no update, delete or truncate)", () => {
@@ -307,13 +317,15 @@ commit;`);
   });
 
   describe("scan heartbeat, lease and health", () => {
-    const resetRuns = () => replica(`truncate public.studio_sms_rfl_runs;`);
+    // only runs still marked 'running' are closed (as failed); nothing is truncated
+    const resetRuns = () => replica(`update public.studio_sms_rfl_runs set status = 'failed', finished_at = now(), error = 'closed by the ops suite' where status = 'running';`);
 
     it("does not run while the scan switch is off (nothing is recorded), takes one lease when on, is busy while it is held, and finishes exactly once", () => {
       resetRuns();
       setSwitch("scan", false);
+      const runsBefore = num(`select count(*) from public.studio_sms_rfl_runs`);
       expect(call("tw4_rfl_scan_begin", "ops-runner", 600)).toEqual({ ran: false, reason: "switched_off", run_id: null });
-      expect(num(`select count(*) from public.studio_sms_rfl_runs`)).toBe(0);
+      expect(num(`select count(*) from public.studio_sms_rfl_runs`)).toBe(runsBefore);
       setSwitch("scan", true);
       const first = call<{ ran: boolean; reason: string | null; run_id: string }>("tw4_rfl_scan_begin", "ops-runner", 600);
       expect(first).toMatchObject({ ran: true, reason: null });
@@ -383,17 +395,19 @@ commit;`);
       resetRuns();
       setSwitch("scan", false);
       setSwitch("delivery", false);
-      const never = call<Record<string, unknown>>("tw4_rfl_health", P);
+      const never = JSON.parse(psql(`begin; set local session_replication_role = replica; truncate public.studio_sms_rfl_runs; set local session_replication_role = origin;
+        select public.tw4_rfl_health('${P}')::text; rollback;`)) as Record<string, unknown>;
       expect(never).toMatchObject({ scan_switch: false, delivery_switch: false, last_run_at: null, last_success_at: null, last_status: null, stale: true, runs_failed_24h: 0 });
       expect(Object.keys(never).sort()).toEqual(["alerts_exhausted", "alerts_failed", "alerts_pending", "delivery_switch", "last_run_at", "last_status", "last_success_at", "oldest_pending_alert_age_seconds",
         "open_cancel_operations", "open_exposure_count", "runs_failed_24h", "scan_switch", "stale"]);
       setSwitch("scan", true);
       const run = call<{ run_id: string }>("tw4_rfl_scan_begin", "ops-runner", 600);
       call("tw4_rfl_scan_finish", run.run_id, "completed", { entities: 1 }, null);
-      expect(call("tw4_rfl_health", P)).toMatchObject({ scan_switch: true, last_status: "completed", stale: false, runs_failed_24h: 0 });
+      const afterOk = call<Record<string, number>>("tw4_rfl_health", P);
+      expect(afterOk).toMatchObject({ scan_switch: true, last_status: "completed", stale: false });
       const failed = call<{ run_id: string }>("tw4_rfl_scan_begin", "ops-runner", 600);
       call("tw4_rfl_scan_finish", failed.run_id, "failed", null, "boom");
-      expect(call("tw4_rfl_health", P2)).toMatchObject({ last_status: "failed", stale: false, runs_failed_24h: 1 });
+      expect(call("tw4_rfl_health", P2)).toMatchObject({ last_status: "failed", stale: false, runs_failed_24h: afterOk.runs_failed_24h + 1 });
       replica(`update public.studio_sms_rfl_runs set started_at = started_at - interval '27 hours', finished_at = finished_at - interval '27 hours', lease_expires_at = lease_expires_at - interval '27 hours' where status = 'completed';`);
       expect(call("tw4_rfl_health", P)).toMatchObject({ stale: true });
       replica(`update public.studio_sms_rfl_runs set started_at = started_at - interval '25 hours', finished_at = finished_at - interval '25 hours', lease_expires_at = lease_expires_at - interval '25 hours' where status = 'failed';`);
@@ -1079,7 +1093,7 @@ commit;`);
       expect(call<{ replayed: boolean }>("tw4_rfl_cancel_authorize", n.resource_id, P, approval.toUpperCase().replace(/ /g, "  "), "owner_written", CR, true).replayed).toBe(true);
       expect(audit(w, "rfl_dual_consumed")).toBe(1);
       // the approval reference is now used for good
-      expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", register(world(), "number").resource_id, null, CR, approval), "TW043")).toBe(true);
+      expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", register(world(), "number").resource_id, null, CR, approval, "owner_written"), "TW043")).toBe(true);
     });
 
     it("validates the request: number only, an active resource, no open cancellation, a fresh written reference; campaigns and Messaging Services are unchanged (no approval needed)", () => {
@@ -1089,15 +1103,15 @@ commit;`);
       const ms = register(w, "messaging_service");
       expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", n.resource_id, null, CR, null), "22023")).toBe(true);
       expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", n.resource_id, null, CR, "short"), "22023")).toBe(true);
-      expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", n.resource_id, null, "short", ref("r")), "22023")).toBe(true);
-      expect(hasCode(callErr("tw4_rfl_dual_request", w.owner, "cancel_number", n.resource_id, null, CR, ref("r")), "42501")).toBe(true);
-      expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", camp.resource_id, null, CR, ref("r")), "22023")).toBe(true);
-      expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", ms.resource_id, null, CR, ref("r")), "22023")).toBe(true);
-      expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", randomUUID(), null, CR, ref("r")), "22023")).toBe(true);
+      expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", n.resource_id, null, "short", ref("r"), "owner_written"), "22023")).toBe(true);
+      expect(hasCode(callErr("tw4_rfl_dual_request", w.owner, "cancel_number", n.resource_id, null, CR, ref("r"), "owner_written"), "42501")).toBe(true);
+      expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", camp.resource_id, null, CR, ref("r"), "owner_written"), "22023")).toBe(true);
+      expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", ms.resource_id, null, CR, ref("r"), "owner_written"), "22023")).toBe(true);
+      expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", randomUUID(), null, CR, ref("r"), "owner_written"), "22023")).toBe(true);
       expect(authorizeNum(camp.resource_id, ref("camp"), "The owner asked us in writing to cancel the campaign")).toBe("");
       expect(authorizeNum(ms.resource_id, ref("ms"), "The owner asked us in writing to cancel the service")).toBe("");
       // an approval reference already used by an earlier cancellation decision is refused at request time
-      expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", n.resource_id, null, CR, psql(`select approval_ref from public.studio_sms_provider_cancel_ops where resource_id = '${camp.resource_id}'`)), "TW043")).toBe(true);
+      expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", n.resource_id, null, CR, psql(`select approval_ref from public.studio_sms_provider_cancel_ops where resource_id = '${camp.resource_id}'`), "owner_written"), "TW043")).toBe(true);
       // a cancelled resource cannot be requested again
       const done = register(world(), "number");
       const doneRef = ref("done");
@@ -1106,7 +1120,7 @@ commit;`);
       const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", done.resource_id, P, doneRef, "owner_written", CR, true);
       call("tw4_rfl_cancel_begin", op.operation_id, P);
       call("tw4_rfl_cancel_finish", op.operation_id, P, "confirmed", digest(), null);
-      expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", done.resource_id, null, CR, ref("again")), "TW041")).toBe(true);
+      expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", done.resource_id, null, CR, ref("again"), "owner_written"), "TW041")).toBe(true);
     });
 
     it("keeps its other refusals first (policy_lapse on a number TW042, the live sender TW041), and the bound facts include open cancellations", () => {
@@ -1179,7 +1193,7 @@ commit;`);
       expect(dispose(n.resource_id, key, REASON)).toBe("");
       const approval = ref("pilot-number");
       expect(hasCode(callErr("tw4_rfl_cancel_authorize", n.resource_id, P, approval, "founder_written", "The founder approved releasing this number in writing", true), "TW042")).toBe(true);
-      const creq = cancelRequest(n.resource_id, approval, "The founder approved releasing this number in writing");
+      const creq = cancelRequest(n.resource_id, approval, "The founder approved releasing this number in writing", P, "founder_written");
       call("tw4_rfl_dual_approve", creq.request_id, P3, NOTE);
       const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", n.resource_id, P, approval, "founder_written", "The founder approved releasing this number in writing", true);
       call("tw4_rfl_cancel_begin", op.operation_id, P);
@@ -1192,7 +1206,7 @@ commit;`);
   describe("privileges, vocabularies and what the new objects never touch", () => {
     const NEW_FNS = ["tw4_rfl_switch_enabled(text)", "tw4_rfl_set_switch(text, boolean, uuid, text)", "tw4_rfl_scan_begin(text, integer)", "tw4_rfl_scan_finish(uuid, text, jsonb, text)", "tw4_rfl_health(uuid)",
       "tw4_rfl_exposure_report(uuid)", "tw4_rfl_variance_report(uuid)", "tw4_rfl_variance_ack(uuid, uuid, text)", "tw4_rfl_alert_recipients(uuid)", "tw4_rfl_alert_delivery_record(uuid, uuid, text, text, text)",
-      "tw4_rfl_escalate_delivery()", "tw4_rfl_dual_request(uuid, text, uuid, text, text, text)", "tw4_rfl_dual_approve(uuid, uuid, text)", "tw4_rfl_dual_reject(uuid, uuid, text)", "tw4_rfl_dual_list(uuid)"];
+      "tw4_rfl_escalate_delivery()", "tw4_rfl_dual_request(uuid, text, uuid, text, text, text, text)", "tw4_rfl_dual_approve(uuid, uuid, text)", "tw4_rfl_dual_reject(uuid, uuid, text)", "tw4_rfl_dual_list(uuid)"];
     const REPLACED = ["tw4_rfl_alerts_claim(integer)", "tw4_rfl_scan_entity(uuid)", "tw4_rfl_exposure_dispose(uuid, text, uuid, text, text)", "tw4_rfl_cancel_authorize(uuid, uuid, text, text, text, boolean)"];
     const priv = (fn: string, role: string) => psql(`select has_function_privilege('${role}', 'public.${fn}', 'execute')::text`);
 
@@ -1201,13 +1215,13 @@ commit;`);
         expect([priv(fn, "service_role"), priv(fn, "anon"), priv(fn, "authenticated"), priv(fn, "public")], fn).toEqual(["true", "false", "false", "false"]);
         expect(psql(`select p.prosecdef::text || ':' || coalesce(array_to_string(p.proconfig, ','), '') from pg_proc p where p.oid = 'public.${fn}'::regprocedure`), fn).toBe("true:search_path=pg_catalog, public, pg_temp");
       }
-      for (const fn of ["_tw4rflops_guard()", "_tw4rflops_facts(text, uuid, text, text, text)", "_tw4rflops_consume(text, public.studio_sms_provider_resources, text, text, text, uuid)"]) {
+      for (const fn of ["_tw4rflops_guard()", "_tw4rflops_request_insert()", "_tw4rflops_epoch()", "_tw4rflops_facts(text, uuid, text, text, text, text)", "_tw4rflops_consume(text, public.studio_sms_provider_resources, text, text, text, text, uuid)"]) {
         expect([priv(fn, "service_role"), priv(fn, "anon"), priv(fn, "authenticated"), priv(fn, "public")], fn).toEqual(["false", "false", "false", "false"]);
       }
     });
 
     it("every new table has RLS on and no privilege for any API role", () => {
-      for (const t of ["studio_sms_rfl_switch_log", "studio_sms_rfl_runs", "studio_sms_rfl_alert_deliveries", "studio_sms_provider_variance_acks", "studio_sms_rfl_dual_requests"]) {
+      for (const t of ["studio_sms_rfl_switch_log", "studio_sms_rfl_runs", "studio_sms_rfl_alert_deliveries", "studio_sms_provider_variance_acks", "studio_sms_rfl_dual_requests", "studio_sms_rfl_fact_epochs", "studio_sms_rfl_policy_backup"]) {
         expect(psql(`select relrowsecurity::text from pg_class where oid = 'public.${t}'::regclass`), t).toBe("true");
         for (const role of ["anon", "authenticated", "service_role"]) {
           expect(psql(`select (has_table_privilege('${role}', 'public.${t}', 'select') or has_table_privilege('${role}', 'public.${t}', 'insert') or has_table_privilege('${role}', 'public.${t}', 'update')
@@ -1233,7 +1247,7 @@ commit;`);
         const src = psql(`select p.prosrc from pg_proc p where p.oid = 'public.${fn}'::regprocedure`);
         expect(src, fn).not.toMatch(forbidden);
       }
-      for (const fn of ["_tw4rflops_facts(text, uuid, text, text, text)", "_tw4rflops_consume(text, public.studio_sms_provider_resources, text, text, text, uuid)"]) {
+      for (const fn of ["_tw4rflops_facts(text, uuid, text, text, text, text)", "_tw4rflops_consume(text, public.studio_sms_provider_resources, text, text, text, text, uuid)"]) {
         expect(psql(`select p.prosrc from pg_proc p where p.oid = 'public.${fn}'::regprocedure`), fn).not.toMatch(forbidden);
       }
     });
@@ -1251,14 +1265,252 @@ commit;`);
       const prev = readFileSync(join(dir, "20261209090000_twilio_recurring_fee_lifecycle.sql"), "utf8");
       const ops = readFileSync(join(dir, "20261211090000_twilio_rfl_ops.sql"), "utf8");
       for (const n of ["tw4_rfl_suspend_df", "tw4_rfl_pilot_cover", "tw4_rfl_register", "tw4_rfl_cancel_withdraw", "tw4_rfl_cancel_begin", "tw4_rfl_cancel_finish", "tw4_rfl_cancel_resolve",
-        "tw4_rfl_observe_provider_bill", "tw4_rfl_alert_finish", "tw4_rfl_inventory_gaps", "tw4_rfl_studio_ready", "tw4_rfl_scan_entities", "tw4_rfl_admin_overview", "_tw4rc_service_state", "tw4_recurring_charge",
+        "tw4_rfl_observe_provider_bill", "tw4_rfl_alert_finish", "tw4_rfl_inventory_gaps", "tw4_rfl_studio_ready", "tw4_rfl_scan_entities", "_tw4rc_service_state", "tw4_recurring_charge",
         "_tw4rfl_cover", "_tw4rfl_gate_suspended", "_tw4rfl_alert", "_tw4rfl_lock"]) {
         expect(dbMd5(n), n).toBe(md5(prosrcOf(prev, n)));
       }
-      for (const n of ["tw4_rfl_alerts_claim", "tw4_rfl_scan_entity", "tw4_rfl_exposure_dispose", "tw4_rfl_cancel_authorize"]) {
+      for (const n of ["tw4_rfl_alerts_claim", "tw4_rfl_scan_entity", "tw4_rfl_exposure_dispose", "tw4_rfl_cancel_authorize", "tw4_rfl_admin_overview"]) {
         expect(dbMd5(n), n).toBe(md5(prosrcOf(ops, n)));
         expect(dbMd5(n), n).not.toBe(md5(prosrcOf(prev, n)));
       }
+    });
+  });
+
+  describe("review hardening: permanent invalidation, bound decision type, requester standing, deterministic switches, outbound privacy, UI contract", () => {
+    const epochOf = (resourceId: string) => num(`select coalesce((select epoch from public.studio_sms_rfl_fact_epochs where resource_id = '${resourceId}'), 0)`);
+    const flagged = (sql: string) => psql(`begin; select set_config('tw4.rfl_write', 'on', true); ${sql} select set_config('tw4.rfl_write', 'off', true); commit;`);
+
+    it("F1 a cancellation that is opened and WITHDRAWN never revives an earlier approval: refused, and the next non-raising path invalidates it for good", () => {
+      const w = world();
+      const { res, key } = exposed(w, "campaign");
+      const req = absorbRequest(res.resource_id, key, REASON);
+      call("tw4_rfl_dual_approve", req.request_id, P2, NOTE);
+      const e0 = epochOf(res.resource_id);
+      const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", res.resource_id, P, ref("f1-open"), "owner_written", "The owner asked us in writing to cancel the campaign", true);
+      call("tw4_rfl_cancel_withdraw", op.operation_id, P, "withdrawn: the owner changed their mind");
+      expect(epochOf(res.resource_id)).toBeGreaterThan(e0);
+      // the open cancellation is gone, every visible fact is back to what it was, and the approval is STILL unusable
+      expect(num(`select count(*) from public.studio_sms_provider_cancel_ops where resource_id = '${res.resource_id}' and status in ('authorized', 'in_flight', 'unknown_outcome')`)).toBe(0);
+      expect(hasCode(dispose(res.resource_id, key, REASON), "TW042")).toBe(true);
+      expect(exposureOf(res.resource_id, key)).toMatchObject({ state: "open" });
+      expect(reqStatus(req.request_id)).toBe("approved"); // the refusal rolled back: nothing persisted yet
+      const listed = call<Array<{ request_id: string }>>("tw4_rfl_dual_list", P3);
+      expect(listed.some((r) => r.request_id === req.request_id)).toBe(false);
+      expect(reqStatus(req.request_id)).toBe("invalidated"); // the non-raising path made it permanent
+      expect(audit(w, "rfl_dual_invalidated")).toBe(1);
+      expect(hasCode(dispose(res.resource_id, key, REASON), "TW042")).toBe(true);
+      const again = absorbRequest(res.resource_id, key, REASON);
+      expect(again.request_id).not.toBe(req.request_id);
+      call("tw4_rfl_dual_approve", again.request_id, P3, NOTE);
+      expect(dispose(res.resource_id, key, REASON)).toBe("");
+    });
+
+    it("F1 an exposure that is covered (closed) and REOPENED never revives an earlier approval, approved or still pending; a scan's last-detected touch never moves the epoch", () => {
+      const w = world();
+      const { res, key } = exposed(w, "number");
+      const before = epochOf(res.resource_id);
+      scan(w);
+      scan(w);
+      expect(epochOf(res.resource_id)).toBe(before); // scans touch last_detected_at / reason only
+      const approved = absorbRequest(res.resource_id, key, REASON);
+      call("tw4_rfl_dual_approve", approved.request_id, P2, NOTE);
+      const hasPrev = exposureOf(res.resource_id, keyAdd(key, -1)) !== undefined;
+      const pending = hasPrev ? absorbRequest(res.resource_id, keyAdd(key, -1), REASON) : null;
+      // covered, then reopened: the visible state ends up exactly where it began
+      flagged(`update public.studio_sms_provider_exposure set state = 'closed', closed_at = now(), disposition = 'covered_by_charge' where resource_id = '${res.resource_id}' and period_key = '${key}';`);
+      flagged(`update public.studio_sms_provider_exposure set state = 'open', closed_at = null, disposition = null where resource_id = '${res.resource_id}' and period_key = '${key}';`);
+      expect(exposureOf(res.resource_id, key)).toMatchObject({ state: "open", disposition: null });
+      expect(epochOf(res.resource_id)).toBeGreaterThan(before);
+      expect(hasCode(dispose(res.resource_id, key, REASON), "TW042")).toBe(true);
+      expect(exposureOf(res.resource_id, key)).toMatchObject({ state: "open" });
+      // a still-PENDING request for the same resource is invalidated at approval, not approved
+      if (pending) expect(call("tw4_rfl_dual_approve", pending.request_id, P3, NOTE)).toMatchObject({ status: "invalidated" });
+      // approving the first one again is refused too (it is still approved, but unusable), and a fresh request works
+      const fresh = absorbRequest(res.resource_id, key, REASON, P3);
+      expect(fresh.request_id).not.toBe(approved.request_id);
+      expect(reqStatus(approved.request_id)).toBe("invalidated");
+      call("tw4_rfl_dual_approve", fresh.request_id, P2, NOTE);
+      expect(dispose(res.resource_id, key, REASON)).toBe("");
+    });
+
+    it("F1 a changed reason is a different binding, and the epoch is part of the hash (the same facts at a later epoch hash differently)", () => {
+      const w = world();
+      const { res, key } = exposed(w, "number");
+      const first = absorbRequest(res.resource_id, key, REASON);
+      flagged(`update public.studio_sms_provider_exposure set expected_provider_cents = expected_provider_cents + 1 where resource_id = '${res.resource_id}' and period_key = '${key}';`);
+      flagged(`update public.studio_sms_provider_exposure set expected_provider_cents = expected_provider_cents - 1 where resource_id = '${res.resource_id}' and period_key = '${key}';`);
+      const second = absorbRequest(res.resource_id, key, REASON);
+      expect(second.request_id).not.toBe(first.request_id); // same visible facts, later epoch: the old request was invalidated
+      expect(second.facts_hash).not.toBe(first.facts_hash);
+      expect(reqStatus(first.request_id)).toBe("invalidated");
+      expect(psqlError(`begin; update public.studio_sms_rfl_fact_epochs set epoch = 1 where resource_id = '${res.resource_id}'; commit;`)).toMatch(/only increases/);
+      expect(psqlError(`delete from public.studio_sms_rfl_fact_epochs where resource_id = '${res.resource_id}';`)).toMatch(/never deleted/);
+    });
+
+    it("F2 a number-cancellation approval is bound to the decision type: another type is refused (TW042) and consumes nothing; policy_lapse and a missing type cannot be requested; absorb takes none; the 6-argument form still works for absorb", () => {
+      const w = world();
+      const n = register(w, "number");
+      const approval = ref("f2");
+      const CR = "The owner asked us in writing to release this number";
+      expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", n.resource_id, null, CR, approval), "22023")).toBe(true); // no decision type (6-argument form)
+      expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", n.resource_id, null, CR, approval, "policy_lapse"), "22023")).toBe(true);
+      expect(hasCode(callErr("tw4_rfl_dual_request", P, "cancel_number", n.resource_id, null, CR, approval, "robot"), "22023")).toBe(true);
+      const { res, key } = exposed(world(), "number");
+      expect(hasCode(callErr("tw4_rfl_dual_request", P, "absorb_exposure", res.resource_id, key, REASON, null, "owner_written"), "22023")).toBe(true);
+      expect(callErr("tw4_rfl_dual_request", P, "absorb_exposure", res.resource_id, key, REASON, null)).toBe(""); // the old 6-argument call form
+      const req = cancelRequest(n.resource_id, approval, CR, P, "owner_written");
+      expect(psql(`select cancel_decided_by from public.studio_sms_rfl_dual_requests where id = '${req.request_id}'`)).toBe("owner_written");
+      call("tw4_rfl_dual_approve", req.request_id, P2, NOTE);
+      expect(hasCode(callErr("tw4_rfl_cancel_authorize", n.resource_id, P3, approval, "founder_written", CR, true), "TW042")).toBe(true);
+      expect(reqStatus(req.request_id)).toBe("approved");
+      expect(num(`select count(*) from public.studio_sms_provider_cancel_ops where resource_id = '${n.resource_id}'`)).toBe(0);
+      expect(hasCode(callErr("tw4_rfl_cancel_authorize", n.resource_id, P3, approval, "policy_lapse", CR, true), "TW042")).toBe(true);
+      expect(callErr("tw4_rfl_cancel_authorize", n.resource_id, P3, approval, "owner_written", CR, true)).toBe("");
+      expect(reqStatus(req.request_id)).toBe("consumed");
+      // a different decision type is a different binding for the open request
+      const w2 = world();
+      const n2 = register(w2, "number");
+      const a = cancelRequest(n2.resource_id, ref("f2b"), CR, P, "owner_written");
+      const b = cancelRequest(n2.resource_id, psql(`select approval_ref from public.studio_sms_rfl_dual_requests where id = '${a.request_id}'`), CR, P3, "founder_written");
+      expect(b.request_id).not.toBe(a.request_id);
+      expect(reqStatus(a.request_id)).toBe("invalidated");
+    });
+
+    it("F3 a request is BORN pending and undecided: an owner-level insert cannot fabricate an approved or consumed row", () => {
+      const w = world();
+      const { res, key } = exposed(w, "number");
+      const base = absorbRequest(res.resource_id, key, REASON);
+      call("tw4_rfl_dual_reject", base.request_id, P2, "closing the base request before the direct insert");
+      const id = randomUUID();
+      psql(`insert into public.studio_sms_rfl_dual_requests (id, action, legal_entity_id, studio_id, resource_id, period_key, reason, facts_hash, status, requested_by, requested_at, expires_at,
+          decided_by, decided_at, decision_note, consumed_at, consumed_by)
+        values ('${id}', 'absorb_exposure', '${w.entity}', '${w.studio}', '${res.resource_id}', '${key}', '${REASON}', '${digest()}', 'consumed', '${P}', now(), now() + interval '1 hour',
+          '${P2}', now(), '${NOTE}', now(), '${P2}');`);
+      expect(rows<{ status: string; decided_by: string | null; decided_at: string | null; decision_note: string | null; consumed_at: string | null; consumed_by: string | null }>(
+        `select status, decided_by, decided_at, decision_note, consumed_at, consumed_by from public.studio_sms_rfl_dual_requests where id = '${id}'`)[0]).toEqual({
+        status: "pending", decided_by: null, decided_at: null, decision_note: null, consumed_at: null, consumed_by: null });
+      expect(hasCode(dispose(res.resource_id, key, REASON), "TW042")).toBe(true); // a pending row authorizes nothing
+    });
+
+    it("F5 the REQUESTER must still be a platform administrator: a demoted requester's request is invalidated at approval, and an approved one stops working", () => {
+      const w = world();
+      const { res, key } = exposed(w, "number");
+      const x = mkUser({ confirmed: true, admin: true });
+      const demote = (u: string) => replica(`update public.profiles set platform_role = null where id = '${u}';`);
+      const r1 = absorbRequest(res.resource_id, key, REASON, x);
+      demote(x);
+      expect(call("tw4_rfl_dual_approve", r1.request_id, P2, NOTE)).toMatchObject({ status: "invalidated" });
+      expect(reqStatus(r1.request_id)).toBe("invalidated");
+      // approved first, demoted afterwards: unusable
+      const y = mkUser({ confirmed: true, admin: true });
+      const r2 = absorbRequest(res.resource_id, key, REASON, y);
+      call("tw4_rfl_dual_approve", r2.request_id, P2, NOTE);
+      demote(y);
+      expect(hasCode(dispose(res.resource_id, key, REASON), "TW042")).toBe(true);
+      expect(exposureOf(res.resource_id, key)).toMatchObject({ state: "open" });
+      expect(reqStatus(r2.request_id)).toBe("approved");
+      expect(call<Array<{ request_id: string }>>("tw4_rfl_dual_list", P).some((r) => r.request_id === r2.request_id)).toBe(false);
+      expect(reqStatus(r2.request_id)).toBe("invalidated");
+      // and a fresh request by an administrator in good standing works
+      const r3 = absorbRequest(res.resource_id, key, REASON);
+      call("tw4_rfl_dual_approve", r3.request_id, P3, NOTE);
+      expect(dispose(res.resource_id, key, REASON)).toBe("");
+    });
+
+    it("F5 expiry is judged against the real clock inside a transaction: an approval that expires between request and use is refused", () => {
+      const w = world();
+      const { res, key } = exposed(w, "number");
+      const r = absorbRequest(res.resource_id, key, REASON);
+      call("tw4_rfl_dual_approve", r.request_id, P2, NOTE);
+      replica(`update public.studio_sms_rfl_dual_requests set requested_at = now() - interval '1 hour', expires_at = clock_timestamp() + interval '3 seconds' where id = '${r.request_id}';`);
+      // one transaction that outlives the expiry: now() is frozen at the start, clock_timestamp() is not
+      const err = psqlError(`begin; select pg_sleep(4); select public.tw4_rfl_exposure_dispose('${res.resource_id}'::uuid, '${key}', '${P}'::uuid, 'absorbed', '${REASON}'); commit;`);
+      expect(hasCode(err, "TW042")).toBe(true);
+      expect(exposureOf(res.resource_id, key)).toMatchObject({ state: "open" });
+    });
+
+    it("F4 the escalation texts are truthful (no claim that two notices were delivered) and keep their dedupe keys", () => {
+      const w = world();
+      register(w, "number");
+      const auth = authFixture(w, "number", { startsDaysAgo: 5, expiresInDays: 10 });
+      scan(w);
+      const second = alertsOf(w, "owner_notice_second")[0];
+      const esc = alertsOf(w, "owner_unresponsive")[0];
+      expect(second.dedupe_key).toBe(`auth2:${auth}`);
+      expect(esc.dedupe_key).toBe(`auth:${auth}:escalate`);
+      expect(second.summary).toMatch(/has not yet been renewed/);
+      expect(esc.summary).toMatch(/has not yet been renewed; reminders were queued/);
+      expect(esc.summary + second.summary).not.toMatch(/two notices|Second notice|after two/i);
+    });
+
+    it("F7 switch ordering is deterministic on equal timestamps (sequence tie-break), and an expired lease is closed as failed even while the scan switch is off", () => {
+      const tie = (first: boolean, second: boolean) => psql(`begin;
+        insert into public.studio_sms_rfl_switch_log (switch, enabled, changed_by, reason, changed_at) values ('scan', ${first}, '${P}', 'tie-break fixture one', now() + interval '1 year');
+        insert into public.studio_sms_rfl_switch_log (switch, enabled, changed_by, reason, changed_at) values ('scan', ${second}, '${P}', 'tie-break fixture two', now() + interval '1 year');
+        select public.tw4_rfl_switch_enabled('scan')::text; rollback;`);
+      expect(tie(true, false)).toBe("false");
+      expect(tie(false, true)).toBe("true");
+      // lease expiry while off
+      replica(`update public.studio_sms_rfl_runs set status = 'failed', finished_at = now(), error = 'closed by the ops suite' where status = 'running';`);
+      setSwitch("scan", true);
+      const run = call<{ run_id: string }>("tw4_rfl_scan_begin", "crashed-runner", 60);
+      replica(`update public.studio_sms_rfl_runs set lease_expires_at = now() - interval '1 second' where id = '${run.run_id}';`);
+      setSwitch("scan", false);
+      expect(call("tw4_rfl_scan_begin", "ops-runner", 600)).toEqual({ ran: false, reason: "switched_off", run_id: null });
+      expect(psql(`select status || ':' || error from public.studio_sms_rfl_runs where id = '${run.run_id}'`)).toBe("failed:lease expired before the run finished");
+      expect(call<Record<string, unknown>>("tw4_rfl_health", P).last_status).not.toBe("running");
+    });
+
+    it("NEW A admin-addressed emails (template platform_rfl_admin_*) are invisible to a studio's staff (even front_desk); owner-addressed rows and other templates stay readable; service role and the owner still read all", () => {
+      const w = world();
+      const desk = mkUser({ confirmed: true });
+      addRole(desk, w.studio, "front_desk");
+      const ins = (template: string, to: string) => {
+        const id = randomUUID();
+        psql(`insert into public.outbound_deliveries (id, studio_id, channel, template_key, recipient_email, subject, status) values ('${id}', '${w.studio}', 'email', '${template}', '${to}', 'ops fixture subject', 'queued');`);
+        return id;
+      };
+      const ownerRow = ins("platform_rfl_alert_exposure_open", "owner@example.test");
+      const adminRow = ins("platform_rfl_admin_exposure_open", "admin@example.test");
+      const otherRow = ins("booking_confirmation", "client@example.test");
+      const readAs = (role: string, sub: string | null) => {
+        const out = psql(`begin; set local role ${role}; ${sub ? `select set_config('request.jwt.claims', '{"sub":"${sub}"}', true);` : ""}
+          select coalesce(string_agg(id::text, ',' order by id), '') from public.outbound_deliveries where studio_id = '${w.studio}'; rollback;`);
+        return out.split("\n").pop() ?? "";
+      };
+      const seen = readAs("authenticated", desk).split(",");
+      expect(seen).toContain(ownerRow);
+      expect(seen).toContain(otherRow);
+      expect(seen).not.toContain(adminRow);
+      const ownerSeen = readAs("authenticated", w.owner).split(",");
+      expect(ownerSeen).toContain(ownerRow);
+      expect(ownerSeen).not.toContain(adminRow);
+      expect(readAs("service_role", null).split(",")).toEqual(expect.arrayContaining([ownerRow, adminRow, otherRow]));
+      expect(psql(`select count(*) from public.outbound_deliveries where id = '${adminRow}'`)).toBe("1"); // the table owner
+      // every SELECT policy open to API roles was narrowed, and the originals are kept for the rollback
+      const policies = rows<{ polname: string; q: string }>(`select polname, pg_get_expr(polqual, polrelid) as q from pg_policy where polrelid = 'public.outbound_deliveries'::regclass and polcmd = 'r' and polname in (select policy_name from public.studio_sms_rfl_policy_backup)`);
+      expect(policies.length).toBeGreaterThanOrEqual(1);
+      for (const p of policies) expect(p.q).toContain("platform\\_rfl\\_admin\\_%");
+      expect(num(`select count(*) from public.studio_sms_rfl_policy_backup where original_qual like '%platform%rfl%admin%'`)).toBe(0);
+    });
+
+    it("NEW B tw4_rfl_admin_overview returns open_cancel_operation_id next to open_cancel_operation (every existing key kept); tw4_rfl_dual_list keeps approval_ref and resource_kind", () => {
+      const w = world();
+      const camp = register(w, "campaign");
+      const num1 = register(w, "number");
+      const op = call<{ operation_id: string }>("tw4_rfl_cancel_authorize", camp.resource_id, P, ref("overview"), "owner_written", "The owner asked us in writing to cancel the campaign", true);
+      const overview = call<{ resources: Array<Record<string, unknown>> }>("tw4_rfl_admin_overview", P);
+      const mineOf = (id: string) => overview.resources.find((r) => r.resource_id === id)!;
+      for (const k of ["resource_id", "legal_entity_id", "studio_id", "kind", "fee_kind", "provider_state", "df_sending", "current_period", "next_period", "open_cancel_operation", "open_cancel_operation_id"]) {
+        expect(Object.keys(mineOf(camp.resource_id)), k).toContain(k);
+      }
+      expect(mineOf(camp.resource_id)).toMatchObject({ open_cancel_operation: "authorized", open_cancel_operation_id: op.operation_id });
+      expect(mineOf(num1.resource_id)).toMatchObject({ open_cancel_operation: null, open_cancel_operation_id: null });
+      expect(Object.keys(overview as Record<string, unknown>).sort()).toEqual(["alerts_waiting", "cancel_operations_open", "open_exposure", "open_exposure_billed_cents", "open_exposure_expected_cents", "resources"]);
+      const approval = ref("list-keys");
+      const req = cancelRequest(num1.resource_id, approval, "The owner asked us in writing to release this number", P, "founder_written");
+      const entry = call<Array<Record<string, unknown>>>("tw4_rfl_dual_list", P2).find((r) => r.request_id === req.request_id)!;
+      expect(entry).toMatchObject({ approval_ref: approval, resource_kind: "number", action: "cancel_number", cancel_decided_by: "founder_written", decided_by: "founder_written" });
     });
   });
 });
