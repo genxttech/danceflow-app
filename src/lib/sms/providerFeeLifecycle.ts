@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { ProviderFeeOpsRpc } from "./providerFeeAlerts/rpc";
 
 /**
  * TW-4F recurring provider-fee lifecycle (migration 20261209090000): the application side.
@@ -8,7 +9,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *    it (`register`), the platform panel (R2c) drives suspension, cancellation authorization / evidence and exposure dispositions. Errors carry the SQLSTATE,
  *    never the database message text. NOTHING here talks to Twilio, buys, cancels, releases, charges or extends an authorization: a cancellation is
  *    authorized and evidenced here, and the console step is a human's.
- *  - runProviderFeeLifecycleScan: one scheduled pass (per legal business, under that business's account lock in the database): exposure and upcoming-charge
+ *  - runProviderFeeLifecycleScan: one scheduled pass (heartbeat begin/finish, kill-switch aware; per legal business, under that business's account lock): exposure and upcoming-charge
  *    alerts, inventory gaps, then delivery of the alert outbox through an injected sink. Without a sink nothing is claimed (alerts stay pending and visible in the
  *    administrator overview). It returns counts only: no business, number, SID or amount.
  */
@@ -164,12 +165,19 @@ export interface ProviderFeeAlertSink {
   deliver(alert: ProviderFeeAlert): Promise<void>;
 }
 
+export type ScanRanReason = "switched_off" | "busy" | "begin_failed" | "unknown";
+
 export type ScanSummary = {
+  /** false when the heartbeat refused the pass (scan switch off, another run holds the lease) or could not start it: nothing else was done */
+  ran: boolean;
+  ranReason: ScanRanReason | null;
   entities: number;
   opened: number;
   closed: number;
   alertsCreated: number;
   inventoryGaps: number;
+  /** alerts newly raised for alert deliveries that exhausted their attempts (administrator audience) */
+  escalated: number;
   delivered: number;
   failed: number;
   errors: number;
@@ -181,9 +189,54 @@ export type ScanSummary = {
 const MAX_ENTITIES = 500;
 const ALERT_BATCH = 25;
 const MAX_ALERT_BATCHES = 8;
+export const SCAN_RUNNER_NAME = "sms-provider-fee-lifecycle";
 
-export async function runProviderFeeLifecycleScan(store: ProviderFeeLifecycleStore, sink: ProviderFeeAlertSink | null): Promise<ScanSummary> {
-  const summary: ScanSummary = { entities: 0, opened: 0, closed: 0, alertsCreated: 0, inventoryGaps: 0, delivered: 0, failed: 0, errors: 0, deliveryEnabled: sink !== null, truncated: 0 };
+type RunOps = Pick<ProviderFeeOpsRpc, "scanBegin" | "scanFinish" | "escalateDelivery">;
+
+/**
+ * One scheduled pass, in contract order: heartbeat begin (stop when refused) -> business scans -> inventory gaps -> escalation of exhausted deliveries ->
+ * alert delivery (ONLY when a sink is supplied; the route supplies one only with the strict env flag AND the database delivery switch) -> heartbeat finish
+ * (always once a run began; `failed` on any error; counts only).
+ */
+export async function runProviderFeeLifecycleScan(store: ProviderFeeLifecycleStore, sink: ProviderFeeAlertSink | null, ops: RunOps): Promise<ScanSummary> {
+  const summary: ScanSummary = {
+    ran: false, ranReason: null, entities: 0, opened: 0, closed: 0, alertsCreated: 0, inventoryGaps: 0, escalated: 0, delivered: 0, failed: 0, errors: 0,
+    deliveryEnabled: sink !== null, truncated: 0,
+  };
+  let runId: string | null = null;
+  try {
+    const begin = await ops.scanBegin(SCAN_RUNNER_NAME);
+    if (!begin.ran) {
+      summary.ranReason = begin.reason === "switched_off" || begin.reason === "busy" ? begin.reason : "unknown";
+      summary.deliveryEnabled = false;
+      return summary;
+    }
+    if (!begin.runId) throw new Error("no_run_id");
+    runId = begin.runId;
+  } catch {
+    summary.ranReason = "begin_failed";
+    summary.deliveryEnabled = false;
+    summary.errors += 1;
+    return summary;
+  }
+  summary.ran = true;
+  try {
+    await scanAndDeliver(store, sink, ops, summary);
+  } catch {
+    summary.errors += 1;
+  }
+  try {
+    const { ran, ranReason, ...counts } = summary;
+    void ran;
+    void ranReason;
+    await ops.scanFinish(runId, summary.errors > 0 ? "failed" : "completed", counts, summary.errors > 0 ? "scan_errors" : null);
+  } catch {
+    summary.errors += 1;
+  }
+  return summary;
+}
+
+async function scanAndDeliver(store: ProviderFeeLifecycleStore, sink: ProviderFeeAlertSink | null, ops: RunOps, summary: ScanSummary): Promise<void> {
   let entities: string[] = [];
   try {
     const all = await store.scanEntities();
@@ -209,7 +262,12 @@ export async function runProviderFeeLifecycleScan(store: ProviderFeeLifecycleSto
   } catch {
     summary.errors += 1;
   }
-  if (!sink) return summary;
+  try {
+    summary.escalated = await ops.escalateDelivery();   // every pass, whether or not delivery is on: exhausted alerts must surface
+  } catch {
+    summary.errors += 1;
+  }
+  if (!sink) return;
   for (let batch = 0; batch < MAX_ALERT_BATCHES; batch += 1) {
     let alerts: ProviderFeeAlert[] = [];
     try {
@@ -240,5 +298,4 @@ export async function runProviderFeeLifecycleScan(store: ProviderFeeLifecycleSto
     }
     if (alerts.length < ALERT_BATCH) break;
   }
-  return summary;
 }
