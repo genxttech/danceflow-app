@@ -260,20 +260,20 @@ describe("platform-admin provisioning view", () => {
     for (const state of ["draft", "needs_info", "not_started", null]) expect(buildAdminProvisioningView(adminIn({ state })).next).toMatchObject({ kind: "wait_studio", href: null });
   });
 
-  it("unknown outcome outranks everything: investigate, listed as a blocker, no fake resolve button", () => {
+  it("unknown outcome outranks everything: investigate, listed as a blocker, linked to the resolution form", () => {
     const v = buildAdminProvisioningView(adminIn({ operations: [op({ status: "unknown_outcome" })] }));
     expect(v.next.kind).toBe("investigate");
-    expect(v.next.href).toBeNull();
+    expect(v.next.href).toBe("#ledger-s1");
     expect(v.blockers.join(" ")).toMatch(/unknown outcome/);
     const html = renderToStaticMarkup(createElement(ProvisioningSummary, adminIn({ operations: [op({ status: "unknown_outcome" })] })));
-    expect(html).not.toContain("admin-next-link");
+    expect(html).toContain("admin-next-link");
     expect(html).toContain("1 unknown");
   });
 
   it("ledger not connected is stated, in provisioning states, and never rendered as 'no operations'", () => {
     const html = renderToStaticMarkup(createElement(ProvisioningSummary, adminIn({ operations: null })));
-    expect(html).toContain("not connected in this build");
-    expect(buildAdminProvisioningView(adminIn({ operations: null })).blockers.join(" ")).toMatch(/ledger is not connected/);
+    expect(html).toContain("not loaded for this studio");
+    expect(buildAdminProvisioningView(adminIn({ operations: null })).blockers.join(" ")).toMatch(/ledger is not loaded/);
   });
 
   it("service_setup has no runnable action (runner not wired to the panel)", () => {
@@ -314,7 +314,7 @@ describe("platform-admin provisioning view", () => {
     const states = ["not_started", "draft", "submitted_for_checks", "profile_review", "brand_pending", "service_setup", "campaign_pending", "ready_for_activation", "active", "blocked", "exception", "suspended"];
     for (const state of states) for (const accessEnabled of [true, false]) {
       const href = buildAdminProvisioningView(adminIn({ state, accessEnabled, sender: sender() })).next.href;
-      if (href) expect(href).toMatch(/^#(onboarding-pilot|onboarding-row-s1|sender-s1)$/);
+      if (href) expect(href).toMatch(/^#(onboarding-pilot|onboarding-row-s1|sender-s1|ledger-s1)$/);
     }
   });
 
