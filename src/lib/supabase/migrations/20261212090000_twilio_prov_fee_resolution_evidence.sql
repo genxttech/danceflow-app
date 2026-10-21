@@ -82,14 +82,16 @@ create table public.studio_sms_prov_listings (
   observed_at timestamptz not null default clock_timestamp(),                     -- when THIS database recorded it (the clock every rule uses)
   source text not null check (source in ('provider_read', 'fake')),
   complete boolean not null,
-  listed_sids text[] not null default '{}' check (cardinality(listed_sids) <= 50 and array_to_string(listed_sids, ',') ~ '^(QE[0-9a-fA-F]{32}(,QE[0-9a-fA-F]{32})*)?$'),
+  listed_sids text[] not null default '{}' check (cardinality(listed_sids) <= 50 and array_to_string(listed_sids, ',') ~ '^(QE[0-9a-fA-F]{32}(,QE[0-9a-fA-F]{32})*)?$'),   -- EVERYTHING the provider listed
+  owned_elsewhere text[] not null default '{}',   -- the part of it that another operation of the business already owns: not evidence about THIS operation, but never hidden from `listed_sids`
   evidence_digest text not null check (evidence_digest ~ '^[0-9a-f]{64}$'),
   verdict text not null check (verdict in ('absent', 'present', 'inconclusive', 'premature')),
   recorded_by_lease text not null check (char_length(recorded_by_lease) between 1 and 64),
   constraint studio_sms_prov_listings_read unique (operation_id, read_id),
   constraint studio_sms_prov_listings_digest unique (operation_id, evidence_digest),
   constraint studio_sms_prov_listings_verdict_shape check (
-    (verdict = 'inconclusive') = (not complete) and (verdict <> 'present' or cardinality(listed_sids) > 0) and (verdict not in ('absent', 'premature') or cardinality(listed_sids) = 0))
+    (verdict = 'inconclusive') = (not complete) and owned_elsewhere <@ listed_sids
+    and (verdict <> 'present' or not (listed_sids <@ owned_elsewhere)) and (verdict not in ('absent', 'premature') or listed_sids <@ owned_elsewhere))
 );
 create index studio_sms_prov_listings_op on public.studio_sms_prov_listings (operation_id, observed_at);
 
@@ -350,6 +352,7 @@ begin
     from public.studio_sms_prov_listings l, unnest(l.listed_sids) s
    where l.studio_id = r.studio_id and l.scope_sid = v_scope and l.twilio_account_sid = r.twilio_account_sid and l.observed_at >= r.started_at
      and s <> all (v_known)
+     and l.observed_at > coalesce((select max(y.closed_at) from public.studio_sms_prov_orphans y where y.provider_sid = s and y.status = 'closed'), '-infinity'::timestamptz)
      and not exists (select 1 from public.studio_sms_prov_orphans y where y.provider_sid = s and y.status <> 'closed');
   select count(*) into v_open from public.studio_sms_prov_operations x
    where x.studio_id = r.studio_id and x.op_kind = 'campaign' and x.fee_bearing and x.status in ('in_flight', 'unknown_outcome') and x.superseded_at is null;
@@ -360,7 +363,9 @@ begin
   select * into o from public.studio_sms_onboarding y where y.id = r.onboarding_id;
   foreach v_sid in array v_cand loop
     select l.id into v_listing from public.studio_sms_prov_listings l
-     where l.studio_id = r.studio_id and l.scope_sid = v_scope and l.observed_at >= r.started_at and v_sid = any (l.listed_sids) order by l.observed_at limit 1;
+     where l.studio_id = r.studio_id and l.scope_sid = v_scope and l.twilio_account_sid = r.twilio_account_sid and l.observed_at >= r.started_at and v_sid = any (l.listed_sids)
+       and l.observed_at > coalesce((select max(y.closed_at) from public.studio_sms_prov_orphans y where y.provider_sid = v_sid and y.status = 'closed'), '-infinity'::timestamptz)
+     order by l.observed_at limit 1;
     v_inserted := null;
     insert into public.studio_sms_prov_orphans (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, scope_sid, first_listing_id, source_operation_id)
     values (r.legal_entity_id, r.studio_id, r.twilio_account_sid, 'campaign', v_sid, v_scope, v_listing, r.id)
@@ -410,6 +415,8 @@ declare
   v_start timestamptz;
   v_complete boolean;
   v_listed text[];
+  v_owned text[];
+  v_rel text[];
   v_verdict text;
   v_orphans int := 0;
   v_active text;
@@ -450,10 +457,12 @@ begin
     raise exception 'invalid listing facts' using errcode = '22023';
   end if;
   -- a campaign that ANOTHER operation of the business already owns (for example an earlier, provider-failed attempt that the service still lists) is not evidence about THIS
-  -- operation: it is left out of what is recorded, so it can neither read as a resource of this attempt nor keep a genuine refusal from releasing
-  select coalesce(array_agg(s), '{}') into v_listed from unnest(v_listed) s
-   where s <> all (coalesce((select array_agg(x.provider_sid) from public.studio_sms_prov_operations x
-                              where x.legal_entity_id = r.legal_entity_id and x.id <> r.id and x.provider_sid is not null), '{}'));
+  -- operation: it is set aside when judging THIS operation (so it can neither read as a resource of this attempt nor keep a genuine refusal from releasing), but the full
+  -- provider list is always recorded (the "is it gone" and orphan rules read it)
+  select coalesce(array_agg(s), '{}') into v_owned from unnest(v_listed) s
+   where s = any (coalesce((select array_agg(x.provider_sid) from public.studio_sms_prov_operations x
+                             where x.legal_entity_id = r.legal_entity_id and x.id <> r.id and x.provider_sid is not null), '{}'));
+  select coalesce(array_agg(s), '{}') into v_rel from unnest(v_listed) s where s <> all (v_owned);
   -- a replay of the same provider read changes nothing
   select * into v_row from public.studio_sms_prov_listings l where l.operation_id = r.id and l.read_id = v_read_id;
   if v_row.id is not null then
@@ -479,13 +488,13 @@ begin
 
   v_verdict := case
     when not v_complete then 'inconclusive'
-    when cardinality(v_listed) > 0 then 'present'
+    when cardinality(v_rel) > 0 then 'present'
     when v_start < r.started_at + interval '20 minutes' then 'premature'
     else 'absent'
   end;
   insert into public.studio_sms_prov_listings (operation_id, onboarding_id, studio_id, legal_entity_id, twilio_account_sid, op_kind, scope_sid, read_id, read_started_at, observed_at, source, complete,
-                                               listed_sids, evidence_digest, verdict, recorded_by_lease)
-  values (r.id, o.id, r.studio_id, r.legal_entity_id, r.twilio_account_sid, r.op_kind, v_ms.provider_sid, v_read_id, v_start, v_now, p_source, v_complete, v_listed, p_digest, v_verdict, p_lease_owner)
+                                               listed_sids, owned_elsewhere, evidence_digest, verdict, recorded_by_lease)
+  values (r.id, o.id, r.studio_id, r.legal_entity_id, r.twilio_account_sid, r.op_kind, v_ms.provider_sid, v_read_id, v_start, v_now, p_source, v_complete, v_listed, v_owned, p_digest, v_verdict, p_lease_owner)
   returning * into v_row;
 
   if v_verdict = 'present' then

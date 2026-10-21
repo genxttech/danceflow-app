@@ -880,6 +880,57 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
           ${check(`if (select string_agg(provider_sid, ',') from public.studio_sms_prov_orphans where legal_entity_id = '${ED}') is distinct from '${X}' then raise exception 'wrong orphans'; end if;`)} rollback;`)).toBe("");
     });
 
+    it("a CLOSED orphan is not re-created from listings that predate its closure; a listing after the closure is a new orphan", () => {
+      const ids = psql(`select string_agg(id::text, ',' order by attempt) from public.studio_sms_prov_operations where studio_id = '${SD1}' and op_kind = 'campaign'`).split(",");
+      const op = ids[ids.length - 1];
+      const ms = msSid(SD1);
+      const X = `QE${"3".repeat(32)}`;
+      const lst = (minsAgo: number, extra = "") =>
+        `insert into public.studio_sms_prov_listings (operation_id, onboarding_id, studio_id, legal_entity_id, twilio_account_sid, op_kind, scope_sid, read_id, read_started_at, observed_at, source, complete, listed_sids, evidence_digest, verdict, recorded_by_lease)
+           select o.id, o.onboarding_id, o.studio_id, o.legal_entity_id, o.twilio_account_sid, 'campaign', '${ms}', gen_random_uuid(), now() - interval '${minsAgo} minutes', now() - interval '${minsAgo} minutes', 'fake', true, array['${X}'], md5(random()::text) || md5(random()::text), 'present', 'fixture'
+             from public.studio_sms_prov_operations o where o.id = '${op}'; ${extra}`;
+      const base = `begin; set local session_replication_role = replica;
+        update public.studio_sms_prov_operations set status = 'abandoned', superseded_at = now(), started_at = now() - interval '5 hours' where id = '${op}';
+        delete from public.studio_sms_prov_listings where studio_id = '${SD1}'; delete from public.studio_sms_prov_orphans where legal_entity_id = '${ED}';
+        ${lst(120)}
+        insert into public.studio_sms_prov_orphans (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, scope_sid, first_listing_id, source_operation_id, status, closed_at, close_note, discovered_at)
+          select o.legal_entity_id, o.studio_id, o.twilio_account_sid, 'campaign', '${X}', '${ms}', (select id from public.studio_sms_prov_listings where studio_id = '${SD1}' limit 1), o.id, 'closed', now() - interval '60 minutes', 'fixture: closed earlier', now() - interval '110 minutes'
+            from public.studio_sms_prov_operations o where o.id = '${op}';
+        set local session_replication_role = origin;`;
+      const live = `(select count(*) from public.studio_sms_prov_orphans where provider_sid = '${X}' and status <> 'closed')`;
+      expect(psqlError(`${base} do $$ begin perform public._tw4prov2_orphan_scan('${op}'); if ${live} <> 0 then raise exception 'closed orphan re-created from an old listing'; end if; end $$; rollback;`)).toBe("");
+      expect(psqlError(`${base} set local session_replication_role = replica; ${lst(10)} set local session_replication_role = origin;
+        do $$ begin perform public._tw4prov2_orphan_scan('${op}'); if ${live} <> 1 then raise exception 'a listing after the closure did not open a new orphan'; end if; end $$; rollback;`)).toBe("");
+    });
+
+    it("an administrator-typed SID on another operation cannot close an orphan through the 'it is gone' basis: the full provider list is recorded, so listings that still show it keep it open", () => {
+      const ids = psql(`select string_agg(id::text, ',' order by attempt) from public.studio_sms_prov_operations where studio_id = '${SD1}' and op_kind = 'campaign'`).split(",");
+      const [typed, other] = [ids[0], ids[ids.length - 1]];
+      const ms = msSid(SD1);
+      const X = `QE${"2".repeat(32)}`;
+      const lst = (op: string, minsAgo: number) =>
+        `insert into public.studio_sms_prov_listings (operation_id, onboarding_id, studio_id, legal_entity_id, twilio_account_sid, op_kind, scope_sid, read_id, read_started_at, observed_at, source, complete, listed_sids, owned_elsewhere, evidence_digest, verdict, recorded_by_lease)
+           select o.id, o.onboarding_id, o.studio_id, o.legal_entity_id, o.twilio_account_sid, 'campaign', '${ms}', gen_random_uuid(), now() - interval '${minsAgo} minutes', now() - interval '${minsAgo} minutes', 'fake', true, array['${X}'], array['${X}'], md5(random()::text) || md5(random()::text), 'absent', 'fixture'
+             from public.studio_sms_prov_operations o where o.id = '${op}';`;
+      const sql = `begin; set local session_replication_role = replica;
+        delete from public.studio_sms_prov_listings where studio_id = '${SD1}'; delete from public.studio_sms_prov_orphans where legal_entity_id = '${ED}';
+        update public.studio_sms_prov_operations set status = 'succeeded', provider_sid = '${X}' where id = '${typed}';
+        insert into public.studio_sms_prov_listings (operation_id, onboarding_id, studio_id, legal_entity_id, twilio_account_sid, op_kind, scope_sid, read_id, read_started_at, observed_at, source, complete, listed_sids, evidence_digest, verdict, recorded_by_lease)
+          select o.id, o.onboarding_id, o.studio_id, o.legal_entity_id, o.twilio_account_sid, 'campaign', '${ms}', gen_random_uuid(), now() - interval '90 minutes', now() - interval '90 minutes', 'fake', true, array['${X}'], md5(random()::text) || md5(random()::text), 'present', 'fixture'
+            from public.studio_sms_prov_operations o where o.id = '${typed}';
+        insert into public.studio_sms_prov_orphans (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, scope_sid, first_listing_id, source_operation_id, discovered_at)
+          select o.legal_entity_id, o.studio_id, o.twilio_account_sid, 'campaign', '${X}', '${ms}', (select id from public.studio_sms_prov_listings where studio_id = '${SD1}' limit 1), o.id, now() - interval '80 minutes'
+            from public.studio_sms_prov_operations o where o.id = '${typed}';
+        ${lst(other, 40)} ${lst(other, 20)}
+        set local session_replication_role = origin;
+        do $$ begin
+          if public._tw4prov2_orphan_gone((select id from public.studio_sms_prov_orphans where provider_sid = '${X}')) then raise exception 'closed by listings that still show it'; end if;
+        end $$;
+        select public.tw4_prov_orphan_close((select id from public.studio_sms_prov_orphans where provider_sid = '${X}'), '${U.padmin}', 'fixture: the typed SID must not close this orphan');
+        rollback;`;
+      expect(psqlError(sql)).toMatch(/TW046/);
+    });
+
     it("a campaign owned by ANOTHER operation of the business (an earlier attempt the service still lists) is left out of this operation's evidence: it neither reads as this attempt's resource nor blocks a genuine refusal", async () => {
       const ids = psql(`select string_agg(id::text, ',' order by attempt) from public.studio_sms_prov_operations where studio_id = '${SD1}' and op_kind = 'campaign'`).split(",");
       const [earlier, current] = [ids[0], ids[ids.length - 1]];
@@ -888,7 +939,8 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       try {
         const r = await record(SD1, current, { listed: [Z] });
         expect(r.error).toBeNull();
-        expect(psql(`select verdict || ':' || cardinality(listed_sids) from public.studio_sms_prov_listings where operation_id = '${current}'`)).toBe("absent:0");
+        // judged as absent for THIS operation, yet the full provider list (and the part another operation owns) stays recorded
+        expect(psql(`select verdict || ':' || cardinality(listed_sids) || ':' || cardinality(owned_elsewhere) from public.studio_sms_prov_listings where operation_id = '${current}'`)).toBe("absent:1:1");
         expect(psql(`select count(*) from public.studio_sms_prov_orphans where provider_sid = '${Z}'`)).toBe("0");
       } finally {
         aged(`update public.studio_sms_prov_operations set provider_sid = null where id = '${earlier}'`);
