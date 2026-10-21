@@ -5,6 +5,9 @@ import { STATE_LABELS, type OnboardingDisplayState } from "@/lib/sms/onboarding/
 import { runSmsOnboardingAction, setSmsOnboardingAccessAction, setSmsRunnerWindowAction } from "./actions";
 import SmsCampaignPackage from "./SmsCampaignPackage";
 import SmsStepEvidence from "./SmsStepEvidence";
+import ProvisioningSummary from "./ProvisioningSummary";
+import type { SenderOverviewRow } from "@/lib/sms/senderVerification";
+import type { ProvisioningOperationView } from "@/lib/sms/provisioning/adminView";
 
 const RUNNABLE_STATES = new Set(["submitted_for_checks", "profile_review", "brand_pending"]);
 const ATTENTION_STATES = new Set(["needs_info", "blocked", "exception", "suspended"]);
@@ -22,6 +25,8 @@ export default function SmsOnboardingPilot({
   runnerError = null,
   evidence = {},
   origin = "https://www.idanceflow.com",
+  senderRows = null,
+  operationsByStudio = null,
 }: {
   studios: StudioOption[];
   rows: PlatformOnboardingRow[];
@@ -34,6 +39,10 @@ export default function SmsOnboardingPilot({
   evidence?: Record<string, RunnerStatus>;
   /** Public origin used to build the studio links in the campaign package. */
   origin?: string;
+  /** Sender overview (null when not loaded). */
+  senderRows?: SenderOverviewRow[] | null;
+  /** R2a provisioning ledger per studio id; null = the read is not connected in this build (shown as such, never as "no operations"). */
+  operationsByStudio?: Record<string, ProvisioningOperationView[]> | null;
 }) {
   return (
     <section id="onboarding-pilot" className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
@@ -108,7 +117,7 @@ export default function SmsOnboardingPilot({
                 ) : (
                   rows.map((row) => (
                     <Fragment key={row.studioId}>
-                    <tr>
+                    <tr id={`onboarding-row-${row.studioId}`}>
                       <td className="py-2 pr-4 font-medium text-slate-900">{row.studioName}</td>
                       <td className="py-2 pr-4">{row.accessEnabled ? "On" : row.state ? "Off (setup paused)" : "Off"}</td>
                       <td className="py-2 pr-4">
@@ -152,6 +161,19 @@ export default function SmsOnboardingPilot({
                         ) : (
                           "—"
                         )}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td colSpan={6} className="space-y-2 pb-3">
+                        <ProvisioningSummary
+                          studioId={row.studioId}
+                          state={row.state}
+                          accessEnabled={row.accessEnabled}
+                          evidence={evidence[row.studioId]}
+                          sendersLoaded={senderRows !== null}
+                          sender={senderRows?.find((r) => r.studioId === row.studioId) ?? null}
+                          operations={operationsByStudio ? operationsByStudio[row.studioId] ?? [] : null}
+                        />
                       </td>
                     </tr>
                     {evidence[row.studioId] || row.accessEnabled ? (

@@ -16,7 +16,8 @@ import { getMonthlyLimitOverview, smsMonthlyLimitsEnabled } from "@/lib/billing/
 import SmsLimitPanel from "./SmsLimitPanel";
 import SmsRecurringPanel from "./SmsRecurringPanel";
 import SmsSetupWizard from "./SmsSetupWizard";
-import SmsStatusTracker from "./SmsStatusTracker";
+import SmsJourney from "./SmsJourney";
+import { hasLiveCampaignAuthorization, type FinanceFacts } from "@/lib/sms/provisioning/journey";
 
 const EDIT_STATES = new Set(["not_started", "draft", "needs_info"]);
 
@@ -100,6 +101,19 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
   // re-check the owner role and refuse a linked location or a second pending request)
   const offerLocationLink = isOwner && !paused && creditView?.overview.legalBusiness !== true;
 
+  const campaignKind = recurringView?.campaignMonthlyKind ?? null;
+  const finance: FinanceFacts | null = creditView
+    ? {
+        legalBusiness: creditView.overview.legalBusiness,
+        availableCents: creditView.overview.availableCents,
+        onHold: creditView.overview.onHold,
+        pilotBusiness: recurringView?.pilotBusiness ?? creditView.overview.pilotCeilingCents != null,
+        campaignMonthlyKind: campaignKind,
+        hasActiveAuthorization: hasLiveCampaignAuthorization(recurringView?.authorizations, campaignKind),
+        prices: creditView.prices.map((p) => ({ kind: p.kind, customerPriceCents: p.customerPriceCents })),
+      }
+    : null;
+
   const wizard = (
     <SmsSetupWizard
       // keyed by state only: a successful save must not remount the form (it would drop the "Saved." confirmation)
@@ -136,7 +150,15 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
         <Link href="/app/settings" className="text-sm font-semibold text-violet-700 hover:text-violet-900">Back to settings</Link>
       </div>
 
-      <SmsStatusTracker state={status.state} textingOn={status.textingOn} />
+      <SmsJourney
+        state={status.state}
+        textingOn={status.textingOn}
+        paused={paused}
+        isOwner={isOwner}
+        finance={finance}
+        // R2a/R2b owner-safe reads are not connected in this build: the number, sender and compliance steps say "not available yet" and offer no action
+        provisioning={null}
+      />
 
       {offerLocationLink ? (
         <section aria-labelledby="sms-location-link-heading" className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between" data-testid="sms-location-link">
@@ -153,11 +175,11 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
         </section>
       ) : null}
 
-      {creditView ? <SmsCreditPanel view={creditView} purchasesEnabled={smsCreditPurchasesEnabled()} returned={returned} /> : null}
+      {creditView ? <div id="sms-credit"><SmsCreditPanel view={creditView} purchasesEnabled={smsCreditPurchasesEnabled()} returned={returned} /></div> : null}
 
       {creditView && limitView ? <SmsLimitPanel overview={limitView} isOwner={isOwner} enabled={smsMonthlyLimitsEnabled()} /> : null}
 
-      {creditView && recurringView ? <SmsRecurringPanel overview={recurringView} prices={creditView.prices} isOwner={isOwner} enabled={smsRecurringAuthorizationEnabled()} /> : null}
+      {creditView && recurringView ? <div id="sms-recurring"><SmsRecurringPanel overview={recurringView} prices={creditView.prices} isOwner={isOwner} enabled={smsRecurringAuthorizationEnabled()} /></div> : null}
 
       {paused ? (
         <p role="status" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -172,7 +194,7 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
 
       {!paused && (isOwner || draft) ? (
         canEdit ? (
-          wizard
+          <div id="sms-setup">{wizard}</div>
         ) : (
           <details className="group/onfile rounded-2xl border border-slate-200 bg-white p-4">
             <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-semibold text-violet-800 [&::-webkit-details-marker]:hidden">

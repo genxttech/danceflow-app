@@ -448,6 +448,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
         runnerNotice={firstParam(params.runner)}
         runnerError={firstParam(params.runner_error)}
         evidence={evidence}
+        senderRows={panelSenders}
         origin={(process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://www.idanceflow.com").replace(/\/+$/, "")}
       />
 
