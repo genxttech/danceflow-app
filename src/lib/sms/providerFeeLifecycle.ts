@@ -184,11 +184,17 @@ export type ScanSummary = {
   deliveryEnabled: boolean;
   /** businesses beyond the per-run cap: counted as an error so a scan that cannot cover everyone is never silent */
   truncated: number;
+  /** 1 when delivery stopped early (time budget or per-pass alert cap) with more alerts possibly still pending for the next pass, else 0. Not an error. */
+  deferred: number;
 };
 
 const MAX_ENTITIES = 500;
-const ALERT_BATCH = 25;
+const ALERT_BATCH = 5;
+/** Per-pass alert cap (8 x 5): each alert can queue up to 15 emails, and the route has maxDuration 60. */
 const MAX_ALERT_BATCHES = 8;
+/** Stop claiming new alerts this long after the start of the pass; the run still finishes and finishes its heartbeat. */
+export const DELIVERY_TIME_BUDGET_MS = 40_000;
+export type ScanRunOptions = { now?: () => number; budgetMs?: number; maxBatches?: number };
 export const SCAN_RUNNER_NAME = "sms-provider-fee-lifecycle";
 
 type RunOps = Pick<ProviderFeeOpsRpc, "scanBegin" | "scanFinish" | "escalateDelivery">;
@@ -198,10 +204,12 @@ type RunOps = Pick<ProviderFeeOpsRpc, "scanBegin" | "scanFinish" | "escalateDeli
  * alert delivery (ONLY when a sink is supplied; the route supplies one only with the strict env flag AND the database delivery switch) -> heartbeat finish
  * (always once a run began; `failed` on any error; counts only).
  */
-export async function runProviderFeeLifecycleScan(store: ProviderFeeLifecycleStore, sink: ProviderFeeAlertSink | null, ops: RunOps): Promise<ScanSummary> {
+export async function runProviderFeeLifecycleScan(store: ProviderFeeLifecycleStore, sink: ProviderFeeAlertSink | null, ops: RunOps, options: ScanRunOptions = {}): Promise<ScanSummary> {
+  const now = options.now ?? Date.now;
+  const startedAt = now();
   const summary: ScanSummary = {
     ran: false, ranReason: null, entities: 0, opened: 0, closed: 0, alertsCreated: 0, inventoryGaps: 0, escalated: 0, delivered: 0, failed: 0, errors: 0,
-    deliveryEnabled: sink !== null, truncated: 0,
+    deliveryEnabled: sink !== null, truncated: 0, deferred: 0,
   };
   let runId: string | null = null;
   try {
@@ -221,14 +229,17 @@ export async function runProviderFeeLifecycleScan(store: ProviderFeeLifecycleSto
   }
   summary.ran = true;
   try {
-    await scanAndDeliver(store, sink, ops, summary);
+    await scanAndDeliver(store, sink, ops, summary, { now, startedAt, budgetMs: options.budgetMs ?? DELIVERY_TIME_BUDGET_MS, maxBatches: options.maxBatches ?? MAX_ALERT_BATCHES });
   } catch {
     summary.errors += 1;
   }
   try {
-    const { ran, ranReason, ...counts } = summary;
-    void ran;
-    void ranReason;
+    // counts only: a flat object of finite numbers (the database refuses anything else); booleans become 0/1, strings are dropped
+    const counts: Record<string, number> = {};
+    for (const [key, value] of Object.entries(summary)) {
+      if (typeof value === "number" && Number.isFinite(value)) counts[key] = value;
+      else if (typeof value === "boolean") counts[key] = value ? 1 : 0;
+    }
     await ops.scanFinish(runId, summary.errors > 0 ? "failed" : "completed", counts, summary.errors > 0 ? "scan_errors" : null);
   } catch {
     summary.errors += 1;
@@ -236,7 +247,9 @@ export async function runProviderFeeLifecycleScan(store: ProviderFeeLifecycleSto
   return summary;
 }
 
-async function scanAndDeliver(store: ProviderFeeLifecycleStore, sink: ProviderFeeAlertSink | null, ops: RunOps, summary: ScanSummary): Promise<void> {
+type Budget = { now: () => number; startedAt: number; budgetMs: number; maxBatches: number };
+
+async function scanAndDeliver(store: ProviderFeeLifecycleStore, sink: ProviderFeeAlertSink | null, ops: RunOps, summary: ScanSummary, budget: Budget): Promise<void> {
   let entities: string[] = [];
   try {
     const all = await store.scanEntities();
@@ -268,7 +281,11 @@ async function scanAndDeliver(store: ProviderFeeLifecycleStore, sink: ProviderFe
     summary.errors += 1;
   }
   if (!sink) return;
-  for (let batch = 0; batch < MAX_ALERT_BATCHES; batch += 1) {
+  for (let batch = 0; batch < budget.maxBatches; batch += 1) {
+    if (batch > 0 && budget.now() - budget.startedAt >= budget.budgetMs) {
+      summary.deferred = 1;   // out of time: what is left stays pending for the next pass
+      break;
+    }
     let alerts: ProviderFeeAlert[] = [];
     try {
       alerts = await store.claimAlerts(ALERT_BATCH);
@@ -297,5 +314,6 @@ async function scanAndDeliver(store: ProviderFeeLifecycleStore, sink: ProviderFe
       }
     }
     if (alerts.length < ALERT_BATCH) break;
+    if (batch === budget.maxBatches - 1) summary.deferred = 1;   // per-pass cap reached with a full last batch
   }
 }

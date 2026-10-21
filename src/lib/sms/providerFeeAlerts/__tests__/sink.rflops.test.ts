@@ -52,7 +52,7 @@ describe("createProviderFeeAlertSink", () => {
     expect(h.queued).toHaveLength(2);
     const byEmail = Object.fromEntries(h.queued.map((q) => [q.recipientEmail, q]));
     expect(byEmail["owner1@example.test"]).toMatchObject({ studioId: "s1", channel: "email", templateKey: "platform_rfl_authorization_expiring", dedupeKey: "rfl:alert1:owner:o1", relatedId: "alert1" });
-    expect(byEmail["admin1@example.test"]).toMatchObject({ studioId: "s1", dedupeKey: "rfl:alert1:admin:a1" });   // admin: the alert's studio
+    expect(byEmail["admin1@example.test"]).toMatchObject({ studioId: "s1", templateKey: "platform_rfl_admin_authorization_expiring", dedupeKey: "rfl:alert1:admin:a1" });   // admin: the alert's studio
     expect(byEmail["owner1@example.test"].bodyText).toContain("Studio: Rhythm Studio");
     expect(byEmail["admin1@example.test"].bodyText).not.toContain("Rhythm Studio");
     expect(h.recordCalls).toEqual([
@@ -61,6 +61,16 @@ describe("createProviderFeeAlertSink", () => {
     ]);
     // the reference is never an address
     expect(h.recordCalls.every((r) => !r.ref.includes("@"))).toBe(true);
+  });
+
+  it("admin-addressed mail NEVER uses an owner-visible template key and owner-addressed mail NEVER uses the admin prefix (staff must not read admin alerts)", async () => {
+    const h = harness({ recipients: [owner(1), owner(2), admin(1), admin(2)] });
+    for (const kind of ["authorization_expiring", "exposure_open", "alert_delivery_exhausted", "some_future_kind"]) await h.sink.deliver(alert({ kind, id: `a-${kind}` }));
+    expect(h.queued.length).toBe(16);
+    for (const q of h.queued) {
+      if (q.dedupeKey?.includes(":admin:")) expect(q.templateKey.startsWith("platform_rfl_admin_")).toBe(true);
+      else expect(q.templateKey.startsWith("platform_rfl_admin_")).toBe(false);
+    }
   });
 
   it("no queued email contains a SID, amount, token or balance even if the summary tried to", async () => {

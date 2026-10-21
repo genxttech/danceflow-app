@@ -36,7 +36,7 @@ vi.mock("@/lib/sms/providerFeeAlerts", () => ({
 
 import { GET, POST } from "../route";
 
-const summary = { ran: true, ranReason: null, entities: 2, opened: 1, closed: 0, alertsCreated: 3, inventoryGaps: 0, escalated: 0, delivered: 0, failed: 0, errors: 0, deliveryEnabled: false, truncated: 0 };
+const summary = { ran: true, ranReason: null, entities: 2, opened: 1, closed: 0, alertsCreated: 3, inventoryGaps: 0, escalated: 0, delivered: 0, failed: 0, errors: 0, deliveryEnabled: false, truncated: 0, deferred: 0 };
 
 beforeEach(() => {
   authFailure = null;

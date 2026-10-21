@@ -35,11 +35,15 @@ Delivery therefore needs the env flag AND the database switch; either one off me
 
 ## 4. What is and is not in an email
 
-Templates are keyed `platform_rfl_<kind>` (one per alert kind; an unknown future kind falls back to `platform_rfl_alert`), so they are DanceFlow system mail with no studio reply-to and are operational, not marketing.
+Templates are keyed per alert kind and per recipient kind: owner-addressed `platform_rfl_<kind>`, admin-addressed `platform_rfl_admin_<kind>` (an unknown future kind falls back to `platform_rfl_alert` / `platform_rfl_admin_alert`). Both start with `platform_`, so they are DanceFlow system mail with no studio reply-to and are operational, not marketing.
 
 Body: the alert's already-sanitized `summary`, `Studio: <name>` for an owner recipient only, and one link (owner: `/app/settings/sms`; administrator: `/platform/sms`) built with `buildAppUrl`.
 
 Never: a Twilio SID, token or credential, cents or any price, balance, provider cost or invoice reference. Defense in depth: a summary that looks sensitive (SID shape, `$` amount, the words cents/token/balance/credential/password/secret/invoice) is replaced by the kind's generic sentence. A unit test scans every template, recipient kind and a hostile summary for these.
+
+### Who can read these rows
+
+Admin-addressed rows are queued under a studio (the queue requires one) but are NOT readable by that studio's staff: the database adds an RLS exclusion for `template_key like 'platform_rfl_admin_%'` on `outbound_deliveries` (PR 1), and the Communications page (`src/app/app/communications/page.tsx`) additionally excludes those keys from its query and its in-memory list. A test pins that every admin-addressed delivery uses the admin prefix and no owner-addressed one does. Owner-addressed rows (`platform_rfl_<kind>`) do appear in that studio's Communications list, like any other staff email.
 
 ## 5. Dedupe and replay
 
@@ -47,13 +51,19 @@ Never: a Twilio SID, token or credential, cents or any price, balance, provider 
 - Delivery records are unique per (alert, recipient reference) in the database; a replay is `replayed:true`.
 - `recorded:false` means the claim token is no longer current: the sink stops at once and throws (`RflAlert_claim_lost`); the runner's finish is refused by the database too. No further email is sent.
 
+### "Delivered" means queued, not sent
+
+An alert marked delivered in the outbox means every reachable recipient's email was QUEUED in `outbound_deliveries`, not that it was sent. The dispatcher (`/api/notifications/send`) sends later; a terminal provider failure after queueing is NOT retried by this feature (the dedupe key blocks a re-queue). Operators find it in the existing outbound delivery statuses: `outbound_deliveries` rows with `template_key like 'platform_rfl_%'` and `status` not `sent` (`error_message` has the reason); owner-addressed failures also show in that studio's Communications page (failed deliveries first). Admin-addressed rows are visible to platform operators with service-role access only.
+
 ## 6. Failure and escalation
 
 - The sink throws (the alert is marked failed with the error NAME only, e.g. `RflAlert_queue_failed`; attempts are counted and bounded at 5 by the database) when: no recipient exists (`no_recipient`), a queue or record call fails, or nobody could be reached (`unreachable`). Error text never contains an address or database message.
 - A failing recipient does not block the others; recipients already queued are not repeated on retry (dedupe), only the missing ones are.
 - One failing alert never blocks the others in the pass. A business scan failure never stops the other businesses.
 - After 5 failed attempts `tw4_rfl_escalate_delivery` (every pass) raises one `alert_delivery_exhausted` administrator alert; `tw4_rfl_health` reports `alerts_exhausted` and `stale` runs.
-- The route returns counts only (`ran`, `ranReason`, entities, opened, closed, alertsCreated, inventoryGaps, escalated, delivered, failed, errors, deliveryEnabled, truncated). A heartbeat refusal is a clean 200; any error is a 500.
+- Time and size budget: alerts are claimed in batches of 5, at most 8 batches (40 alerts) per pass, and no new batch is claimed more than 40 s after the pass started (the route's maxDuration is 60 s). The run still finishes its heartbeat. Whatever is left stays pending for the next pass; the summary field `deferred` is 1 when delivery stopped early with a full last batch (more may remain), else 0. Deferral is not an error.
+- Heartbeat summary: `tw4_rfl_scan_finish` accepts only a flat object of numbers, so the finish summary is numeric only (booleans as 0/1, no strings); a unit test fake rejects anything else exactly as the SQL does.
+- The route returns counts only (`ran`, `ranReason`, entities, opened, closed, alertsCreated, inventoryGaps, escalated, delivered, failed, errors, deliveryEnabled, truncated, deferred). A heartbeat refusal is a clean 200; any error is a 500.
 
 ## 7. DRAFT activation checklist (separate, owner-approved step: nothing below has been done)
 

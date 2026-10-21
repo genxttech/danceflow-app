@@ -1,4 +1,5 @@
 import { buildAppUrl } from "@/lib/email/brand";
+import { RFL_ADMIN_TEMPLATE_PREFIX } from "./staffVisibility";
 import { renderDanceFlowSystemEmail } from "@/lib/notifications/email-branding";
 
 /**
@@ -46,6 +47,14 @@ export function isKnownRflAlertKind(kind: string): kind is RflAlertKind {
   return (RFL_ALERT_KINDS as readonly string[]).includes(kind);
 }
 
+/** Admin-addressed mail uses a DISTINCT prefix so the database (RLS) and the Communications page can hide it from studio staff. */
+export { RFL_ADMIN_TEMPLATE_PREFIX };
+export const RFL_OWNER_TEMPLATE_PREFIX = "platform_rfl_";
+export function rflTemplateKey(kind: string, recipientKind: "owner" | "admin") {
+  const base = isKnownRflAlertKind(kind) ? kind : "alert";
+  return recipientKind === "admin" ? `${RFL_ADMIN_TEMPLATE_PREFIX}${base}` : `${RFL_OWNER_TEMPLATE_PREFIX}${base}`;
+}
+
 export type RenderedRflEmail = { templateKey: string; subject: string; bodyText: string; bodyHtml: string };
 
 function cleanLine(value: string, max: number) {
@@ -70,5 +79,5 @@ export function renderRflAlertEmail(params: { kind: string; summary: string; rec
   const lines = [...(studioName ? [`Studio: ${studioName}`, ""] : []), summary];
   const bodyText = `${lines.join("\n")}\n\n${actionLabel}: ${actionUrl}`;
   const bodyHtml = renderDanceFlowSystemEmail({ previewText: copy.subject, eyebrow: "DanceFlow texting", heading: copy.heading, bodyText: lines.join("\n"), actionLabel, actionUrl });
-  return { templateKey: known ? `platform_rfl_${params.kind}` : "platform_rfl_alert", subject: copy.subject, bodyText, bodyHtml };
+  return { templateKey: rflTemplateKey(params.kind, params.recipientKind), subject: copy.subject, bodyText, bodyHtml };
 }

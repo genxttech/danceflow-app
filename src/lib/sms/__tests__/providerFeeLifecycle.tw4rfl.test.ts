@@ -79,7 +79,14 @@ describe("runProviderFeeLifecycleScan", () => {
     const ops = {
       scanBegin: vi.fn(async () => { order.push("begin"); return { ran: true, reason: null, runId: "run1" }; }),
       escalateDelivery: vi.fn(async () => { order.push("escalate"); return 2; }),
-      scanFinish: vi.fn(async (runId: string, status: string, summary: Record<string, unknown>, error: string | null) => { order.push("finish"); finishes.push({ runId, status, summary, error }); return true; }),
+      // exactly like tw4_rfl_scan_finish: the summary must be a flat object whose values are all finite numbers (SQLSTATE 22023 otherwise)
+      scanFinish: vi.fn(async (runId: string, status: string, summary: Record<string, unknown>, error: string | null) => {
+        order.push("finish");
+        const flat = summary !== null && typeof summary === "object" && !Array.isArray(summary);
+        if (!flat || !Object.values(summary).every((v) => typeof v === "number" && Number.isFinite(v))) throw new ProviderFeeError("22023");
+        finishes.push({ runId, status, summary, error });
+        return true;
+      }),
       ...over,
     };
     return { ops: ops as never, raw: ops, order, finishes };
@@ -90,7 +97,7 @@ describe("runProviderFeeLifecycleScan", () => {
     const { store, raw } = makeStore();
     const { ops } = makeOps();
     const out = await runProviderFeeLifecycleScan(store, null, ops);
-    expect(out).toEqual({ ran: true, ranReason: null, entities: 2, opened: 2, closed: 4, alertsCreated: 6, inventoryGaps: 4, escalated: 2, delivered: 0, failed: 0, errors: 1, deliveryEnabled: false, truncated: 0 });
+    expect(out).toEqual({ ran: true, ranReason: null, entities: 2, opened: 2, closed: 4, alertsCreated: 6, inventoryGaps: 4, escalated: 2, delivered: 0, failed: 0, errors: 1, deliveryEnabled: false, truncated: 0, deferred: 0 });
     expect(raw.claimAlerts).not.toHaveBeenCalled();
   });
 
@@ -143,13 +150,14 @@ describe("runProviderFeeLifecycleScan", () => {
     // share one timeline
     (ops as unknown as { scanBegin: () => Promise<unknown> }).scanBegin = async () => { order.push("begin"); return { ran: true, reason: null, runId: "run1" }; };
     (ops as unknown as { escalateDelivery: () => Promise<number> }).escalateDelivery = async () => { order.push("escalate"); return 0; };
-    (ops as unknown as { scanFinish: (...a: unknown[]) => Promise<boolean> }).scanFinish = async (runId, status, summary, error) => { order.push("finish"); finishes.push({ runId: runId as string, status: status as string, summary: summary as Record<string, unknown>, error: error as string | null }); return true; };
+    (ops as unknown as { scanFinish: (...a: unknown[]) => Promise<boolean> }).scanFinish = async (runId, status, summary, error) => { order.push("finish"); expect(Object.values(summary as object).every((v) => typeof v === "number")).toBe(true); finishes.push({ runId: runId as string, status: status as string, summary: summary as Record<string, unknown>, error: error as string | null }); return true; };
     await runProviderFeeLifecycleScan(store, { deliver: async () => {} }, ops);
     expect(order).toEqual(["begin", "entities", "entity", "gaps", "escalate", "claim", "finish"]);
     expect(opsOrder).toEqual([]);
     expect(finishes).toHaveLength(1);
     expect(finishes[0]).toMatchObject({ runId: "run1", status: "completed", error: null });
-    expect(Object.values(finishes[0].summary).every((v) => typeof v === "number" || typeof v === "boolean")).toBe(true);
+    expect(Object.values(finishes[0].summary).every((v) => typeof v === "number" && Number.isFinite(v))).toBe(true);
+    expect(finishes[0].summary).toMatchObject({ deliveryEnabled: 1, deferred: 0 });
     expect(finishes[0].summary).not.toHaveProperty("ranReason");
   });
 
@@ -209,5 +217,37 @@ describe("runProviderFeeLifecycleScan", () => {
     expect(out.errors).toBeGreaterThan(0);
     expect(finishes).toHaveLength(1);
     expect(finishes[0].status).toBe("failed");
+  });
+
+  it("the heartbeat summary is accepted by a SQL-faithful validator on every pass (a boolean in it would leave the run 'running')", async () => {
+    const { store } = makeStore();
+    const { ops, finishes } = makeOps();
+    const out = await runProviderFeeLifecycleScan(store, { deliver: async () => {} }, ops);
+    expect(finishes).toHaveLength(1);   // the strict fake would have thrown (and added an error) otherwise
+    expect(out.errors).toBe(1);   // only the failing business e2, not a rejected finish
+  });
+
+  it("time budget: stops claiming new alerts once the budget is spent, still finishes the heartbeat, and reports deferred", async () => {
+    let t = 0;
+    const claim = vi.fn(async () => { t += 15_000; return Array.from({ length: 5 }, (_, i) => a(i)); });
+    const { store } = makeStore({ scanEntities: vi.fn(async () => []), claimAlerts: claim });
+    const { ops, finishes } = makeOps();
+    const out = await runProviderFeeLifecycleScan(store, { deliver: async () => {} }, ops, { now: () => t, budgetMs: 40_000 });
+    expect(claim).toHaveBeenCalledTimes(3);   // 15s, 30s, 45s: the fourth claim is refused by the budget
+    expect(out).toMatchObject({ deferred: 1, errors: 0, ran: true });
+    expect(finishes).toHaveLength(1);
+    expect(finishes[0]).toMatchObject({ status: "completed" });
+    expect(finishes[0].summary.deferred).toBe(1);
+  });
+
+  it("per-pass alert cap: at most 8 batches of 5 (40 alerts); a full last batch is reported as deferred, a short one is not", async () => {
+    const full = vi.fn(async () => Array.from({ length: 5 }, (_, i) => a(i)));
+    const r1 = await runProviderFeeLifecycleScan(makeStore({ claimAlerts: full }).store, { deliver: async () => {} }, makeOps().ops);
+    expect(full).toHaveBeenCalledTimes(8);
+    expect(r1.deferred).toBe(1);
+    let n = 0;
+    const draining = vi.fn(async () => (n++ < 2 ? Array.from({ length: 5 }, (_, i) => a(i)) : [a(1)]));
+    const r2 = await runProviderFeeLifecycleScan(makeStore({ claimAlerts: draining }).store, { deliver: async () => {} }, makeOps().ops);
+    expect(r2.deferred).toBe(0);
   });
 });

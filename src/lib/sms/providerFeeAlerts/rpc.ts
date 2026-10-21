@@ -78,7 +78,7 @@ export class ProviderFeeOpsRpc {
   }
 
   /** The summary is counts only. `error` is a short code, never a message. */
-  async scanFinish(runId: string, status: "completed" | "failed", summary: Record<string, number | boolean | string | null>, error: string | null): Promise<boolean> {
+  async scanFinish(runId: string, status: "completed" | "failed", summary: Record<string, number>, error: string | null): Promise<boolean> {
     const row = await this.call<{ updated?: boolean } | null>("tw4_rfl_scan_finish", { p_run_id: runId, p_status: status, p_summary: summary, p_error: error });
     return row?.updated === true;
   }

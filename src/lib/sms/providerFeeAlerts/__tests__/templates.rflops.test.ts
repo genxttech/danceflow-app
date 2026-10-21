@@ -24,7 +24,7 @@ describe("RFL alert email templates", () => {
       for (const recipientKind of ["owner", "admin"] as const) {
         for (const summary of ["Your authorization ends in 30 days.", hostile, ""]) {
           const mail = renderRflAlertEmail({ kind, summary, recipientKind, studioName: "Rhythm Studio" });
-          expect(mail.templateKey).toBe(`platform_rfl_${kind}`);
+          expect(mail.templateKey).toBe(recipientKind === "admin" ? `platform_rfl_admin_${kind}` : `platform_rfl_${kind}`);
           expect(mail.templateKey.startsWith("platform_")).toBe(true);
           expect(mail.subject.length).toBeGreaterThan(5);
           for (const part of [mail.subject, mail.bodyText, visibleText(mail.bodyHtml)]) scan(part);
@@ -57,7 +57,8 @@ describe("RFL alert email templates", () => {
 
   it("an unknown kind falls back to a generic platform_ template instead of failing", () => {
     const mail = renderRflAlertEmail({ kind: "brand_new_kind", summary: "Something needs review.", recipientKind: "admin" });
-    expect(mail.templateKey).toBe("platform_rfl_alert");
+    expect(mail.templateKey).toBe("platform_rfl_admin_alert");
+    expect(renderRflAlertEmail({ kind: "brand_new_kind", summary: "x", recipientKind: "owner" }).templateKey).toBe("platform_rfl_alert");
     expect(mail.bodyText).toContain("Something needs review.");
   });
 
