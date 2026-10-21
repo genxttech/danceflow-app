@@ -18,6 +18,7 @@ import SmsRecurringPanel from "./SmsRecurringPanel";
 import SmsSetupWizard from "./SmsSetupWizard";
 import SmsJourney from "./SmsJourney";
 import { hasLiveCampaignAuthorization, type FinanceFacts } from "@/lib/sms/provisioning/journey";
+import { getOwnerProvisioning } from "@/lib/sms/provisioning/ownerRead";
 
 const EDIT_STATES = new Set(["not_started", "draft", "needs_info"]);
 
@@ -101,6 +102,8 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
   // re-check the owner role and refuse a linked location or a second pending request)
   const offerLocationLink = isOwner && !paused && creditView?.overview.legalBusiness !== true;
 
+  // R2c-I2: campaign / Messaging Service status from the database, bound to this user's session (null = unreadable or not installed: the journey then says "not available yet")
+  const provisioning = !paused && isOwner ? await getOwnerProvisioning(supabase, context.studioId) : null;
   const campaignKind = recurringView?.campaignMonthlyKind ?? null;
   const finance: FinanceFacts | null = creditView
     ? {
@@ -159,8 +162,8 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
         isOwner={isOwner}
         finance={finance}
         canEditForm={canEdit}
-        // R2a/R2b owner-safe reads are not connected in this build: the number, sender and compliance steps say "not available yet" and offer no action
-        provisioning={null}
+        // campaign status comes from the session-bound read; number, sender and compliance stay "not available yet" until the authoritative R2b reads exist
+        provisioning={provisioning}
       />
 
       {offerLocationLink ? (
