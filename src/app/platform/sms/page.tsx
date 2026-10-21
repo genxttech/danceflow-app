@@ -5,6 +5,7 @@ import { getSmsPlatformReadiness } from "@/lib/sms/compliance";
 import SmsOnboardingPilot from "./SmsOnboardingPilot";
 import SmsCreditAdmin from "./SmsCreditAdmin";
 import UsageReconciliation from "./UsageReconciliation";
+import RecurringFeesPanel from "./RecurringFeesPanel";
 import { loadReconcileOverview } from "@/lib/sms/usageReconcileView";
 import SmsSubaccountPanel from "./SmsSubaccountPanel";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -442,6 +443,8 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
       <SmsCreditAdmin overview={creditOverview} recurring={recurringOverview} />
 
       <UsageReconciliation overview={usageOverview} notice={firstParam(params.usage) === "resolved"} error={firstParam(params.usage_error)} />
+
+      <RecurringFeesPanel adminId={admin.id} notice={firstParam(params.rfl)} error={firstParam(params.rfl_error)} />
 
       <SmsSubaccountPanel
         overview={panelOverview}
