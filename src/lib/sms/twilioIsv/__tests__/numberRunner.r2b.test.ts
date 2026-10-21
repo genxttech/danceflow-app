@@ -66,6 +66,12 @@ class ScriptedStore implements NumberStore {
     this.transitions.push(`${to}:${errorCode}`);
     return to;
   }
+  inventories: string[][] = [];
+  async inventoryObserve(_o: string, _l: string, sids: string[]) {
+    this.log.push("inventory");
+    this.inventories.push(sids);
+    return { listed: sids.length, unknown: sids.filter((sid) => !this.ctx.known_numbers.includes(sid)).length };
+  }
   async recordOffer(_s: string, _a: string, accountSid: string, _search: Record<string, unknown>, candidates: unknown[]): Promise<OfferRecorded> {
     this.log.push(`offer:${accountSid}`);
     this.offers.push(candidates);
@@ -137,7 +143,7 @@ describe("number runner decisions", () => {
     expect(result.outcome).toBe("number_ready");
     expect(adapter.calls.map((c) => c.method)).toEqual(["listIncomingNumbers", "findOwnedNumbers", "purchaseNumber", "getNumber", "listServiceNumbers", "attachNumber", "getServiceNumbers"]);
     expect(store.log).toEqual([
-      "claim", "account", "context", "begin:number_purchase", "finish:op-number_purchase:succeeded", "observe:op-number_purchase",
+      "claim", "account", "context", "inventory", "begin:number_purchase", "finish:op-number_purchase:succeeded", "observe:op-number_purchase",
       "begin:number_attach", "finish:op-number_attach:succeeded", "observe:op-number_attach", "release",
     ]);
     expect(store.begins[0]).toMatchObject({ kind: "number_purchase", friendlyName: numberFriendlyName("test", STUDIO, 1), params: { selection_id: "sel-1", e164: E164 } });

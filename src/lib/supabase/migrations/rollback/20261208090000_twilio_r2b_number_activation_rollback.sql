@@ -21,7 +21,7 @@ begin
     raise exception 'R2b rollback refused: number provisioning evidence exists' using errcode = '55000';
   end if;
   -- the route pin and the inventory acknowledgements are evidence too (dynamic: a database that never had them is fine)
-  for v_t in select unnest(array['studio_sms_inbound_route_pins', 'studio_sms_num_inventory_acks']) loop
+  for v_t in select unnest(array['studio_sms_inbound_route_pins', 'studio_sms_num_inventory_acks', 'studio_sms_num_inventory_checks']) loop
     if to_regclass('public.' || v_t) is not null then
       execute format('select exists (select 1 from public.%I)', v_t) into v_has;
       if v_has then
@@ -72,6 +72,8 @@ drop function if exists public._tw4sr_ready_core(uuid);
 drop function if exists public._tw4act_lock_funding(uuid);
 drop function if exists public._tw4num_credit_funded(uuid, uuid);
 
+drop function if exists public.tw4_num_inventory_observe(uuid, text, text[]);
+drop function if exists public._tw4num_known(uuid);
 drop function if exists public.tw4_num_rent_basis(uuid);
 drop function if exists public._tw4num_rent_basis_core(uuid);
 drop function if exists public.tw4_num_inventory_ack(uuid, uuid, text, text, text);
@@ -113,6 +115,7 @@ drop function if exists public._tw4num_campaign(uuid);
 drop function if exists public._tw4num_service(uuid);
 drop function if exists public._tw4num_account(uuid);
 
+drop table if exists public.studio_sms_num_inventory_checks;
 drop table if exists public.studio_sms_inbound_route_pins;
 drop table if exists public.studio_sms_num_inventory_acks;
 drop table public.studio_sms_compliance_checks;
@@ -122,6 +125,20 @@ drop table public.studio_sms_num_operations;
 drop table public.studio_sms_number_selections;
 drop table public.studio_sms_number_offers;
 drop function if exists public._tw4num_guard();
+
+-- the shared approval-reference registry as of 20261202090000 (no number_selection source; a registered one means selection evidence exists, refused above)
+do $$
+begin
+  if exists (select 1 from public.studio_sms_approval_refs where source = 'number_selection') then
+    raise exception 'R2b rollback refused: number approval references exist' using errcode = '55000';
+  end if;
+end $$;
+alter table public.studio_sms_approval_refs drop constraint studio_sms_approval_refs_source_check;
+alter table public.studio_sms_approval_refs add constraint studio_sms_approval_refs_source_check check (source in ('spend_authorization', 'pilot_exception'));
+alter table public.studio_sms_approval_refs drop constraint studio_sms_approval_refs_shape;
+alter table public.studio_sms_approval_refs add constraint studio_sms_approval_refs_shape check (
+  (source = 'spend_authorization' and spend_event_id is not null and kind is not null and amount_cents is not null and funding is not null)
+  or (source = 'pilot_exception' and spend_event_id is null and kind is null and amount_cents is null and funding is null and studio_id is null));
 
 -- audit vocabulary without the R2b actions (the live list minus ours)
 do $$

@@ -102,6 +102,7 @@ const CLEANUP = `
 begin;
 set local session_replication_role = replica;
 delete from public.studio_sms_inbound_route_pins where set_by = '${U.padmin}';
+delete from public.studio_sms_num_inventory_checks where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_num_inventory_acks where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_compliance_checks where studio_id in (${STUDIOS});
 delete from public.studio_sms_optout_attestations where studio_id in (${STUDIOS});
@@ -244,6 +245,11 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
     user === U.padmin
       ? rpc("tw4_num_withdraw", { p_studio_id: studio, p_actor: user, p_selection_id: selectionId, p_note: note })
       : (asUser(user).rpc("tw4_num_withdraw_as_owner", { p_studio_id: studio, p_selection_id: selectionId, p_note: note }) as unknown as ReturnType<typeof rpc>);
+  /** The admin releases the number in the Twilio console (DanceFlow deletes nothing at the provider): it leaves the subaccount before the ledger is retired. */
+  const consoleRelease = (account: string, e164: string) => {
+    const universe = adapterOf(account).universe;
+    for (const row of [...universe.owned.values()]) if (row.phone_number === e164 && row.account_sid === account) universe.owned.delete(row.sid);
+  };
   const basis = async (studio: string) => (await rpc("tw4_num_rent_basis", { p_studio_id: studio })).data as { live: boolean; reason: string };
   /** offer + owner selection in one go (returns the selection id) */
   const choose = async (studio: string, user: string, adapter: FakeNumberAdapter, e164: string) => {
@@ -436,7 +442,7 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect((await withdraw(SA2, U.padmin, id, "fixture cleanup")).error).toBeNull();
       // the same written approval cannot approve another operation, whatever its spelling
       const o2 = await offer(SA2, a);
-      expect((await select(SA2, U.padmin, o2.offer!.offerId, NUM.a2, PRICE.number, "  OWNER email 2026-10-21 approves  number a2 for location 2 ")).error?.code).toBe("23505");
+      expect((await select(SA2, U.padmin, o2.offer!.offerId, NUM.a2, PRICE.number, "  OWNER email 2026-10-21 approves  number a2 for location 2 ")).error?.code).toBe("TW019");
       // an owner's own approval is attributed to the owner (user), not to an admin
       const owner = await select(SA2, U.owner_a, o2.offer!.offerId, NUM.a2);
       expect(owner.error).toBeNull();
@@ -526,8 +532,8 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect(step(SA1)).toBe("N3");
       expect(state(SA1)).toBe("campaign_pending");
       // the contract the recurring-fee lifecycle asks before it charges number rent: a purchase confirmed by the provider, in the active subaccount, not retired
-      expect(await basis(SA1)).toMatchObject({ live: true, reason: "ok", pilot: false });
-      expect(await basis(SB1)).toMatchObject({ live: false, reason: "no_live_purchase", managed: false });
+      expect(await basis(SA1)).toMatchObject({ state: "billable", live: true, reason: "ok", pilot: false });
+      expect(await basis(SB1)).toMatchObject({ state: "not_billable", live: false, reason: "no_live_purchase", managed: true });
       expect(await basis(SA1)).toMatchObject({ managed: true });
       const again = await run(SA1, a);
       expect(again.outcome).toBe("number_ready");
@@ -550,6 +556,7 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       const senderId = (sender.ok ? sender.data.sender_id : "") as string;
       expect(senderId).toBeTruthy();
       expect((await rpc("tw4_sender_revoke", { p_studio_id: SA1, p_actor: U.padmin, p_reason: "fixture: location released its number", p_release: true })).error).toBeNull();
+      consoleRelease(ACC.A, NUM.a1);
       expect((await rpc("tw4_num_retire", { p_studio_id: SA1, p_actor: U.padmin, p_note: "released at the provider console (fixture)" })).error).toBeNull();
       expect(ops(SA1, "number_purchase")).toBe("1:succeeded:true");
       expect(await basis(SA1)).toMatchObject({ live: false, reason: "no_live_purchase" });
@@ -571,7 +578,13 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
 
     it("a lost response on the purchase is reconciled by lookup: the number is adopted, never bought twice", async () => {
       const d = adapterOf(ACC.D);
-      await choose(SD1, U.owner_a, d, NUM.d1);
+      const d1Selection = await choose(SD1, U.owner_a, d, NUM.d1);
+      // the inventory reconciliation is a DATABASE requirement of the purchase, whatever the caller does: begin without a clean stamp from its own lease is refused
+      const lease = "r2b-noinv";
+      const claim = await store.claim(SD1, U.padmin, lease);
+      const noStamp = await store.begin(claim.onboarding_id, lease, { kind: "number_purchase", friendlyName: "x", digest: hex("3"), params: { selection_id: d1Selection, e164: NUM.d1 }, actorId: U.padmin }).catch((error) => error);
+      expect((noStamp as { code?: string }).code).toBe("TW045");
+      await store.release(claim.onboarding_id, lease);
       d.failNext("purchaseNumber", { kind: "transient", lostResponse: true });
       const first = await run(SD1, d);
       expect(first.outcome).toBe("retry_later");
@@ -588,6 +601,7 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       // free the location for a second purchase: record + release the sender, retire the ledger (fixture path)
       expect((await recordSenderFromLedger(admin, SD1, U.padmin)).ok).toBe(true);
       expect((await rpc("tw4_sender_revoke", { p_studio_id: SD1, p_actor: U.padmin, p_reason: "fixture: released", p_release: true })).error).toBeNull();
+      consoleRelease(ACC.D, NUM.d1);
       expect((await rpc("tw4_num_retire", { p_studio_id: SD1, p_actor: U.padmin, p_note: "released at the provider console (fixture)" })).error).toBeNull();
       await choose(SD1, U.owner_a, d, NUM.d2);
       // the request succeeds inside "Twilio" and then the number VANISHES from the lookup (an admin removed it, or the provider lists lag): nothing can prove it was not bought
@@ -614,14 +628,21 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect((await select(SD1, U.owner_a, (await offer(SD1, d)).offer!.offerId, NUM.d2)).error).toBeNull();
     });
 
-    it("a number the subaccount already owns that the ledger never recorded is NOT adopted: a human decides, nothing is bought, nothing is spent", async () => {
+    it("a number the subaccount already owns that the ledger never recorded is NOT adopted: a human decides, nothing is bought, nothing is spent; an acknowledged foreign number does not block", async () => {
       const d = adapterOf(ACC.D);
-      d.seedOwned(NUM.d2);
       const before = d.count("purchaseNumber");
+      // a number bought by hand before the system existed: an admin acknowledges it once (nothing is bought, released or charged by that)
+      const foreignSid = d.seedOwned("+12025550113");
+      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.stranger, p_phone_number_sid: foreignSid, p_e164: "+12025550113", p_note: "bought by hand before the system" })).error?.code).toBe("42501");
+      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.padmin, p_phone_number_sid: foreignSid, p_e164: "+12025550113", p_note: "short" })).error?.code).toBe("22023");
+      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.padmin, p_phone_number_sid: foreignSid, p_e164: "+12025550113", p_note: "bought by hand before the system" })).error).toBeNull();
+      // a number that turns up for the E.164 of a purchase this ledger declared "not created" is NOT foreign: it is investigated, never acknowledged away
+      const late = d.seedOwned(NUM.d2);
+      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.padmin, p_phone_number_sid: late, p_e164: NUM.d2, p_note: "bought by hand before the system" })).error?.code).toBe("TW034");
       const result = await run(SD1, d);
       expect(result.outcome).toBe("exception");
-      // the inventory reconciliation stops it BEFORE anything is recorded or bought
-      expect(result.detail).toContain("inventory_unrecorded");
+      // the inventory reconciliation stops it BEFORE anything is recorded or bought; only the late number counts (the acknowledged one does not)
+      expect(result.detail).toContain("inventory_unrecorded:1");
       expect(d.count("purchaseNumber")).toBe(before);
       expect(code(SD1)).toBe("num_inventory_unknown");
       expect(ops(SD1, "number_purchase")).toMatch(/^1:succeeded:true,2:abandoned:false$/);
@@ -631,15 +652,6 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect((await rpc("tw4_num_reopen", { p_studio_id: SD1, p_actor: U.stranger, p_reason: "the number was reviewed by a person" })).error?.code).toBe("42501");
       expect((await rpc("tw4_num_reopen", { p_studio_id: SD1, p_actor: U.padmin, p_reason: "the number was reviewed by a person" })).error).toBeNull();
       expect(state(SD1)).toBe("campaign_pending");
-      // an admin acknowledges the foreign number (nothing is bought, released or charged by that): the inventory no longer blocks, and the per-number lookup still refuses to adopt it
-      const foreign = [...d.universe.owned.values()].find((row) => row.phone_number === NUM.d2)!;
-      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.stranger, p_phone_number_sid: foreign.sid, p_e164: NUM.d2, p_note: "bought by hand before the system" })).error?.code).toBe("42501");
-      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.padmin, p_phone_number_sid: foreign.sid, p_e164: NUM.d2, p_note: "short" })).error?.code).toBe("22023");
-      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SD1, p_actor: U.padmin, p_phone_number_sid: foreign.sid, p_e164: NUM.d2, p_note: "bought by hand before the system" })).error).toBeNull();
-      const second = await run(SD1, d);
-      expect(second.detail).toContain("exists_unrecorded");
-      expect(d.count("purchaseNumber")).toBe(before);
-      expect((await rpc("tw4_num_reopen", { p_studio_id: SD1, p_actor: U.padmin, p_reason: "the number was reviewed by a person again" })).error).toBeNull();
     });
 
     it("a definite provider refusal closes the attempt, consumes the approval for good (a retry needs a NEW approval) and leaves no reservation", async () => {
@@ -647,8 +659,7 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       // make room: the colliding owned number is gone, the earlier approval is withdrawn
       const open = psql(`select id from public.studio_sms_number_selections where studio_id = '${SD1}' and status = 'approved'`);
       expect((await withdraw(SD1, U.owner_a, open, "fixture")).error).toBeNull();
-      const row = [...d.universe.owned.values()].find((r) => r.phone_number === NUM.d2)!;
-      d.universe.owned.delete(row.sid);
+      for (const phone of [NUM.d2, "+12025550113"]) d.universe.owned.delete([...d.universe.owned.values()].find((r) => r.phone_number === phone)!.sid);
       const selId = await choose(SD1, U.owner_a, d, NUM.d3);
       d.failNext("purchaseNumber", { kind: "validation", code: "21452" });
       const refused = await run(SD1, d);
@@ -760,6 +771,7 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       // release the first number so a second can be approved (location rule), then approve another
       expect((await recordSenderFromLedger(admin, SC1, U.padmin)).ok).toBe(true);
       expect((await rpc("tw4_sender_revoke", { p_studio_id: SC1, p_actor: U.padmin, p_reason: "fixture: released", p_release: true })).error).toBeNull();
+      consoleRelease(ACC.C, NUM.c1);
       expect((await rpc("tw4_num_retire", { p_studio_id: SC1, p_actor: U.padmin, p_note: "released at the provider console (fixture)" })).error).toBeNull();
       await choose(SC1, U.owner_a, c, NUM.c2);
       expect((await authorize(EC, SC1, "number", PRICE.number, ref("pilot-number-2"), "pilot")).error).toBeNull();
@@ -930,6 +942,13 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect(state(SA1)).toBe("active");
       expect(step(SA1)).toBe("A2");
       expect(psql(`select count(*) from public.studio_sms_onboarding_audit where studio_id = '${SA1}' and action in ('activation_ready', 'activation_done')`)).toBe("2");
+      // an active location sends only from the sender its LEDGER bought and attached: with the ledger attachment gone the PR #249 readiness still says ready, the R2b gate does not
+      expect(await ready()).toBe("t");
+      aged(`update public.studio_sms_num_operations set superseded_at = now() where studio_id = '${SA1}' and op_kind = 'number_attach' and superseded_at is null`);
+      expect(await readyCore()).toBe("t");
+      expect(await ready()).toBe("f");
+      aged(`update public.studio_sms_num_operations set superseded_at = null where studio_id = '${SA1}' and op_kind = 'number_attach' and superseded_at is not null and attempt = (select max(attempt) from public.studio_sms_num_operations where studio_id = '${SA1}' and op_kind = 'number_attach')`);
+      expect(await ready()).toBe("t");
       // a refresh of an approved sender (PR #249's verification; PR #251 schedules the same judge) keeps it ready. R2b adds no scheduler and does not call the
       // scheduler-only function, so it works with or without PR #251 applied.
       aged(`update public.studio_sms_sender_verifications set created_at = now() - interval '20 hours' where studio_id = '${SA1}'`);
@@ -959,6 +978,7 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
     it("a location past the number step can still replace its number: retire sends it through exception and reopen returns it to the number step; a number mismatch at the provider stops it at once", async () => {
       // the sender is already revoked by the suspension; release it, then the admin confirms the provider release
       expect((await rpc("tw4_sender_revoke", { p_studio_id: SA1, p_actor: U.padmin, p_reason: "fixture: location releases its number", p_release: true })).error).toBeNull();
+      consoleRelease(ACC.A, NUM.a1c);
       expect((await rpc("tw4_num_retire", { p_studio_id: SA1, p_actor: U.padmin, p_note: "released at the provider console (fixture)" })).error).toBeNull();
       expect(state(SA1)).toBe("exception");
       expect(code(SA1)).toBe("num_retired");

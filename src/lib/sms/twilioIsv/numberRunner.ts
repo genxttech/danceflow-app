@@ -125,6 +125,7 @@ function beginRefusal(error: unknown, kind: NumKind): { outcome: NumberOutcome; 
     case "TW032": return { outcome: "prerequisite_missing", detail };
     case "TW033": return { outcome: "recurring_missing", detail };
     case "TW040": return { outcome: "no_selection", detail };
+    case "TW045": return { outcome: "prerequisite_missing", detail: `${kind}:inventory_not_reconciled` };
     case "23505": return { outcome: "number_taken", detail };
     default: return { outcome: "exception", detail: `begin:${detail}` };
   }
@@ -358,11 +359,16 @@ export async function runNumberAcquisition(input: NumberInput): Promise<NumberRe
       } catch (error) {
         return { outcome: "retry_later", steps, detail: `inventory:${sanitized(error)}`, state };
       }
-      const known = new Set(ctx.known_numbers ?? []);
-      const unknown = inventory.filter((n) => !known.has(n.sid));
-      if (unknown.length > 0) {
+      let seen;
+      try {
+        // the DATABASE compares the provider's inventory with the numbers it accounts for, and its stamp (this lease, a moment ago, nothing unknown) is what the purchase requires
+        seen = await store.inventoryObserve(onboardingId, leaseOwner, inventory.map((n) => n.sid));
+      } catch (error) {
+        return { outcome: "retry_later", steps, detail: `inventory_record:${storeCode(error)}`, state };
+      }
+      if (seen.unknown > 0) {
         await toException("num_inventory_unknown");
-        return { outcome: "exception", steps, detail: `inventory_unrecorded:${unknown.length}`, state };
+        return { outcome: "exception", steps, detail: `inventory_unrecorded:${seen.unknown}`, state };
       }
     }
     if (!e164 || (!livePurchase && !ctx.requirements.selection_id)) return { outcome: "no_selection", steps, state };
