@@ -18,6 +18,7 @@ const SIGS = {
   claim: "create or replace function public.tw4_rfl_alerts_claim(p_limit int)",
   scan: "create or replace function public.tw4_rfl_scan_entity(p_entity_id uuid)",
   dispose: "create or replace function public.tw4_rfl_exposure_dispose(p_resource_id uuid, p_period_key text, p_actor uuid, p_disposition text, p_note text)",
+  overview: "create or replace function public.tw4_rfl_admin_overview(p_actor uuid)",
   cancel: "create or replace function public.tw4_rfl_cancel_authorize(p_resource_id uuid, p_actor uuid, p_approval_ref text, p_decided_by text, p_reason text, p_irreversible_ack boolean)",
 } as const;
 
@@ -97,7 +98,7 @@ describe("20261211090000 RFL ops: migration shape", () => {
     expect(a).toHaveLength(4);
     expect(a[0]).toMatch(/^perform public\._tw4sr_lock\(r\.studio_id\);/);
     expect(a[1]).toBe("if p_disposition = 'absorbed' then");
-    expect(a[2]).toMatch(/^perform public\._tw4rflops_consume\('absorb_exposure', r, p_period_key, null, btrim\(p_note\), p_actor\);/);
+    expect(a[2]).toMatch(/^perform public\._tw4rflops_consume\('absorb_exposure', r, p_period_key, null, btrim\(p_note\), null, p_actor\);/);
     expect(a[3]).toBe("end if;");
     // the location lock comes before the business and credit locks; the approval is consumed only after the replay and closed-state checks
     expect(after.indexOf("_tw4sr_lock")).toBeLessThan(after.indexOf("_tw4rfl_lock"));
@@ -114,7 +115,7 @@ describe("20261211090000 RFL ops: migration shape", () => {
     expect(a).toHaveLength(4);
     expect(a[0]).toMatch(/^perform public\._tw4sr_lock\(r\.studio_id\);/);
     expect(a[1]).toBe("if r.resource_kind = 'number' then");
-    expect(a[2]).toMatch(/^perform public\._tw4rflops_consume\('cancel_number', r, null, p_approval_ref, btrim\(p_reason\), p_actor\);/);
+    expect(a[2]).toMatch(/^perform public\._tw4rflops_consume\('cancel_number', r, null, p_approval_ref, btrim\(p_reason\), p_decided_by, p_actor\);/);
     expect(a[3]).toBe("end if;");
     // every older refusal (reference reuse, open operation, policy_lapse on a number, live sender, lapse age) still runs BEFORE the approval is looked at, and the replay returns before it
     for (const marker of ["'replayed', true", "this approval reference was already used", "a cancellation of this resource is already open", "a phone number is never released on a policy decision",
@@ -125,11 +126,53 @@ describe("20261211090000 RFL ops: migration shape", () => {
     expect(after.indexOf("_tw4rflops_consume")).toBeLessThan(after.indexOf("_tw4fi_register(p_approval_ref, 'cancellation'"));
   });
 
+  it("tw4_rfl_admin_overview: only the open cancellation's id is added (every existing key kept)", () => {
+    const before = fnBody(prev, SIGS.overview);
+    const after = fnBody(mig, SIGS.overview);
+    survivesInOrder(before, after);
+    const a = added(before, after).map((l) => l.trim());
+    expect(a).toHaveLength(1);
+    expect(a[0]).toMatch(/^'open_cancel_operation_id', \(select o\.id from public\.studio_sms_provider_cancel_ops o where o\.resource_id = r\.id/);
+  });
+
+  it("the decision type, the fact epoch, the requester's standing and the insert guard are in place", () => {
+    const facts = fnBody(mig, "create or replace function public._tw4rflops_facts(p_action text, p_resource uuid, p_period text, p_ref_norm text, p_reason text, p_decided_by text)");
+    expect(facts).toContain("studio_sms_rfl_fact_epochs");
+    expect(facts).toContain("coalesce(p_decided_by, '')");
+    const consume = fnBody(mig, "create or replace function public._tw4rflops_consume(p_action text, r public.studio_sms_provider_resources, p_period text, p_ref text, p_reason text, p_decided_by text, p_actor uuid)");
+    expect(consume).toContain("q.cancel_decided_by is distinct from p_decided_by");
+    expect(consume).toContain("_tw4_r1_is_platform_admin(q.requested_by)");
+    expect(consume).toContain("q.expires_at <= clock_timestamp()");
+    expect(consume).not.toContain("now()");
+    expect(mig).toContain("p_approval_ref text, p_decided_by text default null)");
+    expect(mig).toContain("before insert on public.studio_sms_rfl_dual_requests for each row execute function public._tw4rflops_request_insert()");
+    // the epoch moves only on bound facts, never on a scan's last_detected_at touch
+    const upd = mig.slice(mig.indexOf("studio_sms_provider_exposure_90_epoch_upd"), mig.indexOf("studio_sms_provider_resources_90_epoch_upd"));
+    expect(upd).not.toContain("last_detected_at");
+    // deterministic switch ordering and the lease closed before the switch is consulted
+    expect(mig).toContain("seq bigserial not null");
+    expect(mig).toContain("order by l.changed_at desc, l.seq desc limit 1");
+    const begin = fnBody(mig, "create or replace function public.tw4_rfl_scan_begin(p_runner text, p_lease_seconds int default 600)");
+    expect(begin.indexOf("lease expired before the run finished")).toBeLessThan(begin.indexOf("switched_off"));
+  });
+
+  it("outbound_deliveries: every API-role SELECT policy is narrowed from its LIVE definition (originals saved), precondition-checked, and the rollback restores them", () => {
+    expect(mig).toContain("studio_sms_rfl_policy_backup");
+    expect(mig).toContain("pg_get_expr(pol.polqual, pol.polrelid)");
+    expect(mig).toContain("template_key like ''platform\\_rfl\\_admin\\_%''");
+    expect(mig).toContain("already hides administrator templates");
+    expect(mig).not.toMatch(/create policy/i);
+    expect(rollback).toContain("alter policy %I on public.%I using (%s)");
+    expect(rollback).toContain("original_qual");
+    expect(rollback.indexOf("alter policy")).toBeLessThan(rollback.indexOf("drop table public.studio_sms_rfl_policy_backup"));
+  });
+
   it("the precondition refuses to apply over anything but the exact 20261209 bodies (md5 of each, line endings ignored)", () => {
     expect(mig).toContain(`'${md5(prosrc(fnBody(prev, SIGS.claim)))}'`);
     expect(mig).toContain(`'${md5(prosrc(fnBody(prev, SIGS.scan)))}'`);
     expect(mig).toContain(`'${md5(prosrc(fnBody(prev, SIGS.dispose)))}'`);
     expect(mig).toContain(`'${md5(prosrc(fnBody(prev, SIGS.cancel)))}'`);
+    expect(mig).toContain(`'${md5(prosrc(fnBody(prev, SIGS.overview)))}'`);
     expect(mig).toContain("replace(p.prosrc, chr(13), '')");
     expect(mig).toContain("rfl-ops precondition failed: already applied");
   });
@@ -145,7 +188,7 @@ describe("20261211090000 RFL ops: migration shape", () => {
       expect(rollback).toContain(`drop table public.${t};`);
     }
     // every function and table the migration creates is dropped by the rollback
-    const created = [...mig.matchAll(/^create (?:or replace )?function public\.([a-z0-9_]+)\(/gm)].map((m) => m[1]).filter((n) => !["tw4_rfl_alerts_claim", "tw4_rfl_scan_entity", "tw4_rfl_exposure_dispose", "tw4_rfl_cancel_authorize"].includes(n));
+    const created = [...mig.matchAll(/^create (?:or replace )?function public\.([a-z0-9_]+)\(/gm)].map((m) => m[1]).filter((n) => !["tw4_rfl_alerts_claim", "tw4_rfl_scan_entity", "tw4_rfl_exposure_dispose", "tw4_rfl_cancel_authorize", "tw4_rfl_admin_overview"].includes(n));
     expect(created.length).toBeGreaterThanOrEqual(16);
     for (const name of created) expect(rollback, name).toContain(`drop function public.${name}(`);
     for (const t of [...mig.matchAll(/^create table public\.([a-z0-9_]+)/gm)].map((m) => m[1])) expect(rollback, t).toContain(`drop table public.${t};`);
