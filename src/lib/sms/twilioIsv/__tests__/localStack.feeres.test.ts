@@ -621,8 +621,8 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
             (select string_agg(distinct e -> 'cost' ->> 'basis', ',') from jsonb_array_elements(v -> 'orphans') e where e ->> 'status' <> 'closed');
         end $$; rollback;`);
       // OPEN periods only (700 billed; 2000 expected; the 3000/5000 closed period is history), each resource once although several orphan rows point at it - with or without the closed row listed
-      expect(agg(false)).toMatch(/AGG=700 / 2000 / n=2 / counted=1 / basis=recorded/);
-      expect(agg(true)).toMatch(/AGG=700 / 2000 / n=3 / counted=1 / basis=recorded/);
+      expect(agg(false)).toMatch(/AGG=700 \/ 2000 \/ n=2 \/ counted=1 \/ basis=recorded/);
+      expect(agg(true)).toMatch(/AGG=700 \/ 2000 \/ n=3 \/ counted=1 \/ basis=recorded/);
       // a second, unregistered orphan of the same location while the first is a live registered campaign: the lifecycle refuses (TW040); the orphan stays open, visible and blocking
       const refused = `QE${"8".repeat(32)}`;
       aged(`insert into public.studio_sms_prov_orphans (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, scope_sid, first_listing_id, source_operation_id, status)
