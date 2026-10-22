@@ -94,6 +94,10 @@ class ScriptedStore implements NumberStore {
   async reconTargets() {
     return this.targets;
   }
+  marked: string[] = [];
+  async reconMark(entity: string) {
+    this.marked.push(entity);
+  }
   async escalateOrphans() {
     this.log.push("escalate");
     return { outbox: true, raised: 0 };
@@ -447,6 +451,7 @@ describe("number search and status check", () => {
     expect(summary.checked).toBe(1);
     expect(summary.clean).toBe(1);
     expect(summary.skipped).toEqual([{ studioId: "studio-2", reason: "adapter_unavailable" }]);
+    expect(store.marked).toEqual(["le-2"]);   // the business that could not be attempted still rotates
     expect(store.log.filter((entry) => entry === "escalate")).toHaveLength(1);
     // an unclean listing is counted as a finding, never as clean
     const unclean = new ScriptedStore();

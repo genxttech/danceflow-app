@@ -25,6 +25,7 @@ end $$;
 
 drop function if exists public.tw4_num_orphan_escalate(integer);
 drop function if exists public.tw4_num_recon_manual(uuid);
+drop function if exists public.tw4_num_recon_mark(uuid);
 drop function if exists public._tw4num_has_resources(uuid);
 drop function if exists public.tw4_num_recon_claim(uuid, text, integer);
 drop function if exists public.tw4_num_recon_targets(integer, integer);

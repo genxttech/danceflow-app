@@ -1582,6 +1582,11 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
         aged(`update public.studio_sms_onboarding_access set enabled = ${access0 === "t" ? "true" : "false"} where studio_id = '${SB1}'`);
       }
       expect(psql("select to_regclass('public.studio_sms_num_inventory_checks_latest') is not null")).toBe("t");
+      // a business the runner could not attempt (no adapter, busy lease) is stamped too, so it rotates behind the rest
+      const unattempted = second.find((t) => t.legal_entity_id !== first[0].legal_entity_id)!;
+      const attemptsBefore = Number(psql(`select coalesce((select attempts from public.studio_sms_num_recon_attempts where legal_entity_id = '${unattempted.legal_entity_id}'), 0)`));
+      expect((await rpc("tw4_num_recon_mark", { p_entity: unattempted.legal_entity_id })).error).toBeNull();
+      expect(Number(psql(`select attempts from public.studio_sms_num_recon_attempts where legal_entity_id = '${unattempted.legal_entity_id}'`))).toBe(attemptsBefore + 1);
     });
 
     it("a listing the database cannot judge is refused explicitly: more than 1000 numbers need manual reconciliation (TW051), and non-canonical sids are rejected, never case-folded", async () => {

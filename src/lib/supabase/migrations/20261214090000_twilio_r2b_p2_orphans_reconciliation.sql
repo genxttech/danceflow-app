@@ -89,7 +89,7 @@ create table public.studio_sms_num_recon_attempts (
 revoke all on public.studio_sms_num_recon_attempts from public, anon, authenticated, service_role;
 alter table public.studio_sms_num_recon_attempts enable row level security;
 
-create index studio_sms_num_inventory_checks_latest on public.studio_sms_num_inventory_checks (legal_entity_id, twilio_account_sid, listed_at desc, created_at desc);
+create index studio_sms_num_inventory_checks_latest on public.studio_sms_num_inventory_checks (legal_entity_id, twilio_account_sid, listed_at desc, created_at desc, id);
 
 create table public.studio_sms_num_orphan_events (
   id uuid primary key default gen_random_uuid(),
@@ -587,6 +587,15 @@ end $$;
 create trigger studio_sms_num_operations_no_recon before insert on public.studio_sms_num_operations for each row execute function public._tw4p2_no_recon_ops();
 create trigger studio_sms_prov_operations_no_recon before insert on public.studio_sms_prov_operations for each row execute function public._tw4p2_no_recon_ops();
 
+-- the runner stamps a target it could NOT attempt (no adapter, a busy lease, a raise before the claim): without this such a business would sit at the head of every worklist forever
+create or replace function public.tw4_num_recon_mark(p_entity uuid)
+returns void language sql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+  insert into public.studio_sms_num_recon_attempts (legal_entity_id) select e.id from public.studio_sms_legal_entities e where e.id = p_entity
+  on conflict (legal_entity_id) do update set last_attempt_at = clock_timestamp(), attempts = studio_sms_num_recon_attempts.attempts + 1;
+$$;
+
 -- ---------------------------------------------------------------------------------------------------------------
 -- idempotent, age-based escalation into the recurring-fee-lifecycle alert outbox (when installed). Without it nothing is advanced and the deferral is reported.
 -- ---------------------------------------------------------------------------------------------------------------
@@ -689,8 +698,8 @@ revoke all on function public.tw4_num_inventory_observe(uuid, text, jsonb, text,
 grant execute on function public.tw4_num_inventory_observe(uuid, text, jsonb, text, timestamptz), public.tw4_num_orphan_resolve(uuid, uuid, text, text), public.tw4_num_inventory_status(uuid, uuid),
   public.tw4_num_orphan_exposure(uuid), public.tw4_num_recon_targets(integer, integer), public.tw4_num_recon_claim(uuid, text, integer), public.tw4_num_orphan_escalate(integer) to service_role;
 
-revoke all on function public._tw4num_has_resources(uuid), public.tw4_num_recon_manual(uuid) from public, anon, authenticated;
-grant execute on function public.tw4_num_recon_manual(uuid) to service_role;
+revoke all on function public._tw4num_has_resources(uuid), public.tw4_num_recon_manual(uuid), public.tw4_num_recon_mark(uuid) from public, anon, authenticated;
+grant execute on function public.tw4_num_recon_manual(uuid), public.tw4_num_recon_mark(uuid) to service_role;
 revoke all on function public._tw4num_has_resources(uuid) from service_role;
 
 commit;

@@ -597,6 +597,14 @@ export async function observeNumberIdentity(input: { store: NumberStore; adapter
   }
 }
 
+async function markAttempted(store: NumberStore, legalEntityId: string): Promise<void> {
+  try {
+    await store.reconMark(legalEntityId);
+  } catch {
+    /* best effort: the pass is reported either way */
+  }
+}
+
 export type ReconcileSummary = {
   checked: number;
   clean: number;
@@ -631,6 +639,7 @@ export async function reconcileInventories(input: {
     const adapter = adapterFor(target.twilio_account_sid);
     if (!adapter) {
       summary.skipped.push({ studioId: target.studio_id, reason: "adapter_unavailable" });
+      await markAttempted(store, target.legal_entity_id);
       continue;
     }
     const result = await refreshInventory({ store, adapter, studioId: target.studio_id, actorId: "scheduled", scheduled: true });
@@ -645,6 +654,7 @@ export async function reconcileInventories(input: {
       summary.skipped.push({ studioId: target.studio_id, reason: "manual_required" });
     } else {
       summary.skipped.push({ studioId: target.studio_id, reason: result.detail ? `${result.outcome}:${result.detail}` : result.outcome });
+      await markAttempted(store, target.legal_entity_id);   // a claim that raised rolled its own stamp back
     }
   }
   try {

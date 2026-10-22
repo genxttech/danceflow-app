@@ -56,6 +56,8 @@ export interface NumberStore {
   claimRecon(studioId: string, leaseOwner: string, leaseSeconds?: number): Promise<NumClaim>;
   /** One location per business whose subaccount inventory is due, never checked, unclean or carrying open findings. */
   reconTargets(limit: number, maxAgeSeconds: number): Promise<ReconTarget[]>;
+  /** Stamps a business the pass could not attempt, so the worklist rotates past it. */
+  reconMark(legalEntityId: string): Promise<void>;
   /** Idempotent, age-based escalation of open findings (a deferral is reported when the alert outbox is not installed). */
   escalateOrphans(limit: number): Promise<EscalationResult>;
   release(onboardingId: string, leaseOwner: string): Promise<void>;
@@ -96,6 +98,10 @@ export class SupabaseNumberStore implements NumberStore {
   async reconTargets(limit: number, maxAgeSeconds: number): Promise<ReconTarget[]> {
     const rows = await this.call<ReconTarget[] | null>("tw4_num_recon_targets", { p_limit: limit, p_max_age_seconds: maxAgeSeconds });
     return Array.isArray(rows) ? rows : [];
+  }
+
+  async reconMark(legalEntityId: string): Promise<void> {
+    await this.call("tw4_num_recon_mark", { p_entity: legalEntityId });
   }
 
   async escalateOrphans(limit: number): Promise<EscalationResult> {
