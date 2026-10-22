@@ -52,6 +52,7 @@ export type NumberOutcome =
   | "record_failed"
   | "search_refused"
   | "inventory_clean"
+  | "manual_required"
   | "identity_recorded"
   | "history_recorded"
   | "history_unavailable"
@@ -132,6 +133,8 @@ function beginRefusal(error: unknown, kind: NumKind): { outcome: NumberOutcome; 
     case "TW040": return { outcome: "no_selection", detail };
     case "TW046": return { outcome: "prerequisite_missing", detail: `${kind}:lifecycle_inventory` };
     case "TW045": return { outcome: "prerequisite_missing", detail: `${kind}:inventory_not_reconciled` };
+    // 20261212 (R2a fee evidence): a fee-bearing purchase is refused while an unreconciled campaign orphan of the same business is open or registered: BLOCKED, not a failed operation
+    case "TW047": return { outcome: "prerequisite_missing", detail: `${kind}:unreconciled_provider_resource` };
     case "23505": return { outcome: "number_taken", detail };
     default: return { outcome: "exception", detail: `begin:${detail}` };
   }
@@ -365,12 +368,21 @@ export async function runNumberAcquisition(input: NumberInput): Promise<NumberRe
         listedAt = new Date().toISOString();
         inventory = await adapter.listIncomingNumbers();
       } catch (error) {
+        if (error instanceof IsvApiError && error.twilioCode === "inventory_too_large") {
+          await toException("num_inventory_manual");
+          return { outcome: "exception", steps, detail: "inventory_manual_reconciliation", state };
+        }
         return { outcome: "retry_later", steps, detail: `inventory:${sanitized(error)}`, state };
+      }
+      if (inventory.length > MAX_LISTING) {
+        // a listing this large is never recorded as clean and never paginated blindly: a person reconciles it
+        await toException("num_inventory_manual");
+        return { outcome: "exception", steps, detail: "inventory_manual_reconciliation", state };
       }
       let seen;
       try {
         // the DATABASE compares the provider's inventory with the numbers it accounts for, and its stamp (this lease, a moment ago, nothing unknown) is what the purchase requires
-        seen = await store.inventoryObserve(onboardingId, leaseOwner, inventory.map((n) => n.sid), adapter.evidenceSource, listedAt);
+        seen = await store.inventoryObserve(onboardingId, leaseOwner, inventory, adapter.evidenceSource, listedAt);
       } catch (error) {
         return { outcome: "retry_later", steps, detail: `inventory_record:${storeCode(error)}`, state };
       }
@@ -502,13 +514,17 @@ export async function refreshNumber(input: Omit<NumberInput, "confirmFee">): Pro
  * Reconciles the provider's inventory of this business's subaccount with the ledger WITHOUT buying anything (a refresh lease: GET-only). The database judges it and stamps the
  * result; the activation checklist (`inventory_reconciled`) needs a clean stamp from the last 24 hours. Until a scheduled reconciliation exists this is the manual path.
  */
-export async function refreshInventory(input: { store: NumberStore; adapter: IsvNumberAdapter; studioId: string; actorId: string }): Promise<NumberResult> {
+/** The database judges a listing of at most this many numbers; a larger one needs MANUAL reconciliation (explicit, never silently truncated or recorded as clean). */
+const MAX_LISTING = 1000;
+
+export async function refreshInventory(input: { store: NumberStore; adapter: IsvNumberAdapter; studioId: string; actorId: string; scheduled?: boolean }): Promise<NumberResult> {
   const { store, adapter, studioId, actorId } = input;
-  const leaseOwner = `num-inv-${randomUUID().slice(0, 8)}`;
+  // a scheduled pass holds a 'recon:' lease, which the database refuses to let start any provider operation
+  const leaseOwner = `${input.scheduled ? "recon:" : "num-inv-"}${randomUUID().slice(0, 8)}`;
   const steps: NumKind[] = [];
   let claim;
   try {
-    claim = await store.claim(studioId, actorId, leaseOwner, 120, "refresh");
+    claim = input.scheduled ? await store.claimRecon(studioId, leaseOwner, 120) : await store.claim(studioId, actorId, leaseOwner, 120, "refresh");
   } catch (error) {
     const code = storeCode(error);
     return { outcome: code === "55P03" ? "lease_busy" : "not_runnable", steps, detail: code };
@@ -522,10 +538,13 @@ export async function refreshInventory(input: { store: NumberStore; adapter: Isv
       listedAt = new Date().toISOString();
       inventory = await adapter.listIncomingNumbers();
     } catch (error) {
+      // more pages than the adapter will read: a person reconciles it (explicit, never a silent retry loop and never recorded as clean)
+      if (error instanceof IsvApiError && error.twilioCode === "inventory_too_large") return { outcome: "manual_required", steps, detail: "inventory_over_1000", state: claim.state };
       return { outcome: "retry_later", steps, detail: `inventory:${sanitized(error)}`, state: claim.state };
     }
+    if (inventory.length > MAX_LISTING) return { outcome: "manual_required", steps, detail: "inventory_over_1000", state: claim.state };   // nothing is recorded: the sending hold follows the staleness
     try {
-      const seen = await store.inventoryObserve(claim.onboarding_id, leaseOwner, inventory.map((n) => n.sid), adapter.evidenceSource, listedAt);
+      const seen = await store.inventoryObserve(claim.onboarding_id, leaseOwner, inventory, adapter.evidenceSource, listedAt);
       return seen.unknown > 0 || seen.missing > 0
         ? { outcome: "inventory_unknown", steps, detail: seen.unknown > 0 ? `inventory_unrecorded:${seen.unknown}` : `inventory_missing:${seen.missing}`, state: claim.state }
         : { outcome: "inventory_clean", steps, state: claim.state };
@@ -578,6 +597,75 @@ export async function observeNumberIdentity(input: { store: NumberStore; adapter
       /* the lease expires by itself */
     }
   }
+}
+
+async function markAttempted(store: NumberStore, legalEntityId: string): Promise<void> {
+  try {
+    await store.reconMark(legalEntityId);
+  } catch {
+    /* best effort: the pass is reported either way */
+  }
+}
+
+export type ReconcileSummary = {
+  checked: number;
+  clean: number;
+  findings: number;
+  skipped: { studioId: string; reason: string }[];
+  /** locations whose subaccount listing is too large for the database to judge: reconciled by a person */
+  manual: string[];
+  escalation: { outbox: boolean; raised: number; deferred?: number; considered?: number; failed?: number } | { error: string };
+};
+
+/**
+ * R2b-P2 (L4): one pass of the scheduled per-subaccount inventory reconciliation. FREE and read-only (listings only): for each business whose inventory is due it lists the subaccount,
+ * lets the database judge the listing (unknown numbers, ownership mismatches, duplicates, ledger numbers missing from a complete listing), and then escalates open findings.
+ * A subaccount whose adapter cannot be built, a busy lease or a failed listing is SKIPPED AND REPORTED (it stays due), never treated as clean. Nothing here registers a scheduler.
+ */
+export async function reconcileInventories(input: {
+  store: NumberStore;
+  adapterFor: (accountSid: string) => IsvNumberAdapter | null;
+  limit?: number;
+  maxAgeSeconds?: number;
+}): Promise<ReconcileSummary> {
+  const { store, adapterFor } = input;
+  const summary: ReconcileSummary = { checked: 0, clean: 0, findings: 0, skipped: [], manual: [], escalation: { outbox: false, raised: 0 } };
+  let targets;
+  try {
+    targets = await store.reconTargets(Math.max(1, Math.min(100, input.limit ?? 25)), input.maxAgeSeconds ?? 6 * 3600);
+  } catch (error) {
+    summary.escalation = { error: `targets:${storeCode(error)}` };
+    return summary;
+  }
+  for (const target of targets) {
+    const adapter = adapterFor(target.twilio_account_sid);
+    if (!adapter) {
+      summary.skipped.push({ studioId: target.studio_id, reason: "adapter_unavailable" });
+      await markAttempted(store, target.legal_entity_id);
+      continue;
+    }
+    const result = await refreshInventory({ store, adapter, studioId: target.studio_id, actorId: "scheduled", scheduled: true });
+    if (result.outcome === "inventory_clean") {
+      summary.checked += 1;
+      summary.clean += 1;
+    } else if (result.outcome === "inventory_unknown") {
+      summary.checked += 1;
+      summary.findings += 1;
+    } else if (result.outcome === "manual_required") {
+      summary.manual.push(target.studio_id);
+      summary.skipped.push({ studioId: target.studio_id, reason: "manual_required" });
+    } else {
+      summary.skipped.push({ studioId: target.studio_id, reason: result.detail ? `${result.outcome}:${result.detail}` : result.outcome });
+      await markAttempted(store, target.legal_entity_id);   // a claim that raised rolled its own stamp back
+    }
+  }
+  try {
+    const escalated = await store.escalateOrphans(100);
+    summary.escalation = { outbox: escalated.outbox, raised: escalated.raised, deferred: escalated.deferred, considered: escalated.considered, failed: escalated.failed };
+  } catch (error) {
+    summary.escalation = { error: `escalate:${storeCode(error)}` };
+  }
+  return summary;
 }
 
 /**
