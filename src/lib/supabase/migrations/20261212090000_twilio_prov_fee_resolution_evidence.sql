@@ -684,18 +684,19 @@ declare
   v_n int;
   v_first timestamptz;
   v_last timestamptz;
+  v_last_start timestamptz;
 begin
   select * into x from public.studio_sms_prov_orphans y where y.id = p_orphan;
   if x.id is null then
     return false;
   end if;
-  select count(*), min(l.observed_at), max(l.observed_at) into v_n, v_first, v_last
+  select count(*), min(l.observed_at), max(l.observed_at), max(l.read_started_at) into v_n, v_first, v_last, v_last_start
     from public.studio_sms_prov_listings l
-   where l.studio_id = x.studio_id and l.scope_sid = x.scope_sid and l.twilio_account_sid = x.twilio_account_sid and l.complete and l.observed_at > x.discovered_at
+   where l.studio_id = x.studio_id and l.scope_sid = x.scope_sid and l.twilio_account_sid = x.twilio_account_sid and l.complete and l.observed_at > x.discovered_at and l.read_started_at > x.discovered_at
      and (l.source = 'provider_read' or public._tw4sr_fake_allowed()) and x.provider_sid <> all (l.listed_sids)
      and not exists (select 1 from public.studio_sms_prov_listings m where m.studio_id = l.studio_id and m.scope_sid = l.scope_sid and m.observed_at > x.discovered_at
                       and m.observed_at >= l.observed_at and x.provider_sid = any (m.listed_sids));
-  return coalesce(v_n, 0) >= 2 and v_last >= clock_timestamp() - interval '60 minutes' and v_last - v_first >= interval '10 minutes';
+  return coalesce(v_n, 0) >= 2 and v_last >= clock_timestamp() - interval '60 minutes' and v_last - v_first >= interval '10 minutes' and v_last_start > v_first;
 end $$;
 
 create or replace function public.tw4_prov_orphan_close(p_orphan_id uuid, p_actor uuid, p_note text)
@@ -717,6 +718,11 @@ begin
   end if;
   if x.status = 'closed' then
     return jsonb_build_object('status', 'closed', 'replayed', true);
+  end if;
+  -- a listing may be mid-recording under the onboarding lease: serialize on the onboarding rows and refuse while an evidence run holds the lease (a read not yet visible could show the SID)
+  perform 1 from public.studio_sms_onboarding ob where ob.studio_id = x.studio_id order by ob.id for update;
+  if exists (select 1 from public.studio_sms_onboarding ob where ob.studio_id = x.studio_id and ob.lease_owner is not null and ob.lease_expires_at > now()) then
+    raise exception 'an evidence run holds the lease; close the orphan after it finishes' using errcode = '55P03';
   end if;
   -- it stays exposure until ONE of these database-checked facts holds (never an administrator's word):
   --   (a) the ledger now accounts for the SID WITH A PROVIDER READ (a succeeded operation of the business owns it and its resource row was judged from a provider read: an
