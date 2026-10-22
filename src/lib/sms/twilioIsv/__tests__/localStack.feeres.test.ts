@@ -1032,7 +1032,8 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       expect(psqlError(`${proof(original)} ${reason} rollback;`)).toMatch(/REASON=verified_absence/);
       // an unaccounted campaign seen earlier and since CLOSED as gone does not make the operation unprovable for ever
       const Y = `QE${"b".repeat(32)}`;
-      const closedSighting = `${listingSql(op, original, 90, "present", [Y])}
+      const other = psql(`select id from public.studio_sms_prov_operations where studio_id = '${SD1}' and op_kind = 'campaign' and id <> '${op}' order by attempt limit 1`);
+      const closedSighting = `${listingSql(other, original, 90, "present", [Y])}
         insert into public.studio_sms_prov_orphans (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, scope_sid, first_listing_id, source_operation_id, status, closed_at, close_note, discovered_at)
           select o.legal_entity_id, o.studio_id, o.twilio_account_sid, 'campaign', '${Y}', '${original}', (select id from public.studio_sms_prov_listings where studio_id = '${SD1}' order by observed_at limit 1), o.id, 'closed', now() - interval '60 minutes', 'fixture: gone', now() - interval '85 minutes'
             from public.studio_sms_prov_operations o where o.id = '${op}';`;
