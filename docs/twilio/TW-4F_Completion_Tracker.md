@@ -203,9 +203,9 @@ Not authorized for execution until the owner approves each slice. The rules for 
 | WS | Purpose | Reuse | Owned files / functions | Migration reservation | Depends on | Reviews | Isolated DB / browser E2E | Git completion | Release gate |
 |---|---|---|---|---|---|---|---|---|---|
 | **W0** | Close the open PRs | existing branches | #251, #266, #267, #269 only, by their owning sessions | `1206`, `1215` (existing) | — | Opus on the #251 rebase delta | #266 matrix; `tw4rv`, `feeres` suites | All four merged or closed by owner decision | G |
-| **F1** | Pilot activation funding and activation hardening (F-1, F-3 evidence per U-4, F-10) | `_tw4act_funding`, `tw4_rfl_pilot_cover`, `tw4_act_*` | New migration replacing `_tw4act_funding` and the `tw4_act_*` lock order; `localStack.f1` suite. Sole owner of `_tw4act_*` / `tw4_act_*` bodies. | `20261218090000` | — | Opus financial + concurrency | Dedicated container; full-chain apply/rollback fingerprint | Merged; F-1 and F-10 VERIFIED | G → P |
-| **F2** | Campaign-verified gate for the legacy billed fallback (S-2) | `_tw4sr_ready`, `_tw4sr_ready_core` | New migration replacing `_tw4sr_ready` only. Sole owner of `_tw4sr_*`. | `20261219090000` | U-3 | Opus security | Dedicated container | Merged; S-2 VERIFIED | G → P |
-| **F3** | Reconciler readiness gate for billed usage (F-5); re-verify F-4 on the full chain | `tw4_usage_set_switch`, `tw4_usage_begin`, run leases (1205) | New migration replacing the usage switch/begin guard. Sole owner of `tw4_usage_*`. | `20261220090000` | — | Opus financial | Dedicated container | Merged; F-5 VERIFIED | G → P |
+| **F1** | Pilot activation funding and activation hardening (F-1, F-10, reconciler checklist item; F-3 evidence waits on U-4) | `_tw4act_funding`, `tw4_rfl_pilot_cover`, `tw4_act_*` | New migration replacing `_tw4act_funding` and the `tw4_act_*` lock order; `localStack.f1` suite. Sole owner of `_tw4act_*` / `tw4_act_*` bodies. | `20261219090000` | — | Opus financial + concurrency | Dedicated container; full-chain apply/rollback fingerprint | Merged; F-1 and F-10 VERIFIED | G → P |
+| **F2** | Campaign-verified gate for the legacy billed fallback (S-2) | `_tw4sr_ready`, `_tw4sr_ready_core` | New migration replacing `_tw4sr_ready` only. Sole owner of `_tw4sr_*`. | `20261220090000` (reserved, not launched) | U-3 | Opus security | Dedicated container | Merged; S-2 VERIFIED | G → P |
+| **F3** | Reconciler readiness gate for billed usage (F-5); re-verify F-4 on the full chain | `tw4_usage_set_switch`, `tw4_usage_begin`, run leases (1205) | New migration replacing the usage switch/begin guard. Sole owner of `tw4_usage_*`. | `20261218090000` | — | Opus financial | Dedicated container | Merged; F-5 VERIFIED | G → P |
 | **F4** | Evidence, recovery and exposure tooling (A-5 per U-1, A-6..A-10, A-12) | `provisionEvidence.ts`, `numberStore.ts`, 1212/1214/1216/1217 functions | New `src/app/platform/sms/Exposure*.tsx`, `RecoveryActions.ts`, `provisionLedger.ts`; migration for the audited retry wrapper, campaign RFL registration and the deferred-retirement listing. Owns `tw4_prov_observe`, `tw4_num_registration_*`. | `20261221090000` | W0 (#269) | Opus financial | Dedicated container; admin browser E2E | Merged; A-6..A-10, A-12 VERIFIED | G |
 | **F5** | Provider release adapters and request-shape contracts (A-11, P-1, P-2) | `real.ts`, fakes, `tw4_rfl_cancel_*` | New methods in `real.ts`, `fakeNumbers.ts`, `fakeProvisioning.ts`; new `cancelRunner.ts`; contract tests | none expected | — | Opus (irreversible operation) | Fake adapter suite | Merged; A-11 VERIFIED with fakes | G; real calls = GATE |
 | **J1** | Admin orchestration for R2a/R2b (A-1, A-2) | `provisionRunner.ts`, `numberRunner.ts`, `createScoped*Adapter`, `config.ts` | `src/lib/sms/twilioIsv/factory.ts`; new `src/app/platform/sms/provisioningRunActions.ts`; `adminView.ts`, `ProvisioningSummary` | none | — | Opus (fee-bearing path) | Fake adapter, isolated DB, admin browser E2E | Merged; A-1, A-2 VERIFIED | G |
@@ -223,6 +223,34 @@ Not authorized for execution until the owner approves each slice. The rules for 
 - **Then:** full-journey execution of the isolated E2E (Q1 specs), followed by hosted DEV (H1) under separate authorization.
 
 **Priority within wave 1:** F1 > F3 > F2 > F4 > F5 > J1 > J2. Q1 and H1 run alongside.
+
+### 6.1 Ownership ledger (Wave 1, launched 2026-10-22)
+
+This is the only ownership record. A slice edits only the files and SQL functions listed against it. A change outside its row needs agreement from the coordinator (session "DanceFlow TW-4F completion audit") first. Each PR merges only with separate owner approval.
+
+Every slice starts from `main` = `960a9d02` in its own worktree, cut by the app from branch `twilio-tw4f-<slice>`. When this ledger was written, no migration timestamp above `20261217090000` existed on any remote branch or as an untracked file in any worktree.
+
+| WS | Session | Branch | Owned files | Owned SQL functions | Migration | Depends on | Parallel status |
+|---|---|---|---|---|---|---|---|
+| W0 #251 | TW-4F scheduled SMS reconciliation & recovery (existing owner) | `twilio-tw4f-sender-reverify` | `SenderIdentity.tsx`, `page.tsx` (merge-conflict resolution), `senderVerification.ts`, route `sms-sender-reverify` | `_tw4sr_judge`, `tw4_sender_reverify`, `tw4_sender_due_reverify`, `tw4_sender_health`, `tw4_sender_reverify_run` | `20261206090000` | — | Rebase requested |
+| W0 #266 | Automated Twilio sender provisioning (existing owner) | `twilio-tw4f-isolated-qa` | `scripts/qa/iso-qa.mjs` and the harness files | — | — | — | Refresh requested |
+| W0 #267, #269 | DanceFlow provisioning UI (existing owner) | `twilio-r2a-rollback-test`, `twilio-prov-evidence-orig-scope` | `localStack.r2a.test.ts`; `provisionEvidence.ts` (#269 scope) | `tw4_prov_evidence_targets` | `20261215090000` | — | Refresh requested |
+| F3 | tw4f-f3-recon-gate | `twilio-tw4f-f3-recon-gate` | `UsageReconciliation.tsx`; new `localStack.f3recon` | `tw4_usage_begin`, `tw4_usage_set_switch`, new `_tw4usage_reconciler_ready()` (a contract F1 depends on) | `20261218090000` | — | Running |
+| F1 | tw4f-f1-funding | `twilio-tw4f-f1-funding` | new `localStack.f1funding` | `_tw4act_*`, `tw4_act_*` (acquires locks from the `act_*` side only; must stop before touching `tw4_num_retire` / `tw4_num_observe`) | `20261219090000` | F3 helper, for the checklist item only | Running |
+| F2 | not launched | — | — | `_tw4sr_ready`, `_tw4sr_ready_core` | `20261220090000` (reserved) | U-3 | Waiting on decision U-3 |
+| F4 | tw4f-f4-recovery | `twilio-tw4f-f4-recovery` | `provisionLedger.ts`, `ProvisioningLedger.tsx`, `provisioningActions.ts`; new `Exposure*`, `Recovery*`, `NumberLedger*`, `recoveryActions.ts`; one mount line in `page.tsx` | `tw4_prov_observe`, `tw4_num_registration_*`, new recovery/exposure reads | `20261221090000` | #269 (merge `main` in after it lands) | Running |
+| F5 | tw4f-f5-release | `twilio-tw4f-f5-release-adapters` | new methods only in `real.ts`; `fakeNumbers.ts`, `fakeProvisioning.ts`; new `cancelRunner.ts`; `RecurringFeesCancel.tsx`; `cancel_*` actions in `recurringFeeActions.ts` | none (`tw4_rfl_cancel_*` SQL bodies unchanged) | none | — | Running |
+| J1 | tw4f-j1-orchestration | `twilio-tw4f-j1-admin-orchestration` | `factory.ts`, `adminView.ts`, `ProvisioningSummary.tsx`, `SmsOnboardingPilot.tsx`; new `provisioningRunActions.ts` | none | none | F5 builder signature (optional) | Running |
+| J2 | tw4f-j2-owner-read | `twilio-tw4f-j2-owner-reads` | `ownerRead.ts`, `journey.ts`, `src/app/app/settings/sms/page.tsx` and the journey/status components it renders (not `actions.ts`, not `SmsCancelSetup`) | new owner texting-status function | `20261222090000` | — | Running |
+| Q1 | tw4f-q1-qa | `twilio-tw4f-q1-qa-e2e` | new `scripts/qa/tw4f/**`, `e2e/tests/tw4f-*.spec.ts`, `e2e/helpers/tw4f*.ts`, `docs/qa/TW-4F_QA_Baseline.md` | none | none | #266 for the harness | Running continuously alongside the other slices |
+| H1 | tw4f-h1-manifest | `docs-tw4f-hosted-manifest` | new `docs/twilio/TW-4F_Hosted_Apply_Manifest.md`, `scripts/hosted/tw4f/**` | none | none | — | Running |
+| M1 | not launched | — | new `src/app/api/cron/sms-*` routes | job kinds if needed | `20261223090000` (reserved) | J1, F4, #251 | Wave 2 |
+| J3, J4 | not launched | — | J3: new owner `NumberSelection*`, `numberActions.ts`. J4: new `Activation*`, `activationActions.ts` | none | none | J3: J1 + J2. J4: J1 + F1 + F3 | Wave 2 |
+
+Notes on the files more than one slice touches:
+
+- **`src/app/platform/sms/page.tsx`:** only #251 (conflict resolution) and F4 (one mount line) edit it. Whichever merges second rebases onto the first.
+- **RFL-owned files** (`recurringFeeActions.ts`, `RecurringFeesCancel.tsx`) are with F5 for this wave. The RFL and R2b sessions have been told who owns what.
 
 ## 7. Open owner decisions
 
