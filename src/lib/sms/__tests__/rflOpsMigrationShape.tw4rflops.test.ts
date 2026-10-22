@@ -162,9 +162,31 @@ describe("20261211090000 RFL ops: migration shape", () => {
     expect(mig).toContain("template_key like ''platform\\_rfl\\_admin\\_%''");
     expect(mig).toContain("already hides administrator templates");
     expect(mig).not.toMatch(/create policy/i);
-    expect(rollback).toContain("alter policy %I on public.%I using (%s)");
-    expect(rollback).toContain("original_qual");
-    expect(rollback.indexOf("alter policy")).toBeLessThan(rollback.indexOf("drop table public.studio_sms_rfl_policy_backup"));
+    // FOR SELECT and FOR ALL permissive policies (and PUBLIC / inherited roles) are covered; a policy that cannot be restricted aborts the whole migration
+    expect(mig).toContain("pol.polcmd in ('r', '*')");
+    expect(mig).toContain("pol.polpermissive");
+    expect(mig).toContain("can grant SELECT but has no USING expression");
+    expect(mig).toContain("could not be restricted");
+    expect(mig).toContain("with check (%s)");
+    // restored by drop + create from the saved definition (command, roles, USING and an absent WITH CHECK all return exactly)
+    expect(rollback).toContain("drop policy %I on public.%I");
+    expect(rollback).toContain("create policy %I on public.%I as permissive for %s to %s using (%s)%s");
+    expect(rollback).toContain("original_check");
+    expect(rollback.indexOf("create policy")).toBeLessThan(rollback.indexOf("drop table public.studio_sms_rfl_policy_backup"));
+  });
+
+  it("approver standing, demotion triggers and sequence privileges", () => {
+    const consume = fnBody(mig, "create or replace function public._tw4rflops_consume(p_action text, r public.studio_sms_provider_resources, p_period text, p_ref text, p_reason text, p_decided_by text, p_actor uuid)");
+    expect(consume).toContain("_tw4_r1_is_platform_admin(q.decided_by)");
+    const list = fnBody(mig, "create or replace function public.tw4_rfl_dual_list(p_actor uuid)");
+    expect(list).toContain("_tw4_r1_is_platform_admin(q.decided_by)");
+    expect(mig).toContain("create trigger profiles_90_rflops_demotion after update of platform_role on public.profiles");
+    expect(mig).toContain("create trigger profiles_90_rflops_demotion_del after delete on public.profiles");
+    expect(rollback).toContain("drop trigger profiles_90_rflops_demotion on public.profiles;");
+    expect(rollback).toContain("drop function public._tw4rflops_demotion();");
+    expect(mig).toContain("revoke all on sequence public.studio_sms_rfl_switch_log_seq_seq from public, anon, authenticated, service_role;");
+    // the sequence goes with its table in the rollback
+    expect(rollback).toContain("drop table public.studio_sms_rfl_switch_log;");
   });
 
   it("the precondition refuses to apply over anything but the exact 20261209 bodies (md5 of each, line endings ignored)", () => {
