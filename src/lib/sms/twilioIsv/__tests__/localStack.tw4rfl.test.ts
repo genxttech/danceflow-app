@@ -15,7 +15,7 @@
  *   TW4A_LOCAL_DB_CONTAINER=supabase_db_danceflow-e2e-qa  TW4RFL_DB=rfl_qa
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -1594,15 +1594,8 @@ commit;`);
         const run = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-d", scratch, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
         expect(run(`select to_regclass('public.studio_sms_provider_resources') is not null`)).toBe("t");
         // the ops migration (20261211) sits on top of this one: it is rolled back first (it refuses while its own evidence exists; this copy has none).
-        // The outbound_deliveries SELECT policies it narrowed come back exactly as they were (compared with the originals saved in the source database; a schema-only copy carries no rows).
-        const saved = JSON.parse(psql(`select coalesce(json_agg(json_build_object('n', policy_name, 'q', original_qual, 'r', rewritten_qual, 'c', cmd, 'roles', role_names, 'wc', original_check)), '[]'::json)::text from public.studio_sms_rfl_policy_backup`)) as Array<{ n: string; q: string; r: string; c: string; roles: string[]; wc: string | null }>;
-        expect(saved.length).toBeGreaterThanOrEqual(1);
-        // the schema-only copy carries no rows: give it the same saved originals the real rollback reads
-        for (const p of saved) run(`insert into public.studio_sms_rfl_policy_backup (policy_name, table_name, cmd, role_names, original_qual, original_check, rewritten_qual) values ($n$${p.n}$n$, 'outbound_deliveries', '${p.c}', '{${p.roles.join(",")}}'::text[], $q$${p.q}$q$, ${p.wc === null ? "null" : `$w$${p.wc}$w$`}, $r$${p.r}$r$);`);
         run(readFileSync(join(process.cwd(), "src/lib/supabase/migrations/rollback/20261211090000_twilio_rfl_ops_rollback.sql"), "utf8"));
-        for (const p of saved) {
-          expect(run(`select md5(pg_get_expr(polqual, polrelid)) from pg_policy where polrelid = 'public.outbound_deliveries'::regclass and polname = '${p.n.replace(/'/g, "''")}'`), p.n).toBe(createHash("md5").update(p.q).digest("hex"));
-        }
+        expect(run(`select count(*) from pg_policy where polname = 'rfl_admin_alerts_not_staff_visible'`)).toBe("0"); // the one restrictive policy is dropped, nothing else of outbound_deliveries was touched
         run(rollbackSql);
         expect(run(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and (p.proname like 'tw4\\_rfl%' or p.proname like '\\_tw4rfl%' or p.proname like 'sms\\_rfl%')`)).toBe("0");
         expect(run(`select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname like 'studio\\_sms\\_provider\\_%' and c.relkind = 'r'`)).toBe("1");   // studio_sms_provider_charges (3b-0) is not ours

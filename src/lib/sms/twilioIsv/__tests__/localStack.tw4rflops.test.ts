@@ -1206,7 +1206,7 @@ commit;`);
   describe("privileges, vocabularies and what the new objects never touch", () => {
     const NEW_FNS = ["tw4_rfl_switch_enabled(text)", "tw4_rfl_set_switch(text, boolean, uuid, text)", "tw4_rfl_scan_begin(text, integer)", "tw4_rfl_scan_finish(uuid, text, jsonb, text)", "tw4_rfl_health(uuid)",
       "tw4_rfl_exposure_report(uuid)", "tw4_rfl_variance_report(uuid)", "tw4_rfl_variance_ack(uuid, uuid, text)", "tw4_rfl_alert_recipients(uuid)", "tw4_rfl_alert_delivery_record(uuid, uuid, text, text, text)",
-      "tw4_rfl_escalate_delivery()", "tw4_rfl_dual_request(uuid, text, uuid, text, text, text, text)", "tw4_rfl_dual_approve(uuid, uuid, text)", "tw4_rfl_dual_reject(uuid, uuid, text)", "tw4_rfl_dual_list(uuid)"];
+      "tw4_rfl_escalate_delivery()", "tw4_rfl_dual_request(uuid, text, uuid, text, text, text, text)", "tw4_rfl_dual_approve(uuid, uuid, text)", "tw4_rfl_dual_reject(uuid, uuid, text)", "tw4_rfl_dual_list(uuid)", "tw4_rfl_alert_release(uuid, uuid)"];
     const REPLACED = ["tw4_rfl_alerts_claim(integer)", "tw4_rfl_scan_entity(uuid)", "tw4_rfl_exposure_dispose(uuid, text, uuid, text, text)", "tw4_rfl_cancel_authorize(uuid, uuid, text, text, text, boolean)"];
     // one query for every function (the machine running the real-schema suites can be slow: a call per function and role would time out)
     const privs = (fns: string[]) => {
@@ -1222,12 +1222,12 @@ commit;`);
       const all = privs([...NEW_FNS, ...REPLACED]);
       expect(all.size).toBe(NEW_FNS.length + REPLACED.length);
       for (const [fn, p] of all) expect(p, fn).toEqual({ service_role: true, anon: false, authenticated: false, public: false, secdef: true, cfg: true });
-      const inner = privs(["_tw4rflops_guard()", "_tw4rflops_request_insert()", "_tw4rflops_epoch()", "_tw4rflops_demotion()", "_tw4rflops_facts(text, uuid, text, text, text, text)", "_tw4rflops_consume(text, public.studio_sms_provider_resources, text, text, text, text, uuid)"]);
+      const inner = privs(["_tw4rflops_guard()", "_tw4rflops_request_insert()", "_tw4rflops_epoch()", "_tw4rflops_demotion()", "_tw4rflops_lock_parties(text, uuid, text)", "_tw4rflops_facts(text, uuid, text, text, text, text)", "_tw4rflops_consume(text, public.studio_sms_provider_resources, text, text, text, text, uuid)"]);
       for (const [fn, p] of inner) expect(p, fn).toMatchObject({ service_role: false, anon: false, authenticated: false, public: false });
     });
 
     it("every new table has RLS on and no privilege for any API role", () => {
-      for (const t of ["studio_sms_rfl_switch_log", "studio_sms_rfl_runs", "studio_sms_rfl_alert_deliveries", "studio_sms_provider_variance_acks", "studio_sms_rfl_dual_requests", "studio_sms_rfl_fact_epochs", "studio_sms_rfl_policy_backup"]) {
+      for (const t of ["studio_sms_rfl_switch_log", "studio_sms_rfl_runs", "studio_sms_rfl_alert_deliveries", "studio_sms_provider_variance_acks", "studio_sms_rfl_dual_requests", "studio_sms_rfl_fact_epochs"]) {
         expect(psql(`select relrowsecurity::text from pg_class where oid = 'public.${t}'::regclass`), t).toBe("true");
         for (const role of ["anon", "authenticated", "service_role"]) {
           expect(psql(`select (has_table_privilege('${role}', 'public.${t}', 'select') or has_table_privilege('${role}', 'public.${t}', 'insert') or has_table_privilege('${role}', 'public.${t}', 'update')
@@ -1467,37 +1467,66 @@ commit;`);
       expect(call<Record<string, unknown>>("tw4_rfl_health", P).last_status).not.toBe("running");
     });
 
-    it("NEW A admin-addressed emails (template platform_rfl_admin_*) are invisible to a studio's staff (even front_desk); owner-addressed rows and other templates stay readable; service role and the owner still read all", () => {
+    it("NEW A one RESTRICTIVE policy hides admin-addressed emails (platform_rfl_admin_*) from every API persona; everything else is visible exactly as before; near-miss prefixes stay visible; service role and the owner still read all", () => {
       const w = world();
-      const desk = mkUser({ confirmed: true });
-      addRole(desk, w.studio, "front_desk");
-      const ins = (template: string, to: string) => {
+      const other = world();
+      const personas: Record<string, string | null> = { owner: w.owner, studio_admin: mkUser({ confirmed: true }), front_desk: mkUser({ confirmed: true }), instructor: mkUser({ confirmed: true }),
+        inactive: mkUser({ confirmed: true }), other_studio_owner: other.owner, anon: null };
+      addRole(personas.studio_admin as string, w.studio, "studio_admin");
+      addRole(personas.front_desk as string, w.studio, "front_desk");
+      addRole(personas.instructor as string, w.studio, "instructor");
+      addRole(personas.inactive as string, w.studio, "front_desk", false);
+      const ins = (template: string) => {
         const id = randomUUID();
-        psql(`insert into public.outbound_deliveries (id, studio_id, channel, template_key, recipient_email, subject, status) values ('${id}', '${w.studio}', 'email', '${template}', '${to}', 'ops fixture subject', 'queued');`);
+        psql(`insert into public.outbound_deliveries (id, studio_id, channel, template_key, recipient_email, subject, status) values ('${id}', '${w.studio}', 'email', '${template}', 'x@example.test', 'ops fixture subject', 'queued');`);
         return id;
       };
-      const ownerRow = ins("platform_rfl_alert_exposure_open", "owner@example.test");
-      const adminRow = ins("platform_rfl_admin_exposure_open", "admin@example.test");
-      const otherRow = ins("booking_confirmation", "client@example.test");
-      const readAs = (role: string, sub: string | null) => {
-        const out = psql(`begin; set local role ${role}; ${sub ? `select set_config('request.jwt.claims', '{"sub":"${sub}"}', true);` : ""}
+      const adminRow = ins("platform_rfl_admin_exposure_open");
+      const visibleRows = [ins("platform_rfl_alert_exposure_open"), ins("booking_confirmation"), ins("platform_rfl_adminx_exposure_open"), ins("platform_rfl_admin"), ins("Platform_rfl_admin_exposure_open"),
+        ins("platform-rfl-admin-exposure_open"), ins("xplatform_rfl_admin_exposure_open")];
+      const read = (role: string, sub: string | null, withoutPolicy: boolean) => {
+        const out = psql(`begin; ${withoutPolicy ? "drop policy rfl_admin_alerts_not_staff_visible on public.outbound_deliveries;" : ""} set local role ${role};
+          ${sub ? `select set_config('request.jwt.claims', '{"sub":"${sub}"}', true);` : ""}
           select coalesce(string_agg(id::text, ',' order by id), '') from public.outbound_deliveries where studio_id = '${w.studio}'; rollback;`);
-        return out.split("\n").pop() ?? "";
+        const last = out.split("\n").pop() ?? "";
+        return last === "" ? [] : last.split(",");
       };
-      const seen = readAs("authenticated", desk).split(",");
-      expect(seen).toContain(ownerRow);
-      expect(seen).toContain(otherRow);
-      expect(seen).not.toContain(adminRow);
-      const ownerSeen = readAs("authenticated", w.owner).split(",");
-      expect(ownerSeen).toContain(ownerRow);
-      expect(ownerSeen).not.toContain(adminRow);
-      expect(readAs("service_role", null).split(",")).toEqual(expect.arrayContaining([ownerRow, adminRow, otherRow]));
+      for (const [name, sub] of Object.entries(personas)) {
+        const role = sub ? "authenticated" : "anon";
+        const before = read(role, sub, true); // the same transaction with the policy dropped (rolled back)
+        const after = read(role, sub, false);
+        expect(after, name).toEqual(before.filter((id) => id !== adminRow));
+        expect(after, name).not.toContain(adminRow);
+        if (["owner", "studio_admin", "front_desk", "instructor"].includes(name)) {
+          expect(before, name).toContain(adminRow); // this is what the policy is for: they COULD read it before
+          expect(after, name).toEqual(expect.arrayContaining(visibleRows));
+        }
+      }
+      expect(read("service_role", null, false)).toEqual(expect.arrayContaining([adminRow, ...visibleRows]));
       expect(psql(`select count(*) from public.outbound_deliveries where id = '${adminRow}'`)).toBe("1"); // the table owner
-      // every SELECT policy open to API roles was narrowed, and the originals are kept for the rollback
-      const policies = rows<{ polname: string; q: string }>(`select polname, pg_get_expr(polqual, polrelid) as q from pg_policy where polrelid = 'public.outbound_deliveries'::regclass and polcmd = 'r' and polname in (select policy_name from public.studio_sms_rfl_policy_backup)`);
-      expect(policies.length).toBeGreaterThanOrEqual(1);
-      for (const p of policies) expect(p.q).toContain("platform\\_rfl\\_admin\\_%");
-      expect(num(`select count(*) from public.studio_sms_rfl_policy_backup where original_qual like '%platform%rfl%admin%'`)).toBe(0);
+      // a permissive policy ADDED AFTER the migration (FOR ALL to authenticated, SELECT to public, with a subselect) cannot expose administrator rows
+      const withLater = psql(`begin;
+        create policy rfl_later_all on public.outbound_deliveries as permissive for all to authenticated using (true) with check (true);
+        create policy rfl_later_public on public.outbound_deliveries as permissive for select to public using (exists (select 1 from public.user_studio_roles usr where usr.studio_id = outbound_deliveries.studio_id));
+        set local role authenticated; select set_config('request.jwt.claims', '{"sub":"${personas.front_desk}"}', true);
+        select coalesce(string_agg(id::text, ',' order by id), '') from public.outbound_deliveries where studio_id = '${w.studio}'; rollback;`).split("\n").pop() ?? "";
+      expect(withLater.split(",")).not.toContain(adminRow);
+      expect(withLater.split(",")).toEqual(expect.arrayContaining(visibleRows));
+      // the policy does not change WRITE behaviour for other rows: the same statements succeed or fail identically with and without it (as a platform administrator, who may update)
+      const writes = (withoutPolicy: boolean) => {
+        const sub = P;
+        const script = `begin; ${withoutPolicy ? "drop policy rfl_admin_alerts_not_staff_visible on public.outbound_deliveries;" : ""} set local role authenticated;
+          select set_config('request.jwt.claims', '{"sub":"${sub}"}', true);
+          with u as (update public.outbound_deliveries set status = 'queued' where id = '${visibleRows[1]}' returning 1) select 'upd=' || count(*) from u;
+          with d as (delete from public.outbound_deliveries where id = '${visibleRows[2]}' returning 1) select 'del=' || count(*) from d;
+          with ua as (update public.outbound_deliveries set status = 'queued' where id = '${adminRow}' returning 1) select 'updadmin=' || count(*) from ua;
+          rollback;`;
+        return { out: psqlError(script) === "" ? psql(script).split("\n").filter((l) => /^(upd|del|updadmin)=/.test(l)) : ["error"] };
+      };
+      const wBefore = writes(true).out;
+      const wAfter = writes(false).out;
+      expect(wAfter.filter((l) => !l.startsWith("updadmin"))).toEqual(wBefore.filter((l) => !l.startsWith("updadmin")));
+      expect(wAfter.find((l) => l.startsWith("updadmin"))).toBe("updadmin=0"); // a studio-level reader cannot even update an administrator row
     });
 
     it("NEW B tw4_rfl_admin_overview returns open_cancel_operation_id next to open_cancel_operation (every existing key kept); tw4_rfl_dual_list keeps approval_ref and resource_kind", () => {
@@ -1521,9 +1550,8 @@ commit;`);
   });
 
   describe("review round 2: policy shapes, approver standing, sequence privileges", () => {
-    const snap = "select md5(string_agg(polname::text || polcmd::text || polroles::text || polpermissive::text || coalesce(pg_get_expr(polqual, polrelid), '-') || coalesce(pg_get_expr(polwithcheck, polrelid), '-'), '|' order by polname)) from pg_policy where polrelid = 'public.outbound_deliveries'::regclass";
 
-    it("P2-1 FOR ALL and PUBLIC policies are narrowed too (USING only, WITH CHECK kept), the rollback restores every policy exactly, and a shape that cannot be restricted makes the migration refuse atomically", () => {
+    it("the policy's rollback is exact (pg_policy digest, comments included, identical to the pre-migration digest); the migration refuses atomically when RLS is off", () => {
       const dir = join(process.cwd(), "src/lib/supabase/migrations");
       const opsSql = readFileSync(join(dir, "20261211090000_twilio_rfl_ops.sql"), "utf8");
       const rollbackSql = readFileSync(join(dir, "rollback/20261211090000_twilio_rfl_ops_rollback.sql"), "utf8");
@@ -1538,50 +1566,28 @@ commit;`);
           return String((e as { stderr?: Buffer | string }).stderr ?? e);
         }
       };
-      const saved = rows<{ policy_name: string; cmd: string; role_names: string[]; original_qual: string; original_check: string | null; rewritten_qual: string }>(`select * from public.studio_sms_rfl_policy_backup`);
-      expect(saved.length).toBeGreaterThanOrEqual(1);
       try {
         sh(`psql -U postgres -q -c 'create database ${scratch}'`);
         sh(`pg_dump -U postgres -s --no-owner ${DB} | psql -U postgres -d ${scratch} -q > /dev/null 2>&1; true`);
-        for (const p of saved) {
-          run(`insert into public.studio_sms_rfl_policy_backup (policy_name, table_name, cmd, role_names, original_qual, original_check, rewritten_qual) values ($n$${p.policy_name}$n$, 'outbound_deliveries', '${p.cmd}',
-            '{${p.role_names.join(",")}}'::text[], $q$${p.original_qual}$q$, ${p.original_check === null ? "null" : `$w$${p.original_check}$w$`}, $r$${p.rewritten_qual}$r$);`);
-        }
-        run(rollbackSql); // back to the pre-ops policies
-        expect(run(`select to_regclass('public.studio_sms_rfl_switch_log') is null`)).toBe("t");
-        // a FOR ALL policy to authenticated and a SELECT policy to PUBLIC: both would still show administrator emails to a studio's staff
-        run(`create policy rfl_extra_all on public.outbound_deliveries as permissive for all to authenticated using (studio_id is not null) with check (true);
-             create policy rfl_extra_public on public.outbound_deliveries as permissive for select to public using (true);`);
-        const before = run(snap);
+        run(rollbackSql); // the pre-ops state (the copy carries no evidence)
+        expect(run(`select count(*) from pg_policy where polname = 'rfl_admin_alerts_not_staff_visible'`)).toBe("0");
+        const pol = run(`select polname from pg_policy where polrelid = 'public.outbound_deliveries'::regclass and polname = 'outbound_deliveries_select'`);
+        expect(pol).toBe("outbound_deliveries_select");
+        run(`comment on policy outbound_deliveries_select on public.outbound_deliveries is 'ops suite comment that must survive'`);
+        const digest = `select md5(string_agg(polname::text || polcmd::text || polroles::text || polpermissive::text || coalesce(pg_get_expr(polqual, polrelid), '-') || coalesce(pg_get_expr(polwithcheck, polrelid), '-')
+          || coalesce(obj_description(oid, 'pg_policy'), '-'), '|' order by polname)) from pg_policy where polrelid = 'public.outbound_deliveries'::regclass`;
+        const d0 = run(digest);
         run(opsSql);
-        const backups = JSON.parse(run(`select coalesce(json_agg(json_build_object('n', policy_name, 'c', cmd, 'roles', role_names, 'wc', original_check)), '[]'::json)::text from public.studio_sms_rfl_policy_backup`)) as Array<{ n: string; c: string; roles: string[]; wc: string | null }>;
-        expect(backups.map((b) => b.n)).toEqual(expect.arrayContaining(["rfl_extra_all", "rfl_extra_public"]));
-        expect(backups.find((b) => b.n === "rfl_extra_all")).toMatchObject({ c: "*", roles: ["authenticated"], wc: "true" });
-        expect(backups.find((b) => b.n === "rfl_extra_public")).toMatchObject({ c: "r", roles: [], wc: null });
-        // the FOR ALL policy kept its WITH CHECK; the others did not gain one they did not have
-        expect(run(`select pg_get_expr(polwithcheck, polrelid) from pg_policy where polname = 'rfl_extra_all' and polrelid = 'public.outbound_deliveries'::regclass`)).toBe("true");
-        // a front_desk user of a studio cannot read an administrator row through ANY policy, but still reads an owner-addressed one
-        const studio = randomUUID();
-        const desk = randomUUID();
-        run(`insert into auth.users (id, instance_id, aud, role, email, created_at, updated_at) values ('${desk}', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'desk-${RUN}@rfl-ops.test', now(), now());
-          insert into public.profiles (id, platform_role) values ('${desk}', null);
-          insert into public.studios (id, name, slug, public_name, timezone) values ('${studio}', 'RFLOPS pol ${RUN}', 'rflops-pol-${RUN}', null, 'UTC');
-          insert into public.user_studio_roles (user_id, studio_id, role, active) values ('${desk}', '${studio}', 'front_desk', true);
-          insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, status) values ('${studio}', 'email', 'platform_rfl_alert_x', 'o@example.test', 'queued'), ('${studio}', 'email', 'platform_rfl_admin_x', 'a@example.test', 'queued');`);
-        const seen = run(`begin; set local role authenticated; select set_config('request.jwt.claims', '{"sub":"${desk}"}', true);
-          select coalesce(string_agg(template_key, ',' order by template_key), '') from public.outbound_deliveries where studio_id = '${studio}'; rollback;`).split("\n").pop();
-        expect(seen).toBe("platform_rfl_alert_x");
-        // exact restoration
+        expect(run(`select count(*) from pg_policy where polname = 'rfl_admin_alerts_not_staff_visible' and not polpermissive and polcmd = 'r'`)).toBe("1");
+        expect(run(digest)).not.toBe(d0);
         run(rollbackSql);
-        expect(run(snap)).toBe(before);
-        // a SELECT-capable permissive policy without a USING expression cannot be restricted: the migration refuses and applies NOTHING
-        run(`create policy rfl_bad_all on public.outbound_deliveries as permissive for all to authenticated with check (true);`);
-        const bad = run(snap);
+        expect(run(digest)).toBe(d0);
+        // RLS off: refused, nothing applied
+        run(`alter table public.outbound_deliveries disable row level security;`);
         const err = runErr(opsSql);
-        expect(err).toMatch(/cannot be restricted safely/);
-        expect(run(`select to_regclass('public.studio_sms_rfl_switch_log') is null and to_regclass('public.studio_sms_rfl_dual_requests') is null and to_regclass('public.studio_sms_rfl_policy_backup') is null`)).toBe("t");
-        expect(run(snap)).toBe(bad);
-        expect(run(`select count(*) from pg_proc where proname = 'tw4_rfl_dual_request'`)).toBe("0");
+        expect(err).toMatch(/row level security is not enabled/);
+        expect(run(`select to_regclass('public.studio_sms_rfl_switch_log') is null and to_regclass('public.studio_sms_rfl_dual_requests') is null`)).toBe("t");
+        expect(run(`select count(*) from pg_policy where polname = 'rfl_admin_alerts_not_staff_visible'`)).toBe("0");
       } finally {
         try {
           sh(`psql -U postgres -q -c "select pg_terminate_backend(pid) from pg_stat_activity where datname = '${scratch}'" -c 'drop database if exists ${scratch}'`);
@@ -1636,7 +1642,7 @@ commit;`);
 
     it("P2-4 the switch log's identity sequence (and any other sequence this migration owns) has no grant for any API role", () => {
       const seqs = rows<{ name: string }>(`select s.relname as name from pg_class s join pg_depend d on d.objid = s.oid and d.deptype = 'a' join pg_class t on t.oid = d.refobjid
-        where s.relkind = 'S' and (t.relname like 'studio\\_sms\\_rfl\\_%' or t.relname = 'studio_sms_provider_variance_acks' or t.relname = 'studio_sms_rfl_policy_backup')`);
+        where s.relkind = 'S' and (t.relname like 'studio\\_sms\\_rfl\\_%' or t.relname = 'studio_sms_provider_variance_acks')`);
       expect(seqs.map((s) => s.name)).toContain("studio_sms_rfl_switch_log_seq_seq");
       for (const s of seqs) {
         for (const role of ["anon", "authenticated", "service_role", "public"]) {
@@ -1647,6 +1653,104 @@ commit;`);
       }
       // the owner-definer functions still draw from it
       expect(call("tw4_rfl_set_switch", "scan", swState("scan"), P, "fixture: unchanged scan state, drawing from the sequence")).toMatchObject({ switch: "scan" });
+    });
+  });
+
+  describe("review round 3: alert release, profile locks", () => {
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const alertRow = (id: string) => rows<Record<string, unknown>>(`select * from public.studio_sms_provider_alerts where id = '${id}'`)[0];
+
+    it("tw4_rfl_alert_release gives the CURRENT claim back (attempts unchanged overall, nothing else changed); wrong token, delivered, failed and replays are {released:false}; ten claim/release cycles never exhaust or escalate it", () => {
+      const w = world();
+      const alert = mkAlert(w, { audience: "admin" });
+      isolateAlerts([alert]);
+      setSwitch("delivery", true);
+      const base = alertRow(alert);
+      const strip = (r: Record<string, unknown>) => {
+        const { status, attempts, claim_token, claimed_at, ...rest } = r;
+        void status; void attempts; void claim_token; void claimed_at;
+        return rest;
+      };
+      for (let i = 0; i < 10; i++) {
+        const claimed = claimAll().find((c) => c.alert_id === alert);
+        expect(claimed, `cycle ${i}`).toBeTruthy();
+        expect(alertRow(alert)).toMatchObject({ status: "sending", attempts: 1 });
+        expect(call("tw4_rfl_alert_release", alert, randomUUID())).toEqual({ released: false }); // another token
+        expect(alertRow(alert)).toMatchObject({ status: "sending", attempts: 1 });
+        expect(call("tw4_rfl_alert_release", alert, claimed!.claim_token)).toEqual({ released: true });
+        expect(call("tw4_rfl_alert_release", alert, claimed!.claim_token)).toEqual({ released: false }); // replay
+        expect(alertRow(alert)).toMatchObject({ status: "pending", attempts: 0, claim_token: null, claimed_at: null });
+        expect(strip(alertRow(alert))).toEqual(strip(base));
+      }
+      expect(call<{ escalated: number }>("tw4_rfl_escalate_delivery").escalated).toBeGreaterThanOrEqual(0);
+      expect(alertsOf(w, "alert_delivery_exhausted").filter((a) => a.dedupe_key === `exhausted:${alert}`)).toHaveLength(0);
+      // failed and delivered alerts cannot be released
+      const claimed = claimAll().find((c) => c.alert_id === alert)!;
+      call("tw4_rfl_alert_finish", alert, claimed.claim_token, false, "smtp refused");
+      expect(call("tw4_rfl_alert_release", alert, claimed.claim_token)).toEqual({ released: false });
+      expect(alertRow(alert)).toMatchObject({ status: "failed", attempts: 1 });
+      const again = claimAll().find((c) => c.alert_id === alert)!;
+      call("tw4_rfl_alert_finish", alert, again.claim_token, true, null);
+      expect(call("tw4_rfl_alert_release", alert, again.claim_token)).toEqual({ released: false });
+      expect(alertRow(alert)).toMatchObject({ status: "delivered" });
+      expect(call("tw4_rfl_alert_release", randomUUID(), randomUUID())).toEqual({ released: false });
+      expect(call("tw4_rfl_alert_release", alert, null)).toEqual({ released: false });
+      // the guard still refuses every other way of lowering attempts
+      const w2 = world();
+      const other = mkAlert(w2, { audience: "admin" });
+      replica(`update public.studio_sms_provider_alerts set status = 'sending', attempts = 3, claim_token = '${randomUUID()}', claimed_at = now() where id = '${other}';`);
+      expect(psqlError(`update public.studio_sms_provider_alerts set attempts = 2 where id = '${other}';`)).toMatch(/only delivery fields change/);
+      expect(psqlError(`update public.studio_sms_provider_alerts set status = 'pending', attempts = 1, claim_token = null where id = '${other}';`)).toMatch(/only delivery fields change/);
+      expect(psqlError(`begin; select set_config('tw4.rflops_write', 'on', true); update public.studio_sms_provider_alerts set status = 'failed', attempts = 2 where id = '${other}'; commit;`)).toMatch(/only delivery fields change/);
+    });
+
+    it("C approve versus demotion, in real concurrent sessions: no deadlock, and both orders end invalidated (requester demoted while an approval is open; approver demoted while their approval is open, re-promoted, then consumed => TW042)", async () => {
+      const w = world();
+      const { res, key } = exposed(w, "number");
+      const x = mkUser({ confirmed: true, admin: true }); // requester
+      const y = mkUser({ confirmed: true, admin: true }); // approver
+      const roleSql = (u: string, role: string | null) => `update public.profiles set platform_role = ${role ? `'${role}'` : "null"} where id = '${u}';`;
+      // 1. the approval transaction is open (holds the share locks) while the REQUESTER is demoted and re-promoted
+      const r1 = absorbRequest(res.resource_id, key, REASON, x);
+      const approve = psqlAsync(`begin; select public.tw4_rfl_dual_approve('${r1.request_id}'::uuid, '${y}'::uuid, '${NOTE}'); select pg_sleep(4); commit;`);
+      await sleep(1500);
+      const t0 = Date.now();
+      const demote = psqlAsync(`${roleSql(x, null)} ${roleSql(x, "platform_admin")}`);
+      const [a1, d1] = await Promise.all([approve, demote]);
+      expect(a1.err).not.toMatch(/40P01|deadlock/);
+      expect(d1.err).toBe("");
+      expect(a1.err).toBe("");
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(1500); // the demotion waited for the open approval
+      expect(reqStatus(r1.request_id)).toBe("invalidated");
+      expect(hasCode(dispose(res.resource_id, key, REASON), "TW042")).toBe(true);
+      // 2. the APPROVER's approval transaction is open; the approver is demoted (waits), re-promoted, then the approval is consumed
+      const r2 = absorbRequest(res.resource_id, key, REASON, x);
+      const approve2 = psqlAsync(`begin; select public.tw4_rfl_dual_approve('${r2.request_id}'::uuid, '${y}'::uuid, '${NOTE}'); select pg_sleep(4); commit;`);
+      await sleep(1500);
+      const demote2 = psqlAsync(`${roleSql(y, null)} ${roleSql(y, "platform_admin")}`);
+      const [a2, d2] = await Promise.all([approve2, demote2]);
+      expect(a2.err).toBe("");
+      expect(d2.err).toBe("");
+      expect(reqStatus(r2.request_id)).toBe("invalidated");
+      expect(hasCode(dispose(res.resource_id, key, REASON, x), "TW042")).toBe(true);
+      expect(exposureOf(res.resource_id, key)).toMatchObject({ state: "open" });
+      // 3. a demotion committed BEFORE the approval is refused (the approver is no longer an administrator)
+      const r3 = absorbRequest(res.resource_id, key, REASON, x);
+      psql(roleSql(y, null));
+      expect(hasCode(callErr("tw4_rfl_dual_approve", r3.request_id, y, NOTE), "42501")).toBe(true);
+      psql(roleSql(y, "platform_admin"));
+      // 4. execution holds the share locks too: a demotion that arrives during a disposition waits, and the consumed approval stays consumed
+      const r4 = absorbRequest(res.resource_id, key, REASON, x);
+      call("tw4_rfl_dual_approve", r4.request_id, y, NOTE);
+      const run = psqlAsync(`begin; select public.tw4_rfl_exposure_dispose('${res.resource_id}'::uuid, '${key}', '${x}'::uuid, 'absorbed', '${REASON}'); select pg_sleep(4); commit;`);
+      await sleep(1500);
+      const demote4 = psqlAsync(`${roleSql(y, null)} ${roleSql(y, "platform_admin")}`);
+      const [a4, d4] = await Promise.all([run, demote4]);
+      expect(a4.err).toBe("");
+      expect(d4.err).toBe("");
+      expect(a4.err + d4.err).not.toMatch(/40P01|deadlock/);
+      expect(reqStatus(r4.request_id)).toBe("consumed");
+      expect(exposureOf(res.resource_id, key)).toMatchObject({ state: "closed", disposition: "absorbed" });
     });
   });
 });
