@@ -146,14 +146,21 @@ returns trigger language plpgsql
 set search_path = pg_catalog, public, pg_temp
 as $$
 begin
-  if tg_op = 'DELETE' then
+  if tg_op in ('DELETE', 'TRUNCATE') then
     raise exception '%: provisioning evidence is never deleted', tg_table_name using errcode = '42501';
   end if;
   if tg_table_name = 'studio_sms_prov_orphans' then
     if new.id is distinct from old.id or new.legal_entity_id is distinct from old.legal_entity_id or new.studio_id is distinct from old.studio_id
        or new.twilio_account_sid is distinct from old.twilio_account_sid or new.provider_sid is distinct from old.provider_sid or new.first_listing_id is distinct from old.first_listing_id
-       or new.source_operation_id is distinct from old.source_operation_id or new.discovered_at is distinct from old.discovered_at then
+       or new.source_operation_id is distinct from old.source_operation_id or new.discovered_at is distinct from old.discovered_at
+       or new.scope_sid is distinct from old.scope_sid or new.resource_kind is distinct from old.resource_kind then
       raise exception 'studio_sms_prov_orphans: the identity of an orphan is fixed' using errcode = '42501';
+    end if;
+    -- once set, how it was registered or closed is history: never rewritten (a registered orphan may only move on to closed)
+    if (old.registered_at is not null and (new.registered_at is distinct from old.registered_at or new.registered_by is distinct from old.registered_by))
+       or (old.rfl_resource_id is not null and new.rfl_resource_id is distinct from old.rfl_resource_id)
+       or (old.status = 'registered' and new.status = 'registered' and row(new.*) is distinct from row(old.*)) then
+      raise exception 'studio_sms_prov_orphans: a registration is never rewritten' using errcode = '42501';
     end if;
     if old.status = 'closed' or (old.status = 'registered' and new.status = 'open') then
       raise exception 'studio_sms_prov_orphans: a status never goes backwards' using errcode = '42501';
@@ -165,6 +172,9 @@ end $$;
 create trigger studio_sms_prov_listings_guard before update or delete on public.studio_sms_prov_listings for each row execute function public._tw4prov2_guard();
 create trigger studio_sms_prov_dispositions_guard before update or delete on public.studio_sms_prov_dispositions for each row execute function public._tw4prov2_guard();
 create trigger studio_sms_prov_orphans_guard before update or delete on public.studio_sms_prov_orphans for each row execute function public._tw4prov2_guard();
+create trigger studio_sms_prov_listings_nowipe before truncate on public.studio_sms_prov_listings for each statement execute function public._tw4prov2_guard();
+create trigger studio_sms_prov_dispositions_nowipe before truncate on public.studio_sms_prov_dispositions for each statement execute function public._tw4prov2_guard();
+create trigger studio_sms_prov_orphans_nowipe before truncate on public.studio_sms_prov_orphans for each statement execute function public._tw4prov2_guard();
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- helpers
@@ -224,6 +234,10 @@ begin
     return jsonb_build_object('ok', false, 'reason', 'need_two_independent_listings');
   end if;
   -- both observations are about the same scope and the same subaccount
+  -- the scope is the one the OPERATION recorded when it began (never the studio's current service); an operation that did not record one cannot be proven absent
+  if coalesce(r.params ->> 'messaging_service_sid', '') !~ '^MG[0-9a-fA-F]{32}$' or v_last.scope_sid <> r.params ->> 'messaging_service_sid' or v_a1.scope_sid <> r.params ->> 'messaging_service_sid' then
+    return jsonb_build_object('ok', false, 'reason', 'scope_changed');
+  end if;
   if v_a1.scope_sid <> v_last.scope_sid or v_a1.twilio_account_sid <> v_last.twilio_account_sid or v_last.twilio_account_sid <> r.twilio_account_sid then
     return jsonb_build_object('ok', false, 'reason', 'scope_changed');
   end if;
@@ -240,7 +254,8 @@ begin
     return jsonb_build_object('ok', false, 'reason', 'orphan_open');
   end if;
   if exists (select 1 from public.studio_sms_prov_listings l, unnest(l.listed_sids) s
-              where l.studio_id = r.studio_id and l.scope_sid = v_last.scope_sid and l.observed_at >= r.started_at
+              where l.studio_id = r.studio_id and l.twilio_account_sid = r.twilio_account_sid and l.observed_at >= r.started_at
+                and l.observed_at > coalesce((select max(y.closed_at) from public.studio_sms_prov_orphans y where y.provider_sid = s and y.status = 'closed'), '-infinity'::timestamptz)
                 and s <> all (coalesce((select array_agg(o.provider_sid) from public.studio_sms_prov_operations o where o.legal_entity_id = r.legal_entity_id and o.provider_sid is not null), '{}'))) then
     return jsonb_build_object('ok', false, 'reason', 'unaccounted_resource_seen');
   end if;
@@ -343,14 +358,12 @@ begin
   if r.id is null then
     return 0;
   end if;
-  select x.provider_sid into v_scope from public.studio_sms_prov_operations x where x.studio_id = r.studio_id and x.op_kind = 'messaging_service' and x.status = 'succeeded' and x.superseded_at is null;
-  if v_scope is null then
-    return 0;
-  end if;
+  -- no scope filter: every recorded listing was validated against its own operation's recorded scope and the studio's own subaccount, so an unaccounted campaign seen by ANY of
+  -- them (including one taken under a Messaging Service that was later replaced) is exposure; the orphan keeps the scope of the listing that showed it
   select coalesce(array_agg(distinct x.provider_sid), '{}') into v_known from public.studio_sms_prov_operations x where x.legal_entity_id = r.legal_entity_id and x.provider_sid is not null;
   select coalesce(array_agg(distinct s), '{}') into v_cand
     from public.studio_sms_prov_listings l, unnest(l.listed_sids) s
-   where l.studio_id = r.studio_id and l.scope_sid = v_scope and l.twilio_account_sid = r.twilio_account_sid and l.observed_at >= r.started_at
+   where l.studio_id = r.studio_id and l.twilio_account_sid = r.twilio_account_sid and l.observed_at >= r.started_at
      and s <> all (v_known)
      and l.observed_at > coalesce((select max(y.closed_at) from public.studio_sms_prov_orphans y where y.provider_sid = s and y.status = 'closed'), '-infinity'::timestamptz)
      and not exists (select 1 from public.studio_sms_prov_orphans y where y.provider_sid = s and y.status <> 'closed');
@@ -362,8 +375,8 @@ begin
   perform 1 from public.studio_sms_legal_entities le where le.id = r.legal_entity_id for no key update;   -- the order tw4_prov_begin uses: onboarding, then the entity
   select * into o from public.studio_sms_onboarding y where y.id = r.onboarding_id;
   foreach v_sid in array v_cand loop
-    select l.id into v_listing from public.studio_sms_prov_listings l
-     where l.studio_id = r.studio_id and l.scope_sid = v_scope and l.twilio_account_sid = r.twilio_account_sid and l.observed_at >= r.started_at and v_sid = any (l.listed_sids)
+    select l.id, l.scope_sid into v_listing, v_scope from public.studio_sms_prov_listings l
+     where l.studio_id = r.studio_id and l.twilio_account_sid = r.twilio_account_sid and l.observed_at >= r.started_at and v_sid = any (l.listed_sids)
        and l.observed_at > coalesce((select max(y.closed_at) from public.studio_sms_prov_orphans y where y.provider_sid = v_sid and y.status = 'closed'), '-infinity'::timestamptz)
      order by l.observed_at limit 1;
     v_inserted := null;
@@ -438,9 +451,14 @@ begin
   if v_active is null or v_active <> r.twilio_account_sid or (p_facts ->> 'account_sid') is distinct from r.twilio_account_sid then
     raise exception 'the listing is not of the operation''s own active subaccount' using errcode = 'TW005';
   end if;
-  select * into v_ms from public.studio_sms_prov_operations x where x.studio_id = r.studio_id and x.op_kind = 'messaging_service' and x.status = 'succeeded' and x.superseded_at is null;
-  if v_ms.id is null or (p_facts ->> 'scope_sid') is distinct from v_ms.provider_sid then
-    raise exception 'the listing is not of this studio''s own Messaging Service' using errcode = 'TW049';
+  -- the scope is the Messaging Service THIS operation recorded when it began, and it must still be one this studio's ledger created in the same subaccount (it may since have
+  -- been replaced: late evidence about the original service is still evidence about this operation). If the historical scope cannot be established, nothing is recorded.
+  select * into v_ms from public.studio_sms_prov_operations x
+   where x.studio_id = r.studio_id and x.legal_entity_id = r.legal_entity_id and x.op_kind = 'messaging_service' and x.status = 'succeeded' and x.twilio_account_sid = r.twilio_account_sid
+     and x.provider_sid = r.params ->> 'messaging_service_sid'
+   order by x.attempt desc limit 1;
+  if coalesce(r.params ->> 'messaging_service_sid', '') !~ '^MG[0-9a-fA-F]{32}$' or v_ms.id is null or (p_facts ->> 'scope_sid') is distinct from v_ms.provider_sid then
+    raise exception 'the listing is not of the Messaging Service this operation was registered under' using errcode = 'TW049';
   end if;
   begin
     v_read_id := (p_facts ->> 'read_id')::uuid;

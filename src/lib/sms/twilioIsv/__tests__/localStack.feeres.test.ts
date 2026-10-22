@@ -947,6 +947,107 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       }
     });
 
+    // ---------------------------------------------------------------------------------------------------------------------------------------------
+    // final P2 gate: immutable orphan evidence and the operation's own historical scope
+    // ---------------------------------------------------------------------------------------------------------------------------------------------
+    const lastCampaign = () => psql(`select id from public.studio_sms_prov_operations where studio_id = '${SD1}' and op_kind = 'campaign' order by attempt desc limit 1`);
+    const NEWMS = `MG${"9".repeat(32)}`;
+    const listingSql = (op: string, scope: string, minsAgo: number, verdict: string, listed: string[], owned: string[] = []) =>
+      `insert into public.studio_sms_prov_listings (operation_id, onboarding_id, studio_id, legal_entity_id, twilio_account_sid, op_kind, scope_sid, read_id, read_started_at, observed_at, source, complete, listed_sids, owned_elsewhere, evidence_digest, verdict, recorded_by_lease)
+         select o.id, o.onboarding_id, o.studio_id, o.legal_entity_id, o.twilio_account_sid, 'campaign', '${scope}', gen_random_uuid(), now() - interval '${minsAgo} minutes', now() - interval '${minsAgo} minutes', 'fake', true,
+                array[${listed.map((s) => `'${s}'`).join(",")}]::text[], array[${owned.map((s) => `'${s}'`).join(",")}]::text[], md5(random()::text) || md5(random()::text), '${verdict}', 'fixture'
+           from public.studio_sms_prov_operations o where o.id = '${op}';`;
+    /** Replaces the studio's Messaging Service (the old one is superseded, a new one is current) inside the surrounding rolled-back transaction. */
+    const replaceService = () => {
+      const msOp = psql(`select id from public.studio_sms_prov_operations where studio_id = '${SD1}' and op_kind = 'messaging_service' and status = 'succeeded' and superseded_at is null`);
+      return `create temp table _ms on commit drop as select * from public.studio_sms_prov_operations where id = '${msOp}';
+        update public.studio_sms_prov_operations set superseded_at = now() where id = '${msOp}';
+        update _ms set id = gen_random_uuid(), attempt = attempt + 1, provider_sid = '${NEWMS}', superseded_at = null;
+        insert into public.studio_sms_prov_operations select * from _ms;`;
+    };
+    /** Records a listing through the real function inside the surrounding transaction (own evidence lease). */
+    const recordSql = (op: string, scope: string) => `do $$ declare v_c jsonb; v_a text; begin
+        v_c := public.tw4_prov_evidence_claim('${SD1}', '${U.padmin}', 'p2-lease', 120);
+        select twilio_account_sid into v_a from public.studio_sms_prov_operations where id = '${op}';
+        perform public.tw4_prov_listing_record((v_c ->> 'onboarding_id')::uuid, 'p2-lease',  '${op}',
+          jsonb_build_object('account_sid', v_a, 'scope_sid', '${scope}', 'read_id', gen_random_uuid(), 'read_started_at', now()::text, 'complete', true, 'listed', '[]'::jsonb),
+          'fake', md5(random()::text) || md5(random()::text));
+      end $$;`;
+    const wipe = `delete from public.studio_sms_prov_listings where studio_id = '${SD1}'; delete from public.studio_sms_prov_orphans where legal_entity_id = '${ED}';`;
+
+    it("P2-A: an orphan's scope, kind and registration history cannot be rewritten, a registered orphan can only move on to closed, and the evidence tables cannot be truncated", () => {
+      const op = lastCampaign();
+      const ms = msSid(SD1);
+      const X = `QE${"a".repeat(32)}`;
+      const base = (status: string) => `begin; set local session_replication_role = replica; ${wipe} ${listingSql(op, ms, 30, "present", [X])}
+        insert into public.studio_sms_prov_orphans (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, scope_sid, first_listing_id, source_operation_id, status, rfl_resource_id, registered_by, registered_at)
+          select o.legal_entity_id, o.studio_id, o.twilio_account_sid, 'campaign', '${X}', '${ms}', (select id from public.studio_sms_prov_listings where studio_id = '${SD1}' limit 1), o.id, '${status}',
+                 ${status === "registered" ? "gen_random_uuid(), '" + U.padmin + "', now()" : "null, null, null"}
+            from public.studio_sms_prov_operations o where o.id = '${op}';
+        set local session_replication_role = origin;`;
+      // scope is identity: fixed for an open orphan
+      expect(psqlError(`${base("open")} update public.studio_sms_prov_orphans set scope_sid = '${NEWMS}' where provider_sid = '${X}'; rollback;`)).toMatch(/identity of an orphan is fixed/);
+      expect(psqlError(`${base("registered")} update public.studio_sms_prov_orphans set scope_sid = '${NEWMS}' where provider_sid = '${X}'; rollback;`)).toMatch(/identity of an orphan is fixed/);
+      // registration history is never rewritten
+      expect(psqlError(`${base("registered")} update public.studio_sms_prov_orphans set registered_at = registered_at - interval '1 day' where provider_sid = '${X}'; rollback;`)).toMatch(/never rewritten/);
+      expect(psqlError(`${base("registered")} update public.studio_sms_prov_orphans set registered_by = null where provider_sid = '${X}'; rollback;`)).toMatch(/never rewritten/);
+      expect(psqlError(`${base("registered")} update public.studio_sms_prov_orphans set rfl_resource_id = gen_random_uuid() where provider_sid = '${X}'; rollback;`)).toMatch(/never rewritten/);
+      // a registered orphan cannot be re-registered with other values, nor reopened
+      expect(psqlError(`${base("registered")} update public.studio_sms_prov_orphans set status = 'registered', rfl_resource_id = gen_random_uuid(), registered_at = now() where provider_sid = '${X}'; rollback;`)).toMatch(/never rewritten/);
+      expect(psqlError(`${base("registered")} update public.studio_sms_prov_orphans set status = 'open', registered_at = null, rfl_resource_id = null where provider_sid = '${X}'; rollback;`)).toMatch(/never rewritten|never goes backwards/);
+      // the allowed move: registered -> closed keeps the registration facts
+      expect(psqlError(`${base("registered")} update public.studio_sms_prov_orphans set status = 'closed', closed_at = now(), closed_by = '${U.padmin}', close_note = 'fixture: closed after cancellation' where provider_sid = '${X}'; rollback;`)).toBe("");
+      // a closed orphan is final
+      expect(psqlError(`${base("registered")} update public.studio_sms_prov_orphans set status = 'closed', closed_at = now(), close_note = 'fixture: closed after cancellation' where provider_sid = '${X}';
+         update public.studio_sms_prov_orphans set close_note = 'fixture: rewritten history of closure' where provider_sid = '${X}'; rollback;`)).toMatch(/never goes backwards/);
+      // nothing is deleted or wiped
+      expect(psqlError(`${base("open")} delete from public.studio_sms_prov_orphans where provider_sid = '${X}'; rollback;`)).toMatch(/never deleted/);
+      for (const t of ["studio_sms_prov_listings", "studio_sms_prov_orphans", "studio_sms_prov_dispositions"]) {
+        expect(psqlError(`begin; truncate public.${t} cascade; rollback;`)).toMatch(/never deleted/);
+      }
+    });
+
+    it("P2-B: after the studio's Messaging Service is replaced, evidence is bound to the service the OPERATION was registered under: a listing of the new service is refused, one of the original is recorded with the original scope", () => {
+      const op = lastCampaign();
+      const original = msSid(SD1);
+      expect(psql(`select params ->> 'messaging_service_sid' from public.studio_sms_prov_operations where id = '${op}'`)).toBe(original);
+      // the replaced state itself: a listing naming the NEW service is not evidence about this operation (the old code accepted it)
+      expect(psqlError(`begin; set local session_replication_role = replica; ${replaceService()} set local session_replication_role = origin; ${recordSql(op, NEWMS)} rollback;`)).toMatch(/TW049/);
+      // late evidence about the ORIGINAL service is still recorded, with the original scope
+      expect(psqlError(`begin; set local session_replication_role = replica; ${replaceService()} set local session_replication_role = origin; ${recordSql(op, original)}
+        do $$ begin if (select scope_sid from public.studio_sms_prov_listings where operation_id = '${op}' order by observed_at desc limit 1) <> '${original}' then raise exception 'wrong scope recorded'; end if; end $$; rollback;`)).toBe("");
+      // an operation that did not record its scope cannot have evidence recorded or a proof built
+      expect(psqlError(`begin; set local session_replication_role = replica; update public.studio_sms_prov_operations set params = params - 'messaging_service_sid' where id = '${op}'; set local session_replication_role = origin; ${recordSql(op, original)} rollback;`)).toMatch(/TW049/);
+      // a scope that is not one of this studio's ledger-created services in the same subaccount is refused too
+      expect(psqlError(`begin; set local session_replication_role = replica; update public.studio_sms_prov_operations set params = jsonb_set(params, '{messaging_service_sid}', '"${NEWMS}"') where id = '${op}'; set local session_replication_role = origin; ${recordSql(op, NEWMS)} rollback;`)).toMatch(/TW049/);
+    });
+
+    it("P2-B: the absence proof uses the operation's recorded scope (listings of a replacement service never prove the original absent); a closed orphan's old sighting does not block a later proof; a replaced service's resource still becomes an orphan", () => {
+      const op = lastCampaign();
+      const original = msSid(SD1);
+      const proof = (scope: string, extra = "") => `begin; set local session_replication_role = replica; ${wipe} update public.studio_sms_prov_operations set started_at = now() - interval '3 hours' where id = '${op}';
+        ${replaceService()} ${listingSql(op, scope, 50, "absent", [])} ${listingSql(op, scope, 20, "absent", [])} ${extra} set local session_replication_role = origin;`;
+      const reason = `do $$ declare j jsonb := public._tw4prov2_proof('${op}'); begin raise exception 'REASON=%', j ->> 'reason'; end $$;`;
+      expect(psqlError(`${proof(NEWMS)} ${reason} rollback;`)).toMatch(/REASON=scope_changed/);
+      expect(psqlError(`${proof(original)} ${reason} rollback;`)).toMatch(/REASON=verified_absence/);
+      // an unaccounted campaign seen earlier and since CLOSED as gone does not make the operation unprovable for ever
+      const Y = `QE${"b".repeat(32)}`;
+      const closedSighting = `${listingSql(op, original, 90, "present", [Y])}
+        insert into public.studio_sms_prov_orphans (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, scope_sid, first_listing_id, source_operation_id, status, closed_at, close_note, discovered_at)
+          select o.legal_entity_id, o.studio_id, o.twilio_account_sid, 'campaign', '${Y}', '${original}', (select id from public.studio_sms_prov_listings where studio_id = '${SD1}' order by observed_at limit 1), o.id, 'closed', now() - interval '60 minutes', 'fixture: gone', now() - interval '85 minutes'
+            from public.studio_sms_prov_operations o where o.id = '${op}';`;
+      expect(psqlError(`${proof(original, closedSighting)} ${reason} rollback;`)).toMatch(/REASON=verified_absence/);
+      // a campaign seen under the ORIGINAL service after it was replaced is still an orphan (the scan does not follow only the current service)
+      const Z = `QE${"c".repeat(32)}`;
+      expect(psqlError(`begin; set local session_replication_role = replica; ${wipe} update public.studio_sms_prov_operations set started_at = now() - interval '3 hours' where id = '${op}';
+        update public.studio_sms_prov_operations set status = 'abandoned', superseded_at = now() where studio_id = '${SD1}' and op_kind = 'campaign';
+        ${replaceService()} ${listingSql(op, original, 10, "present", [Z])} set local session_replication_role = origin;
+        do $$ begin
+          perform public._tw4prov2_orphan_scan('${op}');
+          if (select string_agg(provider_sid || '/' || scope_sid, ',') from public.studio_sms_prov_orphans where legal_entity_id = '${ED}' and status = 'open') is distinct from '${Z}/${original}' then raise exception 'orphan missing or wrong scope'; end if;
+        end $$; rollback;`)).toBe("");
+    });
+
     it("the new evidence tables have row-level security enabled (no policies: no API role can read them)", () => {
       expect(psql(`select string_agg(relname || ':' || relrowsecurity::text, ',' order by relname) from pg_class where relname in ('studio_sms_prov_listings', 'studio_sms_prov_orphans', 'studio_sms_prov_dispositions')`))
         .toBe("studio_sms_prov_dispositions:true,studio_sms_prov_listings:true,studio_sms_prov_orphans:true");
