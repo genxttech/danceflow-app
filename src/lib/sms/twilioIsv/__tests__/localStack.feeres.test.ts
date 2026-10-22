@@ -548,7 +548,7 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       expect((await rpc("tw4_prov_orphan_alert_status", { p_actor: U.owner_a, p_legal_entity_id: null })).error?.code).toBe("42501");
       // read-only: provably so (a read-only transaction would refuse any write) and nothing financial moved
       expect(psqlError(`begin read only; select public.tw4_prov_orphan_exposure('${U.padmin}', null, true); select public.tw4_prov_orphan_alert_status('${U.padmin}', null); rollback;`)).toBe("");
-      expect(psql(`select string_agg(proname || ':' || provolatile, ',' order by proname) from pg_proc where proname in ('tw4_prov_orphan_exposure', 'tw4_prov_orphan_alert_status')`)).toBe("tw4_prov_orphan_alert_status:s,tw4_prov_orphan_exposure:s");
+      expect(psql(`select string_agg(proname || ':' || provolatile::text, ',' order by proname) from pg_proc where proname in ('tw4_prov_orphan_exposure', 'tw4_prov_orphan_alert_status')`)).toBe("tw4_prov_orphan_alert_status:s,tw4_prov_orphan_exposure:s");
       expect(money()).toBe(before);
     });
 
