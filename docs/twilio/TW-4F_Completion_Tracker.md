@@ -235,7 +235,7 @@ Every slice starts from `main` = `960a9d02` in its own worktree, cut by the app 
 | W0 #251 | TW-4F scheduled SMS reconciliation & recovery (existing owner) | `twilio-tw4f-sender-reverify` | `SenderIdentity.tsx`, `page.tsx` (merge-conflict resolution), `senderVerification.ts`, route `sms-sender-reverify` | `_tw4sr_judge`, `tw4_sender_reverify`, `tw4_sender_due_reverify`, `tw4_sender_health`, `tw4_sender_reverify_run` | `20261206090000` | — | Rebase requested |
 | W0 #266 | Automated Twilio sender provisioning (existing owner) | `twilio-tw4f-isolated-qa` | `scripts/qa/iso-qa.mjs` and the harness files | — | — | — | Refresh requested |
 | W0 #267, #269 | DanceFlow provisioning UI (existing owner) | `twilio-r2a-rollback-test`, `twilio-prov-evidence-orig-scope` | `localStack.r2a.test.ts`; `provisionEvidence.ts` (#269 scope) | `tw4_prov_evidence_targets` | `20261215090000` | — | Refresh requested |
-| F3 | tw4f-f3-recon-gate | `twilio-tw4f-f3-recon-gate` | `UsageReconciliation.tsx`; new `localStack.f3recon` | `tw4_usage_begin`, `tw4_usage_set_switch`, new `_tw4usage_reconciler_ready()` (a contract F1 depends on) | `20261218090000` | — | Running |
+| F3 | tw4f-f3-recon-gate | `twilio-tw4f-f3-recon-gate` | `UsageReconciliation.tsx`; new `localStack.f3recon`, `usageReconcilerReadiness.ts`; **send-path enforcement (owner-approved 2026-10-22):** `src/app/api/sms/send/route.ts`, `src/lib/notifications/dispatch.ts`, `src/lib/sms/usageBilling.ts` and their existing tests; `localStack.tw4recon`, `localStack.tw4usage`, `senderFixtures.ts`; shared: `localStack.tw4sender.test.ts`, `page.tsx` (see notes) | `tw4_usage_begin`, `tw4_usage_set_switch`, new `_tw4usage_reconciler_ready()` (a contract F1 depends on) | `20261218090000` | #251 for the shared files | Resumed after outage |
 | F1 | tw4f-f1-funding | `twilio-tw4f-f1-funding` | new `localStack.f1funding` | `_tw4act_*`, `tw4_act_*` (acquires locks from the `act_*` side only; must stop before touching `tw4_num_retire` / `tw4_num_observe`) | `20261219090000` | F3 helper, for the checklist item only | Running |
 | F2 | not launched | — | — | `_tw4sr_ready`, `_tw4sr_ready_core` | `20261220090000` (reserved) | U-3 | Waiting on decision U-3 |
 | F4 | tw4f-f4-recovery | `twilio-tw4f-f4-recovery` | `provisionLedger.ts`, `ProvisioningLedger.tsx`, `provisioningActions.ts`; new `Exposure*`, `Recovery*`, `NumberLedger*`, `recoveryActions.ts`; one mount line in `page.tsx` | `tw4_prov_observe`, `tw4_num_registration_*`, new recovery/exposure reads | `20261221090000` | #269 (merge `main` in after it lands) | Running |
@@ -249,8 +249,28 @@ Every slice starts from `main` = `960a9d02` in its own worktree, cut by the app 
 
 Notes on the files more than one slice touches:
 
-- **`src/app/platform/sms/page.tsx`:** only #251 (conflict resolution) and F4 (one mount line) edit it. Whichever merges second rebases onto the first.
+- **`src/app/platform/sms/page.tsx`:** merge order is **#251 → F4 → F3**. #251 resolves its pending merge conflict first. F4 owns the recovery-panel mount (import + one element) and rebases onto #251. F3 adds only its readiness integration (one import, one load, one prop on `UsageReconciliation`) and rebases onto whichever of #251/F4 has merged. No slice rewrites the page or removes another slice's lines.
+- **`src/lib/sms/__tests__/localStack.tw4sender.test.ts`:** #251 and F3 both change it. #251 lands first; F3 rebases and adds its assertions next to #251's. Neither session deletes or weakens the other's assertions; a needed change to the other's assertion goes through that session.
+- **`src/lib/sms/provisioning/__tests__/journey.r2c.test.ts`:** J1 owns its additions in this file. J2 keeps its tests in `journey.j2.test.ts` and does not edit this file. If J2's `journey.ts` change breaks an assertion here, J2 asks J1 to update it. J1 must not overwrite J2's changes in `journey.ts`.
 - **RFL-owned files** (`recurringFeeActions.ts`, `RecurringFeesCancel.tsx`) are with F5 for this wave. The RFL and R2b sessions have been told who owns what.
+
+### 6.2 Recovery checkpoint (2026-10-22, after the API outage)
+
+Every Wave 1 session and the #251/#266 owners stopped on an API connectivity error at about 21:00Z. No work was lost; each session resumed in its original worktree. Rules on resuming: preserve all uncommitted work (no reset, stash, clean or force-push); each session manages only its own QA containers, removing one only after confirming no test is running and no evidence is needed from it; at most two or three database-heavy suites run on the machine at once.
+
+Open PRs, revalidated 2026-10-22 (CI = the required "Typecheck, build, lint, unit/integration tests" check; Playwright E2E is skipped by design):
+
+| PR | Head | Mergeable | CI | Status |
+|---|---|---|---|---|
+| #251 | 0fe7a622 | CONFLICTING | green (old head) | Pending conflict resolution (merge of `main` in progress locally) |
+| #266 | d90a9f17 | CLEAN | green | QA harness verification; local merge of `main` not yet pushed |
+| #267 | 59ecf3f0 | CLEAN | green | Awaiting owner merge decision |
+| #269 | 5a2432d3 | CLEAN | green | Awaiting owner merge decision |
+| #273 | this PR | CLEAN | docs | Completion tracker |
+| #274 | a6074a92 | CLEAN | docs | H1 hosted manifest; F1/F4/J2 hash rows follow their PRs |
+| #275 | c858ddc1 | CLEAN | green | Q1 QA/E2E preparation; partial baseline, re-run on an idle host |
+
+Heads, CI and mergeability are re-checked before any merge is recommended. No PR merges without separate owner approval.
 
 ## 7. Open owner decisions
 
