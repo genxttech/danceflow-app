@@ -1067,7 +1067,7 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
           set local session_replication_role = origin;
           do $$ begin raise exception 'GONE=%', public._tw4prov2_orphan_gone((select id from public.studio_sms_prov_orphans where provider_sid = '${X}')); end $$; rollback;`);
         const m = /GONE=(t|f)/.exec(out)?.[1];
-        return m ? (m === "t" ? "true" : "false") : `unexpected: ${out}`;
+        return m ? (m === "t" ? "true" : "false") : `unexpected: ${JSON.stringify(out)}`;
       };
       const clean: L[] = [{ mins: 40 }, { mins: 20 }];
       expect(gone(clean)).toBe("true");
