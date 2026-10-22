@@ -114,7 +114,7 @@ export abstract class TwilioRest<C extends Credentials> {
   }
 
   /** GET a list, following Twilio's own next-page links (host-checked) for a bounded number of pages. */
-  protected async listAll(firstUrl: string, host: string, rowsKey: string): Promise<Record<string, unknown>[]> {
+  protected async listAll(firstUrl: string, host: string, rowsKey: string, opts: { strict?: boolean } = {}): Promise<Record<string, unknown>[]> {
     const rows: Record<string, unknown>[] = [];
     let url: string | null = firstUrl;
     for (let page = 0; page < MAX_PAGES && url; page += 1) {
@@ -124,6 +124,8 @@ export abstract class TwilioRest<C extends Credentials> {
       const list =Array.isArray(json[rowsKey]) ? (json[rowsKey] as Record<string, unknown>[]) : Array.isArray(json.results) ? (json.results as Record<string, unknown>[]) : Array.isArray(json.data) ? (json.data as Record<string, unknown>[]) : [];
       rows.push(...list);
       const meta = (json.meta ?? {}) as Record<string, unknown>;
+      // strict (evidence-grade) listings only: a next-page link that is not on our own host is NOT "the last page", so the listing cannot prove that anything is absent. Ordinary lookups keep stopping there (a match they already found is still a match).
+      if (opts.strict && typeof meta.next_page_url === "string" && meta.next_page_url !== "" && !meta.next_page_url.startsWith(host)) throw new IsvApiError("transient", null, null, "list continues on an unexpected host");
       url = typeof meta.next_page_url === "string" && meta.next_page_url.startsWith(host) ? meta.next_page_url : null;
     }
     // A lookup that stopped with pages still to read cannot prove that a resource does NOT exist, and these lookups guard paid and
@@ -483,8 +485,10 @@ export class RealProvisioningAdapter extends TwilioRest<IsvConfig> implements Is
   }
 
   async findCampaigns(messagingServiceSid: string): Promise<string[]> {
-    const rows = await this.listAll(`${MESSAGING}/Services/${provChecked(messagingServiceSid, MESSAGING_SERVICE_SID)}/Compliance/Usa2p?PageSize=50`, MESSAGING, "compliance");
-    return rows.filter((row) => row.account_sid === this.accountSid).map((row) => String(row.sid));
+    const rows = await this.listAll(`${MESSAGING}/Services/${provChecked(messagingServiceSid, MESSAGING_SERVICE_SID)}/Compliance/Usa2p?PageSize=50`, MESSAGING, "compliance", { strict: true });
+    // evidence-grade listing: a row of another or an unlabeled account means the response is not what we asked for, so the listing cannot certify absence
+    if (rows.some((row) => row.account_sid !== this.accountSid)) throw new IsvApiError("transient", null, null, "campaign listing carried a foreign or unlabeled row");
+    return rows.map((row) => String(row.sid));
   }
 
   async createCampaign(input: CampaignCreateInput): Promise<string> {
