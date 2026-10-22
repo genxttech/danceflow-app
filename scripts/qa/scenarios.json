@@ -2,7 +2,8 @@
   "_comment": "Explicit migration manifests. Each scenario is the baseline (through 20261205090000) plus these migrations IN THIS ORDER, each taken from a git ref (never a working tree). ref names are resolved from the environment first (ISO_QA_REF_<NAME>), then the default below. A migration that fails to apply, or whose version is not found exactly once at its ref, fails the scenario. Completeness: every TW-4F (sms|twilio|tw4) migration above the cutoff that exists at a ref a scenario uses must be applied by that scenario or listed in excluded, otherwise the scenario refuses to start.",
   "refs": {
     "MAIN": "origin/main",
-    "PR251": "origin/twilio-tw4f-sender-reverify"
+    "PR251": "origin/twilio-tw4f-sender-reverify",
+    "PR269": "origin/twilio-prov-evidence-orig-scope"
   },
   "excluded": [],
   "scenarios": {
@@ -11,7 +12,7 @@
       "migrations": []
     },
     "main": {
-      "description": "origin/main as merged: R2a 20261207, R2b 20261208, recurring-fee lifecycle 20261209, R2c owner read 20261210",
+      "description": "origin/main as merged: the full TW-4F chain above the baseline cutoff, 20261207..20261217 (R2a, R2b, recurring-fee lifecycle, R2c read, RFL ops, fee evidence, R2b P1/P2, orphan exposure, R2b/RFL integration)",
       "migrations": [
         [
           "MAIN",
@@ -28,11 +29,35 @@
         [
           "MAIN",
           "20261210"
+        ],
+        [
+          "MAIN",
+          "20261211"
+        ],
+        [
+          "MAIN",
+          "20261212"
+        ],
+        [
+          "MAIN",
+          "20261213"
+        ],
+        [
+          "MAIN",
+          "20261214"
+        ],
+        [
+          "MAIN",
+          "20261216"
+        ],
+        [
+          "MAIN",
+          "20261217"
         ]
       ]
     },
     "main-then-pr251": {
-      "description": "main, then PR #251 (20261206) last: the order they merge in if #251 lands after main",
+      "description": "main chain, then PR #251 (20261206) last",
       "migrations": [
         [
           "MAIN",
@@ -49,6 +74,30 @@
         [
           "MAIN",
           "20261210"
+        ],
+        [
+          "MAIN",
+          "20261211"
+        ],
+        [
+          "MAIN",
+          "20261212"
+        ],
+        [
+          "MAIN",
+          "20261213"
+        ],
+        [
+          "MAIN",
+          "20261214"
+        ],
+        [
+          "MAIN",
+          "20261216"
+        ],
+        [
+          "MAIN",
+          "20261217"
         ],
         [
           "PR251",
@@ -57,7 +106,7 @@
       ]
     },
     "pr251-then-main": {
-      "description": "numeric order: PR #251 (20261206) first, then main",
+      "description": "numeric order: PR #251 (20261206) first, then the main chain",
       "migrations": [
         [
           "PR251",
@@ -78,11 +127,35 @@
         [
           "MAIN",
           "20261210"
+        ],
+        [
+          "MAIN",
+          "20261211"
+        ],
+        [
+          "MAIN",
+          "20261212"
+        ],
+        [
+          "MAIN",
+          "20261213"
+        ],
+        [
+          "MAIN",
+          "20261214"
+        ],
+        [
+          "MAIN",
+          "20261216"
+        ],
+        [
+          "MAIN",
+          "20261217"
         ]
       ]
     },
     "pr251-mid": {
-      "description": "PR #251 lands between R2b and the recurring-fee lifecycle",
+      "description": "PR #251 lands between R2b (1208) and the recurring-fee lifecycle (1209)",
       "migrations": [
         [
           "MAIN",
@@ -103,6 +176,132 @@
         [
           "MAIN",
           "20261210"
+        ],
+        [
+          "MAIN",
+          "20261211"
+        ],
+        [
+          "MAIN",
+          "20261212"
+        ],
+        [
+          "MAIN",
+          "20261213"
+        ],
+        [
+          "MAIN",
+          "20261214"
+        ],
+        [
+          "MAIN",
+          "20261216"
+        ],
+        [
+          "MAIN",
+          "20261217"
+        ]
+      ]
+    },
+    "main-pr269": {
+      "description": "main chain with PR #269 (20261215, evidence targets) in numeric position",
+      "migrations": [
+        [
+          "MAIN",
+          "20261207"
+        ],
+        [
+          "MAIN",
+          "20261208"
+        ],
+        [
+          "MAIN",
+          "20261209"
+        ],
+        [
+          "MAIN",
+          "20261210"
+        ],
+        [
+          "MAIN",
+          "20261211"
+        ],
+        [
+          "MAIN",
+          "20261212"
+        ],
+        [
+          "MAIN",
+          "20261213"
+        ],
+        [
+          "MAIN",
+          "20261214"
+        ],
+        [
+          "PR269",
+          "20261215"
+        ],
+        [
+          "MAIN",
+          "20261216"
+        ],
+        [
+          "MAIN",
+          "20261217"
+        ]
+      ]
+    },
+    "full-chain": {
+      "description": "everything, numeric order: PR #251 (1206), main 1207..1214, PR #269 (1215), main 1216..1217",
+      "migrations": [
+        [
+          "PR251",
+          "20261206"
+        ],
+        [
+          "MAIN",
+          "20261207"
+        ],
+        [
+          "MAIN",
+          "20261208"
+        ],
+        [
+          "MAIN",
+          "20261209"
+        ],
+        [
+          "MAIN",
+          "20261210"
+        ],
+        [
+          "MAIN",
+          "20261211"
+        ],
+        [
+          "MAIN",
+          "20261212"
+        ],
+        [
+          "MAIN",
+          "20261213"
+        ],
+        [
+          "MAIN",
+          "20261214"
+        ],
+        [
+          "PR269",
+          "20261215"
+        ],
+        [
+          "MAIN",
+          "20261216"
+        ],
+        [
+          "MAIN",
+          "20261217"
         ]
       ]
     }
