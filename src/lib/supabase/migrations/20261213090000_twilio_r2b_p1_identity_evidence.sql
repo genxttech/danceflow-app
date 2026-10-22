@@ -247,7 +247,7 @@ begin
      -- the provider-read E.164 belongs to a purchase of this business under ANY status, with another sid or none (a lost, wrongly resolved, failed or retired purchase): it is that purchase's number
      or exists (select 1 from public.studio_sms_num_operations x where x.legal_entity_id = v_entity and x.op_kind = 'number_purchase' and x.e164 = i.e164
                   and (x.provider_sid is null or x.provider_sid <> p_phone_number_sid))
-     or exists (select 1 from public.studio_sms_num_operations x where x.legal_entity_id = v_entity and x.op_kind = 'number_purchase' and (x.status = 'failed' or x.superseded_at is not null)
+     or exists (select 1 from public.studio_sms_num_operations x where x.legal_entity_id = v_entity and x.op_kind = 'number_purchase' and (x.status in ('failed', 'abandoned') or x.superseded_at is not null)
                   and x.provider_sid = p_phone_number_sid) then
     raise exception 'this number belongs to a purchase that is unresolved, lost, failed or retired: investigate it, do not acknowledge it' using errcode = 'TW034';
   end if;
@@ -298,6 +298,9 @@ begin
   if exists (select 1 from public.studio_sms_num_inventory_checks x where x.legal_entity_id = r.legal_entity_id and x.twilio_account_sid = r.twilio_account_sid
                and x.created_at >= r.started_at and (x.unknown_count > 0 or x.missing_count > 0)) then
     return 'a_listing_since_the_attempt_was_unclean';
+  end if;
+  if exists (select 1 from public.studio_sms_num_inventory_checks x where x.legal_entity_id = r.legal_entity_id and x.twilio_account_sid = r.twilio_account_sid and x.created_at >= r.started_at and x.listed_sids is null) then
+    return 'a_listing_since_the_attempt_kept_no_sids';
   end if;
   -- NO listing since the attempt SHOWS the number this operation recorded (a recorded sid is "known", so the counts alone would call it clean)
   if r.provider_sid is not null and exists (select 1 from public.studio_sms_num_inventory_checks x where x.legal_entity_id = r.legal_entity_id and x.twilio_account_sid = r.twilio_account_sid
@@ -362,6 +365,9 @@ begin
   -- It is the only exit for a pilot purchase whose outcome cannot be proven; it requires a written reason and never releases anything.
   if p_resolution = 'forfeit' and not (r.fee_bearing and exists (select 1 from public.studio_sms_pilot_exceptions y where y.legal_entity_id = r.legal_entity_id)) then
     raise exception 'only a pilot fee operation can be forfeited' using errcode = '22023';
+  end if;
+  if p_resolution = 'forfeit' and (r.provider_sid is not null or exists (select 1 from public.studio_sms_num_identity_reads i where i.legal_entity_id = r.legal_entity_id and i.twilio_account_sid = r.twilio_account_sid and i.e164 = r.e164 and i.observed_at >= r.started_at)) then
+    raise exception 'a lost purchase whose number is known or has been seen at the provider is resolved as created, not forfeited' using errcode = '22023';
   end if;
   if p_resolution = 'created' and (p_provider_sid is null or p_provider_sid !~ '^PN[0-9a-fA-F]{32}$') then
     raise exception 'the number sid found at the provider is required' using errcode = '22023';

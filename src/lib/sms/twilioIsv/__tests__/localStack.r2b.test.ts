@@ -967,6 +967,16 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
         set local session_replication_role = replica;
         update public.studio_sms_num_operations set status = 'unknown_outcome', started_at = now() - interval '3 hours', finished_at = null where id = v_op;
         set local session_replication_role = origin;
+        -- a lost purchase whose sid is KNOWN is resolved as created, never forfeited
+        begin
+          perform public.tw4_num_resolve(v_op, '${U.padmin}', 'forfeit', null, 'abandoning the lost pilot purchase');
+          raise exception 'forfeit-test-failed: forfeited an op with a known sid';
+        exception when sqlstate '22023' then null; end;
+        -- the lost response: no sid, and the set-aside is still HELD
+        set local session_replication_role = replica;
+        update public.studio_sms_num_operations set provider_sid = null where id = v_op;
+        update public.studio_sms_credit_reservations set status = 'reserved', closed_at = null where legal_entity_id = '${EC}' and kind = 'number';
+        set local session_replication_role = origin;
         select string_agg(status, ',' order by id) into v_before from public.studio_sms_credit_reservations where legal_entity_id = '${EC}' and kind = 'number';
         begin
           perform public.tw4_num_resolve(v_op, '${U.padmin}', 'not_created', null, 'checked the console: no such number');
@@ -977,7 +987,16 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
           raise exception 'forfeit-test-failed: a non-admin forfeited';
         exception when insufficient_privilege then null; end;
         perform public.tw4_num_resolve(v_op, '${U.padmin}', 'forfeit', null, 'abandoning the lost pilot purchase');
+        begin
+          perform public.tw4_num_settle_admin(v_op, '${U.padmin}', 'released', 'trying to win the capacity back after the forfeit');
+          raise exception 'forfeit-test-failed: a forfeited pilot reservation was released';
+        exception when sqlstate 'TW050' then null; when sqlstate '22023' then null; end;
+        begin
+          perform public.tw4_num_resolve(v_op, '${U.padmin}', 'forfeit', null, 'forfeiting the same purchase twice');
+          raise exception 'forfeit-test-failed: replay accepted';
+        exception when sqlstate '22023' then null; end;
         select string_agg(status, ',' order by id) into v_after from public.studio_sms_credit_reservations where legal_entity_id = '${EC}' and kind = 'number';
+        if v_after not like '%reserved%' then raise exception 'forfeit-test-failed: the held reservation is no longer held: %', v_after; end if;
         select status into st from public.studio_sms_num_operations where id = v_op;
         if st <> 'abandoned' then raise exception 'forfeit-test-failed: op %', st; end if;
         if v_before is distinct from v_after then raise exception 'forfeit-test-failed: reservations changed % -> %', v_before, v_after; end if;
