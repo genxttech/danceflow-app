@@ -66,7 +66,7 @@ begin
 end $$;
 
 -- the SIDs a listing showed (not only counts): a listing that shows the very number an operation is about is not evidence of its absence
-alter table public.studio_sms_num_inventory_checks add column listed_sids text[] not null default '{}';
+alter table public.studio_sms_num_inventory_checks add column listed_sids text[] null;
 
 create table public.studio_sms_num_identity_reads (
   id uuid primary key default gen_random_uuid(),
@@ -147,6 +147,7 @@ begin
   end if;
   v_sid := p_facts ->> 'sid';
   v_e164 := p_facts ->> 'phone_number';
+  perform pg_advisory_xact_lock(hashtextextended('num_inventory:' || v_account, 0));
   -- the read must be OF the business's own subaccount: a number another account reports is not evidence about this one
   if (p_facts ->> 'account_sid') is distinct from v_account then
     raise exception 'the number belongs to a different account than the business''s active subaccount' using errcode = 'TW049';
@@ -178,14 +179,16 @@ begin
      or p_source is null or p_source not in ('provider_read', 'fake') or jsonb_typeof(p_facts -> 'complete') <> 'boolean' or jsonb_typeof(p_facts -> 'created_e164') <> 'array' then
     raise exception 'invalid history observation' using errcode = '22023';
   end if;
-  if p_source = 'fake' and not public._tw4sr_fake_allowed() then
-    raise exception 'fake evidence is not accepted here' using errcode = '42501';
+  -- creation-history evidence is NOT enabled outside local QA: no provider history source has been verified against the real provider, so a caller-asserted 'complete' is not accepted
+  if not public._tw4sr_fake_allowed() then
+    raise exception 'creation-history evidence is not enabled until a provider history source is verified' using errcode = '42501';
   end if;
   select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = o.studio_id;
   v_account := public._tw4num_account(o.studio_id);
   if v_entity is null or v_account is null then
     raise exception 'this studio''s legal entity has no active Twilio subaccount' using errcode = 'TW005';
   end if;
+  perform pg_advisory_xact_lock(hashtextextended('num_inventory:' || v_account, 0));
   if (p_facts ->> 'account_sid') is distinct from v_account then
     raise exception 'the history belongs to a different account than the business''s active subaccount' using errcode = 'TW049';
   end if;
@@ -227,6 +230,7 @@ begin
   if v_account is null then
     raise exception 'this studio''s legal entity has no active Twilio subaccount' using errcode = 'TW005';
   end if;
+  perform pg_advisory_xact_lock(hashtextextended('num_inventory:' || v_account, 0));
   -- the identity is what the PROVIDER said, recently, about THIS business's subaccount
   select * into i from public.studio_sms_num_identity_reads x where x.twilio_account_sid = v_account and x.phone_number_sid = p_phone_number_sid and x.legal_entity_id = v_entity
    order by x.observed_at desc, x.id limit 1;
@@ -280,22 +284,24 @@ begin
   if c2.listed_at < clock_timestamp() - interval '60 minutes' then return 'listing_is_stale'; end if;
   if c2.unknown_count > 0 then return 'listing_shows_unknown_numbers'; end if;
   if c2.missing_count > 0 then return 'listing_is_incomplete'; end if;
+  if c2.listed_sids is null then return 'listing_predates_the_attempt'; end if;   -- recorded before the SIDs were kept: it proves nothing about a sid
   -- both the caller's clock and the database's must be at least 20 minutes after the attempt (the caller-supplied listed_at may run ahead of the database clock)
   if c2.listed_at < r.started_at + interval '20 minutes' or c2.created_at < r.started_at + interval '20 minutes' then return 'listing_predates_the_attempt'; end if;
   -- a second, independent (another run), complete, clean listing at least 10 minutes earlier, also 20+ minutes after the attempt
   select * into c1 from public.studio_sms_num_inventory_checks x where x.legal_entity_id = r.legal_entity_id and x.twilio_account_sid = r.twilio_account_sid
      and x.id <> c2.id and x.lease_owner <> c2.lease_owner and x.unknown_count = 0 and x.missing_count = 0 and (x.source = 'provider_read' or public._tw4sr_fake_allowed())
-     and x.listed_at >= r.started_at + interval '20 minutes' and x.created_at >= r.started_at + interval '20 minutes' and x.listed_at <= c2.listed_at - interval '10 minutes' and x.created_at <= c2.listed_at
+     and x.listed_sids is not null and x.listed_at >= r.started_at + interval '20 minutes' and x.created_at >= r.started_at + interval '20 minutes'
+     and x.listed_at <= c2.listed_at - interval '10 minutes' and x.created_at <= c2.created_at - interval '10 minutes' and x.created_at <= c2.listed_at
    order by x.listed_at desc, x.created_at desc, x.id limit 1;
   if c1.id is null then return 'second_independent_listing_required'; end if;
   -- no listing since the first was unclean
   if exists (select 1 from public.studio_sms_num_inventory_checks x where x.legal_entity_id = r.legal_entity_id and x.twilio_account_sid = r.twilio_account_sid
-               and x.listed_at >= c1.listed_at and (x.unknown_count > 0 or x.missing_count > 0)) then
-    return 'a_listing_since_the_first_was_unclean';
+               and x.created_at >= r.started_at and (x.unknown_count > 0 or x.missing_count > 0)) then
+    return 'a_listing_since_the_attempt_was_unclean';
   end if;
   -- NO listing since the attempt SHOWS the number this operation recorded (a recorded sid is "known", so the counts alone would call it clean)
   if r.provider_sid is not null and exists (select 1 from public.studio_sms_num_inventory_checks x where x.legal_entity_id = r.legal_entity_id and x.twilio_account_sid = r.twilio_account_sid
-                                             and x.listed_at >= r.started_at and r.provider_sid = any (x.listed_sids)) then
+                                             and x.listed_sids is not null and x.created_at >= r.started_at and r.provider_sid = any (x.listed_sids)) then
     return 'the_number_is_in_the_listing';
   end if;
   -- a sender or acknowledgement was recorded since the attempt began that the ledger does not back: the number the attempt may have bought was typed in somewhere else
@@ -334,7 +340,7 @@ begin
   if not public._tw4_r1_is_platform_admin(p_actor) then
     raise exception 'actor must be a platform admin' using errcode = '42501';
   end if;
-  if p_resolution is null or p_resolution not in ('created', 'not_created') or p_note is null or char_length(btrim(p_note)) not between 10 and 500 then
+  if p_resolution is null or p_resolution not in ('created', 'not_created', 'forfeit') or p_note is null or char_length(btrim(p_note)) not between 10 and 500 then
     raise exception 'a resolution and a written reason (10-500 characters) are required' using errcode = '22023';
   end if;
   select * into r from public.studio_sms_num_operations x where x.id = p_operation_id;
@@ -349,8 +355,13 @@ begin
   if o.lease_owner is not null and o.lease_expires_at > now() then
     raise exception 'a run holds the lease; resolve after it finishes' using errcode = '55P03';
   end if;
-  if r.fee_bearing and p_resolution = 'not_created' and r.started_at > clock_timestamp() - interval '20 minutes' then
+  if r.fee_bearing and p_resolution in ('not_created', 'forfeit') and r.started_at > clock_timestamp() - interval '20 minutes' then
     raise exception 'a fee operation cannot be declared not created within 20 minutes of its attempt' using errcode = '22023';
+  end if;
+  -- FORFEIT: the ConfiDance pilot's lost purchase is closed WITHOUT returning ceiling capacity (the reservation stays held and counted; a new approval is needed for another number).
+  -- It is the only exit for a pilot purchase whose outcome cannot be proven; it requires a written reason and never releases anything.
+  if p_resolution = 'forfeit' and not (r.fee_bearing and exists (select 1 from public.studio_sms_pilot_exceptions y where y.legal_entity_id = r.legal_entity_id)) then
+    raise exception 'only a pilot fee operation can be forfeited' using errcode = '22023';
   end if;
   if p_resolution = 'created' and (p_provider_sid is null or p_provider_sid !~ '^PN[0-9a-fA-F]{32}$') then
     raise exception 'the number sid found at the provider is required' using errcode = '22023';
@@ -382,6 +393,8 @@ begin
   if r.fee_bearing and p_resolution = 'not_created' then
     perform public._tw4num_settle_if_held(r.id, 'released', 'not_created');
     perform public._tw4num_free_selection(r.selection_id, p_actor, 'resolved: not created');
+  elsif r.fee_bearing and p_resolution = 'forfeit' then
+    perform public._tw4num_free_selection(r.selection_id, p_actor, 'resolved: forfeited (reservation kept)');
   end if;
   perform public._tw4_r1_audit(o, p_actor, 'num_resolved', o.state, o.state, 'op=' || r.id || ';kind=' || r.op_kind || ';resolution=' || p_resolution);
   return jsonb_build_object('status', case when p_resolution = 'created' then 'succeeded' else 'abandoned' end);
@@ -450,7 +463,7 @@ declare
   v_missing int;
 begin
   o := public._tw4_r1_lease(p_onboarding_id, p_lease_owner);
-  if p_sids is null or cardinality(p_sids) > 1000 or exists (select 1 from unnest(p_sids) x where x is null or x !~ '^PN[0-9a-fA-F]{32}$') then
+  if p_sids is null or cardinality(p_sids) > 1000 or exists (select 1 from unnest(p_sids) x where x is null or x !~ '^PN[0-9a-f]{32}$') then
     raise exception 'an inventory of number sids is required' using errcode = '22023';
   end if;
   if p_source is null or p_source not in ('provider_read', 'fake') or p_listed_at is null or p_listed_at > clock_timestamp() + interval '30 seconds' or p_listed_at < clock_timestamp() - interval '10 minutes' then
@@ -464,6 +477,8 @@ begin
   if v_entity is null or v_account is null then
     raise exception 'this studio''s legal entity has no active Twilio subaccount' using errcode = 'TW005';
   end if;
+  -- one writer per subaccount at a time: a resolve that reads the evidence sees every listing that committed before it, and none races it
+  perform pg_advisory_xact_lock(hashtextextended('num_inventory:' || v_account, 0));
   v_known := public._tw4num_known(v_entity);
   select count(*) into v_unknown from unnest(p_sids) x where not (x = any (v_known));
   select count(*) into v_missing from (
