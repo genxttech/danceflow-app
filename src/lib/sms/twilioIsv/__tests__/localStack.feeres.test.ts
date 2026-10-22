@@ -1162,12 +1162,13 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
         expect((await record(SD1, op, { scope_sid: NEWMS })).error?.code).toBe("TW049");
         // replay: the same read twice is one record; the same read with different evidence is refused
         const readId = randomUUID();
-        const first = await record(SD1, op, { scope_sid: original, read_id: readId });
+        const startedAt = new Date().toISOString(); // the digest covers when the read began: a true replay repeats it
+        const first = await record(SD1, op, { scope_sid: original, read_id: readId, read_started_at: startedAt });
         expect(first.error).toBeNull();
-        const again = await record(SD1, op, { scope_sid: original, read_id: readId });
+        const again = await record(SD1, op, { scope_sid: original, read_id: readId, read_started_at: startedAt });
         expect(again.error).toBeNull();
         expect((again.data as { replayed?: boolean }).replayed).toBe(true);
-        expect((await record(SD1, op, { scope_sid: original, read_id: readId, listed: [`QE${"f".repeat(32)}`] })).error?.code).toBe("TW046");
+        expect((await record(SD1, op, { scope_sid: original, read_id: readId, read_started_at: startedAt, listed: [`QE${"f".repeat(32)}`] })).error?.code).toBe("TW046");
         // stale: a read that began long before it was recorded
         expect((await record(SD1, op, { scope_sid: original, read_started_at: new Date(Date.now() - 30 * 60_000).toISOString() })).error?.code).toBe("TW046");
         // wrong subaccount: an adapter of another subaccount is refused before any provider call
