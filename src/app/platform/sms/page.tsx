@@ -5,6 +5,7 @@ import { getSmsPlatformReadiness } from "@/lib/sms/compliance";
 import SmsOnboardingPilot from "./SmsOnboardingPilot";
 import SmsCreditAdmin from "./SmsCreditAdmin";
 import UsageReconciliation from "./UsageReconciliation";
+import RecurringFeesPanel from "./RecurringFeesPanel";
 import { loadReconcileOverview } from "@/lib/sms/usageReconcileView";
 import SmsSubaccountPanel from "./SmsSubaccountPanel";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -15,6 +16,8 @@ import { cookies } from "next/headers";
 import { getAdminCreditOverview } from "@/lib/billing/smsCreditView";
 import { getRecurringAdminOverview } from "@/lib/billing/smsRecurring";
 import { buildRunnerStore } from "@/lib/sms/twilioIsv/factory";
+import { loadLedgers, ProvisioningLedgerStore, type LedgerSnapshot } from "@/lib/sms/provisioning/provisionLedger";
+import { PROV_FLASH_COOKIE } from "@/lib/sms/provisioning/provisionFlash";
 import { loadSenderHealth, loadSenderOverview } from "@/lib/sms/senderVerification";
 import type { RunnerStatus } from "@/lib/sms/twilioIsv/store";
 import { listOnboardings, type PlatformOnboardingRow } from "@/lib/sms/onboarding/client";
@@ -245,6 +248,20 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
   // sender state machine + re-check scheduler status (null = not installed here; the block then falls back to the overview and says so)
   const panelSenderHealth = panelOverview && panelOverview.entities.length > 0 ? await loadSenderHealth(createAdminClient(), admin.id).catch(() => null) : null;
 
+  // TW-4F R2c-I1: platform-admin provisioning ledger for studios that have reached (or fallen out of) Messaging Service / campaign provisioning.
+  // Loaded whether or not pilot access is currently on: a held fee or unknown outcome must stay visible and resolvable. A read that fails is shown as unreadable (never as an empty ledger); a studio past the cap is simply not loaded.
+  const LEDGER_STATES = new Set(["service_setup", "campaign_pending", "ready_for_activation", "active", "suspended", "exception", "blocked"]);
+  let ledgerByStudio: Record<string, LedgerSnapshot | "unreadable" | "none"> | null = null;
+  if (!onboardingUnavailable) {
+    const ids = onboardingRows.filter((row) => row.state && LEDGER_STATES.has(row.state)).slice(0, 30).map((row) => row.studioId);
+    try {
+      ledgerByStudio = await loadLedgers(new ProvisioningLedgerStore(createAdminClient()), admin.id, ids);
+    } catch {
+      ledgerByStudio = Object.fromEntries(ids.map((id) => [id, "unreadable" as const]));
+    }
+  }
+  const provFlash = readPanelFlash((await cookies()).get(PROV_FLASH_COOKIE)?.value, { panel: firstParam(params.prov), panelError: firstParam(params.prov_error) });
+
   // billed-text reconciliation (platform-admin-only definer function; null = not installed here, the panel is then hidden)
   const usageOverview = await loadReconcileOverview(createAdminClient(), admin.id);
 
@@ -430,6 +447,8 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
 
       <UsageReconciliation overview={usageOverview} notice={firstParam(params.usage) === "resolved"} error={firstParam(params.usage_error)} />
 
+      <RecurringFeesPanel adminId={admin.id} notice={firstParam(params.rfl)} error={firstParam(params.rfl_error)} />
+
       <SmsSubaccountPanel
         overview={panelOverview}
         panels={panelOverview ? buildStudioPanels(panelOverview, panelContext.now) : []}
@@ -452,6 +471,10 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
         runnerNotice={firstParam(params.runner)}
         runnerError={firstParam(params.runner_error)}
         evidence={evidence}
+        senderRows={panelSenders}
+        ledgerByStudio={ledgerByStudio}
+        provNotice={provFlash.notice}
+        provError={provFlash.error}
         origin={(process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://www.idanceflow.com").replace(/\/+$/, "")}
       />
 

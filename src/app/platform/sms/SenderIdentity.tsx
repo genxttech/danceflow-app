@@ -40,7 +40,7 @@ export default function SenderIdentity({ studioId, row, health = null }: { studi
   const badge = health ? STATE_BADGE[health.state] ?? health.state : row?.ready ? "Ready: yes (verification status unavailable)" : "Ready: no (verification status unavailable)";
   const recheck = health && (health.state === "ready" || health.state === "expiring" || health.state === "expired");
   return (
-    <div className="rounded-xl border border-slate-200 p-3" data-testid="sender-identity">
+    <div className="rounded-xl border border-slate-200 p-3" data-testid="sender-identity" id={`sender-${studioId}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-semibold text-slate-900">Sending identity</p>
         <span

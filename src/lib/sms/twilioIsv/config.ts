@@ -55,6 +55,18 @@ export function realCallsAllowed(env: Env = process.env): RealCallsGate {
 }
 
 /**
+ * TW-4F R2: may this process create Messaging Services and campaigns (and, in R2b, buy numbers) in a subaccount? Production deployment AND production build AND
+ * BOTH `TW4_ISV_REAL_CALLS=on` (the registration gate) and `TW4_PROVISIONING_REAL_CALLS=on`: registration can be live while provisioning stays off. Fee-bearing
+ * provisioning also needs a published price, an owner approval and funds (checked in the database) before the first call.
+ */
+export function provisioningCallsAllowed(env: Env = process.env): RealCallsGate {
+  const registration = realCallsAllowed(env);
+  if (!registration.allowed) return registration;
+  if (String(env.TW4_PROVISIONING_REAL_CALLS ?? "") !== "on") return { allowed: false, reason: "Twilio provisioning calls are switched off." };
+  return { allowed: true };
+}
+
+/**
  * TW-4F provider integration: may this deployment read subaccount Auth Tokens (GET, parent credentials) to verify subaccount-signed webhooks?
  * Production build on a production deployment AND `TW4_SUBACCOUNT_WEBHOOKS=on`, independently of TW4_ISV_REAL_CALLS: verifying callbacks is a
  * read, never a registration write. Off (the default) = a webhook naming one of our subaccounts is refused with 503; parent-signed webhooks are
@@ -112,4 +124,16 @@ export function loadIsvConfig(env: Env = process.env): IsvConfigResult {
       mockBrand: String(env.TW4_ISV_MOCK_BRAND ?? "") === "on",
     },
   };
+}
+
+/**
+ * TW-4F R2b: may this process BUY phone numbers in a subaccount? Everything provisioning needs (production deployment, production build, `TW4_ISV_REAL_CALLS=on`
+ * AND `TW4_PROVISIONING_REAL_CALLS=on`) PLUS its own third switch `TW4_NUMBER_REAL_CALLS=on`: provisioning can be live while buying numbers stays off. A purchase
+ * also needs a published price, an owner approval of the exact number and funding (all checked in the database) before the first call.
+ */
+export function numberCallsAllowed(env: Env = process.env): RealCallsGate {
+  const provisioning = provisioningCallsAllowed(env);
+  if (!provisioning.allowed) return provisioning;
+  if (String(env.TW4_NUMBER_REAL_CALLS ?? "") !== "on") return { allowed: false, reason: "Twilio number purchase calls are switched off." };
+  return { allowed: true };
 }

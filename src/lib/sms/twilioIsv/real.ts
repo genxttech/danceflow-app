@@ -1,6 +1,8 @@
 import "server-only";
 import { SubaccountTokenProvider } from "./account";
-import { isvEnvName, realCallsAllowed, subaccountWebhooksAllowed, type IsvConfig } from "./config";
+import { isvEnvName, numberCallsAllowed, provisioningCallsAllowed, realCallsAllowed, subaccountWebhooksAllowed, type IsvConfig } from "./config";
+import type { AvailableNumber, CampaignComplianceFacts, IsvNumberAdapter, OwnedNumberFacts, ServiceNumbersFacts, ServiceRouteFacts } from "./numberTypes";
+import type { CampaignCreateInput, CampaignFacts, IsvProvisioningAdapter, MessagingServiceFacts } from "./provisioningTypes";
 import {
   IsvApiError, type BrandStatus, type BundleStatus, type EndUserType, type EvaluationResult, type IsvAdapter, type IsvParentAdapter,
 } from "./types";
@@ -45,7 +47,7 @@ function classify(status: number): IsvApiError["kind"] {
 type Credentials = Pick<IsvConfig, "accountSid" | "authToken" | "apiKeySid" | "apiKeySecret">;
 
 /** The HTTP machinery shared by the registration adapter (one account) and the parent account-management client. It exposes no Twilio operation itself. */
-abstract class TwilioRest<C extends Credentials> {
+export abstract class TwilioRest<C extends Credentials> {
   constructor(protected readonly config: C, protected readonly fetchImpl: FetchLike) {
     // A key SID without its secret would sign every request with an empty password. Fail loudly here instead (never fall back to the token).
     if (config.apiKeySid && !config.apiKeySecret) throw new IsvApiError("account", null, null, "an API key SID is configured without its secret");
@@ -62,10 +64,16 @@ abstract class TwilioRest<C extends Credentials> {
     return `Basic ${Buffer.from(pair).toString("base64")}`;
   }
 
-  protected async request(method: "GET" | "POST", url: string, form?: Record<string, string | undefined>): Promise<Record<string, unknown>> {
-    const body = form
-      ? new URLSearchParams(Object.entries(form).filter((entry): entry is [string, string] => entry[1] !== undefined)).toString()
-      : undefined;
+  protected async request(method: "GET" | "POST", url: string, form?: Record<string, string | string[] | undefined>): Promise<Record<string, unknown>> {
+    let body: string | undefined;
+    if (form) {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(form)) {
+        if (Array.isArray(value)) for (const item of value) params.append(key, item); // Twilio repeats the key for a list (MessageSamples, OptInKeywords, ...)
+        else if (value !== undefined) params.append(key, value);
+      }
+      body = params.toString();
+    }
     let status: number;
     let raw: string;
     try {
@@ -106,14 +114,18 @@ abstract class TwilioRest<C extends Credentials> {
   }
 
   /** GET a list, following Twilio's own next-page links (host-checked) for a bounded number of pages. */
-  protected async listAll(firstUrl: string, host: string, rowsKey: "results" | "data"): Promise<Record<string, unknown>[]> {
+  protected async listAll(firstUrl: string, host: string, rowsKey: string, opts: { strict?: boolean } = {}): Promise<Record<string, unknown>[]> {
     const rows: Record<string, unknown>[] = [];
     let url: string | null = firstUrl;
     for (let page = 0; page < MAX_PAGES && url; page += 1) {
       const json: Record<string, unknown> = await this.request("GET", url);
-      const list = Array.isArray(json[rowsKey]) ? (json[rowsKey] as Record<string, unknown>[]) : Array.isArray(json.results) ? (json.results as Record<string, unknown>[]) : Array.isArray(json.data) ? (json.data as Record<string, unknown>[]) : [];
+      // a list whose named collection is missing (a renamed key, an error shape) must not read as "nothing exists": these lookups guard duplicate creates
+      if (rowsKey !== "results" && rowsKey !== "data" && !Array.isArray(json[rowsKey])) throw new IsvApiError("transient", null, null, "list response carried no collection");
+      const list =Array.isArray(json[rowsKey]) ? (json[rowsKey] as Record<string, unknown>[]) : Array.isArray(json.results) ? (json.results as Record<string, unknown>[]) : Array.isArray(json.data) ? (json.data as Record<string, unknown>[]) : [];
       rows.push(...list);
       const meta = (json.meta ?? {}) as Record<string, unknown>;
+      // strict (evidence-grade) listings only: a next-page link that is not on our own host is NOT "the last page", so the listing cannot prove that anything is absent. Ordinary lookups keep stopping there (a match they already found is still a match).
+      if (opts.strict && typeof meta.next_page_url === "string" && meta.next_page_url !== "" && !meta.next_page_url.startsWith(host)) throw new IsvApiError("transient", null, null, "list continues on an unexpected host");
       url = typeof meta.next_page_url === "string" && meta.next_page_url.startsWith(host) ? meta.next_page_url : null;
     }
     // A lookup that stopped with pages still to read cannot prove that a resource does NOT exist, and these lookups guard paid and
@@ -398,4 +410,253 @@ export function messagingTokenProvider(env: Record<string, string | undefined> =
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+// TW-4F R2a: Messaging Service and A2P campaign provisioning inside ONE subaccount (subaccount credentials only; the parent key never signs these calls).
+// Gated by provisioningCallsAllowed(): production build + production deployment + TW4_ISV_REAL_CALLS=on AND TW4_PROVISIONING_REAL_CALLS=on.
+// Request shapes follow Twilio public Messaging Services / Usa2p documentation, pinned by unit tests with an injected fetch; NOT run against live Twilio.
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+const MESSAGING_SERVICE_SID = /^MG[0-9a-fA-F]{32}$/;
+const CAMPAIGN_REGISTRATION_SID = /^QE[0-9a-fA-F]{32}$/;
+const PROVISION_ACCOUNT_SID = /^AC[0-9a-fA-F]{32}$/;
+
+const provStr = (v: unknown): string | null => (typeof v === "string" ? v : null);
+const provBool = (v: unknown): boolean | null => (typeof v === "boolean" ? v : null);
+const provChecked = (sid: string, pattern: RegExp): string => {
+  if (!pattern.test(sid)) throw new IsvApiError("validation", null, null, "malformed resource sid");
+  return sid;
+};
+
+/** Printable, single-line, bounded: what Twilio said failed, safe to store and show. */
+function sanitizeCampaignErrors(value: unknown): string {
+  const parts: string[] = [];
+  const visit = (item: unknown) => {
+    if (typeof item === "string") parts.push(item);
+    else if (Array.isArray(item)) item.forEach(visit);
+    else if (item && typeof item === "object") Object.values(item as Record<string, unknown>).forEach(visit);
+  };
+  visit(value);
+  return parts.join("; ").replace(/[^\x20-\x7e]/g, " ").replace(/\s+/g, " ").trim().slice(0, 450);
+}
+
+export class RealProvisioningAdapter extends TwilioRest<IsvConfig> implements IsvProvisioningAdapter {
+  /** Read-back facts from this adapter are real provider reads (the database accepts the fake source only on a local QA database). */
+  readonly evidenceSource = "provider_read" as const;
+
+  /** Not constructible from outside: only `createScopedProvisioningAdapter` builds one, after the provisioning gate says so. */
+  private constructor(config: IsvConfig, fetchImpl: FetchLike) {
+    super(config, fetchImpl);
+  }
+
+  /** The only way to build one: the provisioning gate and the subaccount checks are enforced here. */
+  static forAccount(config: IsvConfig, accountSid: string, authToken: string, env: Record<string, string | undefined>, fetchImpl: FetchLike): RealProvisioningAdapter {
+    const gate = provisioningCallsAllowed(env);
+    if (!gate.allowed) throw new IsvApiError("account", null, null, gate.reason);
+    if (!PROVISION_ACCOUNT_SID.test(accountSid) || accountSid === config.accountSid) throw new IsvApiError("account", null, null, "not a subaccount sid");
+    if (!authToken) throw new IsvApiError("account", null, null, "no subaccount credential");
+    // the parent's API key is dropped on purpose: it must never sign a subaccount call
+    return new RealProvisioningAdapter({ ...config, accountSid, authToken, apiKeySid: undefined, apiKeySecret: undefined }, fetchImpl);
+  }
+
+  get accountSid(): string {
+    return this.config.accountSid;
+  }
+
+  async findMessagingServices(friendlyNamePrefix: string): Promise<string[]> {
+    const rows = await this.listAll(`${MESSAGING}/Services?PageSize=50`, MESSAGING, "services");
+    return rows.filter((row) => typeof row.friendly_name === "string" && row.friendly_name.startsWith(friendlyNamePrefix) && row.account_sid === this.accountSid).map((row) => String(row.sid));
+  }
+
+  async createMessagingService(input: { friendlyName: string; inboundRequestUrl: string }): Promise<string> {
+    // The service routes inbound texts to DanceFlow itself (not to each number), so the route is verifiable on the service.
+    const json = await this.request("POST", `${MESSAGING}/Services`, {
+      FriendlyName: input.friendlyName, InboundRequestUrl: input.inboundRequestUrl, InboundMethod: "POST", UseInboundWebhookOnNumber: "false",
+    });
+    return this.sid(json, MESSAGING_SERVICE_SID);
+  }
+
+  async getMessagingService(sid: string): Promise<MessagingServiceFacts> {
+    const b = await this.request("GET", `${MESSAGING}/Services/${provChecked(sid, MESSAGING_SERVICE_SID)}`);
+    return {
+      sid: provStr(b.sid), account_sid: provStr(b.account_sid), friendly_name: provStr(b.friendly_name), inbound_request_url: provStr(b.inbound_request_url),
+      use_inbound_webhook_on_number: provBool(b.use_inbound_webhook_on_number), us_app_to_person_registered: provBool(b.us_app_to_person_registered),
+    };
+  }
+
+  async findCampaigns(messagingServiceSid: string): Promise<string[]> {
+    const rows = await this.listAll(`${MESSAGING}/Services/${provChecked(messagingServiceSid, MESSAGING_SERVICE_SID)}/Compliance/Usa2p?PageSize=50`, MESSAGING, "compliance", { strict: true });
+    // evidence-grade listing: a row of another or an unlabeled account means the response is not what we asked for, so the listing cannot certify absence
+    if (rows.some((row) => row.account_sid !== this.accountSid)) throw new IsvApiError("transient", null, null, "campaign listing carried a foreign or unlabeled row");
+    return rows.map((row) => String(row.sid));
+  }
+
+  async createCampaign(input: CampaignCreateInput): Promise<string> {
+    const json = await this.request("POST", `${MESSAGING}/Services/${provChecked(input.messagingServiceSid, MESSAGING_SERVICE_SID)}/Compliance/Usa2p`, {
+      BrandRegistrationSid: input.brandSid,
+      UsAppToPersonUsecase: input.useCase,
+      Description: input.description,
+      MessageFlow: input.messageFlow,
+      MessageSamples: input.messageSamples,
+      HasEmbeddedLinks: String(input.hasEmbeddedLinks),
+      HasEmbeddedPhone: String(input.hasEmbeddedPhone),
+      SubscriberOptIn: String(input.subscriberOptIn),
+      AgeGated: String(input.ageGated),
+      DirectLending: String(input.directLending),
+      OptInMessage: input.optInMessage,
+      OptOutMessage: input.optOutMessage,
+      HelpMessage: input.helpMessage,
+      OptInKeywords: input.optInKeywords,
+      OptOutKeywords: input.optOutKeywords,
+      HelpKeywords: input.helpKeywords,
+    });
+    return this.sid(json, CAMPAIGN_REGISTRATION_SID);
+  }
+
+  async getCampaign(messagingServiceSid: string, campaignSid: string): Promise<CampaignFacts> {
+    const b = await this.request("GET", `${MESSAGING}/Services/${provChecked(messagingServiceSid, MESSAGING_SERVICE_SID)}/Compliance/Usa2p/${provChecked(campaignSid, CAMPAIGN_REGISTRATION_SID)}`);
+    return {
+      sid: provStr(b.sid), account_sid: provStr(b.account_sid), messaging_service_sid: provStr(b.messaging_service_sid), brand_registration_sid: provStr(b.brand_registration_sid),
+      us_app_to_person_usecase: provStr(b.us_app_to_person_usecase), campaign_status: provStr(b.campaign_status), mock: provBool(b.mock), errors: sanitizeCampaignErrors(b.errors),
+    };
+  }
+}
+
+/** A provisioning adapter for ONE subaccount, signed with that subaccount's own credentials. The parent's API key is dropped on purpose. */
+export function createScopedProvisioningAdapter(
+  config: IsvConfig, accountSid: string, authToken: string, env: Record<string, string | undefined> = process.env, fetchImpl?: FetchLike,
+): RealProvisioningAdapter {
+  return RealProvisioningAdapter.forAccount(config, accountSid, authToken, env, fetchImpl ?? ((url, init) => fetch(url, init)));
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+// TW-4F R2b: phone-number provisioning inside ONE subaccount (subaccount credentials only; the parent key never signs these calls). Gated by numberCallsAllowed():
+// the provisioning gate PLUS TW4_NUMBER_REAL_CALLS=on. `purchaseNumber` is the only call that costs money. Request shapes follow Twilio public
+// AvailablePhoneNumbers / IncomingPhoneNumbers / Messaging Services PhoneNumbers / Usa2p documentation, pinned by unit tests with an injected fetch;
+// NOT run against live Twilio.
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+const PHONE_NUMBER_SID = /^PN[0-9a-fA-F]{32}$/;
+const E164_US = /^\+1[2-9][0-9]{9}$/;
+const AREA_CODE = /^[2-9][0-9]{2}$/;
+
+const numStrings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((item): item is string => typeof item === "string").slice(0, 20).map((item) => item.slice(0, 40)) : []);
+const capability = (caps: unknown, name: string): boolean | null => {
+  if (!caps || typeof caps !== "object" || Array.isArray(caps)) return null;
+  const record = caps as Record<string, unknown>;
+  const value = record[name] ?? record[name.toUpperCase()] ?? record[name.toLowerCase()];
+  return typeof value === "boolean" ? value : null;
+};
+
+export class RealNumberAdapter extends TwilioRest<IsvConfig> implements IsvNumberAdapter {
+  /** Read-back facts from this adapter are real provider reads (the database accepts the fake source only on a local QA database). */
+  readonly evidenceSource = "provider_read" as const;
+
+  /** Not constructible from outside: only `createScopedNumberAdapter` builds one, after the number gate says so. */
+  private constructor(config: IsvConfig, fetchImpl: FetchLike) {
+    super(config, fetchImpl);
+  }
+
+  static forAccount(config: IsvConfig, accountSid: string, authToken: string, env: Record<string, string | undefined>, fetchImpl: FetchLike): RealNumberAdapter {
+    const gate = numberCallsAllowed(env);
+    if (!gate.allowed) throw new IsvApiError("account", null, null, gate.reason);
+    if (!PROVISION_ACCOUNT_SID.test(accountSid) || accountSid === config.accountSid) throw new IsvApiError("account", null, null, "not a subaccount sid");
+    if (!authToken) throw new IsvApiError("account", null, null, "no subaccount credential");
+    // the parent's API key is dropped on purpose: it must never sign a subaccount call
+    return new RealNumberAdapter({ ...config, accountSid, authToken, apiKeySid: undefined, apiKeySecret: undefined }, fetchImpl);
+  }
+
+  get accountSid(): string {
+    return this.config.accountSid;
+  }
+
+  private accountUrl(path: string): string {
+    return `${API}/Accounts/${encodeURIComponent(this.accountSid)}/${path}`;
+  }
+
+  async searchAvailableNumbers(query: { areaCode?: string; limit: number }): Promise<AvailableNumber[]> {
+    if (query.areaCode !== undefined && !AREA_CODE.test(query.areaCode)) throw new IsvApiError("validation", null, null, "invalid area code");
+    const limit = Math.max(1, Math.min(50, Math.trunc(query.limit)));
+    const params = new URLSearchParams({ SmsEnabled: "true", PageSize: String(limit) });
+    if (query.areaCode) params.set("AreaCode", query.areaCode);
+    const json = await this.request("GET", `${this.accountUrl("AvailablePhoneNumbers/US/Local.json")}?${params.toString()}`);
+    const rows = Array.isArray(json.available_phone_numbers) ? (json.available_phone_numbers as Record<string, unknown>[]) : null;
+    if (!rows) throw new IsvApiError("transient", null, null, "search response carried no collection");
+    return rows
+      .filter((row) => typeof row.phone_number === "string" && E164_US.test(row.phone_number))
+      .map((row) => ({
+        e164: String(row.phone_number), locality: provStr(row.locality), region: provStr(row.region),
+        sms_capable: capability(row.capabilities, "sms") === true, mms_capable: capability(row.capabilities, "mms") === true, address_requirements: provStr(row.address_requirements),
+      }));
+  }
+
+  async listIncomingNumbers(): Promise<{ sid: string; phone_number: string | null }[]> {
+    const json = await this.request("GET", `${this.accountUrl("IncomingPhoneNumbers.json")}?PageSize=1000`);
+    const rows = Array.isArray(json.incoming_phone_numbers) ? (json.incoming_phone_numbers as Record<string, unknown>[]) : null;
+    if (!rows) throw new IsvApiError("transient", null, null, "list response carried no collection");
+    // an inventory that stopped with pages still to read cannot prove the account holds nothing else
+    if (typeof json.next_page_uri === "string" && json.next_page_uri) throw new IsvApiError("transient", null, "inventory_too_large", "list too long to search safely");
+    return rows
+      // fail closed: every row the account's listing returns counts, whatever its account_sid says; a row without a valid sid makes the inventory unreadable
+      .map((row) => {
+        if (typeof row.sid !== "string" || !PHONE_NUMBER_SID.test(row.sid)) throw new IsvApiError("transient", null, null, "inventory row without a valid sid");
+        return { sid: row.sid, phone_number: provStr(row.phone_number) };
+      });
+  }
+
+  async findOwnedNumbers(e164: string): Promise<string[]> {
+    if (!E164_US.test(e164)) throw new IsvApiError("validation", null, null, "invalid number");
+    const json = await this.request("GET", `${this.accountUrl("IncomingPhoneNumbers.json")}?${new URLSearchParams({ PhoneNumber: e164, PageSize: "50" }).toString()}`);
+    const rows = Array.isArray(json.incoming_phone_numbers) ? (json.incoming_phone_numbers as Record<string, unknown>[]) : null;
+    if (!rows) throw new IsvApiError("transient", null, null, "list response carried no collection");
+    // a lookup that stopped with pages still to read cannot prove a number is NOT owned, and it guards a paid create
+    if (typeof json.next_page_uri === "string" && json.next_page_uri) throw new IsvApiError("transient", null, null, "list too long to search safely");
+    return rows.filter((row) => row.account_sid === this.accountSid && row.phone_number === e164).map((row) => String(row.sid));
+  }
+
+  async purchaseNumber(input: { e164: string; friendlyName: string }): Promise<string> {
+    if (!E164_US.test(input.e164)) throw new IsvApiError("validation", null, null, "invalid number");
+    const json = await this.request("POST", this.accountUrl("IncomingPhoneNumbers.json"), { PhoneNumber: input.e164, FriendlyName: input.friendlyName.slice(0, 64) });
+    return this.sid(json, PHONE_NUMBER_SID);
+  }
+
+  async getNumber(sid: string): Promise<OwnedNumberFacts> {
+    const b = await this.request("GET", this.accountUrl(`IncomingPhoneNumbers/${provChecked(sid, PHONE_NUMBER_SID)}.json`));
+    return { sid: provStr(b.sid), account_sid: provStr(b.account_sid), phone_number: provStr(b.phone_number), sms_capable: capability(b.capabilities, "sms") };
+  }
+
+  async listServiceNumbers(messagingServiceSid: string): Promise<string[]> {
+    const rows = await this.listAll(`${MESSAGING}/Services/${provChecked(messagingServiceSid, MESSAGING_SERVICE_SID)}/PhoneNumbers?PageSize=50`, MESSAGING, "phone_numbers");
+    return rows.filter((row) => row.account_sid === this.accountSid && typeof row.sid === "string" && PHONE_NUMBER_SID.test(row.sid)).map((row) => String(row.sid));
+  }
+
+  async attachNumber(input: { messagingServiceSid: string; phoneNumberSid: string }): Promise<string> {
+    const json = await this.request("POST", `${MESSAGING}/Services/${provChecked(input.messagingServiceSid, MESSAGING_SERVICE_SID)}/PhoneNumbers`, { PhoneNumberSid: provChecked(input.phoneNumberSid, PHONE_NUMBER_SID) });
+    return this.sid(json, PHONE_NUMBER_SID);
+  }
+
+  async getServiceNumbers(messagingServiceSid: string): Promise<ServiceNumbersFacts> {
+    const service = await this.request("GET", `${MESSAGING}/Services/${provChecked(messagingServiceSid, MESSAGING_SERVICE_SID)}`);
+    return { service_sid: provStr(service.sid), account_sid: provStr(service.account_sid), number_sids: await this.listServiceNumbers(messagingServiceSid) };
+  }
+
+  async getCampaignCompliance(messagingServiceSid: string, campaignSid: string): Promise<CampaignComplianceFacts> {
+    const b = await this.request("GET", `${MESSAGING}/Services/${provChecked(messagingServiceSid, MESSAGING_SERVICE_SID)}/Compliance/Usa2p/${provChecked(campaignSid, CAMPAIGN_REGISTRATION_SID)}`);
+    return {
+      sid: provStr(b.sid), account_sid: provStr(b.account_sid), messaging_service_sid: provStr(b.messaging_service_sid), campaign_status: provStr(b.campaign_status), mock: provBool(b.mock),
+      opt_in_keywords: numStrings(b.opt_in_keywords), opt_out_keywords: numStrings(b.opt_out_keywords), help_keywords: numStrings(b.help_keywords),
+      opt_in_message: provStr(b.opt_in_message)?.slice(0, 320) ?? null, opt_out_message: provStr(b.opt_out_message)?.slice(0, 320) ?? null, help_message: provStr(b.help_message)?.slice(0, 320) ?? null,
+    };
+  }
+
+  async getServiceRoute(messagingServiceSid: string): Promise<ServiceRouteFacts> {
+    const b = await this.request("GET", `${MESSAGING}/Services/${provChecked(messagingServiceSid, MESSAGING_SERVICE_SID)}`);
+    return { sid: provStr(b.sid), account_sid: provStr(b.account_sid), inbound_request_url: provStr(b.inbound_request_url), use_inbound_webhook_on_number: provBool(b.use_inbound_webhook_on_number) };
+  }
+}
+
+/** A number adapter for ONE subaccount, signed with that subaccount's own credentials. The parent's API key is dropped on purpose. */
+export function createScopedNumberAdapter(
+  config: IsvConfig, accountSid: string, authToken: string, env: Record<string, string | undefined> = process.env, fetchImpl?: FetchLike,
+): RealNumberAdapter {
+  return RealNumberAdapter.forAccount(config, accountSid, authToken, env, fetchImpl ?? ((url, init) => fetch(url, init)));
 }
