@@ -1208,16 +1208,22 @@ commit;`);
       "tw4_rfl_exposure_report(uuid)", "tw4_rfl_variance_report(uuid)", "tw4_rfl_variance_ack(uuid, uuid, text)", "tw4_rfl_alert_recipients(uuid)", "tw4_rfl_alert_delivery_record(uuid, uuid, text, text, text)",
       "tw4_rfl_escalate_delivery()", "tw4_rfl_dual_request(uuid, text, uuid, text, text, text, text)", "tw4_rfl_dual_approve(uuid, uuid, text)", "tw4_rfl_dual_reject(uuid, uuid, text)", "tw4_rfl_dual_list(uuid)"];
     const REPLACED = ["tw4_rfl_alerts_claim(integer)", "tw4_rfl_scan_entity(uuid)", "tw4_rfl_exposure_dispose(uuid, text, uuid, text, text)", "tw4_rfl_cancel_authorize(uuid, uuid, text, text, text, boolean)"];
-    const priv = (fn: string, role: string) => psql(`select has_function_privilege('${role}', 'public.${fn}', 'execute')::text`);
+    // one query for every function (the machine running the real-schema suites can be slow: a call per function and role would time out)
+    const privs = (fns: string[]) => {
+      const out = rows<{ f: string; role: string; ok: boolean; secdef: boolean; cfg: string | null }>(
+        `select f, r as role, has_function_privilege(r, 'public.' || f, 'execute') as ok, p.prosecdef as secdef, array_to_string(p.proconfig, ',') as cfg
+           from unnest(array[${fns.map((x) => `'${x}'`).join(",")}]) f cross join unnest(array['service_role','anon','authenticated','public']) r join pg_proc p on p.oid = ('public.' || f)::regprocedure`);
+      const byFn = new Map<string, Record<string, boolean>>();
+      for (const o of out) byFn.set(o.f, { ...(byFn.get(o.f) ?? {}), [o.role]: o.ok, secdef: o.secdef, cfg: o.cfg === "search_path=pg_catalog, public, pg_temp" } as Record<string, boolean>);
+      return byFn;
+    };
 
     it("new functions: service role only (never public / anon / authenticated), security definer with a pinned search_path; replaced functions keep their grants", () => {
-      for (const fn of [...NEW_FNS, ...REPLACED]) {
-        expect([priv(fn, "service_role"), priv(fn, "anon"), priv(fn, "authenticated"), priv(fn, "public")], fn).toEqual(["true", "false", "false", "false"]);
-        expect(psql(`select p.prosecdef::text || ':' || coalesce(array_to_string(p.proconfig, ','), '') from pg_proc p where p.oid = 'public.${fn}'::regprocedure`), fn).toBe("true:search_path=pg_catalog, public, pg_temp");
-      }
-      for (const fn of ["_tw4rflops_guard()", "_tw4rflops_request_insert()", "_tw4rflops_epoch()", "_tw4rflops_facts(text, uuid, text, text, text, text)", "_tw4rflops_consume(text, public.studio_sms_provider_resources, text, text, text, text, uuid)"]) {
-        expect([priv(fn, "service_role"), priv(fn, "anon"), priv(fn, "authenticated"), priv(fn, "public")], fn).toEqual(["false", "false", "false", "false"]);
-      }
+      const all = privs([...NEW_FNS, ...REPLACED]);
+      expect(all.size).toBe(NEW_FNS.length + REPLACED.length);
+      for (const [fn, p] of all) expect(p, fn).toEqual({ service_role: true, anon: false, authenticated: false, public: false, secdef: true, cfg: true });
+      const inner = privs(["_tw4rflops_guard()", "_tw4rflops_request_insert()", "_tw4rflops_epoch()", "_tw4rflops_demotion()", "_tw4rflops_facts(text, uuid, text, text, text, text)", "_tw4rflops_consume(text, public.studio_sms_provider_resources, text, text, text, text, uuid)"]);
+      for (const [fn, p] of inner) expect(p, fn).toMatchObject({ service_role: false, anon: false, authenticated: false, public: false });
     });
 
     it("every new table has RLS on and no privilege for any API role", () => {
@@ -1511,6 +1517,136 @@ commit;`);
       const req = cancelRequest(num1.resource_id, approval, "The owner asked us in writing to release this number", P, "founder_written");
       const entry = call<Array<Record<string, unknown>>>("tw4_rfl_dual_list", P2).find((r) => r.request_id === req.request_id)!;
       expect(entry).toMatchObject({ approval_ref: approval, resource_kind: "number", action: "cancel_number", cancel_decided_by: "founder_written", decided_by: "founder_written" });
+    });
+  });
+
+  describe("review round 2: policy shapes, approver standing, sequence privileges", () => {
+    const snap = "select md5(string_agg(polname::text || polcmd::text || polroles::text || polpermissive::text || coalesce(pg_get_expr(polqual, polrelid), '-') || coalesce(pg_get_expr(polwithcheck, polrelid), '-'), '|' order by polname)) from pg_policy where polrelid = 'public.outbound_deliveries'::regclass";
+
+    it("P2-1 FOR ALL and PUBLIC policies are narrowed too (USING only, WITH CHECK kept), the rollback restores every policy exactly, and a shape that cannot be restricted makes the migration refuse atomically", () => {
+      const dir = join(process.cwd(), "src/lib/supabase/migrations");
+      const opsSql = readFileSync(join(dir, "20261211090000_twilio_rfl_ops.sql"), "utf8");
+      const rollbackSql = readFileSync(join(dir, "rollback/20261211090000_twilio_rfl_ops_rollback.sql"), "utf8");
+      const scratch = `${DB}_pol_${RUN}`;
+      const sh = (cmd: string) => execFileSync("docker", ["exec", PG, "sh", "-c", cmd], { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+      const run = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-d", scratch, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+      const runErr = (sql: string) => {
+        try {
+          run(sql);
+          return "";
+        } catch (e) {
+          return String((e as { stderr?: Buffer | string }).stderr ?? e);
+        }
+      };
+      const saved = rows<{ policy_name: string; cmd: string; role_names: string[]; original_qual: string; original_check: string | null; rewritten_qual: string }>(`select * from public.studio_sms_rfl_policy_backup`);
+      expect(saved.length).toBeGreaterThanOrEqual(1);
+      try {
+        sh(`psql -U postgres -q -c 'create database ${scratch}'`);
+        sh(`pg_dump -U postgres -s --no-owner ${DB} | psql -U postgres -d ${scratch} -q > /dev/null 2>&1; true`);
+        for (const p of saved) {
+          run(`insert into public.studio_sms_rfl_policy_backup (policy_name, table_name, cmd, role_names, original_qual, original_check, rewritten_qual) values ($n$${p.policy_name}$n$, 'outbound_deliveries', '${p.cmd}',
+            '{${p.role_names.join(",")}}'::text[], $q$${p.original_qual}$q$, ${p.original_check === null ? "null" : `$w$${p.original_check}$w$`}, $r$${p.rewritten_qual}$r$);`);
+        }
+        run(rollbackSql); // back to the pre-ops policies
+        expect(run(`select to_regclass('public.studio_sms_rfl_switch_log') is null`)).toBe("t");
+        // a FOR ALL policy to authenticated and a SELECT policy to PUBLIC: both would still show administrator emails to a studio's staff
+        run(`create policy rfl_extra_all on public.outbound_deliveries as permissive for all to authenticated using (studio_id is not null) with check (true);
+             create policy rfl_extra_public on public.outbound_deliveries as permissive for select to public using (true);`);
+        const before = run(snap);
+        run(opsSql);
+        const backups = JSON.parse(run(`select coalesce(json_agg(json_build_object('n', policy_name, 'c', cmd, 'roles', role_names, 'wc', original_check)), '[]'::json)::text from public.studio_sms_rfl_policy_backup`)) as Array<{ n: string; c: string; roles: string[]; wc: string | null }>;
+        expect(backups.map((b) => b.n)).toEqual(expect.arrayContaining(["rfl_extra_all", "rfl_extra_public"]));
+        expect(backups.find((b) => b.n === "rfl_extra_all")).toMatchObject({ c: "*", roles: ["authenticated"], wc: "true" });
+        expect(backups.find((b) => b.n === "rfl_extra_public")).toMatchObject({ c: "r", roles: [], wc: null });
+        // the FOR ALL policy kept its WITH CHECK; the others did not gain one they did not have
+        expect(run(`select pg_get_expr(polwithcheck, polrelid) from pg_policy where polname = 'rfl_extra_all' and polrelid = 'public.outbound_deliveries'::regclass`)).toBe("true");
+        // a front_desk user of a studio cannot read an administrator row through ANY policy, but still reads an owner-addressed one
+        const studio = randomUUID();
+        const desk = randomUUID();
+        run(`insert into auth.users (id, instance_id, aud, role, email, created_at, updated_at) values ('${desk}', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'desk-${RUN}@rfl-ops.test', now(), now());
+          insert into public.profiles (id, platform_role) values ('${desk}', null);
+          insert into public.studios (id, name, slug, public_name, timezone) values ('${studio}', 'RFLOPS pol ${RUN}', 'rflops-pol-${RUN}', null, 'UTC');
+          insert into public.user_studio_roles (user_id, studio_id, role, active) values ('${desk}', '${studio}', 'front_desk', true);
+          insert into public.outbound_deliveries (studio_id, channel, template_key, recipient_email, status) values ('${studio}', 'email', 'platform_rfl_alert_x', 'o@example.test', 'queued'), ('${studio}', 'email', 'platform_rfl_admin_x', 'a@example.test', 'queued');`);
+        const seen = run(`begin; set local role authenticated; select set_config('request.jwt.claims', '{"sub":"${desk}"}', true);
+          select coalesce(string_agg(template_key, ',' order by template_key), '') from public.outbound_deliveries where studio_id = '${studio}'; rollback;`).split("\n").pop();
+        expect(seen).toBe("platform_rfl_alert_x");
+        // exact restoration
+        run(rollbackSql);
+        expect(run(snap)).toBe(before);
+        // a SELECT-capable permissive policy without a USING expression cannot be restricted: the migration refuses and applies NOTHING
+        run(`create policy rfl_bad_all on public.outbound_deliveries as permissive for all to authenticated with check (true);`);
+        const bad = run(snap);
+        const err = runErr(opsSql);
+        expect(err).toMatch(/cannot be restricted safely/);
+        expect(run(`select to_regclass('public.studio_sms_rfl_switch_log') is null and to_regclass('public.studio_sms_rfl_dual_requests') is null and to_regclass('public.studio_sms_rfl_policy_backup') is null`)).toBe("t");
+        expect(run(snap)).toBe(bad);
+        expect(run(`select count(*) from pg_proc where proname = 'tw4_rfl_dual_request'`)).toBe("0");
+      } finally {
+        try {
+          sh(`psql -U postgres -q -c "select pg_terminate_backend(pid) from pg_stat_activity where datname = '${scratch}'" -c 'drop database if exists ${scratch}'`);
+        } catch {
+          // best effort
+        }
+      }
+    }, 600_000);
+
+    it("P2-2 the APPROVER must still be a platform administrator: demotion invalidates at once and for good (re-promotion does not revive it); a demotion made with triggers disabled is caught and persisted by the next look", () => {
+      const w = world();
+      const { res, key } = exposed(w, "number");
+      const a = mkUser({ confirmed: true, admin: true });
+      const b = mkUser({ confirmed: true, admin: true });
+      const setRole = (u: string, role: string | null) => psql(`update public.profiles set platform_role = ${role ? `'${role}'` : "null"} where id = '${u}';`);
+      // A requests, B approves, B is demoted (triggers fire), A executes
+      const r1 = absorbRequest(res.resource_id, key, REASON, a);
+      call("tw4_rfl_dual_approve", r1.request_id, b, NOTE);
+      setRole(b, null);
+      expect(reqStatus(r1.request_id)).toBe("invalidated");
+      expect(audit(w, "rfl_dual_invalidated")).toBeGreaterThanOrEqual(1);
+      expect(hasCode(dispose(res.resource_id, key, REASON, a), "TW042")).toBe(true);
+      setRole(b, "platform_admin"); // re-promotion revives nothing
+      expect(reqStatus(r1.request_id)).toBe("invalidated");
+      expect(hasCode(dispose(res.resource_id, key, REASON, a), "TW042")).toBe(true);
+      expect(exposureOf(res.resource_id, key)).toMatchObject({ state: "open" });
+      // a demoted REQUESTER loses a pending request at once, too
+      const r2 = absorbRequest(res.resource_id, key, REASON, a);
+      expect(r2.request_id).not.toBe(r1.request_id);
+      setRole(a, null);
+      expect(reqStatus(r2.request_id)).toBe("invalidated");
+      setRole(a, "platform_admin");
+      expect(call("tw4_rfl_dual_approve", r2.request_id, b, NOTE)).toMatchObject({ status: "invalidated", replayed: true });
+      // demotion with triggers disabled: refused at execution, persisted by the list, and re-promotion afterwards does not revive it
+      const c = mkUser({ confirmed: true, admin: true });
+      const d = mkUser({ confirmed: true, admin: true });
+      const r3 = absorbRequest(res.resource_id, key, REASON, c);
+      call("tw4_rfl_dual_approve", r3.request_id, d, NOTE);
+      replica(`update public.profiles set platform_role = null where id = '${d}';`);
+      expect(reqStatus(r3.request_id)).toBe("approved");
+      expect(hasCode(dispose(res.resource_id, key, REASON, c), "TW042")).toBe(true);
+      expect(call<Array<{ request_id: string }>>("tw4_rfl_dual_list", P).some((r) => r.request_id === r3.request_id)).toBe(false);
+      expect(reqStatus(r3.request_id)).toBe("invalidated");
+      replica(`update public.profiles set platform_role = 'platform_admin' where id = '${d}';`);
+      expect(hasCode(dispose(res.resource_id, key, REASON, c), "TW042")).toBe(true);
+      // a fresh request by administrators in good standing works
+      const r4 = absorbRequest(res.resource_id, key, REASON);
+      call("tw4_rfl_dual_approve", r4.request_id, P3, NOTE);
+      expect(dispose(res.resource_id, key, REASON)).toBe("");
+      expect(psql(`select count(*) from pg_trigger where tgname like 'profiles_90_rflops_demotion%'`)).toBe("2");
+    });
+
+    it("P2-4 the switch log's identity sequence (and any other sequence this migration owns) has no grant for any API role", () => {
+      const seqs = rows<{ name: string }>(`select s.relname as name from pg_class s join pg_depend d on d.objid = s.oid and d.deptype = 'a' join pg_class t on t.oid = d.refobjid
+        where s.relkind = 'S' and (t.relname like 'studio\\_sms\\_rfl\\_%' or t.relname = 'studio_sms_provider_variance_acks' or t.relname = 'studio_sms_rfl_policy_backup')`);
+      expect(seqs.map((s) => s.name)).toContain("studio_sms_rfl_switch_log_seq_seq");
+      for (const s of seqs) {
+        for (const role of ["anon", "authenticated", "service_role", "public"]) {
+          for (const priv of ["usage", "select", "update"]) {
+            expect(psql(`select has_sequence_privilege('${role}', 'public.${s.name}', '${priv}')::text`), `${s.name}/${role}/${priv}`).toBe("false");
+          }
+        }
+      }
+      // the owner-definer functions still draw from it
+      expect(call("tw4_rfl_set_switch", "scan", swState("scan"), P, "fixture: unchanged scan state, drawing from the sequence")).toMatchObject({ switch: "scan" });
     });
   });
 });

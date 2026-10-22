@@ -70,6 +70,19 @@ For each active authorization of a business with a live resource of its fee, end
 - **Privacy of admin-addressed email.** Admin emails are queued under a studio in `outbound_deliveries`, whose SELECT policies let that studio's staff read recipient / subject / body. Every SELECT policy open to API roles is rewritten from its LIVE definition to `(<existing predicate>) and not coalesce(template_key like 'platform_rfl_admin_%', false)`; the originals are kept in `studio_sms_rfl_policy_backup` and the rollback restores them exactly. The migration refuses if there is no such policy or one already carries the marker. Service role and the table owner are unaffected.
 - **UI contract.** `tw4_rfl_admin_overview` resources[] now also carry `open_cancel_operation_id` (every existing key kept); `tw4_rfl_dual_list` keeps `approval_ref` and `resource_kind` (and adds `cancel_decided_by`, also exposed as `decided_by`: the decision type, null for an absorption).
 
+### 2.8 Review round 2
+
+- **Policy coverage.** The outbound_deliveries narrowing covers every PERMISSIVE policy that can grant SELECT (`FOR SELECT` and `FOR ALL`) to PUBLIC or to any role other than service_role / postgres / a superuser. A FOR ALL policy gets only its USING rewritten; its WITH CHECK is kept (when it had none, the old USING becomes its explicit WITH CHECK so writes behave as before). A SELECT-capable policy without a USING expression, or one that still lacks the exclusion afterwards, makes the migration RAISE (atomic: nothing is applied); so does RLS being off on the table. Restrictive policies only narrow and are left alone. The full definition (command, roles, USING, WITH CHECK) is saved per policy and the rollback drops and recreates each one exactly (tested by comparing a digest of every policy row before apply and after rollback, on a scratch clone carrying an extra FOR ALL policy and a PUBLIC policy).
+- **Approver standing.** Consumption, listing, request replay and approval all require BOTH the requester and the approver to still be platform administrators. A trigger on `profiles` (demotion, or deletion of an administrator's profile) invalidates, immediately and permanently, every open request that user made or approved (audited), so a later re-promotion revives nothing. What remains: a demotion made with triggers disabled (`session_replication_role = replica`) is detected and persisted only when a function next looks (approve, list, consume, request); a re-promotion before anything looks would revive such a request until then. Normal application paths cannot do that.
+- **Sequence privileges.** The switch log's identity sequence has all API-role grants revoked (the owner-definer functions still draw from it); it is dropped with its table by the rollback.
+
+### 2.9 Known limits (accepted, documented)
+
+- Fact epochs are per RESOURCE: activity on another period of the same resource invalidates an approved absorption (it fails safe), and two absorptions on one resource cannot be approved in parallel.
+- Any platform administrator can supersede another's approved request by requesting again with a different reason (griefing only, audited as `rfl_dual_invalidated` and `rfl_dual_requested`).
+- The owner recipient cap (5, ordered by user id, across locations) can drop whole locations of an entity-level alert for a business with more than 5 owners. D1 allows raising the cap in a later PR.
+- Owner-addressed `platform_rfl_*` emails are readable by every active staff role of that studio (sanitized summaries only: no SID, token, cost or amount); only `platform_rfl_admin_*` rows are hidden from studio staff.
+
 ## 3. What fails closed (summary)
 
 | Situation | Behaviour |

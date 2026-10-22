@@ -1595,10 +1595,10 @@ commit;`);
         expect(run(`select to_regclass('public.studio_sms_provider_resources') is not null`)).toBe("t");
         // the ops migration (20261211) sits on top of this one: it is rolled back first (it refuses while its own evidence exists; this copy has none).
         // The outbound_deliveries SELECT policies it narrowed come back exactly as they were (compared with the originals saved in the source database; a schema-only copy carries no rows).
-        const saved = JSON.parse(psql(`select coalesce(json_agg(json_build_object('n', policy_name, 'q', original_qual, 'r', rewritten_qual)), '[]'::json)::text from public.studio_sms_rfl_policy_backup`)) as Array<{ n: string; q: string; r: string }>;
+        const saved = JSON.parse(psql(`select coalesce(json_agg(json_build_object('n', policy_name, 'q', original_qual, 'r', rewritten_qual, 'c', cmd, 'roles', role_names, 'wc', original_check)), '[]'::json)::text from public.studio_sms_rfl_policy_backup`)) as Array<{ n: string; q: string; r: string; c: string; roles: string[]; wc: string | null }>;
         expect(saved.length).toBeGreaterThanOrEqual(1);
         // the schema-only copy carries no rows: give it the same saved originals the real rollback reads
-        for (const p of saved) run(`insert into public.studio_sms_rfl_policy_backup (policy_name, table_name, original_qual, rewritten_qual) values ($n$${p.n}$n$, 'outbound_deliveries', $q$${p.q}$q$, $r$${p.r}$r$);`);
+        for (const p of saved) run(`insert into public.studio_sms_rfl_policy_backup (policy_name, table_name, cmd, role_names, original_qual, original_check, rewritten_qual) values ($n$${p.n}$n$, 'outbound_deliveries', '${p.c}', '{${p.roles.join(",")}}'::text[], $q$${p.q}$q$, ${p.wc === null ? "null" : `$w$${p.wc}$w$`}, $r$${p.r}$r$);`);
         run(readFileSync(join(process.cwd(), "src/lib/supabase/migrations/rollback/20261211090000_twilio_rfl_ops_rollback.sql"), "utf8"));
         for (const p of saved) {
           expect(run(`select md5(pg_get_expr(polqual, polrelid)) from pg_policy where polrelid = 'public.outbound_deliveries'::regclass and polname = '${p.n.replace(/'/g, "''")}'`), p.n).toBe(createHash("md5").update(p.q).digest("hex"));
