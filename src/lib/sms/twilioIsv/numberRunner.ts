@@ -366,6 +366,10 @@ export async function runNumberAcquisition(input: NumberInput): Promise<NumberRe
         listedAt = new Date().toISOString();
         inventory = await adapter.listIncomingNumbers();
       } catch (error) {
+        if (error instanceof IsvApiError && error.twilioCode === "inventory_too_large") {
+          await toException("num_inventory_manual");
+          return { outcome: "exception", steps, detail: "inventory_manual_reconciliation", state };
+        }
         return { outcome: "retry_later", steps, detail: `inventory:${sanitized(error)}`, state };
       }
       if (inventory.length > MAX_LISTING) {
@@ -532,6 +536,8 @@ export async function refreshInventory(input: { store: NumberStore; adapter: Isv
       listedAt = new Date().toISOString();
       inventory = await adapter.listIncomingNumbers();
     } catch (error) {
+      // more pages than the adapter will read: a person reconciles it (explicit, never a silent retry loop and never recorded as clean)
+      if (error instanceof IsvApiError && error.twilioCode === "inventory_too_large") return { outcome: "manual_required", steps, detail: "inventory_over_1000", state: claim.state };
       return { outcome: "retry_later", steps, detail: `inventory:${sanitized(error)}`, state: claim.state };
     }
     if (inventory.length > MAX_LISTING) return { outcome: "manual_required", steps, detail: "inventory_over_1000", state: claim.state };   // nothing is recorded: the sending hold follows the staleness

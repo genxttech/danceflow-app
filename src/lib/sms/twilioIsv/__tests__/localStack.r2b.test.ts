@@ -1339,6 +1339,7 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect((await rpc("tw4_num_recon_claim", { p_studio_id: studio, p_lease_owner: "num-run-1", p_lease_seconds: 60 })).error?.code).toBe("22023");
       expect((await rpc("tw4_num_recon_claim", { p_studio_id: studio, p_lease_owner: reconLease, p_lease_seconds: 60 })).error).toBeNull();
       expect(psqlError(`begin; insert into public.studio_sms_num_operations select * from public.studio_sms_num_operations where provider_sid = '${liveSid}' and op_kind = 'number_purchase'; rollback;`)).toContain("reconciliation lease");
+      expect(psqlError(`begin; insert into public.studio_sms_prov_operations select * from public.studio_sms_prov_operations where studio_id = '${studio}' limit 1; rollback;`)).toContain("reconciliation lease");
       await store.release(psql(`select id from public.studio_sms_onboarding where studio_id = '${studio}'`), reconLease);
     });
 
@@ -1520,6 +1521,8 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect((await resolve(orphanOf(own, "id"), U.padmin, "close_former")).error?.code).toBe("TW049");   // still active
       aged(`update public.studio_sms_twilio_accounts set status = 'closed' where legal_entity_id = '${EB}'`);
       try {
+        expect(health(SB1)).toMatchObject({ status: "unknown", reasons: ["no_active_subaccount"] });
+        expect((health(SB1) as unknown as { open_findings: number }).open_findings).toBeGreaterThanOrEqual(1);
         expect((await resolve(orphanOf(own, "id"), U.stranger, "close_former")).error?.code).toBe("42501");
         expect((await resolve(orphanOf(own, "id"), U.padmin, "close_former")).error).toBeNull();
         expect(orphanOf(own, "status")).toBe("disposed");
@@ -1555,6 +1558,30 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       } finally {
         aged(`update public.studio_sms_onboarding set state = '${state0}' where studio_id = '${SB1}'`);
       }
+    });
+
+    it("the worklist rotates (a business that cannot be listed never starves the fleet) and a business with onboarding access OFF is listed for manual reconciliation, not skipped", async () => {
+      const list = async () => ((await rpc("tw4_num_recon_targets", { p_limit: 50, p_max_age_seconds: 60 })).data as { studio_id: string; legal_entity_id: string }[]);
+      const first = await list();
+      expect(first.length).toBeGreaterThanOrEqual(2);
+      const lease = "recon:rotate";
+      expect((await rpc("tw4_num_recon_claim", { p_studio_id: first[0].studio_id, p_lease_owner: lease, p_lease_seconds: 60 })).error).toBeNull();
+      await store.release(psql(`select id from public.studio_sms_onboarding where studio_id = '${first[0].studio_id}'`), lease);
+      const second = await list();
+      expect(second[0].legal_entity_id).not.toBe(first[0].legal_entity_id);   // the attempted business moved behind the unattempted ones
+      expect(second.map((t) => t.legal_entity_id)).toContain(first[0].legal_entity_id);
+      expect(psql(`select attempts from public.studio_sms_num_recon_attempts where legal_entity_id = '${first[0].legal_entity_id}'`)).not.toBe("");
+      // onboarding access OFF: no lease may be taken; the business appears on the manual list with its reason
+      const access0 = psql(`select enabled from public.studio_sms_onboarding_access where studio_id = '${SB1}'`);
+      aged(`update public.studio_sms_onboarding_access set enabled = false where studio_id = '${SB1}'`);
+      try {
+        expect((await list()).map((t) => t.legal_entity_id)).not.toContain(EB);
+        const manual = (await rpc("tw4_num_recon_manual", { p_actor: U.padmin })).data as { legal_entity_id: string; reason: string }[];
+        expect(manual).toEqual(expect.arrayContaining([expect.objectContaining({ legal_entity_id: EB, reason: "access_disabled" })]));
+      } finally {
+        aged(`update public.studio_sms_onboarding_access set enabled = ${access0 === "t" ? "true" : "false"} where studio_id = '${SB1}'`);
+      }
+      expect(psql("select to_regclass('public.studio_sms_num_inventory_checks_latest') is not null")).toBe("t");
     });
 
     it("a listing the database cannot judge is refused explicitly: more than 1000 numbers need manual reconciliation (TW051), and non-canonical sids are rejected, never case-folded", async () => {

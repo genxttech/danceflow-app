@@ -41,7 +41,7 @@ begin
   -- the functions replaced below must still be EXACTLY the versions this slice was written against (a parallel slice must never be overwritten silently)
   if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4sr_ready(uuid)'::regprocedure), E'\r', '')) <> '651e2162684185c5a721133206caf3ad'
      or md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4num_known(uuid)'::regprocedure), E'\r', '')) <> 'af641765f6a8358299c09a8b6927eca1'
-     or md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_num_inventory_observe(uuid,text,text[],text,timestamptz)'::regprocedure), E'\r', '')) <> '06e228b7c2930a873f01c0da06bc29a5' then
+     or md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_num_inventory_observe(uuid,text,text[],text,timestamptz)'::regprocedure), E'\r', '')) <> '97518c52d82fb05aa915ad5c81f96b44' then
     raise exception 'R2b-P2 precondition failed: a function it replaces differs from the expected version (fingerprint)';
   end if;
 end $$;
@@ -68,6 +68,7 @@ create table public.studio_sms_num_orphans (
   escalation_level int not null default 0 check (escalation_level between 0 and 3),
   reopen_count int not null default 0 check (reopen_count >= 0),
   escalation_failures int not null default 0 check (escalation_failures >= 0),
+  escalation_attempted_at timestamptz null,
   cost_bearer text null check (cost_bearer = 'danceflow'),
   resolved_by uuid null,
   resolved_at timestamptz null,
@@ -78,6 +79,17 @@ create table public.studio_sms_num_orphans (
   constraint studio_sms_num_orphans_adopt_unknown_only check (status <> 'adopted' or kind = 'unknown')
 );
 create index studio_sms_num_orphans_open on public.studio_sms_num_orphans (legal_entity_id, first_seen_at) where status = 'open';
+
+-- one row per business: when a reconciliation lease was last TAKEN for it. Targets rotate by it, so businesses that cannot be listed never starve the rest of the fleet.
+create table public.studio_sms_num_recon_attempts (
+  legal_entity_id uuid primary key references public.studio_sms_legal_entities(id) on delete restrict,
+  last_attempt_at timestamptz not null default clock_timestamp(),
+  attempts bigint not null default 1
+);
+revoke all on public.studio_sms_num_recon_attempts from public, anon, authenticated, service_role;
+alter table public.studio_sms_num_recon_attempts enable row level security;
+
+create index studio_sms_num_inventory_checks_latest on public.studio_sms_num_inventory_checks (legal_entity_id, twilio_account_sid, listed_at desc, created_at desc);
 
 create table public.studio_sms_num_orphan_events (
   id uuid primary key default gen_random_uuid(),
@@ -289,7 +301,7 @@ begin
                absent_since = null, last_check_id = v_check, escalation_level = 0, reopen_count = z.reopen_count + 1, resolved_by = null, resolved_at = null, resolution_note = null where id = z.id;
         perform public._tw4p2_event(z.id, 'reopened', null, 'kind=ledger_missing;was=' || z.status || ';note=' || coalesce(left(z.resolution_note, 150), ''));
       elsif z.status = 'open' then
-        update public.studio_sms_num_orphans set kind = 'ledger_missing', last_seen_at = greatest(z.last_seen_at, p_listed_at), seen_count = z.seen_count + 1, last_check_id = v_check where id = z.id;
+        update public.studio_sms_num_orphans set kind = 'ledger_missing', absent_since = null, last_seen_at = greatest(z.last_seen_at, p_listed_at), seen_count = z.seen_count + 1, last_check_id = v_check where id = z.id;
       end if;
     end if;
   end loop;
@@ -330,7 +342,7 @@ declare
 begin
   perform public._tw4c_admin(p_actor);
   if p_orphan_id is null or p_resolution is null or p_resolution not in ('adopt', 'dispose', 'close_former') or p_note is null or char_length(btrim(p_note)) not between 10 and 300 then
-    raise exception 'a resolution (adopt or dispose) and a written reason (10-300 characters) are required' using errcode = '22023';
+    raise exception 'a resolution (adopt, dispose or close_former) and a written reason (10-300 characters) are required' using errcode = '22023';
   end if;
   select * into z from public.studio_sms_num_orphans x where x.id = p_orphan_id;
   if z.id is null then
@@ -396,7 +408,7 @@ end $$;
 -- ---------------------------------------------------------------------------------------------------------------
 -- fail-closed inventory health of a business's subaccount
 -- ---------------------------------------------------------------------------------------------------------------
-create or replace function public._tw4num_health(p_studio_id uuid)
+create or replace function public._tw4num_health(p_studio_id uuid, p_detail boolean)
 returns jsonb language plpgsql stable security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
@@ -414,11 +426,13 @@ declare
 begin
   select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = p_studio_id;
   if v_entity is null or v_account is null then
-    return jsonb_build_object('status', 'unknown', 'reasons', jsonb_build_array('no_active_subaccount'));
+    return jsonb_build_object('status', 'unknown', 'reasons', jsonb_build_array('no_active_subaccount'), 'open_findings', (select count(*) from public.studio_sms_num_orphans z where z.legal_entity_id = v_entity and z.status = 'open'));
   end if;
   select * into c from public.studio_sms_num_inventory_checks x where x.legal_entity_id = v_entity and x.twilio_account_sid = v_account order by x.listed_at desc, x.created_at desc, x.id limit 1;
-  select max(x.listed_at) into v_clean from public.studio_sms_num_inventory_checks x where x.legal_entity_id = v_entity and x.twilio_account_sid = v_account and x.unknown_count = 0 and x.missing_count = 0
+  if p_detail then
+    select max(x.listed_at) into v_clean from public.studio_sms_num_inventory_checks x where x.legal_entity_id = v_entity and x.twilio_account_sid = v_account and x.unknown_count = 0 and x.missing_count = 0
      and (x.source = 'provider_read' or public._tw4sr_fake_allowed());
+  end if;
   select count(*) filter (where z.status = 'open'), count(*) filter (where z.status = 'open' and z.kind in ('ownership_mismatch', 'duplicate_e164', 'ledger_missing')), count(*) filter (where z.status = 'adopted')
     into v_open, v_contra, v_borne from public.studio_sms_num_orphans z where z.legal_entity_id = v_entity and z.twilio_account_sid = v_account;
   -- findings made in a FORMER subaccount stay visible until a person resolves them
@@ -443,6 +457,11 @@ begin
   return jsonb_build_object('status', v_status, 'reasons', to_jsonb(v_reasons), 'last_check_at', c.listed_at, 'last_clean_at', v_clean, 'open_findings', v_open, 'contradictions', v_contra, 'danceflow_borne', v_borne);
 end $$;
 
+create or replace function public._tw4num_health(p_studio_id uuid)
+returns jsonb language sql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$ select public._tw4num_health(p_studio_id, true); $$;
+
 create or replace function public.tw4_num_inventory_status(p_studio_id uuid, p_actor uuid)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
@@ -453,7 +472,7 @@ begin
   perform public._tw4c_admin(p_actor);
   select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = p_studio_id;
   return jsonb_build_object('health', public._tw4num_health(p_studio_id), 'findings', coalesce((
-    select jsonb_agg(jsonb_build_object('id', z.id, 'kind', z.kind, 'status', z.status, 'phone_number_sid', z.phone_number_sid, 'e164', z.e164, 'first_seen_at', z.first_seen_at, 'last_seen_at', z.last_seen_at,
+    select jsonb_agg(jsonb_build_object('id', z.id, 'kind', z.kind, 'status', z.status, 'phone_number_sid', z.phone_number_sid, 'e164', z.e164, 'twilio_account_sid', z.twilio_account_sid, 'first_seen_at', z.first_seen_at, 'last_seen_at', z.last_seen_at,
              'seen_count', z.seen_count, 'absent_since', z.absent_since, 'escalation_level', z.escalation_level, 'cost_bearer', z.cost_bearer) order by z.first_seen_at, z.id)
       from public.studio_sms_num_orphans z where z.legal_entity_id = v_entity and z.status in ('open', 'adopted')), '[]'::jsonb));
 end $$;
@@ -493,10 +512,11 @@ set search_path = pg_catalog, public, pg_temp
 as $$
 begin
   perform public._tw4c_admin(p_actor);
-  return coalesce((select jsonb_agg(jsonb_build_object('legal_entity_id', a.legal_entity_id, 'twilio_account_sid', a.twilio_account_sid, 'reason', 'no_leasable_onboarding') order by a.legal_entity_id)
+  return coalesce((select jsonb_agg(jsonb_build_object('legal_entity_id', a.legal_entity_id, 'twilio_account_sid', a.twilio_account_sid,
+      'reason', case when exists (select 1 from public.studio_sms_entity_studios es2 join public.studio_sms_onboarding o2 on o2.studio_id = es2.studio_id where es2.legal_entity_id = a.legal_entity_id and o2.state not in ('cancelled', 'blocked')) then 'access_disabled' else 'no_leasable_onboarding' end) order by a.legal_entity_id)
     from public.studio_sms_twilio_accounts a
    where a.status = 'active' and public._tw4num_has_resources(a.legal_entity_id)
-     and not exists (select 1 from public.studio_sms_entity_studios es join public.studio_sms_onboarding o on o.studio_id = es.studio_id where es.legal_entity_id = a.legal_entity_id and o.state not in ('cancelled', 'blocked'))), '[]'::jsonb);
+     and not exists (select 1 from public.studio_sms_entity_studios es join public.studio_sms_onboarding o on o.studio_id = es.studio_id where es.legal_entity_id = a.legal_entity_id and o.state not in ('cancelled', 'blocked') and public._sms_onb_access_enabled(es.studio_id))), '[]'::jsonb);
 end $$;
 
 create or replace function public.tw4_num_recon_targets(p_limit integer, p_max_age_seconds integer)
@@ -507,8 +527,8 @@ begin
   if p_limit is null or p_limit not between 1 and 100 or p_max_age_seconds is null or p_max_age_seconds not between 60 and 604800 then
     raise exception 'invalid worklist request' using errcode = '22023';
   end if;
-  return coalesce((select jsonb_agg(t.j order by t.sort_at nulls first, t.legal_entity_id) from (
-    select e.legal_entity_id, c.listed_at sort_at, jsonb_build_object('studio_id', e.studio_id, 'legal_entity_id', e.legal_entity_id, 'twilio_account_sid', e.account,
+  return coalesce((select jsonb_agg(t.j order by t.sort_att nulls first, t.sort_at nulls first, t.legal_entity_id) from (
+    select e.legal_entity_id, c.listed_at sort_at, (select ra.last_attempt_at from public.studio_sms_num_recon_attempts ra where ra.legal_entity_id = e.legal_entity_id) sort_att, jsonb_build_object('studio_id', e.studio_id, 'legal_entity_id', e.legal_entity_id, 'twilio_account_sid', e.account,
              'last_checked_at', c.listed_at, 'reason', case when c.id is null then 'never_checked' when c.unknown_count > 0 or c.missing_count > 0 then 'latest_unclean'
                                                           when exists (select 1 from public.studio_sms_num_orphans z where z.legal_entity_id = e.legal_entity_id and z.status = 'open') then 'open_findings'
                                                           else 'due' end) j
@@ -522,7 +542,7 @@ begin
       left join lateral (select * from public.studio_sms_num_inventory_checks x where x.legal_entity_id = e.legal_entity_id and x.twilio_account_sid = e.account order by x.listed_at desc, x.created_at desc, x.id limit 1) c on true
      where c.id is null or c.listed_at < clock_timestamp() - make_interval(secs => p_max_age_seconds) or c.unknown_count > 0 or c.missing_count > 0
         or exists (select 1 from public.studio_sms_num_orphans z where z.legal_entity_id = e.legal_entity_id and z.status = 'open')
-     order by c.listed_at nulls first, e.legal_entity_id limit p_limit) t), '[]'::jsonb);
+     order by (select ra.last_attempt_at from public.studio_sms_num_recon_attempts ra where ra.legal_entity_id = e.legal_entity_id) nulls first, c.listed_at nulls first, e.legal_entity_id limit p_limit) t), '[]'::jsonb);
 end $$;
 
 create or replace function public.tw4_num_recon_claim(p_studio_id uuid, p_lease_owner text, p_lease_seconds integer default 120)
@@ -547,6 +567,8 @@ begin
     raise exception 'another run holds the lease' using errcode = '55P03';
   end if;
   update public.studio_sms_onboarding set lease_owner = p_lease_owner, lease_expires_at = now() + make_interval(secs => p_lease_seconds) where id = o.id returning * into o;
+  insert into public.studio_sms_num_recon_attempts (legal_entity_id) select es.legal_entity_id from public.studio_sms_entity_studios es where es.studio_id = p_studio_id
+    on conflict (legal_entity_id) do update set last_attempt_at = clock_timestamp(), attempts = studio_sms_num_recon_attempts.attempts + 1;
   perform public._tw4_r1_audit(o, null, 'runner_lease', o.state, o.state, 'claimed scheduled inventory reconciliation');
   return jsonb_build_object('onboarding_id', o.id, 'studio_id', o.studio_id, 'state', o.state, 'submission_seq', o.submission_seq);
 end $$;
@@ -563,6 +585,7 @@ begin
   return new;
 end $$;
 create trigger studio_sms_num_operations_no_recon before insert on public.studio_sms_num_operations for each row execute function public._tw4p2_no_recon_ops();
+create trigger studio_sms_prov_operations_no_recon before insert on public.studio_sms_prov_operations for each row execute function public._tw4p2_no_recon_ops();
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- idempotent, age-based escalation into the recurring-fee-lifecycle alert outbox (when installed). Without it nothing is advanced and the deferral is reported.
@@ -593,8 +616,9 @@ begin
   for z in select x.* from public.studio_sms_num_orphans x where x.status = 'open'
             and x.escalation_level < case when x.kind = 'unknown' then case when x.first_seen_at < clock_timestamp() - interval '72 hours' then 3 when x.first_seen_at < clock_timestamp() - interval '24 hours' then 2 else 1 end
                                           else case when x.first_seen_at < clock_timestamp() - interval '72 hours' then 3 else 2 end end
-            order by x.first_seen_at, x.id limit p_limit for update skip locked loop
+            order by x.escalation_attempted_at nulls first, x.first_seen_at, x.id limit p_limit for update skip locked loop
     v_seen := v_seen + 1;
+    update public.studio_sms_num_orphans set escalation_attempted_at = clock_timestamp() where id = z.id;
     v_target := case when z.kind = 'unknown' then case when z.first_seen_at < clock_timestamp() - interval '72 hours' then 3 when z.first_seen_at < clock_timestamp() - interval '24 hours' then 2 else 1 end
                       else case when z.first_seen_at < clock_timestamp() - interval '72 hours' then 3 else 2 end end;
     begin
@@ -653,13 +677,13 @@ begin
   end if;
   -- ordinary billable sending is HELD while the business's provider-inventory evidence is stale, missing, untrusted or contradictory (inbound STOP/START/HELP handling does not use this gate);
   -- and the number this location sends from must not be contradicted by the provider: an open ownership mismatch, duplicate E.164 or missing-from-listing finding for THIS sid or E.164 stops it
-  if public._tw4num_send_blocked(s.account_sid, s.phone_number_sid, s.sender_e164) or (public._tw4num_health(p_studio_id) ->> 'status') in ('unknown', 'stale', 'critical') then
+  if public._tw4num_send_blocked(s.account_sid, s.phone_number_sid, s.sender_e164) or (public._tw4num_health(p_studio_id, false) ->> 'status') in ('unknown', 'stale', 'critical') then
     return none;   -- a HOLD, not a revocation: the sender row, the spending authorization and every reservation are untouched, and fresh authoritative evidence lifts it
   end if;
   return s;
 end $$;
 
-revoke all on function public._tw4p2_no_recon_ops(), public._tw4p2_guard(), public._tw4p2_event(uuid, text, uuid, text), public._tw4num_send_blocked(text, text, text), public._tw4num_health(uuid) from public, anon, authenticated, service_role;
+revoke all on function public._tw4p2_no_recon_ops(), public._tw4p2_guard(), public._tw4p2_event(uuid, text, uuid, text), public._tw4num_send_blocked(text, text, text), public._tw4num_health(uuid), public._tw4num_health(uuid, boolean) from public, anon, authenticated, service_role;
 revoke all on function public.tw4_num_inventory_observe(uuid, text, jsonb, text, timestamptz), public.tw4_num_orphan_resolve(uuid, uuid, text, text), public.tw4_num_inventory_status(uuid, uuid),
   public.tw4_num_orphan_exposure(uuid), public.tw4_num_recon_targets(integer, integer), public.tw4_num_recon_claim(uuid, text, integer), public.tw4_num_orphan_escalate(integer) from public, anon, authenticated;
 grant execute on function public.tw4_num_inventory_observe(uuid, text, jsonb, text, timestamptz), public.tw4_num_orphan_resolve(uuid, uuid, text, text), public.tw4_num_inventory_status(uuid, uuid),

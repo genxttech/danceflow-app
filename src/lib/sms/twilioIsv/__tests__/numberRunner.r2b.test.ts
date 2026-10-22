@@ -3,6 +3,7 @@ import { FakeNumberAdapter } from "../fakeNumbers";
 import { numberFriendlyName, observeCreationHistory, observeNumberIdentity, offerNumbers, reconcileInventories, refreshInventory, refreshNumber, runNumberAcquisition, type NumberInput } from "../numberRunner";
 import type { NumBeginArgs, NumBeginResult, NumContext, NumFinishOutcome, NumObserveResult, NumberStore, OfferRecorded } from "../numberStore";
 import { RunnerStoreError } from "../store";
+import { IsvApiError } from "../types";
 import type { IsvNumberAdapter } from "../numberTypes";
 
 /**
@@ -472,6 +473,21 @@ describe("number search and status check", () => {
     const summary = await reconcileInventories({ store, adapterFor: () => adapter });
     expect(summary.manual).toEqual([STUDIO]);
     expect(summary.checked).toBe(0);
+  });
+
+  it("R2b-P2: the real adapter's 'too many pages' condition is mapped to manual reconciliation, not to an endless retry", async () => {
+    const store = new ScriptedStore();
+    const adapter = world();
+    adapter.listIncomingNumbers = async () => {
+      throw new IsvApiError("transient", null, "inventory_too_large", "list too long to search safely");
+    };
+    expect(await refreshInventory({ store, adapter, studioId: STUDIO, actorId: "a" })).toMatchObject({ outcome: "manual_required" });
+    expect(store.inventories).toHaveLength(0);
+    // any other listing failure is still a retry
+    adapter.listIncomingNumbers = async () => {
+      throw new IsvApiError("transient", 503, null, "boom");
+    };
+    expect(await refreshInventory({ store: new ScriptedStore(), adapter, studioId: STUDIO, actorId: "a" })).toMatchObject({ outcome: "retry_later" });
   });
 
   it("R2b-P1: the creation history is read through the adapter when it can guarantee one, and an adapter that cannot (the real one) records nothing", async () => {

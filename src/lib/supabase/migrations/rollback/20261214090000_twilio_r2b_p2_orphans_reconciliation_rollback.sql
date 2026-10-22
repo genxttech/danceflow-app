@@ -16,9 +16,9 @@ end $$;
 do $$
 begin
   -- the functions this migration installed must still be exactly its own
-  if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4sr_ready(uuid)'::regprocedure), E'\r', '')) <> '2aa0dbec06c1a8fe4ea22c7658d6d522'
+  if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4sr_ready(uuid)'::regprocedure), E'\r', '')) <> '4d76a192073ce75c2d4383716efbdb9b'
      or md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4num_known(uuid)'::regprocedure), E'\r', '')) <> 'c109630a80ef75b2f9262614d249ab29'
-     or md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_num_inventory_observe(uuid,text,jsonb,text,timestamptz)'::regprocedure), E'\r', '')) <> '042b2f2744d19ce92b648a7d7bfad2ee' then
+     or md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_num_inventory_observe(uuid,text,jsonb,text,timestamptz)'::regprocedure), E'\r', '')) <> '6b399205a3f813ae73d38fcf8066f192' then
     raise exception 'R2b-P2 rollback refused: a function it installed has been changed since (fingerprint)' using errcode = '55000';
   end if;
 end $$;
@@ -96,7 +96,7 @@ declare
   v_missing int;
 begin
   o := public._tw4_r1_lease(p_onboarding_id, p_lease_owner);
-  if p_sids is null or cardinality(p_sids) > 1000 or exists (select 1 from unnest(p_sids) x where x is null or x !~ '^PN[0-9a-fA-F]{32}$') then
+  if p_sids is null or cardinality(p_sids) > 1000 or exists (select 1 from unnest(p_sids) x where x is null or x !~ '^PN[0-9a-f]{32}$') then
     raise exception 'an inventory of number sids is required' using errcode = '22023';
   end if;
   if p_source is null or p_source not in ('provider_read', 'fake') or p_listed_at is null or p_listed_at > clock_timestamp() + interval '30 seconds' or p_listed_at < clock_timestamp() - interval '10 minutes' then
@@ -110,6 +110,8 @@ begin
   if v_entity is null or v_account is null then
     raise exception 'this studio''s legal entity has no active Twilio subaccount' using errcode = 'TW005';
   end if;
+  -- one writer per subaccount at a time: a resolve that reads the evidence sees every listing that committed before it, and none races it
+  perform pg_advisory_xact_lock(hashtextextended('num_inventory:' || v_account, 0));
   v_known := public._tw4num_known(v_entity);
   select count(*) into v_unknown from unnest(p_sids) x where not (x = any (v_known));
   select count(*) into v_missing from (
@@ -123,13 +125,17 @@ begin
 end $$;
 
 drop trigger if exists studio_sms_num_operations_no_recon on public.studio_sms_num_operations;
+drop trigger if exists studio_sms_prov_operations_no_recon on public.studio_sms_prov_operations;
 drop function if exists public._tw4p2_no_recon_ops();
 drop function if exists public._tw4num_health(uuid);
+drop function if exists public._tw4num_health(uuid, boolean);
 drop function if exists public._tw4num_send_blocked(text, text, text);
 drop table public.studio_sms_num_orphan_events;
+drop table public.studio_sms_num_recon_attempts;
 drop table public.studio_sms_num_orphans;
 drop function if exists public._tw4p2_event(uuid, text, uuid, text);
 drop function if exists public._tw4p2_guard();
+drop index if exists public.studio_sms_num_inventory_checks_latest;
 alter table public.studio_sms_num_inventory_checks drop column mismatch_count;
 alter table public.studio_sms_num_inventory_checks drop column duplicate_count;
 comment on column public.studio_sms_num_inventory_checks.unknown_count is null;

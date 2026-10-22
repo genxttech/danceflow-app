@@ -590,7 +590,7 @@ export class RealNumberAdapter extends TwilioRest<IsvConfig> implements IsvNumbe
     const rows = Array.isArray(json.incoming_phone_numbers) ? (json.incoming_phone_numbers as Record<string, unknown>[]) : null;
     if (!rows) throw new IsvApiError("transient", null, null, "list response carried no collection");
     // an inventory that stopped with pages still to read cannot prove the account holds nothing else
-    if (typeof json.next_page_uri === "string" && json.next_page_uri) throw new IsvApiError("transient", null, null, "list too long to search safely");
+    if (typeof json.next_page_uri === "string" && json.next_page_uri) throw new IsvApiError("transient", null, "inventory_too_large", "list too long to search safely");
     return rows
       // fail closed: every row the account's listing returns counts, whatever its account_sid says; a row without a valid sid makes the inventory unreadable
       .map((row) => {

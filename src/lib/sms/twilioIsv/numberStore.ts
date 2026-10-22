@@ -52,7 +52,7 @@ export type SelectionRecorded = { selection_id: string; e164: string; price_cent
 
 export interface NumberStore {
   claim(studioId: string, actorId: string, leaseOwner: string, leaseSeconds?: number, mode?: "run" | "refresh"): Promise<NumClaim>;
-  /** The scheduled reconciliation's lease (service role, no human actor): GET-only work, refused for a location whose onboarding is not at a number-step state. */
+  /** The scheduled reconciliation's lease (service role, no human actor): GET-only work; refused for a cancelled or blocked onboarding and for a studio whose onboarding access is off. The database refuses any provider operation started under it. */
   claimRecon(studioId: string, leaseOwner: string, leaseSeconds?: number): Promise<NumClaim>;
   /** One location per business whose subaccount inventory is due, never checked, unclean or carrying open findings. */
   reconTargets(limit: number, maxAgeSeconds: number): Promise<ReconTarget[]>;
