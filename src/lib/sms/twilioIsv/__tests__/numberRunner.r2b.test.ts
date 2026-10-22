@@ -314,7 +314,7 @@ describe("number runner decisions", () => {
   it("each begin() refusal is reported as what it is, with nothing called", async () => {
     const cases: [string, string][] = [
       ["55P03", "lease_lost"], ["TW001", "runner_closed"], ["TW004", "spend_blocked"], ["TW005", "suspended"], ["TW007", "insufficient_credit"], ["TW008", "price_unavailable"], ["TW011", "pilot_conflict"],
-      ["TW022", "release_current_number_first"], ["TW030", "not_runnable"], ["TW032", "prerequisite_missing"], ["TW033", "recurring_missing"], ["TW040", "no_selection"], ["23505", "number_taken"],
+      ["TW022", "release_current_number_first"], ["TW030", "not_runnable"], ["TW032", "prerequisite_missing"], ["TW033", "recurring_missing"], ["TW040", "no_selection"], ["23505", "number_taken"], ["TW047", "prerequisite_missing"],
     ];
     for (const [code, outcome] of cases) {
       const store = new ScriptedStore();
@@ -322,6 +322,14 @@ describe("number runner decisions", () => {
       const adapter = world();
       expect((await runNumberAcquisition(base(store, adapter))).outcome, code).toBe(outcome);
       expect(adapter.count("purchaseNumber"), code).toBe(0);
+    }
+    // an unreconciled provider resource is reported as what it is: a block with its own reason, never a failed operation
+    {
+      const blocked = new ScriptedStore();
+      blocked.beginQueue.number_purchase = [sc("TW047")];
+      const result = await runNumberAcquisition(base(blocked, world()));
+      expect(result).toMatchObject({ outcome: "prerequisite_missing", detail: "number_purchase:unreconciled_provider_resource" });
+      expect(blocked.transitions.filter((t) => t.startsWith("exception"))).toEqual([]);
     }
     const store = new ScriptedStore();
     store.beginQueue.number_purchase = [sc("XX000")];

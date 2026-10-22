@@ -133,6 +133,8 @@ function beginRefusal(error: unknown, kind: NumKind): { outcome: NumberOutcome; 
     case "TW040": return { outcome: "no_selection", detail };
     case "TW046": return { outcome: "prerequisite_missing", detail: `${kind}:lifecycle_inventory` };
     case "TW045": return { outcome: "prerequisite_missing", detail: `${kind}:inventory_not_reconciled` };
+    // 20261212 (R2a fee evidence): a fee-bearing purchase is refused while an unreconciled campaign orphan of the same business is open or registered: BLOCKED, not a failed operation
+    case "TW047": return { outcome: "prerequisite_missing", detail: `${kind}:unreconciled_provider_resource` };
     case "23505": return { outcome: "number_taken", detail };
     default: return { outcome: "exception", detail: `begin:${detail}` };
   }
