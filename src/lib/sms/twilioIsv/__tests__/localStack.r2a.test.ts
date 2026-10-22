@@ -79,9 +79,12 @@ const STUDIOS = `'${SA1}', '${SA2}', '${SB1}', '${SC1}', '${SD1}'`;
 const CLEANUP = `
 begin;
 set local session_replication_role = replica;
-delete from public.studio_sms_prov_orphans where studio_id in (${STUDIOS});
-delete from public.studio_sms_prov_dispositions where studio_id in (${STUDIOS});
-delete from public.studio_sms_prov_listings where studio_id in (${STUDIOS});
+-- the fee-resolution evidence tables (20261212) exist only on a stack that carries that layer; an R2a-only stack must clean up too
+do $ begin if to_regclass('public.studio_sms_prov_listings') is not null then
+  delete from public.studio_sms_prov_orphans where studio_id in (${STUDIOS});
+  delete from public.studio_sms_prov_dispositions where studio_id in (${STUDIOS});
+  delete from public.studio_sms_prov_listings where studio_id in (${STUDIOS});
+end if; end $;
 delete from public.studio_sms_prov_resources where studio_id in (${STUDIOS});
 delete from public.studio_sms_prov_operations where studio_id in (${STUDIOS});
 delete from public.studio_sms_pilot_exceptions where legal_entity_id in (${ENTITIES});
