@@ -518,6 +518,53 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       expect(Number(psql(`select count(*) from public.studio_sms_credit_ledger where legal_entity_id = '${EA}' and kind in ('usage_charge','capture')`))).toBe(0);
     });
 
+    // ---- orphan exposure and alert status (20261216): read-only administrator views ----
+    type ExposureOrphan = { orphan_id: string; legal_entity_id: string; status: string; registration: string; reconciliation: string; provider_owned: boolean; blocks_fee_bearing_operations: boolean;
+      cost: { basis: string; known: boolean; provider_billed_cents: number | null; expected_provider_cents_estimate: number | null; in_rfl_exposure_report: boolean; counted_in_aggregate: boolean } };
+    type ExposureView = { orphans: ExposureOrphan[]; aggregate: Record<string, number | boolean | null>; notes: string[] };
+    const exposure = async (entity: string | null = null, includeClosed = false, actor: string = U.padmin) =>
+      rpc("tw4_prov_orphan_exposure", { p_actor: actor, p_legal_entity_id: entity, p_include_closed: includeClosed });
+    const alertStatus = async (entity: string | null = null) => rpc("tw4_prov_orphan_alert_status", { p_actor: U.padmin, p_legal_entity_id: entity });
+    type AlertRow = { alert_id: string; orphan_id: string; audience: string; status: string; attempts: number; phase: string; escalated: boolean; recipients: { recipient_ref: string; record_outcome: string; send_state: string }[] };
+    const alertRows = async (entity: string | null = null) => ((await alertStatus(entity)).data as { delivery_enabled: boolean; alerts: AlertRow[] });
+    /** A snapshot of everything financial the views must never touch. */
+    const money = () => psql(`select (select count(*) || ':' || coalesce(sum(amount_cents), 0) from public.studio_sms_credit_reservations) || '/' || (select count(*) from public.studio_sms_credit_ledger) || '/' ||
+      (select count(*) from public.studio_sms_pilot_exceptions) || '/' || (select count(*) from public.studio_sms_provider_exposure) || '/' || (select count(*) from public.studio_sms_provider_resources)`);
+
+    it("exposure: an open, UNREGISTERED orphan is visible to administrators from discovery with its cost explicitly unknown; owners, other businesses and anonymous callers cannot read it; the read changes nothing", async () => {
+      const before = money();
+      const view = (await exposure()).data as ExposureView;
+      const mine = view.orphans.find((o) => o.orphan_id === orphanId);
+      expect(mine).toMatchObject({ status: "open", registration: "unregistered", reconciliation: "unreconciled", provider_owned: true, blocks_fee_bearing_operations: true, legal_entity_id: EA });
+      // unknown, not zero: no amount is invented for something nobody registered
+      expect(mine?.cost).toMatchObject({ basis: "unknown", known: false, provider_billed_cents: null, expected_provider_cents_estimate: null, in_rfl_exposure_report: false });
+      expect(view.aggregate).toMatchObject({ open_unregistered: 1, registered: 0, cost_unknown: 1, provider_billed_cents: null, expected_provider_cents_estimate: null });
+      expect(view.notes.join(" ")).toMatch(/unknown, not zero/);
+      // tenant isolation: another business's filter shows nothing of this one; an owner (even of this business), an unknown actor and a null actor are refused
+      expect(((await exposure(EB)).data as ExposureView).orphans).toEqual([]);
+      expect(((await exposure(EA)).data as ExposureView).orphans.map((o) => o.orphan_id)).toEqual([orphanId]);
+      for (const actor of [U.owner_a, U.owner_b, "f2e00000-0000-4000-8000-0000000009ff"]) expect((await exposure(null, false, actor)).error?.code).toBe("42501");
+      expect((await alertStatus()).error).toBeNull();
+      expect((await rpc("tw4_prov_orphan_alert_status", { p_actor: U.owner_a, p_legal_entity_id: null })).error?.code).toBe("42501");
+      // read-only: provably so (a read-only transaction would refuse any write) and nothing financial moved
+      expect(psqlError(`begin read only; select public.tw4_prov_orphan_exposure('${U.padmin}', null, true); select public.tw4_prov_orphan_alert_status('${U.padmin}', null); rollback;`)).toBe("");
+      expect(psql(`select string_agg(proname || ':' || provolatile::text, ',' order by proname) from pg_proc where proname in ('tw4_prov_orphan_exposure', 'tw4_prov_orphan_alert_status')`)).toBe("tw4_prov_orphan_alert_status:s,tw4_prov_orphan_exposure:s");
+      expect(money()).toBe(before);
+    });
+
+    it("alert status: with delivery switched off the orphan alerts are 'waiting_delivery_disabled' and nothing is claimed; no alert is ever reported as delivered or sent", async () => {
+      const rows = await alertRows(EA);
+      expect(rows.delivery_enabled).toBe(false);
+      const mine = rows.alerts.filter((x) => x.orphan_id === orphanId);
+      expect(mine.map((x) => `${x.audience}:${x.status}:${x.phase}`).sort()).toEqual(["admin:pending:waiting_delivery_disabled", "owner:pending:waiting_delivery_disabled"]);
+      expect(mine.every((x) => x.recipients.length === 0 && x.attempts === 0)).toBe(true);
+      const claimed = await rpc("tw4_rfl_alerts_claim", { p_limit: 100 });
+      expect(claimed.error).toBeNull();
+      expect(claimed.data).toEqual([]);
+      // another business sees nothing of these alerts
+      expect((await alertRows(EB)).alerts.filter((x) => x.orphan_id === orphanId)).toEqual([]);
+    });
+
     it("it blocks every further fee-bearing operation of the business", async () => {
       expect((await authorize(EA, SA1, "campaign_vetting", PRICE.vetting, ref("vetting-a1-again"))).error).toBeNull();
       const opsBefore = psql(`select count(*) from public.studio_sms_prov_operations where studio_id = '${SA1}'`);
@@ -546,6 +593,56 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       expect(view.orphans.map((o) => `${o.id}:${o.status}`)).toEqual([`${orphanId}:registered`]);
     });
 
+    it("exposure: a REGISTERED orphan is distinguished, its recorded cost is the lifecycle's own exposure counted once, and a registration that the lifecycle refuses (TW040) leaves the other orphan visible, open and blocking", async () => {
+      const before = money();
+      const view = (await exposure(EA)).data as ExposureView;
+      const reg = view.orphans.find((o) => o.orphan_id === orphanId);
+      expect(reg).toMatchObject({ status: "registered", registration: "registered", reconciliation: "registered_in_lifecycle" });
+      expect(reg?.cost).toMatchObject({ in_rfl_exposure_report: true, counted_in_aggregate: true, basis: "unknown", known: false });   // no lifecycle exposure row exists yet: still unknown, not zero
+      const resource = psql(`select rfl_resource_id from public.studio_sms_prov_orphans where id = '${orphanId}'`);
+      const studio = SA1;
+      const exposureRow = (period: string, expected: number, billed: number) =>
+        `insert into public.studio_sms_provider_exposure (resource_id, legal_entity_id, studio_id, period_key, state, reason, expected_provider_cents, provider_billed_cents)
+           values ('${resource}', '${EA}', '${studio}', '${period}', 'open', 'no_authorization', ${expected}, ${billed});`;
+      // two lifecycle exposure rows for the one resource, and a SECOND orphan row pointing at the same resource (a closed SID that reappeared): the aggregate counts the resource once
+      const second = `insert into public.studio_sms_prov_orphans (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, scope_sid, first_listing_id, source_operation_id, status, rfl_resource_id, registered_by, registered_at, discovered_at)
+          select legal_entity_id, studio_id, twilio_account_sid, resource_kind, 'QE${"9".repeat(32)}', scope_sid, first_listing_id, source_operation_id, 'registered', rfl_resource_id, registered_by, registered_at, discovered_at + interval '1 second'
+            from public.studio_sms_prov_orphans where id = '${orphanId}';`;
+      // a CLOSED lifecycle period (covered by a charge) is history: it must add nothing; a CLOSED orphan row of the same resource that was discovered EARLIER must not take the resource's single count
+      const closedPeriod = `insert into public.studio_sms_provider_exposure (resource_id, legal_entity_id, studio_id, period_key, state, reason, expected_provider_cents, provider_billed_cents, closed_at, disposition)
+           values ('${resource}', '${EA}', '${studio}', '2026-08', 'closed', 'no_authorization', 5000, 3000, now(), 'covered_by_charge');`;
+      const earlierClosed = `insert into public.studio_sms_prov_orphans (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, scope_sid, first_listing_id, source_operation_id, status, rfl_resource_id, registered_by, registered_at, closed_at, close_note, discovered_at)
+          select legal_entity_id, studio_id, twilio_account_sid, resource_kind, 'QE${"7".repeat(32)}', scope_sid, first_listing_id, source_operation_id, 'closed', rfl_resource_id, registered_by, registered_at, now(), 'fixture: closed earlier sighting', discovered_at - interval '1 second'
+            from public.studio_sms_prov_orphans where id = '${orphanId}';`;
+      const agg = (includeClosed: boolean) => psqlError(`begin; set local session_replication_role = replica; ${exposureRow("2026-09", 1000, 0)} ${exposureRow("2026-10", 1000, 700)} ${closedPeriod} ${second} ${earlierClosed} set local session_replication_role = origin;
+        do $$ declare v jsonb := public.tw4_prov_orphan_exposure('${U.padmin}', '${EA}', ${includeClosed}); begin
+          raise exception 'AGG=% / % / n=% / counted=% / basis=%', v -> 'aggregate' ->> 'provider_billed_cents', v -> 'aggregate' ->> 'expected_provider_cents_estimate', jsonb_array_length(v -> 'orphans'),
+            (select count(*) from jsonb_array_elements(v -> 'orphans') e where (e -> 'cost' ->> 'counted_in_aggregate')::boolean and e ->> 'status' <> 'closed'),
+            (select string_agg(distinct e -> 'cost' ->> 'basis', ',') from jsonb_array_elements(v -> 'orphans') e where e ->> 'status' <> 'closed');
+        end $$; rollback;`);
+      // OPEN periods only (700 billed; 2000 expected; the 3000/5000 closed period is history), each resource once although several orphan rows point at it - with or without the closed row listed
+      expect(agg(false)).toMatch(/AGG=700 \/ 2000 \/ n=2 \/ counted=1 \/ basis=recorded/);
+      expect(agg(true)).toMatch(/AGG=700 \/ 2000 \/ n=3 \/ counted=1 \/ basis=recorded/);
+      // a second, unregistered orphan of the same location while the first is a live registered campaign: the lifecycle refuses (TW040); the orphan stays open, visible and blocking
+      const refused = `QE${"8".repeat(32)}`;
+      aged(`insert into public.studio_sms_prov_orphans (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, scope_sid, first_listing_id, source_operation_id, status)
+          select legal_entity_id, studio_id, twilio_account_sid, resource_kind, '${refused}', scope_sid, first_listing_id, source_operation_id, 'open' from public.studio_sms_prov_orphans where id = '${orphanId}'`);
+      try {
+        const second_id = psql(`select id from public.studio_sms_prov_orphans where provider_sid = '${refused}'`);
+        expect((await rpc("tw4_prov_orphan_register", { p_orphan_id: second_id, p_actor: U.padmin })).error?.code).toBe("TW040");
+        const v2 = (await exposure(EA)).data as ExposureView;
+        const open = v2.orphans.find((o) => o.orphan_id === second_id);
+        expect(open).toMatchObject({ status: "open", registration: "unregistered", blocks_fee_bearing_operations: true });
+        expect(open?.cost).toMatchObject({ basis: "unknown", known: false, provider_billed_cents: null });
+        expect(v2.aggregate).toMatchObject({ open_unregistered: 1, registered: 1, cost_unknown: 2 });
+        // the refusal cost nothing and changed nothing financial
+        expect(money()).toBe(before);
+        expect(psql(`select count(*) from public.studio_sms_prov_orphans where id = '${second_id}' and status = 'open' and rfl_resource_id is null`)).toBe("1");
+      } finally {
+        aged(`delete from public.studio_sms_prov_orphans where provider_sid = '${refused}'`);
+      }
+    });
+
     it("the lifecycle's administrator-typed cancellation digest does NOT close it; two later provider listings that no longer show it do, and the block then lifts", async () => {
       aged(`update public.studio_sms_provider_resources set provider_state = 'cancelled', cancelled_at = now(), cancel_evidence_digest = '${"ab".repeat(32)}' where id = (select rfl_resource_id from public.studio_sms_prov_orphans where id = '${orphanId}')`);
       const note = "fixture: the provider listings no longer show it";
@@ -566,6 +663,15 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       expect(psql(`select count(*) from public.studio_sms_prov_orphans where legal_entity_id = '${EA}' and status <> 'closed'`)).toBe("0");
     });
 
+    it("exposure: after reconciliation (closed on provider evidence) the orphan leaves the open view, stays in the history, the block is lifted and no money moved", async () => {
+      const view = (await exposure(EA)).data as ExposureView;
+      expect(view.orphans.find((o) => o.orphan_id === orphanId)).toBeUndefined();
+      expect(view.aggregate).toMatchObject({ open_unregistered: 0, registered: 0, closed: 0 });
+      const history = (await exposure(EA, true)).data as ExposureView;
+      expect(history.orphans.find((o) => o.orphan_id === orphanId)).toMatchObject({ status: "closed", reconciliation: "closed", blocks_fee_bearing_operations: false });
+      expect(history.aggregate).toMatchObject({ closed: 1, provider_billed_cents: null });
+    });
+
     it("a closed orphan that REAPPEARS (listings are eventually consistent) is a new orphan: new block, new alerts", async () => {
       const a = hub.adapterFor(ACC.A);
       const sid = psql(`select provider_sid from public.studio_sms_prov_orphans where id = '${orphanId}'`);
@@ -577,6 +683,63 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       expect(psql(`select count(*) from public.studio_sms_provider_alerts where dedupe_key like 'prov_orphan:${fresh}:%'`)).toBe("2");
       expect(psql(`select count(*) from public.studio_sms_prov_orphans where legal_entity_id = '${EA}' and status <> 'closed'`)).toBe("1");
       a.campaigns.delete(sid);
+    });
+
+    it("alert delivery states: queued is never reported as delivered or sent; handed-off, sent, failed, retry and exhausted/escalated each have their own state; replays are idempotent", async () => {
+      const ours = (rows: AlertRow[], orphan: string) => rows.filter((x) => x.orphan_id === orphan);
+      const fresh = psql(`select id from public.studio_sms_prov_orphans where status = 'open' and legal_entity_id = '${EA}'`);
+      const first = ours((await alertRows(EA)).alerts, fresh);
+      expect(first.map((x) => x.phase)).toEqual(["waiting_delivery_disabled", "waiting_delivery_disabled"]);
+      try {
+        expect((await rpc("tw4_rfl_set_switch", { p_switch: "delivery", p_enabled: true, p_actor: U.padmin, p_reason: "fixture: exercise orphan alert states" })).error).toBeNull();
+        expect((await alertRows(EA)).delivery_enabled).toBe(true);
+        expect(ours((await alertRows(EA)).alerts, fresh).map((x) => x.phase)).toEqual(["waiting_for_delivery_worker", "waiting_for_delivery_worker"]);
+        const claimed = ((await rpc("tw4_rfl_alerts_claim", { p_limit: 100 })).data as { alert_id: string; claim_token: string }[]);
+        const owner = first.find((x) => x.audience === "owner")!;
+        const admin = first.find((x) => x.audience === "admin")!;
+        const tokenOf = (id: string) => claimed.find((c) => c.alert_id === id)!.claim_token;
+        expect(ours((await alertRows(EA)).alerts, fresh).map((x) => x.phase)).toEqual(["claimed_in_progress", "claimed_in_progress"]);
+        // the owner alert: recorded as QUEUED (replays are idempotent), handed to the outbound queue, and still never 'sent'
+        const ref = `owner:${U.owner_a}`;
+        const rec = () => rpc("tw4_rfl_alert_delivery_record", { p_alert_id: owner.alert_id, p_claim_token: tokenOf(owner.alert_id), p_recipient_ref: ref, p_recipient_kind: "owner", p_outcome: "queued" });
+        expect((await rec()).data).toMatchObject({ recorded: true, replayed: false });
+        expect((await rec()).data).toMatchObject({ recorded: true, replayed: true });
+        expect((await rpc("tw4_rfl_alert_finish", { p_alert_id: owner.alert_id, p_claim_token: tokenOf(owner.alert_id), p_delivered: true, p_error: null })).data).toMatchObject({ updated: true });
+        // a stale or replayed finish changes nothing
+        expect((await rpc("tw4_rfl_alert_finish", { p_alert_id: owner.alert_id, p_claim_token: randomUUID(), p_delivered: false, p_error: "stale" })).data).toMatchObject({ updated: false });
+        const stateOf = async () => ours((await alertRows(EA)).alerts, fresh).find((x) => x.alert_id === owner.alert_id)!;
+        expect(await stateOf()).toMatchObject({ phase: "handed_to_outbound_queue", status: "delivered" });
+        expect((await stateOf()).recipients).toMatchObject([{ recipient_ref: ref, record_outcome: "queued", send_state: "queued_unconfirmed" }]);
+        const queueRow = (status: string) => aged(`delete from public.outbound_deliveries where dedupe_key = 'rfl:${owner.alert_id}:${ref}';
+          insert into public.outbound_deliveries (studio_id, channel, template_key, dedupe_key, status, related_table, related_id, sent_at)
+            values ('${SA1}', 'email', 'platform_rfl_inventory_gap', 'rfl:${owner.alert_id}:${ref}', '${status}', 'studio_sms_provider_alerts', '${owner.alert_id}', ${status === "sent" ? "now()" : "null"})`);
+        queueRow("queued");
+        expect((await stateOf()).recipients[0].send_state).toBe("queued_not_sent");
+        queueRow("failed");
+        expect((await stateOf()).recipients[0].send_state).toBe("send_failed");
+        queueRow("sent");
+        expect((await stateOf()).recipients[0].send_state).toBe("sent");
+        // the administrator alert: delivery fails, is retried (attempts counted), then exhausted and ESCALATED; all of it visible
+        expect((await rpc("tw4_rfl_alert_finish", { p_alert_id: admin.alert_id, p_claim_token: tokenOf(admin.alert_id), p_delivered: false, p_error: "queue_failed" })).data).toMatchObject({ updated: true });
+        const adminState = async () => ours((await alertRows(EA)).alerts, fresh).find((x) => x.alert_id === admin.alert_id)!;
+        expect(await adminState()).toMatchObject({ status: "failed", phase: "failed_will_retry", attempts: 1, escalated: false });
+        aged(`update public.studio_sms_provider_alerts set attempts = 5 where id = '${admin.alert_id}'`);
+        expect((await adminState()).phase).toBe("failed_exhausted");
+        expect((await rpc("tw4_rfl_escalate_delivery", {})).error).toBeNull();
+        expect((await adminState()).escalated).toBe(true);
+        // exhausted alerts are not claimed again, and nothing here was ever marked 'delivered' without the owner's handoff
+        expect(psql(`select count(*) from public.studio_sms_provider_alerts where id = '${admin.alert_id}' and status = 'delivered'`)).toBe("0");
+      } finally {
+        expect((await rpc("tw4_rfl_set_switch", { p_switch: "delivery", p_enabled: false, p_actor: U.padmin, p_reason: "fixture: back to the default (off)" })).error).toBeNull();
+      }
+      expect((await alertRows(EA)).delivery_enabled).toBe(false);
+      // an abandoned claim: with delivery off nothing will retry; with the attempts used up it is exhausted
+      const phase = (attempts: number) => psqlError(`begin; set local session_replication_role = replica;
+        update public.studio_sms_provider_alerts set status = 'sending', claim_token = gen_random_uuid(), claimed_at = now() - interval '20 minutes', attempts = ${attempts} where id = '${first.find((x) => x.audience === "admin")!.alert_id}';
+        set local session_replication_role = origin;
+        do $$ begin raise exception 'PH=%', (select e ->> 'phase' from jsonb_array_elements(public.tw4_prov_orphan_alert_status('${U.padmin}', null) -> 'alerts') e where e ->> 'alert_id' = '${first.find((x) => x.audience === "admin")!.alert_id}'); end $$; rollback;`);
+      expect(phase(2)).toMatch(/PH=claim_abandoned_delivery_disabled/);
+      expect(phase(5)).toMatch(/PH=failed_exhausted/);
     });
   });
 

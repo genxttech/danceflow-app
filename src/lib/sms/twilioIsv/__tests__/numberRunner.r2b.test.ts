@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { FakeNumberAdapter } from "../fakeNumbers";
-import { numberFriendlyName, observeCreationHistory, observeNumberIdentity, offerNumbers, refreshNumber, runNumberAcquisition, type NumberInput } from "../numberRunner";
+import { numberFriendlyName, observeCreationHistory, observeNumberIdentity, offerNumbers, reconcileInventories, refreshInventory, refreshNumber, runNumberAcquisition, type NumberInput } from "../numberRunner";
 import type { NumBeginArgs, NumBeginResult, NumContext, NumFinishOutcome, NumObserveResult, NumberStore, OfferRecorded } from "../numberStore";
 import { RunnerStoreError } from "../store";
+import { IsvApiError } from "../types";
 import type { IsvNumberAdapter } from "../numberTypes";
 
 /**
@@ -80,10 +81,26 @@ class ScriptedStore implements NumberStore {
     return { sid: String(facts.sid ?? ""), e164: String(facts.phone_number ?? "") };
   }
   missing = 0;
-  async inventoryObserve(_o: string, _l: string, sids: string[], _source?: string, _listedAt?: string) {
+  async inventoryObserve(_o: string, _l: string, numbers: { sid: string; phone_number: string | null }[], _source?: string, _listedAt?: string) {
+    const sids = numbers.map((n) => n.sid);
     this.log.push("inventory");
     this.inventories.push(sids);
-    return { listed: sids.length, unknown: sids.filter((sid) => !this.ctx.known_numbers.includes(sid)).length, missing: this.missing };
+    return { listed: sids.length, unknown: sids.filter((sid) => !this.ctx.known_numbers.includes(sid)).length, missing: this.missing, mismatch: 0, duplicate: 0 };
+  }
+  async claimRecon(_studioId?: string, _leaseOwner?: string) {
+    return this.claim();
+  }
+  targets: { studio_id: string; legal_entity_id: string; twilio_account_sid: string; last_checked_at: string | null; reason: string }[] = [];
+  async reconTargets() {
+    return this.targets;
+  }
+  marked: string[] = [];
+  async reconMark(entity: string) {
+    this.marked.push(entity);
+  }
+  async escalateOrphans() {
+    this.log.push("escalate");
+    return { outbox: true, raised: 0 };
   }
   async recordOffer(_s: string, _a: string, accountSid: string, _search: Record<string, unknown>, candidates: unknown[]): Promise<OfferRecorded> {
     this.log.push(`offer:${accountSid}`);
@@ -297,7 +314,7 @@ describe("number runner decisions", () => {
   it("each begin() refusal is reported as what it is, with nothing called", async () => {
     const cases: [string, string][] = [
       ["55P03", "lease_lost"], ["TW001", "runner_closed"], ["TW004", "spend_blocked"], ["TW005", "suspended"], ["TW007", "insufficient_credit"], ["TW008", "price_unavailable"], ["TW011", "pilot_conflict"],
-      ["TW022", "release_current_number_first"], ["TW030", "not_runnable"], ["TW032", "prerequisite_missing"], ["TW033", "recurring_missing"], ["TW040", "no_selection"], ["23505", "number_taken"],
+      ["TW022", "release_current_number_first"], ["TW030", "not_runnable"], ["TW032", "prerequisite_missing"], ["TW033", "recurring_missing"], ["TW040", "no_selection"], ["23505", "number_taken"], ["TW047", "prerequisite_missing"],
     ];
     for (const [code, outcome] of cases) {
       const store = new ScriptedStore();
@@ -305,6 +322,14 @@ describe("number runner decisions", () => {
       const adapter = world();
       expect((await runNumberAcquisition(base(store, adapter))).outcome, code).toBe(outcome);
       expect(adapter.count("purchaseNumber"), code).toBe(0);
+    }
+    // an unreconciled provider resource is reported as what it is: a block with its own reason, never a failed operation
+    {
+      const blocked = new ScriptedStore();
+      blocked.beginQueue.number_purchase = [sc("TW047")];
+      const result = await runNumberAcquisition(base(blocked, world()));
+      expect(result).toMatchObject({ outcome: "prerequisite_missing", detail: "number_purchase:unreconciled_provider_resource" });
+      expect(blocked.transitions.filter((t) => t.startsWith("exception"))).toEqual([]);
     }
     const store = new ScriptedStore();
     store.beginQueue.number_purchase = [sc("XX000")];
@@ -421,6 +446,61 @@ describe("number search and status check", () => {
     expect(store2.log).not.toContain("begin:number_purchase");
     const none = await refreshNumber({ store: new ScriptedStore(), adapter, studioId: STUDIO, actorId: "a", envName: "test" });
     expect(none.outcome).toBe("nothing_to_check");
+  });
+
+  it("R2b-P2: the scheduled pass skips and reports what it could not list, counts what it listed, and escalates once", async () => {
+    const store = new ScriptedStore();
+    const adapter = world();
+    store.targets = [
+      { studio_id: STUDIO, legal_entity_id: "le-1", twilio_account_sid: ACC, last_checked_at: null, reason: "never_checked" },
+      { studio_id: "studio-2", legal_entity_id: "le-2", twilio_account_sid: `AC${"7".repeat(32)}`, last_checked_at: null, reason: "due" },
+    ];
+    const summary = await reconcileInventories({ store, adapterFor: (account) => (account === ACC ? adapter : null) });
+    expect(summary.checked).toBe(1);
+    expect(summary.clean).toBe(1);
+    expect(summary.skipped).toEqual([{ studioId: "studio-2", reason: "adapter_unavailable" }]);
+    expect(store.marked).toEqual(["le-2"]);   // the business that could not be attempted still rotates
+    expect(store.log.filter((entry) => entry === "escalate")).toHaveLength(1);
+    // an unclean listing is counted as a finding, never as clean
+    const unclean = new ScriptedStore();
+    unclean.targets = [store.targets[0]];
+    unclean.missing = 1;
+    const second = await reconcileInventories({ store: unclean, adapterFor: () => adapter });
+    expect(second).toMatchObject({ checked: 1, clean: 0, findings: 1 });
+    // a failing worklist is reported, nothing is assumed clean
+    const broken = new ScriptedStore();
+    broken.reconTargets = async () => {
+      throw new RunnerStoreError("XX000");
+    };
+    expect((await reconcileInventories({ store: broken, adapterFor: () => adapter })).escalation).toEqual({ error: "targets:XX000" });
+  });
+
+  it("R2b-P2: a listing of more than 1000 numbers is never recorded as clean: manual reconciliation is explicit", async () => {
+    const store = new ScriptedStore();
+    const adapter = world();
+    adapter.listIncomingNumbers = async () => Array.from({ length: 1001 }, (_, i) => ({ sid: `PN${i.toString(16).padStart(32, "0")}`, phone_number: "+12025550300" }));
+    const result = await refreshInventory({ store, adapter, studioId: STUDIO, actorId: "a" });
+    expect(result).toMatchObject({ outcome: "manual_required", detail: "inventory_over_1000" });
+    expect(store.inventories).toHaveLength(0);
+    store.targets = [{ studio_id: STUDIO, legal_entity_id: "le-1", twilio_account_sid: ACC, last_checked_at: null, reason: "due" }];
+    const summary = await reconcileInventories({ store, adapterFor: () => adapter });
+    expect(summary.manual).toEqual([STUDIO]);
+    expect(summary.checked).toBe(0);
+  });
+
+  it("R2b-P2: the real adapter's 'too many pages' condition is mapped to manual reconciliation, not to an endless retry", async () => {
+    const store = new ScriptedStore();
+    const adapter = world();
+    adapter.listIncomingNumbers = async () => {
+      throw new IsvApiError("transient", null, "inventory_too_large", "list too long to search safely");
+    };
+    expect(await refreshInventory({ store, adapter, studioId: STUDIO, actorId: "a" })).toMatchObject({ outcome: "manual_required" });
+    expect(store.inventories).toHaveLength(0);
+    // any other listing failure is still a retry
+    adapter.listIncomingNumbers = async () => {
+      throw new IsvApiError("transient", 503, null, "boom");
+    };
+    expect(await refreshInventory({ store: new ScriptedStore(), adapter, studioId: STUDIO, actorId: "a" })).toMatchObject({ outcome: "retry_later" });
   });
 
   it("R2b-P1: the creation history is read through the adapter when it can guarantee one, and an adapter that cannot (the real one) records nothing", async () => {

@@ -15,6 +15,22 @@ export const RFL_ALERT_KINDS = [
 export type RflAlertKind = (typeof RFL_ALERT_KINDS)[number];
 
 type Copy = { subject: string; heading: string; generic: string };
+
+/**
+ * Owner-facing wording for kinds whose administrator copy asks for an action the OWNER must never be asked to take. An unexpected provider-owned resource is
+ * investigated by DanceFlow: the owner gets an informational notice only (no register/adopt/authorize/pay request, no cost, no identifier).
+ */
+const OWNER_COPY: Partial<Record<RflAlertKind, Copy>> = {
+  inventory_gap: {
+    subject: "We are looking into an unexpected texting resource",
+    heading: "Unexpected texting resource under review",
+    generic: "An unexpected messaging resource was identified in connection with your studio, and DanceFlow is investigating. This notice is for your information only: no action is needed from you.",
+  },
+};
+const copyFor = (kind: string, audience: "owner" | "admin"): Copy => {
+  if (!isKnownRflAlertKind(kind)) return FALLBACK;
+  return (audience === "owner" ? OWNER_COPY[kind] : undefined) ?? COPY[kind];
+};
 const COPY: Record<RflAlertKind, Copy> = {
   authorization_expiring: { subject: "Your texting authorization is ending soon", heading: "Texting authorization ending soon", generic: "Your recurring texting authorization is ending soon. Renew it in your texting settings to keep texting uninterrupted." },
   owner_notice_second: { subject: "Reminder: your texting authorization is ending", heading: "Texting authorization reminder", generic: "Your recurring texting authorization is still due to end and has not been renewed. Renew it in your texting settings." },
@@ -61,18 +77,18 @@ function cleanLine(value: string, max: number) {
   return value.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
 }
 
-export function sanitizeRflSummary(kind: string, summary: string) {
-  const generic = (isKnownRflAlertKind(kind) ? COPY[kind] : FALLBACK).generic;
+/** `audience` defaults to administrator (the original behaviour); the renderer always passes the real recipient kind. */
+export function sanitizeRflSummary(kind: string, summary: string, audience: "owner" | "admin" = "admin") {
+  const generic = copyFor(kind, audience).generic;
   const clean = cleanLine(String(summary ?? ""), 300);
   if (!clean || SENSITIVE.some((re) => re.test(clean))) return generic;
   return clean;
 }
 
 export function renderRflAlertEmail(params: { kind: string; summary: string; recipientKind: "owner" | "admin"; studioName?: string | null }): RenderedRflEmail {
-  const known = isKnownRflAlertKind(params.kind);
-  const copy = known ? COPY[params.kind as RflAlertKind] : FALLBACK;
-  const summary = sanitizeRflSummary(params.kind, params.summary);
   const isOwner = params.recipientKind === "owner";
+  const copy = copyFor(params.kind, params.recipientKind);
+  const summary = sanitizeRflSummary(params.kind, params.summary, params.recipientKind);
   const studioName = isOwner ? cleanLine(params.studioName ?? "", 80) : "";
   const actionUrl = buildAppUrl(isOwner ? "/app/settings/sms" : "/platform/sms");
   const actionLabel = isOwner ? "Open texting settings" : "Open the platform SMS page";
