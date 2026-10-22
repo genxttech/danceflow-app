@@ -291,11 +291,17 @@ end $$;
 do $$
 declare b record;
 begin
-  for b in select * from public.studio_sms_rfl_policy_backup loop
-    execute format('alter policy %I on public.%I using (%s)', b.policy_name, b.table_name, b.original_qual);
+  -- each narrowed policy is dropped and recreated exactly as it was (command, roles, USING, and a WITH CHECK that may have been absent)
+  for b in select * from public.studio_sms_rfl_policy_backup order by policy_name loop
+    execute format('drop policy %I on public.%I', b.policy_name, b.table_name);
+    execute format('create policy %I on public.%I as permissive for %s to %s using (%s)%s', b.policy_name, b.table_name, case b.cmd when 'r' then 'select' else 'all' end,
+      case when cardinality(b.role_names) = 0 then 'public' else (select string_agg(quote_ident(x), ', ') from unnest(b.role_names) x) end,
+      b.original_qual, case when b.original_check is not null then format(' with check (%s)', b.original_check) else '' end);
   end loop;
 end $$;
 drop table public.studio_sms_rfl_policy_backup;
+drop trigger profiles_90_rflops_demotion on public.profiles;
+drop trigger profiles_90_rflops_demotion_del on public.profiles;
 drop trigger studio_sms_provider_cancel_ops_90_epoch_ins on public.studio_sms_provider_cancel_ops;
 drop trigger studio_sms_provider_cancel_ops_90_epoch_upd on public.studio_sms_provider_cancel_ops;
 drop trigger studio_sms_provider_exposure_90_epoch_ins on public.studio_sms_provider_exposure;
@@ -309,6 +315,7 @@ drop function public.tw4_rfl_dual_request(uuid, text, uuid, text, text, text, te
 drop function public._tw4rflops_consume(text, public.studio_sms_provider_resources, text, text, text, text, uuid);
 drop function public._tw4rflops_facts(text, uuid, text, text, text, text);
 drop function public._tw4rflops_epoch();
+drop function public._tw4rflops_demotion();
 drop function public.tw4_rfl_escalate_delivery();
 drop function public.tw4_rfl_alert_delivery_record(uuid, uuid, text, text, text);
 drop function public.tw4_rfl_alert_recipients(uuid);

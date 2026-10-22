@@ -50,6 +50,9 @@ begin
      or (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = 'public.tw4_rfl_admin_overview(uuid)'::regprocedure) is distinct from 'd57e583acdb138d11bc57b36e9b0d2e0' then
     raise exception 'rfl-ops precondition failed: tw4_rfl_admin_overview differs from 20261209090000';
   end if;
+  if to_regclass('public.profiles') is null then
+    raise exception 'rfl-ops precondition failed: public.profiles is missing';
+  end if;
   if to_regclass('public.outbound_deliveries') is null or not exists (select 1 from pg_attribute a where a.attrelid = 'public.outbound_deliveries'::regclass and a.attname = 'template_key' and not a.attisdropped) then
     raise exception 'rfl-ops precondition failed: public.outbound_deliveries (with template_key) is missing';
   end if;
@@ -610,8 +613,8 @@ begin
   if q.expires_at <= clock_timestamp() then
     raise exception 'the dual-control approval has expired (24 hours): request it again' using errcode = 'TW042';
   end if;
-  if not public._tw4_r1_is_platform_admin(q.requested_by) then
-    raise exception 'the administrator who requested this approval is no longer a platform administrator: request it again' using errcode = 'TW042';
+  if not public._tw4_r1_is_platform_admin(q.requested_by) or not public._tw4_r1_is_platform_admin(q.decided_by) then
+    raise exception 'the administrator who requested or approved this is no longer a platform administrator: request it again' using errcode = 'TW042';
   end if;
   if q.reason is distinct from p_reason or q.approval_ref_norm is distinct from v_norm or q.cancel_decided_by is distinct from p_decided_by then
     raise exception 'the approved dual-control request is bound to a different reason, approval reference or decision type' using errcode = 'TW042';
@@ -705,7 +708,7 @@ begin
       perform set_config('tw4.rflops_write', 'on', true);
       update public.studio_sms_rfl_dual_requests set status = 'expired' where id = q.id;
       perform set_config('tw4.rflops_write', 'off', true);
-    elsif q.facts_hash = v_hash and public._tw4_r1_is_platform_admin(q.requested_by) then
+    elsif q.facts_hash = v_hash and public._tw4_r1_is_platform_admin(q.requested_by) and (q.decided_by is null or public._tw4_r1_is_platform_admin(q.decided_by)) then
       return jsonb_build_object('request_id', q.id, 'facts_hash', q.facts_hash, 'expires_at', q.expires_at, 'status', q.status, 'replayed', true);
     else
       perform set_config('tw4.rflops_write', 'on', true);
@@ -823,11 +826,11 @@ begin
       update public.studio_sms_rfl_dual_requests set status = 'expired' where id = q.id;
       perform set_config('tw4.rflops_write', 'off', true);
     elsif public._tw4rflops_facts(q.action, q.resource_id, q.period_key, q.approval_ref_norm, q.reason, q.cancel_decided_by) is distinct from q.facts_hash
-          or not public._tw4_r1_is_platform_admin(q.requested_by) then
+          or not public._tw4_r1_is_platform_admin(q.requested_by) or (q.decided_by is not null and not public._tw4_r1_is_platform_admin(q.decided_by)) then
       perform set_config('tw4.rflops_write', 'on', true);
       update public.studio_sms_rfl_dual_requests set status = 'invalidated' where id = q.id;
       perform set_config('tw4.rflops_write', 'off', true);
-      perform public._tw4rfl_audit(q.studio_id, p_actor, 'rfl_dual_invalidated', 'request=' || q.id || ';reason=a bound fact changed (or the requester is no longer an administrator)');
+      perform public._tw4rfl_audit(q.studio_id, p_actor, 'rfl_dual_invalidated', 'request=' || q.id || ';reason=a bound fact changed (or the requester or approver is no longer an administrator)');
     end if;
   end loop;
   select coalesce(jsonb_agg(row_to_json(t)::jsonb order by t.requested_at, t.request_id), '[]'::jsonb) into v from (
@@ -838,6 +841,33 @@ begin
      where q2.status in ('pending', 'approved') and q2.expires_at > clock_timestamp()) t;
   return v;
 end $$;
+
+-- an administrator who is demoted (or whose profile is deleted) loses every open request they made or approved AT ONCE and for good: re-promotion does not revive them.
+-- (A demotion made with triggers disabled is still caught the next time approve / list / consume / request looks, and persisted then.)
+create or replace function public._tw4rflops_demotion()
+returns trigger language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare q record;
+begin
+  if tg_op = 'UPDATE' and not (old.platform_role is not distinct from 'platform_admin' and new.platform_role is distinct from 'platform_admin') then
+    return null;
+  end if;
+  if tg_op = 'DELETE' and old.platform_role is distinct from 'platform_admin' then
+    return null;
+  end if;
+  for q in select x.id, x.studio_id from public.studio_sms_rfl_dual_requests x where x.status in ('pending', 'approved') and (x.requested_by = old.id or x.decided_by = old.id) order by x.id for update loop
+    perform set_config('tw4.rflops_write', 'on', true);
+    update public.studio_sms_rfl_dual_requests set status = 'invalidated' where id = q.id;
+    perform set_config('tw4.rflops_write', 'off', true);
+    perform public._tw4rfl_audit(q.studio_id, null, 'rfl_dual_invalidated', 'request=' || q.id || ';reason=an administrator of this request was demoted');
+  end loop;
+  return null;
+end $$;
+create trigger profiles_90_rflops_demotion after update of platform_role on public.profiles for each row
+  when (old.platform_role is not distinct from 'platform_admin' and new.platform_role is distinct from 'platform_admin') execute function public._tw4rflops_demotion();
+create trigger profiles_90_rflops_demotion_del after delete on public.profiles for each row
+  when (old.platform_role is not distinct from 'platform_admin') execute function public._tw4rflops_demotion();
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- replaced functions: the 20261209 bodies plus ONLY the additions marked 20261211
@@ -1143,7 +1173,10 @@ end $$;
 create table public.studio_sms_rfl_policy_backup (
   policy_name text primary key,
   table_name text not null,
+  cmd text not null check (cmd in ('r', '*')),   -- SELECT or ALL (the SELECT-capable permissive policies)
+  role_names text[] not null,                    -- empty = PUBLIC
   original_qual text not null,
+  original_check text null,
   rewritten_qual text not null
 );
 revoke all on public.studio_sms_rfl_policy_backup from public, anon, authenticated, service_role;
@@ -1152,31 +1185,52 @@ do $$
 declare
   p record;
   v_new text;
+  v_applies boolean;
+  v_roles text[];
   v_n int := 0;
 begin
-  for p in select pol.polname as name, pg_get_expr(pol.polqual, pol.polrelid) as qual from pg_policy pol
-            where pol.polrelid = 'public.outbound_deliveries'::regclass and pol.polcmd = 'r' and pol.polpermissive
-              and (pol.polroles = '{0}'::oid[] or exists (select 1 from unnest(pol.polroles) rid where rid in (select oid from pg_roles where rolname in ('authenticated', 'anon')))) loop
-    if p.qual is null then
-      raise exception 'rfl-ops precondition failed: policy % has no USING expression', p.name;
+  if not (select c.relrowsecurity from pg_class c where c.oid = 'public.outbound_deliveries'::regclass) then
+    raise exception 'rfl-ops precondition failed: row level security is not enabled on outbound_deliveries';
+  end if;
+  -- every PERMISSIVE policy that can grant SELECT (FOR SELECT or FOR ALL) to anyone who is not a privileged role (service_role, postgres, a superuser) is narrowed.
+  -- A FOR ALL policy gets only its USING rewritten (its WITH CHECK is kept; when it had none, the old USING becomes its explicit WITH CHECK so writes behave as before).
+  -- A policy this block cannot rewrite safely makes the whole migration fail (nothing is applied).
+  for p in select pol.polname as name, pol.polcmd as cmd, pol.polroles as roles, pg_get_expr(pol.polqual, pol.polrelid) as qual, pg_get_expr(pol.polwithcheck, pol.polrelid) as wc
+             from pg_policy pol where pol.polrelid = 'public.outbound_deliveries'::regclass and pol.polpermissive and pol.polcmd in ('r', '*') order by pol.polname loop
+    if p.roles = '{0}'::oid[] then
+      v_applies := true;   -- PUBLIC
+    else
+      v_applies := exists (select 1 from pg_roles r where r.oid = any (p.roles) and r.rolname not in ('service_role', 'postgres') and not r.rolsuper);
     end if;
-    if position('platform_rfl_admin_' in p.qual) > 0 then
+    continue when not v_applies;
+    if p.qual is null then
+      raise exception 'rfl-ops precondition failed: policy % can grant SELECT but has no USING expression; it cannot be restricted safely', p.name;
+    end if;
+    if position('platform\_rfl\_admin\_' in p.qual) > 0 then
       raise exception 'rfl-ops precondition failed: policy % already hides administrator templates', p.name;
     end if;
+    v_roles := case when p.roles = '{0}'::oid[] then '{}'::text[] else array(select r.rolname::text from pg_roles r where r.oid = any (p.roles) order by r.rolname) end;
     v_new := '(' || p.qual || ') and not coalesce(template_key like ''platform\_rfl\_admin\_%'', false)';
-    insert into public.studio_sms_rfl_policy_backup (policy_name, table_name, original_qual, rewritten_qual) values (p.name, 'outbound_deliveries', p.qual, v_new);
-    execute format('alter policy %I on public.outbound_deliveries using (%s)', p.name, v_new);
+    insert into public.studio_sms_rfl_policy_backup (policy_name, table_name, cmd, role_names, original_qual, original_check, rewritten_qual)
+    values (p.name, 'outbound_deliveries', p.cmd, v_roles, p.qual, p.wc, v_new);
+    execute format('alter policy %I on public.outbound_deliveries using (%s)%s', p.name, v_new, case when p.cmd = '*' and p.wc is null then format(' with check (%s)', p.qual) else '' end);
     v_n := v_n + 1;
   end loop;
-  if v_n = 0 then
-    raise exception 'rfl-ops precondition failed: outbound_deliveries has no SELECT policy for API roles to restrict';
+  -- fail closed: nothing SELECT-capable for a non-privileged role may be left without the exclusion
+  if exists (select 1 from pg_policy pol where pol.polrelid = 'public.outbound_deliveries'::regclass and pol.polpermissive and pol.polcmd in ('r', '*')
+               and (pol.polroles = '{0}'::oid[] or exists (select 1 from pg_roles r where r.oid = any (pol.polroles) and r.rolname not in ('service_role', 'postgres') and not r.rolsuper))
+               and position('platform\_rfl\_admin\_' in coalesce(pg_get_expr(pol.polqual, pol.polrelid), '')) = 0) then
+    raise exception 'rfl-ops precondition failed: a SELECT-capable policy on outbound_deliveries could not be restricted';
   end if;
 end $$;
+
+-- the identity sequence of the switch log keeps no API-role grant (Supabase default privileges would otherwise hand them out)
+revoke all on sequence public.studio_sms_rfl_switch_log_seq_seq from public, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- privileges
 -- ---------------------------------------------------------------------------------------------------------------
-revoke all on function public._tw4rflops_guard(), public._tw4rflops_request_insert(), public._tw4rflops_epoch(), public._tw4rflops_facts(text, uuid, text, text, text, text),
+revoke all on function public._tw4rflops_guard(), public._tw4rflops_request_insert(), public._tw4rflops_epoch(), public._tw4rflops_demotion(), public._tw4rflops_facts(text, uuid, text, text, text, text),
   public._tw4rflops_consume(text, public.studio_sms_provider_resources, text, text, text, text, uuid) from public, anon, authenticated, service_role;
 revoke all on function public.tw4_rfl_switch_enabled(text), public.tw4_rfl_set_switch(text, boolean, uuid, text), public.tw4_rfl_scan_begin(text, int), public.tw4_rfl_scan_finish(uuid, text, jsonb, text),
   public.tw4_rfl_health(uuid), public.tw4_rfl_exposure_report(uuid), public.tw4_rfl_variance_report(uuid), public.tw4_rfl_variance_ack(uuid, uuid, text),
