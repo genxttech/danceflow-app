@@ -132,7 +132,8 @@ function Authorize({ resourceId, dualApproved = false, approvedRequest = null }:
               <span className="mt-1 block text-sm font-normal text-slate-900">{lockedDecision === "owner_written" ? "Studio owner, in writing" : "DanceFlow founder, in writing"} (fixed by the approved request)</span>
             </>
           ) : (
-            <select name="decidedBy" required className={inputClass}>
+            <select name="decidedBy" required defaultValue="" className={inputClass}>
+              <option value="" disabled>Choose the decision type</option>
               <option value="owner_written">Studio owner, in writing</option>
               <option value="founder_written">DanceFlow founder, in writing</option>
               {dualApproved ? null : <option value="policy_lapse">Policy lapse (never for a number)</option>}
@@ -167,11 +168,11 @@ function Finish({ operationId }: { operationId: string | null }) {
         </select>
       </label>
       <label className={labelClass}>
-        Evidence digest of the console record (16 to 128 characters; required when cancelled)
-        <input name="evidenceDigest" maxLength={128} className={`${inputClass} font-mono`} />
+        Evidence digest of the provider read (exactly 64 lowercase hex characters; required for cancelled and still active)
+        <input name="evidenceDigest" maxLength={64} pattern="[0-9a-f]{64}" className={`${inputClass} font-mono`} />
       </label>
       <label className={labelClass}>
-        Error code (optional)
+        Error code (api only for a definite provider refusal)
         <input name="errorCode" maxLength={40} className={inputClass} />
       </label>
       <button type="submit" className={buttonClass}>Record outcome</button>
@@ -192,8 +193,8 @@ function Resolve({ operationId }: { operationId: string | null }) {
         </select>
       </label>
       <label className={labelClass}>
-        Evidence digest of the console record (16 to 128 characters; required when cancelled)
-        <input name="evidenceDigest" maxLength={128} className={`${inputClass} font-mono`} />
+        Evidence digest of the provider read (exactly 64 lowercase hex characters; required for cancelled and still active)
+        <input name="evidenceDigest" maxLength={64} pattern="[0-9a-f]{64}" className={`${inputClass} font-mono`} />
       </label>
       <Note />
       <button type="submit" className={buttonClass}>Resolve operation</button>

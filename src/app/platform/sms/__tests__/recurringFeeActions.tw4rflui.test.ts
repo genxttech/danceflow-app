@@ -157,6 +157,11 @@ describe("input validation", () => {
     await run(rflCancelFinishAction, { operationId: OP, outcome: "confirmed" });
     await run(rflCancelFinishAction, { operationId: OP, outcome: "refused", evidenceDigest: "has spaces and is odd" });
     await run(rflCancelResolveAction, { operationId: OP, resolution: "cancelled", note: NOTE });
+    await run(rflCancelResolveAction, { operationId: OP, resolution: "still_active", note: NOTE });
+    await run(rflCancelFinishAction, { operationId: OP, outcome: "confirmed", evidenceDigest: "sha256:0123456789abcdef" });
+    await run(rflCancelFinishAction, { operationId: OP, outcome: "confirmed", evidenceDigest: "0123456789ABCDEF".repeat(4) });
+    await run(rflCancelFinishAction, { operationId: OP, outcome: "refused", errorCode: "timeout" });
+    await run(rflCancelFinishAction, { operationId: OP, outcome: "refused" });
     await run(rflCancelBeginAction, { operationId: "nope" });
     expect(rpc).toHaveLength(0);
   });
@@ -281,11 +286,12 @@ describe("cancellation steps and safety suspension", () => {
 
   it("finish and resolve forward the evidence digest", async () => {
     replies.tw4_rfl_cancel_finish = { data: { status: "confirmed" } };
-    await run(rflCancelFinishAction, { operationId: OP, outcome: "confirmed", evidenceDigest: "sha256:0123456789abcdef" });
-    expect(rpc[0]).toEqual({ fn: "tw4_rfl_cancel_finish", args: { p_operation_id: OP, p_actor: ADMIN, p_outcome: "confirmed", p_evidence_digest: "sha256:0123456789abcdef", p_error_code: null } });
+    const D = "0123456789abcdef".repeat(4);
+    await run(rflCancelFinishAction, { operationId: OP, outcome: "confirmed", evidenceDigest: D });
+    expect(rpc[0]).toEqual({ fn: "tw4_rfl_cancel_finish", args: { p_operation_id: OP, p_actor: ADMIN, p_outcome: "confirmed", p_evidence_digest: D, p_error_code: null } });
     replies.tw4_rfl_cancel_resolve = { data: { status: "resolved" } };
-    await run(rflCancelResolveAction, { operationId: OP, resolution: "still_active", note: NOTE });
-    expect(rpc[1].args).toMatchObject({ p_resolution: "still_active", p_evidence_digest: null, p_note: NOTE });
+    await run(rflCancelResolveAction, { operationId: OP, resolution: "still_active", evidenceDigest: D, note: NOTE });
+    expect(rpc[1].args).toMatchObject({ p_resolution: "still_active", p_evidence_digest: D, p_note: NOTE });
     replies.tw4_rfl_cancel_withdraw = { data: {} };
     await run(rflCancelWithdrawAction, { operationId: OP, note: NOTE });
     expect(rpc[2].fn).toBe("tw4_rfl_cancel_withdraw");

@@ -21,7 +21,7 @@ const ANCHOR = "#recurring-fees";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PERIOD = /^\d{4}-(0[1-9]|1[0-2])$/;
-const DIGEST = /^[A-Za-z0-9:_.-]{16,128}$/;
+const DIGEST = /^[0-9a-f]{64}$/;
 const ERROR_CODE = /^[A-Za-z0-9_.-]{1,40}$/;
 
 type Flash = { ok: boolean; message: string };
@@ -35,7 +35,9 @@ const ERRORS: Record<string, string> = {
   TW008: "No published price exists for this fee. Nothing changed.",
   TW041: "This is not allowed in the resource's current state. Nothing changed.",
   TW042: "The required approval is missing or does not match (business, resource, period, reference and reason must be identical), or the period is outside the allowed window. Nothing changed.",
-  TW043: "This period or operation is already recorded. Nothing changed.",
+  TW043: "The record was refused: the evidence digest must be 64 lowercase hex characters, a refusal needs the error code api, or this period/operation is already recorded. Nothing changed.",
+  TW019: "That written reference is already used for another decision. Use a new reference. Nothing changed.",
+  TW010: "This location is not linked to a business, so the action cannot be applied. Nothing changed.",
   "42883": "This operation is not available in this environment yet. Nothing changed.",
   PGRST202: "This operation is not available in this environment yet. Nothing changed.",
 };
@@ -90,8 +92,8 @@ export async function rflSetSwitchAction(formData: FormData) {
   await guarded(async (admin) => {
     const sw = field(formData, "switch");
     const enable = field(formData, "enabled");
-    const reason = text(formData, "reason", 10, 500);
-    if ((sw !== "scan" && sw !== "delivery") || (enable !== "on" && enable !== "off") || !reason) return fail("Choose a switch and give a written reason of 10 to 500 characters. Nothing changed.");
+    const reason = text(formData, "reason", 10, 300);
+    if ((sw !== "scan" && sw !== "delivery") || (enable !== "on" && enable !== "off") || !reason) return fail("Choose a switch and give a written reason of 10 to 300 characters. Nothing changed.");
     if (!checked(formData, "confirm")) return fail("Confirm the change first. Nothing changed.");
     const out = await ops().setSwitch(sw, enable === "on", reason, admin.id);
     return done(`The ${sw} switch is now ${out.enabled ? "ON" : "OFF"}. Switches are audited and this does not start any schedule by itself.`);
@@ -177,7 +179,7 @@ export async function rflDisposeExposureAction(formData: FormData) {
       // never offered without an approved request; refused here too (the database refuses as well)
       const dual = (await loadRecurringFeeOps(createAdminClient(), admin.id)).dual;
       if (!dual?.some((d) => d.action === "absorb_exposure" && d.status === "approved" && d.resourceId === resourceId && d.periodKey === periodKey)) {
-        return fail("Absorbing an exposure needs an approved dual-control request for this resource and period (and the note must be identical to the request's reason). Nothing changed.");
+        return fail("Absorbing an exposure needs an approved dual-control request for this resource and period (and the note must be identical to the request's reason). Nothing changed by this submission. If you submitted it a moment ago it may already have been applied: reload and check the exposure before filing a new request.");
       }
     }
     await lifecycle().disposeExposure(resourceId, periodKey, disposition, note, admin.id);
@@ -233,7 +235,7 @@ export async function rflCancelAuthorizeAction(formData: FormData) {
     const resource = data.overview?.resources.find((r) => r.resourceId === resourceId);
     if (!resource || resource.providerState !== "active") return fail("Only a live resource can be authorized for cancellation. Nothing changed.");
     if (resource.kind === "number" && !data.dual?.some((d) => d.action === "cancel_number" && d.status === "approved" && d.resourceId === resourceId)) {
-      return fail("A number cancellation needs an approved dual-control request first. Nothing changed.");
+      return fail("A number cancellation needs an approved dual-control request first. Nothing changed by this submission. If you submitted it a moment ago it may already be authorized: reload and check the operations before filing a new request.");
     }
     if (resource.kind === "number" && decidedBy === "policy_lapse") return fail("A number is never cancelled on a policy lapse. Nothing changed.");
     const out = await lifecycle().authorizeCancel(resourceId, approvalRef, decidedBy as CancelDecision, reason, true, admin.id);
@@ -262,7 +264,8 @@ export async function rflCancelFinishAction(formData: FormData) {
     const digest = field(formData, "evidenceDigest");
     const errorCode = field(formData, "errorCode");
     if (!operationId || !["confirmed", "refused", "unknown"].includes(outcome)) return fail("Enter the operation id and choose the outcome. Nothing changed.");
-    if (digest && !DIGEST.test(digest)) return fail("The evidence digest must be 16 to 128 letters, digits or : _ . - characters. Nothing changed.");
+    if (digest && !DIGEST.test(digest)) return fail("The evidence digest must be exactly 64 lowercase hexadecimal characters (a SHA-256). Nothing changed.");
+    if (outcome === "refused" && errorCode !== "api") return fail("Record \"Twilio refused\" only for a definite provider refusal, with the error code api; anything else is an unknown outcome. Nothing changed.");
     if (outcome === "confirmed" && !digest) return fail("Confirming a cancellation needs the evidence digest of the console record. Nothing changed.");
     if (errorCode && !ERROR_CODE.test(errorCode)) return fail("The error code is not valid. Nothing changed.");
     const out = await lifecycle().finishCancel(operationId, outcome as "confirmed" | "refused" | "unknown", digest || null, errorCode || null, admin.id);
@@ -277,8 +280,8 @@ export async function rflCancelResolveAction(formData: FormData) {
     const digest = field(formData, "evidenceDigest");
     const note = text(formData, "note", 10, 500);
     if (!operationId || !["cancelled", "still_active"].includes(resolution) || !note) return fail("Enter the operation id, the resolution and a note of 10 to 500 characters. Nothing changed.");
-    if (digest && !DIGEST.test(digest)) return fail("The evidence digest must be 16 to 128 letters, digits or : _ . - characters. Nothing changed.");
-    if (resolution === "cancelled" && !digest) return fail("Resolving as cancelled needs the evidence digest of the console record. Nothing changed.");
+    if (digest && !DIGEST.test(digest)) return fail("The evidence digest must be exactly 64 lowercase hexadecimal characters (a SHA-256). Nothing changed.");
+    if (!digest) return fail("Resolving needs the evidence digest of the provider read (cancelled: showing the resource gone; still active: showing it present). Nothing changed.");
     const out = await lifecycle().resolveCancel(operationId, resolution as "cancelled" | "still_active", digest || null, note, admin.id);
     return done(`Operation resolved: ${out.status}.`);
   });
