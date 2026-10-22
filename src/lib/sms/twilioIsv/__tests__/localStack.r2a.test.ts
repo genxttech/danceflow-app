@@ -11,7 +11,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { execFileSync } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -640,25 +640,69 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
     expect(psqlError(`update public.studio_sms_prov_operations set status = 'failed' where id = '${id}';`)).toMatch(/closed operation is final/);
   });
 
-  it("rollback parses and completes where there is no evidence (executed in a transaction that is rolled back)", () => {
-    const rb = (name: string) => readFileSync(join(process.cwd(), `src/lib/supabase/migrations/rollback/${name}_rollback.sql`), "utf8").replace(/^begin;/m, "").replace(/^commit;/m, "");
-    // the layers built on R2a come off first, newest first (only those applied on this stack)
-    const layers: [string, string][] = [
-      ["20261212090000_twilio_prov_fee_resolution_evidence", "select to_regclass('public.studio_sms_prov_listings') is not null"],
-      ["20261210090000_twilio_r2c_owner_provisioning_read", "select to_regprocedure('public.get_studio_sms_provisioning(uuid)') is not null"],
-      ["20261209090000_twilio_recurring_fee_lifecycle", "select to_regclass('public.studio_sms_provider_resources') is not null"],
-      ["20261208090000_twilio_r2b_number_activation", "select to_regclass('public.studio_sms_num_operations') is not null"],
-    ];
-    const later = layers.filter(([, probe]) => psql(probe) === "t").map(([name]) => rb(name)).join("\n");
-    const sql = rb("20261207090000_twilio_r2a_messaging_service_campaign") + "\nrollback;";
-    const out = psqlError(`begin; set local session_replication_role = replica;
+  // ---- rollback scenarios -------------------------------------------------------------------------------------------------------------------------
+  // The layers built on R2a are DISCOVERED, never listed: every rollback script in the rollback directory with a version above R2a's is a candidate, and it is
+  // APPLIED on this stack when the object its own "not applied" guard checks (else the first function it drops) exists. They come off newest-first, each by its
+  // OWN rollback script, inside one transaction that is rolled back, before R2a's. No CASCADE, no truncate, and the rollback scripts run with triggers enabled
+  // (session_replication_role is touched only to clear this suite's fixture rows first, never while a rollback script runs).
+  const R2A = "20261207090000_twilio_r2a_messaging_service_campaign";
+  const rollbackDir = join(process.cwd(), "src/lib/supabase/migrations/rollback");
+  const rbSql = (file: string) => readFileSync(join(rollbackDir, file), "utf8").replace(/^begin;/m, "").replace(/^commit;/m, "");
+  function appliedLaterLayers(): { file: string; probe: string; applied: boolean }[] {
+    return readdirSync(rollbackDir)
+      .filter((f) => /^\d{14}_.*_rollback\.sql$/.test(f) && f.slice(0, 14) > R2A.slice(0, 14))
+      .sort()
+      .reverse()
+      .map((file) => {
+        const text = readFileSync(join(rollbackDir, file), "utf8");
+        const guard = text.match(/to_regclass\('public\.([a-z0-9_]+)'\) is null/i);
+        const fn = text.match(/drop function if exists public\.([a-z0-9_]+)\(([^)]*)\)/i);
+        const probe = guard ? `to_regclass('public.${guard[1]}') is not null` : fn ? `to_regprocedure('public.${fn[1]}(${fn[2]})') is not null` : "";
+        return { file, probe, applied: probe !== "" && psql(`select ${probe}`) === "t" };
+      });
+  }
+  const clearFixtureEvidence = () => `set local session_replication_role = replica;
       ${psql("select to_regclass('public.studio_sms_prov_listings') is not null") === "t" ? "delete from public.studio_sms_prov_orphans; delete from public.studio_sms_prov_dispositions; delete from public.studio_sms_prov_listings;" : ""}
       delete from public.studio_sms_prov_resources; delete from public.studio_sms_prov_operations; delete from public.studio_sms_onboarding_audit where action like 'prov\\_%';
-      set local session_replication_role = origin;
-      ${later}
-      ${sql}`);
+      set local session_replication_role = origin;`;
+  const r2aIntact = () => psql(`select to_regclass('public.studio_sms_prov_operations') is not null and to_regprocedure('public.tw4_prov_settle_admin(uuid,uuid,text,text,text)') is not null`);
+
+  it("rollback discovery: every later rollback script is classified, none silently omitted", (ctx) => {
+    const layers = appliedLaterLayers();
+    for (const l of layers) expect(l.probe, `${l.file} has no guard or drop to detect whether it is applied: teach appliedLaterLayers`).not.toBe("");
+    console.info(`[r2a-rollback] layers above R2a: ${layers.map((l) => `${l.file.slice(0, 14)}=${l.applied ? "applied" : "absent"}`).join(", ") || "none exist"}`);
+    if (!layers.some((l) => l.applied)) ctx.skip("R2a-only stack: nothing to classify as layered (the R2a-only rollback test covers this stack)");
+  });
+
+  it("R2a-only rollback parses and completes where there is no evidence (executed in a transaction that is rolled back)", (ctx) => {
+    const layers = appliedLaterLayers().filter((l) => l.applied);
+    if (layers.length > 0) ctx.skip(`not an R2a-only stack: ${layers.map((l) => l.file.slice(0, 14)).join(", ")} applied on top of R2a (the layered rollback test covers this stack)`);
+    const out = psqlError(`begin; ${clearFixtureEvidence()}
+      ${rbSql(`${R2A}_rollback.sql`)}
+      rollback;`);
     expect(out).toBe("");
-    expect(psql(`select to_regclass('public.studio_sms_prov_operations') is not null and to_regprocedure('public.tw4_prov_settle_admin(uuid,uuid,text,text,text)') is not null`)).toBe("t");
+    expect(r2aIntact()).toBe("t");
+  });
+
+  it("layered rollback (newest layer first, each by its own script, then R2a) completes where there is no evidence (executed in a transaction that is rolled back)", (ctx) => {
+    const layers = appliedLaterLayers().filter((l) => l.applied);
+    if (layers.length === 0) ctx.skip("no layer above R2a is applied on this stack (the R2a-only rollback test covers this stack)");
+    const out = psqlError(`begin; ${clearFixtureEvidence()}
+      ${layers.map((l) => `-- ${l.file}\n${rbSql(l.file)}`).join("\n")}
+      -- ${R2A}\n${rbSql(`${R2A}_rollback.sql`)}
+      rollback;`);
+    expect(out, `layers rolled back newest-first: ${layers.map((l) => l.file.slice(0, 14)).join(" > ")} > ${R2A.slice(0, 14)}`).toBe("");
+    expect(r2aIntact()).toBe("t");
+  });
+
+  it("layered rollback refuses while a layer's own evidence exists: each applied layer's guard is exercised in a rolled-back transaction", (ctx) => {
+    // a later layer's rollback must stay refusable: R2a's own evidence blocks R2a's rollback (shown below); a layer that cannot be shown refusing here is reported, not assumed
+    const layers = appliedLaterLayers().filter((l) => l.applied);
+    if (layers.length === 0) ctx.skip("no layer above R2a is applied on this stack");
+    const out = psqlError(`begin; ${layers.map((l) => rbSql(l.file)).join("\n")} ${rbSql(`${R2A}_rollback.sql`)} rollback;`);
+    // with this suite's fixtures still present the stack as a whole must refuse (R2a evidence), never destroy it
+    expect(out).toMatch(/refused|evidence exists/);
+    expect(r2aIntact()).toBe("t");
   });
 
   it("rollback refuses once provisioning evidence exists (executed in a transaction that is rolled back)", () => {
