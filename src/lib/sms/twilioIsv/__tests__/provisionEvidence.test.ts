@@ -12,7 +12,11 @@ const OP_FREE = "c0000000-0000-4000-8000-000000000003";
 type Op = { id: string; kind: string; status: string; fee_bearing: boolean; superseded: boolean; provider_sid: string | null };
 const op = (over: Partial<Op>): Op => ({ id: OP_CAMPAIGN, kind: "campaign", status: "unknown_outcome", fee_bearing: true, superseded: false, provider_sid: null, ...over });
 
-function setup(opts: { ops?: Op[]; account?: Partial<{ accountSid: string | null; status: string | null }>; claimError?: string; recordError?: string } = {}) {
+type Target = { operation_id: string; status: string; twilio_account_sid: string; scope_sid: string | null; ok: boolean; reason: string | null };
+const OLD_MS = `MG${"3".repeat(32)}`;
+const targetOf = (o: Op, over: Partial<Target> = {}): Target => ({ operation_id: o.id, status: o.status, twilio_account_sid: ACC, scope_sid: MS, ok: true, reason: null, ...over });
+
+function setup(opts: { ops?: Op[]; targets?: Target[]; targetsError?: string; account?: Partial<{ accountSid: string | null; status: string | null }>; claimError?: string; recordError?: string } = {}) {
   const calls: string[] = [];
   const store = {
     getAccount: vi.fn(async () => ({ legalEntityId: "e1", accountSid: ACC, status: "active", ...(opts.account ?? {}) })),
@@ -20,7 +24,13 @@ function setup(opts: { ops?: Op[]; account?: Partial<{ accountSid: string | null
     release: vi.fn(async () => { calls.push("release"); }),
   };
   const recorded: { operationId: string; facts: ListingFacts; source: string; digest: string; leaseOwner: string }[] = [];
+  const ops = opts.ops ?? [op({}), op({ id: "m", kind: "messaging_service", status: "succeeded", fee_bearing: false, provider_sid: MS })];
   const evidence = {
+    // the database answers per operation from its OWN recorded account and Messaging Service (never the studio's current service)
+    targets: vi.fn(async () => {
+      if (opts.targetsError) throw new RunnerStoreError(opts.targetsError);
+      return opts.targets ?? ops.filter((o) => o.kind === "campaign" && o.fee_bearing && ["unknown_outcome", "in_flight", "abandoned", "failed"].includes(o.status)).map((o) => targetOf(o));
+    }),
     // the evidence-only lease works in any non-cancelled state, including `exception` (where an unknown fee outcome parks the onboarding)
     claim: vi.fn(async () => {
       calls.push("claim");
@@ -96,9 +106,64 @@ describe("checkCampaignAbsence: GET-only, lease-bound, and it never decides", ()
     }
   });
 
-  it("nothing to check without a live Messaging Service or a fee-bearing campaign operation", async () => {
-    expect(await run(setup({ ops: [op({})] }))).toEqual({ outcome: "nothing_to_check" });
+  it("nothing to check without a fee-bearing campaign operation that still matters", async () => {
     expect(await run(setup({ ops: [op({ id: "m", kind: "messaging_service", status: "succeeded", fee_bearing: false, provider_sid: MS })] }))).toEqual({ outcome: "nothing_to_check" });
+    expect(await run(setup({ ops: [op({ status: "succeeded" })] }))).toEqual({ outcome: "nothing_to_check" });
+  });
+
+  describe("the operation's OWN account and Messaging Service decide what is read and recorded (never the studio's current service)", () => {
+    it("after a Messaging Service replacement the read and the record use the service the operation was registered under", async () => {
+      // the studio's CURRENT service is MS (store context), the operation was registered under OLD_MS
+      const s = setup({ targets: [targetOf(op({}), { scope_sid: OLD_MS })] });
+      s.adapter.campaigns.set(`QE${"c".repeat(32)}`, { sid: `QE${"c".repeat(32)}`, account_sid: ACC, messaging_service_sid: OLD_MS } as never);
+      s.adapter.campaigns.set(`QE${"d".repeat(32)}`, { sid: `QE${"d".repeat(32)}`, account_sid: ACC, messaging_service_sid: MS } as never);
+      const out = await run(s);
+      expect(out).toMatchObject({ outcome: "recorded", results: [{ operationId: OP_CAMPAIGN, verdict: "present" }] });
+      expect(s.recorded[0].facts.scope_sid).toBe(OLD_MS);
+      expect(s.recorded[0].facts.listed).toEqual([`QE${"c".repeat(32)}`]); // only the original service's campaign; the new service's is not read
+      expect(s.adapter.calls.filter((c) => c.method === "findCampaigns").map((c) => JSON.stringify(c.input))).toEqual([JSON.stringify({ messagingServiceSid: OLD_MS })]);
+    });
+
+    it("fails closed per operation: missing, unknown, ambiguous or malformed scope and a mismatching account read NOTHING and record NOTHING for that operation", async () => {
+      const cases: Partial<Target>[] = [
+        { ok: false, scope_sid: null, reason: "scope_missing" },
+        { ok: false, scope_sid: null, reason: "scope_unknown" },
+        { ok: false, scope_sid: null, reason: "scope_ambiguous" },
+        { ok: false, scope_sid: null, reason: "account_mismatch" },
+        { ok: true, scope_sid: null, reason: null }, // inconsistent answer
+        { ok: true, scope_sid: "not-a-service", reason: null }, // malformed
+        { ok: true, twilio_account_sid: `AC${"9".repeat(32)}` }, // the operation belongs to another subaccount than the adapter
+      ];
+      for (const over of cases) {
+        const s = setup({ targets: [targetOf(op({}), over)] });
+        const out = await run(s);
+        expect(out).toMatchObject({ outcome: "scope_unavailable", skipped: [{ operationId: OP_CAMPAIGN }] });
+        expect(s.adapter.calls).toHaveLength(0);
+        expect(s.recorded).toHaveLength(0);
+        expect(s.calls).toEqual(["claim", "release"]);
+      }
+    });
+
+    it("one operation without a usable scope is skipped while the others are still recorded, and the skip is reported", async () => {
+      const bad = op({ id: OP_OLD, status: "abandoned" });
+      const s = setup({ targets: [targetOf(op({})), targetOf(bad, { ok: false, scope_sid: null, reason: "scope_missing" })] });
+      const out = await run(s);
+      expect(out).toMatchObject({ outcome: "recorded", results: [{ operationId: OP_CAMPAIGN }], skipped: [{ operationId: OP_OLD, reason: "scope_missing" }] });
+      expect(s.recorded.map((r) => r.operationId)).toEqual([OP_CAMPAIGN]);
+    });
+
+    it("a refused or failed target query is reported (no provider call) and the lease is released", async () => {
+      const s = setup({ targetsError: "TW030" });
+      expect(await run(s)).toEqual({ outcome: "not_runnable", detail: "TW030" });
+      expect(s.adapter.calls).toHaveLength(0);
+      expect(s.calls).toEqual(["claim", "release"]);
+    });
+
+    it("the recorded facts name the OPERATION's account, not whatever the adapter reports", async () => {
+      const s = setup();
+      await run(s);
+      expect(s.recorded[0].facts.account_sid).toBe(ACC);
+    });
   });
 
   it("a failed provider read is NOT evidence either way: nothing is recorded and the caller retries", async () => {

@@ -1105,6 +1105,82 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       expect(psqlError(sql(", params = jsonb_set(params, '{messaging_service_sid}', '\"not-a-service\"')"))).toMatch(/REASON=scope_changed/);
     });
 
+    // ---------------------------------------------------------------------------------------------------------------------------------------------
+    // original-scope evidence targets (20261215): the OPERATION's own account and Messaging Service
+    // ---------------------------------------------------------------------------------------------------------------------------------------------
+    /** Claims the evidence lease inside the surrounding transaction and reports tw4_prov_evidence_targets as "reason/scope/operation" triples. */
+    const targetsSql = `do $$ declare v_c jsonb; v_t jsonb; begin
+        v_c := public.tw4_prov_evidence_claim('${SD1}', '${U.padmin}', 'tgt-lease', 120);
+        v_t := public.tw4_prov_evidence_targets((v_c ->> 'onboarding_id')::uuid, 'tgt-lease');
+        raise exception 'TARGETS=%', (select string_agg(coalesce(e ->> 'reason', 'ok') || '/' || coalesce(e ->> 'scope_sid', '-') || '/' || (e ->> 'operation_id'), ',' order by e ->> 'operation_id') from jsonb_array_elements(v_t) e);
+      end $$;`;
+    const targets = (setup: string) => {
+      const out = psqlError(`begin; set local session_replication_role = replica; ${setup} set local session_replication_role = origin; ${targetsSql} rollback;`);
+      const m = /TARGETS=([^\n]*)/.exec(out)?.[1];
+      return m ? m.split(",").filter(Boolean).map((x) => x.split("/")) : [[`unexpected: ${out}`]];
+    };
+
+    it("20261215: after a Messaging Service replacement every target still names the service the operation was registered under; the getter is service-role only", () => {
+      const original = msSid(SD1);
+      const rows = targets(replaceService());
+      expect(rows.length).toBeGreaterThanOrEqual(1);
+      for (const [reason, scope] of rows) {
+        expect(reason).toBe("ok");
+        expect(scope).toBe(original);
+        expect(scope).not.toBe(NEWMS);
+      }
+      expect(psql(`select has_function_privilege('service_role', 'public.tw4_prov_evidence_targets(uuid,text)', 'EXECUTE')::text || has_function_privilege('anon', 'public.tw4_prov_evidence_targets(uuid,text)', 'EXECUTE')::text || has_function_privilege('authenticated', 'public.tw4_prov_evidence_targets(uuid,text)', 'EXECUTE')::text`)).toBe("truefalsefalse");
+    });
+
+    it("20261215: missing, unknown and inconsistent historical identifiers fail closed with no scope returned; a mismatching subaccount fails closed too", () => {
+      const op = lastCampaign();
+      const reasons = (setup: string) => targets(setup).filter((r) => r[2] === op).map((r) => `${r[0]}/${r[1]}`);
+      expect(reasons("")).toEqual([`ok/${msSid(SD1)}`]);
+      expect(reasons(`update public.studio_sms_prov_operations set params = params - 'messaging_service_sid' where id = '${op}';`)).toEqual(["scope_missing/-"]);
+      expect(reasons(`update public.studio_sms_prov_operations set params = jsonb_set(params, '{messaging_service_sid}', '"not-a-service"') where id = '${op}';`)).toEqual(["scope_missing/-"]);
+      expect(reasons(`update public.studio_sms_prov_operations set params = jsonb_set(params, '{messaging_service_sid}', '"${NEWMS}"') where id = '${op}';`)).toEqual(["scope_unknown/-"]);
+      expect(reasons(`update public.studio_sms_prov_operations set twilio_account_sid = 'AC${"e".repeat(32)}' where id = '${op}';`)).toEqual(["account_mismatch/-"]);
+    });
+
+    it("20261215: the recorder reads and records under the ORIGINAL service after a committed replacement; a listing of the new service, a stale read, a replayed read with other evidence and a foreign subaccount are all refused", async () => {
+      const op = lastCampaign();
+      const original = msSid(SD1);
+      const msOp = psql(`select id from public.studio_sms_prov_operations where studio_id = '${SD1}' and op_kind = 'messaging_service' and status = 'succeeded' and superseded_at is null`);
+      aged(replaceService());
+      const newId = psql(`select id from public.studio_sms_prov_operations where studio_id = '${SD1}' and op_kind = 'messaging_service' and provider_sid = '${NEWMS}'`);
+      try {
+        aged(`delete from public.studio_sms_prov_listings where studio_id = '${SD1}'`);
+        const adapter = hub.adapterFor(psql(`select twilio_account_sid from public.studio_sms_prov_operations where id = '${op}'`));
+        const out = await check(SD1, adapter);
+        expect(out.outcome).toBe("recorded");
+        // every read named the original service; the replacement was never read
+        const reads = adapter.calls.filter((c) => c.method === "findCampaigns");
+        expect(reads.length).toBeGreaterThanOrEqual(1);
+        expect(reads.every((c) => JSON.stringify(c.input) === JSON.stringify({ messagingServiceSid: original }))).toBe(true);
+        expect(psql(`select string_agg(distinct scope_sid, ',') from public.studio_sms_prov_listings where studio_id = '${SD1}'`)).toBe(original);
+        // wrong scope: a listing of the NEW (current) service is refused for this operation
+        expect((await record(SD1, op, { scope_sid: NEWMS })).error?.code).toBe("TW049");
+        // replay: the same read twice is one record; the same read with different evidence is refused
+        const readId = randomUUID();
+        const first = await record(SD1, op, { scope_sid: original, read_id: readId });
+        expect(first.error).toBeNull();
+        const again = await record(SD1, op, { scope_sid: original, read_id: readId });
+        expect(again.error).toBeNull();
+        expect((again.data as { replayed?: boolean }).replayed).toBe(true);
+        expect((await record(SD1, op, { scope_sid: original, read_id: readId, listed: [`QE${"f".repeat(32)}`] })).error?.code).toBe("TW046");
+        // stale: a read that began long before it was recorded
+        expect((await record(SD1, op, { scope_sid: original, read_started_at: new Date(Date.now() - 30 * 60_000).toISOString() })).error?.code).toBe("TW046");
+        // wrong subaccount: an adapter of another subaccount is refused before any provider call
+        const foreign = hub.adapterFor(ACC.B);
+        expect(await check(SD1, foreign)).toEqual({ outcome: "account_mismatch" });
+        expect(foreign.calls).toHaveLength(0);
+      } finally {
+        aged(`delete from public.studio_sms_prov_listings where studio_id = '${SD1}'; delete from public.studio_sms_prov_orphans where legal_entity_id = '${ED}';
+               delete from public.studio_sms_prov_operations where id = '${newId}'; update public.studio_sms_prov_operations set superseded_at = null where id = '${msOp}'`);
+      }
+      expect(msSid(SD1)).toBe(original);
+    });
+
     it("the new evidence tables have row-level security enabled (no policies: no API role can read them)", () => {
       expect(psql(`select string_agg(relname || ':' || relrowsecurity::text, ',' order by relname) from pg_class where relname in ('studio_sms_prov_listings', 'studio_sms_prov_orphans', 'studio_sms_prov_dispositions')`))
         .toBe("studio_sms_prov_dispositions:true,studio_sms_prov_listings:true,studio_sms_prov_orphans:true");
