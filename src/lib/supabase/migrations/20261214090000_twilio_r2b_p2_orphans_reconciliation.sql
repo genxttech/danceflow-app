@@ -36,6 +36,16 @@ begin
   end if;
 end $$;
 
+do $$
+begin
+  -- the functions replaced below must still be EXACTLY the versions this slice was written against (a parallel slice must never be overwritten silently)
+  if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4sr_ready(uuid)'::regprocedure), E'\r', '')) <> '651e2162684185c5a721133206caf3ad'
+     or md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4num_known(uuid)'::regprocedure), E'\r', '')) <> 'af641765f6a8358299c09a8b6927eca1'
+     or md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_num_inventory_observe(uuid,text,text[],text,timestamptz)'::regprocedure), E'\r', '')) <> '06e228b7c2930a873f01c0da06bc29a5' then
+    raise exception 'R2b-P2 precondition failed: a function it replaces differs from the expected version (fingerprint)';
+  end if;
+end $$;
+
 alter table public.studio_sms_num_inventory_checks add column mismatch_count int not null default 0 check (mismatch_count >= 0);
 alter table public.studio_sms_num_inventory_checks add column duplicate_count int not null default 0 check (duplicate_count >= 0);
 comment on column public.studio_sms_num_inventory_checks.unknown_count is 'every number the ledger does not account for: unknown + ownership mismatches + duplicate E.164s (R2b-P2 keeps the activation checklist and the absence evidence correct unchanged)';
@@ -44,7 +54,7 @@ create table public.studio_sms_num_orphans (
   id uuid primary key default gen_random_uuid(),
   legal_entity_id uuid not null references public.studio_sms_legal_entities(id) on delete restrict,
   twilio_account_sid text not null check (twilio_account_sid ~ '^AC[0-9a-fA-F]{32}$'),
-  phone_number_sid text not null check (phone_number_sid ~ '^PN[0-9a-fA-F]{32}$'),
+  phone_number_sid text not null check (phone_number_sid ~ '^PN[0-9a-f]{32}$'),
   e164 text null check (e164 is null or e164 ~ '^\+[1-9][0-9]{6,14}$'),
   kind text not null check (kind in ('unknown', 'ownership_mismatch', 'duplicate_e164', 'ledger_missing')),
   status text not null default 'open' check (status in ('open', 'cleared', 'acknowledged', 'adopted', 'disposed')),
@@ -57,6 +67,7 @@ create table public.studio_sms_num_orphans (
   last_check_id uuid null,
   escalation_level int not null default 0 check (escalation_level between 0 and 3),
   reopen_count int not null default 0 check (reopen_count >= 0),
+  escalation_failures int not null default 0 check (escalation_failures >= 0),
   cost_bearer text null check (cost_bearer = 'danceflow'),
   resolved_by uuid null,
   resolved_at timestamptz null,
@@ -71,7 +82,7 @@ create index studio_sms_num_orphans_open on public.studio_sms_num_orphans (legal
 create table public.studio_sms_num_orphan_events (
   id uuid primary key default gen_random_uuid(),
   orphan_id uuid not null references public.studio_sms_num_orphans(id) on delete restrict,
-  event text not null check (event in ('detected', 'reopened', 'cleared', 'became_known', 'absent', 'adopted', 'disposed', 'escalated')),
+  event text not null check (event in ('detected', 'reopened', 'cleared', 'became_known', 'absent', 'adopted', 'disposed', 'escalated', 'escalation_failed')),
   actor uuid null,
   detail text null check (detail is null or char_length(detail) <= 300),
   created_at timestamptz not null default clock_timestamp()
@@ -170,11 +181,14 @@ declare
   v_apply boolean;
 begin
   o := public._tw4_r1_lease(p_onboarding_id, p_lease_owner);
-  if p_numbers is null or jsonb_typeof(p_numbers) <> 'array' or jsonb_array_length(p_numbers) > 1000 then
+  if p_numbers is null or jsonb_typeof(p_numbers) <> 'array' then
     raise exception 'an inventory of numbers is required' using errcode = '22023';
   end if;
+  if jsonb_array_length(p_numbers) > 1000 then
+    raise exception 'a listing of more than 1000 numbers needs manual reconciliation (nothing is recorded as clean)' using errcode = 'TW051';
+  end if;
   -- every listed number carries its sid AND its E.164 (a listing without them cannot be judged), and a sid appears once
-  if exists (select 1 from jsonb_array_elements(p_numbers) e where jsonb_typeof(e.value) <> 'object' or (e.value ->> 'sid') is null or (e.value ->> 'sid') !~ '^PN[0-9a-fA-F]{32}$'
+  if exists (select 1 from jsonb_array_elements(p_numbers) e where jsonb_typeof(e.value) <> 'object' or (e.value ->> 'sid') is null or (e.value ->> 'sid') !~ '^PN[0-9a-f]{32}$'
                 or (e.value ->> 'phone_number') is null or (e.value ->> 'phone_number') !~ '^\+[1-9][0-9]{6,14}$')
      or (select count(*) <> count(distinct e.value ->> 'sid') from jsonb_array_elements(p_numbers) e) then
     raise exception 'an inventory of numbers is required' using errcode = '22023';
@@ -312,9 +326,10 @@ declare
   z public.studio_sms_num_orphans;
   i public.studio_sms_num_identity_reads;
   c public.studio_sms_num_inventory_checks;
+  v_current text;
 begin
   perform public._tw4c_admin(p_actor);
-  if p_orphan_id is null or p_resolution is null or p_resolution not in ('adopt', 'dispose') or p_note is null or char_length(btrim(p_note)) not between 10 and 300 then
+  if p_orphan_id is null or p_resolution is null or p_resolution not in ('adopt', 'dispose', 'close_former') or p_note is null or char_length(btrim(p_note)) not between 10 and 300 then
     raise exception 'a resolution (adopt or dispose) and a written reason (10-300 characters) are required' using errcode = '22023';
   end if;
   select * into z from public.studio_sms_num_orphans x where x.id = p_orphan_id;
@@ -326,7 +341,17 @@ begin
   if z.status <> 'open' then
     raise exception 'this finding is not open' using errcode = 'TW034';
   end if;
-  if public._tw4num_account((select es.studio_id from public.studio_sms_entity_studios es where es.legal_entity_id = z.legal_entity_id order by es.studio_id limit 1)) is distinct from z.twilio_account_sid then
+  v_current := public._tw4num_account((select es.studio_id from public.studio_sms_entity_studios es where es.legal_entity_id = z.legal_entity_id order by es.studio_id limit 1));
+  if p_resolution = 'close_former' then
+    -- a finding in a former subaccount is closed by a person only when that subaccount is CLOSED at the provider-account level (no further billing can accrue); nothing is read from it
+    if v_current is not distinct from z.twilio_account_sid or not exists (select 1 from public.studio_sms_twilio_accounts a where a.legal_entity_id = z.legal_entity_id and a.twilio_account_sid = z.twilio_account_sid and a.status = 'closed') then
+      raise exception 'only a finding in a CLOSED former subaccount is closed this way' using errcode = 'TW049';
+    end if;
+    update public.studio_sms_num_orphans set status = 'disposed', cost_bearer = null, resolved_by = p_actor, resolved_at = clock_timestamp(), resolution_note = btrim(p_note) where id = z.id;
+    perform public._tw4p2_event(z.id, 'disposed', p_actor, 'former subaccount closed; note=' || left(btrim(p_note), 150));
+    return jsonb_build_object('status', 'disposed');
+  end if;
+  if v_current is distinct from z.twilio_account_sid then
     raise exception 'the business''s active subaccount is not the one this finding was made in' using errcode = 'TW049';
   end if;
   if p_resolution = 'adopt' then
@@ -351,17 +376,17 @@ begin
   end if;
   -- dispose: the provider's own listing no longer shows it (taken after it was last seen, fresh now), and no provider read of it since
   if z.absent_since is null then
-    raise exception 'a complete provider listing that no longer shows this number is required first' using errcode = 'TW047';
+    raise exception 'a complete provider listing that no longer shows this number is required first' using errcode = 'TW050';
   end if;
   select * into c from public.studio_sms_num_inventory_checks x where x.legal_entity_id = z.legal_entity_id and x.twilio_account_sid = z.twilio_account_sid order by x.listed_at desc, x.created_at desc, x.id limit 1;
   if c.id is null or (c.source <> 'provider_read' and not public._tw4sr_fake_allowed()) or c.listed_at < z.absent_since or c.listed_at < z.last_seen_at or c.listed_at < clock_timestamp() - interval '30 minutes' then
-    raise exception 'the latest provider listing does not show it as absent (stale, untrusted or older than the finding)' using errcode = 'TW047';
+    raise exception 'the latest provider listing does not show it as absent (stale, untrusted or older than the finding)' using errcode = 'TW050';
   end if;
   if z.phone_number_sid = any (c.listed_sids) then
-    raise exception 'the latest provider listing still shows this number' using errcode = 'TW047';
+    raise exception 'the latest provider listing still shows this number' using errcode = 'TW050';
   end if;
   if exists (select 1 from public.studio_sms_num_identity_reads x where x.twilio_account_sid = z.twilio_account_sid and x.phone_number_sid = z.phone_number_sid and x.observed_at >= z.absent_since) then
-    raise exception 'the provider answered a read of this number after it was listed absent' using errcode = 'TW047';
+    raise exception 'the provider answered a read of this number after it was listed absent' using errcode = 'TW050';
   end if;
   update public.studio_sms_num_orphans set status = 'disposed', cost_bearer = null, resolved_by = p_actor, resolved_at = clock_timestamp(), resolution_note = btrim(p_note) where id = z.id;
   perform public._tw4p2_event(z.id, 'disposed', p_actor, 'released by DanceFlow at the provider console; provider listing confirms absence; note=' || left(btrim(p_note), 150));
@@ -385,6 +410,7 @@ declare
   v_open int;
   v_contra int;
   v_borne int;
+  v_former int;
 begin
   select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = p_studio_id;
   if v_entity is null or v_account is null then
@@ -395,6 +421,8 @@ begin
      and (x.source = 'provider_read' or public._tw4sr_fake_allowed());
   select count(*) filter (where z.status = 'open'), count(*) filter (where z.status = 'open' and z.kind in ('ownership_mismatch', 'duplicate_e164', 'ledger_missing')), count(*) filter (where z.status = 'adopted')
     into v_open, v_contra, v_borne from public.studio_sms_num_orphans z where z.legal_entity_id = v_entity and z.twilio_account_sid = v_account;
+  -- findings made in a FORMER subaccount stay visible until a person resolves them
+  select count(*) into v_former from public.studio_sms_num_orphans z where z.legal_entity_id = v_entity and z.twilio_account_sid <> v_account and z.status = 'open';
   if c.id is null then
     v_reasons := array_append(v_reasons, 'no_inventory_check');
   elsif c.source <> 'provider_read' and not public._tw4sr_fake_allowed() then
@@ -403,12 +431,14 @@ begin
   v_status := case
     when cardinality(v_reasons) > 0 then 'unknown'
     when v_contra > 0 then 'critical'
-    when c.unknown_count > 0 or c.missing_count > 0 or v_open > 0 then 'degraded'
     when c.listed_at < clock_timestamp() - interval '24 hours' then 'stale'
+    when v_former > 0 then 'degraded'
+    when c.unknown_count > 0 or c.missing_count > 0 or v_open > 0 then 'degraded'
     else 'healthy' end;
   if v_contra > 0 then v_reasons := array_append(v_reasons, 'provider_contradicts_ledger'); end if;
   if c.id is not null and (c.unknown_count > 0 or c.missing_count > 0) then v_reasons := array_append(v_reasons, 'latest_listing_unclean'); end if;
   if v_open > 0 and v_contra = 0 then v_reasons := array_append(v_reasons, 'open_unaccounted_numbers'); end if;
+  if v_former > 0 then v_reasons := array_append(v_reasons, 'findings_in_former_subaccount'); end if;
   if v_status = 'stale' then v_reasons := array_append(v_reasons, 'listing_is_stale'); end if;
   return jsonb_build_object('status', v_status, 'reasons', to_jsonb(v_reasons), 'last_check_at', c.listed_at, 'last_clean_at', v_clean, 'open_findings', v_open, 'contradictions', v_contra, 'danceflow_borne', v_borne);
 end $$;
@@ -445,6 +475,30 @@ end $$;
 -- ---------------------------------------------------------------------------------------------------------------
 -- scheduled reconciliation: the worklist and a service-role lease (no human actor). No scheduler is registered here.
 -- ---------------------------------------------------------------------------------------------------------------
+-- does this business have, or may it have, provider resources in its subaccount? (a purchase, a Messaging Service / campaign, a sender row, or an open finding) -- not only recorded number purchases
+create or replace function public._tw4num_has_resources(p_entity uuid)
+returns boolean language sql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+  select exists (select 1 from public.studio_sms_num_operations n where n.legal_entity_id = p_entity)
+      or exists (select 1 from public.studio_sms_prov_operations n where n.legal_entity_id = p_entity)
+      or exists (select 1 from public.studio_sms_billed_senders n where n.legal_entity_id = p_entity)
+      or exists (select 1 from public.studio_sms_num_orphans z where z.legal_entity_id = p_entity and z.status = 'open');
+$$;
+
+-- businesses with an active subaccount and provider resources but NO onboarding a reconciliation lease can be taken on: they need MANUAL reconciliation and are listed, never silently skipped
+create or replace function public.tw4_num_recon_manual(p_actor uuid)
+returns jsonb language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  perform public._tw4c_admin(p_actor);
+  return coalesce((select jsonb_agg(jsonb_build_object('legal_entity_id', a.legal_entity_id, 'twilio_account_sid', a.twilio_account_sid, 'reason', 'no_leasable_onboarding') order by a.legal_entity_id)
+    from public.studio_sms_twilio_accounts a
+   where a.status = 'active' and public._tw4num_has_resources(a.legal_entity_id)
+     and not exists (select 1 from public.studio_sms_entity_studios es join public.studio_sms_onboarding o on o.studio_id = es.studio_id where es.legal_entity_id = a.legal_entity_id and o.state not in ('cancelled', 'blocked'))), '[]'::jsonb);
+end $$;
+
 create or replace function public.tw4_num_recon_targets(p_limit integer, p_max_age_seconds integer)
 returns jsonb language plpgsql stable security definer
 set search_path = pg_catalog, public, pg_temp
@@ -461,9 +515,9 @@ begin
       from (select distinct on (es.legal_entity_id) es.legal_entity_id, es.studio_id, a.twilio_account_sid account
               from public.studio_sms_entity_studios es
               join public.studio_sms_twilio_accounts a on a.legal_entity_id = es.legal_entity_id and a.status = 'active'
-              join public.studio_sms_onboarding o on o.studio_id = es.studio_id and (o.state in ('campaign_pending', 'ready_for_activation', 'active', 'suspended') or (o.state = 'exception' and coalesce(o.last_error_code, '') like 'num\_%'))
+              join public.studio_sms_onboarding o on o.studio_id = es.studio_id and o.state not in ('cancelled', 'blocked')
              where public._sms_onb_access_enabled(es.studio_id)
-               and (exists (select 1 from public.studio_sms_num_operations n where n.legal_entity_id = es.legal_entity_id) or exists (select 1 from public.studio_sms_num_orphans z where z.legal_entity_id = es.legal_entity_id and z.status = 'open'))
+               and public._tw4num_has_resources(es.legal_entity_id)
              order by es.legal_entity_id, es.studio_id) e
       left join lateral (select * from public.studio_sms_num_inventory_checks x where x.legal_entity_id = e.legal_entity_id and x.twilio_account_sid = e.account order by x.listed_at desc, x.created_at desc, x.id limit 1) c on true
      where c.id is null or c.listed_at < clock_timestamp() - make_interval(secs => p_max_age_seconds) or c.unknown_count > 0 or c.missing_count > 0
@@ -486,7 +540,7 @@ begin
   end if;
   perform pg_advisory_xact_lock(hashtextextended('sms_onboarding:' || p_studio_id::text, 0));
   select * into o from public.studio_sms_onboarding x where x.studio_id = p_studio_id and x.state <> 'cancelled' for update;
-  if o.id is null or not (o.state in ('campaign_pending', 'ready_for_activation', 'active', 'suspended') or (o.state = 'exception' and coalesce(o.last_error_code, '') like 'num\_%')) then
+  if o.id is null or o.state in ('cancelled', 'blocked') then
     raise exception 'there is no onboarding to reconcile' using errcode = 'TW030';
   end if;
   if o.lease_owner is not null and o.lease_expires_at > now() and o.lease_owner <> p_lease_owner then
@@ -551,7 +605,9 @@ begin
       perform public._tw4p2_event(z.id, 'escalated', null, 'level=' || v_target);
       if v_new then v_raised := v_raised + 1; end if;
     exception when others then
-      v_failed := v_failed + 1;   -- the level is not advanced: the next run retries
+      v_failed := v_failed + 1;   -- the level is not advanced: the next run retries; the failure is recorded (SQLSTATE only, never message text)
+      update public.studio_sms_num_orphans set escalation_failures = escalation_failures + 1 where id = z.id;
+      perform public._tw4p2_event(z.id, 'escalation_failed', null, 'sqlstate=' || sqlstate || ';level=' || v_target);
     end;
   end loop;
   return jsonb_build_object('outbox', true, 'raised', v_raised, 'considered', v_seen, 'failed', v_failed);
@@ -595,9 +651,10 @@ begin
      or s.campaign_sid is distinct from v_qe.provider_sid or s.account_sid is distinct from v_p.twilio_account_sid then
     return none;
   end if;
-  -- the number this location sends from must not be contradicted by the provider: an open ownership mismatch, duplicate E.164 or missing-from-listing finding for THIS sid or E.164 stops it
-  if public._tw4num_send_blocked(s.account_sid, s.phone_number_sid, s.sender_e164) then
-    return none;
+  -- ordinary billable sending is HELD while the business's provider-inventory evidence is stale, missing, untrusted or contradictory (inbound STOP/START/HELP handling does not use this gate);
+  -- and the number this location sends from must not be contradicted by the provider: an open ownership mismatch, duplicate E.164 or missing-from-listing finding for THIS sid or E.164 stops it
+  if public._tw4num_send_blocked(s.account_sid, s.phone_number_sid, s.sender_e164) or (public._tw4num_health(p_studio_id) ->> 'status') in ('unknown', 'stale', 'critical') then
+    return none;   -- a HOLD, not a revocation: the sender row, the spending authorization and every reservation are untouched, and fresh authoritative evidence lifts it
   end if;
   return s;
 end $$;
@@ -607,5 +664,9 @@ revoke all on function public.tw4_num_inventory_observe(uuid, text, jsonb, text,
   public.tw4_num_orphan_exposure(uuid), public.tw4_num_recon_targets(integer, integer), public.tw4_num_recon_claim(uuid, text, integer), public.tw4_num_orphan_escalate(integer) from public, anon, authenticated;
 grant execute on function public.tw4_num_inventory_observe(uuid, text, jsonb, text, timestamptz), public.tw4_num_orphan_resolve(uuid, uuid, text, text), public.tw4_num_inventory_status(uuid, uuid),
   public.tw4_num_orphan_exposure(uuid), public.tw4_num_recon_targets(integer, integer), public.tw4_num_recon_claim(uuid, text, integer), public.tw4_num_orphan_escalate(integer) to service_role;
+
+revoke all on function public._tw4num_has_resources(uuid), public.tw4_num_recon_manual(uuid) from public, anon, authenticated;
+grant execute on function public.tw4_num_recon_manual(uuid) to service_role;
+revoke all on function public._tw4num_has_resources(uuid) from service_role;
 
 commit;

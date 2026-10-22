@@ -69,6 +69,8 @@ export interface NumberStore {
   inventoryObserve(onboardingId: string, leaseOwner: string, numbers: InventoryNumber[], source: "provider_read" | "fake", listedAt: string): Promise<InventorySeen>;
   /** The provider's own answer about what ONE number is (E.164 and account), recorded under this lease. The database requires the account to be the business's active subaccount. */
   identityObserve(onboardingId: string, leaseOwner: string, facts: Record<string, unknown>, source: "provider_read" | "fake", digest: string): Promise<{ sid: string; e164: string }>;
+  /** The provider's creation history for a window (facts only; the database judges it). */
+  historyObserve(onboardingId: string, leaseOwner: string, facts: Record<string, unknown>, source: "provider_read" | "fake", digest: string): Promise<{ created: number; complete: boolean }>;
   recordOffer(studioId: string, actorId: string, accountSid: string, search: Record<string, unknown>, candidates: unknown[], source: "provider_read" | "fake", digest: string): Promise<OfferRecorded>;
 }
 
@@ -156,6 +158,13 @@ export class SupabaseNumberStore implements NumberStore {
       p_onboarding_id: onboardingId, p_lease_owner: leaseOwner, p_facts: facts, p_source: source, p_digest: digest,
     });
     return { sid: String(row?.sid ?? ""), e164: String(row?.e164 ?? "") };
+  }
+
+  async historyObserve(onboardingId: string, leaseOwner: string, facts: Record<string, unknown>, source: "provider_read" | "fake", digest: string): Promise<{ created: number; complete: boolean }> {
+    const row = await this.call<{ created: number; complete: boolean }>("tw4_num_history_observe", {
+      p_onboarding_id: onboardingId, p_lease_owner: leaseOwner, p_facts: facts, p_source: source, p_digest: digest,
+    });
+    return { created: Number(row?.created ?? 0), complete: row?.complete === true };
   }
 
   async recordOffer(studioId: string, actorId: string, accountSid: string, search: Record<string, unknown>, candidates: unknown[], source: "provider_read" | "fake", digest: string): Promise<OfferRecorded> {

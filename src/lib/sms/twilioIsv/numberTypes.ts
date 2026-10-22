@@ -17,6 +17,15 @@ export type AvailableNumber = {
   address_requirements: string | null;
 };
 
+export type CreationHistoryFacts = {
+  account_sid: string;
+  window_start: string;
+  window_end: string;
+  /** The provider guaranteed the whole window was read (no truncated page, no retention gap). */
+  complete: boolean;
+  created_e164: string[];
+};
+
 export type OwnedNumberFacts = {
   sid: string | null;
   account_sid: string | null;
@@ -66,6 +75,11 @@ export interface IsvNumberAdapter {
   /** FEE-BEARING. Buys the number in this account. A response is a purchase, confirmed only by a later read (`getNumber`). */
   purchaseNumber(input: { e164: string; friendlyName: string }): Promise<string>;
   getNumber(sid: string): Promise<OwnedNumberFacts>;
+  /**
+   * OPTIONAL, read-only. The provider's own history of numbers CREATED in this account since a point in time (a purchased-and-later-deleted number appears here although no listing shows it).
+   * An adapter that cannot guarantee a complete answer must not implement it: the real adapter does not (not verified against the provider), so absence-based non-creation stays blocked.
+   */
+  readCreationHistory?(since: Date): Promise<CreationHistoryFacts>;
 
   /** Number SIDs attached to this Messaging Service (a complete listing or a throw). */
   listServiceNumbers(messagingServiceSid: string): Promise<string[]>;

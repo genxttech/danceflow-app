@@ -52,7 +52,10 @@ export type NumberOutcome =
   | "record_failed"
   | "search_refused"
   | "inventory_clean"
+  | "manual_required"
   | "identity_recorded"
+  | "history_recorded"
+  | "history_unavailable"
   | "inventory_unknown"
   | "nothing_to_check";
 
@@ -365,6 +368,11 @@ export async function runNumberAcquisition(input: NumberInput): Promise<NumberRe
       } catch (error) {
         return { outcome: "retry_later", steps, detail: `inventory:${sanitized(error)}`, state };
       }
+      if (inventory.length > MAX_LISTING) {
+        // a listing this large is never recorded as clean and never paginated blindly: a person reconciles it
+        await toException("num_inventory_manual");
+        return { outcome: "exception", steps, detail: "inventory_manual_reconciliation", state };
+      }
       let seen;
       try {
         // the DATABASE compares the provider's inventory with the numbers it accounts for, and its stamp (this lease, a moment ago, nothing unknown) is what the purchase requires
@@ -500,6 +508,9 @@ export async function refreshNumber(input: Omit<NumberInput, "confirmFee">): Pro
  * Reconciles the provider's inventory of this business's subaccount with the ledger WITHOUT buying anything (a refresh lease: GET-only). The database judges it and stamps the
  * result; the activation checklist (`inventory_reconciled`) needs a clean stamp from the last 24 hours. Until a scheduled reconciliation exists this is the manual path.
  */
+/** The database judges a listing of at most this many numbers; a larger one needs MANUAL reconciliation (explicit, never silently truncated or recorded as clean). */
+const MAX_LISTING = 1000;
+
 export async function refreshInventory(input: { store: NumberStore; adapter: IsvNumberAdapter; studioId: string; actorId: string; scheduled?: boolean }): Promise<NumberResult> {
   const { store, adapter, studioId, actorId } = input;
   // a scheduled pass holds a 'recon:' lease, which the database refuses to let start any provider operation
@@ -523,6 +534,7 @@ export async function refreshInventory(input: { store: NumberStore; adapter: Isv
     } catch (error) {
       return { outcome: "retry_later", steps, detail: `inventory:${sanitized(error)}`, state: claim.state };
     }
+    if (inventory.length > MAX_LISTING) return { outcome: "manual_required", steps, detail: "inventory_over_1000", state: claim.state };   // nothing is recorded: the sending hold follows the staleness
     try {
       const seen = await store.inventoryObserve(claim.onboarding_id, leaseOwner, inventory, adapter.evidenceSource, listedAt);
       return seen.unknown > 0 || seen.missing > 0
@@ -584,6 +596,8 @@ export type ReconcileSummary = {
   clean: number;
   findings: number;
   skipped: { studioId: string; reason: string }[];
+  /** locations whose subaccount listing is too large for the database to judge: reconciled by a person */
+  manual: string[];
   escalation: { outbox: boolean; raised: number; deferred?: number; considered?: number; failed?: number } | { error: string };
 };
 
@@ -599,7 +613,7 @@ export async function reconcileInventories(input: {
   maxAgeSeconds?: number;
 }): Promise<ReconcileSummary> {
   const { store, adapterFor } = input;
-  const summary: ReconcileSummary = { checked: 0, clean: 0, findings: 0, skipped: [], escalation: { outbox: false, raised: 0 } };
+  const summary: ReconcileSummary = { checked: 0, clean: 0, findings: 0, skipped: [], manual: [], escalation: { outbox: false, raised: 0 } };
   let targets;
   try {
     targets = await store.reconTargets(Math.max(1, Math.min(100, input.limit ?? 25)), input.maxAgeSeconds ?? 6 * 3600);
@@ -620,6 +634,9 @@ export async function reconcileInventories(input: {
     } else if (result.outcome === "inventory_unknown") {
       summary.checked += 1;
       summary.findings += 1;
+    } else if (result.outcome === "manual_required") {
+      summary.manual.push(target.studio_id);
+      summary.skipped.push({ studioId: target.studio_id, reason: "manual_required" });
     } else {
       summary.skipped.push({ studioId: target.studio_id, reason: result.detail ? `${result.outcome}:${result.detail}` : result.outcome });
     }
@@ -631,4 +648,45 @@ export async function reconcileInventories(input: {
     summary.escalation = { error: `escalate:${storeCode(error)}` };
   }
   return summary;
+}
+
+/**
+ * R2b-P1: read the PROVIDER's number-creation history for a window (FREE, read-only). A purchased-and-deleted number appears in no listing, so listings alone never prove a purchase did
+ * not happen; this history does. An adapter that cannot guarantee a complete answer (the real adapter, until it is verified) has no such method: the outcome is
+ * `history_unavailable` and absence-based non-creation resolution stays blocked.
+ */
+export async function observeCreationHistory(input: { store: NumberStore; adapter: IsvNumberAdapter; studioId: string; actorId: string; since: Date }): Promise<NumberResult> {
+  const { store, adapter, studioId, actorId } = input;
+  const steps: NumKind[] = [];
+  if (typeof adapter.readCreationHistory !== "function") return { outcome: "history_unavailable", steps, detail: "adapter_cannot_read_history" };
+  const leaseOwner = `num-hist-${randomUUID().slice(0, 8)}`;
+  let claim;
+  try {
+    claim = await store.claim(studioId, actorId, leaseOwner, 120, "refresh");
+  } catch (error) {
+    const code = storeCode(error);
+    return { outcome: code === "55P03" ? "lease_busy" : "not_runnable", steps, detail: code };
+  }
+  try {
+    const refused = await accountRefusal(store, adapter, claim.onboarding_id, leaseOwner, claim.state);
+    if (refused) return refused;
+    let facts;
+    try {
+      facts = { ...(await adapter.readCreationHistory(input.since)) };
+    } catch (error) {
+      return { outcome: "retry_later", steps, detail: `history:${sanitized(error)}`, state: claim.state };
+    }
+    try {
+      await store.historyObserve(claim.onboarding_id, leaseOwner, facts, adapter.evidenceSource, requestDigest(facts));
+      return { outcome: "history_recorded", steps, state: claim.state };
+    } catch (error) {
+      return { outcome: "exception", steps, detail: `history_record:${storeCode(error)}`, state: claim.state };
+    }
+  } finally {
+    try {
+      await store.release(claim.onboarding_id, leaseOwner);
+    } catch {
+      /* the lease expires by itself */
+    }
+  }
 }

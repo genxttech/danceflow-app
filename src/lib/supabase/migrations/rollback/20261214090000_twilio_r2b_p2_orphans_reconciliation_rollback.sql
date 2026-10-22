@@ -13,7 +13,19 @@ begin
   end if;
 end $$;
 
+do $$
+begin
+  -- the functions this migration installed must still be exactly its own
+  if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4sr_ready(uuid)'::regprocedure), E'\r', '')) <> '2aa0dbec06c1a8fe4ea22c7658d6d522'
+     or md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4num_known(uuid)'::regprocedure), E'\r', '')) <> 'c109630a80ef75b2f9262614d249ab29'
+     or md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_num_inventory_observe(uuid,text,jsonb,text,timestamptz)'::regprocedure), E'\r', '')) <> '042b2f2744d19ce92b648a7d7bfad2ee' then
+    raise exception 'R2b-P2 rollback refused: a function it installed has been changed since (fingerprint)' using errcode = '55000';
+  end if;
+end $$;
+
 drop function if exists public.tw4_num_orphan_escalate(integer);
+drop function if exists public.tw4_num_recon_manual(uuid);
+drop function if exists public._tw4num_has_resources(uuid);
 drop function if exists public.tw4_num_recon_claim(uuid, text, integer);
 drop function if exists public.tw4_num_recon_targets(integer, integer);
 drop function if exists public.tw4_num_orphan_exposure(uuid);
