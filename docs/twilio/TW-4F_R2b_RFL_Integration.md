@@ -17,11 +17,11 @@ Registration runs in a sub-block of `tw4_num_observe`. A business refusal (for e
 
 ## 3. Lock order (tested)
 
-Two families already exist on main and are kept; this change removes the one inversion it could reach and adds none that waits.
+Two families already exist on main and are kept. `tw4_num_retire` now follows the runner family; it still inverts against `tw4_act_mark_ready`/`activate`/`suspend` (link then onboarding), exactly as `tw4_num_observe`'s mismatch branch already did on main. Postgres detects such a cycle and aborts one side, so nothing is corrupted; a clean fix needs those functions replaced and is a follow-up.
 
 - **Number-runner family** (`tw4_num_begin`, `finish`, `observe`, `resolve`, `settle_admin`, and now `retire`): onboarding row, then location link, business row, credit account, then ledger rows. Registration inside `tw4_num_observe` adds only the business row and credit account, after the onboarding row, so it keeps this order.
 - **Lifecycle family** (cancellation, authorization, charge): profile rows (dual control), location link, business row, credit account, then lifecycle rows.
-- The families cross in one place, `_tw4rfl_mark_cancelled` -> `_tw4num_on_number_cancelled`. That hook **never waits**: it takes the onboarding and ledger rows with `FOR UPDATE SKIP LOCKED`. If a runner holds them, the ledger retirement is deferred with a warning alert; rent stays held (registry cancelled, ledger live) and `tw4_num_retire` accepts the cancelled registry state as evidence.
+- The families cross in one place, `_tw4rfl_mark_cancelled` -> `_tw4num_on_number_cancelled`. That hook **never waits** and is **all or nothing**: it needs the onboarding and ledger rows (`FOR UPDATE SKIP LOCKED`), no live runner lease and no in-flight or unknown operation at the location (the guards `tw4_num_retire` has). Otherwise it defers the whole retirement with a warning alert. While deferred, rent stays held (registry cancelled, ledger live; the cancellation month Twilio billed is then not charged to the studio if the retirement happens more than a month later: DanceFlow absorbs it). The operator releases the sender row and runs `tw4_num_retire`, which accepts the cancelled registry state as its evidence. A deferral is visible as an `inventory_gap` alert only; listing deferred retirements in a read is a follow-up.
 
 ## 4. Money invariants
 

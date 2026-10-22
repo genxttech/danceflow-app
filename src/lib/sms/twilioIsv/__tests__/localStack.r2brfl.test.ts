@@ -330,6 +330,7 @@ commit;`);
       observe(w, l);
       const [res] = resourcesOf(w);
       const op = authorizeCancel(res.id, ref("cancel"));
+      replica(`update public.studio_sms_onboarding set lease_owner = null, lease_expires_at = null where id = '${l.onboarding}';`);   // the runner has finished
       call("tw4_rfl_cancel_begin", op.operation_id, P);
       call("tw4_rfl_cancel_finish", op.operation_id, P, "confirmed", digest(), null);
       expect(resourcesOf(w)[0].state).toBe("cancelled");
@@ -339,6 +340,52 @@ commit;`);
       expect(hasCode(callErr("tw4_num_retire", w.studio, P, "Released at the provider console, confirmed by the owner"), "22023")).toBe(true);
       // replaying the hook is harmless
       expect(psql(`select public._tw4num_on_number_cancelled('${w.studio}', '${l.pn}', '${op.operation_id}', '${P}')`)).toBe("");
+    });
+
+    it("the ledger retirement is all or nothing: a live runner lease, a locked onboarding row alone, or an operation in flight each DEFER it whole (no half retirement, an alert, rent held), and tw4_num_retire then finishes it", async () => {
+      const deferred = (w: World, l: Ledger) => {
+        expect(resourcesOf(w)[0].state).toBe("cancelled");
+        expect(psql(`select count(*) from public.studio_sms_num_operations where studio_id = '${w.studio}' and superseded_at is not null`)).toBe("0");
+        expect(psql(`select state from public.studio_sms_onboarding where id = '${l.onboarding}'`)).toBe("campaign_pending");
+        expect(alerts(w, "inventory_gap")).toBe(1);
+      };
+      const cancelNumber = async (w: World, l: Ledger, during?: () => Promise<unknown>) => {
+        const [res] = resourcesOf(w);
+        const op = authorizeCancel(res.id, ref("cancel-guard"));
+        call("tw4_rfl_cancel_begin", op.operation_id, P);
+        if (during) await during();
+        return psqlAsync(callSql("tw4_rfl_cancel_finish", op.operation_id, P, "confirmed", digest(), null));
+      };
+      // 1. the runner's lease is live
+      const w1 = world();
+      const l1 = ledger(w1);
+      observe(w1, l1);
+      expect((await cancelNumber(w1, l1)).err).toBe("");
+      deferred(w1, l1);
+      // the operator finishes it: the cancelled registry state is the evidence
+      replica(`update public.studio_sms_onboarding set lease_owner = null, lease_expires_at = null where id = '${l1.onboarding}';`);
+      expect(call<{ retired: string }>("tw4_num_retire", w1.studio, P, "The cancellation was confirmed with evidence in the lifecycle").retired).toBe(l1.pn);
+      // 2. the onboarding row ALONE is locked by another transaction
+      const w2 = world();
+      const l2 = ledger(w2);
+      observe(w2, l2);
+      replica(`update public.studio_sms_onboarding set lease_owner = null, lease_expires_at = null where id = '${l2.onboarding}';`);
+      const holder = psqlAsync(`begin; select 1 from public.studio_sms_onboarding where id = '${l2.onboarding}' for update; select pg_sleep(6); commit;`);
+      await new Promise((r) => setTimeout(r, 1500));
+      const started = Date.now();
+      expect((await cancelNumber(w2, l2)).err).toBe("");
+      expect(Date.now() - started).toBeLessThan(4500);
+      await holder;
+      deferred(w2, l2);
+      // 3. an attach is still in flight for the location
+      const w3 = world();
+      const l3 = ledger(w3);
+      observe(w3, l3);
+      replica(`update public.studio_sms_onboarding set lease_owner = null, lease_expires_at = null where id = '${l3.onboarding}';
+        insert into public.studio_sms_num_operations (onboarding_id, studio_id, legal_entity_id, twilio_account_sid, op_kind, attempt, submission_seq, status, e164, friendly_name, request_digest, params, fee_bearing, fee_kinds, started_by)
+        values ('${l3.onboarding}', '${w3.studio}', '${w3.entity}', '${w3.account}', 'number_attach', 1, 1, 'in_flight', '${l3.number}', 'fixture attach', '${digest()}', '{}'::jsonb, false, '{}', '${P}');`);
+      expect((await cancelNumber(w3, l3)).err).toBe("");
+      deferred(w3, l3);
     });
 
     it("an owned, unregistered number is not retired on an administrator's sentence", () => {

@@ -113,21 +113,33 @@ declare
   v_live int;
   v_number text;
   v_from_state text;
+  v_busy boolean := false;
 begin
   select count(*) into v_live from public.studio_sms_num_operations x where x.studio_id = p_studio_id and x.op_kind in ('number_purchase', 'number_attach')
      and x.status = 'succeeded' and x.superseded_at is null and x.provider_sid = p_provider_sid;
   if v_live = 0 then
     return;
   end if;
-  select array_agg(q.id), max(q.e164) into v_ops, v_number from (select x.id, x.e164 from public.studio_sms_num_operations x where x.studio_id = p_studio_id and x.op_kind in ('number_purchase', 'number_attach')
-     and x.status = 'succeeded' and x.superseded_at is null and x.provider_sid = p_provider_sid for update skip locked) q;
-  if coalesce(cardinality(v_ops), 0) < v_live then
+  -- the retirement is ALL OR NOTHING and has the same guards as tw4_num_retire: the onboarding row must be lockable without waiting, no run may hold the lease, and no
+  -- operation of the location may be in flight or unknown (it could still finish against the number being retired). Otherwise it is deferred, never half done.
+  select * into o from public.studio_sms_onboarding x where x.studio_id = p_studio_id and x.state <> 'cancelled' for update skip locked;
+  if o.id is null and exists (select 1 from public.studio_sms_onboarding x where x.studio_id = p_studio_id and x.state <> 'cancelled') then
+    v_busy := true;
+  elsif o.id is not null and o.lease_owner is not null and o.lease_expires_at > now() then
+    v_busy := true;
+  elsif exists (select 1 from public.studio_sms_num_operations x where x.studio_id = p_studio_id and x.status in ('in_flight', 'unknown_outcome') and x.superseded_at is null) then
+    v_busy := true;
+  else
+    select array_agg(q.id), max(q.e164) into v_ops, v_number from (select x.id, x.e164 from public.studio_sms_num_operations x where x.studio_id = p_studio_id and x.op_kind in ('number_purchase', 'number_attach')
+       and x.status = 'succeeded' and x.superseded_at is null and x.provider_sid = p_provider_sid for update skip locked) q;
+    v_busy := coalesce(cardinality(v_ops), 0) < v_live;
+  end if;
+  if v_busy then
     perform public._tw4rfl_alert((select es.legal_entity_id from public.studio_sms_entity_studios es where es.studio_id = p_studio_id), p_studio_id, null, 'inventory_gap', 'cancel_ledger:' || p_op, 'admin', 'warning',
-      'A phone number was cancelled at the provider while the number runner was working on it: retire it from the number ledger once the run ends (rent stays held until then).');
+      'A phone number was cancelled at the provider while the number runner was working on this location: release its sender row, then retire it from the number ledger (tw4_num_retire). Rent stays held until then.');
     return;
   end if;
   update public.studio_sms_num_operations set superseded_at = clock_timestamp() where id = any (v_ops);
-  select * into o from public.studio_sms_onboarding x where x.studio_id = p_studio_id and x.state <> 'cancelled' for update skip locked;
   if o.id is not null then
     perform public._tw4_r1_audit(o, p_actor, 'num_retired', o.state, o.state, 'number=' || v_number || ';cancelled through the recurring-fee lifecycle (operation ' || p_op || ')');
     if o.state in ('ready_for_activation', 'active', 'suspended') then
