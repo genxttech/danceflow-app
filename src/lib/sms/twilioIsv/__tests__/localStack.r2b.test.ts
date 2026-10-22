@@ -961,6 +961,30 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       expect(reservations(EC, "number")).toBe("captured:200:pilot");
       // the ConfiDance pilot never regains ceiling capacity through absence
       expect(psql(`select coalesce(public._tw4num_absence_evidence(jsonb_populate_record(null::public.studio_sms_num_operations, jsonb_build_object('id', gen_random_uuid(), 'studio_id', '${SC1}', 'legal_entity_id', '${EC}', 'twilio_account_sid', '${ACC.C}', 'e164', '+12025550142', 'started_at', now() - interval '3 hours', 'fee_bearing', true))), 'sufficient')`)).toBe("pilot_never_by_absence");
+      // a pilot purchase whose outcome cannot be proven has ONE exit, FORFEIT: it closes the operation and frees the selection but returns no ceiling capacity (the whole thing is rolled back here)
+      const forfeit = psqlError(`do $$ declare v_op uuid; v_before text; v_after text; r record; st text; begin
+        select id into v_op from public.studio_sms_num_operations where studio_id = '${SC1}' and op_kind = 'number_purchase' and status = 'succeeded' and superseded_at is null limit 1;
+        set local session_replication_role = replica;
+        update public.studio_sms_num_operations set status = 'unknown_outcome', started_at = now() - interval '3 hours', finished_at = null where id = v_op;
+        set local session_replication_role = origin;
+        select string_agg(status, ',' order by id) into v_before from public.studio_sms_credit_reservations where legal_entity_id = '${EC}' and kind = 'number';
+        begin
+          perform public.tw4_num_resolve(v_op, '${U.padmin}', 'not_created', null, 'checked the console: no such number');
+          raise exception 'forfeit-test-failed: absence released a pilot fee';
+        exception when sqlstate 'TW050' then null; end;
+        begin
+          perform public.tw4_num_resolve(v_op, '${U.stranger}', 'forfeit', null, 'abandoning the lost pilot purchase');
+          raise exception 'forfeit-test-failed: a non-admin forfeited';
+        exception when insufficient_privilege then null; end;
+        perform public.tw4_num_resolve(v_op, '${U.padmin}', 'forfeit', null, 'abandoning the lost pilot purchase');
+        select string_agg(status, ',' order by id) into v_after from public.studio_sms_credit_reservations where legal_entity_id = '${EC}' and kind = 'number';
+        select status into st from public.studio_sms_num_operations where id = v_op;
+        if st <> 'abandoned' then raise exception 'forfeit-test-failed: op %', st; end if;
+        if v_before is distinct from v_after then raise exception 'forfeit-test-failed: reservations changed % -> %', v_before, v_after; end if;
+        raise exception 'forfeit-test-ok';
+      end $$;`);
+      expect(forfeit).toContain("forfeit-test-ok");
+      expect(psqlError(`do $$ begin perform public.tw4_num_resolve('00000000-0000-4000-8000-000000000000', '${U.padmin}', 'forfeit', null, 'abandoning a non-pilot operation'); end $$;`)).toContain("unknown operation");
     });
 
     it("the cumulative ceiling is enforced: nothing is reserved when the number would exceed it", async () => {
