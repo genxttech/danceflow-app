@@ -1,5 +1,5 @@
 import { IsvApiError } from "./types";
-import type { AvailableNumber, CampaignComplianceFacts, IsvNumberAdapter, OwnedNumberFacts, ServiceNumbersFacts, ServiceRouteFacts } from "./numberTypes";
+import type { AvailableNumber, CampaignComplianceFacts, CreationHistoryFacts, IsvNumberAdapter, OwnedNumberFacts, ServiceNumbersFacts, ServiceRouteFacts } from "./numberTypes";
 
 /**
  * TW-4F R2b: an in-memory Twilio stand-in for phone-number provisioning. The ONLY implementation used by tests and non-production environments. Like Twilio:
@@ -20,6 +20,8 @@ type ServiceRow = { sid: string; account_sid: string; inbound_request_url: strin
 /** The numbers every fake account shares (one number, one owner) and the catalogue of numbers a search can return. */
 export class FakeNumberUniverse {
   readonly owned = new Map<string, OwnedRow>();
+  /** Every number ever created in an account, deleted or not (what a provider's creation history would show). */
+  readonly createdLog: { account_sid: string; e164: string; at: number }[] = [];
   readonly catalogue: AvailableNumber[] = [];
 }
 
@@ -78,6 +80,7 @@ export class FakeNumberAdapter implements IsvNumberAdapter {
   seedOwned(e164: string, over: Partial<OwnedRow> = {}): string {
     const sid = this.sid("PN");
     this.universe.owned.set(sid, { sid, account_sid: this.accountSid, phone_number: e164, sms_capable: true, ...over });
+    this.universe.createdLog.push({ account_sid: this.accountSid, e164, at: Date.now() });
     return sid;
   }
 
@@ -132,8 +135,22 @@ export class FakeNumberAdapter implements IsvNumberAdapter {
       if (!this.universe.catalogue.some((row) => row.e164 === input.e164)) throw new IsvApiError("validation", 400, "21452", "fake: number not available");
       const sid = this.sid("PN");
       this.universe.owned.set(sid, { sid, account_sid: this.accountSid, phone_number: input.e164, sms_capable: true });
+      this.universe.createdLog.push({ account_sid: this.accountSid, e164: input.e164, at: Date.now() });
       return sid;
     });
+  }
+
+  /** test seam: the history is truncated / has a retention gap */
+  historyComplete = true;
+
+  async readCreationHistory(since: Date): Promise<CreationHistoryFacts> {
+    return this.guarded("readCreationHistory", { since: since.toISOString() }, () => ({
+      account_sid: this.accountSid,
+      window_start: since.toISOString(),
+      window_end: new Date().toISOString(),
+      complete: this.historyComplete,
+      created_e164: this.universe.createdLog.filter((row) => row.account_sid === this.accountSid && row.at >= since.getTime()).map((row) => row.e164),
+    }));
   }
 
   async getNumber(sid: string): Promise<OwnedNumberFacts> {
