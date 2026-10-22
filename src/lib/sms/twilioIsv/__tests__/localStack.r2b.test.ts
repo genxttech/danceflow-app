@@ -22,7 +22,7 @@ import { FakeSenderReadProvider } from "../../senderVerification";
 import { SupabaseCreditStore } from "../creditStore";
 import { FakeNumberAdapter, FakeNumberHub } from "../fakeNumbers";
 import { SupabaseNumberStore } from "../numberStore";
-import { observeNumberIdentity, offerNumbers, refreshInventory, refreshNumber, runNumberAcquisition } from "../numberRunner";
+import { observeCreationHistory, observeNumberIdentity, offerNumbers, refreshInventory, refreshNumber, runNumberAcquisition } from "../numberRunner";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -108,6 +108,7 @@ do $$ begin
   end if;
 end $$;
 delete from public.studio_sms_inbound_route_pins where set_by = '${U.padmin}';
+delete from public.studio_sms_num_history_reads where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_num_identity_reads where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_num_inventory_checks where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_num_inventory_acks where legal_entity_id in (${ENTITIES});
@@ -238,7 +239,9 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
     return result;
   };
   const offer = async (studio: string, adapter: FakeNumberAdapter) => {
-    const result = await offerNumbers({ store, adapter, studioId: studio, actorId: U.padmin });
+    let result = await offerNumbers({ store, adapter, studioId: studio, actorId: U.padmin });
+    // a freshly started PostgREST pool can fail its first requests (a transport error, nothing recorded): one retry of the FREE search, never of a purchase
+    if (result.outcome === "exception" && !result.offer) result = await offerNumbers({ store, adapter, studioId: studio, actorId: U.padmin });
     if (process.env.R2B_DEBUG) console.log("offer", studio.slice(-2), JSON.stringify(result));
     return result;
   };
@@ -275,6 +278,15 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
   const reserved = (entity: string) => Number(psql(`select coalesce((select reserved_cents from public.studio_sms_credit_accounts where legal_entity_id = '${entity}'), 0)`));
   const reservations = (entity: string, kind: string) => psql(`select string_agg(status || ':' || amount_cents || ':' || funding, ',' order by created_at) from public.studio_sms_credit_reservations where legal_entity_id = '${entity}' and kind = '${kind}'`);
   const noRunnerWork = (a: FakeNumberAdapter) => expect(a.count("purchaseNumber") + a.count("attachNumber")).toBe(0);
+
+  /** two complete, clean, independent provider listings 15 minutes apart (the first is back-dated; the strict evidence policy needs both) */
+  const twoListings = async (studio: string, adapter: FakeNumberAdapter, entity: string) => {
+    expect(await refreshInventory({ store, adapter, studioId: studio, actorId: U.padmin })).toMatchObject({ outcome: "inventory_clean" });
+    aged(`update public.studio_sms_num_inventory_checks set listed_at = listed_at - interval '15 minutes', created_at = created_at - interval '15 minutes' where id = (select id from public.studio_sms_num_inventory_checks where legal_entity_id = '${entity}' order by listed_at desc limit 1)`);
+    expect(await refreshInventory({ store, adapter, studioId: studio, actorId: U.padmin })).toMatchObject({ outcome: "inventory_clean" });
+  };
+  /** the provider's creation history for the last five hours */
+  const history = (studio: string, adapter: FakeNumberAdapter) => observeCreationHistory({ store, adapter, studioId: studio, actorId: U.padmin, since: new Date(Date.now() - 5 * 3_600_000) });
 
   beforeAll(async () => {
     expect(psql(`select to_regclass('public.studio_sms_num_operations') is not null`)).toBe("t");
@@ -649,31 +661,55 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       // an administrator's word is not evidence: without a clean provider listing taken AFTER the attempt nothing is declared not created and nothing is released
       const absence = () => psql(`select coalesce(public._tw4num_absence_evidence(o), 'sufficient') from public.studio_sms_num_operations o where o.id = '${op}'`);
       const declare = () => rpc("tw4_num_resolve", { p_operation_id: op, p_actor: U.padmin, p_resolution: "not_created", p_provider_sid: null, p_note: "checked the console: no such number" });
-      // (the attempt was back-dated 30 minutes above: the listings the earlier runs stamped are removed so that none looks post-attempt)
-      aged(`delete from public.studio_sms_num_inventory_checks where legal_entity_id = '${ED}'`);
-      expect((await declare()).error?.code).toBe("TW047");
+      // the attempt is back-dated three hours; the listings the earlier runs stamped are removed so that none looks post-attempt
+      aged(`update public.studio_sms_num_operations set started_at = now() - interval '3 hours' where id = '${op}'; delete from public.studio_sms_num_inventory_checks where legal_entity_id = '${ED}'`);
+      expect((await declare()).error?.code).toBe("TW050");
       expect(absence()).toBe("no_inventory_check");
       expect(psql(`select status from public.studio_sms_num_operations where id = '${op}'`)).toBe("unknown_outcome");
       // a listing that shows a number the system does not account for is not clean evidence either
       const stray = d.seedOwned("+12025550177");
       expect(await refreshInventory({ store, adapter: d, studioId: SD1, actorId: U.padmin })).toMatchObject({ outcome: "inventory_unknown" });
       expect(absence()).toBe("listing_shows_unknown_numbers");
-      expect((await declare()).error?.code).toBe("TW047");
+      expect((await declare()).error?.code).toBe("TW050");
       d.universe.owned.delete(stray);
+      // ONE clean listing is not enough
       expect(await refreshInventory({ store, adapter: d, studioId: SD1, actorId: U.padmin })).toMatchObject({ outcome: "inventory_clean" });
+      expect(absence()).toBe("second_independent_listing_required");
+      // two listings 15 minutes apart, but the provider's creation history was never read: absence from inventory alone never proves a purchase did not happen
+      aged(`delete from public.studio_sms_num_inventory_checks where legal_entity_id = '${ED}'`);
+      await twoListings(SD1, d, ED);
+      expect(absence()).toBe("creation_history_unavailable");
+      // an INCOMPLETE history proves nothing
+      d.historyComplete = false;
+      expect((await history(SD1, d)).outcome).toBe("history_recorded");
+      d.historyComplete = true;
+      expect(absence()).toBe("creation_history_unavailable");
+      // a number bought and DELETED again appears in no listing but in the provider's history
+      d.universe.createdLog.push({ account_sid: ACC.D, e164: NUM.d2, at: Date.now() - 3_600_000 });
+      expect((await history(SD1, d)).outcome).toBe("history_recorded");
+      expect(absence()).toBe("provider_history_shows_creation");
+      expect((await declare()).error?.code).toBe("TW050");
+      // (the fixture history is replaced by one that shows no creation)
+      d.universe.createdLog.splice(0, d.universe.createdLog.length, ...d.universe.createdLog.filter((row) => !(row.account_sid === ACC.D && row.e164 === NUM.d2)));
+      aged(`delete from public.studio_sms_num_history_reads where legal_entity_id = '${ED}'`);
+      expect((await history(SD1, d)).outcome).toBe("history_recorded");
       expect(absence()).toBe("sufficient");
-      // a stale clean listing is not enough
-      aged(`update public.studio_sms_num_operations set started_at = now() - interval '90 minutes' where id = '${op}'; update public.studio_sms_num_inventory_checks set listed_at = now() - interval '40 minutes' where legal_entity_id = '${ED}'`);
+      // a stale latest listing is not enough (at most 60 minutes old)
+      aged(`update public.studio_sms_num_inventory_checks set listed_at = listed_at - interval '70 minutes', created_at = created_at - interval '70 minutes' where legal_entity_id = '${ED}'`);
       expect(absence()).toBe("listing_is_stale");
-      expect(await refreshInventory({ store, adapter: d, studioId: SD1, actorId: U.padmin })).toMatchObject({ outcome: "inventory_clean" });
+      aged(`delete from public.studio_sms_num_inventory_checks where legal_entity_id = '${ED}'`);
+      await twoListings(SD1, d, ED);
+      expect((await history(SD1, d)).outcome).toBe("history_recorded");
       // a provider-read identity of THIS e164 after the attempt contradicts "not created"
       const seen = d.seedOwned(NUM.d2);
       expect((await observeNumberIdentity({ store, adapter: d, studioId: SD1, actorId: U.padmin, phoneNumberSid: seen })).outcome).toBe("identity_recorded");
       expect(absence()).toBe("the_number_is_present_at_the_provider");
-      expect((await declare()).error?.code).toBe("TW047");
+      expect((await declare()).error?.code).toBe("TW050");
       d.universe.owned.delete(seen);
-      aged(`delete from public.studio_sms_num_identity_reads where legal_entity_id = '${ED}'`);
-      expect(await refreshInventory({ store, adapter: d, studioId: SD1, actorId: U.padmin })).toMatchObject({ outcome: "inventory_clean" });
+      d.universe.createdLog.splice(0, d.universe.createdLog.length, ...d.universe.createdLog.filter((row) => !(row.account_sid === ACC.D && row.e164 === NUM.d2)));
+      aged(`delete from public.studio_sms_num_identity_reads where legal_entity_id = '${ED}'; delete from public.studio_sms_num_history_reads where legal_entity_id = '${ED}'; delete from public.studio_sms_num_inventory_checks where legal_entity_id = '${ED}'`);
+      await twoListings(SD1, d, ED);
+      expect((await history(SD1, d)).outcome).toBe("history_recorded");
       expect((await declare()).error).toBeNull();
       expect(ops(SD1, "number_purchase")).toMatch(/2:abandoned:false$/);
       // the abandoned attempt frees the number for a NEW approval (the consumed approval itself is never reused)
@@ -768,14 +804,16 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
     it("absence evidence is refused when the listing shows the operation's own sid, or a number was typed in elsewhere since the attempt", async () => {
       const b = adapterOf(ACC.B);
       const stray = b.seedOwned("+12025550141");
-      aged(`insert into public.studio_sms_num_inventory_acks (legal_entity_id, twilio_account_sid, phone_number_sid, e164, acked_by, note) values ('${EB}', '${ACC.B}', '${stray}', '+12025550141', '${U.padmin}', 'fixture: foreign number'); update public.studio_sms_num_inventory_acks set created_at = now() - interval '1 hour' where legal_entity_id = '${EB}'`);
-      expect(await refreshInventory({ store, adapter: b, studioId: SB1, actorId: U.padmin })).toMatchObject({ outcome: "inventory_clean" });
+      aged(`insert into public.studio_sms_num_inventory_acks (legal_entity_id, twilio_account_sid, phone_number_sid, e164, acked_by, note) values ('${EB}', '${ACC.B}', '${stray}', '+12025550141', '${U.padmin}', 'fixture: foreign number'); update public.studio_sms_num_inventory_acks set created_at = now() - interval '5 hours' where legal_entity_id = '${EB}'`);
+      await twoListings(SB1, b, EB);
+      expect((await history(SB1, b)).outcome).toBe("history_recorded");
       const synthetic = (over: Record<string, unknown>) => psql(`select coalesce(public._tw4num_absence_evidence(jsonb_populate_record(null::public.studio_sms_num_operations,
-        jsonb_build_object('id', gen_random_uuid(), 'studio_id', '${SB1}', 'legal_entity_id', '${EB}', 'twilio_account_sid', '${ACC.B}', 'e164', '+12025550142', 'started_at', now() - interval '10 minutes') || '${JSON.stringify(over)}'::jsonb)), 'sufficient')`);
+        jsonb_build_object('id', gen_random_uuid(), 'studio_id', '${SB1}', 'legal_entity_id', '${EB}', 'twilio_account_sid', '${ACC.B}', 'e164', '+12025550142', 'started_at', now() - interval '3 hours', 'fee_bearing', false) || '${JSON.stringify(over)}'::jsonb)), 'sufficient')`);
       expect(synthetic({})).toBe("sufficient");
       // the listing SHOWS the sid the operation recorded (a recorded sid is known, so the unknown count alone would call it clean)
       expect(synthetic({ provider_sid: stray })).toBe("the_number_is_in_the_listing");
-      expect(synthetic({ provider_sid: stray.toLowerCase().replace("pn", "PN") })).toBe("the_number_is_in_the_listing");
+      // sids are compared exactly as the provider issues them (lowercase hex); a non-canonical sid is rejected where it enters, never case-folded
+      expect((await rpc("tw4_num_inventory_ack", { p_studio_id: SB1, p_actor: U.padmin, p_phone_number_sid: `PN${"A".repeat(32)}`, p_note: "bought by hand before the system" })).error?.code).toBe("22023");
       // a sender typed in for the business since the attempt, not backed by a ledger purchase
       const typed = `PN${"3".repeat(32)}`;
       aged(`insert into public.studio_sms_billed_senders (id, legal_entity_id, studio_id, account_sid, messaging_service_sid, sender_e164, status, set_by, reason, campaign_sid, phone_number_sid, created_at)
@@ -788,7 +826,7 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       // an acknowledgement made since the attempt
       aged(`update public.studio_sms_num_inventory_acks set created_at = now() - interval '5 minutes' where legal_entity_id = '${EB}'`);
       expect(synthetic({})).toBe("a_number_was_recorded_since_the_attempt");
-      aged(`update public.studio_sms_num_inventory_acks set created_at = now() - interval '1 hour' where legal_entity_id = '${EB}'`);
+      aged(`update public.studio_sms_num_inventory_acks set created_at = now() - interval '5 hours' where legal_entity_id = '${EB}'`);
       expect(synthetic({})).toBe("sufficient");
     });
 
@@ -921,6 +959,8 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       // the fee of a provider-confirmed number cannot be released by an administrator, and the ceiling headroom does not return
       expect((await rpc("tw4_num_settle_admin", { p_operation_id: opId(SC1, "number_purchase", 1), p_actor: U.padmin, p_outcome: "released", p_note: "trying to release a confirmed number" })).error).not.toBeNull();
       expect(reservations(EC, "number")).toBe("captured:200:pilot");
+      // the ConfiDance pilot never regains ceiling capacity through absence
+      expect(psql(`select coalesce(public._tw4num_absence_evidence(jsonb_populate_record(null::public.studio_sms_num_operations, jsonb_build_object('id', gen_random_uuid(), 'studio_id', '${SC1}', 'legal_entity_id', '${EC}', 'twilio_account_sid', '${ACC.C}', 'e164', '+12025550142', 'started_at', now() - interval '3 hours', 'fee_bearing', true))), 'sufficient')`)).toBe("pilot_never_by_absence");
     });
 
     it("the cumulative ceiling is enforced: nothing is reserved when the number would exceed it", async () => {

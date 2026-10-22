@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FakeNumberAdapter } from "../fakeNumbers";
-import { numberFriendlyName, observeNumberIdentity, offerNumbers, refreshNumber, runNumberAcquisition, type NumberInput } from "../numberRunner";
+import { numberFriendlyName, observeCreationHistory, observeNumberIdentity, offerNumbers, refreshNumber, runNumberAcquisition, type NumberInput } from "../numberRunner";
 import type { NumBeginArgs, NumBeginResult, NumContext, NumFinishOutcome, NumObserveResult, NumberStore, OfferRecorded } from "../numberStore";
 import { RunnerStoreError } from "../store";
 import type { IsvNumberAdapter } from "../numberTypes";
@@ -67,6 +67,12 @@ class ScriptedStore implements NumberStore {
     return to;
   }
   inventories: string[][] = [];
+  histories: { facts: Record<string, unknown>; source: string; digest: string }[] = [];
+  async historyObserve(_o: string, _l: string, facts: Record<string, unknown>, source: string, digest: string) {
+    this.log.push("history");
+    this.histories.push({ facts, source, digest });
+    return { created: 0, complete: facts.complete === true };
+  }
   identities: { facts: Record<string, unknown>; source: string; digest: string }[] = [];
   async identityObserve(_o: string, _l: string, facts: Record<string, unknown>, source: string, digest: string) {
     this.log.push("identity");
@@ -415,6 +421,22 @@ describe("number search and status check", () => {
     expect(store2.log).not.toContain("begin:number_purchase");
     const none = await refreshNumber({ store: new ScriptedStore(), adapter, studioId: STUDIO, actorId: "a", envName: "test" });
     expect(none.outcome).toBe("nothing_to_check");
+  });
+
+  it("R2b-P1: the creation history is read through the adapter when it can guarantee one, and an adapter that cannot (the real one) records nothing", async () => {
+    const store = new ScriptedStore();
+    const adapter = world();
+    adapter.universe.createdLog.push({ account_sid: ACC, e164: "+12025550142", at: Date.now() - 60_000 });
+    const ok = await observeCreationHistory({ store, adapter, studioId: STUDIO, actorId: "a", since: new Date(Date.now() - 3_600_000) });
+    expect(ok.outcome).toBe("history_recorded");
+    expect(store.histories[0]).toMatchObject({ source: adapter.evidenceSource, facts: { account_sid: ACC, complete: true, created_e164: ["+12025550142"] } });
+    expect(store.histories[0].digest).toMatch(/^[0-9a-f]{64}$/);
+    // an adapter without the method (the real adapter is not verified against the provider): nothing is read, nothing recorded
+    const bare = world() as unknown as { readCreationHistory?: unknown };
+    bare.readCreationHistory = undefined;
+    const refused = new ScriptedStore();
+    expect((await observeCreationHistory({ store: refused, adapter: bare as never, studioId: STUDIO, actorId: "a", since: new Date() })).outcome).toBe("history_unavailable");
+    expect(refused.histories).toHaveLength(0);
   });
 
   it("R2b-P1: an identity read records the PROVIDER's facts under the adapter's evidence source, and never reads a number for another account", async () => {

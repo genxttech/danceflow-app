@@ -53,6 +53,8 @@ export type NumberOutcome =
   | "search_refused"
   | "inventory_clean"
   | "identity_recorded"
+  | "history_recorded"
+  | "history_unavailable"
   | "inventory_unknown"
   | "nothing_to_check";
 
@@ -568,6 +570,47 @@ export async function observeNumberIdentity(input: { store: NumberStore; adapter
       return { outcome: "identity_recorded", steps, state: claim.state };
     } catch (error) {
       return { outcome: "exception", steps, detail: `identity_record:${storeCode(error)}`, state: claim.state };
+    }
+  } finally {
+    try {
+      await store.release(claim.onboarding_id, leaseOwner);
+    } catch {
+      /* the lease expires by itself */
+    }
+  }
+}
+
+/**
+ * R2b-P1: read the PROVIDER's number-creation history for a window (FREE, read-only). A purchased-and-deleted number appears in no listing, so listings alone never prove a purchase did
+ * not happen; this history does. An adapter that cannot guarantee a complete answer (the real adapter, until it is verified) has no such method: the outcome is
+ * `history_unavailable` and absence-based non-creation resolution stays blocked.
+ */
+export async function observeCreationHistory(input: { store: NumberStore; adapter: IsvNumberAdapter; studioId: string; actorId: string; since: Date }): Promise<NumberResult> {
+  const { store, adapter, studioId, actorId } = input;
+  const steps: NumKind[] = [];
+  if (typeof adapter.readCreationHistory !== "function") return { outcome: "history_unavailable", steps, detail: "adapter_cannot_read_history" };
+  const leaseOwner = `num-hist-${randomUUID().slice(0, 8)}`;
+  let claim;
+  try {
+    claim = await store.claim(studioId, actorId, leaseOwner, 120, "refresh");
+  } catch (error) {
+    const code = storeCode(error);
+    return { outcome: code === "55P03" ? "lease_busy" : "not_runnable", steps, detail: code };
+  }
+  try {
+    const refused = await accountRefusal(store, adapter, claim.onboarding_id, leaseOwner, claim.state);
+    if (refused) return refused;
+    let facts;
+    try {
+      facts = { ...(await adapter.readCreationHistory(input.since)) };
+    } catch (error) {
+      return { outcome: "retry_later", steps, detail: `history:${sanitized(error)}`, state: claim.state };
+    }
+    try {
+      await store.historyObserve(claim.onboarding_id, leaseOwner, facts, adapter.evidenceSource, requestDigest(facts));
+      return { outcome: "history_recorded", steps, state: claim.state };
+    } catch (error) {
+      return { outcome: "exception", steps, detail: `history_record:${storeCode(error)}`, state: claim.state };
     }
   } finally {
     try {

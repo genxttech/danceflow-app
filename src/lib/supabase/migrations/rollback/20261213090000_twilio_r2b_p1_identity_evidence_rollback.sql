@@ -8,14 +8,28 @@ begin
   if to_regclass('public.studio_sms_num_identity_reads') is null then
     raise exception 'R2b-P1 rollback: not applied';
   end if;
-  if exists (select 1 from public.studio_sms_num_identity_reads) or exists (select 1 from public.studio_sms_onboarding_audit where action in ('num_identity_read', 'num_acknowledged')) then
+  if exists (select 1 from public.studio_sms_num_identity_reads) or exists (select 1 from public.studio_sms_num_history_reads) or exists (select 1 from public.studio_sms_onboarding_audit where action in ('num_identity_read', 'num_acknowledged', 'num_history_read')) then
     raise exception 'R2b-P1 rollback refused: provider identity evidence exists' using errcode = '55000';
   end if;
 end $$;
 
+do $$
+begin
+  -- the functions this migration installed must still be exactly its own (a later slice must not be clobbered by restoring the R2b bodies)
+  if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_num_resolve(uuid,uuid,text,text,text)'::regprocedure), E'\r', '')) <> '3de1f7d00bf3c360e3865db4001ef206'
+     or md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_num_settle_admin(uuid,uuid,text,text)'::regprocedure), E'\r', '')) <> '3ebdaaec7140edaea10574949ff0f617'
+     or md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_num_inventory_ack(uuid,uuid,text,text)'::regprocedure), E'\r', '')) <> 'd7f51e9ad0bc459af032f76d2f4c0567'
+     or md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_num_inventory_observe(uuid,text,text[],text,timestamptz)'::regprocedure), E'\r', '')) <> '06e228b7c2930a873f01c0da06bc29a5'
+     or md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_num_claim(uuid,uuid,text,integer,text)'::regprocedure), E'\r', '')) <> 'dd5c70241985be75bc17f0d96ea824a4' then
+    raise exception 'R2b-P1 rollback refused: a function it installed has been changed since (fingerprint)' using errcode = '55000';
+  end if;
+end $$;
+
+drop function if exists public.tw4_num_history_observe(uuid, text, jsonb, text, text);
 drop function if exists public.tw4_num_identity_observe(uuid, text, jsonb, text, text);
 drop function if exists public.tw4_num_inventory_ack(uuid, uuid, text, text);
 drop function if exists public._tw4num_absence_evidence(public.studio_sms_num_operations);
+drop table public.studio_sms_num_history_reads;
 drop table public.studio_sms_num_identity_reads;
 alter table public.studio_sms_num_inventory_checks drop column listed_sids;
 drop function if exists public._tw4p1_guard();
@@ -226,7 +240,7 @@ declare
   v_actions text[];
 begin
   select pg_get_constraintdef(c.oid) into v_def from pg_constraint c where c.conrelid = 'public.studio_sms_onboarding_audit'::regclass and c.conname = 'studio_sms_onboarding_audit_action_check';
-  select array_agg(distinct m[1] order by m[1]) into v_actions from regexp_matches(substring(v_def from 'ANY \((.*)\)'), '([a-z][a-z0-9_]*)', 'g') m where m[1] not in ('text', 'num_identity_read', 'num_acknowledged');
+  select array_agg(distinct m[1] order by m[1]) into v_actions from regexp_matches(substring(v_def from 'ANY \((.*)\)'), '([a-z][a-z0-9_]*)', 'g') m where m[1] not in ('text', 'num_identity_read', 'num_acknowledged', 'num_history_read');
   if v_actions is null or cardinality(v_actions) < 10 then
     raise exception 'could not read the audit actions from %', v_def;
   end if;
