@@ -1049,6 +1049,61 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
         end $$; rollback;`)).toBe("");
     });
 
+    it("final P2: 'it is gone' needs two clean listings of the orphan's own scope, but a later sighting in ANY scope of the same business and subaccount keeps it open; other subaccounts/businesses, old or pre-discovery sightings change nothing", () => {
+      const op = lastCampaign();
+      const ms = msSid(SD1);
+      const X = `QE${"d".repeat(32)}`;
+      const OTHERACC = `AC${"d".repeat(32)}`;
+      type L = { scope?: string; mins: number; shows?: boolean };
+      /** Builds the orphan (discovered `disc` minutes ago) with the given listings and returns what _tw4prov2_orphan_gone says. `after` runs inside the replica block. */
+      const gone = (listings: L[], disc = 80, after = "") => {
+        const rows = listings.map((l) => listingSql(op, l.scope ?? ms, l.mins, l.shows ? "present" : "absent", l.shows ? [X] : [])).join(" ");
+        const out = psqlError(`begin; set local session_replication_role = replica; ${wipe}
+          ${listingSql(op, ms, disc + 5, "present", [X])}
+          insert into public.studio_sms_prov_orphans (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, scope_sid, first_listing_id, source_operation_id, discovered_at)
+            select o.legal_entity_id, o.studio_id, o.twilio_account_sid, 'campaign', '${X}', '${ms}', (select id from public.studio_sms_prov_listings where studio_id = '${SD1}' limit 1), o.id, now() - interval '${disc} minutes'
+              from public.studio_sms_prov_operations o where o.id = '${op}';
+          ${rows} ${after}
+          set local session_replication_role = origin;
+          do $$ begin raise exception 'GONE=%', public._tw4prov2_orphan_gone((select id from public.studio_sms_prov_orphans where provider_sid = '${X}')); end $$; rollback;`);
+        return /GONE=(true|false)/.exec(out)?.[1] ?? `unexpected: ${out}`;
+      };
+      const clean: L[] = [{ mins: 40 }, { mins: 20 }];
+      expect(gone(clean)).toBe("true");
+      // a resource that reappears under ANOTHER Messaging Service of the same subaccount keeps the orphan open
+      expect(gone([...clean, { scope: NEWMS, mins: 5, shows: true }])).toBe("false");
+      // ... and so does one that reappears in the orphan's own scope
+      expect(gone([...clean, { mins: 5, shows: true }])).toBe("false");
+      // the same SID in ANOTHER subaccount, or another business, does not contaminate the decision
+      const fix = `update public.studio_sms_prov_listings set twilio_account_sid = '${OTHERACC}' where studio_id = '${SD1}' and listed_sids @> array['${X}']::text[] and observed_at > now() - interval '10 minutes';`;
+      expect(gone([...clean, { scope: NEWMS, mins: 5, shows: true }], 80, fix)).toBe("true");
+      const fixBiz = `update public.studio_sms_prov_listings set legal_entity_id = gen_random_uuid() where studio_id = '${SD1}' and listed_sids @> array['${X}']::text[] and observed_at > now() - interval '10 minutes';`;
+      expect(gone([...clean, { scope: NEWMS, mins: 5, shows: true }], 80, fixBiz)).toBe("true");
+      // stale or irrelevant observations: a sighting before the orphan was found, or older than the clean reads, neither blocks nor is needed
+      expect(gone([{ scope: NEWMS, mins: 100, shows: true }, ...clean])).toBe("true");
+      expect(gone([{ scope: NEWMS, mins: 60, shows: true }, ...clean])).toBe("true");
+      // clean reads that predate the orphan do not count, nor do reads that are no longer fresh (the latest must be within 60 minutes)
+      expect(gone([{ mins: 100 }, { mins: 90 }])).toBe("false");
+      expect(gone([{ mins: 130 }, { mins: 100 }], 150)).toBe("false");
+      // the two-read requirements stay intact: one read, two reads closer than 10 minutes, or clean reads of a DIFFERENT scope do not close it
+      expect(gone([{ mins: 20 }])).toBe("false");
+      expect(gone([{ mins: 15 }, { mins: 8 }])).toBe("false");
+      expect(gone([{ scope: NEWMS, mins: 40 }, { scope: NEWMS, mins: 20 }])).toBe("false");
+      // an inconclusive (incomplete) read never counts as clean
+      expect(gone([{ mins: 40 }, { mins: 20 }], 80, `update public.studio_sms_prov_listings set complete = false, verdict = 'inconclusive' where studio_id = '${SD1}' and observed_at > now() - interval '30 minutes' and not (listed_sids @> array['${X}']::text[]);`)).toBe("false");
+    });
+
+    it("final P2: an operation with no recorded historical scope cannot be proven absent (fails closed), even with two clean aged listings", () => {
+      const op = lastCampaign();
+      const original = msSid(SD1);
+      const sql = (strip: string) => `begin; set local session_replication_role = replica; ${wipe} update public.studio_sms_prov_operations set started_at = now() - interval '3 hours' ${strip} where id = '${op}';
+        ${listingSql(op, original, 50, "absent", [])} ${listingSql(op, original, 20, "absent", [])} set local session_replication_role = origin;
+        do $$ begin raise exception 'REASON=%', public._tw4prov2_proof('${op}') ->> 'reason'; end $$; rollback;`;
+      expect(psqlError(sql(""))).toMatch(/REASON=verified_absence/);
+      expect(psqlError(sql(", params = params - 'messaging_service_sid'"))).toMatch(/REASON=scope_changed/);
+      expect(psqlError(sql(", params = jsonb_set(params, '{messaging_service_sid}', '\"not-a-service\"')"))).toMatch(/REASON=scope_changed/);
+    });
+
     it("the new evidence tables have row-level security enabled (no policies: no API role can read them)", () => {
       expect(psql(`select string_agg(relname || ':' || relrowsecurity::text, ',' order by relname) from pg_class where relname in ('studio_sms_prov_listings', 'studio_sms_prov_orphans', 'studio_sms_prov_dispositions')`))
         .toBe("studio_sms_prov_dispositions:true,studio_sms_prov_listings:true,studio_sms_prov_orphans:true");

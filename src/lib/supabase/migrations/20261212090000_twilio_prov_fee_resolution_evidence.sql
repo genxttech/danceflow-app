@@ -712,7 +712,9 @@ begin
     from public.studio_sms_prov_listings l
    where l.studio_id = x.studio_id and l.scope_sid = x.scope_sid and l.twilio_account_sid = x.twilio_account_sid and l.complete and l.observed_at > x.discovered_at and l.read_started_at > x.discovered_at
      and (l.source = 'provider_read' or public._tw4sr_fake_allowed()) and x.provider_sid <> all (l.listed_sids)
-     and not exists (select 1 from public.studio_sms_prov_listings m where m.studio_id = l.studio_id and m.scope_sid = l.scope_sid and m.observed_at > x.discovered_at
+     -- the clean listings must be of the orphan's own scope (a listing of another service says nothing about it), but a later sighting in ANY scope of the same business and
+     -- subaccount (a campaign is bound to one service, yet the database does not rely on that) means it is not gone; never another subaccount or business
+     and not exists (select 1 from public.studio_sms_prov_listings m where m.legal_entity_id = x.legal_entity_id and m.twilio_account_sid = x.twilio_account_sid and m.observed_at > x.discovered_at
                       and m.observed_at >= l.observed_at and x.provider_sid = any (m.listed_sids));
   return coalesce(v_n, 0) >= 2 and v_last >= clock_timestamp() - interval '60 minutes' and v_last - v_first >= interval '10 minutes' and v_last_start > v_first;
 end $$;
