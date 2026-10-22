@@ -46,6 +46,9 @@ begin
   if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = 'public.tw4_rfl_cancel_authorize(uuid,uuid,text,text,text,boolean)'::regprocedure) is distinct from '2f745cd5cd6c79183a34b087883a1075' then
     raise exception 'rfl-ops precondition failed: tw4_rfl_cancel_authorize differs from 20261209090000';
   end if;
+  if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = 'public._tw4rfl_guard()'::regprocedure) is distinct from '5f196af7bd55e854390aaf9102d7aecc' then
+    raise exception 'rfl-ops precondition failed: _tw4rfl_guard differs from 20261209090000';
+  end if;
   if to_regprocedure('public.tw4_rfl_admin_overview(uuid)') is null
      or (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = 'public.tw4_rfl_admin_overview(uuid)'::regprocedure) is distinct from 'd57e583acdb138d11bc57b36e9b0d2e0' then
     raise exception 'rfl-ops precondition failed: tw4_rfl_admin_overview differs from 20261209090000';
@@ -643,7 +646,9 @@ declare
   v_now timestamptz;
   v_id uuid;
 begin
-  perform public._tw4c_admin(p_actor);
+  -- lock order: the requester's profile row FIRST (it conflicts with a demotion's update), then the checks and the location / business / account locks
+  perform 1 from public.profiles pr where pr.id = p_actor for share;
+  perform public._tw4c_admin(p_actor);   -- standing re-checked under the lock
   if p_action is null or p_action not in ('absorb_exposure', 'cancel_number') or p_reason is null or char_length(btrim(p_reason)) not between 10 and 500 then
     raise exception 'a dual-control request needs an action (absorb_exposure | cancel_number) and a written reason of 10 to 500 characters' using errcode = '22023';
   end if;
@@ -734,11 +739,18 @@ declare
   r public.studio_sms_provider_resources;
   v_hash text;
 begin
+  -- an unlocked read learns the parties; their profile rows are share-locked FIRST (in id order) and the standing of the approver is checked after the lock, so a demotion
+  -- either committed before (this refuses) or waits until this transaction ends (and then invalidates the request it finds)
+  select * into q from public.studio_sms_rfl_dual_requests x where x.id = p_request_id;
+  if q.id is not null then
+    perform 1 from public.profiles pr where pr.id in (q.requested_by, p_actor) order by pr.id for share;
+  else
+    perform 1 from public.profiles pr where pr.id = p_actor for share;
+  end if;
   perform public._tw4c_admin(p_actor);
   if p_note is null or char_length(btrim(p_note)) not between 10 and 500 then
     raise exception 'an approval needs a written note of 10 to 500 characters' using errcode = '22023';
   end if;
-  select * into q from public.studio_sms_rfl_dual_requests x where x.id = p_request_id;
   if q.id is null then
     raise exception 'unknown request' using errcode = '22023';
   end if;
@@ -868,6 +880,39 @@ create trigger profiles_90_rflops_demotion after update of platform_role on publ
   when (old.platform_role is not distinct from 'platform_admin' and new.platform_role is distinct from 'platform_admin') execute function public._tw4rflops_demotion();
 create trigger profiles_90_rflops_demotion_del after delete on public.profiles for each row
   when (old.platform_role is not distinct from 'platform_admin') execute function public._tw4rflops_demotion();
+
+-- the profile rows of the requester and approver of the currently APPROVED request for this action, resource and period, share-locked in id order. The dispose / cancel paths
+-- call it BEFORE the location-link lock, so the order is always profile row -> location link -> business -> credit account -> request row (the demotion trigger takes the
+-- profile row and then the request rows: no cycle). The consume that follows re-checks standing under these locks.
+create or replace function public._tw4rflops_lock_parties(p_action text, p_resource uuid, p_period text)
+returns void language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  perform 1 from public.profiles pr where pr.id in (
+    select x.requested_by from public.studio_sms_rfl_dual_requests x where x.action = p_action and x.resource_id = p_resource and coalesce(x.period_key, '') = coalesce(p_period, '') and x.status = 'approved'
+    union
+    select x.decided_by from public.studio_sms_rfl_dual_requests x where x.action = p_action and x.resource_id = p_resource and coalesce(x.period_key, '') = coalesce(p_period, '') and x.status = 'approved'
+      and x.decided_by is not null) order by pr.id for share;
+end $$;
+
+-- gives a claimed alert back unsent (the sink had nothing to attempt, e.g. delivery is off in the application): the CURRENT claim of a 'sending' alert goes back to
+-- 'pending' with the attempt that claim consumed given back. Anything else (other token, delivered, failed, already released) is {released: false}. Replay-safe.
+create or replace function public.tw4_rfl_alert_release(p_alert_id uuid, p_claim_token uuid)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare x public.studio_sms_provider_alerts;
+begin
+  select * into x from public.studio_sms_provider_alerts a where a.id = p_alert_id for update;
+  if x.id is null or p_claim_token is null or x.claim_token is distinct from p_claim_token or x.status <> 'sending' then
+    return jsonb_build_object('released', false);
+  end if;
+  perform set_config('tw4.rflops_write', 'on', true);
+  update public.studio_sms_provider_alerts set status = 'pending', attempts = greatest(attempts - 1, 0), claim_token = null, claimed_at = null where id = x.id;
+  perform set_config('tw4.rflops_write', 'off', true);
+  return jsonb_build_object('released', true);
+end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- replaced functions: the 20261209 bodies plus ONLY the additions marked 20261211
@@ -1041,6 +1086,7 @@ begin
   if r.id is null then
     raise exception 'unknown resource' using errcode = '22023';
   end if;
+  perform public._tw4rflops_lock_parties('absorb_exposure', r.id, p_period_key);   -- 20261211: the approving administrators' profile rows first
   perform public._tw4sr_lock(r.studio_id);   -- 20261211: location link, then business row, then credit account
   perform public._tw4rfl_lock(r.legal_entity_id);
   select * into e from public.studio_sms_provider_exposure x where x.resource_id = p_resource_id and x.period_key = p_period_key for update;
@@ -1096,6 +1142,7 @@ begin
   if r.id is null then
     raise exception 'unknown resource' using errcode = '22023';
   end if;
+  perform public._tw4rflops_lock_parties('cancel_number', r.id, null);   -- 20261211: the approving administrators' profile rows first
   perform public._tw4sr_lock(r.studio_id);   -- 20261211: location link, then business row, then credit account
   perform public._tw4rfl_lock(r.legal_entity_id);
   select * into r from public.studio_sms_provider_resources x where x.id = p_resource_id for update;
@@ -1164,65 +1211,84 @@ begin
   return v;
 end $$;
 
+-- the alert guard allows ONE more delivery-field move: the release of a current claim (sending -> pending with the claim's attempt given back); nothing else changed
+create or replace function public._tw4rfl_guard()
+returns trigger language plpgsql
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  if tg_op = 'DELETE' then
+    raise exception '%: lifecycle evidence is never deleted', tg_table_name using errcode = '42501';
+  end if;
+  if tg_table_name = 'studio_sms_provider_resources' then
+    if new.id is distinct from old.id or new.legal_entity_id is distinct from old.legal_entity_id or new.studio_id is distinct from old.studio_id
+       or new.twilio_account_sid is distinct from old.twilio_account_sid or new.resource_kind is distinct from old.resource_kind or new.provider_sid is distinct from old.provider_sid
+       or new.e164 is distinct from old.e164 or new.fee_kind is distinct from old.fee_kind or new.source is distinct from old.source
+       or new.source_operation_id is distinct from old.source_operation_id or new.registered_by is distinct from old.registered_by or new.registered_at is distinct from old.registered_at then
+      raise exception 'studio_sms_provider_resources: the identity of a resource is fixed' using errcode = '42501';
+    end if;
+    if old.provider_state = 'cancelled' and new is distinct from old then
+      raise exception 'studio_sms_provider_resources: a cancelled resource is final' using errcode = '42501';
+    end if;
+    if new.provider_state is distinct from old.provider_state and coalesce(current_setting('tw4.rfl_write', true), '') <> 'on' then
+      raise exception 'studio_sms_provider_resources: the provider state changes only through the cancellation functions' using errcode = '42501';
+    end if;
+  elsif tg_table_name = 'studio_sms_provider_cover' then
+    raise exception 'studio_sms_provider_cover: cover records are permanent' using errcode = '42501';
+  elsif tg_table_name = 'studio_sms_provider_exposure' then
+    if new.id is distinct from old.id or new.resource_id is distinct from old.resource_id or new.legal_entity_id is distinct from old.legal_entity_id
+       or new.studio_id is distinct from old.studio_id or new.period_key is distinct from old.period_key or new.first_detected_at is distinct from old.first_detected_at
+       or new.provider_billed_cents < old.provider_billed_cents or coalesce(current_setting('tw4.rfl_write', true), '') <> 'on' then
+      raise exception 'studio_sms_provider_exposure: identity is fixed, billed evidence never decreases, rows change only through the lifecycle functions' using errcode = '42501';
+    end if;
+  elsif tg_table_name = 'studio_sms_provider_cancel_ops' then
+    if new.id is distinct from old.id or new.resource_id is distinct from old.resource_id or new.legal_entity_id is distinct from old.legal_entity_id
+       or new.studio_id is distinct from old.studio_id or new.decided_by is distinct from old.decided_by or new.approval_ref is distinct from old.approval_ref
+       or new.ref_norm is distinct from old.ref_norm or new.reason is distinct from old.reason or new.irreversible_ack is distinct from old.irreversible_ack
+       or new.authorized_by is distinct from old.authorized_by or new.authorized_at is distinct from old.authorized_at or coalesce(current_setting('tw4.rfl_write', true), '') <> 'on' then
+      raise exception 'studio_sms_provider_cancel_ops: the decision is fixed' using errcode = '42501';
+    end if;
+    if (old.status in ('confirmed', 'refused', 'withdrawn') or (old.status = 'abandoned' and new.status <> 'confirmed')) and new.status is distinct from old.status then
+      raise exception 'studio_sms_provider_cancel_ops: % is final', old.status using errcode = '42501';
+    end if;
+    if new.status is distinct from old.status and not (
+         (old.status = 'authorized' and new.status in ('in_flight', 'withdrawn')) or (old.status = 'in_flight' and new.status in ('confirmed', 'refused', 'unknown_outcome'))
+         or (old.status = 'unknown_outcome' and new.status in ('confirmed', 'abandoned')) or (old.status = 'in_flight' and new.status = 'abandoned')
+         or (old.status = 'abandoned' and new.status = 'confirmed')) then
+      raise exception 'studio_sms_provider_cancel_ops: % -> % is not a legal transition', old.status, new.status using errcode = '42501';
+    end if;
+  else
+    -- alerts: identity and text are fixed; only the delivery fields move
+    if new.id is distinct from old.id or new.legal_entity_id is distinct from old.legal_entity_id or new.studio_id is distinct from old.studio_id
+       or new.resource_id is distinct from old.resource_id or new.kind is distinct from old.kind or new.dedupe_key is distinct from old.dedupe_key
+       or new.audience is distinct from old.audience or new.severity is distinct from old.severity or new.summary is distinct from old.summary
+       or new.created_at is distinct from old.created_at or (new.attempts < old.attempts and not (coalesce(current_setting('tw4.rflops_write', true), '') = 'on' and old.status = 'sending' and new.status = 'pending' and new.attempts = old.attempts - 1)) or (old.status = 'delivered' and new is distinct from old) then
+      raise exception 'studio_sms_provider_alerts: only delivery fields change, and a delivered alert is final' using errcode = '42501';
+    end if;
+  end if;
+  return new;
+end $$;
+
 -- ---------------------------------------------------------------------------------------------------------------
 -- privacy: an email addressed to a platform administrator is queued under a studio (outbound_deliveries.studio_id) and the existing SELECT policies let that studio's staff
--- read recipient_email / subject / body. Admin-addressed templates are keyed platform_rfl_admin_<kind>: every SELECT policy open to API roles gets the same predicate
--- PLUS "and template_key does not start with platform_rfl_admin_". The originals are kept (studio_sms_rfl_policy_backup) so the rollback restores them exactly.
--- service_role and the table owner are unaffected (they bypass RLS / have their own ALL policy).
+-- read recipient_email / subject / body. Admin-addressed templates are keyed platform_rfl_admin_<kind>. ONE RESTRICTIVE policy hides them from every API role, whatever
+-- permissive policies exist now or are added later (restrictive policies are AND-ed with all permissive ones); service_role and postgres keep BYPASSRLS, so the delivery
+-- runner and the platform tooling (which use the service client) are unaffected. It does not touch any other row or any existing policy.
 -- ---------------------------------------------------------------------------------------------------------------
-create table public.studio_sms_rfl_policy_backup (
-  policy_name text primary key,
-  table_name text not null,
-  cmd text not null check (cmd in ('r', '*')),   -- SELECT or ALL (the SELECT-capable permissive policies)
-  role_names text[] not null,                    -- empty = PUBLIC
-  original_qual text not null,
-  original_check text null,
-  rewritten_qual text not null
-);
-revoke all on public.studio_sms_rfl_policy_backup from public, anon, authenticated, service_role;
-alter table public.studio_sms_rfl_policy_backup enable row level security;
 do $$
-declare
-  p record;
-  v_new text;
-  v_applies boolean;
-  v_roles text[];
-  v_n int := 0;
 begin
   if not (select c.relrowsecurity from pg_class c where c.oid = 'public.outbound_deliveries'::regclass) then
-    raise exception 'rfl-ops precondition failed: row level security is not enabled on outbound_deliveries';
+    raise exception 'rfl-ops precondition failed: row level security is not enabled on outbound_deliveries (a restrictive policy would hide nothing)';
   end if;
-  -- every PERMISSIVE policy that can grant SELECT (FOR SELECT or FOR ALL) to anyone who is not a privileged role (service_role, postgres, a superuser) is narrowed.
-  -- A FOR ALL policy gets only its USING rewritten (its WITH CHECK is kept; when it had none, the old USING becomes its explicit WITH CHECK so writes behave as before).
-  -- A policy this block cannot rewrite safely makes the whole migration fail (nothing is applied).
-  for p in select pol.polname as name, pol.polcmd as cmd, pol.polroles as roles, pg_get_expr(pol.polqual, pol.polrelid) as qual, pg_get_expr(pol.polwithcheck, pol.polrelid) as wc
-             from pg_policy pol where pol.polrelid = 'public.outbound_deliveries'::regclass and pol.polpermissive and pol.polcmd in ('r', '*') order by pol.polname loop
-    if p.roles = '{0}'::oid[] then
-      v_applies := true;   -- PUBLIC
-    else
-      v_applies := exists (select 1 from pg_roles r where r.oid = any (p.roles) and r.rolname not in ('service_role', 'postgres') and not r.rolsuper);
-    end if;
-    continue when not v_applies;
-    if p.qual is null then
-      raise exception 'rfl-ops precondition failed: policy % can grant SELECT but has no USING expression; it cannot be restricted safely', p.name;
-    end if;
-    if position('platform\_rfl\_admin\_' in p.qual) > 0 then
-      raise exception 'rfl-ops precondition failed: policy % already hides administrator templates', p.name;
-    end if;
-    v_roles := case when p.roles = '{0}'::oid[] then '{}'::text[] else array(select r.rolname::text from pg_roles r where r.oid = any (p.roles) order by r.rolname) end;
-    v_new := '(' || p.qual || ') and not coalesce(template_key like ''platform\_rfl\_admin\_%'', false)';
-    insert into public.studio_sms_rfl_policy_backup (policy_name, table_name, cmd, role_names, original_qual, original_check, rewritten_qual)
-    values (p.name, 'outbound_deliveries', p.cmd, v_roles, p.qual, p.wc, v_new);
-    execute format('alter policy %I on public.outbound_deliveries using (%s)%s', p.name, v_new, case when p.cmd = '*' and p.wc is null then format(' with check (%s)', p.qual) else '' end);
-    v_n := v_n + 1;
-  end loop;
-  -- fail closed: nothing SELECT-capable for a non-privileged role may be left without the exclusion
-  if exists (select 1 from pg_policy pol where pol.polrelid = 'public.outbound_deliveries'::regclass and pol.polpermissive and pol.polcmd in ('r', '*')
-               and (pol.polroles = '{0}'::oid[] or exists (select 1 from pg_roles r where r.oid = any (pol.polroles) and r.rolname not in ('service_role', 'postgres') and not r.rolsuper))
-               and position('platform\_rfl\_admin\_' in coalesce(pg_get_expr(pol.polqual, pol.polrelid), '')) = 0) then
-    raise exception 'rfl-ops precondition failed: a SELECT-capable policy on outbound_deliveries could not be restricted';
+  if exists (select 1 from pg_roles r where r.rolname = 'service_role' and not r.rolbypassrls) then
+    raise exception 'rfl-ops precondition failed: service_role does not bypass row level security, so the policy would hide administrator emails from the delivery runner';
+  end if;
+  if exists (select 1 from pg_policy p where p.polrelid = 'public.outbound_deliveries'::regclass and p.polname = 'rfl_admin_alerts_not_staff_visible') then
+    raise exception 'rfl-ops precondition failed: the administrator-email policy already exists';
   end if;
 end $$;
+create policy rfl_admin_alerts_not_staff_visible on public.outbound_deliveries as restrictive for select to public
+  using (not coalesce(template_key like 'platform\_rfl\_admin\_%', false));
 
 -- the identity sequence of the switch log keeps no API-role grant (Supabase default privileges would otherwise hand them out)
 revoke all on sequence public.studio_sms_rfl_switch_log_seq_seq from public, anon, authenticated, service_role;
@@ -1230,17 +1296,17 @@ revoke all on sequence public.studio_sms_rfl_switch_log_seq_seq from public, ano
 -- ---------------------------------------------------------------------------------------------------------------
 -- privileges
 -- ---------------------------------------------------------------------------------------------------------------
-revoke all on function public._tw4rflops_guard(), public._tw4rflops_request_insert(), public._tw4rflops_epoch(), public._tw4rflops_demotion(), public._tw4rflops_facts(text, uuid, text, text, text, text),
+revoke all on function public._tw4rflops_guard(), public._tw4rflops_request_insert(), public._tw4rflops_epoch(), public._tw4rflops_demotion(), public._tw4rflops_lock_parties(text, uuid, text), public._tw4rflops_facts(text, uuid, text, text, text, text),
   public._tw4rflops_consume(text, public.studio_sms_provider_resources, text, text, text, text, uuid) from public, anon, authenticated, service_role;
 revoke all on function public.tw4_rfl_switch_enabled(text), public.tw4_rfl_set_switch(text, boolean, uuid, text), public.tw4_rfl_scan_begin(text, int), public.tw4_rfl_scan_finish(uuid, text, jsonb, text),
   public.tw4_rfl_health(uuid), public.tw4_rfl_exposure_report(uuid), public.tw4_rfl_variance_report(uuid), public.tw4_rfl_variance_ack(uuid, uuid, text),
   public.tw4_rfl_alert_recipients(uuid), public.tw4_rfl_alert_delivery_record(uuid, uuid, text, text, text), public.tw4_rfl_escalate_delivery(),
   public.tw4_rfl_dual_request(uuid, text, uuid, text, text, text, text), public.tw4_rfl_dual_approve(uuid, uuid, text), public.tw4_rfl_dual_reject(uuid, uuid, text),
-  public.tw4_rfl_dual_list(uuid) from public, anon, authenticated;
+  public.tw4_rfl_dual_list(uuid), public.tw4_rfl_alert_release(uuid, uuid) from public, anon, authenticated;
 grant execute on function public.tw4_rfl_switch_enabled(text), public.tw4_rfl_set_switch(text, boolean, uuid, text), public.tw4_rfl_scan_begin(text, int), public.tw4_rfl_scan_finish(uuid, text, jsonb, text),
   public.tw4_rfl_health(uuid), public.tw4_rfl_exposure_report(uuid), public.tw4_rfl_variance_report(uuid), public.tw4_rfl_variance_ack(uuid, uuid, text),
   public.tw4_rfl_alert_recipients(uuid), public.tw4_rfl_alert_delivery_record(uuid, uuid, text, text, text), public.tw4_rfl_escalate_delivery(),
   public.tw4_rfl_dual_request(uuid, text, uuid, text, text, text, text), public.tw4_rfl_dual_approve(uuid, uuid, text), public.tw4_rfl_dual_reject(uuid, uuid, text),
-  public.tw4_rfl_dual_list(uuid) to service_role;
+  public.tw4_rfl_dual_list(uuid), public.tw4_rfl_alert_release(uuid, uuid) to service_role;
 
 commit;

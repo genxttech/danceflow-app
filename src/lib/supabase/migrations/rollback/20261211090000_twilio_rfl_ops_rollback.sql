@@ -287,19 +287,65 @@ begin
   return v;
 end $$;
 
--- the outbound_deliveries SELECT policies: back to exactly what they were
-do $$
-declare b record;
+create or replace function public._tw4rfl_guard()
+returns trigger language plpgsql
+set search_path = pg_catalog, public, pg_temp
+as $$
 begin
-  -- each narrowed policy is dropped and recreated exactly as it was (command, roles, USING, and a WITH CHECK that may have been absent)
-  for b in select * from public.studio_sms_rfl_policy_backup order by policy_name loop
-    execute format('drop policy %I on public.%I', b.policy_name, b.table_name);
-    execute format('create policy %I on public.%I as permissive for %s to %s using (%s)%s', b.policy_name, b.table_name, case b.cmd when 'r' then 'select' else 'all' end,
-      case when cardinality(b.role_names) = 0 then 'public' else (select string_agg(quote_ident(x), ', ') from unnest(b.role_names) x) end,
-      b.original_qual, case when b.original_check is not null then format(' with check (%s)', b.original_check) else '' end);
-  end loop;
+  if tg_op = 'DELETE' then
+    raise exception '%: lifecycle evidence is never deleted', tg_table_name using errcode = '42501';
+  end if;
+  if tg_table_name = 'studio_sms_provider_resources' then
+    if new.id is distinct from old.id or new.legal_entity_id is distinct from old.legal_entity_id or new.studio_id is distinct from old.studio_id
+       or new.twilio_account_sid is distinct from old.twilio_account_sid or new.resource_kind is distinct from old.resource_kind or new.provider_sid is distinct from old.provider_sid
+       or new.e164 is distinct from old.e164 or new.fee_kind is distinct from old.fee_kind or new.source is distinct from old.source
+       or new.source_operation_id is distinct from old.source_operation_id or new.registered_by is distinct from old.registered_by or new.registered_at is distinct from old.registered_at then
+      raise exception 'studio_sms_provider_resources: the identity of a resource is fixed' using errcode = '42501';
+    end if;
+    if old.provider_state = 'cancelled' and new is distinct from old then
+      raise exception 'studio_sms_provider_resources: a cancelled resource is final' using errcode = '42501';
+    end if;
+    if new.provider_state is distinct from old.provider_state and coalesce(current_setting('tw4.rfl_write', true), '') <> 'on' then
+      raise exception 'studio_sms_provider_resources: the provider state changes only through the cancellation functions' using errcode = '42501';
+    end if;
+  elsif tg_table_name = 'studio_sms_provider_cover' then
+    raise exception 'studio_sms_provider_cover: cover records are permanent' using errcode = '42501';
+  elsif tg_table_name = 'studio_sms_provider_exposure' then
+    if new.id is distinct from old.id or new.resource_id is distinct from old.resource_id or new.legal_entity_id is distinct from old.legal_entity_id
+       or new.studio_id is distinct from old.studio_id or new.period_key is distinct from old.period_key or new.first_detected_at is distinct from old.first_detected_at
+       or new.provider_billed_cents < old.provider_billed_cents or coalesce(current_setting('tw4.rfl_write', true), '') <> 'on' then
+      raise exception 'studio_sms_provider_exposure: identity is fixed, billed evidence never decreases, rows change only through the lifecycle functions' using errcode = '42501';
+    end if;
+  elsif tg_table_name = 'studio_sms_provider_cancel_ops' then
+    if new.id is distinct from old.id or new.resource_id is distinct from old.resource_id or new.legal_entity_id is distinct from old.legal_entity_id
+       or new.studio_id is distinct from old.studio_id or new.decided_by is distinct from old.decided_by or new.approval_ref is distinct from old.approval_ref
+       or new.ref_norm is distinct from old.ref_norm or new.reason is distinct from old.reason or new.irreversible_ack is distinct from old.irreversible_ack
+       or new.authorized_by is distinct from old.authorized_by or new.authorized_at is distinct from old.authorized_at or coalesce(current_setting('tw4.rfl_write', true), '') <> 'on' then
+      raise exception 'studio_sms_provider_cancel_ops: the decision is fixed' using errcode = '42501';
+    end if;
+    if (old.status in ('confirmed', 'refused', 'withdrawn') or (old.status = 'abandoned' and new.status <> 'confirmed')) and new.status is distinct from old.status then
+      raise exception 'studio_sms_provider_cancel_ops: % is final', old.status using errcode = '42501';
+    end if;
+    if new.status is distinct from old.status and not (
+         (old.status = 'authorized' and new.status in ('in_flight', 'withdrawn')) or (old.status = 'in_flight' and new.status in ('confirmed', 'refused', 'unknown_outcome'))
+         or (old.status = 'unknown_outcome' and new.status in ('confirmed', 'abandoned')) or (old.status = 'in_flight' and new.status = 'abandoned')
+         or (old.status = 'abandoned' and new.status = 'confirmed')) then
+      raise exception 'studio_sms_provider_cancel_ops: % -> % is not a legal transition', old.status, new.status using errcode = '42501';
+    end if;
+  else
+    -- alerts: identity and text are fixed; only the delivery fields move
+    if new.id is distinct from old.id or new.legal_entity_id is distinct from old.legal_entity_id or new.studio_id is distinct from old.studio_id
+       or new.resource_id is distinct from old.resource_id or new.kind is distinct from old.kind or new.dedupe_key is distinct from old.dedupe_key
+       or new.audience is distinct from old.audience or new.severity is distinct from old.severity or new.summary is distinct from old.summary
+       or new.created_at is distinct from old.created_at or new.attempts < old.attempts or (old.status = 'delivered' and new is distinct from old) then
+      raise exception 'studio_sms_provider_alerts: only delivery fields change, and a delivered alert is final' using errcode = '42501';
+    end if;
+  end if;
+  return new;
 end $$;
-drop table public.studio_sms_rfl_policy_backup;
+
+-- the administrator-email policy (the only thing this migration added to outbound_deliveries)
+drop policy rfl_admin_alerts_not_staff_visible on public.outbound_deliveries;
 drop trigger profiles_90_rflops_demotion on public.profiles;
 drop trigger profiles_90_rflops_demotion_del on public.profiles;
 drop trigger studio_sms_provider_cancel_ops_90_epoch_ins on public.studio_sms_provider_cancel_ops;
@@ -308,6 +354,8 @@ drop trigger studio_sms_provider_exposure_90_epoch_ins on public.studio_sms_prov
 drop trigger studio_sms_provider_exposure_90_epoch_upd on public.studio_sms_provider_exposure;
 drop trigger studio_sms_provider_resources_90_epoch_upd on public.studio_sms_provider_resources;
 
+drop function public.tw4_rfl_alert_release(uuid, uuid);
+drop function public._tw4rflops_lock_parties(text, uuid, text);
 drop function public.tw4_rfl_dual_list(uuid);
 drop function public.tw4_rfl_dual_reject(uuid, uuid, text);
 drop function public.tw4_rfl_dual_approve(uuid, uuid, text);
