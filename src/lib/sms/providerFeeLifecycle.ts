@@ -184,19 +184,25 @@ export type ScanSummary = {
   deliveryEnabled: boolean;
   /** businesses beyond the per-run cap: counted as an error so a scan that cannot cover everyone is never silent */
   truncated: number;
-  /** claimed alerts not attempted because the time budget was spent; released as failed("deferred") and retried next pass. Not an error. */
+  /** claimed alerts not started because the time budget was spent; RELEASED (back to pending, the attempt restored) for the next pass. Not an error. */
   deferred: number;
+  /** 1 when the claim was skipped entirely because too little of the pass budget remained for delivery (nothing claimed, nothing burned), else 0 */
+  deliverySkipped: number;
 };
 
 const MAX_ENTITIES = 500;
 /** Per-pass alert cap: each alert can queue up to 15 emails, and the route has maxDuration 60. */
 const MAX_ALERTS_PER_PASS = 20;
-/** Alerts not started this long after the start of the pass are released as deferred; the run still finishes and finishes its heartbeat. */
+/** Delivery budget, measured from the START OF DELIVERY (not of the pass). Alerts not started within it are released; the run still finishes its heartbeat. */
 export const DELIVERY_TIME_BUDGET_MS = 40_000;
-export type ScanRunOptions = { now?: () => number; budgetMs?: number; maxAlerts?: number };
+/** Hard deadline for starting alert work, measured from the start of the pass (the route's maxDuration is 60 s). */
+export const PASS_DEADLINE_MS = 50_000;
+/** Below this much remaining time the claim is skipped entirely. */
+export const MIN_DELIVERY_SLICE_MS = 10_000;
+export type ScanRunOptions = { now?: () => number; budgetMs?: number; passDeadlineMs?: number; minSliceMs?: number; maxAlerts?: number };
 export const SCAN_RUNNER_NAME = "sms-provider-fee-lifecycle";
 
-type RunOps = Pick<ProviderFeeOpsRpc, "scanBegin" | "scanFinish" | "escalateDelivery">;
+type RunOps = Pick<ProviderFeeOpsRpc, "scanBegin" | "scanFinish" | "escalateDelivery" | "releaseAlert">;
 
 /**
  * One scheduled pass, in contract order: heartbeat begin (stop when refused) -> business scans -> inventory gaps -> escalation of exhausted deliveries ->
@@ -208,7 +214,7 @@ export async function runProviderFeeLifecycleScan(store: ProviderFeeLifecycleSto
   const startedAt = now();
   const summary: ScanSummary = {
     ran: false, ranReason: null, entities: 0, opened: 0, closed: 0, alertsCreated: 0, inventoryGaps: 0, escalated: 0, delivered: 0, failed: 0, errors: 0,
-    deliveryEnabled: sink !== null, truncated: 0, deferred: 0,
+    deliveryEnabled: sink !== null, truncated: 0, deferred: 0, deliverySkipped: 0,
   };
   let runId: string | null = null;
   try {
@@ -228,7 +234,7 @@ export async function runProviderFeeLifecycleScan(store: ProviderFeeLifecycleSto
   }
   summary.ran = true;
   try {
-    await scanAndDeliver(store, sink, ops, summary, { now, startedAt, budgetMs: options.budgetMs ?? DELIVERY_TIME_BUDGET_MS, maxAlerts: options.maxAlerts ?? MAX_ALERTS_PER_PASS });
+    await scanAndDeliver(store, sink, ops, summary, { now, startedAt, budgetMs: options.budgetMs ?? DELIVERY_TIME_BUDGET_MS, passDeadlineMs: options.passDeadlineMs ?? PASS_DEADLINE_MS, minSliceMs: options.minSliceMs ?? MIN_DELIVERY_SLICE_MS, maxAlerts: options.maxAlerts ?? MAX_ALERTS_PER_PASS });
   } catch {
     summary.errors += 1;
   }
@@ -246,7 +252,7 @@ export async function runProviderFeeLifecycleScan(store: ProviderFeeLifecycleSto
   return summary;
 }
 
-type Budget = { now: () => number; startedAt: number; budgetMs: number; maxAlerts: number };
+type Budget = { now: () => number; startedAt: number; budgetMs: number; passDeadlineMs: number; minSliceMs: number; maxAlerts: number };
 
 async function scanAndDeliver(store: ProviderFeeLifecycleStore, sink: ProviderFeeAlertSink | null, ops: RunOps, summary: ScanSummary, budget: Budget): Promise<void> {
   let entities: string[] = [];
@@ -283,6 +289,14 @@ async function scanAndDeliver(store: ProviderFeeLifecycleStore, sink: ProviderFe
   // ONE claim per pass. tw4_rfl_alerts_claim counts an attempt at claim time and re-claims `failed` rows immediately (no backoff), so a second claim in the
   // same pass would burn the attempts of the alerts that just failed and starve newer ones. Each alert is therefore attempted AT MOST ONCE per pass (ids
   // already seen are skipped); retries happen on later passes. Claiming oldest-first, a pass covers up to maxAlerts alerts.
+  // The deadline for starting work: the delivery budget from the start of delivery, bounded by the pass deadline. Too little left: do not claim at all
+  // (a claim burns an attempt, and a slow scan must never make every pass claim and defer the same alerts).
+  const deliveryStartedAt = budget.now();
+  const deadline = Math.min(deliveryStartedAt + budget.budgetMs, budget.startedAt + budget.passDeadlineMs);
+  if (deadline - deliveryStartedAt < budget.minSliceMs) {
+    summary.deliverySkipped = 1;
+    return;
+  }
   let alerts: ProviderFeeAlert[] = [];
   try {
     alerts = await store.claimAlerts(budget.maxAlerts);
@@ -294,24 +308,28 @@ async function scanAndDeliver(store: ProviderFeeLifecycleStore, sink: ProviderFe
   for (const alert of alerts) {
     if (seen.has(alert.id)) continue;
     seen.add(alert.id);
-    // out of time: release the claim as failed ("deferred") so the next pass retries it instead of leaving it 'sending' for 15 minutes
-    const outOfTime = budget.now() - budget.startedAt >= budget.budgetMs;
+    if (budget.now() >= deadline) {
+      // out of time before starting this alert: RELEASE it (pending again, attempt restored). If the release fails the alert stays 'sending' (re-claimable
+      // after 15 minutes in the database) and is counted as an error; it is never marked failed.
+      try {
+        const released = await ops.releaseAlert(alert.id, alert.claimToken);
+        if (released) summary.deferred += 1;
+      } catch {
+        summary.errors += 1;
+      }
+      continue;
+    }
     let delivered = false;
     let error: string | null = null;
-    if (outOfTime) {
-      error = "deferred";
-      summary.deferred += 1;
-    } else {
-      try {
-        await sink.deliver(alert);
-        delivered = true;
-      } catch (e) {
-        error = e instanceof Error ? e.name.slice(0, 60) : "delivery_failed";
-      }
+    try {
+      await sink.deliver(alert);
+      delivered = true;
+    } catch (e) {
+      error = e instanceof Error ? e.name.slice(0, 60) : "delivery_failed";
     }
     try {
       const updated = await store.finishAlert(alert.id, alert.claimToken, delivered, error);
-      if (updated && !outOfTime) {
+      if (updated) {
         if (delivered) summary.delivered += 1;
         else summary.failed += 1;
       }

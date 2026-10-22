@@ -22,6 +22,7 @@ describe("ProviderFeeOpsRpc", () => {
       tw4_rfl_scan_begin: { ran: true, reason: null, run_id: "run1" },
       tw4_rfl_scan_finish: { updated: true },
       tw4_rfl_escalate_delivery: { escalated: 3 },
+      tw4_rfl_alert_release: { released: true },
       tw4_rfl_switch_enabled: true,
       tw4_rfl_health: { scan_switch: true, delivery_switch: false, stale: false, alerts_exhausted: 2, oldest_pending_alert_age_seconds: 40 },
     };
@@ -34,19 +35,21 @@ describe("ProviderFeeOpsRpc", () => {
     expect(await ops.scanBegin("runner")).toEqual({ ran: true, reason: null, runId: "run1" });
     expect(await ops.scanBegin("runner", 120)).toMatchObject({ ran: true });
     expect(await ops.scanFinish("run1", "completed", { a: 1 }, null)).toBe(true);
+    expect(await ops.releaseAlert("a1", "t1")).toBe(true);
     expect(await ops.escalateDelivery()).toBe(3);
     expect(await ops.switchEnabled("delivery")).toBe(true);
     expect(await ops.health("admin1")).toMatchObject({ scanSwitch: true, deliverySwitch: false, stale: false, alertsExhausted: 2, oldestPendingAlertAgeSeconds: 40, runsFailed24h: 0 });
     expect(calls.map((c) => c.fn)).toEqual([
-      "tw4_rfl_alert_recipients", "tw4_rfl_alert_delivery_record", "tw4_rfl_scan_begin", "tw4_rfl_scan_begin", "tw4_rfl_scan_finish", "tw4_rfl_escalate_delivery", "tw4_rfl_switch_enabled", "tw4_rfl_health",
+      "tw4_rfl_alert_recipients", "tw4_rfl_alert_delivery_record", "tw4_rfl_scan_begin", "tw4_rfl_scan_begin", "tw4_rfl_scan_finish", "tw4_rfl_alert_release", "tw4_rfl_escalate_delivery", "tw4_rfl_switch_enabled", "tw4_rfl_health",
     ]);
     expect(calls[0].args).toEqual({ p_alert_id: "a1" });
     expect(calls[1].args).toEqual({ p_alert_id: "a1", p_claim_token: "t1", p_recipient_ref: "owner:u1", p_recipient_kind: "owner", p_outcome: "queued" });
     expect(calls[2].args).toEqual({ p_runner: "runner" });
     expect(calls[3].args).toEqual({ p_runner: "runner", p_lease_seconds: 120 });
     expect(calls[4].args).toEqual({ p_run_id: "run1", p_status: "completed", p_summary: { a: 1 }, p_error: null });
-    expect(calls[6].args).toEqual({ p_switch: "delivery" });
-    expect(calls[7].args).toEqual({ p_actor: "admin1" });
+    expect(calls[5].args).toEqual({ p_alert_id: "a1", p_claim_token: "t1" });
+    expect(calls[7].args).toEqual({ p_switch: "delivery" });
+    expect(calls[8].args).toEqual({ p_actor: "admin1" });
   });
 
   it("unreadable data is the safe value: no recipients, switch off, nothing recorded, health stale", async () => {
@@ -55,6 +58,7 @@ describe("ProviderFeeOpsRpc", () => {
     expect(await ops.recordDelivery("a", "t", "owner:u", "owner", "queued")).toEqual({ recorded: false, replayed: false });
     expect(await ops.scanBegin("r")).toEqual({ ran: false, reason: null, runId: null });
     expect(await ops.scanFinish("r", "failed", {}, "x")).toBe(false);
+    expect(await ops.releaseAlert("a", "t")).toBe(false);
     expect(await ops.escalateDelivery()).toBe(0);
     expect(await ops.switchEnabled("scan")).toBe(false);
     expect(await rpcWith(async () => ({ data: "true", error: null })).switchEnabled("scan")).toBe(false);

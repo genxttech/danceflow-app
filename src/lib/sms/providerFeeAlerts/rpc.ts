@@ -83,6 +83,12 @@ export class ProviderFeeOpsRpc {
     return row?.updated === true;
   }
 
+  /** Gives a claimed-but-unstarted alert back (pending, attempt restored). `false` when the claim is no longer current. */
+  async releaseAlert(alertId: string, claimToken: string): Promise<boolean> {
+    const row = await this.call<{ released?: boolean } | null>("tw4_rfl_alert_release", { p_alert_id: alertId, p_claim_token: claimToken });
+    return row?.released === true;
+  }
+
   async escalateDelivery(): Promise<number> {
     const row = await this.call<{ escalated?: number } | null>("tw4_rfl_escalate_delivery", {});
     return asNumber(row?.escalated);

@@ -248,6 +248,7 @@ describe("runner + sink end to end (fakes)", () => {
     const ops = {
       scanBegin: vi.fn(async () => ({ ran: true, reason: null, runId: "run1" })),
       escalateDelivery: vi.fn(async () => 0),
+      releaseAlert: vi.fn(async () => true),
       scanFinish: vi.fn(async () => true),
     };
     return { h, store: store as unknown as ProviderFeeLifecycleStore, ops: ops as never, rawOps: ops, finishes, attempts };
@@ -282,7 +283,7 @@ describe("runner + sink end to end (fakes)", () => {
       scanEntities: async () => [], scanEntity: vi.fn(), inventoryGaps: async () => 0,
       claimAlerts: vi.fn(async () => alerts.splice(0)), finishAlert: vi.fn(async () => true),
     } as unknown as ProviderFeeLifecycleStore;
-    const out = await runProviderFeeLifecycleScan(store, g.sink, { scanBegin: async () => ({ ran: true, reason: null, runId: "r" }), escalateDelivery: async () => 0, scanFinish: async () => true } as never);
+    const out = await runProviderFeeLifecycleScan(store, g.sink, { scanBegin: async () => ({ ran: true, reason: null, runId: "r" }), escalateDelivery: async () => 0, releaseAlert: async () => true, scanFinish: async () => true } as never);
     expect(out).toMatchObject({ delivered: 2, failed: 1 });
     expect(g.queued.map((q) => q.relatedId).sort()).toEqual(["good1", "good2"]);
   });
