@@ -181,6 +181,8 @@ commit;`);
       // no cover row for a credit business: its standing authorization pays the registration month, and no credit moves
       expect(Number(psql(`select count(*) from public.studio_sms_provider_cover where resource_id = '${rs[0].id}'`))).toBe(0);
       expect(psql(`select actor_type from public.studio_sms_onboarding_audit where studio_id = '${w.studio}' and action = 'rfl_registered'`)).toBe("system");
+      // actor provenance: the registering actor is the administrator who started the purchase (a ledger fact), the execution is recorded as the system
+      expect(psql(`select note from public.studio_sms_onboarding_audit where studio_id = '${w.studio}' and action = 'rfl_registered'`)).toContain(`initiated_by=${P}`);
     });
 
     it("a replayed observation registers nothing twice, and a concurrent pair leaves exactly one resource", async () => {
@@ -466,6 +468,12 @@ commit;`);
       for (const fn of ["public.tw4_num_registration_retry(uuid,uuid)", "public.tw4_num_registration_gaps(uuid)"]) {
         expect(psql(`select has_function_privilege('service_role', '${fn}', 'execute')`)).toBe("t");
         for (const role of ["anon", "authenticated"]) expect(psql(`select has_function_privilege('${role}', '${fn}', 'execute')`)).toBe("f");
+      }
+    });
+
+    it("the number runner and registration entry points that carry an actor are not callable by the browser roles (the actor cannot be supplied or forged)", () => {
+      for (const fn of ["public.tw4_num_observe(uuid,text,uuid,jsonb,text,text)", "public.tw4_num_begin(uuid,text,text,text,text,jsonb,uuid)", "public.tw4_num_retire(uuid,uuid,text)", "public.tw4_rfl_register(uuid,uuid,text,text,text,text,text,uuid,uuid)", "public.tw4_num_registration_retry(uuid,uuid)", "public.tw4_num_registration_gaps(uuid)"]) {
+        for (const role of ["anon", "authenticated"]) expect(psql(`select has_function_privilege('${role}', '${fn}', 'execute')`), `${role} ${fn}`).toBe("f");
       }
     });
 

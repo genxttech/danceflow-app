@@ -243,7 +243,7 @@ begin
     insert into public.studio_sms_provider_cover (resource_id, legal_entity_id, studio_id, period_key, basis, reservation_id, recorded_by)
     values (r.id, v_entity, p_studio_id, v_key, 'initial_reservation', v_res.id, p_actor);
   end if;
-  perform public._tw4rfl_audit(p_studio_id, case when p_system then null else p_actor end, 'rfl_registered', 'resource=' || r.id || ';system=' || p_system || ';kind=' || p_kind || ';fee=' || coalesce(v_fee, 'none') || ';initial_cover=' || (p_initial_reservation is not null));
+  perform public._tw4rfl_audit(p_studio_id, case when p_system then null else p_actor end, 'rfl_registered', 'resource=' || r.id || ';system=' || p_system || ';initiated_by=' || p_actor || ';kind=' || p_kind || ';fee=' || coalesce(v_fee, 'none') || ';initial_cover=' || (p_initial_reservation is not null));
   return jsonb_build_object('resource_id', r.id, 'fee_kind', v_fee, 'replayed', false);
 end $$;
 
