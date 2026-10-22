@@ -71,14 +71,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The standalone type check now needs more than Node 20's default heap (~4 GB): on main it uses ~4.5 GB (tsc --extendedDiagnostics: ~526k lines of TypeScript,
+      # ~2,790 files), so unrelated branches intermittently die with "JavaScript heap out of memory" (observed on PR #265 and PR #262 UI). Same 6 GB precedent and rationale
+      # as the Production build step below (public repo: 16 GB runner). Scoped to this step only: the check itself is unchanged and still required.
       - name: Type check
         run: npx tsc --noEmit
+        env:
+          NODE_OPTIONS: "--max-old-space-size=6144"
 
       - name: Full Vitest suite
         run: npx vitest run
 
+      # next build runs its own TypeScript pass on top of the compile; on this repo that pass needs more than Node 20's default heap
+      # (~4 GB; observed: "JavaScript heap out of memory" after ~2.5 min). The standard ubuntu-latest runner for a public repo has
+      # 16 GB RAM, so a 6 GB heap leaves ample headroom. Scoped to this step only; the earlier `tsc --noEmit` and Vitest steps are unchanged.
       - name: Production build
-        run: npm run build
+        run: |
+          free -m | head -2
+          npm run build
+        env:
+          NODE_OPTIONS: "--max-old-space-size=6144"
 
       # Independent pre-commit review, Blocker B1: `npx eslint .` (lint the
       # entire repo) fails unconditionally today -- this repo has hundreds
@@ -160,6 +172,8 @@ jobs:
       - name: Production build
         run: npm run build
         env:
+          # Same heap limit as the static-checks build (see the comment there).
+          NODE_OPTIONS: "--max-old-space-size=6144"
           # Points the BUILD at the same non-production Supabase instance the
           # E2E run itself targets -- never production, and never a default,
           # since this whole job is skipped above when these aren't set.

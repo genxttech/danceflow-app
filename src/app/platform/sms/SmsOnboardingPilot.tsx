@@ -5,11 +5,20 @@ import { STATE_LABELS, type OnboardingDisplayState } from "@/lib/sms/onboarding/
 import { runSmsOnboardingAction, setSmsOnboardingAccessAction, setSmsRunnerWindowAction } from "./actions";
 import SmsCampaignPackage from "./SmsCampaignPackage";
 import SmsStepEvidence from "./SmsStepEvidence";
+import ProvisioningSummary from "./ProvisioningSummary";
+import type { SenderOverviewRow } from "@/lib/sms/senderVerification";
+import ProvisioningLedger from "./ProvisioningLedger";
+import type { LedgerSnapshot } from "@/lib/sms/provisioning/provisionLedger";
 
 const RUNNABLE_STATES = new Set(["submitted_for_checks", "profile_review", "brand_pending"]);
 const ATTENTION_STATES = new Set(["needs_info", "blocked", "exception", "suspended"]);
 
 type StudioOption = { id: string; name: string | null; slug?: string | null; public_name?: string | null };
+
+function ledgerOperations(entry: LedgerSnapshot | "unreadable" | "none" | undefined) {
+  if (entry === undefined || entry === "unreadable") return null;
+  return entry === "none" ? [] : entry.operations;
+}
 
 /** TW-4A: pilot switch for self-service SMS onboarding (default OFF for every studio) and a read-only status list. */
 export default function SmsOnboardingPilot({
@@ -22,6 +31,10 @@ export default function SmsOnboardingPilot({
   runnerError = null,
   evidence = {},
   origin = "https://www.idanceflow.com",
+  senderRows = null,
+  ledgerByStudio = null,
+  provNotice = null,
+  provError = null,
 }: {
   studios: StudioOption[];
   rows: PlatformOnboardingRow[];
@@ -34,6 +47,12 @@ export default function SmsOnboardingPilot({
   evidence?: Record<string, RunnerStatus>;
   /** Public origin used to build the studio links in the campaign package. */
   origin?: string;
+  /** Sender overview (null when not loaded). */
+  senderRows?: SenderOverviewRow[] | null;
+  /** R2a provisioning ledger per studio id (platform-admin read). A studio with no key was not queried: shown as not loaded, never as "no operations". */
+  ledgerByStudio?: Record<string, LedgerSnapshot | "unreadable" | "none"> | null;
+  provNotice?: string | null;
+  provError?: string | null;
 }) {
   return (
     <section id="onboarding-pilot" className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
@@ -45,6 +64,8 @@ export default function SmsOnboardingPilot({
       {notice ? <p role="status" className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">Saved.</p> : null}
       {error ? <p role="alert" className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800">{error}</p> : null}
       {runnerNotice ? <p role="status" className="mt-3 rounded-xl bg-sky-50 px-3 py-2 text-sm font-medium text-sky-900">{runnerNotice}</p> : null}
+      {provNotice ? <p role="status" className="mt-3 rounded-xl bg-sky-50 px-3 py-2 text-sm font-medium text-sky-900">{provNotice}</p> : null}
+      {provError ? <p role="alert" className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800">{provError}</p> : null}
       {runnerError ? <p role="alert" className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800">{runnerError}</p> : null}
       {unavailable ? (
         <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">The onboarding tables are not available in this environment yet.</p>
@@ -108,7 +129,7 @@ export default function SmsOnboardingPilot({
                 ) : (
                   rows.map((row) => (
                     <Fragment key={row.studioId}>
-                    <tr>
+                    <tr id={`onboarding-row-${row.studioId}`}>
                       <td className="py-2 pr-4 font-medium text-slate-900">{row.studioName}</td>
                       <td className="py-2 pr-4">{row.accessEnabled ? "On" : row.state ? "Off (setup paused)" : "Off"}</td>
                       <td className="py-2 pr-4">
@@ -152,6 +173,21 @@ export default function SmsOnboardingPilot({
                         ) : (
                           "—"
                         )}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td colSpan={6} className="space-y-2 pb-3">
+                        <ProvisioningSummary
+                          studioId={row.studioId}
+                          state={row.state}
+                          accessEnabled={row.accessEnabled}
+                          evidence={evidence[row.studioId]}
+                          sendersLoaded={senderRows !== null}
+                          sender={senderRows?.find((r) => r.studioId === row.studioId) ?? null}
+                          operations={ledgerOperations(ledgerByStudio?.[row.studioId])}
+                          ledgerUnreadable={ledgerByStudio?.[row.studioId] === "unreadable"}
+                        />
+                        <ProvisioningLedger studioId={row.studioId} ledger={ledgerByStudio?.[row.studioId] ?? null} />
                       </td>
                     </tr>
                     {evidence[row.studioId] || row.accessEnabled ? (
