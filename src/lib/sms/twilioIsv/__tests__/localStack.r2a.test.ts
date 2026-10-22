@@ -660,7 +660,9 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
         const text = readFileSync(join(rollbackDir, file), "utf8");
         const guard = text.match(/to_regclass\('public\.([a-z0-9_]+)'\) is null/i);
         const fn = text.match(/drop function if exists public\.([a-z0-9_]+)\(([^)]*)\)/i);
-        const probe = guard ? `to_regclass('public.${guard[1]}') is not null` : fn ? `to_regprocedure('public.${fn[1]}(${fn[2]})') is not null` : "";
+        // a layer that only REPLACES functions (no table, nothing it creates to drop) states its precondition as "to_regprocedure('public.f(args)') is null -> not applied"
+        const pre = text.match(/if to_regprocedure\('public\.([a-z0-9_]+\([^)]*\))'\) is null then/i);
+        const probe = guard ? `to_regclass('public.${guard[1]}') is not null` : fn ? `to_regprocedure('public.${fn[1]}(${fn[2]})') is not null` : pre ? `to_regprocedure('public.${pre[1]}') is not null` : "";
         return { file, probe, applied: probe !== "" && psql(`select ${probe}`) === "t" };
       });
   }
