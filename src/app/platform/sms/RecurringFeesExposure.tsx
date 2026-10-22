@@ -39,16 +39,20 @@ function RowActions({ x, approved, pending }: { x: RflExposure; approved: RflDua
           <button type="submit" className={buttonClass}>Request approval to absorb</button>
         </form>
       )}
-      <form action={rflDisposeExposureAction} className="space-y-2 rounded-xl border border-slate-200 px-3 py-2">
-        <input type="hidden" name="resourceId" value={x.resourceId} />
-        <input type="hidden" name="periodKey" value={x.periodKey} />
-        <input type="hidden" name="disposition" value="not_billed_confirmed" />
-        <label className={labelClass}>
-          Confirm the provider did NOT bill this period (note, 10 to 500 characters)
-          <textarea name="note" required minLength={10} maxLength={500} rows={2} className={inputClass} />
-        </label>
-        <button type="submit" className={buttonClass}>Record not billed</button>
-      </form>
+      {x.providerBilledCents === 0 ? (
+        <form action={rflDisposeExposureAction} className="space-y-2 rounded-xl border border-slate-200 px-3 py-2">
+          <input type="hidden" name="resourceId" value={x.resourceId} />
+          <input type="hidden" name="periodKey" value={x.periodKey} />
+          <input type="hidden" name="disposition" value="not_billed_confirmed" />
+          <label className={labelClass}>
+            Confirm the provider did NOT bill this period (note, 10 to 500 characters)
+            <textarea name="note" required minLength={10} maxLength={500} rows={2} className={inputClass} />
+          </label>
+          <button type="submit" className={buttonClass}>Record not billed</button>
+        </form>
+      ) : (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">The provider bill is recorded as evidence for this period (or not known), so it cannot be marked as not billed. It can only be absorbed, with a second administrator.</p>
+      )}
     </div>
   );
 }

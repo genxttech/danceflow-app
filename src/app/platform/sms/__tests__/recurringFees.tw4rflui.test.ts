@@ -120,6 +120,14 @@ describe("RecurringFees panel", () => {
     expect(acked).toContain("Reviewed by finance.");
   });
 
+  it("Record not billed is offered only when the provider billed nothing; a recorded bill can only be absorbed", () => {
+    const exp = (cents: number | null) => ({ exposures: [{ legal_entity_id: ENTITY, studio_id: STUDIO, resource_id: NUM, resource_kind: "number", fee_kind: "number_rent", period_key: "2026-10", reason: "provider_billed_uncovered", state: "open", first_detected_at: "2026-10-01T00:00:00Z", age_days: 20, aging_bucket: "8-30", expected_provider_cents: 115, provider_billed_cents: cents, dual_request_status: null }] });
+    expect(render(ops(exp(125)))).not.toContain("Record not billed");
+    expect(render(ops(exp(null)))).not.toContain("Record not billed");
+    expect(render(ops(exp(125)))).toContain("can only be absorbed");
+    expect(render(ops(exp(0)))).toContain("Record not billed");
+  });
+
   it("dual control: the requester has no approve control, another administrator does", () => {
     const pending = (by: string) => ({ dual: [{ request_id: U(41), action: "cancel_number", resource_id: NUM, requested_by: by, status: "pending", reason: "Retire the unused number." }] });
     const mine = render(ops(pending(ME)));

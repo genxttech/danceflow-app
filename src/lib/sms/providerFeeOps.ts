@@ -289,6 +289,11 @@ async function read<T>(admin: Client, fn: string, args: Record<string, unknown>,
   }
 }
 
+/** The exposure report alone (for pre-checks that must not trigger the other reads). */
+export async function loadExposureReport(admin: Client, actorId: string): Promise<RflExposure[] | null> {
+  return read(admin, "tw4_rfl_exposure_report", { p_actor: actorId }, parseExposures);
+}
+
 /** Every read is independent: one missing function never hides the others. */
 export async function loadRecurringFeeOps(admin: Client, actorId: string): Promise<RflOps> {
   const args = { p_actor: actorId };

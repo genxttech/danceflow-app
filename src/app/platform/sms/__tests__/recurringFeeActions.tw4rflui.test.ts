@@ -199,6 +199,18 @@ describe("dual control gating", () => {
     expect(writes()).toHaveLength(0);
   });
 
+  it("not_billed_confirmed is refused before the database when the exposure carries a recorded provider bill", async () => {
+    const row = (billed: number) => ({ data: [{ legal_entity_id: ENTITY, studio_id: STUDIO, resource_id: RES, resource_kind: "number", fee_kind: "number_rent", period_key: "2026-10", reason: "provider_billed_uncovered", state: "open", first_detected_at: "2026-10-01T00:00:00Z", age_days: 3, aging_bucket: "0-7", expected_provider_cents: 115, provider_billed_cents: billed, dual_request_status: null }] });
+    replies.tw4_rfl_exposure_report = row(125);
+    const r = await run(rflDisposeExposureAction, { resourceId: RES, periodKey: "2026-10", disposition: "not_billed_confirmed", note: NOTE });
+    expect(r.message).toContain("can only be absorbed");
+    expect(writes()).toHaveLength(0);
+    replies.tw4_rfl_exposure_report = row(0);
+    replies.tw4_rfl_exposure_dispose = { data: {} };
+    await run(rflDisposeExposureAction, { resourceId: RES, periodKey: "2026-10", disposition: "not_billed_confirmed", note: NOTE });
+    expect(writes()).toHaveLength(1);
+  });
+
   it("not_billed_confirmed never needs dual control", async () => {
     replies.tw4_rfl_exposure_dispose = { data: {} };
     await run(rflDisposeExposureAction, { resourceId: RES, periodKey: "2026-10", disposition: "not_billed_confirmed", note: NOTE });

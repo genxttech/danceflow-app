@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { ProviderFeeLifecycleStore, type CancelDecision } from "@/lib/sms/providerFeeLifecycle";
-import { loadRecurringFeeOps, ProviderFeeOpsStore, RFL_FLASH_COOKIE, type DualAction } from "@/lib/sms/providerFeeOps";
+import { loadExposureReport, loadRecurringFeeOps, ProviderFeeOpsStore, RFL_FLASH_COOKIE, type DualAction } from "@/lib/sms/providerFeeOps";
 import { encodePanelFlash } from "@/lib/sms/twilioIsv/panelFlash";
 
 /**
@@ -181,6 +181,11 @@ export async function rflDisposeExposureAction(formData: FormData) {
       if (!dual?.some((d) => d.action === "absorb_exposure" && d.status === "approved" && d.resourceId === resourceId && d.periodKey === periodKey)) {
         return fail("Absorbing an exposure needs an approved dual-control request for this resource and period (and the note must be identical to the request's reason). Nothing changed by this submission. If you submitted it a moment ago it may already have been applied: reload and check the exposure before filing a new request.");
       }
+    }
+    if (disposition === "not_billed_confirmed") {
+      // contradictory evidence: a recorded provider bill can only be absorbed (the database refuses as well)
+      const exposure = (await loadExposureReport(createAdminClient(), admin.id))?.find((e) => e.resourceId === resourceId && e.periodKey === periodKey);
+      if (exposure && exposure.providerBilledCents !== 0) return fail("The provider bill is recorded as evidence for this period, so it cannot be marked as not billed; it can only be absorbed. Nothing changed.");
     }
     await lifecycle().disposeExposure(resourceId, periodKey, disposition, note, admin.id);
     return done(disposition === "absorbed" ? "The exposure was absorbed by DanceFlow. It is never charged to the studio." : "Recorded as confirmed not billed by the provider.");
