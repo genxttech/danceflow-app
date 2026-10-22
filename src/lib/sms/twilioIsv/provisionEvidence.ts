@@ -84,7 +84,8 @@ export function listingDigest(facts: ListingFacts): string {
 export type AbsenceCheckOutcome =
   | { outcome: "recorded"; results: { operationId: string; verdict: ListingResult["verdict"]; orphans: number }[]; skipped?: SkippedTarget[] }
   | { outcome: "scope_unavailable"; skipped: SkippedTarget[] }
-  | { outcome: "lease_busy" | "not_runnable" | "account_mismatch" | "nothing_to_check" | "retry_later" | "record_failed"; detail?: string };
+  | { outcome: "retry_later" | "record_failed"; detail?: string; results?: { operationId: string; verdict: ListingResult["verdict"]; orphans: number }[]; skipped?: SkippedTarget[] }
+  | { outcome: "lease_busy" | "not_runnable" | "account_mismatch" | "nothing_to_check"; detail?: string };
 
 /** An operation whose historical account or Messaging Service could not be established: nothing was read and nothing recorded for it (fail closed). */
 export type SkippedTarget = { operationId: string; reason: string };
@@ -149,14 +150,14 @@ export async function checkCampaignAbsence(input: {
       try {
         listed = await adapter.findCampaigns(scope); // a complete listing or a throw: never a partial one
       } catch {
-        return { outcome: "retry_later", detail: "listing_failed" };
+        return { outcome: "retry_later", detail: "listing_failed", ...(results.length ? { results } : {}), ...(skipped.length ? { skipped } : {}) };
       }
       const facts: ListingFacts = { account_sid: target.twilio_account_sid, scope_sid: scope, read_id: randomUUID(), read_started_at: started.toISOString(), complete: true, listed };
       try {
         const recorded = await evidence.recordListing({ onboardingId, leaseOwner, operationId: target.operation_id, facts, source: adapter.evidenceSource, digest: listingDigest(facts) });
         results.push({ operationId: target.operation_id, verdict: recorded.verdict, orphans: recorded.orphans ?? 0 });
       } catch (error) {
-        return { outcome: "record_failed", detail: storeCode(error) };
+        return { outcome: "record_failed", detail: storeCode(error), ...(results.length ? { results } : {}), ...(skipped.length ? { skipped } : {}) };
       }
     }
     if (results.length === 0) return { outcome: "scope_unavailable", skipped };

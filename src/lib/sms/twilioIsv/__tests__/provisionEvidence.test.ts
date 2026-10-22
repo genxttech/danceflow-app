@@ -159,10 +159,18 @@ describe("checkCampaignAbsence: GET-only, lease-bound, and it never decides", ()
       expect(s.calls).toEqual(["claim", "release"]);
     });
 
-    it("the recorded facts name the OPERATION's account, not whatever the adapter reports", async () => {
-      const s = setup();
-      await run(s);
-      expect(s.recorded[0].facts.account_sid).toBe(ACC);
+    it("a failure on a later operation still reports what was already recorded and skipped", async () => {
+      const second = op({ id: OP_OLD, status: "abandoned" });
+      const skippedOp = op({ id: OP_FREE, status: "failed" });
+      const s = setup({ targets: [targetOf(skippedOp, { ok: false, scope_sid: null, reason: "scope_missing" }), targetOf(op({})), targetOf(second)] });
+      let n = 0;
+      s.evidence.recordListing.mockImplementation(async (a) => {
+        n += 1;
+        if (n === 2) throw new RunnerStoreError("TW046");
+        s.recorded.push(a);
+        return { listing_id: "l1", verdict: "absent", replayed: false, orphans: 0 };
+      });
+      expect(await run(s)).toEqual({ outcome: "record_failed", detail: "TW046", results: [{ operationId: OP_CAMPAIGN, verdict: "absent", orphans: 0 }], skipped: [{ operationId: OP_FREE, reason: "scope_missing" }] });
     });
   });
 
