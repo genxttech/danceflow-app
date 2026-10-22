@@ -1173,8 +1173,9 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
         expect((await record(SD1, op, { scope_sid: original, read_started_at: new Date(Date.now() - 30 * 60_000).toISOString() })).error?.code).toBe("TW046");
         // wrong subaccount: an adapter of another subaccount is refused before any provider call
         const foreign = hub.adapterFor(ACC.B);
+        const callsBefore = foreign.calls.length; // the hub shares adapters across suites
         expect(await check(SD1, foreign)).toEqual({ outcome: "account_mismatch" });
-        expect(foreign.calls).toHaveLength(0);
+        expect(foreign.calls).toHaveLength(callsBefore);
       } finally {
         aged(`delete from public.studio_sms_prov_listings where studio_id = '${SD1}'; delete from public.studio_sms_prov_orphans where legal_entity_id = '${ED}';
                delete from public.studio_sms_prov_operations where id = '${newId}'; update public.studio_sms_prov_operations set superseded_at = null where id = '${msOp}'`);
