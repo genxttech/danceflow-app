@@ -608,14 +608,21 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       const second = `insert into public.studio_sms_prov_orphans (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, scope_sid, first_listing_id, source_operation_id, status, rfl_resource_id, registered_by, registered_at, discovered_at)
           select legal_entity_id, studio_id, twilio_account_sid, resource_kind, 'QE${"9".repeat(32)}', scope_sid, first_listing_id, source_operation_id, 'registered', rfl_resource_id, registered_by, registered_at, discovered_at + interval '1 second'
             from public.studio_sms_prov_orphans where id = '${orphanId}';`;
-      const out = psqlError(`begin; set local session_replication_role = replica; ${exposureRow("2026-09", 1000, 0)} ${exposureRow("2026-10", 1000, 700)} ${second} set local session_replication_role = origin;
-        do $$ declare v jsonb := public.tw4_prov_orphan_exposure('${U.padmin}', '${EA}', false); begin
-          raise exception 'AGG=% / %', v -> 'aggregate' ->> 'provider_billed_cents', v -> 'aggregate' ->> 'expected_provider_cents_estimate' || ' / n=' || jsonb_array_length(v -> 'orphans')
-            || ' / counted=' || (select count(*) from jsonb_array_elements(v -> 'orphans') e where (e -> 'cost' ->> 'counted_in_aggregate')::boolean)
-            || ' / basis=' || (select string_agg(distinct e -> 'cost' ->> 'basis', ',') from jsonb_array_elements(v -> 'orphans') e);
+      // a CLOSED lifecycle period (covered by a charge) is history: it must add nothing; a CLOSED orphan row of the same resource that was discovered EARLIER must not take the resource's single count
+      const closedPeriod = `insert into public.studio_sms_provider_exposure (resource_id, legal_entity_id, studio_id, period_key, state, reason, expected_provider_cents, provider_billed_cents, closed_at, disposition)
+           values ('${resource}', '${EA}', '${studio}', '2026-08', 'closed', 'no_authorization', 5000, 3000, now(), 'covered_by_charge');`;
+      const earlierClosed = `insert into public.studio_sms_prov_orphans (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, scope_sid, first_listing_id, source_operation_id, status, rfl_resource_id, registered_by, registered_at, closed_at, close_note, discovered_at)
+          select legal_entity_id, studio_id, twilio_account_sid, resource_kind, 'QE${"7".repeat(32)}', scope_sid, first_listing_id, source_operation_id, 'closed', rfl_resource_id, registered_by, registered_at, now(), 'fixture: closed earlier sighting', discovered_at - interval '1 second'
+            from public.studio_sms_prov_orphans where id = '${orphanId}';`;
+      const agg = (includeClosed: boolean) => psqlError(`begin; set local session_replication_role = replica; ${exposureRow("2026-09", 1000, 0)} ${exposureRow("2026-10", 1000, 700)} ${closedPeriod} ${second} ${earlierClosed} set local session_replication_role = origin;
+        do $$ declare v jsonb := public.tw4_prov_orphan_exposure('${U.padmin}', '${EA}', ${includeClosed}); begin
+          raise exception 'AGG=% / % / n=% / counted=% / basis=%', v -> 'aggregate' ->> 'provider_billed_cents', v -> 'aggregate' ->> 'expected_provider_cents_estimate', jsonb_array_length(v -> 'orphans'),
+            (select count(*) from jsonb_array_elements(v -> 'orphans') e where (e -> 'cost' ->> 'counted_in_aggregate')::boolean and e ->> 'status' <> 'closed'),
+            (select string_agg(distinct e -> 'cost' ->> 'basis', ',') from jsonb_array_elements(v -> 'orphans') e where e ->> 'status' <> 'closed');
         end $$; rollback;`);
-      // recorded amounts are the lifecycle's exposure rows (700 billed; 2000 expected), each counted ONCE although two orphan rows point at the resource
-      expect(out).toMatch(/AGG=700 \/ 2000 \/ n=2 \/ counted=1 \/ basis=recorded/);
+      // OPEN periods only (700 billed; 2000 expected; the 3000/5000 closed period is history), each resource once although several orphan rows point at it - with or without the closed row listed
+      expect(agg(false)).toMatch(/AGG=700 / 2000 / n=2 / counted=1 / basis=recorded/);
+      expect(agg(true)).toMatch(/AGG=700 / 2000 / n=3 / counted=1 / basis=recorded/);
       // a second, unregistered orphan of the same location while the first is a live registered campaign: the lifecycle refuses (TW040); the orphan stays open, visible and blocking
       const refused = `QE${"8".repeat(32)}`;
       aged(`insert into public.studio_sms_prov_orphans (legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, scope_sid, first_listing_id, source_operation_id, status)
@@ -726,6 +733,13 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
         expect((await rpc("tw4_rfl_set_switch", { p_switch: "delivery", p_enabled: false, p_actor: U.padmin, p_reason: "fixture: back to the default (off)" })).error).toBeNull();
       }
       expect((await alertRows(EA)).delivery_enabled).toBe(false);
+      // an abandoned claim: with delivery off nothing will retry; with the attempts used up it is exhausted
+      const phase = (attempts: number) => psqlError(`begin; set local session_replication_role = replica;
+        update public.studio_sms_provider_alerts set status = 'sending', claim_token = gen_random_uuid(), claimed_at = now() - interval '20 minutes', attempts = ${attempts} where id = '${first.find((x) => x.audience === "admin")!.alert_id}';
+        set local session_replication_role = origin;
+        do $$ begin raise exception 'PH=%', (select e ->> 'phase' from jsonb_array_elements(public.tw4_prov_orphan_alert_status('${U.padmin}', null) -> 'alerts') e where e ->> 'alert_id' = '${first.find((x) => x.audience === "admin")!.alert_id}'); end $$; rollback;`);
+      expect(phase(2)).toMatch(/PH=claim_abandoned_delivery_disabled/);
+      expect(phase(5)).toMatch(/PH=failed_exhausted/);
     });
   });
 

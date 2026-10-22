@@ -42,18 +42,18 @@ begin
            (select r.provider_state from public.studio_sms_provider_resources r where r.id = x.rfl_resource_id) as rfl_provider_state,
            c.n_rows, c.n_open, c.expected, c.billed,
            -- one registered resource is one exposure: a SID that was closed and later reappeared can have two orphan rows for the same resource
-           (x.rfl_resource_id is null or row_number() over (partition by x.rfl_resource_id order by x.discovered_at, x.id) = 1) as counted
+           (x.rfl_resource_id is null or row_number() over (partition by x.rfl_resource_id order by (x.status = 'closed'), x.discovered_at, x.id) = 1) as counted
       from public.studio_sms_prov_orphans x
       left join lateral (
         select count(*)::int as n_rows, (count(*) filter (where e.state = 'open'))::int as n_open,
-               sum(e.expected_provider_cents)::bigint as expected, sum(e.provider_billed_cents)::bigint as billed
+               sum(e.expected_provider_cents) filter (where e.state = 'open')::bigint as expected, sum(e.provider_billed_cents) filter (where e.state = 'open')::bigint as billed
           from public.studio_sms_provider_exposure e where e.resource_id = x.rfl_resource_id) c on x.rfl_resource_id is not null
      where (p_legal_entity_id is null or x.legal_entity_id = p_legal_entity_id) and (p_include_closed or x.status <> 'closed')
   ), shaped as (
     select b.*,
            (b.rfl_resource_id is not null) as registered,
            case b.status when 'open' then 'unreconciled' when 'registered' then 'registered_in_lifecycle' else 'closed' end as reconciliation,
-           case when b.rfl_resource_id is null or coalesce(b.n_rows, 0) = 0 then 'unknown' else 'recorded' end as cost_basis
+           case when b.rfl_resource_id is null or coalesce(b.n_rows, 0) = 0 then 'unknown' when b.n_open > 0 then 'recorded' else 'none_open' end as cost_basis
       from base b
   )
   select jsonb_build_object(
@@ -67,10 +67,11 @@ begin
       'blocks_fee_bearing_operations', s.status <> 'closed',
       'cost', jsonb_build_object(
         'basis', s.cost_basis,
-        'known', s.cost_basis = 'recorded',
+        'known', s.cost_basis <> 'unknown',
         'provider_billed_cents', case when s.cost_basis = 'recorded' then s.billed end,
         'expected_provider_cents_estimate', case when s.cost_basis = 'recorded' then s.expected end,
-        'open_exposure_periods', case when s.cost_basis = 'recorded' then s.n_open end,
+        'open_exposure_periods', case when s.cost_basis <> 'unknown' then s.n_open end,
+        'closed_exposure_periods', case when s.cost_basis <> 'unknown' then s.n_rows - s.n_open end,
         'in_rfl_exposure_report', s.registered,
         'counted_in_aggregate', s.counted)
     ) order by s.discovered_at, s.orphan_id), '[]'::jsonb),
@@ -79,12 +80,14 @@ begin
       'registered', count(*) filter (where s.status = 'registered'),
       'closed', count(*) filter (where s.status = 'closed'),
       'cost_unknown', count(*) filter (where s.status <> 'closed' and s.cost_basis = 'unknown'),
-      -- recorded costs of REGISTERED orphans only, each registered resource once; null when nothing is recorded. Unregistered orphans never contribute an amount.
+      -- OPEN exposure periods of REGISTERED orphans only (the rows tw4_rfl_exposure_report lists), each registered resource once; null when nothing is open or recorded.
+      -- Closed periods (covered, cancelled, absorbed, not billed) are history, not exposure. Unregistered orphans never contribute an amount.
       'provider_billed_cents', sum(s.billed) filter (where s.status = 'registered' and s.counted and s.cost_basis = 'recorded'),
       'expected_provider_cents_estimate', sum(s.expected) filter (where s.status = 'registered' and s.counted and s.cost_basis = 'recorded'),
       'registered_amounts_overlap_rfl_exposure_report', true),
     'notes', jsonb_build_array(
       'Unregistered orphans have no recorded cost: the amount is unknown, not zero.',
+      'Amounts are OPEN lifecycle exposure periods only; closed periods are history.',
       'Registered orphans are lifecycle resources: their amounts are the lifecycle exposure rows and are already in tw4_rfl_exposure_report; do not add the two.',
       'Past unauthorized provider charges are borne by DanceFlow; nothing here charges a studio.'))
     into v
@@ -118,8 +121,10 @@ begin
         'created_at', a.created_at, 'claimed_at', a.claimed_at, 'delivered_at', a.delivered_at, 'last_error', a.last_error,
         'phase', case a.status
                    when 'pending' then case when v_enabled then 'waiting_for_delivery_worker' else 'waiting_delivery_disabled' end
-                   when 'sending' then case when a.claimed_at < now() - interval '15 minutes' then 'claim_abandoned_will_retry' else 'claimed_in_progress' end
-                   when 'failed' then case when a.attempts >= 5 then 'failed_exhausted' else 'failed_will_retry' end
+                   when 'sending' then case when a.claimed_at >= now() - interval '15 minutes' then 'claimed_in_progress'
+                                            when a.attempts >= 5 then 'failed_exhausted'
+                                            when v_enabled then 'claim_abandoned_will_retry' else 'claim_abandoned_delivery_disabled' end
+                   when 'failed' then case when a.attempts >= 5 then 'failed_exhausted' when v_enabled then 'failed_will_retry' else 'failed_delivery_disabled' end
                    else 'handed_to_outbound_queue' end,
         'escalated', exists (select 1 from public.studio_sms_provider_alerts z where z.kind = 'alert_delivery_exhausted' and z.dedupe_key = 'exhausted:' || a.id),
         'recipients', coalesce((
@@ -138,8 +143,8 @@ begin
            where d.alert_id = a.id), '[]'::jsonb)
       ) as row_data
         from public.studio_sms_provider_alerts a
-        join public.studio_sms_prov_orphans o on a.dedupe_key = 'prov_orphan:' || o.id || ':owner' or a.dedupe_key = 'prov_orphan:' || o.id || ':admin'
-       where a.kind = 'inventory_gap' and (p_legal_entity_id is null or a.legal_entity_id = p_legal_entity_id)
+        join public.studio_sms_prov_orphans o on o.id::text = split_part(a.dedupe_key, ':', 2)
+       where a.kind = 'inventory_gap' and a.dedupe_key like 'prov_orphan:%' and split_part(a.dedupe_key, ':', 3) in ('owner', 'admin') and (p_legal_entity_id is null or a.legal_entity_id = p_legal_entity_id)
     ) t;
   return v;
 end $$;
