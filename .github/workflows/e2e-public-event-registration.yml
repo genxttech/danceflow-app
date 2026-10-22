@@ -71,8 +71,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The standalone type check now needs more than Node 20's default heap (~4 GB): on main it uses ~4.5 GB (tsc --extendedDiagnostics: ~526k lines of TypeScript,
+      # ~2,790 files), so unrelated branches intermittently die with "JavaScript heap out of memory" (observed on PR #265 and PR #262 UI). Same 6 GB precedent and rationale
+      # as the Production build step below (public repo: 16 GB runner). Scoped to this step only: the check itself is unchanged and still required.
       - name: Type check
         run: npx tsc --noEmit
+        env:
+          NODE_OPTIONS: "--max-old-space-size=6144"
 
       - name: Full Vitest suite
         run: npx vitest run
