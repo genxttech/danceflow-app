@@ -41,17 +41,17 @@ const psqlAsync = (sql: string): Promise<{ out: string; err: string }> =>
 const begin = (job: string, runner = "a9:test") => JSON.parse(psql(`select public.tw4_reconcile_run_begin('${job}', '${runner}', 60)::text`)) as { acquired: boolean; run_id?: string; reason?: string };
 const alive = (run: string, job: string) => psql(`select public.tw4_reconcile_run_alive('${run}'::uuid, '${job}')::text`);
 const finish = (run: string) => psql(`select public.tw4_reconcile_run_finish('${run}'::uuid, 'completed', '{}'::jsonb, null)::text`);
-const clear = () => psql(`delete from public.studio_sms_reconcile_runs where runner like 'a9:%';`);
+// the run table is append-only (_tw4ur_guard): fixtures change it only with triggers bypassed, and never delete history outside a rolled-back transaction
+const replica = (sql: string) => psql(`begin; set local session_replication_role = replica; ${sql} commit;`);
 
 describe.skipIf(!enabled)("TW-4F A9 inventory reconciliation run lease (real schema)", () => {
   beforeAll(() => {
     expect(psql(`select to_regprocedure('public.tw4_reconcile_run_alive(uuid,text)') is not null`)).toBe("t");
     // no other runner of these jobs may be live on a dedicated QA database
-    psql(`update public.studio_sms_reconcile_runs set status = 'failed', finished_at = clock_timestamp(), error = 'a9 test reset' where status = 'running';`);
-    clear();
+    replica(`update public.studio_sms_reconcile_runs set status = 'failed', finished_at = clock_timestamp(), error = 'a9 test reset' where status = 'running';`);
   });
   afterAll(() => {
-    if (enabled) clear();
+    // run history is append-only and stays (a dedicated QA database)
   });
 
   it("accepts the 'inventory_reconcile' job: one live run at a time; a second caller is busy; the holder is alive until it finishes", () => {
@@ -69,7 +69,7 @@ describe.skipIf(!enabled)("TW-4F A9 inventory reconciliation run lease (real sch
 
   it("an expired lease is not alive, and the next begin closes it as failed", () => {
     const run = begin("inventory_reconcile");
-    psql(`update public.studio_sms_reconcile_runs set lease_expires_at = clock_timestamp() - interval '1 second' where id = '${run.run_id}';`);
+    replica(`update public.studio_sms_reconcile_runs set lease_expires_at = clock_timestamp() - interval '1 second' where id = '${run.run_id}';`);
     expect(alive(run.run_id!, "inventory_reconcile")).toBe("false");
     const next = begin("inventory_reconcile");
     expect(next.acquired).toBe(true);
@@ -106,7 +106,8 @@ describe.skipIf(!enabled)("TW-4F A9 inventory reconciliation run lease (real sch
     expect(usage.err).toBe("");
     expect(JSON.parse(usage.out.split("\n").pop() ?? "{}").acquired).toBe(true);
     expect(waited).toBeLessThan(2000);   // the holder still had ~2 s of its transaction left: no wait on it
-    psql(`update public.studio_sms_reconcile_runs set status = 'completed', finished_at = clock_timestamp() where runner in ('a9:holder', 'a9:usage') and status = 'running';`);
+    const open = psql(`select id from public.studio_sms_reconcile_runs where runner in ('a9:holder', 'a9:usage') and status = 'running'`).split("\n").filter(Boolean);
+    for (const id of open) finish(id);
   });
 
   it("the job check keeps the live jobs verbatim, in order, and adds inventory_reconcile", () => {
@@ -124,7 +125,7 @@ describe.skipIf(!enabled)("TW-4F A9 inventory reconciliation run lease (real sch
   it("without inventory runs, rollback restores main's body (fingerprint) and the exact 20261205 check (in a rolled-back transaction)", () => {
     const rb = readFileSync(join(MIG, "rollback/20261223090000_twilio_inventory_reconcile_run_rollback.sql"), "utf8").replace(/^begin;/m, "").replace(/^commit;/m, "");
     const out = psql(`begin;
-      delete from public.studio_sms_reconcile_runs where job = 'inventory_reconcile';
+      set local session_replication_role = replica; delete from public.studio_sms_reconcile_runs where job = 'inventory_reconcile'; set local session_replication_role = origin;
       ${rb}
       select left(md5(replace(prosrc, chr(13), '')), 8) from pg_proc where oid = 'public.tw4_reconcile_run_begin(text,text,integer)'::regprocedure;
       select (to_regprocedure('public.tw4_reconcile_run_alive(uuid,text)') is null)::text;
@@ -139,7 +140,7 @@ describe.skipIf(!enabled)("TW-4F A9 inventory reconciliation run lease (real sch
     const rb = strip(readFileSync(join(MIG, "rollback/20261223090000_twilio_inventory_reconcile_run_rollback.sql"), "utf8"));
     const fwd = strip(readFileSync(join(MIG, "20261223090000_twilio_inventory_reconcile_run.sql"), "utf8"));
     const out = psql(`begin;
-      delete from public.studio_sms_reconcile_runs where job = 'inventory_reconcile';
+      set local session_replication_role = replica; delete from public.studio_sms_reconcile_runs where job = 'inventory_reconcile'; set local session_replication_role = origin;
       ${rb}
       ${fwd}
       select pg_get_constraintdef(oid) from pg_constraint where conname = 'studio_sms_reconcile_runs_job_check';
