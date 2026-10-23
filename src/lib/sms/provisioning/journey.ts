@@ -23,7 +23,7 @@ export type NumberSelectionFact = "none" | "open" | "used" | "withdrawn" | "expi
 export type SenderFact = "not_ready" | "verifying" | "ready" | "failed_verification";
 export type ComplianceFact = "pending" | "complete" | "attention";
 /** Activation checklist areas in owner language (get_studio_sms_texting_status, J2): never the internal item codes. */
-export type ActivationArea = "provider" | "number" | "sender" | "compliance" | "billing" | "monitoring" | "other";
+export type ActivationArea = "provider" | "number" | "sender" | "compliance" | "billing" | "monitoring" | "review" | "other";
 /** Why a recurring service period is not covered, as the owner may act on it. Unexpected resources never appear here (they are DanceFlow-borne). */
 export type FeeAttention = "none" | "authorization_needed" | "payment_processing" | "funds_needed" | "contact_danceflow" | "pilot_approval" | "danceflow_review";
 export type FeeFacts = {
@@ -271,6 +271,7 @@ const AREA_WORDS: Record<ActivationArea, string> = {
   compliance: "opt-out and help handling",
   billing: "the monthly service coverage",
   monitoring: "its account checks",
+  review: "a DanceFlow review",
   other: "a final check",
 };
 const listWords = (w: string[]) => (w.length <= 1 ? w.join("") : `${w.slice(0, -1).join(", ")} and ${w[w.length - 1]}`);
