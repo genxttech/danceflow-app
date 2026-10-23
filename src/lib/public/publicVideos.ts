@@ -5,11 +5,15 @@
  *
  * The URL must be a direct, progressive MP4 (for example a Mux static rendition or a storage
  * object URL); an HLS playlist does not play in a plain <video> element outside Safari.
+ *
+ * Poster frames (small stills from the approved cuts) and captions are committed; a
+ * `_POSTER_URL` variable can override the poster with a hosted image.
  */
 
 export type PublicVideo = {
   src: string;
-  poster: string | null;
+  /** The `_POSTER_URL` override when set, otherwise the committed poster frame. */
+  poster: string;
   /** Same-origin WebVTT captions committed under public/media/captions. */
   captions: string;
 };
@@ -31,11 +35,13 @@ const PUBLIC_VIDEOS = {
   aria30: {
     src: process.env.NEXT_PUBLIC_ARIA_VIDEO_30S_URL,
     poster: process.env.NEXT_PUBLIC_ARIA_VIDEO_30S_POSTER_URL,
+    defaultPoster: "/media/posters/aria-30s.webp",
     captions: "/media/captions/aria-30s.vtt",
   },
   aria77: {
     src: process.env.NEXT_PUBLIC_ARIA_VIDEO_77S_URL,
     poster: process.env.NEXT_PUBLIC_ARIA_VIDEO_77S_POSTER_URL,
+    defaultPoster: "/media/posters/aria-77s.webp",
     captions: "/media/captions/aria-77s.vtt",
   },
 } as const;
@@ -46,5 +52,5 @@ export function getPublicVideo(key: PublicVideoKey): PublicVideo | null {
   const config = PUBLIC_VIDEOS[key];
   const src = httpsUrlOrNull(config.src);
   if (!src) return null;
-  return { src, poster: httpsUrlOrNull(config.poster), captions: config.captions };
+  return { src, poster: httpsUrlOrNull(config.poster) ?? config.defaultPoster, captions: config.captions };
 }
