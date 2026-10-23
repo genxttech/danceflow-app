@@ -276,9 +276,9 @@ describe("platform-admin provisioning view", () => {
     expect(buildAdminProvisioningView(adminIn({ operations: null })).blockers.join(" ")).toMatch(/ledger is not loaded/);
   });
 
-  it("service_setup has no runnable action (runner not wired to the panel)", () => {
+  it("service_setup points at the provisioning run controls (TW-4F J1)", () => {
     const v = buildAdminProvisioningView(adminIn({ state: "service_setup" }));
-    expect(v.next).toMatchObject({ kind: "unavailable", href: null });
+    expect(v.next).toMatchObject({ kind: "act", href: "#prov-run-s1" });
   });
 
   it("campaign refusal: investigate, fee-bearing failure demands a new owner approval", () => {
@@ -314,7 +314,7 @@ describe("platform-admin provisioning view", () => {
     const states = ["not_started", "draft", "submitted_for_checks", "profile_review", "brand_pending", "service_setup", "campaign_pending", "ready_for_activation", "active", "blocked", "exception", "suspended"];
     for (const state of states) for (const accessEnabled of [true, false]) {
       const href = buildAdminProvisioningView(adminIn({ state, accessEnabled, sender: sender() })).next.href;
-      if (href) expect(href).toMatch(/^#(onboarding-pilot|onboarding-row-s1|sender-s1|ledger-s1)$/);
+      if (href) expect(href).toMatch(/^#(onboarding-pilot|onboarding-row-s1|sender-s1|ledger-s1|prov-run-s1)$/);
     }
   });
 

@@ -1,8 +1,9 @@
 import "server-only";
 import { SubaccountTokenProvider } from "./account";
-import { isvEnvName, numberCallsAllowed, provisioningCallsAllowed, realCallsAllowed, subaccountWebhooksAllowed, type IsvConfig } from "./config";
+import { isvEnvName, numberCallsAllowed, numberReadsAllowed, provisioningCallsAllowed, realCallsAllowed, subaccountWebhooksAllowed, type IsvConfig } from "./config";
 import type { AvailableNumber, CampaignComplianceFacts, IsvNumberAdapter, OwnedNumberFacts, ServiceNumbersFacts, ServiceRouteFacts } from "./numberTypes";
 import type { CampaignCreateInput, CampaignFacts, IsvProvisioningAdapter, MessagingServiceFacts } from "./provisioningTypes";
+import type { NumberReleaseAdapter, ProviderPresence, ProvisioningReleaseAdapter, ReleaseResult } from "./releaseTypes";
 import {
   IsvApiError, type BrandStatus, type BundleStatus, type EndUserType, type EvaluationResult, type IsvAdapter, type IsvParentAdapter,
 } from "./types";
@@ -64,7 +65,7 @@ export abstract class TwilioRest<C extends Credentials> {
     return `Basic ${Buffer.from(pair).toString("base64")}`;
   }
 
-  protected async request(method: "GET" | "POST", url: string, form?: Record<string, string | string[] | undefined>): Promise<Record<string, unknown>> {
+  protected async request(method: "GET" | "POST" | "DELETE", url: string, form?: Record<string, string | string[] | undefined>): Promise<Record<string, unknown>> {
     let body: string | undefined;
     if (form) {
       const params = new URLSearchParams();
@@ -440,7 +441,7 @@ function sanitizeCampaignErrors(value: unknown): string {
   return parts.join("; ").replace(/[^\x20-\x7e]/g, " ").replace(/\s+/g, " ").trim().slice(0, 450);
 }
 
-export class RealProvisioningAdapter extends TwilioRest<IsvConfig> implements IsvProvisioningAdapter {
+export class RealProvisioningAdapter extends TwilioRest<IsvConfig> implements IsvProvisioningAdapter, ProvisioningReleaseAdapter {
   /** Read-back facts from this adapter are real provider reads (the database accepts the fake source only on a local QA database). */
   readonly evidenceSource = "provider_read" as const;
 
@@ -520,6 +521,31 @@ export class RealProvisioningAdapter extends TwilioRest<IsvConfig> implements Is
       us_app_to_person_usecase: provStr(b.us_app_to_person_usecase), campaign_status: provStr(b.campaign_status), mock: provBool(b.mock), errors: sanitizeCampaignErrors(b.errors),
     };
   }
+
+  // --- TW-4F F5: release (IRREVERSIBLE; driven only by cancelRunner.ts after a database claim) -----------------------------------------------------
+  // Shapes checked 2026-10-22 against Twilio's public API reference (Messaging API v1, messaging.twilio.com):
+  //   https://www.twilio.com/docs/messaging/api/usapptoperson-resource  DELETE /v1/Services/{MessagingServiceSid}/Compliance/Usa2p/{Sid}  (Sid = QE...)
+  //   https://www.twilio.com/docs/messaging/api/service-resource        DELETE /v1/Services/{Sid}  (Twilio deletes the service's campaign with it)
+  // NOT run against live Twilio.
+
+  /** IRREVERSIBLE. Deletes the A2P campaign registered on the service. Only Twilio's 404/20404 reads as "already gone"; every other failure propagates. */
+  async deleteCampaign(input: { messagingServiceSid: string; campaignSid: string }): Promise<ReleaseResult> {
+    return releaseDelete(this, `${MESSAGING}/Services/${provChecked(input.messagingServiceSid, MESSAGING_SERVICE_SID)}/Compliance/Usa2p/${provChecked(input.campaignSid, CAMPAIGN_REGISTRATION_SID)}`);
+  }
+
+  /** IRREVERSIBLE. Deletes the Messaging Service (and with it its campaign; its numbers go back to the account, still owned and billed). */
+  async deleteMessagingService(sid: string): Promise<ReleaseResult> {
+    return releaseDelete(this, `${MESSAGING}/Services/${provChecked(sid, MESSAGING_SERVICE_SID)}`);
+  }
+
+  /** Free, read-only: does the campaign still exist on this service in THIS account? A reply about another resource or account is not an answer (throws). */
+  async campaignPresence(input: { messagingServiceSid: string; campaignSid: string }): Promise<ProviderPresence> {
+    return presenceRead(this, `${MESSAGING}/Services/${provChecked(input.messagingServiceSid, MESSAGING_SERVICE_SID)}/Compliance/Usa2p/${provChecked(input.campaignSid, CAMPAIGN_REGISTRATION_SID)}`, input.campaignSid, this.accountSid);
+  }
+
+  async servicePresence(sid: string): Promise<ProviderPresence> {
+    return presenceRead(this, `${MESSAGING}/Services/${provChecked(sid, MESSAGING_SERVICE_SID)}`, sid, this.accountSid);
+  }
 }
 
 /** A provisioning adapter for ONE subaccount, signed with that subaccount's own credentials. The parent's API key is dropped on purpose. */
@@ -547,7 +573,7 @@ const capability = (caps: unknown, name: string): boolean | null => {
   return typeof value === "boolean" ? value : null;
 };
 
-export class RealNumberAdapter extends TwilioRest<IsvConfig> implements IsvNumberAdapter {
+export class RealNumberAdapter extends TwilioRest<IsvConfig> implements IsvNumberAdapter, NumberReleaseAdapter {
   /** Read-back facts from this adapter are real provider reads (the database accepts the fake source only on a local QA database). */
   readonly evidenceSource = "provider_read" as const;
 
@@ -652,6 +678,60 @@ export class RealNumberAdapter extends TwilioRest<IsvConfig> implements IsvNumbe
     const b = await this.request("GET", `${MESSAGING}/Services/${provChecked(messagingServiceSid, MESSAGING_SERVICE_SID)}`);
     return { sid: provStr(b.sid), account_sid: provStr(b.account_sid), inbound_request_url: provStr(b.inbound_request_url), use_inbound_webhook_on_number: provBool(b.use_inbound_webhook_on_number) };
   }
+
+  // --- TW-4F F5: release (IRREVERSIBLE; driven only by cancelRunner.ts after a database claim and the number's dual control) ------------------------
+  // Shapes checked 2026-10-22 against Twilio's public API reference:
+  //   https://www.twilio.com/docs/phone-numbers/api/incomingphonenumber-resource  DELETE /2010-04-01/Accounts/{AccountSid}/IncomingPhoneNumbers/{Sid}.json  (releases it)
+  //   https://www.twilio.com/docs/messaging/api/phonenumber-resource             DELETE /v1/Services/{ServiceSid}/PhoneNumbers/{Sid}  (204; does NOT release it)
+  // NOT run against live Twilio.
+
+  /** IRREVERSIBLE. Releases the number from this account (it leaves its Messaging Service with it). A released number cannot be reliably bought back. */
+  async releaseNumber(phoneNumberSid: string): Promise<ReleaseResult> {
+    return releaseDelete(this, this.accountUrl(`IncomingPhoneNumbers/${provChecked(phoneNumberSid, PHONE_NUMBER_SID)}.json`));
+  }
+
+  /** Removes the number from the service's sender pool. Free; it does NOT release the number (it stays owned and billed). */
+  async detachNumber(input: { messagingServiceSid: string; phoneNumberSid: string }): Promise<ReleaseResult> {
+    return releaseDelete(this, `${MESSAGING}/Services/${provChecked(input.messagingServiceSid, MESSAGING_SERVICE_SID)}/PhoneNumbers/${provChecked(input.phoneNumberSid, PHONE_NUMBER_SID)}`);
+  }
+
+  /** Free, read-only: does this account still own the number? */
+  async numberPresence(phoneNumberSid: string): Promise<ProviderPresence> {
+    return presenceRead(this, this.accountUrl(`IncomingPhoneNumbers/${provChecked(phoneNumberSid, PHONE_NUMBER_SID)}.json`), phoneNumberSid, this.accountSid);
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+// TW-4F F5: shared release helpers. A DELETE is IRREVERSIBLE: only Twilio's documented "not found" (HTTP 404 with code 20404) reads as "already gone";
+// every other failure propagates as the IsvApiError `request` produced (a transient one = the outcome is unknown and must never be repeated automatically).
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+const isNotFound = (e: unknown) => e instanceof IsvApiError && e.httpStatus === 404 && e.twilioCode === "20404";
+
+type RestCaller = { request(method: "GET" | "POST" | "DELETE", url: string): Promise<Record<string, unknown>> };
+/** `request` is protected; these module-private helpers only ever receive an adapter that was built behind its gate. */
+const caller = (rest: TwilioRest<IsvConfig>) => rest as unknown as RestCaller;
+
+async function releaseDelete(rest: TwilioRest<IsvConfig>, url: string): Promise<ReleaseResult> {
+  try {
+    await caller(rest).request("DELETE", url);
+    return "released";
+  } catch (error) {
+    if (isNotFound(error)) return "already_absent";
+    throw error;
+  }
+}
+
+async function presenceRead(rest: TwilioRest<IsvConfig>, url: string, sid: string, accountSid: string): Promise<ProviderPresence> {
+  let json: Record<string, unknown>;
+  try {
+    json = await caller(rest).request("GET", url);
+  } catch (error) {
+    if (isNotFound(error)) return "absent";
+    throw error;
+  }
+  // a 200 about another resource or another account proves nothing about this one
+  if (json.sid !== sid || json.account_sid !== accountSid) throw new IsvApiError("transient", null, null, "presence reply does not match the resource");
+  return "present";
 }
 
 /** A number adapter for ONE subaccount, signed with that subaccount's own credentials. The parent's API key is dropped on purpose. */
@@ -659,4 +739,79 @@ export function createScopedNumberAdapter(
   config: IsvConfig, accountSid: string, authToken: string, env: Record<string, string | undefined> = process.env, fetchImpl?: FetchLike,
 ): RealNumberAdapter {
   return RealNumberAdapter.forAccount(config, accountSid, authToken, env, fetchImpl ?? ((url, init) => fetch(url, init)));
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+// TW-4F A9 / A9b: a READ-ONLY number adapter behind its own read gate (numberReadsAllowed: production, TW4_ISV_REAL_CALLS=on, TW4_NUMBER_READS=on), so keeping
+// inventory health fresh (A9) and validating a campaign's compliance for activation (A9b) never require the purchase switch. It does exactly three GETs, all free:
+// the subaccount's incoming numbers, a campaign's compliance keywords/replies, and a Messaging Service's inbound route. Every other number-adapter method refuses
+// before any network call, and it has no creation history and no release methods, so no purchase, attach or release path can run on it.
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+const refuseRead = (what: string): never => {
+  throw new IsvApiError("account", null, null, `number reads only: ${what} is not allowed`);
+};
+
+export class RealNumberReadAdapter extends TwilioRest<IsvConfig> implements IsvNumberAdapter {
+  readonly evidenceSource = "provider_read" as const;
+
+  /** Not constructible from outside: only `createScopedNumberReadAdapter` builds one, after the READ gate says so (never the purchase gate). */
+  private constructor(config: IsvConfig, fetchImpl: FetchLike) {
+    super(config, fetchImpl);
+  }
+
+  static forAccount(config: IsvConfig, accountSid: string, authToken: string, env: Record<string, string | undefined>, fetchImpl: FetchLike): RealNumberReadAdapter {
+    const gate = numberReadsAllowed(env);
+    if (!gate.allowed) throw new IsvApiError("account", null, null, gate.reason);
+    if (!PROVISION_ACCOUNT_SID.test(accountSid) || accountSid === config.accountSid) throw new IsvApiError("account", null, null, "not a subaccount sid");
+    if (!authToken) throw new IsvApiError("account", null, null, "no subaccount credential");
+    // the parent's API key is dropped on purpose: it must never sign a subaccount call
+    return new RealNumberReadAdapter({ ...config, accountSid, authToken, apiKeySid: undefined, apiKeySecret: undefined }, fetchImpl);
+  }
+
+  get accountSid(): string {
+    return this.config.accountSid;
+  }
+
+  /** EVERY incoming number of THIS account, or a throw: the same complete-or-nothing rules as RealNumberAdapter.listIncomingNumbers. */
+  async listIncomingNumbers(): Promise<{ sid: string; phone_number: string | null }[]> {
+    const json = await this.request("GET", `${API}/Accounts/${encodeURIComponent(this.accountSid)}/IncomingPhoneNumbers.json?PageSize=1000`);
+    const rows = Array.isArray(json.incoming_phone_numbers) ? (json.incoming_phone_numbers as Record<string, unknown>[]) : null;
+    if (!rows) throw new IsvApiError("transient", null, null, "list response carried no collection");
+    if (typeof json.next_page_uri === "string" && json.next_page_uri) throw new IsvApiError("transient", null, "inventory_too_large", "list too long to search safely");
+    return rows.map((row) => {
+      if (typeof row.sid !== "string" || !PHONE_NUMBER_SID.test(row.sid)) throw new IsvApiError("transient", null, null, "inventory row without a valid sid");
+      return { sid: row.sid, phone_number: provStr(row.phone_number) };
+    });
+  }
+
+  async searchAvailableNumbers(): Promise<never> { return refuseRead("search"); }
+  async findOwnedNumbers(): Promise<never> { return refuseRead("owned-number lookup"); }
+  async purchaseNumber(): Promise<never> { return refuseRead("purchase"); }
+  async getNumber(): Promise<never> { return refuseRead("number read"); }
+  async listServiceNumbers(): Promise<never> { return refuseRead("service number listing"); }
+  async attachNumber(): Promise<never> { return refuseRead("attach"); }
+  async getServiceNumbers(): Promise<never> { return refuseRead("service numbers read"); }
+
+  // TW-4F A9b: activation's compliance validation (activation.ts runComplianceValidation) reads these two, GET only and free, so activating or reactivating a
+  // location never requires the purchase switch. Same request shapes and normalization as RealNumberAdapter's.
+  async getCampaignCompliance(messagingServiceSid: string, campaignSid: string): Promise<CampaignComplianceFacts> {
+    const b = await this.request("GET", `${MESSAGING}/Services/${provChecked(messagingServiceSid, MESSAGING_SERVICE_SID)}/Compliance/Usa2p/${provChecked(campaignSid, CAMPAIGN_REGISTRATION_SID)}`);
+    return {
+      sid: provStr(b.sid), account_sid: provStr(b.account_sid), messaging_service_sid: provStr(b.messaging_service_sid), campaign_status: provStr(b.campaign_status), mock: provBool(b.mock),
+      opt_in_keywords: numStrings(b.opt_in_keywords), opt_out_keywords: numStrings(b.opt_out_keywords), help_keywords: numStrings(b.help_keywords),
+      opt_in_message: provStr(b.opt_in_message)?.slice(0, 320) ?? null, opt_out_message: provStr(b.opt_out_message)?.slice(0, 320) ?? null, help_message: provStr(b.help_message)?.slice(0, 320) ?? null,
+    };
+  }
+
+  async getServiceRoute(messagingServiceSid: string): Promise<ServiceRouteFacts> {
+    const b = await this.request("GET", `${MESSAGING}/Services/${provChecked(messagingServiceSid, MESSAGING_SERVICE_SID)}`);
+    return { sid: provStr(b.sid), account_sid: provStr(b.account_sid), inbound_request_url: provStr(b.inbound_request_url), use_inbound_webhook_on_number: provBool(b.use_inbound_webhook_on_number) };
+  }
+}
+
+/** The read-only number adapter (listing, campaign compliance, service route) for ONE subaccount, signed with that subaccount's own credentials. */
+export function createScopedNumberReadAdapter(
+  config: IsvConfig, accountSid: string, authToken: string, env: Record<string, string | undefined> = process.env, fetchImpl?: FetchLike,
+): RealNumberReadAdapter {
+  return RealNumberReadAdapter.forAccount(config, accountSid, authToken, env, fetchImpl ?? ((url, init) => fetch(url, init)));
 }

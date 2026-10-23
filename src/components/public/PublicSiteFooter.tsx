@@ -25,10 +25,11 @@ export default function PublicSiteFooter() {
         </div>
 
         <div>
-          <p className="text-sm font-semibold text-slate-900">Explore</p>
+          <p className="text-sm font-semibold text-slate-900">For Dancers</p>
           <div className="mt-3 grid gap-2 text-sm text-slate-600">
             <Link href="/discover" className="inline-block py-1 hover:text-slate-900">Discover</Link>
             <Link href="/discover/studios" className="inline-block py-1 hover:text-slate-900">Studios</Link>
+            <Link href="/discover/classes" className="inline-block py-1 hover:text-slate-900">Classes</Link>
             <Link href="/discover/events" className="inline-block py-1 hover:text-slate-900">Events</Link>
             <Link href="/discover/partners" className="inline-block py-1 hover:text-slate-900">Dance Partners</Link>
             <Link href="/discover/jobs" className="inline-block py-1 hover:text-slate-900">Dance Jobs</Link>
@@ -42,14 +43,14 @@ export default function PublicSiteFooter() {
             <Link href="/for-studios" className="inline-block py-1 hover:text-slate-900">Studios</Link>
             <Link href="/for-instructors" className="inline-block py-1 hover:text-slate-900">Independent Instructors</Link>
             <Link href="/for-organizers" className="inline-block py-1 hover:text-slate-900">Organizers</Link>
-            <Link href="/get-started" className="inline-block py-1 hover:text-slate-900">Get Started</Link>
+            <Link href="/get-started" className="inline-block py-1 hover:text-slate-900">Plans &amp; free trial</Link>
           </div>
         </div>
 
         <div>
           <p className="text-sm font-semibold text-slate-900">Account &amp; Support</p>
           <div className="mt-3 grid gap-2 text-sm text-slate-600">
-            <Link href="/signup" className="inline-block py-1 hover:text-slate-900">Create Free Account</Link>
+            <Link href="/signup?intent=public" className="inline-block py-1 hover:text-slate-900">Create free account</Link>
             <Link href="/login" className="inline-block py-1 hover:text-slate-900">Log In</Link>
             <Link href="/knowledgebase" className="inline-block py-1 hover:text-slate-900">Knowledgebase</Link>
             <Link href="/security" className="inline-block py-1 hover:text-slate-900">Security</Link>

@@ -2,10 +2,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  HOME_ARIA,
   HOME_AUDIENCES,
+  HOME_BUSINESS,
   HOME_CONCEPTS,
   HOME_DISCOVERY,
-  HOME_FINAL_CTA,
+  HOME_DOORS,
   HOME_HERO,
   HOME_JSON_LD,
   HOME_TRUST,
@@ -143,30 +145,52 @@ describe("founder pricing is derived, never hard-coded", () => {
   });
 });
 
-describe("homepage hierarchy", () => {
+describe("homepage hierarchy (two-audience, 2026-10-22)", () => {
   const page = read("src", "app", "page.tsx");
 
   it("uses the approved H1 and a single H1", () => {
-    expect(HOME_HERO.headline).toBe("The dance platform that helps do the work—not just track it.");
+    expect(HOME_HERO.headline).toBe("Where the dance community connects.");
     expect(page.match(/<h1\b/g)).toHaveLength(1);
   });
 
-  it("has one primary hero action plus one quiet path, and one final primary action", () => {
-    expect(Object.keys(HOME_HERO).filter((key) => key.endsWith("Cta")).sort()).toEqual([
-      "primaryCta",
-      "secondaryCta",
-    ]);
-    expect(Object.keys(HOME_FINAL_CTA).filter((key) => key.endsWith("Cta"))).toEqual(["primaryCta"]);
-    // Only the two primary CTAs use the filled brand button style.
-    expect(page.match(/rounded-2xl bg-\[var\(--brand-primary\)\]/g)).toHaveLength(2);
+  it("offers two equal doors, dancers first, each with one primary action and one quiet link", () => {
+    expect(HOME_DOORS.map((door) => door.key)).toEqual(["dancers", "business"]);
+    const [dancers, business] = HOME_DOORS;
+    expect(dancers.primaryCta.href).toBe("/discover");
+    expect(business.primaryCta.href).toBe("/get-started/studio");
+    // Both doors render through the same component, in this order.
+    expect(page).toMatch(/<Door door=\{dancerDoor\}[^>]*\/>\s*<Door door=\{businessDoor\} note=\{trialLine\}/);
+    expect(page).not.toMatch(/\/for-dancers/);
   });
 
-  it("covers the four audiences without four competing cards", () => {
-    expect(HOME_AUDIENCES.map((audience) => audience.name)).toEqual([
-      "Studio owners",
-      "Independent instructors",
-      "Organizers",
-      "Dancers",
+  it("keeps public account creation and the business free trial distinct", () => {
+    const [dancers, business] = HOME_DOORS;
+    expect(dancers.secondaryLink.href).toBe("/signup?intent=public");
+    expect(business.primaryCta.label).toBe("Start free trial");
+    expect(dancers.secondaryLink.label).not.toMatch(/trial/i);
+    expect(business.primaryCta.href).not.toMatch(/^\/signup/);
+    expect(HOME_DISCOVERY.accountLink.href).toBe("/signup?intent=public");
+    // Signed-in visitors are never offered account creation (hero door and dancer section).
+    expect(page).toContain("hideSecondary={Boolean(user)}");
+    expect(page).toMatch(/\{user \? null : \(\s*<Link\s+href=\{HOME_DISCOVERY\.accountLink\.href\}/);
+  });
+
+  it("gives dancers every Discover path, including Classes", () => {
+    expect(HOME_DISCOVERY.links.map((link) => link.href)).toEqual([
+      "/discover/studios",
+      "/discover/classes",
+      "/discover/events",
+      "/discover/partners",
+      "/discover/jobs",
+      "/marketplace",
+    ]);
+  });
+
+  it("covers the business audiences without competing cards", () => {
+    expect(HOME_AUDIENCES.map((audience) => [audience.name, audience.href])).toEqual([
+      ["Studio owners", "/for-studios"],
+      ["Independent instructors", "/for-instructors"],
+      ["Organizers", "/for-organizers"],
     ]);
     expect(page).not.toMatch(/audienceCards|featureCards|discoveryCards/);
     expect(page).not.toContain("rounded-[2rem] border");
@@ -179,20 +203,23 @@ describe("homepage hierarchy", () => {
     }
   });
 
-  it("links each audience to its dedicated page; dancers stay on Discover (BR-4B)", () => {
-    expect(HOME_AUDIENCES.map((audience) => [audience.name, audience.href])).toEqual([
-      ["Studio owners", "/for-studios"],
-      ["Independent instructors", "/for-instructors"],
-      ["Organizers", "/for-organizers"],
-      ["Dancers", "/discover"],
-    ]);
+  it("keeps ARIA secondary: after both audience sections, viewer-started, and optional", () => {
+    const ariaAt = page.indexOf('id="home-aria"');
+    expect(ariaAt).toBeGreaterThan(page.indexOf('id="home-dancers"'));
+    expect(ariaAt).toBeGreaterThan(page.indexOf('id="home-business"'));
+    expect(page).toContain('getPublicVideo("aria30")');
+    expect(page).toContain("{ariaVideo ? <PublicVideoPlayer");
+    expect(page).not.toMatch(/autoPlay/);
+    expect(HOME_ARIA.fullVideoLink.href).toBe("/for-studios#meet-aria");
   });
 
   it("every internal link points at a real route", () => {
     const hrefs = [
-      HOME_HERO.primaryCta.href,
-      HOME_HERO.secondaryCta.href,
-      HOME_FINAL_CTA.primaryCta.href,
+      ...HOME_DOORS.flatMap((door) => [door.primaryCta.href, door.secondaryLink.href]),
+      HOME_DISCOVERY.primaryCta.href,
+      HOME_DISCOVERY.accountLink.href,
+      HOME_BUSINESS.plansLink.href,
+      HOME_ARIA.fullVideoLink.href,
       ...HOME_AUDIENCES.map((audience) => audience.href),
       ...HOME_DISCOVERY.links.map((link) => link.href),
       ...HOME_TRUST.links.map((link) => link.href),
@@ -201,7 +228,10 @@ describe("homepage hierarchy", () => {
       const path = href.split(/[?#]/)[0];
       expect(path.startsWith("/"), href).toBe(true);
       const dir = join(ROOT, "src", "app", ...path.split("/").filter(Boolean));
-      expect(existsSync(join(dir, "page.tsx")), `no page for ${href}`).toBe(true);
+      const routeGroupSignup = join(ROOT, "src", "app", "(auth)", ...path.split("/").filter(Boolean));
+      expect(existsSync(join(dir, "page.tsx")) || existsSync(join(routeGroupSignup, "page.tsx")), `no page for ${href}`).toBe(
+        true,
+      );
     }
   });
 });
@@ -226,7 +256,7 @@ describe("site metadata and structured data (BR-4A)", () => {
   it("represents the broader platform: business tools plus dancer discovery", () => {
     expect(SITE_DESCRIPTION).toMatch(/studios, instructors and organizers/);
     expect(SITE_DESCRIPTION).toMatch(/dancers/);
-    expect(SITE_TITLE).toContain("helps do the work");
+    expect(SITE_TITLE).toContain("Where the dance community connects");
   });
 
   it("keywords stay concrete and short", () => {
