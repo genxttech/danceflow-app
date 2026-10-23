@@ -515,7 +515,7 @@ TW-4F moves to a focused pilot closeout. Competition E2E, New Student Intake and
 | A6 | F5 release adapters | #279 (`1fa86a39`), F5 session | Both deferred P2s fixed, offline 1386/0 | Ready for review |
 | A7 | **J3 owner number selection** (missing) | J2 session (started 2026-10-23) | Owner browser E2E; forged-studio and replay tests; pilot-cap refusal | Not started |
 | A8 | **J4 activation console** (missing) | F1 session (approved; starts after #280 recheck) | Admin browser E2E to `active` (fake adapter); one refusal per checklist item including reconciler readiness | Not started; needs A1 and A3 |
-| A9 | **Inventory reconciliation route** (missing; route only, flag off) | F4 session (started 2026-10-23) | Route and lease tests; health visible | Not started |
+| A9 | **Inventory reconciliation route** (missing; route only, flag off; must use a separate read-only gate, never the purchase switch `TW4_NUMBER_REAL_CALLS`) | F4 session (started 2026-10-23; branch `twilio-tw4f-inventory-reconcile-route`, 1223) | Route and lease tests; health visible | Not started |
 | A10 | Browser E2E for owner and admin journeys | Q1, #275 | Needs an isolated stack with auth (GoTrue) | BLOCKED (infra) |
 | A11 | QA and docs tooling | #266, #267, #275, #274, #273 | — | Ready for owner merge decisions |
 | A12 | Owner decisions | Owner | — | U-2 prices; U-4 written-approval evidence form; U-10 Stage B draft; **KI-1 re-decision (activation gate)** |
