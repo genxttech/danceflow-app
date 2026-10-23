@@ -704,6 +704,9 @@ export class RealNumberAdapter extends TwilioRest<IsvConfig> implements IsvNumbe
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 // TW-4F F5: shared release helpers. A DELETE is IRREVERSIBLE: only Twilio's documented "not found" (HTTP 404 with code 20404) reads as "already gone";
 // every other failure propagates as the IsvApiError `request` produced (a transient one = the outcome is unknown and must never be repeated automatically).
+// The ONE exception to "never repeated": built behind the platform runtime's rotation wrapper (rotation.ts), a DELETE answered HTTP 401 is sent once more,
+// only if a re-read of the subaccount token shows it changed. That is safe: Twilio rejects an unauthenticated request before acting on it, so the first
+// DELETE did nothing. A second 401, an unchanged token, or any other answer is returned as it was (never retried in a loop).
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 const isNotFound = (e: unknown) => e instanceof IsvApiError && e.httpStatus === 404 && e.twilioCode === "20404";
 
