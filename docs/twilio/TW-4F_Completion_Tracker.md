@@ -295,6 +295,21 @@ Follow-ups recorded during Wave 1:
 - The #266 base image lacks `auth.users` columns (`email_confirmed_at`, `banned_until`, `deleted_at`) and the default `authenticated` UPDATE/DELETE grant on `outbound_deliveries`; tw4rflops cannot run on a stock stack until #266 adds both.
 - Interrupted tw4rfl / r2brfl / r2bp2 runs leave pilot-exception and orphan rows behind that break later suites on the same database; run one suite per fresh database.
 
+### 6.3 QA scheduling decision (owner, 2026-10-23)
+
+- **Heavy-slot order:** #251 P2 re-test and F4's regression suites run now, alongside #266's remaining matrices. No other resource-intensive suite starts if it would materially compromise test reliability.
+- **Q1 baseline:** once #251, F4 and #266 have finished heavy testing and released their containers, Q1 runs the full localStack baseline as the **only** resource-intensive job on the host. After it, Q1 runs the inexpensive migration-chain checks for #276–#280.
+- **No duplicate baselines:** before starting, Q1 checks which suites #266 has already verified (head, chain, and verified-pass results only) and skips equivalent coverage.
+- **The main-only control comes from the Q1 baseline.** It settles #278's "pre-existing" claim for r2a / r2brfl / r2bp2.rfl, which stays UNVERIFIED until then.
+- **Evidence rules for every run:**
+  - Record the host CPU, free RAM and container count.
+  - Timed-out, skipped, killed or infrastructure-blocked tests are never passes.
+  - Report real regressions separately from resource-exhaustion failures.
+  - Preserve existing evidence.
+  - Each session cleans up only the containers and processes it owns.
+- Independent coding, code review and lightweight tests continue while Q1 waits.
+- This decision authorizes no merges, hosted migrations, deployments, provider spending, scheduler activation or SMS activation.
+
 Heads, CI and mergeability are re-checked before any merge is recommended. No PR merges without separate owner approval.
 
 ## 7. Open owner decisions
