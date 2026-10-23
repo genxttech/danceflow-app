@@ -434,6 +434,8 @@ Still unresolved:
 - **Recommended fix** (not authorized yet): release the earlier reservation in `tw4_prov_observe` when approval lands in a later month. It belongs in its own migration with an Opus financial review.
 - **Gate:** ConfiDance activation (P) may not proceed until the owner re-decides KI-1.
 - **Related:** RFL-D5 (#290) does not address this capture.
+- **Same family, added 2026-10-23 (#290 Opus P2-2):** D5 keys the first-month cover on the month the reservation was created, which can differ from the month Twilio bills the first monthly fee (for example, a campaign submitted 25 Sep that finishes vetting 5 Oct). The cross-month rule could then use the $150 ceiling twice for one Twilio fee. Resolving it needs provider evidence of the billing month, or explicit owner acceptance in D5. There is no rule change now; it is part of the KI-1 re-decision before activation.
+- **Rollback-order caveat (#290 P3):** the merged 1211/1217 rollbacks do not refuse when 1225 is applied, so a wrong reverse order silently drops the D5 check. Hosted rollback must strictly reverse the apply order (H1 manifest).
 
 **Known rollback-completeness gap KI-2** (found by Q1, #275, 2026-10-23; owner decision pending):
 
