@@ -7,6 +7,7 @@ import SmsCreditAdmin from "./SmsCreditAdmin";
 import UsageReconciliation from "./UsageReconciliation";
 import RecurringFeesPanel from "./RecurringFeesPanel";
 import RecoveryPanel from "./RecoveryPanel";
+import ActivationPanel from "./ActivationPanel";
 import { loadReconcileOverview } from "@/lib/sms/usageReconcileView";
 import { loadReconcilerReadiness } from "@/lib/sms/usageReconcilerReadiness";
 import SmsSubaccountPanel from "./SmsSubaccountPanel";
@@ -452,6 +453,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
 
       <RecurringFeesPanel adminId={admin.id} notice={firstParam(params.rfl)} error={firstParam(params.rfl_error)} />
       <RecoveryPanel adminId={admin.id} notice={firstParam(params.recovery)} error={firstParam(params.recovery_error)} />
+      <ActivationPanel adminId={admin.id} notice={firstParam(params.activation)} error={firstParam(params.activation_error)} />
 
       <SmsSubaccountPanel
         overview={panelOverview}
