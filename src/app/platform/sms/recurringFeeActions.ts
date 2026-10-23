@@ -260,6 +260,15 @@ export async function rflCancelBeginAction(formData: FormData) {
     }
     if (out.action === "reconcile") return done("An earlier outcome is unknown: look the resource up in the Twilio console first, then resolve the operation. Nothing was cancelled by DanceFlow.");
     if (out.action === "in_progress") return done("This operation is already claimed. Record the evidence when the console step is done.");
+    if (out.action === "unknown_claim") {
+      // the database claimed it but its reply was unreadable: record it unknown (never retried; the operator resolves it with a provider lookup)
+      try {
+        await lifecycle().finishCancel(operationId, "unknown", null, "no_call_malformed_claim", admin.id);
+      } catch {
+        return fail("The operation is claimed but the database reply could not be read, and recording it as unknown failed. DanceFlow has NOT cancelled anything. Do not perform the console step: reload, then record the outcome as unknown.");
+      }
+      return fail("The operation is claimed but the database reply could not be read, so it is recorded as an UNKNOWN outcome. DanceFlow has NOT cancelled anything. Look the resource up in the Twilio console, then resolve the operation with the evidence digest.");
+    }
     return done(`Nothing to do: this operation is ${out.status}.`);
   });
 }

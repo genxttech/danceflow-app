@@ -23,7 +23,17 @@ vi.mock("@/lib/auth/platform", () => ({
     return { id: ADMIN };
   },
 }));
-vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ rpc: async () => ({ data: null, error: { code: "42883" } }) }) }));
+const rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
+let rpcReplies: Record<string, { data?: unknown; error?: { code: string } }> = {};
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => ({
+    rpc: async (fn: string, args: Record<string, unknown>) => {
+      rpcCalls.push({ fn, args });
+      const r = rpcReplies[fn];
+      return r ? { data: r.data ?? null, error: r.error ?? null } : { data: null, error: { code: "42883" } };
+    },
+  }),
+}));
 
 type Outcome = Record<string, unknown>;
 const runs: { operationId: string; actorId: string }[] = [];
@@ -38,7 +48,7 @@ vi.mock("@/lib/sms/twilioIsv/cancelRuntime", () => ({
 
 import { parseOverview } from "@/lib/sms/providerFeeOps";
 import RecurringFeesCancel from "../RecurringFeesCancel";
-import { rflCancelReleaseAction } from "../recurringFeeActions";
+import { rflCancelBeginAction, rflCancelReleaseAction } from "../recurringFeeActions";
 
 const OP = "b0000004-0000-4000-8000-000000000001";
 const form = (fields: Record<string, string>) => {
@@ -137,5 +147,40 @@ describe("F5 RecurringFeesCancel", () => {
     expect(render({ overview: overview("campaign", "authorized"), dual: [] })).not.toContain("Release at Twilio now");
     runtime = { ok: true, mode: "fake", outcome: {} };
     expect(render({ overview: overview("campaign", "authorized"), dual: [] })).toContain("Release at Twilio now</button>");
+  });
+});
+
+describe("F5 review P2-4: the manual Begin with a malformed execute reply", () => {
+  const begin = async () => {
+    await expect(rflCancelBeginAction(form({ operationId: OP }))).rejects.toThrow("NEXT_REDIRECT");
+    return JSON.parse(cookieWrites[cookieWrites.length - 1].value) as { ok: boolean; message: string };
+  };
+
+  it("records the claimed operation as UNKNOWN (never skip, never a provider step) and says nothing was cancelled", async () => {
+    rpcCalls.length = 0;
+    rpcReplies = { tw4_rfl_cancel_begin: { data: { action: "execute", provider_sid: `PN${"9".repeat(32)}` } }, tw4_rfl_cancel_finish: { data: { status: "unknown_outcome", replayed: false } } };
+    const out = await begin();
+    expect(out.ok).toBe(false);
+    expect(out.message).toContain("UNKNOWN");
+    expect(out.message).toContain("DanceFlow has NOT cancelled anything");
+    expect(out.message).not.toMatch(/(PN|QE|MG)[0-9a-fA-F]{32}/);
+    expect(rpcCalls.map((c) => c.fn)).toEqual(["tw4_rfl_cancel_begin", "tw4_rfl_cancel_finish"]);
+    expect(rpcCalls[1].args).toEqual({ p_operation_id: OP, p_actor: ADMIN, p_outcome: "unknown", p_evidence_digest: null, p_error_code: "no_call_malformed_claim" });
+  });
+
+  it("if recording it fails, it says so and does not claim again", async () => {
+    rpcCalls.length = 0;
+    rpcReplies = { tw4_rfl_cancel_begin: { data: { action: "execute" } }, tw4_rfl_cancel_finish: { error: { code: "TW041" } } };
+    const out = await begin();
+    expect(out.ok).toBe(false);
+    expect(out.message).toContain("recording it as unknown failed");
+    expect(out.message).toContain("DanceFlow has NOT cancelled anything");
+    expect(rpcCalls.filter((c) => c.fn === "tw4_rfl_cancel_begin")).toHaveLength(1);
+  });
+
+  it("a genuine skip stays 'nothing to do'", async () => {
+    rpcReplies = { tw4_rfl_cancel_begin: { data: { action: "skip", status: "withdrawn" } } };
+    const out = await begin();
+    expect(out).toMatchObject({ ok: true, message: expect.stringContaining("Nothing to do: this operation is withdrawn") });
   });
 });

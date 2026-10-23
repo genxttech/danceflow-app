@@ -82,7 +82,6 @@ function world(kind: CancelKind, over: Partial<CancelTarget> = {}) {
       adapterBuilds += 1;
       return adapters;
     },
-    now: () => new Date("2026-10-22T12:00:00Z"),
   });
   const releases = () => numbers.count("releaseNumber") + provisioning.count("deleteCampaign") + provisioning.count("deleteMessagingService") + numbers.count("detachNumber");
   return { numbers, provisioning, ledger, runner, target, liveTarget, ms, providerSid, releases, adapterBuilds: () => adapterBuilds };
@@ -99,7 +98,7 @@ describe("F5 cancel runner: the happy path for each kind", () => {
     expect(w.numbers.universe.owned.has(w.providerSid)).toBe(false);
     expect(w.numbers.services.get(w.ms)!.numbers.has(w.providerSid)).toBe(false);
     const expected = cancelEvidenceDigest({
-      operationId: OP, resourceId: RES, kind: "number", providerSid: w.providerSid, accountSid: SUB, release: "released", readback: "absent", evidenceSource: "fake", observedAt: "2026-10-22T12:00:00.000Z",
+      operationId: OP, resourceId: RES, kind: "number", providerSid: w.providerSid, accountSid: SUB, readback: "absent", evidenceSource: "fake",
     });
     expect(w.ledger.finishes).toEqual([{ outcome: "confirmed", digest: expected, code: null }]);
   });
@@ -201,6 +200,38 @@ describe("F5 cancel runner: the happy path for each kind", () => {
     const w = world("number");
     await w.runner.run(OP, ACTOR);
     expect(w.numbers.count("detachNumber")).toBe(0);
+  });
+});
+
+describe("F5 evidence digest (owner decision on review P2-3): state facts only", () => {
+  const base = {
+    operationId: OP, resourceId: RES, kind: "number" as const, providerSid: `PN${"c".repeat(32)}`, accountSid: SUB, readback: "absent" as const, evidenceSource: "provider_read" as const,
+  };
+
+  it("two reads differing only in provider request ids (and other per-request metadata) give the same digest", () => {
+    const first = cancelEvidenceDigest({ ...base, requestId: "RQ11111111111111111111111111111111", twilioRequestId: "RQaaaa", observedAt: "2026-10-23T01:00:00Z", date: "Thu, 23 Oct 2026 01:00:00 GMT", release: "released" });
+    const second = cancelEvidenceDigest({ ...base, requestId: "RQ22222222222222222222222222222222", twilioRequestId: "RQbbbb", observedAt: "2026-10-23T01:05:00Z", date: "Thu, 23 Oct 2026 01:05:00 GMT", release: "already_absent" });
+    expect(first).toMatch(/^[0-9a-f]{64}$/);
+    expect(second).toBe(first);
+    expect(cancelEvidenceDigest(base)).toBe(first);
+    // id case is not a state difference either
+    expect(cancelEvidenceDigest({ ...base, operationId: OP.toUpperCase(), resourceId: RES.toUpperCase() })).toBe(first);
+  });
+
+  it("a real state difference changes the digest", () => {
+    const d = cancelEvidenceDigest(base);
+    const changed = [
+      { readback: "present" as const },
+      { providerSid: `PN${"d".repeat(32)}` },
+      { accountSid: `AC${"5".repeat(32)}` },
+      { kind: "campaign" as const },
+      { operationId: U(77) },
+      { resourceId: U(78) },
+      { evidenceSource: "fake" as const },
+    ];
+    const digests = changed.map((over) => cancelEvidenceDigest({ ...base, ...over }));
+    for (const other of digests) expect(other).not.toBe(d);
+    expect(new Set(digests).size).toBe(digests.length);
   });
 });
 
@@ -346,6 +377,17 @@ describe("F5 cancel runner: the single claim and the target", () => {
     const outs = await Promise.all([runner.run(OP, ACTOR), runner.run(OP, ACTOR)]);
     expect(outs.map((o) => o.result).sort()).toEqual(["confirmed", "in_progress"]);
     expect(w.provisioning.count("deleteCampaign")).toBe(1);
+  });
+
+  it("review P2-4: a claim whose reply is unreadable is recorded unknown (operator resolution), nothing called, never retried", async () => {
+    const w = world("number");
+    const origBegin = w.ledger.beginCancel.bind(w.ledger);
+    w.ledger.beginCancel = async () => (await origBegin(), { action: "unknown_claim" as const });
+    expect(await w.runner.run(OP, ACTOR)).toMatchObject({ result: "unknown", errorCode: "no_call_malformed_claim" });
+    expect(w.ledger.finishes).toEqual([{ outcome: "unknown", digest: null, code: "no_call_malformed_claim" }]);
+    expect(w.releases()).toBe(0);
+    for (let i = 0; i < 2; i += 1) expect(await w.runner.run(OP, ACTOR)).toEqual({ result: "reconcile" });
+    expect(w.releases()).toBe(0);
   });
 
   it("a claim about a different resource than the one checked: recorded unknown, nothing called", async () => {

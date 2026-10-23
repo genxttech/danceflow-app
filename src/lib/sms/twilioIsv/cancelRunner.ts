@@ -49,7 +49,9 @@ export interface CancelTargetSource {
   target(operationId: string, actorId: string): Promise<CancelTarget | null>;
 }
 
-export type CancelBeginResult = { action: "execute"; providerSid: string; resourceKind: CancelKind } | { action: "in_progress" } | { action: "reconcile" } | { action: "skip"; status: string };
+/** `unknown_claim`: the database answered execute (the operation is now claimed) but the reply was unreadable: never acted on, never retried (review P2-4). */
+export type CancelBeginResult =
+  | { action: "execute"; providerSid: string; resourceKind: CancelKind } | { action: "in_progress" } | { action: "reconcile" } | { action: "skip"; status: string } | { action: "unknown_claim" };
 
 /** The tw4_rfl_cancel_begin / _finish wrappers (ProviderFeeLifecycleStore satisfies this). */
 export interface CancelLedger {
@@ -64,7 +66,6 @@ export type CancelRunnerDeps = {
   targets: CancelTargetSource;
   /** Release adapters for ONE subaccount. The caller builds them behind their gates (real) or from the local fakes; the runner never constructs one. */
   adaptersFor(accountSid: string): Promise<ReleaseAdapters>;
-  now?: () => Date;
 };
 
 export type CancelRunOutcome =
@@ -84,7 +85,7 @@ const ACCOUNT = /^AC[0-9a-fA-F]{32}$/;
 const MG = /^MG[0-9a-fA-F]{32}$/;
 const SID_BY_KIND: Record<CancelKind, RegExp> = { messaging_service: MG, campaign: /^QE[0-9a-fA-F]{32}$/, number: /^PN[0-9a-fA-F]{32}$/ };
 
-export const CANCEL_EVIDENCE_SCHEMA = "tw4f-f5-cancel-evidence/1";
+export const CANCEL_EVIDENCE_SCHEMA = "tw4f-f5-cancel-evidence/2";
 
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -95,12 +96,22 @@ function canonical(value: unknown): string {
   return JSON.stringify(value ?? null);
 }
 
-/** The digest recorded with a confirmed cancellation: what was released, in which account, what the provider read showed, and when. */
-export function cancelEvidenceDigest(evidence: {
-  operationId: string; resourceId: string; kind: CancelKind; providerSid: string; accountSid: string; release: ReleaseResult; readback: ProviderPresence;
-  evidenceSource: "provider_read" | "fake"; observedAt: string;
-}): string {
-  return createHash("sha256").update(canonical({ schema: CANCEL_EVIDENCE_SCHEMA, ...evidence })).digest("hex");
+/** The state facts a confirmed cancellation's evidence is made of: which resource, in which account, and that the provider read showed it gone. */
+export type CancelEvidenceFacts = {
+  operationId: string; resourceId: string; kind: CancelKind; providerSid: string; accountSid: string; readback: ProviderPresence; evidenceSource: "provider_read" | "fake";
+};
+
+/**
+ * The digest recorded with a confirmed cancellation (owner decision on review P2-3). It covers ONLY the state facts above, taken from an allow-list:
+ * per-request, non-deterministic metadata (provider request ids, response dates, our own timestamps, the delete call's own reply) may be passed along
+ * with the evidence but never reaches the hash, so two reads of the same state give the same digest and a different state gives a different one.
+ */
+export function cancelEvidenceDigest(evidence: CancelEvidenceFacts & Record<string, unknown>): string {
+  const facts: CancelEvidenceFacts = {
+    operationId: evidence.operationId.toLowerCase(), resourceId: evidence.resourceId.toLowerCase(), kind: evidence.kind, providerSid: evidence.providerSid,
+    accountSid: evidence.accountSid, readback: evidence.readback, evidenceSource: evidence.evidenceSource,
+  };
+  return createHash("sha256").update(canonical({ schema: CANCEL_EVIDENCE_SCHEMA, ...facts })).digest("hex");
 }
 
 /** Is a thrown provider error a DEFINITE refusal (Twilio answered and did nothing)? Anything else is an unknown outcome. */
@@ -190,6 +201,8 @@ export class CancelRunner {
     if (begin.action === "in_progress") return { result: "in_progress" };
     if (begin.action === "reconcile") return { result: "reconcile" };
     if (begin.action === "skip") return { result: "skip", status: begin.status };
+    // claimed, but the claim reply cannot be trusted: nothing is called; the operator resolves it with a provider lookup
+    if (begin.action === "unknown_claim") return this.record(operationId, actorId, "unknown", null, "no_call_malformed_claim");
     if (begin.providerSid !== target.providerSid || begin.resourceKind !== target.kind) {
       // claimed, but not about what was checked: nothing is called; the operator looks it up and resolves
       return this.record(operationId, actorId, "unknown", null, "no_call_target_mismatch");
@@ -234,8 +247,8 @@ export class CancelRunner {
     }
     if (presence !== "absent") return this.record(operationId, actorId, "unknown", null, "readback_present");
     const digest = cancelEvidenceDigest({
-      operationId, resourceId: target.resourceId, kind: target.kind, providerSid: target.providerSid, accountSid: target.accountSid, release, readback: presence,
-      evidenceSource: adapter.evidenceSource, observedAt: (this.deps.now?.() ?? new Date()).toISOString(),
+      operationId, resourceId: target.resourceId, kind: target.kind, providerSid: target.providerSid, accountSid: target.accountSid, readback: presence,
+      evidenceSource: adapter.evidenceSource,
     });
     const recorded = await this.record(operationId, actorId, "confirmed", digest, null);
     return recorded.result === "confirmed" ? { ...recorded, release } : recorded;
