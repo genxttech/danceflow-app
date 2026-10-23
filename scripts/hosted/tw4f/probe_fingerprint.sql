@@ -18,7 +18,7 @@
 -- NOTE: the "Phase A fingerprint 7d4442fa" recorded in the 2026-10-19 sync review was produced by a different, unrecorded query. This probe's rollups are NOT
 -- comparable with it; take a fresh baseline with this probe before the first apply and compare against that.
 with
-  -- BEGIN GENERATED expected objects (gen_manifest_data.mjs --sync-probes; chain through 20261217090000)
+  -- BEGIN GENERATED expected objects (gen_manifest_data.mjs --sync-probes; chain through 20261227090000)
   exp_fn(name, since) as (values
     ('_sms_onb_access_enabled', '20261119090000'),
     ('_sms_onb_append_only', '20261119090000'),
@@ -243,6 +243,8 @@ with
     ('tw4_usage_evidence_failed', '20261205090000'),
     ('tw4_usage_reconcile_overview', '20261205090000'),
     ('tw4_usage_release_stale', '20261205090000'),
+    ('tw4_sender_health', '20261206090000'),
+    ('tw4_sender_reverify_run', '20261206090000'),
     ('_tw4prov_brand', '20261207090000'),
     ('_tw4prov_campaign_requirements', '20261207090000'),
     ('_tw4prov_guard', '20261207090000'),
@@ -396,6 +398,7 @@ with
     ('tw4_num_recon_manual', '20261214090000'),
     ('tw4_num_recon_mark', '20261214090000'),
     ('tw4_num_recon_targets', '20261214090000'),
+    ('tw4_prov_evidence_targets', '20261215090000'),
     ('tw4_prov_orphan_alert_status', '20261216090000'),
     ('tw4_prov_orphan_exposure', '20261216090000'),
     ('_tw4num_ledger_active', '20261217090000'),
@@ -405,7 +408,25 @@ with
     ('_tw4num_rent_hold', '20261217090000'),
     ('_tw4rfl_register_core', '20261217090000'),
     ('tw4_num_registration_gaps', '20261217090000'),
-    ('tw4_num_registration_retry', '20261217090000')
+    ('tw4_num_registration_retry', '20261217090000'),
+    ('_tw4usage_reconciler_ready', '20261218090000'),
+    ('_tw4usage_run_proved', '20261218090000'),
+    ('_tw4act_pilot_funding', '20261219090000'),
+    ('_tw4f4_retry', '20261221090000'),
+    ('_tw4f4_retry_target', '20261221090000'),
+    ('_tw4f4_sender_status', '20261221090000'),
+    ('_tw4prov_ledger_reservation', '20261221090000'),
+    ('_tw4prov_register_verified', '20261221090000'),
+    ('tw4_admin_deferred_retire', '20261221090000'),
+    ('tw4_admin_deferred_retirements', '20261221090000'),
+    ('tw4_admin_exposure', '20261221090000'),
+    ('tw4_admin_prov_proof', '20261221090000'),
+    ('tw4_admin_registration_gaps', '20261221090000'),
+    ('tw4_admin_registration_retry', '20261221090000'),
+    ('get_studio_sms_texting_status', '20261222090000'),
+    ('tw4_reconcile_run_alive', '20261223090000'),
+    ('tw4_rfl_cancel_target', '20261224090000'),
+    ('get_studio_sms_number_offers', '20261227090000')
   ),
   exp_tbl(name, since) as (values
     ('studio_sms_onboarding', '20261119090000'),

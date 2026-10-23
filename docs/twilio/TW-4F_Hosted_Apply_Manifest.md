@@ -1,6 +1,6 @@
 # TW-4F Hosted Apply Manifest and Release Package (H1)
 
-Status 2026-10-22. Written for main `960a9d02` (PR #271). **Documentation and read-only scripts only.** Nothing described here has been executed against DEV (`epdrtzcydvnoidwrepqz`) or PROD (`hvsujyfbftfffxpfmlpb`); no hosted project was linked, queried or opened while writing it. Every step of the runbooks in section 8 needs the owner's separate written authorization.
+Status 2026-10-23. First written for main `960a9d02` (PR #271); refreshed through main `84f52048`, where every TW-4F migration except the not-started `1220` (F2) is merged. **Documentation and read-only scripts only.** Nothing described here has been executed against DEV (`epdrtzcydvnoidwrepqz`) or PROD (`hvsujyfbftfffxpfmlpb`); no hosted project was linked, queried or opened while writing it. Every step of the runbooks in section 8 needs the owner's separate written authorization.
 
 Owner rules that bind this package (from the TW-4F completion tracker, `docs/twilio/TW-4F_Completion_Tracker.md` on PR #273):
 
@@ -29,7 +29,7 @@ Both probes are single statements on purpose: the hosted method recorded in `TW-
 |---|---|---|
 | PROD `hvsujyfbftfffxpfmlpb` | Twilio objects through `20261119092100` (TW-4A, 4A.1, R1, R1.1), all studio_sms onboarding tables with 0 rows. App was `dpl_9JYuwjxf…` (main `2cc05d9e`). | 2026-10-19 prod sync review; tracker section 2 |
 | DEV `epdrtzcydvnoidwrepqz` | PROD's state plus `20261120090000`, `20261121090000`, `20261122090000` (Phase A fingerprint `7d4442fa`). | tracker section 2 |
-| Both | `20261123090000` through `20261217090000` have been applied only to local or isolated QA databases. `20261206090000` (main `cdf342e2`) and `20261215090000` (main `6422e050`) are merged but not applied anywhere hosted. | tracker sections 1-2 |
+| Both | Nothing newer than the rows above is recorded as applied: `20261123090000` through `20261227090000` (including the later-merged `1206`, `1215`, `1218`, `1219`, `1221`..`1227`) have been applied only to local or isolated QA databases, and are merged to main (`84f52048`) but not applied to any hosted project. `20261220090000` does not exist. | tracker sections 1-2; merge records through 2026-10-23 |
 
 **The `7d4442fa` fingerprint cannot be reproduced.** The query that produced it is not recorded in the repository. The rollups of `probe_fingerprint.sql` use a different, documented method and will not equal it. Take a fresh baseline with this package's probe and compare to that baseline only.
 
@@ -37,7 +37,7 @@ Both probes are single statements on purpose: the hosted method recorded in `TW-
 
 The 2026-10-19 sync review also found PROD = main `2cc05d9e` (`dpl_9JYuwjxf…`) with main since moved on and not promoted; PROD's app must stay fail-closed on a database that lacks the objects a promoted build expects. Nothing in this package changes that.
 
-## 3. Migration hash table (main `960a9d02`)
+## 3. Migration hash table (main `84f52048`)
 
 `sha256` is of the **LF-normalized blob**: `git show main:<path> | tr -d '\r' | sha256sum` (equivalent to the task's `git show main:<path> | sha256sum` when the blob has no CR, which is true for every file in this range: no blob below contains a CR byte, and the last column would say so otherwise). Paths are under `src/lib/supabase/migrations/`; rollback files are under `rollback/` with the suffix `_rollback.sql`.
 
@@ -72,7 +72,7 @@ CRLF handling, because it corrupted function-body fingerprints before:
 | 20261203090000 | 20261203090000_twilio_inbound_usage_recording.sql | a21074c58bb07ecd2e76d730de8a658ab359feb3be5ae47c538b8e2a26728212 | b621ee50dc090a314ce68275288d6950eac0d079efa6919fe8d8f3fc513575a9 | LF |
 | 20261204090000 | 20261204090000_twilio_sender_readiness.sql | 6671ed7ab4a896c5c25ce36fd1ec047a35758704298399b4ce8f1a3964e3f122 | 1c36772025edf1bdc65b1bcd864b20c67d116a543895934cd3d36e48fb888e55 | LF |
 | 20261205090000 | 20261205090000_twilio_usage_reconciliation.sql | 2e8f122800477af9d241b9989042445095a28a5d7dcc31a525653995c18c515e | 0e496d748a080296c1733e99f2b487ca1ff4b7d0c2a571f747232945b1bb39d5 | LF |
-| 20261206090000 | 20261206090000_twilio_sender_reverification.sql | 7e766d021d478d8615c88134e41f62dd5bae7eb4379583fff1b10aa3f89b0b0e | 2932f6b70b4b49a95d77f9a4dca753727349ac5eeff5870ea83b5a5cccc4145d | LF (main cdf342e2) |
+| 20261206090000 | 20261206090000_twilio_sender_reverification.sql | 7e766d021d478d8615c88134e41f62dd5bae7eb4379583fff1b10aa3f89b0b0e | 2932f6b70b4b49a95d77f9a4dca753727349ac5eeff5870ea83b5a5cccc4145d | LF |
 | 20261207090000 | 20261207090000_twilio_r2a_messaging_service_campaign.sql | 8321fabb802623e766636087681a5b758af0aefa0dc5f76650eabf5aacda8d6b | 5fa293415ce5e3aba4bc9cffa048a3838fc4196f5c4bea10b270bf4f9f0cad25 | LF |
 | 20261208090000 | 20261208090000_twilio_r2b_number_activation.sql | 7551885c236bbe5d41a76fca6c3926ee9ba176ded8bdaf99baf9111e99c93b42 | a765c4e4d930d7dbb3fa93927c48e587d42332aa3156c2884ec264cf0f46168b | LF |
 | 20261209090000 | 20261209090000_twilio_recurring_fee_lifecycle.sql | d5f3af102b4ccc23e951c7735213846231748d97f369ffc27edcd25bd4a84c9e | 4716984c1773c5edf6f11bd7e7e61fe7bcaed1a0df4297271518bc24b9ddead1 | LF |
@@ -81,28 +81,30 @@ CRLF handling, because it corrupted function-body fingerprints before:
 | 20261212090000 | 20261212090000_twilio_prov_fee_resolution_evidence.sql | 280adc409572d185bc2a67c0802b30131e16164cdb740116c9d187bd36e99df3 | 142048860b0c78516538f4b749d0860239a64b3853130b97040fd6649d69666d | LF |
 | 20261213090000 | 20261213090000_twilio_r2b_p1_identity_evidence.sql | 3cb2f083bd59e6b6d7f48096c8d85119245e944ca2dca754fc29dc370659087b | 393df0bca1befd50aecf226d0c2b55e3d2dfe8135435d196fd9fb93d58ce118a | LF |
 | 20261214090000 | 20261214090000_twilio_r2b_p2_orphans_reconciliation.sql | 9978f3a7fa9f99fa5460be98dd59301ed02278fbf14168f0fb8e39c1ab8ecc87 | de8d74383285941edeca005487aa05a7f81f913d6830fc61baba73b63b5df8d3 | LF |
-| 20261215090000 | 20261215090000_twilio_prov_evidence_targets.sql | 2a3308aa1b1d4425d1d49263c4b94806b68051be42c6fef963d20f03c58f5277 | a0d2430de1ae7cb6ab5090094f387559ce02180cb5a7237a2d362f17298fd42d | LF (main 6422e050) |
+| 20261215090000 | 20261215090000_twilio_prov_evidence_targets.sql | 2a3308aa1b1d4425d1d49263c4b94806b68051be42c6fef963d20f03c58f5277 | a0d2430de1ae7cb6ab5090094f387559ce02180cb5a7237a2d362f17298fd42d | LF |
 | 20261216090000 | 20261216090000_twilio_prov_orphan_exposure.sql | e7f240e2279eaec0b5202b81d48ae76963c6b4417f79ff07ea819224102bf3d8 | e56a6d6530e040a14cea7a456600f96364ab5c606c95a044e701ce7651bca98a | LF |
 | 20261217090000 | 20261217090000_twilio_r2b_rfl_lifecycle_integration.sql | 0c832ffe4848c6642288fc994d20c54046bbb4e52165c5221dddbfbd64ac086f | 0d1bd3d27e87aaaf2fb16400e9f43e5fd006b54b09ad1587d632b0827ff84471 | LF |
-| 20261218090000 | 20261218090000_twilio_usage_reconciler_readiness.sql | c85bfafc7d8b15840fb9da18daff74f02d663681e49f7d51cb92952acf311af5 | ef10b282a193662eb21ca8b04d5ad146eff4386e3b4933329be758429f59ce43 | LF (main 2877bab7) |
-| 20261219090000 | 20261219090000_twilio_act_pilot_funding_lock_order.sql | f1a7268bad4f6df513c5f3dcfab2d73836d6b60868692cdbc8301143546a8887 | bb3301f53e3453e02644f8a4569b2848b0045f3bc70fc9655fe577129185f25f | LF (main 86dc9b1e) |
-| 20261221090000 | 20261221090000_twilio_admin_recovery_tooling.sql | 7dfcfcfa718ba297dc956bb56770c0b844cd30f335c72da7eebeb639f0b803c3 | 9d7368ed0e418b098ac41c4b1d394ec81f1a68f85dee5058ab7d4851f479d765 | LF (main 973f36da) |
-| 20261222090000 | 20261222090000_twilio_owner_texting_status.sql | d4bbc183aae7fc8489abff4ed45a28753039a873dac6bd03f853a909e2a60748 | 21f4c0e66cb228bef2d3ac055cf57f8684d3febbec5f3a0aec4c6130672c89b7 | LF (main 09ffea39) |
-| 20261223090000 | 20261223090000_twilio_inventory_reconcile_run.sql | f3db1425ba82bfa79363889abaab3bc6b92efc7f71a5eacd277a5f147dc480de | 4a5a7dabbfe2a701c59aebfaec467a703efa30df6d206cd7980485a11d3d86e0 | LF (main 893941b0) |
-| 20261224090000 | 20261224090000_twilio_rfl_cancel_target.sql | 59b03309d0e72441b9f17b83f993ee5a9b630709082a1be25705b10ce3671bee | 8321de6ad70dfd91f30c8c7750604afda08058380c5195caf63c3b55aca0d296 | LF (main d2489cc9) |
-| 20261225090000 | 20261225090000_twilio_rfl_d5_cover.sql | f3c7700ef11879ea51c7c1215e775d41b4a1cbc64bddddf4d7a10af5093f5dfc | f6a5288276b413ac5d36d72ffaca6a01a81d446b94d81c55c50457e791bcdd40 | LF (main c982d7fa) |
-| 20261226090000 | 20261226090000_twilio_act_console_gates.sql | 09588758d7739eebce82405c70d03a93a1e3c0080c93d95e0d749a0e51cc0723 | 8c275fc7ffffa2e2da617c9c6fdebc06ec9734d35757ef176eecc2f0b091f35d | LF (main 897120e1) |
-| 20261227090000 | 20261227090000_twilio_owner_number_offers.sql | 0c8e77b2a6693f6fce87fa9d432aed954eb0f466696c388f5705efeb01612c03 | 20d6210d2038bf48429880a72047e4519f3bbaed446d2884429c60a71695626c | LF (main 210f2b8e) |
+| 20261218090000 | 20261218090000_twilio_usage_reconciler_readiness.sql | c85bfafc7d8b15840fb9da18daff74f02d663681e49f7d51cb92952acf311af5 | ef10b282a193662eb21ca8b04d5ad146eff4386e3b4933329be758429f59ce43 | LF |
+| 20261219090000 | 20261219090000_twilio_act_pilot_funding_lock_order.sql | f1a7268bad4f6df513c5f3dcfab2d73836d6b60868692cdbc8301143546a8887 | bb3301f53e3453e02644f8a4569b2848b0045f3bc70fc9655fe577129185f25f | LF |
+| 20261221090000 | 20261221090000_twilio_admin_recovery_tooling.sql | 7dfcfcfa718ba297dc956bb56770c0b844cd30f335c72da7eebeb639f0b803c3 | 9d7368ed0e418b098ac41c4b1d394ec81f1a68f85dee5058ab7d4851f479d765 | LF |
+| 20261222090000 | 20261222090000_twilio_owner_texting_status.sql | d4bbc183aae7fc8489abff4ed45a28753039a873dac6bd03f853a909e2a60748 | 21f4c0e66cb228bef2d3ac055cf57f8684d3febbec5f3a0aec4c6130672c89b7 | LF |
+| 20261223090000 | 20261223090000_twilio_inventory_reconcile_run.sql | f3db1425ba82bfa79363889abaab3bc6b92efc7f71a5eacd277a5f147dc480de | 4a5a7dabbfe2a701c59aebfaec467a703efa30df6d206cd7980485a11d3d86e0 | LF |
+| 20261224090000 | 20261224090000_twilio_rfl_cancel_target.sql | 59b03309d0e72441b9f17b83f993ee5a9b630709082a1be25705b10ce3671bee | 8321de6ad70dfd91f30c8c7750604afda08058380c5195caf63c3b55aca0d296 | LF |
+| 20261225090000 | 20261225090000_twilio_rfl_d5_cover.sql | f3c7700ef11879ea51c7c1215e775d41b4a1cbc64bddddf4d7a10af5093f5dfc | f6a5288276b413ac5d36d72ffaca6a01a81d446b94d81c55c50457e791bcdd40 | LF |
+| 20261226090000 | 20261226090000_twilio_act_console_gates.sql | 09588758d7739eebce82405c70d03a93a1e3c0080c93d95e0d749a0e51cc0723 | 8c275fc7ffffa2e2da617c9c6fdebc06ec9734d35757ef176eecc2f0b091f35d | LF |
+| 20261227090000 | 20261227090000_twilio_owner_number_offers.sql | 0c8e77b2a6693f6fce87fa9d432aed954eb0f466696c388f5705efeb01612c03 | 20d6210d2038bf48429880a72047e4519f3bbaed446d2884429c60a71695626c | LF |
 
-### 3.0 Merged on main after `960a9d02`
+### 3.0 Notes on migrations merged after `960a9d02`
+
+The `verify_manifest_hashes.sh <ref>` refs quoted in these notes are the main commits at which each row was added; verify the whole chain against `84f52048` or any later main.
 
 `20261206090000` (#251, sender re-verification) merged to main `cdf342e2` (squash, approved head `9de9eb4c`); its row is in the table above with hashes from main. The forward file **changed during review**: the main blob is `7e766d02…`, not the earlier PR-head `d38de62c…` (the rollback hash is unchanged). It adds service_role functions `tw4_sender_reverify_run` and `tw4_sender_health`, redefines `tw4_sender_due_reverify`, `_tw4sr_judge` and `tw4_sender_reverify`, requires `20261205090000`, and its rollback refuses once a re-verify run or inconclusive audit row exists (55000). It is not applied to any hosted database. By merge order it sits after `1217` in the repository, but its only dependency is `1205`; a hosted apply runs it after `1207`..`1217` unless the owner orders otherwise, and #251's own runbook covers manual ordering. Record the position used, because it changes expected fingerprints.
 
-`20261215090000` (#269) merged to main `6422e050` (squash); its row is in the table above with hashes taken from main (identical to the earlier PR head `5a2432d3`). It adds only the read-only service_role function `tw4_prov_evidence_targets(uuid,text)`, requires `20261212090000`, and its rollback has no row gate. It is still not applied to any hosted database. Rows other than `1215` are verified against `960a9d02`; `verify_manifest_hashes.sh cdf342e2` verifies all 34 (rows `1206` and `1215` exist only on that ref).
+`20261215090000` (#269) merged to main `6422e050` (squash); its row is in the table above with hashes taken from main (identical to the earlier PR head `5a2432d3`). It adds only the read-only service_role function `tw4_prov_evidence_targets(uuid,text)`, requires `20261212090000`, and its rollback has no row gate. It is still not applied to any hosted database.
 
 `20261225090000` (#290, RFL decision D5 cover) merged to main `c982d7fa` (final PR head `84e1c801`); its row is in the table above with hashes from main, identical to the `0bde8897` re-hash. It redefines `_tw4rfl_guard`, `_tw4rfl_cover`, `_tw4rfl_register_core` and `tw4_rfl_pilot_cover`, adds four nullable supersede columns, requires `1209`..`1217`, has no client-exposed grant, and its rollback refuses while superseded cover evidence exists and is fingerprint-gated. It is not applied to any hosted database. **Hosted rollback must undo `1225` before `1217`/`1211`** (section 5.1); the `1211` and `1217` rollbacks do not detect it. Verify with `verify_manifest_hashes.sh c982d7fa`.
 
-`20261221090000` (F4, #288, `twilio_admin_recovery_tooling`) merged to main `973f36da`; its row is in the table above with hashes from main. The forward file **changed after the provisional row**: main is `7dfcfcfa…`, the earlier PR head `9977fe03` hashed `194e5ef1…` (the rollback hash is unchanged). It adds six platform-admin functions (`tw4_admin_registration_retry`, `tw4_admin_registration_gaps`, `tw4_admin_deferred_retirements`, `tw4_admin_deferred_retire`, `tw4_admin_exposure`, `tw4_admin_prov_proof`; service_role only) and helpers, redefines `tw4_prov_observe` and `tw4_num_registration_retry`, requires `1207`..`1217`, has no client-exposed grant, and its rollback is fingerprint-gated. Not applied to any hosted database. Apply it after `1217`; it precedes `1225` in numeric order, so roll `1225` back first.
+`20261221090000` (F4, #288, `twilio_admin_recovery_tooling`) merged to main `973f36da`; its row is in the table above with hashes from main. The forward file **changed between the earlier PR head and the merge**: main is `7dfcfcfa…`, the earlier PR head `9977fe03` hashed `194e5ef1…` (the rollback hash is unchanged). It adds six platform-admin functions (`tw4_admin_registration_retry`, `tw4_admin_registration_gaps`, `tw4_admin_deferred_retirements`, `tw4_admin_deferred_retire`, `tw4_admin_exposure`, `tw4_admin_prov_proof`; service_role only) and helpers, redefines `tw4_prov_observe` and `tw4_num_registration_retry`, requires `1207`..`1217`, has no client-exposed grant, and its rollback is fingerprint-gated. Not applied to any hosted database. Apply it after `1217`; it precedes `1225` in numeric order, so roll `1225` back first.
 
 Three more merged to main `09ffea39` (rows in the table above, hashes from main, all identical to the PR-head hashes recorded earlier):
 
@@ -123,15 +125,15 @@ Neither is applied to any hosted database. Verify with `verify_manifest_hashes.s
 
 `20261226090000` (J4 #298, `twilio_act_console_gates`, merge `897120e1`) merged to main `897120e1`; its row is in the table above with hashes from main, identical to the PR-head hashes (`e2e30a79`, `ead3d86e`). It requires `1219` (bodies fingerprint-checked) and `1225`, replaces only F1's `_tw4act_pilot_funding` and `_tw4act_items`, adds checklist item `pilot_ki1_redecided`, and has no table, data or client-exposed grant. **Apply order `1218`, `1219`, `1221`, `1225`, `1226`; roll back `1226` first.** `1219`'s rollback refuses while `1226` is applied (intended). Its rollback restores the `1219` bodies byte-exactly and refuses if a later migration changed a body. **KI-1 activation block:** with `1226` applied, `tw4_act_mark_ready` and `tw4_act_activate` refuse for the pilot business (`ki1_owner_redecision_pending:lifted_only_by_migration`, TW042) until the owner re-decides KI-1 and a later migration lifts the item; see section 8.3. Not applied to any hosted database. Verify with `verify_manifest_hashes.sh 897120e1`. With this row every TW-4F pilot migration is merged; `1220` (F2) is not started.
 
-### 3.1 Slots for migrations not on main
+### 3.1 Reserved slot not on main
 
-Hashes below are of the **PR head blobs** at the commit shown, not main, and are not covered by `verify_manifest_hashes.sh`. Re-hash when the PR changes; a head that moves invalidates the row.
+The only remaining reserved timestamp. It has no file, so it has no hash and is not covered by `verify_manifest_hashes.sh`.
 
 | Timestamp | Owner / PR | Status | Forward file | sha256 forward (LF) | sha256 rollback (LF) | Notes |
 |---|---|---|---|---|---|---|
 | 20261220090000 | F2 (not started) | reserved, waits for decision U-3 | none | n/a | n/a | Would own `_tw4sr_ready`, `_tw4sr_ready_core`. Do not plan an apply. |
 
-When a slot above gets a PR or merges, a follow-up commit updates its row (hash, objects, grants, data, rollback gate) and re-runs the section 9 checks. The apply order in section 4 runs through every merged row; provisional rows are not part of an authorized apply until they merge and are re-hashed.
+If `1220` (F2) ever gets a PR, a follow-up commit adds its row (hash, objects, grants, data, rollback gate), places it in the section 4 order (numeric position between `1219` and `1221`) and re-runs the section 9 checks. Until then no apply plan includes it.
 
 ## 4. Apply order and method
 
@@ -196,7 +198,7 @@ Requires are taken from each file's header or its precondition checks; the numer
 | 20261216090000 | prov orphan exposure | `1212`, `1211` | none | none | no gate (drops two read functions) | no |
 | 20261217090000 | R2b / RFL lifecycle integration | `1208` … `1214` (`1215`/`1216` not required) | none | none | not applied; a replaced function changed after this migration; or a restored body is not byte-exact | no row gate, **fingerprint-gated**; registrations and retirements written while live stay valid |
 
-The client-exposed list matches tracker section 4: `sms_location_attest` (1121), credit reads (1122, 1124), recurring overviews (1126, 1128), fee kinds (1202_090), `tw4_num_select_as_owner` / `_withdraw_as_owner` (1208), `sms_rfl_owner_overview` (1209), `get_studio_sms_provisioning` (1210), plus the seven TW-4A RPCs (1119). The probe must show exactly these as executable by `authenticated`, and nothing executable by `anon` or `PUBLIC` (runbook step D4).
+The client-exposed list matches tracker section 4: `sms_location_attest` (1121), credit reads (1122, 1124), recurring overviews (1126, 1128), fee kinds (1202_090), `tw4_num_select_as_owner` / `_withdraw_as_owner` (1208), `sms_rfl_owner_overview` (1209), `get_studio_sms_provisioning` (1210), plus the seven TW-4A RPCs (1119). The probe must show exactly these 23 functions (the seven TW-4A RPCs plus the sixteen listed, including `get_studio_sms_texting_status` from `1222` and `get_studio_sms_number_offers` from `1227`) as executable by `authenticated`, and nothing executable by `anon` or `PUBLIC` (runbook step D4).
 
 ### 5.1 Rollback rules (app-first)
 
@@ -489,6 +491,19 @@ Generated from the blobs by `gen_manifest_data.mjs`; regenerate, do not hand-edi
 - rollback: `rollback/20261205090000_twilio_usage_reconciliation_rollback.sql` sha256 `0e496d748a080296c1733e99f2b487ca1ff4b7d0c2a571f747232945b1bb39d5`
   - refusal conditions: "usage-reconciliation rollback: not applied"; "usage-reconciliation rollback refused: reconciliation evidence exists [55000]"
 
+#### 20261206090000_twilio_sender_reverification.sql
+
+- sha256 (LF-normalized): `7e766d021d478d8615c88134e41f62dd5bae7eb4379583fff1b10aa3f89b0b0e`  (326 lines)
+- header: Automated sender re-verification (owner handoff "DanceFlow TW-4F - Automated Sender Re-Verification", 2026-10-20; design
+- header dependencies: Requires 20261205090000
+- created: 0 tables, 2 functions, 0 views, 0 indexes/triggers/constraints
+  - new functions: `tw4_sender_reverify_run`, `tw4_sender_health`
+- replaced (CREATE OR REPLACE / re-created): `tw4_sender_due_reverify`, `_tw4sr_judge`, `tw4_sender_reverify`
+- client-exposed grants (anon/authenticated/PUBLIC): none
+- one-off data statements: none at top level
+- rollback: `rollback/20261206090000_twilio_sender_reverification_rollback.sql` sha256 `2932f6b70b4b49a95d77f9a4dca753727349ac5eeff5870ea83b5a5cccc4145d`
+  - refusal conditions: "sender-reverification rollback: not applied"; "sender-reverification rollback refused: re-verification evidence exists [55000]"
+
 #### 20261207090000_twilio_r2a_messaging_service_campaign.sql
 
 - sha256 (LF-normalized): `8321fabb802623e766636087681a5b758af0aefa0dc5f76650eabf5aacda8d6b`  (950 lines)
@@ -597,6 +612,18 @@ Generated from the blobs by `gen_manifest_data.mjs`; regenerate, do not hand-edi
 - rollback: `rollback/20261214090000_twilio_r2b_p2_orphans_reconciliation_rollback.sql` sha256 `de8d74383285941edeca005487aa05a7f81f913d6830fc61baba73b63b5df8d3`
   - refusal conditions: "R2b-P2 rollback: not applied"; "R2b-P2 rollback refused: orphan findings exist [55000]"; "R2b-P2 rollback refused: a function it installed has been changed since (fingerprint) [55000]"
 
+#### 20261215090000_twilio_prov_evidence_targets.sql
+
+- sha256 (LF-normalized): `2a3308aa1b1d4425d1d49263c4b94806b68051be42c6fef963d20f03c58f5277`  (71 lines)
+- header: matters, the provider account and the Messaging Service the OPERATION WAS REGISTERED UNDER (its own recorded params), never the studio's current service.
+- header dependencies: Requires 20261212090000 (the evidence recorder it serves)
+- created: 0 tables, 1 functions, 0 views, 0 indexes/triggers/constraints
+  - new functions: `tw4_prov_evidence_targets`
+- client-exposed grants (anon/authenticated/PUBLIC): none
+- one-off data statements: none at top level
+- rollback: `rollback/20261215090000_twilio_prov_evidence_targets_rollback.sql` sha256 `a0d2430de1ae7cb6ab5090094f387559ce02180cb5a7237a2d362f17298fd42d`
+  - refusal conditions: none declared (no raise exception mentioning "rollback")
+
 #### 20261216090000_twilio_prov_orphan_exposure.sql
 
 - sha256 (LF-normalized): `e7f240e2279eaec0b5202b81d48ae76963c6b4417f79ff07ea819224102bf3d8`  (164 lines)
@@ -621,6 +648,121 @@ Generated from the blobs by `gen_manifest_data.mjs`; regenerate, do not hand-edi
 - rollback: `rollback/20261217090000_twilio_r2b_rfl_lifecycle_integration_rollback.sql` sha256 `0d1bd3d27e87aaaf2fb16400e9f43e5fd006b54b09ad1587d632b0827ff84471`
   - refusal conditions: "lifecycle-integration rollback precondition failed: the migration is not applied"; "lifecycle-integration rollback precondition failed: a replaced function was changed after this migration (roll back the later migration first)"; "lifecycle-integration rollback failed: public.tw4_recurring_charge(uuid,text,uuid) was not restored byte-exactly"; "lifecycle-integration rollback failed: public._tw4rfl_mark_cancelled(public.studio_sms_provider_resources,uuid,text,uuid,timestamptz) was not restored byte-exactly"; "lifecycle-integration rollback failed: public.tw4_rfl_register(uuid,uuid,text,text,text,text,text,uuid,uuid) was not restored byte-exactly"; "lifecycle-integration rollback failed: public.tw4_num_observe(uuid,text,uuid,jsonb,text,text) was not restored byte-exactly"; "lifecycle-integration rollback failed: public.tw4_num_retire(uuid,uuid,text) was not restored byte-exactly"
 
+#### 20261218090000_twilio_usage_reconciler_readiness.sql
+
+- sha256 (LF-normalized): `c85bfafc7d8b15840fb9da18daff74f02d663681e49f7d51cb92952acf311af5`  (253 lines)
+- header: TW-4F F3 (completion tracker F-5, P1): billed texting needs a healthy usage reconciler (dark; Git-only until separately authorized).
+- header dependencies: Requires 20261205090000 (and 20261204090000)
+- created: 0 tables, 2 functions, 0 views, 1 indexes/triggers/constraints
+  - new functions: `_tw4usage_run_proved`, `_tw4usage_reconciler_ready`
+- replaced (CREATE OR REPLACE / re-created): `tw4_usage_set_switch`, `tw4_usage_begin`
+- client-exposed grants (anon/authenticated/PUBLIC): none
+- one-off data statements: none at top level
+- rollback: `rollback/20261218090000_twilio_usage_reconciler_readiness_rollback.sql` sha256 `ef10b282a193662eb21ca8b04d5ad146eff4386e3b4933329be758429f59ce43`
+  - refusal conditions: "reconciler-readiness rollback precondition failed: the migration is not applied"; "reconciler-readiness rollback precondition failed: a replaced function was changed after this migration (roll back the later migration first)"; "reconciler-readiness rollback refused: billed texting is switched on (switch it off with tw4_usage_set_switch first)"; "reconciler-readiness rollback refused: another function calls public._tw4usage_reconciler_ready() (roll that migration back first)"; "reconciler-readiness rollback failed: public.tw4_usage_begin(text,uuid,uuid,uuid,text,text,text,text,uuid,uuid) was not restored byte-exactly"; "reconciler-readiness rollback failed: public.tw4_usage_set_switch(boolean,uuid,text) was not restored byte-exactly"
+
+#### 20261219090000_twilio_act_pilot_funding_lock_order.sql
+
+- sha256 (LF-normalized): `f1a7268bad4f6df513c5f3dcfab2d73836d6b60868692cdbc8301143546a8887`  (370 lines)
+- header: TW-4F F1: pilot funding continuity and activation lock order (dark; Git-only until separately authorized). Tracker F-1 (P1) and F-10.
+- header dependencies: Requires 20261208..20261217 (and 20261218 for any activation to pass)
+- created: 0 tables, 1 functions, 0 views, 0 indexes/triggers/constraints
+  - new functions: `_tw4act_pilot_funding`
+- replaced (CREATE OR REPLACE / re-created): `_tw4act_funding`, `_tw4act_items`, `tw4_act_mark_ready`, `tw4_act_activate`, `tw4_act_suspend`
+- client-exposed grants (anon/authenticated/PUBLIC): none
+- one-off data statements: none at top level
+- rollback: `rollback/20261219090000_twilio_act_pilot_funding_lock_order_rollback.sql` sha256 `bb3301f53e3453e02644f8a4569b2848b0045f3bc70fc9655fe577129185f25f`
+  - refusal conditions: "act-pilot-funding rollback precondition failed: the migration is not applied"; "act-pilot-funding rollback precondition failed: a replaced function was changed after this migration (roll back the later migration first)"; "act-pilot-funding rollback postcondition failed: a restored body differs from 20261208090000"
+
+#### 20261221090000_twilio_admin_recovery_tooling.sql
+
+- sha256 (LF-normalized): `7dfcfcfa718ba297dc956bb56770c0b844cd30f335c72da7eebeb639f0b803c3`  (595 lines)
+- header: TW-4F F4: administrative evidence, orphan exposure and operational recovery tooling (dark; Git-only until separately authorized).
+- header dependencies: Requires 20261207 .
+- created: 0 tables, 11 functions, 0 views, 0 indexes/triggers/constraints
+  - new functions: `_tw4prov_ledger_reservation`, `_tw4prov_register_verified`, `_tw4f4_retry_target`, `_tw4f4_retry`, `tw4_admin_registration_retry`, `tw4_admin_registration_gaps`, `_tw4f4_sender_status`, `tw4_admin_deferred_retirements`, `tw4_admin_deferred_retire`, `tw4_admin_exposure`, `tw4_admin_prov_proof`
+- replaced (CREATE OR REPLACE / re-created): `tw4_num_registration_retry`, `tw4_prov_observe`
+- client-exposed grants (anon/authenticated/PUBLIC): none
+- one-off data statements: none at top level
+- rollback: `rollback/20261221090000_twilio_admin_recovery_tooling_rollback.sql` sha256 `9d7368ed0e418b098ac41c4b1d394ec81f1a68f85dee5058ab7d4851f479d765`
+  - refusal conditions: "recovery-tooling rollback precondition failed: the migration is not applied"; "recovery-tooling rollback precondition failed: a replaced function was changed after this migration (roll back the later migration first)"; "recovery-tooling rollback postcondition failed: a restored body differs from its main definition"; "recovery-tooling rollback postcondition failed: unexpected privileges on a restored function"
+
+#### 20261222090000_twilio_owner_texting_status.sql
+
+- sha256 (LF-normalized): `d4bbc183aae7fc8489abff4ed45a28753039a873dac6bd03f853a909e2a60748`  (250 lines)
+- header: TW-4F J2 (tracker O-2, O-4): the studio OWNER's texting status beyond the campaign: number, sender, compliance, the activation checklist and the recurring
+- header dependencies: Requires 20261208 (R2b), 20261209 (RFL), 20261212 (campaign orphans), 20261214 (number orphans)
+- created: 0 tables, 1 functions, 0 views, 0 indexes/triggers/constraints
+  - new functions: `get_studio_sms_texting_status`
+- client-exposed grants (anon/authenticated/PUBLIC): 
+  - `GRANT EXECUTE public.get_studio_sms_texting_status(uuid) to authenticated`
+- one-off data statements: none at top level
+- rollback: `rollback/20261222090000_twilio_owner_texting_status_rollback.sql` sha256 `21f4c0e66cb228bef2d3ac055cf57f8684d3febbec5f3a0aec4c6130672c89b7`
+  - refusal conditions: none declared (no raise exception mentioning "rollback")
+
+#### 20261223090000_twilio_inventory_reconcile_run.sql
+
+- sha256 (LF-normalized): `f3db1425ba82bfa79363889abaab3bc6b92efc7f71a5eacd277a5f147dc480de`  (88 lines)
+- header: TW-4F A9: the scheduled per-subaccount number-inventory reconciliation runs under the shared reconciliation run lease (studio_sms_reconcile_runs, 20261205).
+- header dependencies: Requires 20261205090000
+- created: 0 tables, 1 functions, 0 views, 0 indexes/triggers/constraints
+  - new functions: `tw4_reconcile_run_alive`
+- replaced (CREATE OR REPLACE / re-created): `tw4_reconcile_run_begin`
+- client-exposed grants (anon/authenticated/PUBLIC): none
+- one-off data statements: none at top level
+- rollback: `rollback/20261223090000_twilio_inventory_reconcile_run_rollback.sql` sha256 `4a5a7dabbfe2a701c59aebfaec467a703efa30df6d206cd7980485a11d3d86e0`
+  - refusal conditions: "inventory-reconcile-run rollback precondition failed: the migration is not applied"; "inventory-reconcile-run rollback refused: inventory reconciliation runs exist [55000]"; "inventory-reconcile-run rollback precondition failed: a later migration added a job (roll it back first)"; "inventory-reconcile-run rollback precondition failed: tw4_reconcile_run_begin was changed after this migration (roll back the later migration first)"; "inventory-reconcile-run rollback postcondition failed: tw4_reconcile_run_begin differs from its main definition"; "inventory-reconcile-run rollback postcondition failed: unexpected privileges"
+
+#### 20261224090000_twilio_rfl_cancel_target.sql
+
+- sha256 (LF-normalized): `59b03309d0e72441b9f17b83f993ee5a9b630709082a1be25705b10ce3671bee`  (80 lines)
+- header: TW-4F F5: ONE new READ-ONLY function for the cancellation runner (src/lib/sms/twilioIsv/cancelRunner.ts). Design: docs/twilio/TW-4F_F5_Release_Adapters.md.
+- header dependencies: Requires 20261209090000 and 20261211090000
+- created: 0 tables, 1 functions, 0 views, 0 indexes/triggers/constraints
+  - new functions: `tw4_rfl_cancel_target`
+- client-exposed grants (anon/authenticated/PUBLIC): none
+- one-off data statements: none at top level
+- rollback: `rollback/20261224090000_twilio_rfl_cancel_target_rollback.sql` sha256 `8321de6ad70dfd91f30c8c7750604afda08058380c5195caf63c3b55aca0d296`
+  - refusal conditions: none declared (no raise exception mentioning "rollback")
+
+#### 20261225090000_twilio_rfl_d5_cover.sql
+
+- sha256 (LF-normalized): `f3c7700ef11879ea51c7c1215e775d41b4a1cbc64bddddf4d7a10af5093f5dfc`  (399 lines)
+- header: TW-4F RFL decision D5 (Git-only until separately authorized; dark): a resource's own pilot reservation counts as the REGISTRATION period's cover only while it is
+- header dependencies: Requires 20261209..20261217
+- created: 0 tables, 0 functions, 0 views, 2 indexes/triggers/constraints
+- replaced (CREATE OR REPLACE / re-created): `_tw4rfl_guard`, `_tw4rfl_cover`, `_tw4rfl_register_core`, `tw4_rfl_pilot_cover`
+- client-exposed grants (anon/authenticated/PUBLIC): none
+- one-off data statements: none at top level
+- rollback: `rollback/20261225090000_twilio_rfl_d5_cover_rollback.sql` sha256 `f6a5288276b413ac5d36d72ffaca6a01a81d446b94d81c55c50457e791bcdd40`
+  - refusal conditions: "d5-cover rollback precondition failed: the migration is not applied"; "d5-cover rollback refused: superseded cover evidence exists and is permanent"; "d5-cover rollback precondition failed: a replaced function was changed after this migration (roll back the later migration first)"; "d5-cover rollback failed: public._tw4rfl_guard() was not restored byte-exactly"; "d5-cover rollback failed: public._tw4rfl_cover(public.studio_sms_provider_resources,text) was not restored byte-exactly"; "d5-cover rollback failed: public._tw4rfl_register_core(uuid,uuid,text,text,text,text,text,uuid,uuid,boolean) was not restored byte-exactly"; "d5-cover rollback failed: public.tw4_rfl_pilot_cover(uuid,text,text,uuid) was not restored byte-exactly"
+
+#### 20261226090000_twilio_act_console_gates.sql
+
+- sha256 (LF-normalized): `09588758d7739eebce82405c70d03a93a1e3c0080c93d95e0d749a0e51cc0723`  (226 lines)
+- header: TW-4F J4 (activation console), database half (dark; Git-only until separately authorized). Replaces two F1 (20261219) bodies; nothing else.
+- header dependencies: Requires 20261219 (bodies fingerprint-checked) and 20261225 (studio_sms_provider_cover.superseded_at)
+- created: 0 tables, 0 functions, 0 views, 0 indexes/triggers/constraints
+- replaced (CREATE OR REPLACE / re-created): `_tw4act_pilot_funding`, `_tw4act_items`
+- client-exposed grants (anon/authenticated/PUBLIC): none
+- one-off data statements: none at top level
+- rollback: `rollback/20261226090000_twilio_act_console_gates_rollback.sql` sha256 `8c275fc7ffffa2e2da617c9c6fdebc06ec9734d35757ef176eecc2f0b091f35d`
+  - refusal conditions: "act-console-gates rollback precondition failed: the migration is not applied, or a later migration changed a body"; "act-console-gates rollback postcondition failed: a restored body differs from 20261219090000"
+
+#### 20261227090000_twilio_owner_number_offers.sql
+
+- sha256 (LF-normalized): `0c8e77b2a6693f6fce87fa9d432aed954eb0f466696c388f5705efeb01612c03`  (343 lines)
+- header: TW-4F J3 (tracker O-3): the studio OWNER's view of the texting numbers DanceFlow offered, the owner's own open approval, and whether approving can lead to a
+- header dependencies: Requires 20261208 (R2b)
+- created: 0 tables, 1 functions, 0 views, 0 indexes/triggers/constraints
+  - new functions: `get_studio_sms_number_offers`
+- replaced (CREATE OR REPLACE / re-created): `get_studio_sms_texting_status`
+- client-exposed grants (anon/authenticated/PUBLIC): 
+  - `GRANT EXECUTE public.get_studio_sms_number_offers(uuid) to authenticated`
+- one-off data statements: none at top level
+- rollback: `rollback/20261227090000_twilio_owner_number_offers_rollback.sql` sha256 `20d6210d2038bf48429880a72047e4519f3bbaed446d2884429c60a71695626c`
+  - refusal conditions: "rollback precondition failed: get_studio_sms_texting_status is neither the 20261227 nor the 20261222 body"; "rollback postcondition failed: the 20261222 body was not restored exactly"
+
 ## 7. Read-only probes
 
 Files: `scripts/hosted/tw4f/probe_objects.sql`, `probe_fingerprint.sql`. Each is one `SELECT` statement and carries a header repeating the conditions below.
@@ -637,7 +779,7 @@ How to read the output:
 
 - `probe_objects.sql` sections: `00_env`, `10_table` (+ `11_table_unlisted`), `20_function` (+ `21_function_unlisted`), `30_trigger`, `40_policy`, `50_dependency`, `60_migration_history`. `MISSING` is the correct answer for objects whose migration has not been applied; `UNEXPECTED` flags objects not created by a migration on main (for example `studio_sms_registrations`, which is TW-3, or objects from `1206`/`1215`/Wave 1 until the expected lists are regenerated with `--sync-probes`). `rows=` are exact only for a role that bypasses RLS (the hosted `postgres` role).
 - `probe_fingerprint.sql` rows are `(scope, object, fp)`. Compare `rollup:ALL` first, then per-scope rollups, then objects. `other_sms_functions` is the pre-TW-4 SMS function set, which TW-4 migrations must leave unchanged (the 2026-10 release readiness plan compares it before and after each apply).
-- Expected sizes on a database with the whole main chain (measured on the local run in section 9): 387 `tw4_functions`, 9 `other_sms_functions`. Counts on a partially applied database are smaller by the unapplied layers; derive them from section 6 rather than from this sentence.
+- Expected sizes on a database with the whole main chain through `1227` are recorded in section 9 row 8 (measured on the local run). Counts on a partially applied database are smaller by the unapplied layers; derive them from section 6 rather than from a fixed number.
 
 ## 8. Runbooks
 
@@ -671,7 +813,7 @@ Common setup for every hosted step:
 
 **D4. Grants and RLS probe (read-only).** From `probe_objects.sql` on the final state: every `studio_sms_*` table has RLS on and `api privs` empty for `anon`/`authenticated`/`service_role` (access is through `SECURITY DEFINER` functions); `40_policy` has no rows; every `20_function` row has a pinned `search_path` and `anon:false`; `public:false`; `authenticated:true` for exactly the client-exposed set in section 5 and nowhere else. Role probes as `anon`/`authenticated` against a service-role-only function must get `permission denied`. Never call a REVOKEd function through PostgREST on the local QA image (it segfaults); on hosted, prefer `has_function_privilege` from the probe.
 
-**D5. Flags and switches off (read-only).** Confirm, without printing values: no env var from this list is set to an enabling value on the DEV deployment — `SMS_CREDIT_PURCHASES`, `SMS_MONTHLY_LIMITS`, `SMS_RECURRING_AUTHORIZATION`, `SMS_RECURRING_SCHEDULER`, `SMS_USAGE_BILLING`, `SMS_USAGE_RECONCILER`, `SMS_INBOUND_RECORDING`, `SMS_FEE_LIFECYCLE_SCAN`, `SMS_FEE_LIFECYCLE_DELIVERY`, `SMS_USAGE_EVIDENCE_READS`, `SMS_SENDER_VERIFY_READS`, `SMS_BILLED_REAL_SEND`, `SMS_SENDER_REVERIFY` (#251), `TW4_ISV_REAL_CALLS`, `TW4_PROVISIONING_REAL_CALLS`, `TW4_NUMBER_REAL_CALLS`, `TW4_SUBACCOUNT_WEBHOOKS`; `FEE_RELEASE_ENABLED=false` in code. DB switches: the switch-log tables (`studio_sms_recurring_switch_log`, `studio_sms_usage_switch_log`, `studio_sms_rfl_switch_log`) have 0 rows (no row means OFF). `vercel.json` registers no TW-4F cron. Adapters are fakes only. Record the result.
+**D5. Flags and switches off (read-only).** Confirm, without printing values, every item of the section 8.5 list: no env var in the list is set to an enabling value on the DEV deployment, every DB switch is off, and no TW-4F cron is registered. Adapters are fakes only, and only on a local database. Record the result.
 
 ### 8.2 PROD (`hvsujyfbftfffxpfmlpb`)
 
@@ -707,32 +849,48 @@ The pilot is not a database event. Each step is separately authorized in writing
 
 Pilot retrospective; decisions on U-3, U-5, U-7 and U-9; funding-exposure monitoring live; real cancellation validated; per-studio gating for self-service onboarding. Schedulers and delivery switches remain off for every studio until the owner authorizes them for that studio.
 
+### 8.5 Activation reads, and what must stay off on hosted DEV
+
+Activation (`tw4_act_*`) needs provider evidence about the campaign and the Messaging Service route. Since A9b (#300) those compliance reads are gated by **`TW4_NUMBER_READS`**, the same read-only gate the scheduled inventory reconciliation route uses; they no longer need `TW4_NUMBER_REAL_CALLS`. In production the read adapter exists only when `TW4_ISV_REAL_CALLS=on` **and** `TW4_NUMBER_READS=on` and the configuration is complete; it makes GET requests only. It is deliberately independent of `TW4_PROVISIONING_REAL_CALLS` and of the purchase switch `TW4_NUMBER_REAL_CALLS`: activation never needs the purchase switch.
+
+`TW4_NUMBER_READS` still means real Twilio GETs, so it needs its own owner authorization and stays **off on hosted DEV**. Separately, with `1226` applied, pilot activation is blocked by the KI-1 checklist item (section 8.3) regardless of any flag.
+
+**Must stay off (unset or not `on`) on hosted DEV:**
+
+- Env flags: `SMS_CREDIT_PURCHASES`, `SMS_MONTHLY_LIMITS`, `SMS_RECURRING_AUTHORIZATION`, `SMS_RECURRING_SCHEDULER`, `SMS_USAGE_BILLING`, `SMS_USAGE_RECONCILER`, `SMS_INBOUND_RECORDING`, `SMS_FEE_LIFECYCLE_SCAN`, `SMS_FEE_LIFECYCLE_DELIVERY`, `SMS_USAGE_EVIDENCE_READS`, `SMS_SENDER_VERIFY_READS`, `SMS_BILLED_REAL_SEND`, `SMS_SENDER_REVERIFY`, `SMS_INVENTORY_RECONCILE` (the inventory route answers 404 unless it is `on`), `TW4_ISV_REAL_CALLS`, `TW4_PROVISIONING_REAL_CALLS`, `TW4_NUMBER_REAL_CALLS`, `TW4_NUMBER_READS`, `TW4_CANCEL_RELEASE` (irreversible provider release), `TW4_SUBACCOUNT_WEBHOOKS`.
+- Fake and mock flags: `TW4_ISV_FAKE` and `TW4_ISV_MOCK_BRAND` are for local databases only; never set them on a hosted project.
+- Code constant: `FEE_RELEASE_ENABLED=false`.
+- DB switches (no row means OFF; verify with the switch-log row counts and the switch-reading functions' answers): `tw4_recurring_set_switch` (`studio_sms_recurring_switch_log`), `tw4_usage_set_switch` (`studio_sms_usage_switch_log`), `tw4_rfl_set_switch('scan')` and `('delivery')` (`studio_sms_rfl_switch_log`). No runner window open (`tw4_runner_set_window`), no studio pilot access enabled (`set_sms_onboarding_access`) except as separately authorized, no sender activated (`tw4_act_activate` never run), credit hold untouched, monthly limits at their default $0, pilot ceiling unspent.
+- Crons: `vercel.json` registers only `/api/cron/sms-onboarding-purge` among the SMS routes; the recurring, usage-reconcile, fee-lifecycle, sender-reverify and inventory-reconcile routes stay unscheduled.
+
+If any item is found on, stop and report; do not turn it off as a side effect of a probe (probes are read-only).
+
 ## 9. QA record for this package (developer-owned QA)
 
 Environments: **L1** = `postgres:17` (17.9) container `tw4f-h1-probe-pg`, started by this session, vanilla Postgres with synthetic roles and fixture. **L2** = container `tw4f-h1-realschema`, started by this session from the local image `df-isoqa/base:20261205090000` (a private copy; the shared stacks were not used), schema through `1205`, with `1207`-`1214`, `1216`, `1217` applied from main by `psql -v ON_ERROR_STOP=1`. **Git** = repository blobs. **Hosted** = DEV/PROD (not touched).
 
 | # | Workflow | Env | Execution | Expected | Observed | Result |
 |---|---|---|---|---|---|---|
-| 1 | Every migration on main in `20261119090000..20261217090000` appears exactly once | Git | `verify_manifest_hashes.sh main` | 32 files, no duplicate, none missing | 32 forward files on main, 32 manifest rows, no duplicate, none missing: `MANIFEST HASHES OK` | PASS |
-| 2 | sha256 in section 3 equals `git show` (forward and rollback) | Git | same script | all match | 32 forward and 32 rollback sha256 values recomputed from `git show main:<path>` (CR stripped) equal the table; no blob in the range contains a CR | PASS |
+| 1 | Every migration on main in `20261119090000..20261227090000` appears exactly once | Git | `verify_manifest_hashes.sh 84f52048` | 43 files, no duplicate, none missing | 43 forward files on main `84f52048`, 43 manifest rows, no duplicate, none missing: `MANIFEST HASHES OK` | PASS |
+| 2 | sha256 in section 3 equals `git show` (forward and rollback) | Git | same script | all match | 43 forward and 43 rollback sha256 values recomputed from `git show 84f52048:<path>` (CR stripped) equal the table | PASS |
 | 3 | Probes run without error on an empty database | L1 | `validate_local.sh` | every expected object `MISSING`, no error | rollup:ALL `(0 objects)`, objects probe 474 rows, no error | PASS |
 | 4 | Probes see objects, RLS, ACLs, row counts, triggers, unlisted objects | L1 | `validate_local.sh` fixture assertions | facts match the fixture | all assertions matched | PASS |
 | 5 | Probes do not write | L1 | read-only wrapper; catalog/data digest before vs after; negative control write refused | digest equal; write refused | equal; write refused | PASS |
 | 6 | CRLF-stored function body fingerprints like its LF twin | L1 | fixture function with CR in `prosrc` | same md5 | equal; flagged `(CR in stored body)` | PASS |
 | 7 | Fingerprint is deterministic | L1 | two runs, `cmp` | identical | identical | PASS |
-| 8 | Probes run on the real TW-4 schema, read-only | L2 | both probes inside `begin read only` | no error; all tables 0 rows | both probes returned rc 0 inside `begin read only` (`read_only_txn = on`); 73 studio_sms-type tables PRESENT, all `rows=0`; fingerprint rollup:ALL `9cbd9bd6` over 1162 objects (387 tw4 + 9 other-SMS function signatures) | PASS |
-| 9 | Expected-object lists match a database with the main chain applied | L2 | `probe_objects.sql` `MISSING` count | 0 `MISSING` for objects still defined at the end of the chain | 0 MISSING; 1 UNEXPECTED (`studio_sms_registrations`, the TW-3 table); the functions executable by `authenticated` are exactly the 21 in section 5; 0 executable by `anon` or PUBLIC; 0 unpinned `search_path`; every studio_sms table shows no API-role privilege | PASS |
+| 8 | Probes run on the real TW-4 schema, read-only | L2 | both probes inside `begin read only` | no error; all tables 0 rows | both probes returned rc 0 inside `begin read only` (`read_only_txn = on`) on the isolated QA base image with `1206`..`1227` applied (all 43 migrations present); 73 studio_sms-type tables PRESENT, all `rows=0`; fingerprint rollup:ALL `d45391ce` over 1204 objects (408 tw4 + 9 other-SMS function signatures) | PASS |
+| 9 | Expected-object lists match a database with the main chain applied | L2 | `probe_objects.sql` `MISSING` count | 0 `MISSING` for objects still defined at the end of the chain | 0 MISSING; 1 UNEXPECTED (`studio_sms_registrations`, the TW-3 table); the functions executable by `authenticated` are exactly the 23 in section 5; 0 executable by `anon` or PUBLIC; 0 unpinned `search_path`; every studio_sms table shows no API-role privilege | PASS |
 | 10 | Probes against DEV | Hosted | not executed | n/a | not executed: no hosted access authorized | BLOCKED |
 | 11 | Probes against PROD | Hosted | not executed | n/a | not executed: no hosted access authorized | BLOCKED |
 | 12 | DEV apply, reverse-rollback round trip, grants/RLS probe | Hosted | not executed | n/a | not executed: owner authorization required (section 8) | BLOCKED |
 | 13 | Rollback round trip with real files | L2 | not executed by this package | n/a | not executed (owner of the rollback suites is Q1/F-slices); the runbook specifies it for DEV only | BLOCKED |
-| 14 | Hashes of F1/F3/F4/J2 migrations | Git | `git show` of the branch blobs | rows filled when PRs exist | F3: row filled from a pushed branch head with no PR (section 3.1); F1, F4, J2: no migration on origin at 2026-10-22 | BLOCKED (F1, F4, J2); F3 row provisional |
+| 14 | Hashes of the Wave 1 and follow-up migrations (`1206`, `1215`, `1218`, `1219`, `1221`..`1227`) | Git | `git show` from main | rows hashed from main after each merge | all merged and hashed from main; each equals its last PR-head hash except `1206` and `1221`, whose forward files changed before merge (section 3.0) | PASS (Git only) |
 
 Limits of this QA: the hash verifier's failure path (a deliberately corrupted hash) was not exercised, so a PASS in rows 1-2 shows agreement, not that the script detects every kind of drift; and L1 and L2 are local Postgres 17 containers, not Supabase-hosted databases (no managed-role differences, no PostgREST, no hosted-only extensions). The measured fingerprints in L2 are for a database built from the isolated QA base image, so they are not comparable with DEV/PROD fingerprints.
 
 ## 10. Open items
 
 - Run D1/P1 when authorized and replace section 2 with observed state; settle the Onboarding Plan section 9a conflict.
-- Rows for F1 (`1219`), F3 (`1218`), J2 (`1222`) and F5 (`1224`) are provisional (unmerged PR heads); F4 (`1221`, #288) is provisional. Re-hash every provisional row when its PR head moves or merges, and re-hash `1221` if F4's head moves. Run `gen_manifest_data.mjs --sync-probes` once these merge so the probes stop reporting `tw4_prov_evidence_targets` and the new functions as `UNEXPECTED`.
+- `1220` (F2) is not started and has no row. Every other migration in the chain is merged; none is applied to any hosted database.
 - `sms_webhook_receipts` and `sms_inbound_reply_counters` are defined without the `studio_sms_` prefix; the probes list them by name, so a future rename needs `--sync-probes`.
 - The recorded 2026-10-19 Phase A fingerprint (`7d4442fa`) has no reproducible query; take a fresh baseline.
