@@ -21,7 +21,7 @@ import { sendBilledSms } from "@/lib/sms/usageBilling";
 import { FakeBilledSmsProvider } from "@/lib/sms/usageProvider";
 import { reconcileSmsUsage } from "@/lib/sms/usageReconciler";
 import { SupabaseCreditStore } from "@/lib/sms/twilioIsv/creditStore";
-import { LOCAL_QA_MARKER, newSenderIds, readySender, type SenderIds } from "./senderFixtures";
+import { LOCAL_QA_MARKER, newSenderIds, reconcilerReadySql, reconcilerRunsCleanupSql, readySender, type SenderIds } from "./senderFixtures";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -164,7 +164,10 @@ describe.skipIf(!enabled)("SMS usage billing: reservations, provider answers, ca
       return { data: null, error: { code: "fixture", message: String(error) } };
     }
   };
-  const setSwitch = (on: boolean) => rpc("tw4_usage_set_switch", { p_enabled: on, p_actor: U.padmin, p_reason: `fixture: switch ${on ? "on" : "off"} for tests` });
+  const setSwitch = (on: boolean) => {
+    if (on) aged(reconcilerReadySql(`tw4usage:${RUN}`)); // 20261218: switching on (and every begin) needs a fresh reconcile run
+    return rpc("tw4_usage_set_switch", { p_enabled: on, p_actor: U.padmin, p_reason: `fixture: switch ${on ? "on" : "off"} for tests` });
+  };
   /** a fresh business state: money cleared, funded, a limit, senders approved, the switch on */
   const ready = async (e: string, studio: string, opts: { funds?: number; limit?: number } = {}) => {
     resetMoney(e);
@@ -220,6 +223,7 @@ describe.skipIf(!enabled)("SMS usage billing: reservations, provider answers, ca
   afterAll(() => {
     try {
       psqlFile(CLEANUP);
+      aged(reconcilerRunsCleanupSql(`tw4usage:${RUN}`));
       aged(`delete from public.studio_sms_price_list where created_by = '${U.padmin}'; update public.studio_sms_price_list set active = true where id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
     } catch {
       /* best effort */

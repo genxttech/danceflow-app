@@ -65,6 +65,7 @@ describe("sendBilledSms: begin refusals", () => {
     ["TW015", "no_billed_sender"],
     ["TW016", "suspended"],
     ["TW018", "switched_off"],
+    ["TW024", "paused"],
     ["TW008", "no_price"],
     ["TW010", "not_billed"],
     ["22023", "invalid"],
@@ -306,7 +307,7 @@ describe("smsUsageBillingEnabled", () => {
 
 describe("BILLED_REFUSAL_MESSAGE", () => {
   it("has a plain message for every refusal and never a provider detail", () => {
-    for (const reason of ["insufficient_credit", "monthly_limit", "no_billed_sender", "suspended", "switched_off", "no_price", "not_billed", "invalid", "forbidden", "unavailable"] as const) {
+    for (const reason of ["insufficient_credit", "monthly_limit", "no_billed_sender", "suspended", "switched_off", "paused", "no_price", "not_billed", "invalid", "forbidden", "unavailable"] as const) {
       expect(BILLED_REFUSAL_MESSAGE[reason].length).toBeGreaterThan(10);
       expect(BILLED_REFUSAL_MESSAGE[reason]).not.toMatch(/twilio|TW0|AC[0-9a-f]{8}/i);
     }

@@ -99,8 +99,8 @@ const RETRY_MARKER = /^retry:([a-z0-9_]{1,60}):(\d{13})(:n)?$/;
  * key, an acceptance we could not record) may hide an accepted message.
  */
 // TW-4F billed SMS: the database refused or could not be reached before any provider call (sms_billing_unavailable), or the attempt never reached its dispatch
-// marker (sms_not_dispatched): nothing was sent
-const DEFINITELY_UNSENT_RETRY_CODES = new Set(["provider_not_configured", "provider_auth_error", "provider_rate_limited", "sms_billing_unavailable", "sms_not_dispatched"]);
+// marker (sms_not_dispatched), or the usage reconciler was not ready (sms_billing_paused, 20261218): nothing was sent
+const DEFINITELY_UNSENT_RETRY_CODES = new Set(["provider_not_configured", "provider_auth_error", "provider_rate_limited", "sms_billing_unavailable", "sms_not_dispatched", "sms_billing_paused"]);
 
 /**
  * Written just before an email is handed to the provider. It is not a definitely-unsent code, so if the run stops or the
