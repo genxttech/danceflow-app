@@ -86,6 +86,7 @@ describe("resolveDisplayedMonthlyPriceCents", () => {
     // PRICING-P1: studio regular pricing is provisional and gated, so it is not
     // displayed unless REGULAR_PRICING_ACTIVATED=true (see pricingP1.test.ts).
     delete process.env.REGULAR_PRICING_ACTIVATED;
+    delete process.env.REGULAR_PRICING_APPROVAL_REF;
     expect(resolveDisplayedMonthlyPriceCents(starterPlan)).toBe(starterPlan.amountMonthlyCents);
     expect(resolveDisplayedMonthlyPriceCents(organizerPlan)).toBe(organizerPlan.regularAmountMonthlyCents);
     expect(organizerPlan.regularAmountMonthlyCents).toBe(1900);

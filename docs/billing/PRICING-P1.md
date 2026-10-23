@@ -11,8 +11,8 @@ Status: draft for review. Nothing here is deployed or applied to Stripe/DB/env.
 | Pro | $129 / $159 | **$159** | $249 |
 | Organizer Suite | $12 / $19 | unchanged | unchanged |
 
-Provisional regular prices live in `plans.ts` as `provisionalRegularAmountMonthlyCents`. They are read only
-when `REGULAR_PRICING_ACTIVATED=true` (exact string; anything else is OFF). Not approved for customers.
+Provisional regular prices live in `plans.ts` as `provisionalRegularAmountMonthlyCents`. They are read
+only when BOTH `REGULAR_PRICING_ACTIVATED=true` (exact string) AND a non-empty `REGULAR_PRICING_APPROVAL_REF` are set; anything else is OFF. Neither is set in any committed config. Not approved for customers.
 
 ## Behavior
 
@@ -33,18 +33,33 @@ when `REGULAR_PRICING_ACTIVATED=true` (exact string; anything else is OFF). Not 
 3. Deploy this code **after** step 2 in the target environment. Deploying first makes studio checkout return
    `price_mismatch` (safe refusal) because the existing env Prices carry $49/$79/$129.
 4. Later, for regular pricing: create 8900/14900/24900 Prices, set `..._STANDARD` envs, then set
-   `REGULAR_PRICING_ACTIVATED=true` and (to end Founder) `FOUNDER_PRICING_ACTIVE=false`.
+   `REGULAR_PRICING_APPROVAL_REF=<owner approval reference>` and `REGULAR_PRICING_ACTIVATED=true` and (to end Founder) `FOUNDER_PRICING_ACTIVE=false`.
 
 Rollback: revert the app deployment; envs may stay (old code ignores new behaviour but would again select Price IDs
 without an amount check — set envs back to the prior Price IDs if reverting the code).
 
-## Known gaps / decisions
+## Customer-facing safety of the new Founder prices
 
-- Existing copy says Founder pricing "lasts for 12 months after your free trial". This predates PRICING-P1 and is
-  unchanged; the duration, eligibility and what happens after month 12 are not defined in code. Owner to confirm.
-- Platform MRR views (`/platform/accounting`, `/platform/analytics`) estimate revenue as plan list price; legacy
-  $49/$79/$129 subscribers will now be estimated at $59/$99/$159 (estimate only, no billing effect).
-- Entitlement caps in the approved matrix (instructor limits Owner+1/5/15, locations 1/3/10) and the Payroll Prep
-  Growth+ gate are not implemented in `plans.ts`/`access.ts` (roadmap: Payroll gate pending). Not changed here.
-- Organizer checkout keeps its legacy env→DB fallback chain (out of scope).
-- Knowledgebase impact: none (no help article quotes plan prices).
+Studio checkout cannot charge $59/$99/$159 unless the Founder env Price ID points at an active, USD, monthly Stripe
+Price of exactly that amount, and it cannot charge a legacy $49/$79/$129 Price (refused as `price_mismatch`) or any
+fallback Price. Env/Price setup must therefore precede deployment; the signup page would show the new amounts while
+checkout refuses if code ships first.
+
+## Release sequence (DEV first)
+
+1. Owner approves the new Founder Prices. 2. Create $59/$99/$159 monthly USD Prices in the DEV Stripe account; set DEV
+`STRIPE_PRICE_STUDIO_*_FOUNDER`. 3. Deploy DEV; Stripe test-mode checkout per plan (expect session on the new Price;
+confirm a legacy Price ID is refused). 4. Repeat Prices + env in PROD (Preview/Production scopes), then deploy and
+promote; smoke test checkout page to Stripe redirect without paying. Rollback: revert deployment, restore prior env IDs.
+
+## Unresolved owner decisions / separate follow-ups (not in this PR)
+
+- **Founder duration (owner policy decision):** existing copy says Founder pricing "lasts for 12 months after your free
+  trial". Preserved unchanged; term, eligibility and post-12-month behavior are undefined in code.
+- **Follow-up A — entitlement enforcement:** instructor limits (Owner+1/5/15), location limits (1/3/10) and the Payroll
+  Prep (Growth+) gate are not implemented. Separate workstream.
+- **Follow-up B — MRR estimate fix (financial reporting):** `/platform/accounting` and `/platform/analytics` estimate
+  MRR as plan list price (`amountMonthlyCents`); legacy $49/$79/$129 subscribers will be overstated at $59/$99/$159.
+  Should read the actual Stripe subscription amount. Shared files untouched here.
+- Yearly and Organizer checkout unchanged (no approved annual amounts; organizer out of scope).
+- Knowledgebase impact: none.

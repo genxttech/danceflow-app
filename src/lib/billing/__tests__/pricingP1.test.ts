@@ -27,7 +27,7 @@ import {
  */
 
 const studio = (code: string) => getBillingPlan(code)!;
-const ENV_KEYS = ["FOUNDER_PRICING_ACTIVE", "NEXT_PUBLIC_FOUNDER_PRICING_ACTIVE", "REGULAR_PRICING_ACTIVATED"];
+const ENV_KEYS = ["FOUNDER_PRICING_ACTIVE", "NEXT_PUBLIC_FOUNDER_PRICING_ACTIVE", "REGULAR_PRICING_ACTIVATED", "REGULAR_PRICING_APPROVAL_REF"];
 afterEach(() => {
   for (const k of ENV_KEYS) delete process.env[k];
 });
@@ -63,6 +63,10 @@ describe("display", () => {
 
   it("exposes provisional regular prices only after explicit activation", () => {
     process.env.REGULAR_PRICING_ACTIVATED = "true";
+    expect(isRegularPricingActivated()).toBe(false); // flag alone is not enough
+    process.env.REGULAR_PRICING_APPROVAL_REF = "  ";
+    expect(isRegularPricingActivated()).toBe(false);
+    process.env.REGULAR_PRICING_APPROVAL_REF = "owner-approval-ref";
     expect(isRegularPricingActivated()).toBe(true);
     expect(resolveReferenceRegularPriceCents(studio("pro"))).toBe(24900);
     process.env.FOUNDER_PRICING_ACTIVE = "false";
@@ -71,6 +75,7 @@ describe("display", () => {
 
   it.each(["", "TRUE", "1", "yes", "false"])("REGULAR_PRICING_ACTIVATED=%j is OFF", (v) => {
     process.env.REGULAR_PRICING_ACTIVATED = v;
+    process.env.REGULAR_PRICING_APPROVAL_REF = "ref";
     expect(isRegularPricingActivated()).toBe(false);
   });
 

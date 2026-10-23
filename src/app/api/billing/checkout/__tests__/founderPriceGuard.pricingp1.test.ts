@@ -117,6 +117,7 @@ beforeEach(() => {
   vi.stubEnv("STRIPE_PRICE_STUDIO_GROWTH_FOUNDER", "price_founder_growth");
   vi.stubEnv("STRIPE_PRICE_STUDIO_GROWTH_STANDARD", "price_standard_growth");
   vi.stubEnv("REGULAR_PRICING_ACTIVATED", "");
+  vi.stubEnv("REGULAR_PRICING_APPROVAL_REF", "");
   Object.assign(state, { subscriptionStatus: null, managedSubscription: false, priceAmount: 9900, priceActive: true, retrieved: [], stripeCalls: [], sessionPrice: null });
 });
 
@@ -158,6 +159,7 @@ describe("PRICING-P1 studio checkout price guard", () => {
   it("Founder off with regular activation requires the standard Price to be exactly $149", async () => {
     vi.stubEnv("FOUNDER_PRICING_ACTIVE", "false");
     vi.stubEnv("REGULAR_PRICING_ACTIVATED", "true");
+    vi.stubEnv("REGULAR_PRICING_APPROVAL_REF", "owner-approval-ref");
     state.priceAmount = 9900;
     expect(errorOf(await POST(post()))).toBe("price_mismatch");
     state.priceAmount = 14900;
