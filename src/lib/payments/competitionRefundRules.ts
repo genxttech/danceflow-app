@@ -62,10 +62,11 @@ export function splitByLargestRemainder(amountCents: number, lines: readonly Ref
   return shares;
 }
 
+/** A scoped discount (program AND contest AND division, as priced) applies only to entries matching every key. */
 function discountApplies(discount: DiscountLine, line: RefundableLine) {
-  const scoped = (discount.scopeKeys ?? []).length > 0;
-  if (!scoped) return true;
-  return line.kind === "entry" && (line.scopeKeys ?? []).some((key) => discount.scopeKeys!.includes(key));
+  const keys = discount.scopeKeys ?? [];
+  if (keys.length === 0) return true;
+  return line.kind === "entry" && keys.every((key) => (line.scopeKeys ?? []).includes(key));
 }
 
 /** Net refundable cap per line (D1/D2): gross minus every discount share. */

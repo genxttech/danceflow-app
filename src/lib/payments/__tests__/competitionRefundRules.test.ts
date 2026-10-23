@@ -44,6 +44,19 @@ describe("D1/D2 net refundable caps (PROVISIONAL)", () => {
     expect(sum(a)).toBe(1999 + 3001 + 700 - 777);
   });
 
+  it("R2 SQL parity: four 25.00 entries + 10.00 fee, 10.00 unscoped discount (same numbers as the SQL suite)", () => {
+    const lines = [entry("e1", 2500, 1), entry("e2", 2500, 2), entry("e3", 2500, 3), entry("e4", 2500, 4), fee("f1", 1000, 1000000)];
+    const caps = netRefundableCaps(lines, [{ id: "d1", amountCents: 1000 }]);
+    expect(Object.fromEntries(caps)).toEqual({ e1: 2272, e2: 2273, e3: 2273, e4: 2273, f1: 909 });
+    expect(sum(caps)).toBe(10000);
+  });
+
+  it("a scoped discount must match every scope key (program AND division)", () => {
+    const lines = [entry("e1", 1000, 1, ["prog", "div-a"]), entry("e2", 1000, 2, ["prog", "div-b"])];
+    const caps = netRefundableCaps(lines, [{ id: "d1", amountCents: 100, scopeKeys: ["prog", "div-a"] }]);
+    expect(Object.fromEntries(caps)).toEqual({ e1: 900, e2: 1000 });
+  });
+
   it("a scoped discount reduces only the matching entries, never fee lines", () => {
     const lines = [entry("e1", 3000, 1, ["div-a"]), entry("e2", 3000, 2, ["div-b"]), fee("f1", 1000, 9)];
     const caps = netRefundableCaps(lines, [{ id: "d1", amountCents: 600, scopeKeys: ["div-a"] }]);

@@ -1,13 +1,18 @@
 # R2 — CI-D: Competition entry refunds (design)
 
-Status: **DESIGN + Git-only implementation plan (§7). Awaiting the owner's implementation authorization.**
-- D1–D8 are PROVISIONAL (owner, 2026-10-23). C1, Q1 and Q2 are DECIDED (§4.0).
-- §4.1 specifies locked/certified/danced handling and the K0-facing exception scope.
-- §4.2 records the payment-integrity confirmation (C2: desk payments).
-- Implemented (no money movement): the registration cascade fix with the Q1 danced guard (Section 1 of the
-  migration), and pure cap / discount-share / exception-classification helpers with unit tests.
-- The ledger, RPCs, webhook branch, accounting entry and Stripe calls are **not written**. Moving money is
-  unauthorized.
+Status: **IMPLEMENTED IN GIT (draft PR #292). Not merged, not applied to any hosted database, no real refunds.**
+- **D1–D7 APPROVED** and **D8 superseded by C1** (owner, 2026-10-23). C1, Q1 and Q2 are DECIDED (§4.0).
+- The owner authorized a Git-only implementation (local Postgres + Stripe test mode) on 2026-10-23. Implemented:
+  - the ledger and allocations;
+  - the request / observe / attribute / resolve RPCs;
+  - exception scopes (`round_id` + `competitive_effect`);
+  - the registration trigger recording E-L/E-C;
+  - the dated `competition_entry_refund` accounting entries;
+  - the staff refund page and server actions;
+  - the guarded webhook branch.
+  §7 maps each piece.
+- Evidence and open QA items: [`r2-entry-refunds-qa-matrix.md`](r2-entry-refunds-qa-matrix.md).
+- Merge, hosted DEV/PROD SQL, real refunds or charges, and deployment each still need separate authorization.
 Branch `competition-r2-entry-refunds` from main `973f36da`. Migration slot reserved:
 `20270103090000_competition_r2_entry_refunds.sql` (+ rollback, + `sql-tests/test_T_competition_r2_entry_refunds.sql`).
 Nothing here is applied to hosted DEV/PROD; Stripe is test mode only.
@@ -139,7 +144,11 @@ skip `updateEventPaymentRefundByPaymentIntent` for that PaymentIntent (the RPC o
 competition orders). No other webhook paths change; package and non-competition event behaviour is
 untouched. Shared with PAY-WH / Twilio owners — the diff will be isolated to that branch + one import.
 
-## 4. Owner decisions D1–D8 — PROVISIONAL (2026-10-23)
+## 4. Owner decisions D1–D8 — D1–D7 APPROVED, D8 SUPERSEDED by C1 (2026-10-23)
+
+**Owner approval (2026-10-23):** "Approve D1–D7 as recommended, D8 superseded by C1. Authorize R2 to implement
+the ledger, RPCs, webhook branch and accounting entry in Git only (local Postgres + Stripe test mode). No merge,
+hosted SQL, real refunds or deploy." The provisional record below is kept for history.
 
 The owner retained the recommendations as **provisional** choices ("No specific changes are requested at this
 stage") and asked R2 to confirm them against the existing payment-integrity requirements. **A provisional
@@ -148,13 +157,13 @@ implementation stay unauthorized until the owner approves this document.
 
 | # | Provisional decision | Integrity check (§4.2) |
 |---|---|---|
-| **D1** (b) | Per-entry cap = **net paid**: gross entry item minus the entry's share of order discounts, split by largest remainder in cents (deterministic: ties broken by entry `sort_order`, then id) | Consistent |
-| **D2** (a) | Fee lines (per person / per entry / percentage) are refundable as separate lines, and only when staff select them | Consistent |
-| **D3** (a) | Platform application fee kept: `refund_application_fee` off, so the connected account funds the whole refund (today's behaviour) | Consistent |
-| **D4** | Refund without withdrawing, and withdraw without refunding, are both allowed | Consistent, with the §4.1 participation rules |
-| **D5** | **Refund:** studio owner/admin, organizer owner/admin (and platform admin). **Withdraw:** organizer staff too, no refund | Consistent; refund authority = `_paywh1_actor_can_manage_event` |
-| **D6** (a) | Dashboard refund recorded at order level, unattributed; a partial one opens a staff attribution exception | Consistent; refined by §4.1 T6 |
-| **D7** (a) | Refund allowed; withdrawal refused while the entry is in a locked/certified heat | Consistent; refined by §4.1 |
+| **D1** ✅ (b) | Per-entry cap = **net paid**: gross entry item minus the entry's share of order discounts, split by largest remainder in cents (deterministic: ties broken by entry `sort_order`, then id) | Consistent |
+| **D2** ✅ (a) | Fee lines (per person / per entry / percentage) are refundable as separate lines, and only when staff select them | Consistent |
+| **D3** ✅ (a) | Platform application fee kept: `refund_application_fee` off, so the connected account funds the whole refund (today's behaviour) | Consistent |
+| **D4** ✅ | Refund without withdrawing, and withdraw without refunding, are both allowed | Consistent, with the §4.1 participation rules |
+| **D5** ✅ | **Refund:** studio owner/admin, organizer owner/admin (and platform admin). **Withdraw:** organizer staff too, no refund | Consistent; refund authority = `_paywh1_actor_can_manage_event` |
+| **D6** ✅ (a) | Dashboard refund recorded at order level, unattributed; a partial one opens a staff attribution exception | Consistent; refined by §4.1 T6 |
+| **D7** ✅ (a) | Refund allowed; withdrawal refused while the entry is in a locked/certified heat | Consistent; refined by §4.1 |
 | **D8** | ~~Keep the net reduction on `competition_entry_revenue`~~ **Superseded by C1 (a)**, decided below | C1 resolved the conflict |
 
 ### 4.0 Final owner decisions C1 / Q1 / Q2 (2026-10-23) — DECIDED
@@ -469,3 +478,21 @@ and its release hold are untouched. Expected diff: one guarded branch and one im
 Opus payment-integrity review → owner business acceptance on a local or preview stack in Stripe test mode →
 PR merge → DEV SQL → PROD SQL (preflight: zero competition refunds) → app promotion → the CI-D hold cleared in
 the roadmap.
+
+## 8. Implementation notes (2026-10-23)
+
+| Plan item (§7) | As built | Note |
+|---|---|---|
+| reserve / finalize / record-stripe RPCs | `request_competition_order_refund` (reserve); `observe_competition_stripe_refund` (finalize + record Stripe, the single writer for the server-action response and the webhook); `attribute_competition_refund`; `resolve_competition_refund_scope`; `resolve_competition_refund_exception` | Same responsibilities, fewer entry points |
+| Exception money states | **All four `competition_refund_*` kinds are `operational`** | So a kind that recurs after resolution reopens and alerts again. PAY-WH-1A reopens only operational kinds |
+| Refund page caps | Computed with `competitionRefundRules.ts` from rows the manager can read | Display only; the RPC re-validates. SQL/TS parity is asserted by the same scenario in both suites (2272 / 2273 / 2273 / 2273 / 909) |
+| D4 | Refund-without-withdraw is honoured for partial refunds | Refunding the **entire captured amount** makes the registration `refunded`, and the existing 10A rule then withdraws every open, undanced entry. The page says so |
+| Stripe failure | A definitive refusal (4xx) → `failed`, which releases the cap. A network / 5xx / 409 / 429 error leaves the request `requested` (cap held) until Stripe reports, so a refund that may exist is never forgotten | Retrying the form reuses the request id and Stripe idempotency key |
+| Webhook | Two guarded insertions in `route.ts`, both marked `CI-D R2`. `handleStripeRefundUpdated` observes each refund object. `updateEventPaymentRefundByPaymentIntent` returns early for competition PaymentIntents (this covers `charge.refunded` too) | Package refund paths are untouched. Four existing webhook test fakes learned the two new RPC names (no assertion changed) |
+
+**Follow-ups (not in R2):**
+- **Disputes and chargebacks** on competition orders: today they follow the generic PAY-WH dispute handling, with no ledger entry, scope or entry effect. They need their own design (a dispute is not a refund: funds can return, and the evidence window matters).
+- The K0 / F3 `publish_competition_round_result` precondition reads `event_competition_refund_exception_scopes`. This is coordinated on PR #291 and not built here.
+- The C1 event closeout check (refuse while any `competition_refund_*` exception is open) belongs to the K0 / C1 slot.
+- Re-instating an entry after a refund reversal: a manual, audited action (a future slice).
+- Organizer-role fixtures for the SQL suite. D5 reuses `_paywh1_actor_can_manage_event`, which already admits organizer owners/admins and refuses organizer staff. That function is covered by the PAY-WH-1 suites, not re-proven here.
