@@ -132,12 +132,12 @@ insert into public.studio_sms_entity_studios (studio_id, legal_entity_id, link_k
 insert into public.studio_sms_twilio_accounts (legal_entity_id, twilio_account_sid, friendly_name, environment, status, created_by) values
   ('${E1}', '${ACC[1]}', 'df:test:${E1}', 'test', 'active', '${U.padmin}'), ('${E2}', '${ACC[2]}', 'df:test:${E2}', 'test', 'active', '${U.padmin}');
 insert into public.studio_sms_onboarding_access (studio_id, enabled, reason, updated_by) values ('${S1}', true, 'fixture', '${U.padmin}'), ('${S2}', true, 'fixture', '${U.padmin}');
--- this suite's own number price: an existing active one is parked (restored by CLEANUP)
-update public.studio_sms_price_list set active = false, description = 'j3-parked:' || description where kind = 'number' and active;
-insert into public.studio_sms_price_list (kind, customer_price_cents, provider_cost_cents, description, active, created_by) values ('number', ${PRICE}, 100, 'j3 fixture number price', true, '${U.padmin}');
 commit;
 begin;
 set local session_replication_role = replica;
+-- this suite's own number price: an existing active one is parked (restored by CLEANUP; replica mode: published prices are immutable to ordinary edits)
+update public.studio_sms_price_list set active = false, description = 'j3-parked:' || description where kind = 'number' and active;
+insert into public.studio_sms_price_list (kind, customer_price_cents, provider_cost_cents, description, active, created_by) values ('number', ${PRICE}, 100, 'j3 fixture number price', true, '${U.padmin}');
 insert into public.studio_sms_onboarding (id, studio_id, state, legal_name, entity_type, ein_last4, submission_seq, submitted_at, created_at) values
   ('${O1}', '${S1}', 'campaign_pending', 'J3 One LLC', 'llc', '8881', 1, now(), now() - interval '1 day'), ('${O2}', '${S2}', 'campaign_pending', 'J3 Two LLC', 'llc', '8882', 1, now(), now() - interval '1 day');
 ${r2a(1, O1, S1, E1)}
@@ -215,7 +215,9 @@ describe.skipIf(!enabled)("TW-4F J3: owner number offers, approval and withdrawa
   });
 
   it("refused: staff, another studio's owner (forged studio id), a platform admin, a number outside the offer, another studio's offer, an expired offer", async () => {
-    for (const who of [U.admin1, U.front1, U.owner2, U.padmin, U.plain]) expect((await select(who, S1, OFFER[1], NUMS[1][0])).error?.code, who).toBe("42501");
+    for (const who of [U.admin1, U.front1, U.owner2, U.plain]) expect((await select(who, S1, OFFER[1], NUMS[1][0])).error?.code, who).toBe("42501");
+    // a platform admin on the OWNER entry point is routed to the admin path, which requires a written-approval reference: refused (22023), nothing recorded
+    expect((await select(U.padmin, S1, OFFER[1], NUMS[1][0])).error?.code).toBe("22023");
     // owner2 naming its own studio but S1's offer: unknown offer for this location
     expect((await select(U.owner2, S2, OFFER[1], NUMS[1][0])).error?.code).toBe("22023");
     expect((await select(U.owner1, S1, OFFER[1], "+15035550199")).error?.code).toBe("22023");
@@ -235,7 +237,8 @@ describe.skipIf(!enabled)("TW-4F J3: owner number offers, approval and withdrawa
       expect((await approveNumberAction({}, form({ e164: NUMS[1][0], offer_id: OFFER[1], ack_price_cents: String(PRICE), confirm: "yes" }))).ok).toBe(false);
       expect(selections(S1)).toBe("");
     } finally {
-      psql(`update public.studio_sms_price_list set active = true where description = 'j3 fixture number price'`);
+      // a published price is never edited: publish it again as a new row
+      psql(`insert into public.studio_sms_price_list (kind, customer_price_cents, provider_cost_cents, description, active, created_by) values ('number', ${PRICE}, 100, 'j3 fixture number price', true, '${U.padmin}')`);
     }
     // an acknowledged price other than the published one is refused too
     expect((await select(U.owner1, S1, OFFER[1], NUMS[1][0], PRICE - 1)).error?.code).toBe("TW008");
