@@ -1,8 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
 import { loadSenderHealth, parseSenderHealth, senderGuidance, type SenderHealthRow, type SenderHealthState } from "../senderVerification";
+
+// the fixtures carry fixed dates (last success 2026-10-20 01:00Z, trusted until 2026-10-21 01:00Z): the clock is frozen just after that window, so guidance
+// that depends on how long ago trust lapsed (72 h rule) never drifts with the real date
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-21T03:00:00Z"));
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 
 const STUDIO = "11111111-1111-4111-8111-111111111111";
 const rawRow = (over: Record<string, unknown> = {}) => ({

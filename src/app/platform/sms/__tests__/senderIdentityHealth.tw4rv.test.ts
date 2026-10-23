@@ -1,12 +1,23 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 vi.mock("../senderActions", () => ({ recordSenderAction: async () => {}, revokeSenderAction: async () => {}, verifySenderAction: async () => {} }));
 
 import { parseSenderHealth, type SenderOverviewRow } from "@/lib/sms/senderVerification";
 import SenderIdentity, { SenderSchedulerLine } from "../SenderIdentity";
+
+// the fixtures carry fixed dates (last success 2026-10-20 01:00Z, trusted until 2026-10-21 01:00Z): the clock is frozen just after that window, so guidance
+// that depends on how long ago trust lapsed (72 h rule) never drifts with the real date
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-21T03:00:00Z"));
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 
 const STUDIO = "a6000000-0000-4000-8000-00000000000a";
 const SENDER = "b6000000-0000-4000-8000-00000000000b";
