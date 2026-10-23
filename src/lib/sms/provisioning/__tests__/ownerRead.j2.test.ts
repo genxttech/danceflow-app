@@ -31,6 +31,9 @@ describe("parseOwnerTextingStatus: strict and fail-closed (J2)", () => {
     expect(parseOwnerTextingStatus(raw({ number: { status: "secured", display: "503-555-0123", selection: "used" } }))!.number.display).toBeNull();
     expect(parseOwnerTextingStatus(raw({ number: { status: "purchasing", display: "***-***-4242", selection: "used" } }))!.number.display).toBeNull();
   });
+  it("accepts the review area (pilot KI-1)", () => {
+    expect(parseOwnerTextingStatus(raw({ activation: { ready: false, checklist: [{ area: "review", ok: false }] } }))!.activation!.checklist).toEqual([{ area: "review", ok: false }]);
+  });
   it("a null activation checklist stays null (unreadable is not progress)", () => {
     expect(parseOwnerTextingStatus(raw({ activation: null }))!.activation).toBeNull();
   });
