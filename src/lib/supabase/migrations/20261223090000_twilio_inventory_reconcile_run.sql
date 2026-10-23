@@ -25,20 +25,21 @@ begin
   end if;
 end $$;
 
--- the job vocabulary: the live list plus the new job (extended, not replaced)
+-- the job vocabulary: the LIVE list, in its own order and spelling, plus the new job (extended, never replaced). The lease is per job (one running row per job,
+-- an advisory lock per job), so an inventory run never blocks or delays a usage_reconcile or sender_reverify run.
 do $$
 declare
   v_def text;
   v_jobs text[];
 begin
   select pg_get_constraintdef(c.oid) into v_def from pg_constraint c where c.conrelid = 'public.studio_sms_reconcile_runs'::regclass and c.conname = 'studio_sms_reconcile_runs_job_check';
-  select array_agg(distinct m[1] order by m[1]) into v_jobs from regexp_matches(v_def, '''([a-z_]+)''', 'g') m;
-  if v_jobs is null or not ('usage_reconcile' = any (v_jobs)) or not ('sender_reverify' = any (v_jobs)) then
+  select array_agg(m.v[1] order by m.n) into v_jobs from regexp_matches(v_def, '''([a-z_]+)''', 'g') with ordinality as m(v, n);
+  if v_jobs is null or not ('usage_reconcile' = any (v_jobs)) or not ('sender_reverify' = any (v_jobs)) or 'inventory_reconcile' = any (v_jobs) then
     raise exception 'could not read the reconciliation jobs from %', v_def;
   end if;
-  v_jobs := (select array_agg(distinct x order by x) from unnest(v_jobs || array['inventory_reconcile']) x);
   alter table public.studio_sms_reconcile_runs drop constraint studio_sms_reconcile_runs_job_check;
-  execute format('alter table public.studio_sms_reconcile_runs add constraint studio_sms_reconcile_runs_job_check check (job = any (%L::text[]))', v_jobs);
+  execute format('alter table public.studio_sms_reconcile_runs add constraint studio_sms_reconcile_runs_job_check check (job in (%s))',
+                 (select string_agg(quote_literal(j), ', ' order by n) from unnest(v_jobs || array['inventory_reconcile']) with ordinality as u(j, n)));
 end $$;
 
 create or replace function public.tw4_reconcile_run_begin(p_job text, p_runner text, p_lease_seconds int default 300)

@@ -1,12 +1,20 @@
--- Rollback of 20261223090000_twilio_inventory_reconcile_run.sql: restores tw4_reconcile_run_begin exactly as it is on main (20261205) and drops tw4_reconcile_run_alive.
--- Run history is kept: while any 'inventory_reconcile' run row exists the job stays in the check constraint (rows are never deleted); otherwise the 20261205 list is
--- restored. The restored body is verified against its main fingerprint and the transaction aborts if it differs.
+-- Rollback of 20261223090000_twilio_inventory_reconcile_run.sql: restores tw4_reconcile_run_begin and the job check exactly as they are on main (20261205) and drops
+-- tw4_reconcile_run_alive. REFUSES while any 'inventory_reconcile' run exists (run history is never deleted). The restored body is verified against its main
+-- fingerprint and the transaction aborts if it differs.
 begin;
 set local lock_timeout = '5s';
 do $$
 begin
   if to_regprocedure('public.tw4_reconcile_run_alive(uuid,text)') is null then
     raise exception 'inventory-reconcile-run rollback precondition failed: the migration is not applied';
+  end if;
+  if exists (select 1 from public.studio_sms_reconcile_runs r where r.job = 'inventory_reconcile') then
+    raise exception 'inventory-reconcile-run rollback refused: inventory reconciliation runs exist' using errcode = '55000';
+  end if;
+  if exists (select 1 from regexp_matches((select pg_get_constraintdef(c.oid) from pg_constraint c where c.conrelid = 'public.studio_sms_reconcile_runs'::regclass
+                                            and c.conname = 'studio_sms_reconcile_runs_job_check'), '''([a-z_]+)''', 'g') m
+              where m[1] not in ('usage_reconcile', 'sender_reverify', 'inventory_reconcile')) then
+    raise exception 'inventory-reconcile-run rollback precondition failed: a later migration added a job (roll it back first)';
   end if;
   if position('20261223' in (select p.prosrc from pg_proc p where p.oid = 'public.tw4_reconcile_run_begin(text,text,integer)'::regprocedure)) = 0 then
     raise exception 'inventory-reconcile-run rollback precondition failed: tw4_reconcile_run_begin was changed after this migration (roll back the later migration first)';
@@ -37,22 +45,9 @@ end $$;
 
 drop function public.tw4_reconcile_run_alive(uuid, text);
 
-do $$
-declare
-  v_def text;
-  v_jobs text[];
-begin
-  if exists (select 1 from public.studio_sms_reconcile_runs r where r.job = 'inventory_reconcile') then
-    return;
-  end if;
-  select pg_get_constraintdef(c.oid) into v_def from pg_constraint c where c.conrelid = 'public.studio_sms_reconcile_runs'::regclass and c.conname = 'studio_sms_reconcile_runs_job_check';
-  select array_agg(distinct m[1] order by m[1]) into v_jobs from regexp_matches(v_def, '''([a-z_]+)''', 'g') m where m[1] <> 'inventory_reconcile';
-  if v_jobs is null or not ('usage_reconcile' = any (v_jobs)) or not ('sender_reverify' = any (v_jobs)) then
-    raise exception 'could not read the reconciliation jobs from %', v_def;
-  end if;
-  alter table public.studio_sms_reconcile_runs drop constraint studio_sms_reconcile_runs_job_check;
-  execute format('alter table public.studio_sms_reconcile_runs add constraint studio_sms_reconcile_runs_job_check check (job = any (%L::text[]))', v_jobs);
-end $$;
+-- the 20261205 check, exactly
+alter table public.studio_sms_reconcile_runs drop constraint studio_sms_reconcile_runs_job_check;
+alter table public.studio_sms_reconcile_runs add constraint studio_sms_reconcile_runs_job_check check (job in ('usage_reconcile', 'sender_reverify'));
 
 do $$
 begin
