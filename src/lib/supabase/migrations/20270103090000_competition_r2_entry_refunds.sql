@@ -9,8 +9,10 @@
 --   fully refunded or cancelled order could still appear on the running order. change_competition_entry_lifecycle
 --   already scratches placements when it withdraws an entry; the trigger now does the same for exactly the entries
 --   it withdraws in that statement. Entries placed in a locked or certified heat are still never touched (the
---   unchanged NOT EXISTS guard), so their placements are never rewritten either. Everything else in the body is
---   byte-identical to 10A.
+--   unchanged NOT EXISTS guard), so their placements are never rewritten either. Owner decision Q1 (2026-10-23):
+--   an entry with any 'danced' placement is treated as locked and is never withdrawn automatically, even in a heat
+--   that is not yet locked. Everything else in the body is byte-identical to 10A. (Recording the operational
+--   exception for skipped entries is specified in the design, §4.1, and waits for implementation authorization.)
 --
 -- The refund ledger, reserve/finalize RPCs and webhook attribution (design §3.1-3.6) are NOT in this file yet:
 -- they wait on owner decisions D1-D8.
@@ -67,6 +69,11 @@ begin
           from public.event_competition_heat_entries he
           join public.event_competition_heats h on h.id = he.heat_id
           where he.entry_id = event_competition_entries.id and h.lock_state in ('locked', 'certified')
+        )
+        -- R2 / owner Q1: once the entry has danced, it is never withdrawn automatically, even if the heat is not locked.
+        and not exists (
+          select 1 from public.event_competition_heat_entries he
+          where he.entry_id = event_competition_entries.id and he.status = 'danced'
         )
       returning id
     )

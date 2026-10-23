@@ -4,7 +4,7 @@
 -- Restores the exact 10A canonical body of sync_competition_entries_from_registration (md5 fabd4052...),
 -- copied verbatim from 20261107090000_phase10a_competition_foundation_reconcile.sql.
 --
--- Refuses, changing nothing, unless the live body is the R2 body (md5 36577701...): it never overwrites a
+-- Refuses, changing nothing, unless the live body is the R2 body (md5 5fb50278...): it never overwrites a
 -- later redefinition. Data is not reverted: heat placements scratched by the R2 trigger stay scratched (they
 -- belong to withdrawn entries, which the 10A body would also have left withdrawn).
 
@@ -13,7 +13,7 @@ begin;
 do $$
 begin
   if (select md5(replace(prosrc, E'\r', '')) from pg_proc where oid = 'public.sync_competition_entries_from_registration()'::regprocedure)
-       is distinct from '365777014132f1a8302773708a2394e6' then
+       is distinct from '5fb5027897911eb2482efe03ec5cee19' then
     raise exception 'R2 rollback preflight: sync_competition_entries_from_registration is not the R2 definition.';
   end if;
 end $$;

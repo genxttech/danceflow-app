@@ -1,7 +1,7 @@
 # R2 — CI-D competition entry refunds: QA matrix
 
-Developer-owned functional QA (Claude). Status values: **PASSED** (run, evidence recorded), **PENDING-DECISION**
-(blocked on owner decision D1–D8 in [`r2-entry-refunds.md`](r2-entry-refunds.md) §4; not built), **BLOCKED**
+Developer-owned functional QA (Claude). Status values: **PASSED** (run, evidence recorded), **PENDING-IMPLEMENTATION**
+(specified; waits for implementation authorization), **BLOCKED**
 (built but could not be run; never reported as passed). Owner involvement is business acceptance only.
 
 Environment: isolated local Postgres container (`r2-refunds-db`, `public` schema cloned read-only from the local
@@ -12,7 +12,7 @@ e2e-qa stack). Stripe **test mode** only. Nothing applied to hosted DEV/PROD; no
 | # | Case | Expected | Status | Evidence |
 |---|---|---|---|---|
 | A1 | Full refund of a registration with placed entries | entries `withdrawn`; `scheduled` and `checked_in` placements `scratched` | PASSED | SQL suite |
-| A2 | Same, entry already `danced` | entry withdrawn; `danced` placement kept | PASSED | SQL suite |
+| A2 | Same, entry already `danced` in an unlocked heat (owner Q1) | entry stays `confirmed`; `danced` placement kept (never withdrawn automatically) | PASSED | SQL suite |
 | A3 | Unplaced entry | withdrawn, nothing else | PASSED | SQL suite |
 | A4 | Registration cancelled | entry withdrawn + placement scratched | PASSED | SQL suite |
 | A5 | Payment failed | entry withdrawn + placement scratched | PASSED | SQL suite |
@@ -32,33 +32,44 @@ the e2e-qa clone: default-privilege statements cannot be restored). The failure 
 and without R2, so R2 introduces no regression. They should be rerun on a clean migration-built database
 before release.
 
-## B. Refund ledger, RPCs, staff flow, webhook — not built
+## B. Refund ledger, RPCs, staff flow, webhook — specified, not built (SQL specs T-req / T-obs / T-par / T-res / T-acc in the suite)
 
 | # | Case | Decision | Status |
 |---|---|---|---|
-| B1 | Refund one entry of a three-entry order | D1 | PENDING-DECISION |
-| B2 | Refund > entry cap refused | D1 | PENDING-DECISION |
-| B3 | Discounted order: entry cap = net share (largest remainder) | D1 | PENDING-DECISION |
-| B4 | Fee line refunded only when selected | D2 | PENDING-DECISION |
-| B5 | Order-level cap across items | D1/D2 | PENDING-DECISION |
-| B6 | Double-submit / concurrent staff refunds | — | PENDING-DECISION (blocked on ledger) |
-| B7 | Idempotent replay of a request id | — | PENDING-DECISION (blocked on ledger) |
-| B8 | Wrong-event / wrong-order item (URL tampering) | — | PENDING-DECISION (blocked on ledger) |
-| B9 | Organizer staff cannot refund; owner/admin can | D5 | PENDING-DECISION |
-| B10 | Stripe refund failure releases the cap | — | PENDING-DECISION (blocked on ledger) |
-| B11 | Stripe refund reversal (succeeded → failed) | — | PENDING-DECISION (blocked on ledger) |
-| B12 | Refund without withdraw / withdraw without refund | D4 | PENDING-DECISION |
-| B13 | Entry in locked/certified heat: refund yes, withdrawal refused | D7 | PENDING-DECISION |
-| B14 | Order `partially_refunded` → `refunded`; registration `partial` → `refunded` | D8 | PENDING-DECISION |
-| B15 | Accounting net after partial / full refund | D8 | PENDING-DECISION |
-| B16 | Application fee refund parameter on the Stripe call | D3 | PENDING-DECISION |
-| B17 | Dashboard partial refund → unattributed + staff exception | D6 | PENDING-DECISION |
-| B18 | Dashboard full refund with an entry in a locked heat | D6/D7 + §4.1 | PENDING-DECISION |
-| B19 | Webhook replay of the same refund event | — | PENDING-DECISION (blocked on ledger) |
-| B20 | Non-competition event refunds unchanged (`order_backed_registration_payment_locked` still enforced) | — | PENDING-DECISION (blocked on staff flow) |
+| B1 | Refund one entry of a three-entry order | D1 | PENDING-IMPLEMENTATION |
+| B2 | Refund > entry cap refused | D1 | PENDING-IMPLEMENTATION |
+| B3 | Discounted order: entry cap = net share (largest remainder) | D1 | PENDING-IMPLEMENTATION |
+| B4 | Fee line refunded only when selected | D2 | PENDING-IMPLEMENTATION |
+| B5 | Order-level cap across items | D1/D2 | PENDING-IMPLEMENTATION |
+| B6 | Double-submit / concurrent staff refunds | — | PENDING-IMPLEMENTATION |
+| B7 | Idempotent replay of a request id | — | PENDING-IMPLEMENTATION |
+| B8 | Wrong-event / wrong-order item (URL tampering) | — | PENDING-IMPLEMENTATION |
+| B9 | Organizer staff cannot refund; owner/admin can | D5 | PENDING-IMPLEMENTATION |
+| B10 | Stripe refund failure releases the cap | — | PENDING-IMPLEMENTATION |
+| B11 | Stripe refund reversal (succeeded → failed) | — | PENDING-IMPLEMENTATION |
+| B12 | Refund without withdraw / withdraw without refund | D4 | PENDING-IMPLEMENTATION |
+| B13 | Entry in locked/certified heat: refund yes, withdrawal refused | D7 | PENDING-IMPLEMENTATION |
+| B14 | Order `partially_refunded` → `refunded`; registration `partial` → `refunded` | D8 | PENDING-IMPLEMENTATION |
+| B15 | Accounting net after partial / full refund | D8 | PENDING-IMPLEMENTATION |
+| B16 | Application fee refund parameter on the Stripe call | D3 | PENDING-IMPLEMENTATION |
+| B17 | Dashboard partial refund → unattributed + staff exception | D6 | PENDING-IMPLEMENTATION |
+| B18 | Dashboard full refund with an entry in a locked heat | D6/D7 + §4.1 | PENDING-IMPLEMENTATION |
+| B19 | Webhook replay of the same refund event | — | PENDING-IMPLEMENTATION |
+| B20 | Non-competition event refunds unchanged (`order_backed_registration_payment_locked` still enforced) | — | PENDING-IMPLEMENTATION |
 
 ## C. Locked / certified heat handling (§4.1) — specified, not built
 
 Each regression item T2–T20 in design §4.1 **T** is one QA row here once implemented. Status today:
-**PENDING-APPROVAL** (owner approval of §4.1, C1, Q1, Q2). T1 is A1–A3 above (PASSED). T15 also depends on K0
+**PENDING-IMPLEMENTATION** (C1/Q1/Q2 decided 2026-10-23). T1 is A1–A3 above (PASSED); Q1 trigger part is A2 (PASSED). T15 also depends on K0
 F2 (`20270104090000`).
+
+## D. Decision rules (pure, no money movement) — implemented
+
+`src/lib/payments/competitionRefundRules.ts`, unit tests `src/lib/payments/__tests__/competitionRefundRules.test.ts` (18 tests).
+
+| # | Rule | Status |
+|---|---|---|
+| D-1 | D1/D2 net caps: largest-remainder discount shares, deterministic, caps sum to captured, scoped discounts touch only matching entries | PASSED |
+| D-2 | Cap holding (requested/pending/requires_action/succeeded) vs refunded money (succeeded only) | PASSED |
+| D-3 | Participation class, most restrictive wins; Q1 danced = locked; auto-withdraw only unplaced/open | PASSED |
+| D-4 | Q2 scopes: E-L/E-C competitive; unattributed/reversed financial-only unless held; publish block only for the scoped round | PASSED |

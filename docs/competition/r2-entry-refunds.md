@@ -1,10 +1,13 @@
 # R2 — CI-D: Competition entry refunds (design)
 
-Status: **DESIGN — awaiting owner approval.** D1–D8 are PROVISIONAL (owner, 2026-10-23); §4.1 specifies the
-locked/certified-heat handling; §4.2 records the payment-integrity confirmation, with conflicts **C1** (D8
-accounting) and **C2** (desk payments); open questions are **C1, Q1, Q2**. Only the money-independent
-cascade-gap fix (§3.4, Section 1 of the migration) is implemented. The ledger, RPCs, webhook and Stripe calls are
-not written, and moving money is unauthorized.
+Status: **DESIGN + Git-only implementation plan (§7). Awaiting the owner's implementation authorization.**
+- D1–D8 are PROVISIONAL (owner, 2026-10-23). C1, Q1 and Q2 are DECIDED (§4.0).
+- §4.1 specifies locked/certified/danced handling and the K0-facing exception scope.
+- §4.2 records the payment-integrity confirmation (C2: desk payments).
+- Implemented (no money movement): the registration cascade fix with the Q1 danced guard (Section 1 of the
+  migration), and pure cap / discount-share / exception-classification helpers with unit tests.
+- The ledger, RPCs, webhook branch, accounting entry and Stripe calls are **not written**. Moving money is
+  unauthorized.
 Branch `competition-r2-entry-refunds` from main `973f36da`. Migration slot reserved:
 `20270103090000_competition_r2_entry_refunds.sql` (+ rollback, + `sql-tests/test_T_competition_r2_entry_refunds.sql`).
 Nothing here is applied to hosted DEV/PROD; Stripe is test mode only.
@@ -114,7 +117,7 @@ re-checks `can_manage_event_competition`, which the service-role webhook path ca
 R2 also fixes the cascade gap in §1: when the registration trigger withdraws entries on a full refund /
 cancel / payment failure, it scratches the `scheduled` / `checked_in` placements of exactly those entries
 (`danced` placements are floor history and stay). **Implemented** (Section 1 of the migration; does not
-depend on D1–D8): it pins the 10A md5 `fabd4052…` before replacing, the R2 body is md5 `36577701…`, and the
+depend on D1–D8): it pins the 10A md5 `fabd4052…` before replacing, the R2 body is md5 `5fb50278…`, and the
 rollback restores the exact 10A body (refusing unless the R2 body is live). Placements scratched while R2 was
 live stay scratched after a rollback.
 
@@ -152,7 +155,15 @@ implementation stay unauthorized until the owner approves this document.
 | **D5** | **Refund:** studio owner/admin, organizer owner/admin (and platform admin). **Withdraw:** organizer staff too, no refund | Consistent; refund authority = `_paywh1_actor_can_manage_event` |
 | **D6** (a) | Dashboard refund recorded at order level, unattributed; a partial one opens a staff attribution exception | Consistent; refined by §4.1 T6 |
 | **D7** (a) | Refund allowed; withdrawal refused while the entry is in a locked/certified heat | Consistent; refined by §4.1 |
-| **D8** | Keep the net reduction on `competition_entry_revenue` | **CONFLICT: owner point 1 and REFUND-RECON-2** (C1 below) |
+| **D8** | ~~Keep the net reduction on `competition_entry_revenue`~~ **Superseded by C1 (a)**, decided below | C1 resolved the conflict |
+
+### 4.0 Final owner decisions C1 / Q1 / Q2 (2026-10-23) — DECIDED
+
+| # | Decision (owner's words) | Effect on R2 |
+|---|---|---|
+| **C1** = (a) | "Record each successful refund as a separate accounting entry dated when the refund succeeds. Do not rewrite locked accounting periods." | A new contra-income category `competition_entry_refund` (`entry_class = 'refund'`, `statement_section = 'contra_income'`, `normal_direction = 'debit'`), the competition twin of the existing `event_ticket_refund`. There is one accounting entry per succeeded Stripe refund object (`source_table = 'event_order_refunds'`, `source_id = refund id`), dated on the day the refund succeeds. The competition revenue entry stays at gross and no longer subtracts refunds. A reversal is a separate offsetting entry dated at the reversal; nothing in a locked period is ever updated. **Shared accounting-catalog impact:** one new category row, plus a change to the competition branch of the shared `sync_event_payment_accounting_entry` (§7.4). D8 is superseded, and the `competition_refund_accounting_locked` exception is dropped |
+| **Q1** = locked | "Once a heat has been danced, automatic withdrawal is prohibited even if the heat has not yet been formally locked. Use an audited official-resolution process." | An entry with any `danced` placement is treated as locked: it is never withdrawn automatically and raises E-L. **Implemented** for the registration trigger: the md5 is now `5fb50278…`, and the SQL suite proves a danced entry stays `confirmed`. Recording the E-L exception from the trigger waits for implementation authorization |
+| **Q2** = block, narrow | "An unresolved exception affecting competitive participation, placements, advancement or result integrity blocks publication of the affected round/results until resolved by an authorized official. Do not block unrelated rounds or results. Financial-only exceptions … do not block results publication." | Every exception scope carries `competitive_effect` and `round_id` (§4.1 E). K0 (coordinated on PR #291, not edited here) adds the publish precondition `COMP_PUBLICATION_BLOCKED_BY_EXCEPTION`, which reads only R2's scope table |
 
 ### 4.1 Resolution: refunds vs entries in locked / certified heats
 
@@ -184,7 +195,7 @@ Policy (owner, 2026-10-23, abbreviated):
 | Entry situation at the moment a succeeded refund is applied | Effect (per allocated entry with `withdraw_entry`, or every entry on a full-order refund) | `participation_outcome` |
 |---|---|---|
 | No placement, or only placements in `open` heats with none `danced` | Entry → `withdrawn` (audit fee handling `refund` / `partial_refund`); `scheduled` / `checked_in` placements → `scratched` | `withdrawn` |
-| Placements only in `open` heats, at least one `danced` | **Proposed:** treat as locked (do not withdraw automatically mid-competition). Today's trigger withdraws (point 2 literally allows it). **Owner question Q1** | `exception_open` (if Q1 = treat as locked) |
+| Placements only in `open` heats, at least one `danced` | **Q1 (decided): treated as locked.** No participation change; exception **E-L** (scope heat = the danced heat) | `exception_open` |
 | Any placement in a `locked` heat (none certified) | No participation change; exception **E-L** | `exception_open` |
 | Any placement in a `certified` heat | No participation change, ever, from the refund path; exception **E-C** | `exception_open` |
 | Refund without withdraw (D4) | No participation change | `not_requested` |
@@ -198,11 +209,48 @@ audit trail, and the leased alert queue (staff email + in-app notification).
 
 | Kind | `money_state` | Raised when | Resolution paths | Resolved only when (gate) |
 |---|---|---|---|---|
-| `competition_refund_entry_locked_heat` (E-L) | `operational` (alerts) | P row "locked" (and "danced" if Q1) | (1) **Withdraw after unlock:** an authorized manager reopens the heat with `set_competition_heat_lock_state(…, 'open', reason)` (audited lock event; refused once certified), then withdraws via `change_competition_entry_lifecycle(…, 'withdrawn', reason, 'refund')`. (2) **Keep entry, refund stands:** note required; the entry competes / remains in results | (1) the entry is no longer `confirmed`; or (2) a resolution note with `resolution = 'keep_entry'` |
+| `competition_refund_entry_locked_heat` (E-L) | `operational` (alerts) | P row "locked" or "danced" (Q1) | (1) **Withdraw after unlock:** an authorized manager reopens the heat with `set_competition_heat_lock_state(…, 'open', reason)` (audited lock event; refused once certified), then withdraws via `change_competition_entry_lifecycle(…, 'withdrawn', reason, 'refund')`. (2) **Keep entry, refund stands:** note required; the entry competes / remains in results | (1) the entry is no longer `confirmed`; or (2) a resolution note with `resolution = 'keep_entry'` |
 | `competition_refund_entry_certified_heat` (E-C) | `operational` | P row "certified" | (1) **Result stands:** financial-only, note required (default; historical state preserved). (2) **Competitive change:** only through the K0 correction workflow (`open_competition_round_correction` → recalculate → approve → publish; every step writes `event_competition_result_events`). R2 never edits a certified heat, entry or result | (1) note; or (2) a K0 `result_events` row for that round referencing the exception id, recorded **after** it |
 | `competition_refund_unattributed` (D6) | `captured` | Partial dashboard refund with no DanceFlow request | Staff attribute the amount to items (D1/D2 caps) → normal P rules per attributed entry | Σ attributed = refund amount |
 | `competition_refund_reversed` (E-R) | `reversed` | A succeeded refund later failed / was canceled | Staff decide: re-instate the entry (a manual, audited action that is a separate future slice; not automatic) or keep it withdrawn | Note required |
-| `competition_refund_accounting_locked` | `operational` | Only if C1 = (b) | Accounting adjustment by an owner/admin | Note |
+
+(`competition_refund_accounting_locked` was dropped by C1 = (a): refund entries are dated at success and never
+rewrite a locked period.)
+
+**Q2 classification (`competitive_effect` per scope row):**
+
+| Kind | `competitive_effect` | Scope rounds |
+|---|---|---|
+| E-L (locked or danced heat) | **true** while unresolved | the round of each locked/danced heat holding the entry's placement |
+| E-C (certified heat) | **true** while unresolved | the round of each certified heat holding the entry's placement |
+| `competition_refund_unattributed` (D6) | false, **unless** the order has an entry placed in a locked/danced/certified heat. Then one scope row per such entry/heat is `true` (attribution could withdraw or hold that entry) | rounds of those heats; otherwise **no scope rows** (financial-only parent, never blocks publication) |
+| `competition_refund_reversed` (E-R) | false, unless the reversed refund's allocation holds an entry in a locked/danced/certified heat (then `true` for that entry's rounds) | as stated |
+
+**Scope table (queryable by K0):** `event_competition_refund_exception_scopes` has one row per (exception,
+entry, heat):
+
+| Column | Meaning |
+|---|---|
+| `exception_id` | → `event_order_settlement_exceptions` |
+| `event_id`, `entry_id`, `heat_id`, `round_id` | Same-event composite FKs; `round_id` is copied from the heat at raise time and is immutable |
+| `competitive_effect` | boolean |
+| `created_at` | — |
+| `resolved_at`, `resolved_by`, `resolution`, `resolution_note` | Write-once |
+
+It is unique on (`exception_id`, `entry_id`, `heat_id`). It is append-only except for the write-once
+resolution stamp, enforced by a trigger. This replaces the `details.entry:<uuid>` idea, so the gate and K0 read
+rows, not JSON.
+
+K0's precondition: `exists (select 1 from event_competition_refund_exception_scopes s where s.round_id =
+<round> and s.competitive_effect and s.resolved_at is null)` → refuse with `COMP_PUBLICATION_BLOCKED_BY_EXCEPTION`.
+Other rounds, and financial-only scopes, never block. The parent exception moves to `resolved` automatically
+when its last scope resolves, and the financial-only part stays visible for reconciliation.
+
+- **"Authorized official" (Q1/Q2):** until E1 introduces official roles, this means an event manager allowed
+  by `_paywh1_actor_can_manage_exception` (studio owner/admin, organizer owner/admin, platform admin). If E1
+  adds a chair or official role, it can be admitted to scope resolution in E1's slot. Each resolution writes
+  the scope stamp, an `event_order_settlement_exception_events` row (`action = 'scope_resolved'`), and, when it
+  withdraws, the existing entry-change audit row.
 
 - **Who resolves:** `_paywh1_actor_can_manage_exception`: studio owner/admin, organizer owner/admin, platform
   admin (the same set as D5). Organizer staff can see the entry's state but cannot resolve. Unlocking a heat
@@ -211,16 +259,16 @@ audit trail, and the leased alert queue (staff email + in-app notification).
   resolution, note)`, which checks the gate above. The generic `resolve_event_order_settlement_exception`
   (PAY-WH-1A) must **refuse** `competition_refund_*` kinds. That is a one-line change to a PAY-WH-1A function,
   called out for the PAY-WH owner.
-- **Deduplication:** the existing unique key is (kind, order, PaymentIntent, session), so there is one row per
-  kind per order. Per-entry facts go into `details` under the top-level key `entry:<uuid>` (so the existing
-  `details || excluded.details` merge keeps every entry), and `occurrences` counts replays. The gate checks
-  every `entry:` key.
+- **Deduplication:** the existing unique key is (kind, order, PaymentIntent, session), so there is one parent
+  row per kind per order (`occurrences` counts replays). Per-entry facts are scope rows (unique per exception,
+  entry and heat), and a replay inserts nothing new (`on conflict do nothing`).
 - **Stuck surfacing (point 7):** `operational` / `captured` / `reversed` kinds alert immediately through the
   existing queue. An open exception older than 72 h is re-alerted daily (by the same cron). Each open
   exception shows as a badge on the competition registrations page and on the readiness page.
-  **Proposed:** the C1 event closeout refuses while any `competition_refund_*` exception is open, and F3
-  publication of a round warns (does not block) when one of its entries has an open E-L/E-C.
-  **Owner question Q2:** block or warn for publication.
+  **Q2 (decided):** F3 publication of a round is **blocked** while any competitive-effect scope of that round is
+  unresolved (K0 precondition above); other rounds and financial-only exceptions never block. **Proposed for
+  C1 closeout (K0 §10):** event closeout refuses while any `competition_refund_*` exception is open. This
+  includes financial-only ones, so nothing stays unresolved indefinitely. K0/C1 owns that check.
 
 **A. Authorization per transition:**
 
@@ -249,11 +297,11 @@ audit trail, and the leased alert queue (staff email + in-app notification).
 
 **T. Regression tests (SQL unless marked):**
 1. Pre-lock full refund: withdraw + scratch; danced kept *(implemented)*.
-2. Locked heat: no participation change + exactly one E-L with an `entry:` key.
+2. Locked heat: no participation change + exactly one E-L parent and one `competitive_effect` scope row per (entry, locked heat), with `round_id` = the heat's round.
 3. Certified heat: no change to the entry, placement, heat or results + E-C.
 4. Mixed order (open + locked + certified entries): each follows its own row; E-L and E-C both present.
 5. Entry in an open heat and a locked heat: the locked row wins.
-6. Q1 danced-open-heat behaviour (per the owner's answer).
+6. Q1: an entry with a `danced` placement in an open heat is never withdrawn (the trigger part is *implemented*) and raises E-L scoped to that round.
 7. Webhook replay (same event id): nothing new.
 8. Same refund via `refund.created`, then `refund.updated`, then `charge.refunded`: one refund row, one effect.
 9. Out-of-order `succeeded` before `pending`: the final state is `succeeded`.
@@ -265,7 +313,7 @@ audit trail, and the leased alert queue (staff email + in-app notification).
 15. E-C path (2): resolve succeeds only after a K0 `result_events` row (runs when F2 exists; until then the test asserts path (2) is unavailable).
 16. Stuck exception older than 72 h is re-queued for alert.
 17. Stored-owner mismatch: webhook refund ignored; staff refund refused.
-18. Accounting per the C1 decision (dated refund entry, or the locked-period exception).
+18. C1: one `competition_entry_refund` entry per succeeded refund, dated at success; a replay is idempotent (unique source); a reversal is a separate offsetting entry; the gross revenue entry is unchanged; a locked-period entry is never updated.
 19. Registration trigger: a full dashboard refund with a locked entry raises E-L (requires the trigger to record the exception; §4.3).
 20. *(unit)* Stripe call parameters (amount, idempotency key, `stripeAccount`, metadata, no `refund_application_fee`), largest-remainder math, webhook routing.
 
@@ -290,7 +338,7 @@ available.
 | **PKG-REFUND-2** pattern | One ledger row per Stripe Refund object (`stripe_refund_id` unique, status mirrors Stripe verbatim). Financial truth and entitlement truth are separate columns. Reversal detection comes from `refund.updated` failed/canceled | **Design refinement (supersedes §3.1's single table):** `event_order_refunds` = one row per Stripe Refund object (or per staff request before Stripe returns an id) + `event_order_refund_allocations` = one row per (refund × order item), with a separate `participation_outcome` column. This is the same split as `refund_status` / `reconciliation_outcome` |
 | Refund authority | `refundEventRegistrationAction` used `canManageEventRegistrations` (studio owner/admin, platform admin). PAY-WH-1 money actions use `_paywh1_actor_can_manage_event` (studio owner/admin, organizer owner/admin, platform admin) | D5 = `_paywh1_actor_can_manage_event`, checked in the RPC (not only the page). Withdrawal stays on `can_manage_event_competition`, which also admits organizer staff |
 
-**C1 — D8 conflicts with owner point 1 and REFUND-RECON-2 (needs an owner decision; not resolved here).**
+**C1 — D8 vs owner point 1 and REFUND-RECON-2. RESOLVED 2026-10-23: owner selected (a) (see §4.0).** The analysis is kept for the record:
 `sync_event_payment_accounting_entry` keeps one `competition_entry_revenue` row per payment, dated on the
 **payment** date. A refund lowers that row's net in place, so:
 (i) a refund is booked in the payment's accounting period, which REFUND-RECON-2 fixed for package payments;
@@ -314,17 +362,16 @@ cap must use the Stripe captured amount and not `event_orders.total_amount`.
 
 | Point | Finding |
 |---|---|
-| 2 (pre-lock automatic withdraw) | Conforms. Withdraw + scratch applies only to entries with no placement in a locked/certified heat. Open question **Q1**: an open heat with `danced` placements is still withdrawn automatically (behaviour inherited from 10A; R2 only stops leaving its scheduled placements behind) |
+| 2 (pre-lock automatic withdraw) | Conforms. Withdraw + scratch applies only to entries with no placement in a locked/certified heat. **Q1 (decided, implemented):** an entry with any `danced` placement is no longer withdrawn automatically. |
 | 3 (locked: no silent rewrite) | Partly conforms. Locked-heat entries are not rewritten (the 10A guard is kept, tested). **Gap:** the skip is silent; no exception is recorded. Closing it requires the trigger to record E-L (a definer call to `_paywh1_record_exception` with the registration's order). It belongs in the R2 implementation once §4.1 is approved |
 | 4 (certified preserved) | Conforms: never touched (same guard). Same silent-skip gap → E-C |
 | 5 (idempotent) | Conforms: re-fire is a no-op (tested) |
 | 6 (separation) | Inherited coupling: `payment_status = refunded` → automatic withdrawal is the one finance → participation link. With §4.1 it is limited to pre-lock entries plus exceptions |
 | 7 (recovery path) | Not yet: depends on E-L/E-C |
 
-No change to the pushed fix is needed for correctness. The exception write is additive and waits for approval.
+The Q1 guard was added on top (md5 `5fb50278…`). Recording the E-L/E-C scopes from the trigger is additive and waits for implementation authorization.
 
-**Open owner questions:** **C1** accounting (D8 conflict), **Q1** a danced-but-unlocked heat counts as locked?,
-**Q2** whether an open E-L/E-C blocks or only warns at round publication.
+**Owner questions C1, Q1, Q2: all DECIDED (§4.0).** D1–D8 remain PROVISIONAL.
 
 ## 5. Tests (planned)
 
@@ -351,3 +398,74 @@ Non-competition event-cart per-ticket refunds; buyer self-service refunds/withdr
 accounting categories (unless C1 = (a)); refunds of free (unpaid) orders (nothing to refund — withdraw only);
 refunds of competition desk (cash / terminal) payments (C2; stay manual); automatic re-instatement after a
 refund reversal; removing a refunded entry from a certified result (K0 contract change); ACH.
+
+## 7. Git-only implementation plan (waits for the owner's implementation authorization)
+
+Nothing below is written yet, except where marked *(done)*. Each step is one commit on this branch, tested on
+the isolated local Postgres (`r2-refunds-db`) and in Stripe **test mode** only. Nothing is merged, applied to
+hosted databases, or used to refund real payment methods without separate authorization.
+
+### 7.1 Migration `20270103090000` sections
+
+| § | Content | Preflight pins |
+|---|---|---|
+| 1 *(done)* | Registration cascade: withdraw + scratch pre-lock entries; skip locked/certified/danced (Q1) | `sync_competition_entries_from_registration` = `fabd4052…` → `5fb50278…` |
+| 2 | Tables `event_order_refunds` (one per Stripe Refund object or staff request: `id`, `event_id`, `order_id`, `refund_request_id` unique, `stripe_refund_id` unique nullable, `stripe_account_id`, `stripe_payment_intent_id`, `amount_cents`, `currency`, `status` (Stripe vocabulary + `requested`), `source` (`staff` / `stripe_dashboard`), `reason`, `requested_by`, `succeeded_at`, `reversed_at`, timestamps) and `event_order_refund_allocations` (`refund_id`, `order_item_id`, `entry_id`, `amount_cents > 0`, `withdraw_entry`, `participation_outcome` write-once; unique (`refund_id`, `order_item_id`)). Same-event composite FKs. RLS: `_paywh1_actor_can_manage_event` read only; no client writes (trigger + no grants) | `event_orders`, `event_order_items`, `event_payments` shapes; PAY-WH-1 guard functions present |
+| 3 | `event_competition_refund_exception_scopes` (§4.1 E) + write-once resolution trigger; new kinds in `_paywh1_exception_money_state` (E-L/E-C → `operational`, unattributed → `captured`, reversed → `reversed`) | `_paywh1_exception_money_state`, `_paywh1_record_exception`, `resolve_event_order_settlement_exception` md5s (repo bodies, not DEV catalog) |
+| 4 | Accounting (C1): category `competition_entry_refund` (contra-income, debit, like `event_ticket_refund`); competition branch of `sync_event_payment_accounting_entry` stops subtracting `refund_amount` (normal event payments unchanged); `_r2_post_refund_accounting(refund_id)` posts one entry per succeeded refund (`source_table = 'event_order_refunds'`) dated `succeeded_at::date`, and one offsetting entry (`direction = 'credit'`, `source_table = 'event_order_refund_reversals'`) for a reversal | 10C `sync_event_payment_accounting_entry` md5; category absent. **Preflight refuses** if any competition `event_payments` row already has `refund_amount > 0` (no silent re-dating of history; PROD is expected to have 0 while public registration is off) |
+| 5 | RPCs (7.2) | — |
+| 6 | Trigger E-L/E-C recording: §1 body + `_r2_record_participation_exception` for the entries it skips | Section 1 body md5 |
+| 7 | Generic `resolve_event_order_settlement_exception` refuses `competition_refund_*` (the one-line PAY-WH-1A change, called out) | PAY-WH-1A body md5 |
+| 8 | Postflight: grants, RLS, function md5s recorded for the rollback | — |
+
+Rollback mirrors every section in reverse. It refuses if any `event_order_refunds` row exists, so refund
+evidence is never dropped silently. In that case, rollback is app-first: stop the staff UI and the webhook
+branch, then the SQL.
+
+### 7.2 RPCs (`security definer`, `search_path = public, pg_temp`; `service_role`-only execute unless stated)
+
+| RPC | Purpose | Locks (fixed order) |
+|---|---|---|
+| `request_competition_order_refund(p_actor, p_event_id, p_order_id, p_request_id, p_lines, p_reason)` | §4.1 A checks; D1/D2 caps by the same rules as `competitionRefundRules.ts`; inserts the `requested` refund + allocations; idempotent on `p_request_id` | order → items → existing refunds |
+| `observe_competition_stripe_refund(p_payment_intent_id, p_stripe_account_id, p_stripe_refund_id, p_request_id, p_amount_cents, p_status, p_stripe_event_id)` | Single writer for the Stripe-side refund state (create response and webhook). Matches by `stripe_refund_id`, else `p_request_id`, else creates a `stripe_dashboard` refund (D6). Applies the F transitions; `succeeded` → `_r2_apply_success`; reversal → `_r2_apply_reversal` | order → registration → payment → refund → entries → heat entries (the same as settlement) |
+| `_r2_apply_success(refund_id)` | Absolute recompute of order, payment and registration state; accounting entry (§4); P effects per allocation (write-once `participation_outcome`); exceptions + scopes | inside the caller's locks |
+| `_r2_apply_reversal(refund_id)` | Recompute; offsetting accounting entry; E-R (+ scopes if held); never re-instates | inside |
+| `attribute_competition_refund(p_actor, p_exception_id, p_lines)` | D6 attribution of an unattributed refund (caps apply) → P effects for the attributed part | exception → order → … |
+| `resolve_competition_refund_scope(p_scope_id, p_resolution, p_note)` (authenticated) | §4.1 E gate per scope; auto-resolves the parent when the last scope closes | exception → scope → entry |
+
+### 7.3 App (server only)
+
+- `src/app/app/events/[id]/competition/registrations/refundActions.ts`: the server action runs `request_…`,
+  then `stripe.refunds.create({ payment_intent, amount, metadata: { danceflow_refund_request_id } },
+  { stripeAccount: storedOwner, idempotencyKey: "comp-refund:" + requestId })`. There is no
+  `refund_application_fee` (D3). Then `observe_…` with the response. A Stripe error → `observe_…` with `failed`.
+- `src/lib/payments/competitionRefunds.ts`: Stripe-parameter builder + RPC wrapper. Rules come from
+  `competitionRefundRules.ts` *(done: pure rules + 18 unit tests)*.
+- Page `competition/registrations/[orderId]/refund`: lines with net cap, already refunded and remaining; heat
+  class (open / locked / danced / certified); withdraw toggle (disabled and explained unless the class is open /
+  unplaced); reason. The open exceptions and scopes list has resolve actions.
+- `refundEventRegistrationAction`: the `order_backed_registration_payment_locked` refusal stays. For a
+  competition order, the error links to the new page.
+
+### 7.4 Webhook (`src/app/api/payments/webhook/route.ts`), minimal and called out
+
+In `handleStripeRefundUpdated`, before `updateEventPaymentRefundByPaymentIntent`: if the PaymentIntent belongs
+to a competition order, call `observe_competition_stripe_refund` **per refund object** (Stripe's
+`refund.status` and `refund.amount`, never the cumulative `amount_refunded`), and skip the pro-rata
+event-payment path for that PaymentIntent. `charge.refunded` stays payment-summary-only. Package reconciliation
+and its release hold are untouched. Expected diff: one guarded branch and one import.
+
+### 7.5 Tests per step
+
+| Step | SQL (`test_T_competition_r2_entry_refunds.sql`) | Unit / static | Concurrency |
+|---|---|---|---|
+| §2–§5 | §4.1 T2–T19 become runnable checks (today they are concrete `spec` cases in the suite) | Stripe params (D3, idempotency key, stored owner, metadata); webhook routing | `r2_refund_concurrency.sh`: two staff requests vs one cap; settlement sweeper vs refund (no deadlock), modelled on `paywh1_concurrency.sh` |
+| §4 | C1 entry dated at success; replay idempotent; reversal offset; gross revenue unchanged; locked period untouched; preflight refuses existing competition refunds | — | — |
+| §6–§7 | Trigger E-L/E-C scopes; generic resolve refuses | — | — |
+| Regression | 10A / 10C / 10D / 10D.1 / PAY-WH-1 / PAY-WH-1A / REFUND-RECON suites on a clean migration-built database | full vitest + typecheck in CI | — |
+
+### 7.6 Gates after implementation (each separately authorized)
+
+Opus payment-integrity review → owner business acceptance on a local or preview stack in Stripe test mode →
+PR merge → DEV SQL → PROD SQL (preflight: zero competition refunds) → app promotion → the CI-D hold cleared in
+the roadmap.

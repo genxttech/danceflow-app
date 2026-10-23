@@ -1,20 +1,20 @@
 -- Competition R2 (CI-D) -- competition entry refunds regression suite.
 --
--- Covers 20270103090000_competition_r2_entry_refunds.sql. Today that is Section 1 only (registration cascade gap:
--- a cancelled / failed / refunded registration withdraws its entries AND scratches their open heat placements,
--- never touching entries in locked or certified heats). The refund-ledger / RPC / webhook cases are listed in
--- the PENDING-DECISION block at the end: they are recorded as pending (not run, not failures) until the owner
--- answers D1-D8 in docs/competition/r2-entry-refunds.md §4.
+-- Covers 20270103090000_competition_r2_entry_refunds.sql. Today that is Section 1 only (registration cascade: a
+-- cancelled / failed / refunded registration withdraws its entries AND scratches their open heat placements; entries
+-- in locked or certified heats, and (owner Q1) entries that have danced, are never withdrawn automatically). The
+-- ledger / RPC / webhook / accounting cases are concrete SPECIFICATIONS at the end, recorded (not run, not failures)
+-- until the owner authorizes implementation (docs/competition/r2-entry-refunds.md §4.0, §4.1 T, §7).
 --
 -- Local Postgres only (isolated QA container); never hosted DEV/PROD. One transaction; the final block ALWAYS
 -- raises, so nothing persists:
---   "COMPETITION R2 SQL SUITE PASS (<n> checks, <p> pending-decision)"  or  "COMPETITION R2 SQL SUITE FAIL: <failures>".
+--   "COMPETITION R2 SQL SUITE PASS (<n> checks, <p> specs pending implementation)"  or  "COMPETITION R2 SQL SUITE FAIL: <failures>".
 
 begin;
 
 create temp table t_results (name text, ok boolean, detail text) on commit drop;
 grant all on t_results to authenticated, anon, service_role;
-create temp table t_pending (name text, decision text) on commit drop;
+create temp table t_specs (name text, basis text) on commit drop;
 create temp table t_ids (k text primary key, v uuid) on commit drop;
 grant all on t_ids to authenticated, anon, service_role;
 
@@ -37,8 +37,8 @@ begin
   end;
 end $$;
 
-create or replace function pg_temp.pending(p_name text, p_decision text) returns void
-language sql as $$ insert into t_pending values (p_name, p_decision) $$;
+create or replace function pg_temp.spec(p_name text, p_basis text) returns void
+language sql as $$ insert into t_specs values (p_name, p_basis) $$;
 
 create or replace function pg_temp.u(p_suffix text) returns uuid
 language sql immutable as $$ select ('00000000-0000-0000-0000-0c1d20' || p_suffix)::uuid $$;
@@ -63,7 +63,7 @@ grant execute on all functions in schema pg_temp to authenticated, anon, service
 -- ============================================================================
 select pg_temp.chk('trigger function is the R2 body',
   (select md5(replace(prosrc, E'\r', '')) from pg_proc where oid = 'public.sync_competition_entries_from_registration()'::regprocedure)
-    = '365777014132f1a8302773708a2394e6');
+    = '5fb5027897911eb2482efe03ec5cee19');
 select pg_temp.chk('trigger is still wired to event_registrations',
   exists (select 1 from pg_trigger where tgname = 'sync_competition_entries_from_registration'
           and tgrelid = 'public.event_registrations'::regclass and not tgisinternal));
@@ -151,12 +151,13 @@ select pg_temp.chk('fixture: 9 placements, heat B locked',
 -- ============================================================================
 select pg_temp.expect_ok('full refund of a registration is accepted',
   $q$update public.event_registrations set payment_status = 'refunded', status = 'refunded' where id = pg_temp.u('00f001')$q$);
-select pg_temp.chk('full refund: placed entries withdrawn',
-  pg_temp.entry_status('008001') = 'withdrawn' and pg_temp.entry_status('008002') = 'withdrawn' and pg_temp.entry_status('008004') = 'withdrawn');
+select pg_temp.chk('full refund: placed, not-danced entries withdrawn',
+  pg_temp.entry_status('008001') = 'withdrawn' and pg_temp.entry_status('008002') = 'withdrawn');
 select pg_temp.chk('full refund: unplaced entry withdrawn', pg_temp.entry_status('008003') = 'withdrawn');
 select pg_temp.chk('full refund: scheduled placement scratched', pg_temp.placement('008001') = 'scratched', pg_temp.placement('008001'));
 select pg_temp.chk('full refund: checked-in placement scratched', pg_temp.placement('008002') = 'scratched', pg_temp.placement('008002'));
-select pg_temp.chk('full refund: danced placement kept (floor history is not rewritten)', pg_temp.placement('008004') = 'danced', pg_temp.placement('008004'));
+select pg_temp.chk('Q1: an entry that has danced (unlocked heat) is NOT withdrawn', pg_temp.entry_status('008004') = 'confirmed', pg_temp.entry_status('008004'));
+select pg_temp.chk('Q1: its danced placement is kept', pg_temp.placement('008004') = 'danced', pg_temp.placement('008004'));
 select pg_temp.chk('full refund: withdrawal audited with fee handling refund',
   exists (select 1 from public.event_competition_entry_changes
           where entry_id = pg_temp.u('008001') and change_type = 'withdraw' and fee_handling = 'refund'));
@@ -188,33 +189,60 @@ select pg_temp.chk('bystander registration untouched',
 
 select pg_temp.expect_ok('re-firing the trigger on an already refunded registration is a no-op',
   $q$update public.event_registrations set notes = 'touch' where id = pg_temp.u('00f001')$q$);
-select pg_temp.chk('re-fire: danced placement still kept, nothing else changed',
-  pg_temp.placement('008004') = 'danced' and pg_temp.placement('008001') = 'scratched');
+select pg_temp.chk('re-fire: danced entry still confirmed, nothing else changed',
+  pg_temp.entry_status('008004') = 'confirmed' and pg_temp.placement('008004') = 'danced' and pg_temp.placement('008001') = 'scratched');
 
+-- SPECIFICATIONS (pending implementation authorization; not run, not failures). Concrete expected outcomes from
+-- design §4.0 / §4.1 T / §7. Decisions: D1-D8 PROVISIONAL, C1/Q1/Q2 DECIDED. Each becomes a runnable check when
+-- migration sections 2-7 are authorized. Cap / class / scope math is already unit-tested
+-- (src/lib/payments/__tests__/competitionRefundRules.test.ts).
 -- ============================================================================
--- PENDING-DECISION (owner D1-D8; not run, not failures)
--- ============================================================================
-select pg_temp.pending('reserve: refund <= entry item cap (gross or net-of-discount)', 'D1');
-select pg_temp.pending('reserve: discounted order entry cap uses deterministic largest-remainder discount share', 'D1');
-select pg_temp.pending('reserve: fee add_on line refundable only when selected explicitly', 'D2');
-select pg_temp.pending('reserve: sum of reserved+succeeded <= captured order amount across items', 'D1/D2');
-select pg_temp.pending('reserve: concurrent reservations cannot exceed the cap (FOR UPDATE on order)', 'D1/D2');
-select pg_temp.pending('reserve: idempotent replay of p_request_id returns same rows; different lines raise', 'none (blocked on ledger)');
-select pg_temp.pending('reserve: item of another order / event rejected (cross-event)', 'none (blocked on ledger)');
-select pg_temp.pending('reserve: non-owner/admin actor rejected; organizer staff rejected', 'D5');
-select pg_temp.pending('reserve: unpaid / free order rejected', 'none (blocked on ledger)');
-select pg_temp.pending('finalize: failed / canceled releases the cap', 'none (blocked on ledger)');
-select pg_temp.pending('finalize: succeeded -> failed reversal releases cap, does not un-withdraw', 'none (blocked on ledger)');
-select pg_temp.pending('finalize: idempotent on repeated terminal status', 'none (blocked on ledger)');
-select pg_temp.pending('finalize: refund without withdraw leaves entry confirmed', 'D4');
-select pg_temp.pending('finalize: withdraw cascade scratches unlocked placements', 'D4');
-select pg_temp.pending('finalize: entry in locked/certified heat -> refund succeeds, withdrawal refused', 'D7');
-select pg_temp.pending('state: order paid -> partially_refunded -> refunded; event_payments.refund_amount cumulative', 'D8');
-select pg_temp.pending('accounting: competition_entry_revenue net = 0 after full refund', 'D8');
-select pg_temp.pending('webhook: refund with DanceFlow request id finalizes its ledger rows', 'none (blocked on ledger)');
-select pg_temp.pending('webhook: dashboard partial refund recorded unattributed + staff exception, no entry change', 'D6');
-select pg_temp.pending('webhook: dashboard full refund withdraws entries (locked-heat entries per design note §4.1)', 'D6/D7');
-select pg_temp.pending('platform application fee is / is not refunded (Stripe call parameter, unit test)', 'D3');
+-- request_competition_order_refund
+select pg_temp.spec('T-req-1 entry cap: one-of-three entries, 10% order discount: max = gross - largest-remainder share (e.g. 2500 -> 2206 with a 1000 fee line)', 'D1');
+select pg_temp.spec('T-req-2 request above the net cap raises; nothing inserted', 'D1');
+select pg_temp.spec('T-req-3 fee add_on line refundable only when listed explicitly; never auto-added for an entry refund', 'D2');
+select pg_temp.spec('T-req-4 sum over all lines <= Stripe captured amount (desk payment rows excluded from the cap)', 'D1/D2/C2');
+select pg_temp.spec('T-req-5 replay of the same p_request_id returns the same refund id; different lines raise', 'idempotency');
+select pg_temp.spec('T-req-6 item of another order / event refused (URL event <> order event)', 'authorization');
+select pg_temp.spec('T-req-7 organizer_staff refused; organizer_admin, studio_owner, studio_admin, platform_admin allowed', 'D5');
+select pg_temp.spec('T-req-8 unpaid / free / released order refused; missing or conflicting stored Stripe owner refused', 'PAY-DC-2A/PAY-WH-1');
+select pg_temp.spec('T-req-9 two concurrent requests cannot exceed one cap (concurrency script)', 'idempotency');
+-- observe_competition_stripe_refund (financial state F)
+select pg_temp.spec('T-obs-1 requested -> succeeded: order partially_refunded; event_payments.refund_amount = sum succeeded; registration partial', 'F');
+select pg_temp.spec('T-obs-2 all lines succeeded = captured: order refunded, registration refunded, payment refunded', 'F');
+select pg_temp.spec('T-obs-3 pending counts against the cap but not as refunded money', 'REFUND-RECON-1');
+select pg_temp.spec('T-obs-4 failed / canceled releases the cap; nothing refunded; no participation change', 'F');
+select pg_temp.spec('T-obs-5 same stripe_refund_id observed via refund.created, refund.updated, charge.refunded: one row, one effect', 'idempotency');
+select pg_temp.spec('T-obs-6 succeeded observed before pending: final state succeeded (out-of-order)', 'idempotency');
+select pg_temp.spec('T-obs-7 account <> stored owner: refused, nothing written', 'PAY-DC-2A');
+select pg_temp.spec('T-obs-8 succeeded -> failed reversal: totals drop, entry stays withdrawn, E-R raised (financial-only unless held)', 'F/E-R');
+-- participation effects (P) and exceptions (E, Q1, Q2)
+select pg_temp.spec('T-par-1 open-heat entry with withdraw_entry: withdrawn + scheduled/checked_in scratched; participation_outcome = withdrawn', 'P');
+select pg_temp.spec('T-par-2 refund without withdraw: entry confirmed; outcome not_requested', 'D4');
+select pg_temp.spec('T-par-3 entry in a locked heat: no change; one E-L parent + one competitive scope per locked heat with that round', 'D7/Q2');
+select pg_temp.spec('T-par-4 entry with a danced placement in an unlocked heat: no change; E-L scoped to that round', 'Q1/Q2');
+select pg_temp.spec('T-par-5 entry in a certified heat: no change to entry, placement, heat or results; E-C scoped to the certified round', 'D7/Q2');
+select pg_temp.spec('T-par-6 mixed order (open + locked + certified entries): each entry follows its own class', 'P');
+select pg_temp.spec('T-par-7 replay never writes a second participation_outcome, withdrawal, exception or scope', 'idempotency');
+select pg_temp.spec('T-par-8 dashboard partial refund: unattributed exception; financial-only (no scope) unless an order entry is held', 'D6/Q2');
+select pg_temp.spec('T-par-9 dashboard full refund via registration trigger: open entries withdrawn, held entries raise E-L/E-C', 'D6/Q1');
+select pg_temp.spec('T-par-10 attribution of an unattributed refund respects caps and then applies P', 'D6');
+-- resolution and K0 coupling
+select pg_temp.spec('T-res-1 generic resolve_event_order_settlement_exception refuses competition_refund_* kinds', 'E');
+select pg_temp.spec('T-res-2 E-L path 1: audited unlock -> withdraw -> scope resolves; certified unlock refused', 'E');
+select pg_temp.spec('T-res-3 E-L path 2 keep_entry: requires note; organizer_staff refused', 'E/D5');
+select pg_temp.spec('T-res-4 parent exception auto-resolves only when its last scope resolves', 'E');
+select pg_temp.spec('T-res-5 scope resolution stamp is write-once; scope rows are append-only', 'E');
+select pg_temp.spec('T-res-6 K0 precondition query blocks only the scoped round while unresolved (runs once F3 exists)', 'Q2/K0');
+select pg_temp.spec('T-res-7 open exception older than 72h is re-queued for alert', 'point 7');
+-- accounting (C1)
+select pg_temp.spec('T-acc-1 one competition_entry_refund entry per succeeded refund, dated succeeded_at::date, source event_order_refunds', 'C1');
+select pg_temp.spec('T-acc-2 competition revenue entry stays gross (no refund subtraction); normal event payments unchanged', 'C1');
+select pg_temp.spec('T-acc-3 reversal posts a separate offsetting entry dated at reversal; locked-period entries never updated', 'C1');
+select pg_temp.spec('T-acc-4 replay posts nothing new (unique source_table/source_id/entry_type/category)', 'C1');
+select pg_temp.spec('T-acc-5 migration preflight refuses when a competition event_payments row already has refund_amount > 0', 'C1');
+-- Stripe call (unit, app side)
+select pg_temp.spec('T-app-1 Stripe refund params: amount, metadata.danceflow_refund_request_id, idempotencyKey comp-refund:<id>, stripeAccount stored owner, no refund_application_fee', 'D3');
 
 -- ============================================================================
 -- Verdict
@@ -226,10 +254,10 @@ declare
   v_failures text;
 begin
   select count(*) into v_total from t_results;
-  select count(*) into v_pending from t_pending;
+  select count(*) into v_pending from t_specs;
   select string_agg(name || ' [' || detail || ']', '; ') into v_failures from t_results where not ok;
   if v_failures is null then
-    raise exception 'COMPETITION R2 SQL SUITE PASS (% checks, % pending-decision)', v_total, v_pending;
+    raise exception 'COMPETITION R2 SQL SUITE PASS (% checks, % specs pending implementation)', v_total, v_pending;
   end if;
   raise exception 'COMPETITION R2 SQL SUITE FAIL: %', v_failures;
 end $$;

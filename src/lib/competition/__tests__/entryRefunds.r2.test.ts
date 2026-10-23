@@ -31,7 +31,11 @@ describe("R2 Section 1: registration cascade gap", () => {
     expect(body).toMatch(/with withdrawn as \(\s*update public\.event_competition_entries/);
     expect(body).toContain("returning id");
     expect(body).toContain("where he.entry_id = w.id and he.status in ('scheduled', 'checked_in');");
-    expect(body).not.toContain("'danced'");
+  });
+
+  it("never withdraws an entry that has danced, even in an unlocked heat (owner Q1)", () => {
+    const body = functionBody(sql);
+    expect(body).toMatch(/and not exists \(\s*select 1 from public\.event_competition_heat_entries he\s*where he\.entry_id = event_competition_entries\.id and he\.status = 'danced'\s*\)/);
   });
 
   it("writes no refund ledger, refund RPC or Stripe-facing object before the owner decisions", () => {
@@ -42,7 +46,7 @@ describe("R2 Section 1: registration cascade gap", () => {
   it("rollback restores the exact 10A body and refuses unless the R2 body is live", () => {
     const tenA = read("20261107090000_phase10a_competition_foundation_reconcile.sql");
     expect(functionBody(rollback)).toBe(functionBody(tenA));
-    expect(rollback).toContain("is distinct from '365777014132f1a8302773708a2394e6' then");
+    expect(rollback).toContain("is distinct from '5fb5027897911eb2482efe03ec5cee19' then");
     expect(rollback.indexOf("R2 rollback preflight")).toBeLessThan(rollback.indexOf("create or replace function"));
     expect(rollback).toContain("is distinct from 'fabd4052257f261e300ccc1f191c4cdb' then");
   });
