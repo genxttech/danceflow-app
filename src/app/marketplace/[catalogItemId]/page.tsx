@@ -1,9 +1,46 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveCommerceThumbnail } from "@/lib/commerce/thumbnail";
 
 type Params = Promise<{ catalogItemId: string }>;
+
+type StudioRow = {
+  name: string | null;
+  public_name: string | null;
+  subscription_status: string | null;
+  stripe_connect_charges_enabled: boolean | null;
+};
+
+type DigitalContentRow = {
+  instructor_name: string | null;
+  skill_level: string | null;
+  dance_style: string | null;
+  duration_seconds: number | null;
+  summary: string | null;
+  status: string | null;
+  release_at: string | null;
+  mux_upload_status: string | null;
+  mux_playback_id: string | null;
+};
+
+type CatalogItemRow = {
+  id: string;
+  studio_id: string;
+  name: string;
+  description: string | null;
+  item_type: string;
+  price: number | string;
+  currency: string;
+  image_url: string | null;
+  active: boolean;
+  published: boolean;
+  marketplace_visible: boolean;
+  studios: StudioRow | StudioRow[] | null;
+  commerce_digital_content: DigitalContentRow | DigitalContentRow[] | null;
+};
 
 function one<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
@@ -16,12 +53,12 @@ function money(value: number | string, currency: string) {
   }).format(Number(value ?? 0));
 }
 
-export default async function MarketplaceItemPage({
-  params,
-}: {
-  params: Params;
-}) {
-  const { catalogItemId } = await params;
+const siteUrl = "https://www.idanceflow.com";
+const defaultOgImage = `${siteUrl}/brand/danceflow-og-1200x630.png`;
+
+// Shared by generateMetadata and the page so a request runs the item query once.
+// Returns null unless the item passes every public marketplace visibility check.
+const loadPublicMarketplaceItem = cache(async (catalogItemId: string) => {
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("commerce_catalog_items")
@@ -56,10 +93,10 @@ export default async function MarketplaceItemPage({
       )
     `)
     .eq("id", catalogItemId)
-    .maybeSingle();
+    .maybeSingle<CatalogItemRow>();
 
-  const studio = one((data as any)?.studios);
-  const content = one((data as any)?.commerce_digital_content);
+  const studio = one(data?.studios);
+  const content = one(data?.commerce_digital_content);
   const available =
     !error &&
     data?.active === true &&
@@ -74,7 +111,84 @@ export default async function MarketplaceItemPage({
     (data?.item_type === "video_series" ||
       content?.mux_upload_status === "ready");
 
-  if (!available || !data) notFound();
+  if (!available || !data) return null;
+  return { admin, data, studio, content };
+});
+
+function absoluteUrl(value: string | null | undefined) {
+  if (!value) return null;
+  if (value.startsWith("http://") || value.startsWith("https://")) return value;
+  return value.startsWith("/") ? `${siteUrl}${value}` : `${siteUrl}/${value}`;
+}
+
+function itemDescription(text: string | null | undefined, studioName: string) {
+  const clean = text?.replace(/\s+/g, " ").trim();
+  if (clean) return clean.length > 160 ? `${clean.slice(0, 157).trimEnd()}...` : clean;
+  return `Digital dance instruction from ${studioName} on DanceFlow.`;
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Params;
+}): Promise<Metadata> {
+  const { catalogItemId } = await params;
+  const item = await loadPublicMarketplaceItem(catalogItemId);
+
+  if (!item) {
+    return {
+      title: "Marketplace",
+      robots: { index: false, follow: true },
+    };
+  }
+
+  const { data, studio, content } = item;
+  const studioName = studio?.public_name?.trim() || studio?.name || "a dance studio";
+  const title = data.name;
+  const description = itemDescription(content?.summary || data.description, studioName);
+  const canonicalUrl = `${siteUrl}/marketplace/${data.id}`;
+  // Only the catalog item's own image; generated video thumbnails need a signed lookup.
+  const imageUrl = absoluteUrl(data.image_url) || defaultOgImage;
+
+  return {
+    title: `${title} by ${studioName}`,
+    description,
+    alternates: {
+      canonical: canonicalUrl,
+    },
+    openGraph: {
+      title: `${title} | DanceFlow Marketplace`,
+      description,
+      url: canonicalUrl,
+      siteName: "DanceFlow",
+      type: "website",
+      images: [
+        {
+          url: imageUrl,
+          alt: `${title} on DanceFlow`,
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${title} | DanceFlow Marketplace`,
+      description,
+      images: [imageUrl],
+    },
+  };
+}
+
+export default async function MarketplaceItemPage({
+  params,
+}: {
+  params: Params;
+}) {
+  const { catalogItemId } = await params;
+  const item = await loadPublicMarketplaceItem(catalogItemId);
+
+  if (!item) notFound();
+
+  const { admin, data, studio, content } = item;
 
   const thumbnail = await resolveCommerceThumbnail({
     supabase: admin,

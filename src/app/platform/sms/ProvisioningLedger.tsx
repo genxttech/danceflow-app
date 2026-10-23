@@ -1,9 +1,9 @@
 import { ChevronDown } from "lucide-react";
-import type { LedgerSnapshot } from "@/lib/sms/provisioning/provisionLedger";
+import type { EvidenceStatus, LedgerSnapshot } from "@/lib/sms/provisioning/provisionLedger";
 import type { ProvisioningOperationView } from "@/lib/sms/provisioning/adminView";
 import { CONFIRM_PHRASE, FEE_RELEASE_MESSAGE } from "@/lib/sms/provisioning/provisionCommands";
 import { FEE_RELEASE_ENABLED } from "@/lib/sms/provisioning/provisionLedger";
-import { reopenProvisioningAction, resolveProvisioningOperationAction } from "./provisioningActions";
+import { recordProviderListingAction, reopenProvisioningAction, resolveProvisioningOperationAction } from "./provisioningActions";
 
 /**
  * TW-4F R2c-I1: the platform-admin provisioning ledger for one studio, with a focused resolution form for an unknown provider outcome. Platform-admin
@@ -68,6 +68,52 @@ function ResolveForm({ studioId, op }: { studioId: string; op: ProvisioningOpera
   );
 }
 
+const PROOF_REASON: Record<string, string> = {
+  no_listing: "no provider listing recorded yet",
+  latest_not_absent: "the latest listing does not show it absent",
+  stale: "the latest listing is older than 60 minutes",
+  need_two_independent_listings: "a second complete listing, 10+ minutes apart and 20+ minutes after the attempt, is needed",
+  resource_seen: "a listing showed a campaign for this attempt",
+  chain_broken: "an incomplete listing broke the chain",
+  scope_changed: "the listings are not of the attempt's own Messaging Service",
+  reads_not_independent: "the two reads were not independent",
+  orphan_open: "the business has an open unaccounted provider resource",
+  unaccounted_resource_seen: "a listing showed a resource the ledger does not account for",
+  fake_evidence: "fake evidence is not accepted here",
+  verified_absence: "two independent listings prove it was not created",
+};
+
+/** F4 evidence console: what the recorded provider listings prove for an unresolved fee-bearing campaign attempt, and a read-only "take a listing now" action. */
+function EvidenceConsole({ studioId, op, status }: { studioId: string; op: ProvisioningOperationView; status: EvidenceStatus | "unavailable" | undefined }) {
+  return (
+    <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2" data-testid="evidence-console">
+      <p className="font-semibold text-slate-900">Provider evidence</p>
+      {status === "unavailable" || status === undefined ? (
+        <p className="text-rose-900" data-testid="evidence-unavailable">The evidence could not be read. Do not assume none was recorded.</p>
+      ) : (
+        <>
+          <p className="text-slate-700">
+            {status.listings} listing{status.listings === 1 ? "" : "s"} recorded{status.latestVerdict ? `; latest: ${status.latestVerdict} at ${when(status.latestObservedAt)} (${status.latestSource ?? "?"})` : ""}.
+          </p>
+          <p className={status.proofOk ? "text-emerald-900" : "text-slate-700"} data-testid="evidence-proof">
+            Proof of non-creation: {status.proofOk ? "complete" : "not complete"} ({PROOF_REASON[status.proofReason] ?? status.proofReason}).
+          </p>
+          {status.pilot ? <p className="text-amber-900" data-testid="evidence-pilot">Pilot business: a not-created determination never releases its fee, whatever the evidence.</p> : null}
+          {status.releasePermittedByEvidence && !FEE_RELEASE_ENABLED ? (
+            <p className="text-amber-900" data-testid="evidence-release-off">The evidence would permit releasing the held fee, but release stays switched off until the owner decides (U-1). Nothing is released.</p>
+          ) : null}
+        </>
+      )}
+      <form action={recordProviderListingAction} className="mt-2 grid gap-1" data-testid="record-listing-form">
+        <input type="hidden" name="studioId" value={studioId} />
+        <input type="hidden" name="operationId" value={op.id} />
+        <label className="flex items-center gap-2 text-slate-800"><input type="checkbox" name="confirm" required /> Take one read-only provider listing now (nothing is created, resolved or released)</label>
+        <button type="submit" className="w-fit rounded-lg border border-violet-300 px-3 py-1 text-xs font-semibold text-violet-800 hover:bg-violet-50">Record provider listing</button>
+      </form>
+    </div>
+  );
+}
+
 export default function ProvisioningLedger({ studioId, ledger }: { studioId: string; ledger: LedgerSnapshot | "unreadable" | "none" | null }) {
   if (ledger === null || ledger === "none") return null;
   if (ledger === "unreadable") {
@@ -104,6 +150,9 @@ export default function ProvisioningLedger({ studioId, ledger }: { studioId: str
                 <p className="text-slate-600">Provider read: {op.resource.status ?? "?"}{op.resource.providerStatus ? ` (${op.resource.providerStatus})` : ""}{op.resource.mismatchCode ? `, mismatch ${op.resource.mismatchCode}` : ""}{op.resource.failureReasons ? `, ${op.resource.failureReasons}` : ""}</p>
               ) : null}
               {op.resolutionNote ? <p className="text-slate-600">Resolution note: {op.resolutionNote}</p> : null}
+              {held(op) && op.kind === "campaign" ? (
+                <EvidenceConsole studioId={studioId} op={op} status={ledger.evidence === "unavailable" ? "unavailable" : ledger.evidence?.[op.id]} />
+              ) : null}
               {open(op) ? <ResolveForm studioId={studioId} op={op} /> : null}
             </li>
           );

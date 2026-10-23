@@ -1273,11 +1273,15 @@ commit;`);
       // 20261217 (R2b integration) replaces tw4_rfl_register and tw4_recurring_charge: on a database that carries it they must match THAT text, otherwise 20261209's
       const integrated = psql(`select to_regprocedure('public._tw4rfl_register_core(uuid,uuid,text,text,text,text,text,uuid,uuid,boolean)') is not null`) === "t";
       const integration = integrated ? readFileSync(join(dir, "20261217090000_twilio_r2b_rfl_lifecycle_integration.sql"), "utf8") : "";
+      // 20261225 (D5 cover rule) replaces tw4_rfl_pilot_cover and _tw4rfl_cover: on a database that carries it they must match THAT text
+      const d5 = psql(`select exists (select 1 from pg_attribute where attrelid = 'public.studio_sms_provider_cover'::regclass and attname = 'superseded_at' and not attisdropped)`) === "t";
+      const d5text = d5 ? readFileSync(join(dir, "20261225090000_twilio_rfl_d5_cover.sql"), "utf8") : "";
       for (const n of ["tw4_rfl_suspend_df", "tw4_rfl_pilot_cover", "tw4_rfl_register", "tw4_rfl_cancel_withdraw", "tw4_rfl_cancel_begin", "tw4_rfl_cancel_finish", "tw4_rfl_cancel_resolve",
         "tw4_rfl_observe_provider_bill", "tw4_rfl_alert_finish", "tw4_rfl_inventory_gaps", "tw4_rfl_studio_ready", "tw4_rfl_scan_entities", "_tw4rc_service_state", "tw4_recurring_charge",
         "_tw4rfl_cover", "_tw4rfl_gate_suspended", "_tw4rfl_alert", "_tw4rfl_lock"]) {
         const replaced = integrated && (n === "tw4_rfl_register" || n === "tw4_recurring_charge");
-        expect(dbMd5(n), n).toBe(md5(prosrcOf(replaced ? integration : prev, n)));
+        const d5replaced = d5 && (n === "tw4_rfl_pilot_cover" || n === "_tw4rfl_cover");
+        expect(dbMd5(n), n).toBe(md5(prosrcOf(d5replaced ? d5text : replaced ? integration : prev, n)));
       }
       for (const n of ["tw4_rfl_alerts_claim", "tw4_rfl_scan_entity", "tw4_rfl_exposure_dispose", "tw4_rfl_cancel_authorize", "tw4_rfl_admin_overview"]) {
         expect(dbMd5(n), n).toBe(md5(prosrcOf(ops, n)));

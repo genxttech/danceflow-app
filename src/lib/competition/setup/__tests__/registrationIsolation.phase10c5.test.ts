@@ -128,7 +128,7 @@ describe("registration isolation in the app", () => {
     expect(register).toContain("const registrationOpen = openResult === true;");
     expect(register).toContain("{!registrationOpen ? <div");
     expect(register).not.toMatch(/registration_required|account_required_for_registration|registration_opens_at|registration_closes_at/);
-    expect(register).toContain("if (!competitionRegistrationEnabled) {\n    notFound();");
+    expect(register).toContain("if (!isCompetitionRegistrationEnabled()) {\n    notFound();");
   });
 
   it("the public event page: tickets follow registration_required; the competition CTA follows the flag and the competition gate", () => {
@@ -136,7 +136,7 @@ describe("registration isolation in the app", () => {
     expect(page).toContain("const hasDanceFlowRegistration = typedEvent.registration_required;");
     expect(page).toContain('{ id: "tickets", label: "Tickets", show: hasDanceFlowRegistration }');
     expect(page).toContain(
-      'const competitionRegistrationOpen =\n    competitionRegistrationEnabled &&\n    (typedEvent.event_type === "competition" || typedEvent.event_type === "showcase") &&\n    (await supabase.rpc("competition_registration_event_open", { p_event_id: typedEvent.id })).data === true;',
+      'const competitionRegistrationOpen =\n    isCompetitionRegistrationEnabled() &&\n    (typedEvent.event_type === "competition" || typedEvent.event_type === "showcase") &&\n    (await supabase.rpc("competition_registration_event_open", { p_event_id: typedEvent.id })).data === true;',
     );
     // The CTA is rendered after (outside) the ordinary ticket branch, so it does not depend on ticket checkout.
     const ordinaryEnd = page.indexOf("                  </>\n                  )}\n");

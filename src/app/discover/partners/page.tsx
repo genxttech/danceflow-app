@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { NearMeButton } from "../NearMeButton";
+import { partnerConnectLoginHref, partnerProfileAnchor, partnerSearchReturnPath } from "./connectLink";
 import {
   formatPartnerIntent,
   formatPartnerRole,
@@ -137,6 +138,16 @@ export default async function PartnerSearchDiscoveryPage({
     skill: selectedSkill || undefined,
     style: selectedStyles,
   });
+  const returnPath = partnerSearchReturnPath({
+    intents: selectedIntents,
+    latitude,
+    longitude,
+    query: searchText,
+    radiusMiles: selectedRadius,
+    role: selectedRole,
+    skill: selectedSkill,
+    styles: selectedStyles,
+  });
 
   return (
     <>
@@ -273,6 +284,7 @@ export default async function PartnerSearchDiscoveryPage({
             {profiles.map((profile) => (
               <article
                 key={profile.id}
+                id={partnerProfileAnchor(profile.id)}
                 className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -330,7 +342,7 @@ export default async function PartnerSearchDiscoveryPage({
                     connection.
                   </p>
                   <Link
-                    href="/login"
+                    href={partnerConnectLoginHref(returnPath, profile.id)}
                     className="font-semibold text-[var(--brand-primary)] hover:underline"
                   >
                     Request to connect
