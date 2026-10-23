@@ -666,9 +666,48 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
         return { file, probe, applied: probe !== "" && psql(`select ${probe}`) === "t" };
       });
   }
+  // This suite's own fixture studios and legal businesses: every deletion below is scoped to them (never the whole table), inside the rolled-back transaction.
+  const FIXTURE_STUDIOS = [SA1, SA2, SB1, SC1, SD1];
+  const FIXTURE_ENTITIES = [EA, EB, EC, ED];
+  const sqlList = (ids: string[]) => ids.map((id) => `'${id}'`).join(", ");
+  /**
+   * The fixtures' lifecycle rows (provider resources a layer such as 20261221 registers for verified campaigns, and everything that references them or their alerts,
+   * found from the catalogue by foreign key, one level below each lifecycle parent). The 20261209 rollback refuses while ANY such row exists; that refusal stays covered
+   * by its own test below, so the rows are removed here only for the fixtures and only to show that the stack comes off cleanly when they are gone. No CASCADE, no truncate.
+   */
+  const clearFixtureLifecycle = () => psql("select to_regclass('public.studio_sms_provider_resources') is not null") !== "t" ? "" : `
+      do $clear$
+      declare
+        c record;
+        p text;
+        v_ents uuid[] := array[${sqlList(FIXTURE_ENTITIES)}]::uuid[];
+        v_parents text[] := array['studio_sms_provider_alerts', 'studio_sms_provider_exposure', 'studio_sms_provider_cover', 'studio_sms_provider_cancel_ops'];
+      begin
+        foreach p in array v_parents loop
+          if to_regclass('public.' || p) is null then continue; end if;
+          for c in select k.conrelid::regclass::text as child, a.attname as col from pg_constraint k join pg_attribute a on a.attrelid = k.conrelid and a.attnum = k.conkey[1]
+                    where k.contype = 'f' and k.confrelid = ('public.' || p)::regclass and k.conrelid <> all (select ('public.' || x)::regclass from unnest(v_parents) x where to_regclass('public.' || x) is not null) loop
+            execute format('delete from %s where %I in (select id from public.%I where legal_entity_id = any($1))', c.child, c.col, p) using v_ents;
+          end loop;
+        end loop;
+        for c in select k.conrelid::regclass::text as child, a.attname as col from pg_constraint k join pg_attribute a on a.attrelid = k.conrelid and a.attnum = k.conkey[1]
+                  where k.contype = 'f' and k.confrelid = 'public.studio_sms_provider_resources'::regclass and k.conrelid <> all (select ('public.' || x)::regclass from unnest(v_parents) x where to_regclass('public.' || x) is not null) loop
+          execute format('delete from %s where %I in (select id from public.studio_sms_provider_resources where legal_entity_id = any($1))', c.child, c.col) using v_ents;
+        end loop;
+        foreach p in array v_parents loop
+          if to_regclass('public.' || p) is not null then execute format('delete from public.%I where legal_entity_id = any($1)', p) using v_ents; end if;
+        end loop;
+        delete from public.studio_sms_provider_resources where legal_entity_id = any(v_ents);
+        delete from public.studio_sms_onboarding_audit where action like 'rfl\\_%' and studio_id = any(array[${sqlList(FIXTURE_STUDIOS)}]::uuid[]);
+      end $clear$;`;
   const clearFixtureEvidence = () => `set local session_replication_role = replica;
-      ${psql("select to_regclass('public.studio_sms_prov_listings') is not null") === "t" ? "delete from public.studio_sms_prov_orphans; delete from public.studio_sms_prov_dispositions; delete from public.studio_sms_prov_listings;" : ""}
-      delete from public.studio_sms_prov_resources; delete from public.studio_sms_prov_operations; delete from public.studio_sms_onboarding_audit where action like 'prov\\_%';
+      ${psql("select to_regclass('public.studio_sms_prov_listings') is not null") === "t"
+        ? `delete from public.studio_sms_prov_orphans where legal_entity_id in (${sqlList(FIXTURE_ENTITIES)}); delete from public.studio_sms_prov_dispositions where legal_entity_id in (${sqlList(FIXTURE_ENTITIES)}); delete from public.studio_sms_prov_listings where legal_entity_id in (${sqlList(FIXTURE_ENTITIES)});`
+        : ""}
+      delete from public.studio_sms_prov_resources where operation_id in (select id from public.studio_sms_prov_operations where studio_id in (${sqlList(FIXTURE_STUDIOS)}));
+      delete from public.studio_sms_prov_operations where studio_id in (${sqlList(FIXTURE_STUDIOS)});
+      delete from public.studio_sms_onboarding_audit where action like 'prov\\_%' and studio_id in (${sqlList(FIXTURE_STUDIOS)});
+      ${clearFixtureLifecycle()}
       set local session_replication_role = origin;`;
   const r2aIntact = () => psql(`select to_regclass('public.studio_sms_prov_operations') is not null and to_regprocedure('public.tw4_prov_settle_admin(uuid,uuid,text,text,text)') is not null`);
 
@@ -708,6 +747,19 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
     // with this suite's fixtures still present the stack as a whole must refuse (R2a evidence), never destroy it
     expect(out).toMatch(/refused|evidence exists/);
     expect(r2aIntact()).toBe("t");
+  });
+
+  it("the 20261209 lifecycle rollback still refuses while a lifecycle row remains: one fixture alert row is enough (executed in a transaction that is rolled back)", (ctx) => {
+    const lifecycle = appliedLaterLayers().find((l) => l.file.startsWith("20261209090000") && l.applied);
+    if (!lifecycle) ctx.skip("the recurring-fee lifecycle layer (20261209) is not applied on this stack");
+    const out = psqlError(`begin; set local session_replication_role = replica;
+      insert into public.studio_sms_provider_alerts (legal_entity_id, kind, dedupe_key, audience, severity, summary)
+        values ('${EA}', 'inventory_gap', 'fixture:rollback-refusal', 'admin', 'warning', 'fixture rollback refusal row');
+      set local session_replication_role = origin;
+      ${rbSql(lifecycle!.file)}
+      rollback;`);
+    expect(out).toMatch(/lifecycle evidence exists/);
+    expect(psql(`select to_regclass('public.studio_sms_provider_alerts') is not null`)).toBe("t");
   });
 
   it("rollback refuses once provisioning evidence exists (executed in a transaction that is rolled back)", () => {
