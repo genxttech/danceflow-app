@@ -56,11 +56,11 @@ export function buildNumberReader(env: Record<string, string | undefined> = proc
 
 /** The scheduled inventory route's runtime: the reader plus the number store the reconciliation records through. */
 export function buildNumberReadRuntime(env: Record<string, string | undefined> = process.env, fetchImpl?: ReadFetch): NumberReadRuntime {
-  const reader = buildNumberReader(env, fetchImpl);
-  if (!reader.ok) return reader;
-  if (reader.mode === "fake") {
+  if (fakeAdapterAllowed(env)) {
     const fake = buildNumberRuntime(env);
     return fake.ok ? { ok: true, store: fake.store, adapterFor: fake.adapterFor } : { ok: false, reason: fake.reason };
   }
+  const reader = buildNumberReader(env, fetchImpl);
+  if (!reader.ok) return reader;
   return { ok: true, store: new SupabaseNumberStore(createAdminClient()), adapterFor: reader.adapterFor };
 }

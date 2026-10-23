@@ -748,7 +748,7 @@ export function createScopedNumberAdapter(
 // before any network call, and it has no creation history and no release methods, so no purchase, attach or release path can run on it.
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 const refuseRead = (what: string): never => {
-  throw new IsvApiError("account", null, null, `number inventory reads only: ${what} is not allowed`);
+  throw new IsvApiError("account", null, null, `number reads only: ${what} is not allowed`);
 };
 
 export class RealNumberReadAdapter extends TwilioRest<IsvConfig> implements IsvNumberAdapter {

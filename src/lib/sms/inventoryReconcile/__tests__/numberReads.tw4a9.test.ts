@@ -81,7 +81,7 @@ describe("TW4_NUMBER_READS: a read-only gate independent of the purchase switch"
       () => reader.listServiceNumbers(),
       () => reader.getServiceNumbers(),
     ];
-    for (const attempt of attempts) await expect(attempt()).rejects.toThrow(/number inventory reads only/);
+    for (const attempt of attempts) await expect(attempt()).rejects.toThrow(/number reads only/);
     expect(stub.calls).toHaveLength(0);
     expect("readCreationHistory" in reader).toBe(false);
   });
