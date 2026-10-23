@@ -507,11 +507,11 @@ TW-4F moves to a focused pilot closeout. Competition E2E, New Student Intake and
 
 | # | Item | Owner / where | Required tests | Status |
 |---|---|---|---|---|
-| A1 | F3 reconciler gate | #277 (`2ad858c6`), F3 session | DB re-run: f3recon, tw4sender, tw4rv on main + 1218 | Waiting for its DB slot after #290 |
+| A1 | F3 reconciler gate | #277, F3 session | — | **MERGED 2026-10-23 → main `2877bab7`** (Git-only) |
 | A2 | RFL-D5 cover month rule and supersede | #290, RFL session | — | **MERGED 2026-10-23 (owner-approved) → main `c982d7fa`**; d5 21/21, tw4rfl 87/87, tw4rflops 64/64, r2brfl 28/28, f4recovery 26/26; Opus clean; Git-only |
 | A3 | F1 pilot funding and activation lock order | #280 (head f7d06050; main c982d7fa merged in; recheck PASSED: f1funding 25/25 on main + 1219, and 25/25 with #277 1218), F1 session | After #290 merges: merge main, change one f1funding expectation to "no cover row" (D5), re-run f1funding with 1218 and 1225. Verdicts already agree with D5 (#290 combined run, 24/25 before the expectation change). The explicit `superseded_at` filter is deferred to a migration after 1225 (J4), because 1219 sorts before the column exists | Waiting on #290 |
 | A4 | J1 admin provisioning orchestration | #278 (`629e7314`), J1 session | r2a control is identical to `main` (Q1) | Ready for review |
-| A5 | J2 owner status reads | #276 (`d99f42a0`), J2 session | Q1 chain PASS | Ready for review |
+| A5 | J2 owner status reads | #276, J2 session | — | **MERGED 2026-10-23 → main `09ffea39`** (Git-only). Follow-up: map `usage_reconciler_ready`/`pilot_ki1_redecided` to owner-language areas instead of "other" |
 | A6 | F5 release adapters | #279 (`1fa86a39`), F5 session | Both deferred P2s fixed, offline 1386/0 | Ready for review |
 | A7 | **J3 owner number selection** | J2 session: PR #294 (head 7940d0fe, 1227; depends on #276); j3owner 11/11; Opus no P0/P1; browser E2E BLOCKED | Owner browser E2E; forged-studio and replay tests; pilot-cap refusal | Not started |
 | A8 | **J4 activation console** | F1 session: PR #298 (head e2e30a79, 1226; includes #280 and #277; apply order 1218, 1219, 1221, 1225, 1226, and roll back 1226 first). j4activation 10/10 twice; Opus no P0/P1. KI-1 enforced in the DB for the pilot. Pilot prerequisites: A9b and the KI-1 re-decision. Note: f1funding needs a fresh DB per run (spend events are not released) | Admin browser E2E to `active` (fake adapter); one refusal per checklist item including reconciler readiness | Not started; needs A1 and A3 |
