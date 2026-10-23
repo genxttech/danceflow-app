@@ -556,6 +556,7 @@ TW-4F moves to a focused pilot closeout. Competition E2E, New Student Intake and
   - #288: the old retry does not audit refusals; its "Record provider listing" button is the first admin button that can call Twilio.
 - Two-month deferred-retirement absorption.
 - RecurringFeesCancel UI backlog (withdrawal visibility, double-submit states).
+- J3 finding (2026-10-23): `tw4_num_select` (1208, R2b-owned) does not check the pilot ceiling or funding when the owner approves; only the purchase does (`_tw4num_reserve`, TW007). An approval made by a direct RPC call at the ceiling is recorded but cannot buy, so this fails closed and is pinned by a test in J3. Hardening: refuse it in SQL.
 
 ## 9. Document inconsistencies to reconcile (not fixed here)
 
