@@ -25,7 +25,7 @@ while IFS='|' read -r _ stamp file sha rbsha _; do
   fi
 done < <(grep -E '^\| `?[0-9]{14}' "$DOC")
 # every forward migration in the TW-4/TW-4F range on the ref must be in the manifest
-for f in $(git ls-tree -r --name-only "$REF" "$DIR" | grep -E "/(2026111[9]|202611[2-3]|202612[01])[0-9]*_[^/]*\.sql$" | grep -v /rollback/); do
+for f in $(git ls-tree -r --name-only "$REF" "$DIR" | grep -E "/(2026111[9]|202611[2-3]|202612)[0-9]*_[^/]*\.sql$" | grep -v /rollback/); do
   s="$(basename "$f" | cut -c1-14)"; [ -n "${seen[$s]:-}" ] || { echo "ON $REF BUT NOT IN MANIFEST: $s"; bad=1; }
 done
 echo "checked $n migrations on $REF"; [ "$bad" = 0 ] && echo "MANIFEST HASHES OK" || { echo "MANIFEST HASH CHECK FAILED"; exit 1; }
