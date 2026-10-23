@@ -1,5 +1,7 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { eventEndDateLowerBound, filterNotPastEvents } from "@/lib/events/eventTiming";
 
@@ -112,17 +114,11 @@ function formatDateRange(startDate: string, endDate: string) {
   return startDate === endDate ? startText : `${startText} - ${endText}`;
 }
 
-export default async function PublicOrganizerProfilePage({
-  params,
-}: {
-  params: Params;
-}) {
-  const rawParams = await params;
-  const slug = normalizeSlug(rawParams.slug);
+const siteUrl = "https://www.idanceflow.com";
+const defaultOgImage = `${siteUrl}/brand/danceflow-og-1200x630.png`;
 
-  if (!slug) {
-    notFound();
-  }
+// Shared by generateMetadata and the page so a request runs the organizer query once.
+const loadPublicOrganizer = cache(async (slug: string) => {
   const supabase = await createClient();
 
   const { data: organizer, error: organizerError } = await supabase
@@ -145,11 +141,92 @@ export default async function PublicOrganizerProfilePage({
     .eq("active", true)
     .single();
 
-  if (organizerError || !organizer) {
+  if (organizerError || !organizer) return null;
+  return organizer as OrganizerRow;
+});
+
+function absoluteUrl(value: string | null | undefined) {
+  if (!value) return null;
+  if (value.startsWith("http://") || value.startsWith("https://")) return value;
+  return value.startsWith("/") ? `${siteUrl}${value}` : `${siteUrl}/${value}`;
+}
+
+function organizerDescription(organizer: OrganizerRow) {
+  const location = [organizer.city, organizer.state].filter(Boolean).join(", ");
+  const text = organizer.description?.replace(/\s+/g, " ").trim();
+  if (text) return text.length > 160 ? `${text.slice(0, 157).trimEnd()}...` : text;
+  return `Upcoming dance events from ${organizer.name}${location ? ` in ${location}` : ""} on DanceFlow.`;
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Params;
+}): Promise<Metadata> {
+  const slug = normalizeSlug((await params).slug);
+  const organizer = slug ? await loadPublicOrganizer(slug) : null;
+
+  if (!organizer) {
+    return {
+      title: "Organizer Profile",
+      robots: { index: false, follow: true },
+    };
+  }
+
+  const title = organizer.name;
+  const description = organizerDescription(organizer);
+  const canonicalUrl = `${siteUrl}/organizers/${organizer.slug}`;
+  const imageUrl =
+    absoluteUrl(organizer.cover_image_url) ||
+    absoluteUrl(organizer.logo_url) ||
+    defaultOgImage;
+
+  return {
+    title,
+    description,
+    alternates: {
+      canonical: canonicalUrl,
+    },
+    openGraph: {
+      title: `${title} | DanceFlow Organizer`,
+      description,
+      url: canonicalUrl,
+      siteName: "DanceFlow",
+      type: "website",
+      images: [
+        {
+          url: imageUrl,
+          alt: `${title} on DanceFlow`,
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${title} | DanceFlow Organizer`,
+      description,
+      images: [imageUrl],
+    },
+  };
+}
+
+export default async function PublicOrganizerProfilePage({
+  params,
+}: {
+  params: Params;
+}) {
+  const rawParams = await params;
+  const slug = normalizeSlug(rawParams.slug);
+
+  if (!slug) {
+    notFound();
+  }
+  const typedOrganizer = await loadPublicOrganizer(slug);
+
+  if (!typedOrganizer) {
     notFound();
   }
 
-  const typedOrganizer = organizer as OrganizerRow;
+  const supabase = await createClient();
   const organizerWebsiteUrl = safeExternalUrl(typedOrganizer.website_url);
   const now = new Date();
 

@@ -74,11 +74,15 @@ export default function PublicMobileMenu({ children }: { children: ReactNode }) 
       <div
         id={panelId}
         hidden={!open}
-        className="absolute inset-x-0 top-full border-b border-slate-200 bg-white shadow-lg"
+        className="absolute inset-x-0 top-full max-h-[calc(100dvh-4.5rem)] overflow-y-auto border-b border-slate-200 bg-white shadow-lg"
       >
         <nav
           aria-label="Primary"
           className="mx-auto grid max-w-7xl gap-1 px-4 py-3 sm:px-6"
+          // Same-page and hash links do not change the pathname, so a followed link closes the panel.
+          onClick={(event) => {
+            if ((event.target as Element).closest("a")) setOpenedAt(null);
+          }}
         >
           {children}
         </nav>

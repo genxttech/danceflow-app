@@ -4,7 +4,7 @@ import PublicMobileMenu from "./PublicMobileMenu";
 import SkipToMainLink from "@/components/shell/SkipToMainLink";
 import PublicNavLinks from "./PublicNavLinks";
 import AttributionCapture from "./AttributionCapture";
-import type { PublicNavPath } from "./publicNav";
+import { PUBLIC_AUTH_ACTIONS, type PublicNavPath } from "./publicNav";
 
 type PublicSiteHeaderProps = {
   /** Optional override; by default the active item is derived from the current pathname. */
@@ -17,6 +17,8 @@ const focusRing =
 
 const secondaryAction = `rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:px-4 ${focusRing}`;
 const primaryAction = `rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[var(--brand-primary-dark)] sm:px-4 ${focusRing}`;
+// Outlined in the brand colour so the trial never competes with account creation for "primary".
+const trialAction = `rounded-xl border border-[var(--brand-primary)] bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)] sm:px-4 ${focusRing}`;
 
 export default function PublicSiteHeader({
   currentPath,
@@ -75,11 +77,21 @@ export default function PublicSiteHeader({
               </>
             ) : (
               <>
-                <Link href="/login?intent=public" className={secondaryAction}>
-                  Log In
+                <Link href={PUBLIC_AUTH_ACTIONS.logIn.href} className={secondaryAction}>
+                  {PUBLIC_AUTH_ACTIONS.logIn.label}
                 </Link>
-                <Link href="/signup" className={`hidden sm:inline-flex ${primaryAction}`}>
-                  Create Free Account
+                <Link
+                  href={PUBLIC_AUTH_ACTIONS.createAccount.href}
+                  className={`hidden sm:inline-flex ${primaryAction}`}
+                >
+                  {PUBLIC_AUTH_ACTIONS.createAccount.label}
+                </Link>
+                {/* The business trial is a distinct action; below `lg` it lives in the menu. */}
+                <Link
+                  href={PUBLIC_AUTH_ACTIONS.startTrial.href}
+                  className={`hidden lg:inline-flex ${trialAction}`}
+                >
+                  {PUBLIC_AUTH_ACTIONS.startTrial.label}
                 </Link>
               </>
             )}
@@ -95,9 +107,20 @@ export default function PublicSiteHeader({
                   My Account
                 </Link>
               ) : (
-                <Link href="/signup" className={`mt-1 sm:hidden ${primaryAction} text-center`}>
-                  Create Free Account
-                </Link>
+                <div className="mt-2 grid gap-2 border-t border-slate-100 pt-3">
+                  <Link
+                    href={PUBLIC_AUTH_ACTIONS.createAccount.href}
+                    className={`block w-full py-3 text-center ${primaryAction}`}
+                  >
+                    {PUBLIC_AUTH_ACTIONS.createAccount.label}
+                  </Link>
+                  <Link
+                    href={PUBLIC_AUTH_ACTIONS.startTrial.href}
+                    className={`block w-full py-3 text-center ${trialAction}`}
+                  >
+                    {PUBLIC_AUTH_ACTIONS.startTrial.label}
+                  </Link>
+                </div>
               )}
             </PublicMobileMenu>
           </div>
