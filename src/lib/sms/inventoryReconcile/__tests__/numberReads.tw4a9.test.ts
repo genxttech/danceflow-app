@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
@@ -83,6 +85,35 @@ describe("TW4_NUMBER_READS: a read-only gate independent of the purchase switch"
     for (const attempt of attempts) await expect(attempt()).rejects.toThrow(/number inventory reads only/);
     expect(stub.calls).toHaveLength(0);
     expect("readCreationHistory" in reader).toBe(false);
+  });
+
+  it("even with TW4_NUMBER_READS=on (and every other switch on) the read adapter cannot purchase, attach, search or release: the only request it ever makes is the GET listing", async () => {
+    const everything = { ...READS, TW4_PROVISIONING_REAL_CALLS: "on", TW4_NUMBER_REAL_CALLS: "on" };
+    const stub = fetchStub([{ status: 200, body: { incoming_phone_numbers: [], next_page_uri: null } }]);
+    const reader = RealNumberReadAdapter.forAccount(config, SUB, "subtoken", everything, stub.impl);
+    await expect(reader.purchaseNumber()).rejects.toThrow(/reads only: purchase/);
+    await expect(reader.attachNumber()).rejects.toThrow(/reads only: attach/);
+    await expect(reader.searchAvailableNumbers()).rejects.toThrow(/reads only: search/);
+    // no release, detach or delete exists on it (F5 #279's release adapters are separate types, built behind their own gate)
+    for (const method of ["releaseNumber", "detachNumber", "numberPresence", "deleteCampaign", "deleteMessagingService", "readCreationHistory"]) {
+      expect(method in reader, method).toBe(false);
+    }
+    await reader.listIncomingNumbers();
+    expect(stub.calls.map((c) => c.method)).toEqual(["GET"]);
+  });
+
+  it("only real.ts reaches Twilio: the inventory-reconcile modules and route have no network call, Twilio host or credential read", () => {
+    const files = [
+      ...readdirSync(join(__dirname, "..")).filter((n) => n.endsWith(".ts")).map((n) => join(__dirname, "..", n)),
+      join(process.cwd(), "src/app/api/cron/sms-inventory-reconcile/route.ts"),
+    ];
+    expect(files.length).toBeGreaterThanOrEqual(3);
+    for (const file of files) {
+      const code = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+      expect(code, file).not.toMatch(/\bfetch\s*\(/);
+      expect(code, file).not.toMatch(/twilio\.com|trusthub|from "twilio"|require\("twilio"\)/i);
+      expect(code, file).not.toMatch(/process\.env\.TWILIO/);
+    }
   });
 
   it("an incomplete listing is never returned as complete", async () => {

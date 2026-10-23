@@ -10,7 +10,7 @@ import { IsvApiError } from "@/lib/sms/twilioIsv/types";
 import type { NumberReadRuntime } from "./run";
 
 /**
- * TW-4F A9: the runtime the scheduled inventory route lists with. Never the purchase runtime:
+ * TW-4F A9: the runtime the scheduled inventory route lists with. In production never the purchase runtime (the local fake is the full fake adapter, but the runner only lists):
  *  - non-production + TW4_ISV_FAKE=on + a loopback database -> the local fake (its evidence is `fake`, accepted only on a local QA database);
  *  - production + TW4_ISV_REAL_CALLS=on + TW4_NUMBER_READS=on + complete configuration -> the LIST-ONLY real adapter (real.ts RealNumberReadAdapter), signed with
  *    each subaccount's own token; TW4_NUMBER_REAL_CALLS (purchases) is neither required nor consulted;

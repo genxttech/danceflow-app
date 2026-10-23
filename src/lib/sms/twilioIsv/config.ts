@@ -129,7 +129,7 @@ export function loadIsvConfig(env: Env = process.env): IsvConfigResult {
 /**
  * TW-4F A9: may this process READ a subaccount's phone-number inventory (the scheduled reconciliation's listings)? Production deployment, production build,
  * `TW4_ISV_REAL_CALLS=on` AND its own `TW4_NUMBER_READS=on`. Deliberately independent of `TW4_PROVISIONING_REAL_CALLS` and `TW4_NUMBER_REAL_CALLS`: keeping inventory
- * health fresh must never require arming purchases. It enables only the list-only adapter (numberReads.ts), which refuses every purchase, attach or other call.
+ * health fresh must never require arming purchases. It enables only the list-only adapter (real.ts RealNumberReadAdapter), which refuses every purchase, attach or other call.
  */
 export function numberReadsAllowed(env: Env = process.env): RealCallsGate {
   const registration = realCallsAllowed(env);
