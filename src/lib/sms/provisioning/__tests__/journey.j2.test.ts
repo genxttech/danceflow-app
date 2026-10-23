@@ -119,6 +119,10 @@ describe("J2: activation stage from the checklist", () => {
     expect(s.detail).toBe("Carrier approvals are in. DanceFlow still has to confirm the monthly service coverage, its account checks and a final check before texting turns on.");
     expect(s.detail).not.toMatch(/rfl|inventory|funding|_/);
   });
+  it("a DanceFlow review item (pilot KI-1) reads in owner words", () => {
+    const s = stage(buildJourney(input({ state: "ready_for_activation", provisioning: { ...ready, activation: { ready: false, checklist: [...ALL_OK, { area: "review", ok: false }] } } })), "activation");
+    expect(s.detail).toBe("Carrier approvals are in. DanceFlow still has to confirm a DanceFlow review before texting turns on.");
+  });
   it("an unreadable checklist falls back to the generic sentence", () => {
     expect(stage(buildJourney(input({ state: "ready_for_activation", provisioning: { ...ready, activation: null } })), "activation").detail).toMatch(/still has to confirm your number, sender and compliance/);
   });
