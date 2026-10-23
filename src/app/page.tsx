@@ -68,7 +68,7 @@ const primaryButton = `inline-flex items-center justify-center gap-2 rounded-2xl
 const quietLink = `inline-block py-1.5 text-sm font-semibold text-[var(--brand-primary)] underline-offset-4 hover:underline ${focusRing}`;
 
 /** One hero door: the two are rendered with identical structure and weight. */
-function Door({ door, note }: { door: HomeDoor; note: string }) {
+function Door({ door, note, hideSecondary = false }: { door: HomeDoor; note: string; hideSecondary?: boolean }) {
   return (
     <div className="flex flex-col rounded-3xl border border-[var(--brand-border)] bg-white/90 p-6 shadow-sm sm:p-8">
       <h2 className="text-xl font-semibold text-slate-950">{door.heading}</h2>
@@ -78,9 +78,11 @@ function Door({ door, note }: { door: HomeDoor; note: string }) {
           {door.primaryCta.label}
           <ArrowRight className="h-4 w-4" aria-hidden="true" />
         </Link>
-        <Link href={door.secondaryLink.href} className={quietLink}>
-          {door.secondaryLink.label}
-        </Link>
+        {hideSecondary ? null : (
+          <Link href={door.secondaryLink.href} className={quietLink}>
+            {door.secondaryLink.label}
+          </Link>
+        )}
       </div>
       <p className="mt-4 text-sm text-slate-500">{note}</p>
     </div>
@@ -239,7 +241,8 @@ export default async function HomePage() {
             </div>
 
             <div className="mt-12 grid gap-6 md:grid-cols-2">
-              <Door door={dancerDoor} note={dancerDoor.note} />
+              {/* Signed-in visitors already have an account, so the dancer door drops its sign-up link. */}
+              <Door door={dancerDoor} note={dancerDoor.note} hideSecondary={Boolean(user)} />
               <Door door={businessDoor} note={trialLine} />
             </div>
           </div>
