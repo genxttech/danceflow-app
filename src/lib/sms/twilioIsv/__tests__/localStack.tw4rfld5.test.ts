@@ -230,7 +230,7 @@ commit;`);
       // R2b's helper keys the month on the operation's started_at (current month): it returns the reservation ...
       expect(psql(`select public._tw4num_ledger_reservation('${op}') is not null`)).toBe("t");
       // ... and the RFL core keys on the reservation's own created_at: no cover binds (the purchase's money was set aside in another month)
-      call("tw4_num_observe", onboarding, "lc", op, { sid: pn, account_sid: w.account, phone_number: number, sms_capable: true }, "fake", digest());
+      call("tw4_num_observe", onboarding, "lc", op, JSON.stringify({ sid: pn, account_sid: w.account, phone_number: number, sms_capable: true }), "fake", digest());
       const res = psql(`select id from public.studio_sms_provider_resources where studio_id = '${w.studio}' and resource_kind = 'number'`);
       expect(res).not.toBe("");
       expect(rows(res)).toHaveLength(0);

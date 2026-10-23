@@ -54,8 +54,10 @@ superseded by the written approval.
 * F1 (`_tw4act_pilot_funding`) reads cover rows directly with the same month predicate and does not filter `superseded_at`; a superseded row is by definition non-counting under that same predicate (released or cross-month), so F1's verdict is identical. A later F1 edit may add `superseded_at is null` for clarity.
 * The rollback refuses while any superseded row exists (permanent evidence; the restored constraint could not hold both rows) and restores the four bodies byte for byte (fingerprint-verified); registrations made without cover while the migration was live stay valid rows.
 
-## Verification status
+## Audit vocabulary
 
-Static shape test (`src/lib/sms/__tests__/rflD5CoverMigrationShape.tw4rfld5.test.ts`) runs without a database. The real-schema suite
-`localStack.tw4rfld5.test.ts`, the unchanged `localStack.tw4rfl.test.ts` (87), `localStack.tw4rflops.test.ts` (64), `localStack.r2brfl.test.ts`, the migration apply /
-rollback / re-apply fingerprint check and the F1 `f1funding` scenario were authored or planned but NOT RUN: they wait for a database slot.
+`studio_sms_onboarding_audit_action_check` is extended (from the live list, as 20261209 did) with `rfl_cover_superseded` and `rfl_initial_cover_skipped`. The rollback leaves the two actions allowed (audit rows may already use them); this is the same documented widening as the earlier RFL rollbacks.
+
+## Verification status (real schema, dedicated container, run serially)
+
+New suite 18/18; tw4rfl 87/87 and r2brfl 28/28 unchanged; tw4rflops 64/64 after one assertion in its migration-identity test was extended to know 20261225 replaces tw4_rfl_pilot_cover and _tw4rfl_cover (same pattern it already uses for 20261217). Apply / rollback / re-apply restore identical function and cover-table fingerprints; the rollback refuses while a superseded row exists. F1 (#280) 1219 applies before or after 1225; its f1funding suite passes 24/25 on the numeric order (1219 then 1225): the one failure asserts that a cross-month reservation is BOUND at registration, which D5 intentionally stops (no cover row; its funding verdict is unchanged and passes with that assertion adjusted).

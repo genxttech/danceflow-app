@@ -42,6 +42,22 @@ begin
   end if;
 end $$;
 
+-- audit vocabulary: the live list plus the two D5 actions (extended, not replaced; a rollback leaves the two actions allowed, because audit rows may already use them)
+do $$
+declare
+  v_def text;
+  v_actions text[];
+begin
+  select pg_get_constraintdef(c.oid) into v_def from pg_constraint c where c.conrelid = 'public.studio_sms_onboarding_audit'::regclass and c.conname = 'studio_sms_onboarding_audit_action_check';
+  select array_agg(distinct m[1] order by m[1]) into v_actions from regexp_matches(substring(v_def from 'ANY \((.*)\)'), '([a-z][a-z0-9_]*)', 'g') m where m[1] <> 'text';
+  if v_actions is null or cardinality(v_actions) < 10 then
+    raise exception 'could not read the audit actions from %', v_def;
+  end if;
+  v_actions := (select array_agg(distinct x order by x) from unnest(v_actions || array['rfl_cover_superseded', 'rfl_initial_cover_skipped']) x);
+  alter table public.studio_sms_onboarding_audit drop constraint studio_sms_onboarding_audit_action_check;
+  execute format('alter table public.studio_sms_onboarding_audit add constraint studio_sms_onboarding_audit_action_check check (action = any (%L::text[]))', v_actions);
+end $$;
+
 -- additive supersede evidence (a superseded cover is history, never deleted)
 alter table public.studio_sms_provider_cover
   add column superseded_at timestamptz null,
