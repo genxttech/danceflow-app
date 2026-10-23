@@ -624,9 +624,12 @@ export type ReconcileSummary = {
  */
 export async function reconcileInventories(input: {
   store: NumberStore;
-  adapterFor: (accountSid: string) => IsvNumberAdapter | null;
+  /** May be async (the runtime factory resolves a subaccount's credentials); null or a throw = the adapter is unavailable for that subaccount. */
+  adapterFor: (accountSid: string) => IsvNumberAdapter | null | Promise<IsvNumberAdapter | null>;
   limit?: number;
   maxAgeSeconds?: number;
+  /** Checked before each target (a scheduled run's time budget and lease). false = stop: the remaining targets are reported as skipped, never as clean. */
+  shouldContinue?: () => boolean | Promise<boolean>;
 }): Promise<ReconcileSummary> {
   const { store, adapterFor } = input;
   const summary: ReconcileSummary = { checked: 0, clean: 0, findings: 0, skipped: [], manual: [], escalation: { outbox: false, raised: 0 } };
@@ -637,8 +640,24 @@ export async function reconcileInventories(input: {
     summary.escalation = { error: `targets:${storeCode(error)}` };
     return summary;
   }
-  for (const target of targets) {
-    const adapter = adapterFor(target.twilio_account_sid);
+  for (const [index, target] of targets.entries()) {
+    let proceed = true;
+    try {
+      proceed = input.shouldContinue ? await input.shouldContinue() : true;
+    } catch {
+      proceed = false;   // a continue check that cannot answer stops the pass
+    }
+    if (!proceed) {
+      for (const rest of targets.slice(index)) summary.skipped.push({ studioId: rest.studio_id, reason: "stopped" });
+      // a pass stopped for time or a lost lease does not escalate either: the next pass does (escalation is idempotent and age-based)
+      return summary;
+    }
+    let adapter: IsvNumberAdapter | null;
+    try {
+      adapter = await adapterFor(target.twilio_account_sid);
+    } catch {
+      adapter = null;
+    }
     if (!adapter) {
       summary.skipped.push({ studioId: target.studio_id, reason: "adapter_unavailable" });
       await markAttempted(store, target.legal_entity_id);

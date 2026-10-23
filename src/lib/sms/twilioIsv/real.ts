@@ -1,6 +1,6 @@
 import "server-only";
 import { SubaccountTokenProvider } from "./account";
-import { isvEnvName, numberCallsAllowed, provisioningCallsAllowed, realCallsAllowed, subaccountWebhooksAllowed, type IsvConfig } from "./config";
+import { isvEnvName, numberCallsAllowed, numberReadsAllowed, provisioningCallsAllowed, realCallsAllowed, subaccountWebhooksAllowed, type IsvConfig } from "./config";
 import type { AvailableNumber, CampaignComplianceFacts, IsvNumberAdapter, OwnedNumberFacts, ServiceNumbersFacts, ServiceRouteFacts } from "./numberTypes";
 import type { CampaignCreateInput, CampaignFacts, IsvProvisioningAdapter, MessagingServiceFacts } from "./provisioningTypes";
 import type { NumberReleaseAdapter, ProviderPresence, ProvisioningReleaseAdapter, ReleaseResult } from "./releaseTypes";
@@ -739,4 +739,64 @@ export function createScopedNumberAdapter(
   config: IsvConfig, accountSid: string, authToken: string, env: Record<string, string | undefined> = process.env, fetchImpl?: FetchLike,
 ): RealNumberAdapter {
   return RealNumberAdapter.forAccount(config, accountSid, authToken, env, fetchImpl ?? ((url, init) => fetch(url, init)));
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+// TW-4F A9: a LIST-ONLY number adapter for the scheduled inventory reconciliation, behind its own read gate (numberReadsAllowed: production, TW4_ISV_REAL_CALLS=on,
+// TW4_NUMBER_READS=on), so keeping inventory health fresh never requires the purchase switch. It lists the subaccount's incoming numbers (GET, free) and nothing else:
+// every other number-adapter method refuses before any network call, and it has no creation history, so no purchase, attach or release path can run on it.
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+const refuseRead = (what: string): never => {
+  throw new IsvApiError("account", null, null, `number inventory reads only: ${what} is not allowed`);
+};
+
+export class RealNumberReadAdapter extends TwilioRest<IsvConfig> implements IsvNumberAdapter {
+  readonly evidenceSource = "provider_read" as const;
+
+  /** Not constructible from outside: only `createScopedNumberReadAdapter` builds one, after the READ gate says so (never the purchase gate). */
+  private constructor(config: IsvConfig, fetchImpl: FetchLike) {
+    super(config, fetchImpl);
+  }
+
+  static forAccount(config: IsvConfig, accountSid: string, authToken: string, env: Record<string, string | undefined>, fetchImpl: FetchLike): RealNumberReadAdapter {
+    const gate = numberReadsAllowed(env);
+    if (!gate.allowed) throw new IsvApiError("account", null, null, gate.reason);
+    if (!PROVISION_ACCOUNT_SID.test(accountSid) || accountSid === config.accountSid) throw new IsvApiError("account", null, null, "not a subaccount sid");
+    if (!authToken) throw new IsvApiError("account", null, null, "no subaccount credential");
+    // the parent's API key is dropped on purpose: it must never sign a subaccount call
+    return new RealNumberReadAdapter({ ...config, accountSid, authToken, apiKeySid: undefined, apiKeySecret: undefined }, fetchImpl);
+  }
+
+  get accountSid(): string {
+    return this.config.accountSid;
+  }
+
+  /** EVERY incoming number of THIS account, or a throw: the same complete-or-nothing rules as RealNumberAdapter.listIncomingNumbers. */
+  async listIncomingNumbers(): Promise<{ sid: string; phone_number: string | null }[]> {
+    const json = await this.request("GET", `${API}/Accounts/${encodeURIComponent(this.accountSid)}/IncomingPhoneNumbers.json?PageSize=1000`);
+    const rows = Array.isArray(json.incoming_phone_numbers) ? (json.incoming_phone_numbers as Record<string, unknown>[]) : null;
+    if (!rows) throw new IsvApiError("transient", null, null, "list response carried no collection");
+    if (typeof json.next_page_uri === "string" && json.next_page_uri) throw new IsvApiError("transient", null, "inventory_too_large", "list too long to search safely");
+    return rows.map((row) => {
+      if (typeof row.sid !== "string" || !PHONE_NUMBER_SID.test(row.sid)) throw new IsvApiError("transient", null, null, "inventory row without a valid sid");
+      return { sid: row.sid, phone_number: provStr(row.phone_number) };
+    });
+  }
+
+  async searchAvailableNumbers(): Promise<never> { return refuseRead("search"); }
+  async findOwnedNumbers(): Promise<never> { return refuseRead("owned-number lookup"); }
+  async purchaseNumber(): Promise<never> { return refuseRead("purchase"); }
+  async getNumber(): Promise<never> { return refuseRead("number read"); }
+  async listServiceNumbers(): Promise<never> { return refuseRead("service number listing"); }
+  async attachNumber(): Promise<never> { return refuseRead("attach"); }
+  async getServiceNumbers(): Promise<never> { return refuseRead("service numbers read"); }
+  async getCampaignCompliance(): Promise<never> { return refuseRead("campaign compliance read"); }
+  async getServiceRoute(): Promise<never> { return refuseRead("service route read"); }
+}
+
+/** The list-only number adapter for ONE subaccount, signed with that subaccount's own credentials. */
+export function createScopedNumberReadAdapter(
+  config: IsvConfig, accountSid: string, authToken: string, env: Record<string, string | undefined> = process.env, fetchImpl?: FetchLike,
+): RealNumberReadAdapter {
+  return RealNumberReadAdapter.forAccount(config, accountSid, authToken, env, fetchImpl ?? ((url, init) => fetch(url, init)));
 }

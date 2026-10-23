@@ -127,6 +127,18 @@ export function loadIsvConfig(env: Env = process.env): IsvConfigResult {
 }
 
 /**
+ * TW-4F A9: may this process READ a subaccount's phone-number inventory (the scheduled reconciliation's listings)? Production deployment, production build,
+ * `TW4_ISV_REAL_CALLS=on` AND its own `TW4_NUMBER_READS=on`. Deliberately independent of `TW4_PROVISIONING_REAL_CALLS` and `TW4_NUMBER_REAL_CALLS`: keeping inventory
+ * health fresh must never require arming purchases. It enables only the list-only adapter (real.ts RealNumberReadAdapter), which refuses every purchase, attach or other call.
+ */
+export function numberReadsAllowed(env: Env = process.env): RealCallsGate {
+  const registration = realCallsAllowed(env);
+  if (!registration.allowed) return registration;
+  if (String(env.TW4_NUMBER_READS ?? "") !== "on") return { allowed: false, reason: "Twilio number inventory reads are switched off." };
+  return { allowed: true };
+}
+
+/**
  * TW-4F R2b: may this process BUY phone numbers in a subaccount? Everything provisioning needs (production deployment, production build, `TW4_ISV_REAL_CALLS=on`
  * AND `TW4_PROVISIONING_REAL_CALLS=on`) PLUS its own third switch `TW4_NUMBER_REAL_CALLS=on`: provisioning can be live while buying numbers stays off. A purchase
  * also needs a published price, an owner approval of the exact number and funding (all checked in the database) before the first call.
