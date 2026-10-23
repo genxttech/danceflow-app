@@ -310,7 +310,7 @@ commit;`);
       const resv = (target: World, kind: string, status = "captured") => {
         const id = randomUUID();
         replica(`insert into public.studio_sms_credit_reservations (id, legal_entity_id, studio_id, kind, amount_cents, funding, status, reservation_key, closed_at)
-          values ('${id}', '${target.entity}', '${target.studio}', '${kind}', 100, 'credit', '${status}', 'init:${id}', ${status === "reserved" ? "null" : "now()"});`);
+          values ('${id}', '${target.entity}', '${target.studio}', '${kind}', 100, 'pilot', '${status}', 'init:${id}', ${status === "reserved" ? "null" : "now()"});`);
         return id;
       };
       expect(hasCode(callErr("tw4_rfl_register", w.studio, P, "number", sid("PN"), w.account, "+15550202020", "r2b", null, resv(other, "number")), "TW040")).toBe(true); // another business's

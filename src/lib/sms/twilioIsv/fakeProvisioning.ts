@@ -1,5 +1,6 @@
 import { IsvApiError } from "./types";
 import type { CampaignCreateInput, CampaignFacts, IsvProvisioningAdapter, MessagingServiceFacts } from "./provisioningTypes";
+import type { ProviderPresence, ProvisioningReleaseAdapter, ReleaseResult } from "./releaseTypes";
 
 /**
  * TW-4F R2a: an in-memory Twilio stand-in for Messaging Service and campaign provisioning. The ONLY implementation used by tests and non-production
@@ -8,7 +9,7 @@ import type { CampaignCreateInput, CampaignFacts, IsvProvisioningAdapter, Messag
  * "Twilio" but the caller sees a transient error (`lostResponse`), which the runner must reconcile instead of repeating.
  */
 
-type Method = keyof IsvProvisioningAdapter;
+type Method = keyof IsvProvisioningAdapter | keyof ProvisioningReleaseAdapter;
 type Failure = { kind: "validation" | "transient" | "account" | "unexpected"; lostResponse?: boolean; code?: string };
 
 /** SIDs are unique across every fake account, like Twilio's (a per-adapter counter would hand out the same SID in two accounts). */
@@ -19,7 +20,7 @@ export const DEFAULT_FAKE_PROVISIONING_ACCOUNT = `AC${"2".repeat(32)}`;
 type ServiceRow = MessagingServiceFacts & { sid: string; account_sid: string };
 type CampaignRow = CampaignFacts & { sid: string; account_sid: string; messaging_service_sid: string; input: CampaignCreateInput };
 
-export class FakeProvisioningAdapter implements IsvProvisioningAdapter {
+export class FakeProvisioningAdapter implements IsvProvisioningAdapter, ProvisioningReleaseAdapter {
   readonly calls: { method: Method; input: unknown }[] = [];
   readonly services = new Map<string, ServiceRow>();
   readonly campaigns = new Map<string, CampaignRow>();
@@ -146,6 +147,36 @@ export class FakeProvisioningAdapter implements IsvProvisioningAdapter {
       void _input;
       return { ...facts };
     });
+  }
+
+  // ---- TW-4F F5: release ------------------------------------------------------------------------------------------------------------------------
+  async deleteCampaign(input: { messagingServiceSid: string; campaignSid: string }): Promise<ReleaseResult> {
+    return this.guarded("deleteCampaign", input, () => {
+      const row = this.campaigns.get(input.campaignSid);
+      if (!row || row.messaging_service_sid !== input.messagingServiceSid) return "already_absent" as const;
+      this.campaigns.delete(input.campaignSid);
+      return "released" as const;
+    });
+  }
+
+  async deleteMessagingService(sid: string): Promise<ReleaseResult> {
+    return this.guarded("deleteMessagingService", { sid }, () => {
+      if (!this.services.delete(sid)) return "already_absent" as const;
+      // like Twilio: deleting the service deletes its campaign
+      for (const row of [...this.campaigns.values()]) if (row.messaging_service_sid === sid) this.campaigns.delete(row.sid);
+      return "released" as const;
+    });
+  }
+
+  async campaignPresence(input: { messagingServiceSid: string; campaignSid: string }): Promise<ProviderPresence> {
+    return this.guarded("campaignPresence", input, () => {
+      const row = this.campaigns.get(input.campaignSid);
+      return row && row.messaging_service_sid === input.messagingServiceSid ? ("present" as const) : ("absent" as const);
+    });
+  }
+
+  async servicePresence(sid: string): Promise<ProviderPresence> {
+    return this.guarded("servicePresence", { sid }, () => (this.services.has(sid) ? ("present" as const) : ("absent" as const)));
   }
 }
 

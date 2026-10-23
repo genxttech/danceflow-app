@@ -90,7 +90,9 @@ describe("audience pages", () => {
   it("sitemap lists the three audience pages and no standalone Partner Match page", () => {
     const sitemap = read("src", "app", "sitemap.ts");
     for (const page of PAGES) expect(sitemap).toContain(`/${page.route}\``);
-    expect(sitemap).not.toMatch(/discover\/partners/);
+    // W-3: the public Discover partner directory is listed; a standalone
+    // Partner Match marketing page still is not.
+    expect(sitemap).not.toMatch(/partner-match/);
   });
 
   it("the audience list matches the nav and footer", () => {

@@ -349,9 +349,8 @@ describe("public registration stays off in 10B", () => {
       "app/api/events/[slug]/competition/checkout/route.ts",
       "app/api/events/[slug]/competition/release/route.ts",
       "app/api/events/[slug]/competition/resume/route.ts",
-      "app/events/[slug]/competition/register/page.tsx",
       "app/events/[slug]/competition/register/status/page.tsx",
-      "app/events/[slug]/page.tsx",
+      "lib/competition/registrationFlag.ts",
     ]);
     for (const file of uses) {
       const source = readFileSync(file, "utf8");
@@ -363,7 +362,9 @@ describe("public registration stays off in 10B", () => {
   it("the public event page only advertises competition registration while the flag is on", () => {
     const page = read("src/app/events/[slug]/page.tsx");
     // 10C.5: the link is gated by competitionRegistrationOpen, which requires the flag (and the competition gate).
-    expect(page).toContain("const competitionRegistrationOpen =\n    competitionRegistrationEnabled &&");
+    // W-5: the page and the register route read the flag through the same helper, so the CTA never links to a 404.
+    expect(page).toContain("const competitionRegistrationOpen =\n    isCompetitionRegistrationEnabled() &&");
+    expect(read("src/app/events/[slug]/competition/register/page.tsx")).toContain("if (!isCompetitionRegistrationEnabled()) {");
     const link = page.indexOf("/competition/register");
     expect(link).toBeGreaterThan(-1);
     const gate = page.lastIndexOf("{competitionRegistrationOpen ? (", link);

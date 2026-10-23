@@ -78,6 +78,19 @@ describe("buildSenderEvidence", () => {
     expect((await buildSenderEvidence(healthyFake({ service: on, number: { sms_url: "https://other.example" } }), IDS, URL_IN)).service!.inbound_route_ok).toBe(false);
     expect((await buildSenderEvidence(healthyFake({ service: { ...on, inbound_request_url: URL_IN }, number: { sms_url: null } }), IDS, URL_IN)).service!.inbound_route_ok).toBe(false);
   });
+
+  it("inbound_route_ok is UNKNOWN (null), never false, when the number handles inbound but could not be read (a transient error must not become a definite failure)", async () => {
+    const on = { use_inbound_webhook_on_number: true, inbound_request_url: "https://ignored.example" };
+    for (const kind of ["rate_limited", "timeout", "server", "credentials_unavailable", "not_found"] as const) {
+      const fake = healthyFake({ service: on, number: { sms_url: URL_IN } }).script("number", IDS.phoneNumberSid, new SenderReadError(kind));
+      const e = await buildSenderEvidence(fake, IDS, URL_IN);
+      expect(e.service!.inbound_route_ok, kind).toBeNull();
+      expect(e.read_errors).toContainEqual({ resource: "number", kind });   // the read error itself decides (transient: inconclusive; not_found: failed)
+    }
+    // a service-level route never depends on the number read
+    const svc = healthyFake().script("number", IDS.phoneNumberSid, new SenderReadError("rate_limited"));
+    expect((await buildSenderEvidence(svc, IDS, URL_IN)).service!.inbound_route_ok).toBe(true);
+  });
 });
 
 describe("expectedInboundUrl", () => {
@@ -222,16 +235,16 @@ describe("verifySender / reverifyDueSenders", () => {
     let i = 0;
     const a = admin({
       tw4_sender_due_reverify: () => ({ data: due, error: null }),
-      tw4_sender_reverify: () => {
+      tw4_sender_reverify_run: () => {
         const n = i++;
         if (n === 3) throw new Error("db down");
         return { data: answers[n], error: null };
       },
     });
-    const counts = await reverifyDueSenders(a.client, healthyFake(), { limit: 10, inboundUrl: URL_IN });
-    expect(counts).toEqual({ due: 4, verified: 1, failed: 1, inconclusive: 1, skipped: 0, errors: 1 });
-    expect(a.calls.filter((c) => c.name === "tw4_sender_reverify")).toHaveLength(4);
+    const counts = await reverifyDueSenders(a.client, healthyFake(), { runId: "run-1", limit: 10, inboundUrl: URL_IN });
+    expect(counts).toEqual({ due: 4, verified: 1, failed: 1, inconclusive: 1, skipped: 0, errors: 1, truncated: false });
+    expect(a.calls.filter((c) => c.name === "tw4_sender_reverify_run")).toHaveLength(4);
     expect(a.calls[0].args).toEqual({ p_limit: 10 });
-    expect(a.calls[1].args).toMatchObject({ p_source: "fake", p_studio_id: "s1", p_sender_id: "x1" });
+    expect(a.calls[1].args).toMatchObject({ p_run_id: "run-1", p_source: "fake", p_studio_id: "s1", p_sender_id: "x1" });
   });
 });

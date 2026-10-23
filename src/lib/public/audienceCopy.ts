@@ -68,6 +68,9 @@ export const STUDIOS_PAGE = {
       ],
     },
   ] satisfies ProofRow[],
+  /** WEB-2A: the ARIA section is the page's `#meet-aria` anchor and hosts the full 77-second overview. */
+  ariaEyebrow: "Meet ARIA",
+  ariaVideoTitle: "Meet ARIA, full 77-second overview",
   attentionHeading: "See what needs attention",
   attentionBody:
     "ARIA, DanceFlow's operations assistant, looks across your studio for things like packages nearing renewal, pending booking requests and unsigned documents, then suggests the next step.",
