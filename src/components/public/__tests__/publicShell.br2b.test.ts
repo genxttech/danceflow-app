@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { PUBLIC_NAV_ITEMS, activePublicNavKey } from "../publicNav";
+import { PUBLIC_AUTH_ACTIONS, PUBLIC_NAV_ITEMS, activePublicNavKey } from "../publicNav";
 
 /** Branding Relaunch BR-2B: shared public/auth/legal shell source guards and nav mechanics. */
 const ROOT = process.cwd();
@@ -44,17 +44,20 @@ describe("header branding", () => {
 
   it("keeps auth actions and destinations", () => {
     for (const s of [
-      "Log In",
-      "Create Free Account",
+      "PUBLIC_AUTH_ACTIONS.logIn",
+      "PUBLIC_AUTH_ACTIONS.createAccount",
       "Go to Workspace",
       "My Account",
-      "/login?intent=public",
-      "/signup",
       "/app",
       "/account",
     ]) {
       expect(header).toContain(s);
     }
+    expect(PUBLIC_AUTH_ACTIONS.logIn).toEqual({ label: "Log In", href: "/login?intent=public" });
+    expect(PUBLIC_AUTH_ACTIONS.createAccount).toEqual({
+      label: "Create free account",
+      href: "/signup?intent=public",
+    });
   });
 });
 
@@ -72,13 +75,13 @@ describe("footer", () => {
     for (const href of ["/for-studios", "/for-instructors", "/for-organizers", "/get-started"]) {
       expect(footer).toContain(`href="${href}"`);
     }
-    expect(footer).toContain(">Get Started</Link>");
+    expect(footer).toContain(">Plans &amp; free trial</Link>");
   });
 
   it("normalizes labels and keeps legal destinations", () => {
     expect(footer).not.toContain("Discovery Home");
     expect(footer).toContain(">Discover</Link>");
-    expect(footer).toContain("Create Free Account");
+    expect(footer).toContain("Create free account");
     for (const h of [
       "/terms",
       "/privacy",
@@ -160,17 +163,28 @@ describe("routes use the shared shell", () => {
 });
 
 describe("nav mechanics", () => {
-  it("BR-4B: a small grouped model, no misleading Pricing label, account items only when signed in", () => {
+  it("W-2: two audience groups, no misleading Pricing label, account items only when signed in", () => {
     const pub = PUBLIC_NAV_ITEMS.filter((i) => !i.authOnly).map((i) => [i.label, i.href]);
     expect(pub).toEqual([
-      ["Discover", "/discover"],
+      ["For Dancers", "/discover"],
       ["For Business", "/for-studios"],
     ]);
     expect(PUBLIC_NAV_ITEMS.map((i) => i.label)).not.toContain("Pricing");
+    expect(PUBLIC_NAV_ITEMS.find((i) => i.key === "discover")?.children?.map((c) => [c.label, c.href])).toEqual([
+      ["Discover home", "/discover"],
+      ["Studios", "/discover/studios"],
+      ["Classes", "/discover/classes"],
+      ["Events", "/discover/events"],
+      ["Dance partners", "/discover/partners"],
+      ["Jobs", "/discover/jobs"],
+      ["Learning", "/marketplace"],
+    ]);
     expect(PUBLIC_NAV_ITEMS.find((i) => i.key === "business")?.children?.map((c) => [c.label, c.href])).toEqual([
       ["Studios", "/for-studios"],
       ["Independent instructors", "/for-instructors"],
       ["Organizers", "/for-organizers"],
+      ["Plans & free trial", "/get-started"],
+      ["Meet ARIA", "/for-studios#meet-aria"],
     ]);
     expect(PUBLIC_NAV_ITEMS.filter((i) => i.authOnly).map((i) => i.label)).toEqual([
       "Favorites",

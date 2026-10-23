@@ -2,6 +2,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import PublicShell from "@/components/public/PublicShell";
 import { signupAction } from "../actions";
+import PublicSignup from "./PublicSignup";
+import {
+  buildPublicSignupErrorHref,
+  publicSignupErrorCode,
+  publicSignupErrorMessage,
+} from "./publicSignupError";
 import { normalizeLocalRedirectPath } from "@/lib/security/redirects";
 import type { Metadata } from "next";
 
@@ -17,12 +23,13 @@ function getSingleSearchParam(
   return Array.isArray(value) ? value[0] : value;
 }
 
+/** Unknown or missing intents are null: they keep the historical redirect to `/login`. */
 function normalizeIntent(value: string | undefined) {
   if (value === "studio" || value === "organizer" || value === "public") {
     return value;
   }
 
-  return "public";
+  return null;
 }
 
 export default async function SignupPage({
@@ -42,8 +49,45 @@ export default async function SignupPage({
   );
   const emailHint = getSingleSearchParam(resolvedSearchParams.email) ?? "";
 
-  if (signupIntent === "public") {
+  if (!signupIntent) {
     redirect("/login");
+  }
+
+  async function submitSignup(formData: FormData) {
+    "use server";
+    await signupAction(formData);
+  }
+
+  // W-2: an explicit public intent renders the dancer signup instead of bouncing to /login.
+  if (signupIntent === "public") {
+    // On success signupAction redirects (to /login?mode=check-email); a returned error comes
+    // back to this form as a fixed code instead of a silent reload.
+    async function submitPublicSignup(formData: FormData) {
+      "use server";
+      const result = await signupAction(formData);
+      if (result?.error) {
+        redirect(
+          buildPublicSignupErrorHref({
+            code: publicSignupErrorCode(result.error),
+            nextPath: normalizeLocalRedirectPath(String(formData.get("nextPath") ?? ""), ""),
+            email: String(formData.get("email") ?? "").trim().toLowerCase(),
+          })
+        );
+      }
+    }
+
+    return (
+      <PublicShell>
+        <PublicSignup
+          action={submitPublicSignup}
+          nextPath={nextPath}
+          emailHint={emailHint}
+          errorMessage={publicSignupErrorMessage(
+            getSingleSearchParam(resolvedSearchParams.error)
+          )}
+        />
+      </PublicShell>
+    );
   }
 
   const isStudio = signupIntent === "studio";
@@ -61,11 +105,6 @@ export default async function SignupPage({
     `/get-started/complete?intent=${encodeURIComponent(signupIntent)}${
       selectedPlan ? `&plan=${encodeURIComponent(selectedPlan)}` : ""
     }`;
-
-  async function submitSignup(formData: FormData) {
-    "use server";
-    await signupAction(formData);
-  }
 
   return (
     <PublicShell>
