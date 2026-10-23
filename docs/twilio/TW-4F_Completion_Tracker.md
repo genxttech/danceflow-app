@@ -1,8 +1,8 @@
 # TW-4F Completion Tracker
 
-Status: baseline audit 2026-10-22 at `960a9d02` (#271); final Git status 2026-10-23 at `84f52048` (§0). Documentation only. This file tracks how far TW-4F is from being complete and release-ready. It is **not a roadmap**: priorities come from `docs/roadmap/DanceFlow_Master_Roadmap.md` (v2.22), and design decisions come from the TW-4F design documents cited below. When this tracker disagrees with an approved design document, the design document wins and the disagreement is listed in section 9.
+Status: baseline audit 2026-10-22 at `960a9d02` (#271); final Git status 2026-10-23 at `0f5dc7b8` (§0). Documentation only. This file tracks how far TW-4F is from being complete and release-ready. It is **not a roadmap**: priorities come from `docs/roadmap/DanceFlow_Master_Roadmap.md` (v2.22), and design decisions come from the TW-4F design documents cited below. When this tracker disagrees with an approved design document, the design document wins and the disagreement is listed in section 9.
 
-## 0. Final Git status (2026-10-23, `main` = `84f52048`)
+## 0. Final Git status (2026-10-23, `main` = `0f5dc7b8`)
 
 This section supersedes the per-row statuses in §3. Those rows record the baseline audit at `960a9d02` and are kept as history.
 
@@ -15,7 +15,7 @@ All pilot-blocking TW-4F code is merged into `main`. It is Git only: no migratio
 | A-1, A-2 admin R2a/R2b orchestration | VERIFIED (dark) | #278 → `de9b9f99` |
 | A-3, A-4 activation console and AOO attestation | VERIFIED (dark) | #298 → `897120e1` (1226) |
 | A-5..A-10, A-12 evidence, orphan exposure, ledger read, gaps/retry, deferred retirement, campaign RFL registration | VERIFIED (dark) | #288 → `973f36da` (1221); #269 → `6422e050` (1215) |
-| A-11, P-1, P-2 provider release adapters and offline request-shape contracts | VERIFIED offline; real calls are a GATE | #279 → `d2489cc9` (1224); hardening #299 open |
+| A-11, P-1, P-2 provider release adapters and offline request-shape contracts | VERIFIED offline; real calls are a GATE | #279 → `d2489cc9` (1224); hardening #299 → `0f5dc7b8` |
 | F-1, F-10 pilot funding continuity and act lock order | VERIFIED (dark) | #280 → `86dc9b1e` (1219); #290 → `c982d7fa` (1225, D5 cover rule) |
 | F-5 reconciler readiness gate | VERIFIED (dark) | #277 → `2877bab7` (1218) |
 | S-4 24h sender re-verification | VERIFIED (dark, unscheduled) | #251 → `cdf342e2` (1206) |
