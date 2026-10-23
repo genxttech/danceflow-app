@@ -6,7 +6,10 @@ import SmsOnboardingPilot from "./SmsOnboardingPilot";
 import SmsCreditAdmin from "./SmsCreditAdmin";
 import UsageReconciliation from "./UsageReconciliation";
 import RecurringFeesPanel from "./RecurringFeesPanel";
+import RecoveryPanel from "./RecoveryPanel";
+import ActivationPanel from "./ActivationPanel";
 import { loadReconcileOverview } from "@/lib/sms/usageReconcileView";
+import { loadReconcilerReadiness } from "@/lib/sms/usageReconcilerReadiness";
 import SmsSubaccountPanel from "./SmsSubaccountPanel";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SupabasePanelStore, buildStudioPanels, type PanelOverview } from "@/lib/sms/twilioIsv/panel";
@@ -18,7 +21,7 @@ import { getRecurringAdminOverview } from "@/lib/billing/smsRecurring";
 import { buildRunnerStore } from "@/lib/sms/twilioIsv/factory";
 import { loadLedgers, ProvisioningLedgerStore, type LedgerSnapshot } from "@/lib/sms/provisioning/provisionLedger";
 import { PROV_FLASH_COOKIE } from "@/lib/sms/provisioning/provisionFlash";
-import { loadSenderOverview } from "@/lib/sms/senderVerification";
+import { loadSenderHealth, loadSenderOverview } from "@/lib/sms/senderVerification";
 import type { RunnerStatus } from "@/lib/sms/twilioIsv/store";
 import { listOnboardings, type PlatformOnboardingRow } from "@/lib/sms/onboarding/client";
 import StudioSmsRegistrations, {
@@ -245,6 +248,9 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
   // sender readiness per linked studio (platform-admin-only definer function; null = not installed here, the block is then hidden)
   const panelSenders = panelOverview && panelOverview.entities.length > 0 ? await loadSenderOverview(createAdminClient(), admin.id).catch(() => null) : null;
 
+  // sender state machine + re-check scheduler status (null = not installed here; the block then falls back to the overview and says so)
+  const panelSenderHealth = panelOverview && panelOverview.entities.length > 0 ? await loadSenderHealth(createAdminClient(), admin.id).catch(() => null) : null;
+
   // TW-4F R2c-I1: platform-admin provisioning ledger for studios that have reached (or fallen out of) Messaging Service / campaign provisioning.
   // Loaded whether or not pilot access is currently on: a held fee or unknown outcome must stay visible and resolvable. A read that fails is shown as unreadable (never as an empty ledger); a studio past the cap is simply not loaded.
   const LEDGER_STATES = new Set(["service_setup", "campaign_pending", "ready_for_activation", "active", "suspended", "exception", "blocked"]);
@@ -261,6 +267,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
 
   // billed-text reconciliation (platform-admin-only definer function; null = not installed here, the panel is then hidden)
   const usageOverview = await loadReconcileOverview(createAdminClient(), admin.id);
+  const usageReadiness = usageOverview ? await loadReconcilerReadiness(createAdminClient()) : null;
 
   const panelContext = panelRenderContext(panelOverview ? [...new Set([...panelOverview.onboardings.map((o) => o.studioId), ...panelOverview.entities.flatMap((e) => e.studios.map((s) => s.studioId))])] : []);
 
@@ -442,9 +449,11 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
 
       <SmsCreditAdmin overview={creditOverview} recurring={recurringOverview} />
 
-      <UsageReconciliation overview={usageOverview} notice={firstParam(params.usage) === "resolved"} error={firstParam(params.usage_error)} />
+      <UsageReconciliation overview={usageOverview} readiness={usageReadiness} notice={firstParam(params.usage) === "resolved"} error={firstParam(params.usage_error)} />
 
       <RecurringFeesPanel adminId={admin.id} notice={firstParam(params.rfl)} error={firstParam(params.rfl_error)} />
+      <RecoveryPanel adminId={admin.id} notice={firstParam(params.recovery)} error={firstParam(params.recovery_error)} />
+      <ActivationPanel adminId={admin.id} notice={firstParam(params.activation)} error={firstParam(params.activation_error)} />
 
       <SmsSubaccountPanel
         overview={panelOverview}
@@ -453,6 +462,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
         requestKeys={panelContext.requestKeys}
         monthlyLimits={panelMonthlyLimits}
         senders={panelSenders}
+        senderHealth={panelSenderHealth}
         unavailable={!panelOverview}
         {...readPanelFlash((await cookies()).get(PANEL_FLASH_COOKIE)?.value, { panel: firstParam(params.panel), panelError: firstParam(params.panel_error) })}
         focusStudioId={firstParam(params.studio)}
