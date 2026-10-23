@@ -2,6 +2,8 @@
 
 The isolated baseline is the production schema dump of 2026-07-15 plus the repo's migrations replayed in version order through 20261205. **It is not production-equivalent.** 24 of the 240 replayed migrations cannot run in a throwaway database and are skipped (`scripts/qa/known-unreplayable.txt`); the baseline build fails on any OTHER failing migration, in particular on any TW-4F one. This document classifies every omission and states, with evidence, whether it can affect a TW-4F conclusion (authorization, financial controls, tenant isolation, sender provisioning). Regenerate the evidence with `node scripts/qa/audit-omissions.mjs --baseline <container> --reference <container>`; it exits non-zero ("fail closed") if a skipped migration creates or replaces an object that TW-4F SQL references, or if any TW-4F function body has a dangling reference in the baseline.
 
+Scope note (2026-10-23): the baseline replays only through 20261205090000 and is unchanged by the TW-4F chain 20261206..20261227, which the scenarios apply on top of it. The 22 omissions and their classification below are therefore unchanged; re-run `audit-omissions.mjs` (with `--scan <ref>:<version>` for each newer TW-4F migration) before relying on the "no dependency" conclusion for migrations added after 20261217.
+
 ## 1. Why they fail (three causes)
 
 | Cause | Migrations | Dependency / assumption |

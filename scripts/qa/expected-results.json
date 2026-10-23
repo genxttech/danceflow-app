@@ -25,8 +25,7 @@
       "suite": "src/lib/sms/twilioIsv/__tests__/localStack.r2a.test.ts",
       "scenarios": [
         "main",
-        "pr251-mid",
-        "pr251-first"
+        "numeric"
       ],
       "failing": [
         "rollback parses and completes where there is no evidence"

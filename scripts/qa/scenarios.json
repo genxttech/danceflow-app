@@ -10,7 +10,7 @@
       "migrations": []
     },
     "main": {
-      "description": "origin/main in repo (merge) order: 20261207..20261217, then 20261206 (PR #251, merged last)",
+      "description": "origin/main in repo (merge) order: 20261207..20261217, 20261206 (PR #251, merged after 1217), then 20261218..20261227 (1220 is unused)",
       "migrations": [
         [
           "MAIN",
@@ -59,64 +59,47 @@
         [
           "MAIN",
           "20261206"
+        ],
+        [
+          "MAIN",
+          "20261218"
+        ],
+        [
+          "MAIN",
+          "20261219"
+        ],
+        [
+          "MAIN",
+          "20261221"
+        ],
+        [
+          "MAIN",
+          "20261222"
+        ],
+        [
+          "MAIN",
+          "20261223"
+        ],
+        [
+          "MAIN",
+          "20261224"
+        ],
+        [
+          "MAIN",
+          "20261225"
+        ],
+        [
+          "MAIN",
+          "20261226"
+        ],
+        [
+          "MAIN",
+          "20261227"
         ]
       ]
     },
-    "pr251-mid": {
-      "description": "20261206 between 20261208 and 20261209",
-      "migrations": [
-        [
-          "MAIN",
-          "20261207"
-        ],
-        [
-          "MAIN",
-          "20261208"
-        ],
-        [
-          "MAIN",
-          "20261206"
-        ],
-        [
-          "MAIN",
-          "20261209"
-        ],
-        [
-          "MAIN",
-          "20261210"
-        ],
-        [
-          "MAIN",
-          "20261211"
-        ],
-        [
-          "MAIN",
-          "20261212"
-        ],
-        [
-          "MAIN",
-          "20261213"
-        ],
-        [
-          "MAIN",
-          "20261214"
-        ],
-        [
-          "MAIN",
-          "20261215"
-        ],
-        [
-          "MAIN",
-          "20261216"
-        ],
-        [
-          "MAIN",
-          "20261217"
-        ]
-      ]
-    },
-    "pr251-first": {
-      "description": "numeric order: 20261206 first, then 20261207..20261217",
+    "numeric": {
+      "description": "fresh-install order: every TW-4F migration above the cutoff in numeric order, 20261206..20261227",
       "migrations": [
         [
           "MAIN",
@@ -165,6 +148,42 @@
         [
           "MAIN",
           "20261217"
+        ],
+        [
+          "MAIN",
+          "20261218"
+        ],
+        [
+          "MAIN",
+          "20261219"
+        ],
+        [
+          "MAIN",
+          "20261221"
+        ],
+        [
+          "MAIN",
+          "20261222"
+        ],
+        [
+          "MAIN",
+          "20261223"
+        ],
+        [
+          "MAIN",
+          "20261224"
+        ],
+        [
+          "MAIN",
+          "20261225"
+        ],
+        [
+          "MAIN",
+          "20261226"
+        ],
+        [
+          "MAIN",
+          "20261227"
         ]
       ]
     }
