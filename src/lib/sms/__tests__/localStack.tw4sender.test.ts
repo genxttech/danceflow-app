@@ -64,6 +64,7 @@ const STUDIOS = `'${PA1}', '${PA2}', '${PB1}', '${PL}'`;
 const CLEANUP = `
 begin;
 set local session_replication_role = replica;
+delete from public.studio_sms_reconcile_runs where runner = 'tw4sender:test';
 delete from public.studio_sms_sender_verifications where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_provisioning_steps where studio_id in (${STUDIOS});
 delete from public.studio_sms_usage_attempts where legal_entity_id in (${ENTITIES});
@@ -167,7 +168,7 @@ describe.skipIf(!enabled)("sender readiness and dispatch integrity (real schema,
     for (const role of ["anon", "authenticated", "service_role"]) {
       expect(psql(`select has_table_privilege('${role}', 'public.studio_sms_sender_verifications', 'select,insert,update,delete')`)).toBe("f");
     }
-    for (const fn of ["tw4_sender_record(uuid, uuid, text, text, text, text, text)", "tw4_sender_verify(uuid, uuid, uuid, jsonb, boolean, text)", "tw4_sender_reverify(uuid, uuid, jsonb, text)",
+    for (const fn of ["tw4_sender_record(uuid, uuid, text, text, text, text, text)", "tw4_sender_verify(uuid, uuid, uuid, jsonb, boolean, text)", "tw4_sender_reverify(uuid, uuid, jsonb, text)", "tw4_sender_reverify_run(uuid, uuid, uuid, jsonb, text)",
       "tw4_sender_revoke(uuid, uuid, text, boolean)", "tw4_inbound_studio_for(text, text, text)", "tw4_sender_overview(uuid)", "tw4_sender_due_reverify(int)",
       "tw4_usage_release_unprepared(uuid, text)"]) {
       expect(psql(`select has_function_privilege('anon', 'public.${fn}', 'execute') or has_function_privilege('authenticated', 'public.${fn}', 'execute')`), fn).toBe("f");
@@ -319,6 +320,15 @@ describe.skipIf(!enabled)("sender readiness and dispatch integrity (real schema,
     });
   });
 
+  /** the scheduled re-verify as the scheduler makes it: inside a live 'sender_reverify' run (20261206) */
+  const reverify = async (studio: string, senderId: string, evidence: unknown) => {
+    psqlFile("begin; set local session_replication_role = replica; update public.studio_sms_reconcile_runs set status = 'failed', finished_at = clock_timestamp(), error = 'test' where job = 'sender_reverify' and status = 'running'; commit;");
+    const lease = (await rpc("tw4_reconcile_run_begin", { p_job: "sender_reverify", p_runner: "tw4sender:test", p_lease_seconds: 60 })).data as { run_id: string };
+    const r = await rpc("tw4_sender_reverify_run", { p_run_id: lease.run_id, p_studio_id: studio, p_sender_id: senderId, p_evidence: evidence, p_source: "fake" });
+    await rpc("tw4_reconcile_run_finish", { p_run_id: lease.run_id, p_status: "completed", p_summary: {}, p_error: null });
+    return r;
+  };
+
   describe("readiness gates paid dispatch and revocation cannot fail open", () => {
     it("begin needs a ready sender and returns its number; readiness expires after 24 hours; a 30034 callback fails it at once; a re-verify restores it", async () => {
       clearSenders([PA1]);
@@ -329,7 +339,7 @@ describe.skipIf(!enabled)("sender readiness and dispatch integrity (real schema,
       aged(`update public.studio_sms_sender_verifications set created_at = now() - interval '25 hours' where studio_id = '${PA1}'`);
       expect((await begin(PA1)).error?.code).toBe("TW015");
       expect(JSON.stringify((await rpc("tw4_sender_due_reverify", { p_limit: 100 })).data)).toContain(senderId);
-      expect((await rpc("tw4_sender_reverify", { p_studio_id: PA1, p_sender_id: senderId, p_evidence: evidenceFor(ACC_A, s), p_source: "fake" })).data).toMatchObject({ outcome: "verified" });
+      expect((await reverify(PA1, senderId, evidenceFor(ACC_A, s))).data).toMatchObject({ outcome: "verified" });
       expect((await begin(PA1)).error).toBeNull();
       // Twilio says the sender is not registered (30034) on a delivery callback: not ready at once
       const sub = (await begin(PA1)).data as { attempt_id: string };
@@ -347,15 +357,15 @@ describe.skipIf(!enabled)("sender readiness and dispatch integrity (real schema,
       // the scheduler never restores a failed sender: it is not on the work list and a re-verify is skipped; an admin's verification restores it
       const current = psql(`select id from public.studio_sms_billed_senders where studio_id = '${PA1}' order by seq desc limit 1`);
       expect(JSON.stringify((await rpc("tw4_sender_due_reverify", { p_limit: 500 })).data)).not.toContain(current);
-      expect((await rpc("tw4_sender_reverify", { p_studio_id: PA1, p_sender_id: current, p_evidence: evidenceFor(ACC_A, s), p_source: "fake" })).data).toMatchObject({ outcome: "skipped" });
+      expect((await reverify(PA1, current, evidenceFor(ACC_A, s))).data).toMatchObject({ outcome: "skipped" });
       expect(ready(PA1)).toBe(false);
       expect((await verify(PA1, current, evidenceFor(ACC_A, s))).data).toMatchObject({ outcome: "verified" });
       expect(ready(PA1)).toBe(true);
       // a re-verify with definite negative evidence makes it not ready; transient leaves it ready
       const now = psql(`select id from public.studio_sms_billed_senders where studio_id = '${PA1}' order by seq desc limit 1`);
-      expect((await rpc("tw4_sender_reverify", { p_studio_id: PA1, p_sender_id: now, p_evidence: evidenceFor(ACC_A, s, { read_errors: [{ resource: "account", kind: "server" }] }), p_source: "fake" })).data).toMatchObject({ outcome: "inconclusive" });
+      expect((await reverify(PA1, now, evidenceFor(ACC_A, s, { read_errors: [{ resource: "account", kind: "server" }] }))).data).toMatchObject({ outcome: "inconclusive" });
       expect(ready(PA1)).toBe(true);
-      expect((await rpc("tw4_sender_reverify", { p_studio_id: PA1, p_sender_id: now, p_evidence: evidenceFor(ACC_A, s, { campaign: { campaign_status: "FAILED" } }), p_source: "fake" })).data).toMatchObject({ outcome: "failed", code: "campaign_not_verified" });
+      expect((await reverify(PA1, now, evidenceFor(ACC_A, s, { campaign: { campaign_status: "FAILED" } }))).data).toMatchObject({ outcome: "failed", code: "campaign_not_verified" });
       expect(ready(PA1)).toBe(false);
     });
 
@@ -434,7 +444,7 @@ describe.skipIf(!enabled)("sender readiness and dispatch integrity (real schema,
       aged(`update public.studio_sms_twilio_accounts set status = 'suspended' where legal_entity_id = '${EA}'`);
       expect(ready(PA1)).toBe(false);
       expect((await begin(PA1)).error?.code).toBe("TW015");
-      expect((await rpc("tw4_sender_reverify", { p_studio_id: PA1, p_sender_id: senderId, p_evidence: evidenceFor(ACC_A, s), p_source: "fake" })).data).toMatchObject({ outcome: "failed", code: "subaccount_not_active" });
+      expect((await reverify(PA1, senderId, evidenceFor(ACC_A, s))).data).toMatchObject({ outcome: "failed", code: "subaccount_not_active" });
       aged(`update public.studio_sms_twilio_accounts set status = 'active' where legal_entity_id = '${EA}'`);
       expect(ready(PA1)).toBe(false); // the failed verification is the latest decisive one: a fresh verify is required
     });
