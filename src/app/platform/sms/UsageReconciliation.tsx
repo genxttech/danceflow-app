@@ -1,5 +1,6 @@
 import { formatUsd } from "@/lib/billing/smsCreditView";
 import type { ReconcileOverview, ReconcileSummaryKey } from "@/lib/sms/usageReconcileView";
+import type { ReconcilerReadiness, ReconcilerReadinessDetail } from "@/lib/sms/usageReconcilerReadiness";
 import { resolveUsageAttemptAction } from "./usageReconcileActions";
 
 /**
@@ -47,7 +48,16 @@ function summaryText(summary: Partial<Record<ReconcileSummaryKey, number>>): str
   return parts.length ? parts.join(" · ") : "no summary";
 }
 
-export default function UsageReconciliation({ overview, notice = false, error = null }: { overview: ReconcileOverview | null; notice?: boolean; error?: string | null }) {
+const NOT_READY: Record<Exclude<ReconcilerReadinessDetail, "ready">, string> = {
+  no_completed_run: "no reconciliation run has completed yet",
+  no_evidence_reads: "no completed run has read provider evidence (evidence reads are off)",
+  evidence_failing: "recent runs read provider evidence but settled nothing that was due (reads or settlement are failing)",
+  stale: "the last successful run is more than 30 minutes old",
+  stuck_lease: "a run's lease expired more than 10 minutes ago and was never taken over (the schedule has stopped)",
+  unknown: "the readiness check returned an unexpected answer",
+};
+
+export default function UsageReconciliation({ overview, readiness = null, notice = false, error = null }: { overview: ReconcileOverview | null; readiness?: ReconcilerReadiness | null; notice?: boolean; error?: string | null }) {
   if (!overview) return null;
   const o = overview;
   const gaps = o.usageGaps > 0 || o.inboundGaps > 0;
@@ -70,6 +80,16 @@ export default function UsageReconciliation({ overview, notice = false, error = 
         <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-900">
           The ledger does not reconcile: {o.usageGaps} outbound gap(s), {o.inboundGaps} inbound gap(s). Do not resolve anything until this is understood.
         </p>
+      ) : null}
+
+      {readiness && !readiness.ok ? (
+        <p role={o.switchOn ? "alert" : "status"} className={`rounded-xl border px-3 py-2 text-sm ${o.switchOn ? "border-red-200 bg-red-50 font-semibold text-red-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+          The reconciler is not ready for billed texting: {NOT_READY[readiness.detail === "ready" ? "unknown" : readiness.detail]}. Last successful run with evidence reads: {stamp(readiness.lastSuccessAt)}.
+          {o.switchOn ? " New billed texts are refused until it runs again." : " Billed texting cannot be switched on until it is ready."}
+        </p>
+      ) : null}
+      {readiness?.ok ? (
+        <p className="text-sm text-slate-700">The reconciler is ready for billed texting (last successful run with evidence reads {stamp(readiness.lastSuccessAt)}).</p>
       ) : null}
 
       <p className="text-sm text-slate-700">
