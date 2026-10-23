@@ -21,6 +21,10 @@ create temp table t_results (name text, ok boolean, detail text) on commit drop;
 grant all on t_results to authenticated, anon, service_role;
 create temp table t_ids (k text primary key, v uuid) on commit drop;
 grant all on t_ids to authenticated, anon, service_role;
+-- RPC results are stored in one statement and checked in the next: a statement's snapshot never sees the writes
+-- of a function it calls, so "call + read back" in one statement would read stale rows.
+create temp table t_out (k text primary key, v jsonb) on commit drop;
+grant all on t_out to authenticated, anon, service_role;
 
 create or replace function pg_temp.chk(p_name text, p_ok boolean, p_detail text default '') returns void
 language plpgsql as $$
@@ -79,6 +83,10 @@ begin
   perform set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
   perform set_config('role', 'service_role', true);
 end $$;
+create or replace function pg_temp.keep(p_k text, p_v jsonb) returns void
+language sql as $$ insert into t_out values (p_k, p_v) on conflict (k) do update set v = excluded.v $$;
+create or replace function pg_temp.out(p_k text) returns jsonb
+language sql stable as $$ select v from t_out where k = p_k $$;
 create or replace function pg_temp.entry_status(p_entry text) returns text
 language sql stable as $$ select status from public.event_competition_entries where id = pg_temp.u(p_entry) $$;
 create or replace function pg_temp.placement(p_entry text) returns text
@@ -218,14 +226,18 @@ select pg_temp.expect_ok('fixture: planner places the entries',
   $q$select public.apply_competition_floor_plan(pg_temp.id('v1'), jsonb_build_object('floorHeats', jsonb_build_array(
        jsonb_build_object('number', 1, 'scoringHeats', jsonb_build_array(jsonb_build_object('divisionId', pg_temp.u('003001'), 'roundId', pg_temp.u('006001'),
          'heatNumber', 1, 'name', 'Bronze Two Step', 'danceIds', jsonb_build_array(pg_temp.u('004001')),
-         'entryIds', (select jsonb_agg(pg_temp.u(entry)) from t_entries where division = '003001' and entry not in ('008003', '008101', '008105'))))),
-       jsonb_build_object('number', 2, 'scoringHeats', jsonb_build_array(jsonb_build_object('divisionId', pg_temp.u('003002'), 'roundId', pg_temp.u('006002'),
+         'entryIds', (select jsonb_agg(pg_temp.u(entry)) from t_entries where division = '003001' and entry not in ('008003', '008101', '008105', '008103'))))),
+       jsonb_build_object('number', 2, 'scoringHeats', jsonb_build_array(jsonb_build_object('divisionId', pg_temp.u('003001'), 'roundId', pg_temp.u('006001'),
+         'heatNumber', 2, 'name', 'Bronze Two Step 2', 'danceIds', jsonb_build_array(pg_temp.u('004001')),
+         'entryIds', jsonb_build_array(pg_temp.u('008103'))))),
+       jsonb_build_object('number', 3, 'scoringHeats', jsonb_build_array(jsonb_build_object('divisionId', pg_temp.u('003002'), 'roundId', pg_temp.u('006002'),
          'heatNumber', 1, 'name', 'Silver Waltz', 'danceIds', jsonb_build_array(pg_temp.u('004002')),
          'entryIds', jsonb_build_array(pg_temp.u('008006'), pg_temp.u('008102'))))),
-       jsonb_build_object('number', 3, 'scoringHeats', jsonb_build_array(jsonb_build_object('divisionId', pg_temp.u('003002'), 'roundId', pg_temp.u('006002'),
+       jsonb_build_object('number', 4, 'scoringHeats', jsonb_build_array(jsonb_build_object('divisionId', pg_temp.u('003002'), 'roundId', pg_temp.u('006002'),
          'heatNumber', 2, 'name', 'Silver Waltz 2', 'danceIds', jsonb_build_array(pg_temp.u('004002')),
          'entryIds', jsonb_build_array(pg_temp.u('008104'))))))))$q$);
-insert into t_ids select 'heat_a', id from public.event_competition_heats where schedule_version_id = pg_temp.id('v1') and division_id = pg_temp.u('003001');
+insert into t_ids select 'heat_a', id from public.event_competition_heats where schedule_version_id = pg_temp.id('v1') and division_id = pg_temp.u('003001') and heat_number = 1;
+insert into t_ids select 'heat_a2', id from public.event_competition_heats where schedule_version_id = pg_temp.id('v1') and division_id = pg_temp.u('003001') and heat_number = 2;
 insert into t_ids select 'heat_b', id from public.event_competition_heats where schedule_version_id = pg_temp.id('v1') and division_id = pg_temp.u('003002') and heat_number = 1;
 insert into t_ids select 'heat_c', id from public.event_competition_heats where schedule_version_id = pg_temp.id('v1') and division_id = pg_temp.u('003002') and heat_number = 2;
 select pg_temp.expect_ok('fixture: lock heat B',
@@ -361,8 +373,9 @@ select pg_temp.chk('D/PAY-DC-2A: a refund event from another account changes not
   and (select status from public.event_order_refunds where id = pg_temp.id('ref1')) = 'requested');
 select pg_temp.expect_msg('D: an amount different from the request is refused',
   $q$select pg_temp.observe('pi_r2_o1', 'acct_r2test1', 're_r2_1', pg_temp.u('00aa01'), 2771, 'pending')$q$, 'COMP_REFUND_AMOUNT_MISMATCH');
+select pg_temp.keep('pending1', pg_temp.observe('pi_r2_o1', 'acct_r2test1', 're_r2_1', pg_temp.u('00aa01'), 2772, 'pending'));
 select pg_temp.chk('D: requested -> pending binds the Stripe refund id',
-  pg_temp.observe('pi_r2_o1', 'acct_r2test1', 're_r2_1', pg_temp.u('00aa01'), 2772, 'pending')->>'status' = 'pending'
+  pg_temp.out('pending1')->>'status' = 'pending'
   and (select stripe_refund_id from public.event_order_refunds where id = pg_temp.id('ref1')) = 're_r2_1');
 select pg_temp.chk('D/REFUND-RECON-1: pending is not refunded money',
   (select payment_status from public.event_orders where id = pg_temp.u('00b001')) = 'paid'
@@ -409,7 +422,7 @@ select pg_temp.chk('D/Q2: E-L scopes for the locked (heat B) and danced (heat A)
   exists (select 1 from public.event_competition_refund_exception_scopes where kind = 'competition_refund_entry_locked_heat'
           and entry_id = pg_temp.u('008102') and heat_id = pg_temp.id('heat_b') and round_id = pg_temp.u('006002') and competitive_effect)
   and exists (select 1 from public.event_competition_refund_exception_scopes where kind = 'competition_refund_entry_locked_heat'
-          and entry_id = pg_temp.u('008103') and heat_id = pg_temp.id('heat_a') and round_id = pg_temp.u('006001') and competitive_effect));
+          and entry_id = pg_temp.u('008103') and heat_id = pg_temp.id('heat_a2') and round_id = pg_temp.u('006001') and competitive_effect));
 select pg_temp.chk('D/Q2: the certified entry gets an E-C scope on its certified heat only',
   pg_temp.scopes('competition_refund_entry_certified_heat', '008104') = 1
   and exists (select 1 from public.event_competition_refund_exception_scopes where kind = 'competition_refund_entry_certified_heat'
@@ -465,8 +478,9 @@ insert into t_ids values ('ref5', (pg_temp.request('00b001', '00aa05', jsonb_bui
 select pg_temp.as_service();
 select pg_temp.chk('D/P1-1: local failure (no Stripe id) releases the cap',
   pg_temp.observe('pi_r2_o1', 'acct_r2test1', null, pg_temp.u('00aa05'), 100, 'failed')->>'status' = 'failed');
+select pg_temp.keep('late5', pg_temp.observe('pi_r2_o1', 'acct_r2test1', 're_r2_5', pg_temp.u('00aa05'), 100, 'succeeded'));
 select pg_temp.chk('D/P1-1: Stripe later reports that request as succeeded: recorded and applied',
-  pg_temp.observe('pi_r2_o1', 'acct_r2test1', 're_r2_5', pg_temp.u('00aa05'), 100, 'succeeded')->>'outcome' = 'applied'
+  pg_temp.out('late5')->>'outcome' = 'applied'
   and (select status = 'succeeded' and stripe_refund_id = 're_r2_5' from public.event_order_refunds where id = pg_temp.id('ref5'))
   and (select count(*) from public.accounting_entries where source_table = 'event_order_refunds' and source_id = pg_temp.id('ref5')) = 1);
 reset role;
@@ -490,13 +504,17 @@ select pg_temp.expect_msg('E/K0: k0_correction needs a K0 result event (F2 not p
 select pg_temp.expect_msg('E: a note is required',
   $q$select public.resolve_competition_refund_scope((select id from public.event_competition_refund_exception_scopes where entry_id = pg_temp.u('008104')), 'result_stands', ' ')$q$,
   'COMP_REFUND_REASON_REQUIRED');
+-- scope ids captured as the owner (another studio cannot even read them under RLS)
+insert into t_ids select 'scope_' || right(entry_id::text, 6), id from public.event_competition_refund_exception_scopes
+where entry_id in (pg_temp.u('008102'), pg_temp.u('008103'), pg_temp.u('008104'), pg_temp.u('008006'), pg_temp.u('008004'));
 select pg_temp.as_user(pg_temp.u('000003'));
 select pg_temp.expect_msg('E: another studio cannot resolve',
-  $q$select public.resolve_competition_refund_scope((select id from public.event_competition_refund_exception_scopes where entry_id = pg_temp.u('008104')), 'result_stands', 'x')$q$,
+  $q$select public.resolve_competition_refund_scope(pg_temp.id('scope_008104'), 'result_stands', 'x')$q$,
   'COMP_REFUND_NOT_AUTHORIZED');
 select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.keep('rs', to_jsonb(public.resolve_competition_refund_scope(pg_temp.id('scope_008104'), 'result_stands', 'Certified result stands; refund is financial only.')));
 select pg_temp.chk('E: result_stands resolves the E-C scope and its parent',
-  public.resolve_competition_refund_scope((select id from public.event_competition_refund_exception_scopes where entry_id = pg_temp.u('008104')), 'result_stands', 'Certified result stands; refund is financial only.')
+  pg_temp.out('rs') = 'true'::jsonb
   and (select x.status from public.event_order_settlement_exceptions x join public.event_competition_refund_exception_scopes s on s.exception_id = x.id
        where s.entry_id = pg_temp.u('008104')) = 'resolved');
 select pg_temp.chk('E: the certified entry, heat and placement are unchanged',
@@ -507,13 +525,13 @@ select pg_temp.expect_ok('E: audited unlock of heat B, then withdraw the locked 
      select public.change_competition_entry_lifecycle(pg_temp.u('008102'), 'withdrawn', 'Refunded', 'refund')$q$);
 select pg_temp.chk('E: withdrawn_after_unlock now resolves the scope',
   public.resolve_competition_refund_scope((select id from public.event_competition_refund_exception_scopes where entry_id = pg_temp.u('008102')), 'withdrawn_after_unlock', 'Withdrawn after unlock.'));
-select pg_temp.chk('E: round 006002 is still blocked by 008006 (trigger E-L) and unblocked after it is resolved',
-  pg_temp.k0_blocked('006002')
-  and public.resolve_competition_refund_scope((select id from public.event_competition_refund_exception_scopes where entry_id = pg_temp.u('008006')), 'keep_entry', 'Kept by official decision.')
-  and not pg_temp.k0_blocked('006002'));
+select pg_temp.chk('E: round 006002 is still blocked by 008006 (trigger E-L)', pg_temp.k0_blocked('006002'));
+select pg_temp.keep('k6', to_jsonb(public.resolve_competition_refund_scope(pg_temp.id('scope_008006'), 'keep_entry', 'Kept by official decision.')));
+select pg_temp.chk('E: ... and unblocked once it is resolved', pg_temp.out('k6') = 'true'::jsonb and not pg_temp.k0_blocked('006002'));
+select pg_temp.keep('k3', to_jsonb(public.resolve_competition_refund_scope(pg_temp.id('scope_008103'), 'keep_entry', 'Danced; kept.')));
+select pg_temp.keep('k4', to_jsonb(public.resolve_competition_refund_scope(pg_temp.id('scope_008004'), 'keep_entry', 'Danced; kept.')));
 select pg_temp.chk('E: keep_entry for the danced entries resolves the last E-L scopes and the parent',
-  public.resolve_competition_refund_scope((select id from public.event_competition_refund_exception_scopes where entry_id = pg_temp.u('008103')), 'keep_entry', 'Danced; kept.')
-  and public.resolve_competition_refund_scope((select id from public.event_competition_refund_exception_scopes where entry_id = pg_temp.u('008004')), 'keep_entry', 'Danced; kept.')
+  pg_temp.out('k3') = 'true'::jsonb and pg_temp.out('k4') = 'true'::jsonb
   and not pg_temp.k0_blocked('006001')
   and not exists (select 1 from public.event_order_settlement_exceptions where kind = 'competition_refund_entry_locked_heat' and status <> 'resolved'));
 select pg_temp.chk('E: each resolution is audited',
@@ -531,8 +549,9 @@ select pg_temp.chk('E: the E-R parent resolves with a note once no scope is open
 -- F. Dashboard refunds (D6) on O2
 -- ============================================================================
 select pg_temp.as_service();
+select pg_temp.keep('d1', pg_temp.observe('pi_r2_o2', 'acct_r2test1', 're_r2_d1', null, 1000, 'succeeded'));
 select pg_temp.chk('F: an unknown Stripe refund is recorded as a dashboard refund',
-  pg_temp.observe('pi_r2_o2', 'acct_r2test1', 're_r2_d1', null, 1000, 'succeeded')->>'outcome' = 'applied'
+  pg_temp.out('d1')->>'outcome' = 'applied'
   and (select source = 'stripe_dashboard' and amount_cents = 1000 from public.event_order_refunds where stripe_refund_id = 're_r2_d1'));
 select pg_temp.chk('F/D6: a partial dashboard refund opens a financial-only unattributed exception; no entry change',
   exists (select 1 from public.event_order_settlement_exceptions where kind = 'competition_refund_unattributed' and order_id = pg_temp.u('00b002') and status = 'open')
@@ -546,14 +565,16 @@ select pg_temp.expect_msg('F: the unattributed exception cannot be resolved befo
 select pg_temp.expect_msg('F: attribution must equal the refund amount',
   $q$select public.attribute_competition_refund((select id from public.event_order_refunds where stripe_refund_id = 're_r2_d1'), jsonb_build_array(pg_temp.line('00c201', 900, true)))$q$,
   'COMP_REFUND_ATTRIBUTION_MISMATCH');
+select pg_temp.keep('attr', public.attribute_competition_refund((select id from public.event_order_refunds where stripe_refund_id = 're_r2_d1'),
+     jsonb_build_array(pg_temp.line('00c201', 1000, true))));
 select pg_temp.chk('F: attribution applies participation and resolves the exception',
-  (public.attribute_competition_refund((select id from public.event_order_refunds where stripe_refund_id = 're_r2_d1'),
-     jsonb_build_array(pg_temp.line('00c201', 1000, true)))->>'attributed')::boolean
+  (pg_temp.out('attr')->>'attributed')::boolean
   and pg_temp.entry_status('008105') = 'withdrawn'
   and (select status from public.event_order_settlement_exceptions where kind = 'competition_refund_unattributed' and order_id = pg_temp.u('00b002')) = 'resolved');
 select pg_temp.as_service();
+select pg_temp.keep('d2', pg_temp.observe('pi_r2_o2', 'acct_r2test1', 're_r2_d2', null, 2000, 'succeeded'));
 select pg_temp.chk('F/D6: a dashboard refund of the remainder fully refunds the order without a new exception',
-  pg_temp.observe('pi_r2_o2', 'acct_r2test1', 're_r2_d2', null, 2000, 'succeeded')->>'outcome' = 'applied'
+  pg_temp.out('d2')->>'outcome' = 'applied'
   and (select payment_status from public.event_orders where id = pg_temp.u('00b002')) = 'refunded'
   and (select status from public.event_order_settlement_exceptions where kind = 'competition_refund_unattributed' and order_id = pg_temp.u('00b002')) = 'resolved');
 reset role;
@@ -573,9 +594,10 @@ select pg_temp.expect_msg('G: a bound Stripe refund id cannot change',
 
 -- Review P2-5: after an E-L scope was resolved (008103 keep_entry for refund 2), a NEW refund on the same held
 -- entry opens a new scope and reopens the parent; a replay of that refund adds nothing.
+select pg_temp.keep('p25', to_jsonb(public._r2_record_refund_exception('competition_refund_entry_locked_heat', pg_temp.u('00b001'), pg_temp.u('00e001'),
+    pg_temp.u('00f101'), pg_temp.id('ref3'), pg_temp.u('008103'), 1, 'USD')));
 select pg_temp.chk('G/P2-5: a new refund on a resolved held entry opens a new scope and reopens the parent',
-  public._r2_record_refund_exception('competition_refund_entry_locked_heat', pg_temp.u('00b001'), pg_temp.u('00e001'),
-    pg_temp.u('00f101'), pg_temp.id('ref3'), pg_temp.u('008103'), 1, 'USD') is not null
+  pg_temp.out('p25') <> 'null'::jsonb
   and (select count(*) from public.event_competition_refund_exception_scopes
        where entry_id = pg_temp.u('008103') and kind = 'competition_refund_entry_locked_heat' and resolved_at is null) = 1
   and exists (select 1 from public.event_order_settlement_exceptions x join public.event_competition_refund_exception_scopes s on s.exception_id = x.id
