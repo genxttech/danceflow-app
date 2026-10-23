@@ -119,6 +119,14 @@ begin
     'blocker', v_blocker);
 end $$;
 
+-- fingerprint precheck: replace only the body 20261222 installed (or this migration's own, on a re-apply); anything else was changed elsewhere and must be reconciled first
+do $$
+begin
+  if to_regprocedure('public.get_studio_sms_texting_status(uuid)') is null or (select md5(p.prosrc) from pg_proc p where p.oid = 'public.get_studio_sms_texting_status(uuid)'::regprocedure) not in ('ced244161431a8988b0a09789fab95b6', '972869a5d27d9342d1b93bb0978d7ece') then
+    raise exception 'J3 precondition failed: get_studio_sms_texting_status is not the 20261222 body';
+  end if;
+end $$;
+
 -- ---------------------------------------------------------------------------------------------------------------
 -- J2 follow-up (owned by this slice): get_studio_sms_texting_status (20261222) maps the activation checklist items added since then to owner areas instead of
 -- "other": usage_reconciler_ready (20261218/20261219) -> monitoring; pilot_ki1_redecided (#298, mapped ahead of time) -> review ("a DanceFlow review").
@@ -322,6 +330,12 @@ begin
   if not exists (select 1 from pg_proc p where p.oid = 'public.get_studio_sms_number_offers(uuid)'::regprocedure and p.prosecdef
                    and p.proconfig @> array['search_path=pg_catalog, public, pg_temp']) then
     raise exception 'J3 postcondition failed: get_studio_sms_number_offers is not security definer with a pinned search_path';
+  end if;
+  if (select md5(p.prosrc) from pg_proc p where p.oid = 'public.get_studio_sms_texting_status(uuid)'::regprocedure) <> '972869a5d27d9342d1b93bb0978d7ece' then
+    raise exception 'J3 postcondition failed: unexpected get_studio_sms_texting_status body';
+  end if;
+  if has_function_privilege('anon', 'public.get_studio_sms_texting_status(uuid)', 'EXECUTE') or not has_function_privilege('authenticated', 'public.get_studio_sms_texting_status(uuid)', 'EXECUTE') then
+    raise exception 'J3 postcondition failed: unexpected privileges on get_studio_sms_texting_status';
   end if;
 end $$;
 

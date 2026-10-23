@@ -2,6 +2,12 @@
 -- Roll the application back first (without the function the number step shows "Choosing your number is not open yet" and offers no action).
 begin;
 set local lock_timeout = '5s';
+do $$
+begin
+  if (select md5(p.prosrc) from pg_proc p where p.oid = 'public.get_studio_sms_texting_status(uuid)'::regprocedure) not in ('972869a5d27d9342d1b93bb0978d7ece', 'ced244161431a8988b0a09789fab95b6') then
+    raise exception 'rollback precondition failed: get_studio_sms_texting_status is neither the 20261227 nor the 20261222 body';
+  end if;
+end $$;
 drop function if exists public.get_studio_sms_number_offers(uuid);
 -- restore the 20261222 owner texting-status body (checklist mapping without usage_reconciler_ready / pilot_ki1_redecided)
 create or replace function public.get_studio_sms_texting_status(p_studio_id uuid)
@@ -184,5 +190,11 @@ begin
     'activation', v_activation,
     'fees', v_fees,
     'unexpected_resource_review', v_unexpected);
+end $$;
+do $$
+begin
+  if (select md5(p.prosrc) from pg_proc p where p.oid = 'public.get_studio_sms_texting_status(uuid)'::regprocedure) <> 'ced244161431a8988b0a09789fab95b6' then
+    raise exception 'rollback postcondition failed: the 20261222 body was not restored exactly';
+  end if;
 end $$;
 commit;
