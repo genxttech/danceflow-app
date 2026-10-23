@@ -18,7 +18,7 @@ import { getRecurringAdminOverview } from "@/lib/billing/smsRecurring";
 import { buildRunnerStore } from "@/lib/sms/twilioIsv/factory";
 import { loadLedgers, ProvisioningLedgerStore, type LedgerSnapshot } from "@/lib/sms/provisioning/provisionLedger";
 import { PROV_FLASH_COOKIE } from "@/lib/sms/provisioning/provisionFlash";
-import { loadSenderOverview } from "@/lib/sms/senderVerification";
+import { loadSenderHealth, loadSenderOverview } from "@/lib/sms/senderVerification";
 import type { RunnerStatus } from "@/lib/sms/twilioIsv/store";
 import { listOnboardings, type PlatformOnboardingRow } from "@/lib/sms/onboarding/client";
 import StudioSmsRegistrations, {
@@ -245,6 +245,9 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
   // sender readiness per linked studio (platform-admin-only definer function; null = not installed here, the block is then hidden)
   const panelSenders = panelOverview && panelOverview.entities.length > 0 ? await loadSenderOverview(createAdminClient(), admin.id).catch(() => null) : null;
 
+  // sender state machine + re-check scheduler status (null = not installed here; the block then falls back to the overview and says so)
+  const panelSenderHealth = panelOverview && panelOverview.entities.length > 0 ? await loadSenderHealth(createAdminClient(), admin.id).catch(() => null) : null;
+
   // TW-4F R2c-I1: platform-admin provisioning ledger for studios that have reached (or fallen out of) Messaging Service / campaign provisioning.
   // Loaded whether or not pilot access is currently on: a held fee or unknown outcome must stay visible and resolvable. A read that fails is shown as unreadable (never as an empty ledger); a studio past the cap is simply not loaded.
   const LEDGER_STATES = new Set(["service_setup", "campaign_pending", "ready_for_activation", "active", "suspended", "exception", "blocked"]);
@@ -453,6 +456,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
         requestKeys={panelContext.requestKeys}
         monthlyLimits={panelMonthlyLimits}
         senders={panelSenders}
+        senderHealth={panelSenderHealth}
         unavailable={!panelOverview}
         {...readPanelFlash((await cookies()).get(PANEL_FLASH_COOKIE)?.value, { panel: firstParam(params.panel), panelError: firstParam(params.panel_error) })}
         focusStudioId={firstParam(params.studio)}
