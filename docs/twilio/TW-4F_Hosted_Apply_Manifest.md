@@ -135,7 +135,7 @@ When a slot above gets a PR or merges, a follow-up commit updates its row (hash,
 
 Numeric order, one file at a time:
 
-`1119_090 → 1119_091 → 1119_092 → 1119_092100 → 1120 → 1121 → 1122 → 1123 → 1124 → 1125 → 1126 → 1127 → 1128 → 1129 → 1130 → 1201 → 1202_090 → 1202_140 → 1202_150 → 1203 → 1204 → 1205 → [1206, merged: run after 1207..1217] → 1207 → 1208 → 1209 → 1210 → 1211 → 1212 → 1213 → 1214 → [1215, merged] → 1216 → 1217 → → 1218 → 1219 → 1221 → 1222 → 1223 → 1225 → 1227 → [1226 when merged; 1224 (merged) has no ordering constraint beyond 1211]`
+`1119_090 → 1119_091 → 1119_092 → 1119_092100 → 1120 → 1121 → 1122 → 1123 → 1124 → 1125 → 1126 → 1127 → 1128 → 1129 → 1130 → 1201 → 1202_090 → 1202_140 → 1202_150 → 1203 → 1204 → 1205 → [1206, merged: run after 1207..1217] → 1207 → 1208 → 1209 → 1210 → 1211 → 1212 → 1213 → 1214 → [1215, merged] → 1216 → 1217 → 1218 → 1219 → 1221 → 1222 → 1223 → 1224 → 1225 → 1227 → [1226 when merged]`
 
 - Each file wraps itself in a transaction and refuses to run out of order or twice (precondition `to_regprocedure` / fingerprint checks), so a wrong order aborts with `precondition failed` and changes nothing.
 - The Supabase CLI history table is **not authoritative** on these projects (2026-10-19 sync record), so the CLI's out-of-order refusal does not apply. If `supabase db push` were ever used, `1206` and `1215` would need `--include-all`; this runbook uses `supabase db query --linked -f <file>` from a scratch workdir instead.
