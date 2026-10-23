@@ -245,6 +245,7 @@ Every slice starts from `main` = `960a9d02` in its own worktree, cut by the app 
 | Q1 | tw4f-q1-qa | `twilio-tw4f-q1-qa-e2e` | new `scripts/qa/tw4f/**`, `e2e/tests/tw4f-*.spec.ts`, `e2e/helpers/tw4f*.ts`, `docs/qa/TW-4F_QA_Baseline.md` | none | none | #266 for the harness | Running continuously alongside the other slices |
 | H1 | tw4f-h1-manifest | `docs-tw4f-hosted-manifest` | new `docs/twilio/TW-4F_Hosted_Apply_Manifest.md`, `scripts/hosted/tw4f/**` | none | none | — | Running |
 | M1 | not launched | — | new `src/app/api/cron/sms-*` routes | job kinds if needed | `20261223090000` (reserved) | J1, F4, #251 | Wave 2 |
+| RFL-D5 | Twilio recurring fee lifecycle control (existing RFL owner) | fresh worktree from 78bc699c | RFL SQL only + its localStack tests | `_tw4rfl_register_core` (skip cross-month initial_reservation binding), `tw4_rfl_pilot_cover` (may supersede a non-counting initial_reservation cover), `_tw4rfl_cover` / `rfl_ready` (D5 alignment) | `20261225090000` | D5; found by F1 #280 + #288 review (2026-10-23) | Requested |
 | J3, J4 | not launched | — | J3: new owner `NumberSelection*`, `numberActions.ts`. J4: new `Activation*`, `activationActions.ts` | none | none | J3: J1 + J2. J4: J1 + F1 + F3 | Wave 2 |
 
 Notes on the files more than one slice touches:
