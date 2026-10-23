@@ -265,7 +265,7 @@ Open PRs, revalidated 2026-10-22 (CI = the required "Typecheck, build, lint, uni
 | #251 | 0fe7a622 | CONFLICTING | green (old head) | Pending conflict resolution (merge of `main` in progress locally) |
 | #266 | d90a9f17 | CLEAN | green | QA harness verification; local merge of `main` not yet pushed |
 | #267 | 59ecf3f0 | CLEAN | green | Awaiting owner merge decision |
-| #269 | 5a2432d3 | CLEAN | green | Awaiting owner merge decision |
+| #269 | 5a2432d3 | CLEAN | green | **MERGED** 2026-10-23 → main 6422e050 |
 | #273 | this PR | CLEAN | docs | Completion tracker |
 | #274 | a6074a92 | CLEAN | docs | H1 hosted manifest; F1/F4/J2 hash rows follow their PRs |
 | #275 | c858ddc1 | CLEAN | green | Q1 QA/E2E preparation; partial baseline, re-run on an idle host |
@@ -277,7 +277,7 @@ Re-checked 2026-10-23 with `gh pr view`; `main` is still `960a9d02`. Every PR be
 | #251 | d3a5d136 | Sender re-verification, 1206 | **NOT READY (one P2).** Conflict resolved by merging `main` in; page.tsx changes are additive only; all 16 files are in scope. tw4rv + tw4sender 45/45 on a dedicated DB (1207..1217 then 1206). An independent review (2026-10-23) found a P2: `inbound_route_ok` is computed from a number read that failed transiently, so a 429 turns into a definitive FAILED (`senderVerification.ts:281-285`). The fix is with the owner. The full suite matrix with 1206 applied after 1217 has not run yet (#266 owner will run it on the final head); catalogs are identical for any 1206 position. Merge first among the `page.tsx` PRs. |
 | #266 | 872a9130 | Isolated QA harness | `main` merged in, full-chain scenarios added. Final verification evidence is still awaited from its owner. |
 | #267 | 59ecf3f0 | R2a layered rollback test | Ready for the owner's decision. |
-| #269 | 5a2432d3 | Evidence original scope, 1215 | **READY WITH NOTES (P3 only).** An independent review (2026-10-23) confirmed that evidence is bound to the operation's own Messaging Service and account, that cross-scope substitution is refused (TW049, `scope_changed`), and that tenant/lease gating and the fee-release safeguards are intact. 1215 is compatible after 1217 and grants service_role only. feeres 46/46 on this exact head (1207..1217 with 1215). Carry-forward: once the evidence scheduler is wired, `scope_unavailable` and skipped targets must escalate to an operator. F4 depends on it. |
+| #269 | 5a2432d3 | Evidence original scope, 1215 | **MERGED 2026-10-23 (squash, owner-approved) → main `6422e050`; Git-only, 1215 not applied hosted.** Was READY WITH NOTES (P3 only). An independent review (2026-10-23) confirmed that evidence is bound to the operation's own Messaging Service and account, that cross-scope substitution is refused (TW049, `scope_changed`), and that tenant/lease gating and the fee-release safeguards are intact. 1215 is compatible after 1217 and grants service_role only. feeres 46/46 on this exact head (1207..1217 with 1215). Carry-forward: once the evidence scheduler is wired, `scope_unavailable` and skipped targets must escalate to an operator. F4 depends on it. |
 | #273 | this PR | Tracker | Docs only. |
 | #274 | e4116404 | H1 hosted manifest | Docs only. F3 and J2 rows provisional; F1, F4 and F5 rows wait for their PRs. |
 | #275 | c858ddc1 | Q1 runner and E2E scaffolding | Baseline partial (load); needs a re-run on an idle host. |
