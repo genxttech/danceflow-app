@@ -277,8 +277,8 @@ commit;`);
       const old = psql(`insert into public.studio_sms_credit_reservations (legal_entity_id, studio_id, kind, amount_cents, funding, status, reservation_key, closed_at, created_at)
         values ('${stale.entity}', '${stale.studio}', 'monthly', 1000, 'pilot', 'captured', 'prov:${randomUUID()}:monthly', now() - interval '40 days', now() - interval '40 days') returning id;`);
       call("tw4_rfl_register", stale.studio, P, "campaign", stale.qe, stale.account, null, "admin", null, old);
-      // the lifecycle stamps the cover with the registration month; the funding check does not accept it for that month
-      expect(psql(`select period_key || ':' || basis from public.studio_sms_provider_cover where resource_id = '${resource(stale, "campaign")}'`)).toBe(`${cur()}:initial_reservation`);
+      // D5 (20261225): a cross-month reservation is not bound at registration, so no cover row exists; the funding check would not accept one either
+      expect(psql(`select count(*) from public.studio_sms_provider_cover where resource_id = '${resource(stale, "campaign")}'`)).toBe("0");
       expect(funding(stale)).toMatchObject({ ok: false, detail: "pilot_current_period_unapproved", uncovered: ["campaign"] });
       releaseLocation(stale);
       const fresh = location({ pilot: true, registerCampaign: false });
