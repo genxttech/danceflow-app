@@ -3,8 +3,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ProviderFeeLifecycleStore } from "@/lib/sms/providerFeeLifecycle";
 import { buildCancelRunner, type CancelKind, type CancelRunner, type CancelTarget, type CancelTargetSource, type ReleaseAdapters } from "./cancelRunner";
 import { fakeAdapterAllowed, numberCallsAllowed, provisioningCallsAllowed } from "./config";
-import { FakeNumberHub } from "./fakeNumbers";
-import { FakeProvisioningHub } from "./fakeProvisioning";
+import type { NumberReleaseAdapter, ProvisioningReleaseAdapter } from "./releaseTypes";
+import { buildSubaccountAdaptersFor } from "./factory";
 
 /**
  * TW-4F F5: decides whether the platform panel may offer "Release at Twilio now" for an authorized cancellation, and builds the runner when it may.
@@ -13,30 +13,42 @@ import { FakeProvisioningHub } from "./fakeProvisioning";
  *   1. TW4_CANCEL_RELEASE=on (an explicit switch for an IRREVERSIBLE provider action; off by default everywhere);
  *   2. a cancellation target source (tw4_rfl_cancel_target, migration 20261224090000: the operation's subaccount, Messaging Service and consumed dual-control approval);
  *      where that read is not applied every target reads as missing, and the runner refuses before any claim;
- *   3. an adapter path: on a LOCAL QA database with TW4_ISV_FAKE=on, the in-memory fakes (process-wide hubs, shared with any other local fake wiring);
- *      the REAL adapters are not built here: the platform runtime (factory.ts, J1) supplies them through `buildCancelRunner` behind
- *      numberCallsAllowed / provisioningCallsAllowed, so production stays manual until that wiring lands.
+ *   3. an adapter path: on a LOCAL QA database with TW4_ISV_FAKE=on, the platform runtime's fakes (`buildSubaccountAdaptersFor`, factory.ts: the same
+ *      process-wide fakes that provisioned the resources); the REAL adapters only when a caller supplies them (`realAdaptersFor`, e.g. J1's
+ *      `buildSubaccountAdaptersFor(env)`) and provisioningCallsAllowed holds, so production stays manual until that wiring is switched on.
  */
 
 type Env = Record<string, string | undefined>;
 
 export type CancelReleaseRuntime = { ok: true; mode: "fake" | "real"; runner: CancelRunner } | { ok: false; reason: string };
 
-const globalForRelease = globalThis as unknown as { __tw4FakeNumberHub?: FakeNumberHub; __tw4FakeProvisioningHub?: FakeProvisioningHub };
+/** What a subaccount builder hands out (J1's `buildSubaccountAdaptersFor` returns the provisioning interfaces; the same objects carry the release methods). */
+export type SubaccountAdapters = { numbers: unknown; provisioning: unknown };
 
-/** The process-wide local fakes (one number universe, one provisioning world). Local QA only. */
-export function sharedFakeReleaseHubs(): { numbers: FakeNumberHub; provisioning: FakeProvisioningHub } {
+const isFn = (o: Record<string, unknown>, name: string) => typeof o[name] === "function";
+const NUMBER_RELEASE = ["releaseNumber", "detachNumber", "numberPresence"];
+const PROVISIONING_RELEASE = ["deleteCampaign", "deleteMessagingService", "campaignPresence", "servicePresence", "findCampaigns"];
+
+function releaseCapable(adapter: unknown, methods: string[]): boolean {
+  if (!adapter || typeof adapter !== "object") return false;
+  // property reads, not `in`: the rotation wrapper (rotation.ts) is a Proxy with a get trap only, and answers `in` with false
+  const o = adapter as Record<string, unknown>;
+  return typeof o.accountSid === "string" && (o.evidenceSource === "provider_read" || o.evidenceSource === "fake") && methods.every((m) => isFn(o, m));
+}
+
+/** Narrows a subaccount builder's adapters to the release interfaces; anything that cannot release reads as null (fail closed: the runner refuses). */
+export function asReleaseAdapters(built: SubaccountAdapters): ReleaseAdapters {
   return {
-    numbers: (globalForRelease.__tw4FakeNumberHub ??= new FakeNumberHub()),
-    provisioning: (globalForRelease.__tw4FakeProvisioningHub ??= new FakeProvisioningHub()),
+    numbers: releaseCapable(built.numbers, NUMBER_RELEASE) ? (built.numbers as NumberReleaseAdapter) : null,
+    provisioning: releaseCapable(built.provisioning, PROVISIONING_RELEASE) ? (built.provisioning as ProvisioningReleaseAdapter) : null,
   };
 }
 
 export type CancelRuntimeOptions = {
   /** The installed target source, or null when the database read is not installed (the default). */
   targets?: CancelTargetSource | null;
-  /** Real adapters for one subaccount, supplied by the platform runtime (J1). Absent = no real path. */
-  realAdaptersFor?: ((accountSid: string) => Promise<ReleaseAdapters>) | null;
+  /** Real adapters for one subaccount, supplied by the platform runtime (e.g. factory.ts `buildSubaccountAdaptersFor(env)`). Absent = no real path. */
+  realAdaptersFor?: ((accountSid: string) => Promise<SubaccountAdapters>) | null;
 };
 
 type Rpc = { rpc(fn: string, args: Record<string, unknown>): PromiseLike<{ data: unknown; error: unknown }> };
@@ -92,19 +104,15 @@ export function cancelReleaseRuntime(env: Env = process.env, options: CancelRunt
   if (!targets) return { ok: false, reason: "Provider release is not installed in this environment (the cancellation target read is missing)." };
   const ledger = new ProviderFeeLifecycleStore(createAdminClient());
   if (fakeAdapterAllowed(env)) {
-    const hubs = sharedFakeReleaseHubs();
-    return {
-      ok: true,
-      mode: "fake",
-      runner: buildCancelRunner({ ledger, targets, adaptersFor: async (accountSid) => ({ numbers: hubs.numbers.adapterFor(accountSid), provisioning: hubs.provisioning.adapterFor(accountSid) }) }),
-    };
+    const built = buildSubaccountAdaptersFor(env);
+    return { ok: true, mode: "fake", runner: buildCancelRunner({ ledger, targets, adaptersFor: async (accountSid) => asReleaseAdapters(await built(accountSid)) }) };
   }
   // defense in depth: the supplied real adapters are gated where they are built, and the release path also needs the provisioning gate here
   if (options.realAdaptersFor && provisioningCallsAllowed(env).allowed) {
     const supplied = options.realAdaptersFor;
     // a number is released only where the number gate is on as well
     const adaptersFor = async (accountSid: string): Promise<ReleaseAdapters> => {
-      const built = await supplied(accountSid);
+      const built = asReleaseAdapters(await supplied(accountSid));
       return { numbers: numberCallsAllowed(env).allowed ? built.numbers : null, provisioning: built.provisioning };
     };
     return { ok: true, mode: "real", runner: buildCancelRunner({ ledger, targets, adaptersFor }) };

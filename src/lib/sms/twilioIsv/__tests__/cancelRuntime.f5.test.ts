@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ rpc: async () => ({ data: null, error: { code: "42883" } }) }) }));
 
-import { cancelReleaseAvailable, cancelReleaseRuntime, installedCancelTargets, parseCancelTarget, sharedFakeReleaseHubs, SupabaseCancelTargetSource } from "../cancelRuntime";
+import { asReleaseAdapters, cancelReleaseAvailable, cancelReleaseRuntime, installedCancelTargets, parseCancelTarget, SupabaseCancelTargetSource, type CancelRuntimeOptions } from "../cancelRuntime";
+import { buildSubaccountAdaptersFor } from "../factory";
+import { FakeNumberAdapter } from "../fakeNumbers";
+import { FakeProvisioningAdapter } from "../fakeProvisioning";
+import { rotatingSubaccountAdapter } from "../rotation";
 import type { CancelTargetSource } from "../cancelRunner";
 
 const OP = "e0000001-0000-4000-8000-000000000001";
@@ -42,7 +46,7 @@ describe("F5 cancel release runtime", () => {
   });
 
   it("a number is released through supplied real adapters only where the number gate is on too", async () => {
-    const numbersOnly = { numbers: { accountSid: "x" } as never, provisioning: null };
+    const numbersOnly = { numbers: new FakeNumberAdapter(`AC${"6".repeat(32)}`), provisioning: null };
     const noNumberGate = cancelReleaseRuntime({ ...PROD, TW4_NUMBER_REAL_CALLS: undefined }, { targets, realAdaptersFor: async () => numbersOnly });
     expect(noNumberGate.ok).toBe(true);
     // the runner sees no number adapter: a number target is refused before any claim
@@ -63,7 +67,6 @@ describe("F5 cancel release runtime", () => {
     expect(cancelReleaseRuntime(LOCAL, { targets })).toMatchObject({ ok: true, mode: "fake" });
     expect(cancelReleaseRuntime({ ...LOCAL, NEXT_PUBLIC_SUPABASE_URL: "https://abc.supabase.co" }, { targets }).ok).toBe(false);
     expect(cancelReleaseRuntime({ ...LOCAL, TW4_ISV_FAKE: undefined }, { targets }).ok).toBe(false);
-    expect(sharedFakeReleaseHubs().numbers).toBe(sharedFakeReleaseHubs().numbers);
   });
 
   it("never builds a real adapter itself: production is available only with adapters the platform runtime supplies", () => {
@@ -73,5 +76,34 @@ describe("F5 cancel release runtime", () => {
     expect(supplied).not.toHaveBeenCalled();
     expect(cancelReleaseRuntime({ ...PROD, TW4_PROVISIONING_REAL_CALLS: undefined }, { targets, realAdaptersFor: supplied }).ok).toBe(false);
     expect(cancelReleaseRuntime({ ...PROD, VERCEL_ENV: "preview" }, { targets, realAdaptersFor: supplied }).ok).toBe(false);
+  });
+});
+
+describe("F5 x J1: the release bridge over the platform runtime's subaccount adapters", () => {
+  const ACCOUNT = `AC${"7".repeat(32)}`;
+
+  it("type-checks: J1's buildSubaccountAdaptersFor is accepted as realAdaptersFor as it is", () => {
+    const supplied: CancelRuntimeOptions["realAdaptersFor"] = buildSubaccountAdaptersFor({});
+    expect(typeof supplied).toBe("function");
+  });
+
+  it("keeps adapters that carry the release methods (fakes, and the rotation Proxy, which answers `in` with false) and drops anything else", async () => {
+    const fakes = asReleaseAdapters({ numbers: new FakeNumberAdapter(ACCOUNT), provisioning: new FakeProvisioningAdapter(ACCOUNT) });
+    expect(fakes.numbers).not.toBeNull();
+    expect(fakes.provisioning).not.toBeNull();
+    const tokens = { tokenFor: async () => ({ reveal: () => "t" }), refresh: async () => ({ secret: { reveal: () => "t" }, changed: false }) } as never;
+    const proxied = await rotatingSubaccountAdapter(ACCOUNT, tokens, () => new FakeNumberAdapter(ACCOUNT));
+    expect("releaseNumber" in (proxied as object)).toBe(false);
+    expect(asReleaseAdapters({ numbers: proxied, provisioning: null }).numbers).toBe(proxied);
+    // provisioning-only shapes, missing evidence source, or nothing at all: fail closed
+    expect(asReleaseAdapters({ numbers: { accountSid: ACCOUNT, evidenceSource: "fake", releaseNumber: async () => "released" }, provisioning: { accountSid: ACCOUNT } })).toEqual({ numbers: null, provisioning: null });
+    const noSource = Object.assign(new FakeNumberAdapter(ACCOUNT), {});
+    Object.defineProperty(noSource, "evidenceSource", { value: "other" });
+    expect(asReleaseAdapters({ numbers: noSource, provisioning: undefined }).numbers).toBeNull();
+    expect(asReleaseAdapters({ numbers: null, provisioning: 42 })).toEqual({ numbers: null, provisioning: null });
+  });
+
+  it("fake mode releases through the platform runtime's process-wide fakes", () => {
+    expect(cancelReleaseRuntime(LOCAL, { targets })).toMatchObject({ ok: true, mode: "fake" });
   });
 });

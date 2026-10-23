@@ -54,7 +54,7 @@ buildCancelRunner({
 
 * To light up the panel's real path, pass `realAdaptersFor` to `cancelReleaseRuntime(env, { realAdaptersFor })`. It also requires `provisioningCallsAllowed`.
 * Token rotation: wrap the build the way `rotatingSubaccountAdapter` does, or return null on failure. The runner treats a throwing `adaptersFor` as "no adapter": nothing is claimed.
-* Local fakes: `sharedFakeReleaseHubs()` returns the process-wide `FakeNumberHub` / `FakeProvisioningHub`. Use the same hubs when wiring R2a/R2b fakes, so local QA releases what it provisioned.
+* Local fakes: fake mode takes its adapters from `buildSubaccountAdaptersFor(env)` (factory.ts), so local QA releases exactly what the platform runtime provisioned.
 
 ## When release is offered
 
@@ -129,9 +129,9 @@ The isoqa base image's `auth.users` is a stub. On the dedicated container `f5-rf
 * `email_confirmed_at`, `banned_until` and `deleted_at` were added (as `supabase_admin`) so that the RFL suites' fixtures insert.
 * `grant update, delete on public.outbound_deliveries to authenticated` was added. Hosted Supabase grants this by default, and one tw4rflops assertion compares write behavior under that role.
 
-## Shared local fakes with J1
+## Wiring with J1 (factory.ts, merged in #278)
 
-J1's `factory.ts` exports `fakeNumberHub(env)` / `fakeProvisioningHub(env)` on the same `globalThis` keys this slice uses (`__tw4FakeNumberHub`, `__tw4FakeProvisioningHub`), so both share one hub per process. Whichever creates a hub first wins; J1's seeds the number catalogue. Once both are merged, `sharedFakeReleaseHubs()` can delegate to J1's accessors.
+`cancelReleaseRuntime(env, { realAdaptersFor })` accepts J1's `buildSubaccountAdaptersFor(env)` as it is (a test pins that this type-checks). `asReleaseAdapters` narrows each adapter to the release interfaces by reading its methods; any adapter without them reads as null, so nothing is claimed. It reads properties rather than using `in` because the rotation wrapper is a Proxy with only a get trap. Fake mode uses the same builder. The real path is still not wired by default: production stays manual until a caller passes `realAdaptersFor` with `TW4_CANCEL_RELEASE=on`.
 
 ## Contract findings (offline)
 
