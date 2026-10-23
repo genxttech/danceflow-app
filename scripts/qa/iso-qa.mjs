@@ -349,7 +349,9 @@ async function cmdUp(scenarioName, flags, instance) {
   await waitReady(n.db);
   const since = dbState(n.db);
   // columns the Supabase auth service (GoTrue) adds to auth.users and that the bare image / July dump lack; fixtures of several suites (rflops, ...) insert them. Idempotent, per stack: the shared baseline image is not touched.
-  { const r = psqlIn(n.db, "alter table auth.users add column if not exists email_confirmed_at timestamptz, add column if not exists banned_until timestamptz, add column if not exists deleted_at timestamptz;"); if (r.code !== 0) throw new Error(`auth.users column step failed: ${r.out.slice(0, 300)}`); }
+  { const r = psqlIn(n.db, "alter table auth.users add column if not exists email_confirmed_at timestamptz, add column if not exists banned_until timestamptz, add column if not exists deleted_at timestamptz; do $q$ begin if to_regclass('public.outbound_deliveries') is not null then grant update, delete on public.outbound_deliveries to authenticated; end if; end $q$;", { user: "supabase_admin" }); if (r.code !== 0) throw new Error(`auth.users column step failed: ${r.out.slice(0, 300)}`); }
+  // opt-in (ISO_QA_MARKER=1): the local-QA marker table some suites require to pre-exist (they otherwise create it themselves); creating it changes what fake-provider paths accept, so it is never on by default
+  if (process.env.ISO_QA_MARKER === "1") { const r = psqlIn(n.db, "create table if not exists public.tw4_local_qa_only (note text); revoke all on public.tw4_local_qa_only from public, anon, authenticated, service_role;"); if (r.code !== 0) throw new Error(`QA marker step failed: ${r.out.slice(0, 300)}`); }
   const applied = [];
   for (const [ref, version] of list) {
     const file = migrationFileAt(ref, version);

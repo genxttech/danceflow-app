@@ -27,9 +27,7 @@
         "main",
         "main-then-pr251",
         "pr251-then-main",
-        "pr251-mid",
-        "main-pr269",
-        "full-chain"
+        "pr251-mid"
       ],
       "failing": [
         "rollback parses and completes where there is no evidence"
@@ -41,8 +39,7 @@
       "scenarios": [
         "main-then-pr251",
         "pr251-then-main",
-        "pr251-mid",
-        "full-chain"
+        "pr251-mid"
       ],
       "count": 8,
       "failing": [
