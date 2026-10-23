@@ -133,4 +133,19 @@ describe.skipIf(!enabled)("TW-4F A9 inventory reconciliation run lease (real sch
     expect(out.split("\n").slice(-3)).toEqual(["447385b7", "true", "CHECK ((job = ANY (ARRAY['usage_reconcile'::text, 'sender_reverify'::text])))"]);
     expect(psql(`select to_regprocedure('public.tw4_reconcile_run_alive(uuid,text)') is not null`)).toBe("t");
   });
+
+  it("rollback then re-apply reaches the same state (in a rolled-back transaction)", () => {
+    const strip = (sql: string) => sql.replace(/^begin;/m, "").replace(/^commit;/m, "");
+    const rb = strip(readFileSync(join(MIG, "rollback/20261223090000_twilio_inventory_reconcile_run_rollback.sql"), "utf8"));
+    const fwd = strip(readFileSync(join(MIG, "20261223090000_twilio_inventory_reconcile_run.sql"), "utf8"));
+    const out = psql(`begin;
+      delete from public.studio_sms_reconcile_runs where job = 'inventory_reconcile';
+      ${rb}
+      ${fwd}
+      select pg_get_constraintdef(oid) from pg_constraint where conname = 'studio_sms_reconcile_runs_job_check';
+      select (to_regprocedure('public.tw4_reconcile_run_alive(uuid,text)') is not null)::text;
+      select position('20261223' in prosrc) > 0 from pg_proc where oid = 'public.tw4_reconcile_run_begin(text,text,integer)'::regprocedure;
+      rollback;`);
+    expect(out.split("\n").slice(-3)).toEqual(["CHECK ((job = ANY (ARRAY['usage_reconcile'::text, 'sender_reverify'::text, 'inventory_reconcile'::text])))", "true", "t"]);
+  });
 });

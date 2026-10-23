@@ -12,7 +12,7 @@ export const maxDuration = 60;
  * business subaccount, judged by the database, so provider inventory health stays fresh (sending is held once it is stale for 24 hours, unknown or critical).
  * NOT registered in vercel.json: nothing calls it on a schedule until a release owner adds it deliberately (suggested hourly, "0 * * * *": targets are due after
  * 6 hours, well inside the 24-hour health window). Answered 404 unless SMS_INVENTORY_RECONCILE=on; then CRON_SECRET is required (Bearer or x-cron-secret).
- * One run at a time (the shared run lease, job 'inventory_reconcile'; an overlapping call answers "busy"), a 45-second budget under maxDuration, counts only.
+ * One run at a time (the shared run lease, job 'inventory_reconcile'; an overlapping call answers "busy"), no new subaccount after 30 seconds (one more still fits in maxDuration), counts only.
  * Listings use the SUBACCOUNT's own token and only where the number gates allow real calls (production) or in local fake mode; with the gates off nothing is
  * called and the run is recorded as failed, so health stays visibly stale.
  */

@@ -649,7 +649,8 @@ export async function reconcileInventories(input: {
     }
     if (!proceed) {
       for (const rest of targets.slice(index)) summary.skipped.push({ studioId: rest.studio_id, reason: "stopped" });
-      break;
+      // a pass stopped for time or a lost lease does not escalate either: the next pass does (escalation is idempotent and age-based)
+      return summary;
     }
     let adapter: IsvNumberAdapter | null;
     try {

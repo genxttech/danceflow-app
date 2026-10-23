@@ -117,9 +117,10 @@ describe("scheduled inventory reconciliation (A9)", () => {
     expect(s.log.filter((e) => e.startsWith("claim:"))).toEqual(["claim:studio-1"]);
     expect(finish(a)).toMatchObject({ p_status: "failed", p_error: "inventory reconcile: run lease lost" });
     expect(finish(a)?.p_summary).toMatchObject({ checked: 1, stopped: 1 });
+    expect(s.log).not.toContain("escalate");   // a run that lost its lease does not escalate
   });
 
-  it("the time budget stops the pass; the rest stay due (stopped, not clean) and the run completes", async () => {
+  it("the time budget stops the pass: the rest stay due (stopped, never clean), escalation waits for the next pass, and the backlog counts as an error", async () => {
     const s = store();
     let t = 0;
     const a = admin();
@@ -127,7 +128,14 @@ describe("scheduled inventory reconciliation (A9)", () => {
       runner: "cron:test", budgetMs: 10, now: () => (t += 6),
     });
     expect(out).toMatchObject({ ran: true, failed: false });
-    expect(finish(a)?.p_summary).toMatchObject({ checked: 1, stopped: 1, out_of_time: true });
+    expect(finish(a)?.p_summary).toMatchObject({ checked: 1, stopped: 1, out_of_time: true, errors: 1, escalation_raised: 0 });
+    expect(s.log).not.toContain("escalate");
+  });
+
+  it("the budget leaves room for one more subaccount inside maxDuration 60", async () => {
+    const { INVENTORY_RECONCILE_BUDGET_MS, INVENTORY_RECONCILE_LEASE_SECONDS } = await import("../inventoryReconcileRun");
+    expect(INVENTORY_RECONCILE_BUDGET_MS).toBeLessThanOrEqual(60_000 - 25_000);   // a listing has a 20-second provider timeout, plus credentials and writes
+    expect(INVENTORY_RECONCILE_LEASE_SECONDS).toBeGreaterThan(60);                // a live run cannot outlive its lease
   });
 
   it("a failing work list records the run FAILED", async () => {

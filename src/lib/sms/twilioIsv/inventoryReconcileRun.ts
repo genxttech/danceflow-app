@@ -12,7 +12,8 @@ import { reconcileInventories } from "./numberRunner";
  */
 
 export const INVENTORY_RECONCILE_LEASE_SECONDS = 120;
-export const INVENTORY_RECONCILE_BUDGET_MS = 45_000;
+/** No new subaccount is started after this: one subaccount (credentials, a listing with its 20-second provider timeout, the database writes) must still fit in maxDuration 60. */
+export const INVENTORY_RECONCILE_BUDGET_MS = 30_000;
 const JOB = "inventory_reconcile";
 
 export type NumberReadRuntime = { ok: true; store: NumberStore; adapterFor(accountSid: string): Promise<IsvNumberAdapter> } | { ok: false; reason: string };
@@ -79,7 +80,8 @@ export async function runScheduledInventoryReconcile(
   }
   const summary: Record<string, number | boolean> = {
     ...counts,
-    errors: counts.skipped + counts.escalation_failed + (counts.escalation_error ? 1 : 0),
+    // subaccounts left for the next pass (time, lease) count too: a run with a backlog is never reported as a clean success
+    errors: counts.skipped + counts.stopped + counts.escalation_failed + (counts.escalation_error ? 1 : 0),
     out_of_time: outOfTime,
     reads_available: runtime.ok,
     duration_ms: now() - started,
