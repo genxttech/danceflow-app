@@ -8,6 +8,7 @@ import { buildRefundSummary, type SummaryPlacement } from "@/lib/payments/compet
 import {
   attributeCompetitionRefundAction,
   refundCompetitionOrderAction,
+  retryCompetitionRefundAction,
   resolveCompetitionRefundExceptionAction,
   resolveCompetitionRefundScopeAction,
 } from "../../refundActions";
@@ -104,6 +105,7 @@ export default async function CompetitionOrderRefundPage({
     allocations: allocations.map((a) => ({ order_item_id: a.order_item_id, amount_cents: a.amount_cents, refund_status: statusByRefund.get(a.refund_id) ?? "failed" })),
   });
   const currency = order.currency || "USD";
+  const awaitingStripe = refunds.filter((r) => r.source === "staff" && r.status === "requested");
   const unattributed = refunds.filter((r) => r.source === "stripe_dashboard" && r.status === "succeeded" && !allocations.some((a) => a.refund_id === r.id));
   const entryName = new Map(entries.map((e) => [e.id, e.display_name]));
   const message = query.error ? COMPETITION_REFUND_ERROR_COPY[query.error] ?? COMPETITION_REFUND_ERROR_COPY.COMP_REFUND_FAILED : null;
@@ -137,6 +139,15 @@ export default async function CompetitionOrderRefundPage({
         <button className="rounded bg-slate-950 px-4 py-2 text-sm font-semibold text-white">Refund selected lines</button>
       </form>
     </section>
+
+    {awaitingStripe.length > 0 ? <section className="mt-10">
+      <h2 className="text-lg font-semibold text-slate-950">Waiting for Stripe</h2>
+      <p className="mt-1 text-sm text-slate-600">Stripe did not confirm these refunds. Their amounts stay reserved so nothing is refunded twice. Retrying sends the same request, so Stripe returns the same refund if one exists.</p>
+      <ul className="mt-3 divide-y divide-slate-200 border-y border-slate-200 text-sm">{awaitingStripe.map((refund) => <li key={refund.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
+        <span>{money(refund.amount_cents, currency)}{refund.reason ? ` · ${refund.reason}` : ""} · requested {new Date(refund.created_at).toLocaleString("en-US")}</span>
+        <form action={retryCompetitionRefundAction}><input type="hidden" name="eventId" value={id} /><input type="hidden" name="orderId" value={orderId} /><input type="hidden" name="refundId" value={refund.id} /><button className="rounded border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700">Retry with Stripe</button></form>
+      </li>)}</ul>
+    </section> : null}
 
     {unattributed.length > 0 ? <section className="mt-10">
       <h2 className="text-lg font-semibold text-slate-950">Attribute Stripe dashboard refunds</h2>

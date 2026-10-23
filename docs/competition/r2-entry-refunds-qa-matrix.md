@@ -80,3 +80,12 @@ DEV/PROD, and no real refunds were made.
 ## Out of scope / follow-ups
 Disputes and chargebacks; the K0 / F3 publish precondition (PR #291); the C1 event-closeout check; re-instating an
 entry after a reversal; organizer-role SQL fixtures.
+
+## Review fixes (2026-10-23)
+| # | Check | Status |
+|---|---|---|
+| R1 | P1-1: locally failed request, later Stripe success, is recorded (SQL D/P1-1) | BLOCKED (SQL rerun needed) |
+| R2 | P1-2: retry reuses request id + idempotency key; refused after 23 h | Typecheck PASSED; behaviour NOT RUN (needs app + Stripe test mode) |
+| R3 | P1-3: event P&L counts competition refunds and reversals | PASSED (unit) |
+| R4 | P2-5: a new refund after resolution reopens; a replay adds nothing (SQL G/P2-5) | BLOCKED (SQL rerun needed) |
+| R5 | Broad regression: 71 vitest files / 1060 tests (payments, competition, events, accounting, Wave, webhook) + project `tsc` | PASSED |

@@ -457,6 +457,18 @@ select pg_temp.chk('D/C1: the reversal is a separate credit entry (the original 
   and (select direction = 'debit' and refund_amount = 27.72 from public.accounting_entries where source_table = 'event_order_refunds' and source_id = pg_temp.id('ref1')));
 select pg_temp.chk('D: a failed refund cannot come back',
   pg_temp.observe('pi_r2_o1', 'acct_r2test1', 're_r2_1', null, 2772, 'succeeded')->>'outcome' = 'no_change');
+
+-- Review P1-1: a request the server action marked failed locally (no Stripe id) that Stripe later reports as
+-- succeeded must be recorded -- money Stripe moved is never lost.
+select pg_temp.as_user(pg_temp.u('000001'));
+insert into t_ids values ('ref5', (pg_temp.request('00b001', '00aa05', jsonb_build_array(pg_temp.line('00c1f1', 100, false)))->>'refundId')::uuid);
+select pg_temp.as_service();
+select pg_temp.chk('D/P1-1: local failure (no Stripe id) releases the cap',
+  pg_temp.observe('pi_r2_o1', 'acct_r2test1', null, pg_temp.u('00aa05'), 100, 'failed')->>'status' = 'failed');
+select pg_temp.chk('D/P1-1: Stripe later reports that request as succeeded: recorded and applied',
+  pg_temp.observe('pi_r2_o1', 'acct_r2test1', 're_r2_5', pg_temp.u('00aa05'), 100, 'succeeded')->>'outcome' = 'applied'
+  and (select status = 'succeeded' and stripe_refund_id = 're_r2_5' from public.event_order_refunds where id = pg_temp.id('ref5'))
+  and (select count(*) from public.accounting_entries where source_table = 'event_order_refunds' and source_id = pg_temp.id('ref5')) = 1);
 reset role;
 
 -- ============================================================================
@@ -558,6 +570,20 @@ select pg_temp.expect_msg('G: a participation outcome is written once',
   'COMP_REFUND_LEDGER_IMMUTABLE');
 select pg_temp.expect_msg('G: a bound Stripe refund id cannot change',
   $q$update public.event_order_refunds set stripe_refund_id = 're_other' where id = pg_temp.id('ref2')$q$, 'COMP_REFUND_LEDGER_IMMUTABLE');
+
+-- Review P2-5: after an E-L scope was resolved (008103 keep_entry for refund 2), a NEW refund on the same held
+-- entry opens a new scope and reopens the parent; a replay of that refund adds nothing.
+select pg_temp.chk('G/P2-5: a new refund on a resolved held entry opens a new scope and reopens the parent',
+  public._r2_record_refund_exception('competition_refund_entry_locked_heat', pg_temp.u('00b001'), pg_temp.u('00e001'),
+    pg_temp.u('00f101'), pg_temp.id('ref3'), pg_temp.u('008103'), 1, 'USD') is not null
+  and (select count(*) from public.event_competition_refund_exception_scopes
+       where entry_id = pg_temp.u('008103') and kind = 'competition_refund_entry_locked_heat' and resolved_at is null) = 1
+  and exists (select 1 from public.event_order_settlement_exceptions x join public.event_competition_refund_exception_scopes s on s.exception_id = x.id
+              where s.entry_id = pg_temp.u('008103') and s.refund_id = pg_temp.id('ref3') and x.status = 'open'));
+select pg_temp.chk('G/P2-5: replaying that refund adds no scope',
+  public._r2_record_refund_exception('competition_refund_entry_locked_heat', pg_temp.u('00b001'), pg_temp.u('00e001'),
+    pg_temp.u('00f101'), pg_temp.id('ref3'), pg_temp.u('008103'), 1, 'USD') is null
+  and (select count(*) from public.event_competition_refund_exception_scopes where entry_id = pg_temp.u('008103')) = 2);
 
 -- Non-competition (orderless registration 00f006): partial refund nets out of event_ticket_revenue; a refunded
 -- payment voids it -- exactly as before R2.

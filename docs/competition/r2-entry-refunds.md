@@ -496,3 +496,18 @@ the roadmap.
 - The C1 event closeout check (refuse while any `competition_refund_*` exception is open) belongs to the K0 / C1 slot.
 - Re-instating an entry after a refund reversal: a manual, audited action (a future slice).
 - Organizer-role fixtures for the SQL suite. D5 reuses `_paywh1_actor_can_manage_event`, which already admits organizer owners/admins and refuses organizer staff. That function is covered by the PAY-WH-1 suites, not re-proven here.
+
+### 8.1 Code review (2026-10-23): independent payment-integrity pass; no P0
+
+| # | Finding | Disposition |
+|---|---|---|
+| P1-1 | A request marked `failed` locally (no Stripe id) could never record a refund Stripe later reports | **Fixed.** `failed` / `canceled` with no bound Stripe id may move to pending / succeeded on a Stripe observation. SQL test D/P1-1 |
+| P1-2 | A request stuck in `requested` after an unknown Stripe error held its cap forever | **Fixed in the app.** The refund page lists "Waiting for Stripe" requests with a retry that reuses the request id and Stripe idempotency key; retries are refused after 23 h (Stripe's 24 h key window), and the webhook then records whatever Stripe did. **Follow-up:** a scheduled reconciler or alert for requests still `requested` after N minutes (policy point 7 for unattended cases) |
+| P1-3 | Event P&L, the profitability export and Wave did not see the new refund entries | **Fixed.** The `competition_entry_refund` catalog entry; the P&L reads `event_order_refunds` (debit) and `event_order_refund_reversals` (credit); the export selects them; Wave maps legacy embedded competition refunds to the new category. Unit test added |
+| P1-4 | Every refund webhook calls the new RPCs, so the app fails if it is live without the SQL | **Release gate:** apply the SQL **before** promoting the app, and roll back **app first**. `observe` now classifies before locking, so non-competition refunds take no competition lock |
+| P2-5 | A new refund on an entry whose scope was resolved recorded nothing | **Fixed.** Dedupe is per (kind, entry, heat, refund): replays and trigger re-fires add nothing; a new refund opens a scope and reopens the parent. SQL test G/P2-5 |
+| P2-6 | Classification was not locked against a concurrent heat lock | **Fixed.** `_r2_apply_participation` takes `FOR SHARE` on the entry's heats first |
+| P2-7 | Resolution gates looser than the design | **Fixed.** `withdrawn_after_unlock` requires `status = 'withdrawn'`; `k0_correction` requires a K0 result event whose `refs.refund_exception_id` names the exception. **K0 (PR #291) must write that ref** |
+| P2-8 | All `competition_refund_*` kinds are `operational` (the design said captured / reversed) | Deliberate (§8 table): only operational kinds reopen and re-alert. **Owner sign-off requested** |
+| P2-9 | After a full refund is reversed, the registration stays `status = refunded` with `payment_status` `partial` / `paid` | Deliberate: participation is never re-instated automatically (policy 6). The E-R exception carries it for an official decision |
+| P2-10 | A partially refunded registration is `payment_status = partial`; the PAY-WH-1 client guard and the desk check-in may read that as money owed | **Follow-up (not verified here):** confirm that competition check-in (CI-B, PR #295) and the desk balance screen treat `partial` on an order-backed registration as paid less refunds |

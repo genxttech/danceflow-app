@@ -62,12 +62,43 @@ export async function refundCompetitionOrderAction(formData: FormData): Promise<
   } catch {
     redirect(refundPage(eventId, orderId, "error=COMP_REFUND_LINE_INVALID"));
   }
+  await submitRefundRequest(eventId, orderId, requestId, lines, text(formData, "reason"));
+}
 
+/** Stripe's idempotency keys last 24 hours; never re-send an older request (the webhook is the only truth then). */
+const RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
+
+/**
+ * Review P1-2: a request left "requested" by an unconfirmed Stripe call is re-sent with the SAME request id, so the
+ * SQL replay returns the same refund and Stripe's idempotency key returns the same refund object if one exists.
+ */
+export async function retryCompetitionRefundAction(formData: FormData): Promise<void> {
+  const eventId = text(formData, "eventId");
+  const orderId = text(formData, "orderId");
+  const refundId = text(formData, "refundId");
+  if (!UUID.test(eventId) || !UUID.test(orderId) || !UUID.test(refundId)) redirect("/app/events");
+  const supabase = await createClient();
+  const { data: refund } = await supabase.from("event_order_refunds")
+    .select("id, order_id, event_id, refund_request_id, status, reason, created_at")
+    .eq("id", refundId).eq("order_id", orderId).eq("event_id", eventId).maybeSingle();
+  if (!refund || refund.status !== "requested" || !refund.refund_request_id) {
+    redirect(refundPage(eventId, orderId, "error=COMP_REFUND_RETRY_NOT_PENDING"));
+  }
+  if (Date.now() - new Date(refund.created_at).getTime() > RETRY_WINDOW_MS) {
+    redirect(refundPage(eventId, orderId, "error=COMP_REFUND_RETRY_EXPIRED"));
+  }
+  const { data: allocations, error } = await supabase.from("event_order_refund_allocations")
+    .select("order_item_id, amount_cents, withdraw_entry").eq("refund_id", refundId);
+  if (error || !allocations?.length) redirect(refundPage(eventId, orderId, "error=COMP_REFUND_FAILED"));
+  await submitRefundRequest(eventId, orderId, refund.refund_request_id, allocations.map((a) => ({
+    orderItemId: a.order_item_id, amountCents: Number(a.amount_cents), withdrawEntry: a.withdraw_entry,
+  })), refund.reason ?? "Retry");
+}
+
+async function submitRefundRequest(eventId: string, orderId: string, requestId: string, lines: CompetitionRefundLine[], reason: string) {
   try {
     const supabase = await createClient();
-    const request = await requestCompetitionOrderRefund(supabase, {
-      eventId, orderId, requestId, lines, reason: text(formData, "reason"),
-    });
+    const request = await requestCompetitionOrderRefund(supabase, { eventId, orderId, requestId, lines, reason });
     // A replayed form whose refund already left "requested" has been sent to Stripe: never send it again here.
     if (request.replay && request.status !== "requested") {
       redirect(refundPage(eventId, orderId, `success=refund_${request.status}`));

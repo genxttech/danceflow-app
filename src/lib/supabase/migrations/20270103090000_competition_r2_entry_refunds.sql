@@ -214,7 +214,8 @@ create table public.event_competition_refund_exception_scopes (
   resolved_by uuid null,
   resolution text null check (resolution in ('withdrawn_after_unlock', 'keep_entry', 'result_stands', 'k0_correction', 'attributed')),
   resolution_note text null,
-  constraint event_competition_refund_exception_scopes_key unique (exception_id, entry_id, heat_id),
+  -- one scope per (exception, entry, heat, refund); the trigger path has refund_id null
+  constraint event_competition_refund_exception_scopes_key unique nulls not distinct (exception_id, entry_id, heat_id, refund_id),
   constraint event_competition_refund_exception_scopes_resolution check ((resolved_at is null) = (resolution is null))
 );
 create index event_competition_refund_scopes_open_round_idx
@@ -594,7 +595,9 @@ as $$
 $$;
 
 -- Record a competition_refund_* exception and its scopes. p_entry_id null = financial-only parent (no scope).
--- Per (kind, entry, heat) a scope is recorded once in its lifetime: replays and re-fired triggers add nothing.
+-- A heat gets a new scope unless one of this kind is still open for the entry there, or this same refund (or, for
+-- the registration trigger, the trigger path with refund_id null) already recorded one: replays and re-fired
+-- triggers add nothing, while a NEW refund after an earlier resolution opens a new scope (and reopens the parent).
 create or replace function public._r2_record_refund_exception(
   p_kind text, p_order_id uuid, p_event_id uuid, p_registration_id uuid, p_refund_id uuid, p_entry_id uuid,
   p_amount_cents bigint, p_currency text
@@ -617,7 +620,8 @@ begin
         and (case when p_kind = 'competition_refund_entry_certified_heat' then h.lock_state = 'certified'
                   else h.lock_state <> 'open' or he.status = 'danced' end)
         and not exists (select 1 from public.event_competition_refund_exception_scopes s
-                        where s.kind = p_kind and s.entry_id = p_entry_id and s.heat_id = he.heat_id)
+                        where s.kind = p_kind and s.entry_id = p_entry_id and s.heat_id = he.heat_id
+                          and (s.resolved_at is null or s.refund_id is not distinct from p_refund_id))
     ) then
       return null;
     end if;
@@ -646,7 +650,10 @@ begin
     where he.entry_id = p_entry_id
       and (case when p_kind = 'competition_refund_entry_certified_heat' then h.lock_state = 'certified'
                 else h.lock_state <> 'open' or he.status = 'danced' end)
-    on conflict (exception_id, entry_id, heat_id) do nothing;
+      and not exists (select 1 from public.event_competition_refund_exception_scopes s
+                      where s.kind = p_kind and s.entry_id = p_entry_id and s.heat_id = h.id
+                        and (s.resolved_at is null or s.refund_id is not distinct from p_refund_id))
+    on conflict on constraint event_competition_refund_exception_scopes_key do nothing;
   end if;
   return v_exception;
 end;
@@ -705,6 +712,10 @@ begin
     elsif v_a.entry_status in ('withdrawn', 'disqualified', 'complete', 'scratched') then
       v_outcome := 'not_applicable';
     else
+      -- Hold the entry's heats against a concurrent lock/certify while classifying and withdrawing.
+      perform 1 from public.event_competition_heats h
+      where h.id in (select he.heat_id from public.event_competition_heat_entries he where he.entry_id = v_a.entry_id)
+      for share;
       v_class := public._r2_entry_participation_class(v_a.entry_id);
       if v_class in ('unplaced', 'open') then
         perform public._r2_withdraw_entry(v_a.entry_id, 'Entry refunded.', 'refund');
@@ -970,10 +981,12 @@ begin
   if p_payment_intent_id is null then
     return jsonb_build_object('handled', false);
   end if;
-  select * into v_order from public.event_orders where stripe_payment_intent_id = p_payment_intent_id for update;
+  -- Classify before locking: refunds of non-competition orders never take a competition lock.
+  select * into v_order from public.event_orders where stripe_payment_intent_id = p_payment_intent_id;
   if not found or not public._r2_order_is_competition(v_order.id) then
     return jsonb_build_object('handled', false);
   end if;
+  select * into v_order from public.event_orders where id = v_order.id for update;
   if p_status is null or p_status not in ('pending', 'requires_action', 'succeeded', 'failed', 'canceled') then
     raise exception 'COMP_REFUND_STATUS_INVALID: %', p_status using errcode = '22023';
   end if;
@@ -1031,6 +1044,10 @@ begin
       when v_from = 'requested' then true
       when v_from in ('pending', 'requires_action') then p_status in ('pending', 'requires_action', 'succeeded', 'failed', 'canceled')
       when v_from = 'succeeded' then p_status in ('failed', 'canceled')
+      -- A request marked failed/canceled locally (never bound to a Stripe refund) that Stripe now reports: Stripe
+      -- is the truth, so the money it moved is always recorded.
+      when v_from in ('failed', 'canceled') and v_ref.stripe_refund_id is null and p_stripe_refund_id is not null
+        then p_status in ('pending', 'requires_action', 'succeeded')
       else false
     end;
     if not v_allowed then
@@ -1248,7 +1265,7 @@ begin
   select status into v_entry_status from public.event_competition_entries where id = v_s.entry_id;
 
   if p_resolution = 'withdrawn_after_unlock' then
-    if v_s.kind = 'competition_refund_entry_certified_heat' or v_entry_status = 'confirmed' or v_entry_status = 'pending' then
+    if v_s.kind = 'competition_refund_entry_certified_heat' or v_entry_status is distinct from 'withdrawn' then
       raise exception 'COMP_REFUND_SCOPE_GATE: the entry must first be withdrawn through the audited unlock + withdraw workflow.' using errcode = '22023';
     end if;
   elsif p_resolution = 'keep_entry' then
@@ -1261,12 +1278,14 @@ begin
     end if;
   elsif p_resolution = 'k0_correction' then
     -- K0 contract (PR 291): a correction runs open_competition_round_correction -> ... and writes
-    -- event_competition_result_events. R2 only checks that such a row exists for the scoped round after this scope.
+    -- event_competition_result_events. R2 only checks that such a row exists for the scoped round, after this
+    -- scope, referencing this exception (refs.refund_exception_id). R2 never writes K0 rows.
     if v_s.kind <> 'competition_refund_entry_certified_heat' or to_regclass('public.event_competition_result_events') is null then
       raise exception 'COMP_REFUND_K0_CORRECTION_UNAVAILABLE: no K0 correction record exists for this round.' using errcode = '22023';
     end if;
-    execute 'select exists (select 1 from public.event_competition_result_events where round_id = $1 and "at" > $2)'
-      into v_k0 using v_s.round_id, v_s.created_at;
+    execute 'select exists (select 1 from public.event_competition_result_events
+                            where round_id = $1 and "at" > $2 and refs->>''refund_exception_id'' = $3)'
+      into v_k0 using v_s.round_id, v_s.created_at, v_x.id::text;
     if not v_k0 then
       raise exception 'COMP_REFUND_K0_CORRECTION_UNAVAILABLE: no K0 correction record exists for this round.' using errcode = '22023';
     end if;

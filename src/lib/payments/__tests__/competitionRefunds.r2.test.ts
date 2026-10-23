@@ -12,6 +12,7 @@ import {
 import { buildRefundSummary, parseDollarsToCents } from "@/lib/payments/competitionRefundSummary";
 import { createOwnershipFakeSupabase, type Row } from "@/lib/payments/__tests__/ownershipFakes";
 import { handleChargeRefunded, handleStripeRefundUpdated } from "@/app/api/payments/webhook/route";
+import { buildEventProfitabilityByEventId } from "@/lib/events/financial-summary";
 
 const REQUEST_ID = "0c1d2000-0000-4000-8000-000000000001";
 const request: CompetitionRefundRequest = {
@@ -129,6 +130,22 @@ describe("refund page summary (same caps as SQL)", () => {
     expect(byId.i4).toMatchObject({ participation: "open", canWithdraw: true });
     expect(byId.fee).toMatchObject({ kind: "fee", canWithdraw: false });
     expect(byId.disc).toBeUndefined();
+  });
+});
+
+describe("event P&L reads C1 refund entries (review P1-3)", () => {
+  it("dated competition refunds reduce net revenue; a reversal adds it back; ticket accounting is unchanged", () => {
+    const byEvent = buildEventProfitabilityByEventId([
+      { eventId: "ev", sourceTable: "event_payments", category: "competition_entry_revenue", grossAmount: 100, refundAmount: 0, feeAmount: 0, netAmount: 100 },
+      { eventId: "ev", sourceTable: "event_order_refunds", category: "competition_entry_refund", direction: "debit", refundAmount: 27.72, netAmount: 27.72 },
+      { eventId: "ev", sourceTable: "event_order_refunds", category: "competition_entry_refund", direction: "debit", refundAmount: 68.19, netAmount: 68.19 },
+      { eventId: "ev", sourceTable: "event_order_refund_reversals", category: "competition_entry_refund", direction: "credit", refundAmount: 27.72, netAmount: 27.72 },
+      { eventId: "ev", sourceTable: "event_payments", category: "event_ticket_revenue", grossAmount: 20, refundAmount: 5, feeAmount: 0, netAmount: 15 },
+    ]);
+    const ev = byEvent.get("ev")!;
+    expect(Number(ev.gross_ticket_revenue)).toBe(120);
+    expect(Number(ev.refunds)).toBeCloseTo(68.19 + 5, 2);
+    expect(Number(ev.net_ticket_revenue)).toBeCloseTo(100 - 68.19 + 15, 2);
   });
 });
 

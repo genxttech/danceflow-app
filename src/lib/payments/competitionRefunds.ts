@@ -193,6 +193,8 @@ export const COMPETITION_REFUND_ERROR_COPY: Record<string, string> = {
   COMP_REFUND_REQUEST_REPLAY_MISMATCH: "This refund form was already submitted with different lines. Reload and try again.",
   COMP_REFUND_STRIPE_REFUSED: "Stripe refused the refund. Nothing was refunded.",
   COMP_REFUND_STRIPE_UNCONFIRMED: "Stripe did not confirm the refund yet. It stays pending until Stripe reports it; do not refund again.",
+  COMP_REFUND_RETRY_NOT_PENDING: "That refund is no longer waiting for Stripe.",
+  COMP_REFUND_RETRY_EXPIRED: "This request is older than Stripe's 24-hour retry window. Check the payment in Stripe; the webhook records any refund Stripe made.",
   COMP_REFUND_SCOPE_GATE: "This exception cannot be resolved that way yet.",
   COMP_REFUND_K0_CORRECTION_UNAVAILABLE: "No results correction exists for this round yet.",
   COMP_REFUND_FAILED: "The refund could not be completed.",
