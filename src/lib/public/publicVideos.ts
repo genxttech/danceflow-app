@@ -33,6 +33,11 @@ const PUBLIC_VIDEOS = {
     poster: process.env.NEXT_PUBLIC_ARIA_VIDEO_30S_POSTER_URL,
     captions: "/media/captions/aria-30s.vtt",
   },
+  aria77: {
+    src: process.env.NEXT_PUBLIC_ARIA_VIDEO_77S_URL,
+    poster: process.env.NEXT_PUBLIC_ARIA_VIDEO_77S_POSTER_URL,
+    captions: "/media/captions/aria-77s.vtt",
+  },
 } as const;
 
 export type PublicVideoKey = keyof typeof PUBLIC_VIDEOS;
