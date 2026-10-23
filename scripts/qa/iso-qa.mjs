@@ -348,6 +348,8 @@ async function cmdUp(scenarioName, flags, instance) {
   });
   await waitReady(n.db);
   const since = dbState(n.db);
+  // columns the Supabase auth service (GoTrue) adds to auth.users and that the bare image / July dump lack; fixtures of several suites (rflops, ...) insert them. Idempotent, per stack: the shared baseline image is not touched.
+  { const r = psqlIn(n.db, "alter table auth.users add column if not exists email_confirmed_at timestamptz, add column if not exists banned_until timestamptz, add column if not exists deleted_at timestamptz;"); if (r.code !== 0) throw new Error(`auth.users column step failed: ${r.out.slice(0, 300)}`); }
   const applied = [];
   for (const [ref, version] of list) {
     const file = migrationFileAt(ref, version);
@@ -611,7 +613,7 @@ async function cmdMatrix(scenarioName, flags) {
   const queue = files.map((f, i) => [f, i]);
   await Promise.all(Array.from({ length: parallel }, async () => { for (let j = queue.shift(); j; j = queue.shift()) await run1(...j); }));
   // a listed suite that PASSES means its expectation is stale: say so (and fail), so the list can never silently rot
-  const stale = EXPECTED.filter((e) => appliesTo(e, scenarioName, ref) && results.some((r) => r.file === e.suite && r.status === 0));
+  const stale = EXPECTED.filter((e) => !e.flaky && appliesTo(e, scenarioName, ref) && results.some((r) => r.file === e.suite && r.status === 0));
   for (const e of stale) console.log(`STALE EXPECTATION: ${e.suite} now passes in ${scenarioName}: remove it from expected-results.json`);
   const bad = results.filter((r) => r.status !== 0);
   const unexpected = bad.filter((r) => !r.known);
