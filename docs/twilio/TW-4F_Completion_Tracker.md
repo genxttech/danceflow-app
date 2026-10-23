@@ -1,6 +1,6 @@
 # TW-4F Completion Tracker
 
-Status: 2026-10-22, baseline `main` = `960a9d02` (#271). Documentation only. This file tracks how far TW-4F is from being complete and release-ready. It is **not a roadmap**: priorities come from `docs/roadmap/DanceFlow_Master_Roadmap.md` (v2.22), and design decisions come from the TW-4F design documents cited below. When this tracker disagrees with an approved design document, the design document wins and the disagreement is listed in section 9.
+Status: baseline audit 2026-10-22 at `960a9d02` (#271); final Git status 2026-10-23 at `84f52048` (§0). Documentation only. This file tracks how far TW-4F is from being complete and release-ready. It is **not a roadmap**: priorities come from `docs/roadmap/DanceFlow_Master_Roadmap.md` (v2.22), and design decisions come from the TW-4F design documents cited below. When this tracker disagrees with an approved design document, the design document wins and the disagreement is listed in section 9.
 
 Status vocabulary:
 
