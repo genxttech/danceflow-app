@@ -75,7 +75,13 @@ Requires Docker, the images `public.ecr.aws/supabase/{postgres:17.6.1.106,postgr
 - Load sensitivity: `tw4recexec` (a wall-clock assertion, "expected N to be greater than 900"), `tw4recurring` (a 120 s test timeout) and `tw4payhardening` fail intermittently when other sessions saturate the shared host CPU; each passed in other runs of the same migrations (recexec 20/20, recurring 30/30, usage 26/26 in sequential reruns). They are reported as unexpected failures, never suppressed; rerun singly on an idle machine before treating one as a regression. `tw4payhardening` has a property test pinned at 90 s in the test file; it passes on an idle machine and times out (cascading to two later assertions in that file) when other sessions saturate the CPU. It is reported as a failure, not suppressed.
 - `localStack.tw4fi` returns early (vacuously) when the pilot slot is already taken; `localStack.r2ci2` needs R2b migrations newer than the scenarios carry (it skips and the matrix reports that).
 
-## 5. Results (2026-10-21, origin/main 54ca06be, PR #251 head 0fe7a622)
+## 5. Results
+
+### 2026-10-23: authoritative `main` baseline (origin/main 6422e050, chain 20261207..20261217 incl. 1215; one test database at a time)
+
+19/23 suites passed; 3 KNOWN explained (tw4a pin, tw4f1b function-count pin, R2a rollback after R2b); 1 unexpected: `localStack.r2b.test.ts` skips all 53 tests because its beforeAll refuses a database that has the real recurring-fee lifecycle (an R2b/RFL follow-up: that suite only runs on a partial chain). Not discovered by `matrix` (need their own databases/env): `localStack.tw4rfl`, `localStack.tw4rflops` (64/64 pass on a stock stack with `ISO_QA_MARKER=1 TW4RFL_DB=postgres`), `localStack.r2brfl`, `localStack.r2bp2.rfl`. Every stack now gets idempotent per-stack steps (auth.users `email_confirmed_at/banned_until/deleted_at`, `grant update, delete on outbound_deliveries to authenticated`); the shared baseline image is unchanged. Host at start: 82% CPU, 8.6/31.5 GB RAM free, 25 containers.
+
+### 2026-10-21 (earlier chain)
 
 - Catalog comparison (6,494 entries: functions with bodies, argument defaults, owner, security-definer, config, ACL; tables with columns, defaults, constraints, RLS, ACL; column ACLs; indexes; policies; triggers; views; sequences; enums; default ACLs): `main-then-pr251` = `pr251-then-main` = `pr251-mid` (0 differences each); `main` vs `main-then-pr251` differs only by #251's own objects (intended).
 - Matrices (one fresh database per suite): all TW-4F suites pass except the known, explained items in `expected-results.json` and the load-sensitive `tw4payhardening` (section 4). R2b's own suite passes 41/41 in three sequential runs in two migration orders.
