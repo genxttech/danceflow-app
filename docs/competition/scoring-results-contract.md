@@ -25,6 +25,7 @@ engine code exists. Machine-readable mirror: `src/lib/competition/results/contra
 | P10 | Published results always reach entrants' portals; the public results page is an opt-in per program. | Owner D4 |
 | P11 | Identity is never matched by name or email. A dancer sees results only through a verified competitor anchor. | 10C §1 |
 | P12 | A silent source is recorded `NOT SPECIFIED IN PROVIDED SOURCE`; no gap is filled from general knowledge. | Source registry rule 2 |
+| P13 | Financial settlement state and competitive participation state are separate. A refund never silently rewrites a locked, danced or certified heat; an unresolved competitive-affecting exception blocks publication of the affected round only. | Owner §4.1, Q1, Q2 (2026-10-23) |
 
 ## 2. Unit of scoring
 
@@ -69,7 +70,7 @@ idempotent on a client request id, writes one `result_events` row).
 | ballots_locked → active | `reopen_competition_round_ballots` (E2) | manager | reason required; no result version is `approved` |
 | ballots_locked → calculated | `calculate_competition_round` (F2) | manager or scorer | engine implemented and spec approved for the locked `scoring_method`; writes a new result version with input and trace hashes |
 | calculated → approved | `approve_competition_round_result` (F2) | manager ≠ calculator, or override with reason | result version is the round's latest; input hash still matches the current ballots |
-| approved → published | `publish_competition_round_result` (F3) | manager | approval exists for this exact result version |
+| approved → published | `publish_competition_round_result` (F3) | manager | approval exists for this exact result version; **no unresolved competitive-affecting exception is scoped to this round** (§4.1) |
 | published → complete | `complete_competition_round` (F2) | manager | advancement (if any) applied |
 | any non-terminal → cancelled | `cancel_competition_round` (O1) | manager | no publication exists |
 
@@ -84,6 +85,31 @@ all non-manager readers immediately.
 **Invalidation.** Any new ballot version after calculation makes every unpublished result version of that round
 stale: `approve` and `publish` refuse when the stored `input_hash` no longer matches the canonical input built from
 the current ballots.
+
+### 4.1 Exceptions that block publication (owner Q2, 2026-10-23)
+
+An unresolved operational exception that affects competitive participation, placements, advancement or result
+integrity blocks publication of **the affected round only**. `publish_competition_round_result` refuses with
+`COMP_PUBLICATION_BLOCKED_BY_EXCEPTION` while any such exception references an entry with a placement in that
+round. Unrelated rounds and results publish normally. Financial-only exceptions stay visible for reconciliation and
+closeout but never block publication.
+
+| Exception (owner) | Effect | Scope |
+|---|---|---|
+| `competition_refund_entry_locked_heat` E-L (R2) — refund on an entry in a locked heat, or in a heat already danced (owner Q1) | competitive | rounds holding the entry's placements |
+| `competition_refund_entry_certified_heat` E-C (R2) | competitive | rounds holding the entry's placements |
+| `competition_refund_unattributed` (R2, D6) | financial-only unless it holds an entry in a locked/danced heat | — |
+| `competition_refund_reversed` E-R (R2) | financial-only unless it holds an entry in a locked/danced heat | — |
+
+Exception rows therefore carry a queryable round scope and a `competitive_effect` flag (owned by R2's schema).
+Resolution is by an authorized official (the D5 set) and is audited; resolving an E-C by changing the competitive
+outcome goes through the correction path below, never by editing a certified heat. An exception raised **after** a
+round is published does not unpublish it; it blocks the next publication (correction) of that round until resolved.
+Program `complete` and event closeout refuse while any `competition_refund_*` exception is unresolved (§10).
+
+**Danced heats (owner Q1).** Once a heat has been danced, no refund, cancellation or registration trigger withdraws
+its entries automatically, even if the heat is not yet `locked`; the change goes through the audited
+official-resolution process.
 
 **Heat certification.** A heat moves to `certified` only when the round reaches `approved`; certified heats can
 never be reopened (existing 10A rule), so certification is a consequence of approval, not a separate gate.
@@ -156,7 +182,10 @@ fixed in the contract (`RESULT_EVENT_KINDS`), not supplied by callers — this c
 
 ## 10. Closeout coupling (C1)
 
-- Program `complete` requires every non-cancelled round `complete`.
+- Program `complete` requires every non-cancelled round `complete` and no unresolved `competition_refund_*`
+  exception (financial-only ones included, so refunded entries cannot remain unresolved at closeout).
+- Refund accounting: each succeeded Stripe refund is its own accounting entry dated at success; locked accounting
+  periods are never rewritten (owner C1, implemented by R2).
 - Event deletion is blocked once any ballot exists (carry-forward from 10A), and program/round deletion likewise.
 - Exports read published results only, through the F3 read layer, using the Phase 9D formula-safe CSV helper.
 

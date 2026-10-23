@@ -5,13 +5,17 @@ import {
   approvalAllowed,
   canonicalEngineInput,
   canonicalJson,
+  closeoutBlockers,
   engineAvailable,
   findTransition,
+  publicationBlockers,
   readAccess,
+  REFUND_EXCEPTION_EFFECTS,
   RESULT_READER_MATRIX,
   ROUND_STATES,
   ROUND_TRANSITIONS,
   type EngineInput,
+  type PublicationGateException,
 } from "@/lib/competition/results/contract";
 
 const ROOT = join(__dirname, "..", "..", "..", "..", "..");
@@ -132,6 +136,41 @@ describe("K0 engine boundary", () => {
   it("sorts object keys and rejects non-finite numbers", () => {
     expect(canonicalJson({ b: 1, a: [2, { d: null, c: "x" }] })).toBe('{"a":[2,{"c":"x","d":null}],"b":1}');
     expect(() => canonicalJson({ a: Number.NaN })).toThrow();
+  });
+});
+
+describe("K0 publication gate (owner Q2)", () => {
+  const ex = (over: Partial<PublicationGateException>): PublicationGateException => ({
+    kind: "competition_refund_entry_locked_heat",
+    resolved: false,
+    effect: "competitive",
+    roundIds: ["r1"],
+    ...over,
+  });
+
+  it("blocks only the affected round", () => {
+    expect(publicationBlockers("r1", [ex({})])).toHaveLength(1);
+    expect(publicationBlockers("r2", [ex({})])).toHaveLength(0);
+  });
+
+  it("does not block on financial-only or resolved exceptions", () => {
+    expect(publicationBlockers("r1", [ex({ effect: "financial_only", kind: "competition_refund_unattributed" })])).toHaveLength(0);
+    expect(publicationBlockers("r1", [ex({ resolved: true })])).toHaveLength(0);
+  });
+
+  it("classifies locked and certified heat refunds as competitive", () => {
+    expect(REFUND_EXCEPTION_EFFECTS.competition_refund_entry_locked_heat).toBe("competitive");
+    expect(REFUND_EXCEPTION_EFFECTS.competition_refund_entry_certified_heat).toBe("competitive");
+    expect(REFUND_EXCEPTION_EFFECTS.competition_refund_unattributed).toBe("financial_only");
+  });
+
+  it("blocks closeout on any unresolved refund exception, financial-only included", () => {
+    expect(closeoutBlockers([ex({ effect: "financial_only", kind: "competition_refund_reversed", roundIds: [] })])).toHaveLength(1);
+    expect(closeoutBlockers([ex({ resolved: true })])).toHaveLength(0);
+  });
+
+  it("documents the publication error code", () => {
+    expect(DOC).toContain("COMP_PUBLICATION_BLOCKED_BY_EXCEPTION");
   });
 });
 

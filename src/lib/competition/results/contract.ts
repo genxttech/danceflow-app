@@ -76,6 +76,39 @@ export function approvalAllowed(input: {
 }
 
 // -----------------------------------------------------------------------------------------------------
+// Exceptions that gate publication (owner Q2: block the affected round only)
+// -----------------------------------------------------------------------------------------------------
+
+export type ExceptionEffect = "competitive" | "financial_only";
+
+/** Operational exception as the publish RPC sees it (R2 owns the table; these are the fields K0 relies on). */
+export type PublicationGateException = {
+  kind: string;
+  resolved: boolean;
+  effect: ExceptionEffect;
+  /** Rounds holding a placement of the affected entry. Empty for financial-only exceptions. */
+  roundIds: string[];
+};
+
+/** Refund exception kinds raised by R2 and their default effect. */
+export const REFUND_EXCEPTION_EFFECTS: Record<string, ExceptionEffect> = {
+  competition_refund_entry_locked_heat: "competitive",
+  competition_refund_entry_certified_heat: "competitive",
+  competition_refund_unattributed: "financial_only",
+  competition_refund_reversed: "financial_only",
+};
+
+/** Unresolved competitive exceptions scoped to this round; publication refuses while any exist. */
+export function publicationBlockers(roundId: string, exceptions: PublicationGateException[]): PublicationGateException[] {
+  return exceptions.filter((e) => !e.resolved && e.effect === "competitive" && e.roundIds.includes(roundId));
+}
+
+/** Program completion / event closeout refuse while any refund exception, financial-only included, is open. */
+export function closeoutBlockers(exceptions: PublicationGateException[]): PublicationGateException[] {
+  return exceptions.filter((e) => !e.resolved && e.kind.startsWith("competition_refund_"));
+}
+
+// -----------------------------------------------------------------------------------------------------
 // Engine boundary
 // -----------------------------------------------------------------------------------------------------
 
@@ -219,6 +252,7 @@ export const RESULT_ERROR_CODES = [
   "COMP_ENGINE_INVALID_INPUT",
   "COMP_ADVANCEMENT_NOT_APPROVED",
   "COMP_PUBLICATION_REQUIRES_APPROVAL",
+  "COMP_PUBLICATION_BLOCKED_BY_EXCEPTION",
 ] as const;
 
 export type ResultErrorCode = (typeof RESULT_ERROR_CODES)[number];
