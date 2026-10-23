@@ -73,10 +73,10 @@ describe("trust surfaces on every public page", () => {
 });
 
 describe("accessibility mechanics of the BR-4 surfaces", () => {
-  const menu = read("src", "components", "public", "ForBusinessMenu.tsx");
+  const menu = read("src", "components", "public", "AudienceMenu.tsx");
   const parts = read("src", "components", "public", "audience", "AudienceParts.tsx");
 
-  it("For Business is a disclosure: aria-expanded/controls, Escape with focus return, outside click, route close", () => {
+  it("audience menus (For Dancers, For Business) are disclosures: aria-expanded/controls, Escape with focus return, outside click, route close", () => {
     expect(menu).toContain("aria-expanded");
     expect(menu).toContain("aria-controls");
     expect(menu).toContain('"Escape"');
