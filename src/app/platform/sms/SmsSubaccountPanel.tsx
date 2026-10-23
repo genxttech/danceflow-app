@@ -15,8 +15,8 @@ import { CREATE_PHRASE } from "@/lib/sms/twilioIsv/panelCommands";
 import type { PanelMonthlyLimits } from "@/lib/billing/smsPanelMonthlyLimits";
 import { ChevronDown } from "lucide-react";
 import PanelMonthlyLimit from "./PanelMonthlyLimit";
-import SenderIdentity from "./SenderIdentity";
-import type { SenderOverviewRow } from "@/lib/sms/senderVerification";
+import SenderIdentity, { SenderSchedulerLine } from "./SenderIdentity";
+import type { SenderHealth, SenderOverviewRow } from "@/lib/sms/senderVerification";
 import {
   panelAuthorizeFeeAction,
   panelCreateEntityAction,
@@ -89,6 +89,7 @@ export default function SmsSubaccountPanel({
   requestKeys = {},
   monthlyLimits = null,
   senders = null,
+  senderHealth = null,
 }: {
   overview: PanelOverview | null;
   panels: StudioPanel[];
@@ -104,6 +105,8 @@ export default function SmsSubaccountPanel({
   monthlyLimits?: PanelMonthlyLimits | null;
   /** Sender readiness per linked studio (tw4_sender_overview); null when it cannot be read in this environment. */
   senders?: SenderOverviewRow[] | null;
+  /** Sender state machine and scheduler status (tw4_sender_health); null when it cannot be read in this environment. */
+  senderHealth?: SenderHealth | null;
 }) {
   const pending = (overview?.requests ?? []).filter((r) => r.status === "pending");
   return (
@@ -120,10 +123,11 @@ export default function SmsSubaccountPanel({
         <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">The subaccount onboarding data is not available in this environment yet.</p>
       ) : (
         <>
+          {senderHealth ? <SenderSchedulerLine scheduler={senderHealth.scheduler} /> : null}
           {pending.length > 0 ? <LocationRequests requests={pending} overview={overview!} /> : null}
           <div className="mt-4 space-y-4">
             {panels.length === 0 ? <p className="text-sm text-slate-500">No studio has submitted a texting setup yet.</p> : null}
-            {panels.map((panel) => <StudioCard key={panel.studioId} panel={panel} overview={overview!} expanded={panels.length === 1 || panel.studioId === focusStudioId} now={now} requestKey={requestKeys[panel.studioId] ?? ""} monthlyLimits={monthlyLimits} senders={senders} />)}
+            {panels.map((panel) => <StudioCard key={panel.studioId} panel={panel} overview={overview!} expanded={panels.length === 1 || panel.studioId === focusStudioId} now={now} requestKey={requestKeys[panel.studioId] ?? ""} monthlyLimits={monthlyLimits} senders={senders} senderHealth={senderHealth} />)}
           </div>
         </>
       )}
@@ -167,7 +171,7 @@ function LocationRequests({ requests, overview }: { requests: PanelRequest[]; ov
   );
 }
 
-function StudioCard({ panel, overview, expanded, now, requestKey, monthlyLimits, senders }: { senders: SenderOverviewRow[] | null; panel: StudioPanel; overview: PanelOverview; expanded: boolean; now: number; requestKey: string; monthlyLimits: PanelMonthlyLimits | null }) {
+function StudioCard({ panel, overview, expanded, now, requestKey, monthlyLimits, senders, senderHealth }: { senders: SenderOverviewRow[] | null; senderHealth: SenderHealth | null; panel: StudioPanel; overview: PanelOverview; expanded: boolean; now: number; requestKey: string; monthlyLimits: PanelMonthlyLimits | null }) {
   const stage = (key: StudioPanel["stages"][number]["key"]) => panel.stages.find((s) => s.key === key)!;
   const entity = panel.entity;
   const audit: PanelAudit[] = overview.audit.filter((a) => a.studioId === panel.studioId || (entity && entity.studios.some((s) => s.studioId === a.studioId))).slice(0, 15);
@@ -222,7 +226,7 @@ function StudioCard({ panel, overview, expanded, now, requestKey, monthlyLimits,
           {entity ? <PanelMonthlyLimit limit={monthlyLimits?.[entity.id] ?? null} /> : null}
           {entity ? <BudgetForms panel={panel} overview={overview} /> : null}
         </Section>
-        {entity && senders ? <SenderIdentity studioId={panel.studioId} row={senders.find((r) => r.studioId === panel.studioId) ?? null} /> : null}
+        {entity && senders ? <SenderIdentity studioId={panel.studioId} row={senders.find((r) => r.studioId === panel.studioId) ?? null} health={senderHealth?.senders.find((r) => r.studioId === panel.studioId) ?? null} /> : null}
 
 
         <Section title="Twilio subaccount" state={stage("subaccount").state} open={focus === "subaccount"}>
