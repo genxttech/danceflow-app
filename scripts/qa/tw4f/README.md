@@ -26,3 +26,5 @@ node scripts/qa/tw4f/run-chain.mjs down      # remove leftovers
 Requirements: Docker, the images `df-isoqa/base:20261205090000`, `public.ecr.aws/supabase/postgrest:v14.8`, `public.ecr.aws/supabase/kong:2.8.1`, Node 20+, and `node_modules` in the worktree you run from (copy it; do not `npm ci` through a junction).
 
 Host conditions: every suite records CPU %, free RAM and container count at start and end (`report.md` column, `report.json` `host`). A suite whose failure or infrastructure result coincides with CPU >= 85% or free RAM < 2 GB is annotated "resource exhaustion suspected"; report those separately from real regressions, and never count timeouts, skips or infra-blocked suites as passes.
+
+`--env KEY=VALUE` (repeatable) adds environment to every suite, and `--suite` also reaches `localStack.*` files that lack the `TW4A_LOCAL_URL` gate: `node scripts/qa/tw4f/run-chain.mjs suites --suite localStack.tw4rfl --env TW4RFL_DB=postgres --env ISO_QA_MARKER=1`. Do not use `--suite localStack.r2b.` on the merged chain (it refuses it by design).

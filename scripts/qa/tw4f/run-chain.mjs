@@ -25,6 +25,7 @@
  *   --cutoff <version>       highest version already inside the baseline image (default 20261205090000)
  *   --label <text>           name of the run in the report
  *   --out <dir>              evidence directory (default <QA home>/runs/<time>-<label>)
+ *   --env KEY=VALUE          extra environment for every suite (repeatable), e.g. --env TW4RFL_DB=postgres --env ISO_QA_MARKER=1
  *   --keep                   keep the chain image and worktrees
  *   --known <file>           known environment failures (default scripts/qa/tw4f/known-failures.json)
  *
@@ -69,7 +70,7 @@ const CRASH_RE = /terminated by signal|was terminated by|exited with exit code [
 
 // ------------------------------------------------------------------------------------------------------------------------------------ args
 function parseArgs(argv) {
-  const flags = { extraBranch: [], extra: [], suite: [] };
+  const flags = { extraBranch: [], extra: [], suite: [], env: {} };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -81,6 +82,7 @@ function parseArgs(argv) {
     if (k === "extra-branch") flags.extraBranch.push(v);
     else if (k === "extra") flags.extra.push(v);
     else if (k === "suite") flags.suite.push(v);
+    else if (k === "env") { const i = v.indexOf("="); flags.env[v.slice(0, i)] = v.slice(i + 1); }
     else flags[k.replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = v;
   }
   return { flags, rest };
@@ -366,6 +368,8 @@ async function suiteRun(plan, image, testsRef, outDir) {
   const tests = testWorktree(testsRef);
   const grep = git("grep", "-l", "TW4A_LOCAL_URL", tests.sha, "--", "src");
   let files = [...new Set(grep.split("\n").filter(Boolean).map((l) => l.replace(/^[0-9a-f]{40}:/, "")))].filter((f) => /\.test\.ts$/.test(f)).sort();
+  // suites that do not carry the TW4A_LOCAL_URL gate (tw4rfl, tw4rflops use TW4RFL_DB) are only reachable by name
+  if (flags.suite.length) files = [...new Set([...files, ...git("ls-tree", "-r", "--name-only", tests.sha, "--", "src").split("\n").filter((p) => /localStack\.[^/]*\.test\.ts$/.test(p))])].sort();
   if (flags.suite.length) files = files.filter((f) => flags.suite.some((s) => f.endsWith(s) || f.includes(s)));
   if (!files.length) return { verdict: "BLOCKED", results: [], note: "no localStack suites found" };
 
@@ -395,7 +399,7 @@ async function suiteRun(plan, image, testsRef, outDir) {
         const jsonOut = path.join(runDir, "vitest.json");
         const args = [path.join(tests.dir, "node_modules", "vitest", "vitest.mjs"), "run", "--no-file-parallelism", "--reporter=default", "--reporter=json", `--outputFile.json=${jsonOut}`, "--testTimeout=60000", "--hookTimeout=120000", f];
         const tmp = path.join(runDir, "tmp");
-        const r = spawnSync(process.execPath, args, { cwd: tests.dir, env: { ...process.env, ...api.env, TMP: tmp, TEMP: tmp, TMPDIR: tmp }, encoding: "utf8", maxBuffer: 1 << 28, timeout: 30 * 60_000, killSignal: "SIGKILL" });
+        const r = spawnSync(process.execPath, args, { cwd: tests.dir, env: { ...process.env, ...flags.env, ...api.env, TMP: tmp, TEMP: tmp, TMPDIR: tmp }, encoding: "utf8", maxBuffer: 1 << 28, timeout: 30 * 60_000, killSignal: "SIGKILL" });
         const out = `${r.stdout ?? ""}\n${r.stderr ?? ""}`;
         writeFileSync(path.join(runDir, "vitest.log"), out);
         writeFileSync(path.join(runDir, "postgres.log"), dockerLogs(base));
