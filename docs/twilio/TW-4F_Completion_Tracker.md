@@ -308,6 +308,36 @@ Follow-ups recorded during Wave 1:
   - Preserve existing evidence.
   - Each session cleans up only the containers and processes it owns.
 - Independent coding, code review and lightweight tests continue while Q1 waits.
+
+**#266 verified coverage** (harness 872a9130, chain 1207..1217 without 1215; each a PASS with exit 0 on a fresh DB, none skipped):
+
+| Area | Suites (tests) |
+|---|---|
+| Billing | tw4f3bpay 18, tw4f3bui 7, tw4monthly 28, tw4recexec 20, tw4recurring 30 |
+| SMS | tw4inbound 28, tw4recon 37, tw4sender 18 (main's version), tw4usage 26 |
+| Provisioning | r2ci1 10, r2ci2 15 |
+| twilioIsv | dryRun.tw4r1 15, isolatedQa.canary 5, feeres 43, tw4f3a 16, tw4f3b0 18, tw4fi 25, tw4r1 11 |
+
+**Not verified:**
+- tw4payhardening: timeouts; its 60-run property test is pinned at 90 s.
+- r2b: 53 skipped. Its beforeAll refuses a DB that has the real 1209 lifecycle, so it runs only on a partial chain. Follow-up for R2b/RFL.
+- tw4a, tw4f1b, r2a: known failures.
+- tw4rfl and tw4rflops: `matrix` does not discover them.
+
+Compare runs main-then-pr251, pr251-then-main and pr251-mid are identical (0 catalog differences). #266 is rerunning on main 6422e050, with 1215 included. That rerun is the authoritative main baseline for the suites `matrix` discovers.
+
+**Q1 exclusive run scope** (after #251, F4 and #266 release), so no duplicate work:
+- tw4rfl and tw4rflops (TW4RFL_DB, ISO_QA_MARKER)
+- tw4payhardening run solo
+- the #278 control: r2a, r2brfl and r2bp2.rfl on #266's iso-qa stack, on main and on J1's branch, one fresh DB each. J1's original harness differed from iso-qa (proxy, GUCs, transaction wrapping, readiness), so its 15 r2a failures may be a harness artifact.
+- the chain checks for #276–#280
+
+**#279 tw4rfl, exact result:**
+- 85 PASS
+- 1 PASS when run alone ("EXHAUSTED funding…"), after a load timeout
+- 1 BLOCKED (resource): the rollback test was killed by the 40-minute cap and not re-run
+
+**#274 head:** 26dec94e. The 1215 row is merged; 1218, 1219, 1222 and 1224 are provisional. Hash verifier and probe sync were not re-run after these edits.
 - This decision authorizes no merges, hosted migrations, deployments, provider spending, scheduler activation or SMS activation.
 
 Heads, CI and mergeability are re-checked before any merge is recommended. No PR merges without separate owner approval.
