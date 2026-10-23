@@ -265,6 +265,23 @@ commit;`);
       expect(psql(`select basis from public.studio_sms_provider_cover where resource_id = '${rows[0].id}'`)).toBe("pilot_approval");
     });
 
+    it("D5 on the REAL path: a monthly pilot reservation still held from last month is captured by R2a on approval, binds no cover, and the month's written approval is a second pilot capture (open owner decision, see PR)", () => {
+      const w = world({ pilot: true });
+      const c = campaign(w, { pilotReservation: "reserved", startedAgo: "40 days", reservedAgo: "40 days" });
+      replica(`insert into public.studio_sms_spend_events (legal_entity_id, studio_id, kind, amount_cents, status, approval_ref, authorized_by, authorized_at, reservation_key, reserved_at, credit_reservation_id, funding)
+        values ('${w.entity}', '${w.studio}', 'monthly', 1500, 'reserved', 'Written approval ${RUN} first month ${hex(3)}', '${P}', now() - interval '40 days', 'prov:${c.op}:monthly', now() - interval '40 days',
+                (select id from public.studio_sms_credit_reservations where reservation_key = 'prov:${c.op}:monthly'), 'pilot');`);
+      observeCampaign(w, c);
+      expect(psql(`select status from public.studio_sms_credit_reservations where reservation_key = 'prov:${c.op}:monthly'`)).toBe("captured");   // R2a 20261207: the first month is captured on approval
+      const rows = resourcesOf(w);
+      expect(rows).toHaveLength(1);
+      expect(count(`select 1 from public.studio_sms_provider_cover where resource_id = '${rows[0].id}'`)).toBe(0);   // D5: not this month's cover
+      if (!psql(`select 1 from public.studio_sms_price_list where kind = 'monthly' and active`)) call("tw4_price_set", "monthly", 1000, 150, "fixture monthly price", P);
+      call("tw4_rfl_pilot_cover", rows[0].id, psql(`select public._tw4ml_month_key('${w.entity}', now())`), `Written approval ${RUN} campaign month ${hex(3)}`, P);
+      // pinned so the open decision stays visible: one provider month, two pilot captures for this location's campaign fee
+      expect(Number(psql(`select count(*) from public.studio_sms_credit_reservations where studio_id = '${w.studio}' and funding = 'pilot' and status = 'captured' and kind = 'monthly'`))).toBe(2);
+    });
+
     it("a pilot reservation made AND captured in an earlier month never pays the month the campaign is registered in", () => {
       const w = world({ pilot: true });
       const c = campaign(w, { pilotReservation: "captured", startedAgo: "45 days", reservedAgo: "45 days", capturedAgo: "40 days" });
