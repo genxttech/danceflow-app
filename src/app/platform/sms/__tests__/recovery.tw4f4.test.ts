@@ -185,6 +185,13 @@ describe("recovery actions (platform admin only, session actor, re-verified ids)
     expect((absence.mock.calls[0][0] as { actorId: string; studioId: string; adapter: unknown }).actorId).toBe(ADMIN);
     expect((absence.mock.calls[0][0] as { studioId: string }).studioId).toBe(STUDIO);
     expect(rpc.find((c) => c.fn === "tw4_prov_evidence_claim")?.args.p_actor).toBe(ADMIN);
+    // #269: an attempt whose original scope cannot be established is skipped by the check; the console says so and never claims a listing
+    absence.mockResolvedValue({ outcome: "recorded", results: [], skipped: [{ operationId: OP, reason: "scope_unknown" }] });
+    const skipped = await run(recordProviderListingAction, { studioId: STUDIO, operationId: OP, confirm: "on" });
+    expect(skipped.ok).toBe(false);
+    expect(skipped.message).toMatch(/could not be established/);
+    absence.mockResolvedValue({ outcome: "scope_unavailable", skipped: [{ operationId: OP, reason: "scope_unknown" }] });
+    expect((await run(recordProviderListingAction, { studioId: STUDIO, operationId: OP, confirm: "on" })).message).toMatch(/could not be established/);
   });
 });
 

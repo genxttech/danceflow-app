@@ -127,6 +127,8 @@ const CHECK_MESSAGE: Record<string, string> = {
   nothing_to_check: "There is no fee-bearing campaign attempt to check, or the studio has no ready Messaging Service. Nothing was recorded.",
   retry_later: "The provider listing could not be read completely. A failed read is not evidence; nothing was recorded. Try again later.",
   record_failed: "The database refused the listing (too early, too close to the previous read, or not of the attempt's own Messaging Service). Nothing was recorded.",
+  // #269: the attempt's original subaccount or Messaging Service could not be established, so nothing was read for it (fail closed)
+  scope_unavailable: "The attempt's original subaccount or Messaging Service could not be established, so nothing was read or recorded for it. Investigate the ledger before trying again.",
 };
 
 /**
@@ -181,6 +183,7 @@ export async function recordProviderListing(ports: EvidencePorts, actorId: strin
   }
   if (out.outcome !== "recorded") return bad(CHECK_MESSAGE[out.outcome] ?? CHECK_MESSAGE.record_failed);
   const mine = out.results.find((r) => r.operationId === operationId);
+  if (!mine && (out as { skipped?: { operationId: string }[] }).skipped?.some((s) => s.operationId === operationId)) return bad(CHECK_MESSAGE.scope_unavailable);
   const verdicts = out.results.map((r) => r.verdict).join(", ");
   const orphans = out.results.reduce((n, r) => n + r.orphans, 0);
   return good(
