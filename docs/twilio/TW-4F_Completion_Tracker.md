@@ -282,9 +282,18 @@ Re-checked 2026-10-23 with `gh pr view`; `main` is still `960a9d02`. Every PR be
 | #274 | e4116404 | H1 hosted manifest | Docs only. F3 and J2 rows provisional; F1, F4 and F5 rows wait for their PRs. |
 | #275 | c858ddc1 | Q1 runner and E2E scaffolding | Baseline partial (load); needs a re-run on an idle host. |
 | #276 | d99f42a0 | J2 owner reads, 1222 | j2owner 12/12, r2ci2 15/15, unit 205/205. r2b and tw4rfl BLOCKED by load; owner browser E2E BLOCKED. |
-| #277 | c3971961 | F3 reconciler gate, 1218 | `page.tsx` and `tw4sender` test rebase after #251 (and F4) merge. |
+| #277 | c3971961 | F3 reconciler gate, 1218 | f3recon 10/10, tw4recon 37/37, tw4usage 26/26, tw4inbound 28/28, tw4sender 18/18 (3 on a solo rerun). r2b not applicable on the main chain. Includes the accepted out-of-ledger `deliveryOutcome.ts` token. `page.tsx` and `tw4sender` test rebase after #251 (and F4) merge. |
+| #278 | 629e7314 | J1 admin orchestration, no SQL | tw4fj1 11/11, r2b 53/53. **Open:** the PR body calls r2a (15 failures), r2brfl (1) and r2bp2.rfl (1) pre-existing, but no main-only control run was done, and #267's refresh reported r2a 28/1 skipped/0 failed on the same chain. Needs a main-only r2a control before the claim is accepted. |
+| #279 | 57780760 | F5 release adapters, 1224 | f5canceltarget 8/8, contract 10/10, runner 26/26; tw4rfl 85/87 (load timeout; the run was cut by the 40-minute cap), tw4rflops 63/64 (QA-image grant gap). **Two deferred P2s need the owner's disposition before merge:** P2-3 (provider request IDs in the evidence digest) and P2-4 (RFL-owned `beginCancel` maps a malformed execute to skip). Real Twilio DELETE BLOCKED. |
+| #280 | 4046b8f6 | F1 pilot funding + act lock order, 1219 | f1funding 25/25 with and without 1218, tw4rfl 87/87, r2brfl 27/28 (load-sensitive wall-clock check). tw4rflops, r2b and full pilot activation BLOCKED. Redefines only `_tw4act_*`/`tw4_act_*` (adds `_tw4act_pilot_funding`); `tw4_num_retire`/`tw4_num_observe` are referenced in comments only. **Merges after #277** (apply 1218 then 1219; roll back 1219 first). |
 
-Not yet PRs: F1 (local a69770d6), F4 (local 231efad3), J1 (local 629e7314) and F5. Each waits for its final DB runs.
+Not yet a PR: F4 (local 231efad3), waiting for its DB slot and for #251 and #269 to merge.
+
+Follow-ups recorded during Wave 1:
+
+- `_tw4ml_month_start` scans `pg_timezone_names` on every call for a business with no `studio_sms_entity_timezones` row; this can hit the 8 s authenticated statement timeout in production (found by J2; may be a gap left after `20261202140000`). Owner: RFL/monthly limits.
+- The #266 base image lacks `auth.users` columns (`email_confirmed_at`, `banned_until`, `deleted_at`) and the default `authenticated` UPDATE/DELETE grant on `outbound_deliveries`; tw4rflops cannot run on a stock stack until #266 adds both.
+- Interrupted tw4rfl / r2brfl / r2bp2 runs leave pilot-exception and orphan rows behind that break later suites on the same database; run one suite per fresh database.
 
 Heads, CI and mergeability are re-checked before any merge is recommended. No PR merges without separate owner approval.
 
