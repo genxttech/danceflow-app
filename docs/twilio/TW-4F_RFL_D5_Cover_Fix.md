@@ -34,7 +34,7 @@ period opens as before after the grace; the written approval closes it (`covered
 
 ## Month key: `cr.created_at` everywhere (R2b's `started_at` helper)
 
-The RFL rule keys on the reservation's own `cr.created_at`, the same predicate F1 (`_tw4act_pilot_funding`, PR 280) and F4 use:
+The RFL rule keys on the reservation's own `cr.created_at`, the same month condition F1 (`_tw4act_pilot_funding`, PR 280) and F4 use:
 `pc.basis = 'pilot_approval' or month_key(entity, cr.created_at) = pc.period_key`. R2b's `_tw4num_ledger_reservation` is NOT edited; it keys the month on the purchase
 operation's `started_at` and only decides which reservation the ledger path PASSES to registration. The two are consistent because the RFL core then applies its own
 check, so the ledger helper can only narrow, never widen:
@@ -58,6 +58,21 @@ superseded by the written approval.
 
 `studio_sms_onboarding_audit_action_check` is extended (from the live list, as 20261209 did) with `rfl_cover_superseded` and `rfl_initial_cover_skipped`. The rollback leaves the two actions allowed (audit rows may already use them); this is the same documented widening as the earlier RFL rollbacks.
 
-## Verification status (real schema, dedicated container, run serially)
+## Pilot funding condition (review P2-1)
 
-New suite 18/18; tw4rfl 87/87 and r2brfl 28/28 unchanged; tw4rflops 64/64 after one assertion in its migration-identity test was extended to know 20261225 replaces tw4_rfl_pilot_cover and _tw4rfl_cover (same pattern it already uses for 20261217). Apply / rollback / re-apply restore identical function and cover-table fingerprints; the rollback refuses while a superseded row exists. F1 (#280) 1219 applies before or after 1225; its f1funding suite passes 24/25 on the numeric order (1219 then 1225): the one failure asserts that a cross-month reservation is BOUND at registration, which D5 intentionally stops (no cover row; its funding verdict is unchanged and passes with that assertion adjusted).
+A cover counts only if its reservation is a PILOT reservation of this business, location and fee kind (`cr.funding = 'pilot'`, `cr.kind = r.fee_kind`, entity and studio equal the resource's), in addition to reserved/captured and the month rule: the conditions F1's `_tw4act_pilot_funding` applies. So the earlier wording "the same predicate F1 uses" held for the month rule only; with this condition the RFL cover predicate and F1's agree. A credit-funded reservation therefore never covers a period:
+* at registration it is not bound (the resource still registers; `rfl_initial_cover_skipped` with `reason=reservation_not_pilot_funded`; the result carries `initial_cover_skipped: not_pilot_funded`);
+* an already-bound credit-funded `initial_reservation` row is non-counting and is superseded by the written approval (`superseded_reason = reservation_not_pilot_funded`). Reason order when several apply: released/not reserved-captured, then not pilot-funded, then month.
+Registration still refuses (TW040) a reservation of another business, another fee kind or a released one, as before. The tw4rfl suite's fixture reservation was changed to `pilot` funding for this reason.
+
+## Notes from review
+
+* A `pilot_approval` cover cannot become "released and uncovered" in practice: its reservation is captured immediately by `tw4_rfl_pilot_cover` and a captured reservation is final. The suite still pins that such a cover would be reported uncovered yet is never superseded (TW043).
+* The rollback now takes `lock table public.studio_sms_provider_cover in share row exclusive mode` before its refusal check, so no cover can be superseded between the check and the restore.
+* Reverse-order requirement: the 20261211 and 20261217 rollbacks restore bodies this migration replaced (`_tw4rfl_guard`, `_tw4rfl_register_core`, `_tw4rfl_cover`, `tw4_rfl_pilot_cover` predecessors). Roll back 20261225 FIRST; those older rollbacks must not be run while 20261225 is applied (documentation only; those files are not edited here).
+* Not done (P3-2): a database check that `superseded_by_cover_id` points to a live approval cover of the same resource and period. The supersede mark is written before the approval row exists (the live-period unique index forces that order), and the pointer is a pre-generated id used by the same function; adding a deferred check was judged not worth risking the fingerprinted predecessor logic.
+* OPEN OWNER DECISION (P2-2, tracked under KI-1, owner re-decision before ConfiDance activation): D5 keys on the reservation's `cr.created_at`, not on the month Twilio first bills the fee, so the $150 pilot ceiling can be used twice across months (a still-captured cross-month reservation keeps counting while the new approval reserves again). The rule is unchanged here.
+
+## Verification status
+
+The first real-schema pass (before the P2-1 change) was: new suite 18/18, tw4rfl 87/87, r2brfl 28/28, tw4rflops 64/64 (one identity assertion extended), apply / rollback / re-apply fingerprints identical, rollback refusal with superseded rows, F1 1219 applies before or after 1225 (f1funding 24/25 on the numeric order; the one failure asserts a cross-month cover is bound, which D5 stops). The P2-1 funding condition, the new audit reason, the rollback lock and three new suite scenarios were added afterwards: only tsc, eslint and the static shape tests have been run on them. The real-schema reruns of every suite, the fingerprint chain and the F1 scenario are PENDING a database slot.

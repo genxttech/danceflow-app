@@ -97,11 +97,16 @@ describe("20261225090000 RFL D5 cover: migration shape", () => {
     expect(cover).toContain("pc.superseded_at is null");
     expect(cover).toContain("public._tw4ml_month_key(r.legal_entity_id, cr.created_at) = pc.period_key");
     expect(cover).toContain("pc.basis = 'pilot_approval' or");
+    // F1 parity: only a pilot reservation of this business, location and fee counts
+    expect(cover).toContain("cr.legal_entity_id = r.legal_entity_id and cr.studio_id = r.studio_id and cr.funding = 'pilot' and cr.kind = r.fee_kind");
     const core = fnBody(mig, SIGS.core.sig);
     expect(core).toContain("public._tw4ml_month_key(v_entity, v_res.created_at) = v_key");
     expect(core).toContain("rfl_initial_cover_skipped");
     // registration is never refused for the month mismatch
-    expect(core.slice(core.indexOf("v_res.created_at) = v_key"), core.indexOf("v_skipped := true;"))).not.toMatch(/raise/);
+    expect(core).toContain("if v_res.funding is distinct from 'pilot' then");
+    expect(core).toContain("v_why := 'not_pilot_funded';");
+    const bind = core.slice(core.indexOf("if v_res.funding is distinct from 'pilot' then"), core.indexOf("perform public._tw4rfl_audit"));
+    expect(bind).not.toMatch(/raise/);
   });
 
   it("tw4_rfl_pilot_cover keeps every refusal, the write-flag pattern and the lock order; it supersedes only a non-counting initial_reservation cover", () => {
@@ -115,6 +120,8 @@ describe("20261225090000 RFL D5 cover: migration shape", () => {
     expect(after).toContain("if pc.basis = 'initial_reservation' and not exists (");
     expect(after).toContain("cr.status in ('reserved', 'captured')");
     expect(after).toContain("public._tw4ml_month_key(r.legal_entity_id, cr.created_at) = pc.period_key");
+    expect(after).toContain("cr.legal_entity_id = r.legal_entity_id and cr.studio_id = r.studio_id and cr.funding = 'pilot' and cr.kind = r.fee_kind");
+    expect(after).toContain("reservation_not_pilot_funded");
     // the supersede mark happens after the funding checks (hold, ceiling, price): a refusal rolls everything back
     expect(after.indexOf("v_sup := true")).toBeLessThan(after.indexOf("update public.studio_sms_provider_cover set superseded_at"));
     expect(after.indexOf("the pilot ceiling would be exceeded")).toBeLessThan(after.indexOf("update public.studio_sms_provider_cover set superseded_at"));
@@ -151,6 +158,8 @@ describe("20261225090000 RFL D5 cover: migration shape", () => {
     }
     expect(rollback).toMatch(/where superseded_at is not null\) then\s+raise exception 'd5-cover rollback refused/);
     expect(rollback.indexOf("rollback refused")).toBeLessThan(rollback.indexOf("create or replace function"));
+    expect(rollback).toContain("lock table public.studio_sms_provider_cover in share row exclusive mode;");
+    expect(rollback.indexOf("lock table")).toBeLessThan(rollback.indexOf("rollback refused"));
     expect(rollback).toContain("add constraint studio_sms_provider_cover_period unique (resource_id, period_key)");
     expect(rollback).toContain("drop index public.studio_sms_provider_cover_period_live");
     expect(rollback).not.toMatch(/delete from|truncate|drop table/i);

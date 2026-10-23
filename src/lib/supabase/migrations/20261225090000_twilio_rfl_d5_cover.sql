@@ -1,11 +1,11 @@
 -- 20261225090000_twilio_rfl_d5_cover.sql
 -- TW-4F RFL decision D5 (Git-only until separately authorized; dark): a resource's own pilot reservation counts as the REGISTRATION period's cover only while it is
--- reserved/captured AND was made in the registration month. Otherwise the resource registers with NO cover and the period needs its own written approval.
---   1. _tw4rfl_register_core: a reservation from another month no longer binds a cover (the resource still registers; an audit row says the binding was skipped).
+-- reserved/captured, pilot-funded for this business, location and fee, AND was made in the registration month. Otherwise the resource registers with NO cover and the period needs its own written approval.
+--   1. _tw4rfl_register_core: a reservation from another month, or one that is not pilot-funded, no longer binds a cover (the resource still registers; an audit row says the binding was skipped and why).
 --   2. tw4_rfl_pilot_cover: a written approval may SUPERSEDE an initial_reservation cover that no longer counts (month mismatch or released reservation). The old row is
---      kept and marked (superseded_at/by/reason/by_cover_id); a counting cover or a pilot_approval cover is never superseded (TW043). Ceiling, hold, window,
+--      kept and marked (superseded_at/by/reason/by_cover_id); a counting cover or a pilot_approval cover is never superseded (TW043). A credit-funded reservation never counts. Ceiling, hold, window,
 --      single-use reference, admin-only, tw4.rfl_write and lock order are unchanged.
---   3. _tw4rfl_cover (and so readiness, gate, scan, reports) counts only a live (not superseded), counting cover: the same predicate F1 uses (_tw4act_pilot_funding).
+--   3. _tw4rfl_cover (and so readiness, gate, scan, reports) counts only a live (not superseded), counting cover, with the month, funding, kind and location conditions of F1 (_tw4act_pilot_funding).
 --   4. _tw4rfl_guard (the 20261211 body): the only cover UPDATE allowed is the supersede mark, under tw4.rfl_write.
 --   5. Additive schema: four nullable supersede columns, an all-or-none check, and the one-cover-per-period uniqueness now applies to live (not superseded) rows.
 -- Requires 20261209..20261217. Rollback: rollback/20261225090000_twilio_rfl_d5_cover_rollback.sql (refuses while any superseded evidence exists).
@@ -62,7 +62,7 @@ end $$;
 alter table public.studio_sms_provider_cover
   add column superseded_at timestamptz null,
   add column superseded_by uuid null,
-  add column superseded_reason text null check (superseded_reason in ('reservation_month_differs', 'reservation_not_counting')),
+  add column superseded_reason text null check (superseded_reason in ('reservation_month_differs', 'reservation_not_counting', 'reservation_not_pilot_funded')),
   add column superseded_by_cover_id uuid null,
   add constraint studio_sms_provider_cover_superseded_shape check ((superseded_at is null) = (superseded_by is null and superseded_reason is null and superseded_by_cover_id is null)
     and (superseded_at is null or basis = 'initial_reservation'));
@@ -157,6 +157,7 @@ begin
   end if;
   if exists (select 1 from public.studio_sms_provider_cover pc join public.studio_sms_credit_reservations cr on cr.id = pc.reservation_id
               where pc.resource_id = r.id and pc.period_key = p_key and pc.superseded_at is null and cr.status in ('reserved', 'captured')
+                and cr.legal_entity_id = r.legal_entity_id and cr.studio_id = r.studio_id and cr.funding = 'pilot' and cr.kind = r.fee_kind
                 -- 20261225 (D5): a registration-time reservation covers only the month its money was set aside in; an approval's own reservation is for its period
                 and (pc.basis = 'pilot_approval' or public._tw4ml_month_key(r.legal_entity_id, cr.created_at) = pc.period_key)) then
     return 'covered:' || (select pc.basis from public.studio_sms_provider_cover pc where pc.resource_id = r.id and pc.period_key = p_key and pc.superseded_at is null);
@@ -217,6 +218,7 @@ declare
   v_key text;
   v_bound boolean := false;
   v_skipped boolean := false;
+  v_why text;
 begin
   if p_actor is null then
     raise exception 'a registration records who it was registered by' using errcode = '22023';
@@ -276,21 +278,26 @@ begin
       raise exception 'the initial reservation does not belong to this resource''s fee' using errcode = 'TW040';
     end if;
     v_key := public._tw4ml_month_key(v_entity, r.registered_at);
-    -- 20261225 (D5): the reservation covers the registration period only when it was made in the registration month. A reservation from another month registers the
+    -- 20261225 (D5): the reservation covers the registration period only when it is pilot-funded and was made in the registration month. A reservation from another month registers the
     -- resource WITHOUT cover (refusing would leave a provider resource out of the inventory); that period then needs its own written approval (tw4_rfl_pilot_cover).
-    if public._tw4ml_month_key(v_entity, v_res.created_at) = v_key then
+    -- a credit-funded reservation is never provider-fee cover for the pilot business either (only a pilot reservation is bound, as F1's funding check requires)
+    if v_res.funding is distinct from 'pilot' then
+      v_skipped := true;
+      v_why := 'not_pilot_funded';
+    elsif public._tw4ml_month_key(v_entity, v_res.created_at) = v_key then
       insert into public.studio_sms_provider_cover (resource_id, legal_entity_id, studio_id, period_key, basis, reservation_id, recorded_by)
       values (r.id, v_entity, p_studio_id, v_key, 'initial_reservation', v_res.id, p_actor);
       v_bound := true;
     else
       v_skipped := true;
+      v_why := 'month_mismatch';
     end if;
   end if;
   perform public._tw4rfl_audit(p_studio_id, case when p_system then null else p_actor end, 'rfl_registered', 'resource=' || r.id || ';system=' || p_system || ';initiated_by=' || p_actor || ';kind=' || p_kind || ';fee=' || coalesce(v_fee, 'none') || ';initial_cover=' || v_bound);
   if v_skipped then
-    perform public._tw4rfl_audit(p_studio_id, case when p_system then null else p_actor end, 'rfl_initial_cover_skipped', 'resource=' || r.id || ';period=' || v_key || ';reason=reservation_month_differs_from_registration_month;reservation=' || v_res.id);
+    perform public._tw4rfl_audit(p_studio_id, case when p_system then null else p_actor end, 'rfl_initial_cover_skipped', 'resource=' || r.id || ';period=' || v_key || ';reason=' || case v_why when 'not_pilot_funded' then 'reservation_not_pilot_funded' else 'reservation_month_differs_from_registration_month' end || ';reservation=' || v_res.id);
   end if;
-  return jsonb_build_object('resource_id', r.id, 'fee_kind', v_fee, 'replayed', false) || case when v_skipped then jsonb_build_object('initial_cover_skipped', 'month_mismatch') else '{}'::jsonb end;
+  return jsonb_build_object('resource_id', r.id, 'fee_kind', v_fee, 'replayed', false) || case when v_skipped then jsonb_build_object('initial_cover_skipped', v_why) else '{}'::jsonb end;
 end $$;
 
 create or replace function public.tw4_rfl_pilot_cover(p_resource_id uuid, p_period_key text, p_approval_ref text, p_actor uuid)
@@ -336,9 +343,10 @@ begin
       return jsonb_build_object('cover_id', pc.id, 'replayed', true);
     end if;
     -- 20261225 (D5): ONLY a registration-time (initial_reservation) cover that no longer counts may be superseded by a written approval: its reservation was released,
-    -- or it was made in another month than the registration month. A cover that counts, or any approval, is never superseded.
+    -- it was not a pilot reservation of this business, location and fee, or it was made in another month than the registration month. A cover that counts, or any approval, is never superseded.
     if pc.basis = 'initial_reservation' and not exists (
          select 1 from public.studio_sms_credit_reservations cr where cr.id = pc.reservation_id and cr.status in ('reserved', 'captured')
+            and cr.legal_entity_id = r.legal_entity_id and cr.studio_id = r.studio_id and cr.funding = 'pilot' and cr.kind = r.fee_kind
             and public._tw4ml_month_key(r.legal_entity_id, cr.created_at) = pc.period_key) then
       v_old := pc;
       v_sup := true;
@@ -368,8 +376,11 @@ begin
     -- the old row and its history stay (never deleted); it only stops being the period's live cover
     perform set_config('tw4.rfl_write', 'on', true);
     update public.studio_sms_provider_cover set superseded_at = clock_timestamp(), superseded_by = p_actor, superseded_by_cover_id = v_new,
-           superseded_reason = case when exists (select 1 from public.studio_sms_credit_reservations cr where cr.id = v_old.reservation_id and cr.status in ('reserved', 'captured'))
-                                    then 'reservation_month_differs' else 'reservation_not_counting' end
+           superseded_reason = case when not exists (select 1 from public.studio_sms_credit_reservations cr where cr.id = v_old.reservation_id and cr.status in ('reserved', 'captured'))
+                                    then 'reservation_not_counting'
+                                    when not exists (select 1 from public.studio_sms_credit_reservations cr where cr.id = v_old.reservation_id and cr.legal_entity_id = r.legal_entity_id
+                                                      and cr.studio_id = r.studio_id and cr.funding = 'pilot' and cr.kind = r.fee_kind)
+                                    then 'reservation_not_pilot_funded' else 'reservation_month_differs' end
      where id = v_old.id and superseded_at is null;
     perform set_config('tw4.rfl_write', 'off', true);
     perform public._tw4rfl_audit(r.studio_id, p_actor, 'rfl_cover_superseded', 'resource=' || r.id || ';period=' || p_period_key || ';old_cover=' || v_old.id || ';new_cover=' || v_new);

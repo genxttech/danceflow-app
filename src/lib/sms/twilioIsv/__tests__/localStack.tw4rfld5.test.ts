@@ -122,7 +122,7 @@ const resv = (w: World, o: { ageDays?: number; status?: "reserved" | "captured" 
   const id = randomUUID();
   const status = o.status ?? "captured";
   replica(`insert into public.studio_sms_credit_reservations (id, legal_entity_id, studio_id, kind, amount_cents, funding, status, reservation_key, closed_at, created_at)
-    values ('${id}', '${w.entity}', '${w.studio}', '${o.kind ?? "number"}', 100, '${o.funding ?? "credit"}', '${status}', 'init:${id}', ${status === "reserved" ? "null" : "now()"}, now() - interval '${o.ageDays ?? 0} days');`);
+    values ('${id}', '${w.entity}', '${w.studio}', '${o.kind ?? "number"}', 100, '${o.funding ?? "pilot"}', '${status}', 'init:${id}', ${status === "reserved" ? "null" : "now()"}, now() - interval '${o.ageDays ?? 0} days');`);
   return id;
 };
 const registerNumber = (w: World, reservation: string | null = null) => {
@@ -209,6 +209,28 @@ commit;`);
       expect(hasCode(callErr("tw4_rfl_register", w.studio, P, "number", sid("PN"), w.account, e164(), "admin", null, resv(w, { kind: "monthly" })), "TW040")).toBe(true);
     });
 
+    it("a CREDIT-funded reservation is never cover: registration succeeds without it (audited as not pilot-funded), readiness agrees, and the written approval then succeeds", () => {
+      const w = pilotWorld();
+      const num = registerNumber(w, resv(w, { funding: "credit" }));
+      expect(num.initial_cover_skipped).toBe("not_pilot_funded");
+      expect(rows(num.resource_id)).toHaveLength(0);
+      expect(audit(w, "rfl_initial_cover_skipped")).toBe(1);
+      expect(psql(`select note from public.studio_sms_onboarding_audit where studio_id = '${w.studio}' and action = 'rfl_initial_cover_skipped'`)).toContain("reason=reservation_not_pilot_funded");
+      expect(coverOf(num.resource_id)).toMatch(/^uncovered:/);
+      expect(blockers(w)).toContain("number_current_period_uncovered");
+      pilotCover(num.resource_id, cur(), ref("after-credit-funded"));
+      expect(coverOf(num.resource_id)).toBe("covered:pilot_approval");
+      expect(rows(num.resource_id).filter((r) => r.sup)).toHaveLength(0);
+    });
+
+    it("a pilot-funded same-month reservation of this business, location and fee still binds and counts", () => {
+      const w = pilotWorld();
+      const num = registerNumber(w, resv(w, { funding: "pilot", status: "reserved" }));
+      expect(num.initial_cover_skipped).toBeUndefined();
+      expect(coverOf(num.resource_id)).toBe("covered:initial_reservation");
+      expect(blockers(w)).not.toContain("number_current_period_uncovered");
+    });
+
     it("the ledger straddle: the operation's started_at is in the current month but the reservation's created_at is not; the RFL rule keys on cr.created_at (a non-counting cover that the supersede path handles)", () => {
       const w = pilotWorld();
       const onboarding = randomUUID();
@@ -292,6 +314,21 @@ commit;`);
       replica(`update public.studio_sms_credit_reservations set status = 'released' where id = '${rv}';`);
       pilotCover(num.resource_id, cur(), ref("both"));
       expect(rows(num.resource_id)[0].reason).toBe("reservation_not_counting");
+    });
+
+    it("a pre-existing credit-funded initial_reservation cover row is not coverage and is superseded by a written approval (reason: not pilot-funded); the reservation is left as it was", () => {
+      const w = pilotWorld();
+      const num = registerNumber(w, null);
+      const rv = resv(w, { funding: "credit" });
+      replica(`insert into public.studio_sms_provider_cover (resource_id, legal_entity_id, studio_id, period_key, basis, reservation_id, recorded_by)
+        values ('${num.resource_id}', '${w.entity}', '${w.studio}', '${cur()}', 'initial_reservation', '${rv}', '${P}');`);
+      expect(coverOf(num.resource_id)).toMatch(/^uncovered:/);
+      expect(blockers(w)).toContain("number_current_period_uncovered");
+      const out = pilotCover(num.resource_id, cur(), ref("supersede-credit-funded"));
+      const [old, fresh] = rows(num.resource_id);
+      expect([old.sup, old.reason, old.reservation, old.by_cover, fresh.id]).toEqual([true, "reservation_not_pilot_funded", rv, out.cover_id, out.cover_id]);
+      expect(psql(`select status || ':' || funding from public.studio_sms_credit_reservations where id = '${rv}'`)).toBe("captured:credit");
+      expect(coverOf(num.resource_id)).toBe("covered:pilot_approval");
     });
 
     it("a valid counting initial_reservation cover is never superseded: TW043, nothing changes", () => {

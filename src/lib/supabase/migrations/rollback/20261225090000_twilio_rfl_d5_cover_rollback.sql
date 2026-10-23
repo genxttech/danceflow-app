@@ -3,6 +3,8 @@
 -- evidence and dropping it would lose it (and restoring the constraint could not hold both rows). Registrations made without cover while live stay valid rows.
 begin;
 set local lock_timeout = '5s';
+-- no cover can be superseded between the refusal check and the restore
+lock table public.studio_sms_provider_cover in share row exclusive mode;
 do $$
 begin
   if not exists (select 1 from pg_attribute a where a.attrelid = 'public.studio_sms_provider_cover'::regclass and a.attname = 'superseded_at' and not a.attisdropped) then
