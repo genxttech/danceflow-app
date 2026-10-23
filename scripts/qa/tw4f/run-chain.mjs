@@ -323,6 +323,20 @@ async function chainCheck(plan, image, outDir) {
   function finish(verdict) { return { verdict, stages, fingerprintLines: null }; }
 }
 
+// ------------------------------------------------------------------------------------------------------------------------------------ host conditions
+/** CPU % (1 s sample across all cores), free RAM and running container count: recorded per suite so a load-driven failure is never mistaken for a regression. */
+async function hostSample() {
+  const snap = () => os.cpus().reduce((a, c) => { const t = Object.values(c.times).reduce((x, y) => x + y, 0); return [a[0] + t, a[1] + c.times.idle]; }, [0, 0]);
+  const [t0, i0] = snap();
+  await sleep(1000);
+  const [t1, i1] = snap();
+  const cpu = t1 > t0 ? Math.round(100 * (1 - (i1 - i0) / (t1 - t0))) : null;
+  const containers = dockerTry("ps", "-q").out.split("\n").filter(Boolean).length;
+  return { cpuPct: cpu, freeRamGb: Number((os.freemem() / 2 ** 30).toFixed(1)), containers };
+}
+/** A host is "saturated" when CPU >= 85% or free RAM < 2 GB at either end of a suite: failures then count as resource exhaustion, not as regressions. */
+const saturated = (h) => Boolean(h && ((h.cpuPct ?? 0) >= 85 || h.freeRamGb < 2));
+
 // ------------------------------------------------------------------------------------------------------------------------------------ suites
 const known = (() => { const f = flags.known ?? path.join(here, "known-failures.json"); return existsSync(f) ? JSON.parse(readFileSync(f, "utf8")) : { known: [] }; })();
 
@@ -372,7 +386,7 @@ async function suiteRun(plan, image, testsRef, outDir) {
     for (const [i, f] of files.entries()) {
       const base = `df-q1-s${i}-${process.pid}`;
       const t0 = Date.now();
-      const rec = { suite: f, status: "BLOCKED", seconds: 0, counts: null, failedTests: [], note: "" };
+      const rec = { suite: f, status: "BLOCKED", seconds: 0, counts: null, failedTests: [], note: "", host: { start: await hostSample(), end: null } };
       const runDir = path.join(outDir, `suite-${i}-${path.basename(f, ".test.ts")}`);
       mkdirSync(path.join(runDir, "tmp"), { recursive: true });
       try {
@@ -411,6 +425,9 @@ async function suiteRun(plan, image, testsRef, outDir) {
         rec.status = e.infra ? "INFRA" : "BLOCKED"; rec.note = e.message;
       } finally {
         rec.seconds = Math.round((Date.now() - t0) / 1000);
+        rec.host.end = await hostSample();
+        rec.hostSaturated = saturated(rec.host.start) || saturated(rec.host.end);
+        if (rec.hostSaturated && ["FAIL", "INFRA"].includes(rec.status)) rec.note = `${rec.note} [resource exhaustion suspected: host saturated during this suite; rerun on an idle host before treating as a regression]`.trim();
         removeAll(`${base}-kong`, `${base}-rest`, base);
       }
       results.push(rec);
@@ -486,8 +503,8 @@ function markdown(r) {
   }
   if (r.suites) {
     L.push(`\n**Suites (each on a fresh clone of the applied chain)**: ${r.suites.verdict} in ${r.suites.seconds}s`);
-    L.push("| Suite | Result | Tests | Seconds | Note |\n|---|---|---|---|---|");
-    for (const s of r.suites.results) L.push(`| ${s.suite.replace("src/lib/", "")} | ${s.status} | ${s.counts ? `${s.counts.passed}/${s.counts.total}${s.counts.skipped ? ` (+${s.counts.skipped} skipped)` : ""}` : "-"} | ${s.seconds} | ${(s.note + (s.failedTests.length ? ` failing: ${s.failedTests.slice(0, 4).join("; ")}` : "")).replace(/\|/g, "/").slice(0, 300)} |`);
+    L.push("| Suite | Result | Tests | Seconds | Host start -> end (CPU %/free GB/containers) | Note |\n|---|---|---|---|---|---|");
+    for (const s of r.suites.results) L.push(`| ${s.suite.replace("src/lib/", "")} | ${s.status} | ${s.counts ? `${s.counts.passed}/${s.counts.total}${s.counts.skipped ? ` (+${s.counts.skipped} skipped)` : ""}` : "-"} | ${s.seconds} | ${[s.host?.start, s.host?.end].map((h) => (h ? `${h.cpuPct}%/${h.freeRamGb}/${h.containers}` : "-")).join(" -> ")}${s.hostSaturated ? " SATURATED" : ""} | ${(s.note + (s.failedTests.length ? ` failing: ${s.failedTests.slice(0, 4).join("; ")}` : "")).replace(/\|/g, "/").slice(0, 300)} |`);
   }
   return L.join("\n");
 }

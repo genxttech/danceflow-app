@@ -24,3 +24,5 @@ node scripts/qa/tw4f/run-chain.mjs down      # remove leftovers
 * A skipped suite or a suite that ran nothing is BLOCKED, never PASS. A listed known failure must match every failing test name, otherwise the suite is FAIL.
 
 Requirements: Docker, the images `df-isoqa/base:20261205090000`, `public.ecr.aws/supabase/postgrest:v14.8`, `public.ecr.aws/supabase/kong:2.8.1`, Node 20+, and `node_modules` in the worktree you run from (copy it; do not `npm ci` through a junction).
+
+Host conditions: every suite records CPU %, free RAM and container count at start and end (`report.md` column, `report.json` `host`). A suite whose failure or infrastructure result coincides with CPU >= 85% or free RAM < 2 GB is annotated "resource exhaustion suspected"; report those separately from real regressions, and never count timeouts, skips or infra-blocked suites as passes.
