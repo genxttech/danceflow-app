@@ -12,10 +12,13 @@ export default function PublicSignup({
   action,
   nextPath,
   emailHint,
+  errorMessage,
 }: {
   action: (formData: FormData) => Promise<void>;
   nextPath: string;
   emailHint: string;
+  /** Fixed message for a failed attempt (from a known error code), or null. */
+  errorMessage: string | null;
 }) {
   const loginSearch = new URLSearchParams({ intent: "public" });
   if (nextPath) loginSearch.set("next", nextPath);
@@ -39,6 +42,15 @@ export default function PublicSignup({
               back to your student portal. We email you a secure sign-in link, so there is no
               password to set up.
             </p>
+
+            {errorMessage ? (
+              <div
+                role="alert"
+                className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm leading-6 text-rose-800"
+              >
+                {errorMessage}
+              </div>
+            ) : null}
 
             <form action={action} className="mt-8 space-y-5">
               <input type="hidden" name="signupIntent" value="public" />
