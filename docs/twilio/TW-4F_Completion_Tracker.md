@@ -419,6 +419,31 @@ Still unresolved:
 | U-9 | SMS quiet hours: inside TW-4F or separate | Scope of S-8 | — |
 | U-10 | D1: delete the parent-account Stage B draft before the real ConfiDance run | Required before Stage C | `TW-4F_Production_Onboarding_Plan.md` §11 |
 
+**Known pilot-ceiling issue KI-1** (owner decision 2026-10-23: keep the current behavior for now; must be revisited before ConfiDance activation):
+
+- **Where:** R2a `tw4_prov_observe` (20261207, unchanged by F4) captures the pilot's monthly campaign reservation when the campaign is approved, with no month check.
+- **Effect:** suppose an attempt reserves in October and approval lands in November.
+  - The October reservation is captured.
+  - Under D5 it covers no lifecycle period, so F4 #288 attaches no cover.
+  - November then needs its own `tw4_rfl_pilot_cover`, which captures a second time.
+  - The result is two pilot captures against ConfiDance's prepaid credit and the $150 cumulative ceiling for one provider month.
+- **Pinned** by a real-path test in #288 (it asserts 2 captures), so the behavior stays visible.
+- **Recommended fix** (not authorized yet): release the earlier reservation in `tw4_prov_observe` when approval lands in a later month. It belongs in its own migration with an Opus financial review.
+- **Gate:** ConfiDance activation (P) may not proceed until the owner re-decides KI-1.
+- **Related:** RFL-D5 (#290) does not address this capture.
+
+**Known rollback-completeness gap KI-2** (found by Q1, #275, 2026-10-23; owner decision pending):
+
+- After rolling back 1207..1217, three CHECK constraints stay wider than the baseline: `studio_sms_approval_refs_shape`, `studio_sms_approval_refs_source_check` (still accept `number_selection`) and `studio_sms_onboarding_audit_action_check` (still lists later action names).
+- This is safe (a widened allowlist). It is on `main` and was not introduced by any slice.
+- **Recommendation:** document it as intentional, because narrowing fails once rows use the values.
+
+**Main-level test finding KI-3** (Q1, #275):
+
+- `localStack.r2bp2.rfl` fails 2/3 on plain `main`, deterministically and not from load.
+- **Likely cause:** a stale test. `tw4_rfl_alerts_claim` returns nothing while the RFL delivery switch is off (fail-closed), and the test never turns delivery on.
+- **Next step:** confirm the cause and fix the test, not the fail-closed function.
+
 ## 8. Definition of done
 
 **TW-4F Git completion (G):**
@@ -444,7 +469,7 @@ Still unresolved:
 1. PROD SQL, then app promotion.
 2. Prices published (U-2).
 3. Stage B draft handled (U-10).
-4. Per-fee and per-period written approvals (U-4) within the $150 cumulative ceiling.
+4. Per-fee and per-period written approvals (U-4) within the $150 cumulative ceiling. Known issue KI-1 (double pilot capture when approval lands in a later month than the reservation) has been re-decided by the owner.
 5. Real-provider validation, one call at a time.
 6. Scheduled jobs registered: reconciler, inventory reconciliation, sender re-verification, RFL scan and delivery.
 7. Alert recipients verified and the delivery runbook §7 executed.
