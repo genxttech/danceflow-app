@@ -511,3 +511,42 @@ the roadmap.
 | P2-8 | All `competition_refund_*` kinds are `operational` (the design said captured / reversed) | Deliberate (§8 table): only operational kinds reopen and re-alert. **Owner sign-off requested** |
 | P2-9 | After a full refund is reversed, the registration stays `status = refunded` with `payment_status` `partial` / `paid` | Deliberate: participation is never re-instated automatically (policy 6). The E-R exception carries it for an official decision |
 | P2-10 | A partially refunded registration is `payment_status = partial`; the PAY-WH-1 client guard and the desk check-in may read that as money owed | **Follow-up (not verified here):** confirm that competition check-in (CI-B, PR #295) and the desk balance screen treat `partial` on an order-backed registration as paid less refunds |
+
+### 8.2 Scratch vs refund (owner clarification, 2026-10-23)
+
+"'Scratch' and 'withdraw' are essentially synonymous. Use Scratch as the primary competition-facing terminology. A
+scratch is not inherently financial. A scratch must never automatically cause a refund."
+
+- Competition-facing copy says **Scratch**: "Also scratch this entry", "Entry scratched after an audited heat unlock".
+  DB status values (`withdrawn`, `scratched`) and RPC / column names (`withdraw_entry`, `withdrawn_after_unlock`) are
+  unchanged.
+- **Direction of coupling is one-way.** A refund may record a scratch (D4, the "Also scratch this entry" choice, and the
+  existing 10A rule that a fully refunded registration scratches its open entries). A scratch never records, requests
+  or reserves a refund: `change_competition_entry_lifecycle`, check-in and heat-entry status changes, and the
+  registration cascade write no `event_order_refunds` / allocation rows and hold no refund cap. This is proven by the R2
+  SQL suite, section S.
+- Organizers choose the financial resolution of a scratch separately: **No refund** (default), **Future competition
+  credit** (CC1, a separate future workstream), or **Refund** (R2, this design).
+
+### 8.3 Forward contract for CC1 (future competition credit; not implemented here)
+
+- A competition credit consumes the **same per-item net-paid cap** as refunds (D1/D2), under the **same order lock**
+  (`event_orders FOR UPDATE`, taken first, as in `request_competition_order_refund`).
+- The cap for an order line becomes:
+  `net paid − Σ refund allocations (requested / pending / requires_action / succeeded) − Σ credit issued against that item`.
+  `_r2_validate_lines` / `_r2_order_line_caps`, and their TS twin `competitionRefundRules.ts`, are where CC1 subtracts
+  its issued credit, so a refund and a credit can never together exceed what was paid for a line.
+- CC1 will add a `credit` value to `event_competition_entry_changes.fee_handling` (today: `retain`, `refund`,
+  `partial_refund`, `waive`, `not_applicable`).
+- R2 adds no credit table, column or logic.
+
+### 8.4 Release gate found in end-to-end QA (2026-10-23)
+
+- **Desk balance (PAY-WH-1A `record_competition_checkin_payment` and `competition/checkin/actions.ts`, already on
+  main):** the balance is `order total − Σ(amount − refund_amount)`, so after an R2 partial refund the refunded
+  amount appears as balance due, and the desk could collect it again. The correct balance is `total − Σ amount`
+  (refunds reduce both what is owed and what is paid). This is owned by PAY-WH-1A / CI-B and **must be fixed before
+  CI-D is released**.
+- **Held entries:** the refund page now offers "Request scratch (official decision required)" for entries in locked,
+  danced or certified heats. Requesting it raises E-L/E-C and never scratches automatically. Before this fix, the
+  checkbox was disabled, so a refund there could leave no official decision.

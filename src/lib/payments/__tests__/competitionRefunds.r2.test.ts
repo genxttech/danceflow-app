@@ -125,8 +125,9 @@ describe("refund page summary (same caps as SQL)", () => {
     const byId = Object.fromEntries(lines.map((line) => [line.orderItemId, line]));
     expect(lines.map((line) => line.capCents)).toEqual([2272, 2273, 2273, 2273, 909]);
     expect(byId.i1).toMatchObject({ refundedCents: 1000, remainingCents: 772, canWithdraw: true, participation: "unplaced" });
-    expect(byId.i2).toMatchObject({ participation: "locked", canWithdraw: false });
-    expect(byId.i3).toMatchObject({ participation: "locked", canWithdraw: false });
+    expect(byId.i2).toMatchObject({ participation: "locked", canWithdraw: false, canRequestScratch: true });
+    expect(byId.i3).toMatchObject({ participation: "locked", canWithdraw: false, canRequestScratch: true });
+    expect(byId.fee).toMatchObject({ canRequestScratch: false });
     expect(byId.i4).toMatchObject({ participation: "open", canWithdraw: true });
     expect(byId.fee).toMatchObject({ kind: "fee", canWithdraw: false });
     expect(byId.disc).toBeUndefined();

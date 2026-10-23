@@ -46,6 +46,11 @@ export type RefundSummaryLine = {
   participation: ParticipationClass | null;
   /** Owner policy 2 + Q1: withdrawal with a refund is automatic only for unplaced / open-heat entries still active. */
   canWithdraw: boolean;
+  /**
+   * Any still-active entry may ask for a scratch. For a locked / danced / certified entry the request never scratches
+   * it automatically: it raises the E-L / E-C exception, so an official decides (owner policy 3, 4, 7).
+   */
+  canRequestScratch: boolean;
 };
 
 const toCents = (value: number | string | null | undefined) => Math.round(Number(value ?? 0) * 100);
@@ -109,6 +114,7 @@ export function buildRefundSummary(input: {
       remainingCents: remainingRefundableCents(caps.get(line.id) ?? 0, allocations),
       participation,
       canWithdraw: line.kind === "entry" && active && (participation === "unplaced" || participation === "open"),
+      canRequestScratch: line.kind === "entry" && active,
     };
   });
 }

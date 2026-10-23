@@ -184,7 +184,7 @@ export const COMPETITION_REFUND_ERROR_COPY: Record<string, string> = {
   COMP_REFUND_ITEM_NOT_IN_ORDER: "A selected line is not part of this order.",
   COMP_REFUND_EXCEEDS_LINE_CAP: "A line was refunded for more than its remaining refundable amount.",
   COMP_REFUND_EXCEEDS_ORDER_CAP: "The refund exceeds what remains refundable on this payment.",
-  COMP_REFUND_LINE_INVALID: "Each line needs a positive amount; only entry lines can withdraw an entry.",
+  COMP_REFUND_LINE_INVALID: "Each line needs a positive amount; only entry lines can scratch an entry.",
   COMP_REFUND_LINE_DUPLICATE: "A line was selected twice.",
   COMP_REFUND_LINES_REQUIRED: "Select at least one line to refund.",
   COMP_REFUND_REASON_REQUIRED: "A reason is required.",

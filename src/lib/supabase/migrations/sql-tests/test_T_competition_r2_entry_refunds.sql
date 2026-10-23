@@ -166,11 +166,13 @@ insert into public.event_orders (id, event_id, studio_id, buyer_name, buyer_emai
   currency, status, payment_status, settlement_state, paid_at, stripe_payment_intent_id, stripe_checkout_session_id, metadata) values
   (pg_temp.u('00b001'), pg_temp.u('00e001'), pg_temp.u('00a001'), 'Buyer One', 't-r2-o1@example.test', 110, 10, 100, 'USD', 'confirmed', 'paid', 'paid', now(), 'pi_r2_o1', 'cs_r2_o1', '{}'),
   (pg_temp.u('00b002'), pg_temp.u('00e001'), pg_temp.u('00a001'), 'Buyer Two', 't-r2-o2@example.test', 30, 0, 30, 'USD', 'confirmed', 'paid', 'paid', now(), 'pi_r2_o2', 'cs_r2_o2', '{}'),
-  (pg_temp.u('00b003'), pg_temp.u('00e002'), pg_temp.u('00a001'), 'Buyer Three', 't-r2-o3@example.test', 20, 0, 20, 'USD', 'confirmed', 'paid', 'paid', now(), 'pi_r2_o3', 'cs_r2_o3', '{}');
+  (pg_temp.u('00b003'), pg_temp.u('00e002'), pg_temp.u('00a001'), 'Buyer Three', 't-r2-o3@example.test', 20, 0, 20, 'USD', 'confirmed', 'paid', 'paid', now(), 'pi_r2_o3', 'cs_r2_o3', '{}'),
+  (pg_temp.u('00b004'), pg_temp.u('00e001'), pg_temp.u('00a001'), 'Buyer Four', 't-r2-o4@example.test', 50, 0, 50, 'USD', 'confirmed', 'paid', 'paid', now(), 'pi_r2_o4', 'cs_r2_o4', '{}');
 insert into public.event_registrations (id, order_id, event_id, studio_id, attendee_first_name, attendee_last_name, attendee_email, status, payment_status, total_price, currency) values
   (pg_temp.u('00f101'), pg_temp.u('00b001'), pg_temp.u('00e001'), pg_temp.u('00a001'), 'Buyer', 'One', 't-r2-o1@example.test', 'confirmed', 'paid', 100, 'USD'),
   (pg_temp.u('00f102'), pg_temp.u('00b002'), pg_temp.u('00e001'), pg_temp.u('00a001'), 'Buyer', 'Two', 't-r2-o2@example.test', 'confirmed', 'paid', 30, 'USD'),
-  (pg_temp.u('00f103'), pg_temp.u('00b003'), pg_temp.u('00e002'), pg_temp.u('00a001'), 'Buyer', 'Three', 't-r2-o3@example.test', 'confirmed', 'paid', 20, 'USD');
+  (pg_temp.u('00f103'), pg_temp.u('00b003'), pg_temp.u('00e002'), pg_temp.u('00a001'), 'Buyer', 'Three', 't-r2-o3@example.test', 'confirmed', 'paid', 20, 'USD'),
+  (pg_temp.u('00f104'), pg_temp.u('00b004'), pg_temp.u('00e001'), pg_temp.u('00a001'), 'Buyer', 'Four', 't-r2-o4@example.test', 'confirmed', 'paid', 50, 'USD');
 insert into public.event_order_items (id, order_id, event_id, item_type, description, quantity, unit_price, total_price, currency, metadata) values
   (pg_temp.u('00c101'), pg_temp.u('00b001'), pg_temp.u('00e001'), 'competition_entry', 'Entry 1', 1, 25, 25, 'USD', jsonb_build_object('revenue_class', 'competition_entry', 'contest_id', pg_temp.u('002001'))),
   (pg_temp.u('00c102'), pg_temp.u('00b001'), pg_temp.u('00e001'), 'competition_entry', 'Entry 2', 1, 25, 25, 'USD', jsonb_build_object('revenue_class', 'competition_entry', 'contest_id', pg_temp.u('002001'))),
@@ -181,11 +183,14 @@ insert into public.event_order_items (id, order_id, event_id, item_type, descrip
      jsonb_build_object('revenue_class', 'competition_entry', 'line_type', 'discount', 'discount_amount', 10,
                         'price_line', jsonb_build_object('metadata', jsonb_build_object('scope', jsonb_build_object('programId', null, 'contestId', null, 'divisionId', null))))),
   (pg_temp.u('00c201'), pg_temp.u('00b002'), pg_temp.u('00e001'), 'competition_entry', 'Entry 5', 1, 30, 30, 'USD', jsonb_build_object('revenue_class', 'competition_entry', 'contest_id', pg_temp.u('002001'))),
-  (pg_temp.u('00c301'), pg_temp.u('00b003'), pg_temp.u('00e002'), 'add_on', 'Other event fee', 1, 20, 20, 'USD', jsonb_build_object('revenue_class', 'competition_entry', 'line_type', 'fee'));
+  (pg_temp.u('00c301'), pg_temp.u('00b003'), pg_temp.u('00e002'), 'add_on', 'Other event fee', 1, 20, 20, 'USD', jsonb_build_object('revenue_class', 'competition_entry', 'line_type', 'fee')),
+  (pg_temp.u('00c401'), pg_temp.u('00b004'), pg_temp.u('00e001'), 'competition_entry', 'Entry 6', 1, 25, 25, 'USD', jsonb_build_object('revenue_class', 'competition_entry', 'contest_id', pg_temp.u('002001'))),
+  (pg_temp.u('00c402'), pg_temp.u('00b004'), pg_temp.u('00e001'), 'competition_entry', 'Entry 7', 1, 25, 25, 'USD', jsonb_build_object('revenue_class', 'competition_entry', 'contest_id', pg_temp.u('002001')));
 insert into public.event_payments (registration_id, amount, currency, payment_method, status, source, stripe_payment_intent_id, stripe_checkout_session_id, stripe_account_id) values
   (pg_temp.u('00f101'), 100, 'USD', 'card', 'paid', 'stripe', 'pi_r2_o1', 'cs_r2_o1', 'acct_r2test1'),
   (pg_temp.u('00f102'), 30, 'USD', 'card', 'paid', 'stripe', 'pi_r2_o2', 'cs_r2_o2', 'acct_r2test1'),
-  (pg_temp.u('00f103'), 20, 'USD', 'card', 'paid', 'stripe', 'pi_r2_o3', 'cs_r2_o3', 'acct_r2test1');
+  (pg_temp.u('00f103'), 20, 'USD', 'card', 'paid', 'stripe', 'pi_r2_o3', 'cs_r2_o3', 'acct_r2test1'),
+  (pg_temp.u('00f104'), 50, 'USD', 'card', 'paid', 'stripe', 'pi_r2_o4', 'cs_r2_o4', 'acct_r2test1');
 
 -- entry -> (registration, division, order, item, sort)
 create temp table t_entries (entry text, reg text, division text, label text, ord text, item text, sort int) on commit drop;
@@ -205,7 +210,9 @@ insert into t_entries values
   ('008102', '00f101', '003002', 'O1 locked heat', '00b001', '00c102', 2),
   ('008103', '00f101', '003001', 'O1 danced open heat', '00b001', '00c103', 3),
   ('008104', '00f101', '003002', 'O1 certified heat', '00b001', '00c104', 4),
-  ('008105', '00f102', '003001', 'O2 unplaced', '00b002', '00c201', 1);
+  ('008105', '00f102', '003001', 'O2 unplaced', '00b002', '00c201', 1),
+  ('008106', '00f104', '003001', 'O4 scratch via lifecycle', '00b004', '00c401', 1),
+  ('008107', '00f104', '003001', 'O4 scratch via cascade', '00b004', '00c402', 2);
 insert into public.event_competition_competitors (id, event_id, first_name, last_name, created_via)
 select pg_temp.u('007' || right(entry, 3)), pg_temp.u('00e001'), 'Dancer', label, 'staff' from t_entries;
 insert into public.event_competition_entries (id, event_id, program_id, division_id, registration_id, order_id, order_item_id, display_name, status, eligibility_status, sort_order)
@@ -226,7 +233,7 @@ select pg_temp.expect_ok('fixture: planner places the entries',
   $q$select public.apply_competition_floor_plan(pg_temp.id('v1'), jsonb_build_object('floorHeats', jsonb_build_array(
        jsonb_build_object('number', 1, 'scoringHeats', jsonb_build_array(jsonb_build_object('divisionId', pg_temp.u('003001'), 'roundId', pg_temp.u('006001'),
          'heatNumber', 1, 'name', 'Bronze Two Step', 'danceIds', jsonb_build_array(pg_temp.u('004001')),
-         'entryIds', (select jsonb_agg(pg_temp.u(entry)) from t_entries where division = '003001' and entry not in ('008003', '008101', '008105', '008103'))))),
+         'entryIds', (select jsonb_agg(pg_temp.u(entry)) from t_entries where division = '003001' and entry not in ('008003', '008101', '008105', '008103', '008106', '008107'))))),
        jsonb_build_object('number', 2, 'scoringHeats', jsonb_build_array(jsonb_build_object('divisionId', pg_temp.u('003001'), 'roundId', pg_temp.u('006001'),
          'heatNumber', 2, 'name', 'Bronze Two Step 2', 'danceIds', jsonb_build_array(pg_temp.u('004001')),
          'entryIds', jsonb_build_array(pg_temp.u('008103'))))),
@@ -628,6 +635,49 @@ select pg_temp.chk('G: grants: request/attribute/resolve for authenticated; obse
   and has_function_privilege('service_role', 'public.observe_competition_stripe_refund(text, text, text, uuid, bigint, text, text)', 'EXECUTE')
   and not has_function_privilege('authenticated', 'public._r2_recompute_order(uuid)', 'EXECUTE')
   and not has_function_privilege('authenticated', 'public._r2_withdraw_entry(uuid, text, text)', 'EXECUTE'));
+
+-- ============================================================================
+-- S. Scratch is never financial (owner, 2026-10-23): no scratch path creates, requests or reserves a refund
+-- ============================================================================
+reset role;
+insert into t_out select 'ledger_before', jsonb_build_object(
+  'refunds', (select count(*) from public.event_order_refunds),
+  'allocations', (select count(*) from public.event_order_refund_allocations),
+  'held', (select coalesce(sum(amount_cents), 0) from public.event_order_refunds where status in ('requested', 'pending', 'requires_action', 'succeeded')),
+  'refund_entries', (select count(*) from public.accounting_entries where category = 'competition_entry_refund'));
+create or replace function pg_temp.ledger_unchanged() returns boolean language sql stable as $$
+  select pg_temp.out('ledger_before') = jsonb_build_object(
+    'refunds', (select count(*) from public.event_order_refunds),
+    'allocations', (select count(*) from public.event_order_refund_allocations),
+    'held', (select coalesce(sum(amount_cents), 0) from public.event_order_refunds where status in ('requested', 'pending', 'requires_action', 'succeeded')),
+    'refund_entries', (select count(*) from public.accounting_entries where category = 'competition_entry_refund'))
+$$;
+grant execute on function pg_temp.ledger_unchanged() to authenticated, service_role;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('S: staff scratch via change_competition_entry_lifecycle, even with fee handling "refund"',
+  $q$select public.change_competition_entry_lifecycle(pg_temp.u('008106'), 'withdrawn', 'Injury', 'refund')$q$);
+reset role;
+select pg_temp.chk('S: the lifecycle scratch wrote no refund, allocation, cap hold or refund accounting entry',
+  pg_temp.entry_status('008106') = 'withdrawn' and pg_temp.ledger_unchanged());
+select pg_temp.chk('S: the order and payment stay fully paid after a scratch',
+  (select payment_status from public.event_orders where id = pg_temp.u('00b004')) = 'paid'
+  and (select coalesce(refund_amount, 0) = 0 and status = 'paid' from public.event_payments where stripe_payment_intent_id = 'pi_r2_o4')
+  and (select payment_status from public.event_registrations where id = pg_temp.u('00f104')) = 'paid');
+select pg_temp.chk('S: the full refundable cap of the scratched entry is still available',
+  (select cap_cents from public._r2_order_line_caps(pg_temp.u('00b004')) where order_item_id = pg_temp.u('00c401')) = 2500);
+select pg_temp.expect_ok('S: heat-entry status changes (check-in, scratch) on a placement',
+  $q$update public.event_competition_heat_entries set status = 'checked_in' where entry_id = pg_temp.u('008010');
+     update public.event_competition_heat_entries set status = 'scratched' where entry_id = pg_temp.u('008010')$q$);
+select pg_temp.chk('S: heat-entry scratch wrote nothing financial', pg_temp.ledger_unchanged());
+select pg_temp.expect_ok('S: registration cascade (the buyer''s registration is cancelled, not refunded)',
+  $q$update public.event_registrations set status = 'cancelled' where id = pg_temp.u('00f104')$q$);
+select pg_temp.chk('S: the cascade scratched the remaining entry and wrote nothing financial',
+  pg_temp.entry_status('008107') = 'withdrawn' and pg_temp.ledger_unchanged()
+  and (select coalesce(refund_amount, 0) = 0 and status = 'paid' from public.event_payments where stripe_payment_intent_id = 'pi_r2_o4'));
+select pg_temp.chk('S: no scratch path can reach the refund writers (static: no function outside R2 inserts into the ledger)',
+  not exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace
+              and position('insert into public.event_order_refunds' in lower(p.prosrc)) > 0
+              and p.proname not in ('request_competition_order_refund', 'observe_competition_stripe_refund')));
 
 -- ============================================================================
 -- Verdict

@@ -28,7 +28,7 @@ const KIND_LABEL: Record<string, string> = {
 };
 const RESOLUTIONS: Record<string, { value: string; label: string }[]> = {
   competition_refund_entry_locked_heat: [
-    { value: "withdrawn_after_unlock", label: "Entry withdrawn after an audited heat unlock" },
+    { value: "withdrawn_after_unlock", label: "Entry scratched after an audited heat unlock" },
     { value: "keep_entry", label: "Keep the entry (official decision)" },
   ],
   competition_refund_entry_certified_heat: [
@@ -38,7 +38,7 @@ const RESOLUTIONS: Record<string, { value: string; label: string }[]> = {
   competition_refund_unattributed: [{ value: "attributed", label: "Refund attributed" }],
   competition_refund_reversed: [
     { value: "keep_entry", label: "Keep the entry" },
-    { value: "withdrawn_after_unlock", label: "Entry withdrawn after an audited heat unlock" },
+    { value: "withdrawn_after_unlock", label: "Entry scratched after an audited heat unlock" },
   ],
 };
 
@@ -122,16 +122,16 @@ export default async function CompetitionOrderRefundPage({
 
     <section className="mt-6">
       <h2 className="text-lg font-semibold text-slate-950">Refund lines</h2>
-      <p className="mt-1 text-sm text-slate-600">Amounts are net of discounts. Refunding the whole payment also withdraws every entry that has not danced and is not in a locked or certified heat. An entry that has danced or is in a locked or certified heat is never withdrawn automatically; it opens an exception for an official decision.</p>
+      <p className="mt-1 text-sm text-slate-600">Amounts are net of discounts. Refunding the whole payment also scratches every entry that has not danced and is not in a locked or certified heat. An entry that has danced or is in a locked or certified heat is never scratched automatically; it opens an exception for an official decision. Scratching on its own never refunds anything.</p>
       <form action={refundCompetitionOrderAction} className="mt-4 space-y-4">
         <input type="hidden" name="eventId" value={id} /><input type="hidden" name="orderId" value={orderId} /><input type="hidden" name="requestId" value={requestId} />
-        <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-sm"><thead><tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-500"><th className="py-2">Line</th><th>Refundable</th><th>Refunded</th><th>Refund now</th><th>Withdraw entry</th></tr></thead><tbody>
+        <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-sm"><thead><tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-500"><th className="py-2">Line</th><th>Refundable</th><th>Refunded</th><th>Refund now</th><th>Scratch entry</th></tr></thead><tbody>
           {lines.map((line) => <tr key={line.orderItemId} className="border-b border-slate-100 align-top">
             <td className="py-3"><input type="hidden" name="itemId" value={line.orderItemId} /><span className="font-medium text-slate-900">{line.label}</span><span className="block text-xs text-slate-500">{line.kind === "fee" ? "Fee" : `Entry · ${label(line.entryStatus ?? "")}${line.participation && line.participation !== "unplaced" ? ` · ${line.participation === "locked" ? "locked or danced heat" : `${line.participation} heat`}` : ""}`}</span></td>
             <td className="py-3">{money(line.remainingCents, currency)}<span className="block text-xs text-slate-500">of {money(line.capCents, currency)}</span></td>
             <td className="py-3">{money(line.refundedCents, currency)}</td>
             <td className="py-3"><label className="sr-only" htmlFor={`amount_${line.orderItemId}`}>Refund amount for {line.label}</label><input id={`amount_${line.orderItemId}`} name={`amount_${line.orderItemId}`} inputMode="decimal" placeholder="0.00" disabled={line.remainingCents === 0} className="h-9 w-28 rounded border border-slate-300 px-2 text-sm disabled:bg-slate-50" /></td>
-            <td className="py-3">{line.kind === "entry" ? <label className="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" name={`withdraw_${line.orderItemId}`} disabled={!line.canWithdraw} defaultChecked={line.canWithdraw} />{line.canWithdraw ? "Withdraw" : "Official decision required"}</label> : <span className="text-xs text-slate-400">—</span>}</td>
+            <td className="py-3">{line.kind === "entry" ? <label className="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" name={`withdraw_${line.orderItemId}`} disabled={!line.canRequestScratch} defaultChecked={line.canWithdraw} />{line.canWithdraw ? "Also scratch this entry" : line.canRequestScratch ? "Request scratch (official decision required)" : "Already scratched"}</label> : <span className="text-xs text-slate-400">—</span>}</td>
           </tr>)}
         </tbody></table></div>
         <label className="block text-sm font-medium text-slate-800" htmlFor="reason">Reason</label>
@@ -154,7 +154,7 @@ export default async function CompetitionOrderRefundPage({
       {unattributed.map((refund) => <form key={refund.id} action={attributeCompetitionRefundAction} className="mt-4 space-y-3 border border-amber-200 bg-amber-50 p-4">
         <input type="hidden" name="eventId" value={id} /><input type="hidden" name="orderId" value={orderId} /><input type="hidden" name="refundId" value={refund.id} />
         <p className="text-sm text-amber-900">{money(refund.amount_cents, currency)} refunded in Stripe ({refund.stripe_refund_id}). Split it across lines; the total must match.</p>
-        {lines.map((line) => <div key={line.orderItemId} className="flex flex-wrap items-center gap-3 text-sm"><input type="hidden" name="itemId" value={line.orderItemId} /><span className="w-56">{line.label}</span><input aria-label={`Attributed amount for ${line.label}`} name={`amount_${line.orderItemId}`} inputMode="decimal" placeholder="0.00" className="h-9 w-28 rounded border border-slate-300 px-2" />{line.kind === "entry" ? <label className="flex items-center gap-2 text-xs"><input type="checkbox" name={`withdraw_${line.orderItemId}`} disabled={!line.canWithdraw} />Withdraw</label> : null}</div>)}
+        {lines.map((line) => <div key={line.orderItemId} className="flex flex-wrap items-center gap-3 text-sm"><input type="hidden" name="itemId" value={line.orderItemId} /><span className="w-56">{line.label}</span><input aria-label={`Attributed amount for ${line.label}`} name={`amount_${line.orderItemId}`} inputMode="decimal" placeholder="0.00" className="h-9 w-28 rounded border border-slate-300 px-2" />{line.kind === "entry" ? <label className="flex items-center gap-2 text-xs"><input type="checkbox" name={`withdraw_${line.orderItemId}`} disabled={!line.canRequestScratch} />{line.canWithdraw ? "Also scratch this entry" : "Request scratch (official decision required)"}</label> : null}</div>)}
         <button className="rounded bg-slate-950 px-4 py-2 text-sm font-semibold text-white">Attribute refund</button>
       </form>)}
     </section> : null}
