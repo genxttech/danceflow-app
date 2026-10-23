@@ -18,7 +18,8 @@ import SmsRecurringPanel from "./SmsRecurringPanel";
 import SmsSetupWizard from "./SmsSetupWizard";
 import SmsJourney from "./SmsJourney";
 import { hasLiveCampaignAuthorization, type FinanceFacts } from "@/lib/sms/provisioning/journey";
-import { getOwnerProvisioning } from "@/lib/sms/provisioning/ownerRead";
+import { getOwnerProvisioning, getOwnerTextingStatus, mergeOwnerFacts } from "@/lib/sms/provisioning/ownerRead";
+import SmsServiceCoverage from "./SmsServiceCoverage";
 
 const EDIT_STATES = new Set(["not_started", "draft", "needs_info"]);
 
@@ -102,8 +103,10 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
   // re-check the owner role and refuse a linked location or a second pending request)
   const offerLocationLink = isOwner && !paused && creditView?.overview.legalBusiness !== true;
 
-  // R2c-I2: campaign / Messaging Service status from the database, bound to this user's session (null = unreadable or not installed: the journey then says "not available yet")
-  const provisioning = !paused && isOwner ? await getOwnerProvisioning(supabase, context.studioId) : null;
+  // R2c-I2: campaign / Messaging Service status; J2: number, sender, compliance, activation checklist and service coverage. Both are bound to this user's
+  // session and the database allows only this studio's owner (null = unreadable or not installed: the journey then says "not available yet")
+  const [ownerProvisioning, textingStatus] = !paused && isOwner ? await Promise.all([getOwnerProvisioning(supabase, context.studioId), getOwnerTextingStatus(supabase, context.studioId)]) : [null, null];
+  const provisioning = mergeOwnerFacts(ownerProvisioning, textingStatus);
   const campaignKind = recurringView?.campaignMonthlyKind ?? null;
   const finance: FinanceFacts | null = creditView
     ? {
@@ -162,9 +165,11 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
         isOwner={isOwner}
         finance={finance}
         canEditForm={canEdit}
-        // campaign status comes from the session-bound read; number, sender and compliance stay "not available yet" until the authoritative R2b reads exist
+        // campaign, number, sender and compliance come from the session-bound owner reads; any of them unreadable stays "not available yet"
         provisioning={provisioning}
       />
+
+      {provisioning?.fees ? <SmsServiceCoverage fees={provisioning.fees} unexpectedResourceReview={provisioning.unexpectedResourceReview === true} /> : null}
 
       {offerLocationLink ? (
         <section aria-labelledby="sms-location-link-heading" className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between" data-testid="sms-location-link">
