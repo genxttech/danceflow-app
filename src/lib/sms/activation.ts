@@ -2,12 +2,10 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { IsvNumberAdapter } from "./twilioIsv/numberTypes";
 import { buildSenderEvidence, digestOf, expectedInboundUrl, senderReadProviderFromEnv, senderVerifyReadsAllowed, type SenderReadProvider } from "./senderVerification";
-import { SubaccountTokenProvider } from "./twilioIsv/account";
-import { fakeAdapterAllowed, loadIsvConfig, numberCallsAllowed } from "./twilioIsv/config";
+import { fakeAdapterAllowed, numberReadsAllowed } from "./twilioIsv/config";
+import { buildNumberReader } from "./inventoryReconcile/numberReadRuntime";
 import { FakeNumberHub } from "./twilioIsv/fakeNumbers";
-import { createRealIsvParent, createScopedNumberAdapter, messagingTokenProvider } from "./twilioIsv/real";
-import { rotatingSubaccountAdapter } from "./twilioIsv/rotation";
-import { IsvApiError } from "./twilioIsv/types";
+import { messagingTokenProvider } from "./twilioIsv/real";
 
 /**
  * TW-4F R2b: the server half of sender activation. Every function here is a thin, typed round trip to a service-role `tw4_num_*` / `tw4_act_*` function: the
@@ -363,42 +361,25 @@ function readOnly(adapter: IsvNumberAdapter): ComplianceReadAdapter {
   });
 }
 
-const globalForCompliance = globalThis as unknown as { __tw4ComplianceHub?: FakeNumberHub; __tw4ComplianceTokens?: SubaccountTokenProvider };
+const globalForCompliance = globalThis as unknown as { __tw4ComplianceHub?: FakeNumberHub };
 
 /**
- * The read-only number adapter compliance validation reads the campaign and the service route with (GET only). Built from the existing gates, like the F4
- * evidence console: non-production + TW4_ISV_FAKE=on + a loopback database -> the local fake (its evidence is `fake`, accepted only on a local QA database);
- * the real adapter only where `createScopedNumberAdapter` itself allows one (production + every number gate on + complete configuration). Anything else,
- * which is every environment today, is a refusal: nothing is constructed and nothing is called.
- *
- * GATE COUPLING (owner-accepted activation prerequisite, pending a dedicated read-only gate): no read-only gate exists for number adapters yet, so REAL
- * compliance reads currently require the number-call switches TW4_ISV_REAL_CALLS, TW4_PROVISIONING_REAL_CALLS and TW4_NUMBER_REAL_CALLS (plus a production
- * build and deployment), the same switches that allow buying numbers. The adapter handed out is narrowed to the two GET reads (`readOnly`), so nothing
- * here can purchase, attach or release a number even with those switches on.
+ * The read-only number adapter compliance validation reads the campaign and the service route with (GET only): non-production + TW4_ISV_FAKE=on + a loopback
+ * database -> the local fake (its evidence is `fake`, accepted only on a local QA database); otherwise the READ-ONLY number reader (A9b, numberReadRuntime.ts
+ * buildNumberReader: production + TW4_ISV_REAL_CALLS=on + TW4_NUMBER_READS=on + complete configuration, the real.ts RealNumberReadAdapter whose every write
+ * refuses). The purchase switches (TW4_PROVISIONING_REAL_CALLS, TW4_NUMBER_REAL_CALLS) are neither required nor consulted, so activating a location never needs
+ * purchases on. Anything else, which is every environment today, is a refusal: nothing is constructed and nothing is called. The adapter handed out is
+ * narrowed to the two GET reads (`readOnly`) on top of that.
  */
 export function complianceReadRuntime(env: Env = process.env): ComplianceReadRuntime {
   if (fakeAdapterAllowed(env)) {
     const hub = (globalForCompliance.__tw4ComplianceHub ??= new FakeNumberHub());
     return { ok: true, mode: "fake", adapterFor: async (accountSid) => readOnly(hub.adapterFor(accountSid)) };
   }
-  const gate = numberCallsAllowed(env);
-  if (!gate.allowed) return { ok: false, reason: gate.reason };
-  const loaded = loadIsvConfig(env);
-  if (!loaded.ok) return { ok: false, reason: `Twilio is not configured (missing: ${loaded.missing.join(", ")}).` };
-  const parent = createRealIsvParent(loaded.config, env);
-  const tokens = (globalForCompliance.__tw4ComplianceTokens ??= new SubaccountTokenProvider(parent, { refreshIntervalMs: 0 }));
-  return {
-    ok: true,
-    mode: "real",
-    adapterFor: async (accountSid) =>
-      readOnly(await rotatingSubaccountAdapter(accountSid, tokens, (sid, secret) => {
-        try {
-          return createScopedNumberAdapter(loaded.config, sid, secret.reveal(), env);
-        } catch (error) {
-          throw error instanceof IsvApiError ? error : new IsvApiError("account", null, null, "subaccount adapter unavailable");
-        }
-      })),
-  };
+  const reader = buildNumberReader(env);
+  if (!reader.ok) return { ok: false, reason: reader.reason };
+  // a missing subaccount token or a refused subaccount rejects here; the action turns that into provider_read_failed (never a pass)
+  return { ok: true, mode: "real", adapterFor: async (accountSid) => readOnly(await reader.adapterFor(accountSid)) };
 }
 
 /** The sender read provider for activation: exactly what the sender-readiness actions use (the fake only where allowed, real reads only when gated on). */
@@ -409,7 +390,7 @@ export function activationSenderReadProvider(env: Env = process.env): SenderRead
 /** Whether each provider read is enabled here, for the console's explanation only (the actions decide again on every call). Constructs nothing. */
 export function activationProviderReads(env: Env = process.env): { compliance: { enabled: boolean; reason: string | null }; sender: { enabled: boolean; reason: string | null } } {
   if (fakeAdapterAllowed(env)) return { compliance: { enabled: true, reason: null }, sender: { enabled: true, reason: null } };
-  const number = numberCallsAllowed(env);
+  const number = numberReadsAllowed(env);
   const sender = senderVerifyReadsAllowed(env);
   return {
     compliance: number.allowed ? { enabled: true, reason: null } : { enabled: false, reason: number.reason },
