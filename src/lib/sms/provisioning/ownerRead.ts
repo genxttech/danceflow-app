@@ -223,8 +223,10 @@ export const NUMBER_SELECTION_HREF = "#sms-number";
 
 /** True when the owner can act on the number step right now: an approvable offer, or an open approval to review or withdraw. */
 export function numberChoiceActionable(offers: OwnerNumberOffers | null): boolean {
-  if (!offers || !offers.stepOpen) return false;
+  if (!offers) return false;
+  // an open approval stays reviewable and withdrawable even after the step closed
   if (offers.approval?.status === "open") return true;
+  if (!offers.stepOpen) return false;
   return offers.blocker === "none" && offers.monthlyCents != null && (offers.offer?.numbers.length ?? 0) > 0;
 }
 

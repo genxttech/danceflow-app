@@ -70,5 +70,6 @@ describe("withNumberChoice: the number stage links to the choice only when it is
   });
   it("an open approval is actionable (review or withdraw)", () => {
     expect(numberChoiceActionable({ ...offers, approval: { selectionId: SEL, e164: "+15035550101", status: "open", expiresAt: "2026-10-24T00:00:00Z", statement: "x" } })).toBe(true);
+    expect(numberChoiceActionable({ ...offers, stepOpen: false, blocker: "not_open", approval: { selectionId: SEL, e164: "+15035550101", status: "open", expiresAt: "2026-10-24T00:00:00Z", statement: "x" } })).toBe(true);
   });
 });
