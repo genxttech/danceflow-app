@@ -1,17 +1,19 @@
 /**
- * BR-4B public navigation: a deliberately small model.
+ * W-2 public navigation: two equal audiences.
  *
- *   Discover  |  For Business (Studios, Independent instructors, Organizers)  |  Favorites / Account when signed in
+ *   For Dancers ▾  |  For Business ▾  |  Favorites / Account when signed in
  *
- * Studios, Events, Jobs, Dance partners and Marketplace live under Discover (its context bar and
- * the footer). Plans and pricing are reached from each business page and from the Get Started
- * footer link, so no top-level label promises a pricing page that does not exist.
+ * Dancers go to /discover (there is no /for-dancers route), so the "discover" key is the For
+ * Dancers group. Plans and the free trial are reached from For Business; account creation and
+ * the business trial stay distinct actions in the header.
  */
 export type PublicNavPath = "home" | "discover" | "business" | "account" | "favorites";
 
 export type PublicNavChild = {
   label: string;
   href: string;
+  /** Draw a separator above this entry (desktop disclosure and mobile group). */
+  dividerBefore?: boolean;
 };
 
 export type PublicNavItem = {
@@ -23,18 +25,37 @@ export type PublicNavItem = {
   children?: PublicNavChild[];
 };
 
+export const DANCER_NAV_CHILDREN: PublicNavChild[] = [
+  { label: "Discover home", href: "/discover" },
+  { label: "Studios", href: "/discover/studios" },
+  { label: "Classes", href: "/discover/classes" },
+  { label: "Events", href: "/discover/events" },
+  { label: "Dance partners", href: "/discover/partners" },
+  { label: "Jobs", href: "/discover/jobs" },
+  { label: "Learning", href: "/marketplace" },
+];
+
 export const BUSINESS_NAV_CHILDREN: PublicNavChild[] = [
   { label: "Studios", href: "/for-studios" },
   { label: "Independent instructors", href: "/for-instructors" },
   { label: "Organizers", href: "/for-organizers" },
+  { label: "Plans & free trial", href: "/get-started", dividerBefore: true },
+  { label: "Meet ARIA", href: "/for-studios#meet-aria" },
 ];
 
 export const PUBLIC_NAV_ITEMS: PublicNavItem[] = [
-  { key: "discover", label: "Discover", href: "/discover" },
+  { key: "discover", label: "For Dancers", href: "/discover", children: DANCER_NAV_CHILDREN },
   { key: "business", label: "For Business", href: "/for-studios", children: BUSINESS_NAV_CHILDREN },
   { key: "favorites", label: "Favorites", href: "/favorites", authOnly: true },
   { key: "account", label: "Account", href: "/account", authOnly: true },
 ];
+
+/** Signed-out header actions. Account creation and the business trial are separate on purpose. */
+export const PUBLIC_AUTH_ACTIONS = {
+  logIn: { label: "Log In", href: "/login?intent=public" },
+  createAccount: { label: "Create free account", href: "/signup?intent=public" },
+  startTrial: { label: "Start free trial", href: "/get-started/studio" },
+} as const;
 
 function under(pathname: string, base: string) {
   return pathname === base || pathname.startsWith(`${base}/`);
@@ -63,4 +84,9 @@ export function activePublicNavKey(pathname: string | null): PublicNavPath | nul
   if (under(pathname, "/favorites")) return "favorites";
   if (under(pathname, "/account")) return "account";
   return null;
+}
+
+/** Whether a child link is the current page (hash links never are; their page has its own entry). */
+export function isCurrentPublicNavChild(pathname: string | null, href: string): boolean {
+  return !href.includes("#") && pathname === href;
 }

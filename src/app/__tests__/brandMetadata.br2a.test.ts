@@ -96,7 +96,8 @@ describe("root metadata mechanics", () => {
 describe("BR-4A positioning (intentional copy change)", () => {
   it("presents DanceFlow as the broader dance platform, not generic studio CRM software", () => {
     const title = (metadata.title as { default: string }).default;
-    expect(title).toBe("DanceFlow | The dance platform that helps do the work");
+    // WEB-2A (owner, 2026-10-22): the site title follows the two-audience homepage headline.
+    expect(title).toBe("DanceFlow | Where the dance community connects");
     expect(title).not.toMatch(/CRM, Scheduler, and Event Management/i);
     expect(String(metadata.description)).toMatch(/studios, instructors and organizers/);
     expect(String(metadata.description)).toMatch(/dancers/);

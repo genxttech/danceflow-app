@@ -7,7 +7,7 @@ import { fakeAdapterAllowed, isvEnvName } from "./twilioIsv/config";
 /**
  * TW-4F sender readiness (design section 9): the READ-ONLY half. The server reads the Twilio resources a business's sender depends on, using the
  * SUBACCOUNT's own credentials, reduces every response to a few normalized fields plus a digest, and hands only that to the database, which computes
- * the outcome (tw4_sender_verify / tw4_sender_reverify -> _tw4sr_judge). Nothing here writes to Twilio, stores a token, or keeps a raw response.
+ * the outcome (tw4_sender_verify / tw4_sender_reverify_run -> _tw4sr_judge). Nothing here writes to Twilio, stores a token, or keeps a raw response.
  */
 
 export type ReadErrorKind = "not_found" | "forbidden" | "timeout" | "network" | "rate_limited" | "server" | "credentials_unavailable" | "unreadable";
@@ -222,7 +222,8 @@ export type ReadErrorEntry = { resource: ReadResource; kind: ReadErrorKind };
 
 export type SenderEvidence = {
   account: AccountRead | null;
-  service: (ServiceRead & { inbound_route_ok: boolean }) | null;
+  /** inbound_route_ok is null when it cannot be known: the number handles inbound and its read failed (the read error then decides the outcome) */
+  service: (ServiceRead & { inbound_route_ok: boolean | null }) | null;
   campaign: CampaignRead | null;
   brand: BrandRead | null;
   number: NumberRead | null;
@@ -279,9 +280,12 @@ export async function buildSenderEvidence(provider: SenderReadProvider, sender: 
   const service = serviceRaw
     ? {
         ...serviceRaw,
+        // when the NUMBER handles inbound, its routing is known only if the number was read: an unread number is unknown (null), never "misrouted"
         inbound_route_ok:
-          (serviceRaw.use_inbound_webhook_on_number === false && serviceRaw.inbound_request_url === inboundUrl) ||
-          (serviceRaw.use_inbound_webhook_on_number === true && number !== null && number.sms_url === inboundUrl),
+          serviceRaw.use_inbound_webhook_on_number === true && number === null
+            ? null
+            : (serviceRaw.use_inbound_webhook_on_number === false && serviceRaw.inbound_request_url === inboundUrl) ||
+              (serviceRaw.use_inbound_webhook_on_number === true && number !== null && number.sms_url === inboundUrl),
       }
     : null;
   return { account, service, campaign, brand, number, service_number, read_errors, digests };
@@ -315,6 +319,117 @@ export function parseSenderOverview(raw: unknown): SenderOverviewRow[] {
 export async function loadSenderOverview(admin: SupabaseClient, actorId: string): Promise<SenderOverviewRow[] | null> {
   const { data, error } = await admin.rpc("tw4_sender_overview", { p_actor: actorId });
   return error ? null : parseSenderOverview(data);
+}
+
+export type SenderHealthState = "none" | "released" | "revoked" | "pending" | "failed" | "expired" | "blocked" | "expiring" | "ready";
+const HEALTH_STATES: readonly string[] = ["none", "released", "revoked", "pending", "failed", "expired", "blocked", "expiring", "ready"];
+
+export type SenderHealthRow = {
+  studioId: string; legalEntityId: string | null; senderId: string | null; status: string | null; state: SenderHealthState; blocked: boolean;
+  lastSuccessAt: string | null; expiresAt: string | null; nextCheckAt: string | null;
+  decisiveOutcome: string | null; decisiveCode: string | null; decisiveSource: string | null; decisiveAt: string | null;
+  lastAttemptOutcome: string | null; lastAttemptCode: string | null; lastAttemptAt: string | null; retriesSinceSuccess: number;
+};
+export type SenderSchedulerRun = { runId: string | null; status: string | null; startedAt: string | null; finishedAt: string | null; error: string | null };
+export type SenderScheduler = {
+  lastCompletedAt: string | null; stale: boolean; running: boolean; runs: SenderSchedulerRun[]; expiring: number; expired: number; failed: number;
+};
+export type SenderHealth = { senders: SenderHealthRow[]; scheduler: SenderScheduler };
+
+const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && /^\d+$/.test(v) ? Number(v) : 0);
+
+export function parseSenderHealth(raw: unknown): SenderHealth {
+  const top = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const rows = Array.isArray(top.senders) ? top.senders : [];
+  const senders: SenderHealthRow[] = rows.map((r) => {
+    const o = (r && typeof r === "object" ? r : {}) as Record<string, unknown>;
+    // an unknown or missing state is never read as healthy
+    const state = (typeof o.state === "string" && HEALTH_STATES.includes(o.state) ? o.state : "blocked") as SenderHealthState;
+    return {
+      studioId: s(o.studio_id) ?? "", legalEntityId: s(o.legal_entity_id), senderId: s(o.sender_id), status: s(o.status), state, blocked: state !== "ready" && state !== "expiring",
+      lastSuccessAt: s(o.last_success_at), expiresAt: s(o.expires_at), nextCheckAt: s(o.next_check_at),
+      decisiveOutcome: s(o.decisive_outcome), decisiveCode: s(o.decisive_code), decisiveSource: s(o.decisive_source), decisiveAt: s(o.decisive_at),
+      lastAttemptOutcome: s(o.last_attempt_outcome), lastAttemptCode: s(o.last_attempt_code), lastAttemptAt: s(o.last_attempt_at), retriesSinceSuccess: num(o.retries_since_success),
+    };
+  }).filter((r) => r.studioId);
+  const sc = (top.scheduler && typeof top.scheduler === "object" ? top.scheduler : {}) as Record<string, unknown>;
+  const runs = (Array.isArray(sc.runs) ? sc.runs : []).map((r) => {
+    const o = (r && typeof r === "object" ? r : {}) as Record<string, unknown>;
+    return { runId: s(o.run_id), status: s(o.status), startedAt: s(o.started_at), finishedAt: s(o.finished_at), error: s(o.error) };
+  });
+  return {
+    senders,
+    scheduler: {
+      lastCompletedAt: s(sc.last_completed_at),
+      // a missing scheduler block is never reassuring
+      stale: sc.stale !== false,
+      running: Boolean(sc.running && typeof sc.running === "object"), runs, expiring: num(sc.expiring), expired: num(sc.expired), failed: num(sc.failed),
+    },
+  };
+}
+
+/** The sender health (state machine, trust window, scheduler status) or null when it cannot be read here (function not installed or any error). */
+export async function loadSenderHealth(admin: Pick<SupabaseClient, "rpc">, actorId: string): Promise<SenderHealth | null> {
+  try {
+    const { data, error } = await admin.rpc("tw4_sender_health", { p_actor: actorId });
+    if (error || !data || typeof data !== "object") return null;
+    return parseSenderHealth(data);
+  } catch {
+    return null;
+  }
+}
+
+export type SenderGuidance = { headline: string; next: "verify" | "wait" | "provider" | "investigate" | "record" | "none"; detail: string };
+
+const PROVIDER_CODES = new Set([
+  "campaign_not_verified", "service_not_a2p_registered", "number_not_ready", "number_not_in_service", "account_not_active", "inbound_not_routed_to_danceflow", "callback:30034",
+]);
+const MISMATCH_CODES = new Set([
+  "service_not_on_account", "campaign_not_on_service", "brand_not_the_business", "mock_registration", "use_case_mismatch", "subaccount_not_active",
+]);
+
+/** What a platform admin should do next, from the state alone. Only 'ready' and 'expiring' are ever described as able to send. */
+export function senderGuidance(row: SenderHealthRow): SenderGuidance {
+  switch (row.state) {
+    case "ready":
+      return { headline: "Ready", next: "none", detail: "Verified recently; the scheduled re-check keeps it current." };
+    case "expiring":
+      if (row.lastAttemptOutcome === "inconclusive") {
+        return (row.lastAttemptCode ?? "").startsWith("read_credentials_unavailable")
+          ? { headline: "Ready, but re-checks cannot read Twilio", next: "investigate", detail: "The subaccount's credentials could not be obtained. This will not fix itself: check the subaccount and the token-read setup before the deadline." }
+          : { headline: "Ready, re-checks failing", next: "wait", detail: `Twilio could not be read (${row.retriesSinceSuccess} tries). Sending stops at the deadline unless a check succeeds.` };
+      }
+      return { headline: "Ready, re-check due", next: "wait", detail: "The scheduled re-check runs before the deadline; verify now if you need certainty." };
+    case "expired":
+      if (row.lastAttemptOutcome === "inconclusive" && (row.lastAttemptCode ?? "").startsWith("read_credentials_unavailable")) {
+        return { headline: "Blocked: Twilio credentials unavailable", next: "investigate", detail: "The subaccount's credentials could not be obtained (closed or suspended subaccount, or token-read setup). Fix that, then Re-check now." };
+      }
+      if (row.lastSuccessAt && Date.parse(row.lastSuccessAt) < Date.now() - 72 * 3_600_000) {
+        return { headline: "Blocked: verification lapsed days ago", next: "verify", detail: "Trust lapsed more than 48 hours ago, so the scheduler no longer restores it. Verify it again (with the Advanced Opt-Out attestation)." };
+      }
+      return row.lastAttemptOutcome !== "inconclusive"
+        ? { headline: "Blocked: verification expired", next: "verify", detail: "The 24-hour verification lapsed and sending is blocked. Re-check now to restore it." }
+        : { headline: "Blocked: verification expired", next: "wait", detail: "The scheduler is retrying; Twilio could not be reached. Sending stays blocked until a check succeeds." };
+    case "failed": {
+      const code = row.decisiveCode ?? "";
+      if (PROVIDER_CODES.has(code)) return { headline: "Blocked: Twilio reports a problem", next: "provider", detail: "Fix it in Twilio, then Verify. Sending stays blocked until a check succeeds." };
+      if (MISMATCH_CODES.has(code) || code.startsWith("read_not_found") || code.startsWith("read_forbidden") || code.startsWith("read_unreadable")) {
+        return { headline: "Blocked: sender identity does not match", next: "investigate", detail: "Possible reassignment or wrong subaccount: investigate before verifying." };
+      }
+      if (code === "advanced_opt_out_not_attested") return { headline: "Blocked: Advanced Opt-Out not attested", next: "verify", detail: "Attest Advanced Opt-Out in the Twilio Console, then Verify." };
+      return { headline: "Blocked: verification failed", next: "investigate", detail: "The last check failed for a reason a person needs to look at before verifying again." };
+    }
+    case "pending":
+      return { headline: "Not yet verified", next: "verify", detail: "Verify the sender; it cannot send billed texts until a check succeeds." };
+    case "blocked":
+      return { headline: "Blocked: not ready for a reason other than expiry", next: "investigate", detail: "For example the subaccount is no longer active, the location's registration path changed, or the last verification does not match this sender. Investigate, then Verify." };
+    case "revoked":
+      return { headline: "Revoked", next: "record", detail: "This sender was stopped. Record a new sender to send again." };
+    case "released":
+      return { headline: "Released", next: "record", detail: "This sender was released. Record a new sender to send again." };
+    default:
+      return { headline: "No sender", next: "record", detail: "No sender is recorded for this location. Record one to send." };
+  }
 }
 
 export type VerifyOutcome = "verified" | "failed" | "inconclusive" | "skipped" | "error";
@@ -354,20 +469,39 @@ export async function verifySender(
   return readResult(data);
 }
 
-export type ReverifyCounts = { due: number; verified: number; failed: number; inconclusive: number; skipped: number; errors: number };
+export type ReverifyCounts = { due: number; verified: number; failed: number; inconclusive: number; skipped: number; errors: number; truncated: boolean; workListFailed?: boolean };
 
-/** Refresh approved senders whose last decisive verification is getting old. One failure never stops the rest. Nothing schedules this. */
-export async function reverifyDueSenders(admin: SupabaseClient, provider: SenderReadProvider, input: { limit?: number; inboundUrl?: string | null } = {}): Promise<ReverifyCounts> {
-  const counts: ReverifyCounts = { due: 0, verified: 0, failed: 0, inconclusive: 0, skipped: 0, errors: 0 };
+class ReverifyLeaseLost extends Error {
+  constructor() {
+    super("sender reverify: the run lost its lease");
+  }
+}
+
+/**
+ * Re-verify the approved senders that are due (the database's work list: last success older than 20 hours, backoff after transient reads), inside a
+ * live 'sender_reverify' run: every write goes through the lease-fenced tw4_sender_reverify_run. The database judges the evidence; one sender's failure
+ * never stops the rest; a lost lease stops at once. Nothing here can restore a FAILED sender, extend a sender's trust, or touch Twilio beyond GETs.
+ */
+export async function reverifyDueSenders(
+  admin: Pick<SupabaseClient, "rpc">,
+  provider: SenderReadProvider,
+  input: { runId: string; limit?: number; inboundUrl?: string | null; deadline?: number },
+): Promise<ReverifyCounts> {
+  const counts: ReverifyCounts = { due: 0, verified: 0, failed: 0, inconclusive: 0, skipped: 0, errors: 0, truncated: false };
   const inboundUrl = input.inboundUrl === undefined ? expectedInboundUrl() : input.inboundUrl;
   if (!inboundUrl) return counts;
-  const due = await admin.rpc("tw4_sender_due_reverify", { p_limit: input.limit ?? 100 });
+  const due = await admin.rpc("tw4_sender_due_reverify", { p_limit: input.limit ?? 50 });
   if (due.error || !Array.isArray(due.data)) {
     counts.errors += 1;
+    counts.workListFailed = true;
     return counts;
   }
   counts.due = due.data.length;
   for (const item of due.data as Array<Record<string, unknown>>) {
+    if (input.deadline !== undefined && Date.now() > input.deadline) {
+      counts.truncated = true;
+      break;
+    }
     try {
       const ids = identifiers({
         accountSid: s(item.account_sid), messagingServiceSid: s(item.messaging_service_sid), campaignSid: s(item.campaign_sid), phoneNumberSid: s(item.phone_number_sid),
@@ -378,18 +512,72 @@ export async function reverifyDueSenders(admin: SupabaseClient, provider: Sender
         counts.errors += 1;
         continue;
       }
+      // the identifiers come from the database's own sender row (never from a tenant); the reads use that row's subaccount
       const evidence = await buildSenderEvidence(provider, ids, inboundUrl);
-      const { data, error } = await admin.rpc("tw4_sender_reverify", { p_studio_id: studioId, p_sender_id: senderId, p_evidence: evidence, p_source: provider.isFake ? "fake" : "provider_read" });
+      const { data, error } = await admin.rpc("tw4_sender_reverify_run", {
+        p_run_id: input.runId, p_studio_id: studioId, p_sender_id: senderId, p_evidence: evidence, p_source: provider.isFake ? "fake" : "provider_read",
+      });
       if (error) {
+        if (error.code === "TW023") throw new ReverifyLeaseLost();
         counts.errors += 1;
         continue;
       }
       const result = readResult(data);
       if (result.outcome === "error") counts.errors += 1;
       else counts[result.outcome] += 1;
-    } catch {
+    } catch (error) {
+      if (error instanceof ReverifyLeaseLost) throw error;
       counts.errors += 1;
     }
   }
   return counts;
+}
+
+export type ScheduledReverifyOutcome =
+  | { ran: false; reason: "busy" | "unavailable" }
+  | { ran: true; runId: string; failed: boolean; summary: Record<string, number | boolean> };
+
+export const REVERIFY_BUDGET_MS = 45_000;
+/** Twice the route's maxDuration: a run killed by the platform frees the lease for the next tick. */
+export const REVERIFY_LEASE_SECONDS = 120;
+
+/**
+ * The scheduled re-verify: one run at a time (the shared run lease, job 'sender_reverify'), bounded batch and time budget, outcome recorded with counts
+ * only. Without a read provider (reads off) or an inbound URL nothing is read and nothing changes; trust then lapses on its own after 24 hours.
+ */
+export async function runScheduledSenderReverify(
+  admin: Pick<SupabaseClient, "rpc">,
+  provider: SenderReadProvider | null,
+  options: { runner: string; budgetMs?: number; limit?: number; inboundUrl?: string | null },
+): Promise<ScheduledReverifyOutcome> {
+  const started = Date.now();
+  const begin = await admin.rpc("tw4_reconcile_run_begin", { p_job: "sender_reverify", p_runner: options.runner, p_lease_seconds: REVERIFY_LEASE_SECONDS });
+  if (begin.error) return { ran: false, reason: "unavailable" };
+  const lease = (begin.data ?? {}) as { acquired?: unknown; run_id?: unknown };
+  if (lease.acquired !== true || typeof lease.run_id !== "string") return { ran: false, reason: "busy" };
+  const runId = lease.run_id;
+  const inboundUrl = options.inboundUrl === undefined ? expectedInboundUrl() : options.inboundUrl;
+  let counts: ReverifyCounts = { due: 0, verified: 0, failed: 0, inconclusive: 0, skipped: 0, errors: 0, truncated: false };
+  let failure: string | null = null;
+  try {
+    // a run that cannot read anything is recorded as FAILED, never as a completed (healthy-looking) run: the panel's stale alert then shows it
+    if (!provider) failure = "sender reverify: provider reads unavailable";
+    else if (!inboundUrl) failure = "sender reverify: inbound url not configured";
+    else {
+      counts = await reverifyDueSenders(admin, provider, { runId, limit: options.limit, inboundUrl, deadline: started + (options.budgetMs ?? REVERIFY_BUDGET_MS) });
+      if (counts.workListFailed) failure = "sender reverify: work list unavailable";
+    }
+  } catch (error) {
+    failure = error instanceof ReverifyLeaseLost ? error.message : "sender reverify: unexpected failure";
+  }
+  const { workListFailed, ...countsOnly } = counts;
+  const summary: Record<string, number | boolean> = {
+    ...countsOnly, work_list_failed: workListFailed === true, reads_available: provider !== null, inbound_url_configured: Boolean(inboundUrl), duration_ms: Date.now() - started,
+  };
+  try {
+    await admin.rpc("tw4_reconcile_run_finish", { p_run_id: runId, p_status: failure ? "failed" : "completed", p_summary: summary, p_error: failure });
+  } catch {
+    // an unfinished run's lease expires and the next begin closes it as failed
+  }
+  return { ran: true, runId, failed: failure !== null, summary };
 }
