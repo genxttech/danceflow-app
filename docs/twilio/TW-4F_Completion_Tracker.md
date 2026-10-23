@@ -318,7 +318,7 @@ Every merge below is Git only. Nothing is applied to any hosted database, no dep
 | #278 | 629e7314 |
 | #279 | 57780760 |
 | #280 | 4046b8f6 |
-| #288 (F4, 1221) | 9977fe03 |
+| #288 | 42e26eb8 | F4 recovery tooling, 1221 | **MERGED 2026-10-23 (squash, owner-approved) → main `973f36da`; Git-only, 1221 not applied hosted.** f4recovery 26/26, r2brfl 28/28 on the final head; independent review P1/P2 fixed; KI-1 kept by owner decision. |
 
 `page.tsx` order from here:
 - F4 (#288) merges main and re-runs.
