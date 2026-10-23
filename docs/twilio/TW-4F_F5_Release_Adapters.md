@@ -32,7 +32,7 @@ Local and offline only. Nothing here calls Twilio, applies SQL, deploys, or swit
    * A number needs a **consumed** `cancel_number` dual-control approval whose requester and approver are two **different** administrators (RFL Ops D3).
    * The adapter must exist and belong to the resource's subaccount.
 2. **`tw4_rfl_cancel_begin`.** Only `execute` proceeds. `in_progress`, `reconcile` and `skip` are reported and never acted on. A claim about a different SID or kind than the one checked is recorded `unknown` (`target_mismatch`), and nothing is called.
-3. **One release request.** It is never repeated.
+3. **One release request.** It is never repeated by the runner. The one transport-level exception: behind the rotation wrapper (rotation.ts), a DELETE answered HTTP 401 is sent once more after a re-read shows the subaccount token changed. That is safe because Twilio rejects an unauthenticated request before acting on it.
    * A definite refusal is recorded `refused` with code `api`. A definite refusal means a parseable 4xx other than 404, 408 or 429, with kind validation or account.
    * Everything else is recorded `unknown`: transient, 429, 5xx, a network failure, an unreadable 2xx, an unexpected error, or a 404 without 20404. After that, every later begin answers `reconcile`.
 4. **Read-back.** `absent` leads to `confirmed`, with the SHA-256 evidence digest of `{schema, operation, resource, kind, sid, account, release result, read-back, evidence source, observed_at}`. `present` or a failed read leads to `unknown`.
@@ -132,6 +132,8 @@ The isoqa base image's `auth.users` is a stub. On the dedicated container `f5-rf
 ## Wiring with J1 (factory.ts, merged in #278)
 
 `cancelReleaseRuntime(env, { realAdaptersFor })` accepts J1's `buildSubaccountAdaptersFor(env)` as it is (a test pins that this type-checks). `asReleaseAdapters` narrows each adapter to the release interfaces by reading its methods; any adapter without them reads as null, so nothing is claimed. It reads properties rather than using `in` because the rotation wrapper is a Proxy with only a get trap. Fake mode uses the same builder. The real path is still not wired by default: production stays manual until a caller passes `realAdaptersFor` with `TW4_CANCEL_RELEASE=on`.
+
+Hardening (post-merge review P3s): the real path accepts only adapters whose `evidenceSource` is `provider_read`, and fake mode only `fake`, so a mis-wired adapter can never turn a fake read into evidence. An adapter whose properties throw when read becomes null, and the runner then refuses without claiming.
 
 ## Contract findings (offline)
 

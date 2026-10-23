@@ -29,18 +29,28 @@ const isFn = (o: Record<string, unknown>, name: string) => typeof o[name] === "f
 const NUMBER_RELEASE = ["releaseNumber", "detachNumber", "numberPresence"];
 const PROVISIONING_RELEASE = ["deleteCampaign", "deleteMessagingService", "campaignPresence", "servicePresence", "findCampaigns"];
 
-function releaseCapable(adapter: unknown, methods: string[]): boolean {
+type EvidenceSource = "provider_read" | "fake";
+
+function releaseCapable(adapter: unknown, methods: string[], sources: readonly EvidenceSource[]): boolean {
   if (!adapter || typeof adapter !== "object") return false;
   // property reads, not `in`: the rotation wrapper (rotation.ts) is a Proxy with a get trap only, and answers `in` with false
   const o = adapter as Record<string, unknown>;
-  return typeof o.accountSid === "string" && (o.evidenceSource === "provider_read" || o.evidenceSource === "fake") && methods.every((m) => isFn(o, m));
+  try {
+    return typeof o.accountSid === "string" && sources.includes(o.evidenceSource as EvidenceSource) && methods.every((m) => isFn(o, m));
+  } catch {
+    // a getter that throws is not an adapter we can trust with an irreversible call: null, so the runner refuses before any claim
+    return false;
+  }
 }
 
-/** Narrows a subaccount builder's adapters to the release interfaces; anything that cannot release reads as null (fail closed: the runner refuses). */
-export function asReleaseAdapters(built: SubaccountAdapters): ReleaseAdapters {
+/**
+ * Narrows a subaccount builder's adapters to the release interfaces; anything that cannot release reads as null (fail closed: the runner refuses).
+ * `sources` limits whose read-back may become evidence: the real path accepts only "provider_read" (a fake there is a wiring fault, never evidence).
+ */
+export function asReleaseAdapters(built: SubaccountAdapters, sources: readonly EvidenceSource[] = ["provider_read", "fake"]): ReleaseAdapters {
   return {
-    numbers: releaseCapable(built.numbers, NUMBER_RELEASE) ? (built.numbers as NumberReleaseAdapter) : null,
-    provisioning: releaseCapable(built.provisioning, PROVISIONING_RELEASE) ? (built.provisioning as ProvisioningReleaseAdapter) : null,
+    numbers: releaseCapable(built.numbers, NUMBER_RELEASE, sources) ? (built.numbers as NumberReleaseAdapter) : null,
+    provisioning: releaseCapable(built.provisioning, PROVISIONING_RELEASE, sources) ? (built.provisioning as ProvisioningReleaseAdapter) : null,
   };
 }
 
@@ -105,14 +115,14 @@ export function cancelReleaseRuntime(env: Env = process.env, options: CancelRunt
   const ledger = new ProviderFeeLifecycleStore(createAdminClient());
   if (fakeAdapterAllowed(env)) {
     const built = buildSubaccountAdaptersFor(env);
-    return { ok: true, mode: "fake", runner: buildCancelRunner({ ledger, targets, adaptersFor: async (accountSid) => asReleaseAdapters(await built(accountSid)) }) };
+    return { ok: true, mode: "fake", runner: buildCancelRunner({ ledger, targets, adaptersFor: async (accountSid) => asReleaseAdapters(await built(accountSid), ["fake"]) }) };
   }
   // defense in depth: the supplied real adapters are gated where they are built, and the release path also needs the provisioning gate here
   if (options.realAdaptersFor && provisioningCallsAllowed(env).allowed) {
     const supplied = options.realAdaptersFor;
     // a number is released only where the number gate is on as well
     const adaptersFor = async (accountSid: string): Promise<ReleaseAdapters> => {
-      const built = asReleaseAdapters(await supplied(accountSid));
+      const built = asReleaseAdapters(await supplied(accountSid), ["provider_read"]);
       return { numbers: numberCallsAllowed(env).allowed ? built.numbers : null, provisioning: built.provisioning };
     };
     return { ok: true, mode: "real", runner: buildCancelRunner({ ledger, targets, adaptersFor }) };
