@@ -235,7 +235,7 @@ Every slice starts from `main` = `960a9d02` in its own worktree, cut by the app 
 | W0 #251 | TW-4F scheduled SMS reconciliation & recovery (existing owner) | `twilio-tw4f-sender-reverify` | `SenderIdentity.tsx`, `page.tsx` (merge-conflict resolution), `senderVerification.ts`, route `sms-sender-reverify` | `_tw4sr_judge`, `tw4_sender_reverify`, `tw4_sender_due_reverify`, `tw4_sender_health`, `tw4_sender_reverify_run` | `20261206090000` | — | Rebase requested |
 | W0 #266 | Automated Twilio sender provisioning (existing owner) | `twilio-tw4f-isolated-qa` | `scripts/qa/iso-qa.mjs` and the harness files | — | — | — | Refresh requested |
 | W0 #267, #269 | DanceFlow provisioning UI (existing owner) | `twilio-r2a-rollback-test`, `twilio-prov-evidence-orig-scope` | `localStack.r2a.test.ts`; `provisionEvidence.ts` (#269 scope) | `tw4_prov_evidence_targets` | `20261215090000` | — | Refresh requested |
-| F3 | tw4f-f3-recon-gate | `twilio-tw4f-f3-recon-gate` | `UsageReconciliation.tsx`; new `localStack.f3recon`, `usageReconcilerReadiness.ts`; **send-path enforcement (owner-approved 2026-10-22):** `src/app/api/sms/send/route.ts`, `src/lib/notifications/dispatch.ts`, `src/lib/sms/usageBilling.ts` and their existing tests; `localStack.tw4recon`, `localStack.tw4usage`, `senderFixtures.ts`; shared: `localStack.tw4sender.test.ts`, `page.tsx` (see notes) | `tw4_usage_begin`, `tw4_usage_set_switch`, new `_tw4usage_reconciler_ready()` (a contract F1 depends on) | `20261218090000` | #251 for the shared files | Resumed after outage |
+| F3 | tw4f-f3-recon-gate | `twilio-tw4f-f3-recon-gate` | `UsageReconciliation.tsx`; new `localStack.f3recon`, `usageReconcilerReadiness.ts`; **send-path enforcement (owner-approved 2026-10-22):** `src/app/api/sms/send/route.ts`, `src/lib/notifications/dispatch.ts`, `src/lib/sms/usageBilling.ts` and their existing tests; `src/lib/notifications/deliveryOutcome.ts` (approved 2026-10-23, limited to classifying `sms_billing_paused` as definitely unsent: the refusal happens before any provider call); `docs/twilio/TW-4F_Usage_Reconciliation_Runbook.md`; `localStack.tw4recon`, `localStack.tw4usage`, `senderFixtures.ts`; shared: `localStack.tw4sender.test.ts`, `page.tsx` (see notes) | `tw4_usage_begin`, `tw4_usage_set_switch`, new `_tw4usage_reconciler_ready()` (a contract F1 depends on) | `20261218090000` | #251 for the shared files | Resumed after outage |
 | F1 | tw4f-f1-funding | `twilio-tw4f-f1-funding` | new `localStack.f1funding` | `_tw4act_*`, `tw4_act_*` (acquires locks from the `act_*` side only; must stop before touching `tw4_num_retire` / `tw4_num_observe`) | `20261219090000` | F3 helper, for the checklist item only | Running |
 | F2 | not launched | — | — | `_tw4sr_ready`, `_tw4sr_ready_core` | `20261220090000` (reserved) | U-3 | Waiting on decision U-3 |
 | F4 | tw4f-f4-recovery | `twilio-tw4f-f4-recovery` | `provisionLedger.ts`, `ProvisioningLedger.tsx`, `provisioningActions.ts`; new `Exposure*`, `Recovery*`, `NumberLedger*`, `recoveryActions.ts`; one mount line in `page.tsx` | `tw4_prov_observe`, `tw4_num_registration_*`, new recovery/exposure reads | `20261221090000` | #269 (merge `main` in after it lands) | Running |
@@ -269,6 +269,22 @@ Open PRs, revalidated 2026-10-22 (CI = the required "Typecheck, build, lint, uni
 | #273 | this PR | CLEAN | docs | Completion tracker |
 | #274 | a6074a92 | CLEAN | docs | H1 hosted manifest; F1/F4/J2 hash rows follow their PRs |
 | #275 | c858ddc1 | CLEAN | green | Q1 QA/E2E preparation; partial baseline, re-run on an idle host |
+
+Re-checked 2026-10-23 with `gh pr view`; `main` is still `960a9d02`. Every PR below is MERGEABLE and CLEAN. The required check is green on each code PR (Playwright skipped), and the docs PRs carry only Vercel checks.
+
+| PR | Head | Scope | Merge-readiness |
+|---|---|---|---|
+| #251 | d3a5d136 | Sender re-verification, 1206 | Conflict resolved by merging `main` in. tw4rv + tw4sender 45/45 on a dedicated DB. Ready for the owner's decision. Merge first among the `page.tsx` PRs. |
+| #266 | 872a9130 | Isolated QA harness | `main` merged in, full-chain scenarios added. Final verification evidence is still awaited from its owner. |
+| #267 | 59ecf3f0 | R2a layered rollback test | Ready for the owner's decision. |
+| #269 | 5a2432d3 | Evidence original scope, 1215 | Ready for the owner's decision. F4 depends on it. |
+| #273 | this PR | Tracker | Docs only. |
+| #274 | e4116404 | H1 hosted manifest | Docs only. F3 and J2 rows provisional; F1, F4 and F5 rows wait for their PRs. |
+| #275 | c858ddc1 | Q1 runner and E2E scaffolding | Baseline partial (load); needs a re-run on an idle host. |
+| #276 | d99f42a0 | J2 owner reads, 1222 | j2owner 12/12, r2ci2 15/15, unit 205/205. r2b and tw4rfl BLOCKED by load; owner browser E2E BLOCKED. |
+| #277 | c3971961 | F3 reconciler gate, 1218 | `page.tsx` and `tw4sender` test rebase after #251 (and F4) merge. |
+
+Not yet PRs: F1 (local a69770d6), F4 (local 231efad3), J1 (local 629e7314) and F5. Each waits for its final DB runs.
 
 Heads, CI and mergeability are re-checked before any merge is recommended. No PR merges without separate owner approval.
 
