@@ -1,7 +1,7 @@
 -- 20261221090000_twilio_admin_recovery_tooling.sql
 -- TW-4F F4: administrative evidence, orphan exposure and operational recovery tooling (dark; Git-only until separately authorized).
 --   1. A provider-VERIFIED campaign is registered in the recurring-fee inventory IN THE SAME TRANSACTION as its observation (tw4_prov_observe), from the R2a ledger's own
---      rows, mirroring 20261217 for numbers: no charge, no cover beyond the pilot's own first-month reservation of that operation, no change to tw4_rfl_register. A
+--      rows, mirroring 20261217 for numbers: no charge, no cover beyond the pilot's own reservation of that operation in its own month (D5), no change to tw4_rfl_register. A
 --      registration that fails is audited, alerted (inventory_gap, critical, administrators only) and retryable; the observation is never discarded.
 --   2. tw4_admin_registration_retry: the audited administrator retry (number or campaign). It records the platform-admin actor, the written reason and the outcome,
 --      including a business refusal. tw4_num_registration_retry keeps its contract (raises on refusal) and now records the actor too.
@@ -60,17 +60,18 @@ end $$;
 -- ---------------------------------------------------------------------------------------------------------------
 -- campaign registration from the R2a ledger
 -- ---------------------------------------------------------------------------------------------------------------
--- the pilot reservation that paid a campaign's first month ('prov:<operation>:<monthly kind>'), or null: a business with standing authorizations is covered by them, a
--- released or still-held reservation pays nothing, and a reservation CAPTURED in an earlier month never pays the month it happens to be registered in (that month needs
--- its own written approval). Unlike a number, a campaign's monthly fee is captured on APPROVAL (tw4_prov_observe, VERIFIED), which can be weeks after the attempt
--- started: the month that counts is the capture month, never the attempt's start month.
+-- the pilot reservation that paid a campaign's first month ('prov:<operation>:<monthly kind>'), or null. R2b/RFL decision D5 (TW-4F_R2b_RFL_Integration.md §5), the
+-- rule numbers already follow: a business with standing authorizations is covered by them; a released reservation pays nothing; and the attempt's own pilot
+-- reservation is bound as the registration period's cover ONLY while it is reserved/captured AND the registration month equals the month the reservation was MADE
+-- (its created_at). A campaign approved in a later month than it was reserved registers with NO cover: that month needs its own written approval
+-- (tw4_rfl_pilot_cover), which #280's activation funding check expects (it accepts an initial cover only in the reservation's own month).
 create or replace function public._tw4prov_ledger_reservation(p_op uuid)
 returns uuid language sql stable security definer
 set search_path = pg_catalog, public, pg_temp
 as $$ select cr.id from public.studio_sms_prov_operations o
           join public.studio_sms_credit_reservations cr on cr.reservation_key = 'prov:' || o.id::text || ':' || (public.tw4_location_fee_kinds(o.studio_id) ->> 'campaign_monthly_kind')
-        where o.id = p_op and cr.funding = 'pilot' and cr.status = 'captured' and cr.closed_at is not null
-          and public._tw4ml_month_key(o.legal_entity_id, cr.closed_at) = public._tw4ml_month_key(o.legal_entity_id, clock_timestamp()); $$;
+        where o.id = p_op and cr.funding = 'pilot' and cr.status in ('reserved', 'captured')
+          and public._tw4ml_month_key(o.legal_entity_id, cr.created_at) = public._tw4ml_month_key(o.legal_entity_id, clock_timestamp()); $$;
 
 -- registers the location's provider-verified campaign from the LEDGER'S rows (never from caller-typed identifiers), as the system, under the caller's locks
 create or replace function public._tw4prov_register_verified(p_op uuid)
@@ -81,7 +82,6 @@ declare
   p public.studio_sms_prov_operations;
   r public.studio_sms_provider_resources;
   v_res uuid;
-  v_key text;
 begin
   select * into p from public.studio_sms_prov_operations x where x.id = p_op and x.op_kind = 'campaign' and x.status = 'succeeded' and x.superseded_at is null and x.provider_sid is not null
      and exists (select 1 from public.studio_sms_prov_resources pr where pr.operation_id = x.id and pr.provider_sid = x.provider_sid and pr.status = 'verified'
@@ -96,18 +96,8 @@ begin
   if r.id is not null and r.provider_state = 'cancelled' then
     raise exception 'the provider reports this campaign verified but the recurring-fee lifecycle shows it cancelled' using errcode = 'TW040';
   end if;
-  -- the same campaign was first found as an orphan of THIS attempt and registered by an administrator (no cover): the attempt's own pilot first-month reservation
-  -- still covers the capture month, once (the cover's unique keys make a second attach a no-op). Nothing is charged or reserved here.
-  if r.id is not null and r.source = 'admin' and r.source_operation_id = p.id and r.studio_id = p.studio_id and r.legal_entity_id = p.legal_entity_id
-     and r.twilio_account_sid = p.twilio_account_sid and r.resource_kind = 'campaign' then
-    if v_res is not null and r.fee_kind is not null and exists (select 1 from public.studio_sms_pilot_exceptions pe where pe.legal_entity_id = p.legal_entity_id)
-       and exists (select 1 from public.studio_sms_credit_reservations cr where cr.id = v_res and cr.kind = r.fee_kind and cr.studio_id = p.studio_id) then
-      v_key := public._tw4ml_month_key(p.legal_entity_id, clock_timestamp());
-      insert into public.studio_sms_provider_cover (resource_id, legal_entity_id, studio_id, period_key, basis, reservation_id, recorded_by)
-      values (r.id, p.legal_entity_id, p.studio_id, v_key, 'initial_reservation', v_res, p.started_by) on conflict do nothing;
-    end if;
-    return jsonb_build_object('resource_id', r.id, 'replayed', true);
-  end if;
+  -- an already registered resource with the same facts (for example an orphan of this attempt that an administrator registered) is a replay: registration only.
+  -- No cover is attached to an existing resource here; an uncovered period needs its own written approval (tw4_rfl_pilot_cover).
   return public._tw4rfl_register_core(p.studio_id, p.started_by, 'campaign', p.provider_sid, p.twilio_account_sid, null, 'r2a', p.id, v_res, true);
 end $$;
 

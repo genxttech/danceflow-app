@@ -107,7 +107,7 @@ const releaseLease = (w: World) => replica(`update public.studio_sms_onboarding 
 
 type Campaign = { ms: string; msOp: string; op: string; qe: string };
 /** The R2a ledger for a location: a ready Messaging Service and a campaign operation (fee-bearing) in the given status. */
-function campaign(w: World, o: { status?: "succeeded" | "unknown_outcome" | "in_flight"; pilotReservation?: "captured" | "reserved"; startedAgo?: string; capturedAgo?: string } = {}): Campaign {
+function campaign(w: World, o: { status?: "succeeded" | "unknown_outcome" | "in_flight"; pilotReservation?: "captured" | "reserved"; startedAgo?: string; reservedAgo?: string; capturedAgo?: string } = {}): Campaign {
   const c: Campaign = { ms: sid("MG"), msOp: randomUUID(), op: randomUUID(), qe: sid("QE") };
   const status = o.status ?? "succeeded";
   replica(`insert into public.studio_sms_prov_operations (id, onboarding_id, studio_id, legal_entity_id, twilio_account_sid, op_kind, attempt, submission_seq, status, friendly_name, request_digest, params, provider_sid, started_by, finished_at)
@@ -120,8 +120,9 @@ function campaign(w: World, o: { status?: "succeeded" | "unknown_outcome" | "in_
             '{"use_case":"MIXED","messaging_service_sid":"${c.ms}"}'::jsonb, ${status === "succeeded" ? `'${c.qe}'` : "null"}, true, array['campaign_vetting','monthly'], '${P}',
             now() - interval '${o.startedAgo ?? "0 minutes"}', ${status === "succeeded" ? "now()" : "null"});`);
   if (o.pilotReservation) {
-    replica(`insert into public.studio_sms_credit_reservations (legal_entity_id, studio_id, kind, amount_cents, funding, status, reservation_key, closed_at)
-      values ('${w.entity}', '${w.studio}', 'monthly', 1500, 'pilot', '${o.pilotReservation}', 'prov:${c.op}:monthly', ${o.pilotReservation === "captured" ? `now() - interval '${o.capturedAgo ?? "0 minutes"}'` : "null"});`);
+    replica(`insert into public.studio_sms_credit_reservations (legal_entity_id, studio_id, kind, amount_cents, funding, status, reservation_key, created_at, closed_at)
+      values ('${w.entity}', '${w.studio}', 'monthly', 1500, 'pilot', '${o.pilotReservation}', 'prov:${c.op}:monthly', now() - interval '${o.reservedAgo ?? "0 minutes"}',
+              ${o.pilotReservation === "captured" ? `now() - interval '${o.capturedAgo ?? "0 minutes"}'` : "null"});`);
   }
   return c;
 }
@@ -250,18 +251,23 @@ commit;`);
       expect(money(w)).toBe(before);
     });
 
-    it("an attempt STARTED last month but approved (captured) this month covers this month: approval, not the attempt, decides the month (review P1)", () => {
+    it("D5: a pilot reservation MADE last month and captured on approval this month binds no cover; this month then takes its own written approval (tw4_rfl_pilot_cover)", () => {
       const w = world({ pilot: true });
-      const c = campaign(w, { pilotReservation: "captured", startedAgo: "40 days" });
+      const c = campaign(w, { pilotReservation: "captured", startedAgo: "40 days", reservedAgo: "40 days" });
       observeCampaign(w, c);
       const rows = resourcesOf(w);
       expect(rows).toHaveLength(1);
-      expect(count(`select 1 from public.studio_sms_provider_cover where resource_id = '${rows[0].id}' and basis = 'initial_reservation'`)).toBe(1);
+      expect(count(`select 1 from public.studio_sms_provider_cover where resource_id = '${rows[0].id}'`)).toBe(0);
+      // the remedy works (no "already covered"): one written approval for the registration month
+      if (!psql(`select 1 from public.studio_sms_price_list where kind = 'monthly' and active`)) call("tw4_price_set", "monthly", 1000, 150, "fixture monthly price", P);
+      const cover = call<{ cover_id: string; replayed: boolean }>("tw4_rfl_pilot_cover", rows[0].id, psql(`select public._tw4ml_month_key('${w.entity}', now())`), `Written approval ${RUN} campaign month ${hex(3)}`, P);
+      expect(cover.replayed).toBe(false);
+      expect(psql(`select basis from public.studio_sms_provider_cover where resource_id = '${rows[0].id}'`)).toBe("pilot_approval");
     });
 
-    it("a pilot reservation CAPTURED in an earlier month never pays the month the campaign is registered in", () => {
+    it("a pilot reservation made AND captured in an earlier month never pays the month the campaign is registered in", () => {
       const w = world({ pilot: true });
-      const c = campaign(w, { pilotReservation: "captured", startedAgo: "45 days", capturedAgo: "40 days" });
+      const c = campaign(w, { pilotReservation: "captured", startedAgo: "45 days", reservedAgo: "45 days", capturedAgo: "40 days" });
       observeCampaign(w, c);
       const rows = resourcesOf(w);
       expect(rows).toHaveLength(1);
@@ -282,7 +288,7 @@ commit;`);
       expect(call("tw4_admin_registration_retry", w.studio, P, "campaign", NOTE)).toEqual({ outcome: "refused", code: "TW040" });
     });
 
-    it("an orphan of THIS attempt that an administrator registered gets the attempt's pilot first-month cover once on observation; nothing is charged (review P2)", () => {
+    it("an orphan of THIS attempt that an administrator already registered is a replay on observation: registration only, no cover attached, nothing charged", () => {
       const w = world({ pilot: true });
       const c = campaign(w, { pilotReservation: "captured" });
       const rfl = randomUUID();
@@ -292,7 +298,8 @@ commit;`);
       observeCampaign(w, c);
       observeCampaign(w, c);
       expect(resourcesOf(w)).toHaveLength(1);
-      expect(count(`select 1 from public.studio_sms_provider_cover where resource_id = '${rfl}' and basis = 'initial_reservation'`)).toBe(1);
+      expect(count(`select 1 from public.studio_sms_provider_cover where resource_id = '${rfl}'`)).toBe(0);
+      expect(psql(`select source || ':' || provider_state from public.studio_sms_provider_resources where id = '${rfl}'`)).toBe("admin:active");
       expect(money(w)).toBe(before);
     });
   });
