@@ -1,89 +1,116 @@
 WEBVTT
 
 NOTE
-Captions for the approved 77-second ARIA R4 commercial. Timings come from the narration timing
-map (danceflow-aria-video/TIMING_MAP_R1.md) and the cut edit decisions; R4 keeps the same
-narration clock.
+Captions for the approved 77-second ARIA R4 commercial. Wording and timing come from the
+audio-verified cue list (danceflow-aria-video/vertical/cues.json) and the locked script
+(VOICEOVER_V4 F9, F11); times are on the R4 clock.
 
 1
-00:00:00.330 --> 00:00:03.200
+00:00:00.330 --> 00:00:03.300
 Most business software keeps records.
 
 2
-00:00:03.500 --> 00:00:06.900
+00:00:03.500 --> 00:00:06.940
 Most AI waits for you to ask a question.
 
 3
-00:00:07.260 --> 00:00:08.800
+00:00:07.260 --> 00:00:08.880
 I don't.
 
 4
-00:00:09.040 --> 00:00:13.400
-I'm ARIA, the AI team member inside DanceFlow,
+00:00:09.040 --> 00:00:10.210
+I'm ARIA,
 
 5
-00:00:13.680 --> 00:00:19.300
-working while you're focused on your business,
-keeping track of what needs attention across the operation.
+00:00:10.260 --> 00:00:13.460
+the AI team member inside DanceFlow,
 
 6
-00:00:19.560 --> 00:00:25.600
-A package running low, an unanswered inquiry,
-a client who's gone quiet, a class that's nearly full.
+00:00:13.680 --> 00:00:15.630
+while you're focused on your business,
 
 7
-00:00:25.860 --> 00:00:28.450
-I don't handle everything the same way.
+00:00:15.680 --> 00:00:19.450
+keeping track of what needs attention across the operation.
 
 8
-00:00:28.600 --> 00:00:30.500
-You decide how I work.
+00:00:19.560 --> 00:00:21.070
+A package running low,
 
 9
-00:00:30.690 --> 00:00:32.900
-Some things I can handle automatically.
+00:00:21.120 --> 00:00:23.630
+a new inquiry that's gone quiet,
 
 10
-00:00:33.070 --> 00:00:35.000
-Some wait for your approval.
+00:00:23.680 --> 00:00:25.770
+a class that's nearly full.
 
 11
-00:00:35.180 --> 00:00:38.100
-Others I simply bring to your attention.
+00:00:25.860 --> 00:00:28.550
+I don't handle everything the same way.
 
 12
-00:00:38.300 --> 00:00:42.300
-And when it comes to money,
-those decisions stay with you.
+00:00:28.600 --> 00:00:30.630
+You decide how I work.
 
 13
-00:00:42.510 --> 00:00:46.160
-Because DanceFlow isn't just software that keeps records.
+00:00:30.680 --> 00:00:33.010
+Some things I can handle automatically.
 
 14
-00:00:46.160 --> 00:00:50.000
-It's an operating platform built to help do the work,
+00:00:33.060 --> 00:00:35.130
+Some wait for your approval.
 
 15
-00:00:50.300 --> 00:00:55.330
-from the moment a dancer finds a studio,
-reaches out, and keeps coming back,
+00:00:35.180 --> 00:00:38.210
+Others, I simply bring to your attention.
 
 16
-00:00:55.330 --> 00:00:59.500
-DanceFlow connects the people
-and the work behind your business.
+00:00:38.300 --> 00:00:40.060
+And when it comes to money,
 
 17
-00:00:59.690 --> 00:01:05.650
-Studios, instructors, organizers, dancers:
-one connected place.
+00:00:40.110 --> 00:00:42.460
+those decisions stay with you.
 
 18
-00:01:05.850 --> 00:01:09.000
-I'm ARIA, and I'm here to help you run it.
+00:00:42.510 --> 00:00:46.330
+Because DanceFlow isn't just software that keeps records.
 
 19
-00:01:09.200 --> 00:01:17.000
+00:00:46.380 --> 00:00:50.100
+It's an operating platform built to help do the work
+
+20
+00:00:50.290 --> 00:00:52.860
+from the moment a dancer finds a studio,
+
+21
+00:00:52.910 --> 00:00:55.280
+reaches out, and keeps coming back,
+
+22
+00:00:55.330 --> 00:00:59.610
+DanceFlow connects the people and the work behind your business.
+
+23
+00:00:59.690 --> 00:01:05.800
+Studios. Instructors. Organizers. Dancers.
+One connected place.
+
+24
+00:01:05.850 --> 00:01:06.820
+I'm ARIA,
+
+25
+00:01:06.870 --> 00:01:09.150
+and I'm here to help you run it.
+
+26
+00:01:09.200 --> 00:01:10.200
 DanceFlow.
-Software that helps do the work—not just track it.
+
+27
+00:01:10.250 --> 00:01:14.490
+Software that helps do the work—
+not just track it.

@@ -1,39 +1,50 @@
 WEBVTT
 
 NOTE
-Captions for the approved 30-second horizontal ARIA cut (v2). Timings come from the cut's edit
-decisions (danceflow-aria-video/cuts/EDIT_DECISIONS.md) and the R4 narration timing map.
+Captions for the approved 30-second horizontal ARIA cut (v2). Cues are the audio-verified
+R4 cues shifted by the cut's narration-block offsets (cuts/EDIT_DECISIONS.md).
 
 1
-00:00:00.280 --> 00:00:03.700
+00:00:00.280 --> 00:00:03.720
 Most AI waits for you to ask a question.
 
 2
-00:00:04.040 --> 00:00:05.600
+00:00:04.040 --> 00:00:05.660
 I don't.
 
 3
-00:00:05.820 --> 00:00:10.200
-I'm ARIA, the AI team member inside DanceFlow.
+00:00:05.820 --> 00:00:06.990
+I'm ARIA,
 
 4
-00:00:10.550 --> 00:00:12.800
-Some things I can handle automatically.
+00:00:07.040 --> 00:00:10.240
+the AI team member inside DanceFlow.
 
 5
-00:00:12.930 --> 00:00:14.900
-Some wait for your approval.
+00:00:10.540 --> 00:00:12.870
+Some things I can handle automatically.
 
 6
-00:00:15.040 --> 00:00:17.950
-Others I simply bring to your attention.
+00:00:12.920 --> 00:00:14.990
+Some wait for your approval.
 
 7
-00:00:18.160 --> 00:00:22.200
-And when it comes to money,
-those decisions stay with you.
+00:00:15.040 --> 00:00:18.070
+Others, I simply bring to your attention.
 
 8
-00:00:22.400 --> 00:00:28.000
+00:00:18.160 --> 00:00:19.920
+And when it comes to money,
+
+9
+00:00:19.970 --> 00:00:22.320
+those decisions stay with you.
+
+10
+00:00:22.400 --> 00:00:23.400
 DanceFlow.
-Software that helps do the work—not just track it.
+
+11
+00:00:23.450 --> 00:00:27.690
+Software that helps do the work—
+not just track it.
