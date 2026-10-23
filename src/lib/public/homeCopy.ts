@@ -67,7 +67,7 @@ export const HOME_DOORS: readonly [HomeDoor, HomeDoor] = [
     heading: "For dancers",
     body: "Find studios, classes, events, dance partner listings and jobs near you.",
     primaryCta: { label: "Explore Discover", href: "/discover" },
-    secondaryLink: { label: "Create a free dancer account", href: "/signup?intent=public" },
+    secondaryLink: { label: "Create a free dancer account", href: "/login?intent=public" },
     note: "Browsing Discover is free, with no account needed.",
   },
   {
@@ -95,7 +95,7 @@ export const HOME_DISCOVERY = {
     { label: "Learning", line: "Studio-created videos and series", href: "/marketplace", countKey: "marketplace" },
   ],
   primaryCta: { label: "Explore Discover", href: "/discover" },
-  accountLink: { label: "Create a free dancer account", href: "/signup?intent=public" },
+  accountLink: { label: "Create a free dancer account", href: "/login?intent=public" },
 } as const;
 
 /** The BR-4 positioning line, kept as the business section heading and shared with BR-5 collateral. */
