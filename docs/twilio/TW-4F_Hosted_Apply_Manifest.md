@@ -91,6 +91,7 @@ CRLF handling, because it corrupted function-body fingerprints before:
 | 20261223090000 | 20261223090000_twilio_inventory_reconcile_run.sql | f3db1425ba82bfa79363889abaab3bc6b92efc7f71a5eacd277a5f147dc480de | 4a5a7dabbfe2a701c59aebfaec467a703efa30df6d206cd7980485a11d3d86e0 | LF (main 893941b0) |
 | 20261224090000 | 20261224090000_twilio_rfl_cancel_target.sql | 59b03309d0e72441b9f17b83f993ee5a9b630709082a1be25705b10ce3671bee | 8321de6ad70dfd91f30c8c7750604afda08058380c5195caf63c3b55aca0d296 | LF (main d2489cc9) |
 | 20261225090000 | 20261225090000_twilio_rfl_d5_cover.sql | f3c7700ef11879ea51c7c1215e775d41b4a1cbc64bddddf4d7a10af5093f5dfc | f6a5288276b413ac5d36d72ffaca6a01a81d446b94d81c55c50457e791bcdd40 | LF (main c982d7fa) |
+| 20261226090000 | 20261226090000_twilio_act_console_gates.sql | 09588758d7739eebce82405c70d03a93a1e3c0080c93d95e0d749a0e51cc0723 | 8c275fc7ffffa2e2da617c9c6fdebc06ec9734d35757ef176eecc2f0b091f35d | LF (main 897120e1) |
 | 20261227090000 | 20261227090000_twilio_owner_number_offers.sql | 0c8e77b2a6693f6fce87fa9d432aed954eb0f466696c388f5705efeb01612c03 | 20d6210d2038bf48429880a72047e4519f3bbaed446d2884429c60a71695626c | LF (main 210f2b8e) |
 
 ### 3.0 Merged on main after `960a9d02`
@@ -120,6 +121,8 @@ None is applied to any hosted database. Verify with `verify_manifest_hashes.sh 0
 
 Neither is applied to any hosted database. Verify with `verify_manifest_hashes.sh 893941b0`.
 
+`20261226090000` (J4 #298, `twilio_act_console_gates`, merge `897120e1`) merged to main `897120e1`; its row is in the table above with hashes from main, identical to the PR-head hashes (`e2e30a79`, `ead3d86e`). It requires `1219` (bodies fingerprint-checked) and `1225`, replaces only F1's `_tw4act_pilot_funding` and `_tw4act_items`, adds checklist item `pilot_ki1_redecided`, and has no table, data or client-exposed grant. **Apply order `1218`, `1219`, `1221`, `1225`, `1226`; roll back `1226` first.** `1219`'s rollback refuses while `1226` is applied (intended). Its rollback restores the `1219` bodies byte-exactly and refuses if a later migration changed a body. **KI-1 activation block:** with `1226` applied, `tw4_act_mark_ready` and `tw4_act_activate` refuse for the pilot business (`ki1_owner_redecision_pending:lifted_only_by_migration`, TW042) until the owner re-decides KI-1 and a later migration lifts the item; see section 8.3. Not applied to any hosted database. Verify with `verify_manifest_hashes.sh 897120e1`. With this row every TW-4F pilot migration is merged; `1220` (F2) is not started.
+
 ### 3.1 Slots for migrations not on main
 
 Hashes below are of the **PR head blobs** at the commit shown, not main, and are not covered by `verify_manifest_hashes.sh`. Re-hash when the PR changes; a head that moves invalidates the row.
@@ -127,7 +130,6 @@ Hashes below are of the **PR head blobs** at the commit shown, not main, and are
 | Timestamp | Owner / PR | Status | Forward file | sha256 forward (LF) | sha256 rollback (LF) | Notes |
 |---|---|---|---|---|---|---|
 | 20261220090000 | F2 (not started) | reserved, waits for decision U-3 | none | n/a | n/a | Would own `_tw4sr_ready`, `_tw4sr_ready_core`. Do not plan an apply. |
-| 20261226090000 | J4 PR #298 (activation console gates) | open, unmerged, head `ead3d86e` (SQL unchanged since `e2e30a79`: same hashes); **provisional** | `20261226090000_twilio_act_console_gates.sql` | `09588758d7739eebce82405c70d03a93a1e3c0080c93d95e0d749a0e51cc0723` | `8c275fc7ffffa2e2da617c9c6fdebc06ec9734d35757ef176eecc2f0b091f35d` | Requires `1219` (bodies fingerprint-checked) and `1225` (`studio_sms_provider_cover.superseded_at`). Replaces only F1's `_tw4act_pilot_funding` and `_tw4act_items`: a superseded cover never funds a pilot period; adds checklist item `pilot_ki1_redecided` which **fails closed for the pilot business** (`ki1_owner_redecision_pending:lifted_only_by_migration`), so `tw4_act_mark_ready` / `tw4_act_activate` refuse (TW042) until the owner re-decides KI-1 and a later migration lifts it (no flag, switch or admin action can); `number_owned` / `number_attached` stop reporting `ok` detail while failing. No table, no data, no client-exposed grant. **Apply order `1218`, `1219`, `1221`, `1225`, `1226`; roll back `1226` first.** `1219`'s rollback refuses while `1226` is applied (intended). Rollback restores the `1219` bodies byte-exactly and refuses if a later migration changed a body. |
 
 When a slot above gets a PR or merges, a follow-up commit updates its row (hash, objects, grants, data, rollback gate) and re-runs the section 9 checks. The apply order in section 4 runs through every merged row; provisional rows are not part of an authorized apply until they merge and are re-hashed.
 
@@ -135,7 +137,7 @@ When a slot above gets a PR or merges, a follow-up commit updates its row (hash,
 
 Numeric order, one file at a time:
 
-`1119_090 → 1119_091 → 1119_092 → 1119_092100 → 1120 → 1121 → 1122 → 1123 → 1124 → 1125 → 1126 → 1127 → 1128 → 1129 → 1130 → 1201 → 1202_090 → 1202_140 → 1202_150 → 1203 → 1204 → 1205 → [1206, merged: run after 1207..1217] → 1207 → 1208 → 1209 → 1210 → 1211 → 1212 → 1213 → 1214 → [1215, merged] → 1216 → 1217 → 1218 → 1219 → 1221 → 1222 → 1223 → 1224 → 1225 → 1227 → [1226 when merged]`
+`1119_090 → 1119_091 → 1119_092 → 1119_092100 → 1120 → 1121 → 1122 → 1123 → 1124 → 1125 → 1126 → 1127 → 1128 → 1129 → 1130 → 1201 → 1202_090 → 1202_140 → 1202_150 → 1203 → 1204 → 1205 → [1206, merged: run after 1207..1217] → 1207 → 1208 → 1209 → 1210 → 1211 → 1212 → 1213 → 1214 → [1215, merged] → 1216 → 1217 → 1218 → 1219 → 1221 → 1222 → 1223 → 1224 → 1225 → 1226 → 1227`
 
 - Each file wraps itself in a transaction and refuses to run out of order or twice (precondition `to_regprocedure` / fingerprint checks), so a wrong order aborts with `precondition failed` and changes nothing.
 - The Supabase CLI history table is **not authoritative** on these projects (2026-10-19 sync record), so the CLI's out-of-order refusal does not apply. If `supabase db push` were ever used, `1206` and `1215` would need `--include-all`; this runbook uses `supabase db query --linked -f <file>` from a scratch workdir instead.
@@ -188,6 +190,7 @@ Requires are taken from each file's header or its precondition checks; the numer
 | 20261222090000 | owner texting status (J2 #276, merged after `960a9d02`) | `1208`, `1209`, `1212`, `1214`; `_tw4act_items` by signature (`1219`) | `get_studio_sms_texting_status` | none | no gate (plain drop) | no |
 | 20261223090000 | inventory reconcile run (#296, merged after `960a9d02`) | `1205` | none | none | inventory reconciliation runs exist; another job kind added later; `tw4_reconcile_run_begin` changed since | **yes** + fingerprint |
 | 20261224090000 | RFL cancel target (F5 #279, merged after `960a9d02`) | `1209`, `1211` | none | none | no gate (plain drop of one read function) | no |
+| 20261226090000 | activation console gates (J4 #298, merged after `960a9d02`) | `1219`, `1225` | none | none | a later migration changed a replaced body; restored bodies must match `1219` | no row gate; fingerprint-gated; **undo first** (before `1225`, `1219`) |
 | 20261227090000 | owner number offers (J3 #294, merged after `960a9d02`) | `1208`, `1222` | `get_studio_sms_number_offers` (and redefines `get_studio_sms_texting_status`) | none | the status function is neither the `1227` nor the `1222` body; postcondition: `1222` body not restored | no row gate; **undo before `1222`** |
 | 20261225090000 | RFL D5 cover (#290, merged after `960a9d02`) | `1209`..`1217` | none | none | superseded cover evidence exists; a replaced function changed since (fingerprint) | **yes** + fingerprint; undo before `1217`/`1211` |
 | 20261216090000 | prov orphan exposure | `1212`, `1211` | none | none | no gate (drops two read functions) | no |
