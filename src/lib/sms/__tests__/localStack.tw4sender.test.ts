@@ -16,7 +16,7 @@ vi.mock("server-only", () => ({}));
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 1_000_000 });
 
 import { SupabaseCreditStore } from "@/lib/sms/twilioIsv/creditStore";
-import { LOCAL_QA_MARKER, brandStepSql, evidenceFor, newSenderIds, readySender, sid, type SenderIds } from "./senderFixtures";
+import { LOCAL_QA_MARKER, brandStepSql, evidenceFor, newSenderIds, reconcilerReadySql, reconcilerRunsCleanupSql, readySender, sid, type SenderIds } from "./senderFixtures";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -148,6 +148,7 @@ describe.skipIf(!enabled)("sender readiness and dispatch integrity (real schema,
     psqlFile(FIXTURES);
     snapshotActivePrices = psql("select id from public.studio_sms_price_list where active").split("\n").filter(Boolean);
     expect((await rpc("tw4_price_set", { p_kind: "sms_usage", p_customer_cents: 3, p_provider_cents: 1, p_description: "fixture sms_usage price", p_actor: U.padmin })).error).toBeNull();
+    aged(reconcilerReadySql(`tw4sender:${RUN}`));
     expect((await rpc("tw4_usage_set_switch", { p_enabled: true, p_actor: U.padmin, p_reason: "fixture: billed texting on for tests" })).error).toBeNull();
     await fund(EA, PA1, 5_000);
     expect((await rpc("tw4_monthly_limit_set_admin", { p_entity_id: EA, p_actor: U.padmin, p_limit_cents: 10_000, p_effective_month: null, p_reason: "fixture: monthly texting limit" })).error).toBeNull();
@@ -155,6 +156,7 @@ describe.skipIf(!enabled)("sender readiness and dispatch integrity (real schema,
   afterAll(() => {
     try {
       psqlFile(CLEANUP);
+      aged(reconcilerRunsCleanupSql(`tw4sender:${RUN}`));
       aged(`delete from public.studio_sms_price_list where created_by = '${U.padmin}'; update public.studio_sms_price_list set active = true where id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
     } catch {
       /* best effort */

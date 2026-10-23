@@ -2,13 +2,17 @@
 -- TW-4F F3 (completion tracker F-5, P1): billed texting needs a healthy usage reconciler (dark; Git-only until separately authorized).
 --   Only the scheduled usage reconciler (src/lib/sms/usageReconciler.ts via /api/cron/sms-usage-reconcile) settles a billed text from provider evidence
 --   (tw4_usage_settle). Without it every reservation would stay held and DanceFlow would pay Twilio for texts it never collects.
---   * public._tw4usage_reconciler_ready() -> jsonb {ok boolean, detail text, last_success_at timestamptz}: READY when the latest completed usage_reconcile run that
---     READ PROVIDER EVIDENCE finished within the last 30 minutes (the panel's "Reconciliation is not running" alert, design section 5) and no expired run lease
---     has been left unclosed for 10 minutes (two 5-minute ticks: the schedule has stopped). A run without evidence reads settles nothing, so it never counts.
+--   * public._tw4usage_reconciler_ready() -> jsonb {ok boolean, detail text, last_success_at timestamptz}: READY when a completed usage_reconcile run that PROVED
+--     IT CAN SETTLE finished within the last 30 minutes (the panel's "Reconciliation is not running" alert, design section 5) and no expired run lease has been
+--     left unclosed for 10 minutes (two 5-minute ticks: the schedule has stopped). Proved = it read provider evidence (evidence_read) and either had nothing due
+--     or settled / read a pending status for at least one text: a run without evidence reads, or whose every read failed, settles nothing and never counts.
+--     The NEWEST run in the window that had texts due must have proved it too (a failed read backs its text off, so a later idle run proves nothing).
 --     Escalated attempts do not block: they keep their reservation until a platform admin resolves them in writing (design section 1).
---     detail is one of: ready, no_completed_run, no_evidence_reads, stale, stuck_lease. This signature and shape are a contract (slice F1's activation checklist).
+--     detail is one of: ready, no_completed_run, no_evidence_reads, evidence_failing, stale, stuck_lease. This signature and shape are a contract (slice F1's
+--     activation checklist); last_success_at is the newest proved run in the last 7 days (null if none); the not-ready details look back 7 days.
 --   * tw4_usage_set_switch refuses to switch billed texting ON unless the reconciler is ready and the usage ledger reconciles (gaps = 0). OFF is always allowed.
 --   * tw4_usage_begin refuses a NEW billed text unless the reconciler is ready (TW024, after the switch check; a replay of an existing source still answers).
+--     Nothing is reserved or logged on that refusal, so the app retries an automated text later (it is never skipped) and asks staff to try a manual one again.
 -- Settlement, reservations, monthly limits, the pilot ceiling and sender readiness (_tw4sr_*) are unchanged. Requires 20261205090000 (and 20261204090000).
 -- Rollback: rollback/20261218090000_twilio_usage_reconciler_readiness_rollback.sql (restores both bodies byte-exactly; refuses while billed texting is switched
 -- on or another function calls the helper). NOT APPLIED to any shared environment by this file's authoring.
@@ -37,6 +41,21 @@ end $$;
 -- ---------------------------------------------------------------------------------------------------------------
 -- readiness (read-only; identifiers and times only)
 -- ---------------------------------------------------------------------------------------------------------------
+-- the readiness reads walk completed runs newest first (a run is completed once, so the index never changes under a running job)
+create index studio_sms_reconcile_runs_completed on public.studio_sms_reconcile_runs (job, finished_at desc) where status = 'completed';
+
+-- did this completed run PROVE it can settle? It read provider evidence (evidence_read) and either had nothing due or settled / read a pending status for at least
+-- one text. A run whose every read failed (revoked token, provider outage, settle timing out) still finishes 'completed' with errors and proves nothing.
+create or replace function public._tw4usage_run_proved(p_summary jsonb)
+returns boolean language sql immutable
+set search_path = pg_catalog, public, pg_temp
+as $$
+  select coalesce(p_summary @> '{"evidence_read": true}'::jsonb
+    and (p_summary -> 'due' = '0'::jsonb
+         or (case when jsonb_typeof(p_summary -> 'settled') = 'number' then (p_summary -> 'settled')::numeric else 0 end
+             + case when jsonb_typeof(p_summary -> 'pending') = 'number' then (p_summary -> 'pending')::numeric else 0 end) > 0), false);
+$$;
+
 create or replace function public._tw4usage_reconciler_ready()
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
@@ -44,21 +63,36 @@ as $$
 declare
   v_now timestamptz := clock_timestamp();
   v_last timestamptz;
+  v_busy_proved boolean;
 begin
-  -- the newest completed run that read provider evidence, looked for among runs started inside the window plus the longest lease (900 s), on the (job, started_at) index
+  -- the newest completed run inside the window that proved it can settle (index range on job, finished_at: a handful of rows)
   select r.finished_at into v_last from public.studio_sms_reconcile_runs r
-   where r.job = 'usage_reconcile' and r.status = 'completed' and r.summary @> '{"evidence_read": true}'::jsonb
-     and r.started_at > v_now - interval '30 minutes' - interval '900 seconds' and r.finished_at <= v_now
+   where r.job = 'usage_reconcile' and r.status = 'completed' and r.finished_at > v_now - interval '30 minutes' and r.finished_at <= v_now
+     and public._tw4usage_run_proved(r.summary)
    order by r.finished_at desc limit 1;
-  if v_last is null or v_last < v_now - interval '30 minutes' then
-    -- not ready: report the true last success, however old
-    select max(r.finished_at) into v_last from public.studio_sms_reconcile_runs r
-     where r.job = 'usage_reconcile' and r.status = 'completed' and r.summary @> '{"evidence_read": true}'::jsonb and r.finished_at <= v_now;
-    if v_last is not null then
-      return jsonb_build_object('ok', false, 'detail', 'stale', 'last_success_at', v_last);
+  -- ...and the newest run in the window that HAD texts due must have proved it too: a failed read backs its text off (tw4_usage_due hides it), so an idle run
+  -- after a failing one says nothing about whether reads work (null = no run in the window had anything due)
+  select public._tw4usage_run_proved(r.summary) into v_busy_proved from public.studio_sms_reconcile_runs r
+   where r.job = 'usage_reconcile' and r.status = 'completed' and r.finished_at > v_now - interval '30 minutes' and r.finished_at <= v_now
+     and jsonb_typeof(r.summary -> 'due') = 'number' and (r.summary -> 'due')::numeric > 0
+   order by r.finished_at desc limit 1;
+  if v_last is null or v_busy_proved is false then
+    -- not ready: report the last success (looked for over 7 days, so a refused begin stays cheap) and why
+    if v_last is null then
+      select r.finished_at into v_last from public.studio_sms_reconcile_runs r
+       where r.job = 'usage_reconcile' and r.status = 'completed' and r.finished_at > v_now - interval '7 days' and r.finished_at <= v_now
+         and public._tw4usage_run_proved(r.summary)
+       order by r.finished_at desc limit 1;
     end if;
-    return jsonb_build_object('ok', false, 'last_success_at', null, 'detail',
-      case when exists (select 1 from public.studio_sms_reconcile_runs r where r.job = 'usage_reconcile' and r.status = 'completed') then 'no_evidence_reads' else 'no_completed_run' end);
+    return jsonb_build_object('ok', false, 'last_success_at', v_last, 'detail', case
+      when v_busy_proved is false then 'evidence_failing'
+      when exists (select 1 from public.studio_sms_reconcile_runs r where r.job = 'usage_reconcile' and r.status = 'completed' and r.finished_at > v_now - interval '30 minutes'
+                     and r.summary @> '{"evidence_read": true}'::jsonb) then 'evidence_failing'
+      when v_last is not null then 'stale'
+      when exists (select 1 from public.studio_sms_reconcile_runs r where r.job = 'usage_reconcile' and r.status = 'completed' and r.finished_at > v_now - interval '7 days'
+                     and r.summary @> '{"evidence_read": true}'::jsonb) then 'evidence_failing'
+      when exists (select 1 from public.studio_sms_reconcile_runs r where r.job = 'usage_reconcile' and r.status = 'completed' and r.finished_at > v_now - interval '7 days') then 'no_evidence_reads'
+      else 'no_completed_run' end);
   end if;
   -- a lease that expired and was not taken over for 10 minutes: the schedule has stopped (each begin closes an expired lease as failed)
   if exists (select 1 from public.studio_sms_reconcile_runs r where r.job = 'usage_reconcile' and r.status = 'running' and r.lease_expires_at < v_now - interval '10 minutes') then
@@ -68,7 +102,7 @@ begin
 end $$;
 
 comment on function public._tw4usage_reconciler_ready() is
-  'TW-4F F3 (20261218090000) contract: {ok, detail in (ready, no_completed_run, no_evidence_reads, stale, stuck_lease), last_success_at}. Ready = a completed usage_reconcile run with evidence reads finished within 30 min and no expired lease left for 10 min.';
+  'TW-4F F3 (20261218090000) contract: {ok, detail in (ready, no_completed_run, no_evidence_reads, evidence_failing, stale, stuck_lease), last_success_at}. Ready = within 30 min a completed usage_reconcile run proved it can settle (read evidence; nothing due, or something settled / pending), the newest run in that window with texts due proved it too, and no expired lease is left for 10 min. Not-ready details look back 7 days.';
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- replaced from 20261201090000 / 20261204090000 (only the 20261218 lines change)
@@ -198,6 +232,7 @@ end $$;
 -- ---------------------------------------------------------------------------------------------------------------
 -- privileges: the replaced actions keep theirs (create or replace); the helper is read by the service role (platform panel) and by SQL, never by API users
 -- ---------------------------------------------------------------------------------------------------------------
+revoke all on function public._tw4usage_run_proved(jsonb) from public, anon, authenticated, service_role;
 revoke all on function public._tw4usage_reconciler_ready() from public, anon, authenticated;
 grant execute on function public._tw4usage_reconciler_ready() to service_role;
 revoke all on function public.tw4_usage_set_switch(boolean, uuid, text), public.tw4_usage_begin(text, uuid, uuid, uuid, text, text, text, text, uuid, uuid)
@@ -208,7 +243,8 @@ do $$
 begin
   if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_usage_begin(text,uuid,uuid,uuid,text,text,text,text,uuid,uuid)'::regprocedure), chr(13), '')), 8) <> '7e85d636'
      or left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_usage_set_switch(boolean,uuid,text)'::regprocedure), chr(13), '')), 8) <> '8adf296c'
-     or left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4usage_reconciler_ready()'::regprocedure), chr(13), '')), 8) <> '2ef0e663' then
+     or left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4usage_reconciler_ready()'::regprocedure), chr(13), '')), 8) <> '39b0ad11'
+     or left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4usage_run_proved(jsonb)'::regprocedure), chr(13), '')), 8) <> '98db0ae5' then
     raise exception 'reconciler-readiness postcondition failed: a function body differs from this file (line endings?)';
   end if;
 end $$;

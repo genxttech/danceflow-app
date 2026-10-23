@@ -1,5 +1,6 @@
 -- Rollback of 20261218090000_twilio_usage_reconciler_readiness.sql: restores tw4_usage_set_switch (20261201) and tw4_usage_begin (20261204) exactly as they are on
--- main and drops public._tw4usage_reconciler_ready(). Nothing else was added, so no data is touched. The restored bodies are verified against their main fingerprints
+-- main and drops public._tw4usage_reconciler_ready(), public._tw4usage_run_proved(jsonb) and the index studio_sms_reconcile_runs_completed. No data is touched.
+-- The restored bodies are verified against their main fingerprints
 -- and the transaction aborts if any differs.
 -- REFUSES while billed texting is switched on (removing the gate under live billed texting would let texts be reserved with no healthy reconciler: switch it off
 -- first) and while any other function still calls the helper (slice F1's activation checklist: roll that back first).
@@ -19,8 +20,8 @@ begin
   if public._tw4us_switch_on() then
     raise exception 'reconciler-readiness rollback refused: billed texting is switched on (switch it off with tw4_usage_set_switch first)';
   end if;
-  if exists (select 1 from pg_proc p where p.prosrc like '%\_tw4usage\_reconciler\_ready%'
-               and p.oid not in ('public._tw4usage_reconciler_ready()'::regprocedure, 'public.tw4_usage_begin(text,uuid,uuid,uuid,text,text,text,text,uuid,uuid)'::regprocedure,
+  if exists (select 1 from pg_proc p where (p.prosrc like '%\_tw4usage\_reconciler\_ready%' or p.prosrc like '%\_tw4usage\_run\_proved%')
+               and p.oid not in ('public._tw4usage_reconciler_ready()'::regprocedure,'public.tw4_usage_begin(text,uuid,uuid,uuid,text,text,text,text,uuid,uuid)'::regprocedure,
                                  'public.tw4_usage_set_switch(boolean,uuid,text)'::regprocedure)) then
     raise exception 'reconciler-readiness rollback refused: another function calls public._tw4usage_reconciler_ready() (roll that migration back first)';
   end if;
@@ -131,6 +132,8 @@ begin
 end $$;
 
 drop function public._tw4usage_reconciler_ready();
+drop function public._tw4usage_run_proved(jsonb);
+drop index public.studio_sms_reconcile_runs_completed;
 
 do $$
 begin

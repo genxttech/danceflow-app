@@ -25,6 +25,7 @@ export type BilledSendRefusal =
   | "no_billed_sender"
   | "suspended"
   | "switched_off"
+  | "paused"
   | "no_price"
   | "not_billed"
   | "invalid"
@@ -37,6 +38,7 @@ const REFUSALS: Record<string, BilledSendRefusal> = {
   TW015: "no_billed_sender",
   TW016: "suspended",
   TW018: "switched_off",
+  TW024: "paused", // 20261218: the usage reconciler is not ready; nothing was reserved, so a later retry of the same source is safe
   TW008: "no_price",
   TW010: "not_billed",
   "22023": "invalid",
@@ -193,6 +195,7 @@ export const BILLED_REFUSAL_MESSAGE: Record<BilledSendRefusal, string> = {
   no_billed_sender: "Texting for your business is not set up yet. Contact DanceFlow support.",
   suspended: "Texting is paused because a monthly charge was not covered. Add credit; replies like STOP and HELP still work for your contacts.",
   switched_off: "Texting is not open yet.",
+  paused: "Texting is paused for a few minutes while usage is reconciled. Nothing was sent; try again shortly.",
   no_price: "Texting is not open yet.",
   not_billed: "Texting is not set up for your studio yet.",
   invalid: "This text cannot be sent. Check the number (US and Canada only) and the message length.",
