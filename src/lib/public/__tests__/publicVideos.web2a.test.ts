@@ -27,9 +27,19 @@ describe("public video URLs", () => {
   });
 
   it("ships captions for each configured video, and no video files", () => {
-    const captions = readFileSync(join(ROOT, "public", "media", "captions", "aria-30s.vtt"), "utf8");
-    expect(captions.startsWith("WEBVTT")).toBe(true);
+    for (const file of ["aria-30s.vtt", "aria-77s.vtt"]) {
+      const captions = readFileSync(join(ROOT, "public", "media", "captions", file), "utf8");
+      expect(captions.startsWith("WEBVTT"), file).toBe(true);
+    }
     expect(existsSync(join(ROOT, "public", "media", "videos"))).toBe(false);
+  });
+
+  it("/for-studios features the full overview at #meet-aria, right after the hero", () => {
+    const page = readFileSync(join(ROOT, "src", "app", "for-studios", "page.tsx"), "utf8");
+    expect(page).toContain('id="meet-aria"');
+    expect(page).toContain('getPublicVideo("aria77")');
+    expect(page.indexOf('id="meet-aria"')).toBeGreaterThan(page.indexOf("<AudienceHero"));
+    expect(page.indexOf('id="meet-aria"')).toBeLessThan(page.indexOf("STUDIOS_PAGE.dayHeading"));
   });
 
   it("the player is viewer-started with captions", () => {
