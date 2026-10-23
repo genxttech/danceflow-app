@@ -17,7 +17,7 @@
 --     funding_mode: credit_recurring | pilot,
 --     pilot_ceiling_reached: bool,                     -- pilot only: the business's pilot ceiling cannot take another number's rent
 --     offer: null | { offer_id: uuid, expires_at: timestamptz, numbers: [{ e164, locality, region }] },
---     approval: null | { selection_id: uuid, e164, status: open | expired, expires_at, statement },
+--     approval: null | { selection_id: uuid, e164, status: open | expired, expires_at, statement },   -- any still-'approved' selection of the studio
 --     blocker: none | not_open | unpriced | current_number | pilot_ceiling }
 --
 -- The approval itself stays in tw4_num_select_as_owner / tw4_num_withdraw_as_owner. Note for reviewers: those functions do not check the pilot ceiling or funding
@@ -37,7 +37,8 @@ begin
   end if;
   if to_regprocedure('public._sms_onb_access_enabled(uuid)') is null or to_regprocedure('public._tw4num_account(uuid)') is null
      or to_regprocedure('public._tw4num_campaign(uuid)') is null or to_regprocedure('public._tw4num_price(text)') is null
-     or to_regprocedure('public._tw4sr_latest(uuid)') is null or to_regprocedure('public.tw4_num_select_as_owner(uuid, uuid, text, integer)') is null then
+     or to_regprocedure('public._tw4sr_latest(uuid)') is null or to_regprocedure('public._tw4num_taken(text, uuid)') is null or to_regprocedure('public._tw4sr_lock(uuid)') is null
+     or to_regprocedure('public.tw4_num_select_as_owner(uuid, uuid, text, integer)') is null or to_regprocedure('public.tw4_num_withdraw_as_owner(uuid, uuid, text)') is null then
     raise exception 'J3 precondition failed: a required helper is missing';
   end if;
 end $$;
@@ -98,11 +99,9 @@ begin
     select * into v_offer from public.studio_sms_number_offers f where f.studio_id = p_studio_id and f.twilio_account_sid = v_account and f.expires_at > now()
      order by f.created_at desc, f.id limit 1;
   end if;
-  -- the owner's open approval of this onboarding (expired ones are shown as such until they are replaced; withdrawal needs the id)
-  if o.id is not null then
-    select * into v_sel from public.studio_sms_number_selections s where s.studio_id = p_studio_id and s.status = 'approved' and s.approved_at >= o.created_at
-     order by s.approved_at desc, s.id limit 1;
-  end if;
+  -- the owner's approval that is still 'approved' for this studio: the same per-studio rule tw4_num_select applies (one open approval per location), so an approval
+  -- the owner can no longer see could never block a new one. Expired ones are shown as such until they are replaced; withdrawal needs the id.
+  select * into v_sel from public.studio_sms_number_selections s where s.studio_id = p_studio_id and s.status = 'approved' order by s.approved_at desc, s.id limit 1;
 
   return jsonb_build_object(
     'available', true,

@@ -63,6 +63,10 @@ describe("Settings -> Texting page: owner number choice (J3)", () => {
       expect(html).not.toContain('href="#sms-number"');
     }
   });
+  it("an open approval stays withdrawable after the step closed", async () => {
+    offers = read({ step_open: false, blocker: "not_open", offer: null, approval: { selection_id: "0f0f0000-0000-4000-8000-000000000002", e164: "+15035550101", status: "open", expires_at: "2026-10-24T00:00:00Z", statement: "x" } });
+    expect(await render()).toContain('data-testid="sms-number-withdraw"');
+  });
   it("is not requested for a non-owner manager", async () => {
     role = "studio_admin";
     context.studioRole = "studio_admin";

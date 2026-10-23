@@ -48,6 +48,13 @@ describe("NumberSelection (J3)", () => {
     expect(html).toContain('data-testid="sms-number-withdraw"');
     expect(html).not.toContain('data-testid="sms-number-form"');
   });
+  it("an open approval stays withdrawable when the step has closed; a closed step with nothing open offers nothing", () => {
+    const open = { selectionId: "0f0f0000-0000-4000-8000-000000000002", e164: "+15035550101", status: "open" as const, expiresAt: "2026-10-24T00:00:00Z", statement: "x" };
+    expect(render({ ...base, stepOpen: false, blocker: "not_open", approval: open })).toContain('data-testid="sms-number-withdraw"');
+    const closed = render({ ...base, stepOpen: false, blocker: "not_open" });
+    expect(closed).not.toContain("<button");
+    expect(closed).toContain("not open right now");
+  });
   it("formats a NANP number", () => {
     expect(formatNumber("+15035550101")).toBe("(503) 555-0101");
   });

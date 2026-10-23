@@ -173,7 +173,10 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
         provisioning={provisioning}
       />
 
-      {isOwner && numberOffers?.stepOpen ? <NumberSelection offers={numberOffers} /> : null}
+      {isOwner && numberOffers && (numberOffers.stepOpen || numberOffers.approval?.status === "open") ? (
+        // an open approval stays withdrawable even when the step has closed; the key resets the component's result state whenever the facts change
+        <NumberSelection key={`${numberOffers.approval?.selectionId ?? "none"}:${numberOffers.offer?.offerId ?? "none"}`} offers={numberOffers} />
+      ) : null}
 
       {provisioning?.fees ? <SmsServiceCoverage fees={provisioning.fees} unexpectedResourceReview={provisioning.unexpectedResourceReview === true} /> : null}
 

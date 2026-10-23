@@ -60,10 +60,19 @@ export async function approveNumberAction(_previous: NumberActionState, formData
 
     const { error } = await ctx.supabase.rpc("tw4_num_select_as_owner", { p_studio_id: ctx.studioId, p_offer_id: offers.offer.offerId, p_e164: e164, p_ack_price_cents: offers.monthlyCents });
     if (error) return { ok: false, error: REFUSED[String(error.code ?? "")] ?? "Something went wrong. Nothing was approved." };
-    revalidatePath(PATH);
-    return { ok: true, notice: "Number approved. DanceFlow will secure it; nothing is complete until the provider confirms it." };
   } catch {
     return { ok: false, error: "Something went wrong. Nothing was approved." };
+  }
+  refresh();
+  return { ok: true, notice: "Number approved. DanceFlow will secure it; nothing is complete until the provider confirms it." };
+}
+
+// after a change the database already committed: a refresh problem must never be reported as "nothing was approved"
+function refresh() {
+  try {
+    revalidatePath(PATH);
+  } catch {
+    // the next page load shows the current state
   }
 }
 
@@ -77,9 +86,9 @@ export async function withdrawNumberAction(_previous: NumberActionState, formDat
     if (!offers?.approval || offers.approval.selectionId !== selectionId) return { ok: false, error: "That approval is no longer open. Refresh the page." };
     const { error } = await ctx.supabase.rpc("tw4_num_withdraw_as_owner", { p_studio_id: ctx.studioId, p_selection_id: offers.approval.selectionId, p_note: "withdrawn by the studio owner" });
     if (error) return { ok: false, error: error.code === "22023" ? "This number is already being secured and can no longer be withdrawn here. Contact DanceFlow." : REFUSED[String(error.code ?? "")] ?? "Something went wrong. Nothing was changed." };
-    revalidatePath(PATH);
-    return { ok: true, notice: "Your number approval was withdrawn. Nothing was charged." };
   } catch {
     return { ok: false, error: "Something went wrong. Nothing was changed." };
   }
+  refresh();
+  return { ok: true, notice: "Your number approval was withdrawn. Nothing was charged." };
 }

@@ -309,6 +309,16 @@ describe.skipIf(!enabled)("TW-4F J3: owner number offers, approval and withdrawa
     expect((await withdraw(U.owner1, S1, second)).error?.code).toBe("22023");
   });
 
+  it("an approval made before the current onboarding started is still the open one (SQL's per-studio rule): shown and withdrawable, never a dead end", async () => {
+    expect((await select(U.owner1, S1, OFFER[1], NUMS[1][0])).error).toBeNull();
+    psql(`begin; set local session_replication_role = replica; update public.studio_sms_number_selections set approved_at = now() - interval '2 days' where studio_id = '${S1}'; commit;`);
+    const r = await read(U.owner1, S1);
+    expect((r.data!.approval as { status: string } | null)?.status).toBe("open");
+    asOwnerAction(U.owner1, S1);
+    expect((await withdrawNumberAction({}, form({ selection_id: (r.data!.approval as { selection_id: string }).selection_id }))).ok).toBe(true);
+    expect(selections(S1)).toBe(`withdrawn:studio_owner:${U.owner1}`);
+  });
+
   it("the app wrapper returns null for anyone but the owner", async () => {
     expect(await getOwnerNumberOffers(asUser(U.owner1), S1)).toMatchObject({ stepOpen: true, monthlyCents: PRICE });
     expect(await getOwnerNumberOffers(asUser(U.admin1), S1)).toBeNull();

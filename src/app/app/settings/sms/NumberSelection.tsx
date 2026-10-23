@@ -6,6 +6,8 @@ import type { OwnerNumberOffers } from "@/lib/sms/provisioning/ownerRead";
 import { approveNumberAction, withdrawNumberAction, type NumberActionState } from "./numberActions";
 
 /**
+ * The page remounts this component (key) whenever the approval or the offer changes, so a result or an error never outlives the state it was about.
+ *
  * TW-4F J3: the studio owner chooses ONE offered texting number and approves its published monthly price, or withdraws an open approval. Rendered only for the
  * owner, only when the owner offers read says the number step is open. The form carries only the owner's choice and the price they saw; the server action
  * re-reads the offers, and the database re-checks everything. Approving buys nothing by itself: DanceFlow secures the number afterwards.
@@ -30,7 +32,8 @@ export default function NumberSelection({ offers }: { offers: OwnerNumberOffers 
 
       {approveState.ok || withdrawState.ok ? (
         <p role="status" className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900" data-testid="sms-number-result">{approveState.notice ?? withdrawState.notice}</p>
-      ) : approval?.status === "open" ? (
+      ) : null}
+      {approval?.status === "open" ? (
         <div className="mt-3 space-y-3" data-testid="sms-number-approved">
           <p className="text-sm text-slate-800">
             You approved <span className="font-semibold">{formatNumber(approval.e164)}</span>. DanceFlow will secure it; nothing is complete until the provider confirms it.
@@ -46,6 +49,8 @@ export default function NumberSelection({ offers }: { offers: OwnerNumberOffers 
             </button>
           </form>
         </div>
+      ) : approveState.ok ? null : !offers.stepOpen ? (
+        <p className="mt-3 text-sm text-slate-700" data-testid="sms-number-waiting">The number step is not open right now. DanceFlow will let you know.</p>
       ) : offers.blocker === "pilot_ceiling" ? (
         <p className="mt-3 text-sm text-slate-700" data-testid="sms-number-blocked">Your pilot limit cannot cover another number right now. DanceFlow will follow up with you; nothing is needed from you yet.</p>
       ) : offers.blocker === "unpriced" || price == null ? (
