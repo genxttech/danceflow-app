@@ -115,7 +115,8 @@ function source(path: string) {
 describe("public event listing surfaces use the shared end-moment rule", () => {
   const surfaces = [
     "src/app/discover/events/page.tsx",
-    "src/app/discover/page.tsx",
+    // WEB-2A: the Discover hub and the homepage share their counts through this helper.
+    "src/lib/public/discoverSummary.ts",
     "src/app/studios/[studioSlug]/page.tsx",
     "src/app/organizers/[slug]/page.tsx",
     "src/app/api/embed/studios/[studioSlug]/events/route.ts",
@@ -142,9 +143,12 @@ describe("public event listing surfaces use the shared end-moment rule", () => {
   });
 
   it("discover hub: the public event count no longer counts ended events (no head-only count of all history)", () => {
-    const text = source("src/app/discover/page.tsx");
-    expect(text).toContain("const publicEventCount = filterNotPastEvents(");
+    const text = source("src/lib/public/discoverSummary.ts");
+    expect(text).toContain("events: filterNotPastEvents(");
     expect(text).not.toContain("eventCountResult.count");
+    // The hub and the homepage both read the counts from the shared helper.
+    expect(source("src/app/discover/page.tsx")).toContain("fetchDiscoverCounts(supabase)");
+    expect(source("src/app/page.tsx")).toContain("fetchDiscoverCounts(supabase)");
   });
 
   it("limited lists filter BEFORE slicing and over-fetch with the shared buffer", () => {
@@ -171,7 +175,7 @@ describe("public event listing surfaces use the shared end-moment rule", () => {
   });
 
   it("publication visibility rules are unchanged (published/open + public + directory)", () => {
-    for (const path of ["src/app/discover/events/page.tsx", "src/app/discover/page.tsx", "src/app/studios/[studioSlug]/page.tsx"]) {
+    for (const path of ["src/app/discover/events/page.tsx", "src/lib/public/discoverSummary.ts", "src/app/studios/[studioSlug]/page.tsx"]) {
       const text = source(path);
       expect(text).toContain('.eq("visibility", "public")');
       expect(text).toContain('.in("status", ["published", "open"])');

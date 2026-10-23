@@ -165,11 +165,14 @@ describe("homepage hierarchy (two-audience, 2026-10-22)", () => {
 
   it("keeps public account creation and the business free trial distinct", () => {
     const [dancers, business] = HOME_DOORS;
-    expect(dancers.secondaryLink.href).toBe("/login?intent=public");
+    expect(dancers.secondaryLink.href).toBe("/signup?intent=public");
     expect(business.primaryCta.label).toBe("Start free trial");
     expect(dancers.secondaryLink.label).not.toMatch(/trial/i);
     expect(business.primaryCta.href).not.toMatch(/^\/signup/);
-    expect(HOME_DISCOVERY.accountLink.href).toBe("/login?intent=public");
+    expect(HOME_DISCOVERY.accountLink.href).toBe("/signup?intent=public");
+    // Signed-in visitors are never offered account creation (hero door and dancer section).
+    expect(page).toContain("hideSecondary={Boolean(user)}");
+    expect(page).toMatch(/\{user \? null : \(\s*<Link\s+href=\{HOME_DISCOVERY\.accountLink\.href\}/);
   });
 
   it("gives dancers every Discover path, including Classes", () => {
