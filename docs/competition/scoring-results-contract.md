@@ -101,7 +101,11 @@ closeout but never block publication.
 | `competition_refund_unattributed` (R2, D6) | financial-only unless it holds an entry in a locked/danced heat | — |
 | `competition_refund_reversed` E-R (R2) | financial-only unless it holds an entry in a locked/danced heat | — |
 
-Exception rows therefore carry a queryable round scope and a `competitive_effect` flag (owned by R2's schema).
+Exception rows therefore carry a queryable round scope and a `competitive_effect` flag, in R2's
+`event_competition_refund_exception_scopes` (migration `20270103090000`, PR #292). The F3 publish RPC's precondition
+is exactly: `exists (select 1 from event_competition_refund_exception_scopes s where s.round_id = <round> and
+s.competitive_effect and s.resolved_at is null)` → refuse. A `result_events` row written while resolving a refund
+exception (correction opened, recalculated, approved, published) carries `refs.refund_exception_id`.
 Resolution is by an authorized official (the D5 set) and is audited; resolving an E-C by changing the competitive
 outcome goes through the correction path below, never by editing a certified heat. An exception raised **after** a
 round is published does not unpublish it; it blocks the next publication (correction) of that round until resolved.
