@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import PublicShell from "@/components/public/PublicShell";
 import { signupAction } from "../actions";
+import PublicSignup from "./PublicSignup";
 import { normalizeLocalRedirectPath } from "@/lib/security/redirects";
 import type { Metadata } from "next";
 
@@ -17,12 +18,13 @@ function getSingleSearchParam(
   return Array.isArray(value) ? value[0] : value;
 }
 
+/** Unknown or missing intents are null: they keep the historical redirect to `/login`. */
 function normalizeIntent(value: string | undefined) {
   if (value === "studio" || value === "organizer" || value === "public") {
     return value;
   }
 
-  return "public";
+  return null;
 }
 
 export default async function SignupPage({
@@ -42,8 +44,22 @@ export default async function SignupPage({
   );
   const emailHint = getSingleSearchParam(resolvedSearchParams.email) ?? "";
 
-  if (signupIntent === "public") {
+  if (!signupIntent) {
     redirect("/login");
+  }
+
+  async function submitSignup(formData: FormData) {
+    "use server";
+    await signupAction(formData);
+  }
+
+  // W-2: an explicit public intent renders the dancer signup instead of bouncing to /login.
+  if (signupIntent === "public") {
+    return (
+      <PublicShell>
+        <PublicSignup action={submitSignup} nextPath={nextPath} emailHint={emailHint} />
+      </PublicShell>
+    );
   }
 
   const isStudio = signupIntent === "studio";
@@ -61,11 +77,6 @@ export default async function SignupPage({
     `/get-started/complete?intent=${encodeURIComponent(signupIntent)}${
       selectedPlan ? `&plan=${encodeURIComponent(selectedPlan)}` : ""
     }`;
-
-  async function submitSignup(formData: FormData) {
-    "use server";
-    await signupAction(formData);
-  }
 
   return (
     <PublicShell>
