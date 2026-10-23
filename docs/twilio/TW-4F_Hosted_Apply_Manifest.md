@@ -1,8 +1,8 @@
 # TW-4F Hosted Apply Manifest and Release Package (H1)
 
-Status 2026-10-23. First written for main `960a9d02` (PR #271); refreshed through main `84f52048`, where every TW-4F migration except the not-started `1220` (F2) is merged. **Documentation and read-only scripts only.** Nothing described here has been executed against DEV (`epdrtzcydvnoidwrepqz`) or PROD (`hvsujyfbftfffxpfmlpb`); no hosted project was linked, queried or opened while writing it. Every step of the runbooks in section 8 needs the owner's separate written authorization.
+Status 2026-10-23. First written for main `960a9d02` (PR #271); refreshed through main `c979c823` (hash table verified at that commit), where every TW-4F migration except the not-started `1220` (F2) is merged. **Documentation and read-only scripts only.** Nothing described here has been executed against DEV (`epdrtzcydvnoidwrepqz`) or PROD (`hvsujyfbftfffxpfmlpb`); no hosted project was linked, queried or opened while writing it. Every step of the runbooks in section 8 needs the owner's separate written authorization.
 
-Owner rules that bind this package (from the TW-4F completion tracker, `docs/twilio/TW-4F_Completion_Tracker.md` on PR #273):
+Owner rules that bind this package (from the TW-4F completion tracker, `docs/twilio/TW-4F_Completion_Tracker.md` on main since #273):
 
 - No real Twilio, Stripe or other fee-bearing call. No hosted DEV/PROD SQL, deploy, scheduler registration, delivery switch or SMS without a named authorization.
 - Everything TW-4F is dark: every env flag and DB switch is off, `vercel.json` registers only `/api/cron/sms-onboarding-purge` among the SMS routes.
@@ -29,7 +29,7 @@ Both probes are single statements on purpose: the hosted method recorded in `TW-
 |---|---|---|
 | PROD `hvsujyfbftfffxpfmlpb` | Twilio objects through `20261119092100` (TW-4A, 4A.1, R1, R1.1), all studio_sms onboarding tables with 0 rows. App was `dpl_9JYuwjxf…` (main `2cc05d9e`). | 2026-10-19 prod sync review; tracker section 2 |
 | DEV `epdrtzcydvnoidwrepqz` | PROD's state plus `20261120090000`, `20261121090000`, `20261122090000` (Phase A fingerprint `7d4442fa`). | tracker section 2 |
-| Both | Nothing newer than the rows above is recorded as applied: `20261123090000` through `20261227090000` (including the later-merged `1206`, `1215`, `1218`, `1219`, `1221`..`1227`) have been applied only to local or isolated QA databases, and are merged to main (`84f52048`) but not applied to any hosted project. `20261220090000` does not exist. | tracker sections 1-2; merge records through 2026-10-23 |
+| Both | Nothing newer than the rows above is recorded as applied: `20261123090000` through `20261227090000` (including the later-merged `1206`, `1215`, `1218`, `1219`, `1221`..`1227`) have been applied only to local or isolated QA databases, and are merged to main (`c979c823`) but not applied to any hosted project. `20261220090000` does not exist. | tracker sections 1-2; merge records through 2026-10-23 |
 
 **The `7d4442fa` fingerprint cannot be reproduced.** The query that produced it is not recorded in the repository. The rollups of `probe_fingerprint.sql` use a different, documented method and will not equal it. Take a fresh baseline with this package's probe and compare to that baseline only.
 
@@ -37,7 +37,7 @@ Both probes are single statements on purpose: the hosted method recorded in `TW-
 
 The 2026-10-19 sync review also found PROD = main `2cc05d9e` (`dpl_9JYuwjxf…`) with main since moved on and not promoted; PROD's app must stay fail-closed on a database that lacks the objects a promoted build expects. Nothing in this package changes that.
 
-## 3. Migration hash table (main `84f52048`)
+## 3. Migration hash table (main `c979c823`)
 
 `sha256` is of the **LF-normalized blob**: `git show main:<path> | tr -d '\r' | sha256sum` (equivalent to the task's `git show main:<path> | sha256sum` when the blob has no CR, which is true for every file in this range: no blob below contains a CR byte, and the last column would say so otherwise). Paths are under `src/lib/supabase/migrations/`; rollback files are under `rollback/` with the suffix `_rollback.sql`.
 
@@ -96,7 +96,7 @@ CRLF handling, because it corrupted function-body fingerprints before:
 
 ### 3.0 Notes on migrations merged after `960a9d02`
 
-The `verify_manifest_hashes.sh <ref>` refs quoted in these notes are the main commits at which each row was added; verify the whole chain against `84f52048` or any later main.
+The `verify_manifest_hashes.sh <ref>` refs quoted in these notes are the main commits at which each row was added; verify the whole chain against `c979c823` or any later main.
 
 `20261206090000` (#251, sender re-verification) merged to main `cdf342e2` (squash, approved head `9de9eb4c`); its row is in the table above with hashes from main. The forward file **changed during review**: the main blob is `7e766d02…`, not the earlier PR-head `d38de62c…` (the rollback hash is unchanged). It adds service_role functions `tw4_sender_reverify_run` and `tw4_sender_health`, redefines `tw4_sender_due_reverify`, `_tw4sr_judge` and `tw4_sender_reverify`, requires `20261205090000`, and its rollback refuses once a re-verify run or inconclusive audit row exists (55000). It is not applied to any hosted database. By merge order it sits after `1217` in the repository, but its only dependency is `1205`; a hosted apply runs it after `1207`..`1217` unless the owner orders otherwise, and #251's own runbook covers manual ordering. Record the position used, because it changes expected fingerprints.
 
@@ -871,7 +871,7 @@ Environments: **L1** = `postgres:17` (17.9) container `tw4f-h1-probe-pg`, starte
 
 | # | Workflow | Env | Execution | Expected | Observed | Result |
 |---|---|---|---|---|---|---|
-| 1 | Every migration on main in `20261119090000..20261227090000` appears exactly once | Git | `verify_manifest_hashes.sh 84f52048` | 43 files, no duplicate, none missing | 43 forward files on main `84f52048`, 43 manifest rows, no duplicate, none missing: `MANIFEST HASHES OK` | PASS |
+| 1 | Every migration on main in `20261119090000..20261227090000` appears exactly once | Git | `verify_manifest_hashes.sh c979c823` | 43 files, no duplicate, none missing | 43 forward files on main `84f52048`, 43 manifest rows, no duplicate, none missing: `MANIFEST HASHES OK` | PASS |
 | 2 | sha256 in section 3 equals `git show` (forward and rollback) | Git | same script | all match | 43 forward and 43 rollback sha256 values recomputed from `git show 84f52048:<path>` (CR stripped) equal the table | PASS |
 | 3 | Probes run without error on an empty database | L1 | `validate_local.sh` | every expected object `MISSING`, no error | rollup:ALL `(0 objects)`, objects probe 474 rows, no error | PASS |
 | 4 | Probes see objects, RLS, ACLs, row counts, triggers, unlisted objects | L1 | `validate_local.sh` fixture assertions | facts match the fixture | all assertions matched | PASS |
