@@ -2,6 +2,31 @@
 
 Status: baseline audit 2026-10-22 at `960a9d02` (#271); final Git status 2026-10-23 at `84f52048` (§0). Documentation only. This file tracks how far TW-4F is from being complete and release-ready. It is **not a roadmap**: priorities come from `docs/roadmap/DanceFlow_Master_Roadmap.md` (v2.22), and design decisions come from the TW-4F design documents cited below. When this tracker disagrees with an approved design document, the design document wins and the disagreement is listed in section 9.
 
+## 0. Final Git status (2026-10-23, `main` = `84f52048`)
+
+This section supersedes the per-row statuses in §3. Those rows record the baseline audit at `960a9d02` and are kept as history.
+
+All pilot-blocking TW-4F code is merged into `main`. It is Git only: no migration is applied to any hosted database, nothing is deployed, no scheduler is registered, every flag and DB switch is off, and no live Twilio, Stripe or SMS activity has happened.
+
+| Req | Final Git status | Merged PR → squash commit |
+|---|---|---|
+| O-2, O-4 owner number, sender, compliance and RFL status | VERIFIED (dark) | #276 → `09ffea39`; owner-language areas in #294 |
+| O-3 owner number selection and fee approval | VERIFIED (dark) | #294 → `210f2b8e` (1227). The approval does not check the ceiling; the purchase does |
+| A-1, A-2 admin R2a/R2b orchestration | VERIFIED (dark) | #278 → `de9b9f99` |
+| A-3, A-4 activation console and AOO attestation | VERIFIED (dark) | #298 → `897120e1` (1226) |
+| A-5..A-10, A-12 evidence, orphan exposure, ledger read, gaps/retry, deferred retirement, campaign RFL registration | VERIFIED (dark) | #288 → `973f36da` (1221); #269 → `6422e050` (1215) |
+| A-11, P-1, P-2 provider release adapters and offline request-shape contracts | VERIFIED offline; real calls are a GATE | #279 → `d2489cc9` (1224); hardening #299 open |
+| F-1, F-10 pilot funding continuity and act lock order | VERIFIED (dark) | #280 → `86dc9b1e` (1219); #290 → `c982d7fa` (1225, D5 cover rule) |
+| F-5 reconciler readiness gate | VERIFIED (dark) | #277 → `2877bab7` (1218) |
+| S-4 24h sender re-verification | VERIFIED (dark, unscheduled) | #251 → `cdf342e2` (1206) |
+| S-5 scheduled inventory reconciliation | VERIFIED (dark, unscheduled; read-only `TW4_NUMBER_READS`) | #296 → `893941b0` (1223) |
+| A9b activation compliance reads without the purchase switch | VERIFIED (dark) | #300 → `84f52048` |
+| S-2 legacy sender campaign gate (F2) | NOT STARTED: waits on U-3 | — |
+| A-13, F-11, F-12, S-8, U-5 | Not pilot-blocking (§8A B/C) | — |
+| Browser E2E for owner and admin journeys | BLOCKED: the isolated stack has no auth (GoTrue) | #275 scaffolding |
+
+Known issues carried forward: KI-1 (pilot double capture; activation is blocked in the DB until the owner re-decides), KI-2 (rollback leaves widened CHECK constraints), KI-3 (r2bp2.rfl stale test on main). See §7.
+
 Status vocabulary:
 
 | Status | Meaning |
