@@ -504,7 +504,7 @@ TW-4F moves to a focused pilot closeout. Competition E2E, New Student Intake and
 |---|---|---|---|---|
 | A1 | F3 reconciler gate | #277 (`2ad858c6`), F3 session | DB re-run: f3recon, tw4sender, tw4rv on main + 1218 | Waiting for its DB slot after #290 |
 | A2 | RFL-D5 cover month rule and supersede | #290 (`63bae20d`), RFL session | d5, tw4rfl, tw4rflops, r2brfl; chain 1225; combined 1219 + 1225 with f1funding; Opus financial review | DB run in progress |
-| A3 | F1 pilot funding and activation lock order | #280 (`4046b8f6`), F1 session | After #290: recheck that `_tw4act_pilot_funding` ignores superseded covers; f1funding with 1218 and 1225 | Ready apart from that recheck |
+| A3 | F1 pilot funding and activation lock order | #280 (`4046b8f6`), F1 session | After #290 merges: merge main, change one f1funding expectation to "no cover row" (D5), re-run f1funding with 1218 and 1225. Verdicts already agree with D5 (#290 combined run, 24/25 before the expectation change). The explicit `superseded_at` filter is deferred to a migration after 1225 (J4), because 1219 sorts before the column exists | Waiting on #290 |
 | A4 | J1 admin provisioning orchestration | #278 (`629e7314`), J1 session | r2a control is identical to `main` (Q1) | Ready for review |
 | A5 | J2 owner status reads | #276 (`d99f42a0`), J2 session | Q1 chain PASS | Ready for review |
 | A6 | F5 release adapters | #279 (`1fa86a39`), F5 session | Both deferred P2s fixed, offline 1386/0 | Ready for review |
