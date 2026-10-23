@@ -246,6 +246,9 @@ Every slice starts from `main` = `960a9d02` in its own worktree, cut by the app 
 | H1 | tw4f-h1-manifest | `docs-tw4f-hosted-manifest` | new `docs/twilio/TW-4F_Hosted_Apply_Manifest.md`, `scripts/hosted/tw4f/**` | none | none | — | Running |
 | M1 | not launched | — | new `src/app/api/cron/sms-*` routes | job kinds if needed | `20261223090000` (reserved) | J1, F4, #251 | Wave 2 |
 | RFL-D5 | Twilio recurring fee lifecycle control (existing RFL owner) | fresh worktree from 78bc699c | RFL SQL only + its localStack tests | `_tw4rfl_register_core` (skip cross-month initial_reservation binding), `tw4_rfl_pilot_cover` (may supersede a non-counting initial_reservation cover), `_tw4rfl_cover` / `rfl_ready` (D5 alignment) | `20261225090000` | D5; found by F1 #280 + #288 review (2026-10-23) | Requested |
+| J3 | J2 session (tw4f-j2-owner-read) | `twilio-tw4f-j3-number-selection` (merges #276) | new owner `NumberSelection*.tsx`, `numberActions.ts`; `number.actionHref` in `journey.ts`/`ownerRead.ts` | new owner-scoped offer read if needed | `20261227090000` | #276, J1 #278 offers | Started 2026-10-23 (owner-approved) |
+| J4 | F1 session (tw4f-f1-funding) | `twilio-tw4f-j4-activation-console` | new `Activation*.tsx`, `activationActions.ts`, `activation.ts`, one `page.tsx` mount | `_tw4act_*`/`tw4_act_*` incl. the deferred `superseded_at` filter (needs 1225) | `20261226090000` | #280 recheck after #290; #277 | Approved; starts after #280 recheck |
+| INV-R | F4 session (tw4f-f4-recovery) | `twilio-tw4f-inventory-reconcile-route` (merges #278) | new `src/app/api/cron/sms-inventory-reconcile/route.ts` (flag `SMS_INVENTORY_RECONCILE`, no vercel.json) | only if a job kind is needed | `20261223090000` (if needed) | J1 #278 `buildNumberRuntime` | Started 2026-10-23 (owner-approved) |
 | J3, J4 | not launched | — | J3: new owner `NumberSelection*`, `numberActions.ts`. J4: new `Activation*`, `activationActions.ts` | none | none | J3: J1 + J2. J4: J1 + F1 + F3 | Wave 2 |
 
 Notes on the files more than one slice touches:
@@ -508,9 +511,9 @@ TW-4F moves to a focused pilot closeout. Competition E2E, New Student Intake and
 | A4 | J1 admin provisioning orchestration | #278 (`629e7314`), J1 session | r2a control is identical to `main` (Q1) | Ready for review |
 | A5 | J2 owner status reads | #276 (`d99f42a0`), J2 session | Q1 chain PASS | Ready for review |
 | A6 | F5 release adapters | #279 (`1fa86a39`), F5 session | Both deferred P2s fixed, offline 1386/0 | Ready for review |
-| A7 | **J3 owner number selection** (missing) | Proposed: the J2 session (owner-read context) | Owner browser E2E; forged-studio and replay tests; pilot-cap refusal | Not started |
-| A8 | **J4 activation console** (missing) | Proposed: the F1 session (owns `tw4_act_*`) | Admin browser E2E to `active` (fake adapter); one refusal per checklist item including reconciler readiness | Not started; needs A1 and A3 |
-| A9 | **Inventory reconciliation route** (missing; route only, flag off) | Proposed: the F4 session | Route and lease tests; health visible | Not started |
+| A7 | **J3 owner number selection** (missing) | J2 session (started 2026-10-23) | Owner browser E2E; forged-studio and replay tests; pilot-cap refusal | Not started |
+| A8 | **J4 activation console** (missing) | F1 session (approved; starts after #280 recheck) | Admin browser E2E to `active` (fake adapter); one refusal per checklist item including reconciler readiness | Not started; needs A1 and A3 |
+| A9 | **Inventory reconciliation route** (missing; route only, flag off) | F4 session (started 2026-10-23) | Route and lease tests; health visible | Not started |
 | A10 | Browser E2E for owner and admin journeys | Q1, #275 | Needs an isolated stack with auth (GoTrue) | BLOCKED (infra) |
 | A11 | QA and docs tooling | #266, #267, #275, #274, #273 | — | Ready for owner merge decisions |
 | A12 | Owner decisions | Owner | — | U-2 prices; U-4 written-approval evidence form; U-10 Stage B draft; **KI-1 re-decision (activation gate)** |
