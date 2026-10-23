@@ -54,3 +54,40 @@ Known environment items are in `scripts/qa/tw4f/known-failures.json`; the runner
 ## Not claimed
 
 No Wave 1 slice branch had been pushed when this was written, so no slice run exists yet; run the commands in `scripts/qa/tw4f/README.md` with `--extra-branch <branch>` when each lands. Combined-order checks (1218+1219 etc.) depend on F1 and F3 branches.
+
+---
+
+## Run 2: exclusive slot (2026-10-23), main 78bc699c (includes 1206 and 1215)
+
+Harness: PR #266's `iso-qa.mjs` (head ffb4ac10, detached checkout, `main` scenario = 1207..1217 + 1215 + 1206 applied last), one fresh database per suite, serial, unique `q1s<pid>-*` names, tests from `--tests-ref origin/main` (or the named branch). Chain checks: `scripts/qa/tw4f/run-chain.mjs chain --base origin/main --extra-branch origin/<branch>` on the baseline image. Before each suite no other TW-4F DB container was running (only the two shared `supabase_*` stacks). Host per suite (CPU % / free GB / containers, start -> end): tw4rfl 34%/8.4/22 -> 25%/11/22; r2brfl 7%/11/22 -> 28%/10.7/22; r2bp2.rfl 17%/10.7/22 -> 20%/10.7/22 and again 36%/10.8/22 -> 36%/10.7/22; r2a (main) 76%/7.9/22 -> 69%/7.9/22 and r2a (J1) 74%/7.8/22 -> 71%/7.6/22 (those two ran during unrelated website work). No result below is a timeout or a skip.
+
+Two false starts are recorded rather than hidden: the first attempts of tw4rfl/r2brfl/r2bp2.rfl were SKIPPED (87/28/3 skipped) or exit 3, because (a) the detached #266 checkout had no `node_modules` link (infrastructure, exit 3), (b) the suites were run from #266's tree instead of `--tests-ref origin/main`, (c) `tw4rfl`/`r2brfl` need `ISO_QA_MARKER=1` (their `beforeAll` asserts the `tw4_local_qa_only` marker table; without it every test shows as skipped) and (d) `r2bp2.rfl` reads `TW4A_RFL_DB_CONTAINER`, not `TW4A_LOCAL_DB_CONTAINER`. Those runs are not counted.
+
+| Suite | Environment | Command shape | Expected | Observed | Result |
+|---|---|---|---|---|---|
+| localStack.tw4rfl | iso-qa `main`, fresh DB | `iso-qa run main --tests-ref origin/main -- <file>` with `TW4RFL_DB=postgres ISO_QA_MARKER=1` | all pass | 87/87 | PASS |
+| localStack.r2brfl | same | same env | all pass | 28/28 | PASS |
+| localStack.r2bp2.rfl | same, `TW4A_RFL_DB_CONTAINER=df-isoqa-<name>-db`, `ISO_QA_MARKER=1` | same | all pass | 2/3, run twice, same failure both times (idle host, not a timeout): "the real outbox's own runner can claim and finish what P2 raised" (`expected +0 to be 2` at line 67) | FAIL (main; real, not resource) |
+| localStack.r2a, tests from main | iso-qa `main`, fresh DB | `--tests-ref origin/main` | 26 pass (R2a rollback test is a known refusal) | 25/26; only failure: "rollback parses and completes where there is no evidence" | KNOWN (R2b objects depend on the R2a ledger, 2BP01; listed in #266 expected-results) |
+| localStack.r2a, tests from J1 (#278, 629e7314, no SQL) | same, fresh DB | `--tests-ref origin/claude/twilio-tw4f-j1-admin-orchestration-c57e64` | same as main | 25/26, the identical single failure | KNOWN, identical to main |
+
+**#278 control:** r2a gives the identical result on main and on J1's branch (25/26, same single known failure), so J1 introduces no r2a regression; the failures J1 saw came from its non-standard harness.
+
+**New main finding (r2bp2.rfl):** likely cause, from reading migration 20261211 (not confirmed by toggling the switch): `tw4_rfl_alerts_claim` has returned nothing while the delivery kill switch is off (fail closed, absence of an audited row = OFF) since the RFL-ops migration, and the test claims without turning delivery on. That would make the test stale relative to the fail-closed behaviour, not an application defect, but it is a failing suite on main; owner of r2bp2.rfl/RFL ops should decide whether to fix the test (switch delivery on in setup) or the function.
+
+### Chain checks against origin/main 78bc699c (1206..1217 + 1215), idle-ish host (apply of 12 migrations 6-7 s)
+
+| PR | Branch head | Extra migration | Apply | Rollback extras == main-only catalog | Re-apply == first apply | Rollback all == baseline | Second cycle | Result |
+|---|---|---|---|---|---|---|---|---|
+| #276 J2 owner read | d99f42a0 | 20261222090000 | PASS | PASS (0 diff) | PASS | FAIL (same 3, pre-existing) | PASS | PASS for the slice |
+| #277 F3 recon gate | 94bc0a1f | 20261218090000 | PASS | PASS | PASS | FAIL (same 3) | PASS | PASS for the slice |
+| #278 J1 orchestration | 629e7314 | none (no SQL) | PASS | n/a | PASS | FAIL (same 3) | PASS | n/a, main chain only |
+| #279 F5 release adapters | 57780760 | 20261224090000 | PASS | PASS | PASS | FAIL (same 3) | PASS | PASS for the slice |
+| #280 F1 funding | 4046b8f6 | 20261219090000 | PASS | PASS | PASS | FAIL (same 3) | PASS | PASS for the slice |
+| #288 F4 recovery | f68321ca | 20261221090000 | PASS | PASS | PASS | FAIL (same 3) | PASS | PASS for the slice |
+
+"Rollback all == baseline" fails identically on main alone and with each slice: the three CHECK constraints in the earlier finding (`approval_refs_shape`, `approval_refs_source_check`, `onboarding_audit_action_check`) stay wider after rollback. None of the slices adds a new difference, so the runner's exit 1 here is that known main-level gap, not a slice defect. The combined orders (e.g. 1218+1219) were not run in this slot.
+
+### Still not covered by Q1 (by agreement)
+
+tw4payhardening and tw4rflops (verified by #266), the other suites listed as verified by #266 on 1207..1217, r2b (refuses the merged chain by design), and the browser E2E smoke (no auth-capable isolated stack; see the E2E table above).
