@@ -68,21 +68,21 @@ const primaryButton = `inline-flex items-center justify-center gap-2 rounded-2xl
 const quietLink = `inline-block py-1.5 text-sm font-semibold text-[var(--brand-primary)] underline-offset-4 hover:underline ${focusRing}`;
 
 /** One hero door: the two are rendered with identical structure and weight. */
-function Door({ door, note }: { door: HomeDoor; note?: string }) {
+function Door({ door, note }: { door: HomeDoor; note: string }) {
   return (
     <div className="flex flex-col rounded-3xl border border-[var(--brand-border)] bg-white/90 p-6 shadow-sm sm:p-8">
       <h2 className="text-xl font-semibold text-slate-950">{door.heading}</h2>
-      <p className="mt-2 flex-1 text-base leading-7 text-slate-600">{door.body}</p>
+      <p className="mt-2 min-h-[3.5rem] text-base leading-7 text-slate-600">{door.body}</p>
       <div className="mt-6 flex flex-col items-start gap-3">
         <Link href={door.primaryCta.href} className={primaryButton}>
           {door.primaryCta.label}
           <ArrowRight className="h-4 w-4" aria-hidden="true" />
         </Link>
-        {note ? <p className="text-sm text-slate-500">{note}</p> : null}
         <Link href={door.secondaryLink.href} className={quietLink}>
           {door.secondaryLink.label}
         </Link>
       </div>
+      <p className="mt-4 text-sm text-slate-500">{note}</p>
     </div>
   );
 }
@@ -239,7 +239,7 @@ export default async function HomePage() {
             </div>
 
             <div className="mt-12 grid gap-6 md:grid-cols-2">
-              <Door door={dancerDoor} />
+              <Door door={dancerDoor} note={dancerDoor.note} />
               <Door door={businessDoor} note={trialLine} />
             </div>
           </div>
@@ -401,7 +401,7 @@ export default async function HomePage() {
 
         {/* 5. Meet ARIA: secondary, viewer-started; text-only until the owner configures the video URL. */}
         <section aria-labelledby="home-aria" className="border-t border-slate-200">
-          <div className="mx-auto max-w-6xl px-6 py-20 lg:px-8 lg:py-24">
+          <div className={`mx-auto ${ariaVideo ? "max-w-6xl" : "max-w-5xl"} px-6 py-20 lg:px-8 lg:py-24`}>
             <div
               className={
                 ariaVideo ? "grid gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:items-center" : "max-w-3xl"

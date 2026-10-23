@@ -53,6 +53,8 @@ export type HomeDoor = {
   body: string;
   primaryCta: { label: string; href: string };
   secondaryLink: { label: string; href: string };
+  /** Small print under the door. The business door uses the derived trial line instead. */
+  note: string;
 };
 
 /**
@@ -66,6 +68,7 @@ export const HOME_DOORS: readonly [HomeDoor, HomeDoor] = [
     body: "Find studios, classes, events, dance partner listings and jobs near you.",
     primaryCta: { label: "Explore Discover", href: "/discover" },
     secondaryLink: { label: "Create a free dancer account", href: "/signup?intent=public" },
+    note: "Browsing Discover is free, with no account needed.",
   },
   {
     key: "business",
@@ -73,6 +76,7 @@ export const HOME_DOORS: readonly [HomeDoor, HomeDoor] = [
     body: "Studios, independent instructors and organizers run and grow the business in one place.",
     primaryCta: { label: "Start free trial", href: "/get-started/studio" },
     secondaryLink: { label: "See how DanceFlow works", href: "/for-studios" },
+    note: "",
   },
 ];
 
@@ -193,7 +197,7 @@ export const HOME_CONNECTS = {
     },
     {
       title: "Everyone stays connected",
-      body: "Registrations, payments and follow-up land in the same place, so nobody has to re-enter anything.",
+      body: "Registrations, payments and follow-up land in the same place, with less to re-enter by hand.",
     },
   ],
   imageAlt: "DanceFlow connects studio operations, public discovery, and dance events",

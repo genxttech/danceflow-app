@@ -159,7 +159,7 @@ describe("homepage hierarchy (two-audience, 2026-10-22)", () => {
     expect(dancers.primaryCta.href).toBe("/discover");
     expect(business.primaryCta.href).toBe("/get-started/studio");
     // Both doors render through the same component, in this order.
-    expect(page).toMatch(/<Door door=\{dancerDoor\} \/>\s*<Door door=\{businessDoor\}/);
+    expect(page).toMatch(/<Door door=\{dancerDoor\}[^>]*\/>\s*<Door door=\{businessDoor\} note=\{trialLine\}/);
     expect(page).not.toMatch(/\/for-dancers/);
   });
 
