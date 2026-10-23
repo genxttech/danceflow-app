@@ -662,7 +662,16 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
         const fn = text.match(/drop function if exists public\.([a-z0-9_]+)\(([^)]*)\)/i);
         // a layer that only REPLACES functions (no table, nothing it creates to drop) states its precondition as "to_regprocedure('public.f(args)') is null -> not applied"
         const pre = text.match(/if to_regprocedure\('public\.([a-z0-9_]+\([^)]*\))'\) is null then/i);
-        const probe = guard ? `to_regclass('public.${guard[1]}') is not null` : fn ? `to_regprocedure('public.${fn[1]}(${fn[2]})') is not null` : pre ? `to_regprocedure('public.${pre[1]}') is not null` : "";
+        // a layer that only adds a column states it as "not exists (select 1 from pg_attribute ... attrelid = 'public.T'::regclass and attname = 'c' ...) -> not applied"
+        const col = text.match(/if not exists \(select 1 from pg_attribute a where a\.attrelid = 'public\.([a-z0-9_]+)'::regclass and a\.attname = '([a-z0-9_]+)'/i);
+        // a layer that replaces a body and fingerprints it: "to_regprocedure('public.f(args)') is null or left(md5(...body...), 8) <> '<hash>' -> not applied or changed"
+        const fp = text.match(/to_regprocedure\('public\.([a-z0-9_]+\([^)]*\))'\) is null or left\(md5\(replace\(\(select p\.prosrc from pg_proc p where p\.oid = '[^']+'::regprocedure\), chr\(13\), ''\)\), 8\) <> '([0-9a-f]{8})'/i);
+        const probe = guard ? `to_regclass('public.${guard[1]}') is not null`
+          : fn ? `to_regprocedure('public.${fn[1]}(${fn[2]})') is not null`
+          : pre ? `to_regprocedure('public.${pre[1]}') is not null`
+          : col ? `exists (select 1 from pg_attribute a where a.attrelid = 'public.${col[1]}'::regclass and a.attname = '${col[2]}' and not a.attisdropped)`
+          : fp ? `coalesce((select left(md5(replace(p.prosrc, chr(13), '')), 8) = '${fp[2]}' from pg_proc p where p.oid = to_regprocedure('public.${fp[1]}')), false)`
+          : "";
         return { file, probe, applied: probe !== "" && psql(`select ${probe}`) === "t" };
       });
   }
