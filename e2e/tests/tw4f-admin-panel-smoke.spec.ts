@@ -6,8 +6,9 @@ import { cleanupTw4fFixture, createTw4fFixture, openTw4fAdmin, seedTw4fEntity, s
 /**
  * TW-4F Q1 smoke: the seeded fixture (platform admin with TOTP, owner + second studio owner, legal entity capped at $150, published test prices, the $150
  * pilot exception) and the EXISTING platform admin panel. It asserts only what the panel already renders (section#subaccount-panel, the studio-panel
- * cards), so it runs green today and fails loudly if a Wave 1 slice breaks the admin shell. Owner: Q1.
+ * cards), so it should fail loudly if a Wave 1 slice breaks the admin shell once it can run. Owner: Q1.
  *
+ * Status: not executed in any recorded run (BLOCKED): the isolated stack has no auth service, so createTw4fFixture / admin TOTP sign-in cannot run there.
  * Environment: LOCAL dev server + LOCAL Supabase stack with TW4_ISV_FAKE=on (nothing can reach Twilio, Stripe or any carrier). Without the fake adapter
  * the spec is skipped by tw4fEnvironmentProblem(): a skip is BLOCKED in the QA matrix, never PASS.
  */

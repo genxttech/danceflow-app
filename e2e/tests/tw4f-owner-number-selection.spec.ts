@@ -1,23 +1,27 @@
 import { test } from "@playwright/test";
-import { tw4fEnvironmentProblem } from "../helpers/tw4fFixture";
+import { TW4F_E2E_BLOCKER, tw4fEnvironmentProblem } from "../helpers/tw4fFixture";
 
 /**
- * TW-4F Q1 / J3 (later; owner not assigned yet, route via the coordinator "DanceFlow TW-4F completion audit"): owner number selection.
- * FIXME: no UI exists. Requested ids: data-testid="number-search-area-code", "number-candidate" (data-e164 masked), "number-select", "number-selection-confirmation".
- * Expected: search uses the FAKE number inventory only (TW4_ISV_FAKE), the owner may select exactly one number, the monthly fee is disclosed before
- * confirmation, a repeat click selects once, and a studio with no active subaccount cannot reach the search.
+ * TW-4F Q1 / J3: owner number selection (NumberSelection.tsx, migration 20261227).
+ * UI exists on main. Stable ids present: sms-number-selection, sms-number-form, sms-number-option, sms-number-approve, sms-number-confirm, sms-number-result,
+ * sms-number-waiting, sms-number-blocked, sms-number-error, sms-number-withdraw, sms-number-approved.
+ * Still fixme for ONE reason: no auth-capable isolated stack for owner sign-in, and the offers need a seeded active subaccount in the fake universe (fixture addition once sign-in works).
+ * Intended assertions: the owner picks exactly one offered fake number after the fee disclosure; a double click selects once; withdraw works before approval; an owner without an active subaccount sees the blocked state.
  */
 test.describe("TW-4F owner number selection (J3)", () => {
   test.beforeEach(() => {
     test.skip(Boolean(tw4fEnvironmentProblem()), tw4fEnvironmentProblem() ?? "");
   });
-  test.fixme("owner searches an area code and selects one fake number after the fee disclosure", async () => {
-    /* owner: J3 (unassigned) */
+  test.fixme("owner selects one offered fake number after the fee disclosure", { annotation: { type: "fixme", description: TW4F_E2E_BLOCKER } }, async () => {
+    /* UI: src/app/app/settings/sms/NumberSelection.tsx (J3) */
   });
-  test.fixme("a double click on Select reserves the number once", async () => {
-    /* owner: J3 (unassigned) */
+  test.fixme("a double click on approve selects once", { annotation: { type: "fixme", description: TW4F_E2E_BLOCKER } }, async () => {
+    /* UI: src/app/app/settings/sms/NumberSelection.tsx (J3) */
   });
-  test.fixme("an owner without an active subaccount cannot search", async () => {
-    /* owner: J3 (unassigned) */
+  test.fixme("an owner can withdraw a selection before it is approved", { annotation: { type: "fixme", description: TW4F_E2E_BLOCKER } }, async () => {
+    /* UI: src/app/app/settings/sms/NumberSelection.tsx (J3) */
+  });
+  test.fixme("an owner without an active subaccount sees the blocked state", { annotation: { type: "fixme", description: TW4F_E2E_BLOCKER } }, async () => {
+    /* UI: src/app/app/settings/sms/NumberSelection.tsx (J3) */
   });
 });

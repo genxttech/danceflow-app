@@ -26,8 +26,8 @@ import {
  *    isolated database;
  *  - the evidence tables have no API privileges, so rows these helpers create are removed by dropping the isolated stack, not by cleanup code.
  *
- * Stable test ids: specs only use data-testid hooks the owning slice has agreed to (see e2e/tests/tw4f-*.spec.ts, which name the owner of each). Until a
- * slice's UI exists its spec stays test.fixme.
+ * Stable test ids: specs only use data-testid hooks the owning slice has agreed to (see e2e/tests/tw4f-*.spec.ts, which name the owner of each). The slice UIs now
+ * exist on main; the specs stay test.fixme only because of TW4F_E2E_BLOCKER (below).
  */
 
 export const PILOT_LEGAL_NAME = "ConfiDance Unlimited, LLC";
@@ -130,3 +130,10 @@ export async function openTw4fAdmin(browser: Browser, fixture: Tw4fFixture, conf
 
 /** A unique, obviously synthetic suffix for names created inside a spec. */
 export const tw4fRun = () => randomBytes(3).toString("hex");
+
+/**
+ * The one reason the TW-4F UI specs stay test.fixme on main: the isolated Postgres+PostgREST+Kong stack (PR #266) has no auth service, so
+ * createSmsFixture (auth.admin.createUser), platform-admin TOTP sign-in and owner sign-in cannot run there. The UIs themselves exist.
+ * Un-fixme when an auth-capable isolated stack (GoTrue) exists or the owner approves the shared e2e stack for these specs.
+ */
+export const TW4F_E2E_BLOCKER = "BLOCKED: no auth-capable isolated stack (GoTrue/TOTP) for browser sign-in; UI exists on main";

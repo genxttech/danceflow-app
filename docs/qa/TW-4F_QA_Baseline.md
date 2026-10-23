@@ -1,4 +1,29 @@
-# TW-4F QA baseline (Q1)
+# TW-4F QA status (Q1), current at main 84f52048 (2026-10-23)
+
+Main now contains every TW-4F pilot PR (#251 #269 #288 #290 #277 #280 #276 #278 #279 #294 #296 #298 #300); migrations run 20261206..20261227 (1220 unused; 21 files, each with a rollback, no CRLF, checked statically). Everything below the line "Historical" is dated evidence and is NOT re-run on this main.
+
+## What Q1 actually executed, and what is still BLOCKED
+
+| Item | Evidence | Status |
+|---|---|---|
+| Chain apply / extras rollback / re-apply for #276 (1222), #277 (1218), #279 (1224), #280 (1219), #288 (1221) on main 78bc699c | Run 2 below, branch heads at that time | PASS per slice. Not re-run on 84f52048 (1223, 1225, 1226, 1227 and the later PRs were not chain-checked by Q1) |
+| r2a, main vs J1 (#278) | Run 2 below | identical 25/26 with the single known R2a rollback refusal (2BP01): no J1 regression |
+| tw4rfl 87/87, r2brfl 28/28 | Run 2 below, main 78bc699c | PASS at that main |
+| r2bp2.rfl (KI-3) | Run 2 below, failed twice on an idle host | FAIL on main 78bc699c, listed as KNOWN in known-failures.json (probable stale-test cause, unconfirmed); not re-run |
+| Rollback of the whole chain restores the baseline catalog | Run 1 and 2 | FAIL: three CHECK constraints stay wider (pre-existing at main, no slice adds more). Owner decision pending |
+| Per-slice DB results recorded in each merged PR (F1, F3, F4, F5, J1, J2, J3, J4) | those PRs | Not re-run or verified by Q1; read them there |
+| Browser E2E (all tw4f-*.spec.ts) | none | BLOCKED: no auth-capable isolated stack (GoTrue/TOTP). The UIs exist on main; the specs are test.fixme with that single reason (cancellation also needs a second platform-admin fixture). The activation console spec (J4) is the owner's |
+| r2b on the merged chain | none | BLOCKED by design (it refuses the merged chain; runs only on a partial chain) |
+| Suites #266 verified (tw4payhardening, tw4rflops and the list in its notes) | #266 | not duplicated here |
+| Original full matrix (Run 1) | historical, 7 of 25 suites on a saturated host | superseded by #266's matrices; do not use as a release gate |
+
+Reproduce: see scripts/qa/tw4f/README.md; known environment items: scripts/qa/tw4f/known-failures.json.
+
+---
+
+# Historical, at 960a9d02 (Run 1) and 78bc699c (Run 2). Not re-run on current main.
+
+## Run 1: baseline at 960a9d02 (2026-10-22)
 
 Base: `origin/main` 960a9d02. Date: 2026-10-22. Runner: `scripts/qa/tw4f/run-chain.mjs` (see `scripts/qa/tw4f/README.md`).
 Environment: Windows 11 host, Docker, dedicated containers (`df-q1-*`, own network, label `df.tw4fq1=1`), baseline image `df-isoqa/base:20261205090000` (id 00748f0063e6, built by PR #266's harness: July production schema + repo migrations through 20261205), Postgres image `public.ecr.aws/supabase/postgres:17.6.1.106` with `supautils.hint_roles=` (signal-11 mitigation from `TW-4F_Isolated_QA.md`), PostgREST v14.8, Kong 2.8.1, Node v24.14.1. Migrations applied on top of the image, from git: 20261207 20261208 20261209 20261210 20261211 20261212 20261213 20261214 20261216 20261217 (20261120..20261205 are inside the image; 1206 = PR #251 and 1215 = PR #269 are not on main).
