@@ -38,7 +38,14 @@ export type RegisterInput = {
 };
 
 export type CancelDecision = "owner_written" | "founder_written" | "policy_lapse";
-export type CancelBegin = { action: "execute"; providerSid: string; resourceKind: Resource } | { action: "in_progress" } | { action: "reconcile" } | { action: "skip"; status: string };
+/**
+ * `unknown_claim` (TW-4F F5, review P2-4): the database answered execute, so the operation IS claimed, but the reply carried no usable provider identity.
+ * The caller records it unknown (operator resolution); it is never treated as "nothing to do" and never acted on. It carries no provider value.
+ */
+export type CancelBegin =
+  | { action: "execute"; providerSid: string; resourceKind: Resource } | { action: "in_progress" } | { action: "reconcile" } | { action: "skip"; status: string } | { action: "unknown_claim" };
+
+const SID_FOR_KIND: Record<Resource, RegExp> = { messaging_service: /^MG[0-9a-fA-F]{32}$/, campaign: /^QE[0-9a-fA-F]{32}$/, number: /^PN[0-9a-fA-F]{32}$/ };
 
 export class ProviderFeeLifecycleStore {
   constructor(private readonly admin: Client) {}
@@ -93,8 +100,13 @@ export class ProviderFeeLifecycleStore {
 
   /** The single claim. Only `execute` permits the console step; `reconcile` means look the resource up first (an earlier outcome is unknown). */
   async beginCancel(operationId: string, actorId: string): Promise<CancelBegin> {
-    const row = await this.call<{ action: string; provider_sid?: string; resource_kind?: Resource; status?: string }>("tw4_rfl_cancel_begin", { p_operation_id: operationId, p_actor: actorId });
-    if (row.action === "execute" && row.provider_sid && row.resource_kind) return { action: "execute", providerSid: row.provider_sid, resourceKind: row.resource_kind };
+    const row = await this.call<{ action: string; provider_sid?: unknown; resource_kind?: unknown; status?: string }>("tw4_rfl_cancel_begin", { p_operation_id: operationId, p_actor: actorId });
+    if (row.action === "execute") {
+      // the claim is taken either way: only a provider identity that is well formed and consistent with its kind is usable
+      const kind = typeof row.resource_kind === "string" && Object.hasOwn(SID_FOR_KIND, row.resource_kind) ? (row.resource_kind as Resource) : null;
+      if (kind && typeof row.provider_sid === "string" && SID_FOR_KIND[kind].test(row.provider_sid)) return { action: "execute", providerSid: row.provider_sid, resourceKind: kind };
+      return { action: "unknown_claim" };
+    }
     if (row.action === "in_progress" || row.action === "reconcile") return { action: row.action };
     return { action: "skip", status: String(row.status ?? "unknown") };
   }

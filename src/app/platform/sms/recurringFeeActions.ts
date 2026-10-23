@@ -8,12 +8,14 @@ import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { ProviderFeeLifecycleStore, type CancelDecision } from "@/lib/sms/providerFeeLifecycle";
 import { loadExposureReport, loadRecurringFeeOps, ProviderFeeOpsStore, RFL_FLASH_COOKIE, type DualAction } from "@/lib/sms/providerFeeOps";
 import { encodePanelFlash } from "@/lib/sms/twilioIsv/panelFlash";
+import { cancelReleaseRuntime } from "@/lib/sms/twilioIsv/cancelRuntime";
 
 /**
  * TW-4F recurring provider fees: platform-administrator operations. Every action runs `requirePlatformAdmin()` FIRST, takes the ACTOR from the session
  * (never from the form), validates its inputs, and only then builds a service-role client. The database checks the platform-admin actor again, enforces
  * dual control (a requester can never approve their own request) and every state rule. Database error text is never shown: SQLSTATEs map to fixed
- * sentences. NOTHING here calls Twilio: a cancellation is authorized and evidenced here, and the console step is a human's.
+ * sentences. Nothing here calls Twilio except `rflCancelReleaseAction` (TW-4F F5), and that only through the cancellation runner when its runtime is
+ * switched on and installed; otherwise a cancellation is authorized and evidenced here, and the console step is a human's.
  */
 
 const RETURN_PATH = "/platform/sms";
@@ -258,6 +260,15 @@ export async function rflCancelBeginAction(formData: FormData) {
     }
     if (out.action === "reconcile") return done("An earlier outcome is unknown: look the resource up in the Twilio console first, then resolve the operation. Nothing was cancelled by DanceFlow.");
     if (out.action === "in_progress") return done("This operation is already claimed. Record the evidence when the console step is done.");
+    if (out.action === "unknown_claim") {
+      // the database claimed it but its reply was unreadable: record it unknown (never retried; the operator resolves it with a provider lookup)
+      try {
+        await lifecycle().finishCancel(operationId, "unknown", null, "no_call_malformed_claim", admin.id);
+      } catch {
+        return fail("The operation is claimed but the database reply could not be read, and recording it as unknown failed. DanceFlow has NOT cancelled anything. Do not perform the console step: reload, then record the outcome as unknown.");
+      }
+      return fail("The operation is claimed but the database reply could not be read, so it is recorded as an UNKNOWN outcome. DanceFlow has NOT cancelled anything. Look the resource up in the Twilio console, then resolve the operation with the evidence digest.");
+    }
     return done(`Nothing to do: this operation is ${out.status}.`);
   });
 }
@@ -289,6 +300,44 @@ export async function rflCancelResolveAction(formData: FormData) {
     if (!digest) return fail("Resolving needs the evidence digest of the provider read (cancelled: showing the resource gone; still active: showing it present). Nothing changed.");
     const out = await lifecycle().resolveCancel(operationId, resolution as "cancelled" | "still_active", digest || null, note, admin.id);
     return done(`Operation resolved: ${out.status}.`);
+  });
+}
+
+/**
+ * TW-4F F5: provider release through the cancellation runner, offered ONLY when `cancelReleaseRuntime` builds (TW4_CANCEL_RELEASE=on, a target source
+ * installed, and an adapter path: the local fakes, or the real adapters the platform runtime supplies). Otherwise it refuses and the manual path stays.
+ * The runner claims the operation itself (tw4_rfl_cancel_begin), calls the provider ONCE, reads the result back and records it; an unknown outcome is
+ * never repeated. A number additionally needs the consumed approval of two different administrators, checked before anything is claimed.
+ */
+export async function rflCancelReleaseAction(formData: FormData) {
+  await guarded(async (admin) => {
+    const operationId = id(formData, "operationId");
+    if (!operationId) return fail("Enter the cancellation operation id. Nothing changed.");
+    if (!checked(formData, "releaseAck")) return fail("Acknowledge that DanceFlow will release this resource at Twilio now and that it cannot be undone. Nothing changed.");
+    const runtime = cancelReleaseRuntime();
+    if (!runtime.ok) return fail(`${runtime.reason} Nothing changed; use Begin and the console step instead.`);
+    const out = await runtime.runner.run(operationId, admin.id);
+    switch (out.result) {
+      case "confirmed":
+        return done(`Released at Twilio${runtime.mode === "fake" ? " (local fake provider)" : ""} and confirmed by a provider read. Operation ${out.status}.`);
+      case "refused":
+        return fail("Twilio refused the release; nothing changed at the provider. The operation is closed as refused: a new written authorization is needed to try again.");
+      case "unknown":
+        return fail(`The release outcome is UNKNOWN (${out.errorCode}). It will not be repeated. Look the resource up in the Twilio console, then resolve the operation with the evidence digest.`);
+      case "record_failed":
+        if (out.errorCode?.startsWith("no_call_")) {
+          return fail(`Nothing was sent to Twilio, but the operation is claimed and recording that failed (${out.errorCode}). Reload, then resolve it with a provider read. Do not release again.`);
+        }
+        return fail(`The provider step ran but recording it failed. Record it by hand with Record outcome: outcome ${out.outcome}${out.evidenceDigest ? `, evidence digest ${out.evidenceDigest}` : ""}${out.errorCode ? `, error code ${out.errorCode}` : ""}. Do not release again.`);
+      case "precondition_refused":
+        return fail(`${out.reason} Nothing was claimed or released.`);
+      case "in_progress":
+        return done("This operation is already claimed. Nothing was released by this submission.");
+      case "reconcile":
+        return done("An earlier outcome is unknown: look the resource up in the Twilio console first, then resolve the operation. Nothing was released by this submission.");
+      default:
+        return done(`Nothing to do: this operation is ${out.status}.`);
+    }
   });
 }
 
