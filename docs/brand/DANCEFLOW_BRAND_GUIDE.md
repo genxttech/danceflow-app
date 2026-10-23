@@ -78,6 +78,18 @@ Notes:
 
 **Do not create:** a separate Organizer logo, a separate Competition logo, a standalone Competition visual brand, or any app-specific product brand. Organizer and Competition are DanceFlow personas/capabilities.
 
+### 3.1 Two-audience public website (owner decisions, 2026-10-22)
+
+DanceFlow's public site serves two equally important audiences: **public dancers** (finding studios, classes, instructors, events, dance partners and community) and **dance businesses** (studios, independent instructors and organizers who run and grow on DanceFlow). The homepage must not read primarily as a studio-software sales page.
+
+- **Homepage H1:** "Where the dance community connects." The positioning line above ("Software that helps do the work—not just track it.", and the BR-4 line "The dance platform that helps do the work—not just track it.") stays the business-facing line, used for the homepage business section and business collateral.
+- **Entry points:** two distinct, equally prominent doors, "For dancers" and "For dance businesses". Dancers come first on mobile (and on the left on desktop).
+- **Dancer destination:** Discover. There is no `/for-dancers` page.
+- **Navigation labels:** "For Dancers" (Discover paths, including Classes) and "For Business" (audience pages, "Plans & free trial", "Meet ARIA").
+- **Actions stay distinct:** "Create free account" (public dancer account) and "Start free trial" (business workspace) are never merged into one button or one label.
+- **ARIA on the website:** a secondary "Meet ARIA" homepage section with the 30-second cut; the full 77-second commercial lives on `/for-studios`. ARIA is never the dominant homepage message. Videos are always started by the viewer (no autoplay) and carry captions.
+- **Public-dancer video:** a 30–45-second piece is planned (creative brief only). Photography and video for dancers follow the social partner-dancing direction: everyday adults, not competition or professional imagery.
+
 **Out of scope for this guide:** the number, names or boundaries of mobile apps. Those are reserved for the Mobile App Architecture & Boundary Audit.
 
 ---
