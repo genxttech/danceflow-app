@@ -16,7 +16,7 @@ vi.mock("server-only", () => ({}));
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 1_000_000 });
 
 import { SupabaseCreditStore } from "@/lib/sms/twilioIsv/creditStore";
-import { LOCAL_QA_MARKER, brandStepSql, evidenceFor, newSenderIds, readySender, sid, type SenderIds } from "./senderFixtures";
+import { LOCAL_QA_MARKER, brandStepSql, evidenceFor, newSenderIds, reconcilerReadySql, reconcilerRunsCleanupSql, readySender, sid, type SenderIds } from "./senderFixtures";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -64,6 +64,7 @@ const STUDIOS = `'${PA1}', '${PA2}', '${PB1}', '${PL}'`;
 const CLEANUP = `
 begin;
 set local session_replication_role = replica;
+delete from public.studio_sms_reconcile_runs where runner = 'tw4sender:test';
 delete from public.studio_sms_sender_verifications where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_provisioning_steps where studio_id in (${STUDIOS});
 delete from public.studio_sms_usage_attempts where legal_entity_id in (${ENTITIES});
@@ -148,6 +149,7 @@ describe.skipIf(!enabled)("sender readiness and dispatch integrity (real schema,
     psqlFile(FIXTURES);
     snapshotActivePrices = psql("select id from public.studio_sms_price_list where active").split("\n").filter(Boolean);
     expect((await rpc("tw4_price_set", { p_kind: "sms_usage", p_customer_cents: 3, p_provider_cents: 1, p_description: "fixture sms_usage price", p_actor: U.padmin })).error).toBeNull();
+    aged(reconcilerReadySql(`tw4sender:${RUN}`));
     expect((await rpc("tw4_usage_set_switch", { p_enabled: true, p_actor: U.padmin, p_reason: "fixture: billed texting on for tests" })).error).toBeNull();
     await fund(EA, PA1, 5_000);
     expect((await rpc("tw4_monthly_limit_set_admin", { p_entity_id: EA, p_actor: U.padmin, p_limit_cents: 10_000, p_effective_month: null, p_reason: "fixture: monthly texting limit" })).error).toBeNull();
@@ -155,6 +157,7 @@ describe.skipIf(!enabled)("sender readiness and dispatch integrity (real schema,
   afterAll(() => {
     try {
       psqlFile(CLEANUP);
+      aged(reconcilerRunsCleanupSql(`tw4sender:${RUN}`));
       aged(`delete from public.studio_sms_price_list where created_by = '${U.padmin}'; update public.studio_sms_price_list set active = true where id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
     } catch {
       /* best effort */
@@ -165,7 +168,7 @@ describe.skipIf(!enabled)("sender readiness and dispatch integrity (real schema,
     for (const role of ["anon", "authenticated", "service_role"]) {
       expect(psql(`select has_table_privilege('${role}', 'public.studio_sms_sender_verifications', 'select,insert,update,delete')`)).toBe("f");
     }
-    for (const fn of ["tw4_sender_record(uuid, uuid, text, text, text, text, text)", "tw4_sender_verify(uuid, uuid, uuid, jsonb, boolean, text)", "tw4_sender_reverify(uuid, uuid, jsonb, text)",
+    for (const fn of ["tw4_sender_record(uuid, uuid, text, text, text, text, text)", "tw4_sender_verify(uuid, uuid, uuid, jsonb, boolean, text)", "tw4_sender_reverify(uuid, uuid, jsonb, text)", "tw4_sender_reverify_run(uuid, uuid, uuid, jsonb, text)",
       "tw4_sender_revoke(uuid, uuid, text, boolean)", "tw4_inbound_studio_for(text, text, text)", "tw4_sender_overview(uuid)", "tw4_sender_due_reverify(int)",
       "tw4_usage_release_unprepared(uuid, text)"]) {
       expect(psql(`select has_function_privilege('anon', 'public.${fn}', 'execute') or has_function_privilege('authenticated', 'public.${fn}', 'execute')`), fn).toBe("f");
@@ -317,6 +320,15 @@ describe.skipIf(!enabled)("sender readiness and dispatch integrity (real schema,
     });
   });
 
+  /** the scheduled re-verify as the scheduler makes it: inside a live 'sender_reverify' run (20261206) */
+  const reverify = async (studio: string, senderId: string, evidence: unknown) => {
+    psqlFile("begin; set local session_replication_role = replica; update public.studio_sms_reconcile_runs set status = 'failed', finished_at = clock_timestamp(), error = 'test' where job = 'sender_reverify' and status = 'running'; commit;");
+    const lease = (await rpc("tw4_reconcile_run_begin", { p_job: "sender_reverify", p_runner: "tw4sender:test", p_lease_seconds: 60 })).data as { run_id: string };
+    const r = await rpc("tw4_sender_reverify_run", { p_run_id: lease.run_id, p_studio_id: studio, p_sender_id: senderId, p_evidence: evidence, p_source: "fake" });
+    await rpc("tw4_reconcile_run_finish", { p_run_id: lease.run_id, p_status: "completed", p_summary: {}, p_error: null });
+    return r;
+  };
+
   describe("readiness gates paid dispatch and revocation cannot fail open", () => {
     it("begin needs a ready sender and returns its number; readiness expires after 24 hours; a 30034 callback fails it at once; a re-verify restores it", async () => {
       clearSenders([PA1]);
@@ -327,7 +339,7 @@ describe.skipIf(!enabled)("sender readiness and dispatch integrity (real schema,
       aged(`update public.studio_sms_sender_verifications set created_at = now() - interval '25 hours' where studio_id = '${PA1}'`);
       expect((await begin(PA1)).error?.code).toBe("TW015");
       expect(JSON.stringify((await rpc("tw4_sender_due_reverify", { p_limit: 100 })).data)).toContain(senderId);
-      expect((await rpc("tw4_sender_reverify", { p_studio_id: PA1, p_sender_id: senderId, p_evidence: evidenceFor(ACC_A, s), p_source: "fake" })).data).toMatchObject({ outcome: "verified" });
+      expect((await reverify(PA1, senderId, evidenceFor(ACC_A, s))).data).toMatchObject({ outcome: "verified" });
       expect((await begin(PA1)).error).toBeNull();
       // Twilio says the sender is not registered (30034) on a delivery callback: not ready at once
       const sub = (await begin(PA1)).data as { attempt_id: string };
@@ -345,15 +357,15 @@ describe.skipIf(!enabled)("sender readiness and dispatch integrity (real schema,
       // the scheduler never restores a failed sender: it is not on the work list and a re-verify is skipped; an admin's verification restores it
       const current = psql(`select id from public.studio_sms_billed_senders where studio_id = '${PA1}' order by seq desc limit 1`);
       expect(JSON.stringify((await rpc("tw4_sender_due_reverify", { p_limit: 500 })).data)).not.toContain(current);
-      expect((await rpc("tw4_sender_reverify", { p_studio_id: PA1, p_sender_id: current, p_evidence: evidenceFor(ACC_A, s), p_source: "fake" })).data).toMatchObject({ outcome: "skipped" });
+      expect((await reverify(PA1, current, evidenceFor(ACC_A, s))).data).toMatchObject({ outcome: "skipped" });
       expect(ready(PA1)).toBe(false);
       expect((await verify(PA1, current, evidenceFor(ACC_A, s))).data).toMatchObject({ outcome: "verified" });
       expect(ready(PA1)).toBe(true);
       // a re-verify with definite negative evidence makes it not ready; transient leaves it ready
       const now = psql(`select id from public.studio_sms_billed_senders where studio_id = '${PA1}' order by seq desc limit 1`);
-      expect((await rpc("tw4_sender_reverify", { p_studio_id: PA1, p_sender_id: now, p_evidence: evidenceFor(ACC_A, s, { read_errors: [{ resource: "account", kind: "server" }] }), p_source: "fake" })).data).toMatchObject({ outcome: "inconclusive" });
+      expect((await reverify(PA1, now, evidenceFor(ACC_A, s, { read_errors: [{ resource: "account", kind: "server" }] }))).data).toMatchObject({ outcome: "inconclusive" });
       expect(ready(PA1)).toBe(true);
-      expect((await rpc("tw4_sender_reverify", { p_studio_id: PA1, p_sender_id: now, p_evidence: evidenceFor(ACC_A, s, { campaign: { campaign_status: "FAILED" } }), p_source: "fake" })).data).toMatchObject({ outcome: "failed", code: "campaign_not_verified" });
+      expect((await reverify(PA1, now, evidenceFor(ACC_A, s, { campaign: { campaign_status: "FAILED" } }))).data).toMatchObject({ outcome: "failed", code: "campaign_not_verified" });
       expect(ready(PA1)).toBe(false);
     });
 
@@ -432,7 +444,7 @@ describe.skipIf(!enabled)("sender readiness and dispatch integrity (real schema,
       aged(`update public.studio_sms_twilio_accounts set status = 'suspended' where legal_entity_id = '${EA}'`);
       expect(ready(PA1)).toBe(false);
       expect((await begin(PA1)).error?.code).toBe("TW015");
-      expect((await rpc("tw4_sender_reverify", { p_studio_id: PA1, p_sender_id: senderId, p_evidence: evidenceFor(ACC_A, s), p_source: "fake" })).data).toMatchObject({ outcome: "failed", code: "subaccount_not_active" });
+      expect((await reverify(PA1, senderId, evidenceFor(ACC_A, s))).data).toMatchObject({ outcome: "failed", code: "subaccount_not_active" });
       aged(`update public.studio_sms_twilio_accounts set status = 'active' where legal_entity_id = '${EA}'`);
       expect(ready(PA1)).toBe(false); // the failed verification is the latest decisive one: a fresh verify is required
     });

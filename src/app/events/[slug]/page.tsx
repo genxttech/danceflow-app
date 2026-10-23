@@ -14,10 +14,7 @@ import { EventCoverImage, EventDescriptionBody, EventHeroText, EventHighlights, 
 import { getBanner } from "./banner";
 import { effectiveTicketPrice } from "@/lib/events/ticketPricing";
 import { withEffectiveTicketPricing } from "@/lib/events/ticketDisplayPricing";
-
-// Public competition registration stays off until the registration slice ships (see the register route).
-const competitionRegistrationEnabled =
-  process.env.NEXT_PUBLIC_COMPETITION_REGISTRATION_ENABLED === "true";
+import { isCompetitionRegistrationEnabled } from "@/lib/competition/registrationFlag";
 
 type Params = Promise<{
   slug: string;
@@ -1617,7 +1614,7 @@ export default async function PublicEventDetailPage({
   // 10C.5: the competition entry CTA follows competition registration (the feature flag and the database gate the
   // catalog and checkout use), not the event's ticket registration, so it shows whether or not ticket checkout is on.
   const competitionRegistrationOpen =
-    competitionRegistrationEnabled &&
+    isCompetitionRegistrationEnabled() &&
     (typedEvent.event_type === "competition" || typedEvent.event_type === "showcase") &&
     (await supabase.rpc("competition_registration_event_open", { p_event_id: typedEvent.id })).data === true;
   const basicEventListingCta = basicListingCta({

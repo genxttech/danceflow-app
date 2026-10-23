@@ -17,18 +17,42 @@ import type { OnboardingDisplayState } from "@/lib/sms/onboarding/stateMachine";
  */
 export type CampaignFact = "not_started" | "preparing" | "pending" | "approved" | "rejected" | "attention";
 export type MessagingServiceFact = "not_started" | "in_progress" | "ready" | "attention";
-export type NumberFact = "not_started" | "options_available" | "awaiting_owner_approval" | "purchasing" | "secured" | "failed";
+/** selected = the owner approved a number and DanceFlow has not bought it yet; attention = the provider read disagrees with the purchase (DanceFlow investigates). */
+export type NumberFact = "not_started" | "options_available" | "awaiting_owner_approval" | "selected" | "purchasing" | "secured" | "attention" | "failed";
+export type NumberSelectionFact = "none" | "open" | "used" | "withdrawn" | "expired";
 export type SenderFact = "not_ready" | "verifying" | "ready" | "failed_verification";
 export type ComplianceFact = "pending" | "complete" | "attention";
+/** Activation checklist areas in owner language (get_studio_sms_texting_status, J2): never the internal item codes. */
+export type ActivationArea = "provider" | "number" | "sender" | "compliance" | "billing" | "monitoring" | "other";
+/** Why a recurring service period is not covered, as the owner may act on it. Unexpected resources never appear here (they are DanceFlow-borne). */
+export type FeeAttention = "none" | "authorization_needed" | "payment_processing" | "funds_needed" | "contact_danceflow" | "pilot_approval" | "danceflow_review";
+export type FeeFacts = {
+  textingPaused: boolean;
+  cancellationInProgress: boolean;
+  items: { kind: "texting_service" | "phone_number"; currentPeriod: "covered" | "not_covered"; nextPeriod: "covered" | "not_covered"; attention: FeeAttention }[];
+};
 
 export type ProvisioningFacts = {
   /** R2a/R2c-I2 owner-safe read. */
   campaign: { status: CampaignFact; rejectionSummary?: string | null };
   messagingService?: { status: MessagingServiceFact };
-  /** R2b facts: until the authoritative R2b reads exist these stay undefined and number, sender and compliance render "not available yet". */
-  number?: { status: NumberFact; priceCents?: number | null; /** Where the owner makes the choice/approval; supplied by R2b, never invented here. */ actionHref?: string | null };
+  /** R2b facts from the owner texting-status read (J2). When that read is unavailable they stay undefined and number, sender and compliance render "not available yet". */
+  number?: {
+    status: NumberFact;
+    /** Masked (last four digits only), present only once a provider read confirmed DanceFlow owns the number. */
+    display?: string | null;
+    selection?: NumberSelectionFact;
+    priceCents?: number | null;
+    /** Where the owner makes the choice/approval; supplied by the owner selection slice (J3), never invented here. */
+    actionHref?: string | null;
+  };
   sender?: { status: SenderFact };
   compliance?: { status: ComplianceFact };
+  /** null = the checklist could not be read (shown as no progress). */
+  activation?: { ready: boolean; checklist: { area: ActivationArea; ok: boolean }[] } | null;
+  fees?: FeeFacts;
+  /** DanceFlow is investigating an unexpected provider resource: informational only, never an owner action. */
+  unexpectedResourceReview?: boolean;
 };
 
 export type FinanceFacts = {
@@ -186,7 +210,7 @@ export function buildJourney(input: JourneyInput): Journey {
   }
   const provider: Stage = { key: "provider", label: "Provider review and approval", status: providerStatus, detail: providerDetail };
 
-  // number / sender / compliance come only from R2b facts
+  // number / sender / compliance come only from R2b facts (the owner texting-status read, J2)
   const reachedNumber = (past(["ready_for_activation", "active", "suspended"]) || (past(["campaign_pending"]) && (!campaign || campaign.status === "approved"))) && campaign?.status !== "rejected";
   const unconnected = (label: string, key: StageKey): Stage => ({ key, label, status: "unavailable", detail: "Not available yet. DanceFlow will let you know when this step opens." });
   let number: Stage; let sender: Stage; let compliance: Stage;
@@ -196,30 +220,71 @@ export function buildJourney(input: JourneyInput): Journey {
     if (state === "active" || input.textingOn) { number.status = "done"; number.detail = "Your texting number is in place."; sender.status = "done"; sender.detail = "Your sender is verified."; compliance.status = "done"; compliance.detail = "Compliance checks are complete."; }
   } else {
     const n = r2b.number;
-    const nStatus: StageStatus = n.status === "secured" ? "done" : n.status === "failed" ? "attention" : n.status === "purchasing" ? "waiting" : n.status === "options_available" || n.status === "awaiting_owner_approval" ? (reachedNumber ? "current" : "upcoming") : reachedNumber ? "waiting" : "upcoming";
-    const nDetail = n.status === "secured" ? "Your texting number is in place." : n.status === "failed" ? "The number could not be secured. Nothing further was charged; DanceFlow will follow up." : n.status === "purchasing" ? "Your number is being secured. This is not complete until confirmed." : n.status === "awaiting_owner_approval" ? `Review and approve your number${n.priceCents ? ` (${usd(n.priceCents)} per month)` : ""}.` : n.status === "options_available" ? "Number options are ready to choose from." : "Number selection opens after your campaign is approved.";
+    const nStatus: StageStatus = n.status === "secured" ? "done" : n.status === "failed" || n.status === "attention" ? "attention" : n.status === "purchasing" || n.status === "selected" ? "waiting" : n.status === "options_available" || n.status === "awaiting_owner_approval" ? (reachedNumber ? "current" : "upcoming") : reachedNumber ? "waiting" : "upcoming";
+    const nDetail = n.status === "secured" ? (n.display ? `Your texting number ending in ${n.display.slice(-4)} is in place.` : "Your texting number is in place.")
+      : n.status === "failed" ? "The number could not be secured. Nothing further was charged; DanceFlow will follow up."
+      : n.status === "attention" ? "DanceFlow is double-checking your number with the provider. You do not need to do anything."
+      : n.status === "purchasing" ? "Your number is being secured. This is not complete until confirmed."
+      : n.status === "selected" ? "You approved your number. DanceFlow will secure it; this is not complete until the provider confirms it."
+      : n.status === "awaiting_owner_approval" ? `Review and approve your number${n.priceCents ? ` (${usd(n.priceCents)} per month)` : ""}.`
+      : n.status === "options_available" ? "Number options are ready to choose from."
+      : "Number selection opens after your campaign is approved.";
     number = { key: "number", label: "Phone number selection and approval", status: nStatus, detail: nDetail };
     const s = r2b.sender.status;
-    sender = { key: "sender", label: "Sender readiness", status: s === "ready" ? "done" : s === "failed_verification" ? "attention" : s === "verifying" ? "waiting" : "upcoming", detail: s === "ready" ? "Your sender is verified." : s === "failed_verification" ? "Sender verification did not pass. DanceFlow is looking into it; texting stays off." : s === "verifying" ? "DanceFlow is verifying your sender." : "Starts once your number is secured." };
+    sender = { key: "sender", label: "Sender readiness", status: s === "ready" ? "done" : s === "failed_verification" ? "attention" : s === "verifying" ? "waiting" : "upcoming", detail: s === "ready" ? "Your sender is verified." : s === "failed_verification" ? "Sender verification did not pass. DanceFlow is looking into it; texting stays off." : s === "verifying" ? "DanceFlow is verifying your sender." : n.status === "secured" ? "DanceFlow sets up your sender with your number next." : "Starts once your number is secured." };
     const c = r2b.compliance.status;
-    compliance = { key: "compliance", label: "Compliance setup", status: c === "complete" ? "done" : c === "attention" ? "attention" : "upcoming", detail: c === "complete" ? "Opt-out and help handling are confirmed." : c === "attention" ? "A compliance check needs attention. DanceFlow will follow up." : "Opt-out and help handling are confirmed before texting turns on." };
+    compliance = { key: "compliance", label: "Compliance setup", status: c === "complete" ? "done" : c === "attention" ? "attention" : s === "ready" ? "waiting" : "upcoming", detail: c === "complete" ? "Opt-out and help handling are confirmed." : c === "attention" ? "A compliance check needs attention. DanceFlow will follow up." : "Opt-out and help handling are confirmed before texting turns on." };
+    // texting is on: a location activated before these facts were recorded (or whose evidence has since aged) is not shown as unfinished. Only a fact
+    // that means "nothing recorded" is overridden; a problem, an unconfirmed replacement purchase or a cancellation in progress keeps its own status.
+    if (state === "active" || input.textingOn) {
+      if (n.status === "not_started" && !provisioning?.fees?.cancellationInProgress) number = { ...number, status: "done", detail: "Your texting number is in place." };
+      if (s === "not_ready" || s === "verifying") sender = { ...sender, status: "done", detail: "Your sender is verified." };
+      if (c === "pending") compliance = { ...compliance, status: "done", detail: "Compliance checks are complete." };
+    }
   }
 
+  const feePause = feePaused(input);
+  const check = provisioning?.activation;
+  const pending = check ? [...new Set(check.checklist.filter((i) => !i.ok).map((i) => AREA_WORDS[i.area]))] : [];
   const activation: Stage = {
     key: "activation",
     label: "Activation readiness",
-    status: input.textingOn || state === "active" ? "done" : state === "suspended" ? "attention" : state === "ready_for_activation" ? "waiting" : "upcoming",
-    detail: input.textingOn || state === "active" ? "Texting is on." : state === "suspended" ? "Texting is paused. DanceFlow will contact you if anything is needed." : state === "ready_for_activation" ? "Carrier approvals are in. DanceFlow still has to confirm your number, sender and compliance before texting turns on." : "Texting turns on only after every step above is complete.",
+    status: feePause ? "attention" : input.textingOn || state === "active" ? "done" : state === "suspended" ? "attention" : state === "ready_for_activation" ? "waiting" : "upcoming",
+    detail: feePause ? pauseDetail(input)
+      : input.textingOn || state === "active" ? "Texting is on."
+      : state === "suspended" ? "Texting is paused. DanceFlow will contact you if anything is needed."
+      : state === "ready_for_activation"
+        ? check?.ready ? "Every check has passed. DanceFlow will turn texting on."
+          : pending.length ? `Carrier approvals are in. DanceFlow still has to confirm ${listWords(pending)} before texting turns on.`
+          : "Carrier approvals are in. DanceFlow still has to confirm your number, sender and compliance before texting turns on."
+      : "Texting turns on only after every step above is complete.",
   };
 
   const stages = [business, eligibility, approvals, provider, number, sender, compliance, activation];
   return { stages, next: pickNext(input, stages) };
 }
 
+const AREA_WORDS: Record<ActivationArea, string> = {
+  provider: "your carrier registration",
+  number: "your texting number",
+  sender: "your sender",
+  compliance: "opt-out and help handling",
+  billing: "the monthly service coverage",
+  monitoring: "its account checks",
+  other: "a final check",
+};
+const listWords = (w: string[]) => (w.length <= 1 ? w.join("") : `${w.slice(0, -1).join(", ")} and ${w[w.length - 1]}`);
+const FEE_PAUSE_DETAIL = "Texting is paused while DanceFlow confirms the monthly service coverage for this location. See the service coverage below.";
+const CANCEL_PAUSE_DETAIL = "Texting is paused while DanceFlow completes a cancellation for this location. You do not need to do anything.";
+/** The recurring-fee sending gate holds DanceFlow's sending for this location; it changes the journey only once texting was on. */
+const feePaused = (input: JourneyInput) => Boolean(input.provisioning?.fees?.textingPaused) && (input.textingOn || input.state === "active");
+const pauseDetail = (input: JourneyInput) => (input.provisioning?.fees?.cancellationInProgress ? CANCEL_PAUSE_DETAIL : FEE_PAUSE_DETAIL);
+
 function pickNext(input: JourneyInput, stages: Stage[]): NextAction {
   const { state, isOwner, paused } = input;
   if (state === "cancelled") return { stage: "business", kind: "stopped", title: "This setup was cancelled", detail: "Contact DanceFlow if you want to start again.", cta: null };
   if (paused) return { stage: "business", kind: "stopped", title: "Texting setup is paused", detail: "Your information is kept. Nothing is needed from you right now.", cta: null };
+  if (feePaused(input)) return { stage: "activation", kind: "blocked", title: "Texting is paused", detail: pauseDetail(input), cta: null };
   if (input.textingOn || state === "active") return { stage: "activation", kind: "complete", title: "Texting is on", detail: "Appointment texts are being sent to clients who opted in.", cta: null };
   if (state === "suspended") return { stage: "activation", kind: "blocked", title: "Texting is paused", detail: "DanceFlow will contact you if anything is needed.", cta: null };
   if (input.provisioning?.campaign.status === "rejected" && (state === "exception" || state === "campaign_pending")) {
@@ -258,8 +323,10 @@ function pickNext(input: JourneyInput, stages: Stage[]): NextAction {
       const href = input.provisioning?.number?.actionHref ?? null;
       const st = input.provisioning?.number?.status;
       if (first.status === "current" && href && (st === "options_available" || st === "awaiting_owner_approval")) return notOwner({ stage: "number", kind: "owner", title: st === "awaiting_owner_approval" ? "Approve your texting number" : "Choose your texting number", detail: first.detail, cta: ownerOnly({ label: st === "awaiting_owner_approval" ? "Review and approve" : "Choose a number", href }) });
+      // options exist but the owner selection screen is not connected in this build: say so and offer nothing clickable
+      if (first.status === "current") return { stage: "number", kind: "unavailable", title: "Choosing your number is not open yet", detail: "Number options are ready. Choosing one opens in a later update; DanceFlow will let you know.", cta: null };
       if (first.status === "unavailable") return { stage: "number", kind: "unavailable", title: "Number selection is not available yet", detail: first.detail, cta: null };
-      if (first.status === "attention") return { stage: "number", kind: "blocked", title: "Your number needs attention", detail: first.detail, cta: null };
+      if (first.status === "attention") return { stage: "number", kind: "blocked", title: st === "attention" ? "DanceFlow is checking your number" : "Your number needs attention", detail: first.detail, cta: null };
       return { stage: "number", kind: "waiting", title: "Your number is being arranged", detail: first.detail, cta: null };
     }
     case "sender":

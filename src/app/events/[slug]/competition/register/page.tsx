@@ -2,10 +2,8 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { loadCompetitionRegistrationCatalog } from "@/lib/competition/registrationServer";
+import { isCompetitionRegistrationEnabled } from "@/lib/competition/registrationFlag";
 import CompetitionRegistrationBuilder from "./CompetitionRegistrationBuilder";
-
-const competitionRegistrationEnabled =
-  process.env.NEXT_PUBLIC_COMPETITION_REGISTRATION_ENABLED === "true";
 
 type RequiredDocument = { id: string; templateId: string; templateVersionId: string | null; title: string; description: string | null; body: string; requiresSignature: boolean };
 type RequirementRow = {
@@ -22,7 +20,7 @@ export default async function CompetitionRegisterPage({
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ error?: string }>;
 }) {
-  if (!competitionRegistrationEnabled) {
+  if (!isCompetitionRegistrationEnabled()) {
     notFound();
   }
 
