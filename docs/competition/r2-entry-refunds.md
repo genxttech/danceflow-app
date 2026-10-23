@@ -1,6 +1,6 @@
 # R2 — CI-D: Competition entry refunds (design)
 
-Status: **DESIGN — awaiting owner review of the money-movement decisions in §4 before any SQL is written.**
+Status: **DESIGN — awaiting owner review of decisions D1–D8 and note §4.1 (§4).** Only the money-independent cascade-gap fix (§3.4) is implemented; the ledger, RPCs, webhook and Stripe calls are not written.
 Branch `competition-r2-entry-refunds` from main `973f36da`. Migration slot reserved:
 `20270103090000_competition_r2_entry_refunds.sql` (+ rollback, + `sql-tests/test_T_competition_r2_entry_refunds.sql`).
 Nothing here is applied to hosted DEV/PROD; Stripe is test mode only.
@@ -101,9 +101,11 @@ re-checks `can_manage_event_competition`, which the service-role webhook path ca
 **Locked/certified heats:** an entry placed in a `locked`/`certified` heat is never rewritten — see **D7**.
 
 R2 also fixes the cascade gap in §1: when the registration trigger withdraws entries on a full refund /
-cancel, it scratches their unlocked heat placements too. (Redefining
-`sync_competition_entries_from_registration` changes a reviewed md5 that 10C preflights; the migration pins
-the old md5 before replacing and the rollback restores the exact body.)
+cancel / payment failure, it scratches the `scheduled` / `checked_in` placements of exactly those entries
+(`danced` placements are floor history and stay). **Implemented** (Section 1 of the migration; does not
+depend on D1–D8): it pins the 10A md5 `fabd4052…` before replacing, the R2 body is md5 `36577701…`, and the
+rollback restores the exact 10A body (refusing unless the R2 body is live). Placements scratched while R2 was
+live stay scratched after a rollback.
 
 ### 3.5 Order / payment / registration state
 
@@ -138,13 +140,35 @@ Recommendation first; each is a one-word answer.
 | **D7** | Entry in a locked/certified heat | (a) refund money allowed, withdrawal refused (correction workflow); (b) refuse the refund too | **(a)**. Money and results are separate; the entry stays in the certified heat. |
 | **D8** | Accounting | keep net-reduction on `competition_entry_revenue` / add a `competition_entry_refund` category | **Keep** for R2 (accounting categories are shared with normal events; separate refund categories stay the 10C §11 item 3 follow-up). |
 
+### 4.1 Design note for owner review (not resolved): full refund vs entries in locked/certified heats
+
+Today, when a registration becomes `refunded` (including a full Stripe-dashboard refund through the webhook),
+`sync_competition_entries_from_registration` withdraws its entries **except** those placed in a `locked` or
+`certified` heat. Its `NOT EXISTS (… lock_state in ('locked','certified'))` guard skips them, and R2 keeps that
+guard. So the trigger does **not** contradict D7(a) "withdrawal refused in locked heats". What it leaves is a
+silent inconsistency:
+
+- the money is fully returned, and the registration and payment show `refunded`;
+- the entry stays `confirmed` in the locked/certified heat, with its placement `scheduled`, and nothing tells
+  staff about it (no exception, no audit row: the skip leaves no trace).
+
+Options for the owner (no recommendation is implemented yet):
+(a) keep the entry, but record a staff exception ("refunded entry still in a locked/certified heat, needs
+the correction workflow") when the trigger skips it;
+(b) the same exception, and also block or flag dashboard full refunds in the staff UI while any entry is
+in a locked or certified heat (Stripe-side refunds cannot be blocked);
+(c) leave as is (results stand; finance is reconciled outside DanceFlow).
+
+This interacts with D6 and D7. Whatever is chosen, the trigger change stays limited to the exception
+write; certified heats are never rewritten.
+
 If D1 = (b) and D2 = (a) are accepted, the cap for an entry item is
 `gross_cents − discount_share_cents − Σ(reserved+succeeded)` and for a fee line
 `line_cents − Σ(reserved+succeeded)`; the order cap is the captured amount.
 
 ## 5. Tests (planned)
 
-SQL (`test_T_competition_r2_entry_refunds.sql`, local Postgres only): refund ≤ item cap; refund ≤ order
+SQL (`test_T_competition_r2_entry_refunds.sql`, local Postgres only; Section 1 cases run now, the rest are recorded as pending-decision): refund ≤ item cap; refund ≤ order
 captured amount across items; concurrent reservations cannot exceed the cap; idempotent replay of
 `p_request_id` and of `finalize`; cross-event / cross-order item rejection; non-manager rejection; failed
 refund releases the cap; reversal releases the cap without un-withdrawing; cascade withdraws the entry and
