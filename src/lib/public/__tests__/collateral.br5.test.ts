@@ -5,7 +5,7 @@ import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { parseAttributionParams } from "@/lib/public/attribution";
 import { INSTRUCTORS_PAGE, ORGANIZERS_PAGE, STUDIOS_PAGE } from "@/lib/public/audienceCopy";
-import { HOME_DISCOVERY, HOME_HERO } from "@/lib/public/homeCopy";
+import { BUSINESS_POSITIONING, HOME_DISCOVERY, HOME_HERO } from "@/lib/public/homeCopy";
 
 /**
  * BR-5: focused checks for the print / social collateral. Not an application audit.
@@ -56,8 +56,9 @@ const lib = (await import(pathToFileURL(join(ROOT, "scripts", "brand", "collater
 
 describe("BR-5 collateral copy: reuses BR-4 wording", () => {
   it("matches the live audience-page copy", () => {
-    expect(copy.banner.headline).toBe(HOME_HERO.headline);
-    expect(copy.social.product.headline).toBe(HOME_HERO.headline);
+    // The two-audience homepage (2026-10-22) keeps the BR-4 positioning line as its business heading.
+    expect(copy.banner.headline).toBe(BUSINESS_POSITIONING);
+    expect(copy.social.product.headline).toBe(BUSINESS_POSITIONING);
     expect(copy.banner.support).toBe(HOME_HERO.support);
     expect(copy.social.product.support).toBe(HOME_HERO.support);
 
