@@ -11,8 +11,8 @@ const RUNTIME = { ok: false, reason: "gates off" };
 
 vi.mock("@/lib/security/cron", () => ({ getCronAuthFailure: () => authFailure }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ rpc: async () => ({ data: null, error: null }) }) }));
-vi.mock("@/lib/sms/twilioIsv/factory", () => ({ buildNumberRuntime: () => RUNTIME }));
-vi.mock("@/lib/sms/twilioIsv/inventoryReconcileRun", () => ({
+vi.mock("@/lib/sms/inventoryReconcile/numberReadRuntime", () => ({ buildNumberReadRuntime: () => RUNTIME }));
+vi.mock("@/lib/sms/inventoryReconcile/run", () => ({
   runScheduledInventoryReconcile: async (_admin: unknown, runtime: unknown, options: { runner: string }) => {
     runs.push({ runtime, runner: options.runner });
     if (outcome instanceof Error) throw outcome;
@@ -91,7 +91,7 @@ describe("scheduled inventory reconciliation route (A9)", () => {
   });
 
   it("the run budget stays under maxDuration", async () => {
-    const { INVENTORY_RECONCILE_BUDGET_MS, INVENTORY_RECONCILE_LEASE_SECONDS } = await vi.importActual<typeof import("@/lib/sms/twilioIsv/inventoryReconcileRun")>("@/lib/sms/twilioIsv/inventoryReconcileRun");
+    const { INVENTORY_RECONCILE_BUDGET_MS, INVENTORY_RECONCILE_LEASE_SECONDS } = await vi.importActual<typeof import("@/lib/sms/inventoryReconcile/run")>("@/lib/sms/inventoryReconcile/run");
     expect(INVENTORY_RECONCILE_BUDGET_MS).toBeLessThan(maxDuration * 1000 - 10_000);
     expect(INVENTORY_RECONCILE_LEASE_SECONDS * 1000).toBeGreaterThan(maxDuration * 1000);
   });

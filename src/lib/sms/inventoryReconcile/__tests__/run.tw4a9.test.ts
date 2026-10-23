@@ -1,9 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
-import { FakeNumberAdapter } from "../fakeNumbers";
-import { runScheduledInventoryReconcile, type NumberReadRuntime } from "../inventoryReconcileRun";
-import type { NumberStore } from "../numberStore";
-import { RunnerStoreError } from "../store";
+import { FakeNumberAdapter } from "@/lib/sms/twilioIsv/fakeNumbers";
+import { runScheduledInventoryReconcile, type NumberReadRuntime } from "../run";
+import type { NumberStore } from "@/lib/sms/twilioIsv/numberStore";
+import { RunnerStoreError } from "@/lib/sms/twilioIsv/store";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ rpc: async () => ({ data: null, error: null }) }) }));
@@ -133,7 +133,7 @@ describe("scheduled inventory reconciliation (A9)", () => {
   });
 
   it("the budget leaves room for one more subaccount inside maxDuration 60", async () => {
-    const { INVENTORY_RECONCILE_BUDGET_MS, INVENTORY_RECONCILE_LEASE_SECONDS } = await import("../inventoryReconcileRun");
+    const { INVENTORY_RECONCILE_BUDGET_MS, INVENTORY_RECONCILE_LEASE_SECONDS } = await import("../run");
     expect(INVENTORY_RECONCILE_BUDGET_MS).toBeLessThanOrEqual(60_000 - 25_000);   // a listing has a 20-second provider timeout, plus credentials and writes
     expect(INVENTORY_RECONCILE_LEASE_SECONDS).toBeGreaterThan(60);                // a live run cannot outlive its lease
   });
@@ -149,7 +149,7 @@ describe("scheduled inventory reconciliation (A9)", () => {
   });
 
   it("the production runtime with the real-call gates off is not ok, so the route can never reach a provider", async () => {
-    const { buildNumberRuntime } = await import("../factory");
+    const { buildNumberReadRuntime: buildNumberRuntime } = await import("../numberReadRuntime");
     expect(buildNumberRuntime({ NODE_ENV: "production", VERCEL_ENV: "production" }).ok).toBe(false);
     expect(buildNumberRuntime({}).ok).toBe(false);
   });

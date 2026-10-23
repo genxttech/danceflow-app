@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCronAuthFailure } from "@/lib/security/cron";
-import { buildNumberRuntime } from "@/lib/sms/twilioIsv/factory";
-import { runScheduledInventoryReconcile } from "@/lib/sms/twilioIsv/inventoryReconcileRun";
+import { buildNumberReadRuntime } from "@/lib/sms/inventoryReconcile/numberReadRuntime";
+import { runScheduledInventoryReconcile } from "@/lib/sms/inventoryReconcile/run";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -13,7 +13,7 @@ export const maxDuration = 60;
  * NOT registered in vercel.json: nothing calls it on a schedule until a release owner adds it deliberately (suggested hourly, "0 * * * *": targets are due after
  * 6 hours, well inside the 24-hour health window). Answered 404 unless SMS_INVENTORY_RECONCILE=on; then CRON_SECRET is required (Bearer or x-cron-secret).
  * One run at a time (the shared run lease, job 'inventory_reconcile'; an overlapping call answers "busy"), no new subaccount after 30 seconds (one more still fits in maxDuration), counts only.
- * Listings use the SUBACCOUNT's own token and only where the number gates allow real calls (production) or in local fake mode; with the gates off nothing is
+ * Listings use the SUBACCOUNT's own token and only the list-only adapter behind the READ gate (TW4_NUMBER_READS, never the purchase switch) in production, or the local fake; with the gate off nothing is
  * called and the run is recorded as failed, so health stays visibly stale.
  */
 async function run(request: Request) {
@@ -22,7 +22,7 @@ async function run(request: Request) {
   if (authFailure) return authFailure;
   const headers = { "Cache-Control": "no-store" };
   try {
-    const outcome = await runScheduledInventoryReconcile(createAdminClient(), buildNumberRuntime(process.env), { runner: `cron:${randomUUID().slice(0, 8)}` });
+    const outcome = await runScheduledInventoryReconcile(createAdminClient(), buildNumberReadRuntime(process.env), { runner: `cron:${randomUUID().slice(0, 8)}` });
     if (!outcome.ran) return Response.json({ ok: outcome.reason === "busy", ran: false, reason: outcome.reason }, { status: outcome.reason === "busy" ? 200 : 503, headers });
     const ok = !outcome.failed && outcome.summary.errors === 0;
     return Response.json({ ok, ran: true, ...outcome.summary }, { status: outcome.failed ? 500 : 200, headers });

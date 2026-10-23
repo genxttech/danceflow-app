@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { IsvNumberAdapter } from "./numberTypes";
-import type { NumberStore } from "./numberStore";
-import { reconcileInventories } from "./numberRunner";
+import type { IsvNumberAdapter } from "@/lib/sms/twilioIsv/numberTypes";
+import type { NumberStore } from "@/lib/sms/twilioIsv/numberStore";
+import { reconcileInventories } from "@/lib/sms/twilioIsv/numberRunner";
 
 /**
  * TW-4F A9: one scheduled pass of the per-subaccount number-inventory reconciliation (numberRunner.reconcileInventories), under the shared reconciliation run lease
