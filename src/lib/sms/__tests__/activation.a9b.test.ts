@@ -119,7 +119,7 @@ describe("A9b: activation compliance reads need TW4_NUMBER_READS, never the purc
     expect(complianceReadRuntime({ NODE_ENV: "test" })).toMatchObject({ ok: false });
     expect(complianceReadRuntime(READS)).toMatchObject({ ok: false });   // no Twilio configuration in this test environment
     expect(activationProviderReads(PROD).compliance.enabled).toBe(false);
-    expect(activationProviderReads(READS).compliance).toEqual({ enabled: true, reason: null });   // the console explanation follows the read gate
+    expect(activationProviderReads(READS).compliance.enabled).toBe(false);   // the console explanation follows the reader: the read gate AND complete configuration
   });
 
   it("the local fake stays behind fakeAdapterAllowed and is narrowed the same way", async () => {

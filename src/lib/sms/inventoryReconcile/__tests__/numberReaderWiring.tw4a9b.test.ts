@@ -19,7 +19,7 @@ vi.mock("@/lib/sms/twilioIsv/real", async (orig) => {
   };
 });
 
-import { complianceReadRuntime, runComplianceValidation } from "@/lib/sms/activation";
+import { activationProviderReads, complianceReadRuntime, runComplianceValidation } from "@/lib/sms/activation";
 import { RealNumberReadAdapter } from "@/lib/sms/twilioIsv/real";
 import { buildNumberReader } from "../numberReadRuntime";
 
@@ -77,6 +77,7 @@ describe("A9b: the real read-only reader wiring (full configuration, reads on, p
     try {
       const runtime = complianceReadRuntime(CONFIGURED);
       expect(runtime.ok && runtime.mode).toBe("real");
+      expect(activationProviderReads(CONFIGURED).compliance).toEqual({ enabled: true, reason: null });   // the console agrees with the reader
       if (!runtime.ok) return;
       const adapter = await runtime.adapterFor(SUB);
       expect(Object.keys(adapter).sort()).toEqual(["accountSid", "evidenceSource", "getCampaignCompliance", "getServiceRoute"]);

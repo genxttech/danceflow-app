@@ -2,7 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { IsvNumberAdapter } from "./twilioIsv/numberTypes";
 import { buildSenderEvidence, digestOf, expectedInboundUrl, senderReadProviderFromEnv, senderVerifyReadsAllowed, type SenderReadProvider } from "./senderVerification";
-import { fakeAdapterAllowed, numberReadsAllowed } from "./twilioIsv/config";
+import { fakeAdapterAllowed, loadIsvConfig, numberReadsAllowed } from "./twilioIsv/config";
 import { buildNumberReader } from "./inventoryReconcile/numberReadRuntime";
 import { FakeNumberHub } from "./twilioIsv/fakeNumbers";
 import { messagingTokenProvider } from "./twilioIsv/real";
@@ -392,8 +392,12 @@ export function activationProviderReads(env: Env = process.env): { compliance: {
   if (fakeAdapterAllowed(env)) return { compliance: { enabled: true, reason: null }, sender: { enabled: true, reason: null } };
   const number = numberReadsAllowed(env);
   const sender = senderVerifyReadsAllowed(env);
+  // the same two conditions the reader checks: the read gate, then complete configuration (constructs nothing)
+  const loaded = number.allowed ? loadIsvConfig(env) : null;
   return {
-    compliance: number.allowed ? { enabled: true, reason: null } : { enabled: false, reason: number.reason },
+    compliance: !number.allowed ? { enabled: false, reason: number.reason }
+      : loaded && !loaded.ok ? { enabled: false, reason: `Twilio is not configured (missing: ${loaded.missing.join(", ")}).` }
+      : { enabled: true, reason: null },
     sender: sender.allowed ? { enabled: true, reason: null } : { enabled: false, reason: sender.reason },
   };
 }
