@@ -1,6 +1,10 @@
 /**
- * BR-4A: public homepage and site-metadata copy, in one place so the message hierarchy stays
- * consistent and so the claims guard (`homeCopy.br4a.test.ts`) has a single source to check.
+ * Public homepage and site-metadata copy, in one place so the message hierarchy stays consistent
+ * and so the claims guard (`homeCopy.br4a.test.ts`) has a single source to check.
+ *
+ * Two-audience homepage (2026-10-22): public dancers and dance businesses are equally important.
+ * The hero offers two equal doors (dancers first), Discover is the dancer destination (there is no
+ * /for-dancers page), and ARIA is a secondary section, not the headline.
  *
  * Copy here may only describe capabilities that are real today. See the canonical roadmap
  * (docs/roadmap/DanceFlow_Master_Roadmap.md, Phase 3 and the Featured Events / Partner Match
@@ -13,37 +17,93 @@
  * the pricing pages use (see `buildTrialLine`).
  */
 
-export const SITE_TITLE = "DanceFlow | The dance platform that helps do the work";
+export const SITE_TITLE = "DanceFlow | Where the dance community connects";
 
 export const SITE_DESCRIPTION =
-  "DanceFlow helps dance studios, instructors and organizers run the business, and helps dancers discover studios, events, dance partners and jobs.";
+  "DanceFlow helps dancers find studios, classes, events, dance partners and jobs, and helps dance studios, instructors and organizers run and grow the business.";
 
 export const SITE_OG_DESCRIPTION =
-  "Scheduling, clients, payments, documents and events in one place for studios, instructors and organizers, plus a public way for dancers to find studios, events and dance partners.";
+  "Find dance studios, classes, events and dance partner listings near you. Studios, instructors and organizers run scheduling, clients, payments and events in one connected place.";
 
 export const SITE_TWITTER_DESCRIPTION =
-  "The dance platform that helps do the work, not just track it. For studios, instructors, organizers and dancers.";
+  "Where the dance community connects: discovery for dancers, and software that helps do the work for studios, instructors and organizers.";
 
 export const SITE_KEYWORDS = [
+  "find dance studios",
+  "dance classes near me",
+  "find dance events",
+  "dance partner listings",
   "dance studio software",
   "dance studio scheduling",
   "dance instructor software",
   "dance event ticketing",
-  "dance event registration",
-  "find dance studios",
-  "find dance events",
   "ballroom dance studio software",
-  "country dance studio software",
 ];
 
 export const HOME_HERO = {
-  eyebrow: "For studios, instructors, organizers and dancers",
-  headline: "The dance platform that helps do the work—not just track it.",
+  eyebrow: "Dancers, studios, instructors and organizers",
+  headline: "Where the dance community connects.",
   support:
     "DanceFlow connects the business side of dance with the dancers and experiences that make the community grow.",
-  primaryCta: { label: "Start your free trial", href: "/get-started/studio" },
-  secondaryCta: { label: "Or explore studios, events and dance partners", href: "/discover" },
-  imageAlt: "DanceFlow connects studio operations, public discovery, and dance events",
+} as const;
+
+export type HomeDoor = {
+  key: "dancers" | "business";
+  heading: string;
+  body: string;
+  primaryCta: { label: string; href: string };
+  secondaryLink: { label: string; href: string };
+};
+
+/**
+ * The two hero doors, in display order: dancers first (first on mobile, left on desktop). Public
+ * account creation and the business free trial stay separate actions with separate labels.
+ */
+export const HOME_DOORS: readonly [HomeDoor, HomeDoor] = [
+  {
+    key: "dancers",
+    heading: "For dancers",
+    body: "Find studios, classes, events, dance partner listings and jobs near you.",
+    primaryCta: { label: "Explore Discover", href: "/discover" },
+    secondaryLink: { label: "Create a free dancer account", href: "/signup?intent=public" },
+  },
+  {
+    key: "business",
+    heading: "For dance businesses",
+    body: "Studios, independent instructors and organizers run and grow the business in one place.",
+    primaryCta: { label: "Start free trial", href: "/get-started/studio" },
+    secondaryLink: { label: "See how DanceFlow works", href: "/for-studios" },
+  },
+];
+
+/** Dancer section. The heading is shared with the BR-5 dancer print collateral. */
+export const HOME_DISCOVERY = {
+  eyebrow: "For dancers",
+  heading: "A public home for the dance community.",
+  body:
+    "Find studios, classes, events, dance partner listings and jobs in one place. A free account lets you save favorites and keep your registrations together.",
+  links: [
+    { label: "Studios", line: "Studio profiles, styles and beginner-friendly options", href: "/discover/studios", countKey: "studios" },
+    { label: "Classes", line: "Upcoming group classes with open spots", href: "/discover/classes", countKey: null },
+    { label: "Events", line: "Socials, workshops, showcases and more", href: "/discover/events", countKey: "events" },
+    { label: "Dance partner listings", line: "Dancers looking for practice and social partners", href: "/discover/partners", countKey: "partners" },
+    { label: "Jobs", line: "Openings posted by dance businesses", href: "/discover/jobs", countKey: "jobs" },
+    { label: "Learning", line: "Studio-created videos and series", href: "/marketplace", countKey: "marketplace" },
+  ],
+  primaryCta: { label: "Explore Discover", href: "/discover" },
+  accountLink: { label: "Create a free dancer account", href: "/signup?intent=public" },
+} as const;
+
+/** The BR-4 positioning line, kept as the business section heading and shared with BR-5 collateral. */
+export const BUSINESS_POSITIONING = "The dance platform that helps do the work—not just track it.";
+
+export const HOME_BUSINESS = {
+  eyebrow: "For dance businesses",
+  heading: BUSINESS_POSITIONING,
+  intro:
+    "Dance businesses run on a hundred small tasks. DanceFlow keeps them connected and helps move them forward.",
+  conceptsHeading: "Software that does more than keep records.",
+  plansLink: { label: "See plans and free trials", href: "/get-started" },
 } as const;
 
 export type HomeConcept = {
@@ -52,11 +112,6 @@ export type HomeConcept = {
   /** Shipped capabilities that back the summary; revealed on demand. */
   proof: string[];
 };
-
-export const HOME_WORK_HEADING = "Software that does more than keep records.";
-
-export const HOME_WORK_INTRO =
-  "Dance businesses run on a hundred small tasks. DanceFlow keeps them connected and helps move them forward.";
 
 export const HOME_CONCEPTS: HomeConcept[] = [
   {
@@ -101,11 +156,9 @@ export const HOME_CONCEPTS: HomeConcept[] = [
   },
 ];
 
-export const HOME_AUDIENCE_HEADING = "Who DanceFlow is for";
-
 export type HomeAudience = { name: string; line: string; cta: string; href: string };
 
-/** Business audiences link to their dedicated pages (BR-4B); dancers stay on Discover. */
+/** Business audiences link to their dedicated pages (BR-4B). Dancers are served by Discover. */
 export const HOME_AUDIENCES: HomeAudience[] = [
   {
     name: "Studio owners",
@@ -125,25 +178,35 @@ export const HOME_AUDIENCES: HomeAudience[] = [
     cta: "For organizers",
     href: "/for-organizers",
   },
-  {
-    name: "Dancers",
-    line: "Find studios, events, dance partners and jobs near you.",
-    cta: "Explore Discover",
-    href: "/discover",
-  },
 ];
 
-export const HOME_DISCOVERY = {
-  heading: "A public home for the dance community.",
-  body:
-    "Dancers can find studios, events, dance partner listings and jobs in one place, and studios and organizers are found by dancers who are looking for them. A free account lets you save favorites and keep your registrations together.",
-  links: [
-    { label: "Studios", href: "/discover/studios" },
-    { label: "Events", href: "/discover/events" },
-    { label: "Dance partner listings", href: "/discover/partners" },
-    { label: "Jobs", href: "/discover/jobs" },
-    { label: "Learning", href: "/marketplace" },
+export const HOME_CONNECTS = {
+  heading: "One connected place for both sides of dance.",
+  steps: [
+    {
+      title: "Businesses publish",
+      body: "Studios, instructors and organizers share profiles, classes and events from the tools they already run on.",
+    },
+    {
+      title: "Dancers discover",
+      body: "Dancers find what fits, ask questions, book an intro lesson or register for a class or event.",
+    },
+    {
+      title: "Everyone stays connected",
+      body: "Registrations, payments and follow-up land in the same place, so nobody has to re-enter anything.",
+    },
   ],
+  imageAlt: "DanceFlow connects studio operations, public discovery, and dance events",
+} as const;
+
+/** Secondary ARIA section. The full 77-second overview lives on /for-studios#meet-aria. */
+export const HOME_ARIA = {
+  eyebrow: "Meet ARIA",
+  heading: "An AI team member inside DanceFlow.",
+  body:
+    "ARIA surfaces what needs attention across the business and helps with follow-up within the limits you set. Some work it can handle, some waits for your approval, and money decisions stay with you.",
+  videoTitle: "Meet ARIA, 30-second overview",
+  fullVideoLink: { label: "Watch the full overview", href: "/for-studios#meet-aria" },
 } as const;
 
 export const HOME_TRUST = {
@@ -169,27 +232,27 @@ export const HOME_TRUST = {
   ],
 } as const;
 
+/** Signed out, the closing section repeats the two doors; signed in, it shows one role-aware action. */
 export const HOME_FINAL_CTA = {
-  heading: "Ready to let DanceFlow help do the work?",
-  primaryCta: { label: "Start your free trial", href: "/get-started/studio" },
+  heading: "Find your place in dance, or grow your dance business.",
   supportLink: { label: "Questions? Talk to us", href: "mailto:support@idanceflow.com" },
 } as const;
 
 export const HOME_JSON_LD = {
   organization:
-    "DanceFlow is a dance platform with software for studios, instructors and organizers, and a public discovery experience for dancers.",
+    "DanceFlow connects the dance community: public discovery for dancers, and software for dance studios, instructors and organizers.",
   website:
-    "DanceFlow helps dance studios, instructors and organizers run the business, and helps dancers discover studios, events, dance partners and jobs.",
+    "DanceFlow helps dancers find studios, classes, events, dance partners and jobs, and helps dance studios, instructors and organizers run and grow the business.",
   application:
-    "DanceFlow is business software for dance studios, instructors and organizers, with a public way for dancers to find studios, events, dance partner listings and jobs.",
+    "DanceFlow is business software for dance studios, instructors and organizers, with a public way for dancers to find studios, classes, events, dance partner listings and jobs.",
   offer:
     "DanceFlow offers free dancer discovery accounts and trial options for studio and organizer workspaces.",
 };
 
 /**
- * One short line under the primary CTAs. Trial length and founder-pricing wording are passed in
- * from the pricing logic (`getPlansByAudience("studio")[0].trialDays`, `isFounderPricingActive()`).
- * No remaining-studio count is ever shown.
+ * One short line under the business trial action. Trial length and founder-pricing wording are
+ * passed in from the pricing logic (`getPlansByAudience("studio")[0].trialDays`,
+ * `isFounderPricingActive()`). No remaining-studio count is ever shown.
  */
 export function buildTrialLine(input: {
   trialDays: number;
