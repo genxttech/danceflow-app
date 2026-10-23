@@ -484,6 +484,74 @@ Still unresolved:
 - Real cancellation validated.
 - Per-studio gating for self-service onboarding.
 
+## 8A. Pilot closeout plan (2026-10-23, owner reprioritization)
+
+TW-4F moves to a focused pilot closeout. Competition E2E, New Student Intake and mobile now run alongside it.
+
+**Baseline.** `main` = `973f36da`. #251, #269 and #288 are merged (Git-only). None of 1206, 1215 or 1221 is applied to a hosted database.
+
+**Verified gaps.** I checked `main` and every open PR head with `git grep` for non-test callers. These three capabilities are missing everywhere:
+
+| Gap | Evidence of absence | Why it blocks the pilot |
+|---|---|---|
+| Owner number selection and fee approval (J3) | `tw4_num_select_as_owner` has no caller on `main` or any open head | Number fees need the owner's authorization, so they cannot run without it |
+| Activation console (J4) | No importer of `src/lib/sms/activation.ts` | Nothing reaches `active`. The pilot needs manual platform activation (D8) |
+| Scheduled inventory reconciliation route | `reconcileInventories` has no caller; there is no `src/app/api/cron/sms-inventory*` | `_tw4sr_ready` holds sending once inventory health is stale (>24h) |
+
+### A. Mandatory for a safe ConfiDance pilot
+
+| # | Item | Owner / where | Required tests | Status |
+|---|---|---|---|---|
+| A1 | F3 reconciler gate | #277 (`2ad858c6`), F3 session | DB re-run: f3recon, tw4sender, tw4rv on main + 1218 | Waiting for its DB slot after #290 |
+| A2 | RFL-D5 cover month rule and supersede | #290 (`63bae20d`), RFL session | d5, tw4rfl, tw4rflops, r2brfl; chain 1225; combined 1219 + 1225 with f1funding; Opus financial review | DB run in progress |
+| A3 | F1 pilot funding and activation lock order | #280 (`4046b8f6`), F1 session | After #290: recheck that `_tw4act_pilot_funding` ignores superseded covers; f1funding with 1218 and 1225 | Ready apart from that recheck |
+| A4 | J1 admin provisioning orchestration | #278 (`629e7314`), J1 session | r2a control is identical to `main` (Q1) | Ready for review |
+| A5 | J2 owner status reads | #276 (`d99f42a0`), J2 session | Q1 chain PASS | Ready for review |
+| A6 | F5 release adapters | #279 (`1fa86a39`), F5 session | Both deferred P2s fixed, offline 1386/0 | Ready for review |
+| A7 | **J3 owner number selection** (missing) | Proposed: the J2 session (owner-read context) | Owner browser E2E; forged-studio and replay tests; pilot-cap refusal | Not started |
+| A8 | **J4 activation console** (missing) | Proposed: the F1 session (owns `tw4_act_*`) | Admin browser E2E to `active` (fake adapter); one refusal per checklist item including reconciler readiness | Not started; needs A1 and A3 |
+| A9 | **Inventory reconciliation route** (missing; route only, flag off) | Proposed: the F4 session | Route and lease tests; health visible | Not started |
+| A10 | Browser E2E for owner and admin journeys | Q1, #275 | Needs an isolated stack with auth (GoTrue) | BLOCKED (infra) |
+| A11 | QA and docs tooling | #266, #267, #275, #274, #273 | — | Ready for owner merge decisions |
+| A12 | Owner decisions | Owner | — | U-2 prices; U-4 written-approval evidence form; U-10 Stage B draft; **KI-1 re-decision (activation gate)** |
+| A13 | Hosted DEV | H1 manifest (#274) | Authorized SELECT-only probe, then a one-file-at-a-time apply with fingerprints and a rollback round trip while 0 rows | Not authorized |
+| A14 | Controlled live-provider validation | Owner authorization per call | F5 offline contracts are done; real request shapes still unverified | Not authorized |
+| A15 | Pilot schedulers and alerts | Owner authorization | Register reconciler, inventory reconciliation, re-verify, RFL scan and delivery; verify recipients; delivery runbook §7 | Not authorized |
+
+**Shortest safe path.**
+
+1. Finish the DB runs for A1 and A2, then the A3 recheck.
+2. The owner merges A1 to A6 and A11 (Git-only). Suggested order: #290, #280, #277, #276, #278, #279, then tooling.
+3. Build A7, A8 and A9, with the A10 infrastructure built in parallel.
+4. Owner decisions in A12.
+5. Hosted DEV (A13).
+6. Live validation, one call at a time (A14).
+7. Schedulers (A15).
+8. Manual activation.
+
+### B. Mandatory for general studio availability
+
+- F2: campaign-verified gate for legacy senders (U-3; reserved 20261220).
+- Funding-exposure monitor (F-11) and out-of-band escalation (U-5).
+- Evidence-absence scheduler, and the `FEE_RELEASE_ENABLED` decision (U-1).
+- Owner self-service cancellation (U-7) and the kill-switch policy (U-8).
+- Price publication with dual control (U-2 follow-up).
+- `_tw4ml_month_start` timezone-scan performance risk under the 8 s statement timeout (found by J2).
+- Self-service onboarding gating per studio; provider bill ingestion; quiet hours (U-9).
+
+### C. Nonblocking hardening and later enhancements
+
+- KI-2: rollback leaves widened CHECK constraints (document as intentional).
+- KI-3: the `r2bp2.rfl` test is stale.
+- The r2b suite refuses to run on the merged chain.
+- Running TW-4F DB suites in CI.
+- P3 notes:
+  - #251: a run where every sender errors is still marked completed.
+  - #269: `scope_unavailable` must escalate once the evidence scheduler exists.
+  - #288: the old retry does not audit refusals; its "Record provider listing" button is the first admin button that can call Twilio.
+- Two-month deferred-retirement absorption.
+- RecurringFeesCancel UI backlog (withdrawal visibility, double-submit states).
+
 ## 9. Document inconsistencies to reconcile (not fixed here)
 
 - `TW-4F_Production_Onboarding_Plan.md` §9a says `1120`/`1121` are NOT applied, while the 2026-10-19 Phase A record says DEV has `1120`–`1122`. Resolve this with the authorized hosted probe.
