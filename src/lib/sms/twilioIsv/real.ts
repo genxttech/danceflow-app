@@ -742,12 +742,13 @@ export function createScopedNumberAdapter(
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
-// TW-4F A9: a LIST-ONLY number adapter for the scheduled inventory reconciliation, behind its own read gate (numberReadsAllowed: production, TW4_ISV_REAL_CALLS=on,
-// TW4_NUMBER_READS=on), so keeping inventory health fresh never requires the purchase switch. It lists the subaccount's incoming numbers (GET, free) and nothing else:
-// every other number-adapter method refuses before any network call, and it has no creation history, so no purchase, attach or release path can run on it.
+// TW-4F A9 / A9b: a READ-ONLY number adapter behind its own read gate (numberReadsAllowed: production, TW4_ISV_REAL_CALLS=on, TW4_NUMBER_READS=on), so keeping
+// inventory health fresh (A9) and validating a campaign's compliance for activation (A9b) never require the purchase switch. It does exactly three GETs, all free:
+// the subaccount's incoming numbers, a campaign's compliance keywords/replies, and a Messaging Service's inbound route. Every other number-adapter method refuses
+// before any network call, and it has no creation history and no release methods, so no purchase, attach or release path can run on it.
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 const refuseRead = (what: string): never => {
-  throw new IsvApiError("account", null, null, `number inventory reads only: ${what} is not allowed`);
+  throw new IsvApiError("account", null, null, `number reads only: ${what} is not allowed`);
 };
 
 export class RealNumberReadAdapter extends TwilioRest<IsvConfig> implements IsvNumberAdapter {
@@ -790,11 +791,25 @@ export class RealNumberReadAdapter extends TwilioRest<IsvConfig> implements IsvN
   async listServiceNumbers(): Promise<never> { return refuseRead("service number listing"); }
   async attachNumber(): Promise<never> { return refuseRead("attach"); }
   async getServiceNumbers(): Promise<never> { return refuseRead("service numbers read"); }
-  async getCampaignCompliance(): Promise<never> { return refuseRead("campaign compliance read"); }
-  async getServiceRoute(): Promise<never> { return refuseRead("service route read"); }
+
+  // TW-4F A9b: activation's compliance validation (activation.ts runComplianceValidation) reads these two, GET only and free, so activating or reactivating a
+  // location never requires the purchase switch. Same request shapes and normalization as RealNumberAdapter's.
+  async getCampaignCompliance(messagingServiceSid: string, campaignSid: string): Promise<CampaignComplianceFacts> {
+    const b = await this.request("GET", `${MESSAGING}/Services/${provChecked(messagingServiceSid, MESSAGING_SERVICE_SID)}/Compliance/Usa2p/${provChecked(campaignSid, CAMPAIGN_REGISTRATION_SID)}`);
+    return {
+      sid: provStr(b.sid), account_sid: provStr(b.account_sid), messaging_service_sid: provStr(b.messaging_service_sid), campaign_status: provStr(b.campaign_status), mock: provBool(b.mock),
+      opt_in_keywords: numStrings(b.opt_in_keywords), opt_out_keywords: numStrings(b.opt_out_keywords), help_keywords: numStrings(b.help_keywords),
+      opt_in_message: provStr(b.opt_in_message)?.slice(0, 320) ?? null, opt_out_message: provStr(b.opt_out_message)?.slice(0, 320) ?? null, help_message: provStr(b.help_message)?.slice(0, 320) ?? null,
+    };
+  }
+
+  async getServiceRoute(messagingServiceSid: string): Promise<ServiceRouteFacts> {
+    const b = await this.request("GET", `${MESSAGING}/Services/${provChecked(messagingServiceSid, MESSAGING_SERVICE_SID)}`);
+    return { sid: provStr(b.sid), account_sid: provStr(b.account_sid), inbound_request_url: provStr(b.inbound_request_url), use_inbound_webhook_on_number: provBool(b.use_inbound_webhook_on_number) };
+  }
 }
 
-/** The list-only number adapter for ONE subaccount, signed with that subaccount's own credentials. */
+/** The read-only number adapter (listing, campaign compliance, service route) for ONE subaccount, signed with that subaccount's own credentials. */
 export function createScopedNumberReadAdapter(
   config: IsvConfig, accountSid: string, authToken: string, env: Record<string, string | undefined> = process.env, fetchImpl?: FetchLike,
 ): RealNumberReadAdapter {

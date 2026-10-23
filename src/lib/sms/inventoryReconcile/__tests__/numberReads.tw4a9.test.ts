@@ -68,9 +68,10 @@ describe("TW4_NUMBER_READS: a read-only gate independent of the purchase switch"
     expect(buildNumberRuntime(READS).ok).toBe(false);
   });
 
-  it("every purchase, attach or other number call on the list-only adapter refuses BEFORE any network call", async () => {
+  it("every purchase, attach or other non-read number call on the read-only adapter refuses BEFORE any network call", async () => {
     const stub = fetchStub([]);
     const reader = RealNumberReadAdapter.forAccount(config, SUB, "subtoken", READS, stub.impl);
+    // the three reads it allows (listing, campaign compliance, service route) are pinned in this file and in numberCompliance.tw4a9b.test.ts
     const attempts: Array<() => Promise<unknown>> = [
       () => reader.purchaseNumber(),
       () => reader.attachNumber(),
@@ -79,10 +80,8 @@ describe("TW4_NUMBER_READS: a read-only gate independent of the purchase switch"
       () => reader.getNumber(),
       () => reader.listServiceNumbers(),
       () => reader.getServiceNumbers(),
-      () => reader.getCampaignCompliance(),
-      () => reader.getServiceRoute(),
     ];
-    for (const attempt of attempts) await expect(attempt()).rejects.toThrow(/number inventory reads only/);
+    for (const attempt of attempts) await expect(attempt()).rejects.toThrow(/number reads only/);
     expect(stub.calls).toHaveLength(0);
     expect("readCreationHistory" in reader).toBe(false);
   });
