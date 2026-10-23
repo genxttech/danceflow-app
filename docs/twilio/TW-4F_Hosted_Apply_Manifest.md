@@ -871,8 +871,8 @@ Environments: **L1** = `postgres:17` (17.9) container `tw4f-h1-probe-pg`, starte
 
 | # | Workflow | Env | Execution | Expected | Observed | Result |
 |---|---|---|---|---|---|---|
-| 1 | Every migration on main in `20261119090000..20261227090000` appears exactly once | Git | `verify_manifest_hashes.sh c979c823` | 43 files, no duplicate, none missing | 43 forward files on main `84f52048`, 43 manifest rows, no duplicate, none missing: `MANIFEST HASHES OK` | PASS |
-| 2 | sha256 in section 3 equals `git show` (forward and rollback) | Git | same script | all match | 43 forward and 43 rollback sha256 values recomputed from `git show 84f52048:<path>` (CR stripped) equal the table | PASS |
+| 1 | Every migration on main in `20261119090000..20261227090000` appears exactly once | Git | `verify_manifest_hashes.sh c979c823` | 43 files, no duplicate, none missing | 43 forward files on main `c979c823`, 43 manifest rows, no duplicate, none missing: `MANIFEST HASHES OK` | PASS |
+| 2 | sha256 in section 3 equals `git show` (forward and rollback) | Git | same script | all match | 43 forward and 43 rollback sha256 values recomputed from `git show c979c823:<path>` (CR stripped) equal the table | PASS |
 | 3 | Probes run without error on an empty database | L1 | `validate_local.sh` | every expected object `MISSING`, no error | rollup:ALL `(0 objects)`, objects probe 474 rows, no error | PASS |
 | 4 | Probes see objects, RLS, ACLs, row counts, triggers, unlisted objects | L1 | `validate_local.sh` fixture assertions | facts match the fixture | all assertions matched | PASS |
 | 5 | Probes do not write | L1 | read-only wrapper; catalog/data digest before vs after; negative control write refused | digest equal; write refused | equal; write refused | PASS |
