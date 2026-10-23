@@ -497,6 +497,50 @@ describe.skipIf(!enabled)("TW-4F automated sender re-verification (real schema, 
       closeRuns();
     });
 
+    it("R6 a per-number inbound webhook whose number read fails transiently is inconclusive (kept), never a definite inbound-routing failure", async () => {
+      const perNumber = (st: string, numberAnswer: unknown) => healthy(st, {
+        service: { sid: ids[st].mg, account_sid: accountFor(st), us_app_to_person_registered: true, inbound_request_url: null, use_inbound_webhook_on_number: true },
+        number: numberAnswer,
+      });
+      // healthy per-number routing verifies
+      await freshSender(SA);
+      closeRuns();
+      ageVerification(SA, 21);
+      await scheduled(perNumber(SA, { sid: ids[SA].pn, account_sid: ACC_A, phone_number: ids[SA].e164, sms_capable: true, status: "in-use", sms_url: INBOUND }));
+      expect(verifications(SA)).toBe("verified:-,verified:-");
+      // the number read is rate limited: the routing cannot be known -> inconclusive, the sender stays approved and ready
+      for (const kind of ["rate_limited", "timeout", "server"] as const) {
+        await freshSender(SA);
+        closeRuns();
+        ageVerification(SA, 21);
+        await scheduled(perNumber(SA, new SenderReadError(kind)));
+        expect(verifications(SA), kind).toBe(`verified:-,inconclusive:read_${kind}:number`);
+        expect(ready(SA), kind).toBe(true);
+        expect(latest(SA).status).toBe("approved");
+      }
+      // definitive answers still fail: the number is gone (404), or it routes inbound somewhere else
+      await freshSender(SA);
+      closeRuns();
+      ageVerification(SA, 21);
+      await scheduled(perNumber(SA, new SenderReadError("not_found")));
+      expect(verifications(SA)).toBe("verified:-,failed:read_not_found:number");
+      await freshSender(SA);
+      closeRuns();
+      ageVerification(SA, 21);
+      await scheduled(perNumber(SA, { sid: ids[SA].pn, account_sid: ACC_A, phone_number: ids[SA].e164, sms_capable: true, status: "in-use", sms_url: "https://elsewhere.example/hook" }));
+      expect(verifications(SA)).toBe("verified:-,failed:inbound_not_routed_to_danceflow");
+      // a transient error elsewhere never hides a definite misroute that WAS read
+      await freshSender(SA);
+      closeRuns();
+      ageVerification(SA, 21);
+      await scheduled(healthy(SA, {
+        service: { sid: ids[SA].mg, account_sid: ACC_A, us_app_to_person_registered: true, inbound_request_url: null, use_inbound_webhook_on_number: true },
+        number: { sid: ids[SA].pn, account_sid: ACC_A, phone_number: ids[SA].e164, sms_capable: true, status: "in-use", sms_url: "https://elsewhere.example/hook" },
+        brand: new SenderReadError("server"),
+      }));
+      expect(verifications(SA)).toBe("verified:-,failed:inbound_not_routed_to_danceflow");
+    });
+
     it("R5 a run that can read nothing is recorded FAILED, so the stale alert fires instead of a healthy-looking completed run", async () => {
       await freshSender(SA);
       closeRuns();

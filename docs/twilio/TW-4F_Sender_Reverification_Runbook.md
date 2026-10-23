@@ -5,6 +5,7 @@ Operations for the scheduled sender re-check (design: `TW-4F_Sender_Reverificati
 ## 1. Activation
 
 1. Hosted SQL after `20261205090000`: apply `20261206090000_twilio_sender_reverification.sql`.
+   - Ordering: where 20261207 and later are already applied (or applied first), 1206 must be applied by hand. A migration runner that only applies ids newer than the latest one recorded would skip it. It is order-independent: its preconditions check that `_tw4sr_judge`, `tw4_sender_reverify` and `tw4_sender_due_reverify` are still the 20261204 versions, and no later migration redefines them.
    - Preflight: `to_regprocedure('public.tw4_sender_reverify_run(uuid,uuid,uuid,jsonb,text)')` is null, and `public.tw4_local_qa_only` does not exist.
    - Postflight: `tw4_sender_reverify_run` and `tw4_sender_health` are service-role only, and the marker table is still absent.
 2. Production environment:
@@ -40,4 +41,4 @@ Operations for the scheduled sender re-check (design: `TW-4F_Sender_Reverificati
 ## 4. Rollback
 
 - **App**: unset `SMS_SENDER_REVERIFY` (the route returns 404).
-- **SQL**: the rollback succeeds only before any re-verify run or inconclusive audit row exists. After that it refuses, and the stance is forward-fix only. Test it only inside a transaction that is rolled back.
+- **SQL**: the rollback is one-shot and only possible before activation: it succeeds only while no `sender_reverify` run and no re-verify audit row exists. Once the scheduler has run even once it refuses, and the stance is forward-fix only. Test it only inside a transaction that is rolled back.

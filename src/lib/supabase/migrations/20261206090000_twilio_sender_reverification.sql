@@ -33,7 +33,6 @@ begin
   -- the functions replaced below must still be the 20261204 versions
   if position('v.created_at < now() - interval ''20 hours''' in (select p.prosrc from pg_proc p where p.oid = 'public.tw4_sender_due_reverify(int)'::regprocedure)) = 0
      or position('a read that failed transiently proves nothing either way' in (select p.prosrc from pg_proc p where p.oid = 'public._tw4sr_judge(public.studio_sms_billed_senders,jsonb,boolean)'::regprocedure)) = 0
-     or position('the attestation carries over from its last verification' in coalesce(obj_description('public.tw4_sender_reverify(uuid,uuid,jsonb,text)'::regprocedure, 'pg_proc'), 'the attestation carries over from its last verification')) = 0
      or position('a failed sender (re-read or 30034) is restored only by an admin' in (select p.prosrc from pg_proc p where p.oid = 'public.tw4_sender_reverify(uuid,uuid,jsonb,text)'::regprocedure)) = 0 then
     raise exception 'sender-reverification precondition failed: tw4_sender_due_reverify / _tw4sr_judge / tw4_sender_reverify differ from 20261204090000';
   end if;
@@ -128,7 +127,11 @@ begin
   if (not v_partial or svc <> '{}'::jsonb) and coalesce((svc->>'us_app_to_person_registered')::boolean, false) is not true then
     return jsonb_build_object('outcome', 'failed', 'code', 'service_not_a2p_registered');
   end if;
-  if (not v_partial or svc <> '{}'::jsonb) and coalesce((svc->>'inbound_route_ok')::boolean, false) is not true then
+  -- inbound routing that could not be known (JSON null: the number handles inbound and its read failed) is not judged in a partial read; the number's
+  -- read error decides (transient: inconclusive; definitive: already failed above). In a full read a missing value still fails closed.
+  if (not v_partial or (svc <> '{}'::jsonb
+                          and not (jsonb_typeof(svc->'inbound_route_ok') = 'null' and svc->>'use_inbound_webhook_on_number' = 'true' and num = '{}'::jsonb)))
+     and coalesce((svc->>'inbound_route_ok')::boolean, false) is not true then
     return jsonb_build_object('outcome', 'failed', 'code', 'inbound_not_routed_to_danceflow');
   end if;
   if (not v_partial or cmp <> '{}'::jsonb) and (cmp->>'sid' is distinct from s.campaign_sid or cmp->>'account_sid' is distinct from s.account_sid or cmp->>'messaging_service_sid' is distinct from s.messaging_service_sid) then

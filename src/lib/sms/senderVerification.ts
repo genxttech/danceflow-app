@@ -222,7 +222,8 @@ export type ReadErrorEntry = { resource: ReadResource; kind: ReadErrorKind };
 
 export type SenderEvidence = {
   account: AccountRead | null;
-  service: (ServiceRead & { inbound_route_ok: boolean }) | null;
+  /** inbound_route_ok is null when it cannot be known: the number handles inbound and its read failed (the read error then decides the outcome) */
+  service: (ServiceRead & { inbound_route_ok: boolean | null }) | null;
   campaign: CampaignRead | null;
   brand: BrandRead | null;
   number: NumberRead | null;
@@ -279,9 +280,12 @@ export async function buildSenderEvidence(provider: SenderReadProvider, sender: 
   const service = serviceRaw
     ? {
         ...serviceRaw,
+        // when the NUMBER handles inbound, its routing is known only if the number was read: an unread number is unknown (null), never "misrouted"
         inbound_route_ok:
-          (serviceRaw.use_inbound_webhook_on_number === false && serviceRaw.inbound_request_url === inboundUrl) ||
-          (serviceRaw.use_inbound_webhook_on_number === true && number !== null && number.sms_url === inboundUrl),
+          serviceRaw.use_inbound_webhook_on_number === true && number === null
+            ? null
+            : (serviceRaw.use_inbound_webhook_on_number === false && serviceRaw.inbound_request_url === inboundUrl) ||
+              (serviceRaw.use_inbound_webhook_on_number === true && number !== null && number.sms_url === inboundUrl),
       }
     : null;
   return { account, service, campaign, brand, number, service_number, read_errors, digests };

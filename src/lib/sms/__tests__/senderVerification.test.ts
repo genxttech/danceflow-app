@@ -78,6 +78,19 @@ describe("buildSenderEvidence", () => {
     expect((await buildSenderEvidence(healthyFake({ service: on, number: { sms_url: "https://other.example" } }), IDS, URL_IN)).service!.inbound_route_ok).toBe(false);
     expect((await buildSenderEvidence(healthyFake({ service: { ...on, inbound_request_url: URL_IN }, number: { sms_url: null } }), IDS, URL_IN)).service!.inbound_route_ok).toBe(false);
   });
+
+  it("inbound_route_ok is UNKNOWN (null), never false, when the number handles inbound but could not be read (a transient error must not become a definite failure)", async () => {
+    const on = { use_inbound_webhook_on_number: true, inbound_request_url: "https://ignored.example" };
+    for (const kind of ["rate_limited", "timeout", "server", "credentials_unavailable", "not_found"] as const) {
+      const fake = healthyFake({ service: on, number: { sms_url: URL_IN } }).script("number", IDS.phoneNumberSid, new SenderReadError(kind));
+      const e = await buildSenderEvidence(fake, IDS, URL_IN);
+      expect(e.service!.inbound_route_ok, kind).toBeNull();
+      expect(e.read_errors).toContainEqual({ resource: "number", kind });   // the read error itself decides (transient: inconclusive; not_found: failed)
+    }
+    // a service-level route never depends on the number read
+    const svc = healthyFake().script("number", IDS.phoneNumberSid, new SenderReadError("rate_limited"));
+    expect((await buildSenderEvidence(svc, IDS, URL_IN)).service!.inbound_route_ok).toBe(true);
+  });
 });
 
 describe("expectedInboundUrl", () => {
