@@ -25,35 +25,13 @@
       "suite": "src/lib/sms/twilioIsv/__tests__/localStack.r2a.test.ts",
       "scenarios": [
         "main",
-        "main-then-pr251",
-        "pr251-then-main",
-        "pr251-mid"
+        "pr251-mid",
+        "pr251-first"
       ],
       "failing": [
         "rollback parses and completes where there is no evidence"
       ],
       "reason": "R2b's objects depend on the R2a ledger (2BP01), so R2a's rollback cannot run until R2b is rolled back first: ordered, transaction-safe refusal, not a regression."
-    },
-    {
-      "suite": "src/lib/sms/__tests__/localStack.tw4sender.test.ts",
-      "scenarios": [
-        "main-then-pr251",
-        "pr251-then-main",
-        "pr251-mid"
-      ],
-      "count": 8,
-      "failing": [
-        "llback fails it at once; a re-verify restores it",
-        "replaced: not ready, and a re-verify records why",
-        "won the race) or released, and the money matches",
-        "one reaches the provider marker after the revoke",
-        "maps to nothing; a revoked one still maps (STOP)",
-        "; the overview is admin-only and shows readiness",
-        "rom credit; the $150 pilot ceiling is never used",
-        "the rollback refuses once sender evidence exists"
-      ],
-      "reason": "main's version of this suite pins sender-readiness behaviour that PR #251's migration deliberately changes (8 named tests, matched by the end of their title); PR #251's own version of the suite passes 18/18 in the same databases (matrix with --tests-ref origin/twilio-tw4f-sender-reverify).",
-      "workingTreeOnly": true
     },
     {
       "suite": "src/lib/billing/__tests__/localStack.tw4payhardening.test.ts",

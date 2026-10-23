@@ -1,8 +1,7 @@
 {
   "_comment": "Explicit migration manifests. Each scenario is the baseline (through 20261205090000) plus these migrations IN THIS ORDER, each taken from a git ref (never a working tree). ref names are resolved from the environment first (ISO_QA_REF_<NAME>), then the default below. A migration that fails to apply, or whose version is not found exactly once at its ref, fails the scenario. Completeness: every TW-4F (sms|twilio|tw4) migration above the cutoff that exists at a ref a scenario uses must be applied by that scenario or listed in excluded, otherwise the scenario refuses to start.",
   "refs": {
-    "MAIN": "origin/main",
-    "PR251": "origin/twilio-tw4f-sender-reverify"
+    "MAIN": "origin/main"
   },
   "excluded": [],
   "scenarios": {
@@ -11,56 +10,7 @@
       "migrations": []
     },
     "main": {
-      "description": "origin/main as merged: the full TW-4F chain above the baseline cutoff, 20261207..20261217",
-      "migrations": [
-        [
-          "MAIN",
-          "20261207"
-        ],
-        [
-          "MAIN",
-          "20261208"
-        ],
-        [
-          "MAIN",
-          "20261209"
-        ],
-        [
-          "MAIN",
-          "20261210"
-        ],
-        [
-          "MAIN",
-          "20261211"
-        ],
-        [
-          "MAIN",
-          "20261212"
-        ],
-        [
-          "MAIN",
-          "20261213"
-        ],
-        [
-          "MAIN",
-          "20261214"
-        ],
-        [
-          "MAIN",
-          "20261215"
-        ],
-        [
-          "MAIN",
-          "20261216"
-        ],
-        [
-          "MAIN",
-          "20261217"
-        ]
-      ]
-    },
-    "main-then-pr251": {
-      "description": "main chain, then PR #251 (20261206) last",
+      "description": "origin/main in repo (merge) order: 20261207..20261217, then 20261206 (PR #251, merged last)",
       "migrations": [
         [
           "MAIN",
@@ -107,66 +57,13 @@
           "20261217"
         ],
         [
-          "PR251",
+          "MAIN",
           "20261206"
-        ]
-      ]
-    },
-    "pr251-then-main": {
-      "description": "numeric order: PR #251 (20261206) first, then the main chain",
-      "migrations": [
-        [
-          "PR251",
-          "20261206"
-        ],
-        [
-          "MAIN",
-          "20261207"
-        ],
-        [
-          "MAIN",
-          "20261208"
-        ],
-        [
-          "MAIN",
-          "20261209"
-        ],
-        [
-          "MAIN",
-          "20261210"
-        ],
-        [
-          "MAIN",
-          "20261211"
-        ],
-        [
-          "MAIN",
-          "20261212"
-        ],
-        [
-          "MAIN",
-          "20261213"
-        ],
-        [
-          "MAIN",
-          "20261214"
-        ],
-        [
-          "MAIN",
-          "20261215"
-        ],
-        [
-          "MAIN",
-          "20261216"
-        ],
-        [
-          "MAIN",
-          "20261217"
         ]
       ]
     },
     "pr251-mid": {
-      "description": "PR #251 lands between R2b (1208) and the recurring-fee lifecycle (1209)",
+      "description": "20261206 between 20261208 and 20261209",
       "migrations": [
         [
           "MAIN",
@@ -177,8 +74,61 @@
           "20261208"
         ],
         [
-          "PR251",
+          "MAIN",
           "20261206"
+        ],
+        [
+          "MAIN",
+          "20261209"
+        ],
+        [
+          "MAIN",
+          "20261210"
+        ],
+        [
+          "MAIN",
+          "20261211"
+        ],
+        [
+          "MAIN",
+          "20261212"
+        ],
+        [
+          "MAIN",
+          "20261213"
+        ],
+        [
+          "MAIN",
+          "20261214"
+        ],
+        [
+          "MAIN",
+          "20261215"
+        ],
+        [
+          "MAIN",
+          "20261216"
+        ],
+        [
+          "MAIN",
+          "20261217"
+        ]
+      ]
+    },
+    "pr251-first": {
+      "description": "numeric order: 20261206 first, then 20261207..20261217",
+      "migrations": [
+        [
+          "MAIN",
+          "20261206"
+        ],
+        [
+          "MAIN",
+          "20261207"
+        ],
+        [
+          "MAIN",
+          "20261208"
         ],
         [
           "MAIN",
