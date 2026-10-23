@@ -25,6 +25,12 @@ export type ListingFacts = {
   listed: string[];
 };
 
+/** One operation the recorder may read evidence for, with the identifiers the OPERATION recorded when it began. `ok` is false (and `scope_sid` null) when they cannot be established. */
+export type EvidenceTarget = {
+  operation_id: string; status: string; twilio_account_sid: string; scope_sid: string | null;
+  ok: boolean; reason: null | "account_mismatch" | "scope_missing" | "scope_unknown" | "scope_ambiguous";
+};
+
 export type ListingResult = { listing_id: string; verdict: "absent" | "present" | "inconclusive" | "premature"; replayed: boolean; orphans?: number };
 
 export class ProvisionEvidenceStore {
@@ -45,6 +51,13 @@ export class ProvisionEvidenceStore {
     return this.call<ListingResult>("tw4_prov_listing_record", {
       p_onboarding_id: args.onboardingId, p_lease_owner: args.leaseOwner, p_operation_id: args.operationId, p_facts: args.facts, p_source: args.source, p_digest: args.digest,
     });
+  }
+
+  /** Read-only: for each fee-bearing campaign operation that still matters, the provider account and the Messaging Service it was REGISTERED under (never the current service). */
+  async targets(onboardingId: string, leaseOwner: string): Promise<EvidenceTarget[]> {
+    const rows = await this.call<unknown>("tw4_prov_evidence_targets", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner });
+    if (!Array.isArray(rows)) throw new RunnerStoreError("unknown");
+    return rows as EvidenceTarget[];
   }
 
   /** Platform-admin read (the database re-checks the actor). */
@@ -69,8 +82,15 @@ export function listingDigest(facts: ListingFacts): string {
 }
 
 export type AbsenceCheckOutcome =
-  | { outcome: "recorded"; results: { operationId: string; verdict: ListingResult["verdict"]; orphans: number }[] }
-  | { outcome: "lease_busy" | "not_runnable" | "account_mismatch" | "nothing_to_check" | "retry_later" | "record_failed"; detail?: string };
+  | { outcome: "recorded"; results: { operationId: string; verdict: ListingResult["verdict"]; orphans: number }[]; skipped?: SkippedTarget[] }
+  | { outcome: "scope_unavailable"; skipped: SkippedTarget[] }
+  | { outcome: "retry_later" | "record_failed"; detail?: string; results?: { operationId: string; verdict: ListingResult["verdict"]; orphans: number }[]; skipped?: SkippedTarget[] }
+  | { outcome: "lease_busy" | "not_runnable" | "account_mismatch" | "nothing_to_check"; detail?: string };
+
+/** An operation whose historical account or Messaging Service could not be established: nothing was read and nothing recorded for it (fail closed). */
+export type SkippedTarget = { operationId: string; reason: string };
+
+const SCOPE_SHAPE = /^MG[0-9a-fA-F]{32}$/;
 
 const storeCode = (error: unknown) => (error instanceof RunnerStoreError ? error.code : "unknown");
 
@@ -104,28 +124,44 @@ export async function checkCampaignAbsence(input: {
     if (!account.accountSid || account.status !== "active" || account.accountSid !== adapter.accountSid) {
       return { outcome: "account_mismatch" };
     }
-    const ctx = await store.context(onboardingId, leaseOwner);
-    const service = ctx.operations.find((op) => op.kind === "messaging_service" && !op.superseded && op.status === "succeeded" && op.provider_sid);
-    const targets = ctx.operations.filter((op) => op.kind === "campaign" && op.fee_bearing && ["unknown_outcome", "in_flight", "abandoned", "failed"].includes(op.status));
-    if (!service?.provider_sid || targets.length === 0) return { outcome: "nothing_to_check" };
+    // each operation is read under the account and Messaging Service IT was registered under (the database re-checks both on every record)
+    let targets: EvidenceTarget[];
+    try {
+      targets = await evidence.targets(onboardingId, leaseOwner);
+    } catch (error) {
+      return { outcome: "not_runnable", detail: storeCode(error) };
+    }
+    if (targets.length === 0) return { outcome: "nothing_to_check" };
     const results: { operationId: string; verdict: ListingResult["verdict"]; orphans: number }[] = [];
+    const skipped: SkippedTarget[] = [];
     for (const target of targets) {
+      // fail closed: the historical identifiers must be present, consistent with the adapter's subaccount, and well-formed; otherwise nothing is read for this operation
+      const scope = target.scope_sid;
+      if (!target.ok || !scope || !SCOPE_SHAPE.test(scope)) {
+        skipped.push({ operationId: target.operation_id, reason: target.ok ? "scope_missing" : String(target.reason ?? "scope_missing") });
+        continue;
+      }
+      if (target.twilio_account_sid !== adapter.accountSid) {
+        skipped.push({ operationId: target.operation_id, reason: "account_mismatch" });
+        continue;
+      }
       const started = now();
       let listed: string[];
       try {
-        listed = await adapter.findCampaigns(service.provider_sid); // a complete listing or a throw: never a partial one
+        listed = await adapter.findCampaigns(scope); // a complete listing or a throw: never a partial one
       } catch {
-        return { outcome: "retry_later", detail: "listing_failed" };
+        return { outcome: "retry_later", detail: "listing_failed", ...(results.length ? { results } : {}), ...(skipped.length ? { skipped } : {}) };
       }
-      const facts: ListingFacts = { account_sid: adapter.accountSid, scope_sid: service.provider_sid, read_id: randomUUID(), read_started_at: started.toISOString(), complete: true, listed };
+      const facts: ListingFacts = { account_sid: target.twilio_account_sid, scope_sid: scope, read_id: randomUUID(), read_started_at: started.toISOString(), complete: true, listed };
       try {
-        const recorded = await evidence.recordListing({ onboardingId, leaseOwner, operationId: target.id, facts, source: adapter.evidenceSource, digest: listingDigest(facts) });
-        results.push({ operationId: target.id, verdict: recorded.verdict, orphans: recorded.orphans ?? 0 });
+        const recorded = await evidence.recordListing({ onboardingId, leaseOwner, operationId: target.operation_id, facts, source: adapter.evidenceSource, digest: listingDigest(facts) });
+        results.push({ operationId: target.operation_id, verdict: recorded.verdict, orphans: recorded.orphans ?? 0 });
       } catch (error) {
-        return { outcome: "record_failed", detail: storeCode(error) };
+        return { outcome: "record_failed", detail: storeCode(error), ...(results.length ? { results } : {}), ...(skipped.length ? { skipped } : {}) };
       }
     }
-    return { outcome: "recorded", results };
+    if (results.length === 0) return { outcome: "scope_unavailable", skipped };
+    return skipped.length ? { outcome: "recorded", results, skipped } : { outcome: "recorded", results };
   } finally {
     try {
       await store.release(onboardingId, leaseOwner);
