@@ -449,7 +449,7 @@ rollback;`).split("\n").pop() ?? "";
       expect(items(l).usage_reconciler_ready).toMatchObject({ ok: false, detail: "no_completed_run" });
       const out = psql(`begin;
 insert into public.studio_sms_reconcile_runs (job, runner, status, started_at, lease_expires_at, finished_at, summary)
-  values ('usage_reconcile', 'f1-${RUN}', 'completed', now() - interval '1 minute', now() + interval '4 minutes', now(), '{"evidence_read": true}'::jsonb);
+  values ('usage_reconcile', 'f1-${RUN}', 'completed', now() - interval '1 minute', now() + interval '4 minutes', now(), '{"evidence_read": true, "due": 0}'::jsonb);
 ${itemSql(l)}
 rollback;`).split("\n").pop() ?? "";
       expect(JSON.parse(out)).toEqual({ id: "usage_reconciler_ready", ok: true, detail: "ok" });
