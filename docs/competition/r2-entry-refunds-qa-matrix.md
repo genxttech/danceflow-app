@@ -56,3 +56,9 @@ before release.
 | B18 | Dashboard full refund with an entry in a locked heat | D6/D7 + §4.1 | PENDING-DECISION |
 | B19 | Webhook replay of the same refund event | — | PENDING-DECISION (blocked on ledger) |
 | B20 | Non-competition event refunds unchanged (`order_backed_registration_payment_locked` still enforced) | — | PENDING-DECISION (blocked on staff flow) |
+
+## C. Locked / certified heat handling (§4.1) — specified, not built
+
+Each regression item T2–T20 in design §4.1 **T** is one QA row here once implemented. Status today:
+**PENDING-APPROVAL** (owner approval of §4.1, C1, Q1, Q2). T1 is A1–A3 above (PASSED). T15 also depends on K0
+F2 (`20270104090000`).
