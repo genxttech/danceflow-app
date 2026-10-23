@@ -295,6 +295,46 @@ Follow-ups recorded during Wave 1:
 - The #266 base image lacks `auth.users` columns (`email_confirmed_at`, `banned_until`, `deleted_at`) and the default `authenticated` UPDATE/DELETE grant on `outbound_deliveries`; tw4rflops cannot run on a stock stack until #266 adds both.
 - Interrupted tw4rfl / r2brfl / r2bp2 runs leave pilot-exception and orphan rows behind that break later suites on the same database; run one suite per fresh database.
 
+### 6.2a Merge log (owner-approved, Git only)
+
+Every merge below is Git only. Nothing is applied to any hosted database, no deploy ran, and no scheduler or SMS is enabled.
+
+| PR | Approved head | Squash commit on `main` | Verification |
+|---|---|---|---|
+| #269 | 5a2432d3 | 6422e050 | Tree equals the approved head |
+| #251 | 9de9eb4c | cdf342e2 | Tree equals `git merge-tree 6422e050 9de9eb4c`. The only difference from the approved head is #269's 6 files. 1206 is not applied hosted, the route is unscheduled and `SMS_SENDER_REVERIFY` is off. |
+
+**After #251** (re-checked 2026-10-23): every open PR is MERGEABLE/CLEAN against cdf342e2.
+
+| PR | Head |
+|---|---|
+| #266 | 99cea902 |
+| #267 | 59ecf3f0 |
+| #274 | 26dec94e |
+| #275 | f5a84651 |
+| #276 | d99f42a0 |
+| #277 | c3971961 |
+| #278 | 629e7314 |
+| #279 | 57780760 |
+| #280 | 4046b8f6 |
+| #288 (F4, 1221) | 9977fe03 |
+
+`page.tsx` order from here:
+- F4 (#288) merges main and re-runs.
+- F3 (#277) merges main now. It keeps #251's `tw4sender` assertions and merges main again after #288.
+
+**#266 final main baseline** (6422e050, single lane): 19/23 suites PASS.
+- tw4payhardening passed 15/15 on a single lane.
+- With its new per-stack steps (auth.users columns, `outbound_deliveries` grant, opt-in `ISO_QA_MARKER`), tw4rflops passes 64/64 on a stock stack.
+- Known failures: tw4a 1/14, tw4f1b 1/19 and r2a 1/26 (2BP01).
+- `localStack.r2b` is not verified: 53 skips by design on the merged chain.
+- `matrix main-then-pr251` is superseded by the merge.
+
+**#267 vs 1221 (F4):**
+- With 1221 present, 1209's rollback refuses while lifecycle rows exist. That is fail-closed by design.
+- Fix in #267, test-only, about 15–25 lines: `clearFixtureEvidence` also deletes the suite's own lifecycle and `rfl_%` audit rows, plus one assertion that the guard still refuses when those rows are left. Layer discovery already handles 1221.
+- Proven with one 1221-enabled DB run.
+
 ### 6.3 QA scheduling decision (owner, 2026-10-23)
 
 - **Heavy-slot order:** #251 P2 re-test and F4's regression suites run now, alongside #266's remaining matrices. No other resource-intensive suite starts if it would materially compromise test reliability.
