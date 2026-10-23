@@ -387,6 +387,7 @@ function getErrorMessage(error?: string) {
     studio_not_found: "The current workspace could not be loaded.",
     no_studio_context: "No active workspace was selected for billing.",
     missing_price_id: "The selected plan is missing a Stripe price ID.",
+    price_mismatch: "This plan's pricing is being updated and checkout is temporarily unavailable. Please try again shortly or contact support.",
     connect_failed: "Stripe onboarding could not be started.",
     ai_pack_not_found: "That AI credit pack could not be found.",
     ai_pack_missing_price: "This AI credit pack is not ready for checkout yet.",

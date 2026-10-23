@@ -6,6 +6,11 @@ import { getStripe } from "@/lib/payments/stripe";
 import { getBillingPlan, type PlanAudience } from "@/lib/billing/plans";
 import { canManageWorkspaceSubscription } from "@/lib/billing/subscriptionAuthority";
 import { isFounderPricingActive } from "@/lib/billing/founderPricing";
+import { isRegularPricingActivated } from "@/lib/billing/regularPricing";
+import {
+  selectStudioMonthlyPrice,
+  stripePriceMatchesExpected,
+} from "@/lib/billing/studioCheckoutPricing";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 import { hasCurrentBusinessLegalAcceptance } from "@/lib/legal/agreements";
 
@@ -38,11 +43,13 @@ type CheckoutInput = {
 };
 
 
-const FOUNDER_PRICING_ACTIVE = isFounderPricingActive();
 
 type PriceLookupResult = {
   stripePriceId: string | null;
   offerType: "founder" | "standard" | "database";
+  // PRICING-P1: set only for monthly studio plans, whose Stripe Price must
+  // carry exactly this amount (verified before a Checkout Session is created).
+  expectedAmountCents?: number;
 };
 
 function getEnvPriceId(name: string) {
@@ -52,6 +59,7 @@ function getEnvPriceId(name: string) {
 
 function resolveCheckoutPriceId(params: {
   planCode: string;
+  sharedPlan: NonNullable<ReturnType<typeof getBillingPlan>>;
   billingInterval: "month" | "year";
   databaseMonthlyPriceId: string | null;
   databaseYearlyPriceId: string | null;
@@ -60,6 +68,25 @@ function resolveCheckoutPriceId(params: {
     return {
       stripePriceId: params.databaseYearlyPriceId,
       offerType: "database",
+    };
+  }
+
+  // PRICING-P1: monthly studio plans are fail-closed -- no fallback between
+  // Founder, standard and database Price IDs.
+  if (params.sharedPlan.audience === "studio") {
+    const selection = selectStudioMonthlyPrice({
+      plan: params.sharedPlan,
+      founderActive: isFounderPricingActive(),
+      regularActivated: isRegularPricingActivated(),
+      env: process.env,
+    });
+
+    if (!selection.ok) return { stripePriceId: null, offerType: "database" };
+
+    return {
+      stripePriceId: selection.stripePriceId,
+      offerType: selection.offerType,
+      expectedAmountCents: selection.expectedAmountCents,
     };
   }
 
@@ -79,7 +106,7 @@ function resolveCheckoutPriceId(params: {
     organizer: "STRIPE_PRICE_ORGANIZER_FOUNDER",
   };
 
-  const founderPriceId = FOUNDER_PRICING_ACTIVE
+  const founderPriceId = isFounderPricingActive()
     ? getEnvPriceId(founderEnvByPlan[normalizedPlanCode])
     : null;
 
@@ -425,25 +452,16 @@ async function handleCheckout(request: NextRequest) {
       );
     }
 
-    const { stripePriceId, offerType } = resolveCheckoutPriceId({
+    const { stripePriceId, offerType, expectedAmountCents } = resolveCheckoutPriceId({
       planCode,
+      sharedPlan,
       billingInterval,
       databaseMonthlyPriceId: planRow.stripe_price_id_monthly,
       databaseYearlyPriceId: planRow.stripe_price_id_yearly,
     });
 
-    if (!stripePriceId) {
-      return billingRedirect(
-        request,
-        buildBillingReturnPath({
-          error: "missing_price_id",
-          path: audience,
-          entry: entryMode,
-          recommended: planCode,
-        })
-      );
-    }
-
+    // PRICING-P1: a missing Price ID no longer blocks the billing portal for an
+    // existing subscriber; it is enforced below, before any new Checkout Session.
     const stripe = getStripe();
     let stripeCustomerId =
       existingCustomer?.stripe_customer_id ?? studio.stripe_customer_id ?? null;
@@ -521,6 +539,40 @@ async function handleCheckout(request: NextRequest) {
       });
 
       return NextResponse.redirect(portalSession.url, { status: 303 });
+    }
+
+    if (!stripePriceId) {
+      return billingRedirect(
+        request,
+        buildBillingReturnPath({
+          error: "missing_price_id",
+          path: audience,
+          entry: entryMode,
+          recommended: planCode,
+        })
+      );
+    }
+
+    if (expectedAmountCents !== undefined) {
+      const stripePrice = await stripe.prices.retrieve(stripePriceId);
+
+      if (!stripePriceMatchesExpected(stripePrice, expectedAmountCents)) {
+        console.error("billing checkout: Stripe Price does not match plan configuration", {
+          planCode,
+          offerType,
+          stripePriceId,
+        });
+
+        return billingRedirect(
+          request,
+          buildBillingReturnPath({
+            error: "price_mismatch",
+            path: audience,
+            entry: entryMode,
+            recommended: planCode,
+          })
+        );
+      }
     }
 
     const successPath =
