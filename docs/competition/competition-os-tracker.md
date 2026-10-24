@@ -56,6 +56,7 @@ The R2 PR body (#292) records "D1–D7 approved; D8 superseded by C1; Q1; Q2". R
 | 2 | **R2 operational classification APPROVED.** "Classify all four `competition_refund_*` exception kinds as operational. Preserve Q2 affected-round-only publication blocking; purely financial exceptions must not block unrelated competitive results." | #292 PR body "Open items" (code already matched) |
 | 3 | **CI-B CB-1 and CB-2 APPROVED.** "Remove general event check-in permissions from instructor and independent_instructor roles. Allow front_desk to perform competition admission, mark attendance, and collect authorized desk payments, but not issue refunds, scratch entries, edit eligibility, or modify heats. Implement CB-2 in its separately reserved SQL slice." CB-2 = slot `20270112090000`, new session, stacked on #320. | This tracker (recorded from the coordinator handoff; to be copied into #295/CB-2 docs by their owners) |
 | 4 | **Schedule & Heats walkthrough waived for Git-only development** of E1 officials, E2 ballots and O1 day-of. "The walkthrough remains mandatory before those PRs can merge or deploy." | This tracker (coordinator handoff) |
+| 5 | **K1 Stage 1 (X-1…X-7) APPROVED.** "Approve K1 Stage 1 (X-1..X-7) as recommended." X-1 (a): `@1`/`@3` programs score with engine `@1` defaults written into the spec. X-2: fail closed on every unspecified case. X-3: `ordinal_majority` and `callback_tally` need ≥3 judges and an odd panel; `proficiency_rating` allows 1 or more; Studio engines refuse `chief_judge_tiebreak` / `score_roles_separately`. X-4: no lock with an absent judge; a manager removes the judge (audited) and the reduced panel must satisfy X-3. X-5: scratched/no-show entries excluded, not placed last. X-6: one result per dance, no combined result in v1. X-7: every heat in a round has the same panel, else fail closed. All D-OM / D-PR / D-CT items stay open (Stage 2 next). | The three `docs/competition/engine-spec-*.md` on PR #293, head `4a260687` |
 
 Recorded 2026-10-24 from the Competition coordinator's handoff of the owner's words; items 1 and 2 are also written in Git as noted.
 
@@ -72,7 +73,7 @@ State as of 2026-10-24 (checks from `statusCheckRollup`; "CI" means the *Typeche
 |---|---|---|---|---|---|---|---|---|
 | #291 | K0 scoring→results contract (docs + types, no SQL) | `0ea4e10b` | main | OPEN | SUCCESS (+ Vercel) | §4 K0 | Opus review; owner approval to freeze (O1–O5 APPROVED 2026-10-24) | none |
 | #292 | R2 / CI-D entry refunds (SQL `20270103`, webhook, staff flow) | `f5775a0a` | main | OPEN, **draft** | SUCCESS | §4 R2, §4 W1 integration | Release gate: #320 desk balance must land first; K0 correction-event tie-in; real-DB clean-chain rerun before PROD SQL (operational classification APPROVED 2026-10-24) | none |
-| #293 | K1 Studio v1 engine specs (docs only) | `7c197e42` | main | OPEN | no CI test job on this PR (docs only); Vercel SUCCESS | §4 K1 | Owner decisions D-OM / D-PR / D-CT / X-1…X-7 | none |
+| #293 | K1 Studio v1 engine specs (docs only) | `4a260687` | main | OPEN | no CI test job on this PR (docs only); Vercel SUCCESS | §4 K1 | Owner decisions D-OM / D-PR / D-CT (X-1…X-7 APPROVED 2026-10-24) | none |
 | #295 | CI-B atomic check-in (no SQL) | `399d90ce` | main | OPEN | SUCCESS (+ Vercel) | §4 CI-B | CB-1 APPROVED 2026-10-24 (instructor roles lose event check-in); CB-2 front-desk SQL is a separate stacked workstream (slot 0112) | none |
 | #297 | Q1 full simulated competition E2E (stages 1, 2, 4) | `6d46c837` | main | OPEN | SUCCESS (+ Vercel); spec skips in CI | §4 Q1 | Later stages are `test.fixme` until their slices exist; W3 extension in progress locally (brief) | none |
 | #301 | SC1/CC1 scratch policy + credit design (docs only; also edits roadmap Phase 10) | `1d87deda` | main | OPEN | Vercel SUCCESS | Docs only | Owns the roadmap Phase 10 edit; owner S-D1/S-D2 recorded as applied in #306; CC-D1…D8 open | none |
@@ -150,9 +151,9 @@ A later PR comment (2026-10-23T19:04Z) reports the doc was updated for R2 C1/Q1/
 |---|---|
 | Docs only; diff touches exactly the three owned files | PASS (checklist item ticked) |
 | Fixture arithmetic checked by hand against each stated option | PASS (checklist item ticked) |
-| Owner review and sign-off of decisions | **NOT DONE** (unticked) |
+| Owner sign-off of decisions | Stage 1 (X-1…X-7) APPROVED 2026-10-24; D-OM / D-PR / D-CT **NOT DONE** |
 
-No code or tests exist. Engines stay unavailable (`COMP_ENGINE_NOT_AVAILABLE`) until sign-off.
+No code or tests exist. Engines stay unavailable (`COMP_ENGINE_NOT_AVAILABLE`) until the D-* decisions are signed off. Head `4a260687` records Stage 1 in the specs (fixtures F-OM-04 and F-OM-06 now invalid inputs; scratched and multi-heat rows updated). Gaps left unfilled: cross-heat combination of ordinal rankings, the `@1` default mark scheme content, per-dance ballot keying.
 
 ### CI-B (#295) — 20-row developer-owned matrix
 | Rows | Result |
@@ -267,10 +268,9 @@ Docs only; no runtime paths changed. No tests run.
 | K1 | D-OM-1…5 | `ordinal_majority`: how ordinals combine, what "majority" means, tie-break chain, judge ties, complete rankings | #293 PR body |
 | K1 | D-PR-1…5 | `proficiency_rating`: how bands combine, majority fallback, outcomes beyond Gold/Silver/Bronze, what is shown, complete marks | #293 PR body |
 | K1 | D-CT-1…10 | `callback_tally`: mark shape, quota, tally, ties at the cut, target count, placements for non-called-back, roles, callback rounds under `@3`, multi-heat quotas, carry-forward | #293 PR body |
-| K1 | X-1…X-7 | Cross-cutting: where decided values live (`studio_simple@4` vs `@1`/`@3`), fail-closed confirmation, panel size, absent judges, scratches, multi-dance rounds, multi-heat rounds | #293 doc §10 |
 | CC1 | CC-D1…D8 | Credit owner, redeemable scope, default expiry, accounting categories, partial refund + credit on one item, transferability, fee lines, platform fees on future orders | #301 doc §5 |
 
-S-D1 and S-D2 are recorded as applied in #306 (see §1.3). K0 O1–O5, R2 operational classification, CB-1 and CB-2 moved to §1.5. Remaining open: K1 families, CC-D1…D8, the walkthrough gate for merge/deploy, and D-CT-5 (#322).
+K1 X-1…X-7 moved to §1.5. S-D1 and S-D2 are recorded as applied in #306 (see §1.3). K0 O1–O5, R2 operational classification, CB-1 and CB-2 moved to §1.5. Remaining open: K1 D-OM / D-PR / D-CT families, CC-D1…D8, the walkthrough gate for merge/deploy, and D-CT-5 (#322).
 
 ## 6. 16-stage lifecycle matrix
 
@@ -287,7 +287,7 @@ Legend: **MERGED** implemented and on main · **UNMERGED** built, in an open PR 
 | 7 | Day-of / scratches | 10D scratch/no-show **MERGED**; SC1 scratch workflow **UNMERGED** (#306); O1 day-of round control **IN DEV** (slot 0106; same walkthrough condition) | §4 SC1; K0 §4 |
 | 8 | Officials / judges | **IN DEV** (E1, slot 0101; Git-only; walkthrough mandatory before merge/deploy) | K0 §12 |
 | 9 | Ballots | **IN DEV** (E2, slot 0102; stacked on E1 + O1; same walkthrough condition) | K0 §3–4 |
-| 10 | Engines | Specs **UNMERGED** (#293) awaiting owner decisions; engine code **MISSING** (fails closed) | §5 |
+| 10 | Engines | Specs **UNMERGED** (#293); Stage 1 X-1…X-7 approved, D-OM / D-PR / D-CT open; engine code **MISSING** (fails closed) | §5 |
 | 11 | Callbacks / recalls / placements | **DESIGNED** (K0 §6); engines not built; Q1 stage 7 `fixme` | K0 §6 |
 | 12 | Approval | **DESIGNED** (D3 second-person rule, F2 slot 0104); K0 contract **UNMERGED** (#291) | K0 §4 |
 | 13 | Publication + portals | **DESIGNED** (F3 slot 0105, D4); no heat sheet or results for dancers/public today | Q1 gap 2 |
@@ -323,3 +323,4 @@ Stage 3 and stage 4 duplicate-scan rows are the spec's own "fixme" markers; W3 i
 |---|---|
 | 2026-10-24 | Initial tracker (W6). Reconciled against main `d535720d`. |
 | 2026-10-24 | Recorded four owner decisions (K0 O1–O5, R2 operational classification, CB-1/CB-2, walkthrough waiver for Git-only E1/E2/O1) in §1.5; K0 §11 updated on #291; reconciled #320, #321, #322; added E1/O1/E2/CB-2 as in development; refreshed heads of #291, #292, #306. |
+| 2026-10-24 | Recorded K1 Stage 1 (X-1…X-7) approval; #293 head `4a260687`. |
