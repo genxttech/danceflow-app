@@ -14,7 +14,7 @@
 --   node scripts/hosted/tw4f/gen_manifest_data.mjs --sync-probes
 -- Objects from migrations that are not on main yet (1206, 1215, Wave 1: 1218..1223) appear as UNEXPECTED until the lists are regenerated.
 with
-  -- BEGIN GENERATED expected objects (gen_manifest_data.mjs --sync-probes; chain through 20261227090000)
+  -- BEGIN GENERATED expected objects (gen_manifest_data.mjs --sync-probes; chain through 20261229090000)
   exp_fn(name, since) as (values
     ('_sms_onb_access_enabled', '20261119090000'),
     ('_sms_onb_append_only', '20261119090000'),
@@ -328,7 +328,6 @@ with
     ('tw4_rfl_exposure_dispose', '20261209090000'),
     ('tw4_rfl_inventory_gaps', '20261209090000'),
     ('tw4_rfl_observe_provider_bill', '20261209090000'),
-    ('tw4_rfl_pilot_cover', '20261209090000'),
     ('tw4_rfl_register', '20261209090000'),
     ('tw4_rfl_scan_entities', '20261209090000'),
     ('tw4_rfl_scan_entity', '20261209090000'),
@@ -422,7 +421,9 @@ with
     ('get_studio_sms_texting_status', '20261222090000'),
     ('tw4_reconcile_run_alive', '20261223090000'),
     ('tw4_rfl_cancel_target', '20261224090000'),
-    ('get_studio_sms_number_offers', '20261227090000')
+    ('get_studio_sms_number_offers', '20261227090000'),
+    ('_tw4rfl_evid_guard', '20261229090000'),
+    ('tw4_rfl_pilot_cover', '20261229090000')
   ),
   exp_tbl(name, since) as (values
     ('studio_sms_onboarding', '20261119090000'),
@@ -497,7 +498,8 @@ with
     ('studio_sms_num_identity_reads', '20261213090000'),
     ('studio_sms_num_orphan_events', '20261214090000'),
     ('studio_sms_num_orphans', '20261214090000'),
-    ('studio_sms_num_recon_attempts', '20261214090000')
+    ('studio_sms_num_recon_attempts', '20261214090000'),
+    ('studio_sms_provider_cover_evidence', '20261229090000')
   ),
   -- END GENERATED expected objects
   roles(rolname) as (values ('anon'), ('authenticated'), ('service_role')),
