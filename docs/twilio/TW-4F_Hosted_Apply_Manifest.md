@@ -21,9 +21,29 @@ Owner rules that bind this package (from the TW-4F completion tracker, `docs/twi
 
 Both probes are single statements on purpose: the hosted method recorded in `TW-4_Production_Release_Readiness.md` section 4 is one read-only statement per call from a fresh scratch workdir.
 
-## 2. Recorded hosted state: HOSTED-UNVERIFIED
+## 2. Hosted state: PROBED 2026-10-24 (read-only)
 
-**Nothing in this section was observed by this package.** It is copied from earlier records and must be replaced by a fresh probe (runbook step D1 / P1) before any apply decision.
+**Observed 2026-10-24 ~02:00Z, owner-authorized.** I ran `probe_objects.sql` and `probe_fingerprint.sql` from `main` `18e5e03d`, each wrapped in `begin transaction read only … rollback`. They ran from fresh scratch workdirs whose linked project ref was checked before each run; the workdirs were deleted afterwards. Both probes report `read_only_txn = on`, connected as `postgres`, server 17.6. Nothing was written. The outputs contain object names, counts and md5 prefixes only.
+
+| Environment | Observed state | Fingerprint rollups (`probe_fingerprint.sql` method) |
+|---|---|---|
+| PROD `hvsujyfbftfffxpfmlpb` | **TW-4 through `20261119092100` only.** 5 TW-4 tables are present: `studio_sms_onboarding`, `_onboarding_access`, `_onboarding_audit`, `_provisioning_steps` and `_runner_windows`, all 0 rows, RLS on, no API privileges. There are 36 TW-4 functions. Every object from `20261120090000` onward is MISSING. `supabase_migrations.schema_migrations` is ABSENT. | ALL `d17059a0` (120 objects); tw4 fn_body `f8130cf5` (36); tw4 fn_meta `7aeba3a8` |
+| DEV `epdrtzcydvnoidwrepqz` | **PROD's objects plus `20261120090000`, `20261121090000` and `20261122090000`.** 19 TW-4/TW-4F tables, all 0 rows, RLS on, no API privileges. There are 84 TW-4 functions. Every object from `20261123090000` onward is MISSING. The migration-history table is present but not authoritative. | ALL `bf10276e` (286 objects); tw4 fn_body `62585cfa` (84); tw4 fn_meta `05025717` |
+| Both | `studio_sms_registrations` (TW-3, created before this chain) is present with 0 rows. The 9 other SMS functions are identical on both (fn_body `57ffc959`, fn_meta `296327df`). DEV also has `tw4_credit_reverse_topup`, a 3b-0-era function not defined by the final chain on main, as an unlisted extra. Review it before the DEV apply. | — |
+
+**Conclusions.**
+
+- **DEV.** The first file to apply on DEV is `20261123090000`.
+- **PROD.** The first file to apply on PROD is `20261120090000`.
+- **No `1206`..`1227` object exists on either project.**
+- **The §9a conflict is settled.** `TW-4F_Production_Onboarding_Plan.md` §9a ("1120/1121 NOT applied") is stale for DEV; it is correct for PROD.
+- **Fingerprint baselines.** These rollups are the baselines for before/after comparison at each apply step. The older Phase A fingerprint `7d4442fa` used a different method, so it is not comparable.
+
+The history below is kept for reference.
+
+## 2a. Previously recorded hosted state (history)
+
+**Nothing in this subsection was observed by this package.** It was copied from earlier records. The probe above supersedes it.
 
 | Environment | Recorded state | Source |
 |---|---|---|
