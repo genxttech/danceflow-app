@@ -47,7 +47,8 @@ if [ "$MODE" = "race" ]; then
   check "scratch vs refund request: scratch committed" "$(grep -c 'result:' "$TMP/a1.out")" "1"
   check "scratch vs refund request: refund request committed (returned a refund id)" "$(grep -c 'result:' "$TMP/b1.out")" "1"
   a_done=$(grep -o 'adone:[0-9.]*' "$TMP/a1.out" | cut -d: -f2); b_done=$(grep -o 'bdone:[0-9.]*' "$TMP/b1.out" | cut -d: -f2)
-  check "scratch vs refund request: the request did NOT wait for the scratch (it finished before the scratch released its locks)" "$(awk -v a="${a_done:-0}" -v b="${b_done:-9e12}" 'BEGIN{print (b < a) ? "yes" : "no"}')" "yes"
+  # The allocation insert takes FOR KEY SHARE on the entry (FK), which conflicts with the scratch FOR UPDATE on the same entry: the request waits, in lock order (order -> ... -> entry), and never deadlocks.
+  check "scratch vs refund request on the SAME entry: the request waits for the scratch (FK key share vs entry FOR UPDATE) and then commits" "$(awk -v a="${a_done:-0}" -v b="${b_done:-9e12}" 'BEGIN{print (b >= a) ? "yes" : "no"}')" "yes"
   check "scratch vs refund request: entry scratched, one scratch row" "$(status_of 008106)/$(q "select count(*) from public.event_competition_scratches where entry_id = '$ENTRY'")" "scratched/1"
   check "scratch vs refund request: exactly one refund (the staff request), requested, 25.00" "$(q "select count(*) || '/' || min(status) || '/' || min(amount_cents) from public.event_order_refunds where order_id = '$(U 00b004)'")" "1/requested/2500"
   check "scratch vs refund request: the scratch reserved no cap and wrote no refund of its own (refund rows reference only B's request id)" "$(q "select count(*) from public.event_order_refunds where order_id = '$(U 00b004)' and refund_request_id <> '$REQ_R'")" "0"
