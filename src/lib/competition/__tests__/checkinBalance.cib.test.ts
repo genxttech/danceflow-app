@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { capturedAmount, checkinBalanceDue } from "../checkinBalance";
 
-const pay = (amount: number, refund = 0, status = "paid") => ({ amount, refund_amount: refund, status });
+const pay = (amount: number | string, refund = 0, status = "paid") => ({ amount, refund_amount: refund, status });
 
 describe("CI-B desk balance: refunds never become a debt", () => {
   it("partial refund of 1 of 3 entries leaves nothing due", () => {

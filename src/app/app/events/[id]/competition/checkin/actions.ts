@@ -61,11 +61,13 @@ async function recalculateSession(supabase: Awaited<ReturnType<typeof createClie
   const credentialComplete = targets.length === 0 || targets.every((target) => credentials.some((credential) => credential.status === "issued" && ((target.holderType === "participant" && credential.registration_attendee_id === target.registrationAttendeeId) || (target.holderType === "entry" && credential.entry_id === target.entryId))));
   const orderTotal = Number(orderResult.data?.total_amount ?? 0);
   const balanceDue = checkinBalanceDue(orderTotal, paymentResult.data ?? []);
-  const paymentComplete = balanceDue <= 0;
+  // A refunded or failed order is settled money, not a paid registration: never mark it payment-complete or ready.
+  const orderUnpayable = ["refunded", "failed"].includes(String(orderResult.data?.payment_status ?? ""));
+  const paymentComplete = balanceDue <= 0 && !orderUnpayable;
   const ready = paymentComplete && waiverComplete && entriesComplete && credentialComplete;
   await supabase.from("event_competition_checkin_sessions").update({
     status: session.status === "complete" ? "complete" : entryBlocked ? "blocked" : ready ? "ready" : "in_progress",
-    payment_status: paymentComplete ? "complete" : "balance_due",
+    payment_status: paymentComplete ? "complete" : orderUnpayable ? "needs_review" : "balance_due",
     waiver_status: waiverComplete ? "complete" : "missing",
     entry_status: entryBlocked ? "disputed" : entriesComplete ? "complete" : "needs_review",
     credential_status: targets.length === 0 ? "not_required" : credentialComplete ? "complete" : "missing",

@@ -26,12 +26,12 @@ A refund settles money that was already captured; it never re-creates a debt.
 | # | Check | Result |
 |---|---|---|
 | 1 | Helper unit tests (6): partial refund, full refund, genuine balance +/- refund, multiple rows, pending/failed rows, cents | PASS |
-| 2 | Action tests with fakeSupabase (4): partial refund -> balance 0 / `complete`; full refund; genuine balance 100 stays `balance_due`; pending row not captured | PASS |
+| 2 | Action tests with fakeSupabase (5, incl. refunded order -> needs_review): partial refund -> balance 0 / `complete`; full refund; genuine balance 100 stays `balance_due`; pending row not captured | PASS |
 | 3 | Existing CI-B race tests (#295) | PASS |
 | 4 | SQL suite `test_T_competition_checkin_balance.sql` (13 checks) on cib-bal-db with R2 | PASS |
 | 5 | PAY-WH-1A suite before and after the migration (66 checks) | PASS / PASS |
 | 6 | Rollback restores the exact prior body (md5 387aacac...) and re-apply is idempotent | PASS |
-| 7 | Independent money-logic review | see PR |
+| 7 | Independent money-logic review | P1 fixed (refunded/failed order is never payment-complete or ready; test added); P2s noted in PR |
 | 8 | Hosted DEV/PROD apply, deploy, live Stripe | NOT RUN (not authorized) |
 | 9 | Clean migration-built database (iso-qa) | BLOCKED (baseline not replayable, see R2 QA matrix section I); evidence is from a DEV-schema clone |
 

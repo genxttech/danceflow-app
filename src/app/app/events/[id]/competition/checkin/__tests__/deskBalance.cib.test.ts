@@ -21,18 +21,18 @@ vi.mock("@/lib/auth/studio", () => ({
 
 import { startCompetitionCheckinAction } from "../actions";
 
-function seed(payments: Array<Record<string, unknown>>, total = 300) {
+function seed(payments: Array<Record<string, unknown>>, total = 300, orderPayment = "paid") {
   return new FakeDb({
     events: [{ id: "evt-c", studio_id: "studio-1", organizer_id: null }],
     event_competition_registration_carts: [{ id: "cart-1", event_id: "evt-c", order_id: "order-1" }],
     event_registrations: [{ id: "reg-c", event_id: "evt-c", order_id: "order-1" }],
-    event_orders: [{ id: "order-1", total_amount: total, currency: "USD", payment_status: "paid" }],
+    event_orders: [{ id: "order-1", total_amount: total, currency: "USD", payment_status: orderPayment }],
     event_payments: payments.map((p, i) => ({ id: `pay-${i}`, registration_id: "reg-c", ...p })),
   });
 }
 
-async function startAndRead(payments: Array<Record<string, unknown>>, total = 300) {
-  state.db = seed(payments, total);
+async function startAndRead(payments: Array<Record<string, unknown>>, total = 300, orderPayment = "paid") {
+  state.db = seed(payments, total, orderPayment);
   const formData = new FormData();
   formData.set("eventId", "evt-c");
   formData.set("cartId", "cart-1");
@@ -62,5 +62,13 @@ describe("CI-B competition check-in desk balance with refunds", () => {
   it("a pending or failed payment row does not count as captured", async () => {
     const session = await startAndRead([{ amount: 300, refund_amount: 0, status: "pending" }]);
     expect(session).toMatchObject({ balance_due: 300, payment_status: "balance_due" });
+  });
+});
+
+describe("CI-B refunded orders are never payment-complete", () => {
+  it("a fully refunded order has balance 0 but needs review, not complete", async () => {
+    const session = await startAndRead([{ amount: 300, refund_amount: 300, status: "refunded" }], 300, "refunded");
+    expect(session).toMatchObject({ balance_due: 0, payment_status: "needs_review" });
+    expect(session.status).not.toBe("ready");
   });
 });
