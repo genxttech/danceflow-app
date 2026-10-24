@@ -5,8 +5,8 @@ begin;
 set local lock_timeout = '5s';
 do $$
 begin
-  if position('ki1_cross_month' in (select p.prosrc from pg_proc p where p.oid = 'public.tw4_prov_observe(uuid,text,uuid,jsonb,text,text,text)'::regprocedure)) = 0 then
-    raise exception 'KI-1 rollback precondition failed: the migration is not applied (or tw4_prov_observe was replaced later: roll that back first)';
+  if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_prov_observe(uuid,text,uuid,jsonb,text,text,text)'::regprocedure), chr(13), '')), 8) <> '65125c6c' then
+    raise exception 'KI-1 rollback precondition failed: tw4_prov_observe is not the 20261228 body (not applied, or replaced later: roll that back first)';
   end if;
   if exists (select 1 from public.studio_sms_onboarding_audit a where a.action = 'prov_observed' and a.note like '%;ki1_released=%') then
     raise exception 'KI-1 rollback refused: a cross-month pilot reservation has been released under this rule' using errcode = '55000';

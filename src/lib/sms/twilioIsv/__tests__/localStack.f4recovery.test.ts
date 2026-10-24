@@ -284,6 +284,10 @@ commit;`);
       expect(psql(`select status from public.studio_sms_spend_events where reservation_key = '${key}'`)).toBe("void");
       expect(psql(`select disposition || ':' || note from public.studio_sms_prov_dispositions where operation_id = '${c.op}' and fee_kind = 'monthly'`)).toBe("reservation_released:pilot");
       expect(audits(w, "prov_observed").some((a) => /;ki1_released=monthly/.test(a.note))).toBe(true);
+      // an ADMIN alert names the reservation's month (the provider may have billed it); never an owner request
+      const alert = psql(`select audience || '|' || severity || '|' || summary from public.studio_sms_provider_alerts where kind = 'pilot_approval_needed' and dedupe_key = 'ki1:${c.op}:monthly'`);
+      expect(alert.startsWith("admin|warning|")).toBe(true);
+      expect(alert).toContain(psql(`select public._tw4ml_month_key('${w.entity}', now() - interval '40 days')`));
       expect(pilotUsed(w)).toBe(before.used - 1500);   // the headroom returns
       const rows = resourcesOf(w);
       expect(rows).toHaveLength(1);
@@ -338,10 +342,35 @@ commit;`);
       expect(psql(`select status from public.studio_sms_credit_reservations where reservation_key = 'prov:${c.op}:monthly'`)).toBe("reserved");
     });
 
+    it("KI-1: a cross-month VETTING reservation is still captured, and a cross-month REJECTION still releases as campaign_rejected (no KI-1 marker)", () => {
+      const w = world({ pilot: true });
+      const c = campaign(w, { startedAgo: "40 days" });
+      const vet = (key: string) => replica(`insert into public.studio_sms_credit_reservations (legal_entity_id, studio_id, kind, amount_cents, funding, status, reservation_key, created_at)
+          values ('${w.entity}', '${w.studio}', 'campaign_vetting', 1500, 'pilot', 'reserved', '${key}', now() - interval '40 days');
+        insert into public.studio_sms_spend_events (legal_entity_id, studio_id, kind, amount_cents, status, approval_ref, authorized_by, authorized_at, reservation_key, reserved_at, credit_reservation_id, funding)
+          values ('${w.entity}', '${w.studio}', 'campaign_vetting', 1500, 'reserved', 'Written approval ${RUN} vetting ${hex(3)}', '${P}', now() - interval '40 days', '${key}', now() - interval '40 days',
+                  (select id from public.studio_sms_credit_reservations where reservation_key = '${key}'), 'pilot');`);
+      vet(`prov:${c.op}:campaign_vetting`);
+      observeCampaign(w, c);
+      expect(psql(`select status from public.studio_sms_credit_reservations where reservation_key = 'prov:${c.op}:campaign_vetting'`)).toBe("captured");
+      const r = world({ pilot: true });
+      const rej = campaign(r, { pilotReservation: "reserved", startedAgo: "40 days", reservedAgo: "40 days" });
+      spendEvent(r, rej, "40 days");
+      observeCampaign(r, rej, "FAILED");
+      expect(psql(`select status from public.studio_sms_credit_reservations where reservation_key = 'prov:${rej.op}:monthly'`)).toBe("released");
+      expect(audits(r, "prov_observed").some((a) => /ki1_released/.test(a.note))).toBe(false);
+      expect(count(`select 1 from public.studio_sms_provider_alerts where dedupe_key like 'ki1:${rej.op}:%'`)).toBe(0);
+    });
+
     it("KI-1 rollback refuses once a release was recorded, and otherwise restores the 20261221 body exactly (in rolled-back transactions)", () => {
       const rb = readFileSync(join(MIG, "rollback/20261228090000_twilio_ki1_cross_month_release_rollback.sql"), "utf8").replace(/^begin;/m, "").replace(/^commit;/m, "");
-      expect(count(`select 1 from public.studio_sms_onboarding_audit where action = 'prov_observed' and note like '%;ki1_released=%'`)).toBeGreaterThan(0);
-      expect(psqlError(`begin; ${rb} rollback;`)).toMatch(/55000: KI-1 rollback refused/);
+      // the refusal is tested against a release row this test seeds itself (inside the rolled-back transaction), not one an earlier test happened to leave
+      const w = world();
+      expect(psqlError(`begin;
+        set local session_replication_role = replica;
+        insert into public.studio_sms_onboarding_audit (studio_id, onboarding_id, actor_type, action, note) values ('${w.studio}', '${w.onboarding}', 'system', 'prov_observed', 'op=x;kind=campaign;status=verified;src=fake;ki1_released=monthly');
+        set local session_replication_role = origin;
+        ${rb} rollback;`)).toMatch(/55000: KI-1 rollback refused/);
       const out = psql(`begin;
         set local session_replication_role = replica; delete from public.studio_sms_onboarding_audit where action = 'prov_observed' and note like '%;ki1_released=%'; set local session_replication_role = origin;
         ${rb}

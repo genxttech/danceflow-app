@@ -10,7 +10,8 @@
 -- The fix (tw4_prov_observe only): on a provider-VERIFIED observation, a pilot-funded monthly reservation of THIS attempt that is still reserved and was made in an
 -- earlier business month (_tw4ml_month_key of its created_at vs now, the D5 / 1219 rule) is released through _tw4prov_settle with reason 'ki1_cross_month':
 -- the ceiling headroom returns, the spend event is voided, the 20261212 trigger records a 'reservation_released' disposition, and the observation's audit note
--- carries 'ki1_released=<kind>'. The approved month is then funded only by its own written approval. Unchanged: a same-month approval (capture + D5 cover), the
+-- carries 'ki1_released=<kind>'. An ADMIN alert (pilot_approval_needed, never an owner payment request) names the reservation's month, because the provider may
+-- already have billed it and the lifecycle only watches periods from registration on. The approved month is then funded only by its own written approval. Unchanged: a same-month approval (capture + D5 cover), the
 -- vetting fee, every non-pilot business (no monthly reservation exists for them), rejections, the lock order, the registration (20261221) and the activation
 -- checklist item 'pilot_ki1_redecided' (20261226), which only an owner decision and its own migration lift.
 --
@@ -59,6 +60,7 @@ declare
   v_kind text;
   v_reg_error text := null;
   v_ki1 text := null;
+  v_res_month text;
 begin
   o := public._tw4_r1_lease(p_onboarding_id, p_lease_owner);
   if p_source is null or p_source not in ('provider_read', 'fake') or p_digest is null or p_digest !~ '^[0-9a-f]{64}$' or p_facts is null or jsonb_typeof(p_facts) <> 'object'
@@ -141,13 +143,20 @@ begin
         -- 20261228 (KI-1): the PILOT's own first-month reservation of this attempt, made in an EARLIER business month than the approval, covers no lifecycle
         -- period (D5: it binds a cover only in the month it was made), and the approved month is funded by its own written approval (tw4_rfl_pilot_cover).
         -- Capturing it would charge the pilot ceiling twice for one provider month: it is RELEASED instead (headroom returned, recorded with its reason).
-        -- Same-month approvals, the vetting fee and every non-pilot business are unchanged.
-        if v_status = 'verified' and v_kind <> 'campaign_vetting'
-           and exists (select 1 from public.studio_sms_spend_events se join public.studio_sms_credit_reservations cr on cr.id = se.credit_reservation_id
-                        where se.reservation_key = 'prov:' || r.id::text || ':' || v_kind and cr.status = 'reserved' and cr.funding = 'pilot'
-                          and public._tw4ml_month_key(r.legal_entity_id, cr.created_at) <> public._tw4ml_month_key(r.legal_entity_id, clock_timestamp())) then
+        -- Same-month approvals, the vetting fee and every non-pilot business are unchanged. An ADMIN alert names the reservation's month: the provider may
+        -- already have billed it (#290 P2-2), and the lifecycle only watches periods from registration on, so that earlier month must stay visible.
+        v_res_month := null;
+        if v_status = 'verified' and v_kind <> 'campaign_vetting' then
+          select public._tw4ml_month_key(r.legal_entity_id, cr.created_at) into v_res_month
+            from public.studio_sms_spend_events se join public.studio_sms_credit_reservations cr on cr.id = se.credit_reservation_id
+           where se.reservation_key = 'prov:' || r.id::text || ':' || v_kind and cr.status = 'reserved' and cr.funding = 'pilot';
+        end if;
+        if v_res_month is not null and v_res_month <> public._tw4ml_month_key(r.legal_entity_id, clock_timestamp()) then
           perform public._tw4prov_settle(r.id, v_kind, 'released', 'ki1_cross_month');
           v_ki1 := coalesce(v_ki1 || ',', '') || v_kind;
+          perform public._tw4rfl_alert(r.legal_entity_id, r.studio_id, null, 'pilot_approval_needed', 'ki1:' || r.id || ':' || v_kind, 'admin', 'warning',
+            'A pilot campaign was approved after the month of its first-month reservation (' || v_res_month || '), so that reservation was released. '
+            || 'The approved month needs its own written approval; check whether the provider billed ' || v_res_month || '.');
         elsif v_kind = 'campaign_vetting' or v_status = 'verified' then
           perform public._tw4prov_settle(r.id, v_kind, 'captured', r.provider_sid);
         elsif v_status = 'failed' then
