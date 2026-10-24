@@ -1,6 +1,6 @@
 # Engine spec — `callback_tally` (Studio v1, K1)
 
-Status: **DRAFT for owner approval** · Baseline: origin/main `973f36da` · Docs only (no code, no SQL).
+Status: **DRAFT for owner approval** · Baseline: origin/main `973f36da` · Docs only (no code, no SQL). **Stage 1 (X-1…X-7) APPROVED by the owner 2026-10-24; every D-* item below remains open.**
 Engine version on approval: `callback_tally@1`. No engine code may be written until the owner signs off this
 spec and the decisions in §10 (owner decision 2026-10-23: engines are specified first, approved, then built).
 
@@ -142,17 +142,17 @@ First failure stops the calculation; no partial result. Proposed `reason` values
 | V1 | Engine key/version unknown or spec not approved | `COMP_ENGINE_NOT_AVAILABLE` | K0 |
 | V2 | Round not `preliminary` / not `promote_callback` | `COMP_ENGINE_UNSPECIFIED_CASE` | S6 |
 | V3 | `target_advancement_count` null, or `≥` entries | `COMP_ENGINE_UNSPECIFIED_CASE` until **D-CT-5** | S11 |
-| V4 | No `mark_scheme` (every `@1` program today) | `COMP_ENGINE_UNSPECIFIED_CASE` until **D-CT-1** / **X-1** | S6 |
+| V4 | No `mark_scheme` (every `@1` program today) | `COMP_ENGINE_UNSPECIFIED_CASE` until **D-CT-1** (X-1 approved: the `@1` default scheme is written into this spec once D-CT-1 is decided) | S6 |
 | V5 | `scored_by = role` or `input = callback_retire` | `COMP_ENGINE_UNSPECIFIED_CASE` (D-CT-7) / invalid `scheme_mismatch` | S6 |
-| V6 | No judges / below minimum panel | `COMP_ENGINE_UNSPECIFIED_CASE` until **X-3** | NOT SPECIFIED |
+| V6 | Fewer than 3 judges, or an even panel size | `COMP_ENGINE_UNSPECIFIED_CASE` (**X-3**, approved 2026-10-24) | X-3 |
 | V7 | Mark from an official not on the panel | invalid `official_not_on_panel` | S4, K0 §9 #2 |
 | V8 | Mark for an entry not in the round | invalid `entry_not_in_round` | K0 §9 #3 |
 | V9 | More than one mark for (judge, entry) | invalid `duplicate_mark` | S2 |
 | V10 | Mark value not in the scheme (e.g. an alternate under CT-A) | invalid `mark_not_in_scheme` | D-CT-1 |
 | V11 | A judge's callback count breaks the D-CT-2 rule | invalid `callback_count` | D-CT-2 |
 | V12 | Assigned judge with no ballot | lock step (K0 O1); if it reaches the engine: `COMP_ENGINE_UNSPECIFIED_CASE` | K0 O1 |
-| V13 | Scratched / no-show entry in `entries[]` | `COMP_ENGINE_UNSPECIFIED_CASE` until **X-5** | NOT SPECIFIED |
-| V14 | Round's heats cover more than one dance | `COMP_ENGINE_UNSPECIFIED_CASE` until **X-6** | NOT SPECIFIED |
+| V13 | Scratched / no-show entry in `entries[]` | Excluded from the calculation and recorded in the trace (**X-5**, approved 2026-10-24); never placed last. How exclusion interacts with the callback quota is D-CT-2 / D-CT-5 (open) | X-5 |
+| V14 | Input spans more than one dance | Run once per dance (**X-6**, approved 2026-10-24); combined result not supported, fails closed (`COMP_ENGINE_UNSPECIFIED_CASE`) | X-6 |
 | V15 | Tie straddling the cut | `COMP_ENGINE_UNSPECIFIED_CASE` until **D-CT-4** | NOT SPECIFIED |
 
 ## 8. Determinism and trace
@@ -216,7 +216,7 @@ most the target": `callback_count` (V11). Under "any number": valid; 15's tally 
 `a1` (alternate-1), J1 contributes `y` to 11, 12, 13 and `a1` to 14. Tally = sum per entry. No numeric expectation
 until the owner supplies the values (D-CT-1).
 
-**F-CT-07 — two heats.** Heat 1 holds 11–14, heat 2 holds 15–18, same panel. Whether each judge gives 4 callbacks
+**F-CT-07 — two heats.** Heat 1 holds 11–14, heat 2 holds 15–18. If the two heats do not have the same panel: `COMP_ENGINE_UNSPECIFIED_CASE` (X-7, approved 2026-10-24). With the same panel, whether each judge gives 4 callbacks
 across the round or a quota per heat is D-CT-9; until decided, a round with more than one heat →
 `COMP_ENGINE_UNSPECIFIED_CASE`.
 
@@ -230,7 +230,7 @@ across the round or a quota per heat is D-CT-9; until decided, a round with more
 | d | An alternate mark under CT-A | `mark_not_in_scheme` (V10) |
 | e | Scheme `scored_by: role` | `COMP_ENGINE_UNSPECIFIED_CASE` (V5) |
 | f | Round type `final` | `COMP_ENGINE_UNSPECIFIED_CASE` (V2) |
-| g | Entry 13 scratched in 10D | `COMP_ENGINE_UNSPECIFIED_CASE` (V13) until X-5 |
+| g | Entry 13 scratched in 10D | Excluded from the calculation, noted in the trace (V13, X-5 approved); quota effect per D-CT-2 / D-CT-5 |
 
 **F-CT-09 — determinism.** F-CT-01 with `marks[]` shuffled → identical output and trace hash.
 
@@ -251,17 +251,17 @@ Engine-specific:
 | D-CT-9 | Callbacks counted per heat or across the round when the round has several heats | across the round; per-heat quota | Multi-heat rounds fail closed |
 | D-CT-10 | Is anything from the callback round carried into the Final? (S6 scores the Final separately with `ordinal_majority`.) | nothing; tally shown as information only | Nothing carried |
 
-Cross-cutting (same IDs and wording in all three specs — decide once):
+Cross-cutting X-1…X-7 (same IDs in all three specs): **APPROVED by the owner 2026-10-24 ("Approve K1 Stage 1 (X-1..X-7) as recommended")**. Every D-OM / D-PR / D-CT item remains open.
 
-| ID | Question | Until decided |
+| ID | Rule | Status |
 |---|---|---|
-| X-1 | Where do decided values live? S8 says scales, values and tie-break chains are profile parameters, so they belong in a new `studio_simple@4`. Programs already locked to `@1`/`@3` (S3: never silently changed) then either (a) score with `@1`/`@3` metadata plus engine `@1` defaults written in this spec, or (b) cannot be scored and must be re-created under `@4`. | Fail closed for locked `@1`/`@3` programs |
-| X-2 | Confirm fail-closed for every case this spec marks unspecified (no guessed result; manager sees the reason). | Fail closed (this draft's rule) |
-| X-3 | Minimum panel size; are one-judge and even-sized panels allowed? (Rounds already carry `minimum_panel_size`, nullable, from `20260622_west_coast_swing_foundation_v1`; no Studio value is specified. The same migration added `chief_judge_tiebreak` and `score_roles_separately`: Studio engines refuse a round with either set to true, since both are WSDC concepts.) | `COMP_ENGINE_UNSPECIFIED_CASE` |
-| X-4 | A judge assigned but absent (K0 O1). | Round cannot lock (K0 default) |
-| X-5 | Scratched / no-show entries (10D) at calculation time: excluded, placed last, or other? | `COMP_ENGINE_UNSPECIFIED_CASE` |
-| X-6 | A round whose heats cover several dances: one result per dance, or one combined result? | `COMP_ENGINE_UNSPECIFIED_CASE` |
-| X-7 | A round split across several scoring heats (10D default capacity 8 per heat). For this engine see D-CT-9. | `COMP_ENGINE_UNSPECIFIED_CASE` |
+| X-1 | **APPROVED 2026-10-24: option (a).** Programs locked to `@1`/`@3` are scored with the profile metadata plus the engine `@1` defaults written in this spec. No `@4` re-creation is required. | Rule (approved) |
+| X-2 | **APPROVED 2026-10-24.** Fail closed on every unspecified case: no guessed result, a trace entry, and the manager sees the reason. | Rule (approved) |
+| X-3 | **APPROVED 2026-10-24.** This engine needs at least 3 judges and an odd panel size; any other panel fails closed (`COMP_ENGINE_UNSPECIFIED_CASE`). Studio engines also refuse a round with `chief_judge_tiebreak` or `score_roles_separately` set to true. | Rule (approved) |
+| X-4 | **APPROVED 2026-10-24, consistent with K0 O1.** A round cannot lock with an absent assigned judge. A manager removes the judge from the panel (audited), and the reduced panel must still satisfy X-3. | Rule (approved) |
+| X-5 | **APPROVED 2026-10-24.** Scratched and no-show entries are excluded from calculation. They are not placed last. | Rule (approved) |
+| X-6 | **APPROVED 2026-10-24.** A multi-dance round yields one result per dance. A combined result is not supported in v1 and fails closed. | Rule (approved) |
+| X-7 | **APPROVED 2026-10-24.** Every heat in a round must have the same panel; otherwise the round fails closed. | Rule (approved) |
 
 ## 11. Engineering findings (not engine rules; recorded for the F-slice owner)
 

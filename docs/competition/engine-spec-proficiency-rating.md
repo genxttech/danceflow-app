@@ -1,6 +1,6 @@
 # Engine spec — `proficiency_rating` (Studio v1, K1)
 
-Status: **DRAFT for owner approval** · Baseline: origin/main `973f36da` · Docs only (no code, no SQL).
+Status: **DRAFT for owner approval** · Baseline: origin/main `973f36da` · Docs only (no code, no SQL). **Stage 1 (X-1…X-7) APPROVED by the owner 2026-10-24; every D-* item below remains open.**
 Engine version on approval: `proficiency_rating@1`. No engine code may be written until the owner signs off this
 spec and the decisions in §10 (owner decision 2026-10-23: engines are specified first, approved, then built).
 
@@ -133,8 +133,8 @@ Checked in this order; the first failure stops the calculation (no partial resul
 |---|---|---|---|
 | V1 | Engine key/version unknown or spec not approved | `COMP_ENGINE_NOT_AVAILABLE` | K0, S5 |
 | V2 | `mark_scheme.input ≠ rating`, `scored_by ≠ entry`, or scale ≠ the locked scale | invalid `scheme_mismatch` | S6 |
-| V3 | `mark_scheme` absent (`@1` programs) | `COMP_ENGINE_UNSPECIFIED_CASE` until **X-1** | S7 |
-| V4 | No judges / below minimum panel | `COMP_ENGINE_UNSPECIFIED_CASE` until **X-3** | NOT SPECIFIED |
+| V3 | `mark_scheme` absent (`@1` programs) | Scored with the engine `@1` default scheme written in this spec (**X-1**, approved 2026-10-24: option (a)); the default scheme content is not defined in the provided sources and stays NOT SPECIFIED, so fail closed (`COMP_ENGINE_UNSPECIFIED_CASE`) until the owner supplies it | S7, X-1 |
+| V4 | No judges (fewer than 1) | `COMP_ENGINE_UNSPECIFIED_CASE` (**X-3**, approved 2026-10-24: 1 or more judges, any size) | X-3 |
 | V5 | Mark from an official not on the panel | invalid `official_not_on_panel` | S4, K0 §9 #2 |
 | V6 | Mark for an entry not in the round | invalid `entry_not_in_round` | K0 §9 #3 |
 | V7 | More than one mark for (judge, entry) | invalid `duplicate_mark` | S2 |
@@ -142,13 +142,13 @@ Checked in this order; the first failure stops the calculation (no partial resul
 | V9 | A "no rating" mark | invalid `mark_not_in_scale` until **D-PR-3** | NOT SPECIFIED |
 | V10 | A judge has no mark for an entry they were assigned | invalid `incomplete_ballot` (pending **D-PR-5**) | NOT SPECIFIED |
 | V11 | Assigned judge with no ballot | handled by the lock step (K0 O1); if it reaches the engine: `COMP_ENGINE_UNSPECIFIED_CASE` | K0 O1 |
-| V12 | Round's heats cover more than one dance | `COMP_ENGINE_UNSPECIFIED_CASE` until **X-6** | NOT SPECIFIED |
-| V13 | Scratched / no-show entry in `entries[]` | `COMP_ENGINE_UNSPECIFIED_CASE` until **X-5** | NOT SPECIFIED |
+| V12 | Input spans more than one dance | Run once per dance (**X-6**, approved 2026-10-24); combined result not supported, fails closed (`COMP_ENGINE_UNSPECIFIED_CASE`) | X-6 |
+| V13 | Scratched / no-show entry in `entries[]` | Excluded from the calculation and recorded in the trace (**X-5**, approved 2026-10-24); never placed last | X-5 |
 | V14 | Unresolved split (§6) | `COMP_ENGINE_UNSPECIFIED_CASE` until **D-PR-2** | NOT SPECIFIED |
 
-Several scoring heats in one round (X-7) do not by themselves block this engine, because entries are not compared
-(S6). Each entry is combined from the marks of the judges assigned to it; whether the panel must be identical across
-heats is part of X-7.
+Several scoring heats in one round do not by themselves block this engine, because entries are not compared
+(S6). X-7 (approved 2026-10-24) still applies: every heat in a round must have the same panel, otherwise the round
+fails closed (`COMP_ENGINE_UNSPECIFIED_CASE`).
 
 ## 8. Determinism and trace
 
@@ -196,8 +196,8 @@ F-PR-02 and F-PR-05 exist so the owner sees that D-PR-1 changes the rating dance
 | e | J3 has no mark for 11 | `incomplete_ballot` (V10) |
 | f | Mark from official J9 not on the panel | `official_not_on_panel` (V5) |
 | g | A feedback grade "Gold" arrives as a mark | not engine input (S9): the K0 input builder never passes feedback; if it did, `scheme_mismatch` |
-| h | `@1` program (no `mark_scheme`) | `COMP_ENGINE_UNSPECIFIED_CASE` (V3) until X-1 |
-| i | Entry 11 scratched in 10D | `COMP_ENGINE_UNSPECIFIED_CASE` (V13) until X-5 |
+| h | `@1` program (no `mark_scheme`) | `COMP_ENGINE_UNSPECIFIED_CASE` (V3): the `@1` default scheme is not yet specified (X-1 approved as option (a), content pending owner) |
+| i | Entry 11 scratched in 10D | Excluded from the calculation, noted in the trace (V13, X-5 approved) |
 
 **F-PR-08 — determinism.** F-PR-02 with `marks[]` shuffled → identical output and trace hash.
 
@@ -213,17 +213,17 @@ Engine-specific:
 | D-PR-4 | Are a dancer's individual judges' bands shown to the dancer / public, or only the final rating? (Publication-side; listed so F3 does not guess.) | rating only; rating + per-judge bands (judge identity per K0 O3) | Rating only |
 | D-PR-5 | Must every assigned judge rate every entry they were assigned? | yes; partial allowed with a stated rule | Required |
 
-Cross-cutting (same IDs and wording in all three specs — decide once):
+Cross-cutting X-1…X-7 (same IDs in all three specs): **APPROVED by the owner 2026-10-24 ("Approve K1 Stage 1 (X-1..X-7) as recommended")**. Every D-OM / D-PR / D-CT item remains open.
 
-| ID | Question | Until decided |
+| ID | Rule | Status |
 |---|---|---|
-| X-1 | Where do decided values live? S8 says scales, values and tie-break chains are profile parameters, so they belong in a new `studio_simple@4`. Programs already locked to `@1`/`@3` (S3: never silently changed) then either (a) score with `@1`/`@3` metadata plus engine `@1` defaults written in this spec, or (b) cannot be scored and must be re-created under `@4`. | Fail closed for locked `@1`/`@3` programs |
-| X-2 | Confirm fail-closed for every case this spec marks unspecified (no guessed result; manager sees the reason). | Fail closed (this draft's rule) |
-| X-3 | Minimum panel size; are one-judge and even-sized panels allowed? (Rounds already carry `minimum_panel_size`, nullable, from `20260622_west_coast_swing_foundation_v1`; no Studio value is specified. The same migration added `chief_judge_tiebreak` and `score_roles_separately`: Studio engines refuse a round with either set to true, since both are WSDC concepts.) | `COMP_ENGINE_UNSPECIFIED_CASE` |
-| X-4 | A judge assigned but absent (K0 O1). | Round cannot lock (K0 default) |
-| X-5 | Scratched / no-show entries (10D) at calculation time: excluded, placed last, or other? | `COMP_ENGINE_UNSPECIFIED_CASE` |
-| X-6 | A round whose heats cover several dances: one result per dance, or one combined result? | `COMP_ENGINE_UNSPECIFIED_CASE` |
-| X-7 | A round split across several scoring heats (10D default capacity 8 per heat). For this engine: must every heat have the same panel? | Not blocking for ratings; different panels per heat → `COMP_ENGINE_UNSPECIFIED_CASE` |
+| X-1 | **APPROVED 2026-10-24: option (a).** Programs locked to `@1`/`@3` are scored with the profile metadata plus the engine `@1` defaults written in this spec. No `@4` re-creation is required. | Rule (approved) |
+| X-2 | **APPROVED 2026-10-24.** Fail closed on every unspecified case: no guessed result, a trace entry, and the manager sees the reason. | Rule (approved) |
+| X-3 | **APPROVED 2026-10-24.** This engine allows 1 or more judges (no odd-size requirement). Studio engines also refuse a round with `chief_judge_tiebreak` or `score_roles_separately` set to true. | Rule (approved) |
+| X-4 | **APPROVED 2026-10-24, consistent with K0 O1.** A round cannot lock with an absent assigned judge. A manager removes the judge from the panel (audited), and the reduced panel must still satisfy X-3. | Rule (approved) |
+| X-5 | **APPROVED 2026-10-24.** Scratched and no-show entries are excluded from calculation. They are not placed last. | Rule (approved) |
+| X-6 | **APPROVED 2026-10-24.** A multi-dance round yields one result per dance. A combined result is not supported in v1 and fails closed. | Rule (approved) |
+| X-7 | **APPROVED 2026-10-24.** Every heat in a round must have the same panel; otherwise the round fails closed. | Rule (approved) |
 
 ## 11. Explicitly not in this spec
 
