@@ -18,7 +18,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { evidenceApplied, pilotCoverArgs } from "./rflEvidenceHelper";
+import { evidenceApplied, pilotCoverArgs, pilotExceptionArgs, spendEvidenceApplied } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 300_000 });
 
@@ -145,7 +145,7 @@ insert into public.studio_sms_twilio_accounts (legal_entity_id, twilio_account_s
 commit;`);
       call("tw4_credit_adjust", entity, 200_000, `rflops-fund-pilot-${RUN}`, "fixture funding for the ops suite", P);
       call("tw4_monthly_limit_set_admin", entity, P, 20_000, null, "fixture: monthly limit for the ops suite");
-      call("tw4_pilot_exception_create", entity, 15000, `Founder written pilot approval ${RUN}`, P);
+      call("tw4_pilot_exception_create", ...pilotExceptionArgs(psql, entity, 15000, `Founder written pilot approval ${RUN}`, P));
       pilotShared = { entity, account };
     }
   }
@@ -1279,7 +1279,8 @@ commit;`);
       // 20261229 (pilot evidence) replaces tw4_rfl_pilot_cover again (eleven arguments): on a database that carries it the body must match THAT text
       const evid = evidenceApplied(psql);
       const d5text = d5 ? readFileSync(join(dir, "20261225090000_twilio_rfl_d5_cover.sql"), "utf8") : "";
-      const evidtext = evid ? readFileSync(join(dir, "20261229090000_twilio_rfl_pilot_evidence.sql"), "utf8") : "";
+      // 20261230 (pilot spend evidence) replaces the cover body once more (its tw4_spend_authorize call passes the evidence through): on a database that carries it, the body must match THAT text
+      const evidtext = evid ? readFileSync(join(dir, spendEvidenceApplied(psql) ? "20261230090000_twilio_rfl_pilot_spend_evidence.sql" : "20261229090000_twilio_rfl_pilot_evidence.sql"), "utf8") : "";
       for (const n of ["tw4_rfl_suspend_df", "tw4_rfl_pilot_cover", "tw4_rfl_register", "tw4_rfl_cancel_withdraw", "tw4_rfl_cancel_begin", "tw4_rfl_cancel_finish", "tw4_rfl_cancel_resolve",
         "tw4_rfl_observe_provider_bill", "tw4_rfl_alert_finish", "tw4_rfl_inventory_gaps", "tw4_rfl_studio_ready", "tw4_rfl_scan_entities", "_tw4rc_service_state", "tw4_recurring_charge",
         "_tw4rfl_cover", "_tw4rfl_gate_suspended", "_tw4rfl_alert", "_tw4rfl_lock"]) {
