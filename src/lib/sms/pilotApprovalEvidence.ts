@@ -16,8 +16,34 @@ export const EVIDENCE_MAX_AGE_DAYS = 400;
 
 export const EVIDENCE_ROLES = ["founder_written", "owner_written"] as const;
 export type EvidenceRole = (typeof EVIDENCE_ROLES)[number];
-export const EVIDENCE_SCOPES = ["pilot_period_cover"] as const;
+/** Every pilot spend approval carries evidence (20261230): the scope names the action. */
+export const EVIDENCE_SCOPES = ["pilot_exception", "pilot_onboarding_fee", "pilot_campaign_fee", "pilot_number_purchase", "pilot_period_cover"] as const;
 export type EvidenceScope = (typeof EVIDENCE_SCOPES)[number];
+export const COVER_SCOPES: readonly EvidenceScope[] = ["pilot_period_cover"];
+export const EXCEPTION_SCOPES: readonly EvidenceScope[] = ["pilot_exception"];
+export const SPEND_SCOPES: readonly EvidenceScope[] = ["pilot_onboarding_fee", "pilot_campaign_fee", "pilot_number_purchase", "pilot_period_cover"];
+
+/**
+ * The fee kinds each spend scope allows (the database applies the same map). EXHAUSTIVE and fail closed: a scope or a kind outside the map is refused, never defaulted.
+ * `pilot_exception` allows no fee kind (it is not a fee).
+ */
+export const SCOPE_KINDS: Record<EvidenceScope, readonly string[]> = {
+  pilot_exception: [],
+  pilot_onboarding_fee: ["brand", "brand_low_volume"],
+  pilot_campaign_fee: ["campaign_vetting", "monthly", "monthly_low_volume"],
+  pilot_number_purchase: ["number"],
+  pilot_period_cover: ["number", "monthly", "monthly_low_volume"],
+};
+export const scopeAllowsKind = (scope: string, kind: string): boolean => (EVIDENCE_SCOPES as readonly string[]).includes(scope) && SCOPE_KINDS[scope as EvidenceScope].includes(kind);
+export const SCOPE_LABEL: Record<EvidenceScope, string> = {
+  pilot_exception: "Pilot exception (the ceiling)",
+  pilot_onboarding_fee: "Onboarding fee (brand registration)",
+  pilot_campaign_fee: "Campaign fee (vetting or monthly)",
+  pilot_number_purchase: "Phone number purchase",
+  pilot_period_cover: "Period cover",
+};
+/** The scopes an operator may choose for one fee kind (what the form offers). */
+export const scopesForKind = (kind: string): EvidenceScope[] => SPEND_SCOPES.filter((s) => scopeAllowsKind(s, kind) && s !== "pilot_period_cover");
 
 export const EVIDENCE_ROLE_LABEL: Record<EvidenceRole, string> = {
   founder_written: "Founder, in writing",
@@ -48,7 +74,8 @@ export type PilotEvidenceInput = {
   authorizedByRole: string;
   scope: string;
   amountCents: string | number;
-  periodKey: string;
+  /** The period named by the authorization (a period cover only); null or empty for every other scope. */
+  periodKey: string | null;
   documentRef: string;
   documentSha256: string;
 };
@@ -58,7 +85,7 @@ export type PilotEvidence = {
   authorizedByRole: EvidenceRole;
   scope: EvidenceScope;
   amountCents: number;
-  periodKey: string;
+  periodKey: string | null;
   documentRef: string;
   documentSha256: string;
 };
@@ -77,7 +104,9 @@ const utcDay = (ms: number): number => Math.floor(ms / DAY_MS);
  * Server-side shape check of the evidence (the database repeats every rule and additionally requires the amount to equal the published price and the period to equal the
  * cover's period). Returns a fixed sentence on refusal; nothing is echoed back.
  */
-export function validatePilotEvidence(input: PilotEvidenceInput, periodKey: string, nowMs: number): { ok: true; value: PilotEvidence } | { ok: false; message: string } {
+export function validatePilotEvidence(
+  input: PilotEvidenceInput, periodKey: string | null, nowMs: number, allowedScopes: readonly EvidenceScope[] = COVER_SCOPES,
+): { ok: true; value: PilotEvidence } | { ok: false; message: string } {
   const bad = (message: string) => ({ ok: false as const, message });
   const m = ISO_DATE.exec(input.authorizedOn.trim());
   if (!m) return bad("Give the date of the owner's written authorization.");
@@ -90,10 +119,11 @@ export function validatePilotEvidence(input: PilotEvidenceInput, periodKey: stri
   const role = input.authorizedByRole.trim();
   if (!(EVIDENCE_ROLES as readonly string[]).includes(role)) return bad("Choose who authorized this in writing (founder or studio owner).");
   const scope = input.scope.trim();
-  if (!(EVIDENCE_SCOPES as readonly string[]).includes(scope)) return bad("The scope must be a pilot period cover.");
+  if (!(allowedScopes as readonly string[]).includes(scope)) return bad("Choose what the written authorization covers.");
   const rawAmount = String(input.amountCents).trim();
   if (!/^[0-9]{1,7}$/.test(rawAmount) || Number(rawAmount) <= 0) return bad("Give the authorized amount in dollars. It must equal the published price.");
-  if (!PERIOD.test(input.periodKey.trim()) || input.periodKey.trim() !== periodKey) return bad("The authorized period must be the period being covered.");
+  const inPeriod = (input.periodKey ?? "").trim();
+  if (periodKey === null ? inPeriod !== "" : !PERIOD.test(inPeriod) || inPeriod !== periodKey) return bad("The authorized period must be the period being covered (and only a period cover names one).");
   const documentRef = input.documentRef.trim();
   if (!documentRefValid(documentRef)) return bad("Give the retained document as an id (6 to 120 letters, digits or . _ / # + -) or a plain https link without a query string, credentials or any of ; & = %.");
   const sha = input.documentSha256.trim();
@@ -106,3 +136,15 @@ export function validatePilotEvidence(input: PilotEvidenceInput, periodKey: stri
     },
   };
 }
+
+/** RPC parameters for tw4_spend_authorize's evidence arguments (all null when absent: a pilot authorization is then refused by the database, a credit one needs none). */
+export const spendEvidenceParams = (e?: PilotEvidence | null) => ({
+  p_evidence_authorized_on: e?.authorizedOn ?? null, p_evidence_role: e?.authorizedByRole ?? null, p_evidence_scope: e?.scope ?? null, p_evidence_amount_cents: e?.amountCents ?? null,
+  p_evidence_period_key: e?.periodKey ?? null, p_evidence_document_ref: e?.documentRef ?? null, p_evidence_sha256: e?.documentSha256 ?? null,
+});
+
+/** RPC parameters for tw4_pilot_exception_create's evidence arguments (no period: the exception is not a period). */
+export const exceptionEvidenceParams = (e?: PilotEvidence | null) => ({
+  p_evidence_authorized_on: e?.authorizedOn ?? null, p_evidence_role: e?.authorizedByRole ?? null, p_evidence_scope: e?.scope ?? null, p_evidence_amount_cents: e?.amountCents ?? null,
+  p_evidence_document_ref: e?.documentRef ?? null, p_evidence_sha256: e?.documentSha256 ?? null,
+});
