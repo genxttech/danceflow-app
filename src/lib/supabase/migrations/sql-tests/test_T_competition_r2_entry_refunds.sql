@@ -158,7 +158,7 @@ insert into public.event_competition_division_dances (id, event_id, program_id, 
 -- Orderless registrations (section A) 00f001..00f006.
 insert into public.event_registrations (id, event_id, studio_id, attendee_first_name, attendee_last_name, attendee_email, status, payment_status)
 select pg_temp.u('00f00' || n), pg_temp.u('00e001'), pg_temp.u('00a001'), 'Reg', 'N' || n, 't-r2-reg' || n || '@example.test', 'confirmed', 'paid'
-from generate_series(1, 6) n;
+from generate_series(1, 7) n;
 
 -- Paid competition orders: O1 (00b001, four entries + fee + discount, captured 100.00), O2 (00b002, one entry,
 -- captured 30.00), O3 (00b003, another event).
@@ -206,6 +206,8 @@ insert into t_entries values
   ('008008', '00f004', '003001', 'Partial refund placed', null, null, 1),
   ('008009', '00f005', '003001', 'Payment failed placed', null, null, 1),
   ('008010', '00f006', '003001', 'Bystander placed', null, null, 1),
+  ('008011', '00f007', '003001', 'Scratched before refund', null, null, 1),
+  ('008012', '00f007', '003001', 'On the floor (active heat)', null, null, 2),
   ('008101', '00f101', '003001', 'O1 unplaced', '00b001', '00c101', 1),
   ('008102', '00f101', '003002', 'O1 locked heat', '00b001', '00c102', 2),
   ('008103', '00f101', '003001', 'O1 danced open heat', '00b001', '00c103', 3),
@@ -233,10 +235,10 @@ select pg_temp.expect_ok('fixture: planner places the entries',
   $q$select public.apply_competition_floor_plan(pg_temp.id('v1'), jsonb_build_object('floorHeats', jsonb_build_array(
        jsonb_build_object('number', 1, 'scoringHeats', jsonb_build_array(jsonb_build_object('divisionId', pg_temp.u('003001'), 'roundId', pg_temp.u('006001'),
          'heatNumber', 1, 'name', 'Bronze Two Step', 'danceIds', jsonb_build_array(pg_temp.u('004001')),
-         'entryIds', (select jsonb_agg(pg_temp.u(entry)) from t_entries where division = '003001' and entry not in ('008003', '008101', '008105', '008103', '008106', '008107'))))),
+         'entryIds', (select jsonb_agg(pg_temp.u(entry)) from t_entries where division = '003001' and entry not in ('008003', '008101', '008105', '008103', '008106', '008107', '008011', '008012'))))),
        jsonb_build_object('number', 2, 'scoringHeats', jsonb_build_array(jsonb_build_object('divisionId', pg_temp.u('003001'), 'roundId', pg_temp.u('006001'),
          'heatNumber', 2, 'name', 'Bronze Two Step 2', 'danceIds', jsonb_build_array(pg_temp.u('004001')),
-         'entryIds', jsonb_build_array(pg_temp.u('008103'))))),
+         'entryIds', jsonb_build_array(pg_temp.u('008103'), pg_temp.u('008012'))))),
        jsonb_build_object('number', 3, 'scoringHeats', jsonb_build_array(jsonb_build_object('divisionId', pg_temp.u('003002'), 'roundId', pg_temp.u('006002'),
          'heatNumber', 1, 'name', 'Silver Waltz', 'danceIds', jsonb_build_array(pg_temp.u('004002')),
          'entryIds', jsonb_build_array(pg_temp.u('008006'), pg_temp.u('008102'))))),
@@ -255,8 +257,8 @@ select pg_temp.expect_ok('fixture: lock and certify heat C',
 reset role;
 update public.event_competition_heat_entries set status = 'checked_in' where entry_id = pg_temp.u('008002');
 update public.event_competition_heat_entries set status = 'danced' where entry_id in (pg_temp.u('008004'), pg_temp.u('008103'));
-select pg_temp.chk('fixture: 12 placements, heat B locked, heat C certified',
-  (select count(*) from public.event_competition_heat_entries where event_id = pg_temp.u('00e001')) = 12
+select pg_temp.chk('fixture: 13 placements, heat B locked, heat C certified',
+  (select count(*) from public.event_competition_heat_entries where event_id = pg_temp.u('00e001')) = 13
   and (select lock_state from public.event_competition_heats where id = pg_temp.id('heat_b')) = 'locked'
   and (select lock_state from public.event_competition_heats where id = pg_temp.id('heat_c')) = 'certified',
   (select count(*)::text from public.event_competition_heat_entries where event_id = pg_temp.u('00e001')));
@@ -311,6 +313,25 @@ select pg_temp.expect_ok('A: re-firing the trigger is accepted',
 select pg_temp.chk('A: re-fire adds no scope and no second withdrawal',
   pg_temp.scopes('competition_refund_entry_locked_heat', '008004') = 1 and pg_temp.scopes('competition_refund_entry_locked_heat', '008006') = 1
   and (select count(*) from public.event_competition_entry_changes where entry_id = pg_temp.u('008001') and change_type = 'withdraw') = 1);
+
+-- SC1 review P2-4 + SC1 on-floor rule: an entry already scratched is never rewritten to withdrawn by a later refund,
+-- and an unscratched placement in a heat on the floor (active / complete) counts as danced (held -> E-L).
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('A/SC1: staff scratch 008011 before any refund',
+  $q$select public.change_competition_entry_lifecycle(pg_temp.u('008011'), 'scratched', 'Scratched at the desk', 'retain')$q$);
+reset role;
+update public.event_competition_heats set status = 'active' where id = pg_temp.id('heat_a2');
+select pg_temp.expect_ok('A/SC1: full refund of the registration holding them',
+  $q$update public.event_registrations set payment_status = 'refunded', status = 'refunded' where id = pg_temp.u('00f007')$q$);
+select pg_temp.chk('A/SC1 P2-4: the scratched entry stays scratched; no second (withdraw/refund) audit row',
+  pg_temp.entry_status('008011') = 'scratched'
+  and not exists (select 1 from public.event_competition_entry_changes where entry_id = pg_temp.u('008011') and change_type = 'withdraw'));
+select pg_temp.chk('A/SC1: an entry on the floor (active heat, not marked danced) is NOT withdrawn and raises E-L for its round',
+  pg_temp.entry_status('008012') = 'confirmed' and pg_temp.placement('008012') = 'scheduled'
+  and exists (select 1 from public.event_competition_refund_exception_scopes
+              where entry_id = pg_temp.u('008012') and heat_id = pg_temp.id('heat_a2') and round_id = pg_temp.u('006001')
+                and kind = 'competition_refund_entry_locked_heat' and competitive_effect and resolved_at is null));
+select pg_temp.chk('A/SC1: participation class of the on-floor entry is locked', public._r2_entry_participation_class(pg_temp.u('008012')) = 'locked');
 
 -- ============================================================================
 -- B. D1/D2 net caps (parity with competitionRefundRules.test.ts "R2 SQL parity" case)
@@ -513,7 +534,7 @@ select pg_temp.expect_msg('E: a note is required',
   'COMP_REFUND_REASON_REQUIRED');
 -- scope ids captured as the owner (another studio cannot even read them under RLS)
 insert into t_ids select 'scope_' || right(entry_id::text, 6), id from public.event_competition_refund_exception_scopes
-where entry_id in (pg_temp.u('008102'), pg_temp.u('008103'), pg_temp.u('008104'), pg_temp.u('008006'), pg_temp.u('008004'));
+where entry_id in (pg_temp.u('008102'), pg_temp.u('008103'), pg_temp.u('008104'), pg_temp.u('008006'), pg_temp.u('008004'), pg_temp.u('008012'));
 select pg_temp.as_user(pg_temp.u('000003'));
 select pg_temp.expect_msg('E: another studio cannot resolve',
   $q$select public.resolve_competition_refund_scope(pg_temp.id('scope_008104'), 'result_stands', 'x')$q$,
@@ -537,12 +558,13 @@ select pg_temp.keep('k6', to_jsonb(public.resolve_competition_refund_scope(pg_te
 select pg_temp.chk('E: ... and unblocked once it is resolved', pg_temp.out('k6') = 'true'::jsonb and not pg_temp.k0_blocked('006002'));
 select pg_temp.keep('k3', to_jsonb(public.resolve_competition_refund_scope(pg_temp.id('scope_008103'), 'keep_entry', 'Danced; kept.')));
 select pg_temp.keep('k4', to_jsonb(public.resolve_competition_refund_scope(pg_temp.id('scope_008004'), 'keep_entry', 'Danced; kept.')));
+select pg_temp.keep('k12', to_jsonb(public.resolve_competition_refund_scope(pg_temp.id('scope_008012'), 'keep_entry', 'On the floor; kept.')));
 select pg_temp.chk('E: keep_entry for the danced entries resolves the last E-L scopes and the parent',
-  pg_temp.out('k3') = 'true'::jsonb and pg_temp.out('k4') = 'true'::jsonb
+  pg_temp.out('k3') = 'true'::jsonb and pg_temp.out('k4') = 'true'::jsonb and pg_temp.out('k12') = 'true'::jsonb
   and not pg_temp.k0_blocked('006001')
   and not exists (select 1 from public.event_order_settlement_exceptions where kind = 'competition_refund_entry_locked_heat' and status <> 'resolved'));
 select pg_temp.chk('E: each resolution is audited',
-  (select count(*) from public.event_order_settlement_exception_events where action = 'scope_resolved') = 5);
+  (select count(*) from public.event_order_settlement_exception_events where action = 'scope_resolved') = 6);
 select pg_temp.expect_msg('E: a resolved scope cannot be resolved again',
   $q$update public.event_competition_refund_exception_scopes set resolution_note = 'x' where entry_id = pg_temp.u('008102')$q$, 'permission denied');
 reset role;

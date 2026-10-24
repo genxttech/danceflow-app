@@ -21,7 +21,7 @@ declare
 begin
   for v_pin in
     select * from (values
-      ('public.sync_competition_entries_from_registration()', '4c8592ee4eafbf6032890229f7c6783f'),
+      ('public.sync_competition_entries_from_registration()', '95e9cd2a2ad791b9ea1fdd03c17594dd'),
       ('public.sync_event_payment_accounting_entry()', '4577dc12f2193f7beb63dd47f5e798e9'),
       ('public._paywh1_exception_money_state(text)', '5469516fd431fe5bdbf6b8c5c0a6859e'),
       ('public.resolve_event_order_settlement_exception(uuid,text)', 'dd85d688d2423eb26aa1873d18852100')

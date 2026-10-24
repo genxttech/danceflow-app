@@ -588,7 +588,7 @@ as $$
     when exists (select 1 from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id
                  where he.entry_id = p_entry_id and h.lock_state = 'certified') then 'certified'
     when exists (select 1 from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id
-                 where he.entry_id = p_entry_id and (h.lock_state = 'locked' or he.status = 'danced')) then 'locked'
+                 where he.entry_id = p_entry_id and (h.lock_state = 'locked' or he.status = 'danced' or (h.status in ('active', 'complete') and he.status <> 'scratched'))) then 'locked'
     when exists (select 1 from public.event_competition_heat_entries he where he.entry_id = p_entry_id) then 'open'
     else 'unplaced'
   end;
@@ -618,7 +618,7 @@ begin
       select 1 from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id
       where he.entry_id = p_entry_id
         and (case when p_kind = 'competition_refund_entry_certified_heat' then h.lock_state = 'certified'
-                  else h.lock_state <> 'open' or he.status = 'danced' end)
+                  else h.lock_state <> 'open' or he.status = 'danced' or (h.status in ('active', 'complete') and he.status <> 'scratched') end)
         and not exists (select 1 from public.event_competition_refund_exception_scopes s
                         where s.kind = p_kind and s.entry_id = p_entry_id and s.heat_id = he.heat_id
                           and (s.resolved_at is null or s.refund_id is not distinct from p_refund_id))
@@ -649,7 +649,7 @@ begin
     from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id
     where he.entry_id = p_entry_id
       and (case when p_kind = 'competition_refund_entry_certified_heat' then h.lock_state = 'certified'
-                else h.lock_state <> 'open' or he.status = 'danced' end)
+                else h.lock_state <> 'open' or he.status = 'danced' or (h.status in ('active', 'complete') and he.status <> 'scratched') end)
       and not exists (select 1 from public.event_competition_refund_exception_scopes s
                       where s.kind = p_kind and s.entry_id = p_entry_id and s.heat_id = h.id
                         and (s.resolved_at is null or s.refund_id is not distinct from p_refund_id))
@@ -1389,7 +1389,7 @@ begin
         lifecycle_version = lifecycle_version + 1,
         updated_at = now()
       where registration_id = new.id
-        and status not in ('withdrawn', 'disqualified', 'complete')
+        and status not in ('withdrawn', 'disqualified', 'complete', 'scratched')
         and not exists (
           select 1
           from public.event_competition_heat_entries he
@@ -1397,9 +1397,13 @@ begin
           where he.entry_id = event_competition_entries.id and h.lock_state in ('locked', 'certified')
         )
         -- R2 / owner Q1: once the entry has danced, it is never withdrawn automatically, even if the heat is not locked.
+        -- "Danced" = a placement marked danced, or a placement (not scratched) in a heat on the floor (active /
+        -- complete) -- the same rule as SC1, because nothing marks placements 'danced' yet.
         and not exists (
           select 1 from public.event_competition_heat_entries he
-          where he.entry_id = event_competition_entries.id and he.status = 'danced'
+          join public.event_competition_heats h on h.id = he.heat_id
+          where he.entry_id = event_competition_entries.id
+            and (he.status = 'danced' or (h.status in ('active', 'complete') and he.status <> 'scratched'))
         )
       returning id
     )

@@ -114,14 +114,21 @@ export type Placement = {
   roundId: string | null;
   lockState: HeatLockState;
   status: "scheduled" | "checked_in" | "scratched" | "danced" | "disqualified";
+  /** Heat status; a heat on the floor (active / complete) counts as danced for its unscratched placements (SC1 rule). */
+  heatStatus?: string | null;
 };
+
+/** Q1 + SC1: a placement has danced when marked danced, or when its heat is on the floor and it was not scratched. */
+export function hasDanced(p: Placement): boolean {
+  return p.status === "danced" || ((p.heatStatus === "active" || p.heatStatus === "complete") && p.status !== "scratched");
+}
 
 /** Participation class of an entry (§4.1 P): the most restrictive of its placements. Q1: danced = locked. */
 export type ParticipationClass = "unplaced" | "open" | "locked" | "certified";
 
 export function participationClass(placements: readonly Placement[]): ParticipationClass {
   if (placements.some((p) => p.lockState === "certified")) return "certified";
-  if (placements.some((p) => p.lockState === "locked" || p.status === "danced")) return "locked";
+  if (placements.some((p) => p.lockState === "locked" || hasDanced(p))) return "locked";
   return placements.length > 0 ? "open" : "unplaced";
 }
 
@@ -141,7 +148,7 @@ export type ExceptionScope = { entryId: string; heatId: string; roundId: string 
 
 /** The heats that hold an entry's competitive state: certified, locked or danced placements. */
 function heldPlacements(placements: readonly Placement[]) {
-  return placements.filter((p) => p.lockState !== "open" || p.status === "danced");
+  return placements.filter((p) => p.lockState !== "open" || hasDanced(p));
 }
 
 /**

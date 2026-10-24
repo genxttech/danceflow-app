@@ -550,3 +550,21 @@ scratch is not inherently financial. A scratch must never automatically cause a 
 - **Held entries:** the refund page now offers "Request scratch (official decision required)" for entries in locked,
   danced or certified heats. Requesting it raises E-L/E-C and never scratches automatically. Before this fix, the
   checkbox was disabled, so a refund there could leave no official decision.
+
+### 8.5 Alignment with SC1 (scratch workflow, draft, migration 20270108090000), 2026-10-24
+
+- **SC1 review P2-4 (fixed):** the registration cascade no longer touches an entry that is already `scratched`. A later
+  refund or cancel of its registration leaves it `scratched` and writes no second (withdraw / refund) audit row.
+  SQL test A/SC1.
+- **"Danced" rule matched to SC1:** a placement counts as danced when it is marked `danced`, **or** when it is not
+  scratched and its heat is on the floor (`active` / `complete`), because nothing marks placements `danced` yet. The rule
+  applies in the cascade guard, `_r2_entry_participation_class`, the E-L scope selection, `competitionRefundRules.ts`
+  (`hasDanced`) and the refund page (it now reads `event_competition_heats.status`). A refund on an entry in an
+  on-floor heat therefore raises E-L and never withdraws it. SQL test A/SC1 and unit tests.
+- **SC1 revokes `change_competition_entry_lifecycle` from API roles:** R2's code never calls it and never writes entry
+  status as `authenticated` (all R2 writes are definer RPCs or the trigger). R2's **SQL suite** does call it as the
+  studio owner (sections A/SC1, E "audited unlock then withdraw", S) and the §4.1 E-L resolution path names it. Once
+  SC1 merges, those steps switch to SC1's definer scratch RPC. That is a test-side and doc-side change only; it doesn't
+  change R2's migration.
+- New pin: `sync_competition_entries_from_registration` = md5 `95e9cd2a…` (supersedes `4c8592ee…`). The rollback is
+  regenerated from verbatim prior bodies.

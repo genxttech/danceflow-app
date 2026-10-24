@@ -18,7 +18,7 @@ type Refund = { id: string; status: string; amount_cents: number; source: string
 type Allocation = { refund_id: string; order_item_id: string; amount_cents: number; participation_outcome: string | null };
 type Exception = { id: string; kind: string; status: string; created_at: string };
 type Scope = { id: string; exception_id: string; kind: string; entry_id: string; round_id: string | null; competitive_effect: boolean; resolved_at: string | null; resolution: string | null };
-type PlacementRow = { entry_id: string; heat_id: string; status: SummaryPlacement["status"]; event_competition_heats: { lock_state: SummaryPlacement["lockState"]; round_id: string | null } | null };
+type PlacementRow = { entry_id: string; heat_id: string; status: SummaryPlacement["status"]; event_competition_heats: { lock_state: SummaryPlacement["lockState"]; round_id: string | null; status: string | null } | null };
 
 const KIND_LABEL: Record<string, string> = {
   competition_refund_entry_locked_heat: "Refunded entry in a locked or danced heat",
@@ -85,7 +85,7 @@ export default async function CompetitionOrderRefundPage({
 
   const [placementResult, scopeResult] = await Promise.all([
     entries.length
-      ? supabase.from("event_competition_heat_entries").select("entry_id, heat_id, status, event_competition_heats(lock_state, round_id)").in("entry_id", entries.map((e) => e.id))
+      ? supabase.from("event_competition_heat_entries").select("entry_id, heat_id, status, event_competition_heats(lock_state, round_id, status)").in("entry_id", entries.map((e) => e.id))
       : Promise.resolve({ data: [], error: null }),
     exceptions.length
       ? supabase.from("event_competition_refund_exception_scopes").select("id, exception_id, kind, entry_id, round_id, competitive_effect, resolved_at, resolution").in("exception_id", exceptions.map((x) => x.id))
@@ -94,7 +94,7 @@ export default async function CompetitionOrderRefundPage({
   if (placementResult.error || scopeResult.error) throw new Error("Could not load heat placements or exception scopes.");
   const placements: SummaryPlacement[] = ((placementResult.data ?? []) as unknown as PlacementRow[]).map((p) => ({
     entryId: p.entry_id, heatId: p.heat_id, status: p.status,
-    lockState: p.event_competition_heats?.lock_state ?? "open", roundId: p.event_competition_heats?.round_id ?? null,
+    lockState: p.event_competition_heats?.lock_state ?? "open", roundId: p.event_competition_heats?.round_id ?? null, heatStatus: p.event_competition_heats?.status ?? null,
   }));
   const scopes = (scopeResult.data ?? []) as Scope[];
   const statusByRefund = new Map(refunds.map((r) => [r.id, r.status]));

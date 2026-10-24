@@ -115,6 +115,14 @@ describe("participation class (§4.1 P; Q1 decided)", () => {
     expect(mayWithdrawAutomatically([placement({ status: "danced" })])).toBe(false);
   });
 
+  it("SC1 rule: an unscratched placement in a heat on the floor (active / complete) counts as danced", () => {
+    expect(participationClass([placement({ heatStatus: "active" })])).toBe("locked");
+    expect(participationClass([placement({ heatStatus: "complete", status: "checked_in" })])).toBe("locked");
+    expect(participationClass([placement({ heatStatus: "active", status: "scratched" })])).toBe("open");
+    expect(participationClass([placement({ heatStatus: "scheduled" })])).toBe("open");
+    expect(mayWithdrawAutomatically([placement({ heatStatus: "active" })])).toBe(false);
+  });
+
   it("the most restrictive placement wins (certified > locked > open)", () => {
     const mixed = [placement({ heatId: "h1" }), placement({ heatId: "h2", lockState: "locked" })];
     expect(participationClass(mixed)).toBe("locked");
