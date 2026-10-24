@@ -718,8 +718,12 @@ begin
       for share;
       v_class := public._r2_entry_participation_class(v_a.entry_id);
       if v_class in ('unplaced', 'open') then
-        perform public._r2_withdraw_entry(v_a.entry_id, 'Entry refunded.', 'refund');
-        v_outcome := 'withdrawn';
+        -- A concurrent scratch (SC1) or withdrawal can win the entry row after the status was read above: then nothing was withdrawn here.
+        if public._r2_withdraw_entry(v_a.entry_id, 'Entry refunded.', 'refund') then
+          v_outcome := 'withdrawn';
+        else
+          v_outcome := 'not_applicable';
+        end if;
       else
         perform public._r2_record_refund_exception(
           case when v_class = 'certified' then 'competition_refund_entry_certified_heat' else 'competition_refund_entry_locked_heat' end,
