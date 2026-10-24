@@ -162,6 +162,19 @@ env IDs, so (1) never matched env-Price subscriptions. Coverage (unit tests on t
 - The sandbox billing-portal configuration has subscription updates disabled. Read the live portal configuration before
   assuming that, and do not enable plan switching until tested in test mode.
 
+### #319 independent review (2026-10-24)
+
+A code-only reviewer found no blockers and two should-fix items, both fixed on the #319 branch and re-verified on the
+release candidate (24 files / 256 tests, `tsc` clean, 14 files, still local):
+- Plan Price was read from `items.data[0]` only; an add-on item (AI credit pack, Organizer Suite) first would hide the plan Price.
+  Now every item is checked.
+- A Price configured for two plans silently picked the first. Now an ambiguous Price (or items naming different plans) returns
+  no plan, logs, and falls back to metadata.
+Noted, not changed: studio plan rows must be `active`; legacy lists exist only for Studio Founder Prices; the webhook does not
+update `studios.billing_plan`, which the public embed/discover pages still read after a portal plan change (follow-up);
+Stripe's Billing Portal cannot change plans on subscriptions with more than one product, so studios with add-ons switch plans
+by other means.
+
 ## Release sequence (each hosted step needs separate owner authorization)
 
 1. Step 0 evidence accepted (live account, matches production).
