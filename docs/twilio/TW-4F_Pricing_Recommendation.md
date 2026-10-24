@@ -1,178 +1,284 @@
-# TW-4F U-2: validated pricing recommendation (docs only)
+# TW-4F U-2: validated pricing recommendation (docs only), revision 2
 
-Prepared 2026-10-23 from main `fc507ee1`. **Nothing here is a price, an approval or a publication.** No price is set, `tw4_price_set` is not run, and no hosted, Twilio or Stripe action was taken. This answers the owner's U-2 decision: cost-plus-25% (`TW-4F-3b_Pricing_Proposal.md`) is not published as final or interim pricing; this document replaces it with a structure that has been checked against the live provider list prices, the ledger schema and the record.
+Prepared 2026-10-23; revised 2026-10-24 after the owner's U-2 review decisions. Based on main `fc507ee1`. **This is a candidate recommendation, not an approved retail price list.** No price is set or published, `tw4_price_set` is not run, no schema change is implemented, and no hosted, Twilio or Stripe action was taken.
 
-Every provider figure below is a **public list price, to verify on the Twilio invoice/Console**. None is confirmed.
+Every provider figure is a **public list price, to verify on the Twilio invoice/Console**. None is confirmed.
 
-## 1. Headline findings
+## 0. Owner direction applied in this revision
 
-1. **The price columns are whole cents, so a per-segment price can only be 1¢, 2¢, 3¢...** `studio_sms_price_list.customer_price_cents` and `provider_cost_cents` are `int`, as are `unit_price_cents` on usage attempts (`20261201`) and inbound usage (`20261203`). Every earlier draft figure ($0.016, $0.017, $0.018, $0.019, $0.013) is **not expressible** without a schema change. Rounding a charge up to a whole cent per message makes a $0.017-$0.019 price behave as 2¢ for the common one-segment text anyway (section 5).
-2. **At 1¢ per segment every text loses money**, in both directions (about -$0.003 to -$0.007 per segment after card fees). 1¢ is not a usable inbound price, so "inbound lower than outbound" cannot be done in whole cents above 1¢ without making inbound 2¢ = outbound.
-3. **Inbound is barely cheaper to deliver than outbound.** Blended list cost is about $0.0120 inbound vs $0.0127 outbound (a $0.0007 difference); Verizon and AT&T inbound cost the same as outbound. The earlier proposed inbound price of $0.013 is **below break-even** once card fees, the variance reserve and compliance traffic are counted (about -1% expected, -12% on Verizon).
-4. **Recommended structure that needs no schema change:** itemized fixed fees, **2¢ per segment outbound and 2¢ per segment inbound, carrier fees bundled**. Expected margin about 29% outbound and 33% inbound; worst-carrier margin about 25%. This conflicts with the owner's 2026-10-20 direction that inbound not be charged at the outbound retail rate; that needs an owner exception or a schema change (section 5).
-5. **Two corrections to my earlier (2026-10-19) brief:** (a) I read Verizon inbound as $0.007; Twilio's flattened table does not support that (section 2). (b) I assumed credit given back for undelivered texts; the design charges `undelivered` and releases only `failed`/`canceled` (`TW-4F_Usage_Financials_Design.md` section 2), so that leakage assumption is removed.
-6. **D7 not yet met.** The roadmap says no final prices until Twilio costs are verified over at least one pilot billing cycle. This document therefore proposes a candidate set to validate during the ConfiDance pilot, not a set to publish now (section 8).
+| # | Direction | Where handled |
+|---|---|---|
+| 1 | Inbound must be priced more favorably than outbound | Sections 5, 8 (no equal-rate recommendation) |
+| 2 | Equal 2¢/2¢ is not a final price | Withdrawn as a recommendation; kept only as a comparison row |
+| 3 | Investigate a bounded sub-cent design (ledger arithmetic, reservation, reconciliation, rounding, refunds); no migration | Sections 6, 9 |
+| 4 | 20% contribution margin is a provisional planning target | Used as the test everywhere, labelled provisional |
+| 5 | Defer any included inbound allowance until pilot evidence | Section 8 |
+| 6 | Verify ambiguous carrier fees and A2P charges with provider-specific evidence | Section 2 |
+| 7 | Preserve prepaid controls, separate inbound/outbound tracking, STOP/START/HELP | Sections 6.6, 9 |
+| 8 | Document sub-cent vs the 3¢ outbound / 2¢ inbound alternative | Section 7 |
 
-## 2. Provider list prices (access date 2026-10-23)
+## 1. What changed since revision 1
 
-Each row: "public list price, to verify on the Twilio invoice/Console".
+1. **The Verizon / "all other" inbound ambiguity is resolved from Twilio's own page HTML (section 2).** The inbound carrier cells are blank, i.e. no inbound carrier fee is listed. Revision 1 treated Verizon inbound as $0.005 or $0.007; that was wrong. Inbound is therefore about **$0.0025 per segment cheaper to deliver than outbound** (blended $0.0102 vs $0.0127), which is what makes a favorable inbound price viable.
+2. Revision 1's recommendation of 2¢ inbound = 2¢ outbound is **withdrawn** (owner direction 2). In whole cents, 1¢ inbound loses money (-12% expected), so a whole-cent differential is 3¢ out / 2¢ in.
+3. The sub-cent question is now analyzed concretely (sections 6-7, 9). Result: a per-message rounding rule collapses a sub-cent differential for the common one-segment text; only a carried-remainder accumulator preserves it, and that touches the money path (section 9).
+4. The 20% margin is a provisional planning target, not a floor.
 
-| Item | List price | Frequency | Source (URL; access date; how read) |
-|---|---|---|---|
-| Standard brand (includes secondary vetting) | $46.00 | one time | [Pricing and Fees for A2P 10DLC Service](https://support.twilio.com/hc/en-us/articles/1260803965530-Pricing-and-Fees-for-A2P-10DLC-Service); 2026-10-23; **not read directly (page returns 403 to my tool); figure from a search-engine extraction of the page** |
-| Secondary vetting (inside the $46) | $41.50 | one time | [Secondary vetting pricing](https://support.twilio.com/hc/en-us/articles/4403988619163-Understanding-A2P-10DLC-Standard-Brand-Secondary-Vetting-Pricing); 2026-10-23; extraction only |
-| Low Volume Standard brand (no secondary vetting) | $4.50 (was $4.00 until 2025-08-01) | one time | same pricing article; 2026-10-23; extraction only. The [2022 changelog](https://www.twilio.com/en-us/changelog/us-a2p-10dlc-low-volume-standard-brand-registration-available-in-twilio-console) (read directly 2026-10-23) still says $4 and is stale; it gives eligibility: EIN, fewer than 6,000 segments/day |
-| Campaign vetting | $15.00 per campaign | one time | same pricing article and [Campaign vetting FAQ](https://help.twilio.com/articles/11587910480155-A2P-10DLC-Campaign-Vetting-FAQ); 2026-10-23; extraction only (FAQ returned only a title to my tool). Refundability not confirmed |
-| Campaign monthly, Low Volume Mixed | $1.50 | monthly | same pricing article; 2026-10-23; extraction only |
-| Campaign monthly, Standard (MIXED and most standard use cases) | $10.00 | monthly | same; extraction only. Other tiers seen: Sole Prop $2, charity $3, emergency $5. **Which tier ConfiDance's MIXED campaign falls into is unconfirmed** |
-| Local phone number | $1.15 | monthly | [US SMS pricing](https://www.twilio.com/en-us/sms/pricing/us); 2026-10-23; **read directly** ("Pricing current as of October 2026") |
-| Outbound SMS base | $0.0083 | per segment | same; read directly |
-| Inbound SMS base | $0.0083 | per segment | same; read directly |
-| Failed-message fee | $0.0010 | per message ending "Failed" | same; read directly |
-| MMS out / in (long code) | $0.022 / $0.0165 plus carrier fee | per message | same; read directly. **Not offered**: media is routed to review in settlement (`TW-4F_Usage_Financials_Design.md`) |
+## 2. Provider list prices and verification evidence (access 2026-10-24 unless stated)
 
-**Carrier fees, long code SMS** (US SMS pricing page, read directly 2026-10-23, list price, verify on invoice):
+| Item | List price | Frequency | Evidence | Status |
+|---|---|---|---|---|
+| Outbound / inbound SMS base (long code) | $0.0083 / $0.0083 per segment | per segment | [US SMS pricing](https://www.twilio.com/en-us/sms/pricing/us), page HTML table read directly ("Pricing current as of October 2026") | public list price, to verify on invoice |
+| Same, outbound US base in Twilio's CSV | AT&T, T-Mobile, Other all $0.00830 | | [SMSPricing.csv](https://assets.cdn.prod.twilio.com/pricing-csv/SMSPricing.csv) downloaded 2026-10-24 (1,070 rows) | confirms the base outbound rate only; **the CSV carries no carrier fees and no inbound rows for the US**, so it cannot settle the carrier cells |
+| Failed-message fee | $0.0010 per message ending "Failed" | | US SMS pricing page; the linked [Failed Message Processing Fees](https://help.twilio.com/articles/27502337507483-Failed-Message-Processing-Fees) article returned only a title to my tool | public list price |
+| Local number | $1.15 per month | monthly | US SMS pricing page HTML | public list price |
+| Standard brand incl. secondary vetting | $46.00 one time (vetting $41.50) | one time | [A2P fee article](https://support.twilio.com/hc/en-us/articles/1260803965530-Pricing-and-Fees-for-A2P-10DLC-Service) | **not directly readable (403); search extraction only; verify in Console** |
+| Low Volume Standard brand | $4.50 one time (was $4.00 until 2025-08-01) | one time | same extraction; the 2022 [changelog](https://www.twilio.com/en-us/changelog/us-a2p-10dlc-low-volume-standard-brand-registration-available-in-twilio-console) (read directly) still says $4 and is stale; it gives eligibility: EIN, under 6,000 segments/day | as above |
+| Campaign vetting | $15.00 per campaign | one time | same extraction; [Campaign vetting FAQ](https://help.twilio.com/articles/11587910480155-A2P-10DLC-Campaign-Vetting-FAQ) returned a title only | as above; refundability unconfirmed |
+| Campaign monthly, Low Volume Mixed / Standard | $1.50 / $10.00 | monthly | same extraction; which tier ConfiDance's MIXED campaign falls into is unconfirmed | as above |
 
-| Carrier | Outbound | Inbound | Note |
-|---|---|---|---|
-| AT&T | $0.0035 | $0.0035 | clear |
-| T-Mobile | $0.0045 | $0.0025 | clear (record: raised 2026-01-29 per Twilio notice) |
-| US Cellular | $0.0050 | $0.0025 | clear |
-| Verizon | **$0.005 and $0.007 shown for four columns** | **ambiguous** | my reading: SMS $0.005 (both directions), MMS $0.007; this is **an interpretation**. The 2026-10-20 assessment read Verizon inbound as "none listed"; my 2026-10-19 brief used $0.007. Resolve from the downloadable `SMSPricing.csv` |
-| All other | **$0.0042 and $0.01 shown for four columns** | **ambiguous** | my reading: SMS $0.0042 (both directions), MMS $0.01 |
+**Carrier fees, long code SMS: ambiguity resolved from the page's own HTML.** The earlier text extraction flattened empty cells. I downloaded the page HTML and read the table cell by cell (5 value columns incl. carrier name):
 
-All-in list cost per segment (base $0.0083 + carrier): outbound AT&T $0.0118, T-Mobile $0.0128, Verizon/US Cellular $0.0133, other $0.0125; inbound AT&T $0.0118, T-Mobile $0.0108, US Cellular $0.0108, Verizon $0.0133 (likely) or $0.0153 (if $0.007 applies). Toll-free and short-code differ and are out of scope (long-code 10DLC only).
+| Carrier | SMS out | SMS in | MMS out | MMS in |
+|---|---|---|---|---|
+| AT&T | $0.0035 | $0.0035 | $0.009 | $0.009 |
+| T-Mobile | $0.0045 | $0.0025 | $0.01 | $0.01 |
+| **Verizon** | $0.005 | **(blank)** | $0.007 | (blank) |
+| US Cellular | $0.005 | $0.0025 | $0.01 | $0.01 |
+| **All other carriers** | $0.0042 | **(blank)** | $0.01 | (blank) |
 
-**Blended expected cost** uses the record's carrier-mix assumption (Verizon 35 / T-Mobile 37 / AT&T 28, from the 2026-10-20 assessment; an assumption, not measured): outbound **$0.01269**, inbound **$0.01196** (Verizon at $0.007: $0.01265). Replace with ConfiDance pilot data.
+Blank means **no fee is listed**, not proof of $0. Supporting evidence: the same page's RCS table prints an explicit "$0" for Verizon inbound; the toll-free and short-code tables use the same blank pattern. Treat Verizon and other-carrier inbound carrier fees as **none listed**, and confirm on the first invoice. The toll-free and short-code tables differ and are out of scope (long-code 10DLC only).
 
-**Stripe** ([stripe.com/pricing](https://stripe.com/pricing), read directly 2026-10-23): 2.9% + $0.30 per successful domestic card payment; +1.5% international cards; +1% currency conversion; dispute received $15 per dispute (counter fee $15 refunded only if won); refunds have no fee but **the original processing fee is not returned**. The page states no minimum charge amount.
+**All-in list cost per segment** (base $0.0083 + carrier): outbound AT&T $0.0118, T-Mobile $0.0128, Verizon/US Cellular $0.0133, other $0.0125; inbound AT&T $0.0118, T-Mobile and US Cellular $0.0108, Verizon and other $0.0083.
+
+**Blended expected cost** with the record's carrier-mix assumption (AT&T 28 / T-Mobile 37 / Verizon 35, from the 2026-10-20 Inbound Pricing Assessment; assumed, not measured): **outbound $0.012695, inbound $0.010205**. Worst-carrier: outbound $0.0133 (Verizon/US Cellular), inbound $0.0118 (AT&T).
+
+**Stripe** ([stripe.com/pricing](https://stripe.com/pricing), read directly 2026-10-23): 2.9% + $0.30 per successful domestic card payment; dispute $15 per dispute; refunds have no fee but the original fees are not returned; no minimum charge stated.
+
+**Evidence still needed from the provider's own billing** (nothing contacted here): the first invoice lines for carrier fees by carrier and direction; the Console A2P fee table; whether carrier fees are billed on `undelivered`/`failed` messages; the ConfiDance tier and campaign monthly fee (pre-review ticket #29647095).
 
 ## 3. Stripe effect on top-ups and net credit
 
-| Pack | Stripe fee | Fee as % of face | DanceFlow receives | If a pack is fully refunded unused |
+| Pack | Stripe fee | % of face | DanceFlow receives | Loss if refunded unused |
 |---|---|---|---|---|
-| $10 (not offered) | $0.590 | 5.90% | $9.41 | loses $0.59 |
-| **$25** | $1.025 | **4.10%** | $23.975 | loses $1.03 |
-| **$50** | $1.750 | 3.50% | $48.25 | loses $1.75 |
-| **$100** | $3.200 | 3.20% | $96.80 | loses $3.20 |
-| $500 (ceiling) | $14.800 | 2.96% | $485.20 | n/a |
+| $25 (minimum) | $1.025 | 4.10% | $23.975 | $1.03 |
+| $50 | $1.750 | 3.50% | $48.25 | $1.75 |
+| $100 | $3.200 | 3.20% | $96.80 | $3.20 |
 
-- Credit equals face value (the studio gets $25 of credit for $25); Stripe's fee is DanceFlow's cost, so every dollar of credit carries 3.2%-4.1% of processing cost. Pricing must absorb up to 4.1% (worst case, $25 pack).
-- The $25 minimum is the lowest pack in the design; smaller packs would push cost above 5.9%. Keep $25 as the minimum. The design's expected blend assumed 3.5%.
-- Refunds of unused credit leave DanceFlow bearing the Stripe fee. Whether to withhold it is a legal/policy question and stays unresolved (see the 2026-10-19 owner brief, section 4).
+Credit equals face value, so every credit dollar carries 3.2%-4.1% processing cost. A pack smaller than $25 would exceed 5.9%; keep $25 as the minimum. Whether to withhold the fee on a refund is an unresolved legal/policy question.
 
-## 4. Record: required margins and policy
+## 4. Record and planning target
 
-| Source | What it says |
-|---|---|
-| 3b Design section 3, 7 (decisions 2, 7) | Published customer price and expected provider cost per kind; separately disclosed fees; fixed published prices, DanceFlow absorbs ordinary variance; actual Twilio charge recorded with variance |
-| Pricing Proposal section 3 | Investigate a single variance above $2.00 or a month above 5% of billed; republish (never edit) when Twilio list price moves more than 10% |
-| Pricing Proposal section 2 | Options: cost +25%, +40%, flat markup. **U-2: +25% not to be published as final or interim** |
-| Inbound Assessment (2026-10-20) | Recover ordinary inbound, not at the outbound rate; floor stated as $0.013 (now shown too low, finding 3); D1 `$10` negative-balance ceiling then uncollected; compliance traffic never charged; pilot business gets no inbound debt |
-| Usage Financials Design | `sms_usage` is per segment x frozen price, carrier fees bundled; undelivered charged; failed/canceled released; MMS to review |
-| Roadmap D7 | Setup fee + monthly service fee + included allowance with metered overage; **no final prices until Twilio costs verified over at least one pilot billing cycle** |
-| Tracker U-2 / A-13 | Exact prices and dual control for publication open; `tw4_price_set` is single-admin and immediate; "price publication with dual control" is a listed follow-up |
+3b Design (fixed published prices; DanceFlow absorbs ordinary variance), Pricing Proposal section 3 (investigate a single variance above $2.00 or a month above 5% of billed; republish at a 10% list change), Inbound Assessment (recover ordinary inbound, not at the outbound rate; $10 negative-balance ceiling; compliance traffic never charged), Usage Financials Design (per segment x frozen price; undelivered charged; failed/canceled released), roadmap D7 (no final prices until Twilio costs are verified over one pilot cycle; allowance deferred here per direction 5), tracker U-2/A-13 (publication single-admin today; dual control is a follow-up).
 
-No explicit numeric margin floor is recorded. I use **net margin >= 20% of price after card fees, a 5% variance reserve and 1% compliance-traffic leakage** as the test (the pricing-proposal "+25% over cost" corresponds to a 20% margin before card fees). That floor is my proposal for the owner to set or change.
+**Provisional planning target: 20% contribution margin** (owner direction 4), tested as:
+margin = (price x (1 - Stripe - 1% compliance leakage) - cost x 1.05 variance reserve) / price. It is a test for comparing options, not an approved floor.
 
-Margin = (price x (1 - Stripe - 1% compliance leakage) - cost x 1.05) / price.
+## 5. Per-segment options with corrected costs
 
-## 5. Per-segment structure and margins
+Margins use blended expected cost (Stripe 3.5%) / the same at Stripe 4.1% / worst carrier at 4.1%.
 
-Compliance leakage is STOP/START/HELP traffic, which is never charged (database-enforced). Failed-message fees ($0.001) are DanceFlow's cost and are below 0.1% of revenue at normal failure rates.
+**Outbound** (cost $0.012695; worst $0.0133)
 
-| Option | Outbound exp. (Stripe 3.5%) | Outbound worst (Verizon, 4.1%) | Inbound exp. | Inbound worst (Verizon $0.005 reading) | Inbound worst (Verizon $0.007 reading) |
-|---|---|---|---|---|---|
-| 1¢ both | -38% | -45% | -30% | -45% | -66% |
-| 2¢ both (**recommended**) | **28.9%** | **25.1%** | **32.7%** | **25.1%** | 14.6% |
-| 3¢ out / 2¢ in | 51% | 48% | 32.7% | 25.1% | 14.6% |
-| $0.019 out / $0.017 in (sub-cent) | 25.3% | 21.4% | 21.7% | 12.8% | 0.4% |
-| $0.017 out / $0.013 in (earlier draft) | 17.1% | 12.8% | **-1.1%** | **-12.5%** | **-28.7%** |
-
-Reading it:
-- **2¢/2¢ clears the 20% floor in every case except the unresolved Verizon-inbound $0.007 reading (14.6%, still positive).** Price break-even sits about 43% above the worst-carrier outbound list cost, so a Twilio price move of the 10% republish threshold does not make a segment unprofitable.
-- **Inbound is cheaper by only ~$0.0007 blended**, so the owner's "not at the outbound rate" intent cannot be met in whole cents: 1¢ loses money. Options: (a) 2¢ inbound = outbound (recommended; needs an owner exception to the 2026-10-20 direction); (b) 3¢ out / 2¢ in preserves a differential, with outbound at about 50% margin, which may be uncompetitive (I did not verify competitors' prices); (c) sub-cent pricing.
-- **Why sub-cent buys little**: the credit ledger is integer cents (`balance_delta_cents`, reservations), and settlement posts `segments x unit_price_cents`. A $0.019 or $0.017 price needs either per-message round-up (a one-segment text becomes 2¢ regardless) or a new sub-cent accrual in the ledger, which is a financial-integrity redesign. Not recommended before the pilot.
-- Multi-segment messages: segments are counted in the database (GSM-7 153 / UCS-2 67 per concatenated part); cost and price both scale per segment, so margin is unchanged; a UCS-2 message costs 2-3x a GSM-7 one of the same length.
-
-**Carrier fees: bundle, do not pass through.** The recipient's carrier is unknown when the reservation is made (`tw4_usage_begin` reserves `segments x price` in one transaction), and carrier fees vary only ±$0.0015 around the mean. A per-carrier surcharge line would need a carrier lookup, a variable post-send charge outside the reservation, and a new kind. Bundling is what the design assumes. Disclose "carrier fees included".
-
-## 6. Setup and recurring fees (itemized)
-
-Cost / (1 - 4.1% Stripe worst case - 25% margin), rounded to a sensible figure. Fixed fees carry no variance reserve (Twilio's published fixed fees; the exposure is a list-price change, covered by republishing at 10%).
-
-| Item (price kind) | Twilio list cost | Candidate price (not approved) | Net margin after 4.1% |
+| Price | Expected 3.5% | Expected 4.1% | Worst carrier 4.1% |
 |---|---|---|---|
-| Brand, Low Volume Standard (`brand_low_volume`) | $4.50 | $7.00 | 31.6% |
-| Brand, Standard (`brand`) | $46.00 | $65.00 | 25.1% |
-| Campaign vetting (`campaign_vetting`, shared) | $15.00 | $21.00 | 24.5% |
-| Campaign monthly, Low Volume Mixed (`monthly_low_volume`) | $1.50 | $2.25 | 29.2% |
-| Campaign monthly, Standard (`monthly`) | $10.00 | $14.00 | 24.5% |
-| Number monthly (`number`) | $1.15 | $1.65 | 26.2% |
+| $0.017 | 17.1% | 16.5% | 12.8% |
+| $0.018 | 21.4% | 20.8% | 17.3% |
+| **$0.019** | **25.3%** | **24.7%** | **21.4%** |
+| 2¢ | 28.9% | 28.3% | 25.1% |
+| 3¢ | 51.1% | 50.5% | 48.4% |
 
-Setup (brand + vetting + first month + number): Low Volume **$31.90** (cost $22.15); Standard **$101.65** (cost $72.15). Recurring: **$3.90** / **$15.65** per month.
+Price that just meets 20%: $0.0178 expected, $0.0186 worst carrier.
 
-Itemizing is already built: each is its own kind, authorization, reservation and capture. The owner's earlier direction (itemize with a clear total) is a display matter on the onboarding review.
+**Inbound** (cost $0.010205; worst AT&T $0.0118)
 
-## 7. Worst-case DanceFlow loss
+| Price | Expected 3.5% | Expected 4.1% | Worst carrier (AT&T) 4.1% |
+|---|---|---|---|
+| 1¢ | -11.7% | -12.3% | -29.0% |
+| $0.013 | 13.1% | 12.5% | -0.4% |
+| $0.014 | 19.0% | 18.4% | 6.4% |
+| **$0.015** | **24.1%** | **23.5%** | **12.3%** |
+| $0.016 | 28.5% | 27.9% | 17.5% |
+| 2¢ | 41.9% | 41.3% | 33.0% |
 
-Using the recommended 2¢ structure and list costs; each line is a scenario, not an expectation.
+Price that just meets 20%: $0.0143 expected, $0.0165 worst carrier. **The earlier $0.013 inbound is below target and loses money on AT&T-terminated traffic.** 1¢ loses money on every inbound segment.
 
-| Scenario | Worst case | Basis |
+**Candidate pairs**
+
+| Pair | Out margin (exp / worst) | In margin (exp / worst) | Inbound discount | Schema |
+|---|---|---|---|---|
+| **A. 3¢ out / 2¢ in** | 51% / 48% | 42% / 33% | 33% | none |
+| **B. $0.019 out / $0.015 in** | 25% / 21% | 24% / 12% | 21% | sub-cent (section 6) |
+| B'. $0.018 out / $0.014 in | 21% / 17% | 19% / 6% | 22% | sub-cent |
+| (comparison only) 2¢ / 2¢ | 29% / 25% | 42% / 33% | 0% | none |
+| (not viable) 2¢ out / 1¢ in | 29% / 25% | -12% / -29% | 50% | none |
+
+Pair A clears the 20% target by a wide margin on both directions but prices outbound at about 2.4x its cost. Pair B sits near the target in the expected case and below it for AT&T-heavy inbound (12%), which is inside the provisional-target tolerance but would need the pilot's carrier mix to confirm. I did not research competitors' prices.
+
+**Carrier fees: bundle, do not pass through.** The recipient's carrier is unknown when the credit is reserved (the reservation is `segments x price` made before sending), and the spread is small (outbound $0.0118-$0.0133). Per-carrier prices would need a carrier lookup and a post-send variable charge outside the reservation. Disclose "carrier fees included".
+
+## 6. Sub-cent design (investigation; nothing implemented)
+
+### 6.1 Where the cents assumption lives today
+
+All amounts are integer cents. The money path is a single multiplication per message: `segments x unit_price_cents`.
+
+| Object | Column(s) | Use |
 |---|---|---|
-| Per-segment loss at list prices | none (margin 25.1% worst carrier outbound; 14.6% worst inbound reading) | section 5 |
-| Twilio list cost rises | break-even at about +43% over worst-carrier outbound cost; the 10% republish rule triggers well before | calc |
-| Lost dispute on a spent $100 pack | about **-$82** (received $96.80, Twilio cost about $63.5 already incurred, refunded $100 + $15 dispute fee) unless the negative balance is recovered | Stripe pricing + assumed 63.5% cost/price |
-| Dispute exposure ceiling | the $500 balance ceiling bounds credit at risk; five such packs is about -$410 | calc |
-| Unrecovered inbound (unknown-sender flood) | D1: $10 ceiling per business, remainder absorbed; the 200 segments/day alert implies about $2.40-$3.10 per day per business if unattended, about $72-$92 per 30 days | Inbound Assessment + cost table |
-| Erroneous or duplicate registration absorbed | Standard path $72.15 per business; Low Volume path $22.15 (no markup recovered) | section 2 |
-| Rejected correct registration | studio-borne by owner direction 5 | brief revision 2 |
-| Failed-message fees | $0.001 each; $10 per 10,000 messages if every one failed | Twilio |
-| Compliance replies (STOP confirmation etc.) | about $0.0125 each, absorbed | design D2 |
-| Unfunded recurring month after inbound drain | bounded by D1/option-B protection: inbound cannot take funds set aside for the next fee | Inbound Assessment section 8 |
-| Refunded unused pack | Stripe fee lost: $1.03 / $1.75 / $3.20 | section 3 |
-| Pilot (ConfiDance) | $150 non-spendable setup ceiling and the testing budget are DanceFlow cost by design | Design section 7 item 10 |
+| `studio_sms_price_list` (`20261122`) | `customer_price_cents int > 0`, `provider_cost_cents int >= 0` | one active price per kind; `tw4_price_set(p_kind, p_customer_cents int, p_provider_cents int, ...)` |
+| `studio_sms_credit_accounts` | `balance_cents`, `reserved_cents` (bigint) | balance and holds |
+| `studio_sms_credit_ledger` | `balance_delta_cents`, `reserved_delta_cents` (bigint); shape check: `usage_charge` delta `< 0`, `usage_refund` delta `> 0` | append-only; **a 0-cent charge cannot be posted** |
+| `studio_sms_credit_reservations` | `amount_cents int > 0` | holds for texts and fees |
+| `studio_sms_usage_attempts` (`20261201`) | `unit_price_cents`, `unit_provider_cost_cents`, `reserved_cents`, `charged_cents`; `evidence_price_micros numeric` | outbound text lifecycle |
+| `studio_sms_inbound_usage` (`20261203`) | `unit_price_cents`, `billable_cents`, `charged_cents`, `uncollected_cents`, `ceiling_cents`, `est_provider_cost_cents` | post-paid inbound |
+| Redefinitions | `tw4_usage_begin` (in `20261201`, `20261204`, `20261218`), `_tw4us_charge`, `tw4_usage_settle`, `tw4_usage_resolve`, inbound record function, `tw4_credit_refund_usage`, `tw4_credit_verify`, `_tw4ml_require_room`/`_tw4ml_month_parts`, admin overview `prices` | all compute or read cents |
 
-## 8. Recommendation (for owner decision)
+Existing precedent for finer precision: `evidence_price_micros` already records Twilio's per-message price in micro-dollars (1,000,000 per dollar), so the unit proposed below (micro-dollars; 1¢ = 10,000) is consistent with reconciliation.
 
-1. **Do not publish prices yet.** D7 requires Twilio costs verified over one pilot cycle. Use the candidate set as the pilot's hypothesis; publish only after the Console/invoice items in section 10 close and one pilot cycle's invoice lines are reconciled to the ledger (`tw4_credit_record_provider_charge` variance report).
-2. **Structure:** fixed fees itemized per section 6; **outbound 2¢ and inbound 2¢ per segment with carrier fees bundled**; no allowance at launch (the Inbound Assessment already chose Option A over an allowance, which departs from the D7 "included allowance" wording: the owner should confirm D7 is satisfied by itemized prepaid pricing).
-3. **If the owner wants a lower inbound price**, decide between (b) 3¢ out / 2¢ in and (c) the sub-cent redesign; both are discussed above. A 1¢ inbound is not recommended (loss on every segment).
-4. **Set the margin floor explicitly** (this document used 20% after card fees, 5% variance, 1% leakage) so later price changes are tested against the same rule.
-5. **Dual control for publication** (tracker follow-up) should land before the first `tw4_price_set`, since one admin can currently publish immediately.
+### 6.2 Unit and arithmetic
 
-## 9. Can the existing price-kind model express this?
+- Per-segment kinds (`sms_usage`, `sms_inbound`) get a price and an expected cost in **micro-dollars** (integer). $0.019 = 19,000; $0.015 = 15,000. Fixed-fee kinds stay whole cents.
+- Exact amount of one message: `exact_micros = segments x unit_price_micros` (an integer; no rounding).
+- The ledger and balance stay **integer cents**. The sub-cent remainder lives in one new per-business signed counter, the **carry** (`usage_carry_micros`, range -9,999 to 9,999).
 
-Present kinds (post `20261202`, `20261203`): `brand`, `brand_low_volume`, `campaign_vetting`, `number`, `monthly`, `monthly_low_volume`, `sms_usage` (outbound per segment), `sms_inbound` (inbound per segment). Inbound and outbound are tracked separately (usage attempts in `20261201`; inbound usage table and `sms_inbound` kind in `20261203`; spending split outbound / inbound / uncollected / absorbed). **That separation is preserved by this recommendation.**
+### 6.3 Rounding: three candidate rules
 
-| Need | Expressible today? |
+| Rule | How it works | Effect on $0.019 out / $0.015 in | Determinism | Verdict |
+|---|---|---|---|---|
+| **R1 per-message round** | `cents = round_half_up(exact_micros / 10000)` | 1 seg: out 2¢, in 2¢ (1.5 rounds up). 2 seg: out 4¢ (3.8), in 3¢ (3.0). 3 seg: out 6¢, in 5¢ (4.5). | each message's charge is a pure function of the message | **Destroys the differential for single-segment texts** (the common case); at an inbound price below $0.0150 a one-segment text rounds down to 1¢ and loses money |
+| **R2 carried remainder (recommended sub-cent design)** | at settlement: `total = carry + exact_micros`; post `floor(total/10000)` cents; new carry = `total mod 10000` | out and in average exactly their sub-cent price; single messages post 1¢ or 2¢ | order-dependent per message, exact in total; the sum of what is posted plus the carry equals the sum of exact amounts at all times | preserves the differential; needs one new invariant |
+| **R3 monthly true-up** | post `round(exact/1e4)` per message, then a monthly `usage_rounding` adjustment for the difference | exact per month | per message pure; the monthly job posts a small correction | needs a new ledger kind, a scheduled job and month-boundary handling; studio sees surprise adjustments |
+
+### 6.4 Reservation (outbound)
+
+At `tw4_usage_begin` the reservation is `ceil(segments x unit_price_micros / 10000)` cents, always at least what R2 can charge (a charge is at most `ceil((carry + exact)/10000)`, and carry is below one cent). The funds check, the monthly-limit check (`_tw4ml_require_room`) and the reservation row all stay in whole cents and are conservative by less than one cent. The attempt freezes `unit_price_micros` and `exact_micros` at begin; price changes never affect an open attempt (today's behavior, unchanged).
+
+### 6.5 Settlement, reconciliation, admin resolution
+
+- **Settle** (`_tw4us_charge`): under the existing entity-then-account lock, in the same transaction as releasing the reservation and posting the `usage_charge`: `exact = evidence_segments x frozen micros`; `total = carry + exact`; `cents = floor(total/10000)`; post `-cents` if `cents > 0` (a 0-cent result posts no ledger row and records `charged_cents = 0`, as the existing `not_charged` path already does); set carry to the remainder; record `charged_micros = exact` on the attempt. Overage over the reservation still posts (balance may go negative), as today.
+- **Idempotency:** carry only changes inside the transition that moves the attempt to `settled` (attempt row locked `FOR UPDATE`; the state check and the ledger key `usage:sms:<attempt>` remain the single gate). A replay returns before touching carry.
+- **Failed / canceled / released:** no charge, no carry change (reservation released), as today.
+- **Admin resolve (`tw4_usage_resolve ... charged`)** runs the same function with the admin's segment count.
+- **Reconciliation:** provider evidence (`price`, `num_segments`) is unchanged. Added check, per business: `sum(charged_micros of settled attempts and inbound rows) = 10000 x sum(posted usage cents) + carry + 10000 x refunded cents`. This is exact integer equality, evaluated by an extension of `tw4_credit_verify`, and it is a stronger real-time test than today's cents-only reconciliation. The existing gap checks (ledger charge without a settled attempt, etc.) compare cents and keep working because 0-cent attempts already exist.
+
+### 6.6 Inbound (post-paid, never refused) and compliance traffic
+
+- Ordinary inbound: `exact = segments x unit_price_micros (sms_inbound)`; `total = carry + exact`; `due = floor(total/10000)`; `charged = min(due, the existing funds/ceiling/recurring-protection limit)`; `uncollected_micros = 10000 x (due - charged)` (absorbed, recorded); new carry = `total mod 10000`. The D1 ceiling, the PR-248 protections for set-aside and recurring months, the pilot-business zero ceiling and the per-SID idempotency are unchanged, because the limit is computed in cents and applied to `due`.
+- STOP/START/HELP stay `compliance`: never charged, never touch the carry, always processed (the database constraint forbidding a charge is untouched).
+- Outbound and inbound remain **separately tracked**: separate price kinds, separate tables, separate `exact`/`charged_micros` columns. The carry is shared only as a rounding register; the invariant above can be evaluated per direction by summing each table separately.
+
+### 6.7 Refunds
+
+- Refunds of usage stay **whole cents**: `tw4_credit_refund_usage(p_cents ...)` credits cents against a recorded usage charge and cannot exceed its posted total. The carry is not changed by a refund (refunds remove cents that were really posted). The invariant accounts for it by the refunded-cents term.
+- A message that posted 0 cents (carry absorbed it) has nothing to refund; the exact micros stay in the carry. This is a documented property, not a defect: the studio was never debited for it.
+- Failed/undelivered messages: failed and canceled are released before any charge (no carry movement); undelivered is charged (design) and, if an admin refunds it, refunds the posted cents.
+- Top-up reversals (Stripe refund/dispute) are unchanged: they move cents only.
+
+### 6.8 Studio-facing display
+
+The published price is shown as `$0.019 per message segment`. Statements show whole-cent charges plus a line explaining that sub-cent amounts are carried and billed in whole cents; the carry never exceeds one cent and is forgiven at account closure. Display formatting needs a micro-dollar formatter in `smsCreditView.ts` and the price admin UI.
+
+## 7. Tradeoffs: sub-cent (pair B) vs 3¢ / 2¢ (pair A)
+
+| Dimension | A. 3¢ out / 2¢ in (whole cents) | B. $0.019 out / $0.015 in (sub-cent, carried remainder) |
+|---|---|---|
+| Satisfies "inbound more favorable" | Yes (33% lower) | Yes (21% lower) |
+| Margin vs 20% target | outbound 51%, inbound 42% expected (far above) | outbound 25%, inbound 24% expected (near); inbound AT&T-heavy 12% |
+| Studio price vs provider cost | outbound 2.4x cost | outbound 1.5x cost |
+| Competitive position | unverified; highest per-segment price of the options | closer to cost; unverified against competitors |
+| Schema / money-path change | none | price list, accounts, attempts, inbound table, 8+ functions (section 9) |
+| Migration risk | none | medium-high (financial redefinitions; see 9.3) |
+| Verification burden | existing suites | new invariant, property and concurrency tests, Opus review |
+| Rounding surprises | none | none visible in total; per-message 1¢/2¢ variation |
+| Reversibility | trivial (publish a new price) | after attempts exist, forward-fix only; cheapest **before** the first hosted apply |
+| Fit to pilot (D7: verify costs over one cycle) | can start now; reprice later by republishing | would delay the first hosted apply until the migration is reviewed |
+| Disclosure | simple | needs the carried-remainder explanation |
+
+Decision driver: **timing.** Nothing from `20261123` onward is applied to DEV or PROD (hosted manifest, 2026-10-23), and no price is published, so the tables hold no rows. A sub-cent migration is cheapest, and converts no data, if it lands before the first hosted apply. After the pilot has live attempts and ledger rows it becomes a live-data financial migration.
+
+## 8. Recommendation
+
+1. **Do not publish any price now.** D7 and direction 6 require the carrier fees and A2P charges verified from provider billing, then one pilot cycle.
+2. **Fixed fees:** unchanged candidates, itemized (section 10), all provisional.
+3. **Per-segment pricing, two acceptable paths:** (A) **3¢ out / 2¢ in** now, no schema change, with a published intent to reprice after the pilot; or (B) **$0.019 out / $0.015 in** only if the owner accepts the section 9 change set before the first hosted apply. My recommendation: **decide between A and B before any hosted apply of `20261201`/`20261203`.** If the owner will not accept the sub-cent review effort, take A. If the owner wants cost-based pricing, authorize the design review in section 9 now.
+4. **Not recommended:** 2¢/2¢ (no inbound benefit), 1¢ inbound (loses money), per-carrier pass-through lines (cannot be reserved), R1 per-message rounding (collapses the differential).
+5. **Allowance:** deferred until pilot evidence (direction 5). Roadmap D7's "included allowance" wording is not met by itemized prepaid pricing; the owner should confirm that is intended.
+6. Dual control for price publication should land before the first `tw4_price_set` (tracker follow-up).
+
+## 9. Bounded implementation proposal (not authorized; no migration written)
+
+### 9.1 Scope: one forward migration, numbered after `20261227090000`, plus app and tests
+
+Forward-only file (no edits to the merged `20261201`/`20261203`, whose hashes are pinned in the hosted manifest). Applied in the same first hosted batch, so it converts zero rows.
+
+| Object | Change |
 |---|---|
-| Itemized fixed fees for both tiers | **Yes** (all six kinds exist) |
-| Separate outbound and inbound per-segment prices | **Yes** (`sms_usage`, `sms_inbound`) |
-| Whole-cent per-segment prices (2¢/2¢ or 3¢/2¢) | **Yes, no schema change** |
-| Sub-cent per-segment prices ($0.017 / $0.019) | **No.** `customer_price_cents int > 0` on the price list; `unit_price_cents int` on usage attempts and inbound usage; ledger entries are integer cents. Needs numeric/milli-cent price columns plus a rounding or accrual rule for charges |
-| Expected provider cost per segment ($0.0127) | **No (internal only).** `provider_cost_cents int` can hold 1 or 2 only; margin and variance reporting for sms kinds would be coarse. The exact per-message provider price is stored separately as `evidence_price_micros numeric`, so real cost evidence is not lost |
-| Per-carrier surcharges as separate prices | **No, and not recommended.** One active price per kind (unique index); reservation happens before the carrier is known; would need a carrier lookup and a post-send variable charge |
-| Dual-control price publication | **No** (`tw4_price_set` single admin, immediate; tracker A-13/U-2 follow-up) |
-| Included allowance with metered overage (D7 wording) | **No** (inbound assessment explicitly deferred it; needs per-month counter state) |
+| `studio_sms_price_list` | add `unit_price_micros int null`, `unit_cost_micros int null`; check: for `sms_usage`/`sms_inbound` both not null and positive, for fixed-fee kinds both null; keep `customer_price_cents`/`provider_cost_cents` for fixed kinds and set them to `ceil(micros/10000)` for per-segment kinds (informational) |
+| `tw4_price_set` | new overload accepting micros for per-segment kinds; the cents version refuses per-segment kinds |
+| `studio_sms_credit_accounts` | add `usage_carry_micros int not null default 0 check (abs(usage_carry_micros) < 10000)` |
+| `studio_sms_usage_attempts` | add `unit_price_micros`, `unit_cost_micros`, `exact_micros`, `charged_micros`; guard trigger freezes the first three; constraint ties `charged_micros` to `state = 'settled'` |
+| `studio_sms_inbound_usage` | add `unit_price_micros`, `billable_micros`, `uncollected_micros`; keep the cents columns as posted amounts |
+| Functions redefined (latest versions only) | `tw4_usage_begin` (latest in `20261218`), `_tw4us_charge`, `tw4_usage_settle`, `tw4_usage_resolve`, the inbound record function and `_tw4in_*` ceiling helpers, `tw4_credit_verify` (new micro invariant), admin overviews that print prices and provider-cost estimates |
+| Unchanged | `_tw4c_post`, ledger shape check, reservations, top-ups, packs, $500 ceiling, recurring fees, monthly limits (conservative `ceil` reservation), pilot ceiling, spend events, provider charges |
+| App | micro-dollar formatter and price input in `smsCreditView.ts`, `creditStore.ts`; the numeric-price consumers `smsRecurring.ts`, `providerFeeOps.ts`, `numberStore.ts`, `provisionStore.ts`, `registrationPath.ts` read fixed-fee kinds only and should not change (verify) |
+| Tests | property test: random message sequences (mixed directions, segments, refunds, replays) keep the invariant exact; concurrency on one business; month boundary; zero balance/ceiling/protected-recurring cases for inbound; replay of settle/callback; rollback test; update every suite that seeds a per-segment price |
 
-Minimum change for the recommended structure: **none**. Optional internal-accuracy change: a numeric expected-cost column (or milli-cent cost) on the price list.
+### 9.2 Not changed (direction 7)
 
-## 10. Needs the Twilio invoice/Console or the accountant before publishing
+Prepaid controls (funds check, holds, kill switch, monthly limit, negative-balance blocking), the separate inbound and outbound tracking, compliance-critical STOP/START/HELP processing (free, never refused, never touches the carry), the no-auto-top-up rule, the $150 pilot ceiling.
 
-**Twilio invoice/Console** (nothing contacted here):
-1. Read the A2P fee article directly in the Console: brand, secondary vetting, campaign vetting, monthly by use case, refundability.
-2. Which brand and campaign tier ConfiDance (and a typical studio) is eligible for; whether its MIXED campaign is $1.50 or $10 per month (existing pre-review ticket #29647095).
-3. Download `SMSPricing.csv` and settle the ambiguous Verizon and "all other" rows (inbound SMS carrier fees).
-4. Whether Twilio bills carrier fees on `undelivered` and `failed` messages, and what `price` the Message resource returns for each (affects the leakage and failed-fee assumptions).
-5. Actual per-message invoice price versus list for the pilot, and the real carrier mix and segments per message from the pilot (replaces every assumption in section 2).
-6. Any ISV volume discount or contract terms; any tax Twilio charges DanceFlow.
-7. Whether Low Volume Mixed throughput (about 2,000 segments/day toward T-Mobile) fits a pilot studio's volume.
+### 9.3 Migration risk
 
-**Stripe** (not contacted): the written clarification request on closed-loop prepaid credit is drafted and unsent; the actual Stripe fee on the account (may differ from list if custom).
+| Risk | Rating | Why / mitigation |
+|---|---|---|
+| Redefining money-path functions that already exist in up to three versions | **High** | take the latest definition of each from the merged file, change only the arithmetic, diff against it; a stale copy silently reverts later fixes. Two prior incidents in this area: CRLF function bodies and per-version uniqueness (project memory) |
+| Carry corruption under concurrency or replay | **High** | all carry writes inside the existing entity-then-account lock and the attempt's single state transition; invariant check in `tw4_credit_verify`; property and concurrency tests |
+| Hosted order and idempotence | Medium | forward file must apply after `20261227090000`; refuse if per-segment prices already exist with different semantics (none today) |
+| Inbound ceiling and protection arithmetic | Medium | limit computed in cents on `due`; reuse existing logic; new cases for carry at the ceiling |
+| Display/consumer drift (cents shown for a micro price) | Medium | informational `ceil` cents column; app uses micros for per-segment kinds; test every price reader |
+| Rollback | Low before first apply (no rows); **forward-fix only** once attempts exist | follow the existing drain procedure |
+| Manifest/hashes | Low | new row in the hosted manifest; merged files untouched |
 
-**Accountant / counsel**: sales tax on setup, recurring and per-segment charges and on prepaid credit at top-up vs consumption; nexus and registrations; resale treatment of Twilio costs; revenue and breakage treatment of prepaid balances; unclaimed property; refund and closure terms (all unresolved per owner direction 6); treatment of pilot costs and the absorbed loss reserve.
+### 9.4 Required before any build
 
-## 11. Assumptions to replace with data
+Owner decision A vs B; a dedicated design review (Opus) of sections 6.3-6.7; confirmation of the carrier-fee evidence from the first invoice; a separate authorization for the migration and its hosted apply.
 
-85/15 outbound/inbound split and 1.3 segments per message (assumed); carrier mix 35/37/28 (record); 5% variance reserve and 1% compliance leakage (assumed); Stripe pack mix (assumed 50/30/20); 63.5% cost-to-price used in the dispute scenario; competitor pricing not researched.
+## 10. Fixed fees (unchanged candidates, provisional)
+
+Cost / (1 - 4.1% - 25%), rounded; every line itemized in the existing kinds (`brand`, `brand_low_volume`, `campaign_vetting`, `number`, `monthly`, `monthly_low_volume`).
+
+| Item | Twilio list | Candidate | Net margin after 4.1% |
+|---|---|---|---|
+| Brand, Low Volume Standard | $4.50 | $7.00 | 31.6% |
+| Brand, Standard | $46.00 | $65.00 | 25.1% |
+| Campaign vetting | $15.00 | $21.00 | 24.5% |
+| Campaign monthly, Low Volume Mixed | $1.50 | $2.25 | 29.2% |
+| Campaign monthly, Standard | $10.00 | $14.00 | 24.5% |
+| Number monthly | $1.15 | $1.65 | 26.2% |
+
+Setup totals (brand + vetting + first month + number): Low Volume $31.90, Standard $101.65; recurring $3.90 / $15.65 per month. All figures depend on the A2P fee evidence in section 2.
+
+## 11. Worst-case DanceFlow loss (per scenario, not an expectation)
+
+| Scenario | Worst case |
+|---|---|
+| Per-segment loss at pair A / pair B list prices | none in expected or worst-carrier outbound; pair B inbound AT&T-heavy margin 12% (positive) |
+| Twilio list cost rise | outbound break-even (before the variance reserve) at about +114% (pair A) / +36% (pair B) over worst-carrier cost; the 10% republish rule triggers first |
+| Lost dispute on a spent $100 pack | about -$82 (received $96.80, Twilio cost about $63.5 incurred at 2¢-equivalent, refunded $100 + $15) unless the negative balance is recovered; five packs at the $500 ceiling about -$410 |
+| Inbound drain by an unknown sender | $10 ceiling per business then absorbed; the 200 segments/day alert implies about $2.04-$2.36 per day at inbound cost, about $61-$71 per 30 days |
+| Duplicate or erroneous registration absorbed | Standard path $72.15; Low Volume path $22.15 |
+| Failed-message fee | $0.001 each |
+| STOP/HELP confirmations | about $0.0127 per outbound confirmation, absorbed |
+| Sub-cent only: carry | never above one cent per business (invariant); forgiven at closure |
+
+## 12. Needs the Twilio invoice/Console or the accountant before publishing
+
+**Twilio** (nothing contacted): first invoice lines by carrier/direction; Console A2P fee table and vetting refundability; ConfiDance tier and campaign monthly fee; carrier-fee billing on undelivered/failed; actual per-message price vs list; any ISV discount; any tax charged to DanceFlow.
+
+**Stripe**: the written clarification is drafted and unsent; actual account fee.
+
+**Accountant / counsel** (unresolved per owner direction): sales tax on setup, recurring and per-segment charges and on prepaid credit; nexus; resale treatment; prepaid-balance revenue and breakage; unclaimed property; refund and closure terms; treatment of the sub-cent carry and pilot costs.
+
+## 13. Assumptions to replace with pilot data
+
+85/15 outbound/inbound split and 1.3 segments per message (assumed); carrier mix 28/37/35 (record); 5% variance reserve and 1% compliance leakage (assumed); Stripe pack mix 50/30/20 (assumed); 63.5% cost/price in the dispute scenario; competitor pricing not researched.
