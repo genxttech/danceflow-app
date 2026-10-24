@@ -50,11 +50,11 @@ Known issues carried forward: KI-1 (pilot double capture; activation is blocked 
 
 **Rollback note.** After 1229, `1219` cannot be re-applied unless 1229 is rolled back first, because its precondition expects the 4-argument `tw4_rfl_pilot_cover`. Hosted rollback must follow the strict reverse of the apply order (manifest §5.1), and 1230 is rolled back first.
 
-**Hosted apply-order gate (1230).** 1230 refuses to apply once any pilot exception exists or any live evidence-free pilot approval exists. Apply it before ConfiDance's pilot exception or any pilot approval is created, with no admin pilot actions running during the apply. Hosted DEV and PROD have none today (probe 2026-10-24).
+**Hosted apply-order gate (1230).** 1230 refuses to apply once any pilot exception exists or any live evidence-free pilot approval exists. Apply it before ConfiDance's pilot exception or any pilot approval is created, and quiesce all administrative pilot actions for the duration of the apply. The precondition is that no pilot exception has ever existed. The exemption 1230 carries for #305 period covers is dead code on any hosted target, because no hosted cover exists. Hosted DEV and PROD have none today (probe 2026-10-24).
 
 **Not verified for #316:**
 - `tw4fj1` is BLOCKED by a harness limitation; it fails identically on plain main.
-- The Playwright spec is BLOCKED: there is no auth-capable isolated stack.
+- The Playwright spec `sms-subaccount-panel-fees` is BLOCKED: there is no auth-capable isolated stack.
 
 **Pilot-activation blockers still open:**
 
@@ -66,6 +66,7 @@ Known issues carried forward: KI-1 (pilot double capture; activation is blocked 
 6. **Security finding (P2).** The platform client-linking action upserts `platform_role: null` (`src/app/platform/actions.ts:518-524`). It could demote an admin whose email matches a client.
 7. **Second platform admin.** None is confirmed. The prerequisites are `profiles.platform_role = 'platform_admin'` (granted today only by a manual, unaudited service-role SQL update, which needs owner authorization), TOTP enrolment at `/platform-mfa/setup`, and a different human (enforced by policy only). With one admin, absorb-exposure and number cancellation stay blocked (fail-closed).
 8. **Approval-amount UX follow-up (from #305).** The form takes a dollar amount instead of showing the published price.
+9. **Pilot spend hardening (financial/security, bounded, from #316).** This must land before live pilot activation. A direct `tw4_spend_authorize` call can still use the `pilot_period_cover` scope. Restrict it to calls made through `tw4_rfl_pilot_cover` (for example a transaction-local flag that only that function sets), or require the covered period to be the current or next month. The same review must also evaluate a deferred `ENABLE ALWAYS` constraint trigger that requires the evidence row to exist by commit for every pilot spend event and every pilot exception. It needs a new migration, tests and Opus review; it is not started or authorized.
 
 Hosted state is unchanged by all of the above: DEV fingerprint `bf10276e`, PROD `d17059a0`, re-confirmed read-only on 2026-10-24.
 
