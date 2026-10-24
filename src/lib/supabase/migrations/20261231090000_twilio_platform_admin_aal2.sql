@@ -2,16 +2,16 @@
 -- Paths where the platform admin's OWN token reaches the database (user-scoped client or PostgREST with the anon key) previously checked only
 -- profiles.platform_role, so an aal1 session could skip the server-action guard and call them directly. Require the verified JWT's aal claim here too.
 -- auth.jwt() is the caller's own token on these paths (the service-role tw4_* functions never see an end-user token and are unchanged).
--- Rollback: rollback/20261230090000_twilio_platform_admin_aal2_rollback.sql.
+-- Rollback: rollback/20261231090000_twilio_platform_admin_aal2_rollback.sql.
 begin;
 set local lock_timeout = '5s';
 
 -- precondition: the objects being replaced must exist (otherwise create-or-replace would make a new function with default PUBLIC execute)
-do $ begin
+do $$ begin
   if to_regprocedure('public._sms_onb_is_platform_admin()') is null or to_regclass('public.studio_sms_registrations') is null then
     raise exception 'TW4F_AAL2_PRECONDITION: 20261119090000 and 20261012090000 must be applied first';
   end if;
-end $;
+end $$;
 
 create or replace function public._sms_onb_is_platform_admin()
 returns boolean language sql stable security definer
@@ -51,12 +51,12 @@ with check (
 );
 
 -- postcondition: exactly the three policies, each requiring aal2
-do $ begin
+do $$ begin
   if (select count(*) from pg_policies where schemaname='public' and tablename='studio_sms_registrations') <> 3
      or exists (select 1 from pg_policies where schemaname='public' and tablename='studio_sms_registrations'
                 and coalesce(qual,'') || coalesce(with_check,'') not like '%aal2%') then
     raise exception 'TW4F_AAL2_POSTCONDITION: studio_sms_registrations policies are not exactly the three aal2 policies';
   end if;
-end $;
+end $$;
 
 commit;

@@ -1,4 +1,4 @@
--- Rollback of 20261230090000_twilio_platform_admin_aal2.sql: restores the role-only checks (as in 20261119090000 and 20261012090000).
+-- Rollback of 20261231090000_twilio_platform_admin_aal2.sql: restores the role-only checks (as in 20261119090000 and 20261012090000).
 begin;
 
 create or replace function public._sms_onb_is_platform_admin()

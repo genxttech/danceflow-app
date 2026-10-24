@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 
 /** Static checks of the (unapplied) TW-4F AAL2 migration and of the challenge page step-up wiring. */
 const mig = join(process.cwd(), "src", "lib", "supabase", "migrations");
-const up = readFileSync(join(mig, "20261230090000_twilio_platform_admin_aal2.sql"), "utf8");
-const down = readFileSync(join(mig, "rollback", "20261230090000_twilio_platform_admin_aal2_rollback.sql"), "utf8");
+const up = readFileSync(join(mig, "20261231090000_twilio_platform_admin_aal2.sql"), "utf8");
+const down = readFileSync(join(mig, "rollback", "20261231090000_twilio_platform_admin_aal2_rollback.sql"), "utf8");
 const page = readFileSync(join(process.cwd(), "src", "app", "(auth)", "platform-mfa", "challenge", "page.tsx"), "utf8");
 
 describe("AAL2 migration", () => {
