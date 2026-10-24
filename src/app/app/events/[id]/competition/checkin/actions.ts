@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
 import { buildCompetitionCredentialTargets } from "@/lib/competition/checkin";
+import { checkinBalanceDue } from "@/lib/competition/checkinBalance";
 
 function text(formData: FormData, key: string) { return String(formData.get(key) ?? "").trim(); }
 
@@ -59,13 +60,14 @@ async function recalculateSession(supabase: Awaited<ReturnType<typeof createClie
   const credentials = credentialResult.data ?? [];
   const credentialComplete = targets.length === 0 || targets.every((target) => credentials.some((credential) => credential.status === "issued" && ((target.holderType === "participant" && credential.registration_attendee_id === target.registrationAttendeeId) || (target.holderType === "entry" && credential.entry_id === target.entryId))));
   const orderTotal = Number(orderResult.data?.total_amount ?? 0);
-  const paid = (paymentResult.data ?? []).filter((item) => item.status === "paid").reduce((sum: number, item) => sum + Number(item.amount ?? 0) - Number(item.refund_amount ?? 0), 0);
-  const balanceDue = Math.max(0, Number((orderTotal - paid).toFixed(2)));
-  const paymentComplete = balanceDue <= 0;
+  const balanceDue = checkinBalanceDue(orderTotal, paymentResult.data ?? []);
+  // A refunded or failed order is settled money, not a paid registration: never mark it payment-complete or ready.
+  const orderUnpayable = ["refunded", "failed"].includes(String(orderResult.data?.payment_status ?? ""));
+  const paymentComplete = balanceDue <= 0 && !orderUnpayable;
   const ready = paymentComplete && waiverComplete && entriesComplete && credentialComplete;
   await supabase.from("event_competition_checkin_sessions").update({
     status: session.status === "complete" ? "complete" : entryBlocked ? "blocked" : ready ? "ready" : "in_progress",
-    payment_status: paymentComplete ? "complete" : "balance_due",
+    payment_status: paymentComplete ? "complete" : orderUnpayable ? "needs_review" : "balance_due",
     waiver_status: waiverComplete ? "complete" : "missing",
     entry_status: entryBlocked ? "disputed" : entriesComplete ? "complete" : "needs_review",
     credential_status: targets.length === 0 ? "not_required" : credentialComplete ? "complete" : "missing",
