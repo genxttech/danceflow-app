@@ -1,4 +1,27 @@
-# TW-4 Stage B execution runbook (preparation record)
+# TW-4 Stage B execution runbook (legacy parent-account harness; preparation record)
+
+> **STATUS 2026-10-24 (supersedes the status line below): this runbook describes the LEGACY parent-account validation harness.** Owner decision D2 (revised 2026-10-18) puts every studio legal business in **its own Twilio subaccount**, starting with ConfiDance Unlimited, LLC; the parent-account pilot exception is removed. Twilio confirmed (ticket #29647095, 2026-10-19) that the parent's Primary Customer Profile can be assigned into a Secondary profile in a subaccount of the same organization. `TW-4F_Production_Onboarding_Plan.md` (section 4 and section 13) records that the Stage B draft for ConfiDance was already created in the parent account; it is historical evidence only, is **not adopted**, and is cleaned up under D1/U-10. **Do not run this harness again for a new studio, and do not fill in a business file for the ISV (GenX TotalTech LLC) or reuse its EIN.** Section 0 below says what replaces it. Sections 1-10 are kept as the record of the harness and the safeguards it proved.
+>
+> Nothing in this update contacts Twilio, creates a resource, or touches DEV/PROD. Stage C, any fee and any irreversible submission remain unauthorized.
+
+## 0. Procedure under the subaccount architecture
+
+The harness (`run-stage-b.ps1`, `stage-bc.ts`) authenticates with ONE Account SID plus a Standard API key and writes to **that** account. It also does a preflight read of the Primary profile with the same credentials. Under D2 that is the wrong account for a studio: Trust Hub and Messaging A2P resources must be created with the **subaccount's own credentials** (the parent's credentials do not reach other subdomains; plan section 13), while the Primary profile is read through the parent (GET only). The production runner already works this way (`SubaccountTokenProvider`, scoped adapters, `needs_subaccount` / `account_mismatch` stops), so the harness is retired for real runs. What replaces Stage B for ConfiDance:
+
+| Step | Who | Twilio effect | Gate |
+|---|---|---|---|
+| 1. Confirm ConfiDance is a distinct legal entity with its own EIN (`TW-4_StageB_Studio_Identity.md` section 5a) | Owner | none | owner evidence |
+| 2. ConfiDance's owner completes the wizard in production (EIN typed once, encrypted app-side; DanceFlow staff never type it) | Owner | none | G0, G1 |
+| 3. Cleanup decision for the parent-account Stage B draft (delete first, never adopt; Console deletion needs its own authorization; the duplicate-entity risk Q-dup is unresolved) | Owner | deletes drafts | separate authorization |
+| 4. Set the entity spend cap, then create the subaccount `df:{env}:{legal_entity_id}` (its own confirmed run) | Platform admin | creates a persistent account; closing it is permanent | G-SUB |
+| 5. Runner S1-S10 inside the subaccount: draft Secondary profile, EndUsers, Address, document, assignments (the Primary is read via the parent and assigned across), evaluation only. First live proof of the cross-account assignment, supervised, no fee | Runner | persistent drafts, EIN inside the business EndUser | G0 + runner window |
+| 6. S11 submit, T1-T6, brand, campaign, number | Runner | irreversible / fees | G2, G3, G4, G5 (each separately authorized; the $150 pilot ceiling is not permission to spend) |
+
+Safeguards from this harness that carry over unchanged in purpose: no secrets or EINs in files or chat; owner-filled identity files stay outside the repository; the evaluation never submits (S10 stop, no `Status` field before the submit gate); a human-typed phrase for every irreversible or persistent step; loopback-only databases for local rehearsals; evidence by SID only. The ISV-identity refusals in the checker and launcher are an accidental-reuse safeguard only (`TW-4_StageB_Studio_Identity.md` section 5b); the production path additionally needs its own server-side check that a studio's EIN last four differs from the Primary's.
+
+Adjustments to the old Stage B procedure: (a) the real-mode harness is parent-account-only and should be treated as retired; a launcher guard that refuses real mode unless an explicit legacy switch is passed is proposed but not built (it changes launcher behavior, so the 22-case matrix and the interactive suites would have to be re-run); (b) a business JSON is not needed for ConfiDance's real onboarding, because the wizard collects the same fields; (c) a `genx-business.json` file has no purpose and can be deleted by its owner (the tooling never read it).
+
+Original status line (2026-10-17, historical):
 
 Status: PREPARED, NOT AUTHORIZED. Stage B and Stage C remain unauthorized until the owner gives separate written authorization and personally types the `authorize-b` phrase at run time. Production stays on the currently promoted deployment (`dpl_9JYuwjxf9ikjac3VtS8PSWhEZD2x`); the merged main build (`419e5b5f`) is not promoted.
 
@@ -82,7 +105,7 @@ Re-run `tests\launcher-b-matrix.ps1` and `tests\harness-exit.ps1` after any laun
 
 ## 7. Expected Stage B activity at Twilio
 
-Account-level, under the parent account, all in draft state, friendly names `df:production:<studio>:S<n>:<seq>`:
+Legacy harness: account-level, under whichever account the harness credentials belong to (the parent account, which is why it is retired for studios); in the subaccount architecture the production runner creates the same set inside the studio's subaccount. All in draft state, friendly names `df:production:<studio>:S<n>:<seq>`:
 
 | Step | Call | Creates |
 |---|---|---|
@@ -107,7 +130,7 @@ About 10 POSTs plus lookup GETs. A `noncompliant` evaluation is a valid Stage B 
 
 ## 9. Known unrelated blocker (not part of this workstream)
 
-`next build` fails the type-check on `src/app/(auth)/callback/route.ts` (it exports `resolveEmailBindingDestination`, a non-route export, introduced in PR #127). Reproduced on pristine main `2cc05d9e`; Vercel builds pass. It is independent of TW-4 and is not being fixed here.
+`src/app/(auth)/callback/route.ts` exports helper functions besides `GET` (`resolveEmailBindingDestination` since PR #127). Re-examined 2026-10-18 (`TW-4F_Production_Onboarding_Plan.md` section 12): not a Vercel blocker, because the default `next build` (Turbopack) succeeds and Vercel builds pass; only `next build --webpack` rejects it. Independent of TW-4 and not fixed here.
 
 ## 10. Stop points
 
