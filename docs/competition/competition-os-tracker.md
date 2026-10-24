@@ -48,6 +48,17 @@ The R2 PR body (#292) records "D1–D7 approved; D8 superseded by C1; Q1; Q2". R
 | S-D2 | An official may scratch an entry in a locked-but-not-danced heat as an audited action, without reopening the heat; a reason is mandatory. | Applied in #306 PR body ("S-D2"); #301 doc §5 |
 | CC1 | Competition credit is a separate bounded workstream. It starts after R2 merges and needs CC-D1…D8 first. Credit is never a Stripe refund. | #301 doc §4.3 |
 
+### 1.5 Owner decisions of 2026-10-24
+
+| # | Decision (owner's words) | Recorded in |
+|---|---|---|
+| 1 | **K0 O1–O5 APPROVED.** "Accept all five proposed fail-safe defaults, including complete assigned ballots before locking, manager/designated-chair locking, hidden public judge identities, generic under-review notices, and blocking earlier-round corrections once later-round ballots exist." | K0 §11, PR #291 head `0ea4e10b` |
+| 2 | **R2 operational classification APPROVED.** "Classify all four `competition_refund_*` exception kinds as operational. Preserve Q2 affected-round-only publication blocking; purely financial exceptions must not block unrelated competitive results." | #292 PR body "Open items" (code already matched) |
+| 3 | **CI-B CB-1 and CB-2 APPROVED.** "Remove general event check-in permissions from instructor and independent_instructor roles. Allow front_desk to perform competition admission, mark attendance, and collect authorized desk payments, but not issue refunds, scratch entries, edit eligibility, or modify heats. Implement CB-2 in its separately reserved SQL slice." CB-2 = slot `20270112090000`, new session, stacked on #320. | This tracker (recorded from the coordinator handoff; to be copied into #295/CB-2 docs by their owners) |
+| 4 | **Schedule & Heats walkthrough waived for Git-only development** of E1 officials, E2 ballots and O1 day-of. "The walkthrough remains mandatory before those PRs can merge or deploy." | This tracker (coordinator handoff) |
+
+Recorded 2026-10-24 from the Competition coordinator's handoff of the owner's words; items 1 and 2 are also written in Git as noted.
+
 ### 1.4 Other standing decisions this tracker relies on
 
 - Functional QA is developer-owned; the owner gives business acceptance only (roadmap l.1039). Owner acceptance gates: Schedule & Heats walkthrough (gates 10E); organizer walkthrough and verified "this is me" walkthrough (gate public registration).
@@ -59,19 +70,23 @@ State as of 2026-10-24 (checks from `statusCheckRollup`; "CI" means the *Typeche
 
 | PR | Slice | Head | Base | State | CI | QA evidence | Blocking item | Merge authorized |
 |---|---|---|---|---|---|---|---|---|
-| #291 | K0 scoring→results contract (docs + types, no SQL) | `a8c7c611` | main | OPEN | SUCCESS (+ Vercel) | §4 K0 | Owner O1–O5; Opus review | none |
-| #292 | R2 / CI-D entry refunds (SQL `20270103`, webhook, staff flow) | `c32a693d` | main | OPEN, **draft** | Test job SUCCESS; Vercel qfem PENDING at read time | §4 R2 | Owner sign-off on exception classification; desk-balance release gate (W2); K0 correction-event tie-in; W1 R2+SC1 integration | none |
+| #291 | K0 scoring→results contract (docs + types, no SQL) | `0ea4e10b` | main | OPEN | SUCCESS (+ Vercel) | §4 K0 | Opus review; owner approval to freeze (O1–O5 APPROVED 2026-10-24) | none |
+| #292 | R2 / CI-D entry refunds (SQL `20270103`, webhook, staff flow) | `f5775a0a` | main | OPEN, **draft** | SUCCESS | §4 R2, §4 W1 integration | Release gate: #320 desk balance must land first; K0 correction-event tie-in; real-DB clean-chain rerun before PROD SQL (operational classification APPROVED 2026-10-24) | none |
 | #293 | K1 Studio v1 engine specs (docs only) | `7c197e42` | main | OPEN | no CI test job on this PR (docs only); Vercel SUCCESS | §4 K1 | Owner decisions D-OM / D-PR / D-CT / X-1…X-7 | none |
-| #295 | CI-B atomic check-in (no SQL) | `399d90ce` | main | OPEN | SUCCESS (+ Vercel) | §4 CI-B | Owner acceptance: instructors lose event check-in (CB-1); front-desk competition check-in needs SQL (slot 0112, CB-2) | none |
+| #295 | CI-B atomic check-in (no SQL) | `399d90ce` | main | OPEN | SUCCESS (+ Vercel) | §4 CI-B | CB-1 APPROVED 2026-10-24 (instructor roles lose event check-in); CB-2 front-desk SQL is a separate stacked workstream (slot 0112) | none |
 | #297 | Q1 full simulated competition E2E (stages 1, 2, 4) | `6d46c837` | main | OPEN | SUCCESS (+ Vercel); spec skips in CI | §4 Q1 | Later stages are `test.fixme` until their slices exist; W3 extension in progress locally (brief) | none |
 | #301 | SC1/CC1 scratch policy + credit design (docs only; also edits roadmap Phase 10) | `1d87deda` | main | OPEN | Vercel SUCCESS | Docs only | Owns the roadmap Phase 10 edit; owner S-D1/S-D2 recorded as applied in #306; CC-D1…D8 open | none |
-| #306 | SC1 scratch workflow (SQL `20270108`) | `e4b7a57e` | main | OPEN, **draft** | Test job SUCCESS; Vercel PENDING at read time | §4 SC1 | Owner review; 2-line trivial rebase with R2 on `registrations/page.tsx`; R2 must leave `scratched` entries alone (review P2-4, since addressed in #292 head per its PR comments) | none |
+| #306 | SC1 scratch workflow (SQL `20270108`) | `77a176ac` | main | OPEN, **draft** | SUCCESS | §4 SC1, §4 W1 integration | Owner review; apply-order with R2 (both orders PASS in W1 integration) | none |
 | #311 | Competition workspace mobile overflow (nav `min-w-0`) | — | main | **MERGED** `fd5e31a6` (2026-10-24T13:36:57Z) | — | Not read here | — | n/a |
-| W2 | Desk balance fix (stacked on #295, slot `20270111`) | no remote branch/PR found at read time | #295 | pending | — | — | Depends on #295 | none |
-| W4 | K1 setup fixes (slot `20270110`) | no remote branch/PR found at read time | main | pending | — | — | — | none |
-| W5 | Closeout read models (C1 reads) | no remote branch/PR found at read time | main | pending | — | — | — | none |
+| #320 | CI-B desk balance: refunds never appear as balance due (W2; SQL `20270111`) | `328674d6` | `competition-r1-checkin-cas` (#295) | OPEN, **draft** | SUCCESS | §4 W2 | Stacked on #295: merge #295 first. R2 must not release before it | none |
+| #321 | C1 closeout reads (W5): read-only P&L, CSV, checklist (no SQL) | `30f943e5` | `competition-r2-entry-refunds` (#292) | OPEN, **draft** | SUCCESS | §4 W5 | Stacked on #292; desk-balance and publication checks wait for #320 and F2/F3 | none |
+| #322 | K1 callback setup corrections (W4; SQL `20270110`) | `d02e0df9` | main | OPEN, **draft** | SUCCESS | §4 W4 | Owner D-CT-5 (callback target T) and related decisions not made here | none |
+| E1 officials | `20270101090000` | no PR yet | main | **in development** (Git-only; new session) | — | — | Walkthrough waived for Git-only development only; mandatory before merge or deploy (§1.5 #4) | none |
+| O1 day-of | `20270106090000` | no PR yet | main | **in development** (Git-only; new session) | — | — | same | none |
+| E2 ballots | `20270102090000` | no PR yet | E1 + O1 (stacked) | **in development** (Git-only; new session) | — | — | same; depends on E1 and O1 | none |
+| CB-2 front-desk | `20270112090000` | no PR yet | #320 (stacked) | **in development** (Git-only; new session) | — | — | Depends on #320 | none |
 
-Heads moved during this reconciliation: #292 was `a27e943c` (a merge of origin/main produced `c32a693d`), #306 was `8f6e7874` (now `e4b7a57e` after a merge of origin/main). Re-read before relying on a SHA. Local branches exist for W2 (`competition-cib-desk-balance`), W4 (`competition-k1-setup-fixes`) and W5 (`competition-c1-closeout-reads`) but none is pushed. Fill in PR numbers when they open.
+Heads moved since the first version of this tracker: #292 `a27e943c`→`c32a693d`→`f5775a0a`, #306 `8f6e7874`→`e4b7a57e`→`77a176ac`, #291 `a8c7c611`→`0ea4e10b`. Re-read before relying on a SHA. The four "in development" rows come from the coordinator assignment of 2026-10-24; fill in PR numbers when they open.
 
 ## 3. Migration slot ownership
 
@@ -79,20 +94,19 @@ Main has no `2027*` migrations (latest on main: `20261230090000_twilio_rfl_pilot
 
 | Slot | Owner | Source | Status |
 |---|---|---|---|
-| `20270101090000` | E1 officials | K0 §12 | not built |
-| `20270102090000` | E2 ballots | K0 §12 | not built |
+| `20270101090000` | E1 officials | K0 §12 | in development (Git-only) |
+| `20270102090000` | E2 ballots | K0 §12 | in development (Git-only), stacked on E1 + O1 |
 | `20270103090000` | **R2** entry refunds | K0 §12; #292 | in #292, unmerged, local-DB only |
 | `20270104090000` | F2 results lifecycle | K0 §12 | not built |
 | `20270105090000` | F3 publication + read RPCs | K0 §12 | not built |
-| `20270106090000` | O1 day-of (schedule/start/cancel round) | K0 §12 | not built |
+| `20270106090000` | O1 day-of (schedule/start/cancel round) | K0 §12 | in development (Git-only) |
 | `20270107090000` | C1 closeout | K0 §12 | not built (writes) |
 | `20270108090000` | **SC1** scratch | #301 doc §4.3; #306 | in #306, unmerged, local-DB only |
 | `20270109090000` | CC1 credit | #301 doc §4.3 | design only |
-| `20270110` | K1 setup fixes (W4) | brief | reserved |
-| `20270111` | Desk balance (W2) | brief | reserved |
-| `20270112` | Front-desk RLS | brief | reserved, **pending owner** (CB-2) |
+| `20270110090000` | K1 setup fixes (W4) | #322 | in #322, unmerged, local-DB only |
+| `20270111090000` | Desk balance (W2) | #320 | in #320, unmerged, local-DB only; apply after R2 `20270103090000`, SQL before app |
+| `20270112090000` | CB-2 front-desk RLS | owner decision 3 (2026-10-24) | **approved**; in development (new session), stacked on #320 |
 
-The brief gives the O1 / C1 / E1 / E2 / F2 / F3 names; the "0104 F2, 0105 F3" labels in the brief match K0 §12. Slots 0110–0112 are not written in any Git file yet.
 
 **Apply order and rollback**
 
@@ -118,7 +132,7 @@ A later PR comment (2026-10-23T19:04Z) reports the doc was updated for R2 C1/Q1/
 ### R2 (#292)
 | Check | Result |
 |---|---|
-| R2 SQL suite (isolated local Postgres) | PASS (109 checks in PR body; **118** in the latest PR comment, head `34295013`) |
+| R2 SQL suite (isolated local Postgres) | PASS (109 in the original body; 118 at `34295013`; 123 in W1 integration) |
 | Forward/rollback round trip; second run refused; rollback refuses with evidence | PASS |
 | Regression suites with vs without R2: PAY-WH-1 (114), PAY-WH-1A (66), 10C pricing parity (45) | PASS, identical with and without R2 |
 | 10A/10C/10C.4/10C.5/10D/10D.1/REFUND-RECON suites on the cloned DB | Fail **at baseline** (privilege/ownership/ACL assertions, auth-schema drift); identical with and without R2. Rerun on a clean migration-built DB before PROD SQL |
@@ -144,7 +158,7 @@ No code or tests exist. Engines stay unavailable (`COMP_ENGINE_NOT_AVAILABLE`) u
 | Rows | Result |
 |---|---|
 | 1–17 (concurrent same-ticket scans; repeat scan banner; two-ticket registration; group-class insert race and pre-existing row; unpaid ticket zero writes; manual whole-registration and single-attendee concurrency; legacy registration; role matrix with zero DB queries for refused roles; competition presence/batch/completion CAS; harness control proves the old pattern double-admits; mutation check) | PASS (unit, interleaving fake DB) |
-| 18 front_desk reaches competition check-in | **BLOCKED** (needs SQL helper + RLS change; no migration slot) |
+| 18 front_desk reaches competition check-in | **BLOCKED** (needs SQL; now approved as CB-2, slot 0112, in development) |
 | 19 Real PostgREST/DB concurrency against DEV | **BLOCKED** (no hosted DB access authorized) |
 | 20 Browser walkthrough of check-in banners | **NOT RUN** |
 | `tsc`, eslint on changed files | clean; vitest 7871 passed (one full run had unrelated flaky timeouts that pass alone) |
@@ -169,38 +183,94 @@ Gaps found (no app change): paid entries start `unverified` and the check-in ses
 |---|---|
 | SC1 SQL suite (78 checks, isolated local Postgres) | PASS |
 | Apply → full rollback → re-apply; guard md5 and lifecycle ACL restored; re-apply refused by preflight | PASS |
-| Soft rollback with existing scratch history | **NOT RUN** (code path reviewed only) |
+| Soft rollback with existing scratch history | NOT RUN in the original body; **PASS** in W1 integration (above) |
 | Regression 10A/10B/10C/10C.5/10D/10D.1 with vs without SC1 | Identical; pre-existing clone failures unchanged |
 | Unit tests `src/lib/competition` | PASS (418) |
 | `tsc`, ESLint on changed files | PASS |
 | Independent review | 0 P0; both P1s, in-scope P2s, P3-1…P3-5 fixed; P2-4 handed to R2; P3-6 left to server enforcement |
 | Browser walkthrough F1–F13 (isolated Supabase CLI stack, 2026-10-24) | PASS (13 flows, DB-verified) |
-| Concurrency (two sessions) | **NOT RUN** (lock order reviewed, no two-session test) |
+| Concurrency (two sessions) | NOT RUN in the original body; **PASS** in W1 integration (above) |
 | Mobile (375px) | Existing issue on every competition page; #311 (merged, "nav min-w-0") appears to be that separate fix; its QA was not read here |
+
+### R2 + SC1 integration (W1, from the #306 PR body, 2026-10-24)
+Database "CLI-crlf" = Supabase CLI stack with real Auth/Storage, July prod schema dump + 266 repo migrations in order (0103 then 0108), `20260831` replayed in CRLF; seven unrelated migrations not applying (details in #306 body). This clears the earlier "migration-built database BLOCKED" row for R2 on that stack; it is not a hosted database.
+
+| Check | Result |
+|---|---|
+| R2 SQL suite (0103→0108) | PASS (123) |
+| SC1 SQL suite | PASS (78) |
+| 10A/10B/10C/10C.4/10C.5/10D/10D.1 | PASS (109/130/177/55/220/79/22) |
+| PAY-WH-1 / PAY-WH-1A / 10C pricing parity | PASS (114/66/45) |
+| REFUND-RECON-1/2 (rewards trigger disabled) | PASS (54/35) |
+| Reverse apply order (0108 then 0103); combined rollback (SC1 then R2); R2 rollback refuses while SC1 live; combined rollback with evidence | PASS |
+| SC1 two-session concurrency (25 with soft rollback); SC1 soft rollback with history; scratch vs R2 refund both orders | PASS, no deadlock |
+| No scratch path writes refunds/allocations/scopes/accounting or touches order/payment/registration | PASS (20) |
+| Combined `tsc --noEmit` | PASS |
+| vitest `src/lib/competition` + `src/app/api/stripe` | 436 pass, 1 fail (`workspace.phase10b`, also fails on origin/main) |
+| Same suites on a public-schema clone | NOT RUN |
+| Stripe test-mode E2E on the combined app | NOT RUN |
+| Network-error injection | BLOCKED |
+| Independent review | 0 P0, 0 P1; three P2 fixed; P3 documented |
+
+Defects found and fixed in R2 (SC1 unchanged); R2 pin `sync_competition_entries_from_registration` is now `3a19d4b4`. The R2×SC1 scripts live on the reference branch `competition-int-r2-sc1` (no PR) only. This supersedes the SC1 "Soft rollback" and "Concurrency" NOT RUN rows below.
+
+### W2 desk balance (#320)
+| Check | Result |
+|---|---|
+| Helper tests (6) + action tests (5; 3 fail on old code) + #295 race tests | PASS (10 in checkin dir) |
+| `tsc` | PASS |
+| SQL suite `test_T_competition_checkin_balance.sql` (13) on local `cib-bal-db` (DEV-schema clone with R2) | PASS |
+| PAY-WH-1A suite before/after migration (66) | PASS / PASS |
+| Rollback restores prior body (md5 `387aacac…`); re-apply idempotent | PASS |
+| Independent money review | P1 fixed; P2s noted (order-total edits/over-collection unchanged) |
+| Clean migration-built DB (iso-qa) | BLOCKED |
+| Hosted DEV/PROD, deploy, live Stripe | NOT RUN |
+
+Rule: `balance = max(0, order total − Σ amount)` over payments `paid`/`refunded`. Apply after R2 `20270103090000` and PAY-WH-1A, SQL before app; rollback app first. Merge order: #295, then #320.
+
+### W4 K1 setup fixes (#322)
+| Check | Result |
+|---|---|
+| New SQL suite on old body | FAIL as intended |
+| New SQL suite on new body (23) | PASS |
+| Apply → rollback to exact 10B md5 → re-apply | PASS |
+| vitest `src/lib/competition` (25 files / 417 tests) | PASS |
+| 10B/10C.5/10D/10D.1 suites before vs after | Verdicts identical (on a schema clone) |
+| Clean baseline for those suites | BLOCKED (clone; environmental failures identical before/after) |
+| `tsc --noEmit` | PASS |
+| Independent review | No blocking findings |
+| Browser/UI walkthrough | NOT RUN |
+| Hosted DEV/PROD | NOT RUN |
+
+Open (not decided here): D-CT-5 (callback target T owner/default/T ≥ entries); Final-only vs callback round in an empty category; post-publish edit policy for T.
+
+### W5 closeout reads (#321)
+| Check | Result |
+|---|---|
+| 26 vitest tests | PASS |
+| SQL suite (17, incl. RLS for two studios) on local Postgres | PASS |
+| TS model on rows captured under RLS; whole-project `tsc`, eslint | clean |
+| Independent review | No P0; P1/P2 fixed |
+| Rendering the page against a database | NOT RUN |
+| Hosted DEV/PROD | NOT RUN |
+
+Read-only; no SQL (slot 20270107 unused). Checklist shows PASS / BLOCKED / NOT AVAILABLE YET (desk balance waits for #320; publication/certification wait for F2/F3).
 
 ### SC1/CC1 docs (#301)
 Docs only; no runtime paths changed. No tests run.
 
-## 5. Open owner decisions
+## 5. Open owner decisions (decided items moved to §1.5)
 
 | Group | IDs | Question / default | Where |
 |---|---|---|---|
-| K0 | O1 | Absent judge: may a round lock with fewer ballots than assigned judges? Default: fail closed | K0 §11 |
-| K0 | O2 | Who may lock ballots: manager only or also a chair? Default: manager or chair | K0 §11 |
-| K0 | O3 | Judge names/letters on public results? Default hidden | K0 §11 |
-| K0 | O4 | Is a withdrawn publication explained publicly? Default generic notice | K0 §11 |
-| K0 | O5 | Relax §6 (correcting an earlier round after the next round has ballots)? Default blocked | K0 §11 |
-| R2 | Operational classification | Sign-off that all four `competition_refund_*` exception kinds are `operational` (alert, reopen on recurrence) | #292 PR body "Open items" |
-| CI-B | CB-1 | Owner acceptance that `instructor` and `independent_instructor` can no longer run event check-in | #295 PR body ("Behavior change") |
-| CI-B | CB-2 | Front-desk access to competition check-in: SQL helper + RLS + page-level gates; slot 0112 reserved | #295 PR body; slot per brief |
-| Gate | Walkthrough | Owner Schedule & Heats walkthrough gates E1/E2 (10E) | Roadmap v2.22 l.140, l.165 |
+| Gate | Walkthrough | Waived for Git-only E1/E2/O1 development (decision 4 above). **Mandatory before those PRs merge or deploy**, and still gates public registration (organizer and "this is me" walkthroughs) | Roadmap v2.22 l.140, l.165; §1.5 |
 | K1 | D-OM-1…5 | `ordinal_majority`: how ordinals combine, what "majority" means, tie-break chain, judge ties, complete rankings | #293 PR body |
 | K1 | D-PR-1…5 | `proficiency_rating`: how bands combine, majority fallback, outcomes beyond Gold/Silver/Bronze, what is shown, complete marks | #293 PR body |
 | K1 | D-CT-1…10 | `callback_tally`: mark shape, quota, tally, ties at the cut, target count, placements for non-called-back, roles, callback rounds under `@3`, multi-heat quotas, carry-forward | #293 PR body |
 | K1 | X-1…X-7 | Cross-cutting: where decided values live (`studio_simple@4` vs `@1`/`@3`), fail-closed confirmation, panel size, absent judges, scratches, multi-dance rounds, multi-heat rounds | #293 doc §10 |
 | CC1 | CC-D1…D8 | Credit owner, redeemable scope, default expiry, accounting categories, partial refund + credit on one item, transferability, fee lines, platform fees on future orders | #301 doc §5 |
 
-The brief's "K1 D-OM/D-PR/D-CT/X" matches the ID families above. S-D1 and S-D2 are recorded as applied in #306 (see §1.3).
+S-D1 and S-D2 are recorded as applied in #306 (see §1.3). K0 O1–O5, R2 operational classification, CB-1 and CB-2 moved to §1.5. Remaining open: K1 families, CC-D1…D8, the walkthrough gate for merge/deploy, and D-CT-5 (#322).
 
 ## 6. 16-stage lifecycle matrix
 
@@ -208,21 +278,21 @@ Legend: **MERGED** implemented and on main · **UNMERGED** built, in an open PR 
 
 | # | Stage | Status | Evidence |
 |---|---|---|---|
-| 1 | Setup | **MERGED** (10A–10C.5 per roadmap l.972–975, l.913); **IN DEV** K1 setup fixes (W4, slot 0110) | Q1 stage 1 PASSED on local stack |
+| 1 | Setup | **MERGED** (10A–10C.5 per roadmap l.972–975, l.913); **UNMERGED** K1 setup fixes (#322, slot 0110) | Q1 stage 1 PASSED on local stack |
 | 2 | Programs / rules | **MERGED** (10B workspace, `studio_simple@3` profile, 10C.5 wizard) | roadmap v2.22 |
 | 3 | Discovery / registration | **MERGED**, public registration **HELD**, flag OFF | roadmap l.913; Q1 stage 2 PASSED locally |
 | 4 | Payment / settlement | **MERGED** (CI-A, PAY-WH-1/1A/1B); refunds **UNMERGED** (#292, draft) | §4 R2 |
-| 5 | Check-in | Baseline **MERGED**; atomic check-in **UNMERGED** (#295); desk balance **IN DEV** (W2); front-desk RLS **BLOCKED** by owner (slot 0112) | §4 CI-B |
+| 5 | Check-in | Baseline **MERGED**; atomic check-in **UNMERGED** (#295); desk balance **UNMERGED** (#320); front-desk RLS CB-2 **IN DEV** (slot 0112, approved) | §4 CI-B |
 | 6 | Schedule & heats | **MERGED** (10D, 10D.1); owner walkthrough **BLOCKED** (open) | roadmap l.165; Q1 stage 4 PASSED |
-| 7 | Day-of / scratches | 10D scratch/no-show **MERGED**; SC1 scratch workflow **UNMERGED** (#306); O1 day-of round control **DESIGNED** (slot 0106) | §4 SC1; K0 §4 |
-| 8 | Officials / judges | **DESIGNED** (E1, slot 0101); **BLOCKED** by walkthrough | K0 §12 |
-| 9 | Ballots | **DESIGNED** (E2, slot 0102); **BLOCKED** by walkthrough | K0 §3–4 |
+| 7 | Day-of / scratches | 10D scratch/no-show **MERGED**; SC1 scratch workflow **UNMERGED** (#306); O1 day-of round control **IN DEV** (slot 0106; same walkthrough condition) | §4 SC1; K0 §4 |
+| 8 | Officials / judges | **IN DEV** (E1, slot 0101; Git-only; walkthrough mandatory before merge/deploy) | K0 §12 |
+| 9 | Ballots | **IN DEV** (E2, slot 0102; stacked on E1 + O1; same walkthrough condition) | K0 §3–4 |
 | 10 | Engines | Specs **UNMERGED** (#293) awaiting owner decisions; engine code **MISSING** (fails closed) | §5 |
 | 11 | Callbacks / recalls / placements | **DESIGNED** (K0 §6); engines not built; Q1 stage 7 `fixme` | K0 §6 |
 | 12 | Approval | **DESIGNED** (D3 second-person rule, F2 slot 0104); K0 contract **UNMERGED** (#291) | K0 §4 |
 | 13 | Publication + portals | **DESIGNED** (F3 slot 0105, D4); no heat sheet or results for dancers/public today | Q1 gap 2 |
 | 14 | Corrections / disputes | Corrections **DESIGNED** (K0); disputes and chargebacks **MISSING** (listed as R2 follow-up) | K0 §4; #292 PR body "Follow-ups" |
-| 15 | Reconciliation / closeout | **DESIGNED** (C1 writes slot 0107, K0 §10); closeout read models **IN DEV** (W5) | K0 §10 |
+| 15 | Reconciliation / closeout | **DESIGNED** (C1 writes slot 0107, K0 §10); closeout read models **UNMERGED** (#321, draft) | K0 §10 |
 | 16 | E2E simulation | **UNMERGED** (#297): stages 1, 2, 4 PASSED locally; remainder `test.fixme` | §4 Q1 |
 
 Roadmap line numbers cited above are from `origin/main` at `d535720d`.
@@ -252,3 +322,4 @@ Stage 3 and stage 4 duplicate-scan rows are the spec's own "fixme" markers; W3 i
 | Date | Change |
 |---|---|
 | 2026-10-24 | Initial tracker (W6). Reconciled against main `d535720d`. |
+| 2026-10-24 | Recorded four owner decisions (K0 O1–O5, R2 operational classification, CB-1/CB-2, walkthrough waiver for Git-only E1/E2/O1) in §1.5; K0 §11 updated on #291; reconciled #320, #321, #322; added E1/O1/E2/CB-2 as in development; refreshed heads of #291, #292, #306. |
