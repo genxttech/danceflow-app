@@ -27,7 +27,7 @@ All pilot-blocking TW-4F code is merged into `main`. It is Git only: no migratio
 
 Known issues carried forward: KI-1 (pilot double capture; activation is blocked in the DB until the owner re-decides), KI-2 (rollback leaves widened CHECK constraints), KI-3 (r2bp2.rfl stale test on main). See §7.
 
-### 0.1 Owner decisions and follow-up merges (2026-10-24, `main` = `c2ac7a5f`)
+### 0.1 Owner decisions and follow-up merges (2026-10-24, `main` = `67bb64f2`)
 
 **Owner decisions (2026-10-24):**
 
@@ -46,12 +46,19 @@ Known issues carried forward: KI-1 (pilot double capture; activation is blocked 
 | #308 | Test fixes. The f1funding rollback control works with 1226. The j4activation KI-1 assertion allows readers. | — | `e365c317` |
 | #307 | KI-1 fix. A cross-month pilot campaign reservation is released, not captured, with an admin alert. The activation block is untouched. | 1228 | `fae5e325` |
 | #309 | Test fix. The tw4rfl rollback copy follows strict reverse order. | — | `c2ac7a5f` |
+| #316 | U-4 evidence for every pilot spend approval: `tw4_spend_authorize` for the pilot (credit refuses evidence), `tw4_pilot_exception_create` (evidence amount equals the ceiling), and the period cover. It adds the append-only `studio_sms_pilot_spend_evidence` table and an exhaustive scope-to-fee-kind map. Opus found no P0/P1/P2. | 1230 | `67bb64f2` |
 
-**Rollback note.** After 1229, `1219` cannot be re-applied unless 1229 is rolled back first, because its precondition expects the 4-argument `tw4_rfl_pilot_cover`. Hosted rollback must follow the strict reverse of the apply order (manifest §5.1).
+**Rollback note.** After 1229, `1219` cannot be re-applied unless 1229 is rolled back first, because its precondition expects the 4-argument `tw4_rfl_pilot_cover`. Hosted rollback must follow the strict reverse of the apply order (manifest §5.1), and 1230 is rolled back first.
+
+**Hosted apply-order gate (1230).** 1230 refuses to apply once any pilot exception exists or any live evidence-free pilot approval exists. Apply it before ConfiDance's pilot exception or any pilot approval is created, with no admin pilot actions running during the apply. Hosted DEV and PROD have none today (probe 2026-10-24).
+
+**Not verified for #316:**
+- `tw4fj1` is BLOCKED by a harness limitation; it fails identically on plain main.
+- The Playwright spec is BLOCKED: there is no auth-capable isolated stack.
 
 **Pilot-activation blockers still open:**
 
-1. **U-4 for pilot spend and reservation approvals.** `tw4_spend_authorize(...,'pilot',...)`, the onboarding, number and campaign pilot reservation paths, and `tw4_pilot_exception_create` still accept a bare reference. This is being fixed in migration 20261230 (RFL session).
+1. ~~U-4 for pilot spend and reservation approvals~~ **DONE in #316 (1230).**
 2. **KI-1 activation block.** It is lifted only by a later migration, after the owner re-decides now that the fix (#307) is merged.
 3. **Prices not published.** U-2 is pending the validated recommendation.
 4. **Stage B draft.** The deletion needs separate authorization (U-10).
