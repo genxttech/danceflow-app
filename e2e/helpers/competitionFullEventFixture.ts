@@ -21,6 +21,11 @@ export type CompetitionFullEventFixture = {
   planId: string;
   createdPlan: boolean;
   owner: CompetitionAccount;
+  /** A second manager of the same studio (studio_admin): the second desk in the duplicate/concurrent check-in scenarios. */
+  deskAdmin: CompetitionAccount;
+  /** Another studio and its owner: the tenant-isolation scenarios (refund and scratch pages must 404 for them). */
+  otherStudioId: string;
+  otherOwner: CompetitionAccount;
   judges: CompetitionAccount[];
   dancers: Array<CompetitionAccount & { firstName: string; lastName: string }>;
   /** The guest registers without an account; these are only the details typed into the public form. */
@@ -48,6 +53,9 @@ export async function createCompetitionFullEventFixture(config: E2EConfig, optio
     planId: randomUUID(),
     createdPlan: false,
     owner: { id: "", email: `e2e-compfull-${runId}-owner@e2e.test`, password: password() },
+    deskAdmin: { id: "", email: `e2e-compfull-${runId}-desk@e2e.test`, password: password() },
+    otherStudioId: randomUUID(),
+    otherOwner: { id: "", email: `e2e-compfull-${runId}-other@e2e.test`, password: password() },
     judges: [1, 2, 3].map((n) => ({ id: "", email: `e2e-compfull-${runId}-judge${n}@e2e.test`, password: password() })),
     dancers: DANCER_NAMES.map(([firstName, lastName], index) => ({
       id: "", email: `e2e-compfull-${runId}-dancer${index + 1}@example.com`, password: password(), firstName, lastName,
@@ -87,6 +95,15 @@ export async function createCompetitionFullEventFixture(config: E2EConfig, optio
     };
     await create(fixture.owner, "E2E Full Competition Owner");
     await must(admin.from("user_studio_roles").insert({ user_id: fixture.owner.id, studio_id: fixture.studioId, role: "studio_owner", active: true }), "owner role");
+    await create(fixture.deskAdmin, "E2E Full Competition Desk Admin");
+    await must(admin.from("user_studio_roles").insert({ user_id: fixture.deskAdmin.id, studio_id: fixture.studioId, role: "studio_admin", active: true }), "desk admin role");
+    // A second, unrelated studio (plain Pro; no events) with its own owner.
+    await must(admin.from("studios").insert({
+      id: fixture.otherStudioId, name: `E2E Other Studio ${runId}`, slug: `e2e-compfull-${runId}-other`, subscription_status: "active", billing_plan: "pro",
+    }), "other studio");
+    await must(admin.from("studio_subscriptions").insert({ studio_id: fixture.otherStudioId, subscription_plan_id: fixture.planId, status: "active" }), "other subscription");
+    await create(fixture.otherOwner, "E2E Other Studio Owner");
+    await must(admin.from("user_studio_roles").insert({ user_id: fixture.otherOwner.id, studio_id: fixture.otherStudioId, role: "studio_owner", active: true }), "other owner role");
     // Judges are accounts only: officials and panel assignment do not exist yet (stage 6 is a fixme).
     for (const [index, judge] of fixture.judges.entries()) await create(judge, `E2E Judge ${index + 1}`);
     for (const dancer of fixture.dancers) await create(dancer, `${dancer.firstName} ${dancer.lastName}`);
@@ -111,36 +128,61 @@ export async function cleanupCompetitionFullEventFixture(config: E2EConfig, fixt
   const { data: events, error: eventsError } = await admin.from("events").select("id").eq("studio_id", fixture.studioId);
   if (eventsError) failures.push(`events lookup: ${eventsError.message}`);
   const eventIds = (events ?? []).map((row) => row.id as string);
+  let allRegistrationIds: string[] = [];
   if (eventIds.length) {
     const { data: regs, error: regsError } = await admin.from("event_registrations").select("id").in("event_id", eventIds);
     if (regsError) failures.push(`registrations lookup: ${regsError.message}`);
     const regIds = (regs ?? []).map((row) => row.id as string);
+    allRegistrationIds = regIds;
     if (regIds.length) await step("event_payments", () => admin.from("event_payments").delete().in("registration_id", regIds));
+    // R2 refund evidence is ON DELETE RESTRICT (financial history); the run's own rows go first, allocations before refunds.
+    await step("refund allocations", () => admin.from("event_order_refund_allocations").delete().in("event_id", eventIds));
+    await step("refunds", () => admin.from("event_order_refunds").delete().in("event_id", eventIds));
     await step("registration client links", () => admin.from("event_registrations").update({ client_id: null }).in("event_id", eventIds));
     // The event goes first: its cascade removes the competition rows together, and the published-running-order and
     // entry/order-item guards allow that only once the event itself is gone. Orders are then a safety net.
     await step("events", () => admin.from("events").delete().in("id", eventIds));
     await step("event_orders", () => admin.from("event_orders").delete().in("event_id", eventIds));
   }
-  await step("clients", () => admin.from("clients").delete().eq("studio_id", fixture.studioId));
+  for (const studioId of [fixture.studioId, fixture.otherStudioId]) await step("clients", () => admin.from("clients").delete().eq("studio_id", studioId));
   await step("notifications", () => admin.from("notifications").delete().eq("studio_id", fixture.studioId));
   await step("payment exceptions", () => admin.from("event_order_settlement_exceptions").delete().eq("studio_id", fixture.studioId));
   await step("outbound_deliveries", () => admin.from("outbound_deliveries").delete().eq("studio_id", fixture.studioId));
   await step("usage_addon_entitlements", () => admin.from("usage_addon_entitlements").delete().eq("studio_id", fixture.studioId));
-  await step("studio_subscriptions", () => admin.from("studio_subscriptions").delete().eq("studio_id", fixture.studioId));
-  await step("user_studio_roles", () => admin.from("user_studio_roles").delete().eq("studio_id", fixture.studioId));
-  await step("studios", () => admin.from("studios").delete().eq("id", fixture.studioId));
+  for (const studioId of [fixture.studioId, fixture.otherStudioId]) {
+    await step("studio_subscriptions", () => admin.from("studio_subscriptions").delete().eq("studio_id", studioId));
+    await step("user_studio_roles", () => admin.from("user_studio_roles").delete().eq("studio_id", studioId));
+    await step("studios", () => admin.from("studios").delete().eq("id", studioId));
+  }
   if (fixture.createdPlan) {
     const { count } = await admin.from("studio_subscriptions").select("id", { count: "exact", head: true }).eq("subscription_plan_id", fixture.planId);
     if (!count) await step("subscription_plans", () => admin.from("subscription_plans").delete().eq("id", fixture.planId));
   }
-  for (const account of [fixture.owner, ...fixture.judges, ...fixture.dancers]) {
+  for (const account of [fixture.owner, fixture.deskAdmin, fixture.otherOwner, ...fixture.judges, ...fixture.dancers]) {
     if (!account.id) continue;
     await step(`profile ${account.email}`, () => admin.from("profiles").delete().eq("id", account.id));
     const { error } = await admin.auth.admin.deleteUser(account.id);
     if (error) failures.push(`auth user ${account.email}: ${error.message}`);
   }
-  const { data: studioLeft } = await admin.from("studios").select("id").eq("id", fixture.studioId).maybeSingle();
-  if (studioLeft) failures.push("studio row still present");
+  // Zero leftovers: every row the run could have created, looked up again by the run's ids.
+  const left = async (what: string, run: () => PromiseLike<{ count: number | null; error: { message: string } | null }>) => {
+    const { count, error } = await run();
+    if (error) failures.push(`leftover check ${what}: ${error.message}`);
+    else if (count) failures.push(`${what}: ${count} row(s) left`);
+  };
+  const studioIds = [fixture.studioId, fixture.otherStudioId];
+  await left("studios", () => admin.from("studios").select("id", { count: "exact", head: true }).in("id", studioIds));
+  await left("events", () => admin.from("events").select("id", { count: "exact", head: true }).in("studio_id", studioIds));
+  await left("event_orders", () => admin.from("event_orders").select("id", { count: "exact", head: true }).in("studio_id", studioIds));
+  if (allRegistrationIds.length) await left("event_payments", () => admin.from("event_payments").select("id", { count: "exact", head: true }).in("registration_id", allRegistrationIds));
+  await left("accounting_entries", () => admin.from("accounting_entries").select("id", { count: "exact", head: true }).in("studio_id", studioIds));
+  await left("user_studio_roles", () => admin.from("user_studio_roles").select("user_id", { count: "exact", head: true }).in("studio_id", studioIds));
+  if (eventIds.length) {
+    for (const table of ["event_order_refunds", "event_order_refund_allocations", "event_competition_scratches", "event_competition_entries", "event_competition_checkin_sessions", "event_competition_fee_rules"]) {
+      await left(table, () => admin.from(table).select("id", { count: "exact", head: true }).in("event_id", eventIds));
+    }
+  }
+  const accountIds = [fixture.owner, fixture.deskAdmin, fixture.otherOwner, ...fixture.judges, ...fixture.dancers].map((a) => a.id).filter(Boolean);
+  if (accountIds.length) await left("profiles", () => admin.from("profiles").select("id", { count: "exact", head: true }).in("id", accountIds));
   if (failures.length) throw new Error(`Competition full-event fixture cleanup incomplete: ${failures.join("; ")}`);
 }

@@ -299,6 +299,16 @@ driven through the normal DanceFlow UI on a local stack. It grows as slices land
   webhook, not the browser, settles the order, and the status page then shows "Registration confirmed".
 - **Stage 4**: Entries (eligibility set to Eligible) -> Check-in for each registration (participants present, entry
   verified, competitor numbers issued, Complete check-in) -> Schedule & Heats (Generate heats, Publish running order).
+- **Stage 3 / 4b / isolation (refunds, scratch, duplicate check-in)**: needs an app built from main + R2 + SC1 + CI-B (the
+  integration branch) and a QA database with those migrations applied. A second, priced event is created in the browser
+  (fee line + 10% discount; one buyer, two entries, one order, $82). Product gap: no organizer UI creates fee/discount rules, so
+  `seedPricingRules` inserts them (setup only). 3b: net-cap + $0.01 refused, nothing written. 3a: one entry refunded, ledger,
+  dated `competition_entry_refund` entry and the Stripe refund agree. 3c: the form submitted twice gives one Stripe refund.
+  4b: two desks (owner + a second studio_admin) start the same batch and mark the same participant present at once. 3d/3e: a
+  normal scratch moves no money; the refund of the scratched entry goes through the R2 page. Tenant isolation: another studio's
+  owner gets 404 on the refund and scratch pages. Locked/danced-heat scratch stays `test.fixme` (no UI locks or runs a heat, O1).
+  The desk-balance check runs only with `E2E_DESK_BALANCE_FIX=true` (needs CI-B desk-balance, PR 320). Teardown deletes refund
+  evidence first and then asserts zero leftover rows.
 - **Environment**: as in `docs/qa/local-e2e-environment.md` -- app on `http://localhost:<port>` (not `127.0.0.1`: the
   dev server blocks its HMR socket for that origin and reloads forms mid-fill), started with
   `NEXT_PUBLIC_COMPETITION_REGISTRATION_ENABLED=true`, Stripe TEST keys and `stripe listen --forward-connect-to`; run
