@@ -15,7 +15,8 @@ begin
   if exists (select 1 from public.event_competition_ballots)
      or exists (select 1 from public.event_competition_marks)
      or exists (select 1 from public.event_competition_judge_attendance)
-     or exists (select 1 from public.event_competition_ballot_events) then
+     or exists (select 1 from public.event_competition_ballot_events)
+     or exists (select 1 from public.event_competition_ballot_drafts) then
     raise exception 'E2 rollback refused: ballots, marks, attendance or audit evidence exist.';
   end if;
   if exists (
@@ -34,6 +35,7 @@ end $$;
 drop trigger if exists compe2_guard_round_lock_edges on public.event_competition_rounds;
 drop function if exists public._compe2_guard_round_lock_edges();
 
+drop function if exists public.save_competition_callback_draft(uuid, uuid[]);
 drop function if exists public.competition_judge_ballot_sheet(uuid);
 drop function if exists public.competition_round_ballot_status(uuid);
 drop function if exists public.reopen_competition_round_ballots(uuid, text, uuid);
@@ -46,6 +48,7 @@ drop table public.event_competition_marks;
 drop table public.event_competition_ballots;
 drop table public.event_competition_judge_attendance;
 drop table public.event_competition_ballot_events;
+drop table public.event_competition_ballot_drafts;
 
 drop function if exists public.competition_is_round_scorer(uuid);
 drop function if exists public._compe2_insert_ballot(uuid, uuid, uuid, uuid, text, uuid, jsonb, text, uuid);
@@ -55,6 +58,8 @@ drop function if exists public._compe2_lock_pair(uuid, uuid);
 drop function if exists public._compe2_audit(uuid, uuid, uuid, text, uuid, uuid, uuid, text, text, uuid, text, jsonb);
 drop function if exists public._compe2_validate_marks(text, uuid[], jsonb);
 drop function if exists public._compe2_is_absent(uuid, uuid);
+drop function if exists public._compe2_validate_callback(integer, uuid[], jsonb);
+drop function if exists public._compe2_round_entries(uuid);
 drop function if exists public._compe2_round_judges(uuid);
 drop function if exists public._compe2_heat_entries(uuid);
 drop function if exists public._compe2_round_heats(uuid);

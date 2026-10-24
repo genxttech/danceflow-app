@@ -76,7 +76,7 @@ export default function BallotDesk({ board, returnTo }: { board: BallotBoard; re
                     {judge.absent ? <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-900">Absent</span> : null}
                   </td>
                   {board.heats.map((heat) => {
-                    const ballot = judge.ballots.find((candidate) => candidate.heat_id === heat.heat_id);
+                    const ballot = judge.ballots.find((candidate) => candidate.heat_id === heat.heat_id || (board.round.scoring_method === "callback_tally" && candidate.heat_id === null));
                     return (
                       <td key={heat.heat_id} className="px-2 py-2 text-xs">
                         {ballot ? (
@@ -140,7 +140,48 @@ export default function BallotDesk({ board, returnTo }: { board: BallotBoard; re
             Enter what the judge wrote, on their behalf. Your name is recorded as the person who entered it. Entering again for the same judge and heat is a correction and needs a reason.
           </p>
           <div className="mt-3 space-y-4">
-            {board.heats.map((heat) => (
+            {board.round.scoring_method === "callback_tally" ? (
+              <details className="rounded border border-slate-100 p-3">
+                <summary className="cursor-pointer text-sm font-semibold text-slate-900">
+                  Callback ballot (select exactly {board.callback_target ?? "?"} across the round)
+                </summary>
+                <form action={enterPaperBallotAction} className="mt-3 space-y-3">
+                  <input type="hidden" name="roundId" value={roundId} />
+                  <input type="hidden" name="callback" value="1" />
+                  <input type="hidden" name="requestId" value={randomUUID()} />
+                  <input type="hidden" name="returnTo" value={returnTo} />
+                  <label className="block text-sm font-medium text-slate-900">
+                    Judge
+                    <select name="officialId" required defaultValue="" className={`${inputClass} mt-1 block w-full`}>
+                      <option value="" disabled>
+                        Choose the judge
+                      </option>
+                      {board.judges.filter((judge) => !judge.absent).map((judge) => (
+                        <option key={judge.official_id} value={judge.official_id}>
+                          {judge.judge_letter}: {judge.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <ul className="divide-y divide-slate-100 rounded border border-slate-200 bg-white">
+                    {(board.callback_entries ?? []).map((entry) => (
+                      <li key={entry.entry_id}>
+                        <label className="flex min-h-11 items-center gap-3 px-3 py-2 text-sm">
+                          <input type="checkbox" name="pick" value={entry.entry_id} className="h-5 w-5" />
+                          <span className="text-xs font-bold">{entry.entry_number ?? "-"}</span> {entry.display_name}
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                  <label className="block text-sm font-medium text-slate-900">
+                    Correction reason <span className="font-normal text-slate-500">(only when this judge already has a ballot)</span>
+                    <input name="reason" maxLength={500} className={`${inputClass} mt-1 block w-full`} />
+                  </label>
+                  <button className={buttonClass}>Save paper ballot</button>
+                </form>
+              </details>
+            ) : null}
+            {board.round.scoring_method === "callback_tally" ? null : board.heats.map((heat) => (
               <details key={heat.heat_id} className="rounded border border-slate-100 p-3">
                 <summary className="cursor-pointer text-sm font-semibold text-slate-900">Heat {heat.heat_number}</summary>
                 <form action={enterPaperBallotAction} className="mt-3 space-y-3">

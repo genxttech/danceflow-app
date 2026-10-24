@@ -15,15 +15,18 @@ export type JudgeSheet = {
   judge_letter: string;
   absent: boolean;
   scheme_available: boolean;
+  callback: { target: number | null; eligible: number; draft: string[]; ballot: SheetBallot | null } | null;
   heats: Array<{ heat_id: string; heat_number: number; entries: BallotEntry[]; ballot: SheetBallot | null }>;
 };
 
-export type BoardBallot = { heat_id: string; ballot_id: string; version: number; source: string; submitted_at: string };
+export type BoardBallot = { heat_id: string | null; ballot_id: string; version: number; source: string; submitted_at: string };
 
 export type BallotBoard = {
   viewer_role: "manager" | "chair" | "scorer";
   round: { id: string; name: string; status: string; scoring_method: string };
   scheme_available: boolean;
+  callback_target: number | null;
+  callback_entries: BallotEntry[] | null;
   heats: Array<{ heat_id: string; heat_number: number; lock_state: string; entry_count: number; entries: BallotEntry[] }>;
   judges: Array<{
     official_id: string;
@@ -39,6 +42,9 @@ export type BallotBoard = {
     missing_ballots: Array<{ official_id: string; judge_letter: string; heat_id: string }>;
     judges: number;
     judges_present: number;
+    panel_min: number;
+    panel_odd_required: boolean;
+    panel_ok: boolean;
     ready: boolean;
   };
 };
@@ -48,6 +54,9 @@ export function lockBlockerSummary(board: BallotBoard): string[] {
   const out: string[] = [];
   if (board.blockers.heats.length === 0) out.push("The round has no heat to ballot.");
   if (board.blockers.judges_present === 0) out.push("No judge is present on the panel.");
+  if (!board.blockers.panel_ok) {
+    out.push(`Present panel is too small: need at least ${board.blockers.panel_min} judges${board.blockers.panel_odd_required ? ", and an odd number" : ""}.`);
+  }
   if (board.blockers.missing_ballots.length > 0) {
     out.push(`${board.blockers.missing_ballots.length} ballot(s) missing: each present judge needs one per heat, or an absence must be recorded.`);
   }

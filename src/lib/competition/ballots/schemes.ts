@@ -4,7 +4,8 @@
  * Fail-closed rule: a rule is enforced only if it comes from an APPROVED source or from the K1 "Default until
  * decided" column. Every provisional rule carries its K1 decision ID in `PROVISIONAL_RULES` and in the error's
  * `decisionId`, so it can change when the owner decides (docs/competition/engine-spec-*.md on
- * competition-k1-engine-specs). The SQL submit RPC enforces the same rules; the validators here are the shared
+ * competition-k1-engine-specs). Callback rules (D-CT-1 yes-only, D-CT-2 exactly T across the whole round, D-CT-5, X-5)
+ * are OWNER-APPROVED, not provisional. The SQL submit RPC enforces the same rules; the validators here are the shared
  * source for the UI and the unit tests, and the SQL suite pins parity.
  */
 
@@ -14,7 +15,10 @@ export type BallotScoringMethod = (typeof BALLOT_SCORING_METHODS)[number];
 export const PROFICIENCY_SCALE = ["Bronze", "Silver", "Gold"] as const; // S6 studio_simple@3 mark_scheme.scale
 
 export type BallotErrorCode =
-  | "COMP_BALLOT_SCHEME_NOT_AVAILABLE"
+  | "COMP_BALLOT_HEAT_INVALID"
+  | "COMP_CALLBACK_TARGET_UNSET"
+  | "COMP_CALLBACK_NOT_DANCED"
+  | "COMP_CALLBACK_COUNT"
   | "COMP_BALLOT_SCORING_METHOD_UNSUPPORTED"
   | "COMP_BALLOT_NO_ENTRIES"
   | "COMP_BALLOT_UNKNOWN_ENTRY"
@@ -50,7 +54,6 @@ export const PROVISIONAL_RULES: ReadonlyArray<{
   { rule: "Ordinal ballots rank the entries of one heat (heat = ballot unit)", decisionId: "X-7", scoringMethod: "ordinal_majority", default: "multi-heat rounds stay unspecified in the engine; ballots are per heat" },
   { rule: "Only Bronze/Silver/Gold; no 'no rating' outcome", decisionId: "D-PR-3", scoringMethod: "proficiency_rating", default: "three bands only; anything else rejected" },
   { rule: "Exactly one rating per assigned entry; every entry required", decisionId: "D-PR-5", scoringMethod: "proficiency_rating", default: "required; partial ballots rejected" },
-  { rule: "Callback ballots are refused: mark shape and per-judge count are undecided", decisionId: "D-CT-1/D-CT-2", scoringMethod: "callback_tally", default: "engine not available -> ballots refused" },
 ];
 
 const PR_DECISIONS = { scale: "D-PR-3", complete: "D-PR-5" } as const;
@@ -70,13 +73,7 @@ export function validateBallot(input: {
   if (scoringMethod === "callback_tally") {
     return {
       ok: false,
-      errors: [
-        {
-          code: "COMP_BALLOT_SCHEME_NOT_AVAILABLE",
-          detail: "Callback ballots are not available until the owner decides the callback mark shape and count.",
-          decisionId: "D-CT-1/D-CT-2",
-        },
-      ],
+      errors: [{ code: "COMP_BALLOT_HEAT_INVALID", detail: "Callback ballots are round-level, not per heat; use validateCallbackBallot." }],
     };
   }
   if (scoringMethod !== "ordinal_majority" && scoringMethod !== "proficiency_rating") {
@@ -143,4 +140,36 @@ export function validateBallot(input: {
 
   if (errors.length > 0) return { ok: false, errors };
   return { ok: true, marks: expectedEntryIds.map((entryId) => ({ entryId, role: null, value: seen.get(entryId) })) };
+}
+
+/**
+ * Callback ballot (owner-approved): one round-level ballot; the mark is "yes" only (D-CT-1); the judge selects exactly T
+ * eligible couples across the entire round (D-CT-2); T is the round's target_advancement_count and must be set; when T is
+ * not smaller than the eligible couples the round is not danced and takes no ballot (D-CT-5). Eligible = not scratched
+ * and not a no-show (X-5) -- the caller passes the eligible set.
+ */
+export function validateCallbackBallot(input: {
+  target: number | null;
+  eligibleEntryIds: readonly string[];
+  selectedEntryIds: readonly string[];
+}): { ok: true; entryIds: string[] } | { ok: false; errors: BallotError[] } {
+  const { target, eligibleEntryIds, selectedEntryIds } = input;
+  if (target === null || !Number.isInteger(target) || target < 1) {
+    return { ok: false, errors: [{ code: "COMP_CALLBACK_TARGET_UNSET", detail: "The organizer must set the callback target (T) first." }] };
+  }
+  if (target >= eligibleEntryIds.length) {
+    return { ok: false, errors: [{ code: "COMP_CALLBACK_NOT_DANCED", detail: "T is not smaller than the eligible couples, so no callback ballot is taken.", decisionId: "D-CT-5" }] };
+  }
+  const eligible = new Set(eligibleEntryIds);
+  const errors: BallotError[] = [];
+  const seen = new Set<string>();
+  for (const id of selectedEntryIds) {
+    if (!eligible.has(id)) errors.push({ code: "COMP_BALLOT_UNKNOWN_ENTRY", entryId: id, detail: "Not an eligible couple of this round." });
+    else if (seen.has(id)) errors.push({ code: "COMP_BALLOT_DUPLICATE_MARK", entryId: id, detail: "Selected more than once." });
+    seen.add(id);
+  }
+  if (errors.length === 0 && seen.size !== target) {
+    errors.push({ code: "COMP_CALLBACK_COUNT", detail: `Select exactly ${target} couples across the round (selected ${seen.size}).`, decisionId: "D-CT-2" });
+  }
+  return errors.length > 0 ? { ok: false, errors } : { ok: true, entryIds: [...seen].sort() };
 }

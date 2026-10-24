@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { JudgeSheet } from "@/lib/competition/ballots/status";
 import BallotMarksFields from "@/app/app/events/[id]/competition/ballots/BallotMarksFields";
-import { submitJudgeBallotAction } from "@/app/app/events/[id]/competition/ballots/actions";
+import { saveCallbackDraftAction, submitJudgeBallotAction } from "@/app/app/events/[id]/competition/ballots/actions";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const buttonClass = "h-12 w-full rounded bg-slate-950 px-4 text-base font-semibold text-white hover:bg-slate-800 disabled:opacity-50";
@@ -39,6 +39,8 @@ export default async function JudgeBallotPage({
   const returnTo = `/app/judging/${eventId}/rounds/${roundId}/ballot`;
   const open = sheet.round.status === "active" && sheet.scheme_available && !sheet.absent;
   const rating = sheet.round.scoring_method === "proficiency_rating";
+  const callback = sheet.callback;
+  const picked = new Set<string>(callback?.ballot ? Object.keys(callback.ballot.marks) : (callback?.draft ?? []));
 
   return (
     <div className="mx-auto w-full max-w-xl px-4 py-5">
@@ -47,7 +49,11 @@ export default async function JudgeBallotPage({
       </Link>
       <h1 className="mt-2 text-xl font-semibold text-slate-950">{sheet.round.name}</h1>
       <p className="text-sm text-slate-600">
-        Judge {sheet.judge_letter} - {rating ? "Rate each entry Gold, Silver or Bronze." : "Rank every entry. 1 is your best. Use each number once."}
+        Judge {sheet.judge_letter} - {callback
+          ? `Select exactly ${callback.target ?? "?"} couples to call back, across all heats.`
+          : rating
+            ? "Rate each entry Gold, Silver or Bronze."
+            : "Rank every entry. 1 is your best. Use each number once."}
       </p>
 
       {query.saved ? <p role="status" className="mt-3 rounded border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950">{query.saved}</p> : null}
@@ -62,9 +68,60 @@ export default async function JudgeBallotPage({
         <p className="mt-3 rounded border border-slate-300 bg-slate-50 p-3 text-sm text-slate-900">This round is {label(sheet.round.status)}. Ballots open when it starts.</p>
       ) : null}
 
+      {callback ? (
+        <form className="mt-4 space-y-4">
+          <input type="hidden" name="roundId" value={roundId} />
+          <input type="hidden" name="callback" value="1" />
+          <input type="hidden" name="scoringMethod" value={sheet.round.scoring_method} />
+          <input type="hidden" name="returnTo" value={returnTo} />
+          <input type="hidden" name="requestId" value={randomUUID()} />
+          <p className="text-sm text-slate-700">
+            {callback.target === null
+              ? "The organizer has not set how many couples to call back yet."
+              : callback.target >= callback.eligible
+                ? "Everyone advances, so no ballot is needed."
+                : `${callback.eligible} couples are eligible. You can save your picks and finish later; the final ballot needs exactly ${callback.target}.`}
+            {callback.ballot ? ` Submitted as version ${callback.ballot.version}.` : ""}
+          </p>
+          {sheet.heats.map((heat) => (
+            <section key={heat.heat_id} aria-label={`Heat ${heat.heat_number}`} className="rounded border border-slate-200 bg-slate-50 p-3">
+              <h2 className="mb-2 text-base font-semibold text-slate-950">Heat {heat.heat_number}</h2>
+              <ul className="divide-y divide-slate-100 rounded border border-slate-200 bg-white">
+                {heat.entries.map((entry) => (
+                  <li key={entry.entry_id}>
+                    <label className="flex min-h-12 items-center gap-3 px-3 py-2 text-sm">
+                      <input type="checkbox" name="pick" value={entry.entry_id} defaultChecked={picked.has(entry.entry_id)} disabled={!open} className="h-6 w-6" />
+                      <span className="mr-1 text-xs font-bold text-slate-700">{entry.entry_number ?? "-"}</span>
+                      <span className="break-words">{entry.display_name}</span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+          {open && callback.target !== null && callback.target < callback.eligible ? (
+            <div className="space-y-3">
+              {callback.ballot ? (
+                <label className="block text-sm font-medium text-slate-900">
+                  Why are you correcting this ballot?
+                  <input name="reason" maxLength={500} className="mt-1 block h-12 w-full rounded border border-slate-300 bg-white px-3 text-base" />
+                </label>
+              ) : (
+                <button formAction={saveCallbackDraftAction} className="h-12 w-full rounded border border-slate-300 bg-white px-4 text-base font-semibold text-slate-900">
+                  Save selections (not submitted)
+                </button>
+              )}
+              <button formAction={submitJudgeBallotAction} className={buttonClass}>
+                {callback.ballot ? "Submit correction" : "Submit final ballot"}
+              </button>
+            </div>
+          ) : null}
+        </form>
+      ) : null}
+
       <div className="mt-4 space-y-5">
-        {sheet.heats.length === 0 ? <p className="rounded border border-slate-200 bg-white p-4 text-sm text-slate-700">No heats are ready to judge yet.</p> : null}
-        {sheet.heats.map((heat) => {
+        {callback ? null : sheet.heats.length === 0 ? <p className="rounded border border-slate-200 bg-white p-4 text-sm text-slate-700">No heats are ready to judge yet.</p> : null}
+        {callback ? null : sheet.heats.map((heat) => {
           const current = heat.ballot;
           return (
             <section key={heat.heat_id} aria-label={`Heat ${heat.heat_number}`} className="rounded border border-slate-200 bg-slate-50 p-3">

@@ -30,6 +30,15 @@ function readMarks(formData: FormData): Array<{ entry_id: string; value: string 
   return marks;
 }
 
+/** Callback ballots: every ticked `pick` is a yes mark; the ballot is round-level (no heat). */
+function readPicks(formData: FormData): Array<{ entry_id: string; value: true }> {
+  return formData
+    .getAll("pick")
+    .map((raw) => String(raw).trim())
+    .filter((id) => UUID.test(id))
+    .map((id) => ({ entry_id: id, value: true as const }));
+}
+
 function back(returnTo: string, params: Record<string, string>): never {
   redirect(`${returnTo}?${new URLSearchParams(params).toString()}`);
 }
@@ -62,17 +71,18 @@ const INVALID = Promise.resolve({ error: { message: "COMP_BALLOT_INCOMPLETE" } }
 /** A judge submits or corrects their own ballot for one heat. */
 export async function submitJudgeBallotAction(formData: FormData): Promise<void> {
   const roundId = uuid(formData, "roundId");
-  const heatId = uuid(formData, "heatId");
+  const callback = text(formData, "callback") === "1";
+  const heatId = callback ? null : uuid(formData, "heatId");
   const requestId = uuid(formData, "requestId");
   await run(
     formData,
     "/app/judging",
     (rpc) =>
-      roundId && heatId && requestId
+      roundId && (callback || heatId) && requestId
         ? rpc("submit_competition_ballot", {
             p_round_id: roundId,
             p_heat_id: heatId,
-            p_marks: readMarks(formData),
+            p_marks: callback ? readPicks(formData) : readMarks(formData),
             p_request_id: requestId,
             p_correction_reason: text(formData, "reason") || null,
           })
@@ -84,24 +94,39 @@ export async function submitJudgeBallotAction(formData: FormData): Promise<void>
 /** A scorer (or manager) enters a paper ballot on behalf of a named judge. */
 export async function enterPaperBallotAction(formData: FormData): Promise<void> {
   const roundId = uuid(formData, "roundId");
-  const heatId = uuid(formData, "heatId");
+  const callback = text(formData, "callback") === "1";
+  const heatId = callback ? null : uuid(formData, "heatId");
   const officialId = uuid(formData, "officialId");
   const requestId = uuid(formData, "requestId");
   await run(
     formData,
     "/app/judging",
     (rpc) =>
-      roundId && heatId && officialId && requestId
+      roundId && (callback || heatId) && officialId && requestId
         ? rpc("enter_competition_paper_ballot", {
             p_round_id: roundId,
             p_heat_id: heatId,
             p_official_id: officialId,
-            p_marks: readMarks(formData),
+            p_marks: callback ? readPicks(formData) : readMarks(formData),
             p_request_id: requestId,
             p_correction_reason: text(formData, "reason") || null,
           })
         : INVALID,
     "Paper ballot saved.",
+  );
+}
+
+/** A callback judge saves selections across heats without submitting (mutable draft, never a ballot). */
+export async function saveCallbackDraftAction(formData: FormData): Promise<void> {
+  const roundId = uuid(formData, "roundId");
+  await run(
+    formData,
+    "/app/judging",
+    (rpc) =>
+      roundId
+        ? rpc("save_competition_callback_draft", { p_round_id: roundId, p_entry_ids: readPicks(formData).map((pick) => pick.entry_id) })
+        : INVALID,
+    "Selections saved. They are not submitted yet.",
   );
 }
 

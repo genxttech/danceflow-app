@@ -45,7 +45,8 @@ begin
   if to_regclass('public.event_competition_ballots') is not null
      or to_regclass('public.event_competition_marks') is not null
      or to_regclass('public.event_competition_judge_attendance') is not null
-     or to_regclass('public.event_competition_ballot_events') is not null then
+     or to_regclass('public.event_competition_ballot_events') is not null
+     or to_regclass('public.event_competition_ballot_drafts') is not null then
     raise exception 'E2 preflight: an E2 table already exists.';
   end if;
   if to_regclass('public.event_competition_officials') is null
@@ -68,7 +69,8 @@ create table public.event_competition_ballots (
   id uuid primary key default gen_random_uuid(),
   event_id uuid not null references public.events(id) on delete cascade,
   round_id uuid not null,
-  heat_id uuid not null,
+  -- null = a round-level ballot (callback_tally: exactly T couples across the whole round, K1 D-CT-2)
+  heat_id uuid,
   official_id uuid not null,
   version integer not null,
   source text not null,
@@ -103,7 +105,11 @@ create table public.event_competition_ballots (
 );
 -- One root ballot per (heat, judge) and one successor per ballot: the chain can never fork.
 create unique index event_competition_ballots_root_idx
-  on public.event_competition_ballots(heat_id, official_id) where supersedes_id is null;
+  on public.event_competition_ballots(heat_id, official_id) where supersedes_id is null and heat_id is not null;
+create unique index event_competition_ballots_round_root_idx
+  on public.event_competition_ballots(round_id, official_id) where supersedes_id is null and heat_id is null;
+create unique index event_competition_ballots_round_version_idx
+  on public.event_competition_ballots(round_id, official_id, version) where heat_id is null;
 create unique index event_competition_ballots_successor_idx
   on public.event_competition_ballots(supersedes_id) where supersedes_id is not null;
 create index event_competition_ballots_round_idx on public.event_competition_ballots(round_id, heat_id);
@@ -122,7 +128,7 @@ create table public.event_competition_marks (
     foreign key (entry_id, event_id) references public.event_competition_entries(id, event_id) on delete cascade,
   -- Studio marks are per entry (K1 S6 scored_by: entry). Role scoring needs an approved profile first.
   constraint event_competition_marks_role_check check (role is null),
-  constraint event_competition_marks_mark_check check (jsonb_typeof(mark) in ('number', 'string'))
+  constraint event_competition_marks_mark_check check (jsonb_typeof(mark) in ('number', 'string', 'boolean'))
 );
 create unique index event_competition_marks_ballot_entry_idx on public.event_competition_marks(ballot_id, entry_id);
 create index event_competition_marks_entry_idx on public.event_competition_marks(entry_id);
@@ -177,6 +183,22 @@ create unique index event_competition_ballot_events_request_idx on public.event_
 create index event_competition_ballot_events_round_idx on public.event_competition_ballot_events(round_id, occurred_at);
 create index event_competition_ballot_events_txn_idx on public.event_competition_ballot_events(transaction_id, round_id);
 
+-- Mutable per-judge scratch for callback selections across heats (K1 D-CT-2: "save selections across heats").
+-- NOT ballot evidence and never engine input: submitting writes the immutable round-level ballot.
+create table public.event_competition_ballot_drafts (
+  event_id uuid not null references public.events(id) on delete cascade,
+  round_id uuid not null,
+  official_id uuid not null,
+  selections jsonb not null default '[]'::jsonb,
+  updated_at timestamptz not null default now(),
+  constraint event_competition_ballot_drafts_pkey primary key (round_id, official_id),
+  constraint event_competition_ballot_drafts_round_fk
+    foreign key (round_id, event_id) references public.event_competition_rounds(id, event_id) on delete cascade,
+  constraint event_competition_ballot_drafts_official_fk
+    foreign key (official_id, event_id) references public.event_competition_officials(id, event_id) on delete cascade,
+  constraint event_competition_ballot_drafts_shape check (jsonb_typeof(selections) = 'array' and jsonb_array_length(selections) <= 1000)
+);
+
 comment on table public.event_competition_ballots is
   'E2: insert-only judge ballots, one per (heat, judge, version). A correction is a new row (supersedes_id + correction_reason). The current ballot is the one nothing supersedes.';
 comment on table public.event_competition_marks is
@@ -221,9 +243,14 @@ begin
       coalesce(v_status, 'missing') using errcode = 'P0001';
   end if;
 
-  if not exists (select 1 from public.event_competition_heats h
-                 where h.id = new.heat_id and h.event_id = new.event_id and h.round_id = new.round_id) then
-    raise exception 'COMP_BALLOT_HEAT_INVALID: the heat does not belong to the round.' using errcode = 'P0001';
+  if new.heat_id is null then
+    if (select r.scoring_method from public.event_competition_rounds r where r.id = new.round_id) is distinct from 'callback_tally' then
+      raise exception 'COMP_BALLOT_HEAT_INVALID: only callback rounds take a round-level ballot.' using errcode = 'P0001';
+    end if;
+  elsif (select r.scoring_method from public.event_competition_rounds r where r.id = new.round_id) = 'callback_tally'
+        or not exists (select 1 from public.event_competition_heats h
+                       where h.id = new.heat_id and h.event_id = new.event_id and h.round_id = new.round_id) then
+    raise exception 'COMP_BALLOT_HEAT_INVALID: the heat does not belong to the round (callback ballots are round-level).' using errcode = 'P0001';
   end if;
   if not exists (select 1 from public.event_competition_panel_assignments a
                  where a.round_id = new.round_id and a.official_id = new.official_id and a.event_id = new.event_id
@@ -233,7 +260,7 @@ begin
 
   if new.supersedes_id is not null then
     select * into v_prior from public.event_competition_ballots b where b.id = new.supersedes_id and b.event_id = new.event_id;
-    if not found or v_prior.heat_id <> new.heat_id or v_prior.official_id <> new.official_id
+    if not found or v_prior.heat_id is distinct from new.heat_id or v_prior.official_id <> new.official_id
        or v_prior.round_id <> new.round_id or new.version <> v_prior.version + 1 then
       raise exception 'COMP_BALLOT_IMMUTABLE: a correction must supersede the same judge''s latest ballot for the same heat (version + 1).'
         using errcode = 'P0001';
@@ -262,7 +289,9 @@ begin
     raise exception 'COMP_BALLOT_IMMUTABLE: marks can only be written together with their ballot.' using errcode = 'P0001';
   end if;
   if not exists (select 1 from public.event_competition_heat_entries he
-                 where he.heat_id = v_ballot.heat_id and he.entry_id = new.entry_id and he.event_id = new.event_id
+                 where (he.heat_id = v_ballot.heat_id
+                        or (v_ballot.heat_id is null and he.heat_id in (select h.heat_id from public._compe2_round_heats(v_ballot.round_id) h)))
+                   and he.entry_id = new.entry_id and he.event_id = new.event_id
                    and he.status <> 'scratched') then
     raise exception 'COMP_BALLOT_UNKNOWN_ENTRY: the entry is not on the ballot''s heat.' using errcode = 'P0001';
   end if;
@@ -389,8 +418,7 @@ declare
   v_id uuid;
 begin
   if p_scoring = 'callback_tally' then
-    raise exception 'COMP_BALLOT_SCHEME_NOT_AVAILABLE: callback ballots are unavailable until the owner decides the callback mark shape and count (K1 D-CT-1/D-CT-2).'
-      using errcode = 'P0001';
+    raise exception 'COMP_BALLOT_HEAT_INVALID: callback ballots are round-level; they are validated by _compe2_validate_callback.' using errcode = 'P0001';
   end if;
   if p_scoring is distinct from 'ordinal_majority' and p_scoring is distinct from 'proficiency_rating' then
     raise exception 'COMP_BALLOT_SCORING_METHOD_UNSUPPORTED: no ballot scheme for scoring method "%".', coalesce(p_scoring, 'null')
@@ -467,6 +495,74 @@ end;
 $$;
 revoke all on function public._compe2_validate_marks(text, uuid[], jsonb) from public, anon, authenticated;
 
+-- Eligible couples of a callback round: entries of its ballot heats that are not scratched (K1 X-5; no no-show state exists yet).
+create function public._compe2_round_entries(p_round_id uuid)
+returns uuid[]
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select coalesce(array_agg(distinct he.entry_id), '{}'::uuid[])
+  from public.event_competition_heat_entries he
+  where he.heat_id in (select h.heat_id from public._compe2_round_heats(p_round_id) h) and he.status <> 'scratched';
+$$;
+revoke all on function public._compe2_round_entries(uuid) from public, anon, authenticated;
+
+-- Callback rules (owner-approved D-CT-1/D-CT-2/D-CT-5): a mark is "yes" only; exactly T eligible couples across the whole
+-- round; T = target_advancement_count must be set and smaller than the eligible count.
+-- p_marks: [{entry_id, value: true}]. Returns normalized [{entry_id, value:true}] in entry order.
+create function public._compe2_validate_callback(p_target integer, p_eligible uuid[], p_marks jsonb)
+returns jsonb
+language plpgsql
+stable
+set search_path = public, pg_temp
+as $$
+declare
+  v_el jsonb;
+  v_entry uuid;
+  v_seen uuid[] := '{}';
+begin
+  if p_target is null or p_target < 1 then
+    raise exception 'COMP_CALLBACK_TARGET_UNSET: the round has no callback target (T); the organizer must set it first.' using errcode = 'P0001';
+  end if;
+  if p_target >= coalesce(array_length(p_eligible, 1), 0) then
+    raise exception 'COMP_CALLBACK_NOT_DANCED: T is not smaller than the eligible couples, so the round is not danced and takes no callback ballot (D-CT-5).' using errcode = 'P0001';
+  end if;
+  if p_marks is null or jsonb_typeof(p_marks) <> 'array' or jsonb_array_length(p_marks) > 1000 then
+    raise exception 'COMP_BALLOT_INCOMPLETE: marks must be a list of {entry_id, value}.' using errcode = 'P0001';
+  end if;
+  for v_el in select * from jsonb_array_elements(p_marks) loop
+    if jsonb_typeof(v_el) <> 'object' then
+      raise exception 'COMP_BALLOT_UNKNOWN_ENTRY: each mark must be an object.' using errcode = 'P0001';
+    end if;
+    if v_el ? 'role' and jsonb_typeof(v_el -> 'role') <> 'null' then
+      raise exception 'COMP_BALLOT_ROLE_NOT_ALLOWED: studio marks are per entry, not per role.' using errcode = 'P0001';
+    end if;
+    begin
+      v_entry := (v_el ->> 'entry_id')::uuid;
+    exception when others then
+      v_entry := null;
+    end;
+    if v_entry is null or not (v_entry = any (p_eligible)) then
+      raise exception 'COMP_BALLOT_UNKNOWN_ENTRY: entry % is not an eligible couple of this round.', coalesce(v_el ->> 'entry_id', 'null') using errcode = 'P0001';
+    end if;
+    if v_el -> 'value' is distinct from 'true'::jsonb then
+      raise exception 'COMP_BALLOT_MARK_NOT_IN_SCALE: a callback mark is yes only (D-CT-1).' using errcode = 'P0001';
+    end if;
+    if v_entry = any (v_seen) then
+      raise exception 'COMP_BALLOT_DUPLICATE_MARK: more than one mark for entry %.', v_entry using errcode = 'P0001';
+    end if;
+    v_seen := v_seen || v_entry;
+  end loop;
+  if coalesce(array_length(v_seen, 1), 0) <> p_target then
+    raise exception 'COMP_CALLBACK_COUNT: select exactly % couples across the round (you selected %).', p_target, coalesce(array_length(v_seen, 1), 0) using errcode = 'P0001';
+  end if;
+  return (select jsonb_agg(jsonb_build_object('entry_id', x, 'value', true) order by x) from unnest(v_seen) x);
+end;
+$$;
+revoke all on function public._compe2_validate_callback(integer, uuid[], jsonb) from public, anon, authenticated;
+
 create function public._compe2_audit(
   p_event_id uuid, p_round_id uuid, p_heat_id uuid, p_kind text, p_actor uuid, p_official_id uuid, p_ballot_id uuid,
   p_from text, p_to text, p_request_id uuid, p_reason text, p_refs jsonb
@@ -539,28 +635,49 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
+  v_scoring text;
   v_heats jsonb;
   v_open jsonb;
   v_missing jsonb;
   v_judges integer;
   v_present integer;
+  v_min integer;
+  v_odd boolean;
+  v_panel_ok boolean;
 begin
+  select r.scoring_method into v_scoring from public.event_competition_rounds r where r.id = p_round_id;
   select coalesce(jsonb_agg(h.heat_id order by h.heat_number), '[]'::jsonb) into v_heats from public._compe2_round_heats(p_round_id) h;
   select coalesce(jsonb_agg(h.heat_id order by h.heat_number), '[]'::jsonb) into v_open
   from public._compe2_round_heats(p_round_id) h where h.lock_state = 'open';
   select count(*), count(*) filter (where not public._compe2_is_absent(p_round_id, j.official_id))
     into v_judges, v_present from public._compe2_round_judges(p_round_id) j;
-  select coalesce(jsonb_agg(jsonb_build_object('official_id', j.official_id, 'judge_letter', j.judge_letter, 'heat_id', h.heat_id)
-                            order by j.judge_letter, h.heat_number), '[]'::jsonb)
-    into v_missing
-  from public._compe2_round_judges(p_round_id) j
-  cross join public._compe2_round_heats(p_round_id) h
-  where not public._compe2_is_absent(p_round_id, j.official_id)
-    and not exists (select 1 from public.event_competition_ballots b where b.heat_id = h.heat_id and b.official_id = j.official_id);
+  if v_scoring = 'callback_tally' then
+    -- One current round-level ballot per present judge (K1 D-CT-2), not one per heat.
+    select coalesce(jsonb_agg(jsonb_build_object('official_id', j.official_id, 'judge_letter', j.judge_letter, 'heat_id', null)
+                              order by j.judge_letter), '[]'::jsonb)
+      into v_missing
+    from public._compe2_round_judges(p_round_id) j
+    where not public._compe2_is_absent(p_round_id, j.official_id)
+      and not exists (select 1 from public.event_competition_ballots b where b.round_id = p_round_id and b.heat_id is null and b.official_id = j.official_id);
+  else
+    select coalesce(jsonb_agg(jsonb_build_object('official_id', j.official_id, 'judge_letter', j.judge_letter, 'heat_id', h.heat_id)
+                              order by j.judge_letter, h.heat_number), '[]'::jsonb)
+      into v_missing
+    from public._compe2_round_judges(p_round_id) j
+    cross join public._compe2_round_heats(p_round_id) h
+    where not public._compe2_is_absent(p_round_id, j.official_id)
+      and not exists (select 1 from public.event_competition_ballots b where b.heat_id = h.heat_id and b.official_id = j.official_id);
+  end if;
+  -- K1 X-3 (owner-approved): ordinal and callback need >= 3 judges and an odd panel; proficiency needs >= 1.
+  -- X-4: an absent judge leaves the effective panel (the attendance record is the audited removal; E1 freezes assignments).
+  v_min := case when v_scoring = 'proficiency_rating' then 1 else 3 end;
+  v_odd := v_scoring in ('ordinal_majority', 'callback_tally');
+  v_panel_ok := v_present >= v_min and (not v_odd or v_present % 2 = 1);
   return jsonb_build_object(
     'heats', v_heats, 'heats_not_locked', v_open, 'missing_ballots', v_missing,
     'judges', v_judges, 'judges_present', v_present,
-    'ready', (jsonb_array_length(v_heats) > 0 and jsonb_array_length(v_open) = 0 and jsonb_array_length(v_missing) = 0 and v_present > 0));
+    'panel_min', v_min, 'panel_odd_required', v_odd, 'panel_ok', v_panel_ok,
+    'ready', (jsonb_array_length(v_heats) > 0 and jsonb_array_length(v_open) = 0 and jsonb_array_length(v_missing) = 0 and v_panel_ok));
 end;
 $$;
 revoke all on function public._compe2_round_blockers(uuid) from public, anon, authenticated;
@@ -598,7 +715,7 @@ begin
   select * into v_prev from public.event_competition_ballot_events e where e.request_id = p_request_id;
   if found then
     if v_prev.kind in ('ballot_submitted', 'ballot_corrected') and v_prev.actor_user_id = p_actor
-       and v_prev.round_id = p_round_id and v_prev.heat_id = p_heat_id and v_prev.official_id = p_official_id then
+       and v_prev.round_id = p_round_id and v_prev.heat_id is not distinct from p_heat_id and v_prev.official_id = p_official_id then
       return jsonb_build_object('replayed', true, 'ballot_id', v_prev.ballot_id, 'version', (v_prev.refs ->> 'version')::integer);
     end if;
     raise exception 'COMP_REQUEST_REUSED: request id was already used for a different request.' using errcode = 'P0001';
@@ -608,19 +725,28 @@ begin
     raise exception 'COMP_BALLOT_ROUND_NOT_ACTIVE: ballots are accepted only while the round is active (round status: %).', v_round.status
       using errcode = 'P0001';
   end if;
-  if not exists (select 1 from public._compe2_round_heats(p_round_id) h where h.heat_id = p_heat_id) then
+  if v_round.scoring_method = 'callback_tally' then
+    if p_heat_id is not null then
+      raise exception 'COMP_BALLOT_HEAT_INVALID: callback ballots are round-level; do not name a heat.' using errcode = 'P0001';
+    end if;
+  elsif p_heat_id is null or not exists (select 1 from public._compe2_round_heats(p_round_id) h where h.heat_id = p_heat_id) then
     raise exception 'COMP_BALLOT_HEAT_INVALID: the heat is not a ballot heat of this round.' using errcode = 'P0001';
   end if;
   if public._compe2_is_absent(p_round_id, p_official_id) then
     raise exception 'COMP_BALLOT_JUDGE_ABSENT: the judge is recorded absent for this round; record them present first.' using errcode = 'P0001';
   end if;
 
-  v_expected := public._compe2_heat_entries(p_heat_id);
-  v_marks := public._compe2_validate_marks(v_round.scoring_method, v_expected, p_marks);
+  if v_round.scoring_method = 'callback_tally' then
+    v_marks := public._compe2_validate_callback(v_round.target_advancement_count, public._compe2_round_entries(p_round_id), p_marks);
+  else
+    v_expected := public._compe2_heat_entries(p_heat_id);
+    v_marks := public._compe2_validate_marks(v_round.scoring_method, v_expected, p_marks);
+  end if;
 
   select b.* into v_prior
   from public.event_competition_ballots b
-  where b.heat_id = p_heat_id and b.official_id = p_official_id
+  where b.official_id = p_official_id
+    and ((p_heat_id is not null and b.heat_id = p_heat_id) or (p_heat_id is null and b.heat_id is null and b.round_id = p_round_id))
     and not exists (select 1 from public.event_competition_ballots s where s.supersedes_id = b.id)
   order by b.version desc limit 1;
   if found then
@@ -666,6 +792,7 @@ alter table public.event_competition_ballots enable row level security;
 alter table public.event_competition_marks enable row level security;
 alter table public.event_competition_judge_attendance enable row level security;
 alter table public.event_competition_ballot_events enable row level security;
+alter table public.event_competition_ballot_drafts enable row level security;
 
 create function public.competition_is_round_scorer(p_round_id uuid)
 returns boolean
@@ -701,6 +828,12 @@ create policy competition_attendance_scorer_read on public.event_competition_jud
 create policy competition_ballot_events_manager_read on public.event_competition_ballot_events
   for select to authenticated using (public.can_manage_event_competition(event_id));
 
+-- A judge reads only their own draft; nobody (managers included) writes it except through save_competition_callback_draft.
+create policy competition_ballot_drafts_own_read on public.event_competition_ballot_drafts
+  for select to authenticated using (public.competition_is_active_official(official_id));
+revoke all on public.event_competition_ballot_drafts from public, anon, authenticated, service_role;
+grant select on public.event_competition_ballot_drafts to authenticated;
+
 revoke all on public.event_competition_ballots from public, anon, authenticated, service_role;
 revoke all on public.event_competition_marks from public, anon, authenticated, service_role;
 revoke all on public.event_competition_judge_attendance from public, anon, authenticated, service_role;
@@ -726,7 +859,7 @@ declare
   v_event uuid;
   v_official uuid;
 begin
-  if v_uid is null or p_round_id is null or p_heat_id is null then
+  if v_uid is null or p_round_id is null then
     raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
   end if;
   select r.event_id into v_event from public.event_competition_rounds r where r.id = p_round_id;
@@ -760,7 +893,7 @@ declare
   v_role text;
   v_scorer uuid;
 begin
-  if v_uid is null or p_round_id is null or p_heat_id is null or p_official_id is null then
+  if v_uid is null or p_round_id is null or p_official_id is null then
     raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
   end if;
   select r.event_id into v_event from public.event_competition_rounds r where r.id = p_round_id;
@@ -783,6 +916,53 @@ $$;
 -- ---------------------------------------------------------------------------
 -- 6. Attendance, lock, reopen
 -- ---------------------------------------------------------------------------
+-- A callback judge saves selections across heats while the round is active. Mutable, own, never engine input.
+create function public.save_competition_callback_draft(p_round_id uuid, p_entry_ids uuid[])
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_round public.event_competition_rounds;
+  v_official uuid;
+  v_eligible uuid[];
+  v_ids uuid[];
+begin
+  if v_uid is null or p_round_id is null or public.verified_email_for_user(v_uid) is null then
+    raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
+  end if;
+  select * into v_round from public.event_competition_rounds r where r.id = p_round_id;
+  select o.id into v_official
+  from public.event_competition_officials o
+  join public.event_competition_panel_assignments a on a.official_id = o.id and a.event_id = o.event_id
+  where o.event_id = v_round.event_id and o.user_id = v_uid and o.status = 'active' and o.role in ('judge', 'chair')
+    and a.round_id = p_round_id and a.judge_letter is not null;
+  if v_round.id is null or v_official is null then
+    raise exception 'COMP_JUDGE_NOT_ASSIGNED: you are not a judge on this round''s panel.' using errcode = '42501';
+  end if;
+  if v_round.scoring_method <> 'callback_tally' then
+    raise exception 'COMP_BALLOT_HEAT_INVALID: drafts exist only for callback rounds.' using errcode = 'P0001';
+  end if;
+  perform public._compe2_lock_pair(p_round_id, v_official);
+  select * into v_round from public.event_competition_rounds r where r.id = p_round_id for share;
+  if v_round.status <> 'active' then
+    raise exception 'COMP_BALLOT_ROUND_NOT_ACTIVE: drafts are accepted only while the round is active (round status: %).', v_round.status using errcode = 'P0001';
+  end if;
+  v_eligible := public._compe2_round_entries(p_round_id);
+  select coalesce(array_agg(distinct x), '{}') into v_ids from unnest(coalesce(p_entry_ids, '{}')) x;
+  if exists (select 1 from unnest(v_ids) x where not (x = any (v_eligible))) then
+    raise exception 'COMP_BALLOT_UNKNOWN_ENTRY: a selected couple is not an eligible couple of this round.' using errcode = 'P0001';
+  end if;
+  insert into public.event_competition_ballot_drafts (event_id, round_id, official_id, selections)
+  values (v_round.event_id, p_round_id, v_official, to_jsonb(v_ids))
+  on conflict (round_id, official_id) do update set selections = excluded.selections, updated_at = now();
+  return jsonb_build_object('saved', true, 'selected', coalesce(array_length(v_ids, 1), 0), 'target', v_round.target_advancement_count);
+end;
+$$;
+
 create function public.record_competition_judge_attendance(
   p_round_id uuid, p_official_id uuid, p_status text, p_reason text, p_request_id uuid
 ) returns jsonb
@@ -883,6 +1063,10 @@ begin
   end if;
   if (v_block ->> 'judges_present')::integer = 0 then
     raise exception 'COMP_BALLOTS_INCOMPLETE: no judge is present on the panel.' using errcode = 'P0001', detail = v_block::text;
+  end if;
+  if not (v_block ->> 'panel_ok')::boolean then
+    raise exception 'COMP_PANEL_SIZE: the present panel (% judges) does not meet the rule for this scoring method (at least % judges; odd panel required: %; K1 X-3/X-4).',
+      v_block ->> 'judges_present', v_block ->> 'panel_min', v_block ->> 'panel_odd_required' using errcode = 'P0001', detail = v_block::text;
   end if;
   if jsonb_array_length(v_block -> 'missing_ballots') > 0 then
     raise exception 'COMP_BALLOTS_INCOMPLETE: % ballot(s) are missing (every assigned judge needs a ballot for every heat, or a recorded absence).',
@@ -990,7 +1174,11 @@ begin
   return jsonb_build_object(
     'viewer_role', v_role,
     'round', jsonb_build_object('id', v_round.id, 'name', v_round.name, 'status', v_round.status, 'scoring_method', v_round.scoring_method),
-    'scheme_available', v_round.scoring_method in ('ordinal_majority', 'proficiency_rating'),
+    'scheme_available', v_round.scoring_method in ('ordinal_majority', 'proficiency_rating', 'callback_tally'),
+    'callback_target', case when v_round.scoring_method = 'callback_tally' then v_round.target_advancement_count end,
+    'callback_entries', case when v_round.scoring_method = 'callback_tally' then coalesce((
+      select jsonb_agg(jsonb_build_object('entry_id', e.id, 'entry_number', e.entry_number, 'display_name', e.display_name) order by e.entry_number, e.id)
+      from public.event_competition_entries e where e.id = any (public._compe2_round_entries(p_round_id))), '[]'::jsonb) end,
     'heats', coalesce((
       select jsonb_agg(jsonb_build_object('heat_id', h.heat_id, 'heat_number', h.heat_number, 'lock_state', h.lock_state,
                                           'entry_count', coalesce(array_length(public._compe2_heat_entries(h.heat_id), 1), 0),
@@ -1009,7 +1197,7 @@ begin
         'absent', public._compe2_is_absent(p_round_id, j.official_id),
         'ballots', coalesce((
           select jsonb_agg(jsonb_build_object('heat_id', b.heat_id, 'ballot_id', b.id, 'version', b.version, 'source', b.source,
-                                              'submitted_at', b.submitted_at) order by b.heat_id)
+                                              'submitted_at', b.submitted_at) order by b.heat_id nulls first)
           from public.event_competition_ballots b
           where b.official_id = j.official_id and b.round_id = p_round_id
             and not exists (select 1 from public.event_competition_ballots s where s.supersedes_id = b.id)), '[]'::jsonb))
@@ -1050,7 +1238,16 @@ begin
     'round', jsonb_build_object('id', v_round.id, 'name', v_round.name, 'status', v_round.status, 'scoring_method', v_round.scoring_method),
     'judge_letter', v_letter,
     'absent', public._compe2_is_absent(p_round_id, v_official),
-    'scheme_available', v_round.scoring_method in ('ordinal_majority', 'proficiency_rating'),
+    'scheme_available', v_round.scoring_method in ('ordinal_majority', 'proficiency_rating', 'callback_tally'),
+    'callback', case when v_round.scoring_method = 'callback_tally' then jsonb_build_object(
+      'target', v_round.target_advancement_count,
+      'eligible', coalesce(array_length(public._compe2_round_entries(p_round_id), 1), 0),
+      'draft', coalesce((select d.selections from public.event_competition_ballot_drafts d where d.round_id = p_round_id and d.official_id = v_official), '[]'::jsonb),
+      'ballot', (select jsonb_build_object('ballot_id', b.id, 'version', b.version, 'source', b.source, 'submitted_at', b.submitted_at,
+                   'marks', coalesce((select jsonb_object_agg(m.entry_id::text, m.mark) from public.event_competition_marks m where m.ballot_id = b.id), '{}'::jsonb))
+                 from public.event_competition_ballots b
+                 where b.round_id = p_round_id and b.heat_id is null and b.official_id = v_official
+                   and not exists (select 1 from public.event_competition_ballots s where s.supersedes_id = b.id))) end,
     'heats', coalesce((
       select jsonb_agg(jsonb_build_object(
         'heat_id', h.heat_id, 'heat_number', h.heat_number,
@@ -1074,6 +1271,7 @@ $$;
 -- ---------------------------------------------------------------------------
 -- 8. Function grants (authenticated only; never anon)
 -- ---------------------------------------------------------------------------
+revoke all on function public.save_competition_callback_draft(uuid, uuid[]) from public, anon;
 revoke all on function public.submit_competition_ballot(uuid, uuid, jsonb, uuid, text) from public, anon;
 revoke all on function public.enter_competition_paper_ballot(uuid, uuid, uuid, jsonb, uuid, text) from public, anon;
 revoke all on function public.record_competition_judge_attendance(uuid, uuid, text, text, uuid) from public, anon;
@@ -1081,6 +1279,7 @@ revoke all on function public.lock_competition_round_ballots(uuid, uuid) from pu
 revoke all on function public.reopen_competition_round_ballots(uuid, text, uuid) from public, anon;
 revoke all on function public.competition_round_ballot_status(uuid) from public, anon;
 revoke all on function public.competition_judge_ballot_sheet(uuid) from public, anon;
+grant execute on function public.save_competition_callback_draft(uuid, uuid[]) to authenticated;
 grant execute on function public.submit_competition_ballot(uuid, uuid, jsonb, uuid, text) to authenticated;
 grant execute on function public.enter_competition_paper_ballot(uuid, uuid, uuid, jsonb, uuid, text) to authenticated;
 grant execute on function public.record_competition_judge_attendance(uuid, uuid, text, text, uuid) to authenticated;

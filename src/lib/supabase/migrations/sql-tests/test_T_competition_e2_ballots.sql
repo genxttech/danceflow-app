@@ -147,6 +147,8 @@ insert into public.event_competition_entries (id, event_id, program_id, division
   (pg_temp.u('008009'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003003'), 'E109', 'confirmed', 'eligible', '109'),
   (pg_temp.u('008010'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003003'), 'E110', 'confirmed', 'eligible', '110'),
   (pg_temp.u('008011'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003004'), 'E111', 'confirmed', 'eligible', '111'),
+  (pg_temp.u('008012'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003003'), 'E112', 'confirmed', 'eligible', '112'),
+  (pg_temp.u('008013'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003003'), 'E113', 'confirmed', 'eligible', '113'),
   (pg_temp.u('008019'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('003009'), 'E119', 'confirmed', 'eligible', '119'),
   (pg_temp.u('008020'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('003009'), 'E120', 'confirmed', 'eligible', '120');
 
@@ -161,6 +163,7 @@ insert into public.event_competition_heats (id, event_id, division_id, round_id,
   (pg_temp.u('00d003'), pg_temp.u('00e001'), pg_temp.u('003002'), pg_temp.u('006002'), 3, pg_temp.u('002001'), pg_temp.u('00c001'), 'scheduled'),
   (pg_temp.u('00d004'), pg_temp.u('00e001'), pg_temp.u('003003'), pg_temp.u('006003'), 4, pg_temp.u('002001'), pg_temp.u('00c001'), 'scheduled'),
   (pg_temp.u('00d005'), pg_temp.u('00e001'), pg_temp.u('003004'), pg_temp.u('006004'), 5, pg_temp.u('002001'), pg_temp.u('00c001'), 'scheduled'),
+  (pg_temp.u('00d006'), pg_temp.u('00e001'), pg_temp.u('003003'), pg_temp.u('006003'), 6, pg_temp.u('002001'), pg_temp.u('00c001'), 'scheduled'),
   (pg_temp.u('00d009'), pg_temp.u('00e002'), pg_temp.u('003009'), pg_temp.u('006009'), 1, pg_temp.u('002002'), pg_temp.u('00c002'), 'scheduled');
 insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order) values
   (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('00d001'), pg_temp.u('008001'), 1),
@@ -174,6 +177,8 @@ insert into public.event_competition_heat_entries (event_id, division_id, heat_i
   (pg_temp.u('00e001'), pg_temp.u('003003'), pg_temp.u('00d004'), pg_temp.u('008009'), 1),
   (pg_temp.u('00e001'), pg_temp.u('003003'), pg_temp.u('00d004'), pg_temp.u('008010'), 2),
   (pg_temp.u('00e001'), pg_temp.u('003004'), pg_temp.u('00d005'), pg_temp.u('008011'), 1),
+  (pg_temp.u('00e001'), pg_temp.u('003003'), pg_temp.u('00d006'), pg_temp.u('008012'), 1),
+  (pg_temp.u('00e001'), pg_temp.u('003003'), pg_temp.u('00d006'), pg_temp.u('008013'), 2),
   (pg_temp.u('00e002'), pg_temp.u('003009'), pg_temp.u('00d009'), pg_temp.u('008019'), 1),
   (pg_temp.u('00e002'), pg_temp.u('003009'), pg_temp.u('00d009'), pg_temp.u('008020'), 2);
 set session_replication_role = origin;
@@ -191,7 +196,6 @@ select public.add_competition_official(pg_temp.u('00e001'), pg_temp.u('000018'),
 select public.assign_competition_panel_member(pg_temp.u('006001'), pg_temp.off('00e001', '000011'), 'A', pg_temp.u('f10011'));
 select public.assign_competition_panel_member(pg_temp.u('006001'), pg_temp.off('00e001', '000012'), 'B', pg_temp.u('f10012'));
 select public.assign_competition_panel_member(pg_temp.u('006001'), pg_temp.off('00e001', '000013'), 'C', pg_temp.u('f10013'));
-select public.assign_competition_panel_member(pg_temp.u('006001'), pg_temp.off('00e001', '000017'), 'D', pg_temp.u('f10014'));
 select public.assign_competition_panel_member(pg_temp.u('006001'), pg_temp.off('00e001', '000016'), null, pg_temp.u('f10015'));
 select public.assign_competition_panel_member(pg_temp.u('006002'), pg_temp.off('00e001', '000011'), 'A', pg_temp.u('f10021'));
 select public.assign_competition_panel_member(pg_temp.u('006002'), pg_temp.off('00e001', '000012'), 'B', pg_temp.u('f10022'));
@@ -243,8 +247,6 @@ select pg_temp.as_user(pg_temp.u('000011'));
 select pg_temp.expect_ok('judge 1 submits r1 heat 1', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d001', '[1,2,3]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.u('f20001')));
 select pg_temp.expect_ok('judge 1 submits r1 heat 2', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d002', '[2,1]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.u('f20002')));
 select pg_temp.as_user(pg_temp.u('000012'));
-select pg_temp.expect_ok('judge 2 submits r1 heat 1', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d001', '[3,2,1]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.u('f20003')));
-select pg_temp.expect_ok('judge 2 submits r1 heat 2', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d002', '[1,2]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.u('f20004')));
 select pg_temp.as_user(pg_temp.u('000013'));
 select pg_temp.expect_ok('judge 3 submits r1 heat 1 (half-way correct later)', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d001', '[1,3,2]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.u('f20005')));
 select pg_temp.expect_ok('judge 3 submits r1 heat 2', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d002', '[1,2]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.u('f20006')));
@@ -265,13 +267,13 @@ select pg_temp.expect_msg('an account with no official role cannot submit', form
 select pg_temp.as_anon();
 select pg_temp.expect_msg('anon cannot call submit_competition_ballot', format($q$select public.submit_competition_ballot(%L, %L, '[]', %L)$q$, pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.u('f20014')), 'permission denied');
 reset role;
-select pg_temp.chk('six ballots exist, all version 1, judge_web, each by its own judge',
-  (select count(*) = 6 and bool_and(version = 1 and source = 'judge_web' and entered_by_official_id is null and supersedes_id is null)
+select pg_temp.chk('four ballots exist, all version 1, judge_web, each by its own judge',
+  (select count(*) = 4 and bool_and(version = 1 and source = 'judge_web' and entered_by_official_id is null and supersedes_id is null)
           and bool_and(submitted_by = (select user_id from public.event_competition_officials o where o.id = b.official_id)) from public.event_competition_ballots b));
 select pg_temp.chk('marks stored per entry, ordinals normalized to integers',
-  (select jsonb_typeof(mark) = 'number' from public.event_competition_marks limit 1) and pg_temp.n($q$select count(*) from public.event_competition_marks$q$) = 15);
+  (select jsonb_typeof(mark) = 'number' from public.event_competition_marks limit 1) and pg_temp.n($q$select count(*) from public.event_competition_marks$q$) = 10);
 select pg_temp.chk('one audit row per submission, request ids unique',
-  pg_temp.n($q$select count(*) from public.event_competition_ballot_events where kind = 'ballot_submitted'$q$) = 6);
+  pg_temp.n($q$select count(*) from public.event_competition_ballot_events where kind = 'ballot_submitted'$q$) = 4);
 
 -- ============================================================================
 -- 3. Mark validation (parity with src/lib/competition/ballots/schemes.ts) -- first judge, a fresh heat per case
@@ -283,12 +285,12 @@ select pg_temp.expect_msg('proficiency: numeric rank refused (D-PR-3)', format($
 select pg_temp.expect_msg('proficiency: lowercase band refused', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d003', '["gold","Gold","Gold"]'), %L)$q$, pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.u('f21003')), 'COMP_BALLOT_MARK_NOT_IN_SCALE');
 select pg_temp.expect_msg('proficiency: "No rating" refused (D-PR-3)', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d003', '["No rating","Gold","Gold"]'), %L)$q$, pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.u('f21004')), 'COMP_BALLOT_MARK_NOT_IN_SCALE');
 select pg_temp.expect_msg('proficiency: partial ballot refused (D-PR-5)', format($q$select public.submit_competition_ballot(%L, %L, (select jsonb_build_array(pg_temp.mk('00d003', '["Gold","Gold","Gold"]') -> 0)), %L)$q$, pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.u('f21005')), 'COMP_BALLOT_INCOMPLETE');
-select pg_temp.expect_msg('callback_tally: ballots refused fail-closed (D-CT-1/D-CT-2)', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d004', '[true,false]'), %L)$q$, pg_temp.u('006003'), pg_temp.u('00d004'), pg_temp.u('f21006')), 'COMP_BALLOT_SCHEME_NOT_AVAILABLE');
+select pg_temp.expect_msg('callback_tally: refused until the organizer sets T', format($q$select public.submit_competition_ballot(%L, null, '[{"entry_id":"%s","value":true}]', %L)$q$, pg_temp.u('006003'), pg_temp.u('008009'), pg_temp.u('f21006')), 'COMP_CALLBACK_TARGET_UNSET');
 select pg_temp.expect_msg('ordinal: rank above N refused', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d001', '[1,2,4]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.u('f21007')), 'COMP_BALLOT_MARK_OUT_OF_RANGE');
 reset role;
--- ordinal cases need a judge without an existing ballot on the heat: use the chair (letter D) on r1 heat 2
+-- ordinal cases need a judge without an existing ballot on the heat: judge 2 on r1
 set role authenticated;
-select pg_temp.as_user(pg_temp.u('000017'));
+select pg_temp.as_user(pg_temp.u('000012'));
 select pg_temp.expect_msg('ordinal: tie refused', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d001', '[1,1,3]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.u('f21010')), 'COMP_BALLOT_JUDGE_TIE');
 select pg_temp.expect_msg('ordinal: zero refused', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d001', '[0,1,2]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.u('f21011')), 'COMP_BALLOT_MARK_OUT_OF_RANGE');
 select pg_temp.expect_msg('ordinal: fractional refused', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d001', '[1.5,1,2]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.u('f21012')), 'COMP_BALLOT_MARK_OUT_OF_RANGE');
@@ -300,7 +302,7 @@ select pg_temp.expect_msg('ordinal: duplicate mark refused', format($q$select pu
 select pg_temp.expect_msg('ordinal: role on a mark refused', format($q$select public.submit_competition_ballot(%L, %L, (select jsonb_agg(m || '{"role":"leader"}'::jsonb) from jsonb_array_elements(pg_temp.mk('00d001','[1,2,3]')) m), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.u('f21018')), 'COMP_BALLOT_ROLE_NOT_ALLOWED');
 select pg_temp.expect_msg('marks that are not an array are refused', format($q$select public.submit_competition_ballot(%L, %L, '{"a":1}', %L)$q$, pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.u('f21019')), 'COMP_BALLOT_INCOMPLETE');
 reset role;
-select pg_temp.chk('refused ballots left no row behind', pg_temp.n($q$select count(*) from public.event_competition_ballots$q$) = 6);
+select pg_temp.chk('refused ballots left no row behind', pg_temp.n($q$select count(*) from public.event_competition_ballots$q$) = 4);
 
 -- ============================================================================
 -- 4. Corrections: new version, reason required, old version kept, chain cannot fork
@@ -362,7 +364,7 @@ select pg_temp.expect_msg('a round with a panel and ballots cannot be deleted', 
 select pg_temp.expect_msg('a heat with ballots cannot be deleted', format($q$delete from public.event_competition_heats where id = %L$q$, pg_temp.u('00d001')), 'append-only');
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.expect_msg('even the studio owner cannot insert a ballot row directly', format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, version, source, submitted_by) values (%L, %L, %L, %L, 1, 'judge_web', %L)$q$, pg_temp.u('00e001'), pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.off('00e001','000017'), pg_temp.u('000001')), 'permission denied');
+select pg_temp.expect_msg('even the studio owner cannot insert a ballot row directly', format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, version, source, submitted_by) values (%L, %L, %L, %L, 1, 'judge_web', %L)$q$, pg_temp.u('00e001'), pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.off('00e001','000012'), pg_temp.u('000001')), 'permission denied');
 select pg_temp.expect_msg('nor update one', $q$update public.event_competition_ballots set version = 1$q$, 'permission denied');
 select pg_temp.expect_msg('nor delete one', $q$delete from public.event_competition_ballots$q$, 'permission denied');
 reset role;
@@ -380,42 +382,42 @@ select pg_temp.as_user(pg_temp.u('000012'));
 select pg_temp.expect_msg('another judge cannot replay judge 1''s request id',
   format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d001', '[1,2,3]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.u('f20001')), 'COMP_REQUEST_REUSED');
 reset role;
-select pg_temp.chk('replays wrote nothing', pg_temp.n($q$select count(*) from public.event_competition_ballots$q$) = 8);
+select pg_temp.chk('replays wrote nothing', pg_temp.n($q$select count(*) from public.event_competition_ballots$q$) = 6);
 
 -- ============================================================================
 -- 7. Scorer paper ballots (audited, on behalf of a named judge)
 -- ============================================================================
--- chair (D) has no ballots: scorer enters them on paper
+-- judge 2 has no ballots on r1: the scorer enters them on paper
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000016'));
-select pg_temp.expect_ok('scorer enters the chair''s paper ballot for r1 heat 1', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d001', '[2,3,1]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.off('00e001','000017'), pg_temp.u('f23001')));
-select pg_temp.expect_msg('the named official must be on the round''s panel (r2 has no chair)', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d003', '["Gold","Gold","Gold"]'), %L)$q$, pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.off('00e001','000017'), pg_temp.u('f23002')), 'COMP_JUDGE_NOT_ASSIGNED');
+select pg_temp.expect_ok('scorer enters judge 2''s paper ballot for r1 heat 1', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d001', '[2,3,1]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.off('00e001','000012'), pg_temp.u('f23001')));
+select pg_temp.expect_msg('the named official must be on the round''s panel (the chair is not on r2)', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d003', '["Gold","Gold","Gold"]'), %L)$q$, pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.off('00e001','000017'), pg_temp.u('f23002')), 'COMP_JUDGE_NOT_ASSIGNED');
 select pg_temp.expect_msg('a scorer cannot name a scorer as the judge', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d001', '[1,2,3]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.off('00e001','000016'), pg_temp.u('f23003')), 'COMP_JUDGE_NOT_ASSIGNED');
 select pg_temp.as_user(pg_temp.u('000018'));
-select pg_temp.expect_msg('a scorer not assigned to the round is refused', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d002', '[1,2]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.off('00e001','000017'), pg_temp.u('f23004')), 'COMP_FORBIDDEN');
+select pg_temp.expect_msg('a scorer not assigned to the round is refused', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d002', '[1,2]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.off('00e001','000012'), pg_temp.u('f23004')), 'COMP_FORBIDDEN');
 select pg_temp.as_user(pg_temp.u('000011'));
-select pg_temp.expect_msg('a judge cannot enter paper ballots', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d002', '[1,2]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.off('00e001','000017'), pg_temp.u('f23005')), 'COMP_FORBIDDEN');
+select pg_temp.expect_msg('a judge cannot enter paper ballots', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d002', '[1,2]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.off('00e001','000012'), pg_temp.u('f23005')), 'COMP_FORBIDDEN');
 select pg_temp.as_user(pg_temp.u('000003'));
-select pg_temp.expect_msg('front desk cannot enter paper ballots', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d002', '[1,2]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.off('00e001','000017'), pg_temp.u('f23006')), 'COMP_FORBIDDEN');
+select pg_temp.expect_msg('front desk cannot enter paper ballots', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d002', '[1,2]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.off('00e001','000012'), pg_temp.u('f23006')), 'COMP_FORBIDDEN');
 select pg_temp.as_user(pg_temp.u('000005'));
-select pg_temp.expect_msg('another studio''s owner cannot enter paper ballots', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d002', '[1,2]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.off('00e001','000017'), pg_temp.u('f23007')), 'COMP_FORBIDDEN');
+select pg_temp.expect_msg('another studio''s owner cannot enter paper ballots', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d002', '[1,2]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.off('00e001','000012'), pg_temp.u('f23007')), 'COMP_FORBIDDEN');
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.expect_ok('a manager can enter the chair''s paper ballot for heat 2', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d002', '[1,2]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.off('00e001','000017'), pg_temp.u('f23008')));
+select pg_temp.expect_ok('a manager can enter judge 2''s paper ballot for heat 2', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d002', '[1,2]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.off('00e001','000012'), pg_temp.u('f23008')));
 reset role;
 select pg_temp.chk('paper ballot: scorer_paper, entered_by = the scorer official, submitted_by = the scorer account',
-  (select source = 'scorer_paper' and entered_by_official_id = pg_temp.off('00e001','000016') and submitted_by = pg_temp.u('000016') and official_id = pg_temp.off('00e001','000017')
-   from public.event_competition_ballots where heat_id = pg_temp.u('00d001') and official_id = pg_temp.off('00e001','000017')));
+  (select source = 'scorer_paper' and entered_by_official_id = pg_temp.off('00e001','000016') and submitted_by = pg_temp.u('000016') and official_id = pg_temp.off('00e001','000012')
+   from public.event_competition_ballots where heat_id = pg_temp.u('00d001') and official_id = pg_temp.off('00e001','000012')));
 select pg_temp.chk('manager paper ballot: scorer_paper with entered_by null, submitted_by = the manager',
   (select source = 'scorer_paper' and entered_by_official_id is null and submitted_by = pg_temp.u('000001')
-   from public.event_competition_ballots where heat_id = pg_temp.u('00d002') and official_id = pg_temp.off('00e001','000017')));
+   from public.event_competition_ballots where heat_id = pg_temp.u('00d002') and official_id = pg_temp.off('00e001','000012')));
 select pg_temp.expect_msg('a judge_web ballot cannot carry an entered_by official (constraint)',
   format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, version, source, submitted_by, entered_by_official_id)
             values (%L, %L, %L, %L, 1, 'judge_web', %L, %L)$q$, pg_temp.u('00e001'), pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.off('00e001','000011'), pg_temp.u('000011'), pg_temp.off('00e001','000016')), 'entered_by_check');
 -- a paper correction over a web ballot goes through the same versioning chain
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000016'));
-select pg_temp.expect_msg('paper over an existing ballot needs a reason', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d002', '[2,1]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.off('00e001','000017'), pg_temp.u('f23009')), 'COMP_BALLOT_CORRECTION_REASON_REQUIRED');
-select pg_temp.expect_ok('paper correction with a reason', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d002', '[2,1]'), %L, 'Re-keyed from the sheet')$q$, pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.off('00e001','000017'), pg_temp.u('f23010')));
+select pg_temp.expect_msg('paper over an existing ballot needs a reason', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d002', '[2,1]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.off('00e001','000012'), pg_temp.u('f23009')), 'COMP_BALLOT_CORRECTION_REASON_REQUIRED');
+select pg_temp.expect_ok('paper correction with a reason', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d002', '[2,1]'), %L, 'Re-keyed from the sheet')$q$, pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.off('00e001','000012'), pg_temp.u('f23010')));
 reset role;
 select pg_temp.chk('paper audit rows record the actor and entered_by in refs',
   pg_temp.n($q$select count(*) from public.event_competition_ballot_events where refs ->> 'source' = 'scorer_paper' and actor_user_id in (select u from (values (pg_temp.u('000016')), (pg_temp.u('000001'))) t(u))$q$) = 3);
@@ -429,16 +431,16 @@ select pg_temp.chk('judge 1 reads exactly their own two ballots', pg_temp.nb() =
 select pg_temp.chk('judge 1 reads only marks of their own ballots', (select count(*) from public.event_competition_marks) = 5);
 select pg_temp.chk('judge 1 sees no attendance, audit or others'' rows', (select count(*) from public.event_competition_ballot_events) = 0);
 select pg_temp.as_user(pg_temp.u('000012'));
-select pg_temp.chk('judge 2 reads only their own two ballots', pg_temp.nb() = 2 and pg_temp.nb(format('official_id <> %L', pg_temp.off('00e001','000012'))) = 0);
+select pg_temp.chk('judge 2 reads only their own ballots (paper v1 h1, v1 h2, v2 h2)', pg_temp.nb() = 3 and pg_temp.nb(format('official_id <> %L', pg_temp.off('00e001','000012'))) = 0);
 select pg_temp.as_user(pg_temp.u('000013'));
 select pg_temp.chk('judge 3 reads all versions of their own ballots (4) and nothing else', pg_temp.nb() = 4);
 select pg_temp.as_user(pg_temp.u('000016'));
-select pg_temp.chk('the assigned scorer reads every ballot of their round', pg_temp.nb() = (select count(*) from public.event_competition_ballots) and pg_temp.nb() >= 11);
+select pg_temp.chk('the assigned scorer reads every ballot of their round', pg_temp.nb() = (select count(*) from public.event_competition_ballots) and pg_temp.nb() >= 9);
 select pg_temp.as_user(pg_temp.u('000018'));
 select pg_temp.chk('an unassigned scorer reads no ballot', pg_temp.nb() = 0 and (select count(*) from public.event_competition_marks) = 0);
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.chk('the manager reads all ballots and marks of their event', pg_temp.nb() >= 11 and (select count(*) from public.event_competition_marks) >= 28);
-select pg_temp.chk('the manager reads the audit', (select count(*) from public.event_competition_ballot_events) >= 11);
+select pg_temp.chk('the manager reads all ballots and marks of their event', pg_temp.nb() >= 9 and (select count(*) from public.event_competition_marks) >= 23);
+select pg_temp.chk('the manager reads the audit', (select count(*) from public.event_competition_ballot_events) >= 9);
 select pg_temp.as_user(pg_temp.u('000003'));
 select pg_temp.chk('front desk (not a manager, not an official) reads nothing', pg_temp.nb() = 0 and (select count(*) from public.event_competition_marks) = 0);
 select pg_temp.as_user(pg_temp.u('000005'));
@@ -477,10 +479,10 @@ select pg_temp.chk('the assigned scorer reads the status board', (public.competi
 select pg_temp.as_user(pg_temp.u('000017'));
 select pg_temp.chk('the chair reads the status board', (public.competition_round_ballot_status(pg_temp.u('006001')) ->> 'viewer_role') = 'chair');
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.chk('status board: 4 judges, 2 heats, blockers show heats not locked',
-  jsonb_array_length(public.competition_round_ballot_status(pg_temp.u('006001')) -> 'judges') = 4
+select pg_temp.chk('status board: 3 judges, 2 heats, blockers show heats not locked',
+  jsonb_array_length(public.competition_round_ballot_status(pg_temp.u('006001')) -> 'judges') = 3
   and jsonb_array_length(public.competition_round_ballot_status(pg_temp.u('006001')) #> '{blockers,heats_not_locked}') = 2);
-select pg_temp.chk('status board marks callback rounds as scheme unavailable', not (public.competition_round_ballot_status(pg_temp.u('006003')) ->> 'scheme_available')::boolean);
+select pg_temp.chk('status board reports the callback target and eligible couples', (public.competition_round_ballot_status(pg_temp.u('006003')) ->> 'scheme_available')::boolean);
 reset role;
 
 -- ============================================================================
@@ -515,6 +517,55 @@ select pg_temp.chk('attendance history is insert-only with audit', pg_temp.n($q$
   and pg_temp.n($q$select count(*) from public.event_competition_ballot_events where kind in ('judge_absence_recorded','judge_presence_recorded')$q$) = 2);
 select pg_temp.expect_msg('attendance cannot be updated', $q$update public.event_competition_judge_attendance set status = 'present'$q$, 'append-only');
 select pg_temp.expect_msg('attendance cannot be deleted', $q$delete from public.event_competition_judge_attendance$q$, 'append-only');
+
+-- ============================================================================
+-- 9b. Callback ballots: round-level, exactly T across the whole round, drafts are separate and mutable
+-- ============================================================================
+-- r3 eligible couples: 109, 110 (heat 4) and 112, 113 (heat 6); T unset at first.
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000011'));
+select pg_temp.expect_msg('save draft is refused for an ineligible couple', format($q$select public.save_competition_callback_draft(%L, array[%L]::uuid[])$q$, pg_temp.u('006003'), pg_temp.u('008001')), 'COMP_BALLOT_UNKNOWN_ENTRY');
+select pg_temp.expect_ok('judge 1 saves a draft across heats', format($q$select public.save_competition_callback_draft(%L, array[%L, %L]::uuid[])$q$, pg_temp.u('006003'), pg_temp.u('008009'), pg_temp.u('008012')));
+select pg_temp.expect_msg('drafts exist only for callback rounds', format($q$select public.save_competition_callback_draft(%L, array[%L]::uuid[])$q$, pg_temp.u('006001'), pg_temp.u('008001')), 'COMP_BALLOT_HEAT_INVALID');
+select pg_temp.chk('the judge sees their own draft in the sheet', jsonb_array_length(public.competition_judge_ballot_sheet(pg_temp.u('006003')) #> '{callback,draft}') = 2);
+select pg_temp.as_user(pg_temp.u('000012'));
+select pg_temp.expect_msg('another judge cannot save a draft on a round they are not on', format($q$select public.save_competition_callback_draft(%L, array[%L]::uuid[])$q$, pg_temp.u('006003'), pg_temp.u('008009')), 'COMP_JUDGE_NOT_ASSIGNED');
+select pg_temp.chk('and cannot read the draft table', (select count(*) from public.event_competition_ballot_drafts) = 0);
+select pg_temp.as_user(pg_temp.u('000011'));
+select pg_temp.chk('judge 1 reads exactly one draft row', (select count(*) from public.event_competition_ballot_drafts) = 1);
+select pg_temp.expect_msg('a draft cannot be written directly', $q$update public.event_competition_ballot_drafts set selections = '[]'$q$, 'permission denied');
+reset role;
+select pg_temp.chk('a draft is not a ballot', pg_temp.n($q$select count(*) from public.event_competition_ballots where round_id = pg_temp.u('006003')$q$) = 0);
+update public.event_competition_rounds set target_advancement_count = 2 where id = pg_temp.u('006003');
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000011'));
+select pg_temp.expect_msg('callback: one couple is not T (exactly T required)', format($q$select public.submit_competition_ballot(%L, null, '[{"entry_id":"%s","value":true}]', %L)$q$, pg_temp.u('006003'), pg_temp.u('008009'), pg_temp.u('f29001')), 'COMP_CALLBACK_COUNT');
+select pg_temp.expect_msg('callback: three couples is not T', format($q$select public.submit_competition_ballot(%L, null, '[{"entry_id":"%s","value":true},{"entry_id":"%s","value":true},{"entry_id":"%s","value":true}]', %L)$q$, pg_temp.u('006003'), pg_temp.u('008009'), pg_temp.u('008010'), pg_temp.u('008012'), pg_temp.u('f29002')), 'COMP_CALLBACK_COUNT');
+select pg_temp.expect_msg('callback: a couple from another round is refused', format($q$select public.submit_competition_ballot(%L, null, '[{"entry_id":"%s","value":true},{"entry_id":"%s","value":true}]', %L)$q$, pg_temp.u('006003'), pg_temp.u('008009'), pg_temp.u('008001'), pg_temp.u('f29003')), 'COMP_BALLOT_UNKNOWN_ENTRY');
+select pg_temp.expect_msg('callback: a mark is yes only (D-CT-1)', format($q$select public.submit_competition_ballot(%L, null, '[{"entry_id":"%s","value":false},{"entry_id":"%s","value":true}]', %L)$q$, pg_temp.u('006003'), pg_temp.u('008009'), pg_temp.u('008012'), pg_temp.u('f29004')), 'COMP_BALLOT_MARK_NOT_IN_SCALE');
+select pg_temp.expect_msg('callback: the same couple twice is refused', format($q$select public.submit_competition_ballot(%L, null, '[{"entry_id":"%s","value":true},{"entry_id":"%s","value":true}]', %L)$q$, pg_temp.u('006003'), pg_temp.u('008009'), pg_temp.u('008009'), pg_temp.u('f29005')), 'COMP_BALLOT_DUPLICATE_MARK');
+select pg_temp.expect_msg('callback: naming a heat is refused (round-level ballot)', format($q$select public.submit_competition_ballot(%L, %L, '[{"entry_id":"%s","value":true},{"entry_id":"%s","value":true}]', %L)$q$, pg_temp.u('006003'), pg_temp.u('00d004'), pg_temp.u('008009'), pg_temp.u('008012'), pg_temp.u('f29006')), 'COMP_BALLOT_HEAT_INVALID');
+select pg_temp.expect_ok('callback: exactly T=2 couples across two heats submits one round-level ballot', format($q$select public.submit_competition_ballot(%L, null, '[{"entry_id":"%s","value":true},{"entry_id":"%s","value":true}]', %L)$q$, pg_temp.u('006003'), pg_temp.u('008009'), pg_temp.u('008012'), pg_temp.u('f29007')));
+select pg_temp.expect_msg('callback: a second ballot needs a reason', format($q$select public.submit_competition_ballot(%L, null, '[{"entry_id":"%s","value":true},{"entry_id":"%s","value":true}]', %L)$q$, pg_temp.u('006003'), pg_temp.u('008010'), pg_temp.u('008013'), pg_temp.u('f29008')), 'COMP_BALLOT_CORRECTION_REASON_REQUIRED');
+select pg_temp.expect_ok('callback: a correction is version 2 of the same round-level chain', format($q$select public.submit_competition_ballot(%L, null, '[{"entry_id":"%s","value":true},{"entry_id":"%s","value":true}]', %L, 'Changed my mind')$q$, pg_temp.u('006003'), pg_temp.u('008010'), pg_temp.u('008013'), pg_temp.u('f29009')));
+reset role;
+select pg_temp.chk('callback ballots have a null heat, versions 1 and 2, two mark rows each',
+  (select count(*) = 2 and bool_and(heat_id is null) and array_agg(version order by version) = array[1,2]
+     and bool_and((select count(*) from public.event_competition_marks m where m.ballot_id = b.id) = 2)
+   from public.event_competition_ballots b where b.round_id = pg_temp.u('006003')));
+select pg_temp.chk('callback marks are boolean yes', (select bool_and(m.mark = 'true'::jsonb) from public.event_competition_marks m join public.event_competition_ballots b on b.id = m.ballot_id where b.round_id = pg_temp.u('006003')));
+select pg_temp.expect_msg('a second root round-level ballot is refused (unique)',
+  format($q$insert into public.event_competition_ballots (event_id, round_id, official_id, version, source, submitted_by) values (%L, %L, %L, 1, 'judge_web', %L)$q$, pg_temp.u('00e001'), pg_temp.u('006003'), pg_temp.off('00e001','000011'), pg_temp.u('000011')), 'duplicate key');
+select pg_temp.expect_msg('a round-level ballot on an ordinal round is refused (trigger)',
+  format($q$insert into public.event_competition_ballots (event_id, round_id, official_id, version, source, submitted_by) values (%L, %L, %L, 1, 'judge_web', %L)$q$, pg_temp.u('00e001'), pg_temp.u('006001'), pg_temp.off('00e001','000011'), pg_temp.u('000011')), 'COMP_BALLOT_HEAT_INVALID');
+update public.event_competition_rounds set target_advancement_count = 4 where id = pg_temp.u('006003');
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000011'));
+select pg_temp.expect_msg('callback: T >= eligible couples means the round is not danced (D-CT-5)', format($q$select public.submit_competition_ballot(%L, null, '[{"entry_id":"%s","value":true},{"entry_id":"%s","value":true}]', %L, 'again')$q$, pg_temp.u('006003'), pg_temp.u('008010'), pg_temp.u('008013'), pg_temp.u('f29010')), 'COMP_CALLBACK_NOT_DANCED');
+reset role;
+update public.event_competition_rounds set target_advancement_count = 2 where id = pg_temp.u('006003');
+-- X-3 is enforced at lock; callback and ordinal need an odd panel of at least 3
+select pg_temp.chk('lock readiness for a one-judge callback round reports panel_ok = false', not (public._compe2_round_blockers(pg_temp.u('006003')) ->> 'panel_ok')::boolean);
 
 -- ============================================================================
 -- 10. Lock preconditions and authority (round r1)
@@ -562,7 +613,7 @@ select pg_temp.expect_msg('judge cannot correct once locked', format($q$select p
 select pg_temp.as_user(pg_temp.u('000016'));
 select pg_temp.expect_msg('scorer cannot enter paper once locked', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d001', '[3,2,1]'), %L, 'late')$q$, pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.off('00e001','000011'), pg_temp.u('f25012')), 'COMP_BALLOT_ROUND_NOT_ACTIVE');
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.expect_msg('attendance cannot change once locked', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'late', %L)$q$, pg_temp.u('006001'), pg_temp.off('00e001','000017'), pg_temp.u('f25013')), 'COMP_BALLOTS_BAD_STATE');
+select pg_temp.expect_msg('attendance cannot change once locked', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'late', %L)$q$, pg_temp.u('006001'), pg_temp.off('00e001','000012'), pg_temp.u('f25013')), 'COMP_BALLOTS_BAD_STATE');
 reset role;
 select pg_temp.expect_msg('the trigger also refuses a ballot on a locked round (privileged writer)',
   format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, version, source, submitted_by, supersedes_id, correction_reason)
@@ -592,9 +643,10 @@ select pg_temp.chk('the lock audit names the absent judge',
 -- (r3 callback: single judge; scheme unavailable blocks ballots, so absent + locked heat is the only path)
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.expect_ok('r3 judge 1 recorded absent', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'Out', %L)$q$, pg_temp.u('006003'), pg_temp.off('00e001','000011'), pg_temp.u('f26004')));
+select pg_temp.expect_msg('a judge with a round-level ballot cannot be recorded absent', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'Out', %L)$q$, pg_temp.u('006003'), pg_temp.off('00e001','000011'), pg_temp.u('f26004')), 'COMP_ABSENCE_HAS_BALLOTS');
 select public.set_competition_heat_lock_state(pg_temp.u('00d004'), 'locked', 'dance complete');
-select pg_temp.expect_msg('a round whose judges are all absent cannot lock', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006003'), pg_temp.u('f26005')), 'COMP_BALLOTS_INCOMPLETE');
+select public.set_competition_heat_lock_state(pg_temp.u('00d006'), 'locked', 'dance complete');
+select pg_temp.expect_msg('a one-judge callback round cannot lock (X-3: at least 3, odd)', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006003'), pg_temp.u('f26005')), 'COMP_PANEL_SIZE');
 reset role;
 
 -- ============================================================================
@@ -624,7 +676,7 @@ select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_ok('reopen allowed while the result version is only calculated', format($q$select public.reopen_competition_round_ballots(%L, 'Judge 2 mis-keyed heat 1', %L)$q$, pg_temp.u('006001'), pg_temp.u('f27007')));
 reset role;
 drop table public.event_competition_result_versions;
-select pg_temp.chk('r1 is active again; ballots untouched', (select status = 'active' from public.event_competition_rounds where id = pg_temp.u('006001')) and pg_temp.n($q$select count(*) from public.event_competition_ballots where round_id = pg_temp.u('006001')$q$) = 10);
+select pg_temp.chk('r1 is active again; ballots untouched', (select status = 'active' from public.event_competition_rounds where id = pg_temp.u('006001')) and pg_temp.n($q$select count(*) from public.event_competition_ballots where round_id = pg_temp.u('006001')$q$) = 9);
 select pg_temp.chk('reopen audit carries the reason', (select reason = 'Judge 2 mis-keyed heat 1' and from_state = 'ballots_locked' and to_state = 'active'
   from public.event_competition_ballot_events where request_id = pg_temp.u('f27007')));
 set role authenticated;
@@ -641,7 +693,7 @@ reset role;
 -- ============================================================================
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000005'));
-select pg_temp.expect_msg('owner B cannot record attendance in event A', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'x', %L)$q$, pg_temp.u('006001'), pg_temp.off('00e001','000017'), pg_temp.u('f28001')), 'COMP_FORBIDDEN');
+select pg_temp.expect_msg('owner B cannot record attendance in event A', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'x', %L)$q$, pg_temp.u('006001'), pg_temp.off('00e001','000012'), pg_temp.u('f28001')), 'COMP_FORBIDDEN');
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('owner A cannot lock event B''s round', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006009'), pg_temp.u('f28002')), 'COMP_FORBIDDEN');
 select pg_temp.expect_msg('owner A cannot read event B''s status board', format($q$select public.competition_round_ballot_status(%L)$q$, pg_temp.u('006009')), 'COMP_FORBIDDEN');
@@ -660,7 +712,7 @@ select pg_temp.expect_msg('cross-event ballot row is refused by composite FKs (h
 -- 13. Canonical shape the engine will read (K0 canonicalJson input): current ballots only, deterministic order
 -- ============================================================================
 select pg_temp.chk('exactly one current ballot per (judge, heat) in r1 after all corrections',
-  (select count(*) = 8 from public.event_competition_ballots b where b.round_id = pg_temp.u('006001')
+  (select count(*) = 6 from public.event_competition_ballots b where b.round_id = pg_temp.u('006001')
      and not exists (select 1 from public.event_competition_ballots s where s.supersedes_id = b.id)));
 
 -- ============================================================================

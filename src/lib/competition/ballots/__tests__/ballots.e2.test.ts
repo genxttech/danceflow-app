@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { canonicalBallot, canonicalJson, currentBallots, currentBallotsToEngineMarks, type BallotRecord } from "../canonical";
-import { PROVISIONAL_RULES, validateBallot } from "../schemes";
+import { PROVISIONAL_RULES, validateBallot, validateCallbackBallot } from "../schemes";
 
 const E = ["e1", "e2", "e3"];
 const codes = (r: ReturnType<typeof validateBallot>) => (r.ok ? [] : r.errors.map((e) => e.code));
@@ -75,9 +75,9 @@ describe("proficiency_rating ballots", () => {
 });
 
 describe("fail-closed schemes", () => {
-  it("refuses callback_tally (D-CT-1/D-CT-2)", () => {
+  it("callback ballots are round-level: the per-heat validator refuses them", () => {
     const r = validateBallot({ scoringMethod: "callback_tally", expectedEntryIds: E, marks: [{ entryId: "e1", value: true }] });
-    expect(r).toMatchObject({ ok: false, errors: [{ code: "COMP_BALLOT_SCHEME_NOT_AVAILABLE", decisionId: "D-CT-1/D-CT-2" }] });
+    expect(r).toMatchObject({ ok: false, errors: [{ code: "COMP_BALLOT_HEAT_INVALID" }] });
   });
   it("refuses unknown methods and empty heats", () => {
     expect(codes(validateBallot({ scoringMethod: "relative_placement", expectedEntryIds: E, marks: [] }))).toEqual(["COMP_BALLOT_SCORING_METHOD_UNSUPPORTED"]);
@@ -112,5 +112,30 @@ describe("canonical serialization", () => {
     const b2: BallotRecord = { ...base, id: "b2", version: 2, supersedesId: "b1", marks: [{ entryId: "e1", value: 2 }] };
     expect(currentBallots([b1, b2]).map((b) => b.id)).toEqual(["b2"]);
     expect(currentBallotsToEngineMarks([b2, b1])).toEqual([{ officialId: "o1", entryId: "e1", role: null, value: 2 }]);
+  });
+});
+
+describe("callback ballots (owner-approved D-CT-1 / D-CT-2 / D-CT-5)", () => {
+  const eligible = ["a", "b", "c", "d", "e"];
+  const run = (target: number | null, selected: string[]) => validateCallbackBallot({ target, eligibleEntryIds: eligible, selectedEntryIds: selected });
+  it("accepts exactly T eligible couples across the round", () => {
+    expect(run(2, ["d", "a"])).toEqual({ ok: true, entryIds: ["a", "d"] });
+  });
+  it("refuses fewer or more than T", () => {
+    for (const sel of [[], ["a"], ["a", "b", "c"]]) {
+      const r = run(2, sel);
+      expect(r).toMatchObject({ ok: false, errors: [{ code: "COMP_CALLBACK_COUNT", decisionId: "D-CT-2" }] });
+    }
+  });
+  it("refuses ineligible couples and duplicates", () => {
+    expect(run(2, ["a", "zz"])).toMatchObject({ ok: false, errors: [{ code: "COMP_BALLOT_UNKNOWN_ENTRY" }] });
+    expect(run(2, ["a", "a"])).toMatchObject({ ok: false, errors: [{ code: "COMP_BALLOT_DUPLICATE_MARK" }] });
+  });
+  it("refuses when T is unset", () => {
+    expect(run(null, ["a"])).toMatchObject({ ok: false, errors: [{ code: "COMP_CALLBACK_TARGET_UNSET" }] });
+  });
+  it("refuses when T is not smaller than the eligible couples (round not danced)", () => {
+    expect(run(5, eligible)).toMatchObject({ ok: false, errors: [{ code: "COMP_CALLBACK_NOT_DANCED", decisionId: "D-CT-5" }] });
+    expect(run(6, eligible)).toMatchObject({ ok: false, errors: [{ code: "COMP_CALLBACK_NOT_DANCED" }] });
   });
 });
