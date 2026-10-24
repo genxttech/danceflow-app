@@ -1593,6 +1593,8 @@ commit;`);
         sh(`pg_dump -U postgres -s --no-owner ${DB} | psql -U postgres -d ${scratch} -q > /dev/null 2>&1; true`);
         const run = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-d", scratch, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
         expect(run(`select to_regclass('public.studio_sms_provider_resources') is not null`)).toBe("t");
+        // the cancellation-target read (20261224) adds tw4_rfl_cancel_target, which the leftover-function check below would count: it is rolled back first, in strict reverse order
+        run(readFileSync(join(process.cwd(), "src/lib/supabase/migrations/rollback/20261224090000_twilio_rfl_cancel_target_rollback.sql"), "utf8"));
         // the R2b integration migration (20261217) replaces three of this one's functions and adds the system registration core: it is rolled back first
         run(readFileSync(join(process.cwd(), "src/lib/supabase/migrations/rollback/20261217090000_twilio_r2b_rfl_lifecycle_integration_rollback.sql"), "utf8"));
         // the ops migration (20261211) sits on top of this one: it is rolled back first (it refuses while its own evidence exists; this copy has none).
