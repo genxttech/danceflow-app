@@ -1,98 +1,150 @@
-# PRICING-P1 — Production release runbook
+# PRICING-P1 — Production release runbook (authoritative)
 
-Status: plan only. Nothing here has been executed. Companion to `PRICING-P1.md`.
+Status: plan only (revised 2026-10-24 with owner instructions). Nothing here has been executed. Companion to
+`PRICING-P1.md`. Nothing is pushed as a release branch, deployed, or changed in Stripe, Vercel or any database.
 
-## Facts established (2026-10-24)
+## Strategy (owner-approved)
 
-- PRICING-P1 is merged to `main` at `d535720d` (PR 302). Webhook plan-resolution fix is draft PR 319.
-- Production is Vercel project `danceflow-app-qfem` (serves idanceflow.com). The live deployment is
-  `dpl_87xgSBVM…` built from `release/web-2a-website` (`8fd075f5`), which is **not** an ancestor of `main`;
-  `main` is 85 commits ahead of it, including unreleased dark work (TW-4F SMS billing etc.).
-  **Never promote a `main` build for this release.** Release from a branch cut from the live commit.
-  `d535720d` (and the #319 commit) cherry-pick onto `8fd075f5` with no conflicts.
-- `STRIPE_PRICE_STUDIO_*_FOUNDER` / `_STANDARD` on qfem are single entries scoped "Production and Preview".
-  Their values (`price_1TdK…`) exist only in the DEV Stripe **sandbox** (`acct_1TKgLCEYYNmPuFIX`).
-  The Production `STRIPE_SECRET_KEY` is a locked secret; whether production currently uses the sandbox or a
-  live account is **unconfirmed** and is Step 0.
-- qfem Preview shares the PROD Supabase project (`hvsujy…`); Preview has no Stripe secret key. Do not test on qfem previews.
-- Old code (live) selects Price IDs with no amount check; new code refuses unless the Stripe Price is active, USD,
-  monthly, and exactly $59/$99/$159.
+- Release **only** from a branch cut from the deployed commit `release/web-2a-website` = `8fd075f5`
+  (live deployment `dpl_87xgSBVM…`). **Never deploy or promote `main`**: it is 85 commits ahead with unreleased
+  TW-4F and Competition OS work, and `8fd075f5` is not an ancestor of `main`.
+- The release branch contains exactly the PRICING-P1 commit (#302, `d535720d`) and the webhook plan-resolution commits
+  from #319 (kept as a separate PR until independently reviewed and the owner authorizes a merge). Local candidate
+  (not pushed): 14 files, all under `src/lib/billing`, `src/app/api/billing`, `src/app/api/payments/webhook`, the billing
+  settings page, `get-started/studio` and `docs/billing`.
+- **Do not push the release candidate merely to start a Vercel build** without separate owner approval: qfem Preview shares
+  the production Supabase project (`hvsujy…`) and has no Stripe secret key.
 
-## Step 0 — Owner confirms the production Stripe account (blocks everything)
+## Stripe Price strategy (owner's plan)
 
-In the Stripe dashboard for the account whose secret key is in qfem Production:
-1. Is it live mode with the DanceFlow Products (Studio Starter/Growth/Pro - Founder), or the sandbox?
-2. If production uses the sandbox, there is no live charging yet: the "live" steps below become "sandbox" steps
-   and the Price IDs already created in the sandbox (see PRICING-P1.md status) can be reused. Decide this first.
+| Plan | Action in the Stripe Dashboard | Price ID |
+|---|---|---|
+| Starter Founder | Edit the existing, unused Price to **$59 USD / month** | unchanged |
+| Growth Founder | Edit the existing, unused Price to **$99 USD / month** | unchanged |
+| Pro Founder | **Create one new Price** $159 USD / month on the existing Pro Founder Product | **new** |
+| Pro Founder (original) | Do not touch; the existing subscriber stays grandfathered | unchanged (becomes legacy) |
 
-## Step 1 — Owner creates three Prices (Stripe dashboard, production account)
+Stripe's public API cannot change a Price amount; the Dashboard may allow editing an unused Price. **If the Dashboard
+refuses the edit, changes the Price ID, or the Price turns out to have been used, stop and report the actual result — do
+not assume reuse.** Only then create replacement Prices (same Product, same settings). "Used" means any subscription,
+invoice or completed checkout against it in that account and mode.
 
-On the **existing** Founder Products (Studio Starter - Founder, Studio Growth - Founder, Studio Pro - Founder):
+Note (DEV sandbox only): my own local test on 2026-10-24 created and deleted two trial subscriptions on the sandbox Growth
+Founder Price (`price_1TdKDz…`, canceled, no charge). That does not affect the live account, but that sandbox Price is
+"used" there.
 
-| Plan | Amount | Currency | Billing | Notes |
-|---|---|---|---|---|
-| Starter | $59.00 | USD | Recurring, monthly (every 1 month) | new Price; never edit old ones |
-| Growth | $99.00 | USD | Recurring, monthly | |
-| Pro | $159.00 | USD | Recurring, monthly | |
+## Step 0 — Identify the Stripe account production uses (owner; no secrets shared)
 
-No trial on the Price (trial comes from checkout `trial_period_days`). Tax behavior: match the existing Founder Prices.
-Leave the existing Prices active (existing subscribers and rollback). Send the three `price_…` IDs.
+Goal: prove which Stripe account and mode the deployed app (www.idanceflow.com) uses. Never paste a secret key (`sk_`,
+`rk_`) or a webhook signing secret (`whsec_`) into chat.
 
-## Step 2 — Read-only verification (Claude)
+A. **Publishable-key fingerprint (non-secret).** A Stripe publishable key embeds its account ID:
+   `pk_live_51<SUFFIX>…` belongs to `acct_1<SUFFIX>`. (The DEV sandbox `acct_1TKgLCEYYNmPuFIX` has keys beginning
+   `pk_test_51TKgLCEYYNmPuFIX…`.)
+   1. Vercel → `danceflow-app-qfem` → Settings → Environment Variables → search `PUBLISHABLE` → the **Production** entry →
+      eye icon. Send me only the first ~30 characters (for example `pk_live_51AbCdEfGhIjKlMnO`). Publishable keys are public
+      by design; do not send anything beginning `sk_` or `rk_`.
+   2. Stripe Dashboard → account menu / Settings → Business → Account details → copy the **Account ID** (`acct_…`; not secret).
+   3. They must match and the key must start `pk_live_`. If Production shows `pk_test_…` or the account is the sandbox
+      (`acct_1TKgLCEYYNmPuFIX`), production is on the sandbox: stop and report; the live steps change meaning.
+B. **Webhook endpoint (cross-check).** Stripe Dashboard with **Live mode** on → Developers → Webhooks: confirm an endpoint for
+   `https://www.idanceflow.com/api/payments/webhook` exists in that account, is enabled and shows recent successful
+   deliveries. Do not reveal its signing secret. Toggle Live mode off and confirm the endpoint is not in test mode.
+C. **Existing subscriber.** In the same live account, Customers → Subscriptions: the active Pro Founder subscription is here.
+   Record only: Price ID, amount, status, next renewal date, and whether the subscription's **Metadata** contains
+   `planCode = pro`.
 
-With a read-only restricted key or dashboard screenshots: each ID is active, USD, month/1, correct amount, attached to
-the intended Product, and the old Price on that Product is unchanged. Also record: subscriptions on the old Prices
-(count by status) — they are untouched by this release.
+Send me: Account ID, whether Live mode is on, the publishable-key prefix, and the webhook endpoint status.
 
-## Step 3 — Release build (Git, no hosted change)
+## Step 1 — Prices (owner, Stripe Dashboard, Live mode)
 
-1. Branch `release/pricing-p1` from `8fd075f5`; cherry-pick `d535720d` and the #319 merge/commit.
-2. Run: `vitest run src/lib/billing src/app/api/billing src/app/api/payments/webhook`, `tsc --noEmit`
-   (`NODE_OPTIONS=--max-old-space-size=8192`), eslint on changed files. Tests already pass on the cherry-picked tree
-   (see status below).
-3. Push the branch; Vercel builds a preview/staged deployment. Do not promote.
+1. Product catalog → each Founder Product → the Price → Edit amount (Starter $59, Growth $99). After saving, confirm the
+   Price ID is unchanged. If it prompts for a replacement or the ID changes: **stop and report.**
+2. Pro Founder Product → Add price: recurring, USD, **$159.00**, billing period **monthly**, no trial, tax behavior same as
+   the existing Pro Founder Price. Do not archive the original Pro Price.
+3. Send me the Starter, Growth and new Pro Price IDs and the original Pro Price ID.
 
-## Step 4 — Env scoping (owner-authorized hosted change)
+### Verification checklist (owner sends only Price IDs and non-secret evidence)
 
-Order matters; env changes only affect NEW deployments, so the live deployment is unaffected until Step 5.
-1. For each `STRIPE_PRICE_STUDIO_{STARTER,GROWTH,PRO}_FOUNDER`: edit the shared entry to **Preview only** (value unchanged), then
-   add a **Production-only** entry with the new Price ID. (Do the Production value last, per variable.)
-2. Do not touch `_STANDARD`, `REGULAR_PRICING_ACTIVATED` or `REGULAR_PRICING_APPROVAL_REF` (leave unset).
-3. Record before/after IDs in the release notes. Rollback values = the old `price_1TdK…` IDs.
+Each of Starter, Growth, Pro must satisfy:
 
-## Step 5 — Deploy and smoke test
+| Check | Starter | Growth | Pro |
+|---|---|---|---|
+| Attached to the existing Founder Product (name and ID unchanged) | ☐ | ☐ | ☐ |
+| Amount | $59.00 | $99.00 | $159.00 |
+| Currency USD | ☐ | ☐ | ☐ |
+| Recurring, every 1 month | ☐ | ☐ | ☐ |
+| Live mode (no "Test data" banner) | ☐ | ☐ | ☐ |
+| Price ID matches the env plan below | ☐ unchanged | ☐ unchanged | ☐ new |
+| Price active | ☐ | ☐ | ☐ |
 
-1. Build the release branch with Production env (a new build, so it picks up Step 4). Do not promote yet.
-2. On the staged deployment URL (or after promotion, per owner): open `/get-started/studio` — expect Founder $59/$99/$159, no "regularly" text.
-3. Log in as an owner on a **new** (non-subscribed) test workspace, start Starter/Growth/Pro checkout — expect a redirect to
-   Stripe Checkout showing the new amount. Stop at the Stripe page; make no payment. Expect no `price_mismatch`.
-4. An existing subscribed workspace: checkout button goes to the billing portal; subscription unchanged.
-5. Promote only on owner authorization, after step 2–4 pass.
+Plus: the original Pro Price is still active and still $129; the existing Pro subscription is unchanged (same Price ID,
+amount, status, renewal date, `planCode=pro` metadata); no other subscription, customer, coupon or invoice changed.
+
+## Step 2 — Environment plan (needs separate owner authorization)
+
+Env changes only affect NEW deployments; the live deployment is unaffected until a new build is promoted.
+`STRIPE_PRICE_STUDIO_*_FOUNDER` are single entries scoped "Production and Preview" holding sandbox IDs.
+
+| Variable | Production value | Preview |
+|---|---|---|
+| `STRIPE_PRICE_STUDIO_STARTER_FOUNDER` | existing Starter Price ID (same ID, now $59) | keep sandbox value |
+| `STRIPE_PRICE_STUDIO_GROWTH_FOUNDER` | existing Growth Price ID (same ID, now $99) | keep sandbox value |
+| `STRIPE_PRICE_STUDIO_PRO_FOUNDER` | **new** $159 Pro Price ID | keep sandbox value |
+| `STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY` | original Pro Price ID (grandfathered, $129) | unset |
+
+Per variable: change the shared entry to **Preview only** with its current value, then add a Production-only entry with the
+value above. Leave `_STANDARD`, `REGULAR_PRICING_ACTIVATED` and `REGULAR_PRICING_APPROVAL_REF` unset. Record before/after values.
+
+## Webhook plan resolution (PR #319 — separate, pending independent review)
+
+Order in `upsertStudioSubscription`: (1) `subscription_plans` Price ID, (2) checkout env Price IDs (`…_FOUNDER`, `…_STANDARD`,
+`…_FOUNDER_LEGACY`, organizer), (3) `metadata.planCode`. The `subscription_plans` Price IDs match neither the old nor the new
+env IDs, so (1) never matched env-Price subscriptions. Coverage (unit tests on the pure helper plus a source-order test):
+
+- New $59/$99/$159 subscriptions resolve by the env Founder Price, regardless of metadata.
+- A Billing Portal change to another env Price resolves to the new plan; stale metadata is ignored.
+- Grandfathered Pro on the original $129 Price resolves through `STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY` if set, otherwise
+  through `metadata.planCode`. **Gate:** set the LEGACY variable (preferred) and confirm the subscription's metadata (Step 0C).
+- A Price in none of the sources and with no metadata still throws `Could not resolve subscription plan` (existing behavior; it
+  is retried and surfaced rather than recording a wrong plan).
+- The sandbox billing-portal configuration has subscription updates disabled. Read the live portal configuration before
+  assuming that, and do not enable plan switching until tested in test mode.
+
+## Release sequence (each hosted step needs separate owner authorization)
+
+1. Step 0 evidence accepted (live account, matches production).
+2. Step 1 done; verification checklist passed.
+3. #319 independently reviewed; owner authorizes its merge (#302 is already merged).
+4. Owner authorizes pushing `release/pricing-p1` (cut from `8fd075f5`, only the commits above). The push triggers a Vercel
+   build; no Preview URL will be visited or used for testing.
+5. Owner authorizes the Production env changes (Step 2).
+6. Build a Production deployment from the release branch (staged, not promoted). Smoke test on the staged URL, no payment:
+   `/get-started/studio` shows $59/$99/$159 and no "regularly" text; a new non-subscribed owner's Starter/Growth/Pro
+   checkout reaches Stripe Checkout at the new amount; an existing subscribed workspace goes to the billing portal and its
+   subscription is unchanged; no `price_mismatch`.
+7. Owner authorizes promotion. After promotion repeat the no-payment smoke test and watch webhook deliveries.
 
 ## Rollback (code and config together)
 
-1. Promote the previous deployment (`dpl_87xgSBVM…`) back (Vercel instant rollback).
-2. Restore Production `STRIPE_PRICE_STUDIO_*_FOUNDER` to the prior IDs. Old code does not check amounts, so the env
-   must be restored in the same window or checkout will charge whatever the env Price says.
-3. Do not archive or edit any Price. New Prices stay for a retry.
-4. If a subscription was created on a new Price during the window, it remains valid; no data repair is needed
-   (plan resolves via env Price in the #319 build; the old build resolves via `metadata.planCode`, which is correct for new checkouts).
+1. Promote the previous deployment (`dpl_87xgSBVM…`, `8fd075f5`) back.
+2. Restore Production `STRIPE_PRICE_STUDIO_PRO_FOUNDER` to the original Pro Price ID and remove `…_PRO_FOUNDER_LEGACY`.
+3. Starter and Growth Prices keep their edited amounts ($59/$99) in Stripe. The old code does not verify amounts, so after a
+   code rollback the old pages show $49/$79 while checkout charges $59/$99. Do not re-edit or archive a Price that has a
+   subscription. Preferred: roll back only if the defect is in code, keep the approved Stripe amounts, and fix forward quickly.
+4. Existing subscriptions are never touched in either direction.
 
-## Webhook note (PR 319)
+## Remaining gates (all open)
 
-`subscription_plans` Price IDs match neither the old nor new env IDs, so plan resolution always fell to
-`metadata.planCode`, stale after a Billing Portal plan change. #319 inserts env-Price resolution before the metadata
-fallback. The sandbox portal configuration has subscription updates disabled, so this is latent; ship #319 with this release
-and do not enable portal plan switching until verified in test mode.
+- [ ] Step 0 account evidence from the owner
+- [ ] Dashboard confirms Starter and Growth edits keep their Price IDs (else stop)
+- [ ] Step 1 verification checklist passed
+- [ ] Existing Pro subscription metadata checked and LEGACY env value decided
+- [ ] #319 independent review complete and owner merge authorization
+- [ ] Live Stripe portal configuration read (plan switching on/off)
+- [ ] Owner authorizes: release branch push, Production env change, staged build, promotion
 
 ## Not in this release
 
 Entitlement enforcement (instructors, locations, Payroll Prep), legacy-subscriber MRR estimates, final Founder duration
 policy, regular pricing activation, annual and Organizer pricing.
-
-## Release-candidate verification (local, 2026-10-24)
-
-Cherry-picking `d535720d` then the #319 commit onto `8fd075f5` (local only, not pushed): the first applies cleanly; the
-second conflicts in the import block of `src/app/api/payments/webhook/route.ts` because the live base has no SMS-credit
-import (resolve by keeping only the plan-resolution import). Result: billing, checkout and webhook suites 24 files /
-249 tests passed, `tsc --noEmit` clean. Pushing a release branch triggers a Vercel preview build on qfem, so it was not pushed.
