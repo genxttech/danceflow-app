@@ -27,6 +27,41 @@ All pilot-blocking TW-4F code is merged into `main`. It is Git only: no migratio
 
 Known issues carried forward: KI-1 (pilot double capture; activation is blocked in the DB until the owner re-decides), KI-2 (rollback leaves widened CHECK constraints), KI-3 (r2bp2.rfl stale test on main). See §7.
 
+### 0.1 Owner decisions and follow-up merges (2026-10-24, `main` = `c2ac7a5f`)
+
+**Owner decisions (2026-10-24):**
+
+- **U-2.** Do not publish cost-plus-25% as final or interim pricing. A validated pricing recommendation is being prepared (docs only). Inbound and outbound prepaid ledger tracking stay separate. No live pricing change.
+- **U-4.** A pilot approval must reference a dated, explicit written owner authorization that is retained and auditable: scope, amount, period and action. A reference alone is not authorization.
+- **U-10.** The cleanup policy for the obsolete Stage B draft is approved, conditional on verifying its identity and keeping the evidence. The Twilio Console deletion needs a separate explicit authorization.
+- **KI-1.** Fix the double capture with a new migration. The `pilot_ki1_redecided` activation block is not bypassed.
+- **#290 P2-2.** The billing-month safeguard stays until Twilio evidence is verified.
+- **Two-admin control.** A second platform admin is unconfirmed, so the requirement stays fail-closed.
+
+**Merged (owner-approved squash merges, head-pinned, tree verified, Git-only):**
+
+| PR | Change | Migration | Merge commit |
+|---|---|---|---|
+| #305 | U-4 evidence for pilot period covers. The 11-argument `tw4_rfl_pilot_cover` requires structured evidence (role, scope, amount equal to the published price, period, document id/link plus sha256, never the text) in an append-only table. `approval_ref` is 3..200 in SQL, with a minimum of 10 in the RPC, action and form. | 1229 | `522a35bd` |
+| #308 | Test fixes. The f1funding rollback control works with 1226. The j4activation KI-1 assertion allows readers. | — | `e365c317` |
+| #307 | KI-1 fix. A cross-month pilot campaign reservation is released, not captured, with an admin alert. The activation block is untouched. | 1228 | `fae5e325` |
+| #309 | Test fix. The tw4rfl rollback copy follows strict reverse order. | — | `c2ac7a5f` |
+
+**Rollback note.** After 1229, `1219` cannot be re-applied unless 1229 is rolled back first, because its precondition expects the 4-argument `tw4_rfl_pilot_cover`. Hosted rollback must follow the strict reverse of the apply order (manifest §5.1).
+
+**Pilot-activation blockers still open:**
+
+1. **U-4 for pilot spend and reservation approvals.** `tw4_spend_authorize(...,'pilot',...)`, the onboarding, number and campaign pilot reservation paths, and `tw4_pilot_exception_create` still accept a bare reference. This is being fixed in migration 20261230 (RFL session).
+2. **KI-1 activation block.** It is lifted only by a later migration, after the owner re-decides now that the fix (#307) is merged.
+3. **Prices not published.** U-2 is pending the validated recommendation.
+4. **Stage B draft.** The deletion needs separate authorization (U-10).
+5. **Security finding (P1, not TW-4F-specific).** Platform-admin server actions check only `platform_role`, not MFA/`aal2`. The page layout enforces MFA, but server actions can be called directly. The fix needs owner approval (shared auth boundary).
+6. **Security finding (P2).** The platform client-linking action upserts `platform_role: null` (`src/app/platform/actions.ts:518-524`). It could demote an admin whose email matches a client.
+7. **Second platform admin.** None is confirmed. The prerequisites are `profiles.platform_role = 'platform_admin'` (granted today only by a manual, unaudited service-role SQL update, which needs owner authorization), TOTP enrolment at `/platform-mfa/setup`, and a different human (enforced by policy only). With one admin, absorb-exposure and number cancellation stay blocked (fail-closed).
+8. **Approval-amount UX follow-up (from #305).** The form takes a dollar amount instead of showing the published price.
+
+Hosted state is unchanged by all of the above: DEV fingerprint `bf10276e`, PROD `d17059a0`, re-confirmed read-only on 2026-10-24.
+
 Status vocabulary:
 
 | Status | Meaning |
