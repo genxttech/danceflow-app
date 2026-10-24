@@ -7,6 +7,7 @@ import {
   isScratchable,
   parseResolution,
   scratchDecision,
+  scratchErrorCode,
   scratchErrorMessage,
   SCRATCH_RESOLUTIONS,
 } from "@/lib/competition/scratch/scratch";
@@ -36,6 +37,16 @@ describe("SC1 placement classes", () => {
     expect(classifyPlacements([{ heatLockState: "locked", placementStatus: "checked_in" }])).toBe("locked");
     expect(classifyPlacements([{ heatLockState: "open", placementStatus: "danced" }, { heatLockState: "locked", placementStatus: "scheduled" }])).toBe("danced");
     expect(classifyPlacements([{ heatLockState: "certified", placementStatus: "scheduled" }, { heatLockState: "open", placementStatus: "danced" }])).toBe("certified");
+  });
+
+  it("treats a heat on the floor or finished as danced (placements are not marked danced yet)", () => {
+    expect(classifyPlacements([{ heatLockState: "locked", placementStatus: "checked_in", heatStatus: "active" }])).toBe("danced");
+    expect(classifyPlacements([{ heatLockState: "open", placementStatus: "scheduled", heatStatus: "complete" }])).toBe("danced");
+    expect(classifyPlacements([{ heatLockState: "open", placementStatus: "scratched", heatStatus: "complete" }])).toBe("open");
+  });
+
+  it("ignores an already-scratched placement in a certified heat", () => {
+    expect(classifyPlacements([{ heatLockState: "certified", placementStatus: "scratched" }, { heatLockState: "open", placementStatus: "scheduled" }])).toBe("open");
   });
 
   it("does not treat an already-scratched placement in a locked heat as locked", () => {
@@ -92,6 +103,13 @@ describe("SC1 error copy", () => {
     const codes = [...new Set(MIGRATION.match(/COMP_SC1_[A-Z_]+/g) ?? [])];
     expect(codes.length).toBeGreaterThan(5);
     for (const code of codes) expect(scratchErrorMessage(`${code}: detail`), code).not.toBe("The entry could not be scratched. Try again.");
+  });
+
+  it("passes codes, not free text, through the URL", () => {
+    expect(scratchErrorCode("COMP_SC1_DANCED: this entry has already danced")).toBe("COMP_SC1_DANCED");
+    expect(scratchErrorCode("<script>attacker text")).toBe("COMP_SC1_UNKNOWN");
+    expect(scratchErrorMessage("Your account is suspended, call 555")).toBe("The entry could not be scratched. Try again.");
+    expect(ACTIONS).not.toContain("encodeURIComponent");
   });
 });
 

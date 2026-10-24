@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import { parseResolution, resolutionLabel } from "@/lib/competition/scratch/scratch";
+import { parseResolution, resolutionLabel, scratchErrorMessage } from "@/lib/competition/scratch/scratch";
 import { createClient } from "@/lib/supabase/server";
 import { setCompetitionScratchPolicyAction, setCompetitionScratchPolicyDefaultAction } from "../actions";
 
@@ -28,7 +28,7 @@ export default async function ScratchPolicyPage({
   const [programResult, overrideResult, officialResult, defaultResult] = await Promise.all([
     supabase.from("event_competition_programs").select("id, name").eq("event_id", id).order("created_at"),
     supabase.from("event_competition_scratch_policies").select("program_id, default_resolution").eq("event_id", id),
-    supabase.rpc("_paywh1_actor_can_manage_event", { p_event_id: id }),
+    supabase.rpc("_sc1_actor_owns_policy", { p_event_id: id }),
     (event.organizer_id ? defaultQuery.eq("organizer_id", event.organizer_id) : defaultQuery.eq("studio_id", context.studioId)).maybeSingle(),
   ]);
   const standard = parseResolution(defaultResult.data?.default_resolution) ?? "no_refund";
@@ -53,7 +53,7 @@ export default async function ScratchPolicyPage({
         different resolution for a single scratch, with a reason. Competition credit is not available yet.
       </p>
 
-      {query.error ? <p role="alert" className="mt-5 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{query.error}</p> : null}
+      {query.error ? <p role="alert" className="mt-5 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{query.error === "COMP_SC1_NOT_FOUND" ? "Only the event's organizer owners and admins (or the studio's, for a studio-run event) can change the scratch policy." : scratchErrorMessage(query.error)}</p> : null}
       {query.saved ? <p className="mt-5 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Saved.</p> : null}
 
       <section className="mt-6 border-t border-slate-200 pt-5">
@@ -65,6 +65,7 @@ export default async function ScratchPolicyPage({
             <option value="no_refund">No refund</option>
             <option value="refund">Refund</option>
           </select>
+          <input name="reason" maxLength={300} placeholder="Reason for the change (optional)" disabled={!isOfficial} className="h-10 min-w-56 flex-1 rounded border border-slate-300 px-3 text-sm" />
           <button disabled={!isOfficial} className="rounded border border-slate-300 px-3 text-sm font-semibold text-slate-700 disabled:text-slate-400">Save standard policy</button>
         </form>
       </section>
@@ -87,12 +88,13 @@ export default async function ScratchPolicyPage({
                   <option value="no_refund">No refund</option>
                   <option value="refund">Refund</option>
                 </select>
+                <input name="reason" maxLength={300} placeholder="Reason (optional)" disabled={!isOfficial} className="h-10 w-44 rounded border border-slate-300 px-3 text-sm" />
                 <button disabled={!isOfficial} className="rounded border border-slate-300 px-3 text-sm font-semibold text-slate-700 disabled:text-slate-400">Save</button>
               </form>
             </li>
           ))}
         </ul>
-        {!isOfficial ? <p className="mt-3 text-xs text-slate-600">Only studio or organizer owners and admins can change the scratch policy.</p> : null}
+        {!isOfficial ? <p className="mt-3 text-xs text-slate-600">Only the event&apos;s organizer owners and admins (or the studio&apos;s, for a studio-run event) can change the scratch policy. Every change is recorded.</p> : null}
       </section>
     </main>
   );

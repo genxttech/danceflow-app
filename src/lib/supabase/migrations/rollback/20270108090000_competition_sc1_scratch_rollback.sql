@@ -1,8 +1,14 @@
 -- Rollback of 20270108090000_competition_sc1_scratch.sql.
 --
--- Refuses while any scratch audit row exists (dropping it would erase scratch history). Restores the exact
--- reviewed 10A body of protect_locked_competition_heat_children (md5 7997313d6effc4af94caf5fe4fd055c9).
+-- Always: restores the exact reviewed 10A body of protect_locked_competition_heat_children (md5
+-- 7997313d6effc4af94caf5fe4fd055c9), removes the API-role scratch write guards, drops the scratch and policy RPCs
+-- and restores EXECUTE on change_competition_entry_lifecycle for authenticated (its pre-SC1 grant).
+--
+-- Audit data:
+--   * no scratch rows and no policy changes: SC1 tables are dropped too (full rollback);
+--   * otherwise the tables are KEPT (scratch history is never erased) and become inert: nothing writes them.
 -- Entries already scratched stay scratched (the entry change audit keeps their history).
+-- After a partial rollback, re-applying SC1 needs the kept tables handled first (its preflight refuses).
 
 begin;
 
@@ -10,9 +16,6 @@ do $$
 begin
   if to_regclass('public.event_competition_scratches') is null then
     raise exception 'SC1 rollback: SC1 is not applied.';
-  end if;
-  if exists (select 1 from public.event_competition_scratches) then
-    raise exception 'SC1 rollback: scratch audit rows exist; refusing to drop scratch history.';
   end if;
 end $$;
 
@@ -36,14 +39,33 @@ begin
 end;
 $$;
 
-drop function public.set_competition_scratch_policy_default(uuid, text);
-drop function public.set_competition_scratch_policy(uuid, text);
+drop trigger sc1_guard_api_scratch_entries on public.event_competition_entries;
+drop trigger sc1_guard_api_scratch_heat_entries on public.event_competition_heat_entries;
+drop function public._sc1_guard_api_scratch_writes();
+-- Pre-SC1 ACL was {=X, anon=X, authenticated=X, service_role=X} (no explicit grant/revoke before SC1).
+grant execute on function public.change_competition_entry_lifecycle(uuid, text, text, text) to public, anon, authenticated;
+
+drop function public.set_competition_scratch_policy_default(uuid, text, text);
+drop function public.set_competition_scratch_policy(uuid, text, text);
 drop function public.scratch_competition_entry(uuid, uuid, text, text);
-drop table public.event_competition_scratches;
-drop function public._sc1_protect_scratches();
 drop function public.competition_scratch_effective_policy(uuid);
-drop table public.event_competition_scratch_policies;
-drop table public.competition_scratch_policy_defaults;
+drop function public._sc1_policy_for(uuid);
+drop function public._sc1_actor_owns_policy(uuid);
+
+do $$
+begin
+  if not exists (select 1 from public.event_competition_scratches)
+     and not exists (select 1 from public.competition_scratch_policy_changes) then
+    drop table public.event_competition_scratches;
+    drop function public._sc1_protect_scratches();
+    drop table public.competition_scratch_policy_changes;
+    drop table public.event_competition_scratch_policies;
+    drop table public.competition_scratch_policy_defaults;
+    raise notice 'SC1 rollback: full (no SC1 data existed).';
+  else
+    raise notice 'SC1 rollback: guard and RPCs restored; SC1 audit tables kept (scratch or policy history exists).';
+  end if;
+end $$;
 
 do $$
 begin

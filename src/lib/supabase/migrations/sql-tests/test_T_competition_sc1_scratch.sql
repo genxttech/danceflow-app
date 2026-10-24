@@ -110,7 +110,8 @@ insert into public.event_competition_heats (id, event_id, division_id, round_id,
   (pg_temp.u('009001'), pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('006001'), 1, 'Open heat'),
   (pg_temp.u('009002'), pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('006001'), 2, 'Locked heat'),
   (pg_temp.u('009003'), pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('006001'), 3, 'Certified heat'),
-  (pg_temp.u('009004'), pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('006001'), 4, 'Danced heat');
+  (pg_temp.u('009004'), pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('006001'), 4, 'Danced heat'),
+  (pg_temp.u('009005'), pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('006001'), 5, 'On-floor heat');
 
 insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status) values
   (pg_temp.u('008001'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Open Entry', 'confirmed', 'eligible'),
@@ -121,13 +122,23 @@ insert into public.event_competition_entries (id, event_id, program_id, division
   (pg_temp.u('008006'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Policy Entry', 'confirmed', 'eligible'),
   (pg_temp.u('008007'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Exception Entry', 'pending', 'unverified'),
   (pg_temp.u('008008'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Complete Entry', 'complete', 'eligible'),
-  (pg_temp.u('008009'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Locked Second', 'confirmed', 'eligible');
+  (pg_temp.u('008009'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Locked Second', 'confirmed', 'eligible'),
+  (pg_temp.u('008010'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'On-floor Entry', 'confirmed', 'eligible'),
+  (pg_temp.u('008011'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Locked And Open', 'confirmed', 'eligible'),
+  (pg_temp.u('008012'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Reverse Exception', 'confirmed', 'eligible'),
+  (pg_temp.u('008013'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Direct Write Target', 'confirmed', 'eligible');
 insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, status) values
   (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('009001'), pg_temp.u('008001'), 'scheduled'),
   (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('009002'), pg_temp.u('008002'), 'checked_in'),
   (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('009002'), pg_temp.u('008009'), 'scheduled'),
   (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('009003'), pg_temp.u('008003'), 'scheduled'),
-  (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('009004'), pg_temp.u('008004'), 'danced');
+  (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('009004'), pg_temp.u('008004'), 'danced'),
+  (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('009005'), pg_temp.u('008010'), 'checked_in'),
+  (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('009002'), pg_temp.u('008011'), 'scheduled'),
+  (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('009001'), pg_temp.u('008011'), 'scheduled'),
+  (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('009001'), pg_temp.u('008013'), 'scheduled');
+-- The on-floor heat is being danced (placements are not marked danced yet; the heat status says so).
+update public.event_competition_heats set status = 'active' where id = pg_temp.u('009005');
 
 -- Flush the fixture placements' deferred 10D integrity checks while the entries are still confirmed.
 set constraints all immediate;
@@ -142,9 +153,9 @@ reset role;
 
 -- No-money baselines (R2 tables may or may not exist on this database).
 insert into t_ids values ('nil', null);
-select pg_temp.chk('fixture: four heats in open / locked / certified / open+danced states',
+select pg_temp.chk('fixture: heats in open / locked / certified / open+danced / open+active states',
   (select string_agg(lock_state, ',' order by heat_number) from public.event_competition_heats where event_id = pg_temp.u('00e001'))
-  = 'open,locked,certified,open');
+  = 'open,locked,certified,open,open');
 
 -- ============================================================================
 -- Normal scratch (organizer staff: event manager, not an official)
@@ -188,6 +199,21 @@ select pg_temp.expect_msg('the scratch audit cannot be written directly',
   $q$insert into public.event_competition_scratches (event_id, program_id, entry_id, request_id, path, policy_resolution, requested_resolution, is_exception, previous_status, performed_by)
      values (pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('008005'), gen_random_uuid(), 'normal', 'no_refund', 'no_refund', false, 'confirmed', pg_temp.u('000002'))$q$,
   'permission denied');
+select pg_temp.expect_msg('the June lifecycle RPC is no longer callable by API roles',
+  $q$select public.change_competition_entry_lifecycle(pg_temp.u('008013'), 'withdrawn', 'x', 'refund')$q$, 'permission denied');
+select pg_temp.expect_msg('a manager cannot scratch an entry by a direct status write',
+  $q$update public.event_competition_entries set status = 'scratched' where id = pg_temp.u('008013')$q$, 'COMP_SC1_USE_SCRATCH');
+select pg_temp.expect_msg('a manager cannot withdraw an entry by a direct status write',
+  $q$update public.event_competition_entries set status = 'withdrawn' where id = pg_temp.u('008013')$q$, 'COMP_SC1_USE_SCRATCH');
+select pg_temp.expect_msg('a manager cannot scratch an open-heat placement by a direct status write',
+  $q$update public.event_competition_heat_entries set status = 'scratched' where entry_id = pg_temp.u('008013')$q$, 'COMP_SC1_USE_SCRATCH');
+select pg_temp.expect_ok('direct non-scratch edits stay allowed (eligibility, check-in state)',
+  $q$update public.event_competition_entries set eligibility_status = 'needs_review' where id = pg_temp.u('008013');
+     update public.event_competition_heat_entries set status = 'checked_in' where entry_id = pg_temp.u('008013')$q$);
+select pg_temp.expect_msg('an entry whose heat is on the floor counts as danced',
+  pg_temp.scratch('008010', 'f00014', 'Left'), 'COMP_SC1_DANCED');
+select pg_temp.expect_msg('staff cannot scratch an entry that is in a locked and an open heat',
+  pg_temp.scratch('008011', 'f00015', 'x'), 'COMP_SC1_OFFICIAL_REQUIRED');
 select pg_temp.expect_msg('a direct scratch of a locked-heat placement is still refused',
   $q$update public.event_competition_heat_entries set status = 'scratched' where entry_id = pg_temp.u('008002')$q$,
   'authorized correction workflow');
@@ -214,6 +240,18 @@ select pg_temp.expect_msg('the official authorization does not extend to other p
   $q$update public.event_competition_heat_entries set status = 'scratched' where entry_id = pg_temp.u('008009')$q$,
   'authorized correction workflow');
 
+select pg_temp.expect_ok('an official scratches an entry placed in both a locked and an open heat',
+  pg_temp.scratch('008011', 'f00024', 'Withdrew at registration desk'));
+select pg_temp.chk('both of its placements are scratched and only the locked heat is recorded',
+  pg_temp.placement_status('008011') = 'scratched,scratched'
+  and exists (select 1 from public.event_competition_scratches where entry_id = pg_temp.u('008011') and locked_heat_ids = array[pg_temp.u('009002')]));
+select pg_temp.expect_msg('in the same transaction, the official scratch does not allow other column changes on that placement',
+  $q$select public.scratch_competition_entry(pg_temp.u('008009'), pg_temp.u('f00025'), 'No show', null);
+     update public.event_competition_heat_entries set floor_order = 99 where entry_id = pg_temp.u('008009')$q$,
+  'authorized correction workflow');
+select pg_temp.chk('the refused transaction left the second locked entry untouched', pg_temp.placement_status('008009') = 'scheduled');
+select pg_temp.expect_msg('an entry whose heat is on the floor cannot be scratched, even by an official',
+  pg_temp.scratch('008010', 'f00026', 'Left'), 'COMP_SC1_DANCED');
 select pg_temp.expect_msg('a certified-heat entry cannot be scratched, even by an official',
   pg_temp.scratch('008003', 'f00022', 'Late withdrawal'), 'COMP_SC1_CERTIFIED');
 select pg_temp.chk('the certified-heat entry is untouched', pg_temp.entry_status('008003') = 'confirmed' and pg_temp.placement_status('008003') = 'scheduled');
@@ -222,8 +260,6 @@ select pg_temp.expect_msg('an entry that already danced cannot be scratched, eve
 select pg_temp.chk('the danced placement is untouched', pg_temp.placement_status('008004') = 'danced');
 
 -- Policy and exceptions.
-select pg_temp.expect_msg('a policy default of credit is refused for now',
-  $q$select public.set_competition_scratch_policy(pg_temp.u('001001'), 'credit')$q$, 'COMP_SC1_RESOLUTION');
 select pg_temp.expect_msg('a studio owner cannot set the organizer''s standard policy',
   $q$select public.set_competition_scratch_policy_default(pg_temp.u('00e001'), 'refund')$q$, 'COMP_SC1_NOT_FOUND');
 reset role;
@@ -238,9 +274,37 @@ select pg_temp.chk('the organizer default (not the studio) holds it',
   and not exists (select 1 from public.competition_scratch_policy_defaults where studio_id = pg_temp.u('00a001')));
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.chk('the effective policy follows the organizer default', public.competition_scratch_effective_policy(pg_temp.u('001001')) = 'refund');
-select pg_temp.expect_ok('an official sets a program override back to no_refund',
-  $q$select public.set_competition_scratch_policy(pg_temp.u('001001'), 'no_refund')$q$);
+reset role;
+-- Reverse exception: staff choosing no_refund under a refund policy is an exception too.
+select pg_temp.as_user(pg_temp.u('000002'));
+select pg_temp.expect_msg('staff choosing no_refund under a refund policy is an exception (official required)',
+  pg_temp.scratch('008012', 'f00033', 'x', 'no_refund'), 'COMP_SC1_OFFICIAL_REQUIRED');
+reset role;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('a host-studio owner cannot override an organizer event''s program policy',
+  $q$select public.set_competition_scratch_policy(pg_temp.u('001001'), 'no_refund')$q$, 'COMP_SC1_NOT_FOUND');
+reset role;
+select pg_temp.as_user(pg_temp.u('000004'));
+select pg_temp.expect_msg('a policy default of credit is refused for now',
+  $q$select public.set_competition_scratch_policy(pg_temp.u('001001'), 'credit')$q$, 'COMP_SC1_RESOLUTION');
+select pg_temp.expect_ok('the organizer admin sets a program override back to no_refund, with a reason',
+  $q$select public.set_competition_scratch_policy(pg_temp.u('001001'), 'no_refund', 'Final weekend: no refunds')$q$);
 select pg_temp.chk('the program override wins', public.competition_scratch_effective_policy(pg_temp.u('001001')) = 'no_refund');
+select pg_temp.expect_ok('setting the same value again is a no-op',
+  $q$select public.set_competition_scratch_policy(pg_temp.u('001001'), 'no_refund')$q$);
+reset role;
+select pg_temp.chk('every policy change is kept with actor, old, new and reason',
+  (select count(*) from public.competition_scratch_policy_changes where event_id = pg_temp.u('00e001')) = 2
+  and exists (select 1 from public.competition_scratch_policy_changes where scope = 'standard' and organizer_id = pg_temp.u('00b001')
+              and previous_resolution is null and new_resolution = 'refund' and changed_by = pg_temp.u('000004'))
+  and exists (select 1 from public.competition_scratch_policy_changes where scope = 'program' and program_id = pg_temp.u('001001')
+              and previous_resolution is null and new_resolution = 'no_refund' and reason = 'Final weekend: no refunds'));
+select pg_temp.as_user(pg_temp.u('000004'));
+select pg_temp.expect_msg('policy history cannot be written directly by API roles',
+  $q$insert into public.competition_scratch_policy_changes (scope, event_id, changed_by) values ('program', pg_temp.u('00e001'), pg_temp.u('000004'))$q$,
+  'permission denied');
+reset role;
+select pg_temp.as_user(pg_temp.u('000001'));
 
 select pg_temp.expect_ok('a scratch with no resolution uses the policy default', pg_temp.scratch('008006', 'f00030'));
 select pg_temp.chk('it is recorded as no_refund, not an exception',
@@ -272,6 +336,7 @@ select pg_temp.as_user(pg_temp.u('000003'));
 select pg_temp.expect_msg('another studio owner cannot scratch this event''s entries', pg_temp.scratch('008005', 'f00040', 'x'), 'COMP_SC1_NOT_FOUND');
 select pg_temp.chk('another studio owner reads no scratch rows',
   pg_temp.n($q$select count(*) from public.event_competition_scratches where event_id = pg_temp.u('00e001')$q$) = 0);
+select pg_temp.chk('another studio owner gets no effective policy for this program', public.competition_scratch_effective_policy(pg_temp.u('001001')) is null);
 select pg_temp.chk('another studio owner reads no program policy',
   pg_temp.n($q$select count(*) from public.event_competition_scratch_policies where event_id = pg_temp.u('00e001')$q$) = 0);
 select pg_temp.chk('another studio owner reads no organizer default',
@@ -298,13 +363,15 @@ select pg_temp.chk('API roles have no write grant on SC1 tables',
   and not has_table_privilege('anon', 'public.event_competition_scratches', 'SELECT'));
 select pg_temp.chk('anon cannot execute the scratch or policy RPCs',
   not has_function_privilege('anon', 'public.scratch_competition_entry(uuid, uuid, text, text)', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.set_competition_scratch_policy(uuid, text)', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.set_competition_scratch_policy_default(uuid, text)', 'EXECUTE'));
+  and not has_function_privilege('anon', 'public.set_competition_scratch_policy(uuid, text, text)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.set_competition_scratch_policy_default(uuid, text, text)', 'EXECUTE'));
 
 -- Regression: the June lifecycle RPC still refuses locked heats, and the guard still blocks other child writes.
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.expect_msg('change_competition_entry_lifecycle still refuses an entry in a locked heat',
-  $q$select public.change_competition_entry_lifecycle(pg_temp.u('008009'), 'withdrawn', 'x', 'retain')$q$, 'locked or certified heat');
+select pg_temp.chk('change_competition_entry_lifecycle stays callable by service_role only',
+  not has_function_privilege('authenticated', 'public.change_competition_entry_lifecycle(uuid, text, text, text)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.change_competition_entry_lifecycle(uuid, text, text, text)', 'EXECUTE')
+  and has_function_privilege('service_role', 'public.change_competition_entry_lifecycle(uuid, text, text, text)', 'EXECUTE'));
 select pg_temp.expect_msg('a placement cannot be added to a locked heat',
   $q$insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id) values (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('009002'), pg_temp.u('008005'))$q$,
   'authorized correction workflow');

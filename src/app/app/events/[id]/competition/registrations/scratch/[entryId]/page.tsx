@@ -9,12 +9,13 @@ import {
   parseResolution,
   resolutionLabel,
   scratchDecision,
+  scratchErrorMessage,
   SCRATCH_RESOLUTIONS,
 } from "@/lib/competition/scratch/scratch";
 import { createClient } from "@/lib/supabase/server";
 import { scratchCompetitionEntryAction } from "../actions";
 
-type Placement = { heat_id: string; status: string; heat: { name: string | null; heat_number: number; lock_state: string } | null };
+type Placement = { heat_id: string; status: string; heat: { name: string | null; heat_number: number; lock_state: string; status: string | null } | null };
 type ScratchRow = { id: string; path: string; requested_resolution: string; policy_resolution: string; is_exception: boolean; reason: string | null; performed_at: string };
 
 const LOCK_LABEL: Record<string, string> = { open: "Open", locked: "Locked", certified: "Certified" };
@@ -44,7 +45,7 @@ export default async function ScratchEntryPage({
   if (!entry) notFound();
 
   const [placementResult, scratchResult, policyResult, officialResult] = await Promise.all([
-    supabase.from("event_competition_heat_entries").select("heat_id, status, heat:event_competition_heats(name, heat_number, lock_state)").eq("entry_id", entryId).eq("event_id", id),
+    supabase.from("event_competition_heat_entries").select("heat_id, status, heat:event_competition_heats(name, heat_number, lock_state, status)").eq("entry_id", entryId).eq("event_id", id),
     supabase.from("event_competition_scratches").select("id, path, requested_resolution, policy_resolution, is_exception, reason, performed_at").eq("entry_id", entryId).order("performed_at", { ascending: false }),
     supabase.rpc("competition_scratch_effective_policy", { p_program_id: entry.program_id }),
     supabase.rpc("_paywh1_actor_can_manage_event", { p_event_id: id }),
@@ -53,7 +54,7 @@ export default async function ScratchEntryPage({
   const scratches = (scratchResult.data ?? []) as ScratchRow[];
   const policy = parseResolution(policyResult.data) ?? "no_refund";
   const isOfficial = officialResult.data === true;
-  const placementClass = classifyPlacements(placements.map((p) => ({ heatLockState: p.heat?.lock_state ?? "open", placementStatus: p.status })));
+  const placementClass = classifyPlacements(placements.map((p) => ({ heatLockState: p.heat?.lock_state ?? "open", placementStatus: p.status, heatStatus: p.heat?.status })));
   const baseDecision = scratchDecision({ placementClass, policy, resolution: policy, isOfficial });
   const scratchable = isScratchable(entry.status);
   const requestId = randomUUID();
@@ -85,7 +86,7 @@ export default async function ScratchEntryPage({
         )}
       </section>
 
-      {query.error ? <p role="alert" className="mt-5 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{query.error}</p> : null}
+      {query.error ? <p role="alert" className="mt-5 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{scratchErrorMessage(query.error)}</p> : null}
 
       {!scratchable ? (
         <p className="mt-5 text-sm text-slate-700">This entry is {entryStatusLabel(entry.status).toLowerCase()} and cannot be scratched.</p>

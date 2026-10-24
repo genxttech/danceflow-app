@@ -97,9 +97,82 @@ create policy competition_scratch_policy_defaults_read on public.competition_scr
 create policy event_competition_scratch_policies_read on public.event_competition_scratch_policies
   for select to authenticated using (public.can_manage_event_competition(event_id));
 
+-- Append-only history of every policy change (who, when, old -> new, reason).
+create table public.competition_scratch_policy_changes (
+  id uuid primary key default gen_random_uuid(),
+  scope text not null,
+  event_id uuid not null references public.events(id) on delete cascade,
+  program_id uuid,
+  studio_id uuid,
+  organizer_id uuid,
+  previous_resolution text,
+  new_resolution text,
+  reason text,
+  changed_by uuid not null,
+  changed_at timestamptz not null default now(),
+  constraint competition_scratch_policy_changes_scope_check check (scope in ('program', 'standard'))
+);
+create index competition_scratch_policy_changes_event_idx on public.competition_scratch_policy_changes(event_id, changed_at desc);
+alter table public.competition_scratch_policy_changes enable row level security;
+revoke all on public.competition_scratch_policy_changes from public, anon, authenticated, service_role;
+grant select on public.competition_scratch_policy_changes to authenticated, service_role;
+create policy competition_scratch_policy_changes_read on public.competition_scratch_policy_changes
+  for select to authenticated using (public.can_manage_event_competition(event_id));
+
+-- The policy belongs to the event's issuer: organizer owners/admins for an organizer-run event, studio
+-- owners/admins for a studio-run event, platform admins either. Host-studio roles cannot override an
+-- organizer's policy (program override or standard).
+create function public._sc1_actor_owns_policy(p_event_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select auth.uid() is not null and exists (
+    select 1 from public.events e
+    where e.id = p_event_id
+      and (
+        exists (select 1 from public.profiles p where p.id = auth.uid() and p.platform_role = 'platform_admin')
+        or (e.organizer_id is not null and exists (
+              select 1 from public.organizer_users ou
+              where ou.organizer_id = e.organizer_id and ou.user_id = auth.uid() and ou.active
+                and ou.role in ('organizer_owner', 'organizer_admin')))
+        or (e.organizer_id is null and exists (
+              select 1 from public.user_studio_roles usr
+              where usr.studio_id = e.studio_id and usr.user_id = auth.uid() and usr.active
+                and usr.role in ('studio_owner', 'studio_admin')))
+      ));
+$$;
+revoke all on function public._sc1_actor_owns_policy(uuid) from public, anon;
+grant execute on function public._sc1_actor_owns_policy(uuid) to authenticated, service_role;
+
 -- Effective policy: program override, else the event's issuer default (organizer when the event has one,
--- else studio), else no_refund.
+-- else studio), else no_refund. Null for callers who cannot manage the event.
 create function public.competition_scratch_effective_policy(p_program_id uuid)
+returns text
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select case when not public.can_manage_event_competition(
+                (select event_id from public.event_competition_programs where id = p_program_id))
+              then null
+              else coalesce(
+    (select sp.default_resolution from public.event_competition_scratch_policies sp where sp.program_id = p_program_id),
+    (select d.default_resolution
+     from public.event_competition_programs pr
+     join public.events e on e.id = pr.event_id
+     join public.competition_scratch_policy_defaults d
+       on (e.organizer_id is not null and d.organizer_id = e.organizer_id)
+       or (e.organizer_id is null and d.studio_id = e.studio_id)
+     where pr.id = p_program_id
+     limit 1),
+    'no_refund') end;
+$$;
+-- Internal (no caller check): used by the scratch RPC after it has authorized the actor.
+create function public._sc1_policy_for(p_program_id uuid)
 returns text
 language sql
 stable
@@ -118,6 +191,7 @@ as $$
      limit 1),
     'no_refund');
 $$;
+revoke all on function public._sc1_policy_for(uuid) from public, anon, authenticated;
 revoke all on function public.competition_scratch_effective_policy(uuid) from public, anon;
 grant execute on function public.competition_scratch_effective_policy(uuid) to authenticated, service_role;
 
@@ -209,12 +283,22 @@ begin
     raise exception 'COMP_SC1_NOT_FOUND: entry was not found or cannot be managed.';
   end if;
 
+  -- Authorize before taking any lock.
+  select e.event_id into v_entry from public.event_competition_entries e where e.id = p_entry_id;
+  if v_entry.event_id is null or not public.can_manage_event_competition(v_entry.event_id) then
+    raise exception 'COMP_SC1_NOT_FOUND: entry was not found or cannot be managed.';
+  end if;
+
+  -- Lock order: entry, then its heats (FOR SHARE conflicts with set_competition_heat_lock_state's FOR UPDATE,
+  -- so a concurrent lock/certify waits or we see its result), then its placements.
   select e.id, e.event_id, e.program_id, e.status into v_entry
   from public.event_competition_entries e where e.id = p_entry_id
   for update;
-  if v_entry.id is null or not public.can_manage_event_competition(v_entry.event_id) then
-    raise exception 'COMP_SC1_NOT_FOUND: entry was not found or cannot be managed.';
-  end if;
+  perform 1 from public.event_competition_heats h
+  where h.id in (select he.heat_id from public.event_competition_heat_entries he where he.entry_id = p_entry_id)
+  order by h.id
+  for share;
+  perform 1 from public.event_competition_heat_entries he where he.entry_id = p_entry_id order by he.id for update;
 
   -- Idempotent replay of the same request.
   select s.id, s.entry_id into v_existing
@@ -235,11 +319,15 @@ begin
 
   -- Protected placements: certified heats and danced placements are results matters (K0 correction workflow).
   if exists (select 1 from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id
-             where he.entry_id = p_entry_id and h.lock_state = 'certified') then
+             where he.entry_id = p_entry_id and h.lock_state = 'certified' and he.status <> 'scratched') then
     raise exception 'COMP_SC1_CERTIFIED: this entry is in a certified heat; changes go through the results correction workflow.';
   end if;
-  if exists (select 1 from public.event_competition_heat_entries he
-             where he.entry_id = p_entry_id and he.status in ('danced', 'disqualified')) then
+  -- Danced: the placement says so, or its heat is on the floor / finished (placements are not yet marked
+  -- danced anywhere, so the heat status is the authoritative signal).
+  if exists (select 1 from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id
+             where he.entry_id = p_entry_id
+               and (he.status in ('danced', 'disqualified')
+                    or (he.status <> 'scratched' and h.status in ('active', 'complete')))) then
     raise exception 'COMP_SC1_DANCED: this entry has already danced; changes go through the results correction workflow.';
   end if;
 
@@ -248,7 +336,7 @@ begin
   where he.entry_id = p_entry_id and h.lock_state = 'locked' and he.status in ('scheduled', 'checked_in');
 
   v_official := public._paywh1_actor_can_manage_event(v_entry.event_id);
-  v_policy := public.competition_scratch_effective_policy(v_entry.program_id);
+  v_policy := public._sc1_policy_for(v_entry.program_id);
   v_resolution := coalesce(nullif(btrim(coalesce(p_resolution, '')), ''), v_policy);
   if v_resolution not in ('no_refund', 'credit', 'refund') then
     raise exception 'COMP_SC1_RESOLUTION: choose No refund, Competition credit or Refund.';
@@ -267,13 +355,18 @@ begin
     raise exception 'COMP_SC1_REASON_REQUIRED: a reason is required for this scratch.';
   end if;
 
-  insert into public.event_competition_scratches (
-    event_id, program_id, entry_id, request_id, path, locked_heat_ids, policy_resolution, requested_resolution,
-    is_exception, reason, previous_status, performed_by
-  ) values (
-    v_entry.event_id, v_entry.program_id, p_entry_id, p_request_id, v_path, v_locked, v_policy, v_resolution,
-    v_exception, v_reason, v_entry.status, v_actor
-  ) returning id into v_id;
+  begin
+    insert into public.event_competition_scratches (
+      event_id, program_id, entry_id, request_id, path, locked_heat_ids, policy_resolution, requested_resolution,
+      is_exception, reason, previous_status, performed_by
+    ) values (
+      v_entry.event_id, v_entry.program_id, p_entry_id, p_request_id, v_path, v_locked, v_policy, v_resolution,
+      v_exception, v_reason, v_entry.status, v_actor
+    ) returning id into v_id;
+  exception when unique_violation then
+    -- The same request id committed concurrently for another entry of this event.
+    raise exception 'COMP_SC1_REQUEST_REUSED: this request id was already used for another entry.';
+  end;
 
   -- Entry audit (event_competition_entry_changes) via the existing trigger. No money moves: always 'retain'.
   perform set_config('app.competition_entry_change_type', 'scratch', true);
@@ -301,9 +394,9 @@ comment on function public.scratch_competition_entry(uuid, uuid, text, text) is
   'SC1 scratch. Never moves money (fee_handling retain; no refund or credit is created or reserved). Policy default applies; a different resolution or a locked-heat scratch needs a studio/organizer owner/admin and a reason. Danced and certified placements refuse. Idempotent on (event, request id).';
 
 -- ---------------------------------------------------------------------------
--- 5. Policy setters (owners/admins only: they set money policy)
+-- 5. Policy setters (the event's issuer only; every change is kept in competition_scratch_policy_changes)
 -- ---------------------------------------------------------------------------
-create function public.set_competition_scratch_policy(p_program_id uuid, p_resolution text)
+create function public.set_competition_scratch_policy(p_program_id uuid, p_resolution text, p_reason text default null)
 returns void
 language plpgsql
 security definer
@@ -311,29 +404,36 @@ set search_path = public, pg_temp
 as $$
 declare
   v_event uuid;
+  v_previous text;
 begin
   select event_id into v_event from public.event_competition_programs where id = p_program_id;
-  if v_event is null or not public._paywh1_actor_can_manage_event(v_event) then
+  if v_event is null or not public._sc1_actor_owns_policy(v_event) then
     raise exception 'COMP_SC1_NOT_FOUND: program was not found or its scratch policy cannot be managed.';
+  end if;
+  if p_resolution is not null and p_resolution not in ('no_refund', 'refund') then
+    raise exception 'COMP_SC1_RESOLUTION: the scratch policy default must be No refund or Refund.';
+  end if;
+  select default_resolution into v_previous from public.event_competition_scratch_policies where program_id = p_program_id for update;
+  if v_previous is not distinct from p_resolution then
+    return;
   end if;
   if p_resolution is null then
     delete from public.event_competition_scratch_policies where program_id = p_program_id;
-    return;
+  else
+    insert into public.event_competition_scratch_policies (program_id, event_id, default_resolution, updated_by)
+    values (p_program_id, v_event, p_resolution, auth.uid())
+    on conflict (program_id) do update
+      set default_resolution = excluded.default_resolution, updated_by = excluded.updated_by, updated_at = now();
   end if;
-  if p_resolution not in ('no_refund', 'refund') then
-    raise exception 'COMP_SC1_RESOLUTION: the scratch policy default must be No refund or Refund.';
-  end if;
-  insert into public.event_competition_scratch_policies (program_id, event_id, default_resolution, updated_by)
-  values (p_program_id, v_event, p_resolution, auth.uid())
-  on conflict (program_id) do update
-    set default_resolution = excluded.default_resolution, updated_by = excluded.updated_by, updated_at = now();
+  insert into public.competition_scratch_policy_changes (scope, event_id, program_id, previous_resolution, new_resolution, reason, changed_by)
+  values ('program', v_event, p_program_id, v_previous, p_resolution, nullif(btrim(coalesce(p_reason, '')), ''), auth.uid());
 end;
 $$;
-revoke all on function public.set_competition_scratch_policy(uuid, text) from public, anon;
-grant execute on function public.set_competition_scratch_policy(uuid, text) to authenticated;
+revoke all on function public.set_competition_scratch_policy(uuid, text, text) from public, anon;
+grant execute on function public.set_competition_scratch_policy(uuid, text, text) to authenticated;
 
 -- Standard policy of the event's issuer (organizer when the event has one, else studio).
-create function public.set_competition_scratch_policy_default(p_event_id uuid, p_resolution text)
+create function public.set_competition_scratch_policy_default(p_event_id uuid, p_resolution text, p_reason text default null)
 returns void
 language plpgsql
 security definer
@@ -341,41 +441,75 @@ set search_path = public, pg_temp
 as $$
 declare
   v_event record;
+  v_previous text;
 begin
   select id, studio_id, organizer_id into v_event from public.events where id = p_event_id;
-  -- The standard policy belongs to the issuer: organizer owners/admins set an organizer's, studio
-  -- owners/admins a studio's (platform admins either). A studio role cannot set an organizer's policy.
-  if v_event.id is null or not (
-    exists (select 1 from public.profiles p where p.id = auth.uid() and p.platform_role = 'platform_admin')
-    or (v_event.organizer_id is not null and exists (
-          select 1 from public.organizer_users ou
-          where ou.organizer_id = v_event.organizer_id and ou.user_id = auth.uid() and ou.active
-            and ou.role in ('organizer_owner', 'organizer_admin')))
-    or (v_event.organizer_id is null and exists (
-          select 1 from public.user_studio_roles usr
-          where usr.studio_id = v_event.studio_id and usr.user_id = auth.uid() and usr.active
-            and usr.role in ('studio_owner', 'studio_admin')))
-  ) then
+  if v_event.id is null or not public._sc1_actor_owns_policy(p_event_id) then
     raise exception 'COMP_SC1_NOT_FOUND: event was not found or its scratch policy cannot be managed.';
   end if;
   if p_resolution is null or p_resolution not in ('no_refund', 'refund') then
     raise exception 'COMP_SC1_RESOLUTION: the scratch policy default must be No refund or Refund.';
   end if;
   if v_event.organizer_id is not null then
+    select default_resolution into v_previous from public.competition_scratch_policy_defaults where organizer_id = v_event.organizer_id for update;
+    if v_previous is not distinct from p_resolution then return; end if;
     insert into public.competition_scratch_policy_defaults (organizer_id, default_resolution, updated_by)
     values (v_event.organizer_id, p_resolution, auth.uid())
     on conflict (organizer_id) where organizer_id is not null do update
       set default_resolution = excluded.default_resolution, updated_by = excluded.updated_by, updated_at = now();
   else
+    select default_resolution into v_previous from public.competition_scratch_policy_defaults where studio_id = v_event.studio_id for update;
+    if v_previous is not distinct from p_resolution then return; end if;
     insert into public.competition_scratch_policy_defaults (studio_id, default_resolution, updated_by)
     values (v_event.studio_id, p_resolution, auth.uid())
     on conflict (studio_id) where studio_id is not null do update
       set default_resolution = excluded.default_resolution, updated_by = excluded.updated_by, updated_at = now();
   end if;
+  insert into public.competition_scratch_policy_changes (scope, event_id, studio_id, organizer_id, previous_resolution, new_resolution, reason, changed_by)
+  values ('standard', p_event_id, case when v_event.organizer_id is null then v_event.studio_id end, v_event.organizer_id,
+          v_previous, p_resolution, nullif(btrim(coalesce(p_reason, '')), ''), auth.uid());
 end;
 $$;
-revoke all on function public.set_competition_scratch_policy_default(uuid, text) from public, anon;
-grant execute on function public.set_competition_scratch_policy_default(uuid, text) to authenticated;
+revoke all on function public.set_competition_scratch_policy_default(uuid, text, text) from public, anon;
+grant execute on function public.set_competition_scratch_policy_default(uuid, text, text) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 5b. Close the older write paths that would bypass SC1 (no app code uses them)
+-- ---------------------------------------------------------------------------
+-- The June lifecycle RPC (security invoker) let any manager scratch/withdraw with any fee_handling label and no
+-- SC1 policy, official or audit. Scratching goes through scratch_competition_entry; R2 and the registration
+-- trigger keep their own security definer paths.
+revoke execute on function public.change_competition_entry_lifecycle(uuid, text, text, text) from public, anon, authenticated;
+
+-- API roles (direct PostgREST writes) cannot move an entry into or out of scratched / withdrawn, or scratch a
+-- placement. Security definer workflows (SC1, R2, the registration trigger) run as the function owner and are
+-- unaffected. Other direct edits (eligibility, entry number, check-in states) stay as they are.
+create function public._sc1_guard_api_scratch_writes()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if current_user in ('authenticated', 'anon') then
+    if tg_table_name = 'event_competition_entries'
+       and new.status is distinct from old.status
+       and (new.status in ('scratched', 'withdrawn') or old.status in ('scratched', 'withdrawn')) then
+      raise exception 'COMP_SC1_USE_SCRATCH: scratch entries through the scratch workflow.' using errcode = '42501';
+    end if;
+    if tg_table_name = 'event_competition_heat_entries'
+       and new.status is distinct from old.status
+       and (new.status = 'scratched' or old.status = 'scratched') then
+      raise exception 'COMP_SC1_USE_SCRATCH: scratch entries through the scratch workflow.' using errcode = '42501';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public._sc1_guard_api_scratch_writes() from public, anon, authenticated;
+create trigger sc1_guard_api_scratch_entries before update of status on public.event_competition_entries
+  for each row execute function public._sc1_guard_api_scratch_writes();
+create trigger sc1_guard_api_scratch_heat_entries before update of status on public.event_competition_heat_entries
+  for each row execute function public._sc1_guard_api_scratch_writes();
 
 -- ---------------------------------------------------------------------------
 -- 6. Locked-heat guard: one narrow, ledger-authorized exception

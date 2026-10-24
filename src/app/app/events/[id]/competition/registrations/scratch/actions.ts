@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import { parseResolution, scratchErrorMessage } from "@/lib/competition/scratch/scratch";
+import { parseResolution, scratchErrorCode } from "@/lib/competition/scratch/scratch";
 import { createClient } from "@/lib/supabase/server";
 
 // SC1: scratching never moves money. Authority, policy, locked/danced/certified rules and the audit row all
@@ -39,7 +39,7 @@ export async function scratchCompetitionEntryAction(formData: FormData): Promise
   const resolution = parseResolution(text(formData, "resolution"));
   const back = `/app/events/${eventId}/competition/registrations/scratch/${entryId}`;
   if (!UUID.test(entryId) || !UUID.test(requestId) || !resolution) {
-    redirect(`${back}?error=${encodeURIComponent("Choose a resolution and try again.")}`);
+    redirect(`${back}?error=COMP_SC1_RESOLUTION`);
   }
   const supabase = await eventInWorkspace(eventId);
   const { error } = await supabase.rpc("scratch_competition_entry", {
@@ -48,7 +48,7 @@ export async function scratchCompetitionEntryAction(formData: FormData): Promise
     p_reason: reason || null,
     p_resolution: resolution,
   });
-  if (error) redirect(`${back}?error=${encodeURIComponent(scratchErrorMessage(error.message))}`);
+  if (error) redirect(`${back}?error=${scratchErrorCode(error.message)}`);
   refresh(eventId);
   redirect(`/app/events/${eventId}/competition/registrations?scratched=${entryId}`);
 }
@@ -59,10 +59,14 @@ export async function setCompetitionScratchPolicyAction(formData: FormData): Pro
   const value = text(formData, "resolution");
   const back = `/app/events/${eventId}/competition/registrations/scratch/policy`;
   const resolution = value === "inherit" ? null : parseResolution(value);
-  if (!UUID.test(programId) || (value !== "inherit" && !resolution)) redirect(`${back}?error=${encodeURIComponent("Choose a policy.")}`);
+  if (!UUID.test(programId) || (value !== "inherit" && !resolution)) redirect(`${back}?error=COMP_SC1_RESOLUTION`);
   const supabase = await eventInWorkspace(eventId);
-  const { error } = await supabase.rpc("set_competition_scratch_policy", { p_program_id: programId, p_resolution: resolution });
-  if (error) redirect(`${back}?error=${encodeURIComponent(scratchErrorMessage(error.message))}`);
+  const { error } = await supabase.rpc("set_competition_scratch_policy", {
+    p_program_id: programId,
+    p_resolution: resolution,
+    p_reason: text(formData, "reason") || null,
+  });
+  if (error) redirect(`${back}?error=${scratchErrorCode(error.message)}`);
   revalidatePath(back);
   redirect(`${back}?saved=1`);
 }
@@ -71,15 +75,14 @@ export async function setCompetitionScratchPolicyDefaultAction(formData: FormDat
   const eventId = text(formData, "eventId");
   const resolution = parseResolution(text(formData, "resolution"));
   const back = `/app/events/${eventId}/competition/registrations/scratch/policy`;
-  if (!resolution) redirect(`${back}?error=${encodeURIComponent("Choose a policy.")}`);
+  if (!resolution) redirect(`${back}?error=COMP_SC1_RESOLUTION`);
   const supabase = await eventInWorkspace(eventId);
-  const { error } = await supabase.rpc("set_competition_scratch_policy_default", { p_event_id: eventId, p_resolution: resolution });
-  if (error) {
-    const message = error.message.includes("COMP_SC1_NOT_FOUND")
-      ? "Only the event's organizer (or studio, for studio-run events) owners and admins can set the standard policy."
-      : scratchErrorMessage(error.message);
-    redirect(`${back}?error=${encodeURIComponent(message)}`);
-  }
+  const { error } = await supabase.rpc("set_competition_scratch_policy_default", {
+    p_event_id: eventId,
+    p_resolution: resolution,
+    p_reason: text(formData, "reason") || null,
+  });
+  if (error) redirect(`${back}?error=${scratchErrorCode(error.message)}`);
   revalidatePath(back);
   redirect(`${back}?saved=1`);
 }

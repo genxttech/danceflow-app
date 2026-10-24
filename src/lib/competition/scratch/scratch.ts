@@ -36,14 +36,21 @@ export function isScratchable(status: string): boolean {
   return status === "pending" || status === "confirmed" || status === "waitlisted";
 }
 
-export type PlacementState = { heatLockState: string; placementStatus: string };
+/** heatStatus: event_competition_heats.status; "active" / "complete" mean the heat is being or has been danced. */
+export type PlacementState = { heatLockState: string; placementStatus: string; heatStatus?: string | null };
 
 /** The most protective state across an entry's placements (mirrors the SQL order of checks). */
 export type PlacementClass = "certified" | "danced" | "locked" | "open" | "unplaced";
 
 export function classifyPlacements(placements: PlacementState[]): PlacementClass {
-  if (placements.some((p) => p.heatLockState === "certified")) return "certified";
-  if (placements.some((p) => p.placementStatus === "danced" || p.placementStatus === "disqualified")) return "danced";
+  const live = placements.filter((p) => p.placementStatus !== "scratched");
+  if (live.some((p) => p.heatLockState === "certified")) return "certified";
+  if (
+    placements.some((p) => p.placementStatus === "danced" || p.placementStatus === "disqualified") ||
+    live.some((p) => p.heatStatus === "active" || p.heatStatus === "complete")
+  ) {
+    return "danced";
+  }
   if (placements.some((p) => p.heatLockState === "locked" && (p.placementStatus === "scheduled" || p.placementStatus === "checked_in"))) {
     return "locked";
   }
@@ -94,7 +101,13 @@ const ERROR_MESSAGES: Record<string, string> = {
   COMP_SC1_RESOLUTION: "Choose No refund or Refund.",
   COMP_SC1_CREDIT_NOT_AVAILABLE: "Competition credit is not available yet.",
   COMP_SC1_REQUEST_REUSED: "This form was already used. Reload the page and try again.",
+  COMP_SC1_USE_SCRATCH: "Scratch entries through the scratch workflow.",
 };
+
+/** The refusal code in a database error, for passing in a URL instead of free text. */
+export function scratchErrorCode(raw: string | null | undefined): string {
+  return Object.keys(ERROR_MESSAGES).find((key) => (raw ?? "").includes(key)) ?? "COMP_SC1_UNKNOWN";
+}
 
 export function scratchErrorMessage(raw: string | null | undefined): string {
   const code = Object.keys(ERROR_MESSAGES).find((key) => (raw ?? "").includes(key));
