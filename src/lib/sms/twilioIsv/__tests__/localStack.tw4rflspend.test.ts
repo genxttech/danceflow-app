@@ -192,8 +192,10 @@ commit;`);
         expect(evOfSpend(out.spend_event_id)).toEqual({ subject: "spend_event", scope: e.scope, kind, period: null, on: e.authorizedOn, role: e.authorizedByRole, cents: priceOf(kind), doc: e.documentRef, sha: e.documentSha256, by: P });
         expect(psql(`select funding || ':' || status || ':' || amount_cents from public.studio_sms_spend_events where id = '${out.spend_event_id}'`)).toBe(`pilot:authorized:${priceOf(kind)}`);
         expect(spendEvCount(w)).toBe(1);
-        const note = psql(`select note from public.studio_sms_onboarding_audit where studio_id = '${w.studio}' and action = 'spend_authorized' order by created_at desc limit 1`);
-        expect(note).toContain(`evidence=${psql(`select id from public.studio_sms_pilot_spend_evidence where spend_event_id = '${out.spend_event_id}'`)}`);
+        // the audit row is attributed to ANY location of the business (_tw4c_any_location), so it is found by the evidence id it names
+        const evidenceId = psql(`select id from public.studio_sms_pilot_spend_evidence where spend_event_id = '${out.spend_event_id}'`);
+        const note = psql(`select note from public.studio_sms_onboarding_audit where action = 'spend_authorized' and note like '%evidence=${evidenceId}%'`);
+        expect(note).toContain(`evidence=${evidenceId}`);
         expect(note).toContain(`scope=${e.scope}`);
         expect(note).toContain("doc_sha=" + e.documentSha256.slice(0, 12));
         expect(note).not.toContain(e.documentSha256);
@@ -318,7 +320,8 @@ commit;`);
       const full = raw7("brand", w, cents);
       expect(hasCode(callErr("tw4_spend_authorize", w.entity, "brand", cents, ref("credit-ev"), P, "credit", w.studio, ...full), "TW052")).toBe(true);
       for (let i = 0; i < 7; i += 1) {
-        const one = full.map((v, j) => (j === i ? v : null));
+        // the period is null in a fee-scope evidence set, so that one position is exercised with a period value
+        const one = full.map((v, j) => (j === i ? (i === 4 ? cur() : v) : null));
         expect(hasCode(callErr("tw4_spend_authorize", w.entity, "brand", cents, ref(`credit-ev-${i}`), P, "credit", w.studio, ...one), "TW052"), `argument ${i}`).toBe(true);
       }
       expect(spendRows(w)).toBe(0);

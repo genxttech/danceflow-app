@@ -685,6 +685,12 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
    * found from the catalogue by foreign key, one level below each lifecycle parent). The 20261209 rollback refuses while ANY such row exists; that refusal stays covered
    * by its own test below, so the rows are removed here only for the fixtures and only to show that the stack comes off cleanly when they are gone. No CASCADE, no truncate.
    */
+  // 20261230: the fixtures' pilot approvals carry append-only evidence, which makes the 20261230 rollback refuse by design; inside this rolled-back transaction the fixture rows are removed
+  // (its guard is `enable always`, so it is disabled for the delete and restored; the whole block is rolled back)
+  const clearSpendEvidence = () => psql("select to_regclass('public.studio_sms_pilot_spend_evidence') is not null") !== "t" ? "" : `
+      alter table public.studio_sms_pilot_spend_evidence disable trigger studio_sms_pilot_spend_evidence_guard;
+      delete from public.studio_sms_pilot_spend_evidence where legal_entity_id in (${sqlList(FIXTURE_ENTITIES)});
+      alter table public.studio_sms_pilot_spend_evidence enable always trigger studio_sms_pilot_spend_evidence_guard;`;
   const clearFixtureLifecycle = () => psql("select to_regclass('public.studio_sms_provider_resources') is not null") !== "t" ? "" : `
       do $clear$
       declare
@@ -718,6 +724,7 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       delete from public.studio_sms_prov_operations where studio_id in (${sqlList(FIXTURE_STUDIOS)});
       delete from public.studio_sms_onboarding_audit where action like 'prov\\_%' and studio_id in (${sqlList(FIXTURE_STUDIOS)});
       ${clearFixtureLifecycle()}
+      ${clearSpendEvidence()}
       set local session_replication_role = origin;`;
   const r2aIntact = () => psql(`select to_regclass('public.studio_sms_prov_operations') is not null and to_regprocedure('public.tw4_prov_settle_admin(uuid,uuid,text,text,text)') is not null`);
 
