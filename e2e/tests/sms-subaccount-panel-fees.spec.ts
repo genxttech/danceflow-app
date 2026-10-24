@@ -1,4 +1,4 @@
-import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import { loadE2EConfig, type E2EConfig } from "@/lib/e2e/config";
 import { e2eAdminClient } from "../helpers/competitionFixture";
 import { cleanupSmsFixture, createSmsFixture, openPlatformAdmin, ownerSubmitsSetup, setPilotAccess, type SmsFixture } from "../helpers/smsOnboardingFixture";
@@ -36,6 +36,16 @@ async function feeForm(kind: string) {
   const details = s.locator("details", { has: admin.locator(":scope > summary", { hasText: "Record an owner fee approval" }) });
   if (!(await details.evaluate((el) => (el as HTMLDetailsElement).open))) await details.locator(":scope > summary").click();
   return details.locator("form", { has: admin.locator(`input[name="kind"][value="${kind}"]`) });
+}
+
+// 20261230 (U-4): a pilot approval (and the pilot exception) carries the owner's / founder's dated written authorization as hashed evidence; the fee forms keep it in a closed details block
+const evidenceDate = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+async function fillEvidence(form: Locator, role: "owner_written" | "founder_written", openDetails: boolean) {
+  if (openDetails) await form.locator("details > summary").click();
+  await form.locator('input[name="authorizedOn"]').fill(evidenceDate);
+  await form.locator('select[name="authorizedByRole"]').selectOption(role);
+  await form.locator('input[name="documentRef"]').fill("E2E-AUTH-DOC-0001");
+  await form.locator('input[name="documentSha256"]').fill("a".repeat(64));
 }
 
 test.beforeAll(async ({ browser }) => {
@@ -79,6 +89,7 @@ test("the pilot ceiling needs the founder approval and the acknowledgement, is a
   let s = await open("Setup budget and fee approvals");
   let pilot = s.locator("form", { hasText: "ConfiDance pilot ceiling" });
   await pilot.locator('input[name="approvalRef"]').fill("Founder email 2026-10-20 (e2e)");
+  await fillEvidence(pilot, "founder_written", false);
   await pilot.getByRole("button", { name: "Record pilot ceiling" }).click();
   await admin.waitForURL(/panel_error=1/);
   await expect(banner()).toContainText("non-spendable");
@@ -87,6 +98,7 @@ test("the pilot ceiling needs the founder approval and the acknowledgement, is a
   pilot = s.locator("form", { hasText: "ConfiDance pilot ceiling" });
   await pilot.locator('input[name="ceilingDollars"]').fill("150.01");
   await pilot.locator('input[name="approvalRef"]').fill("Founder email 2026-10-20 (e2e)");
+  await fillEvidence(pilot, "founder_written", false);
   await pilot.locator('input[name="understood"]').check();
   await pilot.getByRole("button", { name: "Record pilot ceiling" }).click();
   await admin.waitForURL(/panel_error=1/);
@@ -95,6 +107,7 @@ test("the pilot ceiling needs the founder approval and the acknowledgement, is a
   s = await open("Setup budget and fee approvals");
   pilot = s.locator("form", { hasText: "ConfiDance pilot ceiling" });
   await pilot.locator('input[name="approvalRef"]').fill("Founder email 2026-10-20 (e2e)");
+  await fillEvidence(pilot, "founder_written", false);
   await pilot.locator('input[name="understood"]').check();
   await pilot.getByRole("button", { name: "Record pilot ceiling" }).click();
   await admin.waitForURL(/panel=1/);
@@ -114,6 +127,7 @@ test("an owner fee approval: refused without the owner confirmation; recorded on
   form = await feeForm("brand");
   await form.locator('select[name="funding"]').selectOption("pilot");
   await form.locator('input[name="approvalRef"]').fill("Owner email 2026-10-20 approving brand $46 (e2e)");
+  await fillEvidence(form, "owner_written", true);
   await form.locator('input[name="ownerApproved"]').check();
   await form.getByRole("button", { name: "Record approval" }).click();
   await admin.waitForURL(/panel=1/);
@@ -125,6 +139,7 @@ test("an owner fee approval: refused without the owner confirmation; recorded on
   form = await feeForm("brand");
   await form.locator('select[name="funding"]').selectOption("pilot");
   await form.locator('input[name="approvalRef"]').fill("owner email 2026-10-20 approving brand $46 (e2e)  ");
+  await fillEvidence(form, "owner_written", true);
   await form.locator('input[name="ownerApproved"]').check();
   await form.getByRole("button", { name: "Record approval" }).click();
   await admin.waitForURL(/panel_error=1/);
@@ -174,6 +189,7 @@ test("withdrawing the approval frees the ceiling; then Low-Volume Standard is al
   // other fees are unaffected
   const number = await feeForm("number");
   await number.locator('input[name="approvalRef"]').fill("Owner email 2026-10-20 approving number $1.50 (e2e)");
+  await fillEvidence(number, "owner_written", true);
   await number.locator('input[name="ownerApproved"]').check();
   await number.getByRole("button", { name: "Record approval" }).click();
   await admin.waitForURL(/panel=1/);

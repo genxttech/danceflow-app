@@ -1,6 +1,7 @@
 import type { RflDualRequest, RflOverview } from "@/lib/sms/providerFeeOps";
+import { cancelReleaseAvailable } from "@/lib/sms/twilioIsv/cancelRuntime";
 import {
-  rflCancelAuthorizeAction, rflCancelBeginAction, rflCancelFinishAction, rflCancelResolveAction, rflCancelWithdrawAction, rflSuspendAction,
+  rflCancelAuthorizeAction, rflCancelBeginAction, rflCancelFinishAction, rflCancelReleaseAction, rflCancelResolveAction, rflCancelWithdrawAction, rflSuspendAction,
 } from "./recurringFeeActions";
 import { buttonClass, dangerButtonClass, Disclosure, inputClass, KIND_TEXT, labelClass, shortId } from "./RecurringFeesDisclosure";
 
@@ -9,6 +10,8 @@ import { buttonClass, dangerButtonClass, Disclosure, inputClass, KIND_TEXT, labe
  * DanceFlow NEVER cancels anything at Twilio. A cancellation is authorized here (a written reference, a decision type and an irreversibility
  * acknowledgement), the operator performs the console step themselves, and then records the evidence digest. A provider NUMBER also needs an approved
  * dual-control request first. The safety suspension stops DanceFlow sending only; it never waits for a second administrator.
+ * TW-4F F5: where the cancellation runtime is switched on and installed (`cancelReleaseAvailable`; off everywhere today), an authorized operation also
+ * offers "Release at Twilio now", which claims, releases ONCE, reads back and records. The manual path stays beside it.
  */
 
 const OperationId = ({ value = null }: { value?: string | null }) => (
@@ -32,7 +35,8 @@ const Note = ({ label = "Note (10 to 500 characters)" }: { label?: string }) => 
   </label>
 );
 
-export default function RecurringFeesCancel({ overview, dual }: { overview: RflOverview | null; dual: RflDualRequest[] | null }) {
+export default function RecurringFeesCancel({ overview, dual, releaseAvailable }: { overview: RflOverview | null; dual: RflDualRequest[] | null; releaseAvailable?: boolean }) {
+  const release = releaseAvailable ?? cancelReleaseAvailable();
   if (!overview) {
     return (
       <Disclosure title="Cancellation and safety suspension" summary="not available">
@@ -45,7 +49,9 @@ export default function RecurringFeesCancel({ overview, dual }: { overview: RflO
   return (
     <Disclosure title="Cancellation and safety suspension" summary={`${overview.cancelOperationsOpen} open cancellation operation(s) · ${live.length} live resource(s)`} open={overview.cancelOperationsOpen > 0}>
       <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-        DanceFlow never cancels anything at Twilio. You authorize here, perform the console step yourself, and record the evidence digest of what the console showed. A provider cancellation cannot be undone.
+        {release
+          ? "DanceFlow can release an authorized resource at Twilio from here (once, with a provider read as evidence), or you perform the console step yourself and record the evidence digest. A provider cancellation cannot be undone."
+          : "DanceFlow never cancels anything at Twilio. You authorize here, perform the console step yourself, and record the evidence digest of what the console showed. A provider cancellation cannot be undone."}
       </p>
 
       <Disclosure title="Immediate safety suspension" summary="stops DanceFlow sending only; never waits for a second administrator">
@@ -88,6 +94,7 @@ export default function RecurringFeesCancel({ overview, dual }: { overview: RflO
                 {!op && needsDual && !approved ? (
                   <p className="text-xs text-slate-700">A number needs an approved dual-control request before a cancellation can be authorized. Request it under Dual-control requests.</p>
                 ) : null}
+                {op === "authorized" && release ? <Release operationId={r.openCancelOperationId} isNumber={r.kind === "number"} /> : null}
                 {op === "authorized" ? (
                   <div className="grid gap-3 sm:grid-cols-2">
                     <form action={rflCancelBeginAction} className="space-y-2 rounded-xl border border-slate-200 px-3 py-2">
@@ -151,6 +158,23 @@ function Authorize({ resourceId, dualApproved = false, approvedRequest = null }:
         <button type="submit" className={dangerButtonClass}>Authorize cancellation</button>
       </form>
     </Disclosure>
+  );
+}
+
+function Release({ operationId, isNumber }: { operationId: string | null; isNumber: boolean }) {
+  return (
+    <form action={rflCancelReleaseAction} className="space-y-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2">
+      <p className="text-xs text-red-900">
+        Release at Twilio now: DanceFlow claims this operation, sends ONE release request, reads the resource back and records the result. An unknown outcome is never repeated.
+        {isNumber ? " The number needs the consumed approval of two different administrators." : ""}
+      </p>
+      <OperationId value={operationId} />
+      <label className="flex items-start gap-2 text-xs text-slate-700">
+        <input type="checkbox" name="releaseAck" value="yes" required className="mt-0.5" />
+        <span>I understand DanceFlow will release this resource at Twilio now and that it cannot be undone.</span>
+      </label>
+      <button type="submit" className={dangerButtonClass}>Release at Twilio now</button>
+    </form>
   );
 }
 

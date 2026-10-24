@@ -1,5 +1,7 @@
 # TW-4 Stage B decision memo and checklist
 
+> **Update 2026-10-24 (architecture):** This memo is the historical record of the Stage B decisions. Twilio's confirmation (ticket #29647095) that the Primary profile can be assigned into a Secondary profile in a subaccount, and owner decision D2 (revised 2026-10-18: one subaccount per studio legal business, starting with ConfiDance Unlimited, LLC), supersede every parent-account and GenX-as-test-entity statement below. See `TW-4_StageB_Execution_Runbook.md` section 0 for the replacement procedure.
+
 > **Correction 2026-10-17 (owner):** the GenX TotalTech LLC same-EIN Secondary profile (decision D2 below and §2, §7) is **withdrawn**. GenX is the ISV Primary profile only; Stage B's subject is a studio (ConfiDance is intended). Tooling now refuses the ISV's identity. See `TW-4_StageB_Studio_Identity.md`. Stage B and C remain unauthorized.
 
 Date 2026-10-16. Planning only: no Twilio call, no hosted-environment change, nothing created. Stage B and Stage C are **not authorized**.
