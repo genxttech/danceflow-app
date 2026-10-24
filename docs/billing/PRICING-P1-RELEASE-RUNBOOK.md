@@ -89,3 +89,10 @@ and do not enable portal plan switching until verified in test mode.
 
 Entitlement enforcement (instructors, locations, Payroll Prep), legacy-subscriber MRR estimates, final Founder duration
 policy, regular pricing activation, annual and Organizer pricing.
+
+## Release-candidate verification (local, 2026-10-24)
+
+Cherry-picking `d535720d` then the #319 commit onto `8fd075f5` (local only, not pushed): the first applies cleanly; the
+second conflicts in the import block of `src/app/api/payments/webhook/route.ts` because the live base has no SMS-credit
+import (resolve by keeping only the plan-resolution import). Result: billing, checkout and webhook suites 24 files /
+249 tests passed, `tsc --noEmit` clean. Pushing a release branch triggers a Vercel preview build on qfem, so it was not pushed.
