@@ -125,6 +125,14 @@ node scripts/qa/tw4f/run-chain.mjs rehearse --matrix --exclusive             # s
 4. **(d) Re-apply** in order; each step must equal its first-apply fingerprint.
 5. **(e) `--matrix`**: `iso-qa.mjs matrix main --parallel 1` at the same commit. Requires `--exclusive` (no other isolated stack running) and a scenario `main` that equals the manifest chain (otherwise exit 1 before anything starts; this is what forces the 1231/1231b scenario update in phase 2). The exit code is the worse of the structural and matrix codes; the matrix is "NOT RUN" when the structural stages did not pass.
 
-Exit codes: 0 all green; 1 failed (including a hash mismatch); 3 infrastructure; 4 BLOCKED (host-load rule: another isolated stack is already running beyond the allowed number, or any with `--exclusive`); 6 only KNOWN items. Host-load rule: at most 2 isolated stacks across all sessions.
+Exit codes: 0 all green; 1 failed (including a hash mismatch); 3 infrastructure (an apply/rollback error with an unhealthy database is INFRA, not FAIL); 5 plan only (`--dry-run`, `matrix --plan-only`: nothing ran); 4 BLOCKED (host-load rule: another isolated stack is already running beyond the allowed number, or any with `--exclusive`); 6 only KNOWN items. Host-load rule: at most 2 isolated stacks across all sessions.
 
 Offline proof: `node --test scripts/qa/tw4f/rehearsalPlan.test.mjs` (order and hash parsing, plan cross-checks including the 1231/1231b tail, KI-2 masking, and the PASS/KNOWN/FAIL decision).
+
+Limits (read before trusting a rehearsal PASS):
+
+- The fingerprint covers the public-schema catalog (functions, tables, constraints, indexes, policies, triggers, views, ACLs), **not row data**. A migration that inserts a config or switch row and a rollback that forgets to delete it would not be seen. Row-level checks stay in the per-migration suites.
+- KI-2 is masked only when one of the three named constraints exists on both sides with a different definition (widened). A dropped, missing or new one is a FAIL.
+- `--matrix` runs the suites with `ISO_QA_REF_MAIN` set to the rehearsed commit, so the matrix applies the same SQL that the structural stages checked; `ISO_QA_MARKER` from the caller's environment is cleared (the marker is per-suite, from `matrix-suites.json`).
+- The host-load gate counts every `df-isoqa` and `df-q1` database container; the older `verify_manifest_hashes.sh` cross-check is opt-in (`--shell-verify`, very slow on Windows).
+- Matrix discovery without `--tests-ref` reads the working tree for URL-gated suites and HEAD for container-gated ones: commit new `localStack.*.test.ts` files before running, or pass `--tests-ref`.

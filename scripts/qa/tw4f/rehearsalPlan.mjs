@@ -82,14 +82,17 @@ export function buildRehearsalPlan({ order, table, filesAtRef, cutoff }) {
 
 /** Catalog lines the strict rollback is KNOWN to leave behind (tracker KI-2): widened CHECK constraints. Masked for the per-step comparisons; reported separately at the end. */
 export const KI2_CONSTRAINTS = ["studio_sms_approval_refs_shape", "studio_sms_approval_refs_source_check", "studio_sms_onboarding_audit_action_check"];
-const isKi2 = (line) => line.startsWith("con ") && KI2_CONSTRAINTS.some((n) => line.split(" ")[2] === n);
-export const maskKi2 = (lines) => lines.filter((l) => !isKi2(l));
+const ki2Name = (line) => (line.startsWith("con ") && KI2_CONSTRAINTS.includes(line.split(" ")[2]) ? line.split(" ")[2] : null);
+export const maskKi2 = (lines) => lines.filter((l) => !ki2Name(l));
 
 /** Compares two fingerprints. `exact` = identical; `maskedEqual` = identical once the KI-2 constraint lines are removed from both sides. */
 export function compareFp(a, b) {
   const B = new Set(b), A = new Set(a);
   const onlyBefore = a.filter((x) => !B.has(x)), onlyAfter = b.filter((x) => !A.has(x));
-  const mb = onlyBefore.filter((x) => !isKi2(x)), ma = onlyAfter.filter((x) => !isKi2(x));
+  // masked only when the constraint exists on BOTH sides with a different definition (widened; not dropped, not missing, not new)
+  const after = new Set(onlyAfter.map(ki2Name).filter(Boolean)), before = new Set(onlyBefore.map(ki2Name).filter(Boolean));
+  const widened = (x) => { const n = ki2Name(x); return n !== null && after.has(n) && before.has(n); };
+  const mb = onlyBefore.filter((x) => !widened(x)), ma = onlyAfter.filter((x) => !widened(x));
   return { exact: onlyBefore.length === 0 && onlyAfter.length === 0, maskedEqual: mb.length === 0 && ma.length === 0, onlyBefore, onlyAfter };
 }
 

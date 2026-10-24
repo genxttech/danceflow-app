@@ -464,11 +464,11 @@ async function suiteRun(plan, image, testsRef, outDir) {
  */
 const PRE_TW4F_CUTOFF = "20261118090000";
 const MANIFEST_DOC = "docs/twilio/TW-4F_Hosted_Apply_Manifest.md";
-const runningStacks = () => ["df.isoqa=1", "df.tw4fq1=1"].flatMap((l) => dockerTry("ps", "--filter", `label=${l}`, "--format", "{{.Names}}").out.split("\n").filter((n) => n.endsWith("-db")));
+const runningStacks = () => ["df.isoqa=1", "df.tw4fq1=1"].flatMap((l) => dockerTry("ps", "--filter", `label=${l}`, "--format", "{{.Names}}").out.split("\n").filter(Boolean).filter((n) => !/-(kong|rest)$/.test(n)));
 const sealed = (lines) => ({ count: lines.length, sha256: sha256(lines.join("\n")) });
 
 function rehearsalPlanFromRef(rcutoff) {
-  const ref = baseRef;
+  const ref = resolveRef(baseRef); // resolve once: plan, hashes and the recorded commit all come from the same sha
   const text = gitShow(ref, MANIFEST_DOC);
   const order = parseApplyOrder(text);
   const table = parseHashTable(text);
@@ -513,7 +513,7 @@ async function rehearse() {
     console.log(`DRY RUN (no docker): ${plan.length} migrations in manifest order from ${ref}@${sha.slice(0, 8)}; image would be ${image}`);
     for (const p of plan) console.log(`${p.version}  fwd ${p.sha.slice(0, 12)}  rb ${p.rollbackSha ? p.rollbackSha.slice(0, 12) : "(no hash in manifest)"}  ${p.file}`);
     console.log(mismatch.length ? `matrix scenario main differs from the manifest chain (a --matrix rehearsal would refuse):\n  - ${mismatch.join("\n  - ")}` : "matrix scenario main equals the manifest chain");
-    return 0;
+    return 5; // plan only: nothing was run, so not 0
   }
   if (flags.matrix && !flags.exclusive) return die("--matrix requires --exclusive (no other isolated stack may be running)", 2);
   if (!dockerTry("image", "inspect", image).ok) return die(`baseline image ${image} not found: build it with \`node scripts/qa/iso-qa.mjs baseline --cutoff ${rcutoff}\``, 3);
@@ -526,16 +526,23 @@ async function rehearse() {
   const stages = [], steps = [], judged = [];
   const rec = (stage, status, extra = {}) => { stages.push({ stage, status, ...extra }); log(`${status.padEnd(7)} ${stage}${extra.note ? " - " + extra.note : ""}`); };
   const STOP = new Error("stop");
+  let since;
+  for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => { try { removeAll(name); } catch { /* best effort */ } process.exit(130); });
   let structural = "INFRA";
   const t0 = Date.now();
   try {
-    const since = await startDb(name, image);
+    since = await startDb(name, image);
     const fp0 = fingerprint(name);
     steps.push({ phase: "baseline", ...sealed(fp0) });
     if (fp0.length <= 500) throw Object.assign(new Error(`the baseline catalog is implausibly small (${fp0.length})`), { infra: true });
     rec("baseline fingerprint", "PASS", { note: `${fp0.length} catalog entries from ${image}` });
     const fwd = [];
-    const fail = (stage, extra) => { rec(stage, "FAIL", extra); structural = "FAIL"; throw STOP; };
+    const fail = (stage, extra) => {
+      let infra = null;
+      try { assertHealthy(name, since); } catch (e) { infra = e.message; }
+      if (infra) { rec(stage, "INFRA", { ...extra, error: `${infra}; ${extra?.error ?? ""}` }); structural = "INFRA"; } else { rec(stage, "FAIL", extra); structural = "FAIL"; }
+      throw STOP;
+    };
     for (const p of plan) {
       const r = applySql(name, p.file, p.sql);
       if (!r.ok) fail(`apply ${p.version}`, { error: r.error });
@@ -583,7 +590,7 @@ async function rehearse() {
   const structCode = { PASS: 0, KNOWN: 6, FAIL: 1, INFRA: 3, BLOCKED: 4 }[structural] ?? 1;
   if (!flags.matrix) { log(`matrix: NOT RUN (use --matrix --exclusive in the owner-scheduled window); evidence ${outDir} exit=${structCode}`); return structCode; }
   if (structural !== "PASS" && structural !== "KNOWN") { log(`matrix: NOT RUN because the structural stages ended ${structural}`); return structCode; }
-  const m = spawnSync(process.execPath, [path.join(REPO, "scripts", "qa", "iso-qa.mjs"), "matrix", "main", "--parallel", "1", "--tests-ref", sha], { stdio: "inherit", cwd: REPO });
+  const m = spawnSync(process.execPath, [path.join(REPO, "scripts", "qa", "iso-qa.mjs"), "matrix", "main", "--parallel", "1", "--tests-ref", sha], { stdio: "inherit", cwd: REPO, env: { ...process.env, ISO_QA_REF_MAIN: sha, ISO_QA_MARKER: "" } });
   const mc = m.status ?? 3;
   const rank = { 3: 5, 1: 4, 4: 3, 2: 3, 6: 2, 0: 0 };
   const code = (rank[mc] ?? 4) >= (rank[structCode] ?? 4) ? mc : structCode;

@@ -632,12 +632,12 @@ async function cmdMatrix(scenarioName, flags) {
   const files = plan.files;
   if (files.length === 0) { log("INCOMPLETE MATRIX: no suites found"); process.exit(4); }
   if (plan.undeclared.length) { log(`INCOMPLETE MATRIX: localStack suite(s) with neither the TW4A_LOCAL_URL gate nor an entry in scripts/qa/matrix-suites.json: ${plan.undeclared.join(", ")}`); process.exit(4); }
-  if (flags["plan-only"]) { for (const f of files) console.log(`${f}${matrixFlagsFor(f).length ? "  " + matrixFlagsFor(f).join(" ") : ""}`); console.log(`${files.length} suite(s) planned (--plan-only: nothing was run)`); process.exit(0); }
+  if (flags["plan-only"]) { for (const f of files) console.log(`${f}${matrixFlagsFor(f).length ? "  " + matrixFlagsFor(f).join(" ") : ""}`); console.log(`${files.length} suite(s) planned (--plan-only: nothing was run)`); process.exit(5); }
   const forward = [...(flags.migration ?? []).flatMap((m) => ["--migration", m]), ...(flags.cutoff ? ["--cutoff", flags.cutoff] : []), ...(ref ? ["--tests-ref", ref] : [])];
   const results = [];
   const run1 = (f, i) => new Promise((resolve) => {
     const instance = `${scenarioName}-m${i}-${process.pid}`;
-    const p = spawn(process.execPath, [SELF, "run", scenarioName, "--name", instance, ...forward, ...matrixFlagsFor(f), "--", f], { stdio: ["ignore", "ignore", "pipe"] });
+    const p = spawn(process.execPath, [SELF, "run", scenarioName, "--name", instance, ...forward, ...matrixFlagsFor(f), "--", f], { stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, ISO_QA_MARKER: "" } });
     let err = "";
     p.stderr.on("data", (d) => { err += d; });
     p.on("close", (status) => {

@@ -50,10 +50,13 @@ test("plan: complete, missing file, omission, wrong cutoff", () => {
 
 test("fingerprints: exact / KI-2 residue only / anything else", () => {
   const ki2 = "con studio_sms_approval_refs studio_sms_approval_refs_shape abc";
+  const ki2n = "con studio_sms_approval_refs studio_sms_approval_refs_shape narrow";
   const base = ["fn a 1", "tbl t"];
   assert.equal(judgeStages([{ cmp: compareFp(base, [...base]) }]), "PASS");
-  assert.equal(judgeStages([{ cmp: compareFp(base, [...base, ki2]) }]), "KNOWN");
-  assert.equal(judgeStages([{ cmp: compareFp(base, [...base, ki2, "fn b 2"]) }]), "FAIL");
+  assert.equal(judgeStages([{ cmp: compareFp([...base, ki2n], [...base, ki2]) }]), "KNOWN");
+  assert.equal(judgeStages([{ cmp: compareFp(base, [...base, ki2]) }]), "FAIL", "a new KI-2-named constraint is not widening");
+  assert.equal(judgeStages([{ cmp: compareFp([...base, ki2n], base) }]), "FAIL", "a dropped one is not widening");
+  assert.equal(judgeStages([{ cmp: compareFp([...base, ki2n], [...base, ki2, "fn b 2"]) }]), "FAIL");
   assert.equal(judgeStages([{ cmp: compareFp(base, ["fn a 2", "tbl t"]) }]), "FAIL");
   assert.equal(judgeStages([{ cmp: compareFp(base, [...base, "con t some_other_con x"]) }]), "FAIL");
   assert.deepEqual(maskKi2([ki2, "fn a"]), ["fn a"]);
