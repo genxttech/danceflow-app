@@ -580,13 +580,34 @@ rollback;`);
       expect(fwd).not.toMatch(/grant execute on function public\._tw4act_pilot_funding/);
     });
 
-    it("rolled back (committed), the old act_* order deadlocks against retire; re-applied, it does not and the fingerprint returns", async () => {
+    it("with the 20261208 bodies installed (committed), the old act_* order deadlocks against retire; restored, it does not and the fingerprint returns", async () => {
       const fp = () => psql(`select md5(string_agg(p.oid::regprocedure::text || '|' || md5(replace(p.prosrc, chr(13), '')) || '|' || coalesce(array_to_string(p.proacl, ','), ''), E'\\n' order by p.oid::regprocedure::text))
         from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'`);
       const withMigration = fp();
-      psql(file(RB));
+      // J4's 20261226 replaces two 1219 bodies: while it is applied, 1219's rollback must refuse ("roll back the later migration first") and change nothing
+      const with1226 = psql(`select position('pilot_ki1_redecided' in p.prosrc) > 0 from pg_proc p where p.oid = 'public._tw4act_items(uuid)'::regprocedure`) === "t";
+      if (with1226) {
+        const refused = psqlError(file(RB));
+        expect(hasCode(refused, "P0001")).toBe(true);
+        expect(refused).toContain("roll back the later migration first");
+        expect(fp()).toBe(withMigration);
+      }
+      // The control does not run the migration chain backwards (later migrations, e.g. 20261229's new tw4_rfl_pilot_cover signature, make 1219 non-reappliable):
+      // it saves the current definitions, installs the two 20261208 bodies the old behavior needs, and restores the saved definitions exactly.
+      const saved = psql(`select string_agg(pg_get_functiondef(p.oid) || ';', E'\\n') from pg_proc p
+        where p.oid in ('public.tw4_act_activate(uuid,uuid,text)'::regprocedure, 'public._tw4act_funding(uuid)'::regprocedure)`);
+      expect(saved.match(/create or replace function/gi)).toHaveLength(2);
+      const main1208 = file("20261208090000_twilio_r2b_number_activation.sql").split("\n");
+      const body1208 = (from: number, to: number, head: string) => {
+        const src = main1208.slice(from - 1, to).join("\n");
+        expect(src.startsWith(head)).toBe(true);
+        return src;
+      };
+      psql(`begin;
+${body1208(1589, 1622, "create or replace function public._tw4act_funding(p_studio_id uuid)")}
+${body1208(1786, 1817, "create or replace function public.tw4_act_activate(p_studio_id uuid, p_actor uuid, p_note text)")}
+commit;`);
       try {
-        expect(psql(`select to_regprocedure('public._tw4act_pilot_funding(uuid,uuid)') is null`)).toBe("t");
         const l = location({ pilot: true });
         expect(funding(l)).toEqual({ ok: false, detail: "pilot_month_two_undefined" });
         releaseLocation(l);
@@ -596,10 +617,10 @@ rollback;`);
         expect(r.linkFree).toBe("held");
         expect(deadlocked(r)).toBe(true);
       } finally {
-        psql(file(FWD));
+        psql(`begin;\n${saved}\ncommit;`);
       }
       expect(fp()).toBe(withMigration);
-      expect(hasCode(psqlError(file(FWD)), "P0001")).toBe(true);   // already applied: refused
+      expect(hasCode(psqlError(file(FWD)), "P0001")).toBe(true);   // already applied (or a later migration's state): refused
     });
   });
 });
