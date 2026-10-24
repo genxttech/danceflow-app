@@ -12,12 +12,21 @@ import {
  * written once at checkout, so after a Billing Portal plan change it still names
  * the old plan. The Price on the subscription is the authority for what the
  * customer is paying for.
+ *
+ * Grandfathered subscribers stay on older Prices that are no longer a current
+ * checkout Price. List those in `STRIPE_PRICE_STUDIO_<PLAN>_FOUNDER_LEGACY`
+ * (comma-separated Price IDs) so a portal or webhook event for them still
+ * resolves by Price instead of relying on subscription metadata.
  */
 const PLAN_PRICE_ENV_NAMES: Record<string, string[]> = {
   ...Object.fromEntries(
     Object.keys(STUDIO_FOUNDER_PRICE_ENV).map((code) => [
       code,
-      [STUDIO_FOUNDER_PRICE_ENV[code], STUDIO_STANDARD_PRICE_ENV[code]],
+      [
+        STUDIO_FOUNDER_PRICE_ENV[code],
+        STUDIO_STANDARD_PRICE_ENV[code],
+        `${STUDIO_FOUNDER_PRICE_ENV[code]}_LEGACY`,
+      ],
     ]),
   ),
   organizer: ["STRIPE_PRICE_ORGANIZER_FOUNDER", "STRIPE_PRICE_ORGANIZER_STANDARD"],
@@ -31,7 +40,10 @@ export function resolvePlanCodeFromEnvPriceId(
   if (!wanted) return null;
 
   for (const [code, names] of Object.entries(PLAN_PRICE_ENV_NAMES)) {
-    if (names.some((name) => env[name]?.trim() === wanted)) return code;
+    const configured = names.flatMap((name) =>
+      (env[name] ?? "").split(",").map((id) => id.trim()),
+    );
+    if (configured.includes(wanted)) return code;
   }
 
   return null;

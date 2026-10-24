@@ -31,6 +31,25 @@ describe("resolvePlanCodeFromEnvPriceId (PRICING-P1)", () => {
     expect(resolvePlanCodeFromEnvPriceId("price_p_new", env)).toBe("pro");
   });
 
+  it("grandfathered legacy Founder Prices resolve by Price (single or comma-separated)", () => {
+    const withLegacy = {
+      ...env,
+      STRIPE_PRICE_STUDIO_PRO_FOUNDER: "price_p_159",
+      STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY: "price_p_129, price_p_old",
+    };
+    expect(resolvePlanCodeFromEnvPriceId("price_p_159", withLegacy)).toBe("pro");
+    expect(resolvePlanCodeFromEnvPriceId("price_p_129", withLegacy)).toBe("pro");
+    expect(resolvePlanCodeFromEnvPriceId("price_p_old", withLegacy)).toBe("pro");
+    // an unlisted legacy Price still falls through to metadata (null)
+    expect(resolvePlanCodeFromEnvPriceId("price_p_other", withLegacy)).toBeNull();
+    // legacy list does not leak across plans
+    expect(resolvePlanCodeFromEnvPriceId("price_p_129", { ...withLegacy, STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY: "" })).toBeNull();
+  });
+
+  it("an unset env var never matches an empty price id", () => {
+    expect(resolvePlanCodeFromEnvPriceId("", { STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY: "," })).toBeNull();
+  });
+
   it("returns null for unknown, empty or unset prices (caller falls back to metadata)", () => {
     expect(resolvePlanCodeFromEnvPriceId("price_legacy_79", env)).toBeNull();
     expect(resolvePlanCodeFromEnvPriceId("", env)).toBeNull();
