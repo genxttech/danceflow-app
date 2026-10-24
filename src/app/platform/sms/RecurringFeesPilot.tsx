@@ -1,5 +1,5 @@
 import type { RflOverview } from "@/lib/sms/providerFeeOps";
-import { APPROVAL_REF_MAX, APPROVAL_REF_MIN, DOCUMENT_REF_MAX, EVIDENCE_MAX_AGE_DAYS, EVIDENCE_ROLES, EVIDENCE_ROLE_LABEL } from "@/lib/sms/pilotApprovalEvidence";
+import { APPROVAL_REF_MAX, APPROVAL_REF_MIN, centsToUsd, DOCUMENT_REF_MAX, EVIDENCE_MAX_AGE_DAYS, EVIDENCE_ROLES, EVIDENCE_ROLE_LABEL } from "@/lib/sms/pilotApprovalEvidence";
 import { rflPilotCoverAction } from "./recurringFeeActions";
 import { buttonClass, Disclosure, inputClass, KIND_TEXT, labelClass, shortId } from "./RecurringFeesDisclosure";
 
@@ -16,7 +16,8 @@ const monthKey = (ms: number, add: number): string => {
   return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}`;
 };
 
-export default function RecurringFeesPilot({ overview, now }: { overview: RflOverview | null; now: number }) {
+/** `prices`: published customer prices in cents by fee kind (the panel overview's price list). */
+export default function RecurringFeesPilot({ overview, now, prices = {} }: { overview: RflOverview | null; now: number; prices?: Record<string, number> }) {
   const pilot = (overview?.resources ?? []).filter((r) => r.pilot && r.providerState === "active" && r.feeKind);
   if (!overview || pilot.length === 0) return null;
   return (
@@ -33,6 +34,8 @@ export default function RecurringFeesPilot({ overview, now }: { overview: RflOve
             { key: monthKey(now, 0), cover: r.currentPeriod },
             { key: monthKey(now, 1), cover: r.nextPeriod },
           ].filter((p) => !(p.cover ?? "").startsWith("covered:"));
+          // the authorized amount IS the published price of this fee (the database requires equality): shown read-only and submitted as that price, never typed
+          const priceUsd = centsToUsd(r.feeKind ? prices[r.feeKind] : null);
           return (
             <li key={r.resourceId} className="space-y-2 rounded-xl border border-slate-200 px-3 py-2">
               <p className="text-slate-900">{KIND_TEXT[r.kind]} {shortId(r.resourceId)} · location {shortId(r.studioId)} · {r.feeKind}</p>
@@ -72,10 +75,17 @@ export default function RecurringFeesPilot({ overview, now }: { overview: RflOve
                     Scope
                     <input name="scope" readOnly value="pilot_period_cover" className={inputClass} />
                   </label>
-                  <label className={labelClass}>
-                    Authorized amount in dollars, for example 25.00 (must equal the published price of this fee; anything else is refused)
-                    <input name="amountUsd" required inputMode="decimal" pattern="[0-9]{1,5}(\.[0-9]{1,2})?" className={inputClass} />
-                  </label>
+                  <div className={labelClass}>
+                    Authorized amount (the published price of this fee; it cannot be changed)
+                    {priceUsd ? (
+                      <>
+                        <p className="mt-1 text-sm font-semibold text-slate-900" data-testid="published-price">${priceUsd}</p>
+                        <input type="hidden" name="amountUsd" value={priceUsd} />
+                      </>
+                    ) : (
+                      <p role="alert" className="mt-1 text-xs text-amber-900" data-testid="no-published-price">No published price for this fee, so an approval cannot be recorded. Nothing can be submitted until a price is published.</p>
+                    )}
+                  </div>
                   <label className={labelClass}>
                     Retained document: an id or a plain https link (no query string, fragment, credentials, or any of ; &amp; = %)
                     <input name="documentRef" required minLength={6} maxLength={DOCUMENT_REF_MAX} className={inputClass} />
@@ -91,7 +101,7 @@ export default function RecurringFeesPilot({ overview, now }: { overview: RflOve
                     <input type="checkbox" name="ack" value="yes" required className="mt-0.5" />
                     <span>This is one written approval for one period of this resource. It is not a standing authorization and will not repeat.</span>
                   </label>
-                  <button type="submit" className={buttonClass}>Record period approval</button>
+                  <button type="submit" disabled={!priceUsd} className={`${buttonClass} disabled:opacity-40`}>Record period approval</button>
                 </form>
               )}
             </li>
