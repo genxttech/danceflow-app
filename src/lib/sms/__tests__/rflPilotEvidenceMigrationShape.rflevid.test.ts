@@ -35,7 +35,7 @@ describe("20261229090000 pilot approval evidence: migration shape", () => {
       expect(text.trimEnd().endsWith("commit;")).toBe(true);
       expect(text).toMatch(/set local lock_timeout/);
     }
-    const latestOther = readdirSync(dir).filter((f) => /^2026\d{10}_/.test(f) && !f.startsWith("20261229")).sort().pop() ?? "";
+    const latestOther = readdirSync(dir).filter((f) => /^2026\d{10}_/.test(f) && !f.startsWith("20261229") && f.slice(0, 14) < "20261230090000").sort().pop() ?? ""; // later slices (>= 20261230) may follow this one
     expect("20261229090000" > latestOther.slice(0, 14)).toBe(true);
   });
 
