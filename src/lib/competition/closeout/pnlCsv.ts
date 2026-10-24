@@ -18,7 +18,7 @@ export const dollars = (cents: number) => `${cents < 0 ? "-" : ""}${Math.floor(M
 export function pnlSummaryCsv(pnl: CompetitionPnl) {
   const rows: Array<Array<unknown>> = [
     ["revenue", "Gross entry revenue received (online + desk)", dollars(pnl.revenue.grossReceivedCents), pnl.revenue.paymentCount, "event_payments paid/refunded"],
-    ["revenue", "  of which online (Stripe)", dollars(pnl.revenue.onlineCents), "", "event_payments"],
+    ["revenue", "  of which online and other non-desk", dollars(pnl.revenue.onlineCents), "", "event_payments"],
     ["revenue", "  of which desk payments", dollars(pnl.revenue.deskCents), "", "event_payments source competition_checkin"],
     ["order_lines", "List price of entry and fee lines", dollars(pnl.lines.listPriceCents), "", "event_order_items"],
     ["order_lines", "Discounts (already inside what was charged)", dollars(-pnl.lines.discountCents), "", "event_order_items discount lines"],

@@ -59,7 +59,7 @@ describe("read model against rows captured from local Postgres", () => {
     expect(nets).toMatchObject({ "Ana & Ben": 5400, "Cy & Di": 3600, "Registration fee": 900 });
     const byCheck = Object.fromEntries(pnl.reconciliation.checks.map((c) => [c.key, c.status]));
     expect(byCheck).toMatchObject({
-      pnl_equals_payments_minus_refunds: "ok",
+      order_lines_priced: "ok",
       ledger_vs_payment_refund_amount: "ok", // 34.00 on event_payments.refund_amount = succeeded ledger
       accounting_revenue_equals_payments: "ok",
       accounting_refunds_equal_ledger: "ok", // the reversed 7.00 nets to zero

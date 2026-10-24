@@ -69,10 +69,10 @@ export async function loadCompetitionCloseout(
   const itemsAll = itemRows.filter((i) => i.event_id === eventId);
   const competitionOrderIds = [...new Set(itemsAll.filter(isCompetitionItem).map((i) => i.order_id))];
 
-  const orderRows = await selectIn<PnlOrder & { event_id: string; studio_id: string }>(
+  const orderRows = await selectIn<PnlOrder & { event_id: string; studio_id: string; stripe_payment_intent_id: string | null }>(
     competitionOrderIds,
     (chunk, from, to) =>
-      supabase.from("event_orders").select("id, event_id, studio_id, payment_status, total_amount, currency").eq("event_id", eventId).eq("studio_id", event.studio_id).in("id", chunk).order("id").range(from, to),
+      supabase.from("event_orders").select("id, event_id, studio_id, payment_status, total_amount, currency, stripe_payment_intent_id").eq("event_id", eventId).eq("studio_id", event.studio_id).in("id", chunk).order("id").range(from, to),
     "orders",
   );
   const orders = orderRows.filter((o) => o.event_id === eventId && o.studio_id === event.studio_id);
@@ -106,6 +106,27 @@ export async function loadCompetitionCloseout(
     "payments",
   );
   const payments: PnlPayment[] = paymentRows.filter((p) => orderByRegistration.has(p.registration_id)).map((p) => ({ ...p, order_id: orderByRegistration.get(p.registration_id) ?? null }));
+
+  // The accounting trigger also matches a payment to its order by PaymentIntent when the registration link is missing.
+  const orderByIntent = new Map(orders.filter((o) => o.stripe_payment_intent_id).map((o) => [o.stripe_payment_intent_id as string, o.id]));
+  const seenPayments = new Set(payments.map((p) => p.id));
+  const intentRows = await selectIn<Omit<PnlPayment, "order_id"> & { stripe_payment_intent_id: string | null }>(
+    [...orderByIntent.keys()],
+    (chunk, from, to) =>
+      supabase
+        .from("event_payments")
+        .select("id, stripe_payment_intent_id, amount, status, source, payment_method, refund_amount, stripe_processing_fee_amount, stripe_application_fee_amount, platform_fee_amount, created_at")
+        .in("stripe_payment_intent_id", chunk)
+        .order("id")
+        .range(from, to),
+    "payments by payment intent",
+  );
+  for (const p of intentRows) {
+    const orderId = p.stripe_payment_intent_id ? orderByIntent.get(p.stripe_payment_intent_id) : undefined;
+    if (!orderId || seenPayments.has(p.id)) continue;
+    seenPayments.add(p.id);
+    payments.push({ ...p, order_id: orderId });
+  }
 
   const refunds = (
     await selectAll<PnlRefund & { event_id: string }>(
@@ -168,11 +189,16 @@ export async function loadCompetitionCloseout(
   // SC1 may not exist in this database; a missing table means "not available yet", any other error is real.
   let scratches: ChecklistScratch[] | null = null;
   {
-    const probe = await supabase.from("event_competition_scratches").select("entry_id, requested_resolution, performed_at, event_id").eq("event_id", eventId).order("performed_at").limit(PAGE);
-    if (!probe.error) {
-      scratches = ((probe.data ?? []) as (ChecklistScratch & { event_id: string })[]).filter((s) => s.event_id === eventId);
-    } else if (!["42P01", "PGRST205", "PGRST200"].includes(String(probe.error.code))) {
-      throw new Error(`Could not load scratches: ${probe.error.message}`);
+    try {
+      scratches = (
+        await selectAll<ChecklistScratch & { event_id: string }>(
+          (from, to) => supabase.from("event_competition_scratches").select("entry_id, requested_resolution, performed_at, event_id").eq("event_id", eventId).order("performed_at").order("entry_id").range(from, to),
+          "scratches",
+        )
+      ).filter((s) => s.event_id === eventId);
+    } catch (error) {
+      // SC1 may not exist in this database yet; a missing table means "not available yet", anything else is real.
+      if (!/does not exist|schema cache|42P01|PGRST205/i.test(error instanceof Error ? error.message : "")) throw error;
     }
   }
 

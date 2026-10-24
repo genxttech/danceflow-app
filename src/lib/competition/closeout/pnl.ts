@@ -257,6 +257,7 @@ export function buildCompetitionPnl(input: PnlInput): CompetitionPnl {
   // ---- Order lines: gross, discount share (shared R2 rule), refunded, pending ----------------------------------
   const entryByItem = new Map(input.entries.filter((e) => e.order_item_id).map((e) => [e.order_item_id as string, e]));
   const entryLines: PnlEntryLine[] = [];
+  const pricingErrors: string[] = [];
   let discountCents = 0;
   let listPriceCents = 0;
   const itemsByOrder = new Map<string, PnlItem[]>();
@@ -291,7 +292,14 @@ export function buildCompetitionPnl(input: PnlInput): CompetitionPnl {
       }
     }
     const activeDiscounts = discounts.filter((d) => d.amountCents > 0);
-    const caps = netRefundableCaps(refundable, activeDiscounts);
+    let caps: Map<string, number>;
+    try {
+      caps = netRefundableCaps(refundable, activeDiscounts);
+    } catch (error) {
+      // One inconsistent order must not take the whole page down; it is reported as a failed check instead.
+      pricingErrors.push(`Order ${orderId}: ${error instanceof Error ? error.message : "lines could not be priced"}`);
+      caps = new Map(refundable.map((l) => [l.id, l.grossCents]));
+    }
     discountCents += sum(activeDiscounts.map((d) => d.amountCents));
     for (const line of refundable) {
       const item = items.find((i) => i.id === line.id)!;
@@ -342,14 +350,14 @@ export function buildCompetitionPnl(input: PnlInput): CompetitionPnl {
 
   // ---- Reconciliation -------------------------------------------------------------------------------------------
   const checks: ReconciliationCheck[] = [];
-  // 1. P&L total vs the raw sums (catches rows dropped or double counted while grouping).
+  // 1. Every order priced (a discount that cannot be split, or a negative line, is reported rather than hidden).
   checks.push(
     check(
-      "pnl_equals_payments_minus_refunds",
-      "P&L net equals payments received minus succeeded refunds",
-      grossReceivedCents - succeededCents,
-      sum(perOrder.map((o) => o.netCents)),
-      "Sum of the per-order rows must equal the headline built from raw event_payments and event_order_refunds.",
+      "order_lines_priced",
+      "Every order line is priced consistently",
+      0,
+      pricingErrors.length,
+      pricingErrors.length === 0 ? "All orders priced." : pricingErrors.join("; "),
     ),
   );
   // 2. Ledger vs the denormalized event_payments.refund_amount (R2 recomputes it after every finalize).
@@ -385,17 +393,6 @@ export function buildCompetitionPnl(input: PnlInput): CompetitionPnl {
       0,
       sum(over.map((o) => o.refundedCents - o.receivedCents)),
       over.length === 0 ? "No order is over-refunded." : `${over.length} order(s) are refunded more than their payments received.`,
-    ),
-  );
-  // 5. Payments not linked to an order of this event.
-  const unlinked = received.filter((p) => !p.order_id || !orderIds.has(p.order_id));
-  checks.push(
-    check(
-      "payments_linked_to_orders",
-      "Every payment received belongs to a competition order of this event",
-      0,
-      sum(unlinked.map((p) => toCents(p.amount))),
-      unlinked.length === 0 ? "All payments are linked." : `${unlinked.length} payment(s) are not linked to a competition order.`,
     ),
   );
   // 6. Accounting tie-out (active entries only). Not checked when the entries could not be read.

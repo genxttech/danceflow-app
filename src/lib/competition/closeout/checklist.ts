@@ -129,7 +129,7 @@ export function buildCloseoutChecklist(input: ChecklistInput): ChecklistItem[] {
     const owed = [...latest.values()].filter((s) => {
       if (s.requested_resolution !== "refund") return false;
       const lines = input.pnl.entryLines.filter((l) => l.entryId === s.entry_id);
-      if (lines.length === 0) return false;
+      if (lines.length === 0) return true; // cannot be matched to an order line: treat as owed, never as paid
       return lines.some((l) => l.netCents - l.refundedCents > 0);
     });
     items.push(
@@ -146,15 +146,14 @@ export function buildCloseoutChecklist(input: ChecklistInput): ChecklistItem[] {
 
   items.push(later("rounds_published", "Every round published and results certified", "Needs the results lifecycle and publication (F2/F3), which are not built yet."));
 
+  const mismatches = input.pnl.reconciliation.checks.filter((k) => k.status === "mismatch").length;
+  const unchecked = input.pnl.reconciliation.checks.filter((k) => k.status === "not_checked").length;
   items.push(
-    input.pnl.reconciliation.ok
-      ? pass("reconciliation", "Competition P&L reconciles", "Payments, refund ledger and accounting entries agree.")
-      : blocked(
-          "reconciliation",
-          "Competition P&L reconciles",
-          `${input.pnl.reconciliation.checks.filter((c) => c.status === "mismatch").length} reconciliation check(s) show a mismatch.`,
-          input.pnl.reconciliation.checks.filter((c) => c.status === "mismatch").length,
-        ),
+    mismatches > 0
+      ? blocked("reconciliation", "Competition P&L reconciles", `${mismatches} reconciliation check(s) show a mismatch.`, mismatches)
+      : unchecked > 0
+        ? later("reconciliation", "Competition P&L reconciles", `${unchecked} reconciliation check(s) could not be run (for example accounting entries were not readable), so no verdict is given.`)
+        : pass("reconciliation", "Competition P&L reconciles", "Payments, refund ledger and accounting entries agree."),
   );
 
   const status = (input.settlementStatus ?? "none").toLowerCase();

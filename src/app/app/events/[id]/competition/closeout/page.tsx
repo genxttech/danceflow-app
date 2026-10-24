@@ -24,7 +24,7 @@ export default async function CompetitionCloseoutPage({ params }: { params: Prom
   const blockedCount = checklist.filter((i) => i.status === "BLOCKED").length;
   const figures: [string, number][] = [
     ["Entry revenue received", pnl.revenue.grossReceivedCents],
-    ["  Online (Stripe)", pnl.revenue.onlineCents],
+    ["  Online and other non-desk", pnl.revenue.onlineCents],
     ["  Desk payments", pnl.revenue.deskCents],
     ["List price of entry and fee lines", pnl.lines.listPriceCents],
     ["Discounts (already inside what was charged)", -pnl.lines.discountCents],

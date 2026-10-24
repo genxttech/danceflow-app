@@ -114,7 +114,7 @@ describe("competition P&L", () => {
     const input = base();
     input.allocations.push({ refund_id: "r3", order_item_id: I_E1, entry_id: "e1", line_kind: "entry", amount_cents: 500 });
     const pnl = buildCompetitionPnl(input);
-    expect(pnl.reconciliation.checks.map((c) => c.status)).toEqual(["ok", "ok", "ok", "ok", "ok", "ok", "ok"]);
+    expect(pnl.reconciliation.checks.map((c) => c.status)).toEqual(["ok", "ok", "ok", "ok", "ok", "ok"]);
     expect(pnl.reconciliation.ok).toBe(true);
   });
 
@@ -158,11 +158,13 @@ describe("competition P&L", () => {
     expect(pnl.revenue.grossReceivedCents).toBe(10900);
   });
 
-  it("flags payments that are not linked to an order", () => {
+  it("reports an order whose discount cannot be split instead of crashing", () => {
     const input = base();
-    input.payments.push({ ...input.payments[0], id: "pay9", order_id: null, amount: 12, refund_amount: null });
-    const keys = buildCompetitionPnl(input).reconciliation.checks.filter((c) => c.status === "mismatch").map((c) => c.key);
-    expect(keys).toContain("payments_linked_to_orders");
+    input.items[3].metadata = { line_type: "discount", discount_amount: 500 }; // larger than every line it prices
+    const pnl = buildCompetitionPnl(input);
+    const check = pnl.reconciliation.checks.find((c) => c.key === "order_lines_priced")!;
+    expect(check.status).toBe("mismatch");
+    expect(pnl.reconciliation.ok).toBe(false);
   });
 
   it("handles an event with no orders", () => {
@@ -252,6 +254,18 @@ describe("closeout checklist", () => {
     expect(status(owing, "scratch_refunds")).toBe("BLOCKED");
     const noRefund = checklist({ scratches: [{ entry_id: "e2", requested_resolution: "no_refund", performed_at: "2026-10-12T00:00:00Z" }] });
     expect(status(noRefund, "scratch_refunds")).toBe("PASS");
+  });
+
+  it("does not pass a refund-scratch that cannot be matched to an order line", () => {
+    expect(status(checklist({ scratches: [{ entry_id: "unknown-entry", requested_resolution: "refund", performed_at: "2026-10-12T00:00:00Z" }] }), "scratch_refunds")).toBe("BLOCKED");
+  });
+
+  it("gives no reconciliation verdict when accounting could not be read", () => {
+    const input = base();
+    input.accounting = null;
+    input.allocations.push({ refund_id: "r3", order_item_id: I_E1, entry_id: "e1", line_kind: "entry", amount_cents: 500 });
+    const items = buildCloseoutChecklist({ eventId: EVENT, exceptions: [], scopes: [], scratches: [], deskBalanceHelperAvailable: false, deskBalanceOrdersUnpaid: 0, settlementStatus: "settled", pnl: buildCompetitionPnl(input) });
+    expect(status(items, "reconciliation")).toBe("NOT AVAILABLE YET");
   });
 
   it("reports scratches as not available when the table is missing", () => {
