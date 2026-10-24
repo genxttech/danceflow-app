@@ -1,6 +1,6 @@
 # Competition OS — Scoring → Results Contract (K0)
 
-Status: **DRAFT for owner/Opus review** · Baseline: origin/main `973f36da` · Owner decisions D1–D4 of 2026-10-23 applied.
+Status: **DRAFT for owner/Opus review** · Baseline: origin/main `973f36da` · Owner decisions D1–D4 of 2026-10-23 and O1–O5 of 2026-10-24 applied.
 
 This contract fixes the boundaries every later slice builds against: officials (E1), ballots (E2), engines (F1),
 results lifecycle (F2), publication and portal delivery (F3), closeout (C1) and the full simulated-event E2E (Q1).
@@ -145,7 +145,7 @@ EngineOutput = { rows[{entry_id, placement?, tie_group?, advanced?, rating_band?
 - Next-round heats are created **only** from a round in `approved` or later, by `apply_competition_round_advancement`
   (F2), which writes the next round's entries and heat entries through the existing 10D floor-heat integrity triggers.
 - Re-approval of a corrected earlier round after the next round has started requires a manager reason and is
-  blocked if the next round already has submitted ballots (fail closed; owner decision needed to relax).
+  blocked if the next round already has submitted ballots (fail closed; rule O5, approved 2026-10-24).
 
 ## 7. Reader matrix (RLS must equal `RESULT_READER_MATRIX` in `contract.ts`)
 
@@ -165,7 +165,7 @@ Rules:
 - Non-manager reads go through SECURITY DEFINER read RPCs owned by F3 (`competition_round_results_public`,
   `competition_my_results`), never direct table SELECT grants, so RLS cannot accidentally widen.
 - Withdrawn publications disappear from every non-manager reader immediately.
-- Judges' identities on public results: **NOT SPECIFIED IN PROVIDED SOURCE** → default hidden (owner decision O3).
+- Judges' identities on public results: **NOT SPECIFIED IN PROVIDED SOURCE** → default hidden (owner decision O3, approved 2026-10-24).
 
 ## 8. Audit
 
@@ -193,15 +193,17 @@ fixed in the contract (`RESULT_EVENT_KINDS`), not supplied by callers — this c
 - Event deletion is blocked once any ballot exists (carry-forward from 10A), and program/round deletion likewise.
 - Exports read published results only, through the F3 read layer, using the Phase 9D formula-safe CSV helper.
 
-## 11. Open owner decisions
+## 11. Owner decisions (O1–O5 APPROVED 2026-10-24)
 
-| ID | Question | Default until decided |
+| ID | Question | Rule (owner approved 2026-10-24: accept the fail-safe default) |
 |---|---|---|
 | O1 | Absent judge: may a round lock with fewer ballots than assigned judges? | Fail closed: lock refused without every assigned ballot |
 | O2 | Who may lock ballots: manager only, or also a designated chair? | Manager or chair |
 | O3 | Are judge names/letters shown on public results? | Hidden |
 | O4 | Is a withdrawn publication explained publicly ("results under review")? | Generic notice, no reason shown |
 | O5 | Relaxing §6 (correcting an earlier round after the next round has ballots) | Blocked |
+
+Owner words (2026-10-24): "K0 O1–O5: Accept all five proposed fail-safe defaults, including complete assigned ballots before locking, manager/designated-chair locking, hidden public judge identities, generic under-review notices, and blocking earlier-round corrections once later-round ballots exist." `contract.ts` already encodes these (lock actors `manager`/`chair`; no pending flags), so it is unchanged.
 
 ## 12. Ownership and migration slots
 
