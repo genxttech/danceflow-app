@@ -47,6 +47,20 @@ $pin = & { $env:TW4A_LOCAL_DB_CONTAINER = "supabase_db_other"; $x = Hx @("eviden
 Check "harness: a different DB container name is refused (exit 2)" ($pin.Code -eq 2 -and $pin.Out -like "*must be the local QA database container*") "exit $($pin.Code)"
 $dh = & { $env:DOCKER_HOST = "tcp://10.0.0.5:2375"; $x = Hx @("evidence"); Remove-Item Env:DOCKER_HOST; $x }
 Check "harness: DOCKER_HOST (remote daemon) is refused (exit 2)" ($dh.Code -eq 2 -and $dh.Out -like "*DOCKER_HOST is set*") "exit $($dh.Code)"
+# --- real mode of the legacy harness is RETIRED: every spelling is refused before any command runs (exit 2, "nothing was sent")
+$realEnv = @{ TW4_ISV_REAL_CALLS = "on"; NODE_ENV = "production"; VERCEL_ENV = "production"; TW4_ISV_MOCK_BRAND = "on"; TWILIO_ACCOUNT_SID = "AC" + ("0" * 32); TWILIO_ISV_API_KEY_SID = "SK" + ("0" * 32); TWILIO_ISV_API_KEY_SECRET = "selftestselftestselftestselftest" }
+foreach ($k in $realEnv.Keys) { [Environment]::SetEnvironmentVariable($k, $realEnv[$k], "Process") }
+foreach ($cmd in @("seed", "run", "authorize-b", "authorize-c", "evidence", "cleanup")) {
+  $x = Hx @($cmd, "--adapter", "real", "--stages", "B", "--confirm-studio", "7a1d0000-0000-4000-8000-000000000000")
+  Check "retired: '$cmd --adapter real' refused (exit 2)" ($x.Code -eq 2 -and $x.Out -like "*real mode of the legacy Stage B/C harness is retired*" -and $x.Out -like "*Nothing was sent to Twilio*") "exit $($x.Code)"
+}
+foreach ($variant in @(@("--adapter=real"), @("--adapter", "REAL"), @("--adapter"), @("--adapter", "fake", "--adapter", "real"), @("--adapter=fake", "--adapter=live"))) {
+  $x = Hx (@("run", "--stages", "B", "--confirm-studio", "7a1d0000-0000-4000-8000-000000000000") + $variant)
+  Check "retired: variant '$($variant -join ' ')' refused (exit 2)" ($x.Code -eq 2 -and $x.Out -like "*is retired*") "exit $($x.Code)"
+}
+foreach ($k in $realEnv.Keys) { [Environment]::SetEnvironmentVariable($k, $null, "Process") }
+$fk = Hx @("evidence", "--adapter", "fake")
+Check "retired: the fake adapter is NOT refused by the guard" ($fk.Out -notlike "*is retired*") "exit $($fk.Code)"
 foreach ($k in $base.Keys) { [Environment]::SetEnvironmentVariable($k, $null, "Process") }
 "leftover studios: " + (Db "select count(*) from public.studios where id::text like '7a1d0000-%'")
 $r

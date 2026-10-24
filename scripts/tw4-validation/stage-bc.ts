@@ -39,6 +39,7 @@ import { loadIsvConfig, type IsvConfig } from "@/lib/sms/twilioIsv/config";
 import { isLoopbackHost } from "@/lib/sms/twilioIsv/loopback";
 import { FakeIsvAdapter } from "@/lib/sms/twilioIsv/fake";
 import { createRealIsvAdapter } from "@/lib/sms/twilioIsv/real";
+import { legacyRealModeRefusal } from "./legacyGuard";
 import { SupabaseRunnerStore } from "@/lib/sms/twilioIsv/store";
 import { issueStageBAuthorization, issueStageCAuthorization, runValidationStage, type LedgerRow, type StageName, type StageReport } from "@/lib/sms/twilioIsv/validation/stage";
 
@@ -228,7 +229,7 @@ function stageBAuthorization(): { token: string; expiresAt: string } | undefined
 
 async function authorizeB() {
   requireLocalStack();
-  if (ADAPTER_KIND !== "real") throw new Error("authorize-b is only for the real adapter (pass --adapter real); the fake adapter needs no authorization.");
+  if (ADAPTER_KIND !== "real") throw new Error("authorize-b is only for the real adapter, which is retired; the fake adapter needs no authorization.");
   const STUDIO = studioId();
   const secret = readFileSync(KEY_FILE, "utf8").trim();
   const loaded = loadIsvConfig(process.env);
@@ -370,6 +371,9 @@ async function cleanup() {
 }
 
 async function main() {
+  // Real mode of this legacy harness is retired (legacyGuard.ts): refuse before ANY command, including the ones that only prepare a real run.
+  const refusal = legacyRealModeRefusal(process.argv.slice(2));
+  if (refusal) throw new Error(refusal);
   const command = process.argv[2];
   if (command === "seed") await seed();
   else if (command === "run") await run();
