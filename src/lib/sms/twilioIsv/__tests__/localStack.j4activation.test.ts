@@ -16,6 +16,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { pilotCoverArgs } from "./rflEvidenceHelper";
 import { activate, activationCheck, attestOptOut, markReady, recordSenderFromLedger, runComplianceValidation, suspend, verifyForActivation, type OptOutChecklist } from "../../activation";
 import { FakeSenderReadProvider } from "../../senderVerification";
 import { FakeNumberAdapter } from "../fakeNumbers";
@@ -236,7 +237,7 @@ async function bringGreen(l: Loc) {
 }
 
 const resource = (l: Loc, kind: "number" | "campaign") => psql(`select id from public.studio_sms_provider_resources where studio_id = '${l.studio}' and resource_kind = '${kind}' and provider_state = 'active'`);
-const cover = (l: Loc, kind: "number" | "campaign", period: string) => call<{ cover_id: string }>("tw4_rfl_pilot_cover", resource(l, kind), period, ref(`${kind}-${period}`), P);
+const cover = (l: Loc, kind: "number" | "campaign", period: string) => call<{ cover_id: string }>("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, resource(l, kind), period, ref(`${kind}-${period}`), P));
 /**
  * Gives the pilot's room back after a scenario (fixture bookkeeping, not a product path): its pilot reservations are released (the 15000-cent ceiling) and its pilot
  * spend authorizations voided (the business's cumulative spend cap counts them), so the suite is budget-neutral and re-runnable on one database.
