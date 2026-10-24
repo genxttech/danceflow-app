@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
 import { buildCompetitionCredentialTargets } from "@/lib/competition/checkin";
+import { checkinBalanceDue } from "@/lib/competition/checkinBalance";
 
 function text(formData: FormData, key: string) { return String(formData.get(key) ?? "").trim(); }
 
@@ -59,8 +60,7 @@ async function recalculateSession(supabase: Awaited<ReturnType<typeof createClie
   const credentials = credentialResult.data ?? [];
   const credentialComplete = targets.length === 0 || targets.every((target) => credentials.some((credential) => credential.status === "issued" && ((target.holderType === "participant" && credential.registration_attendee_id === target.registrationAttendeeId) || (target.holderType === "entry" && credential.entry_id === target.entryId))));
   const orderTotal = Number(orderResult.data?.total_amount ?? 0);
-  const paid = (paymentResult.data ?? []).filter((item) => item.status === "paid").reduce((sum: number, item) => sum + Number(item.amount ?? 0) - Number(item.refund_amount ?? 0), 0);
-  const balanceDue = Math.max(0, Number((orderTotal - paid).toFixed(2)));
+  const balanceDue = checkinBalanceDue(orderTotal, paymentResult.data ?? []);
   const paymentComplete = balanceDue <= 0;
   const ready = paymentComplete && waiverComplete && entriesComplete && credentialComplete;
   await supabase.from("event_competition_checkin_sessions").update({
