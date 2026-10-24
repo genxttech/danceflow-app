@@ -39,7 +39,7 @@ describe("R2 migration", () => {
   it("registration cascade: withdraws only unplaced/open entries and records E-L / E-C for the rest (Q1)", () => {
     const body = definition(sql, "sync_competition_entries_from_registration");
     expect(body).toContain("h.lock_state in ('locked', 'certified')");
-    expect(body).toContain("and (he.status = 'danced' or (h.status in ('active', 'complete') and he.status <> 'scratched'))");
+    expect(body).toContain("and (he.status in ('danced', 'disqualified') or (h.status in ('active', 'complete') and he.status <> 'scratched'))");
     // SC1 review P2-4: an entry already scratched is never rewritten to withdrawn by a later refund/cancel.
     expect(body).toContain("and status not in ('withdrawn', 'disqualified', 'complete', 'scratched')");
     expect(body).toContain("where he.entry_id = w.id and he.status in ('scheduled', 'checked_in');");
