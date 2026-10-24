@@ -40,7 +40,7 @@ if [ "$MODE" = "race" ]; then
 
   # ---- 1. Scratch (session A) vs refund REQUEST on the same order (session B): neither waits for the other, both commit.
   ENTRY=$(U 008106); REQ_S=$(U f00101); REQ_R=$(U aa1101)
-  ( $PSQL -c "begin; $AS_OWNER $(scratch_sql $ENTRY $REQ_S 'Injury'); select pg_sleep(2); select 'adone:' || extract(epoch from clock_timestamp()); commit;" > "$TMP/a1.out" 2>&1 || true ) &
+  ( $PSQL -c "begin; $AS_OWNER $(scratch_sql $ENTRY $REQ_S 'Injury'); select pg_sleep(8); select 'adone:' || extract(epoch from clock_timestamp()); commit;" > "$TMP/a1.out" 2>&1 || true ) &
   sleep 0.7
   $PSQL -c "begin; $AS_OWNER $(request_sql "$(U 00b004)" "$REQ_R" "$(line 00c401 2500 false)"); select 'bdone:' || extract(epoch from clock_timestamp()); commit;" > "$TMP/b1.out" 2>&1 || true
   wait
@@ -85,20 +85,25 @@ if [ "$MODE" = "race" ]; then
 fi
 
 if [ "$MODE" = "rollback" ]; then
-  # Evidence exists (refund ledger, scratch history). SC1 rolls back softly; R2 refuses.
+  # Evidence exists (refund ledger, scratch history). SC1 rolls back softly (skipped if sc1_concurrency.sh with SC1_SOFT_ROLLBACK=1 already did it); R2 refuses.
   SC1RB="$HERE/../rollback/20270108090000_competition_sc1_scratch_rollback.sql"
   R2RB="$HERE/../rollback/20270103090000_competition_r2_entry_refunds_rollback.sql"
   pins() { q "select string_agg(left(md5(replace(prosrc, E'\\r', '')), 8), ',' order by oid::regprocedure::text) from pg_proc where oid in (to_regprocedure('public.sync_competition_entries_from_registration()'), to_regprocedure('public.sync_event_payment_accounting_entry()'), to_regprocedure('public._paywh1_exception_money_state(text)'), to_regprocedure('public.resolve_event_order_settlement_exception(uuid,text)'))"; }
-  R2_PINS=$(pins)
-  check "before rollback: the four R2 function bodies are the R2 pins" "$R2_PINS" "5469516f,dd85d688,3a19d4b4,4577dc12" || true
+  sc1_live() { q "select to_regprocedure('public.scratch_competition_entry(uuid,uuid,text,text)') is not null"; }
+  R2_PINS="5469516f,dd85d688,3a19d4b4,4577dc12"
   scratches=$(q "select count(*) from public.event_competition_scratches")
   refunds=$(q "select count(*) from public.event_order_refunds")
-  out=$($PSQL -f "$SC1RB" 2>&1 || true)
-  check "combined rollback step 1: SC1 rolls back softly (keeps its audit tables) while scratch history exists" "$(echo "$out" | grep -c 'audit tables kept')" "1"
+  check "evidence exists before rollback (scratch history and refund ledger)" "$([ "$scratches" -gt 0 ] && [ "$refunds" -gt 0 ] && echo yes || echo no)" "yes"
+  if [ "$(sc1_live)" = "t" ]; then
+    out=$($PSQL < "$R2RB" 2>&1 || true)
+    check "R2 rolled back FIRST while SC1 is applied: refused (SC1 must go first)" "$(echo "$out" | grep -c 'SC1 (scratch workflow) is still applied' || true)" "1"
+    out=$($PSQL < "$SC1RB" 2>&1 || true)
+    check "combined rollback step 1: SC1 rolls back softly (keeps its audit tables) while scratch history exists" "$(echo "$out" | grep -c 'audit tables kept' || true)" "1"
+  fi
   check "combined rollback step 1: 10A guard restored (7997313d), scratch history kept" "$(q "select left(md5(replace(prosrc, E'\\r', '')), 8) from pg_proc where oid = 'public.protect_locked_competition_heat_children()'::regprocedure")/$(q "select count(*) from public.event_competition_scratches")" "7997313d/$scratches"
-  check "combined rollback step 1: R2 function bodies untouched by the SC1 rollback" "$(pins)" "$R2_PINS"
-  out=$($PSQL -f "$R2RB" 2>&1 || true)
-  check "combined rollback step 2: R2 refuses while refund evidence exists" "$(echo "$out" | grep -c 'R2 rollback refused')" "1"
+  check "combined rollback step 1: R2 function bodies are still the R2 pins (the SC1 rollback did not touch them)" "$(pins)" "$R2_PINS"
+  out=$($PSQL < "$R2RB" 2>&1 || true)
+  check "combined rollback step 2: R2 refuses while refund evidence exists" "$(echo "$out" | grep -c 'R2 rollback refused: refund ledger' || true)" "1"
   check "combined rollback step 2: nothing changed (refund ledger intact, R2 bodies still the R2 pins)" "$(q "select count(*) from public.event_order_refunds")/$(pins)" "$refunds/$R2_PINS"
   check "combined rollback: refunded and scratched entries keep their statuses" "$(status_of 008106)/$(status_of 008107)/$(status_of 008105)" "scratched/withdrawn/scratched"
 fi
