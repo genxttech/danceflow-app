@@ -147,7 +147,7 @@ export async function loadCompetitionCloseout(
   // Accounting tie-out is best effort: a read failure leaves the check "not checked", never a silent pass.
   let accounting: PnlAccountingEntry[] | null = null;
   try {
-    accounting = await selectAll<PnlAccountingEntry & { event_id: string | null }>(
+    const rows = await selectAll<PnlAccountingEntry & { event_id: string | null }>(
       (from, to) =>
         supabase
           .from("accounting_entries")
@@ -158,7 +158,7 @@ export async function loadCompetitionCloseout(
           .range(from, to),
       "accounting entries",
     );
-    accounting = accounting.filter((a) => (a as { event_id: string | null }).event_id === eventId);
+    accounting = rows.filter((a) => a.event_id === eventId);
   } catch {
     accounting = null;
   }
