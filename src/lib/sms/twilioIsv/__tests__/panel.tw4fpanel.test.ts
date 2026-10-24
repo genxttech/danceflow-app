@@ -18,6 +18,10 @@ const REQUEST = "f6000000-0000-4000-8000-0000000000f1";
 const KEY = "c6000000-0000-4000-8000-0000000000c1";
 const SPEND = "d6000000-0000-4000-8000-0000000000d1";
 const PRIMARY = `BU${"e".repeat(32)}`;
+/** the evidence fields of the pilot forms (a date from "now" so the window rules hold on any day) */
+const evidenceForm = (scope: string) => ({
+  authorizedOn: new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10), authorizedByRole: "owner_written", scope, documentRef: "AUTH-DOC-2026-10-0001", documentSha256: "a".repeat(64),
+});
 
 const entity = (over: Partial<PanelEntity> = {}): PanelEntity => ({
   id: ENTITY, legalName: "Synthetic Dance LLC", einLast4: "1234", spendCapCents: 15000, committedCents: 0, createdAt: "2026-10-20T00:00:00Z",
@@ -263,7 +267,12 @@ describe("panel commands", () => {
   });
 
   describe("owner fee approvals", () => {
-    const fee = (over: Record<string, string> = {}) => form({ entityId: ENTITY, studioId: STUDIO, kind: "brand", funding: "pilot", amountCents: "4600", approvalRef: "Owner email 2026-10-20 approving brand $46", ownerApproved: "on", ...over });
+    // 20261230 (U-4): a pilot-funded approval carries the owner's dated written authorization as evidence (the scope follows the kind)
+    const feeScope = (kind: string) => (kind === "brand" || kind === "brand_low_volume" ? "pilot_onboarding_fee" : kind === "number" ? "pilot_number_purchase" : "pilot_campaign_fee");
+    const fee = (over: Record<string, string> = {}) => form({
+      entityId: ENTITY, studioId: STUDIO, kind: "brand", funding: "pilot", amountCents: "4600", approvalRef: "Owner email 2026-10-20 approving brand $46", ownerApproved: "on",
+      ...evidenceForm(feeScope(over.kind ?? "brand")), ...over,
+    });
 
     it("needs the written approval reference and the owner-approved confirmation", async () => {
       expect((await commands.authorizeFee(db, ADMIN, fee({ approvalRef: "ok" }), { studioTier: null })).ok).toBe(false);
@@ -325,7 +334,7 @@ describe("panel commands", () => {
     expect((await commands.createPilotException(db, ADMIN, form({ entityId: ENTITY, ceilingDollars: "150.01", approvalRef: "Founder email 2026-10-20", understood: "on" }))).ok).toBe(false);
     expect((await commands.createPilotException(db, ADMIN, form({ entityId: ENTITY, ceilingDollars: "150", approvalRef: "Founder email 2026-10-20" }))).ok).toBe(false);
     expect(db.writes).toHaveLength(0);
-    expect((await commands.createPilotException(db, ADMIN, form({ entityId: ENTITY, ceilingDollars: "150", approvalRef: "Founder email 2026-10-20", understood: "on" }))).ok).toBe(true);
+    expect((await commands.createPilotException(db, ADMIN, form({ entityId: ENTITY, ceilingDollars: "150", approvalRef: "Founder email 2026-10-20", understood: "on", ...evidenceForm("pilot_exception") }))).ok).toBe(true);
   });
 
   describe("Create subaccount (separately confirmed)", () => {

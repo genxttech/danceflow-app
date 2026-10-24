@@ -13,7 +13,7 @@ They are not part of `npm test` because they need Windows PowerShell 5.1, Docker
 |---|---|---|
 | `launcher-a-matrix.ps1` | Stage A launcher: dry run, input validation, refusals, test hook inert in real mode | ~1 min |
 | `launcher-a-interactive.ps1` | Stage A secret entry through the real prompts: Ctrl+V (clipboard), pasted bursts, bracketed paste, Enter-from-clipboard, Backspace, Esc | ~4 min |
-| `launcher-b-matrix.ps1` | Stage B launcher: dry run (22 cases) including refusals, container pin, DOCKER_HOST, failed seed cleanup, unreadable evidence, with a network tripwire | ~6 min |
+| `launcher-b-matrix.ps1` | Stage B launcher: dry run (28 cases) including the retired-real-mode refusals, container pin, DOCKER_HOST, failed seed cleanup, unreadable evidence, with a network tripwire | ~6 min |
 | `launcher-b-interactive.ps1` | Stage B through the real prompts: mailbox CONFIRMED rule, EIN/email validation, unfilled template, Esc, declining seed/cleanup | ~10 min |
 | `harness-exit.ps1` | CLI exit codes (2 = refused before a stage, 1 = after), cleanup refuses without an evidence file, container pin, DOCKER_HOST | ~1 min |
 | `inject.ps1`, `netblock.cjs` | helpers: console key-event injector; preload that records and refuses non-loopback network use (`NETBLOCK_LOG` is the log) | |

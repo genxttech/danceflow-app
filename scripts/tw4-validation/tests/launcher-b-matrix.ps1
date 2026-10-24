@@ -62,7 +62,7 @@ function Case([string]$Name, [hashtable]$Seam, [string]$LauncherArgs, [int]$Expe
   if ($problems.Count -gt 0) { $script:results.Add("   ---- output ----`n$out") }
 }
 
-Case "dry run (all defaults)" @{} "-DryRun" 0 @("DRY RUN (self-test)", "Check passed: the real Stage B authorization refuses a non-interactive caller", "Stage B ended cleanly at its step limit (S10)", "Local fixtures removed", "Credentials cleared") -ExpectReports
+Case "dry run (all defaults)" @{} "-DryRun" 0 @("DRY RUN (self-test)", "Check passed: the harness refuses the retired real mode and issues no authorization", "Stage B ended cleanly at its step limit (S10)", "Local fixtures removed", "Credentials cleared") -ExpectReports
 Case "account/key SID swapped" @{ TW4_LAUNCHER_TEST_ACCOUNT = "SK" + ("1" * 32) } "-DryRun" 2 @("looks like an API key SID", "Account SID")
 Case "key SID is an AC" @{ TW4_LAUNCHER_TEST_KEY_SID = "AC" + ("2" * 32) } "-DryRun" 2 @("looks like an Account SID")
 Case "short secret" @{ TW4_LAUNCHER_TEST_KEY_SECRET = "short" } "-DryRun" 2 @("has 5 characters")
@@ -76,16 +76,21 @@ Case "business: DanceFlow address as representative refused" @{ TW4_LAUNCHER_TES
 Case "business: unknown field" @{ TW4_LAUNCHER_TEST_BUSINESS = (Write-Business "extra" { param($o) $o.ein = "123456789" }) } "-DryRun" 2 @("Unknown field 'ein'")
 Case "business: bad ZIP" @{ TW4_LAUNCHER_TEST_BUSINESS = (Write-Business "zip" { param($o) $o.postal_code = "9720" }) } "-DryRun" 2 @("postal_code")
 Case "failure after seed: dry run cleans up after itself" @{ TW4_LAUNCHER_TEST_FAIL_AFTER_SEED = "1" } "-DryRun" 2 @("simulated failure after seeding")
-Case "real mode, stdin closed (no seam, no prompts possible)" @{} "" 2 @("not valid after 3 tries", "TW-4 Stage B: REAL Twilio WRITES")
-Case "real mode: non-loopback -LocalUrl refused" @{} "-LocalUrl https://epdrtzcydvnoidwrepqz.supabase.co" 2 @("must be a loopback address")
-Case "real mode: any other DB container refused (pinned)" @{} "-DbContainer no_such_container" 2 @("must be the local QA Supabase stack")
-Case "real mode: a different (even running) container name refused" @{} "-AuthContainer supabase_rest_danceflow-e2e-qa" 2 @("must be the local QA Supabase stack")
-Case "real mode: -AuthMinutes out of range refused" @{} "-AuthMinutes 500" 2 @("between 1 and 120")
-Case "real mode: DOCKER_HOST set (remote daemon) refused" @{ DOCKER_HOST = "tcp://10.0.0.5:2375" } "" 2 @("DOCKER_HOST is set")
+# Real mode is RETIRED (parent-account harness; studios live in subaccounts). Every way of asking for it is refused before any prompt, seed, container check or network use.
+Case "real mode retired: no arguments" @{} "" 2 @("real mode of the legacy Stage B launcher is retired", "Nothing was sent to Twilio", "subaccount", "-DryRun")
+Case "real mode retired: -BusinessFile and -AuthMinutes do not help" @{} "-BusinessFile C:\nope\x.json -AuthMinutes 5" 2 @("real mode of the legacy Stage B launcher is retired", "Nothing was sent to Twilio", "subaccount", "-DryRun")
+Case "real mode retired: test seams and fake/real env switches do not re-enable it" @{ TW4_ISV_FAKE = "on"; TW4_ISV_REAL_CALLS = "on"; TW4_ISV_MOCK_BRAND = "on"; TW4_LAUNCHER_TEST_ACCOUNT = "AC" + ("0" * 32); TW4_LAUNCHER_TEST_KEY_SID = "SK" + ("0" * 32); TW4_LAUNCHER_TEST_KEY_SECRET = "selftestselftestselftestselftest"; TW4_LAUNCHER_TEST_EIN = "11-2223333"; TW4_LAUNCHER_TEST_EMAIL = "dryrun@example.test" } "" 2 @("real mode of the legacy Stage B launcher is retired", "Nothing was sent to Twilio", "subaccount", "-DryRun")
+Case "real mode retired: pinned-container and URL options do not re-enable it" @{} "-LocalUrl http://127.0.0.1:55321 -DbContainer supabase_db_danceflow-e2e-qa -AuthContainer supabase_auth_danceflow-e2e-qa" 2 @("real mode of the legacy Stage B launcher is retired", "Nothing was sent to Twilio", "subaccount", "-DryRun")
+Case "real mode retired: DOCKER_HOST set" @{ DOCKER_HOST = "tcp://10.0.0.5:2375" } "" 2 @("real mode of the legacy Stage B launcher is retired", "Nothing was sent to Twilio", "subaccount", "-DryRun")
+Case "dry run: non-loopback -LocalUrl refused" @{} "-DryRun -LocalUrl https://epdrtzcydvnoidwrepqz.supabase.co" 2 @("must be a loopback address")
+Case "dry run: any other DB container refused (pinned)" @{} "-DryRun -DbContainer no_such_container" 2 @("must be the local QA Supabase stack")
+Case "dry run: a different (even running) container name refused" @{} "-DryRun -AuthContainer supabase_rest_danceflow-e2e-qa" 2 @("must be the local QA Supabase stack")
+Case "dry run: -AuthMinutes out of range refused" @{} "-DryRun -AuthMinutes 500" 2 @("between 1 and 120")
+Case "dry run: DOCKER_HOST set (remote daemon) refused" @{ DOCKER_HOST = "tcp://10.0.0.5:2375" } "-DryRun" 2 @("DOCKER_HOST is set")
 Case "dry run: business path with & refused" @{ TW4_LAUNCHER_TEST_BUSINESS = "C:\temp\a&b.json" } "-DryRun" 2 @("unsafe to pass to a command shim")
 Case "dry run: seed fails AFTER the marker was written: cleaned up" @{ TW4_TEST_SEED_FAIL = "1" } "-DryRun" 2 @("simulated seed failure", "seeding the local test studio failed")
 Case "dry run: evidence unreadable after the stage ran: exit 1, evidence file still saved" @{ TW4_TEST_EVIDENCE_FAIL = "1" } "-DryRun" 1 @("could NOT be read", "no Twilio call was possible") -ExpectReports
-Case "real mode: -Interactive without -DryRun refused" @{} "-Interactive" 2 @("REFUSED (exit code 2): -Interactive is only meaningful")
+Case "-Interactive without -DryRun refused" @{} "-Interactive" 2 @("REFUSED (exit code 2): -Interactive is only meaningful")
 
 Remove-Item Env:NODE_OPTIONS, Env:NETBLOCK_LOG
 Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
