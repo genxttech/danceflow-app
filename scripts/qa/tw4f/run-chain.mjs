@@ -79,7 +79,7 @@ function parseArgs(argv) {
     if (!a.startsWith("--")) { rest.push(a); continue; }
     const k = a.slice(2);
     if (k === "keep") { flags.keep = true; continue; }
-    if (k === "matrix" || k === "exclusive" || k === "dry-run") { flags[k === "dry-run" ? "dryRun" : k] = true; continue; }
+    if (k === "matrix" || k === "exclusive" || k === "shell-verify" || k === "dry-run") { flags[k === "dry-run" ? "dryRun" : k === "shell-verify" ? "shellVerify" : k] = true; continue; }
     const v = argv[++i];
     if (v === undefined) die(`--${k} needs a value`);
     if (k === "extra-branch") flags.extraBranch.push(v);
@@ -504,8 +504,8 @@ async function rehearse() {
   try { ({ ref, plan } = rehearsalPlanFromRef(rcutoff)); } catch (e) { return die(e.message, 1); }
   const sha = resolveRef(ref);
   log(`rehearsal plan from ${ref}@${sha.slice(0, 8)}: ${plan.length} migration(s); every forward and rollback hash equals the manifest`);
-  const shell = spawnSync("bash", [path.join(REPO, "scripts", "hosted", "tw4f", "verify_manifest_hashes.sh"), sha], { encoding: "utf8", cwd: REPO });
-  if (shell.error) log(`verify_manifest_hashes.sh could not run (${shell.error.code}); the in-process hash check above still passed`);
+  const shell = !flags.shellVerify ? { error: { code: "not requested (--shell-verify)" } } : spawnSync("bash", [path.join(REPO, "scripts", "hosted", "tw4f", "verify_manifest_hashes.sh"), sha], { encoding: "utf8", cwd: REPO });
+  if (shell.error) log(`verify_manifest_hashes.sh not run (${shell.error.code}); the in-process hash check above (same LF-normalised sha256 rule, same coverage check) passed. It is slow on Windows Git Bash (minutes): pass --shell-verify to add it`);
   else { process.stderr.write(`${(shell.stdout ?? "").split("\n").filter(Boolean).slice(-3).join("\n")}\n`); if (shell.status !== 0) return die("verify_manifest_hashes.sh failed", 1); }
   const mismatch = flags.matrix || flags.dryRun ? scenarioMatchesManifest(plan) : [];
   if (flags.matrix && mismatch.length) return die(`the matrix scenario is not the manifest chain:\n  - ${mismatch.join("\n  - ")}\nupdate scripts/qa/scenarios.json (Phase 2) before a rehearsal with --matrix`, 1);
