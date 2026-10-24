@@ -1,6 +1,6 @@
 # Engine spec — `ordinal_majority` (Studio v1, K1)
 
-Status: **DRAFT for owner approval** · Baseline: origin/main `973f36da` · Docs only (no code, no SQL). **Stage 1 (X-1…X-7) APPROVED by the owner 2026-10-24; every D-* item below remains open.**
+Status: **DRAFT for owner approval** · Baseline: origin/main `973f36da` · Docs only (no code, no SQL). **Stage 1 (X-1…X-7) and Stage 3 (D-OM-1…5, D-OM-3b) APPROVED by the owner 2026-10-24. Engine code stays blocked until Stage 4 (proficiency rating) is also recorded.**
 Engine version on approval: `ordinal_majority@1`. No engine code may be written until the owner signs off this
 spec and the decisions in §10 (owner decision 2026-10-23: engines are specified first, approved, then built).
 
@@ -70,9 +70,9 @@ ranks the entries of the round: `value` is a positive integer, 1 = best (S6: "th
 
 | Ballot property | Rule | Basis |
 |---|---|---|
-| Mark per entry | Exactly one mark per entry per judge | NOT SPECIFIED IN PROVIDED SOURCE → **D-OM-5** (candidate: required, fail closed if missing) |
-| Range | 1 … N where N = number of entries in the round | NOT SPECIFIED IN PROVIDED SOURCE → **D-OM-5** |
-| Equal marks on one ballot (judge ties) | `@3` scheme has no `ties_allowed` value | NOT SPECIFIED IN PROVIDED SOURCE → **D-OM-4** |
+| Mark per entry | Exactly one mark per calculated entry per judge: a **full 1…N ranking, each value once** | **D-OM-5**, approved 2026-10-24 |
+| Range | 1 … N where N = number of calculated entries in the round (scratched and no-show entries excluded, X-5) | D-OM-5, approved |
+| Equal marks on one ballot (judge ties) | Not allowed; the ballot blocks it and the engine rejects it (`judge_tie`) | **D-OM-4**, approved 2026-10-24 |
 | Per role marks | `scored_by: entry` only | S6 |
 | Feedback grades/scores | Never engine input | S9 |
 
@@ -83,19 +83,19 @@ K0 `EngineOutput` `rows[]`, one per entry:
 | Field | Meaning | Basis |
 |---|---|---|
 | `placement` | integer ≥ 1, 1 = first | S6 (output `placement`, primary) |
-| `tie_group` | set only if the owner allows shared placements (D-OM-3); otherwise never set | NOT SPECIFIED IN PROVIDED SOURCE |
+| `tie_group` | set for entries that share a placement after chain step (3) (D-OM-3, approved 2026-10-24); otherwise not set | D-OM-3 |
 | `advanced` | not set (a Final has no advancement; `advancement_method: none`) | S6 |
 | `rating_band` | not set | S6 |
 | `output` | per-entry working (e.g. counts per cutoff, or totals — per D-OM-1), copied from the trace | S2 |
 
-Placements are dense and unique 1…N unless D-OM-3 allows shared placements. What the published result shows
+Placements are 1…N and unique except for shared placements; after a shared placement the numbering skips (2, 2, 4) (D-OM-3b, approved 2026-10-24). What the published result shows
 (placement only, or the marks too) is an F3 publication decision, not an engine output.
 
 ## 5. Algorithm
 
-Steps 1–4 and 7–8 are fixed by approved decisions. Steps 5–6 (how ordinals combine) are **not specified**: the
-locked key name says the engine works on *ordinals* with a *majority* (S1), and the profile says "the best-ranked
-dancer places first" (S6), but no approved source defines the computation. The owner chooses it (**D-OM-1**).
+Stage 3 (owner, 2026-10-24) approved D-OM-1…5, so every step below is fixed. The locked key name says the engine
+works on *ordinals* with a *majority* (S1), and the profile says "the best-ranked dancer places first" (S6); the
+computation is the owner-approved OM-A rule with strict majority.
 
 1. **Check engine availability.** `engine_key = ordinal_majority` and `engine_version = 1` with this spec
    approved; otherwise `COMP_ENGINE_NOT_AVAILABLE` (K0, S5).
@@ -103,37 +103,35 @@ dancer places first" (S6), but no approved source defines the computation. The o
 3. **Validate input** against §7 in the listed order; the first failure stops the calculation (no partial result).
 4. **Build the mark table** `M[judge][entry] = ordinal`, judges ordered by `letter`, entries by `entry_id`
    (determinism, §7).
-5. **Combine ordinals** — NOT SPECIFIED IN PROVIDED SOURCE (**D-OM-1**, with **D-OM-2** for the meaning of
-   "majority" on an even panel). Candidate options for the owner:
-   - **OM-A "majority at the lowest cutoff".** Let `J` = number of judges and `m` = the majority threshold
-     (D-OM-2). For each place `p = 1, 2, …` in turn, among unplaced entries, find the smallest cutoff
-     `c ≥ p` at which at least one entry has `≥ m` judges marking it `≤ c`. If exactly one entry qualifies at that
-     cutoff it takes place `p`. If several qualify at the same cutoff, apply the tie-break chain (§6) to order
-     them, and they take places `p, p+1, …`.
-   - **OM-B "lowest ordinal total".** Sum each entry's ordinals; ascending order of totals gives the placements;
-     equal totals go to the tie-break chain.
-   - **Other** — the owner specifies a rule.
-6. **Resolve ties** with the tie-break chain (§6). The chain is empty in `@3` (S6), so any tie fails closed
-   until D-OM-3 is decided.
+5. **Place entries (OM-A, D-OM-1 and D-OM-2).** Let `J` = number of judges and `m = floor(J/2) + 1` (strict
+   majority). Let `N` = number of calculated entries (scratched and no-show entries are excluded, X-5). For each
+   place `p = 1, 2, …` in turn, among the unplaced entries, find the smallest cutoff `c ≥ p` at which at least one
+   unplaced entry has `≥ m` judges marking it `≤ c`. The entries that qualify at that cutoff `c` are the *qualifiers*.
+   - If exactly one entry qualifies, it takes place `p`.
+   - If several qualify at the same cutoff, apply the tie-break chain (§6) to order them; the ordered entries take
+     places `p, p+1, …`, except that entries still tied after the whole chain share a placement (§6 step 3).
+   Continue with the next unplaced place until every entry is placed.
+6. **Shared placements (D-OM-3, D-OM-3b).** Entries sharing a placement get the same `placement` and a common
+   `tie_group`. The next placement number skips the places the group used: a two-way tie for 2nd is numbered
+   2, 2, then 4.
 7. **Emit rows** (§4) and the trace (§8).
 8. **Never** read the clock, the database, a random source, entry names, studio names or entry numbers
    (S2 deterministic; K0).
 
 ## 6. Tie-break chain
 
-| Position | Rule | Basis |
+| Step | Rule (applies when several unplaced entries qualify at the same cutoff `c`) | Basis |
 |---|---|---|
-| — | `@3` `placements.tie_break.chain = []` with the note "no tie-break rules are implemented yet" | S6 |
-| 1…n | NOT SPECIFIED IN PROVIDED SOURCE → **D-OM-3** | — |
+| (1) | The entry with **more** judges marking it `≤ c` places higher | D-OM-3, approved 2026-10-24 |
+| (2) | If still tied, the entry with the **lower sum** of those of its ordinals that are `≤ c` places higher | D-OM-3, approved 2026-10-24 |
+| (3) | If still tied, the entries **share the placement** (`tie_group`); numbering then skips (2, 2, 4) | D-OM-3 / D-OM-3b, approved 2026-10-24 |
 | Excluded | Random draw, coin toss, entry number, registration time, name order: none is deterministic from the ballots, so none may decide a placement | S2 (deterministic) |
 | Excluded | UCWDC Rules #4–#8, NDCA Skating rules, WSDC Chief Judge tie-break — governing-body rules, not Studio rules | S10 rule 4, S11 |
 
-If the chain is exhausted with entries still tied, the outcome is NOT SPECIFIED IN PROVIDED SOURCE → **D-OM-3**
-(candidates: shared placement with `tie_group`, shared at the higher place; or fail closed for a manager action).
-Until decided: `COMP_ENGINE_UNSPECIFIED_CASE`.
-
-A tie-break chain chosen by the owner is profile data (S8): it belongs in a new profile version's stage
-`tie_break.chain`, not in engine code. See X-1 for programs already locked to `@1` / `@3`.
+The owner adopted steps (1)–(3) as **DanceFlow Studio rules**. They resemble steps of the Skating System, but
+DanceFlow makes **no Skating System, NDCA or UCWDC compliance claim**. The chain is the same for every program using
+`ordinal_majority@1`; it is engine `@1` default behavior (X-1 option (a)), and the `@3` profile's empty
+`tie_break.chain` is not read for this engine. A different chain ships as `ordinal_majority@2`.
 
 ## 7. Invalid-input handling
 
@@ -149,14 +147,14 @@ mirrored by the K0 contract owner; this spec does not edit `contract.ts`).
 | V4 | A mark from an official not in `judges[]` | invalid `official_not_on_panel` | S4, K0 §9 #2 |
 | V5 | A mark for an entry not in `entries[]` | invalid `entry_not_in_round` | K0 §9 #3 |
 | V6 | More than one mark for the same (judge, entry) | invalid `duplicate_mark` | S2 (one current ballot) |
-| V7 | A judge has no mark for some entry | invalid `incomplete_ballot` (pending **D-OM-5**) | NOT SPECIFIED |
-| V8 | Mark not an integer, < 1 or > N | invalid `mark_out_of_range` (pending **D-OM-5**) | NOT SPECIFIED |
-| V9 | Two entries share an ordinal on one ballot | invalid `judge_tie` until **D-OM-4** | NOT SPECIFIED |
+| V7 | A judge does not rank every calculated entry (full ranking required, **D-OM-5** approved 2026-10-24) | invalid `incomplete_ballot` | D-OM-5 |
+| V8 | Mark not an integer, < 1 or > N (each value 1…N used once) | invalid `mark_out_of_range` | D-OM-5 |
+| V9 | Two entries share an ordinal on one ballot (**D-OM-4** approved 2026-10-24: not allowed) | invalid `judge_tie` | D-OM-4 |
 | V10 | An assigned judge has no ballot at all | handled before the engine by the lock step (K0 O1); if it reaches the engine: `COMP_ENGINE_UNSPECIFIED_CASE` | K0 O1 |
 | V11 | Heats of the round do not all have the same panel | `COMP_ENGINE_UNSPECIFIED_CASE` (**X-7**, approved 2026-10-24). How rankings in different heats of one round combine is not covered by X-7 and stays NOT SPECIFIED (fail closed) | X-7 |
 | V12 | Input spans more than one dance | The engine is run once per dance (**X-6**, approved 2026-10-24); a combined result across dances is not supported and fails closed (`COMP_ENGINE_UNSPECIFIED_CASE`) | X-6 |
-| V13 | A scratched / no-show entry (10D) is in `entries[]` | Excluded from the calculation before ranking and recorded in the trace (**X-5**, approved 2026-10-24); never placed last. A ballot that still ranks an excluded entry is handled per D-OM-5 (complete rankings, open) | X-5 |
-| V14 | Any unresolved tie (§6) | `COMP_ENGINE_UNSPECIFIED_CASE` until **D-OM-3** | S6 |
+| V13 | A scratched / no-show entry (10D) is in `entries[]` | Excluded from the calculation before ranking and recorded in the trace (**X-5**, approved 2026-10-24); never placed last. A ballot that still ranks an excluded entry is no longer a full 1…N ranking (D-OM-5, approved), so V7/V8 reject it until a corrected ballot version is entered | X-5 |
+| V14 | Entries still tied after chain step (3) | Not a failure: they share the placement (`tie_group`) per **D-OM-3** | D-OM-3 |
 
 ## 8. Determinism and trace
 
@@ -172,10 +170,10 @@ mirrored by the K0 contract owner; this spec does not edit `contract.ts`).
 1. `engine` — key, version, spec reference (`engine-spec-ordinal-majority.md` at the approving commit).
 2. `inputs` — profile key/version, round id/type, judge letters, entry ids, the full mark table.
 3. `validation` — each check V1…V14 with pass/fail.
-4. `combine` — per place `p`: the working table of the chosen D-OM-1 option (e.g. per entry, per cutoff, the count
+4. `combine` — per place `p`: for each unplaced entry and each cutoff `c`, the count of judges marking it `≤ c` against `m`, and the qualifiers at the chosen cutoff (for example per entry, per cutoff, the count of judges `≤ c`).
    of judges `≤ c`; or per entry, the ordinal total).
 5. `tie_break` — every invocation: tied entries, the chain position applied, its working, its outcome.
-6. `result` — final placements (and `tie_group` if allowed).
+6. `result` — final placements (`tie_group` for shared placements, with the skipped numbering).
 7. On failure: `failure` — the code, reason and the offending ids. No `result` record.
 
 ## 9. Worked examples (golden-fixture candidates)
@@ -195,48 +193,56 @@ decides the referenced decisions; its expected output is then frozen with the sp
 
 Expected (all options): 11 → 1, 12 → 2, 13 → 3, 14 → 4. Directly satisfies S6.
 
-**F-OM-02 — the candidate options disagree.**
+**F-OM-02 — majority at the lowest cutoff (OM-A).** `J = 3`, `m = 2`.
 
-| Entry | J1 | J2 | J3 | Total |
+| Entry | J1 | J2 | J3 |
+|---|---|---|---|
+| 11 | 1 | 1 | 4 |
+| 12 | 2 | 2 | 1 |
+| 13 | 3 | 3 | 2 |
+| 14 | 4 | 4 | 3 |
+
+- Place 1, cutoff 1: 11 has 2 judges ≤ 1 (J1, J2); 12 has 1; 13, 14 have 0 → 11 alone qualifies → **1st**.
+- Place 2, cutoff 2: 12 has 3 (2, 2, 1); 13 has 1 (J3's 2); 14 has 0 → 12 alone → **2nd**.
+- Place 3, cutoff 3: 13 has 3 (3, 3, 2); 14 has 1 (J3's 3) → 13 alone → **3rd**. Place 4, cutoff 4: 14 has 3 → **4th**.
+- Expected: **11 → 1, 12 → 2, 13 → 3, 14 → 4.** A lowest-total ordering (totals 12 = 5, 11 = 6) would put 12 first;
+  that rule (OM-B) is not adopted.
+
+**F-OM-03 — circular preferences (full tie).** `J = 3`, `m = 2`.
+
+| Entry | J1 | J2 | J3 |
+|---|---|---|---|
+| 11 | 1 | 3 | 2 |
+| 12 | 2 | 1 | 3 |
+| 13 | 3 | 2 | 1 |
+
+- Place 1, cutoff 1: each entry has 1 judge ≤ 1 (< 2) → none.
+- Cutoff 2: 11 has 2 (J1's 1, J3's 2); 12 has 2 (J1's 2, J2's 1); 13 has 2 (J2's 2, J3's 1) → all three qualify.
+- Chain (1): 2, 2, 2 → tied. Chain (2): sums of ordinals ≤ 2: 11 = 1+2 = 3; 12 = 2+1 = 3; 13 = 2+1 = 3 → tied.
+- Chain (3): the three entries share the placement.
+- Expected: **11 → 1, 12 → 1, 13 → 1** (one `tie_group`).
+
+**F-OM-04 — four judges (reachable only through X-4 panel reduction; see note).** `J = 4`, `m = floor(4/2) + 1 = 3`.
+
+| Entry | J1 | J2 | J3 | J4 |
 |---|---|---|---|---|
-| 11 | 1 | 1 | 4 | 6 |
-| 12 | 2 | 2 | 1 | 5 |
-| 13 | 3 | 3 | 2 | 8 |
-| 14 | 4 | 4 | 3 | 11 |
+| 11 | 1 | 1 | 2 | 3 |
+| 12 | 2 | 2 | 1 | 1 |
+| 13 | 3 | 3 | 3 | 2 |
 
-- OM-A (m = 2 of 3): place 1, cutoff 1: 11 has 2 judges → 11 first. Place 2, cutoff 2: 12 has 3 → 12 second.
-  Place 3, cutoff 3: 13 has 3, 14 has 1 → 13 third. 14 fourth. **11, 12, 13, 14.**
-- OM-B: totals 5, 6, 8, 11 → **12, 11, 13, 14.**
+- Place 1, cutoff 1: 11 has 2 (J1, J2); 12 has 2 (J3, J4); 13 has 0 → none reaches 3.
+- Cutoff 2: 11 has 3 (1, 1, 2); 12 has 4 (2, 2, 1, 1); 13 has 1 (J4's 2) → 11 and 12 qualify.
+- Chain (1): 12 has 4 judges ≤ 2, 11 has 3 → **12 places higher.** Ordered: 12 → place 1, 11 → place 2.
+- Place 3, cutoff 3: 13 has 4 (3, 3, 3, 2) ≥ 3 → **3rd**.
+- Expected: **12 → 1, 11 → 2, 13 → 3.**
+- Note: X-3 (approved) requires an odd panel of at least 3, and X-4 requires a reduced panel to satisfy X-3, so an
+  even panel is not accepted input today. This fixture records the arithmetic for `m = 3` as the owner asked; the
+  engine would refuse the input (V3) unless the owner relaxes X-3/X-4. The conflict between "only reachable through
+  X-4 reduction" and X-3 is raised with the coordinator.
 
-This fixture exists so the owner sees that D-OM-1 changes who wins.
-
-**F-OM-03 — circular preferences (full tie).**
-
-| Entry | J1 | J2 | J3 | Total |
-|---|---|---|---|---|
-| 11 | 1 | 3 | 2 | 6 |
-| 12 | 2 | 1 | 3 | 6 |
-| 13 | 3 | 2 | 1 | 6 |
-
-- OM-A: cutoff 1 — every entry has 1 judge (no majority); cutoff 2 — every entry has 2 → three-way tie.
-- OM-B: all totals 6 → three-way tie.
-- Expected (all options, until D-OM-3): `COMP_ENGINE_UNSPECIFIED_CASE`, trace shows the tie.
-
-**F-OM-04 — even panel (INVALID INPUT under X-3; kept only to show what D-OM-2 changes).** Expected today: `COMP_ENGINE_UNSPECIFIED_CASE` (V3). The rest of this fixture is the arithmetic for each D-OM-2 option if the owner ever allows an even panel.
-
-| Entry | J1 | J2 | J3 | J4 | Total |
-|---|---|---|---|---|---|
-| 11 | 1 | 1 | 2 | 3 | 7 |
-| 12 | 2 | 2 | 1 | 1 | 6 |
-| 13 | 3 | 3 | 3 | 2 | 11 |
-
-- OM-A with m = 3 (more than half of 4): cutoff 1 — 11 has 2, 12 has 2 (none); cutoff 2 — 11 has 3, 12 has 4 →
-  two entries qualify → tie-break chain → `COMP_ENGINE_UNSPECIFIED_CASE` until D-OM-3.
-- OM-B: totals 6, 7, 11 → **12, 11, 13.**
-- Depends on D-OM-2 (majority meaning). Even panels are not allowed (X-3, approved), so the 4-judge fixture above is not a valid input; it only illustrates D-OM-2.
-
-**F-OM-05 — one entry.** One entry 11, J1–J3 all mark 1. Expected (all options): 11 → 1. Whether a one-entry
-final is awarded is a results/awards question, not an engine one.
+**F-OM-05 — one entry.** One entry 11, J1–J3 all mark 1 (a full ranking of one entry, D-OM-5). `m = 2`. Place 1,
+cutoff 1: 11 has 3 judges ≥ 2 → **11 → 1.** Whether a one-entry final is awarded is a results/awards question, not
+an engine one.
 
 **F-OM-06 — one judge.** J1 marks 11 = 1, 12 = 2, 13 = 3. Expected: `COMP_ENGINE_UNSPECIFIED_CASE` (V3): X-3 (approved) requires at least 3 judges and an odd panel.
 
@@ -244,17 +250,48 @@ final is awarded is a results/awards question, not an engine one.
 
 | Case | Change | Expected |
 |---|---|---|
-| a | J2 marks 11 = 1 and 12 = 1 | `judge_tie` (V9) until D-OM-4 |
-| b | J3 has no mark for 14 | `incomplete_ballot` (V7) |
-| c | J1 marks 14 = 5 (4 entries) / 0 / 2.5 | `mark_out_of_range` (V8) |
+| a | J2 marks 11 = 1 and 12 = 1 | `judge_tie` (V9, D-OM-4 approved) |
+| b | J3 has no mark for 14 | `incomplete_ballot` (V7, D-OM-5 approved) |
+| c | J1 marks 14 = 5 (4 entries) / 0 / 2.5 | `mark_out_of_range` (V8, D-OM-5 approved) |
 | d | A mark for entry 99 not in the round | `entry_not_in_round` (V5) |
 | e | A mark from official J9 not on the panel | `official_not_on_panel` (V4) |
 | f | J1 appears twice for entry 11 | `duplicate_mark` (V6) |
 | g | `mark_scheme.input = medal_marks` | `scheme_mismatch` (V2) |
 | h | Heats 1 and 2 have different panels | `COMP_ENGINE_UNSPECIFIED_CASE` (V11, X-7 approved). Same panel in both heats: how rankings combine is not specified (fail closed) |
-| i | Entry 14 is marked scratched in 10D | Excluded before ranking, noted in the trace (V13, X-5 approved); remaining entries are ranked per D-OM-5 |
+| i | Entry 14 is marked scratched in 10D | Excluded before ranking, noted in the trace (V13, X-5 approved); J1–J3 ballots that still rank 14 are no longer a full 1…3 ranking, so V7/V8 reject them until corrected by a new ballot version (the engine never renumbers) |
 
 **F-OM-08 — determinism.** F-OM-02 input with the `marks[]` array shuffled → identical output and trace hash.
+
+**F-OM-09 — shared placement skips the number.** `J = 3`, `m = 2`.
+
+| Entry | J1 | J2 | J3 |
+|---|---|---|---|
+| 11 | 1 | 2 | 4 |
+| 12 | 2 | 1 | 3 |
+| 13 | 3 | 3 | 1 |
+| 14 | 4 | 4 | 2 |
+
+- Cutoff 1: 11, 12, 13 have 1 judge each; 14 has 0 → none. Cutoff 2: 11 has 2 (J1's 1, J2's 2); 12 has 2 (J1's 2,
+  J2's 1); 13 has 1; 14 has 1 → 11 and 12 qualify.
+- Chain (1): 2 and 2 → tied. Chain (2): sums of ordinals ≤ 2: 11 = 1+2 = 3; 12 = 2+1 = 3 → tied. Chain (3): share.
+- 11 and 12 share 1st (they used places 1 and 2). Place 3, cutoff 3: 13 has 3 (3, 3, 1) ≥ 2; 14 has 1 → 13 **3rd**;
+  14 **4th**.
+- Expected: **11 → 1, 12 → 1, 13 → 3, 14 → 4** (the same skip rule gives 2, 2, 4 for a tie at 2nd).
+
+**F-OM-10 — chain step (2) decides.** `J = 3`, `m = 2`.
+
+| Entry | J1 | J2 | J3 |
+|---|---|---|---|
+| 11 | 1 | 2 | 3 |
+| 12 | 2 | 3 | 2 |
+| 13 | 3 | 4 | 1 |
+| 14 | 4 | 1 | 4 |
+
+- Cutoff 1: 11 has 1 (J1); 12 has 0; 13 has 1 (J3); 14 has 1 (J2) → none.
+- Cutoff 2: 11 has 2 (1, 2); 12 has 2 (J1's 2, J3's 2); 13 has 1; 14 has 1 → 11 and 12 qualify.
+- Chain (1): 2 and 2 → tied. Chain (2): 11 = 1+2 = 3; 12 = 2+2 = 4 → **11 places higher.** 11 → place 1, 12 → place 2.
+- Place 3, cutoff 3: 13 has 2 (J1's 3, J3's 1); 14 has 1 → 13 **3rd**; 14 **4th**.
+- Expected: **11 → 1, 12 → 2, 13 → 3, 14 → 4.**
 
 ## 10. Owner decisions needed
 
@@ -262,13 +299,13 @@ Engine-specific:
 
 | ID | Question | Candidates (no recommendation, see §0) | Until decided |
 |---|---|---|---|
-| D-OM-1 | How are judges' ordinals combined into placements? | OM-A majority at the lowest cutoff; OM-B lowest ordinal total; other | Engine not available (`COMP_ENGINE_NOT_AVAILABLE`) |
-| D-OM-2 | What is a "majority" (the word is in the locked key, S1), especially on an even panel? | more than half of judges; at least half; other | as D-OM-1 |
-| D-OM-3 | Tie-break chain (empty in `@3`), and what happens when it is exhausted | ordered list of rules the owner states; then shared placement (`tie_group`) or manager decision or fail closed | Any tie fails closed |
-| D-OM-4 | May a judge give two entries the same ordinal? If yes, how does it count? | not allowed (ballot UI blocks it); allowed with a stated rule | Rejected (`judge_tie`) |
-| D-OM-5 | Must every judge rank every entry, 1…N, each value once? | yes; partial rankings allowed with a stated rule | Rejected |
+| D-OM-1 | How are judges' ordinals combined into placements? | **APPROVED 2026-10-24 (Stage 3): OM-A**, majority at the lowest cutoff, exactly as §5 defines it. OM-B (lowest ordinal total) is not adopted. | Rule (approved) |
+| D-OM-2 | What is a "majority"? | **APPROVED 2026-10-24: strict majority**, `m = floor(J/2) + 1` (more than half of the judges). | Rule (approved) |
+| D-OM-3 | Tie-break chain, and what happens when it is exhausted | **APPROVED 2026-10-24** (adopted as DanceFlow Studio rules, §6): (1) more judges marking the entry ≤ c; (2) lower sum of its ordinals ≤ c; (3) share the placement (`tie_group`). **D-OM-3b:** after a shared placement the numbering skips (2, 2, 4). | Rule (approved) |
+| D-OM-4 | May a judge give two entries the same ordinal? | **APPROVED 2026-10-24: no.** The ballot blocks it; the engine rejects it (`judge_tie`). | Rule (approved) |
+| D-OM-5 | Must every judge rank every entry, 1…N, each value once? | **APPROVED 2026-10-24: yes**, a full ranking is required. | Rule (approved) |
 
-Cross-cutting X-1…X-7 (same IDs in all three specs): **APPROVED by the owner 2026-10-24 ("Approve K1 Stage 1 (X-1..X-7) as recommended")**. Every D-OM / D-PR / D-CT item remains open.
+Cross-cutting X-1…X-7 (same IDs in all three specs): **APPROVED by the owner 2026-10-24 ("Approve K1 Stage 1 (X-1..X-7) as recommended")**. D-OM items: see the table above (Stage 3, approved).
 
 | ID | Rule | Status |
 |---|---|---|
