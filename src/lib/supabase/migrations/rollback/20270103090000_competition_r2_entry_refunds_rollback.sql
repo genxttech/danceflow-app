@@ -21,7 +21,7 @@ declare
 begin
   for v_pin in
     select * from (values
-      ('public.sync_competition_entries_from_registration()', '95e9cd2a2ad791b9ea1fdd03c17594dd'),
+      ('public.sync_competition_entries_from_registration()', '3a19d4b44ecf7d78e74bee5527caf512'),
       ('public.sync_event_payment_accounting_entry()', '4577dc12f2193f7beb63dd47f5e798e9'),
       ('public._paywh1_exception_money_state(text)', '5469516fd431fe5bdbf6b8c5c0a6859e'),
       ('public.resolve_event_order_settlement_exception(uuid,text)', 'dd85d688d2423eb26aa1873d18852100')
@@ -31,6 +31,9 @@ begin
       raise exception 'R2 rollback preflight: % is not the R2 definition.', v_pin.sig;
     end if;
   end loop;
+  if to_regclass('public.event_competition_scratches') is not null then
+    raise exception 'R2 rollback refused: SC1 (scratch workflow) is still applied; roll SC1 back first (the 10A cascade this rollback restores does not know scratched entries).';
+  end if;
   if exists (select 1 from public.event_order_refunds) then
     raise exception 'R2 rollback refused: refund ledger rows exist (roll back the application first; keep the SQL).';
   end if;
