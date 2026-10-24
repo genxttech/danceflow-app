@@ -19,6 +19,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { evidenceApplied, pilotCoverArgs } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 300_000 });
 
@@ -597,36 +598,36 @@ commit;`);
       age(num.resource_id);
       scan(w);
       const approval = ref("pilot-number-cur");
-      const out = call<{ cover_id: string; amount_cents: number; replayed: boolean }>("tw4_rfl_pilot_cover", num.resource_id, cur(), approval, P);
+      const out = call<{ cover_id: string; amount_cents: number; replayed: boolean }>("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, num.resource_id, cur(), approval, P));
       expect(out).toMatchObject({ amount_cents: PRICE.number, replayed: false });
       expect(psql(`select public._tw4rfl_cover(r, '${cur()}') from public.studio_sms_provider_resources r where r.id = '${num.resource_id}'`)).toBe("covered:pilot_approval");
       // the same approval by the same actor is a replay; the permanent reference can never fund anything else
-      expect(call<{ replayed: boolean }>("tw4_rfl_pilot_cover", num.resource_id, cur(), approval, P).replayed).toBe(true);
+      expect(call<{ replayed: boolean }>("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, num.resource_id, cur(), approval, P)).replayed).toBe(true);
       const camp = register(w, "campaign");
-      expect(hasCode(callErr("tw4_rfl_pilot_cover", camp.resource_id, cur(), approval, P), "TW019")).toBe(true);
+      expect(hasCode(callErr("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, camp.resource_id, cur(), approval, P)), "TW019")).toBe(true);
       expect(Number(psql(`select count(*) from public.studio_sms_approval_refs where studio_id = '${w.studio}' and spend_event_id is not null`))).toBe(1);
       // the campaign approval fits (number + monthly = ceiling), and nothing more does
-      call("tw4_rfl_pilot_cover", camp.resource_id, cur(), ref("pilot-campaign-cur"), P);
+      call("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, camp.resource_id, cur(), ref("pilot-campaign-cur"), P));
       expect(psql(`select sum(amount_cents) from public.studio_sms_credit_reservations where legal_entity_id = '${w.entity}' and funding = 'pilot' and status in ('reserved', 'captured')`)).toBe(String(PRICE.number + PRICE.monthly));
-      expect(hasCode(callErr("tw4_rfl_pilot_cover", num.resource_id, nextKey(), ref("pilot-number-next"), P), "TW007")).toBe(true);
+      expect(hasCode(callErr("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, num.resource_id, nextKey(), ref("pilot-number-next"), P)), "TW007")).toBe(true);
       expect(psql(`select sum(amount_cents) from public.studio_sms_credit_reservations where legal_entity_id = '${w.entity}' and funding = 'pilot' and status in ('reserved', 'captured')`)).toBe(String(PRICE.number + PRICE.monthly));
     });
 
     it("refuses retroactive and far-future periods, a non-pilot business, a cancelled resource, a held or negative account and another actor's replay", () => {
       const w = world({ pilot: true, ceiling: 15000 });
       const num = register(w, "number");
-      expect(hasCode(callErr("tw4_rfl_pilot_cover", num.resource_id, prevKey(), ref("retro"), P), "TW042")).toBe(true);
-      expect(hasCode(callErr("tw4_rfl_pilot_cover", num.resource_id, keyAdd(cur(), 2), ref("far"), P), "TW042")).toBe(true);
-      expect(psqlError(callSql("tw4_rfl_pilot_cover", num.resource_id, "2026-13", ref("badkey"), P))).not.toBe("");
+      expect(hasCode(callErr("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, num.resource_id, prevKey(), ref("retro"), P)), "TW042")).toBe(true);
+      expect(hasCode(callErr("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, num.resource_id, keyAdd(cur(), 2), ref("far"), P)), "TW042")).toBe(true);
+      expect(psqlError(callSql("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, num.resource_id, "2026-13", ref("badkey"), P)))).not.toBe("");
       const normal = world();
       const n2 = register(normal, "number");
-      expect(hasCode(callErr("tw4_rfl_pilot_cover", n2.resource_id, cur(), ref("not-pilot"), P), "TW042")).toBe(true);
+      expect(hasCode(callErr("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, n2.resource_id, cur(), ref("not-pilot"), P)), "TW042")).toBe(true);
       const approval = ref("owner-actor");
-      expect(hasCode(callErr("tw4_rfl_pilot_cover", num.resource_id, cur(), approval, w.owner), "42501")).toBe(true);
-      call("tw4_rfl_pilot_cover", num.resource_id, cur(), approval, P);
-      expect(hasCode(callErr("tw4_rfl_pilot_cover", num.resource_id, cur(), approval, P2), "TW043")).toBe(true);
+      expect(hasCode(callErr("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, num.resource_id, cur(), approval, w.owner)), "42501")).toBe(true);
+      call("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, num.resource_id, cur(), approval, P));
+      expect(hasCode(callErr("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, num.resource_id, cur(), approval, P2)), "TW043")).toBe(true);
       replica(`update public.studio_sms_credit_accounts set hold = true, hold_reason = 'fixture hold for the suite' where legal_entity_id = '${w.entity}';`);
-      expect(hasCode(callErr("tw4_rfl_pilot_cover", num.resource_id, nextKey(), ref("held"), P), "TW007")).toBe(true);
+      expect(hasCode(callErr("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, num.resource_id, nextKey(), ref("held"), P)), "TW007")).toBe(true);
     });
 
     it("the ceiling is cumulative with the provisioning reservations already held (a captured pilot reservation counts)", () => {
@@ -634,9 +635,9 @@ commit;`);
       replica(`insert into public.studio_sms_credit_reservations (legal_entity_id, studio_id, kind, amount_cents, funding, status, reservation_key, closed_at)
         values ('${w.entity}', '${w.studio}', 'brand', 50, 'pilot', 'captured', 'prov:fixture:${RUN}', now());`);
       const num = register(w, "number");
-      call("tw4_rfl_pilot_cover", num.resource_id, cur(), ref("fits-exactly"), P);
+      call("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, num.resource_id, cur(), ref("fits-exactly"), P));
       const camp = register(w, "campaign");
-      expect(hasCode(callErr("tw4_rfl_pilot_cover", camp.resource_id, cur(), ref("exceeds"), P), "TW007")).toBe(true);
+      expect(hasCode(callErr("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, camp.resource_id, cur(), ref("exceeds"), P)), "TW007")).toBe(true);
     });
   });
 
@@ -935,7 +936,7 @@ commit;`);
       const p = world({ pilot: true });
       const num = register(p, "number");
       register(p, "campaign");
-      call("tw4_rfl_pilot_cover", num.resource_id, cur(), ref("ready-cur"), P);
+      call("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, num.resource_id, cur(), ref("ready-cur"), P));
       expect(call<{ blockers: string[] }>("tw4_rfl_studio_ready", p.studio).blockers).toContain("number_next_period_uncovered");
     });
 
@@ -991,7 +992,7 @@ commit;`);
         expect((res.stderr.match(/permission denied/g) ?? []).length).toBe(tables.length * 2);
       }
       const pub = ["tw4_rfl_scan_entity(uuid)", "tw4_rfl_register(uuid, uuid, text, text, text, text, text, uuid, uuid)", "tw4_rfl_cancel_authorize(uuid, uuid, text, text, text, boolean)",
-        "tw4_rfl_pilot_cover(uuid, text, text, uuid)", "tw4_rfl_alerts_claim(int)", "tw4_rfl_admin_overview(uuid)"];
+        (evidenceApplied(psql) ? "tw4_rfl_pilot_cover(uuid, text, text, uuid, date, text, text, int, text, text, text)" : "tw4_rfl_pilot_cover(uuid, text, text, uuid)"), "tw4_rfl_alerts_claim(int)", "tw4_rfl_admin_overview(uuid)"];
       const internal = ["_tw4rfl_cover(public.studio_sms_provider_resources, text)", "_tw4rfl_gate_suspended(uuid)", "_tw4rfl_alert(uuid, uuid, uuid, text, text, text, text, text)", "_tw4rfl_audit(uuid, uuid, text, text)", "_tw4rfl_lock(uuid)", "_tw4rc_service_state(uuid)"];
       const roles = ["anon", "authenticated", "service_role"];
       const rows: Array<[string, string, boolean]> = [];
@@ -1069,7 +1070,7 @@ commit;`);
     it("parallel pilot approvals for the same period leave exactly one cover and one reservation (the ceiling is never exceeded)", async () => {
       const w = world({ pilot: true, ceiling: PRICE.number * 3 });
       const num = register(w, "number");
-      const results = await Promise.all([1, 2, 3, 4].map((i) => psqlAsync(callSql("tw4_rfl_pilot_cover", num.resource_id, cur(), ref(`pilot-race-${i}`), P))));
+      const results = await Promise.all([1, 2, 3, 4].map((i) => psqlAsync(callSql("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, num.resource_id, cur(), ref(`pilot-race-${i}`), P)))));
       expect(results.filter((r) => r.err === "")).toHaveLength(1);
       expect(Number(psql(`select count(*) from public.studio_sms_provider_cover where resource_id = '${num.resource_id}' and period_key = '${cur()}'`))).toBe(1);
       expect(psql(`select coalesce(sum(amount_cents), 0) from public.studio_sms_credit_reservations where legal_entity_id = '${w.entity}' and funding = 'pilot' and status in ('reserved', 'captured')`)).toBe(String(PRICE.number));
@@ -1453,7 +1454,7 @@ commit;`);
       // the pilot business funds recurring kinds by approval (funding 'pilot'): not blocked
       const p = world({ pilot: true, ceiling: 15000 });
       const num = register(p, "number");
-      expect(call<{ amount_cents: number }>("tw4_rfl_pilot_cover", num.resource_id, cur(), ref("pilot-oneoff-ok"), P).amount_cents).toBe(PRICE.number);
+      expect(call<{ amount_cents: number }>("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, num.resource_id, cur(), ref("pilot-oneoff-ok"), P)).amount_cents).toBe(PRICE.number);
     });
   });
 
@@ -1593,6 +1594,8 @@ commit;`);
         sh(`pg_dump -U postgres -s --no-owner ${DB} | psql -U postgres -d ${scratch} -q > /dev/null 2>&1; true`);
         const run = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-d", scratch, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
         expect(run(`select to_regclass('public.studio_sms_provider_resources') is not null`)).toBe("t");
+        // 20261229 (pilot evidence) replaced tw4_rfl_pilot_cover with the eleven-argument form: on a database that carries it, it is rolled back first (this copy has no evidence rows)
+        if (evidenceApplied(psql)) run(readFileSync(join(process.cwd(), "src/lib/supabase/migrations/rollback/20261229090000_twilio_rfl_pilot_evidence_rollback.sql"), "utf8"));
         // the cancellation-target read (20261224) adds tw4_rfl_cancel_target, which the leftover-function check below would count: it is rolled back first, in strict reverse order
         run(readFileSync(join(process.cwd(), "src/lib/supabase/migrations/rollback/20261224090000_twilio_rfl_cancel_target_rollback.sql"), "utf8"));
         // the R2b integration migration (20261217) replaces three of this one's functions and adds the system registration core: it is rolled back first
