@@ -72,6 +72,9 @@ create table public.event_competition_ballots (
   -- null = a round-level ballot (callback_tally: exactly T couples across the whole round, K1 D-CT-2)
   heat_id uuid,
   official_id uuid not null,
+  -- Ballot FORMAT (independent of scoring method / engine): marks are validated against it. Versioned, open set.
+  ballot_format text not null,
+  ballot_format_version integer not null,
   version integer not null,
   source text not null,
   submitted_by uuid not null,
@@ -92,6 +95,7 @@ create table public.event_competition_ballots (
     foreign key (supersedes_id, event_id) references public.event_competition_ballots(id, event_id),
   constraint event_competition_ballots_source_check check (source in ('judge_web', 'scorer_paper')),
   constraint event_competition_ballots_version_check check (version >= 1),
+  constraint event_competition_ballots_format_check check (ballot_format ~ '^[a-z][a-z0-9_]{1,63}$' and ballot_format_version >= 1),
   constraint event_competition_ballots_chain_check check (
     (supersedes_id is null and version = 1 and correction_reason is null)
     or (supersedes_id is not null and version > 1 and length(btrim(coalesce(correction_reason, ''))) between 1 and 500)
@@ -220,6 +224,41 @@ begin
   end loop;
 end $$;
 
+-- Ballot format registry (SQL mirror of src/lib/competition/ballots/formats.ts). The set is open: a new format is one row
+-- here plus a validator; ballots and marks storage do not change. A format is usable only when approved.
+create function public._compe2_format_for_scoring(p_scoring text)
+returns table(format text, version integer)
+language sql
+immutable
+as $$
+  select f.format, f.version from (values
+    ('ordinal_majority', 'ordinal_rank', 1),
+    ('callback_tally', 'callback_yes', 1),
+    ('proficiency_rating', 'three_band', 1)) f(scoring, format, version)
+  where f.scoring = p_scoring;
+$$;
+revoke all on function public._compe2_format_for_scoring(text) from public, anon, authenticated;
+
+-- Owner-approved formats only. three_band@1 (Gold/Silver/Bronze) is NOT approved: ballots in it fail closed.
+create function public._compe2_format_approved(p_format text, p_version integer)
+returns boolean
+language sql
+immutable
+as $$
+  select (p_format, p_version) in (('ordinal_rank', 1), ('callback_yes', 1));
+$$;
+revoke all on function public._compe2_format_approved(text, integer) from public, anon, authenticated;
+
+-- 'round' = one ballot per judge for the whole round (heat_id null); 'heat' = one per judge and heat.
+create function public._compe2_format_scope(p_format text)
+returns text
+language sql
+immutable
+as $$
+  select case when p_format = 'callback_yes' then 'round' else 'heat' end;
+$$;
+revoke all on function public._compe2_format_scope(text) from public, anon, authenticated;
+
 -- Ballot insert guard: round active, heat belongs to the round, correction chain is well-formed. Defence in depth for the RPCs.
 create function public._compe2_guard_ballot_insert()
 returns trigger
@@ -243,11 +282,14 @@ begin
       coalesce(v_status, 'missing') using errcode = 'P0001';
   end if;
 
+  if not public._compe2_format_approved(new.ballot_format, new.ballot_format_version) then
+    raise exception 'COMP_BALLOT_FORMAT_NOT_APPROVED: ballot format %@% is not approved; ballots fail closed.', new.ballot_format, new.ballot_format_version using errcode = 'P0001';
+  end if;
   if new.heat_id is null then
-    if (select r.scoring_method from public.event_competition_rounds r where r.id = new.round_id) is distinct from 'callback_tally' then
-      raise exception 'COMP_BALLOT_HEAT_INVALID: only callback rounds take a round-level ballot.' using errcode = 'P0001';
+    if public._compe2_format_scope(new.ballot_format) <> 'round' then
+      raise exception 'COMP_BALLOT_HEAT_INVALID: only round-level formats take a round-level ballot.' using errcode = 'P0001';
     end if;
-  elsif (select r.scoring_method from public.event_competition_rounds r where r.id = new.round_id) = 'callback_tally'
+  elsif public._compe2_format_scope(new.ballot_format) = 'round'
         or not exists (select 1 from public.event_competition_heats h
                        where h.id = new.heat_id and h.event_id = new.event_id and h.round_id = new.round_id) then
     raise exception 'COMP_BALLOT_HEAT_INVALID: the heat does not belong to the round (callback ballots are round-level).' using errcode = 'P0001';
@@ -260,7 +302,7 @@ begin
 
   if new.supersedes_id is not null then
     select * into v_prior from public.event_competition_ballots b where b.id = new.supersedes_id and b.event_id = new.event_id;
-    if not found or v_prior.heat_id is distinct from new.heat_id or v_prior.official_id <> new.official_id
+    if not found or v_prior.heat_id is distinct from new.heat_id or (v_prior.ballot_format, v_prior.ballot_format_version) is distinct from (new.ballot_format, new.ballot_format_version) or v_prior.official_id <> new.official_id
        or v_prior.round_id <> new.round_id or new.version <> v_prior.version + 1 then
       raise exception 'COMP_BALLOT_IMMUTABLE: a correction must supersede the same judge''s latest ballot for the same heat (version + 1).'
         using errcode = 'P0001';
@@ -400,7 +442,7 @@ revoke all on function public._compe2_is_absent(uuid, uuid) from public, anon, a
 
 -- Mark validation, mirrored by src/lib/competition/ballots/schemes.ts (first error in the same order).
 -- Returns the normalized marks: [{entry_id, value}] in entry order.
-create function public._compe2_validate_marks(p_scoring text, p_expected uuid[], p_marks jsonb)
+create function public._compe2_validate_marks(p_format text, p_expected uuid[], p_marks jsonb)
 returns jsonb
 language plpgsql
 stable
@@ -417,11 +459,11 @@ declare
   v_num numeric;
   v_id uuid;
 begin
-  if p_scoring = 'callback_tally' then
+  if p_format = 'callback_yes' then
     raise exception 'COMP_BALLOT_HEAT_INVALID: callback ballots are round-level; they are validated by _compe2_validate_callback.' using errcode = 'P0001';
   end if;
-  if p_scoring is distinct from 'ordinal_majority' and p_scoring is distinct from 'proficiency_rating' then
-    raise exception 'COMP_BALLOT_SCORING_METHOD_UNSUPPORTED: no ballot scheme for scoring method "%".', coalesce(p_scoring, 'null')
+  if p_format is distinct from 'ordinal_rank' and p_format is distinct from 'three_band' then
+    raise exception 'COMP_BALLOT_SCORING_METHOD_UNSUPPORTED: no validator for ballot format "%".', coalesce(p_format, 'null')
       using errcode = 'P0001';
   end if;
   if v_n = 0 then
@@ -455,11 +497,11 @@ begin
   foreach v_id in array p_expected loop
     if not (v_seen ? v_id::text) then
       raise exception 'COMP_BALLOT_INCOMPLETE: entry % has no mark (every entry on the heat needs one; K1 %).', v_id,
-        case when p_scoring = 'ordinal_majority' then 'D-OM-5' else 'D-PR-5' end using errcode = 'P0001';
+        case when p_format = 'ordinal_rank' then 'D-OM-5' else 'D-PR-5' end using errcode = 'P0001';
     end if;
   end loop;
 
-  if p_scoring = 'ordinal_majority' then
+  if p_format = 'ordinal_rank' then
     foreach v_id in array p_expected loop
       v_val := v_seen -> v_id::text;
       if jsonb_typeof(v_val) <> 'number' then
@@ -485,7 +527,7 @@ begin
 
   foreach v_id in array p_expected loop
     v_val := v_seen -> v_id::text;
-    if p_scoring = 'ordinal_majority' then
+    if p_format = 'ordinal_rank' then
       v_val := to_jsonb(((v_val #>> '{}')::numeric)::integer);
     end if;
     v_out := v_out || jsonb_build_array(jsonb_build_object('entry_id', v_id, 'value', v_val));
@@ -636,6 +678,7 @@ set search_path = public, pg_temp
 as $$
 declare
   v_scoring text;
+  v_format text;
   v_heats jsonb;
   v_open jsonb;
   v_missing jsonb;
@@ -646,12 +689,13 @@ declare
   v_panel_ok boolean;
 begin
   select r.scoring_method into v_scoring from public.event_competition_rounds r where r.id = p_round_id;
+  select f.format into v_format from public._compe2_format_for_scoring(v_scoring) f;
   select coalesce(jsonb_agg(h.heat_id order by h.heat_number), '[]'::jsonb) into v_heats from public._compe2_round_heats(p_round_id) h;
   select coalesce(jsonb_agg(h.heat_id order by h.heat_number), '[]'::jsonb) into v_open
   from public._compe2_round_heats(p_round_id) h where h.lock_state = 'open';
   select count(*), count(*) filter (where not public._compe2_is_absent(p_round_id, j.official_id))
     into v_judges, v_present from public._compe2_round_judges(p_round_id) j;
-  if v_scoring = 'callback_tally' then
+  if public._compe2_format_scope(v_format) = 'round' then
     -- One current round-level ballot per present judge (K1 D-CT-2), not one per heat.
     select coalesce(jsonb_agg(jsonb_build_object('official_id', j.official_id, 'judge_letter', j.judge_letter, 'heat_id', null)
                               order by j.judge_letter), '[]'::jsonb)
@@ -700,6 +744,8 @@ declare
   v_marks jsonb;
   v_ballot public.event_competition_ballots;
   v_version integer := 1;
+  v_format text;
+  v_format_version integer;
   v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
 begin
   if p_request_id is null then
@@ -725,7 +771,14 @@ begin
     raise exception 'COMP_BALLOT_ROUND_NOT_ACTIVE: ballots are accepted only while the round is active (round status: %).', v_round.status
       using errcode = 'P0001';
   end if;
-  if v_round.scoring_method = 'callback_tally' then
+  select f.format, f.version into v_format, v_format_version from public._compe2_format_for_scoring(v_round.scoring_method) f;
+  if v_format is null then
+    raise exception 'COMP_BALLOT_SCORING_METHOD_UNSUPPORTED: no ballot format for scoring method "%".', v_round.scoring_method using errcode = 'P0001';
+  end if;
+  if not public._compe2_format_approved(v_format, v_format_version) then
+    raise exception 'COMP_BALLOT_FORMAT_NOT_APPROVED: ballot format %@% is not approved yet; ballots fail closed.', v_format, v_format_version using errcode = 'P0001';
+  end if;
+  if public._compe2_format_scope(v_format) = 'round' then
     if p_heat_id is not null then
       raise exception 'COMP_BALLOT_HEAT_INVALID: callback ballots are round-level; do not name a heat.' using errcode = 'P0001';
     end if;
@@ -736,11 +789,11 @@ begin
     raise exception 'COMP_BALLOT_JUDGE_ABSENT: the judge is recorded absent for this round; record them present first.' using errcode = 'P0001';
   end if;
 
-  if v_round.scoring_method = 'callback_tally' then
+  if public._compe2_format_scope(v_format) = 'round' then
     v_marks := public._compe2_validate_callback(v_round.target_advancement_count, public._compe2_round_entries(p_round_id), p_marks);
   else
     v_expected := public._compe2_heat_entries(p_heat_id);
-    v_marks := public._compe2_validate_marks(v_round.scoring_method, v_expected, p_marks);
+    v_marks := public._compe2_validate_marks(v_format, v_expected, p_marks);
   end if;
 
   select b.* into v_prior
@@ -763,8 +816,8 @@ begin
 
   begin
     insert into public.event_competition_ballots
-      (event_id, round_id, heat_id, official_id, version, source, submitted_by, entered_by_official_id, supersedes_id, correction_reason)
-    values (v_round.event_id, p_round_id, p_heat_id, p_official_id, v_version, p_source, p_actor, p_entered_by,
+      (event_id, round_id, heat_id, official_id, ballot_format, ballot_format_version, version, source, submitted_by, entered_by_official_id, supersedes_id, correction_reason)
+    values (v_round.event_id, p_round_id, p_heat_id, p_official_id, v_format, v_format_version, v_version, p_source, p_actor, p_entered_by,
             case when v_prior.id is null then null else v_prior.id end, v_reason)
     returning * into v_ballot;
   exception when unique_violation then
@@ -778,7 +831,7 @@ begin
   perform public._compe2_audit(v_round.event_id, p_round_id, p_heat_id,
     case when v_version = 1 then 'ballot_submitted' else 'ballot_corrected' end,
     p_actor, p_official_id, v_ballot.id, null, null, p_request_id, v_reason,
-    jsonb_build_object('version', v_version, 'source', p_source, 'entered_by_official_id', p_entered_by, 'marks', jsonb_array_length(v_marks)));
+    jsonb_build_object('version', v_version, 'ballot_format', v_format || '@' || v_format_version, 'source', p_source, 'entered_by_official_id', p_entered_by, 'marks', jsonb_array_length(v_marks)));
 
   return jsonb_build_object('replayed', false, 'ballot_id', v_ballot.id, 'version', v_version, 'source', p_source);
 end;
@@ -943,7 +996,7 @@ begin
   if v_round.id is null or v_official is null then
     raise exception 'COMP_JUDGE_NOT_ASSIGNED: you are not a judge on this round''s panel.' using errcode = '42501';
   end if;
-  if v_round.scoring_method <> 'callback_tally' then
+  if not exists (select 1 from public._compe2_format_for_scoring(v_round.scoring_method) f where f.format = 'callback_yes') then
     raise exception 'COMP_BALLOT_HEAT_INVALID: drafts exist only for callback rounds.' using errcode = 'P0001';
   end if;
   perform public._compe2_lock_pair(p_round_id, v_official);
@@ -1174,7 +1227,8 @@ begin
   return jsonb_build_object(
     'viewer_role', v_role,
     'round', jsonb_build_object('id', v_round.id, 'name', v_round.name, 'status', v_round.status, 'scoring_method', v_round.scoring_method),
-    'scheme_available', v_round.scoring_method in ('ordinal_majority', 'proficiency_rating', 'callback_tally'),
+    'scheme_available', coalesce((select public._compe2_format_approved(f.format, f.version) from public._compe2_format_for_scoring(v_round.scoring_method) f), false),
+    'ballot_format', (select f.format || '@' || f.version from public._compe2_format_for_scoring(v_round.scoring_method) f),
     'callback_target', case when v_round.scoring_method = 'callback_tally' then v_round.target_advancement_count end,
     'callback_entries', case when v_round.scoring_method = 'callback_tally' then coalesce((
       select jsonb_agg(jsonb_build_object('entry_id', e.id, 'entry_number', e.entry_number, 'display_name', e.display_name) order by e.entry_number, e.id)
@@ -1238,7 +1292,8 @@ begin
     'round', jsonb_build_object('id', v_round.id, 'name', v_round.name, 'status', v_round.status, 'scoring_method', v_round.scoring_method),
     'judge_letter', v_letter,
     'absent', public._compe2_is_absent(p_round_id, v_official),
-    'scheme_available', v_round.scoring_method in ('ordinal_majority', 'proficiency_rating', 'callback_tally'),
+    'scheme_available', coalesce((select public._compe2_format_approved(f.format, f.version) from public._compe2_format_for_scoring(v_round.scoring_method) f), false),
+    'ballot_format', (select f.format || '@' || f.version from public._compe2_format_for_scoring(v_round.scoring_method) f),
     'callback', case when v_round.scoring_method = 'callback_tally' then jsonb_build_object(
       'target', v_round.target_advancement_count,
       'eligible', coalesce(array_length(public._compe2_round_entries(p_round_id), 1), 0),

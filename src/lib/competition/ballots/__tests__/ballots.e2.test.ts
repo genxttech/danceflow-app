@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { canonicalBallot, canonicalJson, currentBallots, currentBallotsToEngineMarks, type BallotRecord } from "../canonical";
+import { ballotFormatForScoring, findBallotFormat } from "../formats";
 import { PROVISIONAL_RULES, validateBallot, validateCallbackBallot } from "../schemes";
 
 const E = ["e1", "e2", "e3"];
+const OR = { id: "ordinal_rank", version: 1 };
+const TB = { id: "three_band", version: 1 };
 const codes = (r: ReturnType<typeof validateBallot>) => (r.ok ? [] : r.errors.map((e) => e.code));
 
 describe("ordinal_majority ballots", () => {
   it("accepts a full 1..N ranking and returns marks in entry order", () => {
     const r = validateBallot({
-      scoringMethod: "ordinal_majority",
+      format: OR,
       expectedEntryIds: E,
       marks: [{ entryId: "e3", value: 1 }, { entryId: "e1", value: 3 }, { entryId: "e2", value: 2 }],
     });
@@ -19,7 +22,7 @@ describe("ordinal_majority ballots", () => {
   });
   it("rejects judge ties (D-OM-4)", () => {
     const r = validateBallot({
-      scoringMethod: "ordinal_majority",
+      format: OR,
       expectedEntryIds: E,
       marks: [{ entryId: "e1", value: 1 }, { entryId: "e2", value: 1 }, { entryId: "e3", value: 3 }],
     });
@@ -27,12 +30,12 @@ describe("ordinal_majority ballots", () => {
     if (!r.ok) expect(r.errors.find((e) => e.code === "COMP_BALLOT_JUDGE_TIE")?.decisionId).toBe("D-OM-4");
   });
   it("rejects partial rankings (D-OM-5)", () => {
-    const r = validateBallot({ scoringMethod: "ordinal_majority", expectedEntryIds: E, marks: [{ entryId: "e1", value: 1 }, { entryId: "e2", value: 2 }] });
+    const r = validateBallot({ format: OR, expectedEntryIds: E, marks: [{ entryId: "e1", value: 1 }, { entryId: "e2", value: 2 }] });
     expect(codes(r)).toEqual(["COMP_BALLOT_INCOMPLETE"]);
   });
   it.each([0, 4, 1.5, "1", null, NaN, -1])("rejects out-of-range/non-integer rank %s", (v) => {
     const r = validateBallot({
-      scoringMethod: "ordinal_majority",
+      format: OR,
       expectedEntryIds: E,
       marks: [{ entryId: "e1", value: v }, { entryId: "e2", value: 2 }, { entryId: "e3", value: 3 }],
     });
@@ -40,48 +43,40 @@ describe("ordinal_majority ballots", () => {
   });
   it("rejects duplicate marks, unknown entries and roles", () => {
     const full = [{ entryId: "e1", value: 1 }, { entryId: "e2", value: 2 }, { entryId: "e3", value: 3 }];
-    expect(codes(validateBallot({ scoringMethod: "ordinal_majority", expectedEntryIds: E, marks: [{ entryId: "e1", value: 2 }, ...full] }))).toContain("COMP_BALLOT_DUPLICATE_MARK");
-    expect(codes(validateBallot({ scoringMethod: "ordinal_majority", expectedEntryIds: E, marks: [{ entryId: "zz", value: 1 }, ...full] }))).toContain("COMP_BALLOT_UNKNOWN_ENTRY");
-    expect(codes(validateBallot({ scoringMethod: "ordinal_majority", expectedEntryIds: E, marks: [{ entryId: "e1", role: "leader", value: 1 }, full[1], full[2]] }))).toContain("COMP_BALLOT_ROLE_NOT_ALLOWED");
+    expect(codes(validateBallot({ format: OR, expectedEntryIds: E, marks: [{ entryId: "e1", value: 2 }, ...full] }))).toContain("COMP_BALLOT_DUPLICATE_MARK");
+    expect(codes(validateBallot({ format: OR, expectedEntryIds: E, marks: [{ entryId: "zz", value: 1 }, ...full] }))).toContain("COMP_BALLOT_UNKNOWN_ENTRY");
+    expect(codes(validateBallot({ format: OR, expectedEntryIds: E, marks: [{ entryId: "e1", role: "leader", value: 1 }, full[1], full[2]] }))).toContain("COMP_BALLOT_ROLE_NOT_ALLOWED");
   });
   it("a single-entry heat ranks 1", () => {
-    expect(validateBallot({ scoringMethod: "ordinal_majority", expectedEntryIds: ["e1"], marks: [{ entryId: "e1", value: 1 }] }).ok).toBe(true);
+    expect(validateBallot({ format: OR, expectedEntryIds: ["e1"], marks: [{ entryId: "e1", value: 1 }] }).ok).toBe(true);
   });
 });
 
-describe("proficiency_rating ballots", () => {
-  it("accepts one band per entry", () => {
+describe("three_band@1 (Gold/Silver/Bronze) is not approved", () => {
+  it("fails closed for any marks", () => {
     const r = validateBallot({
-      scoringMethod: "proficiency_rating",
+      format: TB,
       expectedEntryIds: E,
       marks: [{ entryId: "e1", value: "Gold" }, { entryId: "e2", value: "Gold" }, { entryId: "e3", value: "Bronze" }],
     });
-    expect(r.ok).toBe(true);
+    expect(r).toMatchObject({ ok: false, errors: [{ code: "COMP_BALLOT_FORMAT_NOT_APPROVED" }] });
   });
-  it.each(["gold", "G", "No rating", "", 1, null])("rejects %s (D-PR-3, exact labels only)", (v) => {
-    const r = validateBallot({
-      scoringMethod: "proficiency_rating",
-      expectedEntryIds: E,
-      marks: [{ entryId: "e1", value: v }, { entryId: "e2", value: "Silver" }, { entryId: "e3", value: "Silver" }],
-    });
-    expect(codes(r)).toEqual(["COMP_BALLOT_MARK_NOT_IN_SCALE"]);
-  });
-  it("requires every entry (D-PR-5)", () => {
-    expect(codes(validateBallot({ scoringMethod: "proficiency_rating", expectedEntryIds: E, marks: [{ entryId: "e1", value: "Gold" }] }))).toEqual([
-      "COMP_BALLOT_INCOMPLETE",
-      "COMP_BALLOT_INCOMPLETE",
-    ]);
+  it("is registered but not approved; callback_yes and ordinal_rank are approved", () => {
+    expect(findBallotFormat("three_band", 1)?.approved).toBe(false);
+    expect(findBallotFormat("ordinal_rank", 1)?.approved).toBe(true);
+    expect(findBallotFormat("callback_yes", 1)?.approved).toBe(true);
+    expect(ballotFormatForScoring("proficiency_rating")).toEqual({ id: "three_band", version: 1 });
   });
 });
 
 describe("fail-closed schemes", () => {
   it("callback ballots are round-level: the per-heat validator refuses them", () => {
-    const r = validateBallot({ scoringMethod: "callback_tally", expectedEntryIds: E, marks: [{ entryId: "e1", value: true }] });
+    const r = validateBallot({ format: { id: "callback_yes", version: 1 }, expectedEntryIds: E, marks: [{ entryId: "e1", value: true }] });
     expect(r).toMatchObject({ ok: false, errors: [{ code: "COMP_BALLOT_HEAT_INVALID" }] });
   });
-  it("refuses unknown methods and empty heats", () => {
-    expect(codes(validateBallot({ scoringMethod: "relative_placement", expectedEntryIds: E, marks: [] }))).toEqual(["COMP_BALLOT_SCORING_METHOD_UNSUPPORTED"]);
-    expect(codes(validateBallot({ scoringMethod: "ordinal_majority", expectedEntryIds: [], marks: [] }))).toEqual(["COMP_BALLOT_NO_ENTRIES"]);
+  it("refuses unregistered formats and empty heats", () => {
+    expect(codes(validateBallot({ format: { id: "ucwdc_proamm", version: 1 }, expectedEntryIds: E, marks: [] }))).toEqual(["COMP_BALLOT_SCORING_METHOD_UNSUPPORTED"]);
+    expect(codes(validateBallot({ format: OR, expectedEntryIds: [], marks: [] }))).toEqual(["COMP_BALLOT_NO_ENTRIES"]);
   });
   it("every provisional rule names a decision", () => {
     for (const r of PROVISIONAL_RULES) expect(r.decisionId.length).toBeGreaterThan(0);

@@ -9,12 +9,15 @@
  * source for the UI and the unit tests, and the SQL suite pins parity.
  */
 
+import { findBallotFormat } from "./formats";
+
 export const BALLOT_SCORING_METHODS = ["ordinal_majority", "proficiency_rating", "callback_tally"] as const;
 export type BallotScoringMethod = (typeof BALLOT_SCORING_METHODS)[number];
 
 export const PROFICIENCY_SCALE = ["Bronze", "Silver", "Gold"] as const; // S6 studio_simple@3 mark_scheme.scale
 
 export type BallotErrorCode =
+  | "COMP_BALLOT_FORMAT_NOT_APPROVED"
   | "COMP_BALLOT_HEAT_INVALID"
   | "COMP_CALLBACK_TARGET_UNSET"
   | "COMP_CALLBACK_NOT_DANCED"
@@ -64,19 +67,31 @@ const PR_DECISIONS = { scale: "D-PR-3", complete: "D-PR-5" } as const;
  * Studio marks are per entry (S6 `scored_by: entry`): a role on a mark is refused.
  */
 export function validateBallot(input: {
-  scoringMethod: string;
+  /** Ballot format id and version (see formats.ts), not the scoring method. */
+  format: { id: string; version: number };
   expectedEntryIds: readonly string[];
   marks: readonly RawMark[];
 }): BallotValidation {
-  const { scoringMethod, expectedEntryIds, marks } = input;
+  const { format, expectedEntryIds, marks } = input;
+  const scoringMethod = format.id;
+  const registered = findBallotFormat(format.id, format.version);
+  if (!registered) {
+    return { ok: false, errors: [{ code: "COMP_BALLOT_SCORING_METHOD_UNSUPPORTED", detail: `No ballot format ${format.id}@${format.version}.` }] };
+  }
+  if (!registered.approved) {
+    return {
+      ok: false,
+      errors: [{ code: "COMP_BALLOT_FORMAT_NOT_APPROVED", detail: `Ballot format ${format.id}@${format.version} is not approved; ballots fail closed.`, decisionId: registered.decisions.join("/") }],
+    };
+  }
 
-  if (scoringMethod === "callback_tally") {
+  if (scoringMethod === "callback_yes") {
     return {
       ok: false,
       errors: [{ code: "COMP_BALLOT_HEAT_INVALID", detail: "Callback ballots are round-level, not per heat; use validateCallbackBallot." }],
     };
   }
-  if (scoringMethod !== "ordinal_majority" && scoringMethod !== "proficiency_rating") {
+  if (scoringMethod !== "ordinal_rank" && scoringMethod !== "three_band") {
     return {
       ok: false,
       errors: [{ code: "COMP_BALLOT_SCORING_METHOD_UNSUPPORTED", detail: `No ballot scheme for scoring method "${scoringMethod}".` }],
@@ -89,7 +104,7 @@ export function validateBallot(input: {
   const errors: BallotError[] = [];
   const expected = new Set(expectedEntryIds);
   const seen = new Map<string, unknown>();
-  const completeDecision = scoringMethod === "ordinal_majority" ? "D-OM-5" : PR_DECISIONS.complete;
+  const completeDecision = scoringMethod === "ordinal_rank" ? "D-OM-5" : PR_DECISIONS.complete;
 
   for (const m of marks) {
     if (m.role !== undefined && m.role !== null) {
@@ -113,7 +128,7 @@ export function validateBallot(input: {
     }
   }
 
-  if (scoringMethod === "ordinal_majority") {
+  if (scoringMethod === "ordinal_rank") {
     const n = expectedEntryIds.length;
     const byOrdinal = new Map<number, string[]>();
     for (const [entryId, value] of seen) {

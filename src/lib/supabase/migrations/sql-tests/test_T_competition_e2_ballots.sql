@@ -93,7 +93,7 @@ insert into auth.users (id, email) values
   (pg_temp.u('000005'), 't-e2-owner-b@example.test'), (pg_temp.u('000011'), 't-e2-judge1@example.test'),
   (pg_temp.u('000012'), 't-e2-judge2@example.test'), (pg_temp.u('000013'), 't-e2-judge3@example.test'),
   (pg_temp.u('000017'), 't-e2-chair@example.test'), (pg_temp.u('000016'), 't-e2-scorer@example.test'),
-  (pg_temp.u('000018'), 't-e2-scorer2@example.test'), (pg_temp.u('000015'), 't-e2-judge-b@example.test'),
+  (pg_temp.u('000018'), 't-e2-scorer2@example.test'), (pg_temp.u('000014'), 't-e2-judge4@example.test'), (pg_temp.u('000015'), 't-e2-judge-b@example.test'),
   (pg_temp.u('000020'), 't-e2-nobody@example.test');
 insert into public.profiles (id, email, full_name)
 select id, email, 'E2 ' || split_part(email, '@', 1) from auth.users where id::text like '00000000-0000-0000-0000-e20ff2%';
@@ -108,7 +108,7 @@ insert into public.user_studio_roles (user_id, studio_id, role, active) values
   (pg_temp.u('000003'), pg_temp.u('00a001'), 'front_desk', true),
   (pg_temp.u('000005'), pg_temp.u('00b001'), 'studio_owner', true),
   (pg_temp.u('000011'), pg_temp.u('00a001'), 'instructor', true), (pg_temp.u('000012'), pg_temp.u('00a001'), 'instructor', true),
-  (pg_temp.u('000013'), pg_temp.u('00a001'), 'instructor', true), (pg_temp.u('000017'), pg_temp.u('00a001'), 'instructor', true),
+  (pg_temp.u('000013'), pg_temp.u('00a001'), 'instructor', true), (pg_temp.u('000017'), pg_temp.u('00a001'), 'instructor', true), (pg_temp.u('000014'), pg_temp.u('00a001'), 'instructor', true),
   (pg_temp.u('000016'), pg_temp.u('00a001'), 'front_desk', true), (pg_temp.u('000018'), pg_temp.u('00a001'), 'front_desk', true),
   (pg_temp.u('000015'), pg_temp.u('00b001'), 'instructor', true);
 
@@ -126,6 +126,7 @@ insert into public.event_competition_divisions (id, event_id, program_id, contes
   (pg_temp.u('003002'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('002001'), 'D2', 'open'),
   (pg_temp.u('003003'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('002001'), 'D3', 'open'),
   (pg_temp.u('003004'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('002001'), 'D4', 'open'),
+  (pg_temp.u('003005'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('002001'), 'D5', 'open'),
   (pg_temp.u('003009'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('002002'), 'D9', 'open');
 -- r1 ordinal (2 heats), r2 proficiency, r3 callback, r4 ordinal (never started), r9 other studio
 insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method) values
@@ -133,6 +134,7 @@ insert into public.event_competition_rounds (id, event_id, program_id, division_
   (pg_temp.u('006002'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003002'), 'R2 Ratings', 'proficiency', 1, 'draft', 'proficiency_rating'),
   (pg_temp.u('006003'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003003'), 'R3 Callback', 'qualifying', 1, 'draft', 'callback_tally'),
   (pg_temp.u('006004'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003004'), 'R4 Draft', 'final', 1, 'draft', 'ordinal_majority'),
+  (pg_temp.u('006005'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003005'), 'R5 Absent', 'final', 1, 'draft', 'ordinal_majority'),
   (pg_temp.u('006009'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('003009'), 'R9 Other', 'final', 1, 'draft', 'ordinal_majority');
 
 insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number) values
@@ -147,6 +149,8 @@ insert into public.event_competition_entries (id, event_id, program_id, division
   (pg_temp.u('008009'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003003'), 'E109', 'confirmed', 'eligible', '109'),
   (pg_temp.u('008010'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003003'), 'E110', 'confirmed', 'eligible', '110'),
   (pg_temp.u('008011'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003004'), 'E111', 'confirmed', 'eligible', '111'),
+  (pg_temp.u('008014'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003005'), 'E114', 'confirmed', 'eligible', '114'),
+  (pg_temp.u('008015'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003005'), 'E115', 'confirmed', 'eligible', '115'),
   (pg_temp.u('008012'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003003'), 'E112', 'confirmed', 'eligible', '112'),
   (pg_temp.u('008013'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003003'), 'E113', 'confirmed', 'eligible', '113'),
   (pg_temp.u('008019'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('003009'), 'E119', 'confirmed', 'eligible', '119'),
@@ -163,6 +167,7 @@ insert into public.event_competition_heats (id, event_id, division_id, round_id,
   (pg_temp.u('00d003'), pg_temp.u('00e001'), pg_temp.u('003002'), pg_temp.u('006002'), 3, pg_temp.u('002001'), pg_temp.u('00c001'), 'scheduled'),
   (pg_temp.u('00d004'), pg_temp.u('00e001'), pg_temp.u('003003'), pg_temp.u('006003'), 4, pg_temp.u('002001'), pg_temp.u('00c001'), 'scheduled'),
   (pg_temp.u('00d005'), pg_temp.u('00e001'), pg_temp.u('003004'), pg_temp.u('006004'), 5, pg_temp.u('002001'), pg_temp.u('00c001'), 'scheduled'),
+  (pg_temp.u('00d007'), pg_temp.u('00e001'), pg_temp.u('003005'), pg_temp.u('006005'), 7, pg_temp.u('002001'), pg_temp.u('00c001'), 'scheduled'),
   (pg_temp.u('00d006'), pg_temp.u('00e001'), pg_temp.u('003003'), pg_temp.u('006003'), 6, pg_temp.u('002001'), pg_temp.u('00c001'), 'scheduled'),
   (pg_temp.u('00d009'), pg_temp.u('00e002'), pg_temp.u('003009'), pg_temp.u('006009'), 1, pg_temp.u('002002'), pg_temp.u('00c002'), 'scheduled');
 insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order) values
@@ -177,6 +182,8 @@ insert into public.event_competition_heat_entries (event_id, division_id, heat_i
   (pg_temp.u('00e001'), pg_temp.u('003003'), pg_temp.u('00d004'), pg_temp.u('008009'), 1),
   (pg_temp.u('00e001'), pg_temp.u('003003'), pg_temp.u('00d004'), pg_temp.u('008010'), 2),
   (pg_temp.u('00e001'), pg_temp.u('003004'), pg_temp.u('00d005'), pg_temp.u('008011'), 1),
+  (pg_temp.u('00e001'), pg_temp.u('003005'), pg_temp.u('00d007'), pg_temp.u('008014'), 1),
+  (pg_temp.u('00e001'), pg_temp.u('003005'), pg_temp.u('00d007'), pg_temp.u('008015'), 2),
   (pg_temp.u('00e001'), pg_temp.u('003003'), pg_temp.u('00d006'), pg_temp.u('008012'), 1),
   (pg_temp.u('00e001'), pg_temp.u('003003'), pg_temp.u('00d006'), pg_temp.u('008013'), 2),
   (pg_temp.u('00e002'), pg_temp.u('003009'), pg_temp.u('00d009'), pg_temp.u('008019'), 1),
@@ -192,6 +199,7 @@ select public.add_competition_official(pg_temp.u('00e001'), pg_temp.u('000013'),
 select public.add_competition_official(pg_temp.u('00e001'), pg_temp.u('000017'), 'chair', pg_temp.u('f10004'));
 select public.add_competition_official(pg_temp.u('00e001'), pg_temp.u('000016'), 'scorer', pg_temp.u('f10005'));
 select public.add_competition_official(pg_temp.u('00e001'), pg_temp.u('000018'), 'scorer', pg_temp.u('f10006'));
+select public.add_competition_official(pg_temp.u('00e001'), pg_temp.u('000014'), 'judge', pg_temp.u('f10007'));
 -- r1: J1 A, J2 B, J3 C, chair D, scorer;  r2: J1 A, J2 B, scorer;  r3: J1;  r4: J1
 select public.assign_competition_panel_member(pg_temp.u('006001'), pg_temp.off('00e001', '000011'), 'A', pg_temp.u('f10011'));
 select public.assign_competition_panel_member(pg_temp.u('006001'), pg_temp.off('00e001', '000012'), 'B', pg_temp.u('f10012'));
@@ -202,12 +210,16 @@ select public.assign_competition_panel_member(pg_temp.u('006002'), pg_temp.off('
 select public.assign_competition_panel_member(pg_temp.u('006002'), pg_temp.off('00e001', '000016'), null, pg_temp.u('f10023'));
 select public.assign_competition_panel_member(pg_temp.u('006003'), pg_temp.off('00e001', '000011'), 'A', pg_temp.u('f10031'));
 select public.assign_competition_panel_member(pg_temp.u('006004'), pg_temp.off('00e001', '000011'), 'A', pg_temp.u('f10041'));
+select public.assign_competition_panel_member(pg_temp.u('006005'), pg_temp.off('00e001', '000011'), 'A', pg_temp.u('f10061'));
+select public.assign_competition_panel_member(pg_temp.u('006005'), pg_temp.off('00e001', '000012'), 'B', pg_temp.u('f10062'));
+select public.assign_competition_panel_member(pg_temp.u('006005'), pg_temp.off('00e001', '000013'), 'C', pg_temp.u('f10063'));
+select public.assign_competition_panel_member(pg_temp.u('006005'), pg_temp.off('00e001', '000014'), 'D', pg_temp.u('f10064'));
 select pg_temp.as_user(pg_temp.u('000005'));
 select public.add_competition_official(pg_temp.u('00e002'), pg_temp.u('000015'), 'judge', pg_temp.u('f10051'));
 select public.assign_competition_panel_member(pg_temp.u('006009'), pg_temp.off('00e002', '000015'), 'A', pg_temp.u('f10052'));
 reset role;
 -- rounds r1, r2, r3, r9 run (r4 stays draft)
-update public.event_competition_rounds set status = 'active' where id in (pg_temp.u('006001'), pg_temp.u('006002'), pg_temp.u('006003'), pg_temp.u('006009'));
+update public.event_competition_rounds set status = 'active' where id in (pg_temp.u('006001'), pg_temp.u('006002'), pg_temp.u('006003'), pg_temp.u('006005'), pg_temp.u('006009'));
 
 -- ============================================================================
 -- 1. Surface: grants, RLS, anon, helpers
@@ -280,11 +292,11 @@ select pg_temp.chk('one audit row per submission, request ids unique',
 -- ============================================================================
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000011'));
-select pg_temp.expect_msg('proficiency: numeric marks refused', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d003', '[1,1,2]'), %L)$q$, pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.u('f21001')), 'COMP_BALLOT_MARK_NOT_IN_SCALE');
-select pg_temp.expect_msg('proficiency: numeric rank refused (D-PR-3)', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d003', '[1,2,3]'), %L)$q$, pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.u('f21002')), 'COMP_BALLOT_MARK_NOT_IN_SCALE');
-select pg_temp.expect_msg('proficiency: lowercase band refused', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d003', '["gold","Gold","Gold"]'), %L)$q$, pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.u('f21003')), 'COMP_BALLOT_MARK_NOT_IN_SCALE');
-select pg_temp.expect_msg('proficiency: "No rating" refused (D-PR-3)', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d003', '["No rating","Gold","Gold"]'), %L)$q$, pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.u('f21004')), 'COMP_BALLOT_MARK_NOT_IN_SCALE');
-select pg_temp.expect_msg('proficiency: partial ballot refused (D-PR-5)', format($q$select public.submit_competition_ballot(%L, %L, (select jsonb_build_array(pg_temp.mk('00d003', '["Gold","Gold","Gold"]') -> 0)), %L)$q$, pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.u('f21005')), 'COMP_BALLOT_INCOMPLETE');
+select pg_temp.expect_msg('proficiency (three_band@1, not approved): any ballot fails closed', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d003', '[1,1,2]'), %L)$q$, pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.u('f21001')), 'COMP_BALLOT_FORMAT_NOT_APPROVED');
+select pg_temp.expect_msg('proficiency: numeric rank refused (D-PR-3)', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d003', '[1,2,3]'), %L)$q$, pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.u('f21002')), 'COMP_BALLOT_FORMAT_NOT_APPROVED');
+select pg_temp.expect_msg('proficiency: lowercase band refused', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d003', '["gold","Gold","Gold"]'), %L)$q$, pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.u('f21003')), 'COMP_BALLOT_FORMAT_NOT_APPROVED');
+select pg_temp.expect_msg('proficiency: "No rating" refused (D-PR-3)', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d003', '["No rating","Gold","Gold"]'), %L)$q$, pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.u('f21004')), 'COMP_BALLOT_FORMAT_NOT_APPROVED');
+select pg_temp.expect_msg('proficiency: partial ballot refused (D-PR-5)', format($q$select public.submit_competition_ballot(%L, %L, (select jsonb_build_array(pg_temp.mk('00d003', '["Gold","Gold","Gold"]') -> 0)), %L)$q$, pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.u('f21005')), 'COMP_BALLOT_FORMAT_NOT_APPROVED');
 select pg_temp.expect_msg('callback_tally: refused until the organizer sets T', format($q$select public.submit_competition_ballot(%L, null, '[{"entry_id":"%s","value":true}]', %L)$q$, pg_temp.u('006003'), pg_temp.u('008009'), pg_temp.u('f21006')), 'COMP_CALLBACK_TARGET_UNSET');
 select pg_temp.expect_msg('ordinal: rank above N refused', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d001', '[1,2,4]'), %L)$q$, pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.u('f21007')), 'COMP_BALLOT_MARK_OUT_OF_RANGE');
 reset role;
@@ -490,31 +502,39 @@ reset role;
 -- ============================================================================
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000011'));
-select pg_temp.expect_msg('a judge cannot record attendance', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'sick', %L)$q$, pg_temp.u('006002'), pg_temp.off('00e001','000012'), pg_temp.u('f24001')), 'COMP_FORBIDDEN');
+select pg_temp.expect_ok('judge 1 submits r5', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d007', '[1,2]'), %L)$q$, pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.u('f24020')));
+select pg_temp.as_user(pg_temp.u('000012'));
+select pg_temp.expect_ok('judge 2 submits r5', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d007', '[2,1]'), %L)$q$, pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.u('f24021')));
+select pg_temp.as_user(pg_temp.u('000013'));
+select pg_temp.expect_ok('judge 3 submits r5', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d007', '[1,2]'), %L)$q$, pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.u('f24022')));
+select pg_temp.as_user(pg_temp.u('000011'));
+select pg_temp.expect_msg('a judge cannot record attendance', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'sick', %L)$q$, pg_temp.u('006005'), pg_temp.off('00e001','000014'), pg_temp.u('f24001')), 'COMP_FORBIDDEN');
 select pg_temp.as_user(pg_temp.u('000016'));
-select pg_temp.expect_msg('a scorer cannot record attendance', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'sick', %L)$q$, pg_temp.u('006002'), pg_temp.off('00e001','000012'), pg_temp.u('f24002')), 'COMP_FORBIDDEN');
+select pg_temp.expect_msg('a scorer cannot record attendance', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'sick', %L)$q$, pg_temp.u('006005'), pg_temp.off('00e001','000014'), pg_temp.u('f24002')), 'COMP_FORBIDDEN');
 select pg_temp.as_user(pg_temp.u('000003'));
-select pg_temp.expect_msg('front desk cannot record attendance', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'sick', %L)$q$, pg_temp.u('006002'), pg_temp.off('00e001','000012'), pg_temp.u('f24003')), 'COMP_FORBIDDEN');
+select pg_temp.expect_msg('front desk cannot record attendance', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'sick', %L)$q$, pg_temp.u('006005'), pg_temp.off('00e001','000014'), pg_temp.u('f24003')), 'COMP_FORBIDDEN');
 select pg_temp.as_user(pg_temp.u('000005'));
-select pg_temp.expect_msg('another studio cannot record attendance', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'sick', %L)$q$, pg_temp.u('006002'), pg_temp.off('00e001','000012'), pg_temp.u('f24004')), 'COMP_FORBIDDEN');
+select pg_temp.expect_msg('another studio cannot record attendance', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'sick', %L)$q$, pg_temp.u('006005'), pg_temp.off('00e001','000014'), pg_temp.u('f24004')), 'COMP_FORBIDDEN');
 select pg_temp.as_user(pg_temp.u('000017'));
-select pg_temp.expect_msg('an absence needs a reason', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', '  ', %L)$q$, pg_temp.u('006002'), pg_temp.off('00e001','000012'), pg_temp.u('f24005')), 'COMP_ATTENDANCE_INVALID');
-select pg_temp.expect_msg('a judge not on the round''s panel cannot be recorded', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'sick', %L)$q$, pg_temp.u('006002'), pg_temp.off('00e001','000013'), pg_temp.u('f24006')), 'COMP_JUDGE_NOT_ASSIGNED');
+select pg_temp.expect_msg('an absence needs a reason', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', '  ', %L)$q$, pg_temp.u('006005'), pg_temp.off('00e001','000014'), pg_temp.u('f24005')), 'COMP_ATTENDANCE_INVALID');
+select pg_temp.expect_msg('a judge not on the round''s panel cannot be recorded', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'sick', %L)$q$, pg_temp.u('006005'), pg_temp.off('00e001','000017'), pg_temp.u('f24006')), 'COMP_JUDGE_NOT_ASSIGNED');
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('a judge with ballots cannot be recorded absent', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'sick', %L)$q$, pg_temp.u('006001'), pg_temp.off('00e001','000011'), pg_temp.u('f24007')), 'COMP_ABSENCE_HAS_BALLOTS');
 select pg_temp.as_user(pg_temp.u('000017'));
-select pg_temp.expect_ok('the chair records judge 2 absent on r2', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'Flight delayed', %L)$q$, pg_temp.u('006002'), pg_temp.off('00e001','000012'), pg_temp.u('f24008')));
-select pg_temp.as_user(pg_temp.u('000012'));
-select pg_temp.expect_msg('an absent judge cannot submit', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d003', '["Gold","Silver","Bronze"]'), %L)$q$, pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.u('f24009')), 'COMP_BALLOT_JUDGE_ABSENT');
+select pg_temp.expect_ok('the chair records judge 2 absent on r2', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'Flight delayed', %L)$q$, pg_temp.u('006005'), pg_temp.off('00e001','000014'), pg_temp.u('f24008')));
+select pg_temp.as_user(pg_temp.u('000014'));
+select pg_temp.expect_msg('an absent judge cannot submit', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d007', '[1,2]'), %L)$q$, pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.u('f24009')), 'COMP_BALLOT_JUDGE_ABSENT');
 select pg_temp.as_user(pg_temp.u('000016'));
-select pg_temp.expect_msg('nor can a scorer enter paper for an absent judge', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d003', '["Gold","Silver","Bronze"]'), %L)$q$, pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.off('00e001','000012'), pg_temp.u('f24010')), 'COMP_BALLOT_JUDGE_ABSENT');
+select pg_temp.expect_msg('nor can a scorer enter paper for an absent judge', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d007', '[1,2]'), %L)$q$, pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.off('00e001','000014'), pg_temp.u('f24010')), 'COMP_BALLOT_JUDGE_ABSENT');
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.expect_ok('the manager records judge 2 present again', format($q$select public.record_competition_judge_attendance(%L, %L, 'present', null, %L)$q$, pg_temp.u('006002'), pg_temp.off('00e001','000012'), pg_temp.u('f24011')));
-select pg_temp.as_user(pg_temp.u('000012'));
-select pg_temp.expect_ok('judge 2 can submit again after being marked present', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d003', '["Gold","Silver","Bronze"]'), %L)$q$, pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.u('f24012')));
+select pg_temp.expect_ok('the manager records judge 2 present again', format($q$select public.record_competition_judge_attendance(%L, %L, 'present', null, %L)$q$, pg_temp.u('006005'), pg_temp.off('00e001','000014'), pg_temp.u('f24011')));
+select pg_temp.as_user(pg_temp.u('000014'));
+select pg_temp.chk('a judge marked present is no longer absent on their sheet', (public.competition_judge_ballot_sheet(pg_temp.u('006005')) ->> 'absent')::boolean = false);
+select pg_temp.as_user(pg_temp.u('000017'));
+select pg_temp.expect_ok('the chair records judge 4 absent again (final state before the lock)', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'Flight cancelled', %L)$q$, pg_temp.u('006005'), pg_temp.off('00e001','000014'), pg_temp.u('f24013')));
 reset role;
-select pg_temp.chk('attendance history is insert-only with audit', pg_temp.n($q$select count(*) from public.event_competition_judge_attendance$q$) = 2
-  and pg_temp.n($q$select count(*) from public.event_competition_ballot_events where kind in ('judge_absence_recorded','judge_presence_recorded')$q$) = 2);
+select pg_temp.chk('attendance history is insert-only with audit', pg_temp.n($q$select count(*) from public.event_competition_judge_attendance$q$) = 3
+  and pg_temp.n($q$select count(*) from public.event_competition_ballot_events where kind in ('judge_absence_recorded','judge_presence_recorded')$q$) = 3);
 select pg_temp.expect_msg('attendance cannot be updated', $q$update public.event_competition_judge_attendance set status = 'present'$q$, 'append-only');
 select pg_temp.expect_msg('attendance cannot be deleted', $q$delete from public.event_competition_judge_attendance$q$, 'append-only');
 
@@ -628,16 +648,15 @@ select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('an API role cannot write round status', format($q$update public.event_competition_rounds set status = 'active' where id = %L$q$, pg_temp.u('006001')), 'WRITER');
 reset role;
 
--- Absent judge satisfies the lock (O1): r2 has J1 (no ballot) and J2 (ballot v1). Record J1 absent -> lock allowed once heats lock.
+-- Absent judge satisfies the lock (O1) and X-4: r5 has judges 1-3 with ballots and judge 4 recorded absent -> 3 present, odd.
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.expect_ok('manager records judge 1 absent on r2', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'Called away', %L)$q$, pg_temp.u('006002'), pg_temp.off('00e001','000011'), pg_temp.u('f26001')));
-select pg_temp.expect_msg('r2 still refused: heat not locked', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006002'), pg_temp.u('f26002')), 'COMP_BALLOTS_HEATS_NOT_LOCKED');
-select public.set_competition_heat_lock_state(pg_temp.u('00d003'), 'locked', 'dance complete');
-select pg_temp.expect_ok('r2 locks with one judge absent (recorded) and one ballot', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006002'), pg_temp.u('f26003')));
+select pg_temp.expect_msg('r5 refused: heat not locked', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006005'), pg_temp.u('f26002')), 'COMP_BALLOTS_HEATS_NOT_LOCKED');
+select public.set_competition_heat_lock_state(pg_temp.u('00d007'), 'locked', 'dance complete');
+select pg_temp.expect_ok('r5 locks with one judge absent (recorded) and a reduced odd panel of 3', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006005'), pg_temp.u('f26003')));
 reset role;
 select pg_temp.chk('the lock audit names the absent judge',
-  (select (refs -> 'absent_official_ids') ? pg_temp.off('00e001','000011')::text from public.event_competition_ballot_events where kind = 'round_state_changed' and round_id = pg_temp.u('006002')));
+  (select (refs -> 'absent_official_ids') ? pg_temp.off('00e001','000014')::text from public.event_competition_ballot_events where kind = 'round_state_changed' and round_id = pg_temp.u('006005')));
 
 -- Everyone absent: refused (no present judge)
 -- (r3 callback: single judge; scheme unavailable blocks ballots, so absent + locked heat is the only path)
