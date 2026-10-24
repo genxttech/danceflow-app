@@ -12,6 +12,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { execFileSync } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { spendEvidenceRpc, exceptionEvidenceRpc } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 600_000 });
 
@@ -159,7 +160,7 @@ describe.skipIf(!enabled)("TW-4F J1: platform-admin orchestration drives the R2a
   const prov = (values: Record<string, string>, actor = U.padmin) => provisioningCommand(deps, actor, form({ studioId: SC, ...values }));
   const num = (values: Record<string, string>, actor = U.padmin) => numberCommand(deps, actor, form({ studioId: SC, ...values }));
   const authorize = (kind: string, cents: number, label: string) =>
-    rpc("tw4_spend_authorize", { p_entity_id: EC, p_kind: kind, p_amount_cents: cents, p_approval_ref: ref(label), p_actor: U.padmin, p_funding: "pilot", p_studio_id: SC });
+    rpc("tw4_spend_authorize", { p_entity_id: EC, p_kind: kind, p_amount_cents: cents, p_approval_ref: ref(label), p_actor: U.padmin, p_funding: "pilot", p_studio_id: SC, ...spendEvidenceRpc("pilot", kind, EC, SC, cents) });
   const asOwner = () => mkClient(sign({ role: "authenticated", sub: U.owner, aud: "authenticated", exp: 1983812996 }));
   const state = () => psql(`select state from public.studio_sms_onboarding where studio_id = '${SC}'`);
   const provOps = (kind: string) => psql(`select coalesce(string_agg(attempt || ':' || status, ',' order by attempt), '') from public.studio_sms_prov_operations where studio_id = '${SC}' and op_kind = '${kind}'`);
@@ -184,7 +185,7 @@ describe.skipIf(!enabled)("TW-4F J1: platform-admin orchestration drives the R2a
       expect((await rpc("tw4_price_set", { p_kind: kind, p_customer_cents: customer, p_provider_cents: provider, p_description: `fixture ${kind}`, p_actor: U.padmin })).error).toBeNull();
     }
     for (const s of [SC, SN]) expect((await rpc("tw4_runner_set_window", { p_studio_id: s, p_actor: U.padmin, p_hours: 2, p_reason: "fixture: J1 orchestration window" })).error).toBeNull();
-    expect((await rpc("tw4_pilot_exception_create", { p_entity_id: EC, p_ceiling_cents: 15_000, p_approval_ref: ref("pilot-founder"), p_actor: U.padmin })).error).toBeNull();
+    expect((await rpc("tw4_pilot_exception_create", { p_entity_id: EC, p_ceiling_cents: 15_000, p_approval_ref: ref("pilot-founder"), p_actor: U.padmin, ...exceptionEvidenceRpc(EC, 15_000) })).error).toBeNull();
   });
 
   afterAll(() => {

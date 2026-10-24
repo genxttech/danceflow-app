@@ -16,7 +16,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { evidenceDay, evidenceFields, pilotCoverArgs, priceOfResource, type EvidenceOverride } from "./rflEvidenceHelper";
+import { evidenceDay, evidenceFields, pilotCoverArgs, spendEvidenceApplied, priceOfResource, type EvidenceOverride, pilotExceptionArgs } from "./rflEvidenceHelper";
 
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 300_000 });
@@ -98,7 +98,7 @@ insert into public.studio_sms_twilio_accounts (legal_entity_id, twilio_account_s
 commit;`);
       call("tw4_credit_adjust", entity, 200_000, `d5-fund-pilot-${RUN}`, "fixture funding for the D5 suite", P);
       call("tw4_monthly_limit_set_admin", entity, P, 20_000, null, "fixture: monthly limit for the D5 suite");
-      call("tw4_pilot_exception_create", entity, 15000, `Founder written pilot approval ${RUN}`, P);
+      call("tw4_pilot_exception_create", ...pilotExceptionArgs(psql, entity, 15000, `Founder written pilot approval ${RUN}`, P));
       pilotShared = { entity, account };
     }
   }
@@ -447,6 +447,7 @@ commit;`);
         sh(`psql -U postgres -q -c 'create database ${scratch}'`);
         sh(`pg_dump -U postgres -s --no-owner ${DB} | psql -U postgres -d ${scratch} -q > /dev/null 2>&1; true`);
         const args = ["exec", "-i", PG, "psql", "-U", "postgres", "-d", scratch, "-q", "-At", "-v", "ON_ERROR_STOP=1"];
+        const spendBack = join(mdir, "rollback/20261230090000_twilio_rfl_pilot_spend_evidence_rollback.sql");
         const run = (sql: string) => execFileSync("docker", args, { input: sql, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
         const fail = (sql: string) => {
           try {
@@ -456,6 +457,7 @@ commit;`);
             return String((error as { stderr?: Buffer | string }).stderr ?? error);
           }
         };
+        if (spendEvidenceApplied(psql)) run(readFileSync(spendBack, "utf8"));
         body(run, fail);
       } finally {
         sh(`psql -U postgres -q -c "select pg_terminate_backend(pid) from pg_stat_activity where datname = '${scratch}'" -c 'drop database if exists ${scratch}' > /dev/null 2>&1; true`);

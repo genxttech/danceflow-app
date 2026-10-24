@@ -19,7 +19,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { evidenceApplied, pilotCoverArgs } from "./rflEvidenceHelper";
+import { spendEvidenceApplied, evidenceApplied, pilotCoverArgs, pilotExceptionArgs, pilotSpendArgs } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 300_000 });
 
@@ -105,7 +105,7 @@ insert into public.studio_sms_twilio_accounts (legal_entity_id, twilio_account_s
 commit;`);
       call("tw4_credit_adjust", entity, 200_000, `rfl-fund-pilot-${RUN}`, "fixture funding for the lifecycle suite", P);
       call("tw4_monthly_limit_set_admin", entity, P, 20_000, null, "fixture: monthly limit for the lifecycle suite");
-      call("tw4_pilot_exception_create", entity, 15000, `Founder written pilot approval ${RUN}`, P);
+      call("tw4_pilot_exception_create", ...pilotExceptionArgs(psql, entity, 15000, `Founder written pilot approval ${RUN}`, P));
       pilotShared = { entity, account };
     }
   }
@@ -1404,7 +1404,7 @@ commit;`);
       const num = register(w, "number");
       const camp = register(w, "campaign");
       const spendRef = `Owner email ${RUN} shared namespace approve`;
-      call("tw4_spend_authorize", w.entity, "monthly", PRICE.monthly, spendRef, P, "pilot", w.studio);
+      call("tw4_spend_authorize", ...pilotSpendArgs(psql, w.entity, "monthly", PRICE.monthly, spendRef, P, "pilot", w.studio));
       // a fee approval reference cannot authorize an irreversible cancellation (other spelling, other case, extra spaces)
       expect(hasCode(callErr("tw4_rfl_cancel_authorize", camp.resource_id, P, `  ${spendRef.toUpperCase().replace(/ /g, "  ")}`, "owner_written", "The owner asked us in writing to cancel the campaign", true), "TW019")).toBe(true);
       expect(Number(psql(`select count(*) from public.studio_sms_provider_cancel_ops where resource_id = '${camp.resource_id}'`))).toBe(0);
@@ -1412,7 +1412,7 @@ commit;`);
       const cancelRef = `Founder note ${RUN} release the number in writing`;
       authorizeCancel(num.resource_id, P, cancelRef, "founder_written", "The founder approved releasing this number in writing", true);
       expect(psql(`select source from public.studio_sms_approval_refs where ref_norm = public._tw4fi_ref_norm($q$${cancelRef}$q$)`)).toBe("cancellation");
-      expect(hasCode(callErr("tw4_spend_authorize", w.entity, "monthly", PRICE.monthly, cancelRef.toLowerCase(), P, "pilot", w.studio), "TW019")).toBe(true);
+      expect(hasCode(callErr("tw4_spend_authorize", ...pilotSpendArgs(psql, w.entity, "monthly", PRICE.monthly, cancelRef.toLowerCase(), P, "pilot", w.studio)), "TW019")).toBe(true);
     });
 
     it("P3 one provider bill line cannot be counted on two resources of a business", () => {
@@ -1595,6 +1595,8 @@ commit;`);
         const run = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-d", scratch, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
         expect(run(`select to_regclass('public.studio_sms_provider_resources') is not null`)).toBe("t");
         // 20261229 (pilot evidence) replaced tw4_rfl_pilot_cover with the eleven-argument form: on a database that carries it, it is rolled back first (this copy has no evidence rows)
+        // 20261230 (pilot spend evidence) sits on top of 20261229: on a database that carries it, it is rolled back first (this copy has no evidence rows)
+        if (spendEvidenceApplied(psql)) run(readFileSync(join(process.cwd(), "src/lib/supabase/migrations/rollback/20261230090000_twilio_rfl_pilot_spend_evidence_rollback.sql"), "utf8"));
         if (evidenceApplied(psql)) run(readFileSync(join(process.cwd(), "src/lib/supabase/migrations/rollback/20261229090000_twilio_rfl_pilot_evidence_rollback.sql"), "utf8"));
         // the cancellation-target read (20261224) adds tw4_rfl_cancel_target, which the leftover-function check below would count: it is rolled back first, in strict reverse order
         run(readFileSync(join(process.cwd(), "src/lib/supabase/migrations/rollback/20261224090000_twilio_rfl_cancel_target_rollback.sql"), "utf8"));

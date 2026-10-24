@@ -14,7 +14,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { pilotCoverArgs } from "./rflEvidenceHelper";
+import { pilotCoverArgs, pilotExceptionArgs } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 300_000 });
 
@@ -93,7 +93,7 @@ insert into public.studio_sms_entity_studios (studio_id, legal_entity_id, link_k
 insert into public.studio_sms_twilio_accounts (legal_entity_id, twilio_account_sid, friendly_name, environment, status, created_by) values ('${w.entity}', '${w.account}', 'f4-${hex(3)}', 'test', 'active', '${P}');
 commit;`);
     call("tw4_credit_adjust", w.entity, 200_000, `f4-fund-${hex(4)}`, "fixture funding for the recovery suite", P);
-    if (w.pilot) call("tw4_pilot_exception_create", w.entity, 15000, `Founder written pilot approval ${RUN}`, P);
+    if (w.pilot) call("tw4_pilot_exception_create", ...pilotExceptionArgs(psql, w.entity, 15000, `Founder written pilot approval ${RUN}`, P));
   }
   const brand = sid("BN");
   replica(`insert into public.studio_sms_onboarding (id, studio_id, state, legal_name, entity_type, ein_last4, submission_seq, submitted_at, lease_owner, lease_expires_at)
