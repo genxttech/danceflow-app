@@ -32,19 +32,54 @@ const PLAN_PRICE_ENV_NAMES: Record<string, string[]> = {
   organizer: ["STRIPE_PRICE_ORGANIZER_FOUNDER", "STRIPE_PRICE_ORGANIZER_STANDARD"],
 };
 
-export function resolvePlanCodeFromEnvPriceId(
-  priceId: string | null | undefined,
+function planCodesForPriceId(
+  wanted: string,
   env: Record<string, string | undefined>,
-): string | null {
-  const wanted = priceId?.trim();
-  if (!wanted) return null;
-
+): string[] {
+  const codes: string[] = [];
   for (const [code, names] of Object.entries(PLAN_PRICE_ENV_NAMES)) {
     const configured = names.flatMap((name) =>
       (env[name] ?? "").split(",").map((id) => id.trim()),
     );
-    if (configured.includes(wanted)) return code;
+    if (configured.includes(wanted)) codes.push(code);
+  }
+  return codes;
+}
+
+/**
+ * Plan code for every Price on a subscription (a plan item may sit beside add-on
+ * items such as AI credit packs). Returns the one plan code the Prices agree on.
+ * Returns null when no Price is a configured plan Price, and also when the same
+ * Price is configured for more than one plan or the items name different plans:
+ * an ambiguous Price must never silently pick a plan, so the caller falls back
+ * to metadata instead.
+ */
+export function resolvePlanCodeFromEnvPriceIds(
+  priceIds: Array<string | null | undefined>,
+  env: Record<string, string | undefined>,
+): string | null {
+  const found = new Set<string>();
+
+  for (const raw of priceIds) {
+    const wanted = raw?.trim();
+    if (!wanted) continue;
+
+    const codes = planCodesForPriceId(wanted, env);
+    if (codes.length > 1) {
+      console.error("billing plan resolution: Price configured for more than one plan", {
+        plans: codes,
+      });
+      return null;
+    }
+    if (codes.length === 1) found.add(codes[0]);
   }
 
-  return null;
+  return found.size === 1 ? [...found][0] : null;
+}
+
+export function resolvePlanCodeFromEnvPriceId(
+  priceId: string | null | undefined,
+  env: Record<string, string | undefined>,
+): string | null {
+  return resolvePlanCodeFromEnvPriceIds([priceId], env);
 }

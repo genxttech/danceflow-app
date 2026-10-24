@@ -9,7 +9,7 @@ import { getStripe } from "@/lib/payments/stripe";
 import { resolveMembershipStripeAccount } from "@/lib/payments/membershipStripeAccount";
 import { verifyStripeWebhook } from "@/lib/payments/webhookVerification";
 import { handleSmsCreditStripeEvent } from "@/lib/billing/smsCreditPurchases";
-import { resolvePlanCodeFromEnvPriceId } from "@/lib/billing/subscriptionPlanResolution";
+import { resolvePlanCodeFromEnvPriceIds } from "@/lib/billing/subscriptionPlanResolution";
 
 import {
   handleChargeDisputeEvent,
@@ -943,7 +943,10 @@ async function upsertStudioSubscription(params: {
   // written at checkout and goes stale after a Billing Portal plan change.
   const envPlanCode = planRow
     ? null
-    : resolvePlanCodeFromEnvPriceId(stripePriceId, process.env);
+    : resolvePlanCodeFromEnvPriceIds(
+        subscription.items.data.map((item) => getString(item.price?.id)),
+        process.env,
+      );
 
   if (!planRow && envPlanCode) {
     const { data, error } = await supabase
