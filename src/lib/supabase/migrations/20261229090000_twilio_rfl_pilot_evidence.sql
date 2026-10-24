@@ -13,11 +13,16 @@
 --   Refusals (errcode): out-of-range reference or malformed input 22023; evidence missing/invalid/inconsistent TW052 (NEW: documented in docs/twilio/TW-4F_RFL_Pilot_Approval_Evidence.md);
 --        amount differs from the published price TW008; reference reused TW019; ceiling/hold TW007; not the pilot business / period window TW042; period already covered TW043; not a platform admin 42501.
 -- Requires 20261209..20261226 (the 20261225 D5 body is fingerprint-checked). Rollback: rollback/20261229090000_twilio_rfl_pilot_evidence_rollback.sql (refuses while any evidence row exists).
+--   Refuses to apply while a live pilot_approval cover exists without evidence (recorded by the four-argument function): it would keep counting as funding with none. Document links may not
+--   contain ; & = % (nor a query, fragment or credentials); opaque ids may not contain : or =. The authorization date may not be later than the UTC date.
 -- NOT APPLIED to any shared environment by this file's authoring.
 
 begin;
 
 set local lock_timeout = '5s';
+
+-- no cover is recorded between the evidence-free-cover precheck below and the end of this migration
+lock table public.studio_sms_provider_cover in share row exclusive mode;
 
 do $$
 declare
@@ -34,6 +39,10 @@ begin
   end if;
   if not exists (select 1 from pg_attribute a where a.attrelid = 'public.studio_sms_provider_cover'::regclass and a.attname = 'superseded_at' and not a.attisdropped) then
     raise exception 'pilot-evidence precondition failed: 20261225090000 (D5 cover) is not applied';
+  end if;
+  -- a live pilot approval recorded through the four-argument function has no evidence row and would keep counting as funding without it: refuse, never grandfather silently
+  if exists (select 1 from public.studio_sms_provider_cover c where c.basis = 'pilot_approval' and c.superseded_at is null) then
+    raise exception 'pilot-evidence precondition failed: live pilot_approval covers recorded without evidence exist; handle them first (they cannot be superseded by this migration), or apply 20261229 before any pilot use';
   end if;
   -- the predecessor body (20261225) must be exactly the one this migration replaces and the rollback restores
   if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_rfl_pilot_cover(uuid,text,text,uuid)'::regprocedure), chr(13), '')) is distinct from '00e9bff4d2ce4e0cca135317216541fb' then
@@ -72,7 +81,7 @@ create table public.studio_sms_provider_cover_evidence (
   authorized_by_role text not null check (authorized_by_role in ('founder_written', 'owner_written')),
   scope text not null check (scope in ('pilot_period_cover')),
   amount_cents int not null check (amount_cents > 0),
-  document_ref text not null check (char_length(document_ref) between 6 and 500 and ((document_ref ~ '^[A-Za-z0-9][A-Za-z0-9._:/#=+-]{5,119}$' and document_ref !~ '://') or document_ref ~ '^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~%!$&''()*+,;=:@/-]*)?$')),
+  document_ref text not null check (char_length(document_ref) between 6 and 500 and (document_ref ~ '^[A-Za-z0-9][A-Za-z0-9._/#+-]{5,119}$' or document_ref ~ '^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~!$''()*+,:@/-]*)?$')),
   document_sha256 text not null check (document_sha256 ~ '^[0-9a-f]{64}$'),
   recorded_by uuid not null,
   recorded_at timestamptz not null default clock_timestamp(),
@@ -146,8 +155,8 @@ begin
   if p_authorized_on is null then
     raise exception 'pilot approval evidence: the date of the owner''s written authorization is required' using errcode = 'TW052';
   end if;
-  -- not in the future (a business may already be on the next calendar day in UTC: one day of slack) and not older than 400 days
-  if p_authorized_on > v_today + 1 then
+  -- not in the future (the UTC date: the pilot business is behind UTC, so its local date never exceeds it; a business ahead of UTC dates the authorization by the UTC date) and not older than 400 days
+  if p_authorized_on > v_today then
     raise exception 'pilot approval evidence: the authorization date is in the future' using errcode = 'TW052';
   end if;
   if p_authorized_on < v_today - 400 then
@@ -166,8 +175,8 @@ begin
     raise exception 'pilot approval evidence: the authorized period must equal the period being covered' using errcode = 'TW052';
   end if;
   if p_document_ref is null or char_length(p_document_ref) not between 6 and 500
-     or not ((p_document_ref ~ '^[A-Za-z0-9][A-Za-z0-9._:/#=+-]{5,119}$' and p_document_ref !~ '://') or p_document_ref ~ '^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~%!$&''()*+,;=:@/-]*)?$') then
-    raise exception 'pilot approval evidence: the retained document needs an opaque id or a plain https link (no query string, no credentials)' using errcode = 'TW052';
+     or not (p_document_ref ~ '^[A-Za-z0-9][A-Za-z0-9._/#+-]{5,119}$' or p_document_ref ~ '^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~!$''()*+,:@/-]*)?$') then
+    raise exception 'pilot approval evidence: the retained document needs an opaque id or a plain https link (no query string, fragment, credentials, percent-escapes, semicolons, ampersands or equals signs)' using errcode = 'TW052';
   end if;
   if p_document_sha256 is null or p_document_sha256 !~ '^[0-9a-f]{64}$' then
     raise exception 'pilot approval evidence: the sha256 of the retained text must be 64 lowercase hex characters' using errcode = 'TW052';

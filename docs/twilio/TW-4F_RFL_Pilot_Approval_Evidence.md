@@ -1,8 +1,17 @@
 # TW-4F: pilot approval evidence (U-4) and approval-reference length consistency
 
-Status: Git-only, dark. Migration `20261229090000_twilio_rfl_pilot_evidence.sql` (rollback in `rollback/`) is **not applied to any shared environment**. All real-database
-suites for it are **NOT RUN** (the heavy-database slot was not available when this was authored); only `tsc`, `eslint` and the non-database vitest suites were run.
+Status: Git-only, dark. Migration `20261229090000_twilio_rfl_pilot_evidence.sql` (rollback in `rollback/`) is **not applied to any shared environment**.
 Slot `20261228` belongs to another session (`tw4_prov_observe`) and is not touched.
+
+> **PILOT-ACTIVATION BLOCKER under owner decision U-4 (still open).** This change gives only `tw4_rfl_pilot_cover` (the per-period approval) structured evidence. `tw4_spend_authorize(..., 'pilot', ...)`
+> and the pilot reservation paths that call it (and `tw4_pilot_exception_create`) still accept a bare approval reference of 10+ characters with no dated evidence. Until they carry the same evidence, or
+> are proven unreachable for the pilot, a pilot approval can be created without the U-4 evidence by a platform administrator calling those paths. No code change is made here; the completion tracker should list it.
+
+Validation state (real database, dedicated container, fresh scratch DB per suite, serial; migration chain 1208..1227 then 1229): the new suite `localStack.tw4rflevid` passed 49/49 and the fingerprint
+chain was exact (before 1229 = after rollback; after = after re-apply); `tw4rflops` 64/64, `tw4rfld5` 21/21, `r2brfl` 28/28, `f4recovery` 26/26 passed; `tw4rfl` 86/87, `j4activation` 9/10, `f1funding` 24/25.
+The three failures also occur on plain main without 1229 (a leftover function after the 20261209 rollback in the `tw4rfl` rollback test; `get_studio_sms_texting_status` from 20261222 in `j4activation` 3c;
+the known F1 "old act_* order deadlocks" case): none is attributable to this change. The review hardening below (P2-1 precondition, rollback fingerprint, stricter document/date rules) was written afterwards and
+its real-database scenarios have **not yet been run**.
 
 ## 1. Approval reference length: one limit, 10 to 200, in every layer
 
@@ -35,13 +44,13 @@ Owner decision: an approval reference points to a dated, explicit written owner 
 
 | Field | Rule (database; the action repeats the shape rules) |
 | --- | --- |
-| date | present, not later than the UTC date plus one day (a business can already be on the next calendar day), not older than **400 days** before the UTC date |
+| date | present, **not later than the UTC date**, not older than **400 days** before the UTC date. (An earlier draft allowed one extra day for a business ahead of UTC; the pilot business is behind UTC so its local date never exceeds the UTC date, and a business ahead of UTC dates the authorization by the UTC date.) |
 | role | `founder_written` or `owner_written` (the vocabulary of the cancel path) |
 | scope | `pilot_period_cover` (the table check allows only this value today; a new scope needs a migration) |
 | amount | must EQUAL the active published price of the fee being covered (the lookup the function already used); otherwise `TW008` |
 | period | must equal the period being covered |
-| document reference | an opaque id (6 to 120 of letters, digits and `. _ : / # = + -`, and never containing `://`) or a plain `https://` link without query string or credentials; at most 500 characters |
-| sha256 | 64 lowercase hex characters |
+| document reference | an opaque id (6 to 120 of letters, digits and `. _ / # + -`; no `:` and no `=`, so a `javascript:`-style string cannot pass) or a plain `https://` link whose host/path use only letters, digits and `. _ ~ ! $ ' ( ) * + , : @ / -` (no query string, fragment, credentials, `;`, `&`, `=` or `%`); at most 500 characters. The link is stored **permanently**: it must not be a share or access link and must not contain a person's name; prefer an internal document id. |
+| sha256 | 64 hex characters: the SHA-256 of the **exact bytes of the retained file**. The action lower-cases the input (PowerShell `Get-FileHash` prints upper case) before validating; the database stores and checks lower case. |
 
 The 400 day bound is a sanity bound, not a policy: it stops a years-old document from being presented as the authorization for this month, while still allowing an owner letter to cover several
 upcoming periods. It is one constant in SQL (`v_today - 400`) and in TS (`EVIDENCE_MAX_AGE_DAYS`).
@@ -73,8 +82,13 @@ negative balance; `TW041` resource not a live fee resource; `TW042` not the pilo
 * `public.tw4_rfl_pilot_cover(uuid,text,text,uuid)`: fingerprint-prechecked (md5 `00e9bff4d2ce4e0cca135317216541fb`, the 20261225 body, the latest definition on main) and **dropped** in this migration, so no evidence-free overload is callable.
 * `public.tw4_rfl_pilot_cover(uuid,text,text,uuid,date,text,text,integer,text,text,text)`: the new function above. Grants: revoked from public, anon, authenticated; executable by `service_role` only (same as the original).
 * `public._tw4rfl_evid_guard()`: new, private (no role can execute it).
-* Rollback: refuses while any evidence row exists (evidence is permanent) or any reference longer than 120 exists; otherwise drops the new function and table, restores the 3..120 check and recreates the
+* Rollback: refuses while any evidence row exists (evidence is permanent), while any reference longer than 120 exists, or when the live eleven-argument body is not exactly the one 20261229 created
+  (md5 `deffc1b878778dced134334260d62512`: a later migration that redefined it must be rolled back first); otherwise drops the new function and table, restores the 3..120 check and recreates the
   20261225 four-argument function byte for byte, then re-checks the fingerprint.
+* Apply precondition (review P2-1): the migration **refuses to apply** while a live `pilot_approval` cover (not superseded) exists, because such a cover was recorded through the four-argument function,
+  has no evidence row and would keep counting as funding without it. The message tells the operator to handle those covers first (the supersede path only applies to `initial_reservation` covers, so a
+  live approval cannot be superseded by this migration) or to apply 20261229 before any pilot use. The cover table is locked (share row exclusive) for the check, so none can appear in between.
+  Hosted DEV and PROD had no cover rows per the 2026-10-24 probe, so this is a guard, not an expected stop.
 
 ### Other pilot spend approvals (follow-up, not done)
 
@@ -106,13 +120,17 @@ Non-database (run): `src/lib/sms/__tests__/pilotApprovalEvidence.rflevid.test.ts
 `src/app/platform/sms/__tests__/recurringFeeActions.rflevid.test.ts` (form min/max and fields, action refuses 9 and 201 before any RPC and accepts 10/120/121/200, every evidence refusal before any RPC,
 a client amount is ignored, database refusal text is never echoed).
 
-Real schema (**NOT RUN**): `src/lib/sms/twilioIsv/__tests__/localStack.tw4rflevid.test.ts` (reference boundaries 9/10/120/121/200/201, every refusal, happy path with evidence row and audit,
+Real schema: `src/lib/sms/twilioIsv/__tests__/localStack.tw4rflevid.test.ts` (reference boundaries 9/10/120/121/200/201, every refusal, happy path with evidence row and audit,
 replay, TW019, ceiling, current/next only, hold/negative, admin only, old signature gone, append-only evidence, no text stored, races, D5 supersede with evidence), plus the updated existing suites listed above.
-Run serially against a dedicated Postgres with migrations through 20261229090000 and the local-QA marker table.
+Run serially against a dedicated Postgres with migrations through 20261229090000 and the local-QA marker table. Results of the last window are in the status block at the top. Added since, **not yet run on a database**:
+the apply-precondition scenario (a live evidence-free `pilot_approval` cover on a schema-only scratch copy refuses the migration, which then applies once the row is gone), the rollback-fingerprint scenario
+(a redefined eleven-argument body makes the rollback refuse and keep everything), and the stricter document-id/link and date refusals.
 
 ## 5. Residual risks and follow-ups
 
-* The migration and every real-schema suite are unexecuted; the first run may find SQL syntax or fixture issues. They must run before merge/apply.
+* The review-hardening changes (P2-1 precondition, rollback body fingerprint, document id/link and date tightening, upper-case sha input) need a real-database rerun: `localStack.tw4rflevid`, the fingerprint/rollback chain, and any suite whose helper depends on link/id formats (the helper's `AUTH-DOC-<hex>` ids are unchanged and still valid).
+* Possible later guard (review P3-4): the same `document_sha256` recorded with a different `authorized_on` or role is not refused today; a future constraint could require one document hash to carry one date and role.
+* Files owned by others that need a follow-up for 20261229 (not edited here): `docs/twilio/TW-4F_Hosted_Apply_Manifest.md` (a row for 20261229090000: new table, replaced function `tw4_rfl_pilot_cover` with md5 prechecks `00e9bff4d2ce4e0cca135317216541fb` (predecessor) and `deffc1b878778dced134334260d62512` (new body), the widened spend-events check, the apply precondition and the rollback refusals), `docs/twilio/TW-4F_Completion_Tracker.md` (the U-4 pilot-activation blocker above), and the hosted probe scripts/queries (they should list the new table, the eleven-argument signature and the `studio_sms_spend_events_approval_ref_len` constraint).
 * The form takes the amount in dollars and the action converts to cents; the operator can type a wrong amount and will be refused (`TW008`) with a generic sentence, because the overview does not carry the price.
   Showing the published price read-only needs a server read of the price list (follow-up).
 * The evidence period in the action is the cover period; the database check against the cover's period is therefore a tautology for the UI but binding for any other caller.

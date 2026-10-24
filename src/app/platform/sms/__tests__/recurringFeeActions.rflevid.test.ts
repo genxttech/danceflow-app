@@ -143,7 +143,14 @@ describe("U-4 evidence is validated server-side before any RPC", () => {
     ["link with a query string (could carry a token)", { documentRef: "https://example.com/doc/1?token=abc" }],
     ["link with credentials", { documentRef: "https://user:pw@example.com/doc/1" }],
     ["short sha", { documentSha256: "abc" }],
-    ["upper-case sha", { documentSha256: "B".repeat(64) }],
+    ["tomorrow's date (later than the UTC date)", { authorizedOn: day(1) }],
+    ["link with a semicolon", { documentRef: "https://example.com/doc;1" }],
+    ["link with an ampersand", { documentRef: "https://example.com/doc&1" }],
+    ["link with an equals sign", { documentRef: "https://example.com/doc=1" }],
+    ["link with a percent escape", { documentRef: "https://example.com/doc%201" }],
+    ["link with a fragment", { documentRef: "https://example.com/doc1#frag" }],
+    ["javascript-style id", { documentRef: "javascript:alert1" }],
+    ["id with an equals sign", { documentRef: "AUTH=DOC-0001" }],
     ["non-hex sha", { documentSha256: "z".repeat(64) }],
     ["missing sha", { documentSha256: "" }],
   ];
@@ -157,12 +164,12 @@ describe("U-4 evidence is validated server-side before any RPC", () => {
     });
   }
 
-  it("accepts an opaque id, a plain https link, both roles, a 400-day-old and tomorrow's date, and passes dollars as cents", async () => {
+  it("accepts an opaque id, a plain https link, both roles, a 400-day-old and today's date, an upper-case sha256 (stored lower-case), and passes dollars as cents", async () => {
     replies.tw4_rfl_admin_overview = pilotOverview;
     replies.tw4_rfl_pilot_cover = { data: { cover_id: U(7) } };
     for (const over of [
       { documentRef: "https://docs.example.com/authorizations/2026-10/confidance-1" }, { authorizedByRole: "founder_written" }, { authorizedOn: day(-EVIDENCE_MAX_AGE_DAYS) },
-      { authorizedOn: day(1) }, { amountUsd: "25" }, { amountUsd: "25.5" },
+      { authorizedOn: day(0) }, { documentSha256: "ABCDEF0123456789".repeat(4) }, { amountUsd: "25" }, { amountUsd: "25.5" },
     ] as Record<string, string>[]) {
       rpc.length = 0;
       expect(await run(base(over))).toContain("does not renew");
@@ -170,6 +177,7 @@ describe("U-4 evidence is validated server-side before any RPC", () => {
       expect(a.p_amount_cents).toBe(over.amountUsd === "25.5" ? 2550 : 2500);
       expect(a.p_evidence_period_key).toBe("2026-10");
       expect(a.p_scope).toBe("pilot_period_cover");
+      expect(a.p_document_sha256).toBe((over.documentSha256 ?? "b".repeat(64)).toLowerCase());
     }
   });
 

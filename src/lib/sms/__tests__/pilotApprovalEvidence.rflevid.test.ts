@@ -22,8 +22,12 @@ describe("pilot approval evidence (shared module)", () => {
   });
 
   it("document reference: opaque id or plain https link only", () => {
-    for (const good of ["AUTH-DOC-0001", "doc:2026/10#a", "https://example.com", "https://docs.example.com/a/b.pdf"]) expect(documentRefValid(good), good).toBe(true);
-    for (const bad of ["short", "has space here", "http://example.com/x", "https://example.com/x?t=1", "https://u:p@example.com/x", "-lead-hyphen-id", "a".repeat(501)]) {
+    for (const good of ["AUTH-DOC-0001", "doc/2026/10#a","https://example.com", "https://docs.example.com/a/b.pdf"]) expect(documentRefValid(good), good).toBe(true);
+    for (const bad of [
+      "short", "has space here", "http://example.com/x", "https://example.com/x?t=1", "https://u:p@example.com/x", "-lead-hyphen-id", "a".repeat(501),
+      "javascript:alert1", "data:text/plain", "doc=abcdef", "doc:2026/10", "https://example.com/a;b", "https://example.com/a&b", "https://example.com/a=b", "https://example.com/a%20b",
+      "https://example.com/doc#frag",
+    ]) {
       expect(documentRefValid(bad), bad).toBe(false);
     }
   });
@@ -33,10 +37,10 @@ describe("pilot approval evidence (shared module)", () => {
     expect(r).toEqual({ ok: true, value: expect.objectContaining({ amountCents: 2500, periodKey: "2026-10", authorizedByRole: "owner_written" }) });
   });
 
-  it("date window: today and tomorrow pass, the day after tomorrow fails; 400 days passes, 401 fails", () => {
+  it("date window: today (UTC) passes, tomorrow fails; 400 days passes, 401 fails", () => {
     const d = (off: number) => new Date(NOW + off * 86_400_000).toISOString().slice(0, 10);
     expect(validatePilotEvidence(ok({ authorizedOn: d(0) }), "2026-10", NOW).ok).toBe(true);
-    expect(validatePilotEvidence(ok({ authorizedOn: d(1) }), "2026-10", NOW).ok).toBe(true);
+    expect(validatePilotEvidence(ok({ authorizedOn: d(1) }), "2026-10", NOW).ok).toBe(false);
     expect(validatePilotEvidence(ok({ authorizedOn: d(2) }), "2026-10", NOW).ok).toBe(false);
     expect(validatePilotEvidence(ok({ authorizedOn: d(-EVIDENCE_MAX_AGE_DAYS) }), "2026-10", NOW).ok).toBe(true);
     expect(validatePilotEvidence(ok({ authorizedOn: d(-EVIDENCE_MAX_AGE_DAYS - 1) }), "2026-10", NOW).ok).toBe(false);

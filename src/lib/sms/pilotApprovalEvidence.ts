@@ -25,8 +25,9 @@ export const EVIDENCE_ROLE_LABEL: Record<EvidenceRole, string> = {
 };
 
 /** An opaque document id (6 to 120 characters) or a plain https link without a query string or credentials (the database applies the same two patterns). */
-export const DOCUMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/#=+-]{5,119}$/;
-export const DOCUMENT_LINK_PATTERN = /^https:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?(\/[A-Za-z0-9._~%!$&'()*+,;=:@/-]*)?$/;
+export const DOCUMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/#+-]{5,119}$/;
+/** No query string, fragment, credentials, percent-escapes, semicolons, ampersands or equals signs: the link is stored permanently and must never carry a token or a name. */
+export const DOCUMENT_LINK_PATTERN = /^https:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?(\/[A-Za-z0-9._~!$'()*+,:@/-]*)?$/;
 export const DOCUMENT_REF_MAX = 500;
 export const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const PERIOD = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -40,7 +41,7 @@ export const approvalRefInRange = (ref: string): boolean => {
   return n >= APPROVAL_REF_MIN && n <= APPROVAL_REF_MAX;
 };
 
-export const documentRefValid = (ref: string): boolean => ref.length <= DOCUMENT_REF_MAX && ((DOCUMENT_ID_PATTERN.test(ref) && !ref.includes("://")) || DOCUMENT_LINK_PATTERN.test(ref));
+export const documentRefValid = (ref: string): boolean => ref.length <= DOCUMENT_REF_MAX && (DOCUMENT_ID_PATTERN.test(ref) || DOCUMENT_LINK_PATTERN.test(ref));
 
 export type PilotEvidenceInput = {
   authorizedOn: string;
@@ -83,8 +84,8 @@ export function validatePilotEvidence(input: PilotEvidenceInput, periodKey: stri
   const ms = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
   const d = new Date(ms);
   if (d.getUTCFullYear() !== Number(m[1]) || d.getUTCMonth() !== Number(m[2]) - 1 || d.getUTCDate() !== Number(m[3])) return bad("The authorization date is not a real date.");
-  // the database allows one day of slack beyond the UTC date (a business can already be on the next calendar day)
-  if (utcDay(ms) > utcDay(nowMs) + 1) return bad("The authorization date is in the future.");
+  // not later than the UTC date (the database applies the same rule; the pilot business is behind UTC, so its local date never exceeds it)
+  if (utcDay(ms) > utcDay(nowMs)) return bad("The authorization date is in the future.");
   if (utcDay(ms) < utcDay(nowMs) - EVIDENCE_MAX_AGE_DAYS) return bad(`The authorization is older than ${EVIDENCE_MAX_AGE_DAYS} days: obtain a current written authorization.`);
   const role = input.authorizedByRole.trim();
   if (!(EVIDENCE_ROLES as readonly string[]).includes(role)) return bad("Choose who authorized this in writing (founder or studio owner).");
@@ -94,9 +95,9 @@ export function validatePilotEvidence(input: PilotEvidenceInput, periodKey: stri
   if (!/^[0-9]{1,7}$/.test(rawAmount) || Number(rawAmount) <= 0) return bad("Give the authorized amount in dollars. It must equal the published price.");
   if (!PERIOD.test(input.periodKey.trim()) || input.periodKey.trim() !== periodKey) return bad("The authorized period must be the period being covered.");
   const documentRef = input.documentRef.trim();
-  if (!documentRefValid(documentRef)) return bad("Give the retained document as an id (6 to 120 letters, digits or . _ : / # = + -) or a plain https link without a query string or credentials.");
+  if (!documentRefValid(documentRef)) return bad("Give the retained document as an id (6 to 120 letters, digits or . _ / # + -) or a plain https link without a query string, credentials or any of ; & = %.");
   const sha = input.documentSha256.trim();
-  if (!SHA256_PATTERN.test(sha)) return bad("Give the sha256 of the retained authorization text: 64 lowercase hex characters.");
+  if (!SHA256_PATTERN.test(sha)) return bad("Give the sha256 of the retained authorization text: 64 hex characters (SHA-256 of the exact bytes of the retained file).");
   return {
     ok: true,
     value: {

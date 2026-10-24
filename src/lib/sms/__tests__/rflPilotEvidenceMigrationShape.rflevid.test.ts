@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { DOCUMENT_ID_PATTERN, DOCUMENT_LINK_PATTERN } from "../pilotApprovalEvidence";
 
 /**
  * Static guards on the pilot-evidence migration (no database needed): one transaction, the predecessor (20261225) body is fingerprint-checked before it is replaced, the old
@@ -101,7 +102,8 @@ describe("20261229090000 pilot approval evidence: migration shape", () => {
   it("validates the reference length (10..200), the date window (not future, 400 days), the role vocabulary, the scope, the amount against the price, the period and the sha256", () => {
     const body = prosrc(replacement);
     expect(body).toMatch(/char_length\(btrim\(p_approval_ref\)\) < 10 or char_length\(btrim\(p_approval_ref\)\) > 200/);
-    expect(body).toMatch(/p_authorized_on > v_today \+ 1/);
+    expect(body).toMatch(/p_authorized_on > v_today then/);
+    expect(body).not.toMatch(/v_today \+ 1/);
     expect(body).toMatch(/p_authorized_on < v_today - 400/);
     expect(body).toMatch(/p_authorized_by_role not in \('founder_written', 'owner_written'\)/);
     expect(body).toMatch(/p_scope <> 'pilot_period_cover'/);
@@ -109,6 +111,13 @@ describe("20261229090000 pilot approval evidence: migration shape", () => {
     expect(body).toMatch(/p_evidence_period_key <> p_period_key/);
     expect(body).toMatch(/p_document_sha256 !~ '\^\[0-9a-f\]\{64\}\$'/);
     expect(body).toMatch(/https:\/\//);
+    // document id / link patterns: SQL (table check and function) and TS share one shape; ids carry no ':' or '=', links no ; & = % query fragment or credentials
+    const idRe = "^[A-Za-z0-9][A-Za-z0-9._/#+-]{5,119}$";
+    const linkRe = "^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~!$''()*+,:@/-]*)?$";
+    expect(mig.split(idRe).length - 1).toBe(2);
+    expect(mig.split(linkRe).length - 1).toBe(2);
+    expect(DOCUMENT_ID_PATTERN.source).toBe("^[A-Za-z0-9][A-Za-z0-9._/#+-]{5,119}$");
+    expect(DOCUMENT_LINK_PATTERN.source.replace(/\\\//g, "/")).toBe(linkRe.replace("''", "'"));
     // the amount check uses the price lookup the function already uses (the active published price of the covered fee), and runs before the ceiling and before any spend approval
     expect(body.indexOf("p_amount_cents <> p.customer_price_cents")).toBeGreaterThan(body.indexOf("from public.studio_sms_price_list x where x.kind = r.fee_kind and x.active"));
     expect(body.indexOf("p_amount_cents <> p.customer_price_cents")).toBeLessThan(body.indexOf("pe.ceiling_cents"));
@@ -176,6 +185,25 @@ describe("20261229090000 pilot approval evidence: migration shape", () => {
     expect(rollback.indexOf("drop table")).toBeLessThan(rollback.indexOf(PILOT_SIG));
     expect(rollback).toMatch(/lock table public\.studio_sms_provider_cover_evidence in access exclusive mode;/);
     expect(rollback).toMatch(/grant execute on function public\.tw4_rfl_pilot_cover\(uuid, text, text, uuid\) to service_role;/);
+  });
+
+  it("refuses to apply while a live pilot_approval cover without evidence exists, under a table lock, before any DDL", () => {
+    expect(mig).toMatch(/lock table public\.studio_sms_provider_cover in share row exclusive mode;/);
+    const at = mig.indexOf("c.basis = 'pilot_approval' and c.superseded_at is null");
+    expect(at).toBeGreaterThan(0);
+    expect(mig).toMatch(/pilot-evidence precondition failed: live pilot_approval covers recorded without evidence exist/);
+    expect(mig.indexOf("lock table public.studio_sms_provider_cover")).toBeLessThan(at);
+    expect(at).toBeLessThan(mig.indexOf("alter table"));
+    expect(at).toBeLessThan(mig.indexOf("create table"));
+  });
+
+  it("the rollback fingerprints the live eleven-argument body (the one this migration created) before dropping it", () => {
+    const fp = md5(prosrc(replacement));
+    expect(rollback).toContain("'public.tw4_rfl_pilot_cover(uuid,text,text,uuid,date,text,text,integer,text,text,text)'::regprocedure");
+    expect(rollback).toContain(`is distinct from '${fp}'`);
+    expect(rollback).toMatch(/differs from its 20261229 definition/);
+    expect(rollback.indexOf(`is distinct from '${fp}'`)).toBeLessThan(rollback.indexOf("drop function public.tw4_rfl_pilot_cover"));
+    expect(rollback.indexOf(`is distinct from '${fp}'`)).toBeLessThan(rollback.indexOf("drop table"));
   });
 
   it("no non-test source calls the old four-argument shape", () => {

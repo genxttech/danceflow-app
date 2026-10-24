@@ -211,7 +211,7 @@ export async function rflPilotCoverAction(formData: FormData) {
     // The amount is NOT trusted: the database requires it to equal the published price of the fee being covered and refuses otherwise.
     const evidence = validatePilotEvidence({
       authorizedOn: field(formData, "authorizedOn"), authorizedByRole: field(formData, "authorizedByRole"), scope: field(formData, "scope"), amountCents: String(usdToCents(field(formData, "amountUsd")) ?? ""),
-      periodKey, documentRef: field(formData, "documentRef"), documentSha256: field(formData, "documentSha256"),
+      periodKey, documentRef: field(formData, "documentRef"), documentSha256: field(formData, "documentSha256").toLowerCase(),
     }, periodKey, Date.now());
     if (!evidence.ok) return fail(`${evidence.message} Nothing changed.`);
     const overview = (await loadRecurringFeeOps(createAdminClient(), admin.id)).overview;

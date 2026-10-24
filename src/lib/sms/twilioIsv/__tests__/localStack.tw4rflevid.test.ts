@@ -13,6 +13,8 @@
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { evidenceDay, evidenceFields, pilotCoverArgs, priceOfResource, type EvidenceOverride } from "./rflEvidenceHelper";
 
@@ -292,7 +294,8 @@ commit;`);
     const today = (n: number) => evidenceDay(n);
     const cases: [string, (period: string, price: number) => EvidenceOverride, string][] = [
       ["missing date", () => ({ authorizedOn: null }), "TW052"],
-      ["future date (beyond the one day of UTC slack)", () => ({ authorizedOn: today(3) }), "TW052"],
+      ["future date (tomorrow, later than the UTC date)", () => ({ authorizedOn: today(1) }), "TW052"],
+      ["future date (a week ahead)", () => ({ authorizedOn: today(7) }), "TW052"],
       ["authorization older than 400 days", () => ({ authorizedOn: today(-402) }), "TW052"],
       ["wrong role", () => ({ role: "policy_lapse" }), "TW052"],
       ["missing role", () => ({ role: null }), "TW052"],
@@ -310,6 +313,14 @@ commit;`);
       ["link that is not https", () => ({ documentRef: "http://docs.example.com/auth/1" }), "TW052"],
       ["https link with a query string", () => ({ documentRef: "https://docs.example.com/auth/1?token=abc" }), "TW052"],
       ["https link with credentials", () => ({ documentRef: "https://user:pw@docs.example.com/auth/1" }), "TW052"],
+      ["https link with a semicolon", () => ({ documentRef: "https://docs.example.com/auth;1" }), "TW052"],
+      ["https link with an ampersand", () => ({ documentRef: "https://docs.example.com/auth&1" }), "TW052"],
+      ["https link with an equals sign", () => ({ documentRef: "https://docs.example.com/auth=1" }), "TW052"],
+      ["https link with a percent escape", () => ({ documentRef: "https://docs.example.com/auth%201" }), "TW052"],
+      ["https link with a fragment", () => ({ documentRef: "https://docs.example.com/auth1#frag" }), "TW052"],
+      ["javascript-style document id", () => ({ documentRef: "javascript:alert1" }), "TW052"],
+      ["document id with an equals sign", () => ({ documentRef: "AUTH=DOC-0001" }), "TW052"],
+      ["document id with a colon", () => ({ documentRef: "AUTH:DOC-0001" }), "TW052"],
       ["short sha256", () => ({ sha256: "abc123" }), "TW052"],
       ["upper-case sha256", () => ({ sha256: "A".repeat(64) }), "TW052"],
       ["non-hex sha256", () => ({ sha256: "g".repeat(64) }), "TW052"],
@@ -331,8 +342,8 @@ commit;`);
       });
     }
 
-    it("the date window accepts today, tomorrow (a business already on the next calendar day) and 399 days ago", () => {
-      for (const day of [today(0), today(1), today(-399)]) {
+    it("the date window accepts today (UTC) and 399 days ago", () => {
+      for (const day of [today(0), today(-399)]) {
         const w = pilotWorld();
         const num = registerNumber(w, null);
         expect(cover(num.resource_id, cur(), ref("window"), { authorizedOn: day }).replayed).toBe(false);
@@ -421,6 +432,65 @@ commit;`);
       expect(psql(`select has_function_privilege('service_role', '${NEW_SIG}', 'execute')`)).toBe("t");
       expect(psql(`select has_function_privilege('public', '${NEW_SIG}', 'execute')`)).toBe("f");
       for (const role of ["anon", "authenticated", "service_role"]) expect(psql(`select has_function_privilege('${role}', 'public._tw4rfl_evid_guard()', 'execute')`)).toBe("f");
+    });
+  });
+
+  describe("apply precondition and rollback fingerprint (on a schema-only scratch copy)", () => {
+    const mdir = join(process.cwd(), "src/lib/supabase/migrations");
+    const forward = readFileSync(join(mdir, "20261229090000_twilio_rfl_pilot_evidence.sql"), "utf8");
+    const back = readFileSync(join(mdir, "rollback/20261229090000_twilio_rfl_pilot_evidence_rollback.sql"), "utf8");
+    /** A scratch database holding this database's SCHEMA only (no rows): `run` throws on SQL error, `fail` returns the error text. */
+    const withScratch = (label: string, body: (run: (sql: string) => string, fail: (sql: string) => string) => void) => {
+      const scratch = `${DB}_${label}_${RUN}`;
+      const sh = (cmd: string) => execFileSync("docker", ["exec", PG, "sh", "-c", cmd], { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+      try {
+        sh(`psql -U postgres -q -c 'create database ${scratch}'`);
+        sh(`pg_dump -U postgres -s --no-owner ${DB} | psql -U postgres -d ${scratch} -q > /dev/null 2>&1; true`);
+        const args = ["exec", "-i", PG, "psql", "-U", "postgres", "-d", scratch, "-q", "-At", "-v", "ON_ERROR_STOP=1"];
+        const run = (sql: string) => execFileSync("docker", args, { input: sql, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+        const fail = (sql: string) => {
+          try {
+            run(sql);
+            return "";
+          } catch (error) {
+            return String((error as { stderr?: Buffer | string }).stderr ?? error);
+          }
+        };
+        body(run, fail);
+      } finally {
+        sh(`psql -U postgres -q -c "select pg_terminate_backend(pid) from pg_stat_activity where datname = '${scratch}'" -c 'drop database if exists ${scratch}' > /dev/null 2>&1; true`);
+      }
+    };
+
+    it("20261229 refuses to apply while a live pilot_approval cover without evidence exists, and applies once it is gone", () => {
+      withScratch("pre", (run, fail) => {
+        run(back); // the copy is back at the 20261225 shape (it has no evidence rows)
+        expect(run(`select to_regprocedure('${OLD_SIG}') is not null`)).toBe("t");
+        // a cover recorded through the four-argument function (foreign keys are not enforced under the replica role; the row only has to look like one)
+        run(`begin; set local session_replication_role = replica;
+          insert into public.studio_sms_provider_cover (resource_id, legal_entity_id, studio_id, period_key, basis, reservation_id, spend_event_id, approval_ref, recorded_by)
+          values ('${randomUUID()}', '${randomUUID()}', '${randomUUID()}', '2026-10', 'pilot_approval', '${randomUUID()}', '${randomUUID()}', 'Written approval legacy ${RUN} 0001', '${P}'); commit;`);
+        const err = fail(forward);
+        expect(err).toMatch(/pilot-evidence precondition failed: live pilot_approval covers recorded without evidence exist/);
+        // nothing was applied: the transaction rolled back whole
+        expect(run(`select to_regprocedure('${OLD_SIG}') is not null and to_regclass('public.studio_sms_provider_cover_evidence') is null`)).toBe("t");
+        expect(run(`select count(*) from pg_constraint where conname = 'studio_sms_spend_events_approval_ref_len'`)).toBe("0");
+        run(`begin; set local session_replication_role = replica; delete from public.studio_sms_provider_cover where approval_ref = 'Written approval legacy ${RUN} 0001'; commit;`);
+        run(forward);
+        expect(run(`select to_regprocedure('${NEW_SIG}') is not null and to_regprocedure('${OLD_SIG}') is null`)).toBe("t");
+      });
+    });
+
+    it("20261229's rollback refuses when the live eleven-argument body is not the one it created, and keeps everything", () => {
+      withScratch("fp", (run, fail) => {
+        const def = run(`select pg_get_functiondef('${NEW_SIG}'::regprocedure)`);
+        expect(def).toContain("p_amount_cents <> p.customer_price_cents");
+        run(`${def.replace("p_amount_cents <> p.customer_price_cents", "p_amount_cents < p.customer_price_cents")};`);
+        const err = fail(back);
+        expect(err).toMatch(/differs from its 20261229 definition/);
+        expect(run(`select to_regprocedure('${NEW_SIG}') is not null and to_regclass('public.studio_sms_provider_cover_evidence') is not null and to_regprocedure('${OLD_SIG}') is null`)).toBe("t");
+        expect(run(`select count(*) from pg_constraint where conname = 'studio_sms_spend_events_approval_ref_len'`)).toBe("1");
+      });
     });
   });
 

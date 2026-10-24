@@ -18,6 +18,10 @@ begin
   if to_regprocedure('public.tw4_rfl_pilot_cover(uuid,text,text,uuid)') is not null then
     raise exception 'pilot-evidence rollback precondition failed: the four-argument signature already exists';
   end if;
+  -- the live eleven-argument body must be exactly the one 20261229 created (a later migration that redefined it must be rolled back first)
+  if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_rfl_pilot_cover(uuid,text,text,uuid,date,text,text,integer,text,text,text)'::regprocedure), chr(13), '')) is distinct from 'deffc1b878778dced134334260d62512' then
+    raise exception 'pilot-evidence rollback precondition failed: public.tw4_rfl_pilot_cover (eleven arguments) differs from its 20261229 definition; roll back the later migration first';
+  end if;
   if exists (select 1 from public.studio_sms_provider_cover_evidence) then
     raise exception 'pilot-evidence rollback refused: approval evidence exists and is permanent';
   end if;

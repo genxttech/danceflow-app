@@ -77,12 +77,15 @@ export default function RecurringFeesPilot({ overview, now }: { overview: RflOve
                     <input name="amountUsd" required inputMode="decimal" pattern="[0-9]{1,5}(\.[0-9]{1,2})?" className={inputClass} />
                   </label>
                   <label className={labelClass}>
-                    Retained document: an id or a plain https link (no query string, no credentials)
+                    Retained document: an id or a plain https link (no query string, fragment, credentials, or any of ; &amp; = %)
                     <input name="documentRef" required minLength={6} maxLength={DOCUMENT_REF_MAX} className={inputClass} />
                   </label>
+                  <p className="text-xs text-slate-600">
+                    This reference is stored permanently. It must not be a share or access link, and must not contain a person&apos;s name. Prefer an internal document id.
+                  </p>
                   <label className={labelClass}>
-                    sha256 of the retained authorization text (64 lowercase hex characters)
-                    <input name="documentSha256" required minLength={64} maxLength={64} pattern="[0-9a-f]{64}" autoComplete="off" className={inputClass} />
+                    sha256 of the retained authorization: the SHA-256 of the exact bytes of the retained file, as 64 hex characters (upper case is accepted and stored in lower case)
+                    <input name="documentSha256" required minLength={64} maxLength={64} pattern="[0-9a-fA-F]{64}" autoComplete="off" className={inputClass} />
                   </label>
                   <label className="flex items-start gap-2 text-xs text-slate-700">
                     <input type="checkbox" name="ack" value="yes" required className="mt-0.5" />
