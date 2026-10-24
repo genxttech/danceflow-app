@@ -49,7 +49,8 @@ Conclusion: the `supautils` extension's `hint_roles` feature (it appends "Grant 
 node scripts/qa/iso-qa.mjs baseline                                   # once per baseline change
 node scripts/qa/iso-qa.mjs selftest                                   # harness negative controls (pass/fail/skip/crash/ports/cleanup/ownership)
 node scripts/qa/iso-qa.mjs run main -- src/lib/sms/twilioIsv/__tests__/localStack.r2a.test.ts
-node scripts/qa/iso-qa.mjs matrix main --parallel 2                   # every local-stack suite, one fresh database each
+node scripts/qa/iso-qa.mjs matrix main --parallel 1                   # every local-stack suite (URL-gated and container-gated, section 6), one fresh database each
+node scripts/qa/tw4f/run-chain.mjs rehearse --dry-run                 # manifest-order rehearsal plan and hash checks, no docker (section 7)
 node scripts/qa/iso-qa.mjs compare pr251-then-r2a r2a-then-pr251      # catalogs of two migration orders (functions, tables, constraints, indexes, policies, triggers, views, ACLs)
 node scripts/qa/iso-qa.mjs run r2a-r2b --tests-ref origin/twilio-r2b-number-activation -- <suite>
 node scripts/qa/iso-qa.mjs repro                                      # the three-line signal-11 reproduction (crash / survive / survive)
@@ -63,7 +64,7 @@ node scripts/qa/iso-qa.mjs down --all                                 # remove i
 | 2 | usage error |
 | 3 | infrastructure failure: database or API container crashed, restarted, OOM-killed, never became ready, or a migration failed (never reported as a test result) |
 | 4 | nothing ran / tests skipped / matrix incomplete (never green) |
-| 6 | matrix only: every failure is a KNOWN, explained one (`scripts/qa/expected-results.json`); a listed suite that now passes is a stale expectation and fails the matrix |
+| 6 | matrix only: not green, but every non-pass is explained in `scripts/qa/expected-results.json`: a KNOWN failure (every failing test listed) or an explained NON-RUN (a disposition: every test of the suite skipped). A listed suite that now passes is a stale expectation and fails the matrix (exit 1) |
 
 Requires Docker, the images `public.ecr.aws/supabase/{postgres:17.6.1.106,postgrest:v14.8,kong:2.8.1}`, Node 20+. No network access to Twilio or any hosted database. Evidence per run: `<QA home>/runs/<time>-<instance>/` (vitest.log, postgres.log, result.json with provenance and failed-test names).
 
@@ -77,7 +78,9 @@ Requires Docker, the images `public.ecr.aws/supabase/{postgres:17.6.1.106,postgr
 
 ## 5. Results
 
-### 2026-10-23: `main` baseline at 6422e050 (historical) (origin/main 6422e050, chain 20261207..20261217 incl. 1215; one test database at a time)
+> **Everything under this heading is HISTORICAL.** It records what earlier runs showed on earlier chains. None of it validates the current chain (through 20261230090000, and 20261231090000 / 20261231100000 once they merge). The first current-chain evidence is the full-chain rehearsal (section 7), which has not been run.
+
+### 2026-10-23: `main` baseline at 6422e050 (HISTORICAL, not current-chain validation) (origin/main 6422e050, chain 20261207..20261217 incl. 1215; one test database at a time)
 
 19/23 suites passed; 3 KNOWN explained (tw4a pin, tw4f1b function-count pin, R2a rollback after R2b); 1 unexpected: `localStack.r2b.test.ts` skips all 53 tests because its beforeAll refuses a database that has the real recurring-fee lifecycle (an R2b/RFL follow-up: that suite only runs on a partial chain). Not discovered by `matrix` (need their own databases/env): `localStack.tw4rfl`, `localStack.tw4rflops` (64/64 pass on a stock stack with `ISO_QA_MARKER=1 TW4RFL_DB=postgres`), `localStack.r2brfl`, `localStack.r2bp2.rfl`. Every stack now gets idempotent per-stack steps (auth.users `email_confirmed_at/banned_until/deleted_at`, `grant update, delete on outbound_deliveries to authenticated`); the shared baseline image is unchanged. Host at start: 82% CPU, 8.6/31.5 GB RAM free, 25 containers.
 
@@ -88,3 +91,40 @@ Requires Docker, the images `public.ecr.aws/supabase/{postgres:17.6.1.106,postgr
 - Independent Opus review (read-only) of the harness: no false-PASS path found in crash detection; findings fixed in this PR: a failed start could remove another process's live stack (now removes only what the process owns), check/remove/create now happen under the start lock, matrix exit precedence (infrastructure/skips before stale expectations), known-failure matching (no skip, one phrase per failing test, exact count), vitest timeout and signal death classified as infrastructure, missing dump refused, scenario completeness check, argument defaults and column ACLs in the catalog fingerprint, audit reference is explicit. Not fixed (documented): `up` stacks are owned by the short-lived `up` process, so a concurrent `down --all` without `--force` can remove them (use `run`/`matrix`, which own their stacks, or `--force` discipline); the baseline image is not re-verified against the current ref sha (rebuild after migrations at or below the cutoff change).
 
 Note (2026-10-23): section 5 results predate the #251/#269 merges and the 1218..1227 migrations. The harness (selftest, scenario completeness and a single-suite scenario proof on both `main` and `numeric`) was re-verified on the current chain. No full matrix run exists yet on the current chain (20261206..20261227); the last full run is the 6422e050 matrix above. The per-slice DB results are recorded in each merged PR. Order independence between `main` and `numeric` is checked with `compare main numeric`.
+
+## 6. Matrix discovery and dispositions (2026-10-24)
+
+**Discovery.** `matrix` used to grep for the `TW4A_LOCAL_URL` gate, which silently left out every suite that talks to the database container directly. It now also runs every suite declared in `scripts/qa/matrix-suites.json`, each on its own fresh stack with the environment it needs (`env`, where `{DB}` is the stack's database container, and `marker` for the `tw4_local_qa_only` table). Declared: `tw4rfl`, `tw4rflops`, `tw4rfld5`, `tw4rflevid`, `tw4rflspend`, `r2brfl`, `r2bp2.rfl`, `f1funding`, `f5canceltarget`, `j4activation`, `f4recovery`, `tw4a9`. A `localStack.*.test.ts` file at the tested ref that has neither the URL gate nor an entry in that file makes the matrix refuse to start (exit 4, "incomplete"), so a new suite can never be left out unnoticed. `run` accepts `--env KEY=VALUE` (repeatable) and `--marker`. Of these, only the four named in the 2026-10-23 record (`tw4rfl`, `tw4rflops`, `r2brfl`, `r2bp2.rfl`) have been run on this harness before; the other eight are newly discovered and unvalidated on the current chain, and a failure there is a real failure until explained.
+
+**Scenarios.** `main` and `numeric` stopped at 20261227, so on current `origin/main` the completeness check refuses to start them (1228, 1229 and 1230 exist at the ref). They now include `20261228`, `20261229` and `20261230`. When 20261231090000 (slice A) and 20261231100000 (slice B) merge, the tracker/manifest sync PR (phase 2) adds them to both scenarios; until then the harness refuses, by design.
+
+**Dispositions.** Each state below is shown by the matrix and never counts as a pass; the exit code can reach 6 at best, never 0.
+
+| Suite | State | Reason | Recorded in |
+|---|---|---|---|
+| `localStack.r2b` | SKIPPED-by-design (a disposition) | All 53 tests skip on the full chain (`main`, `numeric`): its `beforeAll` refuses a database that has the real recurring-fee lifecycle (20261209+). It only runs on a partial R2b chain with the RFL stand-ins. Full-chain coverage is carried by `r2brfl`, `tw4rfl` and `tw4fj1`. The matrix prints `SKIP*`. A run in which anything passed, failed, or ran no tests is not covered by the disposition. | `expected-results.json` `dispositions` |
+| `localStack.r2bp2.rfl` | KNOWN (KI-3) | Fails on plain `main`, deterministically. Probable cause, **unconfirmed**: `tw4_rfl_alerts_claim` returns nothing while the RFL delivery kill switch is off (fail closed since 20261211) and the test never turns delivery on. The tracker records 2 of 3 tests failing; only "the real outbox's own runner can claim and finish what P2 raised" (the Q1 observation) is listed, so any other failing set is reported as FAIL. **Not fixed**: the cause is unconfirmed and a fix needs a platform-admin actor fixture, so the test is documented, not edited. Never change the fail-closed function to make it pass. | `expected-results.json` `known` |
+| `localStack.tw4fj1` | was BLOCKED-by-harness; the harness gap is closed, result UNVERIFIED | Its first `beforeAll` assertion needs the `tw4_local_qa_only` marker table, which `matrix` did not create for URL-gated suites, so the suite failed in `beforeAll` regardless of the code (and the scenarios lacked 1228..1230). `matrix-suites.json` `urlSuiteOptions` now sets `marker` for it. No run on the fixed harness exists yet; until one passes, treat it as not proven. | `matrix-suites.json` |
+
+Retained KNOWN failures (unchanged): `tw4a` pin, `tw4f1b` function-count pin, `r2a` rollback after R2b, `tw4payhardening` (flaky, performance-bound).
+
+## 7. Full-chain rehearsal (prepared, NOT yet run)
+
+One command, on a fresh isolated stack, driven by the hosted manifest rather than by directory order:
+
+```bash
+node scripts/qa/iso-qa.mjs baseline --cutoff 20261118090000                 # once: pre-TW-4F baseline image df-isoqa/base:20261118090000
+node scripts/qa/tw4f/run-chain.mjs rehearse --dry-run                        # plan + hash checks, no docker (safe anywhere)
+node scripts/qa/tw4f/run-chain.mjs rehearse                                  # steps (a)-(d) only
+node scripts/qa/tw4f/run-chain.mjs rehearse --matrix --exclusive             # steps (a)-(e); owner-scheduled window, no other stack running
+```
+
+1. **(a) Apply in manifest section 4 order** (read from the manifest at `--base`, default `origin/main`; tokens such as `1119_092100`, `[1215, merged]`, `1231` and `1231b` = 20261231100000 are understood). Before any SQL runs, each forward file's LF-normalised sha256 and its rollback's sha256 must equal the manifest row, every order entry must have a row and exactly one file, and every TW-4F file in range on the ref must be in the order; `verify_manifest_hashes.sh` must also pass. Any mismatch exits 1 without touching docker.
+2. **(b)** The catalog fingerprint is recorded after every file (count and sha256 per step in `rehearsal-steps.json`; the forward-final fingerprint is saved in full).
+3. **(c) Strict reverse rollback.** After each rollback the catalog must equal the one recorded before that file was applied; at the end it must equal the baseline fingerprint. A rollback that refuses or fails is a FAIL. The only tolerated difference is the documented KI-2 residue (three widened CHECK constraints), which makes the result KNOWN (exit 6), never green.
+4. **(d) Re-apply** in order; each step must equal its first-apply fingerprint.
+5. **(e) `--matrix`**: `iso-qa.mjs matrix main --parallel 1` at the same commit. Requires `--exclusive` (no other isolated stack running) and a scenario `main` that equals the manifest chain (otherwise exit 1 before anything starts; this is what forces the 1231/1231b scenario update in phase 2). The exit code is the worse of the structural and matrix codes; the matrix is "NOT RUN" when the structural stages did not pass.
+
+Exit codes: 0 all green; 1 failed (including a hash mismatch); 3 infrastructure; 4 BLOCKED (host-load rule: another isolated stack is already running beyond the allowed number, or any with `--exclusive`); 6 only KNOWN items. Host-load rule: at most 2 isolated stacks across all sessions.
+
+Offline proof: `node --test scripts/qa/tw4f/rehearsalPlan.test.mjs` (order and hash parsing, plan cross-checks including the 1231/1231b tail, KI-2 masking, and the PASS/KNOWN/FAIL decision).

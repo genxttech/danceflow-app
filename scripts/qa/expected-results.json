@@ -1,5 +1,5 @@
 {
-  "_comment": "Known failures, each with the evidence that it is NOT caused by R2a / #251 / R2b. A suite counts as known only when EVERY failing test is listed here and EVERY listed test still fails; a listed suite that passes is reported as a stale expectation and fails the matrix. Proven by running the suite on the `baseline` scenario (no R2a) with identical results on 2026-10-21.",
+  "_comment": "Known failures, each with the evidence that it is NOT caused by R2a / #251 / R2b. A suite counts as known only when EVERY failing test is listed here and EVERY listed test still fails; a listed suite that passes is reported as a stale expectation and fails the matrix. Proven by running the suite on the `baseline` scenario (no R2a) with identical results on 2026-10-21. \"dispositions\" are explained NON-RUNS (every test skipped): they are reported by the matrix as SKIP* and lead to exit 6 at best, never 0; a disposition suite that passes is a stale expectation (exit 1).",
   "known": [
     {
       "suite": "src/lib/sms/onboarding/__tests__/localStack.tw4a.test.ts",
@@ -45,6 +45,28 @@
         "events for payments that are not credit purchases never touch credit"
       ],
       "reason": "PERFORMANCE-BOUND, not a logic failure: the 60-run property test is pinned at 90 s in the test file and takes ~90 s in a container; when it times out its still-running loop pollutes the two tests after it (cascade). Passed in earlier runs on the same migrations and fails identically on `main` and every other scenario. The suite is not changed here (billing owner); rerun it singly on an idle host to confirm."
+    },
+    {
+      "suite": "src/lib/sms/twilioIsv/__tests__/localStack.r2bp2.rfl.test.ts",
+      "scenarios": [
+        "main",
+        "numeric"
+      ],
+      "failing": [
+        "the real outbox's own runner can claim and finish what P2 raised"
+      ],
+      "reason": "KI-3 (tracker section 7; Q1 #275 evidence, plain main, idle host): expected +0 to be 2. Probable cause, UNCONFIRMED: tw4_rfl_alerts_claim returns nothing while the RFL delivery kill switch is off (fail closed since 20261211) and the test never turns delivery on. The tracker records 2 of 3 tests failing; only this one is listed here, so a different failure set is reported as FAIL, not hidden. Not fixed: the cause is unconfirmed and the fix needs a platform-admin actor fixture; do NOT change the fail-closed function."
+    }
+  ],
+  "dispositions": [
+    {
+      "suite": "src/lib/sms/twilioIsv/__tests__/localStack.r2b.test.ts",
+      "kind": "SKIPPED-by-design",
+      "scenarios": [
+        "main",
+        "numeric"
+      ],
+      "reason": "all 53 tests skip on the full chain: beforeAll refuses a database that has the real recurring-fee lifecycle (20261209+); the suite only runs on a partial R2b chain with the RFL stand-ins. Its coverage on the full chain is carried by localStack.r2brfl / tw4rfl / tw4fj1. Not a pass; re-run it only on a partial chain via `run`."
     }
   ]
 }

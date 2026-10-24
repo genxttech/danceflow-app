@@ -351,7 +351,7 @@ async function cmdUp(scenarioName, flags, instance) {
   // columns the Supabase auth service (GoTrue) adds to auth.users and that the bare image / July dump lack; fixtures of several suites (rflops, ...) insert them. Idempotent, per stack: the shared baseline image is not touched.
   { const r = psqlIn(n.db, "alter table auth.users add column if not exists email_confirmed_at timestamptz, add column if not exists banned_until timestamptz, add column if not exists deleted_at timestamptz; do $q$ begin if to_regclass('public.outbound_deliveries') is not null then grant update, delete on public.outbound_deliveries to authenticated; end if; end $q$;", { user: "supabase_admin" }); if (r.code !== 0) throw new Error(`auth.users column step failed: ${r.out.slice(0, 300)}`); }
   // opt-in (ISO_QA_MARKER=1): the local-QA marker table some suites require to pre-exist (they otherwise create it themselves); creating it changes what fake-provider paths accept, so it is never on by default
-  if (process.env.ISO_QA_MARKER === "1") { const r = psqlIn(n.db, "create table if not exists public.tw4_local_qa_only (note text); revoke all on public.tw4_local_qa_only from public, anon, authenticated, service_role;"); if (r.code !== 0) throw new Error(`QA marker step failed: ${r.out.slice(0, 300)}`); }
+  if (process.env.ISO_QA_MARKER === "1" || flags.marker) { const r = psqlIn(n.db, "create table if not exists public.tw4_local_qa_only (note text); revoke all on public.tw4_local_qa_only from public, anon, authenticated, service_role;"); if (r.code !== 0) throw new Error(`QA marker step failed: ${r.out.slice(0, 300)}`); }
   const applied = [];
   for (const [ref, version] of list) {
     const file = migrationFileAt(ref, version);
@@ -435,6 +435,9 @@ function testWorktree(ref) {
   return { dir, sha };
 }
 
+/** --env KEY=VALUE for the suite process; {DB} is the stack's database container (suites that gate on a container name, not on TW4A_LOCAL_URL). The stack's own variables always win. */
+const suiteEnv = (flags, instance) => Object.fromEntries((flags.env ?? []).map((e) => { const i = e.indexOf("="); return [e.slice(0, i), e.slice(i + 1).replaceAll("{DB}", names(instance).db)]; }));
+
 async function cmdRun(scenarioName, flags, vitestArgs, instance) {
   const cleanup = () => { try { cmdDown(instance, { force: true, ownOnly: true }); } catch { /* best effort */ } };
   for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => { cleanup(); process.exit(130); });
@@ -461,7 +464,7 @@ async function cmdRun(scenarioName, flags, vitestArgs, instance) {
     const args = [vitestBin, "run", "--no-file-parallelism", "--reporter=default", "--reporter=json", `--outputFile.json=${jsonOut}`, ...timeouts, ...vitestArgs];
     // the suites keep cross-process mutexes under os.tmpdir(): give every run its own temp dir so concurrent runs and other sessions never share (or wait on, or inherit a stale) lock
     const tmp = path.join(runDir, "tmp"); mkdirSync(tmp, { recursive: true });
-    const r = spawnSync(process.execPath, args, { cwd: tests.dir, env: { ...process.env, ...up.env, TMP: tmp, TEMP: tmp, TMPDIR: tmp }, encoding: "utf8", maxBuffer: 1 << 28, timeout: Number(process.env.ISO_QA_TEST_TIMEOUT_MS ?? 45 * 60_000), killSignal: "SIGKILL" });
+    const r = spawnSync(process.execPath, args, { cwd: tests.dir, env: { ...process.env, ...suiteEnv(flags, instance), ...up.env, TMP: tmp, TEMP: tmp, TMPDIR: tmp }, encoding: "utf8", maxBuffer: 1 << 28, timeout: Number(process.env.ISO_QA_TEST_TIMEOUT_MS ?? 45 * 60_000), killSignal: "SIGKILL" });
     const out = `${r.stdout ?? ""}\n${r.stderr ?? ""}`;
     writeFileSync(path.join(runDir, "vitest.log"), out);
     const dbName = names(instance).db;
@@ -567,7 +570,35 @@ async function cmdCompare(a, b, flags) {
 // matrix
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 /** Failures that are KNOWN and explained (scripts/qa/expected-results.json). A suite is "known" only when EVERY failing test is listed and EVERY listed test still fails. */
-const EXPECTED = JSON.parse(readFileSync(path.join(here, "expected-results.json"), "utf8")).known;
+const EXPECTED_FILE = JSON.parse(readFileSync(path.join(here, "expected-results.json"), "utf8"));
+const EXPECTED = EXPECTED_FILE.known;
+/** Explained NON-RUNS (expected-results.json "dispositions"): a suite whose every test is skipped, with the reason. Never a pass: the matrix reports it and exits 6 at best. */
+const DISPOSITIONS = EXPECTED_FILE.dispositions ?? [];
+/** Suites that need more than the plain TW4A_LOCAL_URL stack (scripts/qa/matrix-suites.json): container-gated suites run by name, plus per-suite options (the marker table) for URL-gated ones. */
+const MATRIX_SUITES = JSON.parse(readFileSync(path.join(here, "matrix-suites.json"), "utf8"));
+const DB_SUITES = MATRIX_SUITES.suites ?? {};
+const URL_SUITE_OPTIONS = MATRIX_SUITES.urlSuiteOptions ?? {};
+const matrixFlagsFor = (f) => {
+  const o = DB_SUITES[f] ?? URL_SUITE_OPTIONS[f];
+  if (!o) return [];
+  return [...(o.marker ? ["--marker"] : []), ...Object.entries(o.env ?? {}).flatMap(([k, v]) => ["--env", `${k}=${v}`])];
+};
+/** Which localStack files the matrix must run. urlGated = files carrying TW4A_LOCAL_URL; allLocalStack = every localStack.*.test.ts at the tested tree. undeclared = neither gate nor an entry in matrix-suites.json (the matrix refuses to start). */
+function planMatrixFiles(urlGated, allLocalStack, dbSuites = DB_SUITES) {
+  const present = new Set(allLocalStack);
+  const declared = Object.keys(dbSuites).filter((f) => present.has(f));
+  const files = [...new Set([...urlGated, ...declared])].sort();
+  const undeclared = allLocalStack.filter((f) => !urlGated.includes(f) && !(f in dbSuites)).sort();
+  return { files, undeclared };
+}
+/** A skipped suite is "explained" only when every test in it was skipped (nothing passed, nothing failed) and a disposition names the suite for this scenario. */
+function classifySkip(file, scenarioName, runDir, ref) {
+  let r;
+  try { r = JSON.parse(readFileSync(path.join(runDir, "result.json"), "utf8")); } catch { return null; }
+  if (r.exit !== 4 || r.counts.total === 0 || r.counts.failed > 0 || r.counts.passed > 0 || r.counts.skipped !== r.counts.total) return null;
+  const d = DISPOSITIONS.find((x) => x.suite === file && appliesTo(x, scenarioName, ref));
+  return d ? { kind: d.kind, reason: d.reason } : null;
+}
 const appliesTo = (e, scenarioName, ref) => (e.scenarios.includes("*") || e.scenarios.includes(scenarioName)) && (!e.testsRef || (ref ?? "").includes(e.testsRef)) && (!e.workingTreeOnly || !ref);
 function classify(file, scenarioName, runDirFromTail, ref) {
   let r;
@@ -594,37 +625,45 @@ async function cmdMatrix(scenarioName, flags) {
   if (ref) testWorktree(ref); // created once, here, before any child needs it
   // the suites of the commit under test: every test file that carries the local-stack gate variable (local-stack suites, dry runs, the canary)
   const grep = ref ? git("grep", "-l", "TW4A_LOCAL_URL", resolveRef(ref), "--", "src") : git("grep", "-l", "TW4A_LOCAL_URL", "--", "src");
-  const files = [...new Set(grep.split("\n").filter(Boolean).map((l) => l.replace(/^[0-9a-f]{40}:/, "")))].filter((f) => /\.test\.ts$/.test(f)).sort();
+  const urlGated = [...new Set(grep.split("\n").filter(Boolean).map((l) => l.replace(/^[0-9a-f]{40}:/, "")))].filter((f) => /\.test\.ts$/.test(f)).sort();
+  // container-gated localStack suites (no TW4A_LOCAL_URL gate) are found by file name and run only when declared in matrix-suites.json
+  const allLocal = git("ls-tree", "-r", "--name-only", ref ? resolveRef(ref) : "HEAD", "--", "src").split("\n").filter((f) => /(^|\/)localStack\.[^/]*\.test\.ts$/.test(f));
+  const plan = planMatrixFiles(urlGated, allLocal);
+  const files = plan.files;
   if (files.length === 0) { log("INCOMPLETE MATRIX: no suites found"); process.exit(4); }
+  if (plan.undeclared.length) { log(`INCOMPLETE MATRIX: localStack suite(s) with neither the TW4A_LOCAL_URL gate nor an entry in scripts/qa/matrix-suites.json: ${plan.undeclared.join(", ")}`); process.exit(4); }
+  if (flags["plan-only"]) { for (const f of files) console.log(`${f}${matrixFlagsFor(f).length ? "  " + matrixFlagsFor(f).join(" ") : ""}`); console.log(`${files.length} suite(s) planned (--plan-only: nothing was run)`); process.exit(0); }
   const forward = [...(flags.migration ?? []).flatMap((m) => ["--migration", m]), ...(flags.cutoff ? ["--cutoff", flags.cutoff] : []), ...(ref ? ["--tests-ref", ref] : [])];
   const results = [];
   const run1 = (f, i) => new Promise((resolve) => {
     const instance = `${scenarioName}-m${i}-${process.pid}`;
-    const p = spawn(process.execPath, [SELF, "run", scenarioName, "--name", instance, ...forward, "--", f], { stdio: ["ignore", "ignore", "pipe"] });
+    const p = spawn(process.execPath, [SELF, "run", scenarioName, "--name", instance, ...forward, ...matrixFlagsFor(f), "--", f], { stdio: ["ignore", "ignore", "pipe"] });
     let err = "";
     p.stderr.on("data", (d) => { err += d; });
     p.on("close", (status) => {
       const tail = err.split("\n").filter((l) => l.includes("[iso-qa] scenario=")).pop() ?? err.split("\n").filter((l) => l.includes("[iso-qa]")).pop() ?? "";
       const evidence = (tail.match(/evidence=(.*)$/) ?? [])[1];
       const known = status === 1 && evidence ? classify(f, scenarioName, evidence.trim(), ref) : null;
-      results.push({ file: f, status: status ?? 3, known: known?.reason ?? null, tail });
-      console.log(`${status === 0 ? "PASS " : status === 3 ? "INFRA" : status === 4 ? "SKIP " : known ? "KNOWN" : "FAIL "} ${f}  ${tail.replace(/.*\[iso-qa\] /, "").replace(/.*scenario=/, "")}${known ? `  [known: ${known.reason.slice(0, 90)}]` : ""}`);
+      const skipped = status === 4 && evidence ? classifySkip(f, scenarioName, evidence.trim(), ref) : null;
+      results.push({ file: f, status: status ?? 3, known: known?.reason ?? null, explainedSkip: skipped ? `${skipped.kind}: ${skipped.reason}` : null, tail });
+      console.log(`${status === 0 ? "PASS " : status === 3 ? "INFRA" : status === 4 ? (skipped ? "SKIP*" : "SKIP ") : known ? "KNOWN" : "FAIL "} ${f}  ${tail.replace(/.*\[iso-qa\] /, "").replace(/.*scenario=/, "")}${known ? `  [known: ${known.reason.slice(0, 90)}]` : ""}${skipped ? `  [${skipped.kind}: ${skipped.reason.slice(0, 90)}]` : ""}`);
       resolve();
     });
   });
   const queue = files.map((f, i) => [f, i]);
   await Promise.all(Array.from({ length: parallel }, async () => { for (let j = queue.shift(); j; j = queue.shift()) await run1(...j); }));
   // a listed suite that PASSES means its expectation is stale: say so (and fail), so the list can never silently rot
-  const stale = EXPECTED.filter((e) => !e.flaky && appliesTo(e, scenarioName, ref) && results.some((r) => r.file === e.suite && r.status === 0));
+  const stale = [...EXPECTED.filter((e) => !e.flaky), ...DISPOSITIONS].filter((e) => appliesTo(e, scenarioName, ref) && results.some((r) => r.file === e.suite && r.status === 0));
   for (const e of stale) console.log(`STALE EXPECTATION: ${e.suite} now passes in ${scenarioName}: remove it from expected-results.json`);
   const bad = results.filter((r) => r.status !== 0);
-  const unexpected = bad.filter((r) => !r.known);
+  const unexpected = bad.filter((r) => !r.known && !r.explainedSkip);
   const complete = results.length === files.length;
-  console.log(`\n${results.length - bad.length}/${files.length} suites passed in scenario ${scenarioName}${complete ? "" : " (INCOMPLETE: not every suite reported)"}; known pre-existing ${bad.filter((r) => r.known).length}; unexpected failures ${unexpected.filter((r) => r.status === 1).length}, skipped/empty ${unexpected.filter((r) => r.status === 4).length}, infrastructure ${unexpected.filter((r) => r.status === 3).length}, stale expectations ${stale.length}`);
+  console.log(`\n${results.length - bad.length}/${files.length} suites passed in scenario ${scenarioName}${complete ? "" : " (INCOMPLETE: not every suite reported)"}; known pre-existing ${bad.filter((r) => r.known).length}; explained non-runs (never a pass) ${bad.filter((r) => r.explainedSkip).length}; unexpected failures ${unexpected.filter((r) => r.status === 1).length}, skipped/empty ${unexpected.filter((r) => r.status === 4).length}, infrastructure ${unexpected.filter((r) => r.status === 3).length}, stale expectations ${stale.length}`);
   mkdirSync(QA_HOME, { recursive: true });
   writeFileSync(path.join(QA_HOME, `matrix-${scenarioName}${ref ? "-" + resolveRef(ref).slice(0, 8) : ""}.json`), JSON.stringify({ scenario: scenarioName, testsRef: ref ?? null, files, results }, null, 2));
   // 0 all passed; 6 only KNOWN, explained failures (never reported as green); 3 / 4 / 1 as before for anything unexpected
-  process.exit(!complete ? 4 : bad.some((r) => r.status === 3) ? 3 : bad.some((r) => r.status === 4 && !r.known) ? 4 : stale.length ? 1 : bad.length === 0 ? 0 : unexpected.length === 0 ? 6 : 1);
+  // an explained non-run is in `bad` and not in `unexpected`: it can lead to 6 at best, never 0
+  process.exit(!complete ? 4 : bad.some((r) => r.status === 3) ? 3 : bad.some((r) => r.status === 4 && !r.explainedSkip) ? 4 : stale.length ? 1 : bad.length === 0 ? 0 : unexpected.length === 0 ? 6 : 1);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
@@ -719,10 +758,10 @@ const cmdList = () => console.log(dockerTry("ps", "-a", "--filter", `label=${LAB
 // argument parsing with strict validation (an unknown scenario or flag must never silently test the wrong schema)
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 const ALLOWED = {
-  baseline: ["cutoff", "ref", "base"], up: ["name", "migration", "cutoff", "no-api"], run: ["name", "keep", "migration", "cutoff", "tests-ref"],
-  matrix: ["parallel", "tests-ref", "migration", "cutoff"], compare: ["cutoff"], down: ["name", "all", "force"], list: [], repro: [], selftest: [], scenarios: [],
+  baseline: ["cutoff", "ref", "base"], up: ["name", "migration", "cutoff", "no-api"], run: ["name", "keep", "migration", "cutoff", "tests-ref", "env", "marker"],
+  matrix: ["parallel", "tests-ref", "migration", "cutoff", "plan-only"], compare: ["cutoff"], down: ["name", "all", "force"], list: [], repro: [], selftest: [], scenarios: [],
 };
-const BOOLEAN = new Set(["keep", "all", "force", "no-api"]);
+const BOOLEAN = new Set(["keep", "all", "force", "no-api", "marker", "plan-only"]);
 function parse(argv) {
   const flags = {};
   const rest = [];
@@ -738,6 +777,7 @@ function parse(argv) {
       const value = head[++i];
       if (value === undefined || value.startsWith("--")) die(`flag --${key} needs a value`);
       if (key === "migration") (flags.migration ??= []).push(value);
+      else if (key === "env") (flags.env ??= []).push(value);
       else flags[key] = value;
     }
   }
@@ -748,6 +788,7 @@ function validate(cmd, scenario, rest, flags, tail) {
   for (const k of Object.keys(flags)) if (!ALLOWED[cmd].includes(k)) die(`unknown flag --${k} for '${cmd}' (allowed: ${ALLOWED[cmd].map((f) => `--${f}`).join(" ") || "none"})`);
   if (flags.name !== undefined && !/^[a-z0-9][a-z0-9-]{0,40}$/.test(flags.name)) die("--name must match [a-z0-9][a-z0-9-]{0,40}");
   if (flags.cutoff !== undefined && !/^[0-9]{14}$/.test(flags.cutoff)) die("--cutoff must be 14 digits");
+  for (const e of flags.env ?? []) if (!/^[A-Z][A-Z0-9_]*=.*$/.test(e) || /^(PATH|NODE_OPTIONS|TMP|TEMP|TMPDIR)=/.test(e)) die(`--env must look like KEY=VALUE with an upper-case key (got ${e})`);
   for (const m of flags.migration ?? []) if (!/^[A-Za-z0-9_./@^~-]+:[0-9]{8,14}$/.test(m)) die(`--migration must look like <git-ref>:<version> (got ${m})`);
   if (["up", "run", "matrix"].includes(cmd)) {
     if (!scenario) die(`usage: ${cmd} <scenario>`);

@@ -13,6 +13,7 @@
  *   node scripts/qa/tw4f/run-chain.mjs chain  [options]
  *   node scripts/qa/tw4f/run-chain.mjs suites [options] [--suite <path> ...]
  *   node scripts/qa/tw4f/run-chain.mjs all    [options]            chain + suites
+ *   node scripts/qa/tw4f/run-chain.mjs rehearse [--dry-run] [--matrix --exclusive]   manifest-order apply / strict reverse rollback / re-apply with per-step fingerprints (see the "rehearse" block)
  *   node scripts/qa/tw4f/run-chain.mjs down                         remove this tool's leftover containers
  *
  * Options
@@ -39,6 +40,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildRehearsalPlan, compareFp, judgeStages, lfSha256, parseApplyOrder, parseHashTable } from "./rehearsalPlan.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(here, "..", "..", "..");
@@ -77,6 +79,7 @@ function parseArgs(argv) {
     if (!a.startsWith("--")) { rest.push(a); continue; }
     const k = a.slice(2);
     if (k === "keep") { flags.keep = true; continue; }
+    if (k === "matrix" || k === "exclusive" || k === "dry-run") { flags[k === "dry-run" ? "dryRun" : k] = true; continue; }
     const v = argv[++i];
     if (v === undefined) die(`--${k} needs a value`);
     if (k === "extra-branch") flags.extraBranch.push(v);
@@ -89,7 +92,7 @@ function parseArgs(argv) {
 }
 const { flags, rest } = parseArgs(process.argv.slice(2));
 const cmd = rest[0];
-if (!["chain", "suites", "all", "down"].includes(cmd ?? "")) die("usage: run-chain.mjs chain|suites|all|down [options] (see the header of this file)");
+if (!["chain", "suites", "all", "down", "rehearse"].includes(cmd ?? "")) die("usage: run-chain.mjs chain|suites|all|rehearse|down [options] (see the header of this file)");
 
 const resolveRef = (ref) => { try { return git("rev-parse", "--verify", `${ref}^{commit}`); } catch { return die(`cannot resolve git ref ${ref} (git fetch origin first)`); } };
 const verOf = (name) => name.slice(0, 14);
@@ -447,7 +450,149 @@ async function suiteRun(plan, image, testsRef, outDir) {
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------------ main
+// ------------------------------------------------------------------------------------------------------------------------------------ rehearse
+/**
+ * Full-chain rehearsal on ONE fresh isolated stack, driven by the hosted manifest (docs/twilio/TW-4F_Hosted_Apply_Manifest.md at --base), not by directory order:
+ *   (a) apply the chain in manifest section 4 order; every file's LF-normalised sha256 (and its rollback's) must equal the manifest row BEFORE anything runs
+ *   (b) record the catalog fingerprint after every file
+ *   (c) strict reverse rollback; after each rollback the catalog must equal the one recorded before that file was applied, and at the end the pre-TW-4F baseline
+ *   (d) re-apply in order; each step must equal its first-apply fingerprint
+ *   (e) --matrix: then `iso-qa.mjs matrix main --parallel 1` (requires --exclusive and a scenario that equals the manifest chain)
+ * Known rollback residue (tracker KI-2: three widened CHECK constraints) is the only tolerated difference and makes the result KNOWN (exit 6), never green.
+ * --dry-run does the plan and hash checks and prints the plan without touching docker. The baseline image is df-isoqa/base:<cutoff> (default cutoff 20261118090000, before the first TW-4 migration):
+ *   node scripts/qa/iso-qa.mjs baseline --cutoff 20261118090000
+ */
+const PRE_TW4F_CUTOFF = "20261118090000";
+const MANIFEST_DOC = "docs/twilio/TW-4F_Hosted_Apply_Manifest.md";
+const runningStacks = () => ["df.isoqa=1", "df.tw4fq1=1"].flatMap((l) => dockerTry("ps", "--filter", `label=${l}`, "--format", "{{.Names}}").out.split("\n").filter((n) => n.endsWith("-db")));
+const sealed = (lines) => ({ count: lines.length, sha256: sha256(lines.join("\n")) });
+
+function rehearsalPlanFromRef(rcutoff) {
+  const ref = baseRef;
+  const text = gitShow(ref, MANIFEST_DOC);
+  const order = parseApplyOrder(text);
+  const table = parseHashTable(text);
+  const plan = buildRehearsalPlan({ order, table, filesAtRef: lsMig(ref, MIGRATIONS), cutoff: rcutoff });
+  const problems = [];
+  for (const p of plan) {
+    p.sql = gitShow(ref, `${MIGRATIONS}/${p.file}`);
+    if (lfSha256(p.sql) !== p.sha) problems.push(`${p.file}: forward sha256 ${lfSha256(p.sql).slice(0, 12)} != manifest ${p.sha.slice(0, 12)}`);
+    p.rollbackFile = `${p.file.replace(/\.sql$/, "")}_rollback.sql`;
+    try { p.rollbackSql = gitShow(ref, `${ROLLBACKS}/${p.rollbackFile}`); } catch { p.rollbackSql = null; }
+    if (!p.rollbackSql) problems.push(`${p.file}: no rollback file at ${ref} (a strict reverse rollback cannot be rehearsed)`);
+    else if (p.rollbackSha && lfSha256(p.rollbackSql) !== p.rollbackSha) problems.push(`${p.rollbackFile}: rollback sha256 ${lfSha256(p.rollbackSql).slice(0, 12)} != manifest ${p.rollbackSha.slice(0, 12)}`);
+  }
+  if (problems.length) throw Object.assign(new Error(`hash check refused:\n  - ${problems.join("\n  - ")}`), { problems });
+  return { ref, plan };
+}
+
+/** The matrix scenario must be the manifest chain: the scenario's migration dates and the manifest's (above the 20261205090000 baseline) as sets. */
+function scenarioMatchesManifest(plan, scenarioName = "main") {
+  const sc = JSON.parse(readFileSync(path.join(REPO, "scripts", "qa", "scenarios.json"), "utf8")).scenarios[scenarioName];
+  if (!sc) return [`scenario ${scenarioName} does not exist in scripts/qa/scenarios.json`];
+  const have = new Set(sc.migrations.map(([, v]) => String(v)));
+  const want = new Set(plan.map((p) => p.version).filter((v) => v > "20261205090000"));
+  const has = (set, v) => [...set].some((x) => v.startsWith(x) || x.startsWith(v));
+  return [...want].filter((v) => !has(have, v)).map((v) => `${v} is in the manifest chain but not in scenario ${scenarioName}`)
+    .concat([...have].filter((v) => !has(want, String(v))).map((v) => `${v} is in scenario ${scenarioName} but not in the manifest chain`));
+}
+
+async function rehearse() {
+  const rcutoff = flags.cutoff ?? PRE_TW4F_CUTOFF;
+  const image = flags.image ?? `df-isoqa/base:${rcutoff}`;
+  let ref, plan;
+  try { ({ ref, plan } = rehearsalPlanFromRef(rcutoff)); } catch (e) { return die(e.message, 1); }
+  const sha = resolveRef(ref);
+  log(`rehearsal plan from ${ref}@${sha.slice(0, 8)}: ${plan.length} migration(s); every forward and rollback hash equals the manifest`);
+  const shell = spawnSync("bash", [path.join(REPO, "scripts", "hosted", "tw4f", "verify_manifest_hashes.sh"), sha], { encoding: "utf8", cwd: REPO });
+  if (shell.error) log(`verify_manifest_hashes.sh could not run (${shell.error.code}); the in-process hash check above still passed`);
+  else { process.stderr.write(`${(shell.stdout ?? "").split("\n").filter(Boolean).slice(-3).join("\n")}\n`); if (shell.status !== 0) return die("verify_manifest_hashes.sh failed", 1); }
+  const mismatch = flags.matrix || flags.dryRun ? scenarioMatchesManifest(plan) : [];
+  if (flags.matrix && mismatch.length) return die(`the matrix scenario is not the manifest chain:\n  - ${mismatch.join("\n  - ")}\nupdate scripts/qa/scenarios.json (Phase 2) before a rehearsal with --matrix`, 1);
+  if (flags.dryRun) {
+    console.log(`DRY RUN (no docker): ${plan.length} migrations in manifest order from ${ref}@${sha.slice(0, 8)}; image would be ${image}`);
+    for (const p of plan) console.log(`${p.version}  fwd ${p.sha.slice(0, 12)}  rb ${p.rollbackSha ? p.rollbackSha.slice(0, 12) : "(no hash in manifest)"}  ${p.file}`);
+    console.log(mismatch.length ? `matrix scenario main differs from the manifest chain (a --matrix rehearsal would refuse):\n  - ${mismatch.join("\n  - ")}` : "matrix scenario main equals the manifest chain");
+    return 0;
+  }
+  if (flags.matrix && !flags.exclusive) return die("--matrix requires --exclusive (no other isolated stack may be running)", 2);
+  if (!dockerTry("image", "inspect", image).ok) return die(`baseline image ${image} not found: build it with \`node scripts/qa/iso-qa.mjs baseline --cutoff ${rcutoff}\``, 3);
+  const others = runningStacks();
+  if (others.length > (flags.exclusive ? 0 : 1)) return die(`BLOCKED by the host-load rule: ${others.length} isolated stack(s) already running (${others.join(", ")}); at most 2 across all sessions${flags.exclusive ? ", and --exclusive needs none" : ""}`, 4);
+
+  const outDir = flags.out ?? path.join(QA_HOME, "runs", `${new Date().toISOString().replace(/[:.]/g, "-")}-rehearsal`);
+  mkdirSync(outDir, { recursive: true });
+  const name = `df-q1-rehearse-${process.pid}`;
+  const stages = [], steps = [], judged = [];
+  const rec = (stage, status, extra = {}) => { stages.push({ stage, status, ...extra }); log(`${status.padEnd(7)} ${stage}${extra.note ? " - " + extra.note : ""}`); };
+  const STOP = new Error("stop");
+  let structural = "INFRA";
+  const t0 = Date.now();
+  try {
+    const since = await startDb(name, image);
+    const fp0 = fingerprint(name);
+    steps.push({ phase: "baseline", ...sealed(fp0) });
+    if (fp0.length <= 500) throw Object.assign(new Error(`the baseline catalog is implausibly small (${fp0.length})`), { infra: true });
+    rec("baseline fingerprint", "PASS", { note: `${fp0.length} catalog entries from ${image}` });
+    const fwd = [];
+    const fail = (stage, extra) => { rec(stage, "FAIL", extra); structural = "FAIL"; throw STOP; };
+    for (const p of plan) {
+      const r = applySql(name, p.file, p.sql);
+      if (!r.ok) fail(`apply ${p.version}`, { error: r.error });
+      const fp = fingerprint(name);
+      fwd.push(fp);
+      steps.push({ phase: "apply", version: p.version, file: p.file, ms: r.ms, ...sealed(fp) });
+    }
+    rec("apply in manifest order", "PASS", { note: `${plan.length} files, fingerprint recorded after each` });
+    for (let i = plan.length - 1; i >= 0; i--) {
+      const p = plan[i];
+      const r = applySql(name, p.rollbackFile, p.rollbackSql);
+      if (!r.ok) fail(`rollback ${p.version}`, { error: r.error, note: "the strict reverse rollback refused or failed" });
+      const fp = fingerprint(name);
+      const cmp = compareFp(i === 0 ? fp0 : fwd[i - 1], fp);
+      steps.push({ phase: "rollback", version: p.version, file: p.rollbackFile, ms: r.ms, equalToPrevious: cmp.exact, ...sealed(fp) });
+      judged.push({ name: `rollback ${p.version}`, cmp });
+      if (!cmp.maskedEqual) fail(`rollback ${p.version} restores the catalog from before its apply`, { onlyBefore: cmp.onlyBefore.slice(0, 20), onlyAfter: cmp.onlyAfter.slice(0, 20) });
+    }
+    const down = compareFp(fp0, fingerprint(name));
+    judged.push({ name: "rollback all == pre-TW-4F baseline", cmp: down });
+    if (!down.maskedEqual) fail("strict reverse rollback == baseline", { onlyBefore: down.onlyBefore.slice(0, 20), onlyAfter: down.onlyAfter.slice(0, 20) });
+    rec("strict reverse rollback == baseline", down.exact ? "PASS" : "KNOWN", { note: down.exact ? "identical" : `only the KI-2 widened CHECK constraints remain (${down.onlyBefore.length + down.onlyAfter.length} line(s))` });
+    for (const [i, p] of plan.entries()) {
+      const r = applySql(name, p.file, p.sql);
+      if (!r.ok) fail(`re-apply ${p.version}`, { error: r.error });
+      const fp = fingerprint(name);
+      const cmp = compareFp(fwd[i], fp);
+      steps.push({ phase: "reapply", version: p.version, file: p.file, ms: r.ms, equalToFirstApply: cmp.exact, ...sealed(fp) });
+      judged.push({ name: `re-apply ${p.version}`, cmp });
+      if (!cmp.maskedEqual) fail(`re-apply ${p.version} equals its first apply`, { onlyBefore: cmp.onlyBefore.slice(0, 20), onlyAfter: cmp.onlyAfter.slice(0, 20) });
+    }
+    const fin = compareFp(fwd[fwd.length - 1], fingerprint(name));
+    judged.push({ name: "re-apply all == first apply", cmp: fin });
+    rec("re-apply == first apply", fin.exact ? "PASS" : fin.maskedEqual ? "KNOWN" : "FAIL", { counts: [fin.onlyBefore.length, fin.onlyAfter.length] });
+    assertHealthy(name, since);
+    writeFileSync(path.join(outDir, "fingerprint-forward-final.txt"), fwd[fwd.length - 1].join("\n"));
+    structural = judgeStages(judged);
+  } catch (e) {
+    if (e !== STOP) { rec("infrastructure", "INFRA", { error: e.message }); structural = "INFRA"; }
+  } finally {
+    removeAll(name);
+  }
+  writeFileSync(path.join(outDir, "rehearsal-steps.json"), JSON.stringify({ ref, sha, image, cutoff: rcutoff, order: plan.map((p) => p.version), steps, stages, structural }, null, 2));
+  console.log(`### TW-4F rehearsal (structure): ${structural} in ${Math.round((Date.now() - t0) / 1000)}s\n- ${ref}@${sha.slice(0, 8)}, image ${image}, ${plan.length} migrations\n${stages.map((s) => `- ${s.status} ${s.stage}${s.note ? " - " + s.note : ""}${s.error ? " - " + String(s.error).slice(0, 200) : ""}`).join("\n")}`);
+  const structCode = { PASS: 0, KNOWN: 6, FAIL: 1, INFRA: 3, BLOCKED: 4 }[structural] ?? 1;
+  if (!flags.matrix) { log(`matrix: NOT RUN (use --matrix --exclusive in the owner-scheduled window); evidence ${outDir} exit=${structCode}`); return structCode; }
+  if (structural !== "PASS" && structural !== "KNOWN") { log(`matrix: NOT RUN because the structural stages ended ${structural}`); return structCode; }
+  const m = spawnSync(process.execPath, [path.join(REPO, "scripts", "qa", "iso-qa.mjs"), "matrix", "main", "--parallel", "1", "--tests-ref", sha], { stdio: "inherit", cwd: REPO });
+  const mc = m.status ?? 3;
+  const rank = { 3: 5, 1: 4, 4: 3, 2: 3, 6: 2, 0: 0 };
+  const code = (rank[mc] ?? 4) >= (rank[structCode] ?? 4) ? mc : structCode;
+  log(`rehearsal: structure ${structural} (${structCode}), matrix exit ${mc} -> ${code}; evidence ${outDir}`);
+  return code;
+}
+
 async function main() {
+  if (cmd === "rehearse") return rehearse();
   if (cmd === "down") {
     const all = dockerTry("ps", "-a", "--filter", `label=${LABEL}`, "--format", "{{.Names}}").out.split("\n").filter(Boolean);
     for (const c of all) if (ours(c)) docker("rm", "-f", c);
