@@ -100,6 +100,14 @@ export async function startCompetitionCheckinAction(formData: FormData): Promise
   }
   if (!registrationId) throw new Error("Registration record not found.");
   const { data: session, error } = await supabase.from("event_competition_checkin_sessions").insert({ event_id: eventId, registration_cart_id: cartId || null, registration_id: registrationId, order_id: orderId, status: "in_progress", started_at: new Date().toISOString() }).select("id").single();
+  // CI-B: two desks starting the same batch at once both pass the read above; the unique index on the cart (or
+  // registration) lets one insert win, and the other continues the winner's session instead of failing.
+  if (error?.code === "23505") {
+    const { data: winner } = cartId
+      ? await supabase.from("event_competition_checkin_sessions").select("id").eq("registration_cart_id", cartId).maybeSingle()
+      : await supabase.from("event_competition_checkin_sessions").select("id").eq("registration_id", registrationId).is("registration_cart_id", null).maybeSingle();
+    if (winner) redirect(`/app/events/${eventId}/competition/checkin/${winner.id}`);
+  }
   if (error || !session) throw new Error(error?.message ?? "Could not start check-in.");
   const [{ data: attendees }, { count: requirementCount }] = await Promise.all([
     supabase.from("event_registration_attendees").select("id, first_name, last_name, attendee_role").eq("registration_id", registrationId).eq("event_id", eventId).order("sort_order"),
@@ -118,8 +126,13 @@ export async function updateCompetitionCheckinPresenceAction(formData: FormData)
   const eventId = text(formData, "eventId"), sessionId = text(formData, "sessionId"), participantId = text(formData, "participantId"), presenceStatus = text(formData, "presenceStatus");
   if (!eventId || !sessionId || !participantId || !["not_arrived", "present", "absent", "excused"].includes(presenceStatus)) throw new Error("Valid participant presence is required.");
   const { supabase, context } = await requireEventManager(eventId);
-  const { error } = await supabase.from("event_competition_checkin_participants").update({ presence_status: presenceStatus, checked_in_at: presenceStatus === "present" ? new Date().toISOString() : null, checked_in_by: presenceStatus === "present" ? context.userId : null }).eq("id", participantId).eq("checkin_session_id", sessionId).eq("event_id", eventId);
+  // CI-B: marking "present" is compare-and-set, so a second concurrent (or repeated) arrival mark keeps the first
+  // checked_in_at / checked_in_by instead of overwriting them, and changes nothing.
+  let update = supabase.from("event_competition_checkin_participants").update({ presence_status: presenceStatus, checked_in_at: presenceStatus === "present" ? new Date().toISOString() : null, checked_in_by: presenceStatus === "present" ? context.userId : null }).eq("id", participantId).eq("checkin_session_id", sessionId).eq("event_id", eventId);
+  if (presenceStatus === "present") update = update.neq("presence_status", "present");
+  const { data: changed, error } = await update.select("id");
   if (error) throw new Error(error.message);
+  if ((changed ?? []).length === 0) { refresh(eventId, sessionId); return; }
   await recalculateSession(supabase, eventId, sessionId); refresh(eventId, sessionId);
 }
 
@@ -179,7 +192,8 @@ export async function completeCompetitionCheckinAction(formData: FormData): Prom
   const state = await recalculateSession(supabase, eventId, sessionId);
   const presenceComplete = state.checkinParticipants.every((participant) => ["present", "excused"].includes(participant.presence_status));
   if (!state.ready || !presenceComplete) throw new Error("Payment, waivers, entries, credentials, and participant arrival must be complete.");
-  const { error } = await supabase.from("event_competition_checkin_sessions").update({ status: "complete", completed_at: new Date().toISOString(), completed_by: context.userId }).eq("id", sessionId).eq("event_id", eventId);
+  // CI-B: completing twice keeps the first completed_at / completed_by.
+  const { error } = await supabase.from("event_competition_checkin_sessions").update({ status: "complete", completed_at: new Date().toISOString(), completed_by: context.userId }).eq("id", sessionId).eq("event_id", eventId).neq("status", "complete");
   if (error) throw new Error(error.message);
   refresh(eventId, sessionId);
 }
