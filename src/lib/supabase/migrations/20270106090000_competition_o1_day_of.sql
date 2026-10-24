@@ -4,7 +4,7 @@
 --   1. Round transition writers, exactly one per transition, SECURITY DEFINER, row lock on the round,
 --      idempotent on a client request id, one audit row each:
 --        schedule_competition_round  draft -> scheduled
---        start_competition_round     scheduled -> active   (fails closed until E1's competition_round_panel_ready exists)
+--        start_competition_round     scheduled -> active   (needs E1 competition_round_panel_ready)
 --        cancel_competition_round    any non-terminal -> cancelled (refused once a publication exists)
 --   2. Heat day-of writer (scheduled -> staging -> active -> complete) for the numbered floor heat; reuses the
 --      existing heat statuses and the 10A heat lock state (locked / certified heats are refused). It never edits
@@ -16,8 +16,8 @@
 -- minimal, append-only event_competition_round_transition_events instead (same append-only trigger as 10A history).
 -- F2 may keep both or fold this table into result_events later; nothing here depends on F2.
 --
--- Dependencies are checked, not assumed: competition_round_panel_ready(uuid) (E1) and
--- event_competition_result_publications (F3) are looked up with to_regprocedure / to_regclass at call time.
+-- Hard dependency: E1 competition_round_panel_ready(uuid) (migration 20270101090000), checked by the preflight below.
+-- Soft: event_competition_result_publications (F3) is looked up with to_regclass at call time (F3 is not merged yet).
 
 do $$
 begin
@@ -25,6 +25,9 @@ begin
      or to_regprocedure('public.protect_competition_history_evidence()') is null
      or to_regprocedure('public.set_competition_heat_lock_state(uuid,text,text)') is null then
     raise exception 'O1 preflight: 10A competition authority is not installed.';
+  end if;
+  if to_regprocedure('public.competition_round_panel_ready(uuid)') is null then
+    raise exception 'O1 preflight: E1 officials (competition_round_panel_ready) is not installed.';
   end if;
   if to_regclass('public.event_competition_floor_heats') is null then
     raise exception 'O1 preflight: 10D floor heats are not installed.';
@@ -364,11 +367,9 @@ begin
   if v_state.live_version_id is null or v_state.unplaced_heats > 0 or v_state.live_heats = 0 then
     raise exception 'COMPO1_NO_HEATS: the round needs at least one heat in the published running order.' using errcode = '23514';
   end if;
-  -- Panel readiness is E1's contract. Until it exists the start fails closed.
-  if to_regprocedure('public.competition_round_panel_ready(uuid)') is null then
-    raise exception 'COMPO1_PANEL_UNAVAILABLE: panel readiness is not installed; the round cannot be started.' using errcode = '23514';
-  end if;
-  execute 'select public.competition_round_panel_ready($1)' into v_ready using p_round_id;
+  -- Panel readiness is E1's contract (20270101090000, a hard dependency checked by the preflight). The round row is
+  -- already locked FOR UPDATE above, so E1's panel freeze (FOR SHARE on the round) cannot interleave with this check.
+  v_ready := public.competition_round_panel_ready(p_round_id);
   if v_ready is distinct from true then
     raise exception 'COMPO1_PANEL_NOT_READY: assign the officials panel before starting the round.' using errcode = '23514';
   end if;
@@ -550,7 +551,7 @@ grant execute on function public.advance_competition_floor_heat(uuid, text, uuid
 comment on function public.schedule_competition_round(uuid, uuid) is
   'O1: draft -> scheduled. Manager only; every heat of the round must be in the live published schedule version. Idempotent on the request id.';
 comment on function public.start_competition_round(uuid, uuid) is
-  'O1: scheduled -> active. Manager only; needs at least one published heat and E1 competition_round_panel_ready(round). Fails closed when E1 is absent.';
+  'O1: scheduled -> active. Manager only; needs at least one published heat and E1 competition_round_panel_ready(round). Hard dependency on E1.';
 comment on function public.cancel_competition_round(uuid, text, uuid) is
   'O1: any non-terminal -> cancelled with a reason. Refused when a result publication exists or a heat is on the floor.';
 comment on function public.advance_competition_floor_heat(uuid, text, uuid) is

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Competition O1 -- concurrent double start with a REAL second connection.
 #
-# Needs a disposable Postgres with the O1 migration applied (never a hosted database). Fixtures are committed, then
+# Needs a disposable Postgres with E1 and O1 applied (E1 readiness is overridden during the run and restored) (never a hosted database). Fixtures are committed, then
 # removed again at the end (the event delete cascades the append-only audit rows; the 10A history trigger allows exactly that).
 #   CONTAINER=o1-db sh test_T_competition_o1_concurrency.sh
 # The synthetic studio/user rows are left in place (a studio delete cascades through the whole schema and is slow); only the event is removed.
@@ -22,18 +22,17 @@ bad() { echo "FAIL $1"; FAIL=1; }
 cleanup() {
   $P >/dev/null 2>&1 <<SQL
 delete from public.events where id = '$E';
-drop function if exists public.competition_round_panel_ready(uuid);
 SQL
+  # Put E1's real readiness function back (the run replaces it with a stand-in).
+  if [ -n "${RESTORE:-}" ]; then $P -c "$RESTORE" >/dev/null 2>&1; fi
 }
 
-if [ "$($P -c "select to_regprocedure('public.competition_round_panel_ready(uuid)') is not null")" = "t" ]; then
-  echo "BLOCKED: competition_round_panel_ready already exists in this database; refusing to replace it"
-  exit 3
-fi
+RESTORE="$($P -c "select pg_get_functiondef('public.competition_round_panel_ready(uuid)'::regprocedure)")"
+if [ -z "$RESTORE" ]; then echo "BLOCKED: E1 competition_round_panel_ready is not installed"; exit 3; fi
 cleanup
 
 $P <<SQL || { echo "BLOCKED: fixture setup failed"; cleanup; exit 3; }
-create function public.competition_round_panel_ready(p_round_id uuid) returns boolean language sql stable as \$\$ select true \$\$;
+create or replace function public.competition_round_panel_ready(p_round_id uuid) returns boolean language sql stable as \$\$ select true \$\$;
 grant execute on function public.competition_round_panel_ready(uuid) to authenticated;
 insert into auth.users (id, email) values ('$U', 't-o1-conc@example.test') on conflict do nothing;
 insert into public.profiles (id, email, full_name) values ('$U', 't-o1-conc@example.test', 'Conc Owner') on conflict do nothing;

@@ -4,7 +4,7 @@
 -- One transaction, synthetic fixtures only (UUID block 00000000-0000-0000-0000-0c0a10XXXXXX). The final block ALWAYS
 -- raises, so nothing persists:
 --   "COMPETITION O1 SQL SUITE PASS (<n> checks)"  or  "COMPETITION O1 SQL SUITE FAIL: <failures>".
--- E1's competition_round_panel_ready and F3's result_publications are stood in for by transaction-local stubs
+-- E1 competition_round_panel_ready is real until B2, then replaced by a transaction-local stand-in; F3 result_publications is a stub table (rolled back).
 -- (created below, rolled back with the transaction). The concurrent double start (needs a real second connection)
 -- lives in test_T_competition_o1_concurrency.sh.
 
@@ -159,11 +159,8 @@ from public.event_competition_entries e
 join public.event_competition_division_dances dd on dd.division_id = e.division_id
 where e.id::text like '00000000-0000-0000-0000-0c0a10%';
 
--- Stand-ins for dependencies that are not merged: E1 panel readiness (GUC-driven) and F3 publications.
-create function public.competition_round_panel_ready(p_round_id uuid) returns boolean language sql stable as
-  $$ select coalesce(current_setting('o1.panel_ready', true), 'off') = 'on' $$;
--- (dropped again below to prove start fails closed without E1)
-drop function public.competition_round_panel_ready(uuid);
+-- E1 (20270101090000) is a hard dependency and must be installed. Below, its readiness function is replaced by a
+-- GUC-driven stand-in inside this transaction (rolled back) so O1 logic can be driven without building real panels.
 
 -- ============================================================================
 -- Versions + plan (as owner A)
@@ -223,12 +220,10 @@ select pg_temp.expect_ok('A8 schedule R3 and R2', $q$select public.schedule_comp
 -- ---------------------------------------------------------------------------
 -- B. start_competition_round (E1 panel contract)
 -- ---------------------------------------------------------------------------
-select pg_temp.expect_msg('B1 start fails closed while competition_round_panel_ready does not exist',
-  $q$select public.start_competition_round(pg_temp.u('006001'), pg_temp.u('0b0001'))$q$, 'COMPO1_PANEL_UNAVAILABLE');
+select pg_temp.expect_msg('B1 with E1''s real competition_round_panel_ready and no panel assigned, start is refused (fail closed)',  $q$select public.start_competition_round(pg_temp.u('006001'), pg_temp.u('0b0001'))$q$, 'COMPO1_PANEL_NOT_READY');
 reset role;
-create function public.competition_round_panel_ready(p_round_id uuid) returns boolean language sql stable as
+create or replace function public.competition_round_panel_ready(p_round_id uuid) returns boolean language sql stable as
   $$ select coalesce(current_setting('o1.panel_ready', true), 'off') = 'on' $$;
-grant execute on function public.competition_round_panel_ready(uuid) to authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
 select set_config('o1.panel_ready', 'off', true);
 select pg_temp.expect_msg('B2 start is refused until the panel is ready',
