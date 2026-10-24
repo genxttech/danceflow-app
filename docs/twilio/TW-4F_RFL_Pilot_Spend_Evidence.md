@@ -1,7 +1,12 @@
 # TW-4F: pilot SPEND approval evidence (owner decision U-4, every pilot spend approval)
 
 Status: Git-only, dark. Migration `20261230090000_twilio_rfl_pilot_spend_evidence.sql` (rollback in `rollback/`) is **not applied to any shared environment**.
-**All real-database runs are NOT RUN / BLOCKED pending a database slot.** Only `tsc`, `eslint` and the non-database vitest suites were run (see section 7).
+Validation (real database, dedicated container, fresh scratch DB per suite, serial; base schema + every main migration 20261208..20261229 then 20261230): `localStack.tw4rflspend` 76/76, `tw4rflevid` 60/60, `tw4rflops` 64/64, `tw4rfl` 87/87, `tw4rfld5` 21/21,
+`r2brfl` 28/28, `f4recovery` 31/31, `j4activation` 10/10, `f1funding` 25/25. Through the isolated-QA harness (`scripts/qa/iso-qa.mjs run main` plus the 1228/1229/1230 migrations from this branch): `tw4f3a` 16/16, `tw4f3b0` 18/18, `feeres` 46/46, `r2a` 29 passed + 1 skipped by design (the
+R2a-only rollback test skips when layers sit on top). BLOCKED: `tw4fj1` (fails identically in its first `beforeAll` assertion on plain main without 20261230 in the harness, 11 skipped: harness limitation, not this change), `r2b` (53 skipped: refuses the merged chain by design), the Playwright spec
+`e2e/tests/sms-subaccount-panel-fees.spec.ts` (no auth-capable isolated stack). Migration chain: before 1230 = after rollback (function fingerprint and column hash equal; the three predecessor bodies restored with their grants), re-apply identical; the three new body md5s match `pg_proc`; rollback refuses with
+evidence rows present and when a body was redefined; the apply precondition refuses a live evidence-free pilot approval and an existing pilot exception, and applies once cleared. Two test-side defects were found and fixed (audit rows are attributed to ANY location of the business; the credit-with-period position);
+the `r2a` layered-rollback test now clears the fixture evidence inside its rolled-back transaction because the 20261230 rollback refuses while evidence exists, by design.
 Builds on #305 (`20261229090000`, `docs/twilio/TW-4F_RFL_Pilot_Approval_Evidence.md`), which gave the pilot PERIOD cover structured evidence.
 That note recorded the remaining gap as the PILOT-ACTIVATION BLOCKER: `tw4_spend_authorize(..., 'pilot', ...)` and `tw4_pilot_exception_create` still accepted a bare reference. This change closes it.
 
@@ -105,12 +110,12 @@ A shared form component `src/app/platform/sms/PilotEvidenceFields.tsx` (date, ro
 
 Non-database (run): `rflPilotSpendEvidenceMigrationShape.rflspend.test.ts` (single transaction, md5 prechecks, latest-definition proof, old signatures dropped, defaults only on `tw4_spend_authorize`, minimal diffs vs predecessors, lock order, exhaustive scope map SQL = TS, apply precondition,
 grants, rollback exact), `panelEvidence.rflspend.test.ts` (scope map, panel commands refuse every bad evidence before any store call, credit sends none, exception amount = ceiling, no echo), the updated panel/UI tests.
-Real schema (**NOT RUN**): `localStack.tw4rflspend.test.ts` (each entry point: happy path with evidence row and audit, every refusal, bare reference refused and not burned, credit refuses evidence, default-null arguments refused in every position, replay, TW019, admin-only,
+Real schema (results in the status block): `localStack.tw4rflspend.test.ts` (each entry point: happy path with evidence row and audit, every refusal, bare reference refused and not burned, credit refuses evidence, default-null arguments refused in every position, replay, TW019, admin-only,
 old signatures gone, only function inserting approvals, grants, append-only, no text columns, races, cover pass-through consistency, apply precondition on a schema-only copy, rollback exactness and refusals), plus every existing real-schema suite listed above.
 
 ## 8. Residual risks
 
-* The migration and all real-schema suites are unexecuted; SQL/fixture issues may surface on the first run. Do not merge or apply before they pass. Rerun at least: `tw4rflspend`, `tw4rflevid`, `tw4rflops`, `tw4rfl`, `tw4rfld5`, `r2brfl`, `f4recovery`, `j4activation`, `f1funding`, `tw4f3a`, `tw4f3b0`, the migration/rollback fingerprint chain, and (with PostgREST) `r2a`, `r2b`, `tw4fj1`.
+* Not run: `tw4fj1`, `r2b` (harness) and the Playwright spec (see the status block); rerun them where a stack exists. The PostgREST suites ran from the branch's committed tests against the harness's main chain plus 1228/1229/1230.
 * A cover now has two evidence rows by design; they are written together and compared by a test, but a future change to one writer could drift them (the guard checks each row against its own record, not against the other table).
 * The fee-approval form's evidence block is optional in the browser (so a credit approval is not blocked); the server and database enforce it for pilot.
 * Same document hash recorded with a different date or role is not refused (possible later guard).
