@@ -1,4 +1,5 @@
 import type { RflOverview } from "@/lib/sms/providerFeeOps";
+import { APPROVAL_REF_MAX, APPROVAL_REF_MIN, DOCUMENT_REF_MAX, EVIDENCE_MAX_AGE_DAYS, EVIDENCE_ROLES, EVIDENCE_ROLE_LABEL } from "@/lib/sms/pilotApprovalEvidence";
 import { rflPilotCoverAction } from "./recurringFeeActions";
 import { buttonClass, Disclosure, inputClass, KIND_TEXT, labelClass, shortId } from "./RecurringFeesDisclosure";
 
@@ -22,7 +23,7 @@ export default function RecurringFeesPilot({ overview, now }: { overview: RflOve
     <Disclosure title="Pilot per-period written approvals" summary={`${pilot.length} resource(s) of the pilot business`}>
       <ul className="list-disc space-y-1 pl-5 text-xs text-slate-700">
         <li>The pilot business has no standing authorization. Each approval covers one period of one resource.</li>
-        <li>One written reference per approval. The same reference cannot be reused.</li>
+        <li>One written reference per approval. The same reference cannot be reused. The reference alone is not authorization: the owner&apos;s dated written authorization is recorded as evidence (hash and reference only).</li>
         <li>Approvals count against the cumulative $150 pilot ceiling. The ceiling is never released or replenished automatically.</li>
         <li>Nothing renews or charges by itself: every period needs a new approval, and only the current or the next period can be approved.</li>
       </ul>
@@ -49,8 +50,42 @@ export default function RecurringFeesPilot({ overview, now }: { overview: RflOve
                   </label>
                   <p className="text-xs text-slate-600">These months are shown in UTC. The database enforces the business&apos;s own month (its time zone), and refuses a period outside the current or next one.</p>
                   <label className={labelClass}>
-                    Written approval reference (10 to 200 characters)
-                    <input name="approvalRef" required minLength={10} maxLength={200} className={inputClass} />
+                    Written approval reference ({APPROVAL_REF_MIN} to {APPROVAL_REF_MAX} characters)
+                    <input name="approvalRef" required minLength={APPROVAL_REF_MIN} maxLength={APPROVAL_REF_MAX} className={inputClass} />
+                  </label>
+                  <p className="text-xs text-slate-600">
+                    The reference alone is not authorization. Record the owner&apos;s dated written authorization below. DanceFlow stores only the date, who authorized it, the scope, the amount, the period,
+                    the document id or link and the sha256 of the retained text. The text itself is never entered here and never stored.
+                  </p>
+                  <label className={labelClass}>
+                    Date of the owner&apos;s written authorization (not in the future, not older than {EVIDENCE_MAX_AGE_DAYS} days)
+                    <input type="date" name="authorizedOn" required className={inputClass} />
+                  </label>
+                  <label className={labelClass}>
+                    Authorized by (as stated in the written authorization)
+                    <select name="authorizedByRole" required defaultValue="" className={inputClass}>
+                      <option value="" disabled>Choose who authorized</option>
+                      {EVIDENCE_ROLES.map((role) => <option key={role} value={role}>{EVIDENCE_ROLE_LABEL[role]}</option>)}
+                    </select>
+                  </label>
+                  <label className={labelClass}>
+                    Scope
+                    <input name="scope" readOnly value="pilot_period_cover" className={inputClass} />
+                  </label>
+                  <label className={labelClass}>
+                    Authorized amount in dollars, for example 25.00 (must equal the published price of this fee; anything else is refused)
+                    <input name="amountUsd" required inputMode="decimal" pattern="[0-9]{1,5}(\.[0-9]{1,2})?" className={inputClass} />
+                  </label>
+                  <label className={labelClass}>
+                    Retained document: an id or a plain https link (no query string, fragment, credentials, or any of ; &amp; = %)
+                    <input name="documentRef" required minLength={6} maxLength={DOCUMENT_REF_MAX} className={inputClass} />
+                  </label>
+                  <p className="text-xs text-slate-600">
+                    This reference is stored permanently. It must not be a share or access link, and must not contain a person&apos;s name. Prefer an internal document id.
+                  </p>
+                  <label className={labelClass}>
+                    sha256 of the retained authorization: the SHA-256 of the exact bytes of the retained file, as 64 hex characters (upper case is accepted and stored in lower case)
+                    <input name="documentSha256" required minLength={64} maxLength={64} pattern="[0-9a-fA-F]{64}" autoComplete="off" className={inputClass} />
                   </label>
                   <label className="flex items-start gap-2 text-xs text-slate-700">
                     <input type="checkbox" name="ack" value="yes" required className="mt-0.5" />

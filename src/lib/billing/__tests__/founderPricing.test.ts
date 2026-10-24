@@ -83,10 +83,12 @@ describe("resolveDisplayedMonthlyPriceCents", () => {
 
   it("resolves the regular price once Founder pricing is inactive", () => {
     process.env.FOUNDER_PRICING_ACTIVE = "false";
-    expect(resolveDisplayedMonthlyPriceCents(starterPlan)).toBe(starterPlan.regularAmountMonthlyCents);
+    // PRICING-P1: studio regular pricing is provisional and gated, so it is not
+    // displayed unless REGULAR_PRICING_ACTIVATED=true (see pricingP1.test.ts).
+    delete process.env.REGULAR_PRICING_ACTIVATED;
+    delete process.env.REGULAR_PRICING_APPROVAL_REF;
+    expect(resolveDisplayedMonthlyPriceCents(starterPlan)).toBe(starterPlan.amountMonthlyCents);
     expect(resolveDisplayedMonthlyPriceCents(organizerPlan)).toBe(organizerPlan.regularAmountMonthlyCents);
-    // Locked Regular v1 / Events targets, confirmed via the same shared source.
-    expect(starterPlan.regularAmountMonthlyCents).toBe(5900);
     expect(organizerPlan.regularAmountMonthlyCents).toBe(1900);
   });
 

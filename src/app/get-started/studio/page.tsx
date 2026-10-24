@@ -5,6 +5,7 @@ import { formatPlanMoney, getPlansByAudience } from "@/lib/billing/plans";
 import {
   isFounderPricingActive,
   resolveDisplayedMonthlyPriceCents,
+  resolveReferenceRegularPriceCents,
 } from "@/lib/billing/founderPricing";
 import { startPaidPathAction } from "../actions";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
@@ -197,9 +198,12 @@ export default async function StudioPricingPage() {
                     </div>
 
                     <div className="mt-4">
-                      {founderActive && plan.regularAmountMonthlyCents ? (
+                      {founderActive ? (
                         <p className="text-sm font-medium text-slate-500">
-                          Founder price · regularly {formatPlanMoney(plan.regularAmountMonthlyCents)}/mo
+                          Founder price
+                          {resolveReferenceRegularPriceCents(plan)
+                            ? ` · regularly ${formatPlanMoney(resolveReferenceRegularPriceCents(plan)!)}/mo`
+                            : ""}
                         </p>
                       ) : null}
 

@@ -7,7 +7,9 @@ import SmsCreditAdmin from "./SmsCreditAdmin";
 import UsageReconciliation from "./UsageReconciliation";
 import RecurringFeesPanel from "./RecurringFeesPanel";
 import RecoveryPanel from "./RecoveryPanel";
+import ActivationPanel from "./ActivationPanel";
 import { loadReconcileOverview } from "@/lib/sms/usageReconcileView";
+import { loadReconcilerReadiness } from "@/lib/sms/usageReconcilerReadiness";
 import SmsSubaccountPanel from "./SmsSubaccountPanel";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SupabasePanelStore, buildStudioPanels, type PanelOverview } from "@/lib/sms/twilioIsv/panel";
@@ -265,6 +267,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
 
   // billed-text reconciliation (platform-admin-only definer function; null = not installed here, the panel is then hidden)
   const usageOverview = await loadReconcileOverview(createAdminClient(), admin.id);
+  const usageReadiness = usageOverview ? await loadReconcilerReadiness(createAdminClient()) : null;
 
   const panelContext = panelRenderContext(panelOverview ? [...new Set([...panelOverview.onboardings.map((o) => o.studioId), ...panelOverview.entities.flatMap((e) => e.studios.map((s) => s.studioId))])] : []);
 
@@ -446,10 +449,11 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
 
       <SmsCreditAdmin overview={creditOverview} recurring={recurringOverview} />
 
-      <UsageReconciliation overview={usageOverview} notice={firstParam(params.usage) === "resolved"} error={firstParam(params.usage_error)} />
+      <UsageReconciliation overview={usageOverview} readiness={usageReadiness} notice={firstParam(params.usage) === "resolved"} error={firstParam(params.usage_error)} />
 
       <RecurringFeesPanel adminId={admin.id} notice={firstParam(params.rfl)} error={firstParam(params.rfl_error)} />
       <RecoveryPanel adminId={admin.id} notice={firstParam(params.recovery)} error={firstParam(params.recovery_error)} />
+      <ActivationPanel adminId={admin.id} notice={firstParam(params.activation)} error={firstParam(params.activation_error)} />
 
       <SmsSubaccountPanel
         overview={panelOverview}

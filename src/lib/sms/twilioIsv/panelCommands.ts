@@ -3,6 +3,7 @@ import { LVS_CHECKLIST, looksLikeEin, panelErrorMessage, type PanelStore } from 
 import { isRegistrationTier, registrationPath } from "./registrationPath";
 import { provisionSubaccount, type SubaccountResult } from "./subaccount";
 import type { IsvEnvName, IsvParentAdapter } from "./types";
+import { EXCEPTION_SCOPES, scopesForKind, validatePilotEvidence, type EvidenceScope, type PilotEvidence } from "@/lib/sms/pilotApprovalEvidence";
 
 /**
  * TW-4F platform-admin panel commands. Each takes the already-authenticated platform admin's id (the server action calls requirePlatformAdmin
@@ -33,6 +34,17 @@ const dollarsToCents = (value: string): number | null => {
   if (!/^\d{1,6}(\.\d{1,2})?$/.test(value)) return null;
   return Math.round(Number(value) * 100);
 };
+
+/**
+ * U-4: the owner's dated written authorization of a PILOT spend (hash and reference only, never the text). Validated here before any write with the shared validator; the database
+ * repeats every rule and compares the amount with the published price (or the ceiling). The sha256 is lower-cased first (PowerShell prints upper case). Nothing the admin typed is echoed.
+ */
+function readEvidence(form: FormData, allowed: readonly EvidenceScope[], amountCents: number) {
+  return validatePilotEvidence({
+    authorizedOn: field(form, "authorizedOn"), authorizedByRole: field(form, "authorizedByRole"), scope: field(form, "scope"), amountCents, periodKey: null,
+    documentRef: field(form, "documentRef"), documentSha256: field(form, "documentSha256").toLowerCase(),
+  }, null, Date.now(), allowed);
+}
 
 export async function createEntity(store: PanelStore, actorId: string, form: FormData): Promise<CommandResult> {
   if (einInForm(form)) return bad(EIN_REFUSAL);
@@ -121,9 +133,16 @@ export async function authorizeFee(store: PanelStore, actorId: string, form: For
         : "This location is on the Standard path: a Low-Volume Standard brand approval does not apply. Nothing was authorized.");
     }
   }
+  // a pilot-funded approval needs the owner's dated written authorization as evidence (a reference alone is not authorization); a credit-funded one takes none
+  let evidence: PilotEvidence | null = null;
+  if (funding === "pilot") {
+    const read = readEvidence(form, scopesForKind(kind), cents);
+    if (!read.ok) return bad(`${read.message} Nothing was authorized.`);
+    evidence = read.value;
+  }
   let replayed = false;
   try {
-    ({ replayed } = await store.authorizeSpend({ entityId, kind, cents, approvalRef, actorId, funding, studioId }));
+    ({ replayed } = await store.authorizeSpend({ entityId, kind, cents, approvalRef, actorId, funding, studioId, evidence }));
   } catch (error) {
     return bad(panelErrorMessage("spend", error));
   }
@@ -155,8 +174,10 @@ export async function createPilotException(store: PanelStore, actorId: string, f
   if (cents === null || cents <= 0 || cents > 15000) return bad("The pilot ceiling is at most $150.00.");
   if (!approvalRef) return bad("Record the founder's written authorization (10+ characters).");
   if (!checked(form, "understood")) return bad("Confirm the ceiling is non-spendable, cumulative, never resets, and each fee still needs its own owner approval.");
+  const read = readEvidence(form, EXCEPTION_SCOPES, cents);
+  if (!read.ok) return bad(`${read.message} Nothing was recorded.`);
   try {
-    const result = await store.createPilotException(entityId, cents, approvalRef, actorId);
+    const result = await store.createPilotException(entityId, cents, approvalRef, actorId, read.value);
     return good(result.replayed ? "The pilot exception already exists with this ceiling; nothing changed." : "Pilot exception recorded.");
   } catch (error) {
     return bad(panelErrorMessage("pilot", error));

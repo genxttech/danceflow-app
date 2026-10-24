@@ -1,5 +1,7 @@
 # TW-4 Stage B: studio identity (ConfiDance as first pilot subject)
 
+> **Update 2026-10-24 (architecture):** Studio identity rules in this document still apply. Twilio's confirmation (ticket #29647095) that the Primary profile can be assigned into a Secondary profile in a subaccount, and owner decision D2 (revised 2026-10-18: one subaccount per studio legal business, starting with ConfiDance Unlimited, LLC), supersede every parent-account and GenX-as-test-entity statement below. See `TW-4_StageB_Execution_Runbook.md` section 0 for the replacement procedure.
+
 Status 2026-10-17. Local preparation only. **Nothing was sent to Twilio, no resource was created, no hosted DEV/PROD change, no fee, no SMS. Stage B and Stage C remain NOT authorized.** Twilio facts marked "design" come from `TW-4_ISV_SMS_Onboarding_Design.md` / `TW-4_ConfiDance_Registration_Path.md` and were not re-verified today.
 
 ## 1. Correction and what changed in the tooling
