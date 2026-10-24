@@ -577,8 +577,14 @@ rollback;`).split("\n").filter((x) => x.startsWith("J4|")).map((x) => x.slice(3)
       expect(out.slice(1, 6)).toHaveLength(5);
       expect(JSON.parse(out[6])).toEqual(JSON.parse(gate));
       expect(out[7]).toBe(`TW042: activation checklist unmet: pilot_ki1_redecided:${KI1}`);
-      // the gate text lives in one function body only, and nothing reads a flag for it: it depends on the pilot row alone, which no function updates or deletes
-      expect(psql(`select string_agg(p.oid::regprocedure::text, ',') from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prosrc like '%pilot_ki1_redecided%'`)).toBe("_tw4act_items(uuid)");
+      // only _tw4act_items DEFINES the item (other functions may read the checklist, e.g. the owner texting status maps it to an owner area); the activation path
+      // decides only through it: mark ready and activate call _tw4act_require, which is the unchanged 20261208 body over _tw4act_items. The item depends on the
+      // pilot row alone, which no function updates or deletes.
+      expect(psql(`select string_agg(p.oid::regprocedure::text, ',') from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prosrc ~ $re$'id',\\s*'pilot_ki1_redecided'$re$`)).toBe("_tw4act_items(uuid)");
+      expect(psql(`select left(md5(replace(p.prosrc, chr(13), '')), 8) from pg_proc p where p.oid = 'public._tw4act_require(uuid)'::regprocedure`)).toBe("984dbba2");
+      for (const fn of ["tw4_act_mark_ready(uuid,uuid,text)", "tw4_act_activate(uuid,uuid,text)"]) {
+        expect(psql(`select position('perform public._tw4act_require(p_studio_id)' in p.prosrc) > 0 from pg_proc p where p.oid = 'public.${fn}'::regprocedure`), fn).toBe("t");
+      }
       expect(psql(`select count(*) from pg_proc p where p.pronamespace = 'public'::regnamespace and (p.prosrc ~* 'delete\\s+from\\s+public\\.studio_sms_pilot_exceptions' or p.prosrc ~* 'update\\s+public\\.studio_sms_pilot_exceptions')`)).toBe("0");
       for (const role of ["anon", "authenticated", "service_role"]) {
         for (const fn of ["_tw4act_items(uuid)", "_tw4act_funding(uuid)", "_tw4act_pilot_funding(uuid,uuid)", "_tw4act_require(uuid)"]) {
