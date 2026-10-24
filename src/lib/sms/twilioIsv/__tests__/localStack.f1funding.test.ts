@@ -14,7 +14,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { pilotCoverArgs } from "./rflEvidenceHelper";
+import { pilotCoverArgs, pilotExceptionArgs } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 300_000, hookTimeout: 300_000 });
 
@@ -103,7 +103,7 @@ commit;`);
   replica(access);
   call("tw4_credit_adjust", w.entity, 200_000, `f1-fund-${hex(4)}`, "fixture funding for the F1 suite", P);
   call("tw4_monthly_limit_set_admin", w.entity, P, 20_000, null, "fixture: monthly limit for the F1 suite");
-  if (w.pilot) call("tw4_pilot_exception_create", w.entity, 15000, `Founder written pilot approval ${RUN}`, P);
+  if (w.pilot) call("tw4_pilot_exception_create", ...pilotExceptionArgs(psql, w.entity, 15000, `Founder written pilot approval ${RUN}`, P));
   return w;
 }
 
