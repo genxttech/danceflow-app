@@ -6,4 +6,6 @@
 set -euo pipefail
 : "${PSQL:?set PSQL to a psql command for the isolated QA database}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-{ sed -n '1,710p' "$HERE/test_T_phase10c_competitor_registration.sql"; cat "$HERE/r2_checkout_orders_tail.sql"; } | $PSQL 2>&1 | grep -E "SUITE (PASS|FAIL)" || { echo "no verdict"; exit 1; }
+out=$({ sed -n '1,710p' "$HERE/test_T_phase10c_competitor_registration.sql"; cat "$HERE/r2_checkout_orders_tail.sql"; } | $PSQL 2>&1 || true)
+echo "$out" | grep -E "SUITE (PASS|FAIL)" || true
+echo "$out" | grep -q "R2 CHECKOUT ORDERS SUITE PASS" || { echo "FAILED or no verdict"; exit 1; }

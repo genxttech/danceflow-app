@@ -930,14 +930,18 @@ begin
   -- "Settled" is decided from authoritative facts, NOT from settlement_state: orders finalized by
   -- finalize_competition_registration (the real competition checkout) never get a settlement_state (NULL), only cart
   -- orders settled by settle_event_cart_order do. NULL is accepted; any other non-'paid' state (pending, processing,
-  -- releasing, exception ...) refuses. The money facts: paid order, live status, intent, and a captured payment row.
+  -- releasing, exception ...) refuses. The money facts: paid AND confirmed order (a signing-incomplete paid order stays pending), intent, and a captured payment row.
   if v_order.payment_status not in ('paid', 'partially_refunded')
-     or v_order.status in ('cancelled', 'expired', 'failed')
+     or v_order.status is distinct from 'confirmed'
      or coalesce(v_order.settlement_state, 'paid') <> 'paid'
      or v_order.stripe_payment_intent_id is null
      or not exists (select 1 from public.event_payments ep join public.event_registrations er on er.id = ep.registration_id
                     where er.order_id = p_order_id and ep.stripe_payment_intent_id = v_order.stripe_payment_intent_id
-                      and ep.status = 'paid') then
+                      and ep.status = 'paid')
+     -- a refund that went through the older pro-rata webhook path (before R2) is not in the R2 ledger: caps would be wrong
+     or (exists (select 1 from public.event_payments ep join public.event_registrations er on er.id = ep.registration_id
+                 where er.order_id = p_order_id and coalesce(ep.refund_amount, 0) > 0)
+         and not exists (select 1 from public.event_order_refunds r where r.order_id = p_order_id)) then
     raise exception 'COMP_REFUND_ORDER_NOT_PAID: only a settled, paid order can be refunded.' using errcode = '22023';
   end if;
   -- PAY-DC-2A: the stored owner is authoritative; missing or conflicting owners refuse (no proof path here).

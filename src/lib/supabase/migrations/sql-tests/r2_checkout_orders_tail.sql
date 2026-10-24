@@ -38,12 +38,33 @@ select pg_temp.expect_msg('R2CO: another event is still refused',
   format($q$select public.request_competition_order_refund(%L, %L, %L, '[]'::jsonb, 'x')$q$, pg_temp.ev(2), pg_temp.o1(), pg_temp.rid('0005')), 'COMP_REFUND_ORDER_NOT_IN_EVENT');
 reset role;
 
+-- A signing-incomplete paid order (finalize records the payment but leaves the order pending): simulate its state on r5 -- refused
+update public.event_orders set payment_status = 'paid', stripe_payment_intent_id = 'pi_r2co_signing', metadata = metadata || '{"needs_review": "signing_incomplete_payment_recorded"}'
+where id = pg_temp.ord('r5');
+insert into public.event_payments (registration_id, amount, currency, payment_method, status, source, stripe_payment_intent_id, stripe_account_id)
+select er.id, 10, 'USD', 'stripe_checkout', 'paid', 'stripe', 'pi_r2co_signing', 'acct_p10cStudioA' from public.event_registrations er where er.order_id = pg_temp.ord('r5') limit 1;
+select pg_temp.as_user(pg_temp.u('0c10c0000001'));
+select pg_temp.expect_msg('R2CO: a PENDING order that carries a paid payment (signing incomplete) is refused',
+  format($q$select public.request_competition_order_refund(%L, %L, %L, '[]'::jsonb, 'x')$q$, pg_temp.ev(1), pg_temp.ord('r5'), pg_temp.rid('0007')), 'COMP_REFUND_ORDER_NOT_PAID');
+reset role;
+
 -- A settlement_state that says the order is NOT settled still refuses
 update public.event_orders set settlement_state = 'processing' where id = pg_temp.o1();
 select pg_temp.as_user(pg_temp.u('0c10c0000001'));
 select pg_temp.expect_msg('R2CO: settlement_state processing is refused',
   format($q$select public.request_competition_order_refund(%L, %L, %L, %L::jsonb, 'x')$q$, pg_temp.ev(1), pg_temp.o1(), pg_temp.rid('0006'), pg_temp.o1_lines(500)::text), 'COMP_REFUND_ORDER_NOT_PAID');
 reset role;
+do $blk$
+declare v_state text;
+begin
+  foreach v_state in array array['pending', 'releasing', 'released', 'failed', 'expired'] loop
+    update public.event_orders set settlement_state = v_state where id = pg_temp.o1();
+    perform pg_temp.as_user(pg_temp.u('0c10c0000001'));
+    perform pg_temp.expect_msg('R2CO: settlement_state ' || v_state || ' is refused',
+      format($q$select public.request_competition_order_refund(%L, %L, %L, %L::jsonb, 'x')$q$, pg_temp.ev(1), pg_temp.o1(), pg_temp.rid('0008'), pg_temp.o1_lines(500)::text), 'COMP_REFUND_ORDER_NOT_PAID');
+    reset role;
+  end loop;
+end $blk$;
 update public.event_orders set settlement_state = null where id = pg_temp.o1();
 
 -- Partial refund on the real order (NULL settlement_state), then the Stripe refund succeeds
@@ -79,7 +100,7 @@ select pg_temp.chk('R2CO: competition revenue stays gross; two dated refund entr
 select pg_temp.as_user(pg_temp.u('0c10c0000001'));
 select pg_temp.expect_msg('R2CO: a fully refunded order accepts no further refund',
   format($q$select public.request_competition_order_refund(%L, %L, %L, %L::jsonb, 'again')$q$, pg_temp.ev(1), pg_temp.o1(), pg_temp.rid('0012'),
-         jsonb_build_array(jsonb_build_object('orderItemId', pg_temp.o1_item(), 'amountCents', 100, 'withdrawEntry', false))::text), 'COMP_REFUND_');
+         jsonb_build_array(jsonb_build_object('orderItemId', pg_temp.o1_item(), 'amountCents', 100, 'withdrawEntry', false))::text), 'COMP_REFUND_ORDER_NOT_PAID');
 reset role;
 
 do $$
