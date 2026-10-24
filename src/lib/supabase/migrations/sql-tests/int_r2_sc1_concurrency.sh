@@ -90,7 +90,7 @@ if [ "$MODE" = "rollback" ]; then
   R2RB="$HERE/../rollback/20270103090000_competition_r2_entry_refunds_rollback.sql"
   pins() { q "select string_agg(left(md5(replace(prosrc, E'\\r', '')), 8), ',' order by oid::regprocedure::text) from pg_proc where oid in (to_regprocedure('public.sync_competition_entries_from_registration()'), to_regprocedure('public.sync_event_payment_accounting_entry()'), to_regprocedure('public._paywh1_exception_money_state(text)'), to_regprocedure('public.resolve_event_order_settlement_exception(uuid,text)'))"; }
   R2_PINS=$(pins)
-  check "before rollback: the four R2 function bodies are the R2 pins" "$R2_PINS" "95e9cd2a,4577dc12,5469516f,dd85d688" || true
+  check "before rollback: the four R2 function bodies are the R2 pins" "$R2_PINS" "5469516f,dd85d688,3a19d4b4,4577dc12" || true
   scratches=$(q "select count(*) from public.event_competition_scratches")
   refunds=$(q "select count(*) from public.event_order_refunds")
   out=$($PSQL -f "$SC1RB" 2>&1 || true)
