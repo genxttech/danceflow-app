@@ -3,6 +3,7 @@
 Status: **DRAFT for owner approval** · Baseline: origin/main `973f36da` · Docs only (no code, no SQL). **Stage 1 (X-1…X-7) and Stage 3 (D-OM-1…5, D-OM-3b) APPROVED by the owner 2026-10-24. Engine code stays blocked until Stage 4 (proficiency rating) is also recorded.**
 
 Scoring architecture (five independent dimensions, S4-1…S4-7) is recorded in `scoring-architecture-decisions.md`; Stages 1–3 apply to the Studio methods only.
+
 Engine version on approval: `ordinal_majority@1`. No engine code may be written until the owner signs off this
 spec and the decisions in §10 (owner decision 2026-10-23: engines are specified first, approved, then built).
 

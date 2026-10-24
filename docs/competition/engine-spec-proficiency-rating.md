@@ -3,11 +3,11 @@
 Status: **DRAFT for owner approval** · Baseline: origin/main `973f36da` · Docs only (no code, no SQL). **Stage 1 (X-1…X-7) APPROVED by the owner 2026-10-24; every D-* item below remains open.**
 
 Scoring architecture (five independent dimensions, S4-1…S4-7) is recorded in `scoring-architecture-decisions.md`; Stages 1–3 apply to the Studio methods only.
-Engine version on approval: `proficiency_rating@1`. No engine code may be written until the owner signs off this
-**REJECTED 2026-10-24:** the three-band median proposal as a universal studio method. This key stays fail-closed (`COMP_ENGINE_NOT_AVAILABLE`) and is not deleted; no method is approved (see the architecture file §1.6). The candidates below are not adopted.
 
+Engine version on approval: `proficiency_rating@1`. No engine code may be written until the owner signs off this
 spec and the decisions in §10 (owner decision 2026-10-23: engines are specified first, approved, then built).
 
+**REJECTED 2026-10-24:** the three-band median proposal as a universal studio method. This key stays fail-closed (`COMP_ENGINE_NOT_AVAILABLE`) and is not deleted; no method is approved (see the architecture file §1.6). The candidates below are not adopted.
 Sibling specs: [engine-spec-ordinal-majority.md](engine-spec-ordinal-majority.md),
 [engine-spec-callback-tally.md](engine-spec-callback-tally.md). The engine boundary (input/output envelope,
 hashing, round state machine) is owned by the K0 scoring-to-results contract
