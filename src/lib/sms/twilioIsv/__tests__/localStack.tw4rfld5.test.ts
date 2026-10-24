@@ -14,6 +14,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { evidenceApplied, pilotCoverArgs, pilotExceptionArgs } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 300_000 });
 
@@ -95,7 +96,7 @@ insert into public.studio_sms_twilio_accounts (legal_entity_id, twilio_account_s
 commit;`);
       call("tw4_credit_adjust", entity, 200_000, `d5-fund-pilot-${RUN}`, "fixture funding for the D5 suite", P);
       call("tw4_monthly_limit_set_admin", entity, P, 20_000, null, "fixture: monthly limit for the D5 suite");
-      call("tw4_pilot_exception_create", entity, 15000, `Founder written pilot approval ${RUN}`, P);
+      call("tw4_pilot_exception_create", ...pilotExceptionArgs(psql, entity, 15000, `Founder written pilot approval ${RUN}`, P));
       pilotShared = { entity, account };
     }
   }
@@ -138,8 +139,8 @@ const rows = (resourceId: string) =>
     'by', superseded_by, 'by_cover', superseded_by_cover_id, 'ref', approval_ref) order by created_at), '[]'::json)::text from public.studio_sms_provider_cover where resource_id = '${resourceId}'`)) as CoverRow[];
 const audit = (w: World, action: string) => Number(psql(`select count(*) from public.studio_sms_onboarding_audit where studio_id = '${w.studio}' and action = '${action}'`));
 const blockers = (w: World) => call<{ blockers: string[] }>("tw4_rfl_studio_ready", w.studio).blockers;
-const pilotCover = (resourceId: string, key: string, approval: string, actor = P) => call<{ cover_id: string; replayed: boolean }>("tw4_rfl_pilot_cover", resourceId, key, approval, actor);
-const pilotCoverErr = (resourceId: string, key: string, approval: string, actor = P) => callErr("tw4_rfl_pilot_cover", resourceId, key, approval, actor);
+const pilotCover = (resourceId: string, key: string, approval: string, actor = P) => call<{ cover_id: string; replayed: boolean }>("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, resourceId, key, approval, actor));
+const pilotCoverErr = (resourceId: string, key: string, approval: string, actor = P) => callErr("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, resourceId, key, approval, actor));
 /** Makes a registration-time cover that no longer counts, the two ways the rule defines: released reservation (bound while valid), or a cross-month row left by the old rule. */
 const releasedBound = (w: World) => {
   const rv = resv(w);
@@ -394,7 +395,7 @@ commit;`);
       pilotCover(num.resource_id, cur(), approval);
       const w2 = pilotWorld();
       const other = releasedBound(w2);
-      expect(psqlError(callSql("tw4_rfl_pilot_cover", other.num.resource_id, cur(), approval, P))).not.toBe("");
+      expect(psqlError(callSql("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, other.num.resource_id, cur(), approval, P)))).not.toBe("");
       expect(rows(other.num.resource_id).filter((r) => r.sup)).toHaveLength(0);
     });
 
@@ -432,7 +433,7 @@ commit;`);
     it("two administrators racing to approve the same non-counting period: exactly one wins, the other gets TW043, one superseded row, one new approval reservation", async () => {
       const w = pilotWorld();
       const { num } = releasedBound(w);
-      const results = await Promise.all([1, 2, 3].map((i) => psqlAsync(callSql("tw4_rfl_pilot_cover", num.resource_id, cur(), ref(`race-${i}`), i % 2 ? P : P2))));
+      const results = await Promise.all([1, 2, 3].map((i) => psqlAsync(callSql("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, num.resource_id, cur(), ref(`race-${i}`), i % 2 ? P : P2)))));
       const ok = results.filter((r) => r.err === "");
       const lost = results.filter((r) => r.err !== "");
       expect(ok).toHaveLength(1);
@@ -474,7 +475,7 @@ commit;`);
         }
       }
       for (const role of ["anon", "authenticated"]) {
-        expect(psql(`select has_function_privilege('${role}', 'public.tw4_rfl_pilot_cover(uuid,text,text,uuid)', 'execute')`)).toBe("f");
+        expect(psql(`select has_function_privilege('${role}', '${evidenceApplied(psql) ? "public.tw4_rfl_pilot_cover(uuid,text,text,uuid,date,text,text,integer,text,text,text)" : "public.tw4_rfl_pilot_cover(uuid,text,text,uuid)"}', 'execute')`)).toBe("f");
       }
     });
   });

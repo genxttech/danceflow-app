@@ -16,6 +16,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { pilotCoverArgs, pilotExceptionArgs } from "./rflEvidenceHelper";
 import { activate, activationCheck, attestOptOut, markReady, recordSenderFromLedger, runComplianceValidation, suspend, verifyForActivation, type OptOutChecklist } from "../../activation";
 import { FakeSenderReadProvider } from "../../senderVerification";
 import { FakeNumberAdapter } from "../fakeNumbers";
@@ -128,7 +129,7 @@ commit;`);
   replica(access);
   call("tw4_credit_adjust", w.entity, 200_000, `j4-fund-${hex(4)}`, "fixture funding for the J4 suite", P);
   call("tw4_monthly_limit_set_admin", w.entity, P, 20_000, null, "fixture: monthly limit for the J4 suite");
-  if (w.pilot) call("tw4_pilot_exception_create", w.entity, 15000, `Founder written pilot approval ${RUN}`, P);
+  if (w.pilot) call("tw4_pilot_exception_create", ...pilotExceptionArgs(psql, w.entity, 15000, `Founder written pilot approval ${RUN}`, P));
   return w;
 }
 
@@ -236,7 +237,7 @@ async function bringGreen(l: Loc) {
 }
 
 const resource = (l: Loc, kind: "number" | "campaign") => psql(`select id from public.studio_sms_provider_resources where studio_id = '${l.studio}' and resource_kind = '${kind}' and provider_state = 'active'`);
-const cover = (l: Loc, kind: "number" | "campaign", period: string) => call<{ cover_id: string }>("tw4_rfl_pilot_cover", resource(l, kind), period, ref(`${kind}-${period}`), P);
+const cover = (l: Loc, kind: "number" | "campaign", period: string) => call<{ cover_id: string }>("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, resource(l, kind), period, ref(`${kind}-${period}`), P));
 /**
  * Gives the pilot's room back after a scenario (fixture bookkeeping, not a product path): its pilot reservations are released (the 15000-cent ceiling) and its pilot
  * spend authorizations voided (the business's cumulative spend cap counts them), so the suite is budget-neutral and re-runnable on one database.
@@ -576,8 +577,14 @@ rollback;`).split("\n").filter((x) => x.startsWith("J4|")).map((x) => x.slice(3)
       expect(out.slice(1, 6)).toHaveLength(5);
       expect(JSON.parse(out[6])).toEqual(JSON.parse(gate));
       expect(out[7]).toBe(`TW042: activation checklist unmet: pilot_ki1_redecided:${KI1}`);
-      // the gate text lives in one function body only, and nothing reads a flag for it: it depends on the pilot row alone, which no function updates or deletes
-      expect(psql(`select string_agg(p.oid::regprocedure::text, ',') from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prosrc like '%pilot_ki1_redecided%'`)).toBe("_tw4act_items(uuid)");
+      // only _tw4act_items DEFINES the item (other functions may read the checklist, e.g. the owner texting status maps it to an owner area); the activation path
+      // decides only through it: mark ready and activate call _tw4act_require, which is the unchanged 20261208 body over _tw4act_items. The item depends on the
+      // pilot row alone, which no function updates or deletes.
+      expect(psql(`select string_agg(p.oid::regprocedure::text, ',') from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prosrc ~ $re$'id',\\s*'pilot_ki1_redecided'$re$`)).toBe("_tw4act_items(uuid)");
+      expect(psql(`select left(md5(replace(p.prosrc, chr(13), '')), 8) from pg_proc p where p.oid = 'public._tw4act_require(uuid)'::regprocedure`)).toBe("984dbba2");
+      for (const fn of ["tw4_act_mark_ready(uuid,uuid,text)", "tw4_act_activate(uuid,uuid,text)"]) {
+        expect(psql(`select position('perform public._tw4act_require(p_studio_id)' in p.prosrc) > 0 from pg_proc p where p.oid = 'public.${fn}'::regprocedure`), fn).toBe("t");
+      }
       expect(psql(`select count(*) from pg_proc p where p.pronamespace = 'public'::regnamespace and (p.prosrc ~* 'delete\\s+from\\s+public\\.studio_sms_pilot_exceptions' or p.prosrc ~* 'update\\s+public\\.studio_sms_pilot_exceptions')`)).toBe("0");
       for (const role of ["anon", "authenticated", "service_role"]) {
         for (const fn of ["_tw4act_items(uuid)", "_tw4act_funding(uuid)", "_tw4act_pilot_funding(uuid,uuid)", "_tw4act_require(uuid)"]) {

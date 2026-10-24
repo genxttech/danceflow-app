@@ -70,7 +70,7 @@ function Run-Scenario {
 $front = @("text:$ACC", "enter", "text:$SK", "enter")
 $tailOk = @("text:y", "enter", "wait:50000", "text:y", "enter")        # seed? y ... (seed+checks+run take ~35 s) ... cleanup? y
 # 1 happy path: secret by Ctrl+V (clipboard), email typed + CONFIRMED, EIN typed hidden, business path typed
-Run-Scenario "secret via Ctrl+V; full flow to a clean stage B and cleanup" ($front + @("ctrlv", "enter", "text:compliance@example.test", "enter", "text:CONFIRMED", "enter", "text:987654321", "enter", "text:$biz", "enter") + $tailOk) -ClipLines @($S) -ExpectExit 0 -Expect @("32 characters received", "Clipboard cleared", "Stage B ended cleanly at its step limit (S10)", "Local fixtures removed", "Check passed: the real Stage B authorization refuses") -ExpectClear -ExpectReports
+Run-Scenario "secret via Ctrl+V; full flow to a clean stage B and cleanup" ($front + @("ctrlv", "enter", "text:compliance@example.test", "enter", "text:CONFIRMED", "enter", "text:987654321", "enter", "text:$biz", "enter") + $tailOk) -ClipLines @($S) -ExpectExit 0 -Expect @("32 characters received", "Clipboard cleared", "Stage B ended cleanly at its step limit (S10)", "Local fixtures removed", "Check passed: the harness refuses the retired real mode") -ExpectClear -ExpectReports
 # 2 secret as a right-click-style burst; EIN via burst; business path via burst
 Run-Scenario "secret and EIN as pasted bursts" ($front + @("burst:$S", "enter", "text:compliance@example.test", "enter", "text:CONFIRMED", "enter", "burst:$EIN", "enter", "burst:$biz", "enter") + $tailOk) -ExpectExit 0 -Expect @("32 characters received", "Stage B ended cleanly") -ExpectReports
 # 3 mailbox NOT confirmed: refused before anything is seeded

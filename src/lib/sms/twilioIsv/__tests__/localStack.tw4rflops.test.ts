@@ -18,6 +18,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { evidenceApplied, pilotCoverArgs, pilotExceptionArgs, spendEvidenceApplied } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 300_000 });
 
@@ -144,7 +145,7 @@ insert into public.studio_sms_twilio_accounts (legal_entity_id, twilio_account_s
 commit;`);
       call("tw4_credit_adjust", entity, 200_000, `rflops-fund-pilot-${RUN}`, "fixture funding for the ops suite", P);
       call("tw4_monthly_limit_set_admin", entity, P, 20_000, null, "fixture: monthly limit for the ops suite");
-      call("tw4_pilot_exception_create", entity, 15000, `Founder written pilot approval ${RUN}`, P);
+      call("tw4_pilot_exception_create", ...pilotExceptionArgs(psql, entity, 15000, `Founder written pilot approval ${RUN}`, P));
       pilotShared = { entity, account };
     }
   }
@@ -1175,7 +1176,7 @@ commit;`);
       const w = pilotWorld();
       const used = () => num(`select coalesce(sum(amount_cents), 0) from public.studio_sms_credit_reservations where legal_entity_id = '${w.entity}' and funding = 'pilot' and status in ('reserved', 'captured')`);
       const n = register(w, "number");
-      const cover = call<{ cover_id: string; replayed: boolean }>("tw4_rfl_pilot_cover", n.resource_id, psql(`select to_char(now() at time zone 'UTC', 'YYYY-MM')`), ref("pilot-cover"), P);
+      const cover = call<{ cover_id: string; replayed: boolean }>("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, n.resource_id, psql(`select to_char(now() at time zone 'UTC', 'YYYY-MM')`), ref("pilot-cover"), P));
       expect(cover.replayed).toBe(false);
       const afterCover = used();
       expect(afterCover).toBe(PRICE.number);
@@ -1275,13 +1276,17 @@ commit;`);
       const integration = integrated ? readFileSync(join(dir, "20261217090000_twilio_r2b_rfl_lifecycle_integration.sql"), "utf8") : "";
       // 20261225 (D5 cover rule) replaces tw4_rfl_pilot_cover and _tw4rfl_cover: on a database that carries it they must match THAT text
       const d5 = psql(`select exists (select 1 from pg_attribute where attrelid = 'public.studio_sms_provider_cover'::regclass and attname = 'superseded_at' and not attisdropped)`) === "t";
+      // 20261229 (pilot evidence) replaces tw4_rfl_pilot_cover again (eleven arguments): on a database that carries it the body must match THAT text
+      const evid = evidenceApplied(psql);
       const d5text = d5 ? readFileSync(join(dir, "20261225090000_twilio_rfl_d5_cover.sql"), "utf8") : "";
+      // 20261230 (pilot spend evidence) replaces the cover body once more (its tw4_spend_authorize call passes the evidence through): on a database that carries it, the body must match THAT text
+      const evidtext = evid ? readFileSync(join(dir, spendEvidenceApplied(psql) ? "20261230090000_twilio_rfl_pilot_spend_evidence.sql" : "20261229090000_twilio_rfl_pilot_evidence.sql"), "utf8") : "";
       for (const n of ["tw4_rfl_suspend_df", "tw4_rfl_pilot_cover", "tw4_rfl_register", "tw4_rfl_cancel_withdraw", "tw4_rfl_cancel_begin", "tw4_rfl_cancel_finish", "tw4_rfl_cancel_resolve",
         "tw4_rfl_observe_provider_bill", "tw4_rfl_alert_finish", "tw4_rfl_inventory_gaps", "tw4_rfl_studio_ready", "tw4_rfl_scan_entities", "_tw4rc_service_state", "tw4_recurring_charge",
         "_tw4rfl_cover", "_tw4rfl_gate_suspended", "_tw4rfl_alert", "_tw4rfl_lock"]) {
         const replaced = integrated && (n === "tw4_rfl_register" || n === "tw4_recurring_charge");
         const d5replaced = d5 && (n === "tw4_rfl_pilot_cover" || n === "_tw4rfl_cover");
-        expect(dbMd5(n), n).toBe(md5(prosrcOf(d5replaced ? d5text : replaced ? integration : prev, n)));
+        expect(dbMd5(n), n).toBe(md5(prosrcOf(evid && n === "tw4_rfl_pilot_cover" ? evidtext : d5replaced ? d5text : replaced ? integration : prev, n)));
       }
       for (const n of ["tw4_rfl_alerts_claim", "tw4_rfl_scan_entity", "tw4_rfl_exposure_dispose", "tw4_rfl_cancel_authorize", "tw4_rfl_admin_overview"]) {
         expect(dbMd5(n), n).toBe(md5(prosrcOf(ops, n)));

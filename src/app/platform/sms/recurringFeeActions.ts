@@ -9,6 +9,7 @@ import { ProviderFeeLifecycleStore, type CancelDecision } from "@/lib/sms/provid
 import { loadExposureReport, loadRecurringFeeOps, ProviderFeeOpsStore, RFL_FLASH_COOKIE, type DualAction } from "@/lib/sms/providerFeeOps";
 import { encodePanelFlash } from "@/lib/sms/twilioIsv/panelFlash";
 import { cancelReleaseRuntime } from "@/lib/sms/twilioIsv/cancelRuntime";
+import { APPROVAL_REF_MAX, APPROVAL_REF_MIN, approvalRefInRange, usdToCents, validatePilotEvidence } from "@/lib/sms/pilotApprovalEvidence";
 
 /**
  * TW-4F recurring provider fees: platform-administrator operations. Every action runs `requirePlatformAdmin()` FIRST, takes the ACTOR from the session
@@ -33,8 +34,9 @@ const done = (message: string): Flash => ({ ok: true, message });
 const ERRORS: Record<string, string> = {
   "42501": "Not allowed. Only a platform administrator can do this, and a request can never be approved by the administrator who made it. Nothing changed.",
   "22023": "The database refused the input (check the lengths, the period and the references). Nothing changed.",
+  TW052: "The approval evidence was refused: the date, the authorizing role, the scope, the amount (it must equal the published price), the period, the document reference and its sha256 must all be present and consistent. Nothing changed.",
   TW007: "The credit account is on hold, negative or the pilot ceiling would be exceeded. Nothing changed.",
-  TW008: "No published price exists for this fee. Nothing changed.",
+  TW008: "No published price exists for this fee, or the authorized amount does not equal it. Nothing changed.",
   TW041: "This is not allowed in the resource's current state. Nothing changed.",
   TW042: "The required approval is missing or does not match (business, resource, period, reference and reason must be identical), or the period is outside the allowed window. Nothing changed.",
   TW043: "The record was refused: the evidence digest must be 64 lowercase hex characters, a refusal needs the error code api, or this period/operation is already recorded. Nothing changed.",
@@ -201,14 +203,22 @@ export async function rflPilotCoverAction(formData: FormData) {
   await guarded(async (admin) => {
     const resourceId = id(formData, "resourceId");
     const periodKey = field(formData, "periodKey");
-    const approvalRef = text(formData, "approvalRef", 10, 200);
-    if (!resourceId || !PERIOD.test(periodKey) || !approvalRef) return fail("Give the period and a written approval reference of 10 to 200 characters. Nothing changed.");
+    // the ONE shared reference length (pilotApprovalEvidence.ts), checked here before any RPC; the database refuses the same range with errcode 22023
+    const approvalRef = approvalRefInRange(field(formData, "approvalRef")) ? field(formData, "approvalRef") : null;
+    if (!resourceId || !PERIOD.test(periodKey) || !approvalRef) return fail(`Give the period and a written approval reference of ${APPROVAL_REF_MIN} to ${APPROVAL_REF_MAX} characters. Nothing changed.`);
     if (!checked(formData, "ack")) return fail("Acknowledge that this approval covers one period of one resource and is not a standing authorization. Nothing changed.");
+    // U-4: the reference alone is not authorization. The owner's dated written authorization is recorded as evidence (hash and reference only, never the text).
+    // The amount is NOT trusted: the database requires it to equal the published price of the fee being covered and refuses otherwise.
+    const evidence = validatePilotEvidence({
+      authorizedOn: field(formData, "authorizedOn"), authorizedByRole: field(formData, "authorizedByRole"), scope: field(formData, "scope"), amountCents: String(usdToCents(field(formData, "amountUsd")) ?? ""),
+      periodKey, documentRef: field(formData, "documentRef"), documentSha256: field(formData, "documentSha256").toLowerCase(),
+    }, periodKey, Date.now());
+    if (!evidence.ok) return fail(`${evidence.message} Nothing changed.`);
     const overview = (await loadRecurringFeeOps(createAdminClient(), admin.id)).overview;
     const resource = overview?.resources.find((r) => r.resourceId === resourceId);
     if (!resource?.pilot || resource.providerState !== "active") return fail("Per-period approvals are only for a live resource of the pilot business. Nothing changed.");
-    const out = await lifecycle().pilotCover(resourceId, periodKey, approvalRef, admin.id);
-    return done(out.replayed ? "This approval was already recorded." : "Period approval recorded. It counts against the cumulative pilot ceiling and does not renew.");
+    const out = await lifecycle().pilotCover(resourceId, periodKey, approvalRef, evidence.value, admin.id);
+    return done(out.replayed ? "This approval was already recorded." : "Period approval recorded with its evidence. It counts against the cumulative pilot ceiling and does not renew.");
   });
 }
 
