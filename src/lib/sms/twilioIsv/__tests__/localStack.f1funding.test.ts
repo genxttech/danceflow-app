@@ -14,6 +14,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { pilotCoverArgs } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 300_000, hookTimeout: 300_000 });
 
@@ -146,8 +147,8 @@ function location(o: { pilot?: boolean; purchaseReservation?: boolean; campaign?
 }
 
 const resource = (l: Loc, kind: "number" | "campaign") => psql(`select id from public.studio_sms_provider_resources where studio_id = '${l.studio}' and resource_kind = '${kind}' and provider_state = 'active'`);
-const cover = (l: Loc, kind: "number" | "campaign", period: string) => call<{ cover_id: string; amount_cents: number }>("tw4_rfl_pilot_cover", resource(l, kind), period, ref(`${kind}-${period}`), P);
-const coverErr = (l: Loc, kind: "number" | "campaign", period: string) => callErr("tw4_rfl_pilot_cover", resource(l, kind), period, ref(`${kind}-${period}`), P);
+const cover = (l: Loc, kind: "number" | "campaign", period: string) => call<{ cover_id: string; amount_cents: number }>("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, resource(l, kind), period, ref(`${kind}-${period}`), P));
+const coverErr = (l: Loc, kind: "number" | "campaign", period: string) => callErr("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, resource(l, kind), period, ref(`${kind}-${period}`), P));
 type Funding = { ok: boolean; detail: string; pilot?: boolean; period_key?: string; uncovered?: string[]; next_period_key?: string; next_period_needs_approval?: boolean; next_period_uncovered?: string[] };
 const funding = (l: World) => call<Funding>("_tw4act_funding", l.studio);
 type Item = { id: string; ok: boolean; detail: string };
