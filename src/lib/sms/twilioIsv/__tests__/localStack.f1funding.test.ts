@@ -27,6 +27,8 @@ const OUTSIDER = `f1${RUN}-0000-4000-8000-000000000999`;
 const MIG = join(__dirname, "../../../supabase/migrations");
 const FWD = "20261219090000_twilio_act_pilot_funding_lock_order.sql";
 const RB = "rollback/20261219090000_twilio_act_pilot_funding_lock_order_rollback.sql";
+const FWD1226 = "20261226090000_twilio_act_console_gates.sql";
+const RB1226 = "rollback/20261226090000_twilio_act_console_gates_rollback.sql";
 
 const sqlArgs = ["exec", "-i", PG, "psql", "-U", "postgres", "-d", DB, "-q", "-At", "-v", "ON_ERROR_STOP=1"];
 const psql = (sql: string): string => execFileSync("docker", sqlArgs, { input: sql, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
@@ -583,6 +585,16 @@ rollback;`);
       const fp = () => psql(`select md5(string_agg(p.oid::regprocedure::text || '|' || md5(replace(p.prosrc, chr(13), '')) || '|' || coalesce(array_to_string(p.proacl, ','), ''), E'\\n' order by p.oid::regprocedure::text))
         from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'`);
       const withMigration = fp();
+      // J4's 20261226 replaces two 1219 bodies: while it is applied, 1219's rollback must refuse ("roll back the later migration first") and change nothing.
+      // The control below then rolls 1226 back first and re-applies it last, so the database ends exactly as it started.
+      const with1226 = psql(`select position('pilot_ki1_redecided' in p.prosrc) > 0 from pg_proc p where p.oid = 'public._tw4act_items(uuid)'::regprocedure`) === "t";
+      if (with1226) {
+        const refused = psqlError(file(RB));
+        expect(hasCode(refused, "P0001")).toBe(true);
+        expect(refused).toContain("roll back the later migration first");
+        expect(fp()).toBe(withMigration);
+        psql(file(RB1226));
+      }
       psql(file(RB));
       try {
         expect(psql(`select to_regprocedure('public._tw4act_pilot_funding(uuid,uuid)') is null`)).toBe("t");
@@ -596,6 +608,7 @@ rollback;`);
         expect(deadlocked(r)).toBe(true);
       } finally {
         psql(file(FWD));
+        if (with1226) psql(file(FWD1226));
       }
       expect(fp()).toBe(withMigration);
       expect(hasCode(psqlError(file(FWD)), "P0001")).toBe(true);   // already applied: refused
