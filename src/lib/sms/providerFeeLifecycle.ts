@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ProviderFeeOpsRpc } from "./providerFeeAlerts/rpc";
+import type { PilotEvidence } from "./pilotApprovalEvidence";
 
 /**
  * TW-4F recurring provider-fee lifecycle (migration 20261209090000): the application side.
@@ -64,9 +65,14 @@ export class ProviderFeeLifecycleStore {
     return { resourceId: row.resource_id, feeKind: row.fee_kind ?? null, replayed: Boolean(row.replayed) };
   }
 
-  async pilotCover(resourceId: string, periodKey: string, approvalRef: string, actorId: string): Promise<{ coverId: string; replayed: boolean }> {
-    const row = await this.call<{ cover_id: string; replayed?: boolean }>("tw4_rfl_pilot_cover", { p_resource_id: resourceId, p_period_key: periodKey, p_approval_ref: approvalRef, p_actor: actorId });
-    return { coverId: row.cover_id, replayed: Boolean(row.replayed) };
+  async pilotCover(resourceId: string, periodKey: string, approvalRef: string, evidence: PilotEvidence, actorId: string): Promise<{ coverId: string; evidenceId: string | null; replayed: boolean }> {
+    // 20261229: the cover is recorded WITH structured evidence (hash and reference only, never the text); the database re-checks every field, the amount against the published price
+    const row = await this.call<{ cover_id: string; evidence_id?: string; replayed?: boolean }>("tw4_rfl_pilot_cover", {
+      p_resource_id: resourceId, p_period_key: periodKey, p_approval_ref: approvalRef, p_actor: actorId,
+      p_authorized_on: evidence.authorizedOn, p_authorized_by_role: evidence.authorizedByRole, p_scope: evidence.scope, p_amount_cents: evidence.amountCents,
+      p_evidence_period_key: evidence.periodKey, p_document_ref: evidence.documentRef, p_document_sha256: evidence.documentSha256,
+    });
+    return { coverId: row.cover_id, evidenceId: row.evidence_id ?? null, replayed: Boolean(row.replayed) };
   }
 
   async observeProviderBill(resourceId: string, periodKey: string, providerRef: string, costCents: number, actorId: string): Promise<{ exposure: boolean; replayed: boolean }> {
