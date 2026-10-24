@@ -44,7 +44,7 @@ export default async function ScratchPolicyPage({
   const issuer = event.organizer_id ? "organizer" : "studio";
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-8">
+    <main className="mx-auto w-full min-w-0 max-w-3xl px-4 py-8">
       <Link href={`/app/events/${id}/competition/registrations`} className="text-sm font-medium text-slate-600 hover:text-slate-950">Back to Competition Registrations</Link>
       <h1 className="mt-2 text-2xl font-semibold text-slate-950">Scratch policy</h1>
       <p className="mt-1 text-sm text-slate-600">{event.name}</p>

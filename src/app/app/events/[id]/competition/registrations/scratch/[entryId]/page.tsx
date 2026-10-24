@@ -60,7 +60,7 @@ export default async function ScratchEntryPage({
   const requestId = randomUUID();
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-8">
+    <main className="mx-auto w-full min-w-0 max-w-3xl px-4 py-8">
       <Link href={`/app/events/${id}/competition/registrations`} className="text-sm font-medium text-slate-600 hover:text-slate-950">Back to Competition Registrations</Link>
       <h1 className="mt-2 text-2xl font-semibold text-slate-950">Scratch entry</h1>
       <p className="mt-1 text-sm text-slate-600">{event.name}</p>
@@ -89,7 +89,11 @@ export default async function ScratchEntryPage({
       {query.error ? <p role="alert" className="mt-5 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{scratchErrorMessage(query.error)}</p> : null}
 
       {!scratchable ? (
-        <p className="mt-5 text-sm text-slate-700">This entry is {entryStatusLabel(entry.status).toLowerCase()} and cannot be scratched.</p>
+        <p className="mt-5 text-sm text-slate-700">
+          {entryStatusLabel(entry.status) === "Scratched"
+            ? "This entry is already scratched."
+            : `This entry is ${entryStatusLabel(entry.status).toLowerCase()} and can no longer be scratched.`}
+        </p>
       ) : !baseDecision.allowed && (placementClass === "certified" || placementClass === "danced" || (placementClass === "locked" && !isOfficial)) ? (
         <p className="mt-5 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{baseDecision.reason}</p>
       ) : (
