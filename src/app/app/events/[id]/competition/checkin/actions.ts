@@ -10,12 +10,14 @@ import { checkinBalanceDue } from "@/lib/competition/checkinBalance";
 
 function text(formData: FormData, key: string) { return String(formData.get(key) ?? "").trim(); }
 
-async function requireEventManager(eventId: string) {
+// CB-2: front_desk may run admission (presence, waivers, credentials, desk payments, complete); `managerOnly` actions
+// (entry verification) exclude it, matching the database, where front desk has no write policy on entries.
+async function requireEventManager(eventId: string, options: { managerOnly?: boolean } = {}) {
   const context = await getCurrentStudioContext();
   const supabase = await createClient();
   const { data: event, error } = await supabase.from("events").select("id, studio_id, organizer_id").eq("id", eventId).eq("studio_id", context.studioId).maybeSingle();
   if (error || !event) throw new Error("Event not found.");
-  const studioCanManage = ["studio_owner", "studio_admin", "front_desk"].includes(context.studioRole ?? "");
+  const studioCanManage = (options.managerOnly ? ["studio_owner", "studio_admin"] : ["studio_owner", "studio_admin", "front_desk"]).includes(context.studioRole ?? "");
   let organizerCanManage = false;
   if (event.organizer_id) {
     const { data: organizerUser } = await supabase.from("organizer_users").select("role").eq("organizer_id", event.organizer_id).eq("user_id", context.userId).eq("active", true).maybeSingle();
@@ -159,7 +161,7 @@ export async function recordCompetitionParticipantWaiverAction(formData: FormDat
 export async function verifyCompetitionCheckinEntryAction(formData: FormData): Promise<void> {
   const eventId = text(formData, "eventId"), sessionId = text(formData, "sessionId"), entryId = text(formData, "entryId"), verificationStatus = text(formData, "verificationStatus");
   if (!eventId || !sessionId || !entryId || !["verified", "disputed", "corrected", "unverified"].includes(verificationStatus)) throw new Error("Valid entry verification is required.");
-  const { supabase, context } = await requireEventManager(eventId);
+  const { supabase, context } = await requireEventManager(eventId, { managerOnly: true });
   const { error } = await supabase.from("event_competition_entries").update({ verification_status: verificationStatus, verified_at: ["verified", "corrected"].includes(verificationStatus) ? new Date().toISOString() : null, verified_by: ["verified", "corrected"].includes(verificationStatus) ? context.userId : null }).eq("id", entryId).eq("event_id", eventId);
   if (error) throw new Error(error.message);
   await recalculateSession(supabase, eventId, sessionId); refresh(eventId, sessionId);
