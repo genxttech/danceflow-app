@@ -88,7 +88,9 @@ negative balance; `TW041` resource not a live fee resource; `TW042` not the pilo
 * Apply precondition (review P2-1): the migration **refuses to apply** while a live `pilot_approval` cover (not superseded) exists, because such a cover was recorded through the four-argument function,
   has no evidence row and would keep counting as funding without it. The message tells the operator to handle those covers first (the supersede path only applies to `initial_reservation` covers, so a
   live approval cannot be superseded by this migration) or to apply 20261229 before any pilot use. The cover table is locked (share row exclusive) for the check, so none can appear in between.
-  Hosted DEV and PROD had no cover rows per the 2026-10-24 probe, so this is a guard, not an expected stop.
+  The cover table is not applied on hosted DEV or PROD yet (2026-10-24 probe: PROD at or below 20261119, DEV about 20261122), so this is a guard, not an expected stop. Apply in a quiet window and retry if the lock
+  times out: the migration takes the cover table lock first and later needs `spend_events`, so a concurrent four-argument cover call could deadlock with it; either the deadlock detector or the 5-second lock
+  timeout aborts the whole transaction safely.
 
 ### Other pilot spend approvals (follow-up, not done)
 
@@ -122,13 +124,12 @@ a client amount is ignored, database refusal text is never echoed).
 
 Real schema: `src/lib/sms/twilioIsv/__tests__/localStack.tw4rflevid.test.ts` (reference boundaries 9/10/120/121/200/201, every refusal, happy path with evidence row and audit,
 replay, TW019, ceiling, current/next only, hold/negative, admin only, old signature gone, append-only evidence, no text stored, races, D5 supersede with evidence), plus the updated existing suites listed above.
-Run serially against a dedicated Postgres with migrations through 20261229090000 and the local-QA marker table. Results of the last window are in the status block at the top. Added since, **not yet run on a database**:
-the apply-precondition scenario (a live evidence-free `pilot_approval` cover on a schema-only scratch copy refuses the migration, which then applies once the row is gone), the rollback-fingerprint scenario
-(a redefined eleven-argument body makes the rollback refuse and keep everything), and the stricter document-id/link and date refusals.
+Run serially against a dedicated Postgres with migrations through 20261229090000 and the local-QA marker table. Results of the last window are in the status block at the top. The hardening scenarios (the apply precondition on a schema-only scratch copy, the rollback-fingerprint refusal, and the stricter document-id/link and date refusals) are included in the 60/60
+evidence-suite result on 0aa88bd6.
 
 ## 5. Residual risks and follow-ups
 
-* The review-hardening changes (P2-1 precondition, rollback body fingerprint, document id/link and date tightening, upper-case sha input) need a real-database rerun: `localStack.tw4rflevid`, the fingerprint/rollback chain, and any suite whose helper depends on link/id formats (the helper's `AUTH-DOC-<hex>` ids are unchanged and still valid).
+* The review-hardening changes (P2-1 precondition, rollback body fingerprint, document id/link and date tightening, upper-case sha input) were verified on a real database (evidence suite 60/60, the fingerprint/rollback chain and the other suites; see the status block at the top). Nothing from that list is outstanding.
 * Possible later guard (review P3-4): the same `document_sha256` recorded with a different `authorized_on` or role is not refused today; a future constraint could require one document hash to carry one date and role.
 * Files owned by others that need a follow-up for 20261229 (not edited here): `docs/twilio/TW-4F_Hosted_Apply_Manifest.md` (a row for 20261229090000: new table, replaced function `tw4_rfl_pilot_cover` with md5 prechecks `00e9bff4d2ce4e0cca135317216541fb` (predecessor) and `deffc1b878778dced134334260d62512` (new body), the widened spend-events check, the apply precondition and the rollback refusals), `docs/twilio/TW-4F_Completion_Tracker.md` (the U-4 pilot-activation blocker above), and the hosted probe scripts/queries (they should list the new table, the eleven-argument signature and the `studio_sms_spend_events_approval_ref_len` constraint).
 * The form takes the amount in dollars and the action converts to cents; the operator can type a wrong amount and will be refused (`TW008`) with a generic sentence, because the overview does not carry the price.
