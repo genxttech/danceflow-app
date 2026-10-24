@@ -1,6 +1,8 @@
 # Engine spec — `callback_tally` (Studio v1, K1)
 
 Status: **DRAFT for owner approval** · Baseline: origin/main `973f36da` · Docs only (no code, no SQL). **Stage 1 (X-1…X-7) and Stage 2 (D-CT-1…10) APPROVED by the owner 2026-10-24. One sub-process remains unspecified: the auditable tie-break process for a tie that exceeds the final capacity (D-CT-4); until then that case blocks advancement. Engine code stays blocked until Stage 4 (proficiency rating) is also recorded.**
+
+Scoring architecture (five independent dimensions, S4-1…S4-7) is recorded in `scoring-architecture-decisions.md`; Stages 1–3 apply to the Studio methods only.
 Engine version on approval: `callback_tally@1`. No engine code may be written until the owner signs off this
 spec and the decisions in §10 (owner decision 2026-10-23: engines are specified first, approved, then built).
 
