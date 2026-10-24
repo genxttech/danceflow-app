@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 /**
  * Shared test helper for the real-schema suites that call tw4_rfl_pilot_cover (20261229090000: the cover carries structured owner-authorization evidence).
@@ -49,5 +49,9 @@ export function evidenceFields(psql: PsqlFn, resourceId: string, period: string,
 
 /** Arguments for tw4_rfl_pilot_cover: (resource, period, reference, actor[, the seven evidence fields]). */
 export function pilotCoverArgs(psql: PsqlFn, resourceId: string, period: string, approval: string, actor: string, over: EvidenceOverride = {}): unknown[] {
-  return evidenceApplied(psql) ? [resourceId, period, approval, actor, ...evidenceFields(psql, resourceId, period, over)] : [resourceId, period, approval, actor];
+  if (!evidenceApplied(psql)) return [resourceId, period, approval, actor];
+  // the default document id and hash are DERIVED from (resource, period, reference): the same logical approval always carries the same evidence, so a repeated call is a true replay
+  // (the function refuses the same reference with different evidence). Tests that want different evidence pass an override.
+  const seed = createHash("sha256").update(`${resourceId}|${period}|${approval}`).digest("hex");
+  return [resourceId, period, approval, actor, ...evidenceFields(psql, resourceId, period, { documentRef: `AUTH-DOC-${seed.slice(0, 8)}`, sha256: seed, ...over })];
 }

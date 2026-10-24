@@ -399,7 +399,7 @@ commit;`);
     it("a cancelled resource is refused (TW041)", () => {
       const w = pilotWorld();
       const num = registerNumber(w, null);
-      replica(`update public.studio_sms_provider_resources set provider_state = 'cancelled' where id = '${num.resource_id}';`);
+      replica(`update public.studio_sms_provider_resources set provider_state = 'cancelled', cancelled_at = now(), cancel_evidence_digest = '${hex(32)}' where id = '${num.resource_id}';`);
       expect(hasCode(coverErr(num.resource_id, cur(), ref("cancelled")), "TW041")).toBe(true);
       expect(evCount(num.resource_id)).toBe(0);
     });
