@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { isCallbackRound, parseCallbackTarget } from "@/lib/competition/callbackTarget";
 
 const DISCIPLINES = ["showcase", "ballroom", "country", "west_coast_swing", "collegiate_amateur", "custom"];
 const MODES = ["relative", "proficiency", "feedback_only", "exhibition"];
@@ -319,6 +320,51 @@ export async function createCompetitionRoundAction(formData: FormData): Promise<
   });
 
   if (error) throw new Error(`Could not create round: ${error.message}`);
+  refresh(eventId);
+}
+
+/**
+ * Sets (or clears) the callback target of a callback_tally round. Manager-only. No default is applied: the
+ * target is whatever the organizer enters (D-CT-5 is an open owner decision). The codebase has no audit
+ * table for round edits, so none is written; updated_at records the change.
+ */
+export async function updateCompetitionCallbackTargetAction(formData: FormData): Promise<void> {
+  const eventId = text(formData, "eventId");
+  const roundId = text(formData, "roundId");
+  if (!eventId || !roundId) throw new Error("Round is required.");
+
+  const { supabase } = await requireEventManager(eventId);
+  const { data: round, error: roundError } = await supabase
+    .from("event_competition_rounds")
+    .select("id, program_id, division_id, scoring_method, status")
+    .eq("id", roundId)
+    .eq("event_id", eventId)
+    .maybeSingle();
+  if (roundError || !round) throw new Error("Round not found.");
+  const { data: program } = await supabase.from("event_competition_programs").select("status").eq("id", round.program_id).eq("event_id", eventId).maybeSingle();
+  const programStatus = program?.status;
+  if (round.status === "cancelled" || !programStatus || ["complete", "archived"].includes(programStatus)) {
+    throw new Error("This round can no longer be edited.");
+  }
+  if (!isCallbackRound(round)) throw new Error("A callback target applies only to callback rounds.");
+
+  const { count, error: countError } = await supabase
+    .from("event_competition_entries")
+    .select("id", { count: "exact", head: true })
+    .eq("event_id", eventId)
+    .eq("division_id", round.division_id)
+    .eq("status", "confirmed");
+  if (countError) throw new Error("Could not check the division entries.");
+
+  const parsed = parseCallbackTarget(text(formData, "targetAdvancementCount"), count ?? 0);
+  if (!parsed.ok) throw new Error(parsed.error);
+
+  const { error } = await supabase
+    .from("event_competition_rounds")
+    .update({ target_advancement_count: parsed.value })
+    .eq("id", roundId)
+    .eq("event_id", eventId);
+  if (error) throw new Error(`Could not save the callback target: ${error.message}`);
   refresh(eventId);
 }
 
