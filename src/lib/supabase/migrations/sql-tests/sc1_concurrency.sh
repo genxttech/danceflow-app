@@ -115,7 +115,7 @@ check "scratch vs check-in write: placement ends scratched or checked_in-then-sc
 if [ "${SC1_SOFT_ROLLBACK:-0}" = "1" ]; then
   ROLLBACK="$(dirname "$0")/../rollback/20270108090000_competition_sc1_scratch_rollback.sql"
   before=$(q "select count(*) from public.event_competition_scratches")
-  out=$($PSQL -f "$ROLLBACK" 2>&1 || true)
+  out=$($PSQL < "$ROLLBACK" 2>&1 || true)
   check "soft rollback: reports the audit tables were kept" "$(echo "$out" | grep -c 'audit tables kept')" "1"
   check "soft rollback: scratch history untouched" "$(q "select count(*) from public.event_competition_scratches")" "$before"
   check "soft rollback: scratched entries stay scratched" "$(q "select count(*) from public.event_competition_entries where id in ('$E1','$E2','$E3','$E5','$E6') and status = 'scratched'")" "5"
@@ -123,7 +123,7 @@ if [ "${SC1_SOFT_ROLLBACK:-0}" = "1" ]; then
   check "soft rollback: 10A guard body restored (md5 7997313d)" "$(q "select left(md5(replace(prosrc, E'\\r', '')), 8) from pg_proc where oid = 'public.protect_locked_competition_heat_children()'::regprocedure")" "7997313d"
   check "soft rollback: lifecycle RPC executable by authenticated again" "$(q "select has_function_privilege('authenticated', 'public.change_competition_entry_lifecycle(uuid,text,text,text)', 'execute')")" "t"
   check "soft rollback: kept audit table is still append-only" "$($PSQL -c "update public.event_competition_scratches set reason = 'x'" 2>&1 | grep -c 'append-only' || true)" "1"
-  check "soft rollback: re-applying SC1 is refused while the kept tables exist" "$($PSQL -f "$(dirname "$0")/../20270108090000_competition_sc1_scratch.sql" 2>&1 | grep -c 'ERROR' || true)" "1"
+  check "soft rollback: re-applying SC1 is refused while the kept tables exist" "$($PSQL < "$(dirname "$0")/../20270108090000_competition_sc1_scratch.sql" 2>&1 | grep -c 'ERROR' || true)" "1"
 fi
 
 echo "---- passed: $pass, failed: $fail"
