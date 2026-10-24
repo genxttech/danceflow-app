@@ -444,10 +444,10 @@ revoke all on function public.tw4_spend_authorize(uuid, text, int, text, uuid, t
 grant execute on function public.tw4_spend_authorize(uuid, text, int, text, uuid, text, uuid, date, text, text, int, text, text, text) to service_role;
 
 -- the apply time, read by the rollback: pilot evidence recorded after it is permanent
-do $
+do $$
 begin
   execute format('comment on function public._tw4psh_spend_authorize(uuid, text, int, text, uuid, text, uuid, date, text, text, int, text, text, text) is %L', 'tw4psh applied_at=' || to_char(clock_timestamp() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'));
-end $;
+end $$;
 
 do $$
 begin
