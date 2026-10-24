@@ -7,11 +7,11 @@ Slot `20261228` belongs to another session (`tw4_prov_observe`) and is not touch
 > and the pilot reservation paths that call it (and `tw4_pilot_exception_create`) still accept a bare approval reference of 10+ characters with no dated evidence. Until they carry the same evidence, or
 > are proven unreachable for the pilot, a pilot approval can be created without the U-4 evidence by a platform administrator calling those paths. No code change is made here; the completion tracker should list it.
 
-Validation state (real database, dedicated container, fresh scratch DB per suite, serial; migration chain 1208..1227 then 1229): the new suite `localStack.tw4rflevid` passed 49/49 and the fingerprint
-chain was exact (before 1229 = after rollback; after = after re-apply); `tw4rflops` 64/64, `tw4rfld5` 21/21, `r2brfl` 28/28, `f4recovery` 26/26 passed; `tw4rfl` 86/87, `j4activation` 9/10, `f1funding` 24/25.
-The three failures also occur on plain main without 1229 (a leftover function after the 20261209 rollback in the `tw4rfl` rollback test; `get_studio_sms_texting_status` from 20261222 in `j4activation` 3c;
-the known F1 "old act_* order deadlocks" case): none is attributable to this change. The review hardening below (P2-1 precondition, rollback fingerprint, stricter document/date rules) was written afterwards and
-its real-database scenarios have **not yet been run**.
+Validation state (real database, dedicated container, fresh scratch DB per suite, serial; migration chain 1208..1227 then 1229): on the review-hardened code (head 0aa88bd6) the new suite `localStack.tw4rflevid` passed 60/60 (including the apply-precondition and rollback-fingerprint scenarios and the stricter document/date refusals);
+`tw4rflops` 64/64, `tw4rfld5` 21/21, `r2brfl` 28/28, `f4recovery` 26/26 passed; `tw4rfl` 86/87, `j4activation` 9/10, `f1funding` 24/25. Fingerprint chain: before 1229 = after rollback (4-argument body md5
+`00e9bff4d2ce4e0cca135317216541fb`); after apply the 11-argument body md5 is `deffc1b878778dced134334260d62512`; re-apply identical. Manual rollback refusals verified: evidence present, a reference over 120 present, a redefined 11-argument body.
+The three failures also occur on plain main without 1229: in the `tw4rfl` rollback test the schema-only copy keeps `public.tw4_rfl_cancel_target(p_operation_id uuid, p_actor uuid)` (created by 20261224090000, which the test does not roll back);
+`get_studio_sms_texting_status` from 20261222 in `j4activation` 3c; and the known F1 "old act_* order deadlocks" case. None is attributable to this change.
 
 ## 1. Approval reference length: one limit, 10 to 200, in every layer
 
