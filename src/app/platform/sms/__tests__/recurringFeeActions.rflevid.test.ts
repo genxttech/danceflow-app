@@ -221,7 +221,7 @@ describe("pilot approval amount is the published price, never typed", () => {
     for (const prices of [undefined, {}, { monthly: 1000 }, { number: 0 }, { number: -5 }, { number: 12.5 }, { number: 10_000_000 }]) {
       const out = html(prices as Record<string, number> | undefined);
       expect(out).toContain('data-testid="no-published-price"');
-      expect(out).toContain("No published price for this fee");
+      expect(out).toContain("No published price could be read for this fee");
       expect(out).not.toContain('name="amountUsd"');
       expect(out).toMatch(/<button[^>]*[ ]disabled=""[^>]*>Record period approval/);
     }
@@ -242,7 +242,7 @@ describe("pilot approval amount is the published price, never typed", () => {
     replies.tw4_rfl_admin_overview = pilotOverview;
     replies.tw4_rfl_pilot_cover = { error: { code: "TW008", message: "must equal the published price" } };
     rpc.length = 0;
-    await run(base({ amountUsd: "1.00" }));
+    expect(await run(base({ amountUsd: "1.00" }))).toContain("does not equal it");
     expect(rpc.find((c) => c.fn === "tw4_rfl_pilot_cover")?.args.p_amount_cents).toBe(100);
   });
 });

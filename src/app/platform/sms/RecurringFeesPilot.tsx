@@ -83,7 +83,7 @@ export default function RecurringFeesPilot({ overview, now, prices = {} }: { ove
                         <input type="hidden" name="amountUsd" value={priceUsd} />
                       </>
                     ) : (
-                      <p role="alert" className="mt-1 text-xs text-amber-900" data-testid="no-published-price">No published price for this fee, so an approval cannot be recorded. Nothing can be submitted until a price is published.</p>
+                      <p role="alert" className="mt-1 text-xs text-amber-900" data-testid="no-published-price">No published price could be read for this fee, so an approval cannot be recorded. Nothing can be submitted until a price is published (or the price list can be read).</p>
                     )}
                   </div>
                   <label className={labelClass}>
