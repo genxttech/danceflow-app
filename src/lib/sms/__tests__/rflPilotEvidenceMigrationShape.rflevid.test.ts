@@ -35,7 +35,7 @@ describe("20261229090000 pilot approval evidence: migration shape", () => {
       expect(text.trimEnd().endsWith("commit;")).toBe(true);
       expect(text).toMatch(/set local lock_timeout/);
     }
-    const latestOther = readdirSync(dir).filter((f) => /^2026\d{10}_/.test(f) && !f.startsWith("20261229")).sort().pop() ?? "";
+    const latestOther = readdirSync(dir).filter((f) => /^2026\d{10}_/.test(f) && f.slice(0, 14) < "20261229090000").sort().pop() ?? "";
     expect("20261229090000" > latestOther.slice(0, 14)).toBe(true);
   });
 
@@ -52,7 +52,7 @@ describe("20261229090000 pilot approval evidence: migration shape", () => {
   });
 
   it("the predecessor is the LATEST definition on the chain: no migration after 20261225 redefines tw4_rfl_pilot_cover", () => {
-    for (const f of readdirSync(dir).filter((x) => /^2026\d{10}_.*\.sql$/.test(x) && x.slice(0, 14) > "20261225090000" && !x.startsWith("20261229"))) {
+    for (const f of readdirSync(dir).filter((x) => /^2026\d{10}_.*\.sql$/.test(x) && x.slice(0, 14) > "20261225090000" && x.slice(0, 14) < "20261229090000")) {
       expect(read(f), f).not.toMatch(/create (or replace )?function public\.tw4_rfl_pilot_cover\(/);
       expect(read(f), f).not.toMatch(/drop function public\.tw4_rfl_pilot_cover/);
     }

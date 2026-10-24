@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { RunnerStoreError } from "./store";
+import { spendEvidenceParams, type PilotEvidence } from "@/lib/sms/pilotApprovalEvidence";
 
 /**
  * TW-4F-3a: persistence for legal entities, location links, spend authorizations and subaccounts. Service-role `tw4_entity_*`, `tw4_spend_*` and
@@ -25,7 +26,7 @@ export interface EntityStore {
    * Approves ONE fee-bearing operation at the published price. `funding` is the approver's choice: "credit" (settled prepaid credit only, the default) or "pilot"
    * (the founder-authorized ceiling; needs the exception, a written approval reference and the location the operation is for). There is no fallback between them.
    */
-  authorizeSpend(entityId: string, kind: "brand" | "brand_low_volume" | "campaign_vetting" | "number" | "monthly" | "monthly_low_volume", cents: number, approvalRef: string, actorId: string, funding?: "credit" | "pilot", studioId?: string | null): Promise<string>;
+  authorizeSpend(entityId: string, kind: "brand" | "brand_low_volume" | "campaign_vetting" | "number" | "monthly" | "monthly_low_volume", cents: number, approvalRef: string, actorId: string, funding?: "credit" | "pilot", studioId?: string | null, evidence?: PilotEvidence | null): Promise<string>;
   confirmSubaccount(entityId: string, actorId: string): Promise<void>;
   beginSubaccount(entityId: string, actorId: string, friendlyName: string, environment: string): Promise<BeginSubaccountResult>;
   finishSubaccount(entityId: string, actorId: string, status: "active" | "failed" | "unknown", accountSid: string | null): Promise<void>;
@@ -55,8 +56,10 @@ export class SupabaseEntityStore implements EntityStore {
   async setSpendCap(entityId: string, cents: number, actorId: string) {
     await this.call("tw4_entity_set_spend_cap", { p_entity_id: entityId, p_cents: cents, p_actor: actorId });
   }
-  async authorizeSpend(entityId: string, kind: "brand" | "brand_low_volume" | "campaign_vetting" | "number" | "monthly" | "monthly_low_volume", cents: number, approvalRef: string, actorId: string, funding: "credit" | "pilot" = "credit", studioId: string | null = null) {
-    const row = await this.call<{ spend_event_id: string }>("tw4_spend_authorize", { p_entity_id: entityId, p_kind: kind, p_amount_cents: cents, p_approval_ref: approvalRef, p_actor: actorId, p_funding: funding, p_studio_id: studioId });
+  async authorizeSpend(entityId: string, kind: "brand" | "brand_low_volume" | "campaign_vetting" | "number" | "monthly" | "monthly_low_volume", cents: number, approvalRef: string, actorId: string, funding: "credit" | "pilot" = "credit", studioId: string | null = null, evidence: PilotEvidence | null = null) {
+    const row = await this.call<{ spend_event_id: string }>("tw4_spend_authorize", {
+      p_entity_id: entityId, p_kind: kind, p_amount_cents: cents, p_approval_ref: approvalRef, p_actor: actorId, p_funding: funding, p_studio_id: studioId, ...spendEvidenceParams(evidence),
+    });
     return row.spend_event_id;
   }
   async confirmSubaccount(entityId: string, actorId: string) {

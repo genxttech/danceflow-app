@@ -16,7 +16,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { pilotCoverArgs } from "./rflEvidenceHelper";
+import { pilotCoverArgs, pilotExceptionArgs } from "./rflEvidenceHelper";
 import { activate, activationCheck, attestOptOut, markReady, recordSenderFromLedger, runComplianceValidation, suspend, verifyForActivation, type OptOutChecklist } from "../../activation";
 import { FakeSenderReadProvider } from "../../senderVerification";
 import { FakeNumberAdapter } from "../fakeNumbers";
@@ -129,7 +129,7 @@ commit;`);
   replica(access);
   call("tw4_credit_adjust", w.entity, 200_000, `j4-fund-${hex(4)}`, "fixture funding for the J4 suite", P);
   call("tw4_monthly_limit_set_admin", w.entity, P, 20_000, null, "fixture: monthly limit for the J4 suite");
-  if (w.pilot) call("tw4_pilot_exception_create", w.entity, 15000, `Founder written pilot approval ${RUN}`, P);
+  if (w.pilot) call("tw4_pilot_exception_create", ...pilotExceptionArgs(psql, w.entity, 15000, `Founder written pilot approval ${RUN}`, P));
   return w;
 }
 
