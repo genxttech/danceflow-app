@@ -56,13 +56,64 @@ C. **Existing subscriber.** In the same live account, Customers → Subscription
 
 Send me: Account ID, whether Live mode is on, the publishable-key prefix, and the webhook endpoint status.
 
+### Step 0 evidence received (2026-10-24, owner, Stripe Dashboard)
+
+- Production Stripe account: `acct_1TKgL3EY0sTayNiS` (live).
+- Live publishable key prefix `pk_live_51TKgL3EY0sTayNiS…` (full key intentionally not recorded). Its embedded account
+  identifier matches the Dashboard Account ID.
+- Webhook endpoint: `https://www.idanceflow.com/api/payments/webhook`.
+- Different from the DEV sandbox `acct_1TKgLCEYYNmPuFIX` (account IDs differ; the sandbox is not production).
+
+### Deployed-application verification (what is and is not proven)
+
+Proven by me (read-only, 2026-10-24):
+- `POST https://www.idanceflow.com/api/payments/webhook` with no Stripe signature returns HTTP 400 `Invalid webhook request.`
+  (`GET` returns 405). In the route that is the `missing_signature` branch, which is reached only when at least one webhook
+  secret is configured (an unconfigured deployment returns 503). So the destination is reachable and a signing secret is set.
+
+Not provable without the Dashboard (the Production publishable key and secret key are not readable from Vercel — the
+Production value does not reveal in the UI — and the app does not expose the publishable key in client code):
+- that the deployed `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` belong to `acct_1TKgL3EY0sTayNiS`.
+
+Owner checks (no secrets leave the Dashboard) that close this gap:
+1. Live mode → Developers → Webhooks → the `https://www.idanceflow.com/api/payments/webhook` endpoint → status **Enabled**;
+   its **Event deliveries** list shows recent live events with HTTP **200**. A 200 means the deployed signing secret verified
+   an event signed by this account, so the deployed secret belongs to this endpoint/account. Note the date of the latest 200.
+2. Live mode → Developers → API keys → the secret key row used by the app: **Last used** shows a recent time (do not reveal the
+   key). If several keys exist, the one the app uses is the one whose last-used time moves when a checkout/portal action runs.
+3. Live mode → Developers → Logs (or Workbench → Logs): recent `POST /v1/checkout/sessions` or `GET /v1/subscriptions`
+   requests from the app, showing the live key's last characters.
+Send me the endpoint status, latest delivery date and HTTP code, and whether API key last-used is recent.
+
 ## Step 1 — Prices (owner, Stripe Dashboard, Live mode)
 
-1. Product catalog → each Founder Product → the Price → Edit amount (Starter $59, Growth $99). After saving, confirm the
-   Price ID is unchanged. If it prompts for a replacement or the ID changes: **stop and report.**
-2. Pro Founder Product → Add price: recurring, USD, **$159.00**, billing period **monthly**, no trial, tax behavior same as
-   the existing Pro Founder Price. Do not archive the original Pro Price.
-3. Send me the Starter, Growth and new Pro Price IDs and the original Pro Price ID.
+Before touching anything: confirm the **Live mode** toggle is on (no "Test data" banner) and the account is
+`acct_1TKgL3EY0sTayNiS`. Open the Price detail page for each of the three current Founder Prices and write down, before
+editing: Price ID, Product name and ID, amount, currency, interval, and the number of subscriptions/payments (the Price page
+shows "Subscriptions" and "Payments"). Starter and Growth must show **0** subscriptions and 0 payments. If either is nonzero,
+**stop and report.**
+
+**A. Starter Founder → $59/month (keep Price ID)**
+1. Product catalog → open the product *Studio Starter - Founder* → under Pricing click the existing monthly Price.
+2. Click the **⋯ / Edit price** control on the Price detail page. If there is no edit control for the amount, or Stripe says
+   the Price can no longer be edited, **stop and report that exact message.** Do not create a replacement.
+3. Set amount to **59.00**, currency **USD**, billing period **Monthly**. Leave every other field as it is. Save.
+4. Re-open the Price. Confirm the Price ID in the page header/URL is **identical** to the one you wrote down, amount $59.00.
+   If the ID changed or a new Price was created, **stop and report.**
+
+**B. Growth Founder → $99/month (keep Price ID)** — same four steps on *Studio Growth - Founder*, amount **99.00**.
+
+**C. Pro Founder → NEW $159/month Price (do not edit the existing one)**
+1. Product catalog → *Studio Pro - Founder* → **Add another price**.
+2. Pricing model **Standard**, **Recurring**, amount **159.00**, currency **USD**, billing period **Monthly**. No free trial on
+   the Price (the app sets the trial on checkout). Set tax behavior to match the existing Pro Founder Price. Optional internal
+   nickname, for example `Pro Founder $159 monthly (PRICING-P1)`.
+3. Add price. Copy the new **Price ID** (`price_…`).
+4. Do **not** archive, edit or set as default-replace the existing $129 Pro Price. Confirm it is still Active with the
+   existing subscription attached.
+
+**D. Report back** only: the three Price IDs (Starter unchanged, Growth unchanged, Pro new), the original Pro Price ID,
+and the pre-edit counts and post-edit screenshots/notes with no secrets.
 
 ### Verification checklist (owner sends only Price IDs and non-secret evidence)
 
@@ -136,7 +187,8 @@ env IDs, so (1) never matched env-Price subscriptions. Coverage (unit tests on t
 
 ## Remaining gates (all open)
 
-- [ ] Step 0 account evidence from the owner
+- [x] Step 0 account identity: `acct_1TKgL3EY0sTayNiS` live, publishable-key prefix matches (owner evidence)
+- [ ] Deployed app confirmed on that account: webhook delivery 200s and API key last-used (owner checks 1–3 above)
 - [ ] Dashboard confirms Starter and Growth edits keep their Price IDs (else stop)
 - [ ] Step 1 verification checklist passed
 - [ ] Existing Pro subscription metadata checked and LEGACY env value decided
