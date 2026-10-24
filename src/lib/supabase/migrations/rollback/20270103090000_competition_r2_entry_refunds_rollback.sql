@@ -31,7 +31,7 @@ begin
       raise exception 'R2 rollback preflight: % is not the R2 definition.', v_pin.sig;
     end if;
   end loop;
-  if to_regclass('public.event_competition_scratches') is not null then
+  if to_regprocedure('public.scratch_competition_entry(uuid, uuid, text, text)') is not null then
     raise exception 'R2 rollback refused: SC1 (scratch workflow) is still applied; roll SC1 back first (the 10A cascade this rollback restores does not know scratched entries).';
   end if;
   if exists (select 1 from public.event_order_refunds) then
