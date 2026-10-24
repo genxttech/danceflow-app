@@ -927,8 +927,17 @@ begin
       'stripeRefundId', v_existing.stripe_refund_id);
   end if;
 
-  if v_order.payment_status not in ('paid', 'partially_refunded') or v_order.settlement_state is distinct from 'paid'
-     or v_order.stripe_payment_intent_id is null then
+  -- "Settled" is decided from authoritative facts, NOT from settlement_state: orders finalized by
+  -- finalize_competition_registration (the real competition checkout) never get a settlement_state (NULL), only cart
+  -- orders settled by settle_event_cart_order do. NULL is accepted; any other non-'paid' state (pending, processing,
+  -- releasing, exception ...) refuses. The money facts: paid order, live status, intent, and a captured payment row.
+  if v_order.payment_status not in ('paid', 'partially_refunded')
+     or v_order.status in ('cancelled', 'expired', 'failed')
+     or coalesce(v_order.settlement_state, 'paid') <> 'paid'
+     or v_order.stripe_payment_intent_id is null
+     or not exists (select 1 from public.event_payments ep join public.event_registrations er on er.id = ep.registration_id
+                    where er.order_id = p_order_id and ep.stripe_payment_intent_id = v_order.stripe_payment_intent_id
+                      and ep.status = 'paid') then
     raise exception 'COMP_REFUND_ORDER_NOT_PAID: only a settled, paid order can be refunded.' using errcode = '22023';
   end if;
   -- PAY-DC-2A: the stored owner is authoritative; missing or conflicting owners refuse (no proof path here).
