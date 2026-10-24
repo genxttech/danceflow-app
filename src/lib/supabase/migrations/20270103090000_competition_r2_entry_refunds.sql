@@ -1265,8 +1265,8 @@ begin
   select status into v_entry_status from public.event_competition_entries where id = v_s.entry_id;
 
   if p_resolution = 'withdrawn_after_unlock' then
-    if v_s.kind = 'competition_refund_entry_certified_heat' or v_entry_status is distinct from 'withdrawn' then
-      raise exception 'COMP_REFUND_SCOPE_GATE: the entry must first be withdrawn through the audited unlock + withdraw workflow.' using errcode = '22023';
+    if v_s.kind = 'competition_refund_entry_certified_heat' or v_entry_status is null or v_entry_status not in ('withdrawn', 'scratched') then
+      raise exception 'COMP_REFUND_SCOPE_GATE: the entry must first be withdrawn or scratched (audited unlock + withdraw, or the SC1 scratch workflow).' using errcode = '22023';
     end if;
   elsif p_resolution = 'keep_entry' then
     if v_s.kind = 'competition_refund_entry_certified_heat' then

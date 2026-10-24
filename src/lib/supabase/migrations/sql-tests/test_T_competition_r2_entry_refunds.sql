@@ -317,8 +317,10 @@ select pg_temp.chk('A: re-fire adds no scope and no second withdrawal',
 -- SC1 review P2-4 + SC1 on-floor rule: an entry already scratched is never rewritten to withdrawn by a later refund,
 -- and an unscratched placement in a heat on the floor (active / complete) counts as danced (held -> E-L).
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.expect_ok('A/SC1: staff scratch 008011 before any refund',
-  $q$select public.change_competition_entry_lifecycle(pg_temp.u('008011'), 'scratched', 'Scratched at the desk', 'retain')$q$);
+select pg_temp.expect_ok('A/SC1: staff scratch 008011 before any refund (lifecycle RPC, or the SC1 scratch RPC once it has retired the lifecycle RPC)',
+  case when has_function_privilege('authenticated', 'public.change_competition_entry_lifecycle(uuid,text,text,text)', 'execute')
+    then $q$select public.change_competition_entry_lifecycle(pg_temp.u('008011'), 'scratched', 'Scratched at the desk', 'retain')$q$
+    else $q$select public.scratch_competition_entry(pg_temp.u('008011'), pg_temp.u('008f11'), 'Scratched at the desk', null)$q$ end);
 reset role;
 update public.event_competition_heats set status = 'active' where id = pg_temp.id('heat_a2');
 select pg_temp.expect_ok('A/SC1: full refund of the registration holding them',
@@ -548,9 +550,12 @@ select pg_temp.chk('E: result_stands resolves the E-C scope and its parent',
 select pg_temp.chk('E: the certified entry, heat and placement are unchanged',
   pg_temp.entry_status('008104') = 'confirmed' and pg_temp.placement('008104') = 'scheduled'
   and (select lock_state from public.event_competition_heats where id = pg_temp.id('heat_c')) = 'certified');
-select pg_temp.expect_ok('E: audited unlock of heat B, then withdraw the locked entry',
-  $q$select public.set_competition_heat_lock_state(pg_temp.id('heat_b'), 'open', 'Refunded entry withdrawal');
-     select public.change_competition_entry_lifecycle(pg_temp.u('008102'), 'withdrawn', 'Refunded', 'refund')$q$);
+select pg_temp.expect_ok('E: audited unlock of heat B, then withdraw (or, once SC1 retired the lifecycle RPC, scratch) the locked entry',
+  case when has_function_privilege('authenticated', 'public.change_competition_entry_lifecycle(uuid,text,text,text)', 'execute')
+    then $q$select public.set_competition_heat_lock_state(pg_temp.id('heat_b'), 'open', 'Refunded entry withdrawal');
+         select public.change_competition_entry_lifecycle(pg_temp.u('008102'), 'withdrawn', 'Refunded', 'refund')$q$
+    else $q$select public.set_competition_heat_lock_state(pg_temp.id('heat_b'), 'open', 'Refunded entry withdrawal');
+         select public.scratch_competition_entry(pg_temp.u('008102'), pg_temp.u('008f02'), 'Refunded', 'no_refund')$q$ end);
 select pg_temp.chk('E: withdrawn_after_unlock now resolves the scope',
   public.resolve_competition_refund_scope((select id from public.event_competition_refund_exception_scopes where entry_id = pg_temp.u('008102')), 'withdrawn_after_unlock', 'Withdrawn after unlock.'));
 select pg_temp.chk('E: round 006002 is still blocked by 008006 (trigger E-L)', pg_temp.k0_blocked('006002'));
@@ -676,11 +681,13 @@ create or replace function pg_temp.ledger_unchanged() returns boolean language s
 $$;
 grant execute on function pg_temp.ledger_unchanged() to authenticated, service_role;
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.expect_ok('S: staff scratch via change_competition_entry_lifecycle, even with fee handling "refund"',
-  $q$select public.change_competition_entry_lifecycle(pg_temp.u('008106'), 'withdrawn', 'Injury', 'refund')$q$);
+select pg_temp.expect_ok('S: staff scratch via change_competition_entry_lifecycle (fee handling "refund"), or via the SC1 scratch RPC',
+  case when has_function_privilege('authenticated', 'public.change_competition_entry_lifecycle(uuid,text,text,text)', 'execute')
+    then $q$select public.change_competition_entry_lifecycle(pg_temp.u('008106'), 'withdrawn', 'Injury', 'refund')$q$
+    else $q$select public.scratch_competition_entry(pg_temp.u('008106'), pg_temp.u('008f06'), 'Injury', null)$q$ end);
 reset role;
 select pg_temp.chk('S: the lifecycle scratch wrote no refund, allocation, cap hold or refund accounting entry',
-  pg_temp.entry_status('008106') = 'withdrawn' and pg_temp.ledger_unchanged());
+  pg_temp.entry_status('008106') in ('withdrawn', 'scratched') and pg_temp.ledger_unchanged());
 select pg_temp.chk('S: the order and payment stay fully paid after a scratch',
   (select payment_status from public.event_orders where id = pg_temp.u('00b004')) = 'paid'
   and (select coalesce(refund_amount, 0) = 0 and status = 'paid' from public.event_payments where stripe_payment_intent_id = 'pi_r2_o4')
