@@ -566,5 +566,5 @@ scratch is not inherently financial. A scratch must never automatically cause a 
   studio owner (sections A/SC1, E "audited unlock then withdraw", S) and the §4.1 E-L resolution path names it. Once
   SC1 merges, those steps switch to SC1's definer scratch RPC. That is a test-side and doc-side change only; it doesn't
   change R2's migration.
-- New pin: `sync_competition_entries_from_registration` = md5 `95e9cd2a…` (supersedes `4c8592ee…`). The rollback is
+- New pin: `sync_competition_entries_from_registration` = md5 `3a19d4b4…` (was `95e9cd2a…` before the W1 integration review: disqualified placements count as danced) (supersedes `4c8592ee…`). The rollback is
   regenerated from verbatim prior bodies.

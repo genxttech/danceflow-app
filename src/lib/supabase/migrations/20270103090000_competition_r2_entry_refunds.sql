@@ -588,7 +588,7 @@ as $$
     when exists (select 1 from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id
                  where he.entry_id = p_entry_id and h.lock_state = 'certified') then 'certified'
     when exists (select 1 from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id
-                 where he.entry_id = p_entry_id and (h.lock_state = 'locked' or he.status = 'danced' or (h.status in ('active', 'complete') and he.status <> 'scratched'))) then 'locked'
+                 where he.entry_id = p_entry_id and ((h.lock_state = 'locked' and he.status <> 'scratched') or he.status in ('danced', 'disqualified') or (h.status in ('active', 'complete') and he.status <> 'scratched'))) then 'locked'
     when exists (select 1 from public.event_competition_heat_entries he where he.entry_id = p_entry_id) then 'open'
     else 'unplaced'
   end;
@@ -618,7 +618,7 @@ begin
       select 1 from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id
       where he.entry_id = p_entry_id
         and (case when p_kind = 'competition_refund_entry_certified_heat' then h.lock_state = 'certified'
-                  else h.lock_state <> 'open' or he.status = 'danced' or (h.status in ('active', 'complete') and he.status <> 'scratched') end)
+                  else (h.lock_state <> 'open' and he.status <> 'scratched') or he.status in ('danced', 'disqualified') or (h.status in ('active', 'complete') and he.status <> 'scratched') end)
         and not exists (select 1 from public.event_competition_refund_exception_scopes s
                         where s.kind = p_kind and s.entry_id = p_entry_id and s.heat_id = he.heat_id
                           and (s.resolved_at is null or s.refund_id is not distinct from p_refund_id))
@@ -649,7 +649,7 @@ begin
     from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id
     where he.entry_id = p_entry_id
       and (case when p_kind = 'competition_refund_entry_certified_heat' then h.lock_state = 'certified'
-                else h.lock_state <> 'open' or he.status = 'danced' or (h.status in ('active', 'complete') and he.status <> 'scratched') end)
+                else (h.lock_state <> 'open' and he.status <> 'scratched') or he.status in ('danced', 'disqualified') or (h.status in ('active', 'complete') and he.status <> 'scratched') end)
       and not exists (select 1 from public.event_competition_refund_exception_scopes s
                       where s.kind = p_kind and s.entry_id = p_entry_id and s.heat_id = h.id
                         and (s.resolved_at is null or s.refund_id is not distinct from p_refund_id))
@@ -1132,6 +1132,7 @@ begin
   for v_entry in
     select distinct a.entry_id from public.event_order_refund_allocations a
     where a.refund_id = p_refund_id and a.entry_id is not null
+      and exists (select 1 from public.event_competition_entries ce where ce.id = a.entry_id and ce.status not in ('withdrawn', 'disqualified', 'complete', 'scratched'))
       and public._r2_entry_participation_class(a.entry_id) in ('locked', 'certified')
   loop
     perform public._r2_record_refund_exception('competition_refund_reversed', v_r.order_id, v_r.event_id, v_r.registration_id,
@@ -1407,7 +1408,7 @@ begin
           select 1 from public.event_competition_heat_entries he
           join public.event_competition_heats h on h.id = he.heat_id
           where he.entry_id = event_competition_entries.id
-            and (he.status = 'danced' or (h.status in ('active', 'complete') and he.status <> 'scratched'))
+            and (he.status in ('danced', 'disqualified') or (h.status in ('active', 'complete') and he.status <> 'scratched'))
         )
       returning id
     )
