@@ -451,7 +451,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
 
       <UsageReconciliation overview={usageOverview} readiness={usageReadiness} notice={firstParam(params.usage) === "resolved"} error={firstParam(params.usage_error)} />
 
-      <RecurringFeesPanel adminId={admin.id} notice={firstParam(params.rfl)} error={firstParam(params.rfl_error)} />
+      <RecurringFeesPanel adminId={admin.id} prices={panelOverview?.prices} notice={firstParam(params.rfl)} error={firstParam(params.rfl_error)} />
       <RecoveryPanel adminId={admin.id} notice={firstParam(params.recovery)} error={firstParam(params.recovery_error)} />
       <ActivationPanel adminId={admin.id} notice={firstParam(params.activation)} error={firstParam(params.activation_error)} />
 

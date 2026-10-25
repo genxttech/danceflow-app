@@ -97,6 +97,12 @@ export function usdToCents(raw: string): number | null {
   return Number(m[1]) * 100 + Number((m[2] ?? "").padEnd(2, "0") || "0");
 }
 
+/** Whole cents to the dollar text `usdToCents` reads back ("2500" to "25.00"); null unless a positive whole number of cents the form accepts (up to $99,999.99). */
+export function centsToUsd(cents: number | null | undefined): string | null {
+  if (typeof cents !== "number" || !Number.isInteger(cents) || cents <= 0 || cents > 9_999_999) return null;
+  return `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`;
+}
+
 const DAY_MS = 86_400_000;
 const utcDay = (ms: number): number => Math.floor(ms / DAY_MS);
 
