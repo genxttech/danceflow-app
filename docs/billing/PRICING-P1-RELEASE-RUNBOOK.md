@@ -340,6 +340,34 @@ were **Queued/pending** behind other deployments (qfem deployment `F4ZbvHaEP…`
 there is no compile result yet. The preview URL has not been visited or used (qfem Preview shares the production Supabase project). Do not
 click "Start Building Now" to jump the queue; wait for the queue.
 
+## Staged Production deployment (2026-10-24, owner-authorized; NOT promoted)
+
+- Deployment `dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj` (`danceflow-app-qfem-hhvst4dzf-dance-flow.vercel.app`), target **production**, status **Ready**, created with
+  `vercel deploy --prod --skip-domain` from a clean `git archive` of `release/pricing-p1` = `4bc938c6` (no `.env`, no `node_modules`, no `.vercel`; scope
+  `dance-flow`; metadata pricingP1/gitCommitSha/gitBranch/staged). It was built with the new Production env (Step 2).
+- Not promoted: its only alias is the generated `danceflow-app-qfem-dance-flow.vercel.app`; `vercel inspect www.idanceflow.com` still resolves to the live
+  `dpl_87xgSBVM2MqXi9KeyJHFeH9rdsoh` (Ready, created Oct 23) and the live page still shows the old Founder prices.
+- The staged URL is behind Vercel SSO (anonymous request → 302); it was opened only in the owner's signed-in browser pane, read-only (page loads and same-origin GETs;
+  no forms, no checkout, no login). It is wired to the production Supabase project.
+
+Smoke test results on the staged URL (read-only):
+| Check | Result |
+|---|---|
+| `/get-started/studio` shows Founder $59 / $99 / $159 | PASSED |
+| No "regularly" text and no $89 / $149 / $249 on `/`, `/for-studios`, `/get-started`, `/get-started/studio`, `/login` | PASSED |
+| Old $49 / $79 / $129 absent from the studio pricing page | PASSED |
+| No Payment Link / Stripe checkout URL in those pages | PASSED |
+| Feature lists and trial/12-month Founder copy unchanged | PASSED (as rendered) |
+| `/get-started/organizer` unchanged (its "regularly" text is the existing Organizer Suite pricing) | PASSED (observed, not diffed) |
+| New non-subscribed owner: Starter / Growth / Pro checkout reaches Stripe Checkout at $59 / $99 / $159 | **BLOCKED — not run** |
+| Existing subscribed workspace → billing portal, subscription unchanged | **BLOCKED — not run** |
+| Webhook plan resolution on a real event | **BLOCKED — not run** |
+
+BLOCKED reason: authenticated checks need a Studio-owner login on the production backend. There is no designated production test owner and none may be created
+by the assistant; running a checkout would also create a live Stripe Checkout Session. Owner-run option (no payment): log in as a studio owner whose workspace has
+no subscription, start Starter, Growth and Pro in turn, confirm the Stripe page shows "Studio … - Founder" at the right amount, then close the tab (the session expires
+unpaid). This must be done against the staged URL (SSO) or accepted as an owner-attested check after promotion.
+
 ## Release sequence (each hosted step needs separate owner authorization)
 
 1. Step 0 evidence accepted (live account, matches production).
@@ -376,7 +404,8 @@ click "Start Building Now" to jump the queue; wait for the queue.
 - [x] #319 independently reviewed and merged to `main` (`d5786295`); release candidate re-verified with the exact reviewed code (256 tests, `tsc` clean, local)
 - [ ] Live Stripe portal configuration read (plan switching on/off)
 - [x] Release branch pushed (4bc938c6; both Vercel builds succeeded) and Production env split applied (see Step 2 record)
-- [ ] Owner authorizes: staged Production build from release/pricing-p1 with the new env, smoke test, then promotion
+- [x] Staged Production build created (dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj, not promoted); public smoke PASSED
+- [ ] Authenticated checkout smoke (BLOCKED: needs owner-run no-payment checks) and owner authorization to promote
 
 ## Follow-up (explicit, not in this release): `studios.billing_plan` synchronization
 
