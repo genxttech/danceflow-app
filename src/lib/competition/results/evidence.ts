@@ -21,11 +21,29 @@ export type EvidenceMark = {
   value: unknown;
 };
 
+export type EvidenceHeat = { heatId: string; officialIds: string[]; entryIds: string[] };
+
 export type EvidenceInput = {
   engineKey: string;
   engineVersion: string;
+  /** Locked (10B) rules profile; null when the program was never locked. */
+  profile: { key: string; version: number } | null;
+  markScheme: unknown;
+  tieBreakChain: string[];
   round: { id: string; roundType: string; targetAdvancementCount: number | null; advancementMethod: string | null };
+  /** X-3 option flags of the round. */
+  chiefJudgeTiebreak: boolean;
+  scoreRolesSeparately: boolean;
+  /** The next round's heat capacity (10D), null when the round has no successor. */
+  finalCapacity: number | null;
+  /** Every entry on the ballot heats, scratched ones included. */
   entries: Array<{ entryId: string }>;
+  /** X-5: scratched entries with no live heat entry in the round. */
+  excludedEntries: Array<{ entryId: string; reason: "scratched" | "no_show" }>;
+  /** X-7: each ballot heat with the panel that judged it and its live entries. */
+  heats: EvidenceHeat[];
+  /** X-6: dances of the ballot heats. */
+  danceIds: string[];
   judges: Array<{ officialId: string; letter: string }>;
   ballots: Array<{ ballotId: string; heatId: string | null; officialId: string; version: number }>;
   marks: EvidenceMark[];
@@ -40,6 +58,11 @@ export function normalizeEvidence(input: EvidenceInput): EvidenceInput {
   return {
     ...input,
     entries: [...input.entries].sort((a, b) => cmp(a.entryId, b.entryId)),
+    excludedEntries: [...input.excludedEntries].sort((a, b) => cmp(a.entryId, b.entryId)),
+    heats: input.heats
+      .map((h) => ({ heatId: h.heatId, officialIds: [...h.officialIds].sort(cmp), entryIds: [...h.entryIds].sort(cmp) }))
+      .sort((a, b) => cmp(a.heatId, b.heatId)),
+    danceIds: [...input.danceIds].sort(cmp),
     judges: [...input.judges].sort((a, b) => cmp(a.officialId, b.officialId)),
     ballots: [...input.ballots].sort((a, b) => cmp(a.ballotId, b.ballotId)),
     marks: [...input.marks].sort(

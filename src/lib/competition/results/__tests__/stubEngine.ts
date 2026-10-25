@@ -3,7 +3,7 @@
  * It ranks entries by the sum of their ordinal marks (lower is better) with NO tie handling beyond entry order; it is NOT
  * a scoring method and must never be imported by application code or registered in REGISTERED_ENGINES.
  */
-import type { ResultEngine } from "../engines";
+import type { ResultEngine } from "../engineAdapter";
 
 export const stubEngine: ResultEngine = {
   key: "studio_ordinal_majority",

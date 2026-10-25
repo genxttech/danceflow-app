@@ -4,7 +4,7 @@
  * ballots at write time. Pure with respect to its injected `rpc`, so it is unit-tested without a database.
  */
 import { evidenceHash, traceHash, type EvidenceInput } from "./evidence";
-import type { EngineLookup, EngineRow } from "./engines";
+import type { EngineLookup, EngineRow } from "./engineAdapter";
 
 export type Rpc = (name: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message: string } | null }>;
 

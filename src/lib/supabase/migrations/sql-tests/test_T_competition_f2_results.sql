@@ -257,6 +257,9 @@ insert into public.event_competition_heat_entries (event_id, division_id, heat_i
 select case when r.n = 9 then pg_temp.u('00e002') else pg_temp.u('00e001') end, pg_temp.did(r.d), pg_temp.hid(r.n), pg_temp.eid(r.n, i), i
 from (values (1, 1), (2, 2), (3, 3), (4, 3), (5, 5), (6, 6), (7, 7), (8, 5), (9, 9), (10, 10), (11, 11)) r(n, d)
 cross join generate_series(1, 3) i;
+insert into public.event_competition_heat_dances (event_id, heat_id, dance_key, dance_label, sequence_number)
+select case when r.n = 9 then pg_temp.u('00e002') else pg_temp.u('00e001') end, pg_temp.hid(r.n), 'waltz', 'Waltz', 1
+from unnest(array[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) r(n);
 set session_replication_role = origin;
 
 -- Officials and panels through the E1 RPCs (as the real managers)
@@ -371,6 +374,16 @@ select pg_temp.chk('the evidence carries 3 entries, 3 judges, 3 ballots and 9 ma
   and jsonb_array_length(public.competition_round_calculation_input(pg_temp.rid(1)) -> 'evidence' -> 'judges') = 3
   and jsonb_array_length(public.competition_round_calculation_input(pg_temp.rid(1)) -> 'evidence' -> 'ballots') = 3
   and jsonb_array_length(public.competition_round_calculation_input(pg_temp.rid(1)) -> 'evidence' -> 'marks') = 9);
+select pg_temp.chk('the evidence carries what F1 needs: profile, X-3 flags, heats with the panel (X-7), the dance (X-6), no exclusions',
+  (public.competition_round_calculation_input(pg_temp.rid(1)) -> 'evidence' -> 'profile') = '{"key":"studio_simple","version":1}'::jsonb
+  and (public.competition_round_calculation_input(pg_temp.rid(1)) -> 'evidence' ->> 'chiefJudgeTiebreak') = 'false'
+  and (public.competition_round_calculation_input(pg_temp.rid(1)) -> 'evidence' ->> 'scoreRolesSeparately') = 'false'
+  and jsonb_array_length(public.competition_round_calculation_input(pg_temp.rid(1)) -> 'evidence' -> 'heats') = 1
+  and jsonb_array_length(public.competition_round_calculation_input(pg_temp.rid(1)) -> 'evidence' -> 'heats' -> 0 -> 'officialIds') = 3
+  and jsonb_array_length(public.competition_round_calculation_input(pg_temp.rid(1)) -> 'evidence' -> 'heats' -> 0 -> 'entryIds') = 3
+  and (public.competition_round_calculation_input(pg_temp.rid(1)) -> 'evidence' -> 'danceIds') = '["waltz"]'::jsonb
+  and jsonb_array_length(public.competition_round_calculation_input(pg_temp.rid(1)) -> 'evidence' -> 'excludedEntries') = 0
+  and (public.competition_round_calculation_input(pg_temp.rid(1)) -> 'evidence' ->> 'finalCapacity') is null);
 select pg_temp.chk('the calculation input is stable (same ballots, same hash)',
   public.competition_round_calculation_input(pg_temp.rid(1)) ->> 'input_hash' = public.competition_round_calculation_input(pg_temp.rid(1)) ->> 'input_hash');
 select pg_temp.chk('proficiency round reports engine unavailable',
@@ -541,6 +554,10 @@ set session_replication_role = replica;
 update public.event_competition_heat_entries set status = 'scratched' where heat_id = pg_temp.hid(5) and entry_id = pg_temp.eid(5, 3);
 set session_replication_role = origin;
 select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.chk('X-5: the scratched entry is in entries but listed as excluded and absent from its heat''s live entries',
+  jsonb_array_length(public.competition_round_calculation_input(pg_temp.rid(5)) -> 'evidence' -> 'entries') = 3
+  and (public.competition_round_calculation_input(pg_temp.rid(5)) -> 'evidence' -> 'excludedEntries') = jsonb_build_array(jsonb_build_object('entryId', pg_temp.eid(5, 3)::text, 'reason', 'scratched'))
+  and jsonb_array_length(public.competition_round_calculation_input(pg_temp.rid(5)) -> 'evidence' -> 'heats' -> 0 -> 'entryIds') = 2);
 select pg_temp.chk('the review board flags the version stale', (public.competition_round_results_review(pg_temp.rid(5)) -> 'versions' -> 0 ->> 'stale')::boolean);
 select pg_temp.expect_msg('approve refuses a version whose input hash no longer matches', $q$select pg_temp.approve(5, 1, null)$q$, 'COMP_RESULT_STALE');
 reset role;

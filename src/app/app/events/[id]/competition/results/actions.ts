@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { safeReturnPath } from "@/lib/competition/ballots/messages";
 import { calculateRound } from "@/lib/competition/results/calculate";
-import { lookupRegisteredEngine } from "@/lib/competition/results/engines";
+import { lookupRegisteredEngine } from "@/lib/competition/results/engineAdapter";
 import { resultErrorMessage } from "@/lib/competition/results/messages";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

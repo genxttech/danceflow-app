@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { approvalAllowed, canonicalJson, RESULT_EVENT_KINDS, RESULT_ERROR_CODES } from "../contract";
 import { calculateRound, type Rpc } from "../calculate";
-import { REGISTERED_ENGINES, lookupRegisteredEngine } from "../engines";
+import { REGISTERED_ENGINES, lookupRegisteredEngine } from "../engineAdapter";
 import { canonicalEvidence, evidenceHash, normalizeEvidence, sha256Hex, traceHash, type EvidenceInput } from "../evidence";
 import { resultErrorMessage } from "../messages";
 import { stubEngine } from "./stubEngine";
@@ -24,8 +24,17 @@ function evidence(overrides: Partial<EvidenceInput> = {}): EvidenceInput {
   return {
     engineKey: "studio_ordinal_majority",
     engineVersion: "1",
+    profile: { key: "studio_simple", version: 1 },
+    markScheme: { input: "placement_marks", scored_by: "entry" },
+    tieBreakChain: [],
     round: { id: R, roundType: "final", targetAdvancementCount: null, advancementMethod: null },
+    chiefJudgeTiebreak: false,
+    scoreRolesSeparately: false,
+    finalCapacity: null,
     entries: [{ entryId: E2 }, { entryId: E1 }],
+    excludedEntries: [],
+    heats: [{ heatId: H1, officialIds: [J2, J1], entryIds: [E2, E1] }],
+    danceIds: ["waltz"],
     judges: [{ officialId: J2, letter: "B" }, { officialId: J1, letter: "A" }],
     ballots: [
       { ballotId: "00000000-0000-0000-0000-0000000000b2", heatId: H1, officialId: J2, version: 1 },
@@ -49,7 +58,15 @@ describe("canonical evidence hashing", () => {
 
   it("does not depend on read order", () => {
     const a = evidence();
-    const b = evidence({ entries: [...a.entries].reverse(), judges: [...a.judges].reverse(), ballots: [...a.ballots].reverse(), marks: [...a.marks].reverse() });
+    const b = evidence({
+      entries: [...a.entries].reverse(),
+      judges: [...a.judges].reverse(),
+      ballots: [...a.ballots].reverse(),
+      marks: [...a.marks].reverse(),
+      heats: a.heats.map((h) => ({ ...h, officialIds: [...h.officialIds].reverse(), entryIds: [...h.entryIds].reverse() })),
+      excludedEntries: [...a.excludedEntries].reverse(),
+      danceIds: [...a.danceIds].reverse(),
+    });
     expect(evidenceHash(a)).toBe(evidenceHash(b));
     expect(canonicalEvidence(a)).toBe(canonicalEvidence(b));
   });
@@ -81,7 +98,7 @@ describe("engine registry", () => {
   });
   it("application code never imports the stub", () => {
     const root = join(__dirname, "..", "..", "..", "..");
-    for (const file of ["lib/competition/results/engines.ts", "lib/competition/results/calculate.ts", "app/app/events/[id]/competition/results/actions.ts"]) {
+    for (const file of ["lib/competition/results/engineAdapter.ts", "lib/competition/results/calculate.ts", "app/app/events/[id]/competition/results/actions.ts"]) {
       expect(readFileSync(join(root, file), "utf8")).not.toMatch(/from\s+["'][^"']*stubEngine/);
     }
   });

@@ -496,10 +496,44 @@ as $$
   select jsonb_build_object(
     'engineKey', p_engine_key,
     'engineVersion', p_engine_version,
+    -- Locked configuration the engines are bound to (10B program lock; null when the program was never locked).
+    'profile', (select jsonb_build_object('key', l.rules_profile_key, 'version', l.rules_profile_version) from public.event_competition_program_locks l where l.program_id = r.program_id and l.event_id = r.event_id order by l.locked_at desc limit 1),
+    'markScheme', (select l.snapshot #> '{judging,definition}' from public.event_competition_program_locks l where l.program_id = r.program_id and l.event_id = r.event_id order by l.locked_at desc limit 1),
+    'tieBreakChain', coalesce((select case when jsonb_typeof(l.snapshot #> '{judging,definition,tie_break,chain}') = 'array'
+                                           then l.snapshot #> '{judging,definition,tie_break,chain}' end from public.event_competition_program_locks l where l.program_id = r.program_id and l.event_id = r.event_id order by l.locked_at desc limit 1), '[]'::jsonb),
     'round', jsonb_build_object('id', r.id, 'roundType', r.round_type, 'targetAdvancementCount', r.target_advancement_count,
                                 'advancementMethod', (select pg.advancement_method from public.event_competition_programs pg where pg.id = r.program_id and pg.event_id = r.event_id)),
+    -- X-3 option flags and the final's heat capacity (10D: next round's max_entries_per_heat, product default 8).
+    'chiefJudgeTiebreak', r.chief_judge_tiebreak,
+    'scoreRolesSeparately', r.score_roles_separately,
+    'finalCapacity', (select coalesce(nullif(n.configuration ->> 'max_entries_per_heat', '')::integer, 8)
+                      from public.event_competition_rounds n
+                      where n.event_id = r.event_id and n.division_id = r.division_id and n.sequence_number = r.sequence_number + 1 limit 1),
+    -- All entries on the round's ballot heats, scratched ones included; X-5 exclusions are listed separately.
     'entries', coalesce((select jsonb_agg(jsonb_build_object('entryId', x) order by x::text collate "C")
-                         from unnest(public._compe2_round_entries(r.id)) x), '[]'::jsonb),
+                         from (select distinct he.entry_id x from public.event_competition_heat_entries he
+                               where he.heat_id in (select h.heat_id from public._compe2_round_heats(r.id) h)) s), '[]'::jsonb),
+    'excludedEntries', coalesce((select jsonb_agg(jsonb_build_object('entryId', x, 'reason', 'scratched') order by x::text collate "C")
+                                 from (select distinct he.entry_id x from public.event_competition_heat_entries he
+                                       where he.heat_id in (select h.heat_id from public._compe2_round_heats(r.id) h) and he.status = 'scratched'
+                                         and not exists (select 1 from public.event_competition_heat_entries he2
+                                                         where he2.entry_id = he.entry_id and he2.status <> 'scratched'
+                                                           and he2.heat_id in (select h2.heat_id from public._compe2_round_heats(r.id) h2))) s), '[]'::jsonb),
+    -- X-7: every ballot heat with its panel (E1 panels are per round, so each heat carries the present judges) and its entries.
+    'heats', coalesce((select jsonb_agg(jsonb_build_object(
+                         'heatId', h.heat_id,
+                         'officialIds', coalesce((select jsonb_agg(j.official_id order by j.official_id::text collate "C")
+                                                  from public._compe2_round_judges(r.id) j
+                                                  where not public._compe2_is_absent(r.id, j.official_id)), '[]'::jsonb),
+                         'entryIds', coalesce((select jsonb_agg(he.entry_id order by he.entry_id::text collate "C")
+                                               from public.event_competition_heat_entries he
+                                               where he.heat_id = h.heat_id and he.status <> 'scratched'), '[]'::jsonb))
+                       order by h.heat_id::text collate "C")
+                       from public._compe2_round_heats(r.id) h), '[]'::jsonb),
+    -- X-6: the dances of the ballot heats.
+    'danceIds', coalesce((select jsonb_agg(d order by d collate "C")
+                          from (select distinct coalesce(hd.dance_id::text, hd.dance_key) d from public.event_competition_heat_dances hd
+                                where hd.heat_id in (select h.heat_id from public._compe2_round_heats(r.id) h)) s), '[]'::jsonb),
     'judges', coalesce((select jsonb_agg(jsonb_build_object('officialId', j.official_id, 'letter', j.judge_letter)
                                          order by j.official_id::text collate "C")
                         from public._compe2_round_judges(r.id) j
