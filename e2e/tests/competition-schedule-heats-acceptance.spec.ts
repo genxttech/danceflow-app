@@ -50,6 +50,18 @@ import { useUniqueE2ESourceIp as assignUniqueSourceIp } from "../helpers/rateLim
  * optionally, E2E_SUPABASE_ANON_KEY for the database authorization scenario.
  */
 
+/**
+ * Clicks a floor-console button and waits for its effect, re-clicking when the click was lost (a click that lands before
+ * the page hydrates does nothing under load). Safe: the button disappears once the transition has happened.
+ */
+async function clickUntil(button: Locator, done: Locator) {
+  await expect(async () => {
+    if (await done.count()) return;
+    if (await button.count()) await button.first().click();
+    await expect(done.first()).toBeVisible({ timeout: 15_000 });
+  }).toPass({ timeout: 120_000 });
+}
+
 test.describe.configure({ mode: "serial", timeout: 600_000 });
 
 const FLAG_ON = process.env.E2E_COMPETITION_REGISTRATION_ENABLED === "true";
@@ -561,17 +573,14 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
     const firstFloorId = heatsNow.floorHeats.find((row) => Number(row.heat_number) === 1 && row.schedule_version_id === publishedVersions(heatsNow)[0].id)!.id as string;
     const stateOfFirst = async () => [...new Set((await readHeatEvidence(config, event.id)).scoringHeats.filter((h) => h.floor_heat_id === firstFloorId).map((h) => h.status as string))];
     const heatCard = (title: "On the floor" | "Up next") => page.getByRole("region", { name: title });
-    await heatCard("Up next").getByRole("button", { name: "Call to floor" }).click();
-    await expect(heatCard("On the floor").getByText("On deck")).toBeVisible({ timeout: 30_000 });
+    await clickUntil(heatCard("Up next").getByRole("button", { name: "Call to floor" }), heatCard("On the floor").getByText("On deck"));
     await expect.poll(stateOfFirst, { timeout: 30_000 }).toEqual(["staging"]);
-    await heatCard("On the floor").getByRole("button", { name: "Start heat" }).click();
-    await expect(heatCard("On the floor").getByRole("button", { name: "Complete heat" })).toBeVisible({ timeout: 30_000 });
+    await clickUntil(heatCard("On the floor").getByRole("button", { name: "Start heat" }), heatCard("On the floor").getByRole("button", { name: "Complete heat" }));
     await expect.poll(stateOfFirst, { timeout: 30_000 }).toEqual(["active"]);
     await shot(page, "heat-1-on-the-floor");
     await page.reload();
     await expect(heatCard("On the floor").getByText("Heat 1")).toBeVisible();
-    await heatCard("On the floor").getByRole("button", { name: "Complete heat" }).click();
-    await expect(page.getByText("No heat is on the floor.")).toBeVisible({ timeout: 30_000 });
+    await clickUntil(heatCard("On the floor").getByRole("button", { name: "Complete heat" }), page.getByText("No heat is on the floor."));
     await expect.poll(stateOfFirst, { timeout: 30_000 }).toEqual(["complete"]);
     await expect(heatCard("Up next").getByText("Heat 2")).toBeVisible();
     await page.reload();
@@ -682,10 +691,8 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
     const target = await noShowTarget();
     await page.goto(`${base()}/day-of`);
     // Bring the heat onto the floor through the console (no-shows are recorded while a heat is active).
-    await page.getByRole("region", { name: "Up next" }).getByRole("button", { name: "Call to floor" }).click();
-    await expect(page.getByRole("region", { name: "On the floor" }).getByText("On deck")).toBeVisible({ timeout: 30_000 });
-    await page.getByRole("region", { name: "On the floor" }).getByRole("button", { name: "Start heat" }).click();
-    await expect(page.getByRole("region", { name: "On the floor" }).getByRole("button", { name: "Complete heat" })).toBeVisible({ timeout: 30_000 });
+    await clickUntil(page.getByRole("region", { name: "Up next" }).getByRole("button", { name: "Call to floor" }), page.getByRole("region", { name: "On the floor" }).getByText("On deck"));
+    await clickUntil(page.getByRole("region", { name: "On the floor" }).getByRole("button", { name: "Start heat" }), page.getByRole("region", { name: "On the floor" }).getByRole("button", { name: "Complete heat" }));
     await expect.poll(async () => (await readHeatEvidence(config, event.id)).scoringHeats.find((h) => h.id === target.heat.heatId)?.status, { timeout: 30_000 }).toBe("active");
     await shot(page, "heat-active");
 
