@@ -78,7 +78,7 @@ State as of 2026-10-24 (checks from `statusCheckRollup`; "CI" means the *Typeche
 | #292 | R2 / CI-D entry refunds (SQL `20270103`, webhook, staff flow) | `f5775a0a` | main | OPEN, **draft** | SUCCESS | §4 R2, §4 W1 integration | Release gate: #320 desk balance must land first; K0 correction-event tie-in; real-DB clean-chain rerun before PROD SQL (operational classification APPROVED 2026-10-24) | none |
 | #293 | K1 Studio v1 engine specs (docs only) | `5fa47468` (squash-merged as `bf43cec3`) | main | **MERGED** 2026-10-25 05:13Z, `bf43cec3` (docs only, 12 files, with owner authorization) | no CI test job on this PR (docs only); Vercel SUCCESS | §4 K1 | Owner decisions D-OM / D-PR / D-CT (Stages 1–3 and Stage 4 architecture APPROVED 2026-10-24; Stage 4 methodology (K1-U etc.) open) | none |
 | #295 | CI-B atomic check-in (no SQL) | `399d90ce` | main | OPEN | SUCCESS (+ Vercel) | §4 CI-B | CB-1 APPROVED 2026-10-24 (instructor roles lose event check-in); CB-2 front-desk SQL is a separate stacked workstream (slot 0112) | none |
-| #297 | Q1 full simulated competition E2E (stages 1, 2, 4) | `6d46c837` | main | OPEN | SUCCESS (+ Vercel); spec skips in CI | §4 Q1 | Later stages are `test.fixme` until their slices exist; W3 extension in progress locally (brief) | none |
+| #297 | Q1 full simulated competition E2E (stages 1–4 incl. refunds, scratch, check-in races, tenant isolation; E2E only) | `3764ae32` | main | OPEN | Test job SUCCESS (spec skips in CI) | §4 Q1 (2026-10-25 update) | Stages 5–10 are `test.fixme`; locked-heat scratch and danced refusal `fixme` (no UI locks or runs a heat); no entry-change UI | none |
 | #301 | SC1/CC1 scratch policy + credit design (docs only; also edits roadmap Phase 10) | `1d87deda` | main | OPEN | Vercel SUCCESS | Docs only | Owns the roadmap Phase 10 edit; owner S-D1/S-D2 recorded as applied in #306; CC-D1…D8 open | none |
 | #306 | SC1 scratch workflow (SQL `20270108`) | `77a176ac` | main | OPEN, **draft** | SUCCESS | §4 SC1, §4 W1 integration | Owner review; apply-order with R2 (both orders PASS in W1 integration) | none |
 | #311 | Competition workspace mobile overflow (nav `min-w-0`) | — | main | **MERGED** `fd5e31a6` (2026-10-24T13:36:57Z) | — | Not read here | — | n/a |
@@ -86,12 +86,12 @@ State as of 2026-10-24 (checks from `statusCheckRollup`; "CI" means the *Typeche
 | #321 | C1 closeout reads (W5): read-only P&L, CSV, checklist (no SQL) | `30f943e5` | `competition-r2-entry-refunds` (#292) | OPEN, **draft** | SUCCESS | §4 W5 | Stacked on #292; desk-balance and publication checks wait for #320 and F2/F3 | none |
 | #322 | K1 callback setup corrections (W4; SQL `20270110`) | `d02e0df9` | main | OPEN, **draft** | SUCCESS | §4 W4 | Owner D-CT-5 (callback target T) and related decisions not made here | none |
 | #337 | F1 studio scoring engines (callback tally, ordinal majority; Git-only, no migration) | `a7f6538b` | `competition-k0-results-contract` (#291) | OPEN, **draft** | Test job **FAILURE** at read time (E2E gate SUCCESS, Playwright SKIPPED, Vercel preview SUCCESS); cause not read here | not read here | Stacked on unmerged #291; failing test job; scoring code for the Studio methods only (UCWDC stays unavailable) | none |
-| #338 | REG scoring-method registry (slot `20270113090000`; Git-only) | `30f2296e` | main | OPEN, **draft** | Test job SUCCESS (E2E gate SUCCESS, Playwright SKIPPED, Vercel preview SUCCESS) | not read here | — | none |
-| #339 | F2 results lifecycle (slot `20270114090000`; Git-only; walkthrough required before merge) | `8e655569` | `competition-e2-ballots` (#331) | OPEN, **draft** | Test job result not shown at read time (E2E gate SUCCESS, Playwright SKIPPED, Vercel preview SUCCESS) | not read here | Stacked on E1 #327, O1 #328, E2 #331; owner walkthrough before merge; redefines two E2 functions (`_compe2_guard_ballot_insert`, `_compe2_insert_ballot`) for `correction_open`; its engine pin is a stub until REG #338 lands | none |
-| E1 officials | `20270101090000` | no PR yet | main | **in development** (Git-only; new session) | — | — | Walkthrough waived for Git-only development only; mandatory before merge or deploy (§1.5 #4) | none |
-| O1 day-of | `20270106090000` | no PR yet | main | **in development** (Git-only; new session) | — | — | same | none |
-| E2 ballots | `20270102090000` | no PR yet | E1 + O1 (stacked) | **in development** (Git-only; new session) | — | — | same; depends on E1 and O1 | none |
-| CB-2 front-desk | `20270112090000` | no PR yet | #320 (stacked) | **in development** (Git-only; new session) | — | — | Depends on #320 | none |
+| #338 | REG scoring-method registry (slot `20270113090000`; Git-only) | `3d7a8f80` | main | OPEN, **draft** | Test job result not shown at read time | §4 REG | REG ↔ F2 integration changes owed by F2 (#339), see §4 REG | none |
+| #339 | F2 results lifecycle (slot `20270114090000`; Git-only; walkthrough required before merge) | `8e655569` | `competition-e2-ballots` (#331) | OPEN, **draft** | Test job SUCCESS at read time | §4 F2 | Stacked on E1 #327, O1 #328, E2 #331; owner walkthrough before merge; redefines two E2 functions (`_compe2_guard_ballot_insert`, `_compe2_insert_ballot`) for `correction_open`; its engine pin is a stub until REG #338 lands; **REG ↔ F2 integration fix in progress** (fixtures must lock and pin programs; `_compf2_engine_pin` must call REG's internal reader) | none |
+| #327 | E1 officials and panel assignments (slot `20270101090000`; Git-only) | `45a2c2b2` | main | OPEN, **draft** | Test job **FAILURE** at read time (cause not read here) | §4 E1 | Owner Schedule & Heats walkthrough required before merge or deploy; open decisions in PR body (outside judges without a team account, `auth.users` FK restrict, candidate list scope) | none |
+| #328 | O1 day-of round operations (slot `20270106090000`; Git-only) | `784eab8a` | `competition-e1-officials` (#327) | OPEN, **draft** | Test job SUCCESS | §4 O1 | Walkthrough required before merge or deploy; stacked on E1; open owner decisions listed in PR body | none |
+| #331 | E2 ballots (slot `20270102090000`; Git-only) | `958b9547` | `competition-e1-officials` (#327) | OPEN, **draft** | Test job SUCCESS | §4 E2 | Walkthrough required before merge or deploy; depends on E1 and O1; merge order E1, O1, E2; `_compe2_guard_ballot_insert` and `_compe2_insert_ballot` are pinned by F2 (#339) | none |
+| #329 | CB-2 front-desk competition check-in (slot `20270112090000`) | `2cfe4ddc` | `competition-cib-desk-balance` (#320) | OPEN, **draft** | Test job **FAILURE** at read time (cause not read here) | §4 CB-2 | Stacked on #320 and #295 (apply 0111 then 0112, SQL before app) | none |
 
 Heads moved since the first version of this tracker: #292 `a27e943c`→`c32a693d`→`f5775a0a`, #306 `8f6e7874`→`e4b7a57e`→`77a176ac`, #291 `a8c7c611`→`0ea4e10b`. Re-read before relying on a SHA. The four "in development" rows come from the coordinator assignment of 2026-10-24; fill in PR numbers when they open.
 
@@ -187,6 +187,8 @@ No code or tests exist. **Scoring implementation (F1) stays blocked until the co
 
 Gaps found (no app change): paid entries start `unverified` and the check-in session page has no eligibility control; a published running order is staff-only (no heat sheet for dancers/public); hosted Stripe Checkout card entry is not automated; duplicate competitor numbers not exercised.
 
+**Update 2026-10-25 (PR body; head `3764ae32`):** runs on an app built from `origin/main` + the corrected R2/SC1 integration branch (`competition-int-r2-sc1` @00002ee8) + CI-B desk balance (#320 @328674d6), local QA Supabase `q1ext-qa`, Stripe TEST keys, no hosted database. PASS: stages 1, 2; 3 setup; 3b net-cap refusal; 3a partial per-entry refund; 3c double submit (one Stripe refund); 3a desk (needs #320, `E2E_DESK_BALANCE_FIX=true`: PASS with #320); 3d normal scratch in an open heat; 3e refund of the scratched entry via the R2 page; 4 check-in/heats/running order; 4b two desks race and ticket scan race; tenant isolation (404). `test.fixme`: official locked-heat scratch / danced-heat refusal (no UI locks or runs a heat), a scan on the competition check-in screen, stage 3 "entry changed" (no entry-change UI), stages 5–10 (judging not built). Full spec run twice: **13 passed, 9 fixme/skipped, 0 failed** each time; teardown verified zero leftover rows. Local-only notes: R2/SC1 append-only tables are cleared through the local database container only; the Next dev server needs route warming. PR-level CI test job SUCCESS at read time; the spec skips in CI.
+
 ### SC1 (#306)
 | Check | Result |
 |---|---|
@@ -264,6 +266,119 @@ Open (not decided here): D-CT-5 (callback target T owner/default/T ≥ entries);
 | Hosted DEV/PROD | NOT RUN |
 
 Read-only; no SQL (slot 20270107 unused). Checklist shows PASS / BLOCKED / NOT AVAILABLE YET (desk balance waits for #320; publication/certification wait for F2/F3).
+
+### E1 officials (#327; head `45a2c2b2`)
+DB type: fresh repo-migration replay on a local Supabase stack (e1-qa, no storage-api); 257 migrations ok, 7 known non-competition failures. Copied from the PR body.
+
+| Check | Result |
+|---|---|
+| Migration applies (clean replay base); on O1 QA DB (reported by O1) | PASS; PASS |
+| E1 SQL suite (isolation, role matrix, freeze trigger, letters, deactivate-not-delete, audit append-only, verified-credential and team-membership reads, cascade) | PASS (109 checks) |
+| Rollback refuses while evidence exists; clean rollback, re-apply, suite | PASS; PASS (109 again) |
+| Regressions 10A/10B/10C/10C.4/10C.5/10D/10D.1 before and after E1 | PASS 7/7 (109/130/177/55/220/79/22), identical counts |
+| Vitest (officials.e1 + workspace.phase10b, 49 tests) | PASS |
+| Browser walkthroughs (manager UI; judge sees own rounds only; other studio owner) | PASS |
+| Independent Opus security review | DONE: no P0; P1 and most P2 fixed |
+| Concurrency race test (start_competition_round vs assign); clean-room real-Stripe/prod DB | **Not run** |
+| PR-level CI test job at read time | **FAILURE** (cause not read here) |
+
+Open/accepted (PR body): `user_id` FK ON DELETE RESTRICT; candidate list scope; replay of another manager's request id. Open questions: outside judges without a team account; absent judge after the round is active (X-4); judge also an entrant in the same round.
+
+### O1 day-of (#328; head `784eab8a`)
+DB types: **A** `o1-db` (July-dump base, 10C–10D.1 replayed with a `verified_email_for_user` stub and a patched 10C md5 constant, then E1 and O1; **not a clean migration-built DB**; no E2) and **B** `o1-qa` (local Supabase CLI stack from a schema-only dump of A). Copied from the PR body.
+
+| Check | Result |
+|---|---|
+| O1 SQL suite (transitions, preconditions, idempotency, cross-tenant, direct-write guards, heat lock path, edge allow-list, frozen heats, audit, grants) | PASS (90 checks) on A |
+| E7/E8 with E2 present | NOT RUN in the original matrix; later PASS on E2's run (see E2) |
+| Negative control (guard trigger dropped) | PASS (earlier run) |
+| Concurrency script (double start, replay, double heat stage, publish racing a heat call) | PASS |
+| Regression 10D (79) / 10D.1 (22) | PASS |
+| Regression 10A | 2 checks fail before and after (base lacks template seed rows); no new failures |
+| Rollback file | **PARTIAL**: applied and re-applied on empty data; the refusal path has no test |
+| Regression 10B/10C/10C.4, SC1 suite, E1's own suite | **NOT RUN** |
+| vitest `src/lib/competition` (26 files, 430 tests) | PASS (one source-scan test hit its 5 s default under load, passes alone with a longer timeout) |
+| tsc (8 GB heap) / eslint on new files | PASS / PASS |
+| Browser walkthrough at 375px on B: schedule, start refused without a panel, start with an always-true readiness stand-in (QA override), heat call/start/complete, cancel with a reason; no console errors | PASS |
+| Second-account denial in the browser | NOT RUN (SQL checks F1–F6) |
+| Independent Opus review | DONE: 2 P1 fixed, P2 hardening applied |
+
+Open owner decisions: public/entrant heat sheet; timing/announcer; mid-event running-order edits; single-floor console.
+
+### E2 ballots (#331; head `958b9547`)
+DB type **A** `e2-qa-db` (public-schema clone, 10C–10D.1 replayed with a `verified_email_for_user` stub, then E1, O1 `bba2e4ce`, E2; **not a clean migration-built DB**) and **B** Supabase CLI stack `e2-qa` (public schema loaded from A). Copied from the PR body; the final head's DB run is the last section of that body.
+
+| Check | Result |
+|---|---|
+| vitest `src/lib/competition` (456 tests, 27 files incl. 33 ballot tests); `tsc --noEmit` | PASS; PASS |
+| E2 SQL suite | PASS (210 checks in the original matrix; 212 after the second-review fixes) |
+| Concurrent submit vs lock (two real connections) | PASS (8 checks) |
+| Rollback (refuses while ballots exist, clean removal, re-apply) | PASS (8 checks) |
+| Multi-transaction marks test `run_e2_marks_txn.sh` | PASS (9 checks) |
+| Regression 10C/10C.4/10D/10D.1 | PASS (177/55/79/22) |
+| Regression 10A/10B | FAIL before and after on the same template-seed checks (base lacks seed rows); full set not diffed |
+| O1 suite with E2 present | PASS (90 checks) at the final head, incl. E7/E8/E8b |
+| P1-3 proof script `run_e2_p1fix_proof.sh` | PASS (9 checks): the p1fix suite fails on the pre-fix migration and passes (10 checks) on the current one |
+| E1 suite | NOT RUN on type A (base lacks `auth.users.deleted_at`); E1 was validated on its own clean replay |
+| Browser walkthrough on B at 375px (tie ballot refused, submissions, correction v2 with reason, chair) | PASS with notes; **not walked through**: judge re-login after lock, scorer paper entry, callback ballots, absence recording |
+| Independent Opus security reviews | DONE: P0-1, P1-1, P2-1, P2-2, P2-4 fixed with regression tests; the final delta (stale scope, not-danced blocker, heat-entry share lock) has been run but **not re-reviewed by a third reviewer** |
+
+Open (not fixed): scratch after `ballots_locked` not blocked by E2; ballots on heats of a superseded schedule version; paper-ballot refusal for an inactive official has no test; request fingerprint hashes marks order-sensitively. Provisional K1-dependent rules are listed in the PR body. Functions `_compe2_guard_ballot_insert` and `_compe2_insert_ballot` are pinned by F2 (#339): do not change without the coordinator.
+
+### CB-2 front-desk check-in (#329; head `2cfe4ddc`)
+DB type: **plain-PG clone of the #320 DB + SC1** (Postgres 17, `cb2_qa`), not a Supabase stack; browser walkthrough on a separate real local Supabase stack (cb2-qa). Copied from the PR body.
+
+| Check | Result |
+|---|---|
+| CB-2 SQL suite (433 checks: roles × admission/forbidden/forgery actions; end-to-end flow) | PASS |
+| Refund RPCs (R2) and scratch RPC (SC1) refused for front desk | PASS |
+| Migration apply, rollback (restores the 0111 body), re-apply; second apply refused | PASS |
+| #320 CI-B suite (13) with the assertion updated to also accept the CB-2 body pin; PAY-WH-1A (66); PAY-WH-1 (114); 10C pricing parity (45) | PASS |
+| 10A, 10B, 10C, 10C.4, 10C.5, 10D, 10D.1 | Baseline already **FAILS** on this plain build; failure sets identical before and after |
+| Vitest (50 files, 703 tests); `tsc --noEmit`; `next build` (8 GB heap) | PASS; PASS; PASS |
+| eslint on competition dirs | 10 errors, all pre-existing `no-explicit-any` on existing lines |
+| Browser walkthrough on the Supabase stack as front_desk and instructor, REST probes with real JWTs | PASS |
+| CB-2 SQL suite on the real Supabase PG image | **NOT RUN** (anon probes segfault the image, known QA-DB quirk) |
+| Hosted DEV/PROD | **NOT RUN** (not authorized) |
+| PR-level CI test job at read time | **FAILURE** (cause not read here) |
+
+Independent security review: no P0; P1 (front desk forging session state) fixed with a guard trigger; P2/P3 fixed; residual P3 accepted (session `credential_status` cache not guarded). Notes: organizer-only users and platform admins hit P0001 on session/participant/credential insert (pre-existing); front desk has no workspace link (reaches check-in by URL); entry verification stays manager-only.
+
+### REG scoring-method registry (#338; head `3d7a8f80`)
+DB type **A-derived** (`reg-db`: base image + read-only `pg_dump --schema=public` of e2-qa-db with E1 + O1 + E2, grants copied, then mainline 10C.5 `20261113`/`20261114`). Hosted DEV/PROD never touched. Copied from the PR body.
+
+| Check | Result |
+|---|---|
+| vitest registry/resolver (30); tsc (8 GB heap) | PASS; PASS |
+| Apply REG 20270113; REG SQL suite | PASS; PASS (80 checks) |
+| Rollback, re-apply, suite (also with F2 applied) | PASS (80 checks) |
+| 10C 177; 10C pricing parity 45; 10C.4 55; 10D 79; 10D.1 22 | PASS |
+| 10A foundation; 10B profiles | FAIL (2 checks each), **baseline** (starter template seed absent); no REG-related failure |
+| 10C.5 draft suite | **BLOCKED** (baseline lacks `20261115_phase10c5_registration_isolation`) |
+| F2 (#339 head `8e655569`) applied on top of REG | PASS (applies cleanly) |
+| F2 suite against the REAL reader | PASS (186 checks) **with two integration changes** (below) |
+| Rollback refusal paths with data present; DEV/PROD apply | **NOT RUN**; **NOT RUN** (not authorized) |
+
+**REG ↔ F2 integration (fix in progress on #339):** (1) F2's fixture programs are unprofiled and unlocked, so every round failed closed (`COMP_ENGINE_NOT_AVAILABLE`) against the real reader; F2's fixtures must lock and pin their programs. (2) The public reader is manager-only, so an assigned scorer was refused; REG ships `competition_round_scoring_effective_internal(round)` and F2's `_compf2_engine_pin` must call it. The patches live in the shared notes folder `reg-f2-integration/`. Independent Opus review: no P0; 4 P1 fixed.
+
+### F2 results lifecycle (#339; head `8e655569`)
+DB type **A** (`f2-db`: df-isoqa base copy of e2-qa-db with E1 + O1 + E2, then F2). Copied from the PR body; the REG result is from a PR comment of 2026-10-25T10:23Z.
+
+| Check | Result |
+|---|---|
+| Migration applies on E1 + O1 + E2 | PASS |
+| F2 SQL suite (transitions, D3 approval and override audit, stale hash, certification, corrections, O5 both ways, append-only, cross-tenant, entrant/anon denial) | PASS (186 checks) |
+| Races (double calculate, replay, approve vs correction, calculate vs corrected ballot, approve vs submit, SQL/TS evidence hash parity) | PASS (22 checks) |
+| Rollback refuses while evidence exists; restores pinned E2 bodies; re-applies | PASS (9 checks) |
+| 10C 177, pricing parity 45, 10C.4 55, 10D 79, 10D.1 22; O1 suite 90; E2 P1FIX 10; E2 ballots suite 211 | PASS |
+| 10A, 10B | FAIL identically with and without F2 (template seed absent) |
+| 10C.5 draft suite; E1 officials suite | **BLOCKED**; **BLOCKED** (base lacks `create_competition_draft`; `auth.users.deleted_at`) |
+| vitest `src/lib/competition` (497); tsc | PASS; PASS |
+| Browser walkthrough of the results page | **NOT RUN** (no engine registered) |
+| REG pin lookup | **NOT RUN** in the PR body; the REG integration result is in the comment (fixtures must lock/pin; use the internal reader; 186/186 with both changes) |
+| Hosted DEV/PROD | **NOT RUN**, not authorized |
+
+Needs ratification (PR body): the E2 patch (`rounds.correction_open`; `_compe2_guard_ballot_insert` and `_compe2_insert_ballot` rewritten, md5-pinned), the `result_invalidated` audit kind, and an engine pin that allows only `studio_ordinal_majority@1` and `studio_callback_tally@1` until REG lands. Known limits: E2 reopen can return a once-approved round to `active`; O5 can be dodged by editing a later round's `sequence_number`; rounds that advance entries cannot complete until the advancement writer exists.
 
 ### SC1/CC1 docs (#301)
 Docs only; no runtime paths changed. No tests run.
@@ -351,3 +466,4 @@ Stage 3 and stage 4 duplicate-scan rows are the spec's own "fixme" markers; W3 i
 | 2026-10-25 | #293 (K1 specs) squash-merged to main as `bf43cec3` (docs only, 12 files, owner-authorized). #291 (K0 contract) is still UNMERGED and the merged specs reference it. The UCWDC Majority Rules method stays UNAVAILABLE pending Q1–Q5 (Q4 also gates actual scoring). K1 row above shows the pre-merge head. |
 | 2026-10-25 | Migration slots: 20270104090000 RETIRED (never used); 20270113090000 REG; 20270114090000 F2; F1 (#337, draft on #291) has no migration. K0 §12 updated on #291 (head `1e4b4a86`). REG and F2 PRs to be added when they open. |
 | 2026-10-25 | K0 amendment for F2 on #291 (head `fa510405`): `result_invalidated` event kind, E2 reopen refused while a correction is open, two E2 functions redefined by 0114. Added REG #338 and F2 #339 (drafts). |
+| 2026-10-25 | Reconciled #327, #328, #331, #329 (rows and QA), #297 (3764ae32 update), #338 (3d7a8f80, DB results) and #339 (REG ↔ F2 integration fix in progress). Heads of #320, #321, #322 unchanged. Test-job FAILURE recorded for #327, #329 and #337 (causes not read here). |
