@@ -97,7 +97,7 @@ Paths from that route to a Regular Price (monthly):
 Other Stripe surfaces (Payment Links, Pricing Tables, hosted checkout links) that reference the Regular Prices would also bypass the app.
 
 Determination: **no confirmed exposure; two unverified conditions** (a blank Founder variable for a plan; live portal/other surfaces).
-Required mitigation without any Production change (owner, read-only evidence, `no` settings changed):
+Required mitigation without any Production change (owner, read-only evidence; no settings change):
 - Stripe Live → Developers → Logs / `checkout.session.created`: confirm the deployed app creates Starter, Growth and Pro
   Checkout Sessions with the **Founder** Price IDs (or run one no-payment checkout per plan; each session expires unpaid).
 - Stripe Live → Settings → Billing → Customer portal: confirm subscription updates / plan switching is off, or that it lists no Regular Price.
