@@ -131,11 +131,15 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
   const entryRow = (page: Page, key: EntryKey): Locator => page.locator("div.py-5.grid").filter({ hasText: KEY_NAME[key] });
 
   async function setEligibility(page: Page, key: EntryKey, value: "eligible" | "ineligible") {
-    await page.goto(`${base()}/registrations`);
-    const form = entryRow(page, key).locator('form:has(select[name="eligibilityStatus"])');
-    await form.locator("select").selectOption(value);
-    await form.getByRole("button", { name: "Save" }).click();
-    await expect(entryRow(page, key).locator('select[name="eligibilityStatus"]')).toHaveValue(value, { timeout: 30_000 });
+    // A Save click that lands before the page hydrates does nothing, and the select already shows the chosen value, so the
+    // database is the judge: retry until the stored eligibility is the one asked for.
+    await expect(async () => {
+      await page.goto(`${base()}/registrations`);
+      const form = entryRow(page, key).locator('form:has(select[name="eligibilityStatus"])');
+      await form.locator("select").selectOption(value);
+      await form.getByRole("button", { name: "Save" }).click();
+      await expect.poll(async () => (await readEntries(config, event.id)).entries.find((e) => e.id === entryIds[key])?.eligibility_status, { timeout: 10_000 }).toBe(value);
+    }).toPass({ timeout: 90_000 });
   }
 
   // ================================================================== SCN-1 Setup
