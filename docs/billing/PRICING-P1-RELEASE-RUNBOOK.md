@@ -407,6 +407,45 @@ Not verifiable by me (no live credentials / owner login): each Founder plan reac
 Owner post-promotion checks (no payment): Starter, Growth, Pro each reach Stripe Checkout at $59 / $99 / $159 then close the tab; Stripe Live → Developers → Webhooks shows 200s;
 the grandfathered Pro subscription still shows $129 and its original Price ID; no unexpected subscription events.
 
+## FINAL CLOSEOUT — PRICING-P1 Founder pricing RELEASED (2026-10-24)
+
+**Final release status: RELEASED / CLOSED for Founder pricing.** Regular pricing remains inactive and unapproved. No blockers; nonblocking follow-ups below.
+
+**Deployment**
+- Production deployment: `dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj` (target production, Ready, created 2026-10-24 23:16 EDT, promoted the same night). Source: `release/pricing-p1` `4bc938c6` = deployed base `release/web-2a-website` `8fd075f5` + PR #302 (`1c8ab80f`, from `d535720d`) + PR #319 (`4bc938c6`, from `d5786295`); 14 files, none from `main` beyond those two changes, TW-4F or Competition OS. No SQL, no database change.
+- Verified again for closeout (read-only, 2026-10-24): `www.idanceflow.com` and `idanceflow.com` both resolve to `dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj` (production, Ready); the live page's asset URLs carry that deployment ID; an unsigned `POST /api/payments/webhook` returns 400 (signature check reached).
+- Rollback reference: promote `dpl_87xgSBVM2MqXi9KeyJHFeH9rdsoh` (`8fd075f5`, Ready), then delete the four new Production-only env entries and re-tick Production on the three preserved Founder entries. No Stripe Price or subscription is changed by a rollback. (Details: Promotion gate record and Rollback sections.)
+
+**Post-promotion QA results**
+
+| Check | Result | Evidence |
+|---|---|---|
+| Production serves `dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj` | PASSED | assistant, `vercel inspect` on both domains plus page asset IDs |
+| Live signup page shows Founder $59 / $99 / $159; old $49 / $79 / $129 gone | PASSED | assistant, live HTML |
+| Regular pricing inactive and hidden (no $89 / $149 / $249, no "regularly" on the studio page; no `REGULAR_PRICING_*` variable in project or shared env) | PASSED | assistant |
+| Founder Starter checkout reaches Stripe at $59/month | PASSED | owner-reported (2026-10-24), not independently observed by the assistant; no payment completed |
+| Founder Growth checkout reaches Stripe at $99/month | PASSED | owner-reported, same basis |
+| Founder Pro checkout reaches Stripe at $159/month | PASSED | owner-reported, same basis |
+| Grandfathered Pro subscriber still on the original $129 Price | PASSED | owner-reported; the assistant has no live Stripe access and did not read or touch any subscription |
+| Billing portal access for existing subscribers without changing subscriptions | PASSED | owner-reported |
+| Production webhook endpoint healthy | PARTIAL | assistant: reachable, signing secret configured (unsigned POST 400); owner-reported delivery results; no real subscription event has yet exercised the new plan-resolution path |
+| No live payment processed during QA | PASSED | owner-reported |
+
+The owner-reported rows are recorded as reported; they were not independently verified by the assistant. The webhook plan-resolution change is backed by automated tests (including grandfathered and multi-item cases) and an independent review; the first real subscription or portal event on the new build is the first production exercise, so watch webhook deliveries for it.
+
+**Unchanged by this release (verified or reported):** all Stripe Prices (nothing archived or edited by the assistant; the owner made the Founder and Regular Price changes in the Dashboard; Growth Founder is a new Price object and a new $159 Pro Founder Price was created; the original $129 Pro Price and the legacy Prices were preserved), existing customer subscriptions, entitlements, Organizer Suite, annual and add-on pricing, the three `..._STANDARD` env entries, both Founder flags, Preview env values.
+
+**Remaining nonblocking follow-ups (tracked in the Master Roadmap deferred register and Phase 22):**
+1. **Subscription entitlement enforcement** (Phase 4): instructor limits (Owner+1 / 5 / 15), location limits (1 / 3 / 10) and the Payroll Prep (Growth+) gate are not enforced in the application.
+2. **Legacy-subscriber MRR reporting:** `/platform/accounting` and `/platform/analytics` use the plan list price, overstating grandfathered subscribers (for example the $129 Pro); should read the actual Stripe subscription amount.
+3. **`studios.billing_plan` synchronization** after billing-portal plan changes, with plan-consistency and tenant-isolation tests (see the follow-up section above); the public embed and Discover pages read the column.
+4. **Founder promotional duration policy** (owner decision; copy says 12 months after the trial).
+5. **Live billing-portal configuration:** read it in the Stripe Dashboard; do not enable plan switching until tested in test mode.
+6. **Regular pricing activation:** separate owner approval and its own release (approval reference, `..._STANDARD` Price IDs, ending Founder pricing, smoke test).
+7. **Housekeeping:** the production deployment now comes from a release branch that is not an ancestor of `main`; reconcile `main` versus production before any future `main` promotion (the Current State file lists stale rows). The browser pane must be visible for assistant UI work. Local scratch worktrees (`studioapp-pricing-rel`, `studioapp-pricing-p1-wh`, `studioapp-pricing-p1`) and the remote branches are kept until the owner decides to clean up.
+
+Documentation PRs (this runbook, PR #323) are not merged; merging is a separate owner authorization.
+
 ## Release sequence (each hosted step needs separate owner authorization)
 
 1. Step 0 evidence accepted (live account, matches production).
@@ -445,7 +484,8 @@ the grandfathered Pro subscription still shows $129 and its original Price ID; n
 - [x] Release branch pushed (4bc938c6; both Vercel builds succeeded) and Production env split applied (see Step 2 record)
 - [x] Staged Production build created (dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj, not promoted); public smoke PASSED
 - [x] Owner-run staged QA reported passed; promotion authorized and executed (dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj live)
-- [ ] Post-promotion owner checks (Stripe checkout per plan, webhook deliveries 200, grandfathered Pro unchanged) and first real-event webhook observation
+- [x] Post-promotion QA reported passed by the owner; closeout recorded (see FINAL CLOSEOUT)
+- [ ] First real-event webhook observation on the new build (nonblocking)
 
 ## Follow-up (explicit, not in this release): `studios.billing_plan` synchronization
 

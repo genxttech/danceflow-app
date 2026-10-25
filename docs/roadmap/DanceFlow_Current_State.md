@@ -4,7 +4,7 @@ Short, operational snapshot. Update this file whenever main, the PROD deployment
 
 **Authority split (v2.22):** this file is authoritative only for **operational facts** — current main, current production deployment and rollback target, pending PROD migrations, which holds are open, and the next gate. The [Master Roadmap](DanceFlow_Master_Roadmap.md) is authoritative for **everything else** — scope, status of phases and slices, decisions, priorities, gate definitions and release history. This file does not restate those; it links to them. Release histories formerly kept here are archived, verbatim and non-authoritative, in [`archive/DanceFlow_Current_State_v2.21.md`](archive/DanceFlow_Current_State_v2.21.md).
 
-**Last updated:** 2026-10-13 (roadmap v2.23; Next gate refreshed. Release state unchanged).
+**Last updated:** 2026-10-24 (PRICING-P1 Founder pricing release: production deployment and rollback rows corrected; other rows were not re-verified in this update, see the note below the table).
 
 > **Roadmap-affecting phase closeout requires canonical roadmap/current-state update before the phase is considered closed.**
 
@@ -13,13 +13,15 @@ Short, operational snapshot. Update this file whenever main, the PROD deployment
 | | |
 |---|---|
 | **CURRENT MAIN** | `24a37a15bb0daf6f2b2de48745e84bd862ad29d1` (PAY-WH-1B, PR #216) |
-| **CURRENT PROD DEPLOYMENT** | `dpl_5BjsJaSPqn1qA3D4fCDijZbRNqqK` (source `24a37a15`; promoted 2026-10-13 11:58Z; `www.idanceflow.com` and apex) |
-| **APPLICATION ROLLBACK** | App-only to `dpl_9GRhgfVhT6eDHyQooiqjXnEvpbj3` (PAY-WH-1, `21ec7b6d`); PAY-WH-1 SQL stays in place. Deeper rollbacks need review (never below 9C; never to the Phase 8C deployment) |
+| **CURRENT PROD DEPLOYMENT** | `dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj` (PRICING-P1; source branch `release/pricing-p1` `4bc938c6` = deployed base `release/web-2a-website` `8fd075f5` + PR #302 + PR #319; **not an ancestor of `main`**; promoted 2026-10-24; `www.idanceflow.com` and apex) |
+| **APPLICATION ROLLBACK** | PRICING-P1: promote `dpl_87xgSBVM2MqXi9KeyJHFeH9rdsoh` (`8fd075f5`, website-only release of 2026-10-23), then restore the Production env (delete the four new Production-only Founder entries, re-tick Production on the three preserved Founder entries; see the PRICING-P1 runbook). No SQL in PRICING-P1. Older rollback guidance (never below 9C; never to the Phase 8C deployment) still applies |
 | **SUPABASE DEV / PROD** | `epdrtzcydvnoidwrepqz` / `hvsujyfbftfffxpfmlpb`; primary repo linked to DEV; PROD only through a fresh scratch workdir with authorization |
 | **PENDING PROD MIGRATIONS** | None. Latest applied: PAY-WH-1 M1–M5 (`20261116090000`–`20261116094000`, 2026-10-13 10:30–10:31Z) |
 | **PUBLIC COMPETITION REGISTRATION** | OFF |
 | **PACKAGE REFUND HOLD** | Released / `false` |
 | **SMS** | No `studio_sms_registrations` row in PROD; every studio fail-closed; global status unchanged |
+
+**Rows not updated 2026-10-24 (stale; need an owner-directed reconciliation):** CURRENT MAIN, PENDING PROD MIGRATIONS, the holds list and Next gate still describe 2026-10-13. Production now serves a release branch that diverged from `main` (85 commits behind at the time), so "production = main" no longer holds; never promote a `main` build without reconciling. **Pricing:** Founder studio pricing $59 / $99 / $159 is live; regular pricing ($89 / $149 / $249) is inactive and needs separate approval (Master Roadmap, Phase 22).
 
 Authenticated production smoke was intentionally omitted because prior production read-only verification attempts resulted in secret/key exposure. Authenticated behavior was instead validated in DEV/local before release.
 
