@@ -36,6 +36,7 @@ begin
   end loop;
 end $$;
 
+drop function public.competition_round_floor_entries(uuid);
 drop function public.competition_round_no_shows(uuid);
 drop function public.void_competition_heat_no_show(uuid, text, uuid);
 drop function public.mark_competition_heat_no_show(uuid, text, uuid);

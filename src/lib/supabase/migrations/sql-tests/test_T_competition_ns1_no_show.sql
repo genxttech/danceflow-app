@@ -226,7 +226,7 @@ select pg_temp.chk('no API role holds any table privilege',
                 and g.grantee in ('anon', 'authenticated', 'service_role', 'public')));
 select pg_temp.chk('anon cannot execute any NS1 function',
   not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-              where n.nspname = 'public' and p.proname in ('mark_competition_heat_no_show', 'void_competition_heat_no_show', 'competition_round_no_shows',
+              where n.nspname = 'public' and p.proname in ('mark_competition_heat_no_show', 'void_competition_heat_no_show', 'competition_round_no_shows', 'competition_round_floor_entries',
                 'competition_heat_entry_is_no_show', 'competition_heat_no_show_entries')
                 and has_function_privilege('anon', p.oid, 'execute')));
 select pg_temp.chk('internal readers are not executable by API roles',
@@ -534,6 +534,31 @@ select pg_temp.chk('judge sheet hides no-show entries (r7 is not the judge''s ro
   jsonb_array_length((public.competition_judge_ballot_sheet(pg_temp.u('006003')) -> 'heats' -> 0 -> 'entries')) = 2);
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_ok('ballot status board still renders (manager)', format($q$select public.competition_round_ballot_status(%L)$q$, pg_temp.u('006003')));
+reset role;
+
+-- competition_round_floor_entries: manager and chair only; reports heats, entries, no-show state and the window
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000017'));
+select pg_temp.chk('chair reads the floor view of r1 (heat h1 open, 3 entries, e03 not a no-show after the void)',
+  (public.competition_round_floor_entries(pg_temp.u('006001')) -> 'round_status') = '"active"'::jsonb
+  and jsonb_array_length(public.competition_round_floor_entries(pg_temp.u('006001')) -> 'heats') = 2
+  and (public.competition_round_floor_entries(pg_temp.u('006001')) -> 'heats' -> 0 ->> 'window_open')::boolean
+  and not (public.competition_round_floor_entries(pg_temp.u('006001')) -> 'heats' -> 1 ->> 'window_open')::boolean);
+select pg_temp.chk('the floor view shows an active no-show with its reason (r5 e16)',
+  exists (select 1 from jsonb_array_elements(public.competition_round_floor_entries(pg_temp.u('006005')) -> 'heats' -> 0 -> 'entries') x
+          where (x ->> 'no_show')::boolean and x ->> 'no_show_reason' = 'Left for good'));
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.chk('manager reads it too', jsonb_array_length(public.competition_round_floor_entries(pg_temp.u('006001')) -> 'heats') = 2);
+select pg_temp.as_user(pg_temp.u('000011'));
+select pg_temp.expect_msg('a panel judge cannot read the floor view', format($q$select public.competition_round_floor_entries(%L)$q$, pg_temp.u('006001')), 'COMP_FORBIDDEN');
+select pg_temp.as_user(pg_temp.u('000016'));
+select pg_temp.expect_msg('a scorer cannot read the floor view', format($q$select public.competition_round_floor_entries(%L)$q$, pg_temp.u('006001')), 'COMP_FORBIDDEN');
+select pg_temp.as_user(pg_temp.u('000003'));
+select pg_temp.expect_msg('front desk cannot read the floor view', format($q$select public.competition_round_floor_entries(%L)$q$, pg_temp.u('006001')), 'COMP_FORBIDDEN');
+select pg_temp.as_user(pg_temp.u('000005'));
+select pg_temp.expect_msg('another tenant cannot read the floor view', format($q$select public.competition_round_floor_entries(%L)$q$, pg_temp.u('006001')), 'COMP_FORBIDDEN');
+select pg_temp.as_anon();
+select pg_temp.expect_msg('anon cannot read the floor view', format($q$select public.competition_round_floor_entries(%L)$q$, pg_temp.u('006001')), 'permission denied');
 reset role;
 
 -- ============================================================================

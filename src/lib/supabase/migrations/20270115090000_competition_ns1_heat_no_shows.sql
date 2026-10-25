@@ -12,6 +12,7 @@
 --   mark_competition_heat_no_show(heat_entry_id, reason, request_id)
 --   void_competition_heat_no_show(heat_entry_id, reason, request_id)
 --   competition_round_no_shows(round_id)           read for officials and the round's panel judges
+--   competition_round_floor_entries(round_id)      floor view (heats, entries, no-show state, window) for manager | chair; the ballot desk uses it
 -- Authority = E2's lock authority (_compe2_round_role in manager | chair). Window: heat `active` or `complete`, round `active`
 -- (ballots open). After ballots_locked (and during an F2 correction, which is a ballots_locked round) the correction path applies.
 -- Refused for scratched / danced / disqualified entries. The round row is locked FOR UPDATE, so a mark/void serializes with lock
@@ -395,11 +396,55 @@ begin
 end;
 $$;
 
+-- Floor view for the officials who can mark (manager | chair): every heat of the round with its entries, no-show state and whether the
+-- no-show window is open. Needed because the E2 board hides no-shows and carries no heat entry ids. Chairs reach it from the ballot desk.
+create function public.competition_round_floor_entries(p_round_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_round public.event_competition_rounds;
+begin
+  if auth.uid() is null or p_round_id is null or coalesce(public._compe2_round_role(p_round_id), '') not in ('manager', 'chair') then
+    raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
+  end if;
+  select * into v_round from public.event_competition_rounds r where r.id = p_round_id;
+  return jsonb_build_object(
+    'round_status', v_round.status,
+    'heats', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'heat_id', h.id, 'heat_number', h.heat_number, 'heat_status', h.status,
+        'window_open', v_round.status = 'active' and h.status in ('active', 'complete'),
+        'entries', coalesce((
+          select jsonb_agg(jsonb_build_object(
+            'heat_entry_id', he.id, 'entry_id', e.id, 'entry_number', e.entry_number, 'display_name', e.display_name, 'status', he.status,
+            'no_show', public.competition_heat_entry_is_no_show(he.id),
+            'no_show_reason', (select n.reason from public.event_competition_heat_no_shows n
+                               where n.heat_entry_id = he.id
+                                 and not exists (select 1 from public.event_competition_heat_no_show_voids v where v.no_show_id = n.id)
+                               order by n.marked_at desc limit 1))
+            order by he.floor_order, e.entry_number, e.id)
+          from public.event_competition_heat_entries he
+          join public.event_competition_entries e on e.id = he.entry_id and e.event_id = he.event_id
+          where he.heat_id = h.id), '[]'::jsonb))
+        order by h.heat_number)
+      from public.event_competition_heats h
+      where h.round_id = p_round_id and h.status <> 'cancelled'
+        and exists (select 1 from public.event_competition_schedule_versions sv
+                    where sv.id = h.schedule_version_id and sv.event_id = h.event_id and sv.status in ('published', 'live'))), '[]'::jsonb));
+end;
+$$;
+
 revoke all on function public.mark_competition_heat_no_show(uuid, text, uuid) from public, anon;
 revoke all on function public.void_competition_heat_no_show(uuid, text, uuid) from public, anon;
 revoke all on function public.competition_round_no_shows(uuid) from public, anon;
+revoke all on function public.competition_round_floor_entries(uuid) from public, anon;
 grant execute on function public.mark_competition_heat_no_show(uuid, text, uuid) to authenticated;
 grant execute on function public.void_competition_heat_no_show(uuid, text, uuid) to authenticated;
 grant execute on function public.competition_round_no_shows(uuid) to authenticated;
+grant execute on function public.competition_round_floor_entries(uuid) to authenticated;
 
 commit;
