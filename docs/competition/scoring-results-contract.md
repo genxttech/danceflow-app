@@ -226,10 +226,12 @@ Owner words (2026-10-24): "K0 O1–O5: Accept all five proposed fail-safe defaul
 |---|---|---|
 | `20270101090000` | E1 officials | §3 officials, panels, official_events; §9 #2 |
 | `20270102090000` | E2 ballots | §3 ballots/marks, judge_attendance, ballot_drafts, ballot_events; §4 lock/reopen; §9 #1 |
-| `20270104090000` | F2 results lifecycle | §3 results/approvals/events; §4 calculate/approve/correct/complete; §6; §8; §8 unified audit read |
+| `20270104090000` | **RETIRED, never used.** Its original placement sorted F2 before O1, which F2 depends on | — |
+| `20270113090000` | REG scoring-method registry (session reg-scoring-registry) | scoring-method registry (K1 Stage 4) |
+| `20270114090000` | F2 results lifecycle (also redefines two E2 functions for `correction_open`, md5-pinned, with rollback) | §3 results/approvals/events; §4 calculate/approve/correct/complete; §6; §8; §8 unified audit read |
 | `20270105090000` | F3 publication + read RPCs | §3 publications; §4 publish/withdraw; §7; §9 #4–#6 |
 | `20270106090000` | O1 day-of | §4 schedule/start/cancel round; §3 round_transition_events |
 | `20270107090000` | C1 closeout | §10 |
 
-`20270103090000` is held by R2 (CI-D refunds). Changes to this contract after approval go through the Competition
+`20270103090000` is held by R2 (CI-D refunds). F1 (studio scoring engines, #337) has no migration. Update 2026-10-25 (coordinator): the F2 slot moved from `20270104090000` (retired) to `20270114090000`. Changes to this contract after approval go through the Competition
 coordinator and update `contract.ts` in the same commit.
