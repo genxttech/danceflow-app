@@ -53,8 +53,16 @@ begin
   if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_rfl_pilot_cover(uuid,text,text,uuid,date,text,text,integer,text,text,text)'::regprocedure), chr(13), '')) is distinct from 'f5dffdaa3062febef97fa2ce9b0fa422' then
     raise exception 'pilot-spend-hardening precondition failed: public.tw4_rfl_pilot_cover differs from its 20261230 definition';
   end if;
+  -- the internal function is created by the applying role and must be executable by the owner-run functions that call it: one owner for all three
+  if (select count(distinct p.proowner) from pg_proc p where p.oid in ('public.tw4_spend_authorize(uuid,text,integer,text,uuid,text,uuid,date,text,text,integer,text,text,text)'::regprocedure, 'public.tw4_rfl_pilot_cover(uuid,text,text,uuid,date,text,text,integer,text,text,text)'::regprocedure)) <> 1
+     or (select p.proowner from pg_proc p where p.oid = 'public.tw4_spend_authorize(uuid,text,integer,text,uuid,text,uuid,date,text,text,integer,text,text,text)'::regprocedure) <> (select r.oid from pg_roles r where r.rolname = current_user) then
+    raise exception 'pilot-spend-hardening precondition failed: apply as the role that owns tw4_spend_authorize and tw4_rfl_pilot_cover (one owner for all of them)';
+  end if;
   -- nothing pilot-funded may exist without its evidence (any status: history is not grandfathered silently; hosted DEV and PROD hold none)
-  if exists (select 1 from public.studio_sms_spend_events se where se.funding = 'pilot' and not exists (select 1 from public.studio_sms_pilot_spend_evidence ev where ev.spend_event_id = se.id)) then
+  if exists (select 1 from public.studio_sms_spend_events se where se.funding = 'pilot' and not exists (select 1 from public.studio_sms_pilot_spend_evidence ev where ev.spend_event_id = se.id and ev.subject = 'spend_event' and ev.legal_entity_id = se.legal_entity_id
+                and ev.studio_id is not distinct from se.studio_id and ev.fee_kind = se.kind and ev.amount_cents = se.amount_cents and ev.recorded_by = se.authorized_by
+                and (case ev.scope when 'pilot_onboarding_fee' then se.kind in ('brand', 'brand_low_volume') when 'pilot_campaign_fee' then se.kind in ('campaign_vetting', 'monthly', 'monthly_low_volume')
+                       when 'pilot_number_purchase' then se.kind = 'number' when 'pilot_period_cover' then se.kind in ('number', 'monthly', 'monthly_low_volume') else false end))) then
     raise exception 'pilot-spend-hardening precondition failed: a pilot-funded spend approval without evidence exists';
   end if;
   if exists (select 1 from public.studio_sms_pilot_exceptions pe where not exists (select 1 from public.studio_sms_pilot_spend_evidence ev where ev.subject = 'pilot_exception' and ev.legal_entity_id = pe.legal_entity_id
@@ -63,11 +71,15 @@ begin
   end if;
   if exists (select 1 from public.studio_sms_pilot_spend_evidence ev where ev.scope = 'pilot_period_cover' and not exists (
         select 1 from public.studio_sms_provider_cover c join public.studio_sms_provider_cover_evidence ce on ce.cover_id = c.id
-         where c.spend_event_id = ev.spend_event_id and ce.document_sha256 = ev.document_sha256 and ce.period_key = ev.period_key and ce.amount_cents = ev.amount_cents)) then
+         where c.spend_event_id = ev.spend_event_id and c.basis = 'pilot_approval' and ce.document_sha256 = ev.document_sha256 and ce.document_ref = ev.document_ref and ce.period_key = ev.period_key
+            and ce.amount_cents = ev.amount_cents and ce.authorized_on = ev.authorized_on and ce.authorized_by_role = ev.authorized_by_role and ce.scope = ev.scope
+            and ce.legal_entity_id = ev.legal_entity_id and ce.studio_id is not distinct from ev.studio_id)) then
     raise exception 'pilot-spend-hardening precondition failed: a period-cover approval without its cover evidence exists';
   end if;
   if exists (select 1 from public.studio_sms_pilot_spend_evidence group by lower(document_ref) having count(*) > 1)
-     or exists (select 1 from public.studio_sms_pilot_spend_evidence group by document_sha256 having count(*) > 1) then
+     or exists (select 1 from public.studio_sms_pilot_spend_evidence group by document_sha256 having count(*) > 1)
+     or exists (select 1 from public.studio_sms_provider_cover_evidence group by lower(document_ref) having count(*) > 1)
+     or exists (select 1 from public.studio_sms_provider_cover_evidence group by document_sha256 having count(*) > 1) then
     raise exception 'pilot-spend-hardening precondition failed: a retained document id or hash is recorded for more than one approval';
   end if;
 end $$;
@@ -217,6 +229,10 @@ begin
   -- that accepts that scope, together with its own evidence row. Nothing here is a flag or a setting a caller could set.
   if p_evidence_scope is not null and lower(btrim(p_evidence_scope)) = 'pilot_period_cover' then
     raise exception 'pilot approval evidence: a period cover is recorded only by tw4_rfl_pilot_cover' using errcode = 'TW053';
+  end if;
+  -- allowlist: only the three fee scopes (or no scope: credit, or a pilot call the internal function refuses) pass through
+  if p_evidence_scope is not null and p_evidence_scope not in ('pilot_onboarding_fee', 'pilot_campaign_fee', 'pilot_number_purchase') then
+    raise exception 'pilot approval evidence: the scope is missing, unknown or does not allow this fee' using errcode = 'TW052';
   end if;
   return public._tw4psh_spend_authorize(p_entity_id, p_kind, p_amount_cents, p_approval_ref, p_actor, p_funding, p_studio_id,
     p_evidence_authorized_on, p_evidence_role, p_evidence_scope, p_evidence_amount_cents, p_evidence_period_key, p_evidence_document_ref, p_evidence_sha256);
@@ -454,11 +470,15 @@ begin
   if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4psh_spend_authorize(uuid,text,integer,text,uuid,text,uuid,date,text,text,integer,text,text,text)'::regprocedure), chr(13), '')) is distinct from 'd6d35f4275021093f5f210b3f3502d18' then
     raise exception 'pilot-spend-hardening failed: the internal function body is not the expected one';
   end if;
-  if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_spend_authorize(uuid,text,integer,text,uuid,text,uuid,date,text,text,integer,text,text,text)'::regprocedure), chr(13), '')) is distinct from 'ee611846696989bf27ba8066d8bae67f' then
+  if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_spend_authorize(uuid,text,integer,text,uuid,text,uuid,date,text,text,integer,text,text,text)'::regprocedure), chr(13), '')) is distinct from 'a386004259b110bd5f8876666de12e55' then
     raise exception 'pilot-spend-hardening failed: public.tw4_spend_authorize is not the expected wrapper';
   end if;
   if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_rfl_pilot_cover(uuid,text,text,uuid,date,text,text,integer,text,text,text)'::regprocedure), chr(13), '')) is distinct from '6998d1d65926c09abafd50abc60b822f' then
     raise exception 'pilot-spend-hardening failed: public.tw4_rfl_pilot_cover is not the expected body';
+  end if;
+  if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4psh_event_evidence_check()'::regprocedure), chr(13), '')) is distinct from '82bb916b7b09a46f0369e34cc8de78d7'
+     or md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4psh_exception_evidence_check()'::regprocedure), chr(13), '')) is distinct from '5bb981e14c55c9778ea787529ae04801' then
+    raise exception 'pilot-spend-hardening failed: a commit-time check function is not the expected body';
   end if;
 end $$;
 

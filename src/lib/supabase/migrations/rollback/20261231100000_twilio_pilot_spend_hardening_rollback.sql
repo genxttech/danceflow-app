@@ -19,7 +19,7 @@ begin
   if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4psh_spend_authorize(uuid,text,integer,text,uuid,text,uuid,date,text,text,integer,text,text,text)'::regprocedure), chr(13), '')) is distinct from 'd6d35f4275021093f5f210b3f3502d18' then
     raise exception 'pilot-spend-hardening rollback precondition failed: the internal function differs from its 20261231100000 definition; roll back the later migration first';
   end if;
-  if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_spend_authorize(uuid,text,integer,text,uuid,text,uuid,date,text,text,integer,text,text,text)'::regprocedure), chr(13), '')) is distinct from 'ee611846696989bf27ba8066d8bae67f' then
+  if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_spend_authorize(uuid,text,integer,text,uuid,text,uuid,date,text,text,integer,text,text,text)'::regprocedure), chr(13), '')) is distinct from 'a386004259b110bd5f8876666de12e55' then
     raise exception 'pilot-spend-hardening rollback precondition failed: public.tw4_spend_authorize differs from its 20261231100000 definition; roll back the later migration first';
   end if;
   if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_rfl_pilot_cover(uuid,text,text,uuid,date,text,text,integer,text,text,text)'::regprocedure), chr(13), '')) is distinct from '6998d1d65926c09abafd50abc60b822f' then
@@ -27,6 +27,10 @@ begin
   end if;
   if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_pilot_exception_create(uuid,integer,text,uuid,date,text,text,integer,text,text)'::regprocedure), chr(13), '')) is distinct from '171b2d12a7476290b3e3efcdab71cef8' then
     raise exception 'pilot-spend-hardening rollback precondition failed: public.tw4_pilot_exception_create differs from its 20261230 definition; roll back the later migration first';
+  end if;
+  if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4psh_event_evidence_check()'::regprocedure), chr(13), '')) is distinct from '82bb916b7b09a46f0369e34cc8de78d7'
+     or md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4psh_exception_evidence_check()'::regprocedure), chr(13), '')) is distinct from '5bb981e14c55c9778ea787529ae04801' then
+    raise exception 'pilot-spend-hardening rollback precondition failed: a commit-time check function differs from its 20261231100000 definition; roll back the later migration first';
   end if;
   v_c := obj_description('public._tw4psh_spend_authorize(uuid,text,integer,text,uuid,text,uuid,date,text,text,integer,text,text,text)'::regprocedure, 'pg_proc');
   if v_c is null or v_c !~ '^tw4psh applied_at=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$' then
