@@ -478,6 +478,24 @@ end;
 $$;
 revoke all on function public._compf2_engine_pin(uuid) from public, anon, authenticated, service_role;
 
+-- Every non-cancelled heat of the round in a published or live schedule version, including a heat whose entries are all scratched or
+-- no-shows (E2's _compe2_round_heats skips such a heat). Used for the entries list and the X-5 audit so those entries are never lost.
+create function public._compf2_round_all_heats(p_round_id uuid)
+returns table(heat_id uuid)
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select h.id
+  from public.event_competition_heats h
+  where h.round_id = p_round_id
+    and h.status <> 'cancelled'
+    and exists (select 1 from public.event_competition_schedule_versions v
+                where v.id = h.schedule_version_id and v.event_id = h.event_id and v.status in ('published', 'live'));
+$$;
+revoke all on function public._compf2_round_all_heats(uuid) from public, anon, authenticated, service_role;
+
 -- X-5 no-show hook (NS1, migration 20270115, publishes competition_heat_no_show_entries(round) -> (entry_id uuid)). Absent: empty, and
 -- the evidence (and its hash) is exactly what it was without the hook. Present: the reader is authoritative; an error propagates, so a
 -- calculation never proceeds on a half-read exclusion list. Only entries on the round's ballot heats count. The reader returns the entries
@@ -496,11 +514,11 @@ begin
     return '{}'::uuid[];
   end if;
   execute 'select coalesce(array_agg(distinct n.entry_id), ''{}''::uuid[]) from public.competition_heat_no_show_entries($1) n' into v_ids using p_round_id;
-  -- Intersect with the heat entries of the round's ballot heats, NOT with _compe2_round_entries: NS1 makes that function skip no-shows, which
+  -- Intersect with the heat entries of ALL the round's heats (a heat of only no-shows drops out of _compe2_round_heats), NOT with _compe2_round_entries: NS1 makes that function skip no-shows, which
   -- would drop an entry that is a no-show in every heat before it could reach excludedEntries.
   return coalesce((select array_agg(x order by x) from unnest(v_ids) x
                    where exists (select 1 from public.event_competition_heat_entries he
-                                 where he.entry_id = x and he.heat_id in (select h.heat_id from public._compe2_round_heats(p_round_id) h))), '{}'::uuid[]);
+                                 where he.entry_id = x and he.heat_id in (select h.heat_id from public._compf2_round_all_heats(p_round_id) h))), '{}'::uuid[]);
 end;
 $$;
 revoke all on function public._compf2_no_show_entries(uuid) from public, anon, authenticated, service_role;
@@ -558,27 +576,27 @@ as $$
     'finalCapacity', (select coalesce(nullif(n.configuration ->> 'max_entries_per_heat', '')::integer, 8)
                       from public.event_competition_rounds n
                       where n.event_id = r.event_id and n.division_id = r.division_id and n.sequence_number = r.sequence_number + 1 limit 1),
-    -- All entries on the round's ballot heats, scratched ones included; X-5 exclusions are listed separately.
+    -- All entries on the round's heats (a heat of only scratched or no-show entries included), scratched ones included; X-5 exclusions are listed separately.
     'entries', coalesce((select jsonb_agg(jsonb_build_object('entryId', x) order by x::text collate "C")
                          from (select distinct he.entry_id x from public.event_competition_heat_entries he
-                               where he.heat_id in (select h.heat_id from public._compe2_round_heats(r.id) h)) s), '[]'::jsonb),
+                               where he.heat_id in (select h.heat_id from public._compf2_round_all_heats(r.id) h)) s), '[]'::jsonb),
     'excludedEntries', coalesce((select jsonb_agg(jsonb_build_object('entryId', u.x, 'reason', u.why) order by u.x::text collate "C")
                                  from (select sc.x, 'scratched'::text why
                                        from (select distinct he.entry_id x from public.event_competition_heat_entries he
-                                             where he.heat_id in (select h.heat_id from public._compe2_round_heats(r.id) h) and he.status = 'scratched'
+                                             where he.heat_id in (select h.heat_id from public._compf2_round_all_heats(r.id) h) and he.status = 'scratched'
                                                and not exists (select 1 from public.event_competition_heat_entries he2
                                                                where he2.entry_id = he.entry_id and he2.status <> 'scratched'
-                                                                 and he2.heat_id in (select h2.heat_id from public._compe2_round_heats(r.id) h2))) sc
+                                                                 and he2.heat_id in (select h2.heat_id from public._compf2_round_all_heats(r.id) h2))) sc
                                        union all
                                        -- NS1 no-shows, deduplicated against the scratched entries above (scratched wins).
                                        select ns, 'no_show'::text
                                        from unnest(public._compf2_no_show_entries(r.id)) ns
                                        where not exists (select 1 from public.event_competition_heat_entries he
                                                          where he.entry_id = ns and he.status = 'scratched'
-                                                           and he.heat_id in (select h.heat_id from public._compe2_round_heats(r.id) h)
+                                                           and he.heat_id in (select h.heat_id from public._compf2_round_all_heats(r.id) h)
                                                            and not exists (select 1 from public.event_competition_heat_entries he2
                                                                            where he2.entry_id = he.entry_id and he2.status <> 'scratched'
-                                                                             and he2.heat_id in (select h2.heat_id from public._compe2_round_heats(r.id) h2)))) u), '[]'::jsonb),
+                                                                             and he2.heat_id in (select h2.heat_id from public._compf2_round_all_heats(r.id) h2)))) u), '[]'::jsonb),
     -- X-7: every ballot heat with its panel (E1 panels are per round, so each heat carries the present judges) and its entries.
     'heats', coalesce((select jsonb_agg(jsonb_build_object(
                          'heatId', h.heat_id,
