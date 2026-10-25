@@ -6,8 +6,9 @@
  *   npm run qa:billing-prices -- --env-file .env.billing-qa.local --require-regular --out report.json
  *   npm run qa:billing-prices -- --json
  *
- * Reads the studio Price ID variables and pricing flags (the same names the app uses) from the environment or the
- * --env-file, and the Stripe key from BILLING_QA_STRIPE_TEST_KEY only. Calls nothing but `prices.retrieve`.
+ * Reads the studio Price ID variables and pricing flags (the same names the app uses) from the environment, with
+ * values in --env-file taking precedence, and the Stripe key from BILLING_QA_STRIPE_TEST_KEY only. Calls nothing but
+ * `prices.retrieve`.
  *
  * Exit codes: 0 PASS, 1 FAIL, 4 BLOCKED (never a pass), 2 usage error or safety refusal (live key, live object).
  */
@@ -15,6 +16,7 @@
 import { writeFileSync } from "node:fs";
 import Stripe from "stripe";
 import { verifyStudioPrices } from "@/lib/billing-qa/priceVerifier";
+import { qaEnvironment } from "@/lib/billing-qa/envFile";
 import { exitCodeFor, renderReportTable } from "@/lib/billing-qa/report";
 import { assertBillingQaTestModeKey, BILLING_QA_KEY_ENV, BillingQaSafetyError } from "@/lib/billing-qa/stripeKey";
 import { PaymentHarnessSafetyError } from "@/lib/payment-harness/guards";
@@ -57,10 +59,10 @@ async function main() {
   }
 
   try {
-    if (options.envFile) process.loadEnvFile(options.envFile);
-    const key = assertBillingQaTestModeKey(process.env[BILLING_QA_KEY_ENV]);
+    const env = qaEnvironment(options.envFile);
+    const key = assertBillingQaTestModeKey(env[BILLING_QA_KEY_ENV]);
     const report = await verifyStudioPrices({
-      env: process.env,
+      env,
       stripe: new Stripe(key, { maxNetworkRetries: 1 }),
       requireRegular: options.requireRegular,
     });

@@ -85,8 +85,18 @@ export function buildReport(params: {
   return report;
 }
 
-// Stripe secret/restricted/webhook keys and the common JWT shape of a Supabase service key.
-const SECRET_PATTERN = /\b(sk|rk)_(test|live)_[A-Za-z0-9]+|\bwhsec_[A-Za-z0-9]+|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\./;
+// Stripe secret/restricted/ephemeral/webhook keys, Supabase secret keys and service JWTs, GitHub tokens and Resend
+// API keys. Not anchored on \b, which "_" defeats (X_sk_live_...), but on "no letter or digit before".
+const SECRET_PATTERN = new RegExp(
+  [
+    "(sk|rk|ek)_(test|live)_[A-Za-z0-9]+",
+    "whsec_[A-Za-z0-9]+",
+    "sb_secret_[A-Za-z0-9_-]+",
+    "eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.",
+    "(ghp|gho|ghs|github_pat)_[A-Za-z0-9_]{20,}",
+    "re_[A-Za-z0-9_]{20,}",
+  ].map((pattern) => `(?<![A-Za-z0-9])${pattern}`).join("|"),
+);
 
 export function assertReportHasNoSecrets(report: BillingQaReport): void {
   if (SECRET_PATTERN.test(JSON.stringify(report))) {

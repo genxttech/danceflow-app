@@ -45,6 +45,27 @@ describe("BILLING-QA report status", () => {
     expect(() => build([pass("a", "A", undefined, "whsec_abc123")])).toThrow(/secret/);
     expect(() => build([pass("a", "A", { priceId: "price_1ABC" })])).not.toThrow();
   });
+
+  it("refuses keys glued to other text and the wider set of secret shapes", () => {
+    // Fake values, assembled at runtime so secret scanners do not mistake fixtures for real keys.
+    const k = (...parts: string[]) => parts.join("_");
+    for (const leaked of [
+      `X_${k("sk", "live", "abc123")}`,
+      k("rk", "live", "abc123"),
+      k("ek", "test", "abc123"),
+      k("sb", "secret", "abc123"),
+      `${["eyJ", "hbGciOiJIUzI1NiJ9"].join("")}.${"eyJyb2xlIjoic2VydmljZSJ9"}.sig`,
+      k("ghp", "a".repeat(30)),
+      k("re", "b".repeat(24)),
+    ]) {
+      expect(() => build([pass("a", "A", { leaked })]), leaked.slice(0, 6)).toThrow(/secret/);
+    }
+  });
+
+  it("does not mistake ordinary Stripe ids for secrets", () => {
+    const ids = { price: "price_1UUAkFEYYNmPuFIX7nKAZr5F", customer: "cus_SMOKEcustomer01", sub: "sub_1TdDHw", session: "cs_live_a1b2c3", store: "store_" + "c".repeat(24) };
+    expect(() => build([pass("a", "A", ids)])).not.toThrow();
+  });
 });
 
 describe("BILLING-QA test-mode key guard", () => {

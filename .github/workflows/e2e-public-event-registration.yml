@@ -32,6 +32,14 @@ on:
       - "src/app/api/payments/**"
       - "src/app/api/billing/**"
       - "src/lib/billing/**"
+      # BILLING-QA: billing QA tools, platform admin endpoints, QA scripts, auth helpers and dependency changes
+      # (a PR touching only these previously got Vercel checks but no typecheck/build/test).
+      - "src/lib/billing-qa/**"
+      - "src/app/api/platform/**"
+      - "scripts/qa/**"
+      - "src/lib/auth/**"
+      - "package.json"
+      - "package-lock.json"
       - "src/lib/payment-harness/**"
       - "src/lib/memberships/**"
       - "src/lib/accounting/**"

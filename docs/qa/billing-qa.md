@@ -29,7 +29,10 @@ safety refusal.
 
 Read-only: the only Stripe call is `prices.retrieve`. It uses the app's own selection and matching functions
 (`selectStudioMonthlyPrice`, `stripePriceMatchesExpected`, `resolvePlanCodeFromEnvPriceId`) and the amounts in
-`src/lib/billing/plans.ts`, so it checks exactly what checkout and the webhook will do.
+`src/lib/billing/plans.ts`, so it checks exactly what monthly studio checkout will charge and how the webhook maps the
+configured env Price IDs. Not checked: Price IDs stored in the database (`subscription_plans.stripe_price_id_*`), which
+the webhook consults first, and yearly checkout. A Founder (or Regular) Price ID that is unset while that offer is
+inactive is not reported, because checkout never uses it.
 
 | Check | PASS when |
 |---|---|
