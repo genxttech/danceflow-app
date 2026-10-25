@@ -13,6 +13,7 @@ import {
   createStudioSubscriptionFixture,
   linkBillingCustomer,
   readLedger,
+  readPlatformSubscriptionRows,
   readStudioBilling,
   runStripeCustomerIds,
   type StudioSubscriptionFixture,
@@ -53,7 +54,7 @@ test.describe("Studio subscription checkout and webhooks through real Stripe tes
   let config: E2EConfig;
   let fixture: StudioSubscriptionFixture;
   let stripe: Stripe; // created in beforeAll, only when the suite actually runs
-  const state: { subscriptionId?: string; sessionId?: string } = {};
+  const state: { subscriptionId?: string; sessionId?: string; extraCustomers: string[] } = { extraCustomers: [] };
   const evidence = (value: unknown) => test.info().annotations.push({ type: "evidence", description: JSON.stringify(value) });
 
   /** Waits until the app's webhook ledger has processed a fresh platform event, proving `stripe listen` delivers. */
@@ -99,7 +100,7 @@ test.describe("Studio subscription checkout and webhooks through real Stripe tes
     if (process.env.E2E_KEEP_FIXTURES === "true") return;
     // Stripe first: deleting the customers emits customer.subscription.deleted, which the app applies while the studio
     // rows still exist; then the database rows.
-    await cleanupStripeTestObjects(stripe, await runStripeCustomerIds(config, fixture));
+    await cleanupStripeTestObjects(stripe, [...(await runStripeCustomerIds(config, fixture)), ...state.extraCustomers]);
     await new Promise((resolve) => setTimeout(resolve, 8_000));
     await cleanupStudioSubscriptionFixture(config, fixture);
   });
@@ -155,7 +156,7 @@ test.describe("Studio subscription checkout and webhooks through real Stripe tes
     await expect.poll(async () => (await readStudioBilling(config, fixture.fresh.id)).subscriptions[0]?.subscription_plan_id, { timeout: 60_000 }).toBe(fixture.planIds.growth);
     const billing = await readStudioBilling(config, fixture.fresh.id);
     expect(billing.subscriptions).toEqual([expect.objectContaining({ stripe_subscription_id: subscription.id, status: subscription.status, billing_interval: "month" })]);
-    expect([billing.studio?.stripe_subscription_id, billing.studio?.subscription_status]).toEqual([subscription.id, subscription.status]);
+    expect([billing.studio?.stripe_subscription_id, billing.studio?.subscription_status, billing.studio?.billing_plan]).toEqual([subscription.id, subscription.status, "growth"]);
     // Tenant isolation: the other studio is untouched.
     expect((await readStudioBilling(config, fixture.legacy.id)).subscriptions).toHaveLength(0);
     evidence({ session: sessionId, subscription: subscription.id, status: subscription.status, event: completedEvent });
@@ -188,8 +189,8 @@ test.describe("Studio subscription checkout and webhooks through real Stripe tes
     const event = events.data.find((e) => (e.data.object as Stripe.Subscription).id === updated.id && (e.data.object as Stripe.Subscription).items.data[0]?.price.id === expectedOffer("pro").stripePriceId);
     expect(event, "customer.subscription.updated for the plan change").toBeTruthy();
     const settled = await readStudioBilling(config, fixture.fresh.id);
-    // Still the column default after Growth and Pro: the known gap B5 records (so B5 fails for exactly that reason).
-    expect(settled.studio?.billing_plan).toBe("starter");
+    // Public embed / Discover read studios.billing_plan: it follows the plan change (BILLING-QA-3).
+    expect(settled.studio?.billing_plan).toBe("pro");
 
     // Stripe re-delivers the authentic, already-processed event (what `stripe events resend` sends).
     await stripe.rawRequest("POST", `/v1/events/${event!.id}/retry`, { for_stripecli: "true" });
@@ -199,9 +200,14 @@ test.describe("Studio subscription checkout and webhooks through real Stripe tes
     evidence({ subscription: updated.id, event: event!.id, plan: "pro" });
   });
 
-  test("B5 known gap: studios.billing_plan follows a plan change (public embed/Discover read it)", async () => {
-    test.fail(true, "PRICING-P1 follow-up: the subscription webhook does not update studios.billing_plan yet");
-    expect((await readStudioBilling(config, fixture.fresh.id)).studio?.billing_plan).toBe("pro");
+  test("B5 downgrade Pro -> Starter: subscription plan and studios.billing_plan both follow", async () => {
+    const current = await stripe.subscriptions.retrieve(state.subscriptionId!);
+    await stripe.subscriptions.update(current.id, {
+      items: [{ id: current.items.data[0].id, price: expectedOffer("starter").stripePriceId }],
+      proration_behavior: "none",
+    });
+    await expect.poll(async () => (await readStudioBilling(config, fixture.fresh.id)).subscriptions[0]?.subscription_plan_id, { timeout: 60_000 }).toBe(fixture.planIds.starter);
+    expect((await readStudioBilling(config, fixture.fresh.id)).studio?.billing_plan).toBe("starter");
   });
 
   test("B6 grandfathered Pro subscriber on a legacy Price: resolved as Pro by Price alone, sent to the portal, never re-priced", async ({ browser }) => {
@@ -227,6 +233,7 @@ test.describe("Studio subscription checkout and webhooks through real Stripe tes
     await waitForDelivered("customer.subscription.created", subscription.id, since);
     const billing = await readStudioBilling(config, fixture.legacy.id);
     expect(billing.subscriptions).toEqual([expect.objectContaining({ subscription_plan_id: fixture.planIds.pro, stripe_subscription_id: subscription.id })]);
+    expect(billing.studio?.billing_plan).toBe("pro");
 
     const { context, request } = await signedInRequest(browser, fixture.legacy);
     const location = await startCheckout(request, "pro");
@@ -234,9 +241,22 @@ test.describe("Studio subscription checkout and webhooks through real Stripe tes
     expect((await stripe.checkout.sessions.list({ customer: customer.id, limit: 10 })).data).toHaveLength(0);
     const after = await stripe.subscriptions.retrieve(subscription.id);
     expect(after.items.data.map((i) => [i.price.id, i.price.unit_amount])).toEqual([[legacyPrice.id, legacyPrice.unit_amount]]);
-    // The new-subscriber studio is unaffected.
-    expect((await readStudioBilling(config, fixture.fresh.id)).subscriptions[0]?.subscription_plan_id).toBe(fixture.planIds.pro);
+    // The new-subscriber studio is unaffected (still on Starter after B5).
+    expect((await readStudioBilling(config, fixture.fresh.id)).subscriptions[0]?.subscription_plan_id).toBe(fixture.planIds.starter);
     await context.close();
     evidence({ subscription: subscription.id, legacyPrice: legacyPrice.id, legacyAmount: legacyPrice.unit_amount });
+  });
+
+  test("B7 a platform subscription without DanceFlow metadata (e.g. made in the Dashboard) is acknowledged, writing nothing", async () => {
+    const since = Math.floor(Date.now() / 1000) - 120;
+    const customer = await stripe.customers.create({
+      email: `e2e-billing-${fixture.runId}-unowned@e2e.test`, payment_method: "pm_card_visa", invoice_settings: { default_payment_method: "pm_card_visa" },
+    });
+    state.extraCustomers.push(customer.id);
+    const subscription = await stripe.subscriptions.create({ customer: customer.id, items: [{ price: expectedOffer("growth").stripePriceId }], trial_period_days: 30 });
+    // Previously answered 500 (stripe_subscriptions.studio_id null) and retried by Stripe; now processed with no write.
+    await waitForDelivered("customer.subscription.created", subscription.id, since);
+    expect(await readPlatformSubscriptionRows(config, subscription.id)).toEqual({ stripeSubscriptions: 0, studioSubscriptions: 0 });
+    for (const s of [fixture.fresh, fixture.legacy]) expect((await readStudioBilling(config, s.id)).customers.map((c) => c.stripe_customer_id)).not.toContain(customer.id);
   });
 });

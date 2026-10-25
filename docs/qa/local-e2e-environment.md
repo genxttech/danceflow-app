@@ -97,10 +97,10 @@ npx playwright test e2e/tests/studio-subscription-stripe-test-mode.spec.ts --pro
 What it proves: each plan's checkout opens a test Session on exactly the expected Price and amount; paying it records
 the plan for exactly that studio via signed webhooks; an existing subscriber is sent to the Billing Portal with no new
 Session and no re-pricing; a plan change follows the Price (not stale `planCode` metadata) and a replayed event changes
-nothing; a grandfathered subscription on a legacy Price resolves by Price alone and is never re-priced. Case B5 is an
-expected failure (`test.fail`) documenting the known gap that `studios.billing_plan` is not synced; it starts failing
-loudly once that is fixed, so the marker must then be removed. Test customers (and their subscriptions) are deleted
-afterwards. Not covered here: a server whose Price is the wrong amount (`price_mismatch`) -- that needs a different
+nothing; `studios.billing_plan` (read by the public embed, Discover and calendar pages) follows upgrades and downgrades;
+a grandfathered subscription on a legacy Price resolves by Price alone and is never re-priced; a platform subscription
+without DanceFlow metadata (e.g. made in the Stripe Dashboard) is acknowledged with no write instead of a retried 500.
+Test customers (and their subscriptions) are deleted afterwards. Not covered here: a server whose Price is the wrong amount (`price_mismatch`) -- that needs a different
 app configuration and is covered by unit tests and the BILLING-QA-1 price verifier.
 
 ## 4. Stripe test account

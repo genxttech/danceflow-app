@@ -115,6 +115,14 @@ export async function readLedger(config: E2EConfig, eventIds: string[]) {
     e2eAdminClient(config).from("payment_provider_events").select("provider_event_id, event_type, status").eq("provider", "stripe").in("provider_event_id", eventIds), "provider events")) ?? [];
 }
 
+/** Rows any studio got for a Stripe subscription id (an unowned platform subscription must produce none). */
+export async function readPlatformSubscriptionRows(config: E2EConfig, stripeSubscriptionId: string) {
+  const admin = e2eAdminClient(config);
+  const count = async (table: string) =>
+    ((await must<Record<string, unknown>[]>(admin.from(table).select("id").eq("stripe_subscription_id", stripeSubscriptionId), table)) ?? []).length;
+  return { stripeSubscriptions: await count("stripe_subscriptions"), studioSubscriptions: await count("studio_subscriptions") };
+}
+
 /** Every Stripe test customer recorded for the run's studios (created by the app's checkout or by the spec). */
 export async function runStripeCustomerIds(config: E2EConfig, fixture: StudioSubscriptionFixture | undefined) {
   if (!fixture) return [];

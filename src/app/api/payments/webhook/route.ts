@@ -537,6 +537,16 @@ export async function upsertStripeSubscriptionRecord(
   const clientId = metadata.clientId || null;
   const membershipPlanId = metadata.membershipPlanId || null;
 
+  // BILLING-QA-3: a platform subscription that is neither a DanceFlow plan subscription (handled before this) nor a
+  // legacy studio membership (studioId metadata), e.g. one created in the Stripe Dashboard, has no tenant: acknowledge
+  // it without a write instead of failing on stripe_subscriptions.studio_id and making Stripe retry indefinitely.
+  // A DanceFlow plan subscription whose studio is not resolvable yet still fails, so Stripe's retry can settle it.
+  if (!stripeAccountId && !studioId) {
+    if (getSubscriptionSource(subscription)) throw new Error("subscription_event_studio_unresolved");
+    console.error("subscription_event_unowned");
+    return;
+  }
+
   // PAY-DC-2B: for connected events, metadata alone never decides the tenant.
   if (stripeAccountId) {
     if (!studioId) {
@@ -715,6 +725,9 @@ async function upsertStudioBillingCustomer(params: {
   }
 }
 
+// Values of the studios.billing_plan enum.
+const STUDIO_BILLING_PLAN_VALUES = new Set(["starter", "growth", "pro", "organizer"]);
+
 async function syncStudioBillingSnapshot(params: {
   supabase: SupabaseClient;
   studioId: string;
@@ -722,6 +735,8 @@ async function syncStudioBillingSnapshot(params: {
   stripeSubscriptionId: string;
   subscriptionStatus: string;
   trialEndsAt?: string | null;
+  /** BILLING-QA-3: the plan the subscription's Price resolved to; omitted (left unchanged) when it is not a billing_plan value. */
+  billingPlan?: string | null;
 }) {
   const {
     supabase,
@@ -730,6 +745,7 @@ async function syncStudioBillingSnapshot(params: {
     stripeSubscriptionId,
     subscriptionStatus,
     trialEndsAt = null,
+    billingPlan = null,
   } = params;
 
   const { error } = await supabase
@@ -739,6 +755,8 @@ async function syncStudioBillingSnapshot(params: {
       stripe_subscription_id: stripeSubscriptionId,
       subscription_status: mapStudioSubscriptionStatus(subscriptionStatus),
       trial_ends_at: trialEndsAt,
+      // Public embed, Discover and calendar pages read studios.billing_plan, so it follows Billing Portal plan changes.
+      ...(billingPlan && STUDIO_BILLING_PLAN_VALUES.has(billingPlan) ? { billing_plan: billingPlan } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq("id", studioId);
@@ -1052,6 +1070,7 @@ async function upsertStudioSubscription(params: {
     stripeCustomerId,
     stripeSubscriptionId: subscription.id,
     subscriptionStatus: subscription.status,
+    billingPlan: planRow.code,
   });
 
   if (source === "studio_subscription") {
