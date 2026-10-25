@@ -189,7 +189,9 @@ commit;`);
         const approval = ref(`happy-${kind}`);
         const out = spend(w, kind, approval);
         expect(out.replayed).toBe(false);
-        const e = pilotSpendEvidenceFor(kind, w.entity, w.studio, priceOf(kind));
+        // the helper derives the document from the approval reference as well (owner rule 2026-10-25: one document per approval)
+        const sa = pilotSpendArgs(psql, w.entity, kind, priceOf(kind), approval, P, "pilot", w.studio);
+        const e = pilotSpendEvidenceFor(kind, w.entity, w.studio, priceOf(kind), { documentRef: String(sa[12]), documentSha256: String(sa[13]) });
         expect(evOfSpend(out.spend_event_id)).toEqual({ subject: "spend_event", scope: e.scope, kind, period: null, on: e.authorizedOn, role: e.authorizedByRole, cents: priceOf(kind), doc: e.documentRef, sha: e.documentSha256, by: P });
         expect(psql(`select funding || ':' || status || ':' || amount_cents from public.studio_sms_spend_events where id = '${out.spend_event_id}'`)).toBe(`pilot:authorized:${priceOf(kind)}`);
         expect(spendEvCount(w)).toBe(1);
