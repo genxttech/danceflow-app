@@ -156,7 +156,7 @@ A later PR comment (2026-10-23T19:04Z) reports the doc was updated for R2 C1/Q1/
 | Fixture arithmetic checked by hand against each stated option | PASS (checklist item ticked) |
 | Owner sign-off of decisions | Stage 1 (X-1…X-7), Stage 2 (D-CT-1…10), Stage 3 (D-OM-1…5, D-OM-3b) and Stage 4 architecture APPROVED 2026-10-24. **Pending:** K1-U (UCWDC Majority Rules v16.9b), any studio medal method, NDCA and WSDC sources, D-CT-4 over-capacity process, S4-2 wording, S4-7 workflow, registry storage and slot. `proficiency_rating` rejected as a universal method and fail-closed |
 
-No code or tests exist. **Scoring implementation (F1) stays blocked until the complete spec set is recorded, i.e. until Stage 4 (proficiency rating) is also approved.** Head `79d32f5a` records Stages 1–3 (callback and ordinal fixtures reworked and hand-checked; F-OM-04 uses four judges and conflicts with X-3, flagged). Still unspecified: the auditable tie-break process for a callback tie over the final capacity (advancement blocked meanwhile), cross-heat combination of ordinal rankings, per-dance ballot keying, and where the final capacity enters the K0 envelope.
+No code or tests exist. **Scoring implementation (F1) stays blocked until the complete spec set and the pending Stage 4 methodology are recorded.** Head `79d32f5a` records Stages 1–3 (callback and ordinal fixtures reworked and hand-checked; F-OM-04 uses four judges and conflicts with X-3, flagged). Still unspecified: the auditable tie-break process for a callback tie over the final capacity (advancement blocked meanwhile), cross-heat combination of ordinal rankings, per-dance ballot keying, and where the final capacity enters the K0 envelope.
 
 ### CI-B (#295) — 20-row developer-owned matrix
 | Rows | Result |
@@ -268,7 +268,7 @@ Docs only; no runtime paths changed. No tests run.
 | Group | IDs | Question / default | Where |
 |---|---|---|---|
 | Gate | Walkthrough | Waived for Git-only E1/E2/O1 development (decision 4 above). **Mandatory before those PRs merge or deploy**, and still gates public registration (organizer and "this is me" walkthroughs) | Roadmap v2.22 l.140, l.165; §1.5 |
-| K1 | D-PR-1…5 | `proficiency_rating`: how bands combine, majority fallback, outcomes beyond Gold/Silver/Bronze, what is shown, complete marks | #293 PR body |
+| K1 | D-PR-1…5 | `proficiency_rating` D-PR items: not decided; the three-band median proposal was REJECTED as a universal studio method (2026-10-24) and the key stays fail-closed. No studio medal method is approved | `scoring-architecture-decisions.md` §1.6 |
 | CC1 | CC-D1…D8 | Credit owner, redeemable scope, default expiry, accounting categories, partial refund + credit on one item, transferability, fee lines, platform fees on future orders | #301 doc §5 |
 | K1 Stage 4 | K1-U | UCWDC Majority Rules v16.9b full spec. Source `2026-Scoring-Format-v16.9b-1.pdf` sha `44290a06` (lists the 16-mark ProAm/ProPro scale, HM = 26 down to GG★ = 11). A "March 2026" edition is unconfirmed | `scoring-architecture-decisions.md` §2 |
 | K1 Stage 4 | Studio medal method | No studio medal feedback or placement method is approved | same |
