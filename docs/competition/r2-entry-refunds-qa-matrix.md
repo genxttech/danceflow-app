@@ -69,7 +69,7 @@ DEV/PROD, and no real refunds were made.
 
 ## H. App and Stripe test mode (end to end), run 2026-10-23 (owner-authorized) -- **SUPERSEDED 2026-10-24: NOT VALID EVIDENCE**
 
-> **Superseded.** W3's clean-stack E2E found (and the coordinator verified) that `request_competition_order_refund` refused every order paid through the real competition checkout: the guard required `settlement_state = 'paid'`, which only the cart settlement path sets; `finalize_competition_registration` never writes it. The seven orders below were **seeded**, with a settlement state production orders do not have, so every H row (PASS or BLOCKED) is superseded and must be re-run after the guard fix (commit `e27caedf`, hardened in `e9988d6b`). Status of the re-run: **BLOCKED (credentials)**: no Stripe test keys in the process env, Stripe CLI not logged in; not run by the W1 session (no Stripe test keys, app or `stripe listen` available there); the SQL-level replacement is `sql-tests/r2_checkout_orders.sh` (orders built by `finalize_competition_registration`, 21 checks PASS on a migration-built database). Real public checkout -> refund E2E is owned by W3's clean stack.
+> **Superseded.** W3's clean-stack E2E found (and the coordinator verified) that `request_competition_order_refund` refused every order paid through the real competition checkout: the guard required `settlement_state = 'paid'`, which only the cart settlement path sets; `finalize_competition_registration` never writes it. The seven orders below were **seeded**, with a settlement state production orders do not have, so every H row (PASS or BLOCKED) is superseded and must be re-run after the guard fix (commit `e27caedf`, hardened in `e9988d6b`). Status of the re-run: covered by W3 (Q1 E2E #297 @3764ae32, W3 runs Q and R) for the rows in section I; the rest NOT RUN (no Stripe test keys, app or `stripe listen` available there); the SQL-level replacement is `sql-tests/r2_checkout_orders.sh` (orders built by `finalize_competition_registration`, 21 checks PASS on a migration-built database). Real public checkout -> refund E2E is owned by W3's clean stack.
 
 
 Environment:
@@ -168,4 +168,13 @@ entry after a reversal; organizer-role SQL fixtures.
 | I2 | Refused: unpaid started order, cancelled, failed, expired-with-late-payment, signing-incomplete paid (status pending), other event, settlement_state processing / pending / releasing / released / failed / expired, fully refunded order | **PASS** |
 | I3 | Cart-style order (settlement_state 'paid') still accepted | **PASS** |
 | I4 | Guard = payment_status paid/partially_refunded AND order status confirmed AND settlement_state NULL-or-paid AND intent AND a captured event_payments row; PAY-DC-2A stored-account check unchanged; legacy pro-rata-refunded orders outside the R2 ledger refused | implemented; independent Opus review: 1 P1 (signing-incomplete paid order accepted by a deny-list) fixed with an allow-list |
-| I5 | Stripe test-mode E2E, real public checkout -> refund | **BLOCKED (credentials)**: disk pause lifted, but no Stripe TEST keys are in the process env and the Stripe CLI is not logged in; not PASS |
+| I5 | Stripe test-mode E2E, real public checkout -> refund | Covered by Q1 E2E #297 @3764ae32, W3 runs Q and R (Stripe TEST, local DB, real public-checkout orders with settlement_state NULL, corrected R2 + SC1 + CI-B + W2 build; two full runs, each 13 passed / 9 fixme / 0 failed); rows I6-I11 are PASS only for what W3 ran |
+| I6 | Cap + $0.01 refused, nothing written (W3 stage 3b) | **PASS** (Q1 E2E #297 @3764ae32, W3 runs Q and R) |
+| I7 | Partial per-entry refund: one allocation, one dated `competition_entry_refund` entry, one Stripe refund, order `partially_refunded`; desk shows no balance due (with W2) (3a) | **PASS** (Q1 E2E #297 @3764ae32, W3 runs Q and R) |
+| I8 | Double submit produces one Stripe refund (3c) | **PASS** (Q1 E2E #297 @3764ae32, W3 runs Q and R) |
+| I9 | A scratch moves no money (3d) | **PASS** (Q1 E2E #297 @3764ae32, W3 runs Q and R) |
+| I10 | Refunding a scratched entry goes through R2 only (3e) | **PASS** (Q1 E2E #297 @3764ae32, W3 runs Q and R) |
+| I11 | Tenant isolation (other studio) | **PASS**: 404 (Q1 E2E #297 @3764ae32, W3 runs Q and R) |
+| I12 | On real-checkout orders: dashboard-initiated refund + attribution, full remainder, locked/danced/certified heat exceptions, webhook replay, D3 application fee, Stripe failure path (the old H7-H13, H6) | **NOT RUN** (only seeded-order evidence existed; superseded) |
+| I13 | Stripe network-error injection | **BLOCKED** (cannot be induced safely against Stripe test mode) |
+| I14 | Mobile-width layout of the refund page | **NOT RUN** |
