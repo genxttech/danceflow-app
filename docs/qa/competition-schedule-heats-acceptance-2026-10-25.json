@@ -1,0 +1,1127 @@
+{
+  "generatedAt": "2026-10-25T16:21:07.720Z",
+  "runs": [
+    {
+      "name": "final1",
+      "artifactDir": "C:/Users/mcurt/AppData/Local/Temp/claude/C--Dev-studioapp/e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f/scratchpad/runs/20261025-114304-final1",
+      "counts": {
+        "PASS": 20,
+        "BLOCKED": 3,
+        "NOT IMPLEMENTED": 2
+      },
+      "wallClock": 1336075.375,
+      "scenarios": [
+        {
+          "id": "SCN-0",
+          "title": "SCN-0 environment warm-up (not a scenario): compile every route the walkthrough touches so the dev server's first-hit 404 cannot masquerade as a product failure",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 133278,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-d31bb-uerade-as-a-product-failure-chromium\\test-finished-1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-d31bb-uerade-as-a-product-failure-chromium\\test-finished-2.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-d31bb-uerade-as-a-product-failure-chromium\\trace.zip",
+          "evidence": []
+        },
+        {
+          "id": "SCN-1.1",
+          "title": "SCN-1.1 setup: the setup wizard offers only Medal Marks for an adjudicated Country competition (no callbacks option)",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 33030,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-2594f-tition-no-callbacks-option--chromium\\attachments\\01-adjudicated-no-callback-option-a63632d7405d0a71494419ec4c72883eba9d25e9.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-2594f-tition-no-callbacks-option--chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-2594f-tition-no-callbacks-option--chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-1.1",
+              "event": "b9e354e0-1d9b-484e-9f0c-3f59c0920742",
+              "callbackOffered": false
+            }
+          ]
+        },
+        {
+          "id": "SCN-1.3",
+          "title": "SCN-1.3 W4/K1 callback-target readiness blocker: 'Callback target not set' blocks readiness until the organizer sets a target",
+          "status": "BLOCKED",
+          "note": "No UI path creates a callback_tally round (wizard studio_custom@3 offers only Medal Marks; Advanced round form has no callback_tally).",
+          "setupShortcut": false,
+          "durationMs": 0,
+          "screenshots": [],
+          "trace": null,
+          "evidence": []
+        },
+        {
+          "id": "SCN-1.2",
+          "title": "SCN-1.2 setup: owner creates the schedule competition, adds a second division, publishes and opens registration",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 63490,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-9c553-shes-and-opens-registration-chromium\\attachments\\01-draft-created-4a8632176019119f9438034da1b7865f55018cc6.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-9c553-shes-and-opens-registration-chromium\\attachments\\02-second-division-added-1113908f64dfac8fc78fed5ebf12f1092288c929.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-9c553-shes-and-opens-registration-chromium\\attachments\\03-published-registration-open-d5656e1137af577073d930f5337c06af86e0bbcf.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-9c553-shes-and-opens-registration-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-9c553-shes-and-opens-registration-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-1.2",
+              "event": "19fe341f-9cbb-41d4-aa1d-c2f341cefa50",
+              "divisions": 2,
+              "rounds": 2
+            }
+          ]
+        },
+        {
+          "id": "SCN-2.1",
+          "title": "SCN-2.1 registration: three buyers pay for four entries with a test card (Avery dances two entries); the Entries page shows them paid",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 67716,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-53955-ntries-page-shows-them-paid-chromium\\attachments\\01-confirmation-avery-5173945504cf6d39fb314594a3350335f1033017.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-53955-ntries-page-shows-them-paid-chromium\\attachments\\02-confirmation-blair-af7faa85cb7da7c97a7f35cc375fb9f46d8bb9aa.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-53955-ntries-page-shows-them-paid-chromium\\attachments\\03-confirmation-casey-304ce54dbe2c07053809b85dcd2f16427992ec5f.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-53955-ntries-page-shows-them-paid-chromium\\attachments\\04-entries-paid-d4318b7f9932f059efe3d3a346f3ba2aff7974e2.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-53955-ntries-page-shows-them-paid-chromium\\test-finished-2.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-53955-ntries-page-shows-them-paid-chromium\\test-finished-1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-53955-ntries-page-shows-them-paid-chromium\\test-finished-4.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-53955-ntries-page-shows-them-paid-chromium\\test-finished-3.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-53955-ntries-page-shows-them-paid-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-2.1",
+              "orders": 3,
+              "entries": 4
+            }
+          ]
+        },
+        {
+          "id": "SCN-2.2",
+          "title": "SCN-2.2 eligibility: an ineligible entry is excluded from the schedule; the Schedule page counts the rest",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 58435,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-bc99d-hedule-page-counts-the-rest-chromium\\attachments\\01-eligibility-set-6b555b915d848aefd76ad695a745b0ce85ed947c.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-bc99d-hedule-page-counts-the-rest-chromium\\attachments\\02-schedule-before-generate-1d23c6836d0143309eb50910ffe5d1799ccb7979.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-bc99d-hedule-page-counts-the-rest-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-bc99d-hedule-page-counts-the-rest-chromium\\trace.zip",
+          "evidence": []
+        },
+        {
+          "id": "SCN-3.1",
+          "title": "SCN-3.1 generate heats: Avery's two entries land in different heats; no competitor is double-booked; a conflicting move is refused in the UI",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 35724,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-efed0-g-move-is-refused-in-the-UI-chromium\\attachments\\01-heats-generated-f26fd1e53bddf28aabe5b61aa293e30859289539.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-efed0-g-move-is-refused-in-the-UI-chromium\\attachments\\02-conflicting-move-disabled-2809fc79f2ed4672f478ee76b43af52e4e5b7ae7.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-efed0-g-move-is-refused-in-the-UI-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-efed0-g-move-is-refused-in-the-UI-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-3.1",
+              "floorHeats": 2,
+              "scoringHeats": 2,
+              "doubleBookings": 0
+            }
+          ]
+        },
+        {
+          "id": "SCN-3.2",
+          "title": "SCN-3.2 capacity: a per-division heat size of 2 applies when heats are regenerated with all four entries",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 65637,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-c2884-rated-with-all-four-entries-chromium\\attachments\\01-capacity-saved-e6691f27d4d105b234d9462728b818899879845b.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-c2884-rated-with-all-four-entries-chromium\\attachments\\02-regenerated-with-capacity-469f03efb7838b5ab041277043526cd216491366.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-c2884-rated-with-all-four-entries-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-c2884-rated-with-all-four-entries-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-3.2",
+              "scoringHeats": 2,
+              "sizes": [
+                2,
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "id": "SCN-3.3",
+          "title": "SCN-3.3 editing the draft: move a heat, add an empty heat, remove it; numbering stays contiguous",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 48108,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-def3c--numbering-stays-contiguous-chromium\\attachments\\01-heat-moved-to-first-b4ab9172ec515b591b3590161f87289a3c154bbb.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-def3c--numbering-stays-contiguous-chromium\\attachments\\02-empty-heat-added-dba74eff45269f76724bc9fdb80b941168ab205e.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-def3c--numbering-stays-contiguous-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-def3c--numbering-stays-contiguous-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-3.3",
+              "total": 2
+            }
+          ]
+        },
+        {
+          "id": "SCN-3.4",
+          "title": "SCN-3.4 publish: the running order is published, survives a reload and is visible to a second manager",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 61062,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-625ed-visible-to-a-second-manager-chromium\\attachments\\01-published-ad4e93630602cef418bb0df422573787a4d7e506.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-625ed-visible-to-a-second-manager-chromium\\attachments\\02-second-manager-sees-published-15177be4b956f24056b59627abfa1d09c7d02ada.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-625ed-visible-to-a-second-manager-chromium\\test-finished-1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-625ed-visible-to-a-second-manager-chromium\\test-finished-2.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-625ed-visible-to-a-second-manager-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-3.4",
+              "versions": [
+                "published"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "SCN-3.5",
+          "title": "SCN-3.5 reschedule: edit the published running order into a draft copy, move a heat, republish; exactly one version is in effect",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 101851,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-c1e23-ly-one-version-is-in-effect-chromium\\attachments\\01-draft-copy-0983bc1a5062b6897391189d9455cc05a12f60a6.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-c1e23-ly-one-version-is-in-effect-chromium\\attachments\\02-republished-b60f7928a8f263ff7f1b3662f42f73a65a78464d.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-c1e23-ly-one-version-is-in-effect-chromium\\test-finished-1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-c1e23-ly-one-version-is-in-effect-chromium\\test-finished-2.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-c1e23-ly-one-version-is-in-effect-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-3.5",
+              "versions": [
+                [
+                  1,
+                  "superseded"
+                ],
+                [
+                  2,
+                  "published"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "id": "SCN-5.1",
+          "title": "SCN-5.1 officials: unverified judges cannot be added; after verifying their email the owner adds three, names a chair and builds the panel to 'Panel ready'",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 101924,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-b60b9-s-the-panel-to-Panel-ready--chromium\\attachments\\01-unverified-judge-disabled-513df1c7328559f27685aec19ca7964da1fa10fc.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-b60b9-s-the-panel-to-Panel-ready--chromium\\attachments\\02-three-officials-added-e51081ad4caddda75c4f30997c62d6a31d71ed40.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-b60b9-s-the-panel-to-Panel-ready--chromium\\attachments\\03-panel-ready-1323cf2a5e4f37084c114473c3ed8d1c58696509.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-b60b9-s-the-panel-to-Panel-ready--chromium\\test-finished-1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-b60b9-s-the-panel-to-Panel-ready--chromium\\test-finished-2.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-b60b9-s-the-panel-to-Panel-ready--chromium\\test-finished-3.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-b60b9-s-the-panel-to-Panel-ready--chromium\\test-finished-4.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-b60b9-s-the-panel-to-Panel-ready--chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-5.1",
+              "letters": [
+                "A",
+                "B",
+                "C"
+              ],
+              "roundId": "0f1be568-7b42-41ee-8a6f-55c1760819ba"
+            }
+          ]
+        },
+        {
+          "id": "SCN-5.2",
+          "title": "SCN-5.2 a judge sees only their own assignment; a non-official instructor sees none; neither can open the competition workspace",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 17080,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-403f9-n-the-competition-workspace-chromium\\attachments\\01-judge-own-assignments-2be794a62d7d2dda2923df2537c7f37f5961d3f7.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-403f9-n-the-competition-workspace-chromium\\attachments\\02-instructor-no-assignments-6c8375483a51e73af178e191c21ec65bb63f76a7.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-403f9-n-the-competition-workspace-chromium\\test-finished-1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-403f9-n-the-competition-workspace-chromium\\test-finished-2.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-403f9-n-the-competition-workspace-chromium\\trace.zip",
+          "evidence": []
+        },
+        {
+          "id": "SCN-7.1",
+          "title": "SCN-7.1 day-of: schedule and start the round; floor heats move waiting -> on deck -> on the floor -> done, and survive a reload",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 52886,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-b3e52---done-and-survive-a-reload-chromium\\attachments\\01-day-of-before-round-e46042d5736ccdc7ee37cfcb522c421282894177.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-b3e52---done-and-survive-a-reload-chromium\\attachments\\02-round-running-9c8adeadb0f29590c0768206d97e447f5eed5a81.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-b3e52---done-and-survive-a-reload-chromium\\attachments\\03-heat-1-on-the-floor-5e70434e45086d1a64d7ddb98298918a8a960186.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-b3e52---done-and-survive-a-reload-chromium\\attachments\\04-heat-1-done-after-reload-53681bdf853d1693cd95d2c0c4bc4415bd05261f.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-b3e52---done-and-survive-a-reload-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-b3e52---done-and-survive-a-reload-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-7.1",
+              "firstHeatStates": [
+                "staging",
+                "active",
+                "complete"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "SCN-6.1",
+          "title": "SCN-6.1 scratch in an open heat: no payment changes, the entry leaves the heat, the day-of console no longer lists it",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 35609,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-ff872--console-no-longer-lists-it-chromium\\attachments\\01-open-heat-scratched-6ca8385f9e3fc815e7616bea26a3454e7b6b3573.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-ff872--console-no-longer-lists-it-chromium\\attachments\\02-day-of-after-scratch-33e4eec3569ba49ebb1e3cf1b784c32b1802a2d6.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-ff872--console-no-longer-lists-it-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-ff872--console-no-longer-lists-it-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-6.1",
+              "scratched": "e2"
+            }
+          ]
+        },
+        {
+          "id": "SCN-6.2",
+          "title": "SCN-6.2 a danced heat refuses the scratch: the page explains why, offers no scratch button, and nothing is written",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 12107,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-65a47-tton-and-nothing-is-written-chromium\\attachments\\01-danced-heat-refused-d11c7cb52d28932a716833ad6b2b0d86290c0b8c.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-65a47-tton-and-nothing-is-written-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-65a47-tton-and-nothing-is-written-chromium\\trace.zip",
+          "evidence": []
+        },
+        {
+          "id": "SCN-6.3a",
+          "title": "SCN-6.3a locking prerequisite: the ballot desk for the wizard's Final round says ballots are not available and Lock ballots stays disabled",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 13374,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-a28fa-Lock-ballots-stays-disabled-chromium\\attachments\\01-lock-unavailable-d397037b7587df486c4db5d15915b295426880d0.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-a28fa-Lock-ballots-stays-disabled-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-a28fa-Lock-ballots-stays-disabled-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-6.3a",
+              "scoringMethod": "custom",
+              "ballots": 0
+            }
+          ]
+        },
+        {
+          "id": "SCN-6.3",
+          "title": "SCN-6.3 official scratch in a locked heat: the reason is required, the heat stays locked, one audit row",
+          "status": "BLOCKED",
+          "note": "No UI path to a locked heat: ballots for the wizard's 'custom' Final round are unavailable, and heats lock only when ballots lock.",
+          "setupShortcut": false,
+          "durationMs": 0,
+          "screenshots": [],
+          "trace": null,
+          "evidence": []
+        },
+        {
+          "id": "SCN-7.2",
+          "title": "SCN-7.2 day-of: cancel a round with a reason; the empty Bronze Open round shows Cancelled and stays cancelled after a reload",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 25664,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-43f0d-ys-cancelled-after-a-reload-chromium\\attachments\\01-round-cancelled-671cf15117100dfaff0d7c2925b9111ad4cb234f.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-43f0d-ys-cancelled-after-a-reload-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-43f0d-ys-cancelled-after-a-reload-chromium\\trace.zip",
+          "evidence": []
+        },
+        {
+          "id": "SCN-8.1",
+          "title": "SCN-8.1 access matrix: owner and admin manage; front desk is sent to check-in; instructor, judge and another studio get 404; anonymous is sent to login",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 336267,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\attachments\\01-owner-schedule-c6d1770a03b94d1137708cc4107c417b62f1c977.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\attachments\\02-studio-admin-schedule-2eb5962885fc205433e98a5a25086fcb0c1ad4a9.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\attachments\\03-front-desk-checkin-7519a6bb2385cdf5dfd2d63e863182cac3e2ef94.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\attachments\\04-instructor-404-4795be15830d75c846b4f583d6986a1166002e03.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\attachments\\05-judge-404-68dc6f7f503a2efac7ce897b1bdbfe330788e2d5.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\attachments\\06-other-studio-owner-404-3088173e294ab2c9ac6fbac7735b510a305274a1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\attachments\\07-anonymous-login-f9b4710e21eebd078e53160df9e64ff509b5cb10.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\test-finished-1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\test-finished-2.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\test-finished-3.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\test-finished-4.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\test-finished-5.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\test-finished-6.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\test-finished-7.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-8.1",
+              "matrix": {
+                "owner": {
+                  "schedule": "200 /schedule",
+                  "officials": "200 /officials",
+                  "day-of": "200 /day-of",
+                  "ballots": "200 /ballots",
+                  "readiness": "200 /readiness",
+                  "registrations": "200 /registrations",
+                  "divisions": "200 /divisions"
+                },
+                "studio_admin": {
+                  "schedule": "200 /schedule",
+                  "officials": "200 /officials",
+                  "day-of": "200 /day-of",
+                  "ballots": "200 /ballots",
+                  "readiness": "200 /readiness",
+                  "registrations": "200 /registrations",
+                  "divisions": "200 /divisions"
+                },
+                "front_desk": {
+                  "schedule": "redirect /checkin",
+                  "officials": "redirect /checkin",
+                  "day-of": "redirect /checkin",
+                  "ballots": "redirect /checkin",
+                  "readiness": "redirect /checkin",
+                  "registrations": "redirect /checkin",
+                  "divisions": "redirect /checkin"
+                },
+                "instructor": {
+                  "schedule": "404",
+                  "officials": "404",
+                  "day-of": "404",
+                  "ballots": "404",
+                  "readiness": "404",
+                  "registrations": "404",
+                  "divisions": "404",
+                  "checkin": "404"
+                },
+                "judge": {
+                  "schedule": "404",
+                  "officials": "404",
+                  "day-of": "404",
+                  "ballots": "404",
+                  "readiness": "404",
+                  "registrations": "404",
+                  "divisions": "404",
+                  "checkin": "404"
+                },
+                "other_studio_owner": {
+                  "schedule": "404",
+                  "officials": "404",
+                  "day-of": "404",
+                  "ballots": "404",
+                  "readiness": "404",
+                  "registrations": "404",
+                  "divisions": "404",
+                  "checkin": "404"
+                },
+                "anonymous": {
+                  "schedule": "redirect /login",
+                  "officials": "redirect /login",
+                  "day-of": "redirect /login",
+                  "ballots": "redirect /login",
+                  "readiness": "redirect /login",
+                  "registrations": "redirect /login",
+                  "divisions": "redirect /login",
+                  "checkin": "redirect /login"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "SCN-8.2",
+          "title": "SCN-8.2 database authorization: another studio and an anonymous caller read no heats and cannot list officials; a judge's own assignments come back as theirs only",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 2766,
+          "screenshots": [],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-a5d46-ts-come-back-as-theirs-only-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-8.2",
+              "tables": [
+                "event_competition_floor_heats",
+                "event_competition_heats",
+                "event_competition_heat_entries",
+                "event_competition_officials",
+                "event_competition_panel_assignments"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "SCN-9",
+          "title": "SCN-9 database integrity: one version in effect, contiguous heat numbers, no double-booked dancer, every scratch audited, no payment moved by a scratch",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 201,
+          "screenshots": [],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-683c6--payment-moved-by-a-scratch-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-9",
+              "effectiveVersion": "fe5a6c92-8c50-461c-9f67-c4675777cbb3",
+              "scratched": 2
+            }
+          ]
+        },
+        {
+          "id": "SCN-4.1",
+          "title": "SCN-4.1 heat-level judge assignment: assign a different judge to one heat of a round",
+          "status": "NOT IMPLEMENTED",
+          "note": "Panels are per round; no per-heat judge assignment UI.",
+          "setupShortcut": false,
+          "durationMs": 0,
+          "screenshots": [],
+          "trace": null,
+          "evidence": []
+        },
+        {
+          "id": "SCN-4.2",
+          "title": "SCN-4.2 instructor-to-heat assignment: assign an instructor to a heat and see an instructor conflict",
+          "status": "NOT IMPLEMENTED",
+          "note": "No instructor/staff-to-heat assignment control.",
+          "setupShortcut": false,
+          "durationMs": 0,
+          "screenshots": [],
+          "trace": null,
+          "evidence": []
+        },
+        {
+          "id": "SCN-4.3",
+          "title": "SCN-4.3 a real conflict banner: the running order cannot be published while a heat has a shared competitor",
+          "status": "BLOCKED",
+          "note": "No UI path creates a shared-competitor heat (planner avoids it; the move option is disabled).",
+          "setupShortcut": false,
+          "durationMs": 0,
+          "screenshots": [],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-114304-final1\\artifacts\\competition-schedule-heats-11713-eat-has-a-shared-competitor-chromium\\trace.zip",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "name": "final2",
+      "artifactDir": "C:/Users/mcurt/AppData/Local/Temp/claude/C--Dev-studioapp/e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f/scratchpad/runs/20261025-120541-final2",
+      "counts": {
+        "PASS": 20,
+        "BLOCKED": 3,
+        "NOT IMPLEMENTED": 2
+      },
+      "wallClock": 841825.5730000001,
+      "scenarios": [
+        {
+          "id": "SCN-0",
+          "title": "SCN-0 environment warm-up (not a scenario): compile every route the walkthrough touches so the dev server's first-hit 404 cannot masquerade as a product failure",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 139676,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-d31bb-uerade-as-a-product-failure-chromium\\test-finished-1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-d31bb-uerade-as-a-product-failure-chromium\\test-finished-2.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-d31bb-uerade-as-a-product-failure-chromium\\trace.zip",
+          "evidence": []
+        },
+        {
+          "id": "SCN-1.1",
+          "title": "SCN-1.1 setup: the setup wizard offers only Medal Marks for an adjudicated Country competition (no callbacks option)",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 28605,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-2594f-tition-no-callbacks-option--chromium\\attachments\\01-adjudicated-no-callback-option-66234006fb7cbd4cbd1778c29c7b6c49d86922d5.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-2594f-tition-no-callbacks-option--chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-2594f-tition-no-callbacks-option--chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-1.1",
+              "event": "4648a0ad-063b-4cda-af34-c05d97f95bce",
+              "callbackOffered": false
+            }
+          ]
+        },
+        {
+          "id": "SCN-1.3",
+          "title": "SCN-1.3 W4/K1 callback-target readiness blocker: 'Callback target not set' blocks readiness until the organizer sets a target",
+          "status": "BLOCKED",
+          "note": "No UI path creates a callback_tally round (wizard studio_custom@3 offers only Medal Marks; Advanced round form has no callback_tally).",
+          "setupShortcut": false,
+          "durationMs": 0,
+          "screenshots": [],
+          "trace": null,
+          "evidence": []
+        },
+        {
+          "id": "SCN-1.2",
+          "title": "SCN-1.2 setup: owner creates the schedule competition, adds a second division, publishes and opens registration",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 46920,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-9c553-shes-and-opens-registration-chromium\\attachments\\01-draft-created-ab3b516bd95ebca20ee6496dff28b37df5059dc1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-9c553-shes-and-opens-registration-chromium\\attachments\\02-second-division-added-eb8b1457415e4ab17e78fd686fe1d500caf7c0a1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-9c553-shes-and-opens-registration-chromium\\attachments\\03-published-registration-open-83461e689716ca95f3deb7e320fcd38282153bf1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-9c553-shes-and-opens-registration-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-9c553-shes-and-opens-registration-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-1.2",
+              "event": "5bd26450-c179-4ad8-810d-b71aec639fb6",
+              "divisions": 2,
+              "rounds": 2
+            }
+          ]
+        },
+        {
+          "id": "SCN-2.1",
+          "title": "SCN-2.1 registration: three buyers pay for four entries with a test card (Avery dances two entries); the Entries page shows them paid",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 62465,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-53955-ntries-page-shows-them-paid-chromium\\attachments\\01-confirmation-avery-8778f97885ae6304cf5cb1bd009f9d34af5a67d2.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-53955-ntries-page-shows-them-paid-chromium\\attachments\\02-confirmation-blair-d9f77752c709f568d56a94d9f3c83c5cf0a55bed.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-53955-ntries-page-shows-them-paid-chromium\\attachments\\03-confirmation-casey-cfac5d150093f2115116fefdbca012784755a9e2.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-53955-ntries-page-shows-them-paid-chromium\\attachments\\04-entries-paid-e7a65ec17c76e45b5bb7acde6fc2261cbbd9e2a8.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-53955-ntries-page-shows-them-paid-chromium\\test-finished-1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-53955-ntries-page-shows-them-paid-chromium\\test-finished-4.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-53955-ntries-page-shows-them-paid-chromium\\test-finished-2.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-53955-ntries-page-shows-them-paid-chromium\\test-finished-3.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-53955-ntries-page-shows-them-paid-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-2.1",
+              "orders": 3,
+              "entries": 4
+            }
+          ]
+        },
+        {
+          "id": "SCN-2.2",
+          "title": "SCN-2.2 eligibility: an ineligible entry is excluded from the schedule; the Schedule page counts the rest",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 37782,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-bc99d-hedule-page-counts-the-rest-chromium\\attachments\\01-eligibility-set-343f51e634832fda0e1d891be2845237a1c8748f.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-bc99d-hedule-page-counts-the-rest-chromium\\attachments\\02-schedule-before-generate-982c3b644d583f029c737f754652350398606282.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-bc99d-hedule-page-counts-the-rest-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-bc99d-hedule-page-counts-the-rest-chromium\\trace.zip",
+          "evidence": []
+        },
+        {
+          "id": "SCN-3.1",
+          "title": "SCN-3.1 generate heats: Avery's two entries land in different heats; no competitor is double-booked; a conflicting move is refused in the UI",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 18879,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-efed0-g-move-is-refused-in-the-UI-chromium\\attachments\\01-heats-generated-08b1000e0ba8a5692027c4e57db8abfacb029a65.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-efed0-g-move-is-refused-in-the-UI-chromium\\attachments\\02-conflicting-move-disabled-3fe79380baa73e8493666d1b8a596738338e3f73.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-efed0-g-move-is-refused-in-the-UI-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-efed0-g-move-is-refused-in-the-UI-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-3.1",
+              "floorHeats": 2,
+              "scoringHeats": 2,
+              "doubleBookings": 0
+            }
+          ]
+        },
+        {
+          "id": "SCN-3.2",
+          "title": "SCN-3.2 capacity: a per-division heat size of 2 applies when heats are regenerated with all four entries",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 45420,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-c2884-rated-with-all-four-entries-chromium\\attachments\\01-capacity-saved-54cfe9f02760a34271b1e541d5d2271a4e1218c1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-c2884-rated-with-all-four-entries-chromium\\attachments\\02-regenerated-with-capacity-51d223748cbcdcd25cf6b4b51a4813269596a590.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-c2884-rated-with-all-four-entries-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-c2884-rated-with-all-four-entries-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-3.2",
+              "scoringHeats": 2,
+              "sizes": [
+                2,
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "id": "SCN-3.3",
+          "title": "SCN-3.3 editing the draft: move a heat, add an empty heat, remove it; numbering stays contiguous",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 35545,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-def3c--numbering-stays-contiguous-chromium\\attachments\\01-heat-moved-to-first-d53057ef556eed0cfae8b4ba4b5c3872ee6915e7.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-def3c--numbering-stays-contiguous-chromium\\attachments\\02-empty-heat-added-6bf0846c047d0d85b2bd2031aa55870269d35c28.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-def3c--numbering-stays-contiguous-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-def3c--numbering-stays-contiguous-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-3.3",
+              "total": 2
+            }
+          ]
+        },
+        {
+          "id": "SCN-3.4",
+          "title": "SCN-3.4 publish: the running order is published, survives a reload and is visible to a second manager",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 34811,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-625ed-visible-to-a-second-manager-chromium\\attachments\\01-published-c432ef75ad41b1f6589fb38cade95083ba8c6805.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-625ed-visible-to-a-second-manager-chromium\\attachments\\02-second-manager-sees-published-c10fe072ede6b7d3ef5ec1fe609baf7dd3623a23.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-625ed-visible-to-a-second-manager-chromium\\test-finished-2.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-625ed-visible-to-a-second-manager-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-625ed-visible-to-a-second-manager-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-3.4",
+              "versions": [
+                "published"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "SCN-3.5",
+          "title": "SCN-3.5 reschedule: edit the published running order into a draft copy, move a heat, republish; exactly one version is in effect",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 62309,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-c1e23-ly-one-version-is-in-effect-chromium\\attachments\\01-draft-copy-d528c298d9d1952aa742e60e184770af103a0c87.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-c1e23-ly-one-version-is-in-effect-chromium\\attachments\\02-republished-441ecdcc878a745e260fc585d7ddeb62a09a9bb1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-c1e23-ly-one-version-is-in-effect-chromium\\test-finished-2.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-c1e23-ly-one-version-is-in-effect-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-c1e23-ly-one-version-is-in-effect-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-3.5",
+              "versions": [
+                [
+                  1,
+                  "superseded"
+                ],
+                [
+                  2,
+                  "published"
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "id": "SCN-5.1",
+          "title": "SCN-5.1 officials: unverified judges cannot be added; after verifying their email the owner adds three, names a chair and builds the panel to 'Panel ready'",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 61959,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-b60b9-s-the-panel-to-Panel-ready--chromium\\attachments\\01-unverified-judge-disabled-e3850abf81da08d380cc508e13f8a2d05645cd4a.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-b60b9-s-the-panel-to-Panel-ready--chromium\\attachments\\02-three-officials-added-f7c4d5b57815055e54cdecba8fffa978f90531b3.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-b60b9-s-the-panel-to-Panel-ready--chromium\\attachments\\03-panel-ready-adfa4e25389b10217234ed9787743e2f2e109ddb.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-b60b9-s-the-panel-to-Panel-ready--chromium\\test-finished-1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-b60b9-s-the-panel-to-Panel-ready--chromium\\test-finished-2.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-b60b9-s-the-panel-to-Panel-ready--chromium\\test-finished-3.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-b60b9-s-the-panel-to-Panel-ready--chromium\\test-finished-4.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-b60b9-s-the-panel-to-Panel-ready--chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-5.1",
+              "letters": [
+                "A",
+                "B",
+                "C"
+              ],
+              "roundId": "52283510-c89e-4c46-9cf3-8e1245412bc7"
+            }
+          ]
+        },
+        {
+          "id": "SCN-5.2",
+          "title": "SCN-5.2 a judge sees only their own assignment; a non-official instructor sees none; neither can open the competition workspace",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 8394,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-403f9-n-the-competition-workspace-chromium\\attachments\\01-judge-own-assignments-e6a0b3a333e1f4af8b1b60a1da356c784e403fb4.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-403f9-n-the-competition-workspace-chromium\\attachments\\02-instructor-no-assignments-104fefd91a536f9e30f80f8ecd90432c98778e01.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-403f9-n-the-competition-workspace-chromium\\test-finished-1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-403f9-n-the-competition-workspace-chromium\\test-finished-2.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-403f9-n-the-competition-workspace-chromium\\trace.zip",
+          "evidence": []
+        },
+        {
+          "id": "SCN-7.1",
+          "title": "SCN-7.1 day-of: schedule and start the round; floor heats move waiting -> on deck -> on the floor -> done, and survive a reload",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 36366,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-b3e52---done-and-survive-a-reload-chromium\\attachments\\01-day-of-before-round-cdf213a83aaeb3e83fdbc5b318dc08c308194ced.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-b3e52---done-and-survive-a-reload-chromium\\attachments\\02-round-running-89987eb11311cf9bc0ae49e9dac1d128c9ae8c7b.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-b3e52---done-and-survive-a-reload-chromium\\attachments\\03-heat-1-on-the-floor-4e41c5bb9bbf9d6d289f028636b144027ce37633.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-b3e52---done-and-survive-a-reload-chromium\\attachments\\04-heat-1-done-after-reload-756461ac8c7a7c9096e80a4024314c54930709d1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-b3e52---done-and-survive-a-reload-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-b3e52---done-and-survive-a-reload-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-7.1",
+              "firstHeatStates": [
+                "staging",
+                "active",
+                "complete"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "SCN-6.1",
+          "title": "SCN-6.1 scratch in an open heat: no payment changes, the entry leaves the heat, the day-of console no longer lists it",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 17789,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-ff872--console-no-longer-lists-it-chromium\\attachments\\01-open-heat-scratched-95e763fd08b1b18547f20ae67a334909d2ce69fe.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-ff872--console-no-longer-lists-it-chromium\\attachments\\02-day-of-after-scratch-449d137722d828ba0ecc5238125fdf9d8baef695.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-ff872--console-no-longer-lists-it-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-ff872--console-no-longer-lists-it-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-6.1",
+              "scratched": "e2"
+            }
+          ]
+        },
+        {
+          "id": "SCN-6.2",
+          "title": "SCN-6.2 a danced heat refuses the scratch: the page explains why, offers no scratch button, and nothing is written",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 6337,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-65a47-tton-and-nothing-is-written-chromium\\attachments\\01-danced-heat-refused-74ac33d730644355e151645197e62bf9229bca86.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-65a47-tton-and-nothing-is-written-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-65a47-tton-and-nothing-is-written-chromium\\trace.zip",
+          "evidence": []
+        },
+        {
+          "id": "SCN-6.3a",
+          "title": "SCN-6.3a locking prerequisite: the ballot desk for the wizard's Final round says ballots are not available and Lock ballots stays disabled",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 6476,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-a28fa-Lock-ballots-stays-disabled-chromium\\attachments\\01-lock-unavailable-96dd6ab5207ddfa31d5930d58ee9e236a3a7b826.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-a28fa-Lock-ballots-stays-disabled-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-a28fa-Lock-ballots-stays-disabled-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-6.3a",
+              "scoringMethod": "custom",
+              "ballots": 0
+            }
+          ]
+        },
+        {
+          "id": "SCN-6.3",
+          "title": "SCN-6.3 official scratch in a locked heat: the reason is required, the heat stays locked, one audit row",
+          "status": "BLOCKED",
+          "note": "No UI path to a locked heat: ballots for the wizard's 'custom' Final round are unavailable, and heats lock only when ballots lock.",
+          "setupShortcut": false,
+          "durationMs": 0,
+          "screenshots": [],
+          "trace": null,
+          "evidence": []
+        },
+        {
+          "id": "SCN-7.2",
+          "title": "SCN-7.2 day-of: cancel a round with a reason; the empty Bronze Open round shows Cancelled and stays cancelled after a reload",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 12388,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-43f0d-ys-cancelled-after-a-reload-chromium\\attachments\\01-round-cancelled-5af2a3414ef00d312dcad3086ada1b1107e653e0.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-43f0d-ys-cancelled-after-a-reload-chromium\\test-finished-1.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-43f0d-ys-cancelled-after-a-reload-chromium\\trace.zip",
+          "evidence": []
+        },
+        {
+          "id": "SCN-8.1",
+          "title": "SCN-8.1 access matrix: owner and admin manage; front desk is sent to check-in; instructor, judge and another studio get 404; anonymous is sent to login",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 144065,
+          "screenshots": [
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\attachments\\01-owner-schedule-22da4563a255c6cd0bb545560da6fe090828aa0b.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\attachments\\02-studio-admin-schedule-99fa8143e80a95a3ec274295bc311e82630ecb7e.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\attachments\\03-front-desk-checkin-3fccb41bbd2eed060758ac84c684dce4f3ba9e3b.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\attachments\\04-instructor-404-42ebe12d6b3560193e50a12e1f2c913f3b184555.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\attachments\\05-judge-404-7b6fb2e7ccbe6bd04531590c9c0b95cdc4e01ac0.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\attachments\\06-other-studio-owner-404-d7714211f964491c27da4b9cde8a465015c992df.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\attachments\\07-anonymous-login-96676f120a9d82f8f97cf621347e6444cbb666e7.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\test-finished-1.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\test-finished-3.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\test-finished-4.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\test-finished-2.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\test-finished-5.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\test-finished-7.png",
+            "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\test-finished-6.png"
+          ],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-35f2c--anonymous-is-sent-to-login-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-8.1",
+              "matrix": {
+                "owner": {
+                  "schedule": "200 /schedule",
+                  "officials": "200 /officials",
+                  "day-of": "200 /day-of",
+                  "ballots": "200 /ballots",
+                  "readiness": "200 /readiness",
+                  "registrations": "200 /registrations",
+                  "divisions": "200 /divisions"
+                },
+                "studio_admin": {
+                  "schedule": "200 /schedule",
+                  "officials": "200 /officials",
+                  "day-of": "200 /day-of",
+                  "ballots": "200 /ballots",
+                  "readiness": "200 /readiness",
+                  "registrations": "200 /registrations",
+                  "divisions": "200 /divisions"
+                },
+                "front_desk": {
+                  "schedule": "redirect /checkin",
+                  "officials": "redirect /checkin",
+                  "day-of": "redirect /checkin",
+                  "ballots": "redirect /checkin",
+                  "readiness": "redirect /checkin",
+                  "registrations": "redirect /checkin",
+                  "divisions": "redirect /checkin"
+                },
+                "instructor": {
+                  "schedule": "404",
+                  "officials": "404",
+                  "day-of": "404",
+                  "ballots": "404",
+                  "readiness": "404",
+                  "registrations": "404",
+                  "divisions": "404",
+                  "checkin": "404"
+                },
+                "judge": {
+                  "schedule": "404",
+                  "officials": "404",
+                  "day-of": "404",
+                  "ballots": "404",
+                  "readiness": "404",
+                  "registrations": "404",
+                  "divisions": "404",
+                  "checkin": "404"
+                },
+                "other_studio_owner": {
+                  "schedule": "404",
+                  "officials": "404",
+                  "day-of": "404",
+                  "ballots": "404",
+                  "readiness": "404",
+                  "registrations": "404",
+                  "divisions": "404",
+                  "checkin": "404"
+                },
+                "anonymous": {
+                  "schedule": "redirect /login",
+                  "officials": "redirect /login",
+                  "day-of": "redirect /login",
+                  "ballots": "redirect /login",
+                  "readiness": "redirect /login",
+                  "registrations": "redirect /login",
+                  "divisions": "redirect /login",
+                  "checkin": "redirect /login"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "SCN-8.2",
+          "title": "SCN-8.2 database authorization: another studio and an anonymous caller read no heats and cannot list officials; a judge's own assignments come back as theirs only",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 664,
+          "screenshots": [],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-a5d46-ts-come-back-as-theirs-only-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-8.2",
+              "tables": [
+                "event_competition_floor_heats",
+                "event_competition_heats",
+                "event_competition_heat_entries",
+                "event_competition_officials",
+                "event_competition_panel_assignments"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "SCN-9",
+          "title": "SCN-9 database integrity: one version in effect, contiguous heat numbers, no double-booked dancer, every scratch audited, no payment moved by a scratch",
+          "status": "PASS",
+          "note": null,
+          "setupShortcut": false,
+          "durationMs": 52,
+          "screenshots": [],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-683c6--payment-moved-by-a-scratch-chromium\\trace.zip",
+          "evidence": [
+            {
+              "scenario": "SCN-9",
+              "effectiveVersion": "725034a3-60d1-4a3a-a210-4399907f6d31",
+              "scratched": 2
+            }
+          ]
+        },
+        {
+          "id": "SCN-4.1",
+          "title": "SCN-4.1 heat-level judge assignment: assign a different judge to one heat of a round",
+          "status": "NOT IMPLEMENTED",
+          "note": "Panels are per round; no per-heat judge assignment UI.",
+          "setupShortcut": false,
+          "durationMs": 0,
+          "screenshots": [],
+          "trace": null,
+          "evidence": []
+        },
+        {
+          "id": "SCN-4.2",
+          "title": "SCN-4.2 instructor-to-heat assignment: assign an instructor to a heat and see an instructor conflict",
+          "status": "NOT IMPLEMENTED",
+          "note": "No instructor/staff-to-heat assignment control.",
+          "setupShortcut": false,
+          "durationMs": 0,
+          "screenshots": [],
+          "trace": null,
+          "evidence": []
+        },
+        {
+          "id": "SCN-4.3",
+          "title": "SCN-4.3 a real conflict banner: the running order cannot be published while a heat has a shared competitor",
+          "status": "BLOCKED",
+          "note": "No UI path creates a shared-competitor heat (planner avoids it; the move option is disabled).",
+          "setupShortcut": false,
+          "durationMs": 0,
+          "screenshots": [],
+          "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261025-120541-final2\\artifacts\\competition-schedule-heats-11713-eat-has-a-shared-competitor-chromium\\trace.zip",
+          "evidence": []
+        }
+      ]
+    }
+  ]
+}
