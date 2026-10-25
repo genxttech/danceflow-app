@@ -67,7 +67,10 @@ DEV/PROD, and no real refunds were made.
 | G2 | **Non-competition** event payment: partial refund nets out of `event_ticket_revenue`; refunded → voided; no `competition_entry_refund` entry | unchanged behaviour | PASSED (SQL suite) |
 | G3 | Grants: request / attribute / resolve for authenticated; observe service-role only | as stated | PASSED (SQL suite) |
 
-## H. App and Stripe test mode (end to end), run 2026-10-23 (owner-authorized)
+## H. App and Stripe test mode (end to end), run 2026-10-23 (owner-authorized) -- **SUPERSEDED 2026-10-24: NOT VALID EVIDENCE**
+
+> **Superseded.** W3's clean-stack E2E found (and the coordinator verified) that `request_competition_order_refund` refused every order paid through the real competition checkout: the guard required `settlement_state = 'paid'`, which only the cart settlement path sets; `finalize_competition_registration` never writes it. The seven orders below were **seeded**, with a settlement state production orders do not have, so every H row (PASS or BLOCKED) is superseded and must be re-run after the guard fix (commit `e27caedf`, hardened in `e9988d6b`). Status of the re-run: **NOT RUN** by the W1 session (no Stripe test keys, app or `stripe listen` available there); the SQL-level replacement is `sql-tests/r2_checkout_orders.sh` (orders built by `finalize_competition_registration`, 21 checks PASS on a migration-built database). Real public checkout -> refund E2E is owned by W3's clean stack.
+
 
 Environment:
 - **App:** `next dev` on `localhost:3100`, from this branch.
@@ -155,3 +158,14 @@ entry after a reversal; organizer-role SQL fixtures.
 | R3 | P1-3: event P&L counts competition refunds and reversals | PASSED (unit) |
 | R4 | P2-5: a new refund after resolution reopens; a replay adds nothing (SQL G/P2-5) | PASSED (SQL) |
 | R5 | Broad regression: 71 vitest files / 1060 tests (payments, competition, events, accounting, Wave, webhook) + project `tsc` | PASSED |
+
+
+## I. Settled-order guard fix (2026-10-24)
+
+| # | Check | Result |
+|---|---|---|
+| I1 | Orders built through START -> PREPARE -> ATTACH -> `finalize_competition_registration` (settlement_state NULL): partial refund then remaining full refund request + observe | **PASS** (`r2_checkout_orders.sh`, 21 checks, CLI-crlf migration-built DB); the same suite **FAILS on the old guard** (negative control) |
+| I2 | Refused: unpaid started order, cancelled, failed, expired-with-late-payment, signing-incomplete paid (status pending), other event, settlement_state processing / pending / releasing / released / failed / expired, fully refunded order | **PASS** |
+| I3 | Cart-style order (settlement_state 'paid') still accepted | **PASS** |
+| I4 | Guard = payment_status paid/partially_refunded AND order status confirmed AND settlement_state NULL-or-paid AND intent AND a captured event_payments row; PAY-DC-2A stored-account check unchanged; legacy pro-rata-refunded orders outside the R2 ledger refused | implemented; independent Opus review: 1 P1 (signing-incomplete paid order accepted by a deny-list) fixed with an allow-list |
+| I5 | Stripe test-mode E2E, real public checkout -> refund | NOT RUN (W1 session); W3 clean stack |
