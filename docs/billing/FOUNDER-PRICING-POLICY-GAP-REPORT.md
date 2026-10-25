@@ -1,6 +1,6 @@
 # Founder Pricing Policy Gap Report
 
-Status: **audit and plan only** (2026-10-25; D11 owner decisions recorded 2026-10-25, see §6A, §13 and §14). Nothing here is implemented, merged, deployed, applied to a database or created in Stripe.
+Status: **audit and plan only** (2026-10-25; D11, R11 and D17 owner decisions recorded 2026-10-25, see §6A, §13, §14, §15 and §16). Nothing here is implemented, merged, deployed, applied to a database or created in Stripe.
 Scope: read-only inspection of `origin/main` (`1e66c8e9`) and the deployed branch `origin/release/pricing-p1` (`4bc938c6`, production `dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj`), the repository's migrations and docs, public pages, and the open BILLING-QA PRs. No hosted database or Stripe account was read.
 
 **Evidence basis.** Three independent read-only code audits (allocation and lifecycle; annual, portal, webhook and tests; marketing copy and early-access mechanisms) were run against committed refs. Findings the author re-checked personally are marked **[verified]**; the rest are the auditors' reports with file paths (line numbers are approximate where marked `~`). Historical documentation is not treated as proof of production behavior. Classification: **PASS / FAIL / BLOCKED / NOT IMPLEMENTED** (BLOCKED = cannot be determined without evidence we are not allowed or able to read; the missing evidence is named).
@@ -138,8 +138,10 @@ These are the owner's business decisions. **They do not authorize any code imple
 | 8 | Founder and Regular **coexist through studio-specific eligibility, not a single global switch.** | **DECIDED** | Replaces the global Founder/Regular selection in checkout and the global price display (§13 R3, §14). |
 | 9 | The grandfathered **$129 Pro** subscription stays protected and **occupies one of the 25 positions.** | **DECIDED** | Matches §4; position 1 is a `grandfathered` ledger row (§13 R8). |
 | 10 | **No live remaining-position count is published** until the allocation ledger and the **existing-subscription reconciliation are verified.** | **DECIDED** | Public count is behind its own default-off gate that requires recorded reconciliation evidence (§13 R9). The live copy makes no count claim today. |
+| 11 | **R11 confirmed:** Organizer Suite subscriptions do **not** count toward the 25 Studio Founder positions. The cap applies only to qualifying Starter, Growth and Pro studio subscriptions. Organizer promotional eligibility is **tracked separately**, and existing Organizer subscriptions are **not changed** by this decision. | **DECIDED** | Closes the open point in §13 R11. Any future Organizer promotional allocation needs its own ledger/policy; nothing in this report touches Organizer pricing. |
+| 12 | **D17 direction:** read-only monitoring and reconciliation. (a) Reconcile existing Founder subscriptions, including trialing and grandfathered ones, using **authorized read-only access**; (b) monitor occupied and potentially reserved positions **daily while the Founder advertising campaign is active**; (c) **18 occupied positions is an escalation threshold, not authorization for an automatic stop-sell**; (d) no numerical remaining-position claim until the evidence is reconciled; (e) **no archiving of Stripe Prices, no disabling of Founder pricing, no change to live checkout** without separate authorization. | **DECIDED** (direction); procedure in §15; access **BLOCKED** (no authorized read-only access exists yet) | Replaces the stop-sell options in D17 with monitoring only. The stop-sell levers (archiving Prices, the env flag) remain available **only** by a separate owner authorization. |
 
-**Decision table status after 2026-10-25:** D11 **DECIDED** (items 3, 6, 8 above). D12 **DECIDED** (rates final; activation separate). D6 **PARTIAL** (trial retained for all; anti-abuse open). D4 **PARTIAL** (uncommitted positions return; committed-position void rule still open). D18 **PARTIAL** (annual after monthly; amounts open). **Still open:** D1–D3, D5, D7–D10, D13–D17, D19, D20. **D17 (interim control for the unenforced cap) is not addressed by these decisions and remains open**; until it is decided the cap stays unenforced and no scarcity or count claim may be published (decision 10).
+**Decision table status after 2026-10-25:** D11 **DECIDED** (items 3, 6, 8 above). D12 **DECIDED** (rates final; activation separate). **D17 DECIDED as a read-only monitoring and reconciliation direction** (item 12; see §15); R11 **DECIDED** (item 11). D6 **PARTIAL** (trial retained for all; anti-abuse open). D4 **PARTIAL** (uncommitted positions return; committed-position void rule still open). D18 **PARTIAL** (annual after monthly; amounts open). **Still open:** D1–D3, D5, D7–D10, D13–D16, D19, D20; they are presented in groups with recommendations in §16. Until the ledger exists the cap stays unenforced and no scarcity or count claim may be published (item 10).
 
 ## 7. Annual billing: status and gaps
 
@@ -268,6 +270,8 @@ Recommended order: **S0** now-ish (small, independent) → decisions D1–D17 �
 
 ## 13. Implementation requirements for the approved D11 policy
 
+> Requirement IDs R1–R12 in this section are distinct from the risk IDs R1–R14 in §10.
+
 Requirements derived from §6A. None is implemented. "Dark" means shipped disabled behind a default-off gate.
 
 | ID | Requirement | Why (decision) |
@@ -282,7 +286,7 @@ Requirements derived from §6A. None is implemented. "Dark" means shipped disabl
 | R8 | **Grandfathered row.** One `grandfathered` ledger row (position 1) for the $129 studio, seeded once by an approved operation after Stripe verification; immutable except via an audited platform-admin RPC; excluded from the 12-month schedule and from automatic Regular transition. | 9 |
 | R9 | **Count publication gate.** A separate default-off `FOUNDER_COUNT_PUBLIC` gate; it may only be enabled when the ledger records a completed, reviewed **reconciliation** of existing Founder-priced subscriptions against Stripe (run id, time, discrepancies resolved). Until then no page shows, and no message implies, a remaining count or scarcity. | 10 |
 | R10 | **Kill switch and rollout flag.** A dark `FOUNDER_ALLOCATION_ENFORCED` flag (default off) so enforcement can ship dark, be exercised in test mode, and be turned on per environment; with it off the current behavior is unchanged. | 2, 6 |
-| R11 | **Studio plans only.** The 25-cap and ledger apply to studio subscriptions. Organizer plan and Organizer Suite add-on pricing share `isFounderPricingActive()` today (`get-started/organizer/page.tsx`, `addons/organizer-suite/checkout/route.ts`); they are unchanged. **Owner to confirm** that Organizer Founder offers do not count toward the 25. | 2 |
+| R11 | **Studio plans only (CONFIRMED by the owner 2026-10-25).** The 25-cap and ledger apply only to qualifying Starter, Growth and Pro studio subscriptions. Organizer plan and Organizer Suite add-on pricing share `isFounderPricingActive()` today (`get-started/organizer/page.tsx`, `addons/organizer-suite/checkout/route.ts`) and **do not count toward the 25**; Organizer promotional eligibility is tracked separately (separate policy and, if needed, a separate ledger); existing Organizer subscriptions are not changed. The studio ledger must therefore key on **studio plan Price ids only** and never read Organizer Prices. | 2, owner R11 |
 | R12 | **Per-studio display.** Public pricing pages show Founder price with the Regular price disclosed (while positions last or per policy copy); the studio's own billing and completion pages show the price the studio is actually entitled to from the ledger, not a global display function. | 8, 5 |
 
 ## 14. Exact code and release dependencies
@@ -346,6 +350,129 @@ Requirements derived from §6A. None is implemented. "Dark" means shipped disabl
 7. **Turn enforcement on** (flag) in the same change window as the polite refusal path. If Regular is approved and its Prices/env are verified, enable Regular for position 26+ (R3/R5) in a separate, explicitly approved step; otherwise position 26+ sees the refusal message.
 8. **S6** copy and disclosure changes (website authorization), **without a count** until R9 is satisfied; then the count gate may be enabled.
 9. **S4** duration, notices and the fail-safe transition; **S5** annual (after separate approval); **S7** early access.
+
+## 15. D17: read-only monitoring and reconciliation procedure
+
+Authority: owner direction of 2026-10-25 (§6A item 12). **Read-only. No archive of Stripe Prices, no change to `FOUNDER_PRICING_ACTIVE`, no change to live checkout, no database write, no publication of a count.** Crossing the threshold escalates to the owner; it does not trigger any automatic action.
+
+### 15.1 Access status
+
+| Item | Status |
+|---|---|
+| Authorized read-only access to the DanceFlow live Stripe account for the assistant | **BLOCKED / not available.** The assistant has no DanceFlow live credential (the only live key on the workstation belongs to a different business and is never used). Counts therefore **cannot be produced by the assistant today** and none are stated in this report. |
+| Owner-run Dashboard reads (no secrets leave the Dashboard) | **Available now.** Steps below. |
+| Restricted read-only key (owner-created, **never pasted in chat or committed**) | **Optional, needs a development authorization** for a read-only reconciliation script (the existing BILLING-QA tooling accepts restricted `rk_live_` keys from a local untracked file; permissions needed: Subscriptions, Prices, Customers (without email export), Checkout Sessions and Events, all Read). Not built or authorized. |
+| Read-only application database access (studio rows, subscription rows) | **Not authorized**; would need explicit approval and a scratch workdir. |
+
+### 15.2 Definitions used until the ledger exists
+
+A **position holder** is one **studio** (not one subscription), identified by the `studioId` written into checkout session and subscription metadata, deduplicated across subscriptions and customers. Organizer Prices are excluded (§13 R11). Internal/test/comp studios are excluded by an owner-maintained list.
+
+| Tally | Includes | Used for |
+|---|---|---|
+| **A: occupied** | distinct studios with a subscription **not canceled** (statuses trialing, active, past_due, unpaid, paused) on a Founder Price: the three new Founder Prices, any older Founder Price still in use, and the grandfathered $129 Price. **Includes trialing and the grandfathered studio.** | the **18-position escalation threshold** |
+| **B: potentially reserved** (reported next to A, no threshold is set for it by the owner) | A, **plus** studios whose Founder subscription is `incomplete`, **plus** studios with an **open, unexpired Checkout Session** on a Founder Price (created within the session lifetime), **plus** (for information) studios that canceled after at least one paid invoice on a Founder Price | to see how close the cap could be if pending checkouts convert; not an allocation |
+
+Founder Price ids to read: Starter `price_1TdDHBEY0sTayNiS0G2Ed9oI`, Growth `price_1UUG7uEY0sTayNiSh0d9cCL8`, Pro `price_1UUG4UEY0sTayNiSClLL4J0R`, grandfathered `price_1TdDHwEY0sTayNiSIe1nD3Lg`; plus the **old Growth Founder Price** (the object replaced by the new Growth Price; owner to supply its id) and any other earlier Founder Price (owner to confirm there are none). The Starter ID is the same object as before the $59 edit, so earlier Starter subscribers (if any) appear under it.
+
+### 15.3 Owner-run read-only steps (Stripe Dashboard, Live mode)
+
+1. **Subscriptions by Price.** Subscriptions → filter by **Price** → one Founder Price at a time → include **all statuses**. For each row record: subscription id, customer id, status, created, trial end, current period end, and the `studioId` / `source` / `offerType` metadata (subscription page → Metadata). Do not export or share customer emails.
+2. **Deduplicate by studio** (metadata `studioId`); flag any subscription with **no** metadata (created outside checkout) and any studio with more than one Founder subscription.
+3. **Open Checkout Sessions.** Developers → Events → filter `checkout.session.created` for the last 24 hours, minus those with a matching `checkout.session.completed` or `checkout.session.expired`; keep sessions whose line item is a Founder Price. (A restricted read key could list sessions with status `open` directly.)
+4. **Exclusions.** Remove Organizer subscriptions and the owner-listed internal/test studios; keep the grandfathered studio (it counts).
+5. **Record** the result in the log below and send the owner the table (IDs only, no secrets or emails).
+
+### 15.4 Daily log (while the Founder advertising campaign is active)
+
+| Date (ET) | Tally A (occupied) | of which trialing / active / past due | Tally B (A + pending) | Open sessions | New since last check | Anomalies (no metadata, duplicate studio, test studio) | Checked by |
+|---|---|---|---|---|---|---|---|
+| _(pending)_ | _no value exists until authorized read-only access produces one_ | | | | | | |
+
+Cadence: daily while the campaign is active, weekly otherwise. The log lives where the owner chooses (not in Git unless the owner asks; it contains counts, no personal data).
+
+### 15.5 Threshold and escalation
+
+- **18 occupied (Tally A ≥ 18):** same-day escalation to the owner with the table and Tally B. **This is not authorization to stop selling.** The owner then chooses among: continue monitoring; pause or adjust the advertising campaign (outside Stripe); accelerate the ledger slices; or separately authorize a stop-sell lever (archiving the three new Founder Prices in the Dashboard, which the current checkout treats as a customer-safe refusal; or the env flag, which needs a new build and misleads pages).
+- **Below 18:** no action; keep logging.
+- **Any anomaly** (a subscription without `studioId`, a duplicate studio, a Founder Price on a non-studio subscription, a Founder-priced subscription for an internal/test studio): report it the same day.
+- **Nothing is published**: no page, email or advertisement states a remaining-position number until the reconciliation (15.6) is complete and verified and the ledger gates in §13 R9 are satisfied. The live pages make no count claim today.
+
+### 15.6 One-time reconciliation of existing Founder subscriptions
+
+Purpose: establish the true starting occupancy, find stragglers, and produce the evidence needed to seed the ledger (slice S8) later. Output table (one row per studio): studio id, plan, Founder Price id, subscription id, status, trial end, first paid invoice date (or none), source (checkout metadata or manual), notes. Includes **trialing** and **grandfathered** subscriptions. Exceptions list: no metadata, duplicate studios, test/internal studios, Founder-priced Organizer subscriptions (excluded), subscriptions whose studio cannot be resolved. The reconciliation is **read-only**; any correction (seeding, voiding) is a later, separately authorized operation.
+
+## 16. Remaining Founder decisions, by group, and the duration definition
+
+### 16.1 Duration: twelve paid invoices versus twelve calendar months after trial completion
+
+This comes **before** any expiration enforcement because it fixes what the enforcement counts. Definitions:
+- **P: twelve paid periods.** The window ends after the 12th successfully **paid** monthly billing period at a Founder Price. The counter increments once per `(subscription, period_start)` for a renewal-cycle invoice that carries the Founder plan line and is paid with a non-zero amount; refunded or lost-dispute payments un-count; proration, add-on and one-off invoices never count.
+- **C: twelve calendar months after trial completion.** The window is trial end through trial end + 12 months, independent of payments, ending at the Stripe billing-period boundary at or after that date.
+- **H (recommended): P with a calendar backstop.** Founder pricing ends at the earlier of the 12th paid period or **18 calendar months after the first paid period**.
+
+In the normal case (every month paid on time, no pause, no cancellation) **P, C and H give the identical boundary**: the 13th invoice, one year after the first paid period, is the first at Regular. They differ only when service is interrupted or the invoice stream is unusual:
+
+| Dimension | P (12 paid periods) | C (12 calendar months) | Note |
+|---|---|---|---|
+| Late payment recovered within Stripe's retries | counts when paid; boundary unchanged if counted by period, not by payment date | unchanged | both fine if P keys on the billing period |
+| Missed month, then canceled | the unpaid month does not count | the month is consumed | P matches "paid months"; C erodes the window |
+| Pause or skipped months | window extends in calendar time (customer keeps Founder pricing longer) | window passes during the pause | **P can be stretched indefinitely without a backstop** |
+| Cancel and return inside the window | remaining paid periods resume | remaining calendar time (possibly none) | ties to D5 |
+| Plan change, proration, add-ons | **risk**: must classify invoices (only renewal-cycle invoices carrying the Founder plan line count) or a proration invoice double-counts | unaffected | the main integrity risk of P |
+| $0 invoices (credits, 100% coupons), refunds, disputes | need explicit rules (recommend: $0 period does not count; reversed payment un-counts) | unaffected | |
+| Date arithmetic | none (period sequence) | end-of-month, leap-year and time-zone cases; mitigate by anchoring to Stripe period boundaries | C is more error-prone if computed from dates |
+| Stripe-native support | none ("after N paid invoices" does not exist); application-driven | a Subscription Schedule phase of 12 billing cycles is close to C; portal and schedule interplay unverified | |
+| Transition trigger | **event-driven**: on the 12th counted payment, move the item to the Regular Price with no proration so the 13th invoice is Regular | scheduled job or schedule near the end of period 12 | P has no clock dependency; C needs a reliable timer |
+| Customer messaging | "your first 12 monthly payments" (the approved wording); calendar date can move after a pause or failure | a fixed end date can be shown at signup | notices must be recomputed under P |
+| Abuse and cap integrity | needs the backstop (H) because committed positions are never recycled | bounded by construction | |
+| Fit with the approved policy text ("12 **paid** months") | literal | approximate; differs when interrupted | C would need a copy change to "12 months" |
+| Test burden | more scenarios (invoice classification, replay, out-of-order) but deterministic with period keys | fewer, plus boundary-date cases | |
+
+**Recommendation: H.** It is faithful to the approved "12 paid months", needs no date arithmetic for the count, keeps the Founder window fair when payments fail, and removes the one real downside of P (an unbounded window) with a documented 18-month backstop. If you prefer maximum predictability over literal "paid months", C is the simpler alternative at the cost of changing the public wording and penalising customers for interruptions.
+
+**Expiration enforcement proposed on H (for the design slice; not implemented):** the entitlement stores `first_paid_period_start`, `paid_period_count` and `backstop_end`. When the counter reaches 12 (or the backstop date passes), a transition moves the subscription item to the studio's Regular Price with **no proration** and the billing anchor unchanged, so only the next invoice changes. **It fails safe:** if Regular activation, its approval reference or the Regular Price configuration is absent, it records `transition_blocked`, alerts the owner and **leaves the subscription unchanged** (never cancels, never silently reprices, never charges an unapproved amount), then retries daily. The grandfathered row is excluded unconditionally. Notices at 60, 30 and 7 days before the projected end are recomputed whenever the projection moves.
+
+### 16.2 Remaining decisions, grouped, with recommendations
+
+**Group 1: position lifecycle and allocation integrity**
+
+| ID | Decision | Recommendation | Subscription integrity | Customer experience |
+|---|---|---|---|---|
+| D1 | When a position is **committed** | at the **first successful paid invoice** | cancelers in the trial never consume a position permanently; the cap counts real paying studios | studios that cancel in trial lose nothing |
+| D2 | What holds a position between checkout and first payment | a **trial hold** from subscription start, expiring at trial end + 3 days unless the first paid invoice arrives | the cap cannot be oversold by trials that later convert | the price promised at checkout is guaranteed through the trial |
+| D3 | Checkout reservation lifetime | reserve before creating the session; session `expires_at` and reservation expire together, **60 minutes** (Stripe minimum 30) | abandoned checkouts return the position quickly, released by webhook and sweeper | a studio that returns after an hour re-checks eligibility |
+| D4 (remainder) | Voiding a **committed** position | platform admin only, with a required reason (fraud, duplicate, internal/test), audited | positions are never recycled by churn | none |
+| D8 | Failed payment | keep the position through Stripe's retry schedule; if the subscription is canceled **before any paid invoice**, release; after paid periods, the position stays committed and the counter counts only paid periods | no free-riding on failed payments; no loss of committed positions on a late payment | normal dunning emails; no surprise price change |
+| D9 | Eligibility and duplicate rules | one Founder entitlement per studio, per Stripe customer and per verified owner user; evidence stored; any heavier verification (EIN, domain matching) is your call | stops duplicate studios taking several positions | minimal friction; extra checks only on suspicion |
+| D10 | Internal, test, comp, ambassador studios | explicitly excluded by a platform-set flag checked inside the reservation function | cannot consume a position even if they later check out | none |
+
+**Group 2: entitlement rules during the Founder period**
+
+| ID | Decision | Recommendation | Subscription integrity | Customer experience |
+|---|---|---|---|---|
+| D13 | Definition of "12 paid months" | **H** (§16.1) | counter keyed by billing period; backstop bounds the window | wording matches the approved policy |
+| D5 | Cancel and return | inside the window: resume the remaining paid periods at the Founder Price with **no new trial**; outside it: Regular | prevents trial abuse and gaming the cap by cancelling | fair to a studio that pauses or has a gap |
+| D7 | Plan change during the window | the Founder Price of the new tier applies; the counter and backstop do **not** reset; a switch to a Regular Price is not offered during the window. **Implication:** the Stripe portal configuration is account-wide, so if it lists Regular Prices a Founder studio could self-switch; plan changes for Founder studios should run through a DanceFlow-controlled flow with the portal listing no plan changes | the ledger stays consistent with the live Price | upgrades and downgrades keep the promotional treatment |
+| D16 | Promotion codes | disable `allow_promotion_codes` on studio subscription sessions (or allowlist specific coupons); no stacking on Founder | prevents discount stacking and $0-month ambiguity in the counter | a visible, intentional promotions policy instead of an open code box |
+
+**Group 3: transition and communications**
+
+| ID | Decision | Recommendation | Subscription integrity | Customer experience |
+|---|---|---|---|---|
+| D14 | Transition mechanism | application-driven, event-triggered, fail-safe (§16.1); Stripe schedules stay an alternative only if a test-mode proof shows portal compatibility | no unapproved repricing; a missing Regular approval leaves the Founder price in place and alerts you | no surprise charge; if Regular cannot be applied the studio simply keeps the lower price until fixed |
+| D15 | Notice cadence and channel | 60, 30 and 7 days before the projected end, by transactional email plus an in-app banner; the last notice states the Regular price and the monthly choice (annual only once approved) | notices are recomputed when the projection moves; every send is logged | plenty of time to decide; the price is never a surprise |
+| D19 | Legal wording | counsel review of Terms and checkout consent: 12 paid months, Regular price, notice period, how to cancel, trial terms, shown **before** the payment method is collected | the consent text matches what the system enforces | clear terms at the moment of commitment |
+
+**Group 4: operations and data**
+
+| ID | Decision | Recommendation | Subscription integrity | Customer experience |
+|---|---|---|---|---|
+| D20 | Seeding the grandfathered position and any other existing Founder positions | only **after** the §15.6 reconciliation is verified, as a one-time audited operation approved separately (hosted database write) | the ledger starts from verified truth | none |
+| New | Who runs the daily monitoring and where the log lives (§15) | owner or a delegate until the read-only script (if authorized) exists | counts come from authorized reads only | none |
+| D18 | Annual | stays a separate financial approval; not on the Founder critical path | an unguarded annual path stays refused (S0) until approved | no annual option appears until it is safe |
+
+Decisions I would settle first, in order: **D13 (H)**, then **D1/D2/D3** (they define the ledger states), then **D5/D7/D16**, then the communications group (D14/D15/D19). D8–D10 and D20 can follow with the ledger design.
 
 ## Standing non-claims
 
