@@ -107,7 +107,7 @@ describe.skipIf(!enabled)("TW-4F platform-admin AAL2 (SQL, real role switching)"
     expect(upd(AAL1).out).toBe("0");
     expect(upd({ sub: ADMIN }).out).toBe("0");
     // an aal1 admin cannot move a row it could not see either: the new-row check also needs aal2
-    expect(asClaims(AAL1, `update public.studio_sms_registrations set studio_id = '${STUDIO_NEW}' where studio_id = '${STUDIO}'`).out).not.toMatch(/^1$/);
+    expect(asClaims(AAL1, `with u as (update public.studio_sms_registrations set studio_id = '${STUDIO_NEW}' where studio_id = '${STUDIO}' returning 1) select count(*) from u`).out).toBe("0");
     expect(admin(`select count(*) from public.studio_sms_registrations where studio_id = '${STUDIO}'`)).toBe("1");
   });
 
@@ -124,7 +124,10 @@ describe.skipIf(!enabled)("TW-4F platform-admin AAL2 (SQL, real role switching)"
       expect(denied(asClaims({ sub: PLAIN, aal: "aal2" }, call)), `non-admin ${call}`).toBe(true);
       expect(asClaims(AAL2, call).ok, `aal2 ${call}`).toBe(true);
     }
-    // the refused aal1 call wrote nothing
+    // the effect is visible inside the same transaction: aal2 writes the access row, the refused aal1 call does not get that far
+    const writes = (who: Claims) => asClaims(who, `select public.set_sms_onboarding_access('${STUDIO}'::uuid, true, 'ConfiDance pilot (local e2e)'); select count(*) from public.studio_sms_onboarding_access where studio_id = '${STUDIO}'`);
+    expect(writes(AAL2).out).toBe("1");
+    expect(denied(writes(AAL1))).toBe(true);
     expect(admin(`select count(*) from public.studio_sms_onboarding_access where studio_id = '${STUDIO}'`)).toBe("0");
   });
 

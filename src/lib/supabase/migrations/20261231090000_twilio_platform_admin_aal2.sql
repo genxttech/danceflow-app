@@ -53,8 +53,11 @@ with check (
 -- postcondition: exactly the three policies, each requiring aal2
 do $$ begin
   if (select count(*) from pg_policies where schemaname='public' and tablename='studio_sms_registrations') <> 3
-     or exists (select 1 from pg_policies where schemaname='public' and tablename='studio_sms_registrations'
-                and coalesce(qual,'') || coalesce(with_check,'') not like '%aal2%') then
+     or (select count(*) from pg_policies where schemaname='public' and tablename='studio_sms_registrations'
+         and policyname in ('Platform admins read studio sms registrations','Platform admins create studio sms registrations','Platform admins update studio sms registrations')
+         and roles = '{authenticated}'
+         and ((cmd = 'SELECT' and qual like '%''aal''%aal2%') or (cmd = 'INSERT' and with_check like '%''aal''%aal2%')
+              or (cmd = 'UPDATE' and qual like '%''aal''%aal2%' and with_check like '%''aal''%aal2%'))) <> 3 then
     raise exception 'TW4F_AAL2_POSTCONDITION: studio_sms_registrations policies are not exactly the three aal2 policies';
   end if;
 end $$;
