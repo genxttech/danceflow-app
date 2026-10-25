@@ -34,6 +34,63 @@ Note (DEV sandbox only): my own local test on 2026-10-24 created and deleted two
 Founder Price (`price_1TdKDz…`, canceled, no charge). That does not affect the live account, but that sandbox Price is
 "used" there.
 
+## Two price tiers: do not confuse them
+
+| Tier | Starter | Growth | Pro | Status |
+|---|---|---|---|---|
+| **Founder** | $59 | $99 | $159 | **Approved for the upcoming release.** Shown and charged by the release build. |
+| **Regular** (provisional) | $89 | $149 | $249 | **Prepared in Stripe only. Inactive in DanceFlow. Not approved for customers.** |
+
+Regular pricing stays OFF in DanceFlow. In this release: `REGULAR_PRICING_ACTIVATED` is not set, `REGULAR_PRICING_APPROVAL_REF`
+is not set, no `…_STANDARD` Price ID is added or changed in any environment, no regular price is shown on any page, and
+checkout behavior is unchanged. Editing a Regular Price in Stripe is a Stripe-only change with no effect on DanceFlow while
+those gates hold.
+
+### Regular Price preparation (owner, Stripe Dashboard, Live mode — Stripe-only, no DanceFlow change)
+
+Owner report (2026-10-24): none of the existing Regular subscription Prices has ever been used for a purchase, and Stripe
+permits editing them while preserving the Price IDs. I have not seen the live account and cannot verify this myself.
+
+Steps (same stop rules as Founder: if an edit is refused, the Price ID changes, or a Price shows any subscription or payment,
+**stop and report the exact message**):
+1. Confirm Live mode and account `acct_1TKgL3EY0sTayNiS`.
+2. For each of *Studio Starter*, *Studio Growth*, *Studio Pro* (the Regular Products, not the Founder Products): open the existing
+   monthly Price, write down its Price ID, Product, amount, currency, interval and the Subscriptions/Payments counts (must be 0 / 0).
+3. Edit amount: Starter **89.00**, Growth **149.00**, Pro **249.00**; currency **USD**; billing period **Monthly**. Save.
+4. Re-open each Price: the Price ID must be identical to step 2. Stop if not.
+5. Do not edit anything else (no Founder Price, no subscription, customer, coupon or invoice).
+
+Verification checklist (send me Price IDs and non-secret evidence; I record them here):
+
+| Check | Regular Starter | Regular Growth | Regular Pro |
+|---|---|---|---|
+| Attached to the existing Regular Product (not a Founder Product) | ☐ | ☐ | ☐ |
+| Amount | $89.00 | $149.00 | $249.00 |
+| Currency USD | ☐ | ☐ | ☐ |
+| Recurring every 1 month | ☐ | ☐ | ☐ |
+| Live mode | ☐ | ☐ | ☐ |
+| Price ID unchanged from before the edit | ☐ | ☐ | ☐ |
+| Subscriptions / payments still 0 | ☐ | ☐ | ☐ |
+| Active | ☐ | ☐ | ☐ |
+
+These amounts equal `provisionalRegularAmountMonthlyCents` in `plans.ts` (8900 / 14900 / 24900), which the release build's
+checkout compares against the Stripe Price before any session is created, so a later activation cannot silently charge a
+different amount.
+
+### Why preparing Regular Prices cannot reach customers (and the one exposure to close first)
+
+- **Release build:** studio checkout selects the Founder Price only while Founder pricing is active. A non-Founder offer is
+  refused unless `REGULAR_PRICING_ACTIVATED=true` **and** a non-empty `REGULAR_PRICING_APPROVAL_REF` are both set; neither exists.
+  The regular price is also hidden from every page. Yearly and Organizer checkout are unchanged.
+- **Currently deployed build (`8fd075f5`, until the release is promoted):** checkout falls back to
+  `STRIPE_PRICE_STUDIO_<PLAN>_STANDARD` when Founder pricing is off or the Founder Price env var is missing, and it does **not**
+  verify the Price amount. Its pages still describe the old copy. So before the Regular Prices are edited, confirm in Vercel
+  Production (names and scope only, no secret values): `FOUNDER_PRICING_ACTIVE` is **not** set to `false`, and the three
+  `STRIPE_PRICE_STUDIO_*_FOUNDER` variables exist in Production. If either is not true, do not edit the Regular Prices until it is
+  fixed, or the live app could send a new customer to a $89/$149/$249 checkout under old copy.
+- Later activation (not authorized) additionally needs: owner approval reference, the `…_STANDARD` env Price IDs set to the
+  Regular Price IDs, `FOUNDER_PRICING_ACTIVE=false` to end Founder pricing, and a new release with its own smoke test.
+
 ## Step 0 — Identify the Stripe account production uses (owner; no secrets shared)
 
 Goal: prove which Stripe account and mode the deployed app (www.idanceflow.com) uses. Never paste a secret key (`sk_`,
@@ -204,7 +261,8 @@ by other means.
 - [x] Step 0 account identity: `acct_1TKgL3EY0sTayNiS` live, publishable-key prefix matches (owner evidence)
 - [ ] Deployed app confirmed on that account: webhook delivery 200s and API key last-used (owner checks 1–3 above)
 - [ ] Dashboard confirms Starter and Growth edits keep their Price IDs (else stop)
-- [ ] Step 1 verification checklist passed
+- [ ] Step 1 Founder verification checklist passed
+- [ ] Regular Price edits (Stripe-only) verified by the checklist above, IDs unchanged, and Production `FOUNDER_PRICING_ACTIVE`/Founder env confirmed first
 - [ ] Existing Pro subscription metadata checked and LEGACY env value decided
 - [x] #319 independently reviewed and merged to `main` (`d5786295`); release candidate re-verified with the exact reviewed code (256 tests, `tsc` clean, local)
 - [ ] Live Stripe portal configuration read (plan switching on/off)
