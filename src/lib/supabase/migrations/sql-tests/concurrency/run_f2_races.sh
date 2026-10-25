@@ -48,7 +48,7 @@ insert into public.event_competition_programs (id, event_id, studio_id, name, di
 insert into public.event_competition_contests (id, event_id, program_id, name, contest_type, entry_format, status) values ('$(U 62)','$EV','$(U 61)','C','single_dance','pro_am','open');
 SQL
 # rounds 1..6 (A, A2, B, B2, C, D): division U(7i), round U(8i), entries U(9i1..9i3), heat U(di)
-for i in 1 2 3 4 5 6; do
+for i in 1 2 3 4 5 6 7; do
 SU <<SQL
 insert into public.event_competition_divisions (id, event_id, program_id, contest_id, name, status) values ('$(U 7$i)','$EV','$(U 61)','$(U 62)','D$i','open');
 insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method)
@@ -61,7 +61,7 @@ done
 SU <<SQL
 set session_replication_role = replica;
 insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status, published_at) values ('$(U c1)','$EV',1,'v1','published',now());
-$(for i in 1 2 3 4 5 6; do echo "insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, contest_id, schedule_version_id, status) values ('$(U d$i)','$EV','$(U 7$i)','$(U 8$i)',$i,'$(U 62)','$(U c1)','scheduled');
+$(for i in 1 2 3 4 5 6 7; do echo "insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, contest_id, schedule_version_id, status) values ('$(U d$i)','$EV','$(U 7$i)','$(U 8$i)',$i,'$(U 62)','$(U c1)','scheduled');
 insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order) values ('$EV','$(U 7$i)','$(U d$i)','$(U 9${i}1)',1),('$EV','$(U 7$i)','$(U d$i)','$(U 9${i}2)',2),('$EV','$(U 7$i)','$(U d$i)','$(U 9${i}3)',3);"; done)
 set session_replication_role = origin;
 SQL
@@ -70,14 +70,14 @@ $(as_user "$MGR1")
 select public.add_competition_official('$EV','$J1','judge','$(U f001)');
 select public.add_competition_official('$EV','$J2','judge','$(U f002)');
 select public.add_competition_official('$EV','$J3','judge','$(U f003)');
-$(for i in 1 2 3 4 5 6; do echo "select public.assign_competition_panel_member('$(U 8$i)', (select id from public.event_competition_officials where event_id='$EV' and user_id='$J1'), 'A', '$(U f1$i)');
+$(for i in 1 2 3 4 5 6 7; do echo "select public.assign_competition_panel_member('$(U 8$i)', (select id from public.event_competition_officials where event_id='$EV' and user_id='$J1'), 'A', '$(U f1$i)');
 select public.assign_competition_panel_member('$(U 8$i)', (select id from public.event_competition_officials where event_id='$EV' and user_id='$J2'), 'B', '$(U f2$i)');
 select public.assign_competition_panel_member('$(U 8$i)', (select id from public.event_competition_officials where event_id='$EV' and user_id='$J3'), 'C', '$(U f3$i)');"; done)
 SQL
 SU <<SQL
 do \$\$
 begin
-  if to_regprocedure('public.pin_competition_round_scoring(uuid)') is not null then
+  if true then
     set local session_replication_role = replica;
     update public.event_competition_programs set rules_profile_key = 'studio_simple', rules_profile_version = 1, profile_locked_at = now() where event_id = '$EV';
     insert into public.event_competition_program_locks (program_id, event_id, rules_profile_key, rules_profile_version, snapshot, locked_at)
@@ -115,8 +115,8 @@ status_of() { SU -c "select status from public.event_competition_rounds where id
 nver() { SU -c "select count(*) from public.event_competition_result_versions where round_id='$(U 8$1)'"; }
 vstat() { SU -c "select string_agg(status, ',' order by version) from public.event_competition_result_versions where round_id='$(U 8$1)'"; }
 
-for i in 1 2 3 4 5 6; do prep "$i"; done
-ok "fixture: six rounds ballots_locked" $([ "$(SU -c "select count(*) from public.event_competition_rounds where event_id='$EV' and status='ballots_locked'")" = "6" ] && echo 1 || echo 0)
+for i in 1 2 3 4 5 6 7; do prep "$i"; done
+ok "fixture: seven rounds ballots_locked" $([ "$(SU -c "select count(*) from public.event_competition_rounds where event_id='$EV' and status='ballots_locked'")" = "7" ] && echo 1 || echo 0)
 
 # ------------------------------------------------------------- A: double calculate, different request ids
 ( SUN <<SQL
@@ -292,6 +292,40 @@ ok "D: the submit waited for the approval (>=1800ms, was ${EL}ms)" $([ "$EL" -ge
 ok "D: the submit was refused (round not active)" $(echo "$D_OUT" | grep -q 'COMP_BALLOT_ROUND_NOT_ACTIVE' && echo 1 || echo 0)
 ok "D: no ballot slipped in, version approved, round approved" $([ "$(SU -c "select count(*) from public.event_competition_ballots where round_id='$(U 85)'")" = "3" ] && [ "$(vstat 5)" = "approved" ] && [ "$(status_of 5)" = "approved" ] && echo 1 || echo 0)
 ok "D: the approved version still matches the ballots (hash binding intact)" $([ "$(SU -c "select v.input_hash = public._compf2_input_hash(v.round_id, v.engine_key, v.engine_version) from public.event_competition_result_versions v where v.id='$VID5'")" = "t" ] && echo 1 || echo 0)
+
+# ------------------------------------------------------------- E: E2 reopen vs correction-open (round 7, approved)
+SU <<SQL
+$(as_user "$MGR1")
+$(calc_sql 7 "$(U e701)")
+SQL
+VID7=$(SU -c "select id from public.event_competition_result_versions where round_id='$(U 87)' and version=1")
+SU <<SQL
+$(as_user "$MGR2")
+select public.approve_competition_round_result('$(U 87)','$VID7',null,'$(U e702)');
+SQL
+( SUN <<SQL
+$(as_user "$MGR1")
+begin;
+select public.open_competition_round_correction('$(U 87)','race: open correction','$(U e703)');
+select pg_sleep(4);
+commit;
+SQL
+) > /tmp/f2_e1.out 2>&1 &
+P1=$!
+sleep 1.5
+T0=$(now_ms)
+E_OUT=$(SUN <<SQL 2>&1
+$(as_user "$MGR1")
+select public.reopen_competition_round_ballots('$(U 87)','race: abandon the correction','$(U e704)');
+SQL
+)
+T1=$(now_ms); wait $P1
+EL=$((T1-T0))
+echo "E: reopen took ${EL}ms -> $E_OUT"
+ok "E: the E2 reopen waited for the correction to commit (>=1800ms, was ${EL}ms)" $([ "$EL" -ge 1800 ] && echo 1 || echo 0)
+ok "E: the E2 reopen was refused while the correction is unresolved" $(echo "$E_OUT" | grep -q 'COMPF2_CORRECTION_REOPEN' && echo 1 || echo 0)
+ok "E: round 7 is still ballots_locked with correction_open and the version stale (never restored)" $([ "$(status_of 7)" = "ballots_locked" ] && [ "$(SU -c "select correction_open from public.event_competition_rounds where id='$(U 87)'")" = "t" ] && [ "$(vstat 7)" = "stale" ] && echo 1 || echo 0)
+ok "E: no approved version exists for round 7 until recalculation and reapproval" $([ "$(SU -c "select count(*) from public.event_competition_result_versions where round_id='$(U 87)' and status='approved'")" = "0" ] && echo 1 || echo 0)
 
 # ------------------------------------------------------------- Z: SQL evidence hash == TypeScript evidence hash (round 6)
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../../../../../.." && pwd)"

@@ -22,9 +22,8 @@
 -- golden vector shared with the SQL suite); calculate/approve refuse when the stored hash is not the hash of the
 -- current ballots (COMP_RESULT_STALE). trace_hash is recomputed here with the same canonicalizer (engines must keep trace numbers out of exponent form, where
 -- JavaScript and jsonb text differ; a mismatch fails closed). The trace itself is stored so anyone can recompute it.
--- Engine pin. REG (method registry) is not merged: _compf2_engine_pin is the single function to replace. Until then only
--- ordinal_majority -> studio_ordinal_majority@1 and callback_tally -> studio_callback_tally@1 are accepted; every other
--- scoring method fails closed (COMP_ENGINE_NOT_AVAILABLE).
+-- Engine pin. REG (20270113) is required: _compf2_engine_pin reads competition_round_scoring_effective_internal and a round
+-- calculates only when the reader says it is selectable (pinned and approved). There is no fallback (COMP_ENGINE_NOT_AVAILABLE).
 --
 -- Correction extension of E2 (its header says "F2's correction path may relax that when it exists"). E2 accepts ballots
 -- only while a round is `active`. K0 section 4 corrections run calculated|approved|published -> ballots_locked and then
@@ -71,6 +70,11 @@ begin
   if md5(replace(pg_get_functiondef('public._compe2_guard_ballot_insert()'::regprocedure), E'\r', '')) <> 'bf42705de4337864940a6f73b54afda9'
      or md5(replace(pg_get_functiondef('public._compe2_insert_ballot(uuid,uuid,uuid,uuid,text,uuid,jsonb,text,uuid)'::regprocedure), E'\r', '')) <> 'f28880cece349cd1a52179f89ccf2e7c' then
     raise exception 'F2 preflight: E2 function bodies differ from the pinned #331 text; coordinate before changing them.';
+  end if;
+  -- REG (20270113) is a hard requirement: the scoring pin reader is the only authority for which engine may calculate a round.
+  if to_regprocedure('public.competition_round_scoring_effective_internal(uuid)') is null
+     or to_regprocedure('public.pin_competition_round_scoring(uuid)') is null then
+    raise exception 'F2 preflight: REG scoring registry (20270113) is missing.';
   end if;
   if to_regprocedure('public.set_competition_heat_lock_state(uuid,text,text)') is null
      or to_regprocedure('public.can_manage_event_competition(uuid)') is null
@@ -234,9 +238,8 @@ begin
     end if;
   elsif new.status = 'stale' then
     if not exists (select 1 from public.event_competition_result_events e
-                   where e.round_id = old.round_id and e.event_id = old.event_id
-                     and e.kind in ('result_invalidated', 'round_state_changed') and e.transaction_id = txid_current()
-                     and e.refs -> 'version_ids' ? old.id::text) then
+                   where e.result_version_id = old.id and e.event_id = old.event_id
+                     and e.kind = 'result_invalidated' and e.to_state = 'stale' and e.transaction_id = txid_current()) then
       raise exception 'COMPF2_VERSION_WRITER: invalidation needs its audit row in the same transaction.' using errcode = '42501';
     end if;
   else
@@ -451,10 +454,9 @@ as $$
 $$;
 revoke all on function public._compf2_sha256(text) from public, anon, authenticated, service_role;
 
--- The single place that decides which engine may calculate a round.
--- REG (20270113) present: its internal reader competition_round_scoring_effective_internal(round) (same shape as the manager-only public reader, no caller check, not executable by API roles) is authoritative, and a round calculates only
--- when it is `selectable` (pinned AND approved); anything the reader cannot answer fails closed. REG absent: the allow-list of the two
--- approved Studio methods (ordinal_majority -> studio_ordinal_majority@1, callback_tally -> studio_callback_tally@1).
+-- The single place that decides which engine may calculate a round: REG's internal reader (same shape as the manager-only public
+-- reader, no caller check, not executable by API roles). A round calculates only when it is `selectable` (pinned AND approved);
+-- anything the reader cannot answer fails closed. There is no fallback.
 create function public._compf2_engine_pin(p_round_id uuid)
 returns table(engine_key text, engine_version text)
 language plpgsql
@@ -463,25 +465,15 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  if to_regprocedure('public.competition_round_scoring_effective_internal(uuid)') is not null then
-    begin
-      return query execute
-        'select split_part(e.engine_id, ''@'', 1), split_part(e.engine_id, ''@'', 2)
-         from public.competition_round_scoring_effective_internal($1) e
-         where e.selectable is true and e.engine_id is not null and position(''@'' in e.engine_id) > 1'
-        using p_round_id;
-    exception when others then
-      return;
-    end;
+  begin
+    return query execute
+      'select split_part(e.engine_id, ''@'', 1), split_part(e.engine_id, ''@'', 2)
+       from public.competition_round_scoring_effective_internal($1) e
+       where e.selectable is true and e.engine_id is not null and position(''@'' in e.engine_id) > 1'
+      using p_round_id;
+  exception when others then
     return;
-  end if;
-  return query
-  select v.engine_key, v.engine_version
-  from public.event_competition_rounds r
-  join (values ('ordinal_majority', 'studio_ordinal_majority', '1'),
-               ('callback_tally', 'studio_callback_tally', '1')) v(scoring, engine_key, engine_version)
-    on v.scoring = r.scoring_method
-  where r.id = p_round_id;
+  end;
 end;
 $$;
 revoke all on function public._compf2_engine_pin(uuid) from public, anon, authenticated, service_role;
@@ -550,25 +542,48 @@ as $$
 $$;
 revoke all on function public._compf2_event(uuid, uuid, uuid, text, uuid, text, text, uuid, text, jsonb) from public, anon, authenticated, service_role;
 
--- A new ballot version makes every unpublished result version of its round stale (K0 section 4, invalidation).
+-- Invalidation (K0 section 4): every live version of the round becomes stale, each with its own append-only result_invalidated row
+-- (scope, round, version, reason, actor, time, causal action). Stale never goes back: no edge leaves 'stale' except superseded, so a
+-- result is restored only by recalculation and reapproval.
+create function public._compf2_invalidate_versions(p_round_id uuid, p_actor uuid, p_reason text, p_cause jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_round public.event_competition_rounds;
+  v_scope jsonb;
+  v record;
+  v_ids jsonb := '[]'::jsonb;
+begin
+  select * into v_round from public.event_competition_rounds r where r.id = p_round_id;
+  select jsonb_build_object('studio_id', ev.studio_id, 'organizer_id', ev.organizer_id, 'event_id', v_round.event_id,
+                            'program_id', v_round.program_id, 'division_id', v_round.division_id)
+    into v_scope from public.events ev where ev.id = v_round.event_id;
+  for v in select * from public.event_competition_result_versions x
+           where x.round_id = p_round_id and x.event_id = v_round.event_id and x.status in ('calculated', 'approved') order by x.version
+  loop
+    perform public._compf2_event(v_round.event_id, p_round_id, v.id, 'result_invalidated', p_actor, v.status, 'stale', gen_random_uuid(), p_reason,
+      p_cause || v_scope || jsonb_build_object('version', v.version, 'input_hash', v.input_hash, 'was_approved', v.status = 'approved'));
+    update public.event_competition_result_versions set status = 'stale' where id = v.id;
+    v_ids := v_ids || to_jsonb(v.id);
+  end loop;
+  return v_ids;
+end;
+$$;
+revoke all on function public._compf2_invalidate_versions(uuid, uuid, text, jsonb) from public, anon, authenticated, service_role;
+
+-- A new ballot version makes every unpublished result version of its round stale.
 create function public._compf2_invalidate_on_ballot()
 returns trigger
 language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
-declare
-  v_ids jsonb;
 begin
-  select coalesce(jsonb_agg(v.id order by v.version), '[]'::jsonb) into v_ids
-  from public.event_competition_result_versions v
-  where v.round_id = new.round_id and v.event_id = new.event_id and v.status in ('calculated', 'approved');
-  if jsonb_array_length(v_ids) > 0 then
-    perform public._compf2_event(new.event_id, new.round_id, null, 'result_invalidated', new.submitted_by, null, null, gen_random_uuid(),
-      null, jsonb_build_object('version_ids', v_ids, 'ballot_id', new.id, 'ballot_version', new.version));
-    update public.event_competition_result_versions v set status = 'stale'
-    where v.round_id = new.round_id and v.event_id = new.event_id and v.status in ('calculated', 'approved');
-  end if;
+  perform public._compf2_invalidate_versions(new.round_id, new.submitted_by, 'new ballot version',
+    jsonb_build_object('cause', 'ballot_version', 'ballot_id', new.id, 'ballot_version', new.version, 'official_id', new.official_id));
   return null;
 end;
 $$;
@@ -1094,12 +1109,10 @@ begin
       using errcode = 'P0001';
   end if;
 
-  select coalesce(jsonb_agg(v.id order by v.version), '[]'::jsonb) into v_ids
-  from public.event_competition_result_versions v where v.round_id = p_round_id and v.status in ('calculated', 'approved');
+  v_ids := public._compf2_invalidate_versions(p_round_id, v_uid, v_reason,
+    jsonb_build_object('cause', 'correction_opened', 'request_id', p_request_id));
   perform public._compf2_event(v_round.event_id, p_round_id, null, 'round_state_changed', v_uid, v_round.status, 'ballots_locked', p_request_id, v_reason,
     jsonb_build_object('correction', true, 'version_ids', v_ids, 'actor_role', v_role));
-  update public.event_competition_result_versions v set status = 'stale'
-  where v.round_id = p_round_id and v.status in ('calculated', 'approved');
   update public.event_competition_rounds set status = 'ballots_locked', updated_at = now() where id = p_round_id;
   return jsonb_build_object('replayed', false, 'round_id', p_round_id, 'status', 'ballots_locked', 'invalidated_version_ids', v_ids);
 end;

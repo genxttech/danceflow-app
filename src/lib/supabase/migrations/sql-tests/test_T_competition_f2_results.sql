@@ -281,7 +281,10 @@ set session_replication_role = origin;
 -- When REG (20270113) is present, programs must be profiled, locked and pinned for a reader answer (as publish would do).
 do $$
 begin
-  if to_regprocedure('public.pin_competition_round_scoring(uuid)') is not null then
+  if to_regprocedure('public.pin_competition_round_scoring(uuid)') is null then
+    raise exception 'F2 suite needs REG 20270113 (pin_competition_round_scoring)';
+  end if;
+  if true then
     set local session_replication_role = replica;
     update public.event_competition_programs set rules_profile_key = 'studio_simple', rules_profile_version = 1, profile_locked_at = now();
     insert into public.event_competition_program_locks (program_id, event_id, rules_profile_key, rules_profile_version, snapshot, locked_at)
@@ -564,10 +567,16 @@ set session_replication_role = replica;
 update public.event_competition_rounds set status = 'active' where id = pg_temp.rid(6);
 set session_replication_role = origin;
 select pg_temp.submit_as('000011', 6, '[3,2,1]', 'judge changed their mind');
-select pg_temp.chk('the calculated r6 version went stale with an invalidation audit row naming the ballot',
+select pg_temp.chk('the calculated r6 version went stale with ONE append-only invalidation row: tenant/competition scope, round, version, reason, actor, time and the causal ballot',
   pg_temp.vstatus(6, 1) = 'stale'
-  and (select count(*) = 1 and bool_and(refs -> 'version_ids' ? pg_temp.vid(6, 1)::text and refs ? 'ballot_id')
+  and (select count(*) = 1 and bool_and(result_version_id = pg_temp.vid(6, 1) and round_id = pg_temp.rid(6) and event_id = pg_temp.u('00e001')
+            and reason = 'new ballot version' and actor_user_id = pg_temp.u('000011') and occurred_at is not null
+            and from_state = 'calculated' and to_state = 'stale'
+            and refs ->> 'cause' = 'ballot_version' and (refs ->> 'ballot_id')::uuid = (select id from public.event_competition_ballots where round_id = pg_temp.rid(6) and version = 2)
+            and refs ->> 'studio_id' = pg_temp.u('00a001')::text and refs ->> 'program_id' = pg_temp.u('001001')::text and refs ->> 'division_id' is not null)
        from public.event_competition_result_events where round_id = pg_temp.rid(6) and kind = 'result_invalidated'));
+select pg_temp.expect_msg('invalidation never restores: a stale version cannot go back to calculated', format($q$update public.event_competition_result_versions set status = 'calculated' where id = %L$q$, pg_temp.vid(6, 1)), 'COMPF2_VERSION_EDGE');
+select pg_temp.expect_msg('invalidation never restores: a stale version cannot be approved directly', format($q$update public.event_competition_result_versions set status = 'approved' where id = %L$q$, pg_temp.vid(6, 1)), 'COMPF2_VERSION_EDGE');
 select pg_temp.as_user(pg_temp.u('000002'));
 select pg_temp.expect_msg('a stale version cannot be approved', $q$select pg_temp.approve(6, 1)$q$, 'COMP_RESULT_INVALID_TRANSITION');
 reset role;
@@ -609,6 +618,13 @@ select pg_temp.chk('one round_state_changed correction audit row with reason, fr
   (select count(*) = 1 and bool_and(reason = 'judge 2 mis-ranked heat 1' and from_state = 'approved' and to_state = 'ballots_locked'
                                     and (refs ->> 'correction')::boolean and refs -> 'version_ids' ? pg_temp.vid(1, 1)::text)
    from public.event_competition_result_events where round_id = pg_temp.rid(1) and kind = 'round_state_changed' and to_state = 'ballots_locked'));
+select pg_temp.chk('the correction wrote one result_invalidated row for the formerly approved version: reason = the correction reason, actor = A1, cause = correction_opened, was_approved',
+  (select count(*) = 1 and bool_and(reason = 'judge 2 mis-ranked heat 1' and actor_user_id = pg_temp.u('000001') and from_state = 'approved' and to_state = 'stale'
+            and refs ->> 'cause' = 'correction_opened' and (refs ->> 'was_approved')::boolean and (refs ->> 'request_id') = pg_temp.u('f30003')::text and refs ->> 'studio_id' is not null)
+   from public.event_competition_result_events where result_version_id = pg_temp.vid(1, 1) and kind = 'result_invalidated'));
+select pg_temp.expect_msg('invalidation never restores an approved result (stale -> approved)', format($q$update public.event_competition_result_versions set status = 'approved' where id = %L$q$, pg_temp.vid(1, 1)), 'COMPF2_VERSION_EDGE');
+select pg_temp.expect_msg('invalidation never restores an approved result (stale -> calculated)', format($q$update public.event_competition_result_versions set status = 'calculated' where id = %L$q$, pg_temp.vid(1, 1)), 'COMPF2_VERSION_EDGE');
+select pg_temp.chk('while the correction is open the round has no approved version at all', not exists (select 1 from public.event_competition_result_versions where round_id = pg_temp.rid(1) and status = 'approved'));
 select pg_temp.as_user(pg_temp.u('000002'));
 select pg_temp.expect_msg('the stale version cannot be approved', $q$select pg_temp.approve(1, 1)$q$, 'COMP_RESULT_INVALID_TRANSITION');
 reset role;
@@ -689,7 +705,7 @@ select pg_temp.chk('the limit is clamped to [1, 1000]',
   (select count(*) = 1 from public.competition_audit_log(pg_temp.u('00e001'), null, 0)) and (select count(*) <= 1000 from public.competition_audit_log(pg_temp.u('00e001'), null, 100000)));
 select pg_temp.chk('the unified audit includes result_calculated, approval, override and correction rows',
   (select count(*) filter (where kind = 'result_calculated') >= 4 and count(*) filter (where kind = 'result_approved') >= 2
-          and count(*) filter (where kind = 'result_approval_override') = 1 and count(*) filter (where kind = 'result_invalidated') = 1
+          and count(*) filter (where kind = 'result_approval_override') = 1 and count(*) filter (where kind = 'result_invalidated') = 3
           and count(*) filter (where kind = 'round_state_changed' and source = 'results') >= 2
    from public.competition_audit_log(pg_temp.u('00e001'), null, 1000)));
 reset role;
@@ -773,39 +789,21 @@ select pg_temp.chk('r5 still holds its open correction', pg_temp.rstatus(5) = 'b
 -- ============================================================================
 -- 14b. REG pin reader (20270113) is authoritative when present; the allow-list is the fallback when absent
 -- ============================================================================
-do $t$
-begin
-  if to_regprocedure('public.competition_round_scoring_effective_internal(uuid)') is not null then
-    -- REG is installed: its internal reader is authoritative.
-    perform pg_temp.chk('REG reader path: a pinned, approved ordinal round pins studio_ordinal_majority@1',
-      (select engine_key || '@' || engine_version from public._compf2_engine_pin(pg_temp.rid(1))) = 'studio_ordinal_majority@1');
-    perform pg_temp.chk('REG reader path: the proficiency round (no approved engine) fails closed',
-      not exists (select 1 from public._compf2_engine_pin(pg_temp.rid(7))));
-  else
-    perform pg_temp.chk('fallback path (no REG reader): allow-list pins ordinal_majority only',
-      (select engine_key || '@' || engine_version from public._compf2_engine_pin(pg_temp.rid(1))) = 'studio_ordinal_majority@1'
-      and not exists (select 1 from public._compf2_engine_pin(pg_temp.rid(7))));
-    -- A stand-in for REG's internal reader: r1 selectable, r2 pinned-but-not-approved, r7 selectable callback.
-    execute $f$create function public.competition_round_scoring_effective_internal(p_round_id uuid)
-      returns table(method_key text, method_version text, resolution text, registry_status text, engine_id text, selectable boolean, pinned boolean, sanctioning text)
-      language sql stable as $g$
-        select 'm', '1', 'division', 'approved',
-               case when p_round_id = pg_temp.rid(7) then 'studio_callback_tally@1' else 'studio_ordinal_majority@1' end,
-               p_round_id <> pg_temp.rid(2), true, 'none'
-      $g$$f$;
-    perform pg_temp.chk('reader path: a selectable round pins the reader''s engine',
-      (select engine_key || '@' || engine_version from public._compf2_engine_pin(pg_temp.rid(1))) = 'studio_ordinal_majority@1');
-    perform pg_temp.chk('reader path: the reader overrides the allow-list (proficiency round r7 pins callback)',
-      (select engine_key || '@' || engine_version from public._compf2_engine_pin(pg_temp.rid(7))) = 'studio_callback_tally@1');
-    perform pg_temp.chk('reader path: a pinned but not selectable round (r2) fails closed though its method is on the allow-list',
-      not exists (select 1 from public._compf2_engine_pin(pg_temp.rid(2))));
-    drop function public.competition_round_scoring_effective_internal(uuid);
-    execute $f$create function public.competition_round_scoring_effective_internal(p_round_id uuid) returns table(x int) language sql as $g$ select 1 $g$$f$;
-    perform pg_temp.chk('reader path: a reader with an unexpected shape fails closed', not exists (select 1 from public._compf2_engine_pin(pg_temp.rid(1))));
-    drop function public.competition_round_scoring_effective_internal(uuid);
-    perform pg_temp.chk('fallback restored after the stand-in is dropped', exists (select 1 from public._compf2_engine_pin(pg_temp.rid(1))));
-  end if;
-end $t$;
+select pg_temp.chk('REG is installed and its internal reader is not executable by API roles',
+  to_regprocedure('public.competition_round_scoring_effective_internal(uuid)') is not null
+  and not has_function_privilege('anon', 'public.competition_round_scoring_effective_internal(uuid)', 'execute')
+  and not has_function_privilege('authenticated', 'public.competition_round_scoring_effective_internal(uuid)', 'execute'));
+select pg_temp.chk('the pin comes from the REG reader: a pinned, approved ordinal round pins studio_ordinal_majority@1',
+  (select engine_key || '@' || engine_version from public._compf2_engine_pin(pg_temp.rid(1))) = 'studio_ordinal_majority@1');
+select pg_temp.chk('the proficiency round (no approved engine) fails closed',
+  not exists (select 1 from public._compf2_engine_pin(pg_temp.rid(7))));
+-- Replica mode skips REG's pin_competition_late_round trigger, leaving this round unpinned.
+set session_replication_role = replica;
+insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method)
+values (pg_temp.rid(12), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.did(1), 'R12 unpinned', 'final', 5, 'draft', 'ordinal_majority');
+set session_replication_role = origin;
+select pg_temp.chk('there is no fallback: a round with no pin fails closed even though its scoring method is ordinal_majority',
+  not exists (select 1 from public.event_competition_scoring_pins where round_id = pg_temp.rid(12)) and not exists (select 1 from public._compf2_engine_pin(pg_temp.rid(12))));
 
 -- ============================================================================
 -- 15. Cascades: deleting event B removes nothing of F2 (none there); event A is protected by 10A

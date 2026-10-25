@@ -67,6 +67,7 @@ drop trigger if exists compf2_guard_ballot_order on public.event_competition_bal
 drop function if exists public._compf2_guard_ballot_order();
 drop trigger if exists compf2_invalidate_on_ballot on public.event_competition_ballots;
 drop function if exists public._compf2_invalidate_on_ballot();
+drop function if exists public._compf2_invalidate_versions(uuid, uuid, text, jsonb);
 drop trigger if exists compf2_guard_round_status on public.event_competition_rounds;
 drop function if exists public._compf2_guard_round_status();
 
