@@ -548,6 +548,7 @@ select pg_temp.as_user(pg_temp.u('000014'));
 select pg_temp.chk('a judge marked present is no longer absent on their sheet', (public.competition_judge_ballot_sheet(pg_temp.u('006005')) ->> 'absent')::boolean = false);
 select pg_temp.as_user(pg_temp.u('000017'));
 select pg_temp.expect_ok('the chair records judge 4 absent again (final state before the lock)', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'Flight cancelled', %L)$q$, pg_temp.u('006005'), pg_temp.off('00e001','000014'), pg_temp.u('f24013')));
+select pg_temp.expect_msg('replaying an attendance request id with a different status is refused', format($q$select public.record_competition_judge_attendance(%L, %L, 'present', null, %L)$q$, pg_temp.u('006005'), pg_temp.off('00e001','000014'), pg_temp.u('f24013')), 'COMP_REQUEST_REUSED');
 reset role;
 select pg_temp.chk('attendance history is insert-only with audit', pg_temp.n($q$select count(*) from public.event_competition_judge_attendance$q$) = 3
   and pg_temp.n($q$select count(*) from public.event_competition_ballot_events where kind in ('judge_absence_recorded','judge_presence_recorded')$q$) = 3);
@@ -688,6 +689,16 @@ reset role;
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('r5 refused: heat not locked', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006005'), pg_temp.u('f26002')), 'COMP_BALLOTS_HEATS_NOT_LOCKED');
+reset role;
+-- re-review regression (P1-1): an entry scratched after ballots exist makes them stale; lock refuses until they are corrected
+update public.event_competition_heat_entries set status = 'scratched' where heat_id = pg_temp.u('00d007') and entry_id = pg_temp.u('008015');
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('lock refused: current ballots mark an entry that was scratched (stale)', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006005'), pg_temp.u('f26010')), 'COMP_BALLOTS_STALE');
+reset role;
+update public.event_competition_heat_entries set status = 'scheduled' where heat_id = pg_temp.u('00d007') and entry_id = pg_temp.u('008015');
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000001'));
 select public.set_competition_heat_lock_state(pg_temp.u('00d007'), 'locked', 'dance complete');
 select pg_temp.expect_ok('r5 locks with one judge absent (recorded) and a reduced odd panel of 3', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006005'), pg_temp.u('f26003')));
 reset role;

@@ -29,26 +29,6 @@
 -- event_competition_ballot_events (K0 kinds ballot_submitted / ballot_corrected / judge_absence_recorded /
 -- round_state_changed, plus judge_presence_recorded). F2 may fold it into result_events later.
 --
--- Once a round has started, its scoring method and callback target are frozen (ballots were validated against them).
-create function public._compe2_guard_round_config()
-returns trigger
-language plpgsql
-set search_path = public, pg_temp
-as $$
-begin
-  if old.status not in ('draft', 'scheduled')
-     and (new.scoring_method is distinct from old.scoring_method
-          or new.target_advancement_count is distinct from old.target_advancement_count) then
-    raise exception 'COMP_ROUND_CONFIG_FROZEN: scoring method and callback target cannot change once the round has started (status: %).', old.status
-      using errcode = 'P0001';
-  end if;
-  return new;
-end;
-$$;
-revoke all on function public._compe2_guard_round_config() from public, anon, authenticated;
-create trigger compe2_guard_round_config
-  before update of scoring_method, target_advancement_count on public.event_competition_rounds
-  for each row execute function public._compe2_guard_round_config();
 
 -- Round status: the two E2 edges (active -> ballots_locked, ballots_locked -> active) are written only by the lock /
 -- reopen RPCs; a guard trigger requires their audit row in the same transaction. Ballots are accepted only while the
@@ -405,6 +385,27 @@ create trigger compe2_guard_round_lock_edges
   before update of status on public.event_competition_rounds
   for each row execute function public._compe2_guard_round_lock_edges();
 
+-- Once a round has started, its scoring method and callback target are frozen (ballots were validated against them).
+create function public._compe2_guard_round_config()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if old.status not in ('draft', 'scheduled')
+     and (new.scoring_method is distinct from old.scoring_method
+          or new.target_advancement_count is distinct from old.target_advancement_count) then
+    raise exception 'COMP_ROUND_CONFIG_FROZEN: scoring method and callback target cannot change once the round has started (status: %).', old.status
+      using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public._compe2_guard_round_config() from public, anon, authenticated;
+create trigger compe2_guard_round_config
+  before update of scoring_method, target_advancement_count on public.event_competition_rounds
+  for each row execute function public._compe2_guard_round_config();
+
 -- ---------------------------------------------------------------------------
 -- 3. Internal helpers (no API grants)
 -- ---------------------------------------------------------------------------
@@ -728,6 +729,7 @@ declare
   v_format text;
   v_format_version integer;
   v_stale jsonb;
+  v_not_danced boolean;
   v_heats jsonb;
   v_open jsonb;
   v_missing jsonb;
@@ -763,16 +765,19 @@ begin
       and not exists (select 1 from public.event_competition_ballots b where b.heat_id = h.heat_id and b.official_id = j.official_id);
   end if;
   -- Current ballots must still match the round as it is now (format, entries still on the heat, exactly T for callback).
+  -- A callback round whose T is no longer below the eligible couples is not danced (D-CT-5): its ballots are void, not stale.
+  v_not_danced := public._compe2_format_scope(v_format) = 'round'
+    and (select r.target_advancement_count from public.event_competition_rounds r where r.id = p_round_id) >= coalesce(array_length(public._compe2_round_entries(p_round_id), 1), 0);
   select coalesce(jsonb_agg(b.id), '[]'::jsonb) into v_stale
   from public.event_competition_ballots b
   where b.round_id = p_round_id
     and not exists (select 1 from public.event_competition_ballots s where s.supersedes_id = b.id)
     and (
       (b.ballot_format, b.ballot_format_version) is distinct from (v_format, v_format_version)
-      or (b.heat_id is not null and (
+      or (b.heat_id is not null and b.heat_id in (select h.heat_id from public._compe2_round_heats(p_round_id) h) and (
             (select count(*) from public.event_competition_marks m where m.ballot_id = b.id) <> coalesce(array_length(public._compe2_heat_entries(b.heat_id), 1), 0)
             or exists (select 1 from public.event_competition_marks m where m.ballot_id = b.id and not (m.entry_id = any (public._compe2_heat_entries(b.heat_id))))))
-      or (b.heat_id is null and (
+      or (b.heat_id is null and not v_not_danced and (
             (select count(*) from public.event_competition_marks m where m.ballot_id = b.id) is distinct from (select r.target_advancement_count from public.event_competition_rounds r where r.id = p_round_id)
             or exists (select 1 from public.event_competition_marks m where m.ballot_id = b.id and not (m.entry_id = any (public._compe2_round_entries(p_round_id))))))
     );
@@ -783,8 +788,8 @@ begin
   return jsonb_build_object(
     'heats', v_heats, 'heats_not_locked', v_open, 'missing_ballots', v_missing,
     'judges', v_judges, 'judges_present', v_present,
-    'panel_min', v_min, 'panel_odd_required', v_odd, 'panel_rule_known', coalesce(v_known, false), 'panel_ok', v_panel_ok, 'stale_ballots', v_stale,
-    'ready', (jsonb_array_length(v_heats) > 0 and jsonb_array_length(v_open) = 0 and jsonb_array_length(v_missing) = 0 and jsonb_array_length(v_stale) = 0 and v_panel_ok));
+    'panel_min', v_min, 'panel_odd_required', v_odd, 'panel_rule_known', coalesce(v_known, false), 'panel_ok', v_panel_ok, 'stale_ballots', v_stale, 'callback_not_danced', coalesce(v_not_danced, false),
+    'ready', (jsonb_array_length(v_heats) > 0 and jsonb_array_length(v_open) = 0 and jsonb_array_length(v_missing) = 0 and jsonb_array_length(v_stale) = 0 and not coalesce(v_not_danced, false) and v_panel_ok));
 end;
 $$;
 revoke all on function public._compe2_round_blockers(uuid) from public, anon, authenticated;
@@ -1105,7 +1110,7 @@ begin
   if p_request_id is null then
     raise exception 'COMP_REQUEST_ID_REQUIRED: a request id is required.' using errcode = 'P0001';
   end if;
-  if p_status not in ('absent', 'present') or p_official_id is null then
+  if p_status is null or p_status not in ('absent', 'present') or p_official_id is null then
     raise exception 'COMP_ATTENDANCE_INVALID: status must be absent or present.' using errcode = 'P0001';
   end if;
   if p_status = 'absent' and (v_reason is null or length(v_reason) > 500) then
@@ -1179,7 +1184,12 @@ begin
   if v_round.status <> 'active' then
     raise exception 'COMP_BALLOTS_BAD_STATE: only an active round can lock its ballots (round is %).', v_round.status using errcode = 'P0001';
   end if;
+  perform 1 from public.event_competition_heat_entries he
+   where he.heat_id in (select h.heat_id from public._compe2_round_heats(p_round_id) h) for share;
   v_block := public._compe2_round_blockers(p_round_id);
+  if (v_block ->> 'callback_not_danced')::boolean then
+    raise exception 'COMP_CALLBACK_NOT_DANCED: T is no longer below the eligible couples, so this round is not danced and takes no callback ballots (D-CT-5).' using errcode = 'P0001', detail = v_block::text;
+  end if;
   if jsonb_array_length(v_block -> 'heats') = 0 then
     raise exception 'COMP_BALLOTS_INCOMPLETE: the round has no heat to ballot.' using errcode = 'P0001', detail = v_block::text;
   end if;
