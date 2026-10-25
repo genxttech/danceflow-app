@@ -757,6 +757,34 @@ reset role;
 select pg_temp.chk('r5 is active and correction_open was cleared by the status change', pg_temp.rstatus(5) = 'active' and not (select correction_open from public.event_competition_rounds where id = pg_temp.rid(5)));
 
 -- ============================================================================
+-- 14b. REG pin reader (20270113) is authoritative when present; the allow-list is the fallback when absent
+-- ============================================================================
+select pg_temp.chk('fallback path (no REG reader): allow-list pins ordinal_majority only',
+  to_regprocedure('public.competition_round_scoring_effective(uuid)') is null
+  and (select engine_key || '@' || engine_version from public._compf2_engine_pin(pg_temp.rid(1))) = 'studio_ordinal_majority@1'
+  and not exists (select 1 from public._compf2_engine_pin(pg_temp.rid(7))));
+-- A stand-in for REG's reader (REG's own SQL is not applied here): r1 selectable, r2 pinned-but-not-approved, r7 selectable callback.
+create function public.competition_round_scoring_effective(p_round_id uuid)
+returns table(method_key text, method_version text, resolution text, registry_status text, engine_id text, selectable boolean, pinned boolean, sanctioning text)
+language sql stable as $f$
+  select 'm', '1', 'division', 'approved',
+         case when p_round_id = pg_temp.rid(2) then 'studio_ordinal_majority@1' when p_round_id = pg_temp.rid(7) then 'studio_callback_tally@1' else 'studio_ordinal_majority@1' end,
+         p_round_id <> pg_temp.rid(2), true, 'none'
+$f$;
+select pg_temp.chk('reader path: a selectable round pins the reader''s engine',
+  (select engine_key || '@' || engine_version from public._compf2_engine_pin(pg_temp.rid(1))) = 'studio_ordinal_majority@1');
+select pg_temp.chk('reader path: the reader overrides the allow-list (proficiency round r7 pins callback)',
+  (select engine_key || '@' || engine_version from public._compf2_engine_pin(pg_temp.rid(7))) = 'studio_callback_tally@1');
+select pg_temp.chk('reader path: a pinned but not selectable round (r2) fails closed even though its method is on the allow-list',
+  not exists (select 1 from public._compf2_engine_pin(pg_temp.rid(2))));
+drop function public.competition_round_scoring_effective(uuid);
+create function public.competition_round_scoring_effective(p_round_id uuid)
+returns table(x int) language sql as $f$ select 1 $f$;
+select pg_temp.chk('reader path: a reader with an unexpected shape fails closed', not exists (select 1 from public._compf2_engine_pin(pg_temp.rid(1))));
+drop function public.competition_round_scoring_effective(uuid);
+select pg_temp.chk('fallback restored after the reader is dropped', exists (select 1 from public._compf2_engine_pin(pg_temp.rid(1))));
+
+-- ============================================================================
 -- 15. Cascades: deleting event B removes nothing of F2 (none there); event A is protected by 10A
 -- ============================================================================
 select pg_temp.expect_ok('event B deletes cleanly (no F2 evidence references it)', $q$delete from public.events where id = pg_temp.u('00e002')$q$);

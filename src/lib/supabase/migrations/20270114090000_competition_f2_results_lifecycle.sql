@@ -458,20 +458,38 @@ as $$
 $$;
 revoke all on function public._compf2_sha256(text) from public, anon, authenticated, service_role;
 
--- The single place that decides which engine may calculate a round. Replace with the REG pin lookup when it exists.
+-- The single place that decides which engine may calculate a round.
+-- REG (20270113) present: its reader competition_round_scoring_effective(round) is authoritative, and a round calculates only
+-- when it is `selectable` (pinned AND approved); anything the reader cannot answer fails closed. REG absent: the allow-list of the two
+-- approved Studio methods (ordinal_majority -> studio_ordinal_majority@1, callback_tally -> studio_callback_tally@1).
 create function public._compf2_engine_pin(p_round_id uuid)
 returns table(engine_key text, engine_version text)
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public, pg_temp
 as $$
+begin
+  if to_regprocedure('public.competition_round_scoring_effective(uuid)') is not null then
+    begin
+      return query execute
+        'select split_part(e.engine_id, ''@'', 1), split_part(e.engine_id, ''@'', 2)
+         from public.competition_round_scoring_effective($1) e
+         where e.selectable is true and e.engine_id is not null and position(''@'' in e.engine_id) > 1'
+        using p_round_id;
+    exception when others then
+      return;
+    end;
+    return;
+  end if;
+  return query
   select v.engine_key, v.engine_version
   from public.event_competition_rounds r
   join (values ('ordinal_majority', 'studio_ordinal_majority', '1'),
                ('callback_tally', 'studio_callback_tally', '1')) v(scoring, engine_key, engine_version)
     on v.scoring = r.scoring_method
   where r.id = p_round_id;
+end;
 $$;
 revoke all on function public._compf2_engine_pin(uuid) from public, anon, authenticated, service_role;
 
