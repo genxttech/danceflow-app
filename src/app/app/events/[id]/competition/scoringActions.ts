@@ -16,7 +16,7 @@ function text(formData: FormData, key: string) {
 /** Database guards (REG) raise plain messages with 42501; anything else is not shown to organizers. */
 function friendly(error: { code?: string; message?: string } | null | undefined) {
   if (!error) return GENERIC_ERROR;
-  if (error.code === "42501" || error.code === "P0001") return (error.message || GENERIC_ERROR).replace(/^COMP_[A-Z_]+:\s*/, "");
+  if (error.code === "42501" || error.code === "P0001" || error.code === "22023") return (error.message || GENERIC_ERROR).replace(/^COMP_[A-Z_]+:\s*/, "");
   return GENERIC_ERROR;
 }
 
@@ -87,36 +87,22 @@ export async function configureStudioScoringAction(_previous: ScoringActionState
     plans.push({ division, ops: plan.ops });
   }
 
-  for (const { division, ops } of plans) {
-    for (const op of ops) {
-      // Narrow the publish race: re-read the program right before every write (the database guard still refuses selections on a locked program).
-      const { data: current } = await supabase.from("event_competition_programs").select("status, profile_locked_at").eq("id", programId).eq("event_id", eventId).maybeSingle();
-      if (!current || current.status !== "draft" || current.profile_locked_at !== null) {
-        refresh(eventId);
-        return { ok: false, error: "The competition was published while scoring was being set up. Check the scoring notices on the Advanced page." };
-      }
-      let error: { code?: string; message?: string } | null = null;
-      let rowsChanged = 1;
-      if (op.op === "set_division_selection") {
-        ({ error } = await supabase
-          .from("event_competition_divisions")
-          .update({ scoring_method_key: op.key, scoring_method_version: op.version })
-          .eq("id", division.id)
-          .eq("event_id", eventId)
-          .select("id")
-          .then((r) => { rowsChanged = r.data?.length ?? 0; return r; }));
-      } else if (op.op === "update_round") {
-        ({ error } = await supabase.from("event_competition_rounds").update(op.patch).eq("id", op.roundId).eq("event_id", eventId).select("id").then((r) => { rowsChanged = r.data?.length ?? 0; return r; }));
-      } else {
-        ({ error } = await supabase
-          .from("event_competition_rounds")
-          .insert({ ...op.row, event_id: eventId, program_id: programId, division_id: division.id }));
-      }
-      if (!error && rowsChanged === 0) error = { code: "42501", message: "A scoring change was not saved." };
-      if (error) {
-        refresh(eventId);
-        return { ok: false, error: `${friendly(error)} ${divisions.length > 1 ? `(${division.name}) ` : ""}Apply the scoring setup again to finish.` };
-      }
+  // One database transaction for the whole request: the RPC holds the program row FOR SHARE, so a publish cannot land between
+  // the steps, and a refused step rolls everything back (no half-applied setup).
+  const payload = plans.flatMap(({ division, ops }) =>
+    ops.map((op) =>
+      op.op === "set_division_selection"
+        ? { op: op.op, division_id: division.id, key: op.key, version: op.version }
+        : op.op === "update_round"
+          ? { op: op.op, division_id: division.id, round_id: op.roundId, patch: op.patch }
+          : { op: op.op, division_id: division.id, row: op.row },
+    ),
+  );
+  if (payload.length > 0) {
+    const { error } = await supabase.rpc("apply_competition_scoring_setup", { p_program_id: programId, p_ops: payload });
+    if (error) {
+      refresh(eventId);
+      return { ok: false, error: friendly(error) };
     }
   }
 

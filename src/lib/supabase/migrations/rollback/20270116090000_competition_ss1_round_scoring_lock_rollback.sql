@@ -1,7 +1,7 @@
 -- Rollback for 20270116090000_competition_ss1_round_scoring_lock.sql
 --
--- The migration only ADDS one trigger and its function (no existing object is redefined), so the exact previous state is
--- "neither exists". Refuses (changing nothing) if the trigger is missing, so a repeat run is a visible no-op failure.
+-- The migration only ADDS two triggers, their functions and the configure RPC (no existing object is redefined), so the exact
+-- previous state is "none of them exists". Refuses (changing nothing) if the trigger is missing, so a repeat run is a visible no-op failure.
 -- Roll the application back first: with the trigger gone, the SS1 configure action regains the publish race.
 
 begin;
@@ -14,6 +14,9 @@ begin
   end if;
 end $$;
 
+drop function public.apply_competition_scoring_setup(uuid, jsonb);
+drop trigger guard_competition_round_delete on public.event_competition_rounds;
+drop function public.guard_competition_round_delete();
 drop trigger guard_competition_round_scoring_lock on public.event_competition_rounds;
 drop function public.guard_competition_round_scoring_lock();
 

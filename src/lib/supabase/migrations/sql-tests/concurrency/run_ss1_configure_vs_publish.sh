@@ -5,10 +5,12 @@
 # Needs a superuser (supabase_admin). Fixtures COMMIT (a second connection cannot see an open transaction) and are removed by
 # deleting the event at the end, even on failure. The "publish" actor performs exactly the writes publish_competition_program ends
 # with (lock evidence row, then status + profile_locked_at on the program row), which is the row the guard trigger locks.
-#   A  a configure write (scoring_method + sequence_number on a draft round) is in flight, uncommitted, when publish runs
+#   A  the real configure RPC is in flight, uncommitted, when publish runs
 #        -> publish WAITS, then commits; the configure landed BEFORE the lock and the pin records it
-#   B  publish is in flight, uncommitted, when a configure write arrives
-#        -> the configure WAITS, then is REFUSED (COMP_ROUND_SCORING_LOCKED); the locked round keeps its published values
+#   B  publish is in flight, uncommitted, when the configure RPC arrives
+#        -> the configure WAITS, then is REFUSED (COMP_METHOD_LOCKED); the locked round keeps its published values
+#   C  a direct column write after the lock is refused by the trigger (COMP_ROUND_SCORING_LOCKED)
+# (publish is simulated by the row writes publish_competition_program ends with; the real function takes the same row lock.)
 # Prints "SS1 CONCURRENCY PASS (<n> checks)" or "SS1 CONCURRENCY FAIL: ..." and exits non-zero on failure.
 set -u
 export MSYS_NO_PATHCONV=1
@@ -51,18 +53,33 @@ SQL
 setup_program 1
 setup_program 2
 
-# ---------------------------------------------- Scenario A: publish waits for an in-flight configure write
+# The configure actor calls the REAL apply_competition_scoring_setup RPC (one transaction, program row FOR SHARE) and then holds
+# the transaction open. Timing is detected by polling pg_stat_activity (no fixed sleeps): we wait until the holder is inside its
+# pg_sleep before starting the other actor.
+ops_for() { # $1 = round id
+  echo "jsonb_build_array(jsonb_build_object('op','update_round','round_id','$1','patch',jsonb_build_object('scoring_method','ordinal_majority','sequence_number',2)))"
+}
+wait_for_marker() { # $1 = marker text in a sleeping query
+  local n=0
+  while [ $n -lt 100 ]; do
+    [ "$(SU -c "select count(*) from pg_stat_activity where state = 'active' and query like '%$1%' and query not like '%pg_stat_activity%'")" -ge 1 ] && return 0
+    sleep 0.2; n=$((n+1))
+  done
+  return 1
+}
+
+# ---------------------------------------------- Scenario A: publish waits for an in-flight configure
 (
 SU <<SQL
 begin;
 $(as_mgr)
-update public.event_competition_rounds set scoring_method='ordinal_majority', sequence_number=2 where id='$(U 91)';
-select pg_sleep(4);
+select public.apply_competition_scoring_setup('$(U 61)', $(ops_for "$(U 91)"));
+select pg_sleep(6) /* ss1-marker-a */;
 commit;
 SQL
 ) &
 A_PID=$!
-sleep 1
+wait_for_marker "ss1-marker-a" || ok "A: configure holder started" 0
 T0=$(now_ms)
 SU <<SQL
 begin;
@@ -71,31 +88,39 @@ commit;
 SQL
 ELAPSED=$(( $(now_ms) - T0 ))
 wait $A_PID
-ok "A: publish waited for the in-flight configure write (waited ${ELAPSED}ms)" "$([ "$ELAPSED" -ge 2000 ] && echo 1 || echo 0)"
+ok "A: publish waited for the in-flight configure (waited ${ELAPSED}ms)" "$([ "$ELAPSED" -ge 1000 ] && echo 1 || echo 0)"
 ok "A: the configure landed before the lock" "$([ "$(SU -c "select scoring_method||'/'||sequence_number from public.event_competition_rounds where id='$(U 91)'")" = "ordinal_majority/2" ] && echo 1 || echo 0)"
 ok "A: the pin records the configured round" "$([ "$(SU -c "select count(*) from public.event_competition_scoring_pins where round_id='$(U 91)' and resolution='legacy_map' and method_key='studio_ordinal_majority'")" = "1" ] && echo 1 || echo 0)"
 
-# ---------------------------------------------- Scenario B: configure waits for an in-flight publish, then is refused
+# ---------------------------------------------- Scenario B: configure waits for an in-flight publish, then is refused whole
 (
 SU <<SQL
 begin;
 $(publish_sql "$(U 62)")
-select pg_sleep(4);
+select pg_sleep(6) /* ss1-marker-b */;
 commit;
 SQL
 ) &
 B_PID=$!
-sleep 1
+wait_for_marker "ss1-marker-b" || ok "B: publish holder started" 0
 T0=$(now_ms)
 OUT=$(SU 2>&1 <<SQL
 $(as_mgr)
-update public.event_competition_rounds set scoring_method='ordinal_majority', sequence_number=2 where id='$(U 92)';
+select public.apply_competition_scoring_setup('$(U 62)', $(ops_for "$(U 92)"));
 SQL
 )
 ELAPSED=$(( $(now_ms) - T0 ))
 wait $B_PID
-ok "B: the configure write waited for the in-flight publish (waited ${ELAPSED}ms)" "$([ "$ELAPSED" -ge 2000 ] && echo 1 || echo 0)"
-ok "B: the configure write was refused with COMP_ROUND_SCORING_LOCKED" "$(printf '%s' "$OUT" | grep -q COMP_ROUND_SCORING_LOCKED && echo 1 || echo 0)"
+ok "B: the configure waited for the in-flight publish (waited ${ELAPSED}ms)" "$([ "$ELAPSED" -ge 1000 ] && echo 1 || echo 0)"
+ok "B: the configure was refused (COMP_METHOD_LOCKED)" "$(printf '%s' "$OUT" | grep -q COMP_METHOD_LOCKED && echo 1 || echo 0)"
 ok "B: the locked round kept its published values" "$([ "$(SU -c "select scoring_method||'/'||sequence_number from public.event_competition_rounds where id='$(U 92)'")" = "custom/1" ] && echo 1 || echo 0)"
+
+# ---------------------------------------------- Scenario C: the raw column write is also refused after the publish (trigger layer)
+OUT=$(SU 2>&1 <<SQL
+$(as_mgr)
+update public.event_competition_rounds set scoring_method='callback_tally' where id='$(U 92)';
+SQL
+)
+ok "C: a direct column write on the locked round is refused" "$(printf '%s' "$OUT" | grep -q COMP_ROUND_SCORING_LOCKED && echo 1 || echo 0)"
 
 if [ -z "$FAILS" ]; then echo "SS1 CONCURRENCY PASS ($PASS checks)"; else echo "SS1 CONCURRENCY FAIL:$FAILS"; exit 1; fi

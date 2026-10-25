@@ -73,8 +73,8 @@ grant execute on all functions in schema pg_temp to authenticated, anon, service
 -- ============================================================================
 -- Fixtures (as postgres): one studio, one competition with two draft programs
 -- ============================================================================
-insert into auth.users (id, email) values (pg_temp.u('000001'), 't-ss1-owner@example.test');
-insert into public.profiles (id, email, full_name) values (pg_temp.u('000001'), 't-ss1-owner@example.test', 'Owner');
+insert into auth.users (id, email) values (pg_temp.u('000001'), 't-ss1-owner@example.test'), (pg_temp.u('000002'), 't-ss1-outsider@example.test');
+insert into public.profiles (id, email, full_name) values (pg_temp.u('000001'), 't-ss1-owner@example.test', 'Owner'), (pg_temp.u('000002'), 't-ss1-outsider@example.test', 'Outsider');
 insert into public.studios (id, name, slug) values (pg_temp.u('00a001'), 'SS1 Studio', 't-ss1-studio');
 insert into public.user_studio_roles (user_id, studio_id, role, active) values (pg_temp.u('000001'), pg_temp.u('00a001'), 'studio_owner', true);
 insert into public.events (id, studio_id, name, slug, event_type, start_date, end_date, status, visibility, registration_required) values
@@ -141,10 +141,8 @@ select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('locked: the studio owner (the SS1 action role) is refused too', $q$update public.event_competition_rounds set scoring_method = 'custom', sequence_number = 7 where id = pg_temp.u('006002')$q$, 'COMP_ROUND_SCORING_LOCKED');
 select pg_temp.as_postgres();
 
--- A SECURITY DEFINER path (any future writer) is refused as well: no documented allowed writers exist.
-create or replace function pg_temp.secdef_rewrite() returns void language plpgsql security definer as $$
-begin update public.event_competition_rounds set scoring_method = 'custom' where id = pg_temp.u('006002'); end $$;
-select pg_temp.expect_msg('locked: a SECURITY DEFINER writer is refused', $q$select pg_temp.secdef_rewrite()$q$, 'COMP_ROUND_SCORING_LOCKED');
+select pg_temp.expect_msg('locked: a round cannot be moved INTO a locked program', $q$update public.event_competition_rounds set program_id = pg_temp.u('001001'), division_id = pg_temp.u('003002') where id = pg_temp.u('006003')$q$, 'COMP_ROUND_SCORING_LOCKED');
+select pg_temp.expect_msg('locked: a round of a locked program cannot be deleted', $q$delete from public.event_competition_rounds where id = pg_temp.u('006002')$q$, 'COMP_ROUND_SCORING_LOCKED');
 
 select pg_temp.chk('locked: nothing changed',
   (select scoring_method || '/' || sequence_number || '/' || round_type from public.event_competition_rounds where id = pg_temp.u('006002')) = 'ordinal_majority/2/final');
@@ -153,7 +151,7 @@ select pg_temp.chk('locked: nothing changed',
 -- After lock: documented non-frozen columns and existing writers still work
 -- ============================================================================
 select pg_temp.expect_ok('locked: a no-op update of a frozen column is allowed', $q$update public.event_competition_rounds set scoring_method = scoring_method where id = pg_temp.u('006002')$q$);
-select pg_temp.expect_ok('locked: status/updated_at (E2/O1/F2 writers) allowed', $q$update public.event_competition_rounds set status = 'scheduled', updated_at = now() where id = pg_temp.u('006002')$q$);
+select pg_temp.expect_ok('locked: updated_at allowed (the status writers E2/O1/F2 are covered by their own suites)', $q$update public.event_competition_rounds set updated_at = now() where id = pg_temp.u('006002')$q$);
 select pg_temp.expect_ok('locked: callback target (W4/E2-governed) allowed', $q$update public.event_competition_rounds set target_advancement_count = 5 where id = pg_temp.u('006001')$q$);
 select pg_temp.expect_ok('locked: name and configuration (10D max_entries_per_heat) allowed',
   $q$update public.event_competition_rounds set name = 'Final (renamed)', configuration = jsonb_set(configuration, '{max_entries_per_heat}', '8') where id = pg_temp.u('006002')$q$);
@@ -166,6 +164,37 @@ select pg_temp.chk('and that late round is pinned', exists (select 1 from public
 -- The unlocked program is unaffected by the other program's lock
 -- ============================================================================
 select pg_temp.expect_ok('other draft program: scoring_method still editable', $q$update public.event_competition_rounds set scoring_method = 'ordinal_majority' where id = pg_temp.u('006003')$q$);
+
+-- ============================================================================
+-- apply_competition_scoring_setup: one transaction, fail closed
+-- ============================================================================
+select pg_temp.chk('the configure RPC is granted to authenticated only',
+  has_function_privilege('authenticated', 'public.apply_competition_scoring_setup(uuid,jsonb)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.apply_competition_scoring_setup(uuid,jsonb)', 'EXECUTE'));
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('rpc: a draft studio program is configured (round update, round insert, selection)',
+  $q$select public.apply_competition_scoring_setup(pg_temp.u('001002'), jsonb_build_array(jsonb_build_object('op', 'update_round', 'round_id', pg_temp.u('006003'), 'patch', jsonb_build_object('sequence_number', 2, 'scoring_method', 'ordinal_majority')),
+       jsonb_build_object('op', 'insert_round', 'division_id', pg_temp.u('003003'), 'row', jsonb_build_object('name', 'Callback round', 'round_type', 'preliminary', 'sequence_number', 1, 'scoring_method', 'callback_tally', 'pairing_mode', 'fixed', 'scoring_override_key', 'studio_callback_tally', 'scoring_override_version', '1')),
+       jsonb_build_object('op', 'set_division_selection', 'division_id', pg_temp.u('003003'), 'key', 'studio_ordinal_majority', 'version', '1')))$q$);
+select pg_temp.as_postgres();
+select pg_temp.chk('rpc: the configured draft has callback + final rounds and the selection',
+  (select string_agg(sequence_number || ':' || scoring_method, ',' order by sequence_number) from public.event_competition_rounds where division_id = pg_temp.u('003003')) = '1:callback_tally,2:ordinal_majority'
+  and (select scoring_method_key from public.event_competition_divisions where id = pg_temp.u('003003')) = 'studio_ordinal_majority');
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('rpc: a locked program is refused', $q$select public.apply_competition_scoring_setup(pg_temp.u('001001'), jsonb_build_array(jsonb_build_object('op', 'update_round', 'round_id', pg_temp.u('006002'), 'patch', jsonb_build_object('scoring_method', 'callback_tally'))))$q$, 'COMP_METHOD_LOCKED');
+select pg_temp.expect_msg('rpc: proficiency scoring value is refused', $q$select public.apply_competition_scoring_setup(pg_temp.u('001002'), jsonb_build_array(jsonb_build_object('op', 'update_round', 'round_id', pg_temp.u('006003'), 'patch', jsonb_build_object('scoring_method', 'proficiency_rating'))))$q$, 'COMP_ENGINE_NOT_AVAILABLE');
+select pg_temp.expect_msg('rpc: a custom scoring value is refused', $q$select public.apply_competition_scoring_setup(pg_temp.u('001002'), jsonb_build_array(jsonb_build_object('op', 'update_round', 'round_id', pg_temp.u('006003'), 'patch', jsonb_build_object('scoring_method', 'custom'))))$q$, 'COMP_ENGINE_NOT_AVAILABLE');
+select pg_temp.expect_msg('rpc: UCWDC cannot be selected (REG guard)', $q$select public.apply_competition_scoring_setup(pg_temp.u('001002'), jsonb_build_array(jsonb_build_object('op', 'set_division_selection', 'division_id', pg_temp.u('003003'), 'key', 'ucwdc_majority_rules', 'version', 'v16.9b')))$q$, 'COMP_ENGINE_NOT_AVAILABLE');
+select pg_temp.expect_msg('rpc: proficiency, NDCA and WSDC cannot be selected', $q$select public.apply_competition_scoring_setup(pg_temp.u('001002'), jsonb_build_array(jsonb_build_object('op', 'set_division_selection', 'division_id', pg_temp.u('003003'), 'key', 'ndca_skating', 'version', 'unpinned')))$q$, 'COMP_ENGINE_NOT_AVAILABLE');
+select pg_temp.expect_msg('rpc: an unsupported column is refused', $q$select public.apply_competition_scoring_setup(pg_temp.u('001002'), jsonb_build_array(jsonb_build_object('op', 'update_round', 'round_id', pg_temp.u('006003'), 'patch', jsonb_build_object('status', 'active'))))$q$, 'COMP_SCORING_OPS_INVALID');
+select pg_temp.expect_msg('rpc: a row outside the program is refused', $q$select public.apply_competition_scoring_setup(pg_temp.u('001002'), jsonb_build_array(jsonb_build_object('op', 'update_round', 'round_id', pg_temp.u('006002'), 'patch', jsonb_build_object('sequence_number', 5))))$q$, 'did not apply');
+select pg_temp.expect_msg('rpc: a failing step rolls the whole request back', $q$select public.apply_competition_scoring_setup(pg_temp.u('001002'), jsonb_build_array(jsonb_build_object('op', 'update_round', 'round_id', pg_temp.u('006003'), 'patch', jsonb_build_object('sequence_number', 9)),
+       jsonb_build_object('op', 'bogus')))$q$, 'COMP_SCORING_OPS_INVALID');
+select pg_temp.as_postgres();
+select pg_temp.chk('rpc: the rolled-back request left no change', (select sequence_number from public.event_competition_rounds where id = pg_temp.u('006003')) = 2);
+select pg_temp.as_user(pg_temp.u('000002'));
+select pg_temp.expect_msg('rpc: a caller who cannot manage the event is refused', $q$select public.apply_competition_scoring_setup(pg_temp.u('001002'), jsonb_build_array(jsonb_build_object('op', 'update_round', 'round_id', pg_temp.u('006003'), 'patch', jsonb_build_object('sequence_number', 3))))$q$, 'not accessible');
+select pg_temp.as_postgres();
 
 -- ============================================================================
 -- Verdict
