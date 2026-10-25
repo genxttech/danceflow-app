@@ -258,7 +258,20 @@ reset role;
 -- 6. Freeze: assignments are frozen once the round leaves draft/scheduled
 -- ============================================================================
 select pg_temp.expect_ok('a scheduled round still accepts a panel', format($q$select public.assign_competition_panel_member(%L, %L, 'A', %L)$q$, pg_temp.u('006002'), pg_temp.off('00e001', '000011'), pg_temp.u('f00050')));
-update public.event_competition_rounds set status = 'active' where id = pg_temp.u('006001');
+-- Fixture only: put round 1 into 'active'. When O1 (20270106) is applied its guard trigger refuses direct status writes
+-- (correctly: round status moves only through its transition RPCs, which need heats and a published schedule that this E1 suite
+-- does not build). E1 only reads the status column, so the fixture bypasses the O1 guard for this single statement and
+-- re-enables it; without O1 the plain update runs. Everything is rolled back with the suite.
+do $fx$
+begin
+  if exists (select 1 from pg_trigger where tgrelid = 'public.event_competition_rounds'::regclass and tgname = 'compo1_guard_round_status') then
+    alter table public.event_competition_rounds disable trigger compo1_guard_round_status;
+    update public.event_competition_rounds set status = 'active' where id = pg_temp.u('006001');
+    alter table public.event_competition_rounds enable trigger compo1_guard_round_status;
+  else
+    update public.event_competition_rounds set status = 'active' where id = pg_temp.u('006001');
+  end if;
+end $fx$;
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('assign refused on an active round', format($q$select public.assign_competition_panel_member(%L, %L, null, %L)$q$, pg_temp.u('006001'), pg_temp.off('00e001', '000012'), pg_temp.u('f00051')), 'COMP_PANEL_FROZEN');
