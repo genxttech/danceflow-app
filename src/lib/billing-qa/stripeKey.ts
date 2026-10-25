@@ -31,3 +31,23 @@ export function assertBillingQaTestModeKey(raw: string | undefined): string {
   }
   return key;
 }
+
+/**
+ * BILLING-QA-5. Key guard for the owner's session read-back: from BILLING_QA_STRIPE_READ_KEY only. In live mode only
+ * a RESTRICTED key (rk_live_) is accepted, so the most a leaked or misused key can do is read; a live secret key
+ * (sk_live_) is refused even though the tool would only read with it. Test mode accepts sk_test_ or rk_test_.
+ */
+export const BILLING_QA_READ_KEY_ENV = "BILLING_QA_STRIPE_READ_KEY";
+
+export function assertBillingQaReadKey(raw: string | undefined): { key: string; mode: "live" | "test" } {
+  const key = raw?.trim();
+  if (!key) {
+    throw new BillingQaSafetyError(`${BILLING_QA_READ_KEY_ENV} is not set. Provide a restricted read-only key (rk_live_ or rk_test_).`, "STRIPE_KEY_MISSING");
+  }
+  if (/^sk_live_/.test(key)) {
+    throw new BillingQaSafetyError(`${BILLING_QA_READ_KEY_ENV} is a live SECRET key. Create a restricted read-only key (rk_live_) instead.`, "STRIPE_LIVE_SECRET_KEY_REFUSED");
+  }
+  if (/^rk_live_[A-Za-z0-9]+$/.test(key)) return { key, mode: "live" };
+  if (/^(sk|rk)_test_[A-Za-z0-9]+$/.test(key)) return { key, mode: "test" };
+  throw new BillingQaSafetyError(`${BILLING_QA_READ_KEY_ENV} is not a recognized Stripe key (rk_live_, rk_test_ or sk_test_).`, "STRIPE_KEY_MALFORMED");
+}
