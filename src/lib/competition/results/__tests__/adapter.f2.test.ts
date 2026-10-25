@@ -174,6 +174,25 @@ describe.skipIf(!f1Present)("F1 golden fixtures through the adapter (needs #337 
     expect(cAdapted).toEqual({ rows: cDirect.rows, trace: cDirect.trace, warnings: cDirect.warnings });
   });
 
+  it("an ordinal round calculates end to end through the adapter with evidence shaped exactly like the SQL builder's (markScheme null, tieBreakChain [])", async () => {
+    const { f1 } = await load();
+    const judges = ["o1", "o2", "o3"].map((officialId, i) => ({ officialId, letter: ["A", "B", "C"][i] }));
+    const ranks: Record<string, number[]> = { e1: [1, 1, 2], e2: [2, 2, 1], e3: [3, 3, 3] };
+    const ev = evidence({
+      markScheme: null,
+      tieBreakChain: [],
+      excludedEntries: [],
+      finalCapacity: null,
+      entries: Object.keys(ranks).map((entryId) => ({ entryId })),
+      judges,
+      heats: [{ heatId: "heat-1", officialIds: judges.map((j) => j.officialId), entryIds: Object.keys(ranks) }],
+      marks: Object.entries(ranks).flatMap(([entryId, vals]) => vals.map((value, j) => ({ officialId: judges[j].officialId, entryId, heatId: "heat-1", role: null, value }))),
+    });
+    const out = adaptStudioEngine(f1.STUDIO_ENGINES["studio_ordinal_majority@1"]).run(ev);
+    expect(out.rows.map((r) => [r.entryId, r.placement])).toEqual([[E1, 1], [E2, 2], [E3, 3]].map(([id, p]) => [id, p]));
+    expect(out.trace.length).toBeGreaterThan(0);
+  });
+
   it("a fail-closed F1 fixture (judge tie) fails closed through the adapter", async () => {
     const { f1, helpers } = await load();
     const tie = helpers.ordinalInput({ 1: [1, 1, 2], 2: [1, 2, 1], 3: [3, 3, 3] });

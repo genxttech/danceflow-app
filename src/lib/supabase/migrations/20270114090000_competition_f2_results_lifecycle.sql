@@ -498,9 +498,10 @@ as $$
     'engineVersion', p_engine_version,
     -- Locked configuration the engines are bound to (10B program lock; null when the program was never locked).
     'profile', (select jsonb_build_object('key', l.rules_profile_key, 'version', l.rules_profile_version) from public.event_competition_program_locks l where l.program_id = r.program_id and l.event_id = r.event_id order by l.locked_at desc limit 1),
-    'markScheme', (select l.snapshot #> '{judging,definition}' from public.event_competition_program_locks l where l.program_id = r.program_id and l.event_id = r.event_id order by l.locked_at desc limit 1),
-    'tieBreakChain', coalesce((select case when jsonb_typeof(l.snapshot #> '{judging,definition,tie_break,chain}') = 'array'
-                                           then l.snapshot #> '{judging,definition,tie_break,chain}' end from public.event_competition_program_locks l where l.program_id = r.program_id and l.event_id = r.event_id order by l.locked_at desc limit 1), '[]'::jsonb),
+    -- Engine @1 takes its default mark scheme (K1 X-1 option (a)) and ignores the tie-break chain: both are fixed so a change to the
+    -- 10B snapshot (whose judging.definition is the judging OPTION, not a mark scheme) can never move the hashes or fail an engine.
+    'markScheme', null::jsonb,
+    'tieBreakChain', '[]'::jsonb,
     'round', jsonb_build_object('id', r.id, 'roundType', r.round_type, 'targetAdvancementCount', r.target_advancement_count,
                                 'advancementMethod', (select pg.advancement_method from public.event_competition_programs pg where pg.id = r.program_id and pg.event_id = r.event_id)),
     -- X-3 option flags and the final's heat capacity (10D: next round's max_entries_per_heat, product default 8).

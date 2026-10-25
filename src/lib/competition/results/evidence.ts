@@ -28,7 +28,9 @@ export type EvidenceInput = {
   engineVersion: string;
   /** Locked (10B) rules profile; null when the program was never locked. */
   profile: { key: string; version: number } | null;
+  /** Always null for engine @1 (the engines use their default scheme, K1 X-1 option (a)). */
   markScheme: unknown;
+  /** Always [] for engine @1 (ignored by the engines). */
   tieBreakChain: string[];
   round: { id: string; roundType: string; targetAdvancementCount: number | null; advancementMethod: string | null };
   /** X-3 option flags of the round. */
