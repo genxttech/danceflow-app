@@ -56,10 +56,14 @@ describe("BILLING-QA-4 deployed price-config report", () => {
     expect(checks["checkout.starter"].status).toBe("PASS");
   });
 
-  it("a malformed Price ID is reported without echoing it", () => {
-    const checks = checksOf({ ...PRODUCTION_LIKE, STRIPE_PRICE_STUDIO_PRO_FOUNDER: "prod_wrongObject" });
+  it("a malformed Price ID is reported without echoing it anywhere in the report (checks or config)", () => {
+    const report = buildPriceConfigReport({ ...PRODUCTION_LIKE, STRIPE_PRICE_STUDIO_PRO_FOUNDER: "prod_wrongObject", STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY: "price_pro129, notAPrice" }, at);
+    const checks = Object.fromEntries(report.checks.map((c) => [c.id, c]));
     expect(checks["founder.pro"]).toMatchObject({ status: "FAIL", reason: "price_id_malformed" });
-    expect(JSON.stringify(checks["founder.pro"])).not.toContain("prod_wrongObject");
+    const json = JSON.stringify(report);
+    expect(json).not.toContain("prod_wrongObject");
+    expect(json).not.toContain("notAPrice");
+    expect(report.config).toMatchObject({ STRIPE_PRICE_STUDIO_PRO_FOUNDER: "malformed", STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY: "price_pro129,malformed" });
   });
 
   it("a Price ID configured for two plans fails mapping", () => {

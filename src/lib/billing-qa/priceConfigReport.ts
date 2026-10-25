@@ -7,6 +7,7 @@ import {
 } from "@/lib/billing/studioCheckoutPricing";
 import type { BillingPlan } from "@/lib/billing/plans";
 import {
+  PRICE_ID_SHAPE,
   STUDIO_PLANS,
   configuredPlanPrices,
   legacyEnvName,
@@ -32,7 +33,6 @@ import { buildReport, fail, pass, type BillingQaCheck, type BillingQaReport } fr
 
 export const PRICE_CONFIG_TOOL = "billing-qa deployed price config";
 
-const PRICE_ID_SHAPE = /^price_[A-Za-z0-9]+$/;
 type Env = Record<string, string | undefined>;
 
 export function stripeKeyMode(value: string | undefined, kind: "secret" | "publishable"): "live" | "test" | "unset" | "unrecognized" {
@@ -101,10 +101,12 @@ function planChecks(env: Env, plan: BillingPlan, founderActive: boolean, regular
   const title = `New ${planLabel(plan)} subscriber checkout`;
   const selection = selectStudioMonthlyPrice({ plan, founderActive, regularActivated, env });
   checks.push(
-    selection.ok
-      ? pass(`checkout.${plan.code}`, title, { priceId: selection.stripePriceId, offerType: selection.offerType, expectedAmountCents: selection.expectedAmountCents },
-          `uses ${selection.offerType} Price, expecting ${money(selection.expectedAmountCents)}/month (amount verified by Stripe at checkout)`)
-      : fail(`checkout.${plan.code}`, title, `checkout_refuses_${selection.reason}`, `checkout would refuse every new ${plan.code} subscriber (${selection.reason})`),
+    !selection.ok
+      ? fail(`checkout.${plan.code}`, title, `checkout_refuses_${selection.reason}`, `checkout would refuse every new ${plan.code} subscriber (${selection.reason})`)
+      : !PRICE_ID_SHAPE.test(selection.stripePriceId)
+        ? fail(`checkout.${plan.code}`, title, "checkout_price_id_malformed", `checkout would send a non-Price value to Stripe and refuse (${selection.offerType})`)
+        : pass(`checkout.${plan.code}`, title, { priceId: selection.stripePriceId, offerType: selection.offerType, expectedAmountCents: selection.expectedAmountCents },
+            `uses ${selection.offerType} Price, expecting ${money(selection.expectedAmountCents)}/month (amount verified by Stripe at checkout)`),
   );
   return checks;
 }

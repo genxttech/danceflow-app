@@ -61,7 +61,7 @@ export type BillingQaMode = "test" | "config";
 
 export function buildReport(params: {
   tool: string;
-  mode?: BillingQaMode;
+  mode: BillingQaMode;
   startedAt: string;
   completedAt: string;
   config: Record<string, BillingQaEvidenceValue>;
@@ -77,7 +77,7 @@ export function buildReport(params: {
   for (const check of params.checks) counts[check.status] += 1;
   const report: BillingQaReport = {
     tool: params.tool,
-    mode: params.mode ?? "test",
+    mode: params.mode,
     startedAt: params.startedAt,
     completedAt: params.completedAt,
     config: params.config,

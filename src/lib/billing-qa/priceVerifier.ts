@@ -84,14 +84,23 @@ export function planMappingCheck(envName: string, priceId: string, plan: Billing
         { priceId, resolvedPlan: resolved });
 }
 
-/** Config section: flags plus every studio Price ID variable (IDs only; never a key). */
+export const PRICE_ID_SHAPE = /^price_[A-Za-z0-9]+$/;
+
+// Only well-formed Price IDs are ever echoed: anything else (e.g. a credential pasted into the wrong variable) is
+// reported as "malformed", never as its value.
+const shownPriceId = (value: string) => (PRICE_ID_SHAPE.test(value) ? value : "malformed");
+
+/** Config section: flags plus every studio Price ID variable (Price IDs only; never another value). */
 export function priceConfigSection(env: Record<string, string | undefined>, founderActive: boolean, regularActivated: boolean) {
   return {
     founderPricingActive: founderActive,
     regularPricingActivated: regularActivated,
     ...Object.fromEntries(
-      STUDIO_PLANS.flatMap((plan) => [STUDIO_FOUNDER_PRICE_ENV[plan.code], STUDIO_STANDARD_PRICE_ENV[plan.code], legacyEnvName(plan)])
-        .map((name) => [name, readEnv(env, name)]),
+      STUDIO_PLANS.flatMap((plan) => [
+        [STUDIO_FOUNDER_PRICE_ENV[plan.code], readEnv(env, STUDIO_FOUNDER_PRICE_ENV[plan.code])],
+        [STUDIO_STANDARD_PRICE_ENV[plan.code], readEnv(env, STUDIO_STANDARD_PRICE_ENV[plan.code])],
+        [legacyEnvName(plan), legacyPriceIds(env, plan).join(",") || null],
+      ]).map(([name, value]) => [name, value ? value.split(",").map(shownPriceId).join(",") : null]),
     ),
   };
 }
@@ -223,6 +232,7 @@ export async function verifyStudioPrices(params: {
 
   return buildReport({
     tool: PRICE_VERIFIER_TOOL,
+    mode: "test",
     startedAt,
     completedAt: now().toISOString(),
     config: { ...priceConfigSection(env, founderActive, regularActivated), requireRegular },

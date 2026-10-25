@@ -5,8 +5,9 @@ subscription webhooks). The existing harnesses cover Connect-scoped studio payme
 floor-rental payment harness); none covered subscription pricing, which is why the PRICING-P1 checks were owner-run.
 
 This page covers **BILLING-QA-1** (the shared PASS / FAIL / BLOCKED report format and the Stripe **test-mode** Price
-verifier) and **BILLING-QA-4** (the read-only deployed price-config endpoint, below). The test-mode subscription spec
-and webhook route tests are described in `docs/qa/local-e2e-environment.md` §3a.
+verifier) and **BILLING-QA-4** (the read-only deployed price-config endpoint, below). The test-mode subscription
+lifecycle spec and webhook route tests are BILLING-QA-2/-3 (PRs #334/#335); once merged they are described in
+`docs/qa/local-e2e-environment.md` §3a.
 
 ## Report format (`src/lib/billing-qa/report.ts`)
 
@@ -85,16 +86,21 @@ Price IDs and pricing flags it runs with, whether a Founder variable is blank, w
 the IDs map to their plans in the webhook, whether the Stripe keys are live or test, and whether both webhook secrets
 are set and different. Report mode `config` (`src/lib/billing-qa/priceConfigReport.ts`).
 
-- **Read-only:** no Stripe call, no database access, no write. It reads the deployment's own environment.
-- **Not proven here:** Price *amounts*. `config.stripeAmountsChecked` is `false`. Pair the reported IDs with the
-  BILLING-QA-1 verifier (test mode) or a read-only Stripe check; checkout itself still refuses a wrong amount.
-- **Nothing secret:** Price IDs, flags, key *modes* (`live` / `test` / `unset` / `unrecognized`) and
-  secret *presence* only; the two webhook secrets are compared, never returned. The report builder refuses output
-  containing a key.
-- **Dark:** `404` unless `BILLING_QA_PRICE_CONFIG_ENDPOINT=enabled` in that environment. Enabling it in Production is
-  an env change and needs owner approval.
-- **Access:** platform admins only (everyone else, signed in or not, gets the same `404`), with a TOTP-verified
-  (AAL2) session, the same bar as `/platform`; `403 platform_mfa_required` otherwise. Responses are `no-store`.
+- **Read-only:** no Stripe call and no write. The report builder reads only the deployment's environment; the route
+  reads only the caller's own profile and MFA status.
+- **Not proven here:** Price *amounts*. A PASS from this report never means an amount was verified
+  (`config.stripeAmountsChecked` is `false`). Pair the reported IDs with the BILLING-QA-1 verifier (test mode) or the
+  BILLING-QA-5 read-back; checkout itself still refuses a wrong amount.
+- **Nothing secret:** well-formed Price IDs (anything else is shown as `malformed`, never its value), flags, key
+  *modes* (`live` / `test` / `unset` / `unrecognized`) and secret *presence* only; the two webhook secrets are compared,
+  never returned. The report builder refuses output containing a key, and the route then answers
+  `500 report_refused` without details.
+- **Dark:** `404` unless `BILLING_QA_PRICE_CONFIG_ENDPOINT=enabled` in that environment, checked before any auth
+  lookup. Enabling it in Production is an env change plus a redeploy, so it needs owner approval.
+- **Access:** platform admins only (everyone else, signed in or not, gets the same plain `404 Not found` as when dark;
+  this is not the framework's HTML 404, so the route's existence is not hidden), with a verified TOTP factor and an
+  AAL2 session, the same bar as `/platform` (`requirePlatformMfa`); `403 platform_mfa_required` otherwise. Responses
+  are `no-store`.
 
 | Check | PASS when |
 |---|---|
