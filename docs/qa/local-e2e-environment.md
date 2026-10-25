@@ -86,22 +86,39 @@ stripe listen --api-key <sk_test_...> --forward-to http://localhost:3100/api/pay
 - The sandbox needs a saved **test-mode** Billing Portal configuration, otherwise the existing-subscriber cases fail at
   the portal redirect.
 - `E2E_STRIPE_TEST_SECRET_KEY` must be the app's test key (same account). No connected account is needed.
+- Optional `E2E_STRIPE_WEBHOOK_SECRET` = the same local listen secret as the app's `STRIPE_WEBHOOK_SECRET` (test-only).
+  With it, B9/B10 re-send authentic older Stripe event payloads under fresh ids (genuinely delayed deliveries the
+  ledger has not seen); without it B9 is skipped (reported skipped, never passed).
+- The first run after starting the dev server compiles the login and billing pages; under `next dev --webpack` that
+  can exceed the 60 s sign-in wait. Re-run once the pages are warm.
 
 ```bash
 E2E_BASE_URL=http://localhost:3100 E2E_SUPABASE_URL=http://127.0.0.1:55321 E2E_SUPABASE_SERVICE_ROLE_KEY=<local QA key> \
-E2E_STRIPE_TEST_SECRET_KEY=<sk_test_...> STRIPE_PRICE_STUDIO_STARTER_FOUNDER=... STRIPE_PRICE_STUDIO_GROWTH_FOUNDER=... \
-STRIPE_PRICE_STUDIO_PRO_FOUNDER=... STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY=... \
+E2E_STRIPE_TEST_SECRET_KEY=<sk_test_...> E2E_STRIPE_WEBHOOK_SECRET=<listen whsec_...> STRIPE_PRICE_STUDIO_STARTER_FOUNDER=... \
+STRIPE_PRICE_STUDIO_GROWTH_FOUNDER=... STRIPE_PRICE_STUDIO_PRO_FOUNDER=... STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY=... \
 npx playwright test e2e/tests/studio-subscription-stripe-test-mode.spec.ts --project chromium
 ```
 
-What it proves: each plan's checkout opens a test Session on exactly the expected Price and amount; paying it records
-the plan for exactly that studio via signed webhooks; an existing subscriber is sent to the Billing Portal with no new
-Session and no re-pricing; a plan change follows the Price (not stale `planCode` metadata) and a replayed event changes
-nothing; `studios.billing_plan` (read by the public embed, Discover and calendar pages) follows upgrades and downgrades;
-a grandfathered subscription on a legacy Price resolves by Price alone and is never re-priced; a platform subscription
-without DanceFlow metadata (e.g. made in the Stripe Dashboard) is acknowledged with no write instead of a retried 500.
-Test customers (and their subscriptions) are deleted afterwards. Not covered here: a server whose Price is the wrong amount (`price_mismatch`) -- that needs a different
-app configuration and is covered by unit tests and the BILLING-QA-1 price verifier.
+What it proves (B1–B12, one serial lifecycle):
+
+| Case | Proves |
+|---|---|
+| B1 | each plan's checkout opens a test Session on exactly the expected Price; Founder amounts also pinned literally ($59 / $99 / $159) |
+| B2 | paying it records the plan for exactly that studio via signed webhooks (`studio_subscriptions` and `studios.billing_plan`) |
+| B3 | an existing subscriber is sent to the Billing Portal: no new Session, no re-pricing |
+| B4 / B5 | upgrade Growth → Pro and downgrade Pro → Starter follow the Price, not stale `planCode` metadata; a replayed event changes nothing |
+| B6 | a grandfathered subscription on a legacy Price resolves as Pro by Price alone and is never re-priced |
+| B7 | a platform subscription without DanceFlow metadata (e.g. made in the Dashboard) is acknowledged with no write |
+| B8 | trial end with a declining card: `invoice.payment_failed`, `past_due` (no plan features), plan kept; paying the invoice restores `active` |
+| B9 | delayed deliveries of authentic older events (the `past_due` update, the original Growth trial) do not overwrite newer state |
+| B10 | cancellation: `cancelled`, last plan kept; a late `active` event cannot resurrect it |
+| B11 | an incomplete (never paid) subscription is recorded `inactive` and does not change `billing_plan` |
+| B12 | final state of every run studio, and every webhook delivery for the run's subscriptions `processed` |
+
+Plan features are granted only for `active` / `trialing` (`studioIdHasFeature`), so `past_due`, `cancelled` and
+`inactive` grant none. Test customers (and their subscriptions) are deleted afterwards. Not covered here: a server whose
+Price is the wrong amount (`price_mismatch`) -- that needs a different app configuration and is covered by unit tests
+and the BILLING-QA-1 price verifier.
 
 ## 4. Stripe test account
 

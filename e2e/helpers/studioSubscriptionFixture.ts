@@ -9,6 +9,7 @@ import { e2eAdminClient, type CompetitionAccount } from "./competitionFixture";
  * own studio owner who has accepted the current business terms:
  *   - `fresh`: never subscribed (subscription_status inactive), used for new-subscriber checkout and plan changes;
  *   - `legacy`: given a grandfathered subscription directly in Stripe test mode by the spec.
+ *   - `edge`: given an incomplete (never paid) subscription by the spec.
  * Missing starter/growth/pro `subscription_plans` rows are created (with no Stripe Price IDs, so the webhook resolves
  * plans through the checkout Price env vars, as in production) and only those are removed again.
  *
@@ -22,6 +23,7 @@ export type StudioSubscriptionFixture = {
   runId: string;
   fresh: SubscriptionStudio;
   legacy: SubscriptionStudio;
+  edge: SubscriptionStudio;
   planIds: Record<"starter" | "growth" | "pro", string>;
   createdPlanIds: string[];
 };
@@ -46,6 +48,7 @@ export async function createStudioSubscriptionFixture(config: E2EConfig): Promis
     runId,
     fresh: studio("fresh"),
     legacy: studio("legacy"),
+    edge: studio("edge"),
     planIds: { starter: "", growth: "", pro: "" },
     createdPlanIds: [],
   };
@@ -63,7 +66,7 @@ export async function createStudioSubscriptionFixture(config: E2EConfig): Promis
       }
     }
 
-    for (const [key, s] of [["fresh", fixture.fresh], ["legacy", fixture.legacy]] as const) {
+    for (const [key, s] of [["fresh", fixture.fresh], ["legacy", fixture.legacy], ["edge", fixture.edge]] as const) {
       await must(admin.from("studios").insert({ id: s.id, name: s.name, slug: `e2e-billing-${runId}-${key}`, subscription_status: "inactive" }), `${key} studio`);
       const { data: created, error } = await admin.auth.admin.createUser({ email: s.owner.email, password: s.owner.password, email_confirm: true });
       if (error || !created.user) throw new Error(`Studio subscription fixture: ${key} owner: ${error?.message}`);
@@ -127,7 +130,7 @@ export async function readPlatformSubscriptionRows(config: E2EConfig, stripeSubs
 export async function runStripeCustomerIds(config: E2EConfig, fixture: StudioSubscriptionFixture | undefined) {
   if (!fixture) return [];
   const ids = new Set<string>();
-  for (const s of [fixture.fresh, fixture.legacy]) {
+  for (const s of [fixture.fresh, fixture.legacy, fixture.edge]) {
     for (const row of (await readStudioBilling(config, s.id)).customers) if (row.stripe_customer_id) ids.add(String(row.stripe_customer_id));
   }
   return [...ids];
@@ -157,7 +160,7 @@ export async function cleanupStudioSubscriptionFixture(config: E2EConfig, fixtur
     if (error) failures.push(`${what}: ${error.message}`);
   };
 
-  for (const s of [fixture.fresh, fixture.legacy]) {
+  for (const s of [fixture.fresh, fixture.legacy, fixture.edge]) {
     await step("studio subscriptions", () => admin.from("studio_subscriptions").delete().eq("studio_id", s.id));
     await step("billing customers", () => admin.from("studio_billing_customers").delete().eq("studio_id", s.id));
     if (s.owner.id) {
