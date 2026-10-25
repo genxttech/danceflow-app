@@ -368,6 +368,32 @@ by the assistant; running a checkout would also create a live Stripe Checkout Se
 no subscription, start Starter, Growth and Pro in turn, confirm the Stripe page shows "Studio … - Founder" at the right amount, then close the tab (the session expires
 unpaid). This must be done against the staged URL (SSO) or accepted as an owner-attested check after promotion.
 
+## Promotion gate record (2026-10-24, owner authorization after owner-run staged QA)
+
+Gate 1 (deployment identity): VERIFIED by me. `release/pricing-p1` head is still `4bc938c6`; its tree hash `5a531886…` equals the tree exported and deployed;
+staged `dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj` (target production, Ready, created 23:16 EDT, unchanged since). The branch differs from the live base `8fd075f5` by exactly two commits
+(`1c8ab80f` #302, `4bc938c6` #319) and 14 files, all billing/pricing/webhook; 0 paths mention Twilio/TW-4F/Competition. No commits from `main` beyond those two cherry-picks.
+Vercel git builds for the branch succeeded; the staged build is Ready. Same artifact the owner was told to test (one URL, immutable).
+
+Gate 2 (QA evidence): the owner reports the staged QA passed. I did not observe the authenticated checks. Evidence by item:
+- Founder Starter/Growth/Pro checkout at $59/$99/$159, portal access, existing Pro unchanged, no payment processed: **owner-attested** (not independently verified by me).
+- Public pages show $59/$99/$159; no Regular price or link anywhere public: **verified by me** on the staged URL.
+- Webhook plan mapping for new and grandfathered Founder Price IDs: **automated tests + independent review** (11 helper tests incl. legacy list, multi-item, ambiguity;
+  256-test release candidate; reviewer: no blockers). It cannot be exercised by a no-payment checkout, so there is no production-event evidence yet.
+- Regular pricing inactive and hidden: **verified** (no `REGULAR_PRICING_*` variable exists in project or shared env; no regular price on public pages).
+
+Gate 3 (Production configuration): VERIFIED by read-back on 2026-10-24 after the split (Activity log showed only the intended events). Production-only: Starter `price_1TdDHBEY0sTayNiS0G2Ed9oI`,
+Growth `price_1UUG7uEY0sTayNiSh0d9cCL8`, Pro `price_1UUG4UEY0sTayNiSClLL4J0R`, `…_PRO_FOUNDER_LEGACY` `price_1TdDHwEY0sTayNiSIe1nD3Lg`. Originals preserved Preview-only
+(locked, unread). `…_STANDARD`, Founder flags and all other variables untouched. No `REGULAR_PRICING_ACTIVATED` or approval reference exists.
+
+Gate 4 (rollback readiness):
+- Previous Production deployment (rollback target): `dpl_87xgSBVM2MqXi9KeyJHFeH9rdsoh` (`release/web-2a-website` `8fd075f5`, Ready, created 2026-10-23 09:38 EDT).
+- Staged deployment to promote: `dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj`.
+- Previous Production Founder mappings: the original shared entries, preserved verbatim as Preview-only entries (values locked; not readable here). The old Founder Prices remain in Stripe
+  (nothing archived or edited): grandfathered Pro `price_1TdDHwEY0sTayNiSIe1nD3Lg`; old Growth Founder Price is in the Stripe Dashboard.
+- Restore together, in order: (1) `vercel promote dpl_87xgSBVM2MqXi9KeyJHFeH9rdsoh` (or instant rollback), (2) delete the four new Production-only entries, (3) re-tick Production on the three
+  preserved entries. Env changes affect only new builds, so step 1 alone restores serving; steps 2–3 keep a future rebuild consistent.
+
 ## Release sequence (each hosted step needs separate owner authorization)
 
 1. Step 0 evidence accepted (live account, matches production).
