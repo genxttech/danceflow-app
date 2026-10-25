@@ -121,10 +121,8 @@ function exportedActions(src: string): { name: string; body: string }[] {
 describe("completeness and source order", () => {
   it("every 'use server' file in the SMS panel directory is in the registry (a new actions file cannot slip in unclassified)", () => {
     const useServer = readdirSync(dir)
-      .filter((f) => /.tsx?$/.test(f) && !f.endsWith(".d.ts"))
-      .filter((f) => /^﻿?s*(//[^
-]*
-s*|/*[sS]*?*/s*)*["']use server["']/.test(readFileSync(join(dir, f), "utf8")))
+      .filter((f) => /\.tsx?$/.test(f) && !f.endsWith(".d.ts"))
+      .filter((f) => /^\s*(\/\/[^\n]*\n\s*|\/\*[\s\S]*?\*\/\s*)*["']use server["']/.test(readFileSync(join(dir, f), "utf8")))
       .sort();
     expect(useServer).toEqual(Object.keys(REGISTRY).sort());
   });
