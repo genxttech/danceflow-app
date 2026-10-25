@@ -172,7 +172,7 @@ describe("contract alignment", () => {
   });
 
   it("every kind and code the SQL writes is in the contract", () => {
-    const sql = readFileSync(join(__dirname, "..", "..", "..", "supabase", "migrations", "20270104090000_competition_f2_results_lifecycle.sql"), "utf8");
+    const sql = readFileSync(join(__dirname, "..", "..", "..", "supabase", "migrations", "20270114090000_competition_f2_results_lifecycle.sql"), "utf8");
     for (const kind of sql.matchAll(/'(round_state_changed|result_[a-z_]+|advancement_applied)'/g)) {
       if (/^result_(versions|rows|approvals|events|version_id)/.test(kind[1])) continue;
       expect(RESULT_EVENT_KINDS as readonly string[]).toContain(kind[1]);

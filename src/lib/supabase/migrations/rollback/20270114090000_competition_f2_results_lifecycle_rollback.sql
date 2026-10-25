@@ -1,4 +1,4 @@
--- rollback/20270104090000_competition_f2_results_lifecycle_rollback.sql
+-- rollback/20270114090000_competition_f2_results_lifecycle_rollback.sql
 --
 -- Reverts F2: restores E2's two ballot-status conditions, drops the lifecycle RPCs, guards and tables, and removes
 -- event_competition_rounds.correction_open.
@@ -53,6 +53,14 @@ begin
     raise exception 'F2 rollback: _compe2_insert_ballot does not carry the F2 condition exactly once.';
   end if;
   execute replace(v_def, v_old_b, v_new_b);
+end $$;
+
+do $$
+begin
+  if md5(replace(pg_get_functiondef('public._compe2_guard_ballot_insert()'::regprocedure), E'\r', '')) <> 'bf42705de4337864940a6f73b54afda9'
+     or md5(replace(pg_get_functiondef('public._compe2_insert_ballot(uuid,uuid,uuid,uuid,text,uuid,jsonb,text,uuid)'::regprocedure), E'\r', '')) <> 'f28880cece349cd1a52179f89ccf2e7c' then
+    raise exception 'F2 rollback: restored E2 bodies do not match the pinned #331 text; rolled back.';
+  end if;
 end $$;
 
 drop trigger if exists compf2_guard_ballot_order on public.event_competition_ballots;

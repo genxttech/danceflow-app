@@ -226,7 +226,7 @@ Owner words (2026-10-24): "K0 O1–O5: Accept all five proposed fail-safe defaul
 |---|---|---|
 | `20270101090000` | E1 officials | §3 officials, panels, official_events; §9 #2 |
 | `20270102090000` | E2 ballots | §3 ballots/marks, judge_attendance, ballot_drafts, ballot_events; §4 lock/reopen; §9 #1 |
-| `20270104090000` | F2 results lifecycle | §3 results/approvals/events; §4 calculate/approve/correct/complete; §6; §8; §8 unified audit read |
+| `20270114090000` | F2 results lifecycle | §3 results/approvals/events; §4 calculate/approve/correct/complete; §6; §8; §8 unified audit read |
 | `20270105090000` | F3 publication + read RPCs | §3 publications; §4 publish/withdraw; §7; §9 #4–#6 |
 | `20270106090000` | O1 day-of | §4 schedule/start/cancel round; §3 round_transition_events |
 | `20270107090000` | C1 closeout | §10 |

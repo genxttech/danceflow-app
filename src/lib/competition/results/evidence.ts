@@ -1,7 +1,7 @@
 /**
  * F2: the evidence input that calculate/approve bind their input_hash to.
  *
- * The document is built in SQL from the CURRENT ballots (`_compf2_evidence`, migration 20270104090000) and returned by
+ * The document is built in SQL from the CURRENT ballots (`_compf2_evidence`, migration 20270114090000) and returned by
  * `competition_round_calculation_input`. The app never invents it: it hashes what the database returned with the K0
  * canonical serialization and cross-checks the database's own hash (a mismatch means the two implementations disagree and
  * the calculation is refused). `calculate_competition_round` then recomputes the hash from the ballots at write time, so a

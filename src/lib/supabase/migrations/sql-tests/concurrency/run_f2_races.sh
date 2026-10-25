@@ -286,8 +286,9 @@ $(as_user "$MGR1")
 select public.competition_round_calculation_input('$(U 86)');
 SQL
 if [ -d "$ROOT/node_modules" ]; then
-  PARITY=$(cd "$ROOT" && F2_EVIDENCE_JSON=$ROOT/f2-evidence.tmp.json npx vitest run src/lib/competition/results/__tests__/evidence.parity.test.ts 2>&1)
+  PARITY=$(cd "$ROOT" && F2_EVIDENCE_JSON="$(cygpath -m "$ROOT")/f2-evidence.tmp.json" npx vitest run src/lib/competition/results/__tests__/evidence.parity.test.ts 2>&1)
   ok "Z: TypeScript recomputes the database's evidence hash byte for byte" $(echo "$PARITY" | grep -q "1 passed" && echo 1 || echo 0)
+  rm -f "$ROOT/f2-evidence.tmp.json"
 else
   rm -f "$ROOT/f2-evidence.tmp.json"
   echo "Z: skipped (no node_modules at $ROOT)"

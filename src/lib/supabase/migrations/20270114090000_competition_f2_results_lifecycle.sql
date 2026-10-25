@@ -1,7 +1,7 @@
--- 20270104090000_competition_f2_results_lifecycle.sql
+-- 20270114090000_competition_f2_results_lifecycle.sql
 --
--- PHASE 10 -- F2: results lifecycle (K0 sections 3, 4, 6 corrections, 8 unified audit; slot 20270104090000).
--- Stacks on E1 (20270101090000), E2 (20270102090000) and O1 (20270106090000). F3 publication (20270105090000) is NOT here.
+-- PHASE 10 -- F2: results lifecycle (K0 sections 3, 4, 6 corrections, 8 unified audit). Slot 20270114090000 (K0's 20270104 sorted before O1 20270106; 0104 is RETIRED).
+-- Stacks on E1 (20270101090000), E2 (20270102090000), O1 (20270106090000) and, when present, REG (20270113). F3 publication (20270105090000) is NOT here.
 --
 -- New tables (RLS on; managers read all, assigned scorers read versions/rows, nobody else reads anything):
 --   event_competition_result_versions   insert-only except `status` transitions made by the RPCs below
@@ -35,7 +35,7 @@
 -- reads the installed function definition, asserts the E2 text occurs exactly once, and fails otherwise. Nothing else
 -- of E2 or O1 changes. O1's static edge list already contains every F2 edge.
 --
--- Rollback: rollback/20270104090000_competition_f2_results_lifecycle_rollback.sql (refuses while any evidence exists).
+-- Rollback: rollback/20270114090000_competition_f2_results_lifecycle_rollback.sql (refuses while any evidence exists).
 
 begin;
 
@@ -64,8 +64,15 @@ begin
   if to_regclass('public.event_competition_official_events') is null then
     raise exception 'F2 preflight: E1 officials are missing.';
   end if;
-  -- O1 (slot 20270106) sorts AFTER F2, so it is optional here: its static edge list already holds every F2 edge, and the
-  -- audit read includes its transition table only when it exists.
+  if to_regclass('public.event_competition_round_transition_events') is null
+     or to_regprocedure('public._compo1_guard_round_status()') is null then
+    raise exception 'F2 preflight: O1 round transitions (20270106) are missing.';
+  end if;
+  -- Pin the E2 bodies this migration rewrites (md5 of pg_get_functiondef with CRs removed, E2 as at #331 head 958b9547).
+  if md5(replace(pg_get_functiondef('public._compe2_guard_ballot_insert()'::regprocedure), E'\r', '')) <> 'bf42705de4337864940a6f73b54afda9'
+     or md5(replace(pg_get_functiondef('public._compe2_insert_ballot(uuid,uuid,uuid,uuid,text,uuid,jsonb,text,uuid)'::regprocedure), E'\r', '')) <> 'f28880cece349cd1a52179f89ccf2e7c' then
+    raise exception 'F2 preflight: E2 function bodies differ from the pinned #331 text; coordinate before changing them.';
+  end if;
   if to_regprocedure('public.set_competition_heat_lock_state(uuid,text,text)') is null
      or to_regprocedure('public.can_manage_event_competition(uuid)') is null
      or to_regprocedure('public.protect_competition_history_evidence()') is null then

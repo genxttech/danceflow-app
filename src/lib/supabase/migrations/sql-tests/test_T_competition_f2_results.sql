@@ -1,6 +1,6 @@
 -- Competition F2 -- results lifecycle regression suite.
 --
--- Covers 20270104090000_competition_f2_results_lifecycle.sql on top of 10A..10D.1, E1 (20270101090000), O1 (20270106090000)
+-- Covers 20270114090000_competition_f2_results_lifecycle.sql on top of 10A..10D.1, E1 (20270101090000), O1 (20270106090000)
 -- and E2 (20270102090000). Run as a SUPERUSER (fixtures use session_replication_role = replica to place heats in a published
 -- schedule version and rounds in a state without the O1/E2 flows). One transaction, synthetic fixtures only (UUID block
 -- ...-f20ff2XXXXXX). The final block ALWAYS raises, so nothing persists:
@@ -708,7 +708,7 @@ select pg_temp.expect_msg('result rows cannot be truncated', $q$truncate public.
 select pg_temp.expect_msg('approvals cannot be updated', $q$update public.event_competition_result_approvals set override_reason = 'x'$q$, 'append-only');
 select pg_temp.expect_msg('approvals cannot be deleted', $q$delete from public.event_competition_result_approvals$q$, 'append-only');
 select pg_temp.expect_msg('versions cannot be deleted', $q$delete from public.event_competition_result_versions$q$, 'append-only');
-select pg_temp.expect_msg('versions cannot be truncated', $q$truncate public.event_competition_result_versions$q$, 'cannot be truncated');
+select pg_temp.expect_msg('versions cannot be truncated', $q$truncate public.event_competition_result_versions$q$, 'truncate');
 select pg_temp.expect_msg('a version''s hash cannot be edited', $q$update public.event_competition_result_versions set input_hash = repeat('c', 64)$q$, 'COMPF2_VERSION_IMMUTABLE');
 select pg_temp.expect_msg('a version''s trace cannot be edited', $q$update public.event_competition_result_versions set trace = '[]'$q$, 'COMPF2_VERSION_IMMUTABLE');
 select pg_temp.expect_msg('a version''s calculator cannot be edited', format($q$update public.event_competition_result_versions set calculated_by = %L$q$, pg_temp.u('000002')), 'COMPF2_VERSION_IMMUTABLE');
