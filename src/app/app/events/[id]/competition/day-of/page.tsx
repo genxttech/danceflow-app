@@ -133,6 +133,7 @@ export default async function DayOfPage({
       </header>
 
       {query.notice ? <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{query.notice}</p> : null}
+      {data.noShowLoadError ? <p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-950">Couldn&apos;t load no-shows: {data.noShowLoadError} No-show marks may be missing below.</p> : null}
       {query.error ? <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-900">{query.error}</p> : null}
 
       {!data.version ? (

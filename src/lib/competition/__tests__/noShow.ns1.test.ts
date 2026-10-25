@@ -38,6 +38,7 @@ describe("NS1 friendlyNoShowError", () => {
     expect(friendlyNoShowError({ message: "COMP_NO_SHOW_WINDOW: a no-show can be recorded only while the round is active.\nDETAIL" }))
       .toBe("a no-show can be recorded only while the round is active.");
     expect(friendlyNoShowError({ message: "COMP_FORBIDDEN: not allowed." })).toMatch(/manager or the chief judge/);
+    expect(friendlyNoShowError({ message: "COMP_VERIFIED_EMAIL_REQUIRED: a verified email credential is required" })).toMatch(/Verify your email.*COMP_VERIFIED_EMAIL_REQUIRED/);
     expect(friendlyNoShowError({ message: "boom internal" })).toBe("That change could not be saved. Refresh and try again.");
     expect(friendlyNoShowError(null)).toBe("That change could not be saved. Refresh and try again.");
   });

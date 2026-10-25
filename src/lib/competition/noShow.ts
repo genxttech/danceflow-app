@@ -35,6 +35,7 @@ export function friendlyNoShowError(error: { message?: string } | null | undefin
   const message = error?.message ?? "";
   const match = message.match(/COMP_NO_SHOW_[A-Z_]+:\s*([\s\S]+?)(?:\n|$)/);
   if (match) return match[1].replace(/\s+/g, " ").trim();
+  if (/COMP_VERIFIED_EMAIL_REQUIRED/.test(message)) return "Verify your email to record or see no-shows (COMP_VERIFIED_EMAIL_REQUIRED).";
   if (/COMP_FORBIDDEN/.test(message)) return "Only the event manager or the chief judge can record a no-show.";
   if (/COMP_REQUEST_REUSED/.test(message)) return "That request was already used. Refresh and try again.";
   return "That change could not be saved. Refresh and try again.";
