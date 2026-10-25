@@ -74,7 +74,13 @@ export default async function JudgeBallotPage({
 
       {noShows.length > 0 ? (
         <p role="status" className="mt-3 rounded border border-slate-300 bg-slate-50 p-3 text-sm text-slate-900">
-          {noShows.length === 1 ? "An entry was" : `${noShows.length} entries were`} marked as no-show by an official and {noShows.length === 1 ? "is" : "are"} not on your sheet: {noShows.map((row) => `${row.entry_number ? `#${row.entry_number} ` : ""}${row.display_name} (heat ${row.heat_number})`).join(", ")}. Rank only the entries shown.
+          {noShows.length === 1 ? "An entry was" : `${noShows.length} entries were`} marked as no-show by an official and {noShows.length === 1 ? "is" : "are"} not on your sheet: {noShows.map((row) => `${row.entry_number ? `#${row.entry_number} ` : ""}${row.display_name} (heat ${row.heat_number})`).join(", ")}. {callback ? "Choose only among the entries shown." : "Rank only the entries shown. An entry that is a no-show in one heat still appears in its other heats."}
+        </p>
+      ) : null}
+
+      {callback?.ballot && open && Array.from(picked).some((id) => !sheet.heats.some((heat) => heat.entries.some((entry) => entry.entry_id === id))) ? (
+        <p role="alert" className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+          One of the couples you called back was marked no-show after you submitted. Pick your couples again and submit a correction.
         </p>
       ) : null}
 

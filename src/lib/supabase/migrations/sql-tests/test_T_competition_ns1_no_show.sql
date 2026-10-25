@@ -288,8 +288,7 @@ set role authenticated;
 select pg_temp.as_user(pg_temp.u('000017'));
 select pg_temp.chk('chair replay returns replayed=true',
   (public.mark_competition_heat_no_show(pg_temp.he('00d001', '008003'), 'Did not report to the floor', pg_temp.u('f30020')) ->> 'replayed')::boolean);
-select pg_temp.chk('a new request on an already-marked entry is a no-op (already_no_show)',
-  (public.mark_competition_heat_no_show(pg_temp.he('00d001', '008003'), 'Again', pg_temp.u('f30021')) ->> 'already_no_show')::boolean);
+select pg_temp.expect_msg('a new request on an already-marked entry is refused (no unrecorded request id)', format($q$select public.mark_competition_heat_no_show(%L, 'Again', %L)$q$, pg_temp.he('00d001', '008003'), pg_temp.u('f30021')), 'COMP_NO_SHOW_ALREADY');
 reset role;
 select pg_temp.chk('still exactly one mark', pg_temp.nns() = 1);
 select pg_temp.chk('mark carries reason, actor and event',

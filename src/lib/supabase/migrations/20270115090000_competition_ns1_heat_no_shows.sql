@@ -174,6 +174,7 @@ revoke all on function public.competition_heat_no_show_entries(uuid) from public
 create function public._compns1_guard_heat_entry_status()
 returns trigger
 language plpgsql
+security definer
 set search_path = public, pg_temp
 as $$
 begin
@@ -274,10 +275,12 @@ begin
   end if;
 
   if v_round.status <> 'active' then
-    raise exception 'COMP_NO_SHOW_WINDOW: a no-show can be recorded only while the round is active and its ballots are open (round is %); after lock use the correction path.', v_round.status
+    raise exception 'COMP_NO_SHOW_WINDOW: a no-show can be recorded only while the round is active and its ballots are open (round is %); after lock a manager must reopen the ballots first.', v_round.status
       using errcode = 'P0001';
   end if;
-  select * into v_heat from public.event_competition_heats h where h.id = v_he.heat_id for share;
+  -- No heat lock: the {active, complete} window has no exit (O1 cancels only draft/scheduled heats) and locking the heat after the round
+  -- would deadlock with advance_competition_floor_heat (heat FOR UPDATE, then round FOR KEY SHARE).
+  select * into v_heat from public.event_competition_heats h where h.id = v_he.heat_id;
   if v_heat.status not in ('active', 'complete') then
     raise exception 'COMP_NO_SHOW_WINDOW: a no-show can be recorded only for an active or complete heat (heat is %).', v_heat.status using errcode = 'P0001';
   end if;
@@ -286,16 +289,13 @@ begin
     raise exception 'COMP_NO_SHOW_ENTRY_STATE: a % entry cannot be marked no-show.', v_he.status using errcode = 'P0001';
   end if;
   if public.competition_heat_entry_is_no_show(p_heat_entry_id) then
-    select * into v_prev from public.event_competition_heat_no_shows n
-     where n.heat_entry_id = p_heat_entry_id
-       and not exists (select 1 from public.event_competition_heat_no_show_voids v where v.no_show_id = n.id);
-    return jsonb_build_object('replayed', false, 'already_no_show', true, 'no_show_id', v_prev.id, 'heat_entry_id', p_heat_entry_id);
+    raise exception 'COMP_NO_SHOW_ALREADY: this entry is already marked no-show.' using errcode = 'P0001';
   end if;
 
   insert into public.event_competition_heat_no_shows(event_id, round_id, heat_id, heat_entry_id, entry_id, reason, marked_by, request_id)
   values (v_he.event_id, v_round.id, v_he.heat_id, v_he.id, v_he.entry_id, v_reason, v_uid, p_request_id)
   returning * into v_row;
-  return jsonb_build_object('replayed', false, 'already_no_show', false, 'no_show_id', v_row.id, 'heat_entry_id', p_heat_entry_id);
+  return jsonb_build_object('replayed', false, 'no_show_id', v_row.id, 'heat_entry_id', p_heat_entry_id);
 end;
 $$;
 
@@ -350,10 +350,12 @@ begin
   end if;
 
   if v_round.status <> 'active' then
-    raise exception 'COMP_NO_SHOW_WINDOW: a no-show can be voided only while the round is active and its ballots are open (round is %); after lock use the correction path.', v_round.status
+    raise exception 'COMP_NO_SHOW_WINDOW: a no-show can be voided only while the round is active and its ballots are open (round is %); after lock a manager must reopen the ballots first.', v_round.status
       using errcode = 'P0001';
   end if;
-  select * into v_heat from public.event_competition_heats h where h.id = v_he.heat_id for share;
+  -- No heat lock: the {active, complete} window has no exit (O1 cancels only draft/scheduled heats) and locking the heat after the round
+  -- would deadlock with advance_competition_floor_heat (heat FOR UPDATE, then round FOR KEY SHARE).
+  select * into v_heat from public.event_competition_heats h where h.id = v_he.heat_id;
   if v_heat.status not in ('active', 'complete') then
     raise exception 'COMP_NO_SHOW_WINDOW: a no-show can be voided only for an active or complete heat (heat is %).', v_heat.status using errcode = 'P0001';
   end if;
@@ -390,11 +392,14 @@ begin
   if v_event is null then
     raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
   end if;
+  if public.verified_email_for_user(v_uid) is null then
+    raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
+  end if;
   if public._compe2_round_role(p_round_id) is null
      and not exists (select 1 from public.event_competition_officials o
                      join public.event_competition_panel_assignments a on a.official_id = o.id and a.event_id = o.event_id
                      where o.event_id = v_event and o.user_id = v_uid and o.status = 'active'
-                       and o.role in ('judge', 'chair') and a.round_id = p_round_id) then
+                       and o.role in ('judge', 'chair') and a.round_id = p_round_id and a.judge_letter is not null) then
     raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
   end if;
   return coalesce((

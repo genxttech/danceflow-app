@@ -62,11 +62,12 @@ export async function loadDayOf(supabase: SupabaseClient, eventId: string) {
   const inputs: DayOfHeatInput[] = heats.filter((heat) => heat.floor_heat_id).map((heat) => ({
     id: heat.id, floorHeatId: heat.floor_heat_id as string, roundId: heat.round_id, status: heat.status, lockState: heat.lock_state,
   }));
-  // NS1: active no-shows of the rounds that are running (the RPC checks the caller; a failure shows no marks, never wrong ones).
+  // NS1: active no-shows of the rounds that are running (the RPC checks the caller; a failure shows no marks).
   const noShows = new Map<string, NoShowRow>();
   for (const round of rounds.filter((candidate) => candidate.status === "active")) {
     const { data: marks, error: noShowError } = await supabase.rpc("competition_round_no_shows", { p_round_id: round.id });
-    if (noShowError) throw new Error("Could not load no-shows.");
+    // Degrade, never fail the console: without marks the day-of controls still work (the database enforces the rules).
+    if (noShowError) continue;
     for (const [key, value] of activeNoShows(marks as NoShowRow[])) noShows.set(key, value);
   }
   return { version, rounds, divisionName, floorHeats: buildDayOfFloorHeats(floorResult.data ?? [], inputs), heatsByFloor, entriesByHeat, noShows };

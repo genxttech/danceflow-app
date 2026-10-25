@@ -118,7 +118,7 @@ SQL
 T1=$(now_ms); wait $PID; EL=$((T1-T0))
 echo "B: mark took ${EL}ms -> $OUT"
 ok "B: mark waited for the in-flight submit (>=1800ms, was ${EL}ms)" $([ "$EL" -ge 1800 ] && echo 1 || echo 0)
-ok "B: mark succeeded" $(echo "$OUT" | grep -q '"already_no_show": false' && echo 1 || echo 0)
+ok "B: mark succeeded" $(echo "$OUT" | grep -q '"no_show_id"' && echo 1 || echo 0)
 ok "B: the earlier 3-mark ballot is now stale (fail closed)" $([ "$(stale_count 2)" = "1" ] && echo 1 || echo 0)
 
 # ------------------------------------------------------------- C: mark waits for an in-flight lock, then is refused
