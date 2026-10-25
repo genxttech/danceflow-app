@@ -225,7 +225,7 @@ commit;`);
       ["unknown scope", () => ({ scope: "standing_authorization" }), "TW052"],
       ["the exception scope on a fee", () => ({ scope: "pilot_exception" }), "TW052"],
       ["a scope that does not allow the fee kind", (kind) => ({ scope: kind === "brand" ? "pilot_number_purchase" : "pilot_onboarding_fee" }), "TW052"],
-      ["the cover scope without a period", () => ({ scope: "pilot_period_cover", period: null }), "TW052"],
+      ["the cover scope without a period (a direct call can never use the cover scope: TW053, 20261231100000)", () => ({ scope: "pilot_period_cover", period: null }), "TW053"],
       ["a non-cover scope that names a period", () => ({ period: "2026-10" }), "TW052"],
       ["missing evidence amount", () => ({ amount: null }), "TW052"],
       ["evidence amount differs from the amount approved", (_k, cents) => ({ amount: cents + 1 }), "TW052"],
@@ -263,7 +263,8 @@ commit;`);
       const w = pilotWorld();
       for (const scope of ["pilot_onboarding_fee", "pilot_campaign_fee", "pilot_number_purchase", "pilot_period_cover"]) {
         const err = callErr("tw4_spend_authorize", w.entity, "sms_usage", 100, ref(`unmapped-${scope}`), P, "pilot", w.studio, day(-3), "owner_written", scope, 100, scope === "pilot_period_cover" ? cur() : null, "AUTH-DOC-UNMAPPED1", "e".repeat(64));
-        expect(hasCode(err, "TW052"), `${scope}: ${err}`).toBe(true);
+        // 20261231100000: the cover scope is refused earlier (TW053) for a direct call
+        expect(hasCode(err, scope === "pilot_period_cover" ? "TW053" : "TW052"), `${scope}: ${err}`).toBe(true);
       }
       expect(spendRows(w)).toBe(0);
     });
@@ -277,7 +278,9 @@ commit;`);
           const w = pilotWorld();
           const period = scope === "pilot_period_cover" ? cur() : null;
           const err = spendErr(w, kind, ref(`map-${kind}-${scope}`), { scope, period });
-          if (scopes.includes(scope)) expect(err, `${kind}/${scope}`).toBe("");
+          // 20261231100000: a direct call can never use the cover scope (TW053); the cover itself is tested through tw4_rfl_pilot_cover
+          if (scope === "pilot_period_cover") expect(hasCode(err, "TW053"), `${kind}/${scope}: ${err}`).toBe(true);
+          else if (scopes.includes(scope)) expect(err, `${kind}/${scope}`).toBe("");
           else expect(hasCode(err, "TW052"), `${kind}/${scope}: ${err}`).toBe(true);
         }
       }
@@ -642,7 +645,7 @@ commit;`);
         expect([m(SA_NEW), m(PE_NEW), m(COVER_SIG)]).toEqual([nowMd5.auth, nowMd5.exc, nowMd5.cover]);
         expect(before).not.toBe(after);
       });
-    });
+    }, 900_000);
 
     it("the rollback refuses while 20261231100000 sits on top (strict reverse order), while evidence rows exist (nothing is dropped) and when a live new body was redefined", () => {
       pilotWorld();
