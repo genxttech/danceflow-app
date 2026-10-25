@@ -247,7 +247,7 @@ Outputs: per contestant per dance: majority mark, size, sum, look-ahead, look-be
 
 Fixed behaviors:
 - Deterministic, no randomness in the engine; fixed order of judges and contestants; the result and its trace hash are byte-identical for the same input (S2, K0 §5).
-- Fail closed (`COMP_ENGINE_UNSPECIFIED_CASE`, with a reason) on every item marked NOT SPECIFIED, and on inputs outside the rules (marks outside the scale, `J < 3`, differing panels, a tie group whose identical-marks proof fails, mixed best-loss-values).
+- Fail closed (`COMP_ENGINE_UNSPECIFIED_CASE`, with a reason) on every item marked NOT SPECIFIED, and on inputs outside the rules (marks outside the scale, a panel whose eligibility is UNVERIFIED (J = 1 or 2, G-10), differing panels, a tie group whose identical-marks proof fails, mixed best-loss-values).
 - The trace records, for each tie-breaker invoked: the tied contestants, the quantity compared per contestant, the outcome.
 - No Studio medal feedback method exists (S4); this method is not applied to a Studio program.
 
