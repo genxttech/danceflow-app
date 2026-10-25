@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
-import { officialErrorMessage, OFFICIAL_ROLES } from "@/lib/competition/officials/contract";
+import { officialErrorCode, OFFICIAL_ROLES } from "@/lib/competition/officials/contract";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -36,7 +36,7 @@ async function run(
   const { supabase } = await requireCompetitionWorkspace(eventId);
   const result = await call((name, args) => supabase.rpc(name, args), eventId);
   revalidatePath(`/app/events/${eventId}/competition/officials`);
-  if (result.error) back(eventId, { error: officialErrorMessage(result.error.message) });
+  if (result.error) back(eventId, { error: officialErrorCode(result.error.message) });
   back(eventId, { saved: okMessage });
 }
 
@@ -50,7 +50,7 @@ export async function addOfficialAction(formData: FormData): Promise<void> {
       userId && requestId && (OFFICIAL_ROLES as readonly string[]).includes(role)
         ? rpc("add_competition_official", { p_event_id: eventId, p_user_id: userId, p_role: role, p_request_id: requestId })
         : Promise.resolve({ error: { message: "COMP_OFFICIAL_INVALID" } }),
-    "Official added.",
+    "added",
   );
 }
 
@@ -63,7 +63,7 @@ export async function deactivateOfficialAction(formData: FormData): Promise<void
       officialId && requestId
         ? rpc("deactivate_competition_official", { p_official_id: officialId, p_reason: text(formData, "reason"), p_request_id: requestId })
         : Promise.resolve({ error: { message: "COMP_OFFICIAL_INVALID" } }),
-    "Official deactivated.",
+    "deactivated",
   );
 }
 
@@ -76,7 +76,7 @@ export async function setChairAction(formData: FormData): Promise<void> {
       officialId && requestId
         ? rpc("set_competition_chair", { p_event_id: eventId, p_official_id: officialId, p_request_id: requestId })
         : Promise.resolve({ error: { message: "COMP_OFFICIAL_INVALID" } }),
-    "Chair set.",
+    "chair_set",
   );
 }
 
@@ -88,7 +88,7 @@ export async function clearChairAction(formData: FormData): Promise<void> {
       requestId
         ? rpc("clear_competition_chair", { p_event_id: eventId, p_request_id: requestId })
         : Promise.resolve({ error: { message: "COMP_OFFICIAL_INVALID" } }),
-    "Chair cleared.",
+    "chair_cleared",
   );
 }
 
@@ -103,7 +103,7 @@ export async function assignPanelMemberAction(formData: FormData): Promise<void>
       roundId && officialId && requestId
         ? rpc("assign_competition_panel_member", { p_round_id: roundId, p_official_id: officialId, p_judge_letter: letter || null, p_request_id: requestId })
         : Promise.resolve({ error: { message: "COMP_OFFICIAL_INVALID" } }),
-    "Added to the panel.",
+    "assigned",
   );
 }
 
@@ -117,6 +117,6 @@ export async function unassignPanelMemberAction(formData: FormData): Promise<voi
       roundId && officialId && requestId
         ? rpc("unassign_competition_panel_member", { p_round_id: roundId, p_official_id: officialId, p_request_id: requestId })
         : Promise.resolve({ error: { message: "COMP_OFFICIAL_INVALID" } }),
-    "Removed from the panel.",
+    "unassigned",
   );
 }
