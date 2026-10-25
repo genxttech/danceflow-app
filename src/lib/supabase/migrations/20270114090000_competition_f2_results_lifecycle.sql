@@ -390,24 +390,13 @@ create trigger compf2_guard_round_status
 -- ---------------------------------------------------------------------------
 -- 3. E2 correction extension (exactly one condition in each of two E2 functions)
 -- ---------------------------------------------------------------------------
-create function public._compf2_correction_open(p_round_id uuid)
-returns boolean
-language sql
-stable
-security definer
-set search_path = public, pg_temp
-as $$
-  select coalesce((select r.status = 'ballots_locked' and r.correction_open
-                   from public.event_competition_rounds r where r.id = p_round_id), false);
-$$;
-revoke all on function public._compf2_correction_open(uuid) from public, anon, authenticated, service_role;
 
 do $$
 declare
   v_def text;
   v_new text;
   v_old_a constant text := 'if v_status is distinct from ''active'' then';
-  v_new_a constant text := 'if v_status is distinct from ''active'' and not public._compf2_correction_open(new.round_id) then';
+  v_new_a constant text := 'if v_status is distinct from ''active'' and not (v_status = ''ballots_locked'' and exists (select 1 from public.event_competition_rounds cr where cr.id = new.round_id and cr.correction_open)) then';
   v_old_b constant text := 'if v_round.status <> ''active'' then' || E'\n' || '    raise exception ''COMP_BALLOT_ROUND_NOT_ACTIVE: ballots are accepted only while the round is active';
   v_new_b constant text := 'if v_round.status <> ''active'' and not (v_round.status = ''ballots_locked'' and v_round.correction_open) then' || E'\n' || '    raise exception ''COMP_BALLOT_ROUND_NOT_ACTIVE: ballots are accepted only while the round is active';
 begin
@@ -463,7 +452,7 @@ $$;
 revoke all on function public._compf2_sha256(text) from public, anon, authenticated, service_role;
 
 -- The single place that decides which engine may calculate a round.
--- REG (20270113) present: its reader competition_round_scoring_effective(round) is authoritative, and a round calculates only
+-- REG (20270113) present: its internal reader competition_round_scoring_effective_internal(round) (same shape as the manager-only public reader, no caller check, not executable by API roles) is authoritative, and a round calculates only
 -- when it is `selectable` (pinned AND approved); anything the reader cannot answer fails closed. REG absent: the allow-list of the two
 -- approved Studio methods (ordinal_majority -> studio_ordinal_majority@1, callback_tally -> studio_callback_tally@1).
 create function public._compf2_engine_pin(p_round_id uuid)
@@ -474,11 +463,11 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  if to_regprocedure('public.competition_round_scoring_effective(uuid)') is not null then
+  if to_regprocedure('public.competition_round_scoring_effective_internal(uuid)') is not null then
     begin
       return query execute
         'select split_part(e.engine_id, ''@'', 1), split_part(e.engine_id, ''@'', 2)
-         from public.competition_round_scoring_effective($1) e
+         from public.competition_round_scoring_effective_internal($1) e
          where e.selectable is true and e.engine_id is not null and position(''@'' in e.engine_id) > 1'
         using p_round_id;
     exception when others then

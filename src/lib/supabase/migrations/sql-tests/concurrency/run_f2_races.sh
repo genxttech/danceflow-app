@@ -74,6 +74,20 @@ $(for i in 1 2 3 4 5 6; do echo "select public.assign_competition_panel_member('
 select public.assign_competition_panel_member('$(U 8$i)', (select id from public.event_competition_officials where event_id='$EV' and user_id='$J2'), 'B', '$(U f2$i)');
 select public.assign_competition_panel_member('$(U 8$i)', (select id from public.event_competition_officials where event_id='$EV' and user_id='$J3'), 'C', '$(U f3$i)');"; done)
 SQL
+SU <<SQL
+do \$\$
+begin
+  if to_regprocedure('public.pin_competition_round_scoring(uuid)') is not null then
+    set local session_replication_role = replica;
+    update public.event_competition_programs set rules_profile_key = 'studio_simple', rules_profile_version = 1, profile_locked_at = now() where event_id = '$EV';
+    insert into public.event_competition_program_locks (program_id, event_id, rules_profile_key, rules_profile_version, snapshot, locked_at)
+    select id, event_id, 'studio_simple', 1, jsonb_build_object('profile', jsonb_build_object('key', 'studio_simple', 'version', 1)), profile_locked_at
+    from public.event_competition_programs where event_id = '$EV';
+    set local session_replication_role = origin;
+    perform public.pin_competition_round_scoring(id) from public.event_competition_rounds where event_id = '$EV';
+  end if;
+end \$\$;
+SQL
 SU -c "set session_replication_role = replica; update public.event_competition_rounds set status='active' where event_id='$EV';"
 marks() { echo "'[{\"entry_id\":\"$(U 9${1}1)\",\"value\":$2},{\"entry_id\":\"$(U 9${1}2)\",\"value\":$3},{\"entry_id\":\"$(U 9${1}3)\",\"value\":$4}]'::jsonb"; }
 rows() { echo "'[{\"entry_id\":\"$(U 9${1}1)\",\"placement\":1},{\"entry_id\":\"$(U 9${1}2)\",\"placement\":2},{\"entry_id\":\"$(U 9${1}3)\",\"placement\":3}]'::jsonb"; }

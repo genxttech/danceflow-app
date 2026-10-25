@@ -37,7 +37,7 @@ end $$;
 do $$
 declare
   v_def text;
-  v_old_a constant text := 'if v_status is distinct from ''active'' and not public._compf2_correction_open(new.round_id) then';
+  v_old_a constant text := 'if v_status is distinct from ''active'' and not (v_status = ''ballots_locked'' and exists (select 1 from public.event_competition_rounds cr where cr.id = new.round_id and cr.correction_open)) then';
   v_new_a constant text := 'if v_status is distinct from ''active'' then';
   v_old_b constant text := 'if v_round.status <> ''active'' and not (v_round.status = ''ballots_locked'' and v_round.correction_open) then';
   v_new_b constant text := 'if v_round.status <> ''active'' then';
@@ -89,7 +89,6 @@ drop function if exists public._compf2_evidence(uuid, text, text);
 drop function if exists public._compf2_engine_pin(uuid);
 drop function if exists public._compf2_sha256(text);
 drop function if exists public._compf2_canon(jsonb);
-drop function if exists public._compf2_correction_open(uuid);
 drop function if exists public._compf2_guard_version_update();
 drop function if exists public._compf2_guard_version_insert();
 drop function if exists public._compf2_guard_row_insert();
