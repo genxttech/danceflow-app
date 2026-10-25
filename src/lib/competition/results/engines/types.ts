@@ -11,6 +11,10 @@
 
 import type { EngineFailureCode, EngineInput, EngineOutput, V1EngineKey } from "../contract";
 
+/** Engine ids fixed by the scoring method registry (REG, PR 338). */
+export const STUDIO_ENGINE_IDS = ["studio_callback_tally@1", "studio_ordinal_majority@1"] as const;
+export type StudioEngineId = (typeof STUDIO_ENGINE_IDS)[number];
+
 export type TraceRecord = { step: string; rule: string; data: unknown };
 
 /** One heat of the round and the panel that judged it (X-7: every heat must have the same panel). */
@@ -63,6 +67,9 @@ export type EngineRunFailure = {
 export type EngineRun = EngineRunSuccess | EngineRunFailure;
 
 export type ScoringEngine = {
+  /** Registry engine id (REG `engineId`): `<method>@<version>`. */
+  id: StudioEngineId;
+  /** K0 scoring_method key the engine is bound to. */
   key: V1EngineKey;
   version: "1";
   /** Spec the engine implements (docs/competition). */

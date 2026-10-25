@@ -229,6 +229,7 @@ function body(input: StudioEngineInput, trace: TraceRecord[], v: ValidationLog):
 }
 
 export const studioOrdinalMajority: ScoringEngine = {
+  id: "studio_ordinal_majority@1",
   key: "ordinal_majority",
   version: "1",
   specRef: ORDINAL_MAJORITY_SPEC,

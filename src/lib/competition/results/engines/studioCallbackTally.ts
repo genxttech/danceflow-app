@@ -202,6 +202,7 @@ function body(input: StudioEngineInput, trace: TraceRecord[], v: ValidationLog):
 }
 
 export const studioCallbackTally: ScoringEngine = {
+  id: "studio_callback_tally@1",
   key: "callback_tally",
   version: "1",
   specRef: CALLBACK_TALLY_SPEC,
