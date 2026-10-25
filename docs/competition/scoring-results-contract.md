@@ -64,6 +64,12 @@ are resolved from the program (set by `set_event_competition_program_tenant`), n
 4. Audit is split across these tables and F2's `event_competition_result_events` (see §8).
 5. The X-3 panel rule is method-specific (K1 Stage 4, `scoring-architecture-decisions.md`). Studio methods use X-3 (at least 3 judges and an odd panel for `ordinal_majority` and `callback_tally`); a method not yet in the registry fails closed.
 
+### 3.2 Amendment 2026-10-25 (Competition coordinator, ratified for F2 #339)
+
+1. New result event kind `result_invalidated` (added to `RESULT_EVENT_KINDS`): written when a new ballot version makes an unpublished result version stale (§4 Invalidation).
+2. `reopen_competition_round_ballots` (E2) refuses while a correction is open (§4 table); otherwise reopening could abandon the correction and lift the O5 inverse guard.
+3. F2 migration `20270114090000` (the F2 slot; `20270104090000` is retired) redefines two E2 functions for `correction_open`: `_compe2_guard_ballot_insert` and `_compe2_insert_ballot` (the condition becomes `active` OR `ballots_locked` AND `correction_open`). Their bodies are md5-pinned in the preflight, and the rollback restores and re-checks them. E2 must not change them without coordination (names read from #339).
+
 Existing columns reused, not duplicated: `event_competition_rounds.status`, `scoring_method`,
 `target_advancement_count`, `advancement_method`; heat `lock_state` (`open/locked/certified`) and the heat
 lock ledger `event_competition_heat_lock_events`.
@@ -80,7 +86,7 @@ idempotent on a client request id, writes one `result_events` row).
 | draft → scheduled | `schedule_competition_round` (O1) | manager | every heat of the round is in the live published schedule version (no SQL writes round status at `973f36da`) |
 | scheduled → active | `start_competition_round` (O1) | manager | panel assigned (E1); at least one heat |
 | active → ballots_locked | `lock_competition_round_ballots` (E2) | manager or chair | every assigned judge has a current submitted ballot for every heat, or a recorded absence; all heats `locked` |
-| ballots_locked → active | `reopen_competition_round_ballots` (E2) | manager | reason required; no result version is `approved` |
+| ballots_locked → active | `reopen_competition_round_ballots` (E2) | manager | reason required; no result version is `approved`; **refused while a correction is open** (`rounds.correction_open`, set by `open_competition_round_correction`), because reopening would otherwise abandon the correction and lift the O5 inverse guard (amendment 2026-10-25) |
 | ballots_locked → calculated | `calculate_competition_round` (F2) | manager or scorer | engine implemented and spec approved for the locked `scoring_method`; writes a new result version with input and trace hashes |
 | calculated → approved | `approve_competition_round_result` (F2) | manager ≠ calculator, or override with reason | result version is the round's latest; input hash still matches the current ballots |
 | approved → published | `publish_competition_round_result` (F3) | manager | approval exists for this exact result version; **no unresolved competitive-affecting exception is scoped to this round** (§4.1) |
@@ -97,7 +103,7 @@ all non-manager readers immediately.
 
 **Invalidation.** Any new ballot version after calculation makes every unpublished result version of that round
 stale: `approve` and `publish` refuse when the stored `input_hash` no longer matches the canonical input built from
-the current ballots.
+the current ballots. The writer records a `result_invalidated` event (new kind, amendment 2026-10-25) when a new ballot version makes an unpublished result version stale.
 
 ### 4.1 Exceptions that block publication (owner Q2, 2026-10-23)
 
@@ -185,7 +191,7 @@ Rules:
 Every state transition, ballot submission or correction, absence record, approval (incl. override and reason),
 publication, supersede and withdrawal writes one `event_competition_result_events` row with actor, time, from/to
 state and references. The table is append-only (UPDATE/DELETE trigger refuses, as in 10A). Change-type labels are
-fixed in the contract (`RESULT_EVENT_KINDS`), not supplied by callers — this closes the 10A carry-forward
+fixed in the contract (`RESULT_EVENT_KINDS`, which now includes `result_invalidated`), not supplied by callers — this closes the 10A carry-forward
 "audit change-type labels are supplied by callers" for results.
 
 **Split audit (amendment 2026-10-24).** Audit is written to four append-only tables by their owners: E1 `event_competition_official_events` (officials, panels), O1 `event_competition_round_transition_events` (schedule/start/cancel), E2 `event_competition_ballot_events` (ballot submission, correction, lock/reopen, judge absence) and F2 `event_competition_result_events` (calculation, approval, correction, completion, publication and withdrawal). **F2 must provide a unified audit read** that merges the four for a round or event; no consumer reads the four tables separately. Absence is also recorded in `event_competition_judge_attendance`. Drafts (`event_competition_ballot_drafts`) are not audit and never enter hashes.

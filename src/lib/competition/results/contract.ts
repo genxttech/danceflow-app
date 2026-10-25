@@ -232,6 +232,7 @@ export const RESULT_EVENT_KINDS = [
   "result_approval_override",
   "result_published",
   "result_superseded",
+  "result_invalidated",
   "result_withdrawn",
   "advancement_applied",
 ] as const;
