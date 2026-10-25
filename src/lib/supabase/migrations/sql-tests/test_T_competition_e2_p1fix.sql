@@ -193,11 +193,11 @@ select pg_temp.chk('A: the round is ballots_locked', (select status = 'ballots_l
 -- ============================================================================
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000011'));
-select public.submit_competition_ballot(pg_temp.u('006002'), null, '[{"entry_id":"' || pg_temp.u('008005') || '","value":true},{"entry_id":"' || pg_temp.u('008007') || '","value":true}]', pg_temp.u('f22001'));
+select public.submit_competition_ballot(pg_temp.u('006002'), null::uuid, ('[{"entry_id":"' || pg_temp.u('008005') || '","value":true},{"entry_id":"' || pg_temp.u('008007') || '","value":true}]')::jsonb, pg_temp.u('f22001'));
 select pg_temp.as_user(pg_temp.u('000012'));
-select public.submit_competition_ballot(pg_temp.u('006002'), null, '[{"entry_id":"' || pg_temp.u('008006') || '","value":true},{"entry_id":"' || pg_temp.u('008008') || '","value":true}]', pg_temp.u('f22002'));
+select public.submit_competition_ballot(pg_temp.u('006002'), null::uuid, ('[{"entry_id":"' || pg_temp.u('008006') || '","value":true},{"entry_id":"' || pg_temp.u('008008') || '","value":true}]')::jsonb, pg_temp.u('f22002'));
 select pg_temp.as_user(pg_temp.u('000013'));
-select public.submit_competition_ballot(pg_temp.u('006002'), null, '[{"entry_id":"' || pg_temp.u('008005') || '","value":true},{"entry_id":"' || pg_temp.u('008008') || '","value":true}]', pg_temp.u('f22003'));
+select public.submit_competition_ballot(pg_temp.u('006002'), null::uuid, ('[{"entry_id":"' || pg_temp.u('008005') || '","value":true},{"entry_id":"' || pg_temp.u('008008') || '","value":true}]')::jsonb, pg_temp.u('f22003'));
 reset role;
 -- two couples are scratched: eligible drops from 4 to 2, so T (2) is no longer below it
 update public.event_competition_heat_entries set status = 'scratched' where entry_id in (pg_temp.u('008007'), pg_temp.u('008008'));
