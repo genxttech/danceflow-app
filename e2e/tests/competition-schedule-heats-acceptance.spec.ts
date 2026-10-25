@@ -205,6 +205,17 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
 
   // ================================================================== SCN-2 Registration and eligible entries
 
+  test("SCN-0b environment warm-up with the real event (not a scenario): the event layout must pass before the dev server compiles a page below it", async ({ browser }) => {
+    const owner = await signedIn(browser, fixture.owner);
+    const fake = "00000000-0000-4000-8000-000000000000";
+    const pages = ["", "/divisions", "/registrations", `/registrations/scratch/${fake}`, "/schedule", "/officials", "/day-of", "/ballots", `/ballots/${fake}`, "/readiness", "/checkin", "/advanced"];
+    for (const round of [1, 2]) {
+      for (const path of pages) await owner.goto(`${base()}${path}`);
+      void round;
+    }
+    await owner.context().close();
+  });
+
   test("SCN-2.1 registration: three buyers pay for four entries with a test card (Avery dances two entries); the Entries page shows them paid", async ({ browser }, testInfo) => {
     const shot = stepShots(testInfo);
     const orders: Array<{ name: string; email: string; couples: RosterCouple[]; total: number }> = [
