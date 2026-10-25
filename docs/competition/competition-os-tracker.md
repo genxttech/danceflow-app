@@ -85,6 +85,7 @@ State as of 2026-10-24 (checks from `statusCheckRollup`; "CI" means the *Typeche
 | #320 | CI-B desk balance: refunds never appear as balance due (W2; SQL `20270111`) | `328674d6` | `competition-r1-checkin-cas` (#295) | OPEN, **draft** | SUCCESS | §4 W2 | Stacked on #295: merge #295 first. R2 must not release before it | none |
 | #321 | C1 closeout reads (W5): read-only P&L, CSV, checklist (no SQL) | `30f943e5` | `competition-r2-entry-refunds` (#292) | OPEN, **draft** | SUCCESS | §4 W5 | Stacked on #292; desk-balance and publication checks wait for #320 and F2/F3 | none |
 | #322 | K1 callback setup corrections (W4; SQL `20270110`) | `d02e0df9` | main | OPEN, **draft** | SUCCESS | §4 W4 | Owner D-CT-5 (callback target T) and related decisions not made here | none |
+| #337 | F1 studio scoring engines (callback tally, ordinal majority; Git-only, no migration) | `a7f6538b` | `competition-k0-results-contract` (#291) | OPEN, **draft** | Test job **FAILURE** at read time (E2E gate SUCCESS, Playwright SKIPPED, Vercel preview SUCCESS); cause not read here | not read here | Stacked on unmerged #291; failing test job; scoring code for the Studio methods only (UCWDC stays unavailable) | none || REG | Scoring-method registry (slot `20270113090000`) | no PR yet | main | **in development** (session reg-scoring-registry) | — | — | — | none || F2 | Results lifecycle (slot `20270114090000`) | no PR yet | — | **in development** (session f2-results-lifecycle) | — | — | Depends on E2, O1 and the registry | none |
 | E1 officials | `20270101090000` | no PR yet | main | **in development** (Git-only; new session) | — | — | Walkthrough waived for Git-only development only; mandatory before merge or deploy (§1.5 #4) | none |
 | O1 day-of | `20270106090000` | no PR yet | main | **in development** (Git-only; new session) | — | — | same | none |
 | E2 ballots | `20270102090000` | no PR yet | E1 + O1 (stacked) | **in development** (Git-only; new session) | — | — | same; depends on E1 and O1 | none |
@@ -101,7 +102,9 @@ Main has no `2027*` migrations (latest on main: `20261230090000_twilio_rfl_pilot
 | `20270101090000` | E1 officials | K0 §12 | in development (Git-only) |
 | `20270102090000` | E2 ballots | K0 §12 | in development (Git-only), stacked on E1 + O1 |
 | `20270103090000` | **R2** entry refunds | K0 §12; #292 | in #292, unmerged, local-DB only |
-| `20270104090000` | F2 results lifecycle | K0 §12 | not built |
+| `20270104090000` | **RETIRED, never used.** Its original placement sorted F2 before O1, which F2 depends on | K0 §12 (update 2026-10-25, coordinator) | retired |
+| `20270113090000` | REG scoring-method registry (session reg-scoring-registry) | coordinator 2026-10-25 | in development; PR to be added when it opens |
+| `20270114090000` | F2 results lifecycle; also redefines two E2 functions for `correction_open` (md5-pinned, with rollback) | coordinator 2026-10-25 | in development (session f2-results-lifecycle); PR to be added when it opens |
 | `20270105090000` | F3 publication + read RPCs | K0 §12 | not built |
 | `20270106090000` | O1 day-of (schedule/start/cancel round) | K0 §12 | in development (Git-only) |
 | `20270107090000` | C1 closeout | K0 §12 | not built (writes) |
@@ -295,7 +298,7 @@ Legend: **MERGED** implemented and on main · **UNMERGED** built, in an open PR 
 | 9 | Ballots | **IN DEV** (E2, slot 0102; stacked on E1 + O1; same walkthrough condition) | K0 §3–4 |
 | 10 | Engines | Specs **UNMERGED** (#293); Studio methods approved (callback tally, ordinal majority); architecture approved (scoring-architecture-decisions.md); `proficiency_rating` fail-closed; UCWDC, NDCA, WSDC unavailable; **F1 scoring code BLOCKED** until the spec set and pending methodology are recorded | §5 |
 | 11 | Callbacks / recalls / placements | **DESIGNED** (K0 §6); engines not built; Q1 stage 7 `fixme` | K0 §6 |
-| 12 | Approval | **DESIGNED** (D3 second-person rule, F2 slot 0104); K0 contract **UNMERGED** (#291) | K0 §4 |
+| 12 | Approval | **DESIGNED** (D3 second-person rule, F2 slot 0114; 0104 retired); K0 contract **UNMERGED** (#291) | K0 §4 |
 | 13 | Publication + portals | **DESIGNED** (F3 slot 0105, D4); no heat sheet or results for dancers/public today | Q1 gap 2 |
 | 14 | Corrections / disputes | Corrections **DESIGNED** (K0); disputes and chargebacks **MISSING** (listed as R2 follow-up) | K0 §4; #292 PR body "Follow-ups" |
 | 15 | Reconciliation / closeout | **DESIGNED** (C1 writes slot 0107, K0 §10); closeout read models **UNMERGED** (#321, draft) | K0 §10 |
@@ -344,3 +347,4 @@ Stage 3 and stage 4 duplicate-scan rows are the spec's own "fixme" markers; W3 i
 | 2026-10-25 | K1-U re-verification of a4f26f1f (NOT PASS) applied: N-1..N-4 and nits; #293 head `7b48abdc`; reviewer re-checking; K1-U still not complete. |
 | 2026-10-25 | K1-U re-verification of 7b48abdc PASS recorded; section 3.3 carve-out nit fixed; #293 head `5fa47468`; reviewer asked to confirm. |
 | 2026-10-25 | #293 (K1 specs) squash-merged to main as `bf43cec3` (docs only, 12 files, owner-authorized). #291 (K0 contract) is still UNMERGED and the merged specs reference it. The UCWDC Majority Rules method stays UNAVAILABLE pending Q1–Q5 (Q4 also gates actual scoring). K1 row above shows the pre-merge head. |
+| 2026-10-25 | Migration slots: 20270104090000 RETIRED (never used); 20270113090000 REG; 20270114090000 F2; F1 (#337, draft on #291) has no migration. K0 §12 updated on #291 (head `1e4b4a86`). REG and F2 PRs to be added when they open. |
