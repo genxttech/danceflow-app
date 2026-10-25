@@ -11,7 +11,7 @@
 set -u
 export MSYS_NO_PATHCONV=1
 C="${1:-e2-qa-db}"
-HERE="$(cd "$(dirname "$0")" && pwd)"; MIG="$HERE/../.."; ROOT="$(cd "$MIG/../../.." && pwd)"
+HERE="$(cd "$(dirname "$0")" && pwd)"; MIG="$HERE/../.."; ROOT="$(cd "$MIG/../../../.." && pwd)"
 REL="src/lib/supabase/migrations/20270102090000_competition_e2_ballots.sql"
 PSQL() { docker exec -i -e PGPASSWORD=postgres "$C" psql -U supabase_admin -d postgres -q "$@"; }
 PASS=0; FAILS=""
@@ -25,7 +25,7 @@ trap restore EXIT
 # ---- pre-fix
 rollback
 ok "rolled back the current migration" $([ "$(PSQL -At -c "select to_regclass('public.event_competition_ballots') is null")" = "t" ] && echo 1 || echo 0)
-git -C "$ROOT" show "22f66ccd^:$REL" | sed 's/\r$//' | PSQL -v ON_ERROR_STOP=1 >/dev/null 2>&1
+(cd "$ROOT" && git show "22f66ccd^:$REL") | sed 's/\r$//' | PSQL -v ON_ERROR_STOP=1 >/dev/null 2>&1
 ok "pre-fix migration applied" $([ "$(PSQL -At -c "select to_regclass('public.event_competition_ballots') is not null")" = "t" ] && echo 1 || echo 0)
 OUT=$(sed 's/\r$//' "$HERE/../test_T_competition_e2_p1fix.sql" | PSQL 2>&1 | grep -E "SUITE" | head -1)
 ok "p1fix suite FAILS on the pre-fix migration" $(echo "$OUT" | grep -q "P1FIX SQL SUITE FAIL" && echo 1 || echo 0)
