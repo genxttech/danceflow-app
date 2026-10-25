@@ -88,6 +88,7 @@ drop function if exists public._compf2_event(uuid, uuid, uuid, text, uuid, text,
 drop function if exists public._compf2_input_hash(uuid, text, text);
 drop function if exists public._compf2_evidence(uuid, text, text);
 drop function if exists public._compf2_no_show_entries(uuid);
+drop function if exists public._compf2_heat_entry_no_show(uuid);
 drop function if exists public._compf2_engine_pin(uuid);
 drop function if exists public._compf2_sha256(text);
 drop function if exists public._compf2_canon(jsonb);
