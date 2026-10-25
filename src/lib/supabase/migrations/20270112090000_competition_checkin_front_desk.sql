@@ -213,7 +213,7 @@ declare
 begin
   select md5(prosrc) into v_md5 from pg_proc
   where pronamespace = 'public'::regnamespace and proname = 'record_competition_checkin_payment';
-  if v_md5 not in ('__NEWPIN__') then
+  if v_md5 not in ('a6de5932ce3894f944f0c4f2ef83be52', 'd852206591aebdc6f350fdb134ccecdb') then
     raise exception 'CB-2 postflight: record_competition_checkin_payment body md5 % is not the expected one.', v_md5;
   end if;
   if not has_function_privilege('authenticated', 'public.record_competition_checkin_payment(uuid,uuid,numeric,text,text)', 'execute') then

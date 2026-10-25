@@ -10,7 +10,7 @@ declare
 begin
   select md5(prosrc) into v_md5 from pg_proc
   where pronamespace = 'public'::regnamespace and proname = 'record_competition_checkin_payment';
-  if v_md5 is null or v_md5 not in ('__NEWPIN__', '2ec3f0f026cf2efad12eeb848b9058eb', 'e84c859505cc445528e5a040745056f7') then
+  if v_md5 is null or v_md5 not in ('a6de5932ce3894f944f0c4f2ef83be52', 'd852206591aebdc6f350fdb134ccecdb', '2ec3f0f026cf2efad12eeb848b9058eb', 'e84c859505cc445528e5a040745056f7') then
     raise exception 'CB-2 rollback refused: record_competition_checkin_payment is not the CB-2 or 20270111090000 body (md5 %).', v_md5;
   end if;
 end $$;
