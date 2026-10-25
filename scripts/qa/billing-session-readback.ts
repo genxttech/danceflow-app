@@ -21,12 +21,13 @@ import {
   type BillingQaReadClient,
   type SmokeExpectations,
 } from "@/lib/billing-qa/sessionReadback";
+import { qaEnvironment } from "@/lib/billing-qa/envFile";
 import { exitCodeFor, renderReportTable } from "@/lib/billing-qa/report";
 import { assertBillingQaReadKey, BILLING_QA_READ_KEY_ENV, BillingQaSafetyError } from "@/lib/billing-qa/stripeKey";
 
 const USAGE = `Usage: billing-session-readback --session <cs_...> [--session ...] [--price-config <report.json> | --expect <plan>=<price_...> ...]
   [--offer founder|standard] [--plans starter,growth,pro] [--smoke-customer cus_...] [--portal-customer cus_...]
-  [--grandfathered sub_...] [--legacy-price price_...] [--since <ISO time>] [--env-file <path>] [--json] [--out <report.json>]
+  [--grandfathered sub_...] [--legacy-price price_... ...] [--since <ISO time>] [--env-file <path>] [--json] [--out <report.json>]
   Stripe key: ${BILLING_QA_READ_KEY_ENV} (restricted read-only).`;
 
 const PLANS: StudioPlanCode[] = ["starter", "growth", "pro"];
@@ -35,7 +36,7 @@ function parseArgs(argv: string[]) {
   const o = {
     sessions: [] as string[], expect: {} as Partial<Record<StudioPlanCode, string>>, priceConfig: null as string | null, offer: null as SmokeExpectations["offer"] | null,
     plans: null as StudioPlanCode[] | null, smokeCustomer: null as string | null, portalCustomer: null as string | null, grandfathered: null as string | null,
-    legacyPrice: null as string | null, since: null as number | null, envFile: null as string | null, json: false, out: null as string | null, help: false,
+    legacyPrices: [] as string[], since: null as number | null, envFile: null as string | null, json: false, out: null as string | null, help: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -66,7 +67,7 @@ function parseArgs(argv: string[]) {
     } else if (arg === "--smoke-customer") o.smokeCustomer = shaped(value(), /^cus_[A-Za-z0-9]+$/, "Stripe customer id");
     else if (arg === "--portal-customer") o.portalCustomer = shaped(value(), /^cus_[A-Za-z0-9]+$/, "Stripe customer id");
     else if (arg === "--grandfathered") o.grandfathered = shaped(value(), /^sub_[A-Za-z0-9]+$/, "Stripe subscription id");
-    else if (arg === "--legacy-price") o.legacyPrice = shaped(value(), /^price_[A-Za-z0-9]+$/, "Stripe Price id");
+    else if (arg === "--legacy-price") o.legacyPrices.push(shaped(value(), /^price_[A-Za-z0-9]+$/, "Stripe Price id"));
     else if (arg === "--since") {
       const ms = Date.parse(value());
       if (Number.isNaN(ms)) throw new Error("--since takes an ISO time");
@@ -96,15 +97,21 @@ async function main() {
   }
 
   try {
-    if (o.envFile) process.loadEnvFile(o.envFile);
-    const { key, mode } = assertBillingQaReadKey(process.env[BILLING_QA_READ_KEY_ENV]);
+    const env = qaEnvironment(o.envFile);
+    const { key, mode } = assertBillingQaReadKey(env[BILLING_QA_READ_KEY_ENV]);
     const fromConfig = o.priceConfig ? expectationsFromPriceConfig(JSON.parse(readFileSync(o.priceConfig, "utf8"))) : null;
     const expectations: SmokeExpectations = {
       offer: o.offer ?? fromConfig?.offer ?? "founder",
       prices: { ...(fromConfig?.prices ?? {}), ...o.expect },
-      ...(o.legacyPrice ?? fromConfig?.legacyPriceId ? { legacyPriceId: (o.legacyPrice ?? fromConfig?.legacyPriceId)! } : {}),
+      legacyPriceIds: o.legacyPrices.length ? o.legacyPrices : fromConfig?.legacyPriceIds ?? [],
+      ...(fromConfig?.priceConfigOverall ? { priceConfigOverall: fromConfig.priceConfigOverall } : {}),
     };
-    const stripe = new Stripe(key, { maxNetworkRetries: 1 }) as unknown as BillingQaReadClient;
+    // Typed, not cast: the real SDK must satisfy the read-only interface, so a changed signature fails to compile.
+    const sdk = new Stripe(key, { maxNetworkRetries: 1 });
+    const stripe: BillingQaReadClient = {
+      checkout: { sessions: { retrieve: (id, params) => sdk.checkout.sessions.retrieve(id, params), list: (params) => sdk.checkout.sessions.list(params) } },
+      subscriptions: { retrieve: (id) => sdk.subscriptions.retrieve(id), list: (params) => sdk.subscriptions.list(params) },
+    };
     const report = await readBackSmoke({
       stripe, keyMode: mode, sessionIds: o.sessions, expectations, plans: o.plans ?? undefined,
       smokeCustomer: o.smokeCustomer, portalCustomer: o.portalCustomer, grandfatheredSubscription: o.grandfathered, since: o.since ?? undefined,

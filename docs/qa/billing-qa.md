@@ -54,8 +54,8 @@ Common reason codes: `price_mismatch`, `price_not_found` (often a live Price ID 
   refused before any request. A restricted key with only **Prices: Read** is enough.
 - Every Price read back must be `livemode: false`; a live object aborts the run (exit 2).
 - No writes to Stripe, no database access, no app server needed.
-- Live-mode read-only verification of production Prices is **not** part of this slice. It needs its own guard and an
-  owner-provided read-only key, and stays behind owner approval.
+- This verifier never runs in live mode. Production is checked by the owner-run smoke and its read-back
+  (`docs/qa/billing-owner-smoke-kit.md`, restricted read-only key, owner approval).
 
 ### Run
 

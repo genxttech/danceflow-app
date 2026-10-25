@@ -1,6 +1,6 @@
 import { getBillingPlan, type StudioPlanCode } from "@/lib/billing/plans";
 import { PRICE_CONFIG_TOOL } from "./priceConfigReport";
-import { STUDIO_PLANS, classifyStripeError, money } from "./priceVerifier";
+import { PRICE_ID_SHAPE, STUDIO_PLANS, classifyStripeError, money } from "./priceVerifier";
 import {
   blocked,
   buildReport,
@@ -9,6 +9,7 @@ import {
   type BillingQaCheck,
   type BillingQaEvidenceValue,
   type BillingQaReport,
+  type BillingQaStatus,
 } from "./report";
 
 /**
@@ -68,7 +69,10 @@ export type BillingQaReadClient = {
 export type SmokeExpectations = {
   offer: "founder" | "standard";
   prices: Partial<Record<StudioPlanCode, string>>;
-  legacyPriceId?: string;
+  /** Every configured grandfathered Price ID (any plan); the grandfathered subscription must still carry one of them. */
+  legacyPriceIds: string[];
+  /** Overall status of the BILLING-QA-4 report the expectations came from, when they came from one. */
+  priceConfigOverall?: BillingQaStatus;
 };
 
 const SESSION_ID = /^cs_(live|test)_[A-Za-z0-9]+$/;
@@ -77,7 +81,7 @@ const idOf = (value: string | { id: string } | null | undefined) => (typeof valu
 
 /** Expectations from a BILLING-QA-4 price-config report (JSON) of the deployment being smoked. */
 export function expectationsFromPriceConfig(report: unknown): SmokeExpectations {
-  const r = report as { tool?: unknown; mode?: unknown; config?: Record<string, unknown> } | null;
+  const r = report as { tool?: unknown; mode?: unknown; overall?: unknown; config?: Record<string, unknown> } | null;
   if (!r || r.tool !== PRICE_CONFIG_TOOL || r.mode !== "config" || !r.config) {
     throw new Error("not a BILLING-QA-4 price-config report");
   }
@@ -87,17 +91,24 @@ export function expectationsFromPriceConfig(report: unknown): SmokeExpectations 
   const prices: SmokeExpectations["prices"] = {};
   for (const plan of STUDIO_PLANS) {
     const value = config[`STRIPE_PRICE_STUDIO_${plan.code.toUpperCase()}_${suffix}`];
-    if (typeof value === "string" && value) prices[plan.code as StudioPlanCode] = value;
+    if (typeof value === "string" && PRICE_ID_SHAPE.test(value)) prices[plan.code as StudioPlanCode] = value;
   }
-  const legacy = config.STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY;
-  return { offer, prices, ...(typeof legacy === "string" && legacy ? { legacyPriceId: legacy.split(",")[0].trim() } : {}) };
+  const legacyPriceIds = STUDIO_PLANS.flatMap((plan) => {
+    const value = config[`STRIPE_PRICE_STUDIO_${plan.code.toUpperCase()}_FOUNDER_LEGACY`];
+    return typeof value === "string" ? value.split(",").map((id) => id.trim()).filter((id) => PRICE_ID_SHAPE.test(id)) : [];
+  });
+  const overall = ["PASS", "FAIL", "BLOCKED"].includes(String(r.overall)) ? (r.overall as BillingQaStatus) : "BLOCKED";
+  return { offer, prices, legacyPriceIds, priceConfigOverall: overall };
 }
+
+// At most the 8-character prefix of a refused value is echoed (a mis-pasted key must not leak its body).
+const prefix = (value: string) => `${value.slice(0, 8)}…`;
 
 export function assertSessionIdsMatchKeyMode(sessionIds: string[], keyMode: "live" | "test") {
   for (const id of sessionIds) {
     const match = id.match(SESSION_ID);
-    if (!match) throw new Error(`not a Checkout Session id: ${id.slice(0, 12)}…`);
-    if (match[1] !== keyMode) throw new Error(`Session ${id.slice(0, 12)}… is ${match[1]} mode but the key is ${keyMode} mode`);
+    if (!match) throw new Error(`not a Checkout Session id: ${prefix(id)}`);
+    if (match[1] !== keyMode) throw new Error(`Session ${prefix(id)} is ${match[1]} mode but the key is ${keyMode} mode`);
   }
 }
 
@@ -231,26 +242,34 @@ export async function readBackSmoke(params: {
   }
 
   if (params.portalCustomer) {
+    // Absence alone proves nothing (a wrong customer id, or a step that never ran, also has no Sessions): the customer
+    // must first be shown to be a live subscriber. That the portal actually opened stays owner-attested.
     const title = "The existing subscriber's checkout created no Checkout Session (Billing Portal instead)";
     try {
-      const sessions = await stripe.checkout.sessions.list({ customer: params.portalCustomer, created: { gte: since }, limit: 20 });
-      checks.push(sessions.data.length === 0
-        ? pass("portal.no_checkout_session", title, { customer: params.portalCustomer })
-        : fail("portal.no_checkout_session", title, "existing_subscriber_got_checkout", `${sessions.data.length} Session(s) created for an existing subscriber`, { customer: params.portalCustomer, sessions: sessions.data.map((s) => s.id).join(",") }));
+      const subs = await stripe.subscriptions.list({ customer: params.portalCustomer, created: { gte: 0 }, status: "all", limit: 20 });
+      const live = subs.data.filter((s) => MANAGED.has(s.status ?? ""));
+      if (live.length === 0) {
+        checks.push(blocked("portal.no_checkout_session", title, "portal_customer_not_subscriber", "this customer has no live subscription, so the check proves nothing", { customer: params.portalCustomer }));
+      } else {
+        const sessions = await stripe.checkout.sessions.list({ customer: params.portalCustomer, created: { gte: since }, limit: 20 });
+        checks.push(sessions.data.length === 0
+          ? pass("portal.no_checkout_session", title, { customer: params.portalCustomer, liveSubscriptions: live.length })
+          : fail("portal.no_checkout_session", title, "existing_subscriber_got_checkout", `${sessions.data.length} Session(s) created for an existing subscriber`, { customer: params.portalCustomer, sessions: sessions.data.map((s) => s.id).join(",") }));
+      }
     } catch (error) {
       checks.push(listFailure("portal.no_checkout_session", title, error));
     }
   }
 
   if (params.grandfatheredSubscription) {
-    const title = "The grandfathered subscription is still on its legacy Price";
-    if (!expectations.legacyPriceId) {
+    const title = "The grandfathered subscription is still on a legacy Price";
+    if (expectations.legacyPriceIds.length === 0) {
       checks.push(blocked("grandfathered.price", title, "legacy_price_unknown", "pass --price-config or --legacy-price"));
     } else {
       try {
         const sub = await stripe.subscriptions.retrieve(params.grandfatheredSubscription);
-        const item = sub.items?.data.find((i) => i.price?.id === expectations.legacyPriceId);
-        const evidence = { subscription: sub.id, status: sub.status ?? null, legacyPriceId: expectations.legacyPriceId, unitAmount: item?.price?.unit_amount ?? null };
+        const item = sub.items?.data.find((i) => expectations.legacyPriceIds.includes(i.price?.id ?? ""));
+        const evidence = { subscription: sub.id, status: sub.status ?? null, legacyPriceId: item?.price?.id ?? null, unitAmount: item?.price?.unit_amount ?? null };
         if (sub.livemode !== keyLive) checks.push(fail("grandfathered.price", title, "livemode_mismatch", undefined, evidence));
         else if (!item) checks.push(fail("grandfathered.price", title, "grandfathered_price_changed", "the subscription no longer carries the legacy Price", evidence));
         else if (!MANAGED.has(sub.status ?? "")) checks.push(fail("grandfathered.price", title, "grandfathered_not_active", `status ${sub.status ?? "none"}`, evidence));
@@ -260,6 +279,14 @@ export async function readBackSmoke(params: {
         checks.push(r.status === "FAIL" ? fail("grandfathered.price", title, r.reason, r.detail) : blocked("grandfathered.price", title, r.reason, r.detail));
       }
     }
+  }
+
+  // The deployment's configuration report must itself have passed: expectations from a failing one are not trusted.
+  if (expectations.priceConfigOverall) {
+    const title = "The BILLING-QA-4 price-config report the expectations came from passed";
+    checks.push(expectations.priceConfigOverall === "PASS"
+      ? pass("config.report", title, { overall: "PASS" })
+      : fail("config.report", title, "price_config_report_not_pass", `that report was ${expectations.priceConfigOverall}`, { overall: expectations.priceConfigOverall }));
   }
 
   return buildReport({
@@ -273,7 +300,7 @@ export async function readBackSmoke(params: {
       sessions: params.sessionIds.length,
       since: new Date(since * 1000).toISOString(),
       ...Object.fromEntries(Object.entries(expectations.prices).map(([plan, id]) => [`expected.${plan}`, id ?? null])),
-      legacyPriceId: expectations.legacyPriceId ?? null,
+      legacyPriceIds: expectations.legacyPriceIds.join(",") || null,
     },
     checks,
   });

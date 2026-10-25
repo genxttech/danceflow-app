@@ -12,7 +12,7 @@ import { assertBillingQaReadKey } from "@/lib/billing-qa/stripeKey";
 
 const PRICES = { starter: "price_starter59", growth: "price_growth99", pro: "price_pro159" } as const;
 const AMOUNTS = { starter: 5900, growth: 9900, pro: 15900 } as const;
-const EXPECT: SmokeExpectations = { offer: "founder", prices: { ...PRICES }, legacyPriceId: "price_pro129" };
+const EXPECT: SmokeExpectations = { offer: "founder", prices: { ...PRICES }, legacyPriceIds: ["price_pro129"] };
 const CREATED = 1_793_000_000;
 
 function session(plan: keyof typeof PRICES, overrides: Partial<ReadbackSession> = {}, metadata: Record<string, string> = {}): ReadbackSession {
@@ -35,6 +35,7 @@ function client(opts: {
   sessions?: ReadbackSession[];
   errors?: Record<string, unknown>;
   smokeSubs?: ReadbackSubscription[];
+  portalSubs?: ReadbackSubscription[];
   portalSessions?: ReadbackSession[];
   grandfathered?: ReadbackSubscription;
 } = {}) {
@@ -61,9 +62,9 @@ function client(opts: {
         calls.push("subscriptions.retrieve");
         return opts.grandfathered ?? { id: "sub_gf", livemode: true, status: "active", items: { data: [{ price: { id: "price_pro129", unit_amount: 12900 } }] } };
       }),
-      list: vi.fn(async () => {
+      list: vi.fn(async (params: { customer: string }) => {
         calls.push("subscriptions.list");
-        return { data: opts.smokeSubs ?? [] };
+        return { data: params.customer === "cus_subscriber" ? opts.portalSubs ?? [{ id: "sub_live", status: "active" }] : opts.smokeSubs ?? [] };
       }),
     },
   };
@@ -97,7 +98,7 @@ describe("BILLING-QA-5 smoke read-back", () => {
   });
 
   it("amount right but no expected Price ID: BLOCKED, never PASS", async () => {
-    const report = await run(client(), { expectations: { offer: "founder", prices: {} } });
+    const report = await run(client(), { expectations: { offer: "founder", prices: {}, legacyPriceIds: [] } });
     expect(report.overall).toBe("BLOCKED");
     expect(byId(report)["session.pro.price"]).toMatchObject({ status: "BLOCKED", reason: "expected_price_id_unknown" });
   });
@@ -133,7 +134,7 @@ describe("BILLING-QA-5 smoke read-back", () => {
   it("grandfathered: Price changed FAILs; unknown legacy Price is BLOCKED", async () => {
     const moved = client({ grandfathered: { id: "sub_gf", livemode: true, status: "active", items: { data: [{ price: { id: "price_pro159", unit_amount: 15900 } }] } } });
     expect(byId(await run(moved, { grandfatheredSubscription: "sub_gf" }))["grandfathered.price"].reason).toBe("grandfathered_price_changed");
-    const unknown = await run(client(), { grandfatheredSubscription: "sub_gf", expectations: { offer: "founder", prices: { ...PRICES } } });
+    const unknown = await run(client(), { grandfatheredSubscription: "sub_gf", expectations: { offer: "founder", prices: { ...PRICES }, legacyPriceIds: [] } });
     expect(byId(unknown)["grandfathered.price"]).toMatchObject({ status: "BLOCKED", reason: "legacy_price_unknown" });
   });
 
@@ -158,7 +159,7 @@ describe("BILLING-QA-5 smoke read-back", () => {
       STRIPE_PRICE_STUDIO_PRO_STANDARD: "price_p249", STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY: "price_p129,price_older",
     });
     expect(expectationsFromPriceConfig(JSON.parse(JSON.stringify(config)))).toEqual({
-      offer: "founder", prices: { starter: "price_s59", growth: "price_g99", pro: "price_p159" }, legacyPriceId: "price_p129",
+      offer: "founder", prices: { starter: "price_s59", growth: "price_g99", pro: "price_p159" }, legacyPriceIds: ["price_p129", "price_older"], priceConfigOverall: "FAIL", // no Stripe keys in this config
     });
     const regular = buildPriceConfigReport({ FOUNDER_PRICING_ACTIVE: "false", REGULAR_PRICING_ACTIVATED: "true", REGULAR_PRICING_APPROVAL_REF: "ref", STRIPE_PRICE_STUDIO_PRO_STANDARD: "price_p249" });
     expect(expectationsFromPriceConfig(regular)).toMatchObject({ offer: "standard", prices: { pro: "price_p249" } });
@@ -188,5 +189,35 @@ describe("BILLING-QA-5 read key guard", () => {
     } catch (error) {
       expect((error as Error).message).not.toContain("secretvalue");
     }
+  });
+});
+
+describe("BILLING-QA-5 independent review fixes", () => {
+  it("C3: the portal check is BLOCKED (not PASS) when the customer is not actually a live subscriber", async () => {
+    const report = await run(client({ portalSubs: [{ id: "sub_old", status: "canceled" }] }), { portalCustomer: "cus_subscriber" });
+    expect(byId(report)["portal.no_checkout_session"]).toMatchObject({ status: "BLOCKED", reason: "portal_customer_not_subscriber" });
+    expect(report.overall).toBe("BLOCKED");
+  });
+
+  it("C5: a grandfathered subscription on any configured legacy Price passes", async () => {
+    const c = client({ grandfathered: { id: "sub_gf", livemode: true, status: "trialing", items: { data: [{ price: { id: "price_older", unit_amount: 7900 } }] } } });
+    const checks = byId(await run(c, { grandfatheredSubscription: "sub_gf", expectations: { ...EXPECT, legacyPriceIds: ["price_pro129", "price_older"] } }));
+    expect(checks["grandfathered.price"]).toMatchObject({ status: "PASS", evidence: expect.objectContaining({ legacyPriceId: "price_older" }) });
+  });
+
+  it("C7: expectations from a price-config report that did not PASS fail the read-back", async () => {
+    const checks = byId(await run(client(), { expectations: { ...EXPECT, priceConfigOverall: "FAIL" } }));
+    expect(checks["config.report"]).toMatchObject({ status: "FAIL", reason: "price_config_report_not_pass" });
+    expect(byId(await run(client(), { expectations: { ...EXPECT, priceConfigOverall: "PASS" } }))["config.report"].status).toBe("PASS");
+  });
+
+  it("C10: a refused value echoes at most its 8-character prefix", async () => {
+    const pasted = ["rk", "live", "pastedKeyBodyThatMustNotLeak"].join("_");
+    await expect(run(client(), { sessionIds: [pasted] })).rejects.toThrow(/^not a Checkout Session id: rk_live_…$/);
+  });
+
+  it("expectations from a config report never take a malformed legacy value", () => {
+    const config = buildPriceConfigReport({ STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY: "price_p129,notAPrice", STRIPE_PRICE_STUDIO_GROWTH_FOUNDER_LEGACY: "price_g79" });
+    expect(expectationsFromPriceConfig(config).legacyPriceIds).toEqual(["price_g79", "price_p129"]);
   });
 });
