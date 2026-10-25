@@ -20,7 +20,7 @@ SUN() { docker exec -i -e PGPASSWORD=postgres "$C" psql -U supabase_admin -d pos
 U() { printf '00000000-0000-0000-0000-f20ff3%06x' "$((16#$1))"; }
 MGR1=$(U a0); MGR2=$(U a9); J1=$(U a1); J2=$(U a2); J3=$(U a3)
 EV=$(U e0); STUDIO=$(U 51)
-TH=$(printf 'b%.0s' $(seq 1 64))
+TH=$(printf '%s' '[{"step":1}]' | sha256sum | cut -d' ' -f1)
 PASS=0; FAILS=""
 ok() { if [ "$2" = "1" ]; then PASS=$((PASS+1)); else FAILS="$FAILS; $1"; fi; }
 now_ms() { date +%s%3N; }
@@ -280,15 +280,16 @@ ok "D: no ballot slipped in, version approved, round approved" $([ "$(SU -c "sel
 ok "D: the approved version still matches the ballots (hash binding intact)" $([ "$(SU -c "select v.input_hash = public._compf2_input_hash(v.round_id, v.engine_key, v.engine_version) from public.event_competition_result_versions v where v.id='$VID5'")" = "t" ] && echo 1 || echo 0)
 
 # ------------------------------------------------------------- Z: SQL evidence hash == TypeScript evidence hash (round 6)
-SU <<SQL | tail -1 > /tmp/f2_evidence.json
+HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../../../../../.." && pwd)"
+SU <<SQL | tail -1 > $ROOT/f2-evidence.tmp.json
 $(as_user "$MGR1")
 select public.competition_round_calculation_input('$(U 86)');
 SQL
-HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../../../../.." && pwd)"
 if [ -d "$ROOT/node_modules" ]; then
-  PARITY=$(cd "$ROOT" && F2_EVIDENCE_JSON=/tmp/f2_evidence.json npx vitest run src/lib/competition/results/__tests__/evidence.parity.test.ts 2>&1)
+  PARITY=$(cd "$ROOT" && F2_EVIDENCE_JSON=$ROOT/f2-evidence.tmp.json npx vitest run src/lib/competition/results/__tests__/evidence.parity.test.ts 2>&1)
   ok "Z: TypeScript recomputes the database's evidence hash byte for byte" $(echo "$PARITY" | grep -q "1 passed" && echo 1 || echo 0)
 else
+  rm -f "$ROOT/f2-evidence.tmp.json"
   echo "Z: skipped (no node_modules at $ROOT)"
 fi
 

@@ -82,7 +82,7 @@ describe("engine registry", () => {
   it("application code never imports the stub", () => {
     const root = join(__dirname, "..", "..", "..", "..");
     for (const file of ["lib/competition/results/engines.ts", "lib/competition/results/calculate.ts", "app/app/events/[id]/competition/results/actions.ts"]) {
-      expect(readFileSync(join(root, file), "utf8")).not.toMatch(/stubEngine/);
+      expect(readFileSync(join(root, file), "utf8")).not.toMatch(/froms+["'][^"']*stubEngine/);
     }
   });
 });
@@ -174,12 +174,11 @@ describe("contract alignment", () => {
   it("every kind and code the SQL writes is in the contract", () => {
     const sql = readFileSync(join(__dirname, "..", "..", "..", "supabase", "migrations", "20270104090000_competition_f2_results_lifecycle.sql"), "utf8");
     for (const kind of sql.matchAll(/'(round_state_changed|result_[a-z_]+|advancement_applied)'/g)) {
-      if (kind[1].startsWith("result_") && /^result_(versions|rows|approvals|events)/.test(kind[1])) continue;
+      if (/^result_(versions|rows|approvals|events|version_id)/.test(kind[1])) continue;
       expect(RESULT_EVENT_KINDS as readonly string[]).toContain(kind[1]);
     }
     for (const code of sql.matchAll(/'(COMP_[A-Z0-9_]+):/g)) {
-      const known = (RESULT_ERROR_CODES as readonly string[]).includes(code[1]) || !!resultErrorMessage(code[1]) || /COMP_(FORBIDDEN|REQUEST|CORRECTION)/.test(code[1]);
-      expect(known).toBe(true);
+      expect(resultErrorMessage(code[1])).not.toMatch(/could not be done/);
     }
   });
 

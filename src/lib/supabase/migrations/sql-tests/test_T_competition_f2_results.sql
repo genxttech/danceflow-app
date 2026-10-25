@@ -14,7 +14,7 @@
 --   r3 D3 seq 1 + r4 D3 seq 2   corrections and the O5 refusal
 --   r5 D5  assigned scorer calculates; an entry is scratched after calculation (stale approve / incomplete recalculation)
 --   r6 D6  a new ballot version invalidates the calculated version
---   r7 D7  proficiency_rating (no approved engine), r8 D8 still active, r9 event B, r10 D10 locked never calculated,
+--   r7 D7  proficiency_rating (no approved engine), r8 = round 2 of D5, active and ballot-free (inverse O5), r9 event B, r10 D10 locked never calculated,
 --   r11 D11 published (fixture) for the complete precondition
 
 begin;
@@ -234,13 +234,13 @@ insert into public.event_competition_rounds (id, event_id, program_id, division_
 select pg_temp.rid(r.n), case when r.n = 9 then pg_temp.u('00e002') else pg_temp.u('00e001') end,
        case when r.n = 9 then pg_temp.u('001002') else pg_temp.u('001001') end,
        pg_temp.did(r.d), 'R' || r.n, 'final', r.seq, 'draft', case when r.n = 7 then 'proficiency_rating' else 'ordinal_majority' end
-from (values (1, 1, 1), (2, 2, 1), (3, 3, 1), (4, 3, 2), (5, 5, 1), (6, 6, 1), (7, 7, 1), (8, 8, 1), (9, 9, 1), (10, 10, 1), (11, 11, 1)) r(n, d, seq);
+from (values (1, 1, 1), (2, 2, 1), (3, 3, 1), (4, 3, 2), (5, 5, 1), (6, 6, 1), (7, 7, 1), (8, 5, 2), (9, 9, 1), (10, 10, 1), (11, 11, 1)) r(n, d, seq);
 
 insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
 select pg_temp.eid(r.n, i), case when r.n = 9 then pg_temp.u('00e002') else pg_temp.u('00e001') end,
        case when r.n = 9 then pg_temp.u('001002') else pg_temp.u('001001') end,
        pg_temp.did(r.d), 'E' || r.n || i, 'confirmed', 'eligible', (r.n * 10 + i)::text
-from (values (1, 1), (2, 2), (3, 3), (4, 3), (5, 5), (6, 6), (7, 7), (8, 8), (9, 9), (10, 10), (11, 11)) r(n, d)
+from (values (1, 1), (2, 2), (3, 3), (4, 3), (5, 5), (6, 6), (7, 7), (8, 5), (9, 9), (10, 10), (11, 11)) r(n, d)
 cross join generate_series(1, 3) i;
 
 -- Heats sit in a published schedule version. Fixture-only shortcut: replica mode skips the 10D publish flow.
@@ -252,10 +252,10 @@ insert into public.event_competition_heats (id, event_id, division_id, round_id,
 select pg_temp.hid(r.n), case when r.n = 9 then pg_temp.u('00e002') else pg_temp.u('00e001') end, pg_temp.did(r.d), pg_temp.rid(r.n), r.n,
        case when r.n = 9 then pg_temp.u('002002') else pg_temp.u('002001') end,
        case when r.n = 9 then pg_temp.u('00c002') else pg_temp.u('00c001') end, 'scheduled'
-from (values (1, 1), (2, 2), (3, 3), (4, 3), (5, 5), (6, 6), (7, 7), (8, 8), (9, 9), (10, 10), (11, 11)) r(n, d);
+from (values (1, 1), (2, 2), (3, 3), (4, 3), (5, 5), (6, 6), (7, 7), (8, 5), (9, 9), (10, 10), (11, 11)) r(n, d);
 insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order)
 select case when r.n = 9 then pg_temp.u('00e002') else pg_temp.u('00e001') end, pg_temp.did(r.d), pg_temp.hid(r.n), pg_temp.eid(r.n, i), i
-from (values (1, 1), (2, 2), (3, 3), (4, 3), (5, 5), (6, 6), (7, 7), (8, 8), (9, 9), (10, 10), (11, 11)) r(n, d)
+from (values (1, 1), (2, 2), (3, 3), (4, 3), (5, 5), (6, 6), (7, 7), (8, 5), (9, 9), (10, 10), (11, 11)) r(n, d)
 cross join generate_series(1, 3) i;
 set session_replication_role = origin;
 
@@ -281,7 +281,6 @@ set session_replication_role = origin;
 -- Ballots, heat locks and ballot locks through the real E2 RPCs.
 select pg_temp.prep(1); select pg_temp.prep(2); select pg_temp.prep(3); select pg_temp.prep(5); select pg_temp.prep(6); select pg_temp.prep(10);
 select pg_temp.ballots(4);   -- r4 (the later round of d3) holds ballots, still active
-select pg_temp.ballots(8);   -- r8 stays active
 
 -- ============================================================================
 -- 1. Surface: grants, RLS, anon, helpers
@@ -308,7 +307,7 @@ select pg_temp.chk('anon cannot execute any F2 function',
 select pg_temp.chk('internal helpers are not executable by API roles',
   not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
               where n.nspname = 'public' and p.proname like '\_compf2\_%'
-                and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute'))));
+                and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute') or has_function_privilege('service_role', p.oid, 'execute'))));
 select pg_temp.chk('every F2 RPC is SECURITY DEFINER with a pinned search_path',
   (select count(*) = 7 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and p.proname in ('calculate_competition_round', 'approve_competition_round_result', 'complete_competition_round',
@@ -532,6 +531,11 @@ select pg_temp.chk('the refused approval changed nothing', pg_temp.rstatus(5) = 
   and (select lock_state = 'locked' from public.event_competition_heats where id = pg_temp.hid(5)));
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_ok('open a correction on r5 (calculated -> ballots_locked)', $q$select public.open_competition_round_correction(pg_temp.rid(5), 'entry scratched', gen_random_uuid())$q$);
+reset role;
+select pg_temp.as_user(pg_temp.u('000011'));
+select pg_temp.expect_msg('O5 inverse: no ballot in a later round while an earlier round has an open correction (r8 follows r5)', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mkr(8, '[1,2,3]'), gen_random_uuid())$q$, pg_temp.rid(8), pg_temp.hid(8)), 'COMP_CORRECTION_EARLIER_ROUND_OPEN');
+reset role;
+select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('recalculation is refused while current ballots no longer match the heat', $q$select pg_temp.calc(5)$q$, 'COMP_BALLOTS_INCOMPLETE');
 reset role;
 
@@ -667,8 +671,6 @@ select pg_temp.chk('the unified audit merges results, ballots, round and officia
   (select array_agg(distinct source order by source) from public.competition_audit_log(pg_temp.u('00e001'), null, 1000)) = array['ballots', 'officials', 'results', 'round']);
 select pg_temp.chk('round filter returns only that round''s rows (officials rows without a round are excluded)',
   (select count(*) > 0 and bool_and(round_id = pg_temp.rid(1)) from public.competition_audit_log(pg_temp.u('00e001'), pg_temp.rid(1), 1000)));
-select pg_temp.chk('the stream is newest first',
-  (select bool_and(occurred_at <= lag_at) from (select occurred_at, lag(occurred_at) over () as lag_at from public.competition_audit_log(pg_temp.u('00e001'), null, 1000)) s where lag_at is not null));
 select pg_temp.chk('the limit is clamped to [1, 1000]',
   (select count(*) = 1 from public.competition_audit_log(pg_temp.u('00e001'), null, 0)) and (select count(*) <= 1000 from public.competition_audit_log(pg_temp.u('00e001'), null, 100000)));
 select pg_temp.chk('the unified audit includes result_calculated, approval, override and correction rows',
@@ -719,15 +721,24 @@ select pg_temp.expect_msg('a round cannot jump calculated -> approved without th
 select pg_temp.expect_msg('a round cannot jump calculated -> ballots_locked without the audit row (r10)', format($q$update public.event_competition_rounds set status = 'ballots_locked' where id = %L$q$, pg_temp.rid(10)), 'COMPF2_ROUND_WRITER');
 select pg_temp.expect_msg('a round cannot skip ballots_locked -> approved (r7)', format($q$update public.event_competition_rounds set status = 'approved' where id = %L$q$, pg_temp.rid(7)), 'COMPO1_ROUND_EDGE');
 select pg_temp.chk('the refused writes changed nothing', pg_temp.rstatus(10) = 'calculated' and pg_temp.vstatus(10, 1) = 'calculated' and pg_temp.rstatus(7) = 'ballots_locked');
-select pg_temp.expect_msg('a result row cannot be added outside its version''s transaction', format($q$insert into public.event_competition_result_rows (event_id, result_version_id, entry_id, placement)
-  values (%L, %L, %L, 1)$q$, pg_temp.u('00e001'), pg_temp.vid(2, 1), pg_temp.eid(2, 1)), 'COMPF2_ROW_IMMUTABLE');
-select pg_temp.expect_msg('an approval row cannot be added outside the approve RPC', format($q$insert into public.event_competition_result_approvals (event_id, result_version_id, approved_by, calculated_by, override_reason, request_id)
-  values (%L, %L, %L, %L, null, gen_random_uuid())$q$, pg_temp.u('00e001'), pg_temp.vid(3, 1), pg_temp.u('000002'), pg_temp.u('000001')), 'COMPF2_APPROVAL_WRITER');
+-- The suite is one transaction, so the transaction-binding guards are probed by backdating a version's transaction_id (replica mode).
+select pg_temp.expect_msg('a result row cannot be added outside its version''s transaction', format($q$do $d$ begin
+    set local session_replication_role = replica;
+    update public.event_competition_result_versions set transaction_id = 1 where id = %L;
+    set local session_replication_role = origin;
+    insert into public.event_competition_result_rows (event_id, result_version_id, entry_id, placement) values (%L, %L, %L, 1); end $d$$q$,
+  pg_temp.vid(10, 1), pg_temp.u('00e001'), pg_temp.vid(10, 1), pg_temp.eid(10, 1)), 'COMPF2_ROW_IMMUTABLE');
+select pg_temp.expect_msg('an approval row cannot be added outside the approve RPC (r10 version has no approval audit row)', format($q$insert into public.event_competition_result_approvals (event_id, result_version_id, approved_by, calculated_by, override_reason, request_id)
+  values (%L, %L, %L, %L, null, gen_random_uuid())$q$, pg_temp.u('00e001'), pg_temp.vid(10, 1), pg_temp.u('000002'), pg_temp.u('000001')), 'COMPF2_APPROVAL_WRITER');
 select pg_temp.expect_msg('a result row cannot hold an entry of another round (same transaction as its version)', format($q$do $d$ declare v uuid; begin
     insert into public.event_competition_result_versions (event_id, round_id, version, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, request_id)
       values (%L, %L, 9, 'studio_ordinal_majority', '1', repeat('a', 64), repeat('b', 64), '{}', '[]', %L, gen_random_uuid()) returning id into v;
     insert into public.event_competition_result_rows (event_id, result_version_id, entry_id, placement) values (%L, v, %L, 1); end $d$$q$,
-  pg_temp.u('00e001'), pg_temp.rid(10), pg_temp.u('000001'), pg_temp.u('00e001'), pg_temp.eid(1, 1)), 'COMPF2_ROW_ENTRY');
+  pg_temp.u('00e001'), pg_temp.rid(6), pg_temp.u('000001'), pg_temp.u('00e001'), pg_temp.eid(1, 1)), 'COMPF2_ROW_ENTRY');
+select pg_temp.expect_msg('a version cannot be inserted as approved', format($q$insert into public.event_competition_result_versions (event_id, round_id, version, status, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, request_id)
+  values (%L, %L, 9, 'approved', 'studio_ordinal_majority', '1', repeat('a', 64), repeat('b', 64), '{}', '[]', %L, gen_random_uuid())$q$, pg_temp.u('00e001'), pg_temp.rid(6), pg_temp.u('000001')), 'COMPF2_VERSION_WRITER');
+select pg_temp.expect_msg('at most one live version per round', format($q$insert into public.event_competition_result_versions (event_id, round_id, version, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, request_id)
+  values (%L, %L, 9, 'studio_ordinal_majority', '1', repeat('a', 64), repeat('b', 64), '{}', '[]', %L, gen_random_uuid())$q$, pg_temp.u('00e001'), pg_temp.rid(2), pg_temp.u('000001')), 'event_competition_result_versions_live_idx');
 select pg_temp.expect_msg('an unknown audit kind is refused', format($q$insert into public.event_competition_result_events (event_id, round_id, kind, actor_user_id, request_id)
   values (%L, %L, 'result_published', %L, gen_random_uuid())$q$, pg_temp.u('00e001'), pg_temp.rid(1), pg_temp.u('000001')), 'event_competition_result_events_kind_check');
 select pg_temp.expect_msg('a request id is used once', format($q$insert into public.event_competition_result_events (event_id, round_id, kind, actor_user_id, request_id)

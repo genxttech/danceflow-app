@@ -14,6 +14,8 @@ const MESSAGES: Record<string, string> = {
   COMP_ENGINE_UNSPECIFIED_CASE: "The scoring method does not define what to do in this case, so no result was produced.",
   COMP_ENGINE_INVALID_INPUT: "The calculation was refused because its input or output was not valid.",
   COMP_CORRECTION_LATER_ROUND_BALLOTS: "A later round of this division already has ballots, so this round can no longer be corrected.",
+  COMP_BALLOT_ROUND_NOT_ACTIVE: "This round is not accepting ballots right now.",
+  COMP_CORRECTION_EARLIER_ROUND_OPEN: "An earlier round of this division is being corrected, so this round cannot take ballots yet.",
   COMP_PUBLICATION_REQUIRES_APPROVAL: "Publication is not available yet, so this round cannot be completed.",
   COMP_ADVANCEMENT_NOT_APPROVED: "This result advances entries and advancement has not been applied yet, so the round cannot be completed.",
 };

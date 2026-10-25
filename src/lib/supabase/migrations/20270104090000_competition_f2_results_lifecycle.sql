@@ -64,10 +64,8 @@ begin
   if to_regclass('public.event_competition_official_events') is null then
     raise exception 'F2 preflight: E1 officials are missing.';
   end if;
-  if to_regclass('public.event_competition_round_transition_events') is null
-     or to_regprocedure('public._compo1_guard_round_status()') is null then
-    raise exception 'F2 preflight: O1 round transitions are missing.';
-  end if;
+  -- O1 (slot 20270106) sorts AFTER F2, so it is optional here: its static edge list already holds every F2 edge, and the
+  -- audit read includes its transition table only when it exists.
   if to_regprocedure('public.set_competition_heat_lock_state(uuid,text,text)') is null
      or to_regprocedure('public.can_manage_event_competition(uuid)') is null
      or to_regprocedure('public.protect_competition_history_evidence()') is null then
@@ -246,10 +244,53 @@ begin
   return new;
 end;
 $$;
-revoke all on function public._compf2_guard_version_update() from public, anon, authenticated;
+revoke all on function public._compf2_guard_version_update() from public, anon, authenticated, service_role;
 create trigger compf2_guard_version_update
   before update on public.event_competition_result_versions
   for each row execute function public._compf2_guard_version_update();
+
+create function public._compf2_guard_version_insert()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.status <> 'calculated' then
+    raise exception 'COMPF2_VERSION_WRITER: a result version starts as calculated.' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public._compf2_guard_version_insert() from public, anon, authenticated, service_role;
+create trigger compf2_guard_version_insert
+  before insert on public.event_competition_result_versions
+  for each row execute function public._compf2_guard_version_insert();
+-- At most one live (calculated or approved) version per round.
+create unique index event_competition_result_versions_live_idx
+  on public.event_competition_result_versions(round_id) where status in ('calculated', 'approved');
+
+-- Owner O5, inverse side: no ballot may be written in a round while an earlier round of its division has an open correction.
+create function public._compf2_guard_ballot_order()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if exists (select 1 from public.event_competition_rounds cur
+             join public.event_competition_rounds earlier on earlier.event_id = cur.event_id and earlier.division_id = cur.division_id
+               and earlier.sequence_number < cur.sequence_number
+             where cur.id = new.round_id and cur.event_id = new.event_id and earlier.correction_open) then
+    raise exception 'COMP_CORRECTION_EARLIER_ROUND_OPEN: an earlier round of this division has an open correction (owner O5).' using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public._compf2_guard_ballot_order() from public, anon, authenticated, service_role;
+create trigger compf2_guard_ballot_order
+  before insert on public.event_competition_ballots
+  for each row execute function public._compf2_guard_ballot_order();
 
 -- Rows exist only in the transaction that created their version, for entries of that version's round (K0 section 9 #3).
 create function public._compf2_guard_row_insert()
@@ -271,7 +312,7 @@ begin
   return new;
 end;
 $$;
-revoke all on function public._compf2_guard_row_insert() from public, anon, authenticated;
+revoke all on function public._compf2_guard_row_insert() from public, anon, authenticated, service_role;
 create trigger compf2_guard_row_insert
   before insert on public.event_competition_result_rows
   for each row execute function public._compf2_guard_row_insert();
@@ -293,7 +334,7 @@ begin
   return new;
 end;
 $$;
-revoke all on function public._compf2_guard_approval_insert() from public, anon, authenticated;
+revoke all on function public._compf2_guard_approval_insert() from public, anon, authenticated, service_role;
 create trigger compf2_guard_approval_insert
   before insert on public.event_competition_result_approvals
   for each row execute function public._compf2_guard_approval_insert();
@@ -330,9 +371,9 @@ begin
   return new;
 end;
 $$;
-revoke all on function public._compf2_guard_round_status() from public, anon, authenticated;
+revoke all on function public._compf2_guard_round_status() from public, anon, authenticated, service_role;
 create trigger compf2_guard_round_status
-  before insert or update of status on public.event_competition_rounds
+  before insert or update on public.event_competition_rounds
   for each row execute function public._compf2_guard_round_status();
 
 -- ---------------------------------------------------------------------------
@@ -348,7 +389,7 @@ as $$
   select coalesce((select r.status = 'ballots_locked' and r.correction_open
                    from public.event_competition_rounds r where r.id = p_round_id), false);
 $$;
-revoke all on function public._compf2_correction_open(uuid) from public, anon, authenticated;
+revoke all on function public._compf2_correction_open(uuid) from public, anon, authenticated, service_role;
 
 do $$
 declare
@@ -399,7 +440,7 @@ begin
   return p::text;
 end;
 $$;
-revoke all on function public._compf2_canon(jsonb) from public, anon, authenticated;
+revoke all on function public._compf2_canon(jsonb) from public, anon, authenticated, service_role;
 
 create function public._compf2_sha256(p text)
 returns text
@@ -408,7 +449,7 @@ immutable
 as $$
   select encode(sha256(convert_to(p, 'UTF8')), 'hex');
 $$;
-revoke all on function public._compf2_sha256(text) from public, anon, authenticated;
+revoke all on function public._compf2_sha256(text) from public, anon, authenticated, service_role;
 
 -- The single place that decides which engine may calculate a round. Replace with the REG pin lookup when it exists.
 create function public._compf2_engine_pin(p_round_id uuid)
@@ -425,7 +466,7 @@ as $$
     on v.scoring = r.scoring_method
   where r.id = p_round_id;
 $$;
-revoke all on function public._compf2_engine_pin(uuid) from public, anon, authenticated;
+revoke all on function public._compf2_engine_pin(uuid) from public, anon, authenticated, service_role;
 
 -- Current ballots covering the round (same filter as E2's lock audit): not superseded, in a ballot heat or round-level.
 create function public._compf2_evidence(p_round_id uuid, p_engine_key text, p_engine_version text)
@@ -446,7 +487,7 @@ as $$
     'engineKey', p_engine_key,
     'engineVersion', p_engine_version,
     'round', jsonb_build_object('id', r.id, 'roundType', r.round_type, 'targetAdvancementCount', r.target_advancement_count,
-                                'advancementMethod', r.advancement_method),
+                                'advancementMethod', (select pg.advancement_method from public.event_competition_programs pg where pg.id = r.program_id and pg.event_id = r.event_id)),
     'entries', coalesce((select jsonb_agg(jsonb_build_object('entryId', x) order by x::text collate "C")
                          from unnest(public._compe2_round_entries(r.id)) x), '[]'::jsonb),
     'judges', coalesce((select jsonb_agg(jsonb_build_object('officialId', j.official_id, 'letter', j.judge_letter)
@@ -464,7 +505,7 @@ as $$
   from public.event_competition_rounds r
   where r.id = p_round_id;
 $$;
-revoke all on function public._compf2_evidence(uuid, text, text) from public, anon, authenticated;
+revoke all on function public._compf2_evidence(uuid, text, text) from public, anon, authenticated, service_role;
 
 create function public._compf2_input_hash(p_round_id uuid, p_engine_key text, p_engine_version text)
 returns text
@@ -475,7 +516,7 @@ set search_path = public, pg_temp
 as $$
   select public._compf2_sha256(public._compf2_canon(public._compf2_evidence(p_round_id, p_engine_key, p_engine_version)));
 $$;
-revoke all on function public._compf2_input_hash(uuid, text, text) from public, anon, authenticated;
+revoke all on function public._compf2_input_hash(uuid, text, text) from public, anon, authenticated, service_role;
 
 create function public._compf2_event(
   p_event_id uuid, p_round_id uuid, p_version_id uuid, p_kind text, p_actor uuid, p_from text, p_to text,
@@ -489,7 +530,7 @@ as $$
     (event_id, round_id, result_version_id, kind, actor_user_id, from_state, to_state, request_id, reason, refs)
   values (p_event_id, p_round_id, p_version_id, p_kind, p_actor, p_from, p_to, p_request_id, p_reason, coalesce(p_refs, '{}'::jsonb));
 $$;
-revoke all on function public._compf2_event(uuid, uuid, uuid, text, uuid, text, text, uuid, text, jsonb) from public, anon, authenticated;
+revoke all on function public._compf2_event(uuid, uuid, uuid, text, uuid, text, text, uuid, text, jsonb) from public, anon, authenticated, service_role;
 
 -- A new ballot version makes every unpublished result version of its round stale (K0 section 4, invalidation).
 create function public._compf2_invalidate_on_ballot()
@@ -513,7 +554,7 @@ begin
   return null;
 end;
 $$;
-revoke all on function public._compf2_invalidate_on_ballot() from public, anon, authenticated;
+revoke all on function public._compf2_invalidate_on_ballot() from public, anon, authenticated, service_role;
 create trigger compf2_invalidate_on_ballot
   after insert on public.event_competition_ballots
   for each row execute function public._compf2_invalidate_on_ballot();
@@ -609,7 +650,7 @@ begin
         'id', v.id, 'version', v.version, 'status', v.status, 'engine_key', v.engine_key, 'engine_version', v.engine_version,
         'input_hash', v.input_hash, 'trace_hash', v.trace_hash, 'warnings', v.warnings,
         'calculated_by', v.calculated_by,
-        'calculated_by_name', coalesce(nullif(btrim(p.full_name), ''), p.email),
+        'calculated_by_name', coalesce(nullif(btrim(p.full_name), ''), 'A manager'),
         'calculated_at', v.calculated_at,
         'stale', v.status in ('calculated', 'approved')
                  and v.input_hash is distinct from public._compf2_input_hash(v.round_id, v.engine_key, v.engine_version),
@@ -643,35 +684,41 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_o1 text := '';
 begin
   if auth.uid() is null or p_event_id is null or not public.can_manage_event_competition(p_event_id) then
     raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
   end if;
-  return query
+  -- O1 (round transitions) sorts after F2 in the slot order, so its branch exists only when its table does.
+  if to_regclass('public.event_competition_round_transition_events') is not null then
+    v_o1 := 'union all
+    select t.created_at, ''round'', t.kind, t.actor, t.round_id, t.from_state, t.to_state, t.reason,
+           t.refs || jsonb_build_object(''heat_id'', t.heat_id), t.id
+    from public.event_competition_round_transition_events t
+    where t.event_id = $1 and ($2 is null or t.round_id = $2)';
+  end if;
+  return query execute '
   select u.occurred_at, u.source, u.kind, u.actor_user_id, u.round_id, u.from_state, u.to_state, u.reason, u.refs, u.record_id
   from (
-    select e.occurred_at, 'results'::text as source, e.kind, e.actor_user_id, e.round_id, e.from_state, e.to_state, e.reason,
-           e.refs || jsonb_build_object('result_version_id', e.result_version_id) as refs, e.id as record_id
+    select e.occurred_at, ''results''::text as source, e.kind, e.actor_user_id, e.round_id, e.from_state, e.to_state, e.reason,
+           e.refs || jsonb_build_object(''result_version_id'', e.result_version_id) as refs, e.id as record_id
     from public.event_competition_result_events e
-    where e.event_id = p_event_id and (p_round_id is null or e.round_id = p_round_id)
+    where e.event_id = $1 and ($2 is null or e.round_id = $2)
     union all
-    select b.occurred_at, 'ballots', b.kind, b.actor_user_id, b.round_id, b.from_state, b.to_state, b.reason,
-           b.refs || jsonb_build_object('heat_id', b.heat_id, 'official_id', b.official_id, 'ballot_id', b.ballot_id), b.id
+    select b.occurred_at, ''ballots'', b.kind, b.actor_user_id, b.round_id, b.from_state, b.to_state, b.reason,
+           b.refs || jsonb_build_object(''heat_id'', b.heat_id, ''official_id'', b.official_id, ''ballot_id'', b.ballot_id), b.id
     from public.event_competition_ballot_events b
-    where b.event_id = p_event_id and (p_round_id is null or b.round_id = p_round_id)
+    where b.event_id = $1 and ($2 is null or b.round_id = $2)
     union all
-    select t.created_at, 'round', t.kind, t.actor, t.round_id, t.from_state, t.to_state, t.reason,
-           t.refs || jsonb_build_object('heat_id', t.heat_id), t.id
-    from public.event_competition_round_transition_events t
-    where t.event_id = p_event_id and (p_round_id is null or t.round_id = p_round_id)
-    union all
-    select o.occurred_at, 'officials', o.kind, o.actor_user_id, o.round_id, null::text, null::text, o.reason,
-           o.refs || jsonb_build_object('official_id', o.official_id), o.id
+    select o.occurred_at, ''officials'', o.kind, o.actor_user_id, o.round_id, null::text, null::text, o.reason,
+           o.refs || jsonb_build_object(''official_id'', o.official_id), o.id
     from public.event_competition_official_events o
-    where o.event_id = p_event_id and (p_round_id is null or o.round_id = p_round_id)
+    where o.event_id = $1 and ($2 is null or o.round_id = $2)
+    ' || v_o1 || '
   ) u
   order by u.occurred_at desc, u.source, u.record_id
-  limit least(greatest(coalesce(p_limit, 200), 1), 1000);
+  limit ' || least(greatest(coalesce(p_limit, 200), 1), 1000)::text using p_event_id, p_round_id;
 end;
 $$;
 
@@ -717,7 +764,7 @@ begin
   select * into v_round from public.event_competition_rounds r where r.id = p_round_id for update;
 
   v_fp := public._compf2_sha256(coalesce(p_engine_key, '') || '|' || coalesce(p_engine_version, '') || '|' || coalesce(p_input_hash, '')
-                                || '|' || coalesce(p_trace_hash, '') || '|' || coalesce(p_rows::text, '') || '|' || coalesce(v_warnings::text, ''));
+                                || '|' || coalesce(p_trace_hash, '') || '|' || coalesce(md5(p_trace::text), '') || '|' || coalesce(p_rows::text, '') || '|' || coalesce(v_warnings::text, ''));
   select * into v_prev from public.event_competition_result_events e where e.request_id = p_request_id;
   if found then
     if v_prev.kind = 'result_calculated' and v_prev.actor_user_id = v_uid and v_prev.round_id = p_round_id
@@ -752,6 +799,11 @@ begin
   if p_trace_hash is null or p_trace_hash !~ '^[0-9a-f]{64}$' or p_trace is null or jsonb_typeof(p_trace) <> 'array'
      or octet_length(p_trace::text) > 4000000 or jsonb_typeof(v_warnings) <> 'array' then
     raise exception 'COMP_ENGINE_INVALID_INPUT: the trace must be a JSON array with a sha256 hex trace_hash.' using errcode = 'P0001';
+  end if;
+  -- The server recomputes the trace hash (K0 section 5). Engines keep traces to strings, booleans, nulls and plain
+  -- numbers: exponent-form numbers are the one place JavaScript and jsonb text differ.
+  if p_trace_hash <> public._compf2_sha256(public._compf2_canon(p_trace)) then
+    raise exception 'COMP_ENGINE_INVALID_INPUT: trace_hash is not the canonical hash of the trace.' using errcode = 'P0001';
   end if;
 
   -- Rows: exactly one per round entry, nothing else.
@@ -1012,7 +1064,10 @@ begin
   if v_round.status not in ('calculated', 'approved', 'published') then
     raise exception 'COMP_RESULT_INVALID_TRANSITION: a correction opens only from calculated, approved or published (round is %).', v_round.status using errcode = 'P0001';
   end if;
-  -- Owner O5: an earlier round cannot be corrected once a later round of the division holds any ballot.
+  -- Owner O5: an earlier round cannot be corrected once a later round of the division holds any ballot. The later rounds are
+  -- row-locked first, so a first ballot in a later round (which share-locks its own round) cannot commit concurrently.
+  perform 1 from public.event_competition_rounds r2
+   where r2.event_id = v_round.event_id and r2.division_id = v_round.division_id and r2.sequence_number > v_round.sequence_number for update;
   if exists (select 1 from public.event_competition_rounds r2
              join public.event_competition_ballots b on b.round_id = r2.id and b.event_id = r2.event_id
              where r2.event_id = v_round.event_id and r2.division_id = v_round.division_id and r2.sequence_number > v_round.sequence_number) then

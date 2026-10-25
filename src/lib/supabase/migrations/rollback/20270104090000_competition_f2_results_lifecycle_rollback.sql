@@ -55,6 +55,8 @@ begin
   execute replace(v_def, v_old_b, v_new_b);
 end $$;
 
+drop trigger if exists compf2_guard_ballot_order on public.event_competition_ballots;
+drop function if exists public._compf2_guard_ballot_order();
 drop trigger if exists compf2_invalidate_on_ballot on public.event_competition_ballots;
 drop function if exists public._compf2_invalidate_on_ballot();
 drop trigger if exists compf2_guard_round_status on public.event_competition_rounds;
@@ -81,6 +83,7 @@ drop function if exists public._compf2_sha256(text);
 drop function if exists public._compf2_canon(jsonb);
 drop function if exists public._compf2_correction_open(uuid);
 drop function if exists public._compf2_guard_version_update();
+drop function if exists public._compf2_guard_version_insert();
 drop function if exists public._compf2_guard_row_insert();
 drop function if exists public._compf2_guard_approval_insert();
 
