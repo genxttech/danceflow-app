@@ -462,6 +462,20 @@ select pg_temp.chk('F2 evidence lists no_show exclusions for r5? (r5 e16 is a no
                     where x ->> 'reason' = 'no_show' and (x ->> 'entryId')::uuid = pg_temp.u('008016')) end,
   coalesce((public._compf2_evidence(pg_temp.u('006005'), 'ordinal_majority', '1') -> 'excludedEntries')::text, 'no F2'));
 
+-- Pure no-show heat (r7 h10: both entries no-show) through F2's evidence: the heat leaves the ballot heats but its entries stay in 'entries'
+-- and are listed in excludedEntries with reason no_show (e22 is a no-show only in h10, e21 in every heat).
+select pg_temp.chk('F2 evidence: entries of the all-no-show heat stay in entries and are excluded with reason no_show',
+  case when to_regprocedure('public._compf2_evidence(uuid,text,text)') is null then true
+  else exists (select 1 from jsonb_array_elements(public._compf2_evidence(pg_temp.u('006007'), 'ordinal_majority', '1') -> 'entries') x where (x ->> 'entryId')::uuid = pg_temp.u('008022'))
+   and exists (select 1 from jsonb_array_elements(public._compf2_evidence(pg_temp.u('006007'), 'ordinal_majority', '1') -> 'excludedEntries') x
+               where x ->> 'reason' = 'no_show' and (x ->> 'entryId')::uuid = pg_temp.u('008022'))
+   and exists (select 1 from jsonb_array_elements(public._compf2_evidence(pg_temp.u('006007'), 'ordinal_majority', '1') -> 'excludedEntries') x
+               where x ->> 'reason' = 'no_show' and (x ->> 'entryId')::uuid = pg_temp.u('008021'))
+   and not exists (select 1 from jsonb_array_elements(public._compf2_evidence(pg_temp.u('006007'), 'ordinal_majority', '1') -> 'excludedEntries') x
+               where (x ->> 'entryId')::uuid = pg_temp.u('008023')) end,
+  coalesce(public._compf2_evidence(pg_temp.u('006007'), 'ordinal_majority', '1')::text, 'no F2'));
+-- Partial no-show (r5: e16 no-show in its only heat; r7 e21 handled above). Calculate-succeeds end to end is run in the DB phase (section 14).
+
 -- ============================================================================
 -- 9. Lock then the correction path: window closes
 -- ============================================================================
