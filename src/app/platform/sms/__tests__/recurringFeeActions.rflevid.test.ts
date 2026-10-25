@@ -83,7 +83,7 @@ describe("one shared approval-reference length (10 to 200)", () => {
 
   it("the form uses the shared min and max, and collects the evidence fields without ever asking for the text", () => {
     const overview = parseOverview(pilotOverview.data);
-    const html = renderToStaticMarkup(createElement(RecurringFeesPilot, { overview, now: Date.parse("2026-10-21T12:00:00Z") }));
+    const html = renderToStaticMarkup(createElement(RecurringFeesPilot, { overview, now: Date.parse("2026-10-21T12:00:00Z"), prices: { number: 2500 } }));
     const input = /<input[^>]*name="approvalRef"[^>]*>/.exec(html)?.[0] ?? "";
     expect(input).toContain(`minLength="${APPROVAL_REF_MIN}"`);
     expect(input).toContain(`maxLength="${APPROVAL_REF_MAX}"`);
@@ -198,5 +198,53 @@ describe("U-4 evidence is validated server-side before any RPC", () => {
     expect(message).toContain("approval evidence was refused");
     expect(message).not.toContain("400 days");
     expect(message).not.toContain("b".repeat(64));
+  });
+});
+
+describe("pilot approval amount is the published price, never typed", () => {
+  const NOW = Date.parse("2026-10-21T12:00:00Z");
+  const html = (prices?: Record<string, number>) => renderToStaticMarkup(createElement(RecurringFeesPilot, { overview: parseOverview(pilotOverview.data), now: NOW, prices }));
+
+  it("shows the published price read-only and submits exactly that amount, with no free entry", () => {
+    const out = html({ number: 2500 });
+    expect(out).toContain('data-testid="published-price"');
+    expect(out).toContain("$25.00");
+    expect(out).toMatch(/<input[^>]*type="hidden"[^>]*name="amountUsd"[^>]*value="25.00"|<input[^>]*name="amountUsd"[^>]*type="hidden"[^>]*value="25.00"/);
+    expect(out).not.toMatch(/<input(?![^>]*type="hidden")[^>]*name="amountUsd"/);
+    expect(out).not.toContain("no-published-price");
+    expect(out).not.toMatch(/<button[^>]*[ ]disabled=""[^>]*>Record period approval/);
+  });
+
+  it("uses the price of this resource's own fee kind and renders non-round cents", () => {
+    expect(html({ number: 105, monthly: 9900 })).toContain("$1.05");
+  });
+
+  it("fails closed without a published price: message shown, submit disabled, no amount field", () => {
+    for (const prices of [undefined, {}, { monthly: 1000 }, { number: 0 }, { number: -5 }, { number: 12.5 }, { number: 10_000_000 }]) {
+      const out = html(prices as Record<string, number> | undefined);
+      expect(out).toContain('data-testid="no-published-price"');
+      expect(out).toContain("No published price could be read for this fee");
+      expect(out).not.toContain('name="amountUsd"');
+      expect(out).toMatch(/<button[^>]*[ ]disabled=""[^>]*>Record period approval/);
+    }
+  });
+
+  it("the other evidence fields are unchanged", () => {
+    const out = html({ number: 2500 });
+    for (const name of ["authorizedOn", "authorizedByRole", "scope", "documentRef", "documentSha256", "approvalRef", "periodKey", "ack"]) expect(out).toContain(`name="${name}"`);
+  });
+
+  it("a tampered amount is still refused server-side (shape check, then the database's equality rule)", async () => {
+    for (const amountUsd of ["", "0", "-25.00", "25.001", "abc", "1e3"]) {
+      rpc.length = 0;
+      expect(await run(base({ amountUsd }))).toContain("Nothing changed");
+      expect(rpc.filter((c) => c.fn === "tw4_rfl_pilot_cover")).toHaveLength(0);
+    }
+    // a well-formed but different amount passes the shape check and reaches the database, whose TW008 equality rule refuses it
+    replies.tw4_rfl_admin_overview = pilotOverview;
+    replies.tw4_rfl_pilot_cover = { error: { code: "TW008", message: "must equal the published price" } };
+    rpc.length = 0;
+    expect(await run(base({ amountUsd: "1.00" }))).toContain("does not equal it");
+    expect(rpc.find((c) => c.fn === "tw4_rfl_pilot_cover")?.args.p_amount_cents).toBe(100);
   });
 });
