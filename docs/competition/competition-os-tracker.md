@@ -74,7 +74,7 @@ State as of 2026-10-24 (checks from `statusCheckRollup`; "CI" means the *Typeche
 
 | PR | Slice | Head | Base | State | CI | QA evidence | Blocking item | Merge authorized |
 |---|---|---|---|---|---|---|---|---|
-| #291 | K0 scoring→results contract (docs + types, no SQL) | `d8a84fa7` | main | OPEN | SUCCESS (+ Vercel) | §4 K0 | Opus review; owner approval to freeze (O1–O5 APPROVED 2026-10-24) | none |
+| #291 | K0 scoring→results contract (docs + types, no SQL) | `d8a84fa7` | main | OPEN | SUCCESS (+ Vercel) | §4 K0 | Merged K1 specs (bf43cec3) reference it while it is still unmerged; Opus review; owner approval to freeze (O1–O5 APPROVED 2026-10-24) | none |
 | #292 | R2 / CI-D entry refunds (SQL `20270103`, webhook, staff flow) | `f5775a0a` | main | OPEN, **draft** | SUCCESS | §4 R2, §4 W1 integration | Release gate: #320 desk balance must land first; K0 correction-event tie-in; real-DB clean-chain rerun before PROD SQL (operational classification APPROVED 2026-10-24) | none |
 | #293 | K1 Studio v1 engine specs (docs only) | `5fa47468` (squash-merged as `bf43cec3`) | main | **MERGED** 2026-10-25 05:13Z, `bf43cec3` (docs only, 12 files, with owner authorization) | no CI test job on this PR (docs only); Vercel SUCCESS | §4 K1 | Owner decisions D-OM / D-PR / D-CT (Stages 1–3 and Stage 4 architecture APPROVED 2026-10-24; Stage 4 methodology (K1-U etc.) open) | none |
 | #295 | CI-B atomic check-in (no SQL) | `399d90ce` | main | OPEN | SUCCESS (+ Vercel) | §4 CI-B | CB-1 APPROVED 2026-10-24 (instructor roles lose event check-in); CB-2 front-desk SQL is a separate stacked workstream (slot 0112) | none |
