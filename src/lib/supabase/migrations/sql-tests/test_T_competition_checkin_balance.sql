@@ -149,9 +149,9 @@ select pg_temp.expect_msg('non-competition order: still refused',
   $q$select public.record_competition_checkin_payment('00000000-0000-0000-0000-00cb1a000201', '00000000-0000-0000-0000-00cb1a000599', 10, 'cash', null)$q$, 'only to competition');
 reset role;
 
-select pg_temp.chk('function body is the pinned CI-B body (LF or CRLF)',
+select pg_temp.chk('function body is the pinned CI-B or CB-2 body (LF or CRLF)',
   (select md5(prosrc) from pg_proc where pronamespace = 'public'::regnamespace and proname = 'record_competition_checkin_payment')
-    in ('2ec3f0f026cf2efad12eeb848b9058eb', 'e84c859505cc445528e5a040745056f7'));
+    in ('2ec3f0f026cf2efad12eeb848b9058eb', 'e84c859505cc445528e5a040745056f7', 'a6de5932ce3894f944f0c4f2ef83be52', 'd852206591aebdc6f350fdb134ccecdb'));  -- 0111 body, or the CB-2 (0112) body
 
 do $$
 declare
