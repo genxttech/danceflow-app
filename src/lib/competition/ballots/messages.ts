@@ -11,7 +11,7 @@ const MESSAGES: Record<string, string> = {
   COMP_BALLOT_CORRECTION_REASON_REQUIRED: "A ballot already exists for this heat. Say why you are correcting it (up to 500 characters).",
   COMP_BALLOT_CONFLICT: "Another ballot was just recorded for this judge and heat. Reload and try again.",
   COMP_CALLBACK_TARGET_UNSET: "The organizer has not set how many couples to call back yet.",
-  COMP_CALLBACK_NOT_DANCED: "This callback round is not danced: everyone advances, so there is no ballot to take.",
+  COMP_CALLBACK_NOT_DANCED: "Everyone advances; this callback round is not danced, so there is no ballot to take. Advancement is applied in results.",
   COMP_CALLBACK_COUNT: "Select exactly the number of couples to call back, across all heats.",
   COMP_BALLOT_FORMAT_NOT_APPROVED: "Ballots in this format are not available yet: the owner has not approved it.",
   COMP_BALLOTS_STALE: "Some current ballots no longer match the round (an entry was scratched or the callback target changed). Correct them first.",

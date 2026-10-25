@@ -47,8 +47,9 @@ begin
      or to_regclass('public.event_competition_marks') is not null
      or to_regclass('public.event_competition_judge_attendance') is not null
      or to_regclass('public.event_competition_ballot_events') is not null
-     or to_regclass('public.event_competition_ballot_drafts') is not null then
-    raise exception 'E2 preflight: an E2 table already exists.';
+     or to_regclass('public.event_competition_ballot_drafts') is not null
+     or to_regprocedure('public._compe2_guard_round_config()') is not null then
+    raise exception 'E2 preflight: an E2 table or function already exists (roll back or clean up a partial earlier run first).';
   end if;
   if to_regclass('public.event_competition_officials') is null
      or to_regclass('public.event_competition_panel_assignments') is null
@@ -617,7 +618,7 @@ begin
     raise exception 'COMP_CALLBACK_TARGET_UNSET: the round has no callback target (T); the organizer must set it first.' using errcode = 'P0001';
   end if;
   if p_target >= coalesce(array_length(p_eligible, 1), 0) then
-    raise exception 'COMP_CALLBACK_NOT_DANCED: T is not smaller than the eligible couples, so the round is not danced and takes no callback ballot (D-CT-5).' using errcode = 'P0001';
+    raise exception 'COMP_CALLBACK_NOT_DANCED: everyone advances; this round is not danced (T is not smaller than the eligible couples), so it takes no callback ballot. Advancement is applied in results (F2) (D-CT-5).' using errcode = 'P0001';
   end if;
   if p_marks is null or jsonb_typeof(p_marks) <> 'array' or jsonb_array_length(p_marks) > 1000 then
     raise exception 'COMP_BALLOT_INCOMPLETE: marks must be a list of {entry_id, value}.' using errcode = 'P0001';
@@ -1184,11 +1185,14 @@ begin
   if v_round.status <> 'active' then
     raise exception 'COMP_BALLOTS_BAD_STATE: only an active round can lock its ballots (round is %).', v_round.status using errcode = 'P0001';
   end if;
+  -- Share-lock every heat and heat entry of the round (also fully scratched heats) so a concurrent scratch / unscratch cannot
+  -- change the ballot-heat set between the readiness check and the status write. A future scratch writer must take the round lock first.
+  perform 1 from public.event_competition_heats hh where hh.round_id = p_round_id for share;
   perform 1 from public.event_competition_heat_entries he
-   where he.heat_id in (select h.heat_id from public._compe2_round_heats(p_round_id) h) for share;
+   where he.heat_id in (select hh.id from public.event_competition_heats hh where hh.round_id = p_round_id) for share;
   v_block := public._compe2_round_blockers(p_round_id);
   if (v_block ->> 'callback_not_danced')::boolean then
-    raise exception 'COMP_CALLBACK_NOT_DANCED: T is no longer below the eligible couples, so this round is not danced and takes no callback ballots (D-CT-5).' using errcode = 'P0001', detail = v_block::text;
+    raise exception 'COMP_CALLBACK_NOT_DANCED: everyone advances; this round is not danced (T is no longer below the eligible couples), so its ballots are void and it does not lock. Advancement is applied in results (F2) (D-CT-5).' using errcode = 'P0001', detail = v_block::text;
   end if;
   if jsonb_array_length(v_block -> 'heats') = 0 then
     raise exception 'COMP_BALLOTS_INCOMPLETE: the round has no heat to ballot.' using errcode = 'P0001', detail = v_block::text;
@@ -1216,7 +1220,11 @@ begin
   from public._compe2_round_judges(p_round_id) j where public._compe2_is_absent(p_round_id, j.official_id);
 
   perform public._compe2_audit(v_round.event_id, p_round_id, null, 'round_state_changed', v_uid, null, null, 'active', 'ballots_locked',
-    p_request_id, null, jsonb_build_object('actor_role', v_role, 'heats', v_block -> 'heats', 'judges', v_block -> 'judges', 'absent_official_ids', v_absent));
+    p_request_id, null, jsonb_build_object('actor_role', v_role, 'heats', v_block -> 'heats', 'judges', v_block -> 'judges', 'absent_official_ids', v_absent,
+      'covered_ballots', coalesce((select jsonb_agg(jsonb_build_object('id', b.id, 'version', b.version) order by b.id)
+         from public.event_competition_ballots b
+         where b.round_id = p_round_id and not exists (select 1 from public.event_competition_ballots s where s.supersedes_id = b.id)
+           and (b.heat_id is null or b.heat_id in (select h.heat_id from public._compe2_round_heats(p_round_id) h))), '[]'::jsonb)));
   update public.event_competition_rounds set status = 'ballots_locked', updated_at = now() where id = p_round_id;
   return jsonb_build_object('replayed', false, 'round_id', p_round_id, 'status', 'ballots_locked', 'absent_official_ids', v_absent);
 end;
@@ -1334,7 +1342,8 @@ begin
         'absent', public._compe2_is_absent(p_round_id, j.official_id),
         'ballots', coalesce((
           select jsonb_agg(jsonb_build_object('heat_id', b.heat_id, 'ballot_id', b.id, 'version', b.version, 'source', b.source,
-                                              'submitted_at', b.submitted_at) order by b.heat_id nulls first)
+                                              'submitted_at', b.submitted_at,
+                                              'in_round', (b.heat_id is null or b.heat_id in (select h.heat_id from public._compe2_round_heats(p_round_id) h))) order by b.heat_id nulls first)
           from public.event_competition_ballots b
           where b.official_id = j.official_id and b.round_id = p_round_id
             and not exists (select 1 from public.event_competition_ballots s where s.supersedes_id = b.id)), '[]'::jsonb))

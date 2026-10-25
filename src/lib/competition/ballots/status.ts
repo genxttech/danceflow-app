@@ -19,7 +19,8 @@ export type JudgeSheet = {
   heats: Array<{ heat_id: string; heat_number: number; entries: BallotEntry[]; ballot: SheetBallot | null }>;
 };
 
-export type BoardBallot = { heat_id: string | null; ballot_id: string; version: number; source: string; submitted_at: string };
+/** in_round = false: the ballot's heat has left the round (all its entries scratched); the lock ignores it. */
+export type BoardBallot = { heat_id: string | null; ballot_id: string; version: number; source: string; submitted_at: string; in_round?: boolean };
 
 export type BallotBoard = {
   viewer_role: "manager" | "chair" | "scorer";
