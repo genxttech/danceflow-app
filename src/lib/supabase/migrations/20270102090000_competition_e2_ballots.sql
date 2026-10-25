@@ -95,6 +95,8 @@ create table public.event_competition_ballots (
     foreign key (supersedes_id, event_id) references public.event_competition_ballots(id, event_id),
   constraint event_competition_ballots_source_check check (source in ('judge_web', 'scorer_paper')),
   constraint event_competition_ballots_version_check check (version >= 1),
+  -- heat_id is null only for round-scope formats (callback_yes); every per-heat format needs a heat.
+  constraint event_competition_ballots_scope_check check ((ballot_format = 'callback_yes') = (heat_id is null)),
   constraint event_competition_ballots_format_check check (ballot_format ~ '^[a-z][a-z0-9_]{1,63}$' and ballot_format_version >= 1),
   constraint event_competition_ballots_chain_check check (
     (supersedes_id is null and version = 1 and correction_reason is null)
@@ -551,6 +553,23 @@ as $$
 $$;
 revoke all on function public._compe2_round_entries(uuid) from public, anon, authenticated;
 
+-- Panel-size rule per scoring method (owner Stage 4: X-3 applies to STUDIO methods only). Any method not listed here has an
+-- unknown panel rule and fails closed at lock (known = false). Other sanctioning bodies will add their own rows.
+create function public._compe2_panel_rule(p_scoring text)
+returns table(known boolean, min_judges integer, odd_required boolean)
+language sql
+immutable
+as $$
+  select r.known, r.min_judges, r.odd_required from (values
+    ('ordinal_majority', true, 3, true),
+    ('callback_tally', true, 3, true),
+    ('proficiency_rating', true, 1, false)) r(scoring, known, min_judges, odd_required)
+  where r.scoring = p_scoring
+  union all
+  select false, null::integer, null::boolean where p_scoring not in ('ordinal_majority', 'callback_tally', 'proficiency_rating') or p_scoring is null;
+$$;
+revoke all on function public._compe2_panel_rule(text) from public, anon, authenticated;
+
 -- Callback rules (owner-approved D-CT-1/D-CT-2/D-CT-5): a mark is "yes" only; exactly T eligible couples across the whole
 -- round; T = target_advancement_count must be set and smaller than the eligible count.
 -- p_marks: [{entry_id, value: true}]. Returns normalized [{entry_id, value:true}] in entry order.
@@ -686,6 +705,7 @@ declare
   v_present integer;
   v_min integer;
   v_odd boolean;
+  v_known boolean;
   v_panel_ok boolean;
 begin
   select r.scoring_method into v_scoring from public.event_competition_rounds r where r.id = p_round_id;
@@ -714,13 +734,12 @@ begin
   end if;
   -- K1 X-3 (owner-approved): ordinal and callback need >= 3 judges and an odd panel; proficiency needs >= 1.
   -- X-4: an absent judge leaves the effective panel (the attendance record is the audited removal; E1 freezes assignments).
-  v_min := case when v_scoring = 'proficiency_rating' then 1 else 3 end;
-  v_odd := v_scoring in ('ordinal_majority', 'callback_tally');
-  v_panel_ok := v_present >= v_min and (not v_odd or v_present % 2 = 1);
+  select pr.min_judges, pr.odd_required, pr.known into v_min, v_odd, v_known from public._compe2_panel_rule(v_scoring) pr;
+  v_panel_ok := coalesce(v_known, false) and v_present >= v_min and (not v_odd or v_present % 2 = 1);
   return jsonb_build_object(
     'heats', v_heats, 'heats_not_locked', v_open, 'missing_ballots', v_missing,
     'judges', v_judges, 'judges_present', v_present,
-    'panel_min', v_min, 'panel_odd_required', v_odd, 'panel_ok', v_panel_ok,
+    'panel_min', v_min, 'panel_odd_required', v_odd, 'panel_rule_known', coalesce(v_known, false), 'panel_ok', v_panel_ok,
     'ready', (jsonb_array_length(v_heats) > 0 and jsonb_array_length(v_open) = 0 and jsonb_array_length(v_missing) = 0 and v_panel_ok));
 end;
 $$;
@@ -884,6 +903,8 @@ create policy competition_ballot_events_manager_read on public.event_competition
 -- A judge reads only their own draft; nobody (managers included) writes it except through save_competition_callback_draft.
 create policy competition_ballot_drafts_own_read on public.event_competition_ballot_drafts
   for select to authenticated using (public.competition_is_active_official(official_id));
+create policy competition_ballot_drafts_manager_read on public.event_competition_ballot_drafts
+  for select to authenticated using (public.can_manage_event_competition(event_id));
 revoke all on public.event_competition_ballot_drafts from public, anon, authenticated, service_role;
 grant select on public.event_competition_ballot_drafts to authenticated;
 
