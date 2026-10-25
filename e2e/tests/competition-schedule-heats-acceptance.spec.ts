@@ -612,59 +612,26 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
     await page.context().close();
   });
 
-  test("SCN-6.3 official scratch in a locked heat: ballots are entered and locked, the reason is required, the heat stays locked, one audit row", async ({ browser }, testInfo) => {
+  test("SCN-6.3a locking prerequisite: the ballot desk for the wizard's Final round says ballots are not available and Lock ballots stays disabled", async ({ browser }, testInfo) => {
     const shot = stepShots(testInfo);
     const page = await signedIn(browser, fixture.owner);
-    // Ballots: the scorer's paper-ballot desk, one ballot per judge per heat (E2). Locking is what locks the heats.
     await page.goto(`${base()}/ballots/${roundId}`);
     await expect(page.getByRole("region", { name: "Round status" })).toContainText("Accepting ballots");
-    const heatCount = (await readHeatEvidence(config, event.id)).effective.filter((h) => h.roundId === roundId).length;
-    const judgeCount = await page.locator('select[name="officialId"]').first().evaluate((el) => (el as HTMLSelectElement).options.length - 1).catch(() => 3);
-    for (let heat = 0; heat < heatCount; heat += 1) {
-      for (let judge = 1; judge <= Math.max(judgeCount, 3); judge += 1) {
-        await page.goto(`${base()}/ballots/${roundId}`);
-        const details = page.locator("details").nth(heat);
-        await details.locator("summary").click();
-        const form = details.locator("form");
-        await form.locator('select[name="officialId"]').selectOption({ index: judge });
-        const marks = form.locator('select[name^="mark:"]');
-        for (let i = 0; i < (await marks.count()); i += 1) await marks.nth(i).selectOption({ index: i + 1 });
-        await form.getByRole("button", { name: "Save paper ballot" }).click();
-        await expect(page.getByRole("status")).toBeVisible({ timeout: 30_000 });
-      }
-    }
-    await expect.poll(() => readBallotCount(config, roundId), { timeout: 30_000 }).toBeGreaterThanOrEqual(heatCount * 3);
-    await shot(page, "ballots-entered");
-    await page.getByRole("button", { name: "Lock ballots" }).click();
-    await expect(page.getByRole("region", { name: "Round status" })).toContainText("Ballots locked", { timeout: 30_000 });
-    await shot(page, "ballots-locked");
-
-    const locked = (await readHeatEvidence(config, event.id)).effective.filter((heat) => heat.status !== "complete" && heat.lockState === "locked" && heat.entryIds.length > 0);
-    expect(locked.length, "an undanced, locked heat with entries exists").toBeGreaterThan(0);
-    const target = locked[0].entryIds[0];
-
-    await page.goto(`${base()}/registrations/scratch/${target}`);
-    await expect(page.getByText(/This entry is in a locked heat\. As an official you can scratch it without reopening the heat/)).toBeVisible();
-    // The reason is required: submitting empty must not write anything.
-    await page.getByRole("button", { name: "Scratch entry" }).click();
-    await expect(page.getByRole("heading", { name: "Scratch entry", level: 1 })).toBeVisible();
-    expect((await readScratchAudit(config, event.id)).filter((s) => s.entry_id === target)).toHaveLength(0);
-    await page.getByLabel("Reason").fill("Dancer injured during warm-up");
-    await page.getByRole("button", { name: "Scratch entry" }).click();
-    await expect(page.getByText("Dancer injured during warm-up")).toBeVisible({ timeout: 30_000 });
-    await page.goto(`${base()}/registrations/scratch/${target}`);
-    await expect(page.getByText(/locked heat/).first()).toBeVisible();
-    await expect(page.getByText("Dancer injured during warm-up")).toBeVisible();
-    await shot(page, "official-locked-scratch-history");
-
-    const audit = (await readScratchAudit(config, event.id)).filter((s) => s.entry_id === target);
-    expect(audit).toHaveLength(1);
-    expect(audit[0]).toMatchObject({ path: "official_locked", reason: "Dancer injured during warm-up", performed_by: fixture.owner.id });
-    const after = await readHeatEvidence(config, event.id);
-    expect(after.scoringHeats.find((h) => h.id === locked[0].heatId)?.lock_state, "the heat stays locked").toBe("locked");
-    expect(after.placements.find((p) => p.entry_id === target)?.status).toBe("scratched");
-    evidence({ scenario: "SCN-6.3", heatCount, ballots: await readBallotCount(config, roundId) });
+    await expect(page.getByRole("region", { name: "Round status" })).toContainText(/Ballots for .* rounds are not available yet/);
+    await expect(page.getByRole("region", { name: "Paper ballots" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Lock ballots" })).toBeDisabled();
+    await expect(page.getByRole("region", { name: "Lock and reopen" })).toContainText("Ballots for this scoring method are not available yet.");
+    await shot(page, "lock-unavailable");
+    const round = (await readHeatEvidence(config, event.id)).rounds.find((r) => r.id === roundId)!;
+    evidence({ scenario: "SCN-6.3a", scoringMethod: round.scoring_method, ballots: await readBallotCount(config, roundId) });
+    expect(await readBallotCount(config, roundId)).toBe(0);
+    const heats = await readHeatEvidence(config, event.id);
+    expect(heats.effective.every((heat) => heat.lockState === "open")).toBe(true);
     await page.context().close();
+  });
+
+  test.fixme("SCN-6.3 official scratch in a locked heat: the reason is required, the heat stays locked, one audit row", async ({}, testInfo) => {
+    scenarioStatus(testInfo, "BLOCKED", "Dependency: a UI path to a locked heat. Heats lock only when ballots are locked (E2E), and the wizard's Final round has scoring method 'custom', for which the ballot desk reports 'Ballots for Custom rounds are not available yet' (SCN-6.3a). No SQL shortcut is used. The helper-free assertions for this scenario (reason required, path official_locked, heat stays locked) are written in SC1's own walkthrough (PR 306) against seeded rows. Re-enable when a wizard-created round can be ballot-locked.");
   });
 
   test("SCN-7.2 day-of: cancel a round with a reason; the empty Bronze Open round shows Cancelled and stays cancelled after a reload", async ({ browser }, testInfo) => {
