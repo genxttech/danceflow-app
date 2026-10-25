@@ -35,3 +35,22 @@ export function canManageCompetition(input: CompetitionAccessInput) {
     (COMPETITION_ORGANIZER_ROLES as readonly string[]).includes(input.organizerUserRole ?? "")
   );
 }
+
+/**
+ * CB-2: the front desk may run competition check-in (admit, mark arrival, collect authorized desk payments) and
+ * nothing else in the workspace. Mirrors can_check_in_event_competition in the database: a manager, or an active
+ * front_desk role in the hosting studio.
+ */
+export const COMPETITION_CHECKIN_STUDIO_ROLES = ["front_desk"] as const;
+
+export type CompetitionAccessLevel = "manager" | "check_in_only" | "none";
+
+export function competitionAccessLevel(input: CompetitionAccessInput): CompetitionAccessLevel {
+  if (canManageCompetition(input)) return "manager";
+  if ((COMPETITION_CHECKIN_STUDIO_ROLES as readonly string[]).includes(input.studioRole ?? "")) return "check_in_only";
+  return "none";
+}
+
+export function canCheckInCompetition(input: CompetitionAccessInput) {
+  return competitionAccessLevel(input) !== "none";
+}

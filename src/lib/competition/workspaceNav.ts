@@ -52,3 +52,12 @@ export function activeNavKey(eventId: string, pathname: string): CompetitionNavK
   if (rest.startsWith("/settings") || rest.startsWith("/advanced")) return "settings";
   return "overview";
 }
+
+/** CB-2: the nav keys a check-in-only user (front desk) sees. New entries are hidden from them unless added here. */
+export const CHECK_IN_ONLY_NAV_KEYS: readonly CompetitionNavKey[] = ["check_in"];
+
+export function competitionNavForAccess(eventId: string, checkInOnly: boolean): CompetitionNavItem[] {
+  const items = competitionNav(eventId);
+  if (!checkInOnly) return items;
+  return items.filter((item) => item.available && CHECK_IN_ONLY_NAV_KEYS.includes(item.key)).map((item) => ({ ...item, child: false }));
+}

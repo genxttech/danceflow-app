@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { activeNavKey, competitionNav } from "@/lib/competition/workspaceNav";
+import { activeNavKey, competitionNavForAccess } from "@/lib/competition/workspaceNav";
 
-export default function CompetitionNav({ eventId }: { eventId: string }) {
+export default function CompetitionNav({ eventId, checkInOnly = false }: { eventId: string; checkInOnly?: boolean }) {
   const pathname = usePathname();
   const active = activeNavKey(eventId, pathname ?? "");
-  const items = competitionNav(eventId);
+  const items = competitionNavForAccess(eventId, checkInOnly);
 
   return (
     <nav aria-label="Competition workspace" className="lg:sticky lg:top-4 lg:self-start">

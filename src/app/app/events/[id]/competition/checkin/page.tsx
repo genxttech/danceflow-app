@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireCompetitionCheckinAccess } from "@/lib/competition/workspaceServer";
 import { notFound, redirect } from "next/navigation";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
@@ -17,6 +18,8 @@ function money(value: number | string, currency: string) { return new Intl.Numbe
 export default async function CompetitionCheckinPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ q?: string; status?: string }> }) {
   const { id } = await params;
   const query = await searchParams;
+  // CB-2: managers and the front desk; everyone else gets a 404.
+  await requireCompetitionCheckinAccess(id);
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");

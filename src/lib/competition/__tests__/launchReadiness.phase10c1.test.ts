@@ -139,7 +139,7 @@ describe("10C.1 Competition workspace", () => {
     expect(read("src/app/app/events/[id]/competition/new/CompetitionSetupWizard.tsx")).toContain("router.replace(action.href);");
     expect(read("src/app/app/events/[id]/competition/new/page.tsx")).toContain("competitionWorkspaceHref(id)");
     const layout = read("src/app/app/events/[id]/competition/layout.tsx");
-    expect(layout).toContain("requireCompetitionWorkspace(id)");
+    expect(layout).toContain("requireCompetitionCheckinAccess(id)");
     expect(layout).toContain("href={COMPETITIONS_HREF}");
     expect(layout).toContain("href={`/app/events/${id}`}");
   });

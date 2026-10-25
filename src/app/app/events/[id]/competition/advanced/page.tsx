@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
@@ -36,6 +37,8 @@ const buttonClass = "h-10 rounded bg-slate-950 px-4 text-sm font-semibold text-w
 
 export default async function CompetitionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // CB-2: manager-only page; the front desk is redirected to check-in, everyone else gets a 404.
+  await requireCompetitionWorkspace(id);
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
