@@ -394,6 +394,19 @@ Gate 4 (rollback readiness):
 - Restore together, in order: (1) `vercel promote dpl_87xgSBVM2MqXi9KeyJHFeH9rdsoh` (or instant rollback), (2) delete the four new Production-only entries, (3) re-tick Production on the three
   preserved entries. Env changes affect only new builds, so step 1 alone restores serving; steps 2–3 keep a future rebuild consistent.
 
+## PROMOTED to Production (2026-10-24, owner authorization)
+
+`vercel promote dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj` succeeded. Before: `www.idanceflow.com` → `dpl_87xgSBVM2MqXi9KeyJHFeH9rdsoh`. After: `www.idanceflow.com` and `idanceflow.com` →
+`dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj` (production, Ready); asset URLs on the live page carry `dpl=dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj`. No other deployment, env, Stripe or database change.
+
+Post-promotion verification (by me, read-only, no payment):
+- Live `/get-started/studio` shows $59.00 / $99.00 / $159.00; old $49 / $79 / $129 gone; no "regularly", no $89 / $149 / $249: PASSED.
+- Unsigned `POST /api/payments/webhook` → 400 (signature check reached; secrets configured): endpoint reachable. Delivery health: owner check below.
+- `/`, `/login`, `/get-started`, `/for-studios`, `/get-started/organizer` respond (see report); unauthenticated checkout GET redirects without creating a session.
+Not verifiable by me (no live credentials / owner login): each Founder plan reaching Stripe Checkout at its price; existing subscriber unchanged; Stripe webhook delivery results.
+Owner post-promotion checks (no payment): Starter, Growth, Pro each reach Stripe Checkout at $59 / $99 / $159 then close the tab; Stripe Live → Developers → Webhooks shows 200s;
+the grandfathered Pro subscription still shows $129 and its original Price ID; no unexpected subscription events.
+
 ## Release sequence (each hosted step needs separate owner authorization)
 
 1. Step 0 evidence accepted (live account, matches production).
@@ -431,7 +444,8 @@ Gate 4 (rollback readiness):
 - [ ] Live Stripe portal configuration read (plan switching on/off)
 - [x] Release branch pushed (4bc938c6; both Vercel builds succeeded) and Production env split applied (see Step 2 record)
 - [x] Staged Production build created (dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj, not promoted); public smoke PASSED
-- [ ] Authenticated checkout smoke (BLOCKED: needs owner-run no-payment checks) and owner authorization to promote
+- [x] Owner-run staged QA reported passed; promotion authorized and executed (dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj live)
+- [ ] Post-promotion owner checks (Stripe checkout per plan, webhook deliveries 200, grandfathered Pro unchanged) and first real-event webhook observation
 
 ## Follow-up (explicit, not in this release): `studios.billing_plan` synchronization
 
