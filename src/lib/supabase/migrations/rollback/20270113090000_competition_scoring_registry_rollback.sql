@@ -28,6 +28,7 @@ drop trigger guard_competition_scoring_selection on public.event_competition_div
 drop trigger protect_competition_sanctioning on public.events;
 
 drop function public.competition_round_scoring_effective(uuid);
+drop function public.competition_round_scoring_effective_internal(uuid);
 drop function public.pin_competition_late_round();
 drop function public.pin_competition_program_scoring();
 drop function public.pin_competition_round_scoring(uuid);

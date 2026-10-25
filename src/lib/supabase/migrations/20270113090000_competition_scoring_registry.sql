@@ -241,6 +241,9 @@ begin
   if tg_op = 'UPDATE' and v_new_key is not distinct from v_old_key and v_new_ver is not distinct from v_old_ver then
     return new;
   end if;
+  if (v_new_key is null) <> (v_new_ver is null) then
+    raise exception 'scoring selection requires both key and version (scoring_pair_check)' using errcode = '23514';
+  end if;
 
   select p.status, p.profile_locked_at into v_program
   from public.event_competition_programs p
@@ -497,6 +500,38 @@ create trigger pin_competition_late_round
 -- ---------------------------------------------------------------------------
 -- 6. The single reader
 -- ---------------------------------------------------------------------------
+-- Internal reader for SECURITY DEFINER callers (F2 calculate runs for managers AND assigned scorers, who cannot pass the manager
+-- check of the public reader). No caller check: it is not callable by any API role.
+create or replace function public.competition_round_scoring_effective_internal(p_round_id uuid)
+returns table (
+  method_key text, method_version text, resolution text, registry_status text,
+  engine_id text, selectable boolean, pinned boolean, sanctioning text
+)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  return query
+  select p.method_key, p.method_version, p.resolution, m.status, m.engine_id,
+         (m.status = 'approved' and m.engine_id is not null), true, p.sanctioning
+  from public.event_competition_scoring_pins p
+  left join public.competition_scoring_methods m on m.method_key = p.method_key and m.method_version = p.method_version
+  where p.round_id = p_round_id;
+  if found then return; end if;
+
+  return query
+  select s.method_key, s.method_version, s.resolution, s.registry_status, m.engine_id,
+         false, false, e.competition_sanctioning
+  from public.competition_scoring_resolve(p_round_id) s
+  join public.events e on e.id = s.event_id
+  left join public.competition_scoring_methods m on m.method_key = s.method_key and m.method_version = s.method_version;
+end;
+$$;
+
+revoke all on function public.competition_round_scoring_effective_internal(uuid) from public, anon, authenticated, service_role;
+
 create or replace function public.competition_round_scoring_effective(p_round_id uuid)
 returns table (
   method_key text, method_version text, resolution text, registry_status text,
@@ -514,21 +549,7 @@ begin
   if v_event is null or not public.can_manage_event_competition(v_event) then
     raise exception 'Round not found or not accessible.' using errcode = '42501';
   end if;
-
-  return query
-  select p.method_key, p.method_version, p.resolution, m.status, m.engine_id,
-         (m.status = 'approved' and m.engine_id is not null), true, p.sanctioning
-  from public.event_competition_scoring_pins p
-  left join public.competition_scoring_methods m on m.method_key = p.method_key and m.method_version = p.method_version
-  where p.round_id = p_round_id;
-  if found then return; end if;
-
-  return query
-  select s.method_key, s.method_version, s.resolution, s.registry_status, m.engine_id,
-         false, false, e.competition_sanctioning
-  from public.competition_scoring_resolve(p_round_id) s
-  join public.events e on e.id = s.event_id
-  left join public.competition_scoring_methods m on m.method_key = s.method_key and m.method_version = s.method_version;
+  return query select * from public.competition_round_scoring_effective_internal(p_round_id);
 end;
 $$;
 

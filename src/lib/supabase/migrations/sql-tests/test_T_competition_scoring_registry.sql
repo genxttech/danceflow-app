@@ -239,7 +239,7 @@ select pg_temp.chk('R2 uses the division selection',
     = 'studio_ordinal_majority@1/division');
 select pg_temp.chk('R3 (legacy custom) is unmapped and not selectable',
   (select resolution || '/' || coalesce(method_key, 'null') || '/' || coalesce(selectable::text, 'null') from public.competition_round_scoring_effective(pg_temp.u('006003')))
-    = 'unmapped/null/null');
+    = 'unmapped/null/false');
 select pg_temp.chk('R4 (legacy ordinal_majority, no selection) maps explicitly but is not calculable until pinned',
   (select method_key || '@' || method_version || '/' || resolution || '/' || selectable::text from public.competition_round_scoring_effective(pg_temp.u('006004')))
     = 'studio_ordinal_majority@1/legacy_map/false');
@@ -380,6 +380,10 @@ select pg_temp.chk('the existing scoring_method checks are unchanged',
   (select pg_get_constraintdef(oid) from pg_constraint
    where conrelid = 'public.event_competition_rounds'::regclass and conname = 'event_competition_rounds_scoring_method_check') like '%callback_tally%');
 
+select pg_temp.chk('the internal reader is not callable by any API role',
+  not has_function_privilege('authenticated', 'public.competition_round_scoring_effective_internal(uuid)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.competition_round_scoring_effective_internal(uuid)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.competition_round_scoring_effective_internal(uuid)', 'EXECUTE'));
 -- Deleting a locked program must still cascade its pins (restart / event deletion), whatever the cascade order.
 select pg_temp.expect_ok('deleting a locked program cascades its pins',
   $q$delete from public.event_competition_programs where id = pg_temp.u('001001')$q$);
