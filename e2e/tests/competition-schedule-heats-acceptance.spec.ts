@@ -436,7 +436,7 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
     await page.goto(`${base()}/officials`);
     await expect(page.getByRole("heading", { name: "Officials and panels" })).toBeVisible();
     const judgeOption = (n: number) => page.locator('select[name="userId"] option', { hasText: `E2E Judge ${n}` });
-    await expect(judgeOption(1)).toBeDisabled();
+    await expect(judgeOption(1)).toHaveAttribute("disabled", "");
     await expect(judgeOption(1)).toContainText("email not verified");
     await shot(page, "unverified-judge-disabled");
 
