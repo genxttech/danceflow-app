@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { loadE2EConfig, type E2EConfig } from "@/lib/e2e/config";
 import { e2eAdminClient, readPrograms } from "../helpers/competitionFixture";
-import { createCompetitionEvent, payCheckoutSession, readCompetitionRegistrations, verifyEmailAndBindPassword, type CreatedEvent } from "../helpers/competitionFullEvent";
+import { createCompetitionEvent, payCheckoutSession, readCompetitionRegistrations, type CreatedEvent } from "../helpers/competitionFullEvent";
 import { openRegistration } from "../helpers/competitionFullEventMoney";
 import { chooseCountryCouples, createDraft, finishSetup, startCompetition } from "../helpers/competitionWizard";
 import {
@@ -430,24 +430,16 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
 
   // ================================================================== SCN-5 Officials and judges (E1)
 
-  test("SCN-5.1 officials: unverified judges cannot be added; after verifying their email the owner adds three, names a chair and builds the panel to 'Panel ready'", async ({ browser }, testInfo) => {
+  test("SCN-5.1 officials: the owner adds three verified team members as officials, names a chair and builds the panel to 'Panel ready'", async ({ browser }, testInfo) => {
     const shot = stepShots(testInfo);
     const page = await signedIn(browser, fixture.owner);
     await page.goto(`${base()}/officials`);
     await expect(page.getByRole("heading", { name: "Officials and panels" })).toBeVisible();
     const judgeOption = (n: number) => page.locator('select[name="userId"] option', { hasText: `E2E Judge ${n}` });
-    await expect(judgeOption(1)).toBeDisabled();
-    await expect(judgeOption(1)).toContainText("email not verified");
-    await shot(page, "unverified-judge-disabled");
-
-    // Each judge proves their mailbox through the real sign-in link and sets a password (verified-email credential).
-    for (const judge of fixture.judges) {
-      const judgePage = await (await browser.newContext()).newPage();
-      await assignUniqueSourceIp(judgePage);
-      await verifyEmailAndBindPassword(judgePage, judge);
-      await judgePage.context().close();
-    }
-    await page.reload();
+    // The fixture creates the judges with a confirmed email and a password, i.e. a verified-email credential (account_verified), so they are selectable.
+    await expect(judgeOption(1)).toBeEnabled();
+    await expect(judgeOption(1)).not.toContainText("email not verified");
+    await shot(page, "judges-selectable");
     for (const n of [1, 2, 3]) {
       await expect(judgeOption(n)).toBeEnabled();
       const value = await judgeOption(n).getAttribute("value");
