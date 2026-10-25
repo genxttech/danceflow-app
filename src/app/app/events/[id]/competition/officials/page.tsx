@@ -1,7 +1,9 @@
 import { randomUUID } from "crypto";
 import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
 import {
+  OFFICIAL_ERROR_COPY,
   OFFICIAL_ROLE_LABELS,
+  OFFICIAL_SAVED_COPY,
   OFFICIAL_ROLES,
   panelEditable,
   panelStatusLabel,
@@ -81,8 +83,8 @@ export default async function CompetitionOfficialsPage({
         </p>
       </header>
 
-      {query.saved ? <p role="status" className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{query.saved}</p> : null}
-      {query.error ? <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">{query.error}</p> : null}
+      {query.saved && OFFICIAL_SAVED_COPY[query.saved] ? <p role="status" className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{OFFICIAL_SAVED_COPY[query.saved]}</p> : null}
+      {query.error ? <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">{OFFICIAL_ERROR_COPY[query.error] ?? "The change could not be saved. Try again."}</p> : null}
 
       <section aria-labelledby="officials-heading" className="rounded border border-slate-200 bg-white p-4">
         <h3 id="officials-heading" className="text-base font-semibold text-slate-950">Officials</h3>

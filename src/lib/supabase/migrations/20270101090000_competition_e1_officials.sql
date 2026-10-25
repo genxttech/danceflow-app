@@ -161,7 +161,7 @@ begin
   return new;
 end;
 $$;
-revoke all on function public.guard_competition_official() from public, anon, authenticated;
+revoke all on function public.guard_competition_official() from public, anon, authenticated, service_role;
 
 create trigger guard_competition_official_row
   before insert or update or delete on public.event_competition_officials
@@ -186,6 +186,11 @@ begin
     raise exception 'COMP_PANEL_FROZEN: panel assignments cannot be truncated.' using errcode = '42501';
   end if;
   v_row := case when tg_op = 'DELETE' then old else new end;
+
+  -- Cascade of a deleted event (independent of which cascade trigger fires first).
+  if tg_op = 'DELETE' and not exists (select 1 from public.events e where e.id = old.event_id) then
+    return old;
+  end if;
 
   -- FOR SHARE serializes against start_competition_round (O1), which locks the round FOR UPDATE.
   select r.status into v_status
@@ -221,7 +226,7 @@ begin
   return new;
 end;
 $$;
-revoke all on function public.guard_competition_panel_assignment() from public, anon, authenticated;
+revoke all on function public.guard_competition_panel_assignment() from public, anon, authenticated, service_role;
 
 create trigger guard_competition_panel_assignment_row
   before insert or update or delete on public.event_competition_panel_assignments
@@ -238,7 +243,7 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
-  if old.status not in ('draft', 'scheduled', 'cancelled')
+  if old.status not in ('draft', 'scheduled')
      and exists (select 1 from public.events e where e.id = old.event_id)
      and exists (select 1 from public.event_competition_panel_assignments a where a.round_id = old.id) then
     raise exception 'COMP_PANEL_FROZEN: a round with a panel cannot be deleted once it has started (status: %).', old.status
@@ -247,11 +252,31 @@ begin
   return old;
 end;
 $$;
-revoke all on function public.guard_competition_round_panel_delete() from public, anon, authenticated;
+revoke all on function public.guard_competition_round_panel_delete() from public, anon, authenticated, service_role;
 
 create trigger guard_competition_round_panel_delete
   before delete on public.event_competition_rounds
   for each row execute function public.guard_competition_round_panel_delete();
+
+-- Active member of the event's studio or organizer team (checked at add time AND on every official read).
+create or replace function public._comp_e1_is_team_member(p_event_id uuid, p_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1 from public.events e
+    where e.id = p_event_id
+      and (
+        exists (select 1 from public.user_studio_roles usr where usr.studio_id = e.studio_id and usr.user_id = p_user_id and usr.active = true)
+        or (e.organizer_id is not null and exists (
+              select 1 from public.organizer_users ou where ou.organizer_id = e.organizer_id and ou.user_id = p_user_id and ou.active = true))
+      )
+  );
+$$;
+revoke all on function public._comp_e1_is_team_member(uuid, uuid) from public, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- 3. RLS and grants (K0 reader matrix: manager all; official own; everyone else nothing; anon nothing)
@@ -262,8 +287,6 @@ alter table public.event_competition_official_events enable row level security;
 
 create policy competition_officials_manager_read on public.event_competition_officials
   for select to authenticated using (public.can_manage_event_competition(event_id));
-create policy competition_officials_own_read on public.event_competition_officials
-  for select to authenticated using (user_id = auth.uid() and status = 'active');
 
 create or replace function public.competition_is_active_official(p_official_id uuid)
 returns boolean
@@ -276,11 +299,14 @@ as $$
     select 1 from public.event_competition_officials o
     where o.id = p_official_id and o.user_id = auth.uid() and o.status = 'active'
       and public.verified_email_for_user(o.user_id) is not null
+      and public._comp_e1_is_team_member(o.event_id, o.user_id)
   );
 $$;
 revoke all on function public.competition_is_active_official(uuid) from public, anon;
 grant execute on function public.competition_is_active_official(uuid) to authenticated, service_role;
 
+create policy competition_officials_own_read on public.event_competition_officials
+  for select to authenticated using (public.competition_is_active_official(id));
 create policy competition_panel_manager_read on public.event_competition_panel_assignments
   for select to authenticated using (public.can_manage_event_competition(event_id));
 create policy competition_panel_own_read on public.event_competition_panel_assignments
@@ -315,7 +341,7 @@ begin
   return v_uid;
 end;
 $$;
-revoke all on function public._comp_e1_authorize(uuid) from public, anon, authenticated;
+revoke all on function public._comp_e1_authorize(uuid) from public, anon, authenticated, service_role;
 
 -- Replays a recorded request: returns its stored result, or null when new; raises when the id was used for a different request.
 create or replace function public._comp_e1_replay(p_event_id uuid, p_request_id uuid, p_fingerprint text)
@@ -342,7 +368,7 @@ begin
   return coalesce(v_prev.refs -> 'result', '{}'::jsonb) || jsonb_build_object('replayed', true);
 end;
 $$;
-revoke all on function public._comp_e1_replay(uuid, uuid, text) from public, anon, authenticated;
+revoke all on function public._comp_e1_replay(uuid, uuid, text) from public, anon, authenticated, service_role;
 
 create or replace function public._comp_e1_audit(
   p_event_id uuid, p_kind text, p_actor uuid, p_official_id uuid, p_round_id uuid,
@@ -357,7 +383,7 @@ as $$
   values (p_event_id, p_kind, p_actor, p_official_id, p_round_id, p_request_id, p_fingerprint, p_reason,
           jsonb_build_object('result', p_result));
 $$;
-revoke all on function public._comp_e1_audit(uuid, text, uuid, uuid, uuid, uuid, text, text, jsonb) from public, anon, authenticated;
+revoke all on function public._comp_e1_audit(uuid, text, uuid, uuid, uuid, uuid, text, text, jsonb) from public, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- 5. Manager RPCs
@@ -419,7 +445,7 @@ begin
   v_replay := public._comp_e1_replay(p_event_id, p_request_id, v_fp);
   if v_replay is not null then return v_replay; end if;
 
-  if p_user_id is null or p_role not in ('judge', 'scorer', 'chair') then
+  if p_user_id is null or p_role is null or p_role not in ('judge', 'scorer', 'chair') then
     raise exception 'COMP_OFFICIAL_INVALID: a user and a role (judge, scorer, chair) are required.' using errcode = 'P0001';
   end if;
   select * into v_event from public.events e where e.id = p_event_id;
@@ -555,6 +581,9 @@ begin
   end if;
   if v_off.role = 'scorer' then
     raise exception 'COMP_OFFICIAL_INVALID: a scorer cannot be the chair.' using errcode = 'P0001';
+  end if;
+  if public.verified_email_for_user(v_off.user_id) is null then
+    raise exception 'COMP_OFFICIAL_ACCOUNT_NOT_VERIFIED: the account must have a verified, password-bound email.' using errcode = 'P0001';
   end if;
   if v_off.role = 'chair' then
     return jsonb_build_object('official_id', v_off.id, 'noop', true);
@@ -764,9 +793,12 @@ begin
   from public.event_competition_panel_assignments a
   join public.event_competition_officials o on o.id = a.official_id and o.event_id = a.event_id
   where a.round_id = p_round_id and o.status = 'active'
-    and public.verified_email_for_user(o.user_id) is not null;
+    and public.verified_email_for_user(o.user_id) is not null
+    and public._comp_e1_is_team_member(o.event_id, o.user_id);
   select exists (select 1 from public.event_competition_officials o
-                 where o.event_id = v_round.event_id and o.role = 'chair' and o.status = 'active') into v_chair;
+                 where o.event_id = v_round.event_id and o.role = 'chair' and o.status = 'active'
+                   and public.verified_email_for_user(o.user_id) is not null
+                   and public._comp_e1_is_team_member(o.event_id, o.user_id)) into v_chair;
   if v_judges < v_min then v_missing := array_append(v_missing, 'judges'); end if;
   return jsonb_build_object(
     'ready', v_judges >= v_min,
@@ -812,6 +844,7 @@ as $$
     and o.user_id = auth.uid()
     and o.status = 'active'
     and public.verified_email_for_user(o.user_id) is not null
+    and public._comp_e1_is_team_member(o.event_id, o.user_id)
   order by e.start_date, e.name, r.sequence_number, r.name;
 $$;
 

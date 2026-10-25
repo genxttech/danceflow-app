@@ -53,6 +53,7 @@ drop table public.event_competition_official_events;
 drop table public.event_competition_officials;
 
 drop function if exists public.competition_is_active_official(uuid);
+drop function if exists public._comp_e1_is_team_member(uuid, uuid);
 drop function if exists public._comp_e1_audit(uuid, text, uuid, uuid, uuid, uuid, text, text, jsonb);
 drop function if exists public._comp_e1_replay(uuid, uuid, text);
 drop function if exists public._comp_e1_authorize(uuid);
