@@ -454,6 +454,7 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
       await page.locator('select[name="userId"]').selectOption(value!);
       await page.getByRole("button", { name: "Add official" }).click();
       await expect(status(page)).toContainText("Official added.", { timeout: 30_000 });
+      await expect(judgeOption(n), "the added judge leaves the candidate list").toHaveCount(0, { timeout: 30_000 });
     }
     await shot(page, "three-officials-added");
 
@@ -470,6 +471,7 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
       await article.locator('select[name="officialId"]').selectOption(await option.getAttribute("value") as string);
       await article.getByRole("button", { name: "Add to panel" }).click();
       await expect(status(page)).toContainText("Added to the panel.", { timeout: 30_000 });
+      await expect(page.locator("article").filter({ hasNotText: "Bronze Open" }).first().locator("li").filter({ hasText: `E2E Judge ${n}` })).toBeVisible({ timeout: 30_000 });
     }
     await expect(page.locator("article").filter({ hasNotText: "Bronze Open" }).first().getByText(/Panel ready \(3 judges\)/)).toBeVisible();
     await shot(page, "panel-ready");
