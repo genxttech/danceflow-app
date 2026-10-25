@@ -57,6 +57,21 @@ export const OFFICIAL_ERROR_COPY: Record<string, string> = {
   COMP_PANEL_ALREADY_ASSIGNED: "This official is already on the panel. Remove them first to change the letter.",
 };
 
+export function officialErrorCode(raw: string | null | undefined) {
+  const message = raw ?? "";
+  return Object.keys(OFFICIAL_ERROR_COPY).find((key) => message.includes(key)) ?? "COMP_UNKNOWN";
+}
+
+/** Query-string codes for the saved banner (never free text). */
+export const OFFICIAL_SAVED_COPY: Record<string, string> = {
+  added: "Official added.",
+  deactivated: "Official deactivated.",
+  chair_set: "Chair set.",
+  chair_cleared: "Chair cleared.",
+  assigned: "Added to the panel.",
+  unassigned: "Removed from the panel.",
+};
+
 export function officialErrorMessage(raw: string | null | undefined) {
   const message = raw ?? "";
   const code = Object.keys(OFFICIAL_ERROR_COPY).find((key) => message.includes(key));

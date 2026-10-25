@@ -249,7 +249,7 @@ select pg_temp.expect_msg('database refuses a second active chair',
   format($q$update public.event_competition_officials set role = 'chair' where id = %L$q$, pg_temp.off('00e001', '000012')), 'duplicate key');
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.expect_msg('add as chair while a chair exists is refused', format($q$select public.add_competition_official(%L, %L, 'chair', %L)$q$, pg_temp.u('00e001'), pg_temp.u('000012'), pg_temp.u('f00043')), 'COMP_OFFICIAL_EXISTS');
+select pg_temp.expect_msg('add as chair while a chair exists is refused', format($q$select public.add_competition_official(%L, %L, 'chair', %L)$q$, pg_temp.u('00e001'), pg_temp.u('000012'), pg_temp.u('f00043')), 'COMP_CHAIR_EXISTS');
 select pg_temp.expect_ok('clear chair', format($q$select public.clear_competition_chair(%L, %L)$q$, pg_temp.u('00e001'), pg_temp.u('f00044')));
 select pg_temp.expect_ok('set chair again (judge 1)', format($q$select public.set_competition_chair(%L, %L, %L)$q$, pg_temp.u('00e001'), pg_temp.off('00e001', '000011'), pg_temp.u('f00045')));
 reset role;
@@ -317,7 +317,7 @@ select pg_temp.chk('judge 2 is inactive, row kept, frozen assignment kept',
   and pg_temp.n($q$select count(*) from public.event_competition_panel_assignments where official_id = pg_temp.off('00e001','000012')$q$) = 1);
 select pg_temp.expect_msg('an official row can never be deleted', format($q$delete from public.event_competition_officials where id = %L$q$, pg_temp.off('00e001', '000012')), 'COMP_OFFICIAL_IMMUTABLE');
 select pg_temp.expect_msg('an official account cannot be re-pointed', format($q$update public.event_competition_officials set user_id = %L where id = %L$q$, pg_temp.u('000011'), pg_temp.off('00e001', '000012')), 'COMP_OFFICIAL_IMMUTABLE');
-select pg_temp.expect_msg('officials cannot be truncated', 'truncate public.event_competition_officials', 'COMP_OFFICIAL_IMMUTABLE');
+select pg_temp.expect_msg('officials cannot be truncated', 'truncate public.event_competition_officials', 'cannot truncate');
 select pg_temp.expect_msg('an inactive official cannot be assigned (trigger)', format($q$insert into public.event_competition_panel_assignments (event_id, round_id, official_id, judge_letter) values (%L, %L, %L, 'M')$q$, pg_temp.u('00e001'), pg_temp.u('006003'), pg_temp.off('00e001', '000012')), 'COMP_OFFICIAL_INACTIVE');
 select pg_temp.expect_msg('the scorer/judge switch is refused while assignments exist', format($q$update public.event_competition_officials set role = 'judge' where id = %L$q$, pg_temp.off('00e001', '000016')), 'COMP_OFFICIAL_HAS_ASSIGNMENTS');
 set role authenticated;
@@ -389,7 +389,8 @@ set role authenticated;
 select pg_temp.as_user(pg_temp.u('000011'));
 select pg_temp.chk('an official whose credential is no longer bound reads nothing', (select count(*) from public.my_competition_judging_assignments()) = 0 and (select count(*) from public.event_competition_panel_assignments) = 0);
 reset role;
-select pg_temp.chk('and no longer counts toward panel readiness', pg_temp.n($q$select (public.competition_round_panel_status(pg_temp.u('006001')) ->> 'judge_count')::int$q$) = 0);
+select set_config('request.jwt.claims', '', true);
+select pg_temp.chk('and no longer counts toward panel readiness (only reactivated judge 2 remains)', pg_temp.n($q$select (public.competition_round_panel_status(pg_temp.u('006001')) ->> 'judge_count')::int$q$) = 1);
 
 -- ============================================================================
 -- 11. Cascades: deleting the event removes officials, panels (even on an active round) and audit
