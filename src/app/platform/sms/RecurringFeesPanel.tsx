@@ -8,8 +8,8 @@ import RecurringFees from "./RecurringFees";
  * Server wrapper: loads the operations data (each read degrades to "not available") and the flash banner, then renders the panel. The caller has already
  * run `requirePlatformAdmin()` and passes the session's administrator id and the two result query values.
  */
-export default async function RecurringFeesPanel({ adminId, notice, error }: { adminId: string; notice: string | null; error: string | null }) {
+export default async function RecurringFeesPanel({ adminId, notice, error, prices }: { adminId: string; notice: string | null; error: string | null; prices?: Record<string, number> }) {
   const ops = await loadRecurringFeeOps(createAdminClient(), adminId);
   const flash = readPanelFlash((await cookies()).get(RFL_FLASH_COOKIE)?.value, { panel: notice, panelError: error });
-  return <RecurringFees ops={ops} adminId={adminId} now={panelRenderContext([]).now} notice={flash.notice} error={flash.error} />;
+  return <RecurringFees ops={ops} adminId={adminId} now={panelRenderContext([]).now} prices={prices} notice={flash.notice} error={flash.error} />;
 }
