@@ -314,6 +314,11 @@ Requirements derived from §6A. None is implemented. "Dark" means shipped disabl
 | R31 | **Voluntary Founder-to-Regular transition.** Possible, but only after explicit disclosure of the Regular price and terms and an explicit customer confirmation; the exact Stripe subscription mutation is **O6 (deferred, isolated test-mode proof first)**; it preserves trial eligibility rules (no new trial), creates **no duplicate subscription**, and is audited. | D7, O6 |
 | R32 | **Live portal verification before finalizing (D7).** The active billing-portal configuration (§16.11 check P) is read and recorded before the plan-change implementation is finalized; the implementation assumes nothing about it. | D7 |
 | R33 | **Promotion policy (D16, pending evidence).** After the coupon audit (§16.11 check C) and with owner approval of the resulting behavior change: studio checkout no longer shows an open promotion-code box; only allowlisted coupon ids are applied server-side; Founder sessions cannot stack discounts; documented grandfathered or contractual discounts are preserved; the qualifying-period counter treats a $0 plan line as non-qualifying (§16.3). Until then **no code or Stripe change is made**. | D16 |
+| R34 | **Portal hand-off is a 303 with visible errors (D7 audit, 2026-10-25).** Every redirect from the portal route is 303; failures are logged server-side without secrets and map to specific user-facing messages; the button is shown only when the route can open a session for the same customer source; a test asserts status and method. Applies independent of the final architecture. | D7 |
+| R35 | **Change Plan never implies a change it did not make.** For a managed subscriber the control states what it does until the DanceFlow plan-change service exists; the displayed price is the studio's actual price, not the global-flag price. | D7 |
+| R36 | **Protected subscriptions are identified by record, not by price.** A server-side registry marks the grandfathered $129 Pro (and any documented contractual exception); Change Plan, cancel and return for those studios are blocked or warned and never fall through to a new Checkout at the current Founder price or a new trial; no new policy is applied retroactively. | D5(f), D7 |
+| R37 | **No second subscription.** A studio with a `paused`, `incomplete` or otherwise non-terminal Stripe subscription is never sent to a new Checkout; plan-change and Checkout requests are idempotent and serialized per studio. | D7 |
+| R38 | **Portal configuration is pinned.** The portal route passes an explicit configuration id so the account default cannot silently become a plan-switching configuration; switching plans, promotion codes and cancellation settings follow the owner decisions (O10). | D7, D16 |
 
 ## 14. Exact code and release dependencies
 
@@ -767,6 +772,151 @@ Use **Live mode** in the DanceFlow account (`acct_1TKgL3EY0sTayNiS`). **Change n
 - **M4: stop-sell (already outside this decision).** Not recommended or requested; D17 keeps it as a separate authorization.
 
 **Order of use:** read P, C, S first; if P1 is confirmed, M1 is the first mitigation (it removes the one finding that becomes Critical later); if C1 is confirmed, M2; M3 follows as the permanent fix.
+
+### 16.13 D7 audit: Settings → Billing & Payouts → Change Plan and Open Billing Portal (read-only, 2026-10-25)
+
+> **Scope and method.** Read-only code audit of `origin/main` and `origin/release/pricing-p1` (`4bc938c6`, the deployed production branch). No code, Stripe, database, environment, deployment or subscription change was made, and the grandfathered subscription was not touched. Every statement is labelled **VERIFIED (code)**, **INFERRED** (follows from code plus documented Stripe/Next.js behavior, not observed at runtime) or **UNVERIFIED (live configuration or runtime)**. The owner reported that **Open Billing Portal is currently nonfunctional**; that report is treated as an observation about production, and Change Plan is assessed separately.
+
+#### 16.13.1 Main versus production
+
+**VERIFIED (code):** the three files at the center of this audit are **byte-identical** on both refs (same git blob ids): `src/app/app/settings/billing/page.tsx`, `src/app/api/billing/checkout/route.ts`, `src/app/api/billing/portal/route.ts`. A diff of the remaining billing code between the refs shows differences only in the SMS-credit and SMS-limit routes (new on main), a seven-line SMS import in the webhook route, and a refactor of the flag helpers (`isFounderPricingActiveIn`, `isRegularPricingActivated(env)`) that does not change behavior. **Everything below therefore holds for production as deployed** (`release/pricing-p1`), not only for main. No finding in this section depends on main being deployed.
+
+#### 16.13.2 Verified Change Plan workflow map
+
+| Step | Where | Behavior | Status |
+|---|---|---|---|
+| 1 | `settings/billing/page.tsx` `PlanCard` (about lines 983–1095) | The card button label is **"Current Plan"** (disabled) when `currentPlan.code === plan.code`, **"Change Plan"** when the studio has a managed subscription (`active`, `trialing`, `past_due`, `unpaid`), otherwise "Start {plan} Trial". It is a plain HTML `<form action="/api/billing/checkout" method="post">` with hidden `planCode`, `path`, `entry`, and a **hardcoded** `billingInterval=month`. No JavaScript handler, no confirmation step, no price or proration disclosure beyond the displayed monthly price. | **Implemented, functional as a navigation, but it is not a plan change** |
+| 2 | Displayed price | `resolveDisplayedMonthlyPriceCents(plan)` returns the Founder `amountMonthlyCents` while `isFounderPricingActive()` (default **true**; false only if `NEXT_PUBLIC_FOUNDER_PRICING_ACTIVE` or `FOUNDER_PRICING_ACTIVE` is the string `"false"`), otherwise `regularAmountMonthlyCents`. It reads the static `plans.ts`, never Stripe, and never the studio's own subscription. | Functional; **a display, not an entitlement** |
+| 3 | `api/billing/checkout/route.ts` `handleCheckout` (POST and GET both accepted) | Validates `planCode` against `plans.ts`; requires a signed-in user; requires current legal acceptance; resolves the **current studio server-side** (`getCurrentStudioContext`); requires `canManageWorkspaceSubscription` (studio owner, organizer owner, or platform admin); reads the studio, the active `subscription_plans` row and `studio_billing_customers` with the service role; rejects an audience mismatch. | Implemented, functional |
+| 4 | Same route, price resolution (`resolveCheckoutPriceId`) | Monthly studio plans use `selectStudioMonthlyPrice` (fail closed, no fallback among Founder, standard and database Price ids). **This runs before the managed-subscriber branch, but its result is used only to build the success message** for a managed subscriber. | Functional |
+| 5 | Same route, managed branch (about lines 512–541) | `getManagedStripeSubscription` lists the customer's subscriptions (`status: all`, limit 20) and takes the first with status `active`, `trialing`, `past_due` or `unpaid`; a studio-row fallback (`stripe_subscription_id` plus managed status) also counts. If managed, the route **creates a Stripe Billing Portal Session** (customer and `return_url` only, **no configuration id, no flow data, no target price**) and 303-redirects to it. **The selected plan is not passed to Stripe and not recorded anywhere.** | **Partial: a redirect to the generic portal; the clicked plan is discarded** |
+| 6 | Same route, new-subscription branch (about lines 543–648) | Reached only when there is **no managed subscription** (including `canceled`, `incomplete`, `incomplete_expired`, `paused`). Requires a Price id; verifies the Stripe Price amount for monthly studio plans; creates a **Checkout Session in `subscription` mode** with `payment_method_collection: always`, **`allow_promotion_codes: true`** and **`trial_period_days` = the plan trial (30) on every session**; 303-redirects to Stripe. | Functional; this is the **only** place DanceFlow code starts a SaaS plan subscription |
+| 7 | Anywhere in `src` | **No `stripe.subscriptions.update`, no subscription-item swap, no subscription schedule and no `proration_behavior` exists for SaaS plan subscriptions.** The `subscriptions.update` calls in `app/memberships/actions.ts` are student memberships on connected accounts and are unrelated. The add-on routes only create or delete subscription items for Organizer Suite and AI credit packs. | **A DanceFlow-controlled plan change does not exist.** |
+| 8 | Webhook `api/payments/webhook/route.ts` | A plan changed in the Stripe portal is observed only through `customer.subscription.updated`; the plan is re-resolved from the Price id (`resolvePlanCodeFromEnvPriceIds`) before `metadata.planCode`. `studios.billing_plan` is never written (known gap, BILLING-QA #335). `syncStudioBillingSnapshot` nulls `trial_ends_at`. | Functional for recognition; no eligibility check |
+
+**Classification of Change Plan:** *implemented, functional as a form, but partial.* For a managed subscriber it **never performs a plan change itself**. It opens the generic Stripe Billing Portal. Whether a live plan change can complete therefore depends **entirely** on the live portal configuration (Check P, §16.11), which is **UNVERIFIED**. For a studio with no managed subscription it starts a new Checkout (new trial, possibly a new Founder allocation), which is a purchase, not a change.
+
+**Direct API call.** A caller cannot choose a different studio (the studio comes from the session) and cannot reach another customer's portal (**VERIFIED**: PAY-DC-4A tests pin the portal customer to the server-written `studio_billing_customers` row). A direct POST of any valid `planCode` (including a Founder plan) is not blocked by anything on the "available plans" screen, because that screen is not an authorization layer; but for a managed subscriber it only yields a portal redirect, and for an unmanaged studio it yields the same Checkout the UI would. **VERIFIED:** the UI "available plans" list (`visiblePlans`, filtered by audience only) is cosmetic.
+
+#### 16.13.3 Open Billing Portal: separate root-cause analysis
+
+**Handler chain (VERIFIED).** The button is `<form action="/api/billing/portal" method="post"><button type="submit">Open Billing Portal</button></form>`, rendered twice in `page.tsx` (hero card about line 1658 and the subscription card about line 2010), **only when** `hasManagedSubscription && studio.stripe_customer_id` (the `studios` column). There is no client JavaScript and no `disabled` attribute. The only other code path that opens a portal is the managed branch of the checkout route (above). Both create a session with the same minimal arguments. Neither is intentionally disabled and no feature flag guards the button.
+
+**Candidate causes, ranked by evidence:**
+
+| # | Candidate | Evidence | Classification |
+|---|---|---|---|
+| A | **Wrong redirect status for a form POST.** `portal/route.ts` ends with `NextResponse.redirect(portalSession.url)` (and its two error redirects) with **no status argument**. `NextResponse.redirect` defaults to **307**, which instructs the browser to **repeat the POST (method and body) to the new URL**. Stripe's portal session URL is a page that expects a GET. The checkout route, by contrast, passes `{ status: 303 }` on every redirect (`billingRedirect`, the portal redirect, the Checkout redirect), which converts the follow-up to GET. `portal/route.ts` is the **only** billing route that omits it. The unit test (`portalCustomer.paydc4a.test.ts`) asserts the customer id and never the status or method, so it cannot catch this. | **Code-verified defect and the leading, probable cause. Runtime effect UNVERIFIED** (not reproduced; the owner-run reproduction below separates it). Not labelled confirmed. |
+| B | **Browser-visible failure is silent or generic.** The route's catch-all redirects to `?error=billing_portal_failed`, and a missing customer redirects to `?error=billing_customer_missing`. **Neither code is in the page's `getErrorMessage` map**, so both render the generic "Something went wrong while loading billing." Because those error redirects are also 307 POSTs to a page route, the user may see an error page or a reload with no explanation. | Code-verified: the two codes are absent from the message map. Nothing is logged by the route (`catch {}` discards the error) so server logs cannot distinguish causes. | **Confirmed defect (observability), independent of A** |
+| C | **Stripe rejects `billingPortal.sessions.create`** because no default portal configuration is saved in the Live account (Stripe returns an error telling the account to configure the portal) or the API key lacks the permission. The route would take the `catch` and redirect to `billing_portal_failed`. | Not verifiable from code. The Live portal state is Check P. | **UNVERIFIED (live configuration)**; evidence is the Stripe Dashboard and the Stripe request log (a `POST /v1/billing_portal/sessions` with an error response) |
+| D | **Identity mismatch between button and route.** The button needs `studios.stripe_customer_id`; the route reads `studio_billing_customers.stripe_customer_id`. A studio with the first and not the second renders a button that always ends in `billing_customer_missing`. | Code-verified difference; data effect UNVERIFIED per studio | **Possible for individual studios; not a global cause** |
+| E | **Authorization.** The route redirects non-owners to `/app` silently. The button is shown to anyone who can see the page. A non-owner would see a button that appears to do nothing. | Code-verified (`canManageWorkspaceSubscription`) | **Possible only for non-owner roles; does not explain an owner failure** |
+| F | **Environment.** `getStripe()` needs the Stripe secret key; `NEXT_PUBLIC_APP_URL` is used only for `return_url`. Missing keys would also break checkout, which the owner reports is not the case for the PRICING-P1 smoke tests. | Not testable here | **Unlikely; UNVERIFIED** |
+| G | **Routing or an unfinished page.** The route exists on both refs, is exported as `POST`, is rate limited (10 per 10 minutes per IP, in-memory) and has a test. | Code-verified | **Ruled out as a code-routing cause** (rate limiting could cause a 429 body on repeated clicks and would not be explained by the error map either) |
+
+**Honest status:** A is the only candidate that both exists in code on production and would make a *working* Stripe session appear broken for every owner. It is a defect worth fixing regardless. It is **not confirmed as the production cause** until the owner-run reproduction below, because C is independent and could coexist. No cause is claimed confirmed.
+
+**Owner-run, read-only reproduction (nothing is changed; it uses a studio you own, and does not complete a Stripe change):**
+1. Open the billing page, open the browser developer tools Network tab, click **Open Billing Portal**.
+2. Record for the `portal` request: the status code (307, 303, 4xx, 5xx), the `Location` header host only (not the full URL), and whether the *next* request to `billing.stripe.com` shows method **POST** and its status (a POST to Stripe's page, or a 405 or 404 from Stripe, would confirm A).
+3. In the Stripe Dashboard (Live mode) → Developers → Logs, filter `POST /v1/billing_portal/sessions` around the click time; note whether it returned 200 or an error message (an error here confirms C; a 200 with a following failed page load supports A).
+4. Report only status codes and the Stripe error text, no URLs containing tokens.
+
+#### 16.13.4 Entitlement and tenant-authorization assessment
+
+| Question | Finding | Status |
+|---|---|---|
+| Studio identity is server-derived | Studio comes from `getCurrentStudioContext()` (session), never from the form | **VERIFIED** |
+| Role required | Studio owner, organizer owner, or platform admin on both the checkout and portal routes (LAUNCH-SEC-2A) | **VERIFIED**; the *button* is not role-gated, only the route |
+| Portal customer ownership | Customer comes from `studio_billing_customers` via the service role (PAY-DC-4A); the checkout route uses the same row then `studios.stripe_customer_id`; a customer id is never taken from request input | **VERIFIED** |
+| Subscription ownership | A studio's managed subscription is discovered by listing **its own customer's** subscriptions; there is no path to another customer's subscription | **VERIFIED** |
+| Cross-tenant plan change by direct API | Not possible via these routes (studio and customer fixed server-side) | **VERIFIED** |
+| Rate limiting | Checkout and portal are limited per IP, in memory (per serverless instance, so a soft control) | **VERIFIED** (weak) |
+| Entitlement to a tier | Nothing in `settings/billing` or the routes checks Founder ledger eligibility, which does not exist | **VERIFIED: not enforced** |
+| Platform admin acting for a studio | The admin acts on the studio in their current context | **VERIFIED**; audit trail of who changed the plan is not recorded |
+| Concurrency | No idempotency key and no lock on checkout or portal creation; a double click on an unmanaged studio can create two Checkout Sessions, and a studio whose subscription is `paused`, `incomplete` or `canceled` is treated as **unmanaged**, so Change Plan can start a **second** subscription | **VERIFIED (code)**; duplicate-subscription outcome INFERRED |
+
+#### 16.13.5 Founder versus Regular price-selection risks
+
+1. **Regular subscriber selecting a Founder Price.** *Through DanceFlow routes:* **not possible for a managed subscriber**, because the route never passes the chosen plan to Stripe. *Through Checkout (unmanaged):* the price comes from `selectStudioMonthlyPrice` using the global flag, so while `FOUNDER_PRICING_ACTIVE` is not `"false"`, **every new checkout is Founder-priced regardless of studio eligibility** (confirmed earlier, §2). *Through the portal:* **UNVERIFIED**; possible only if the live portal has **Switch plan On** with a Founder Price listed (P1).
+2. **Global flag effect on existing subscribers.** `isFounderPricingActive()` affects the *displayed* price and the price on *new* checkouts, not existing subscriptions. Flipping the flag would change what the Change Plan screen advertises while the subscriber's real price is unchanged: **a display mismatch risk for existing subscribers**, not a charge. The displayed price never reflects what the studio actually pays (Founder, grandfathered $129, or discounted).
+3. **Displayed versus charged.** For new checkouts the Stripe Price amount is verified against the expected amount (monthly studio only). The yearly path takes the DB price id with **no amount check**, but the UI hardcodes `month`; a direct POST with `billingInterval=year` reaches it (**VERIFIED**; effect depends on whether yearly prices are populated, see §7).
+4. **Trial.** Every new Checkout carries a 30-day trial; a canceled, paused or incomplete studio is "unmanaged" and gets a **new trial** through Change Plan or Start Trial. This contradicts the D5(c) rule (no second trial) until the ledger exists (**VERIFIED (code)**).
+5. **Proration and anchors.** Not controlled by DanceFlow at all. Any proration is whatever the live portal does if Switch plan is On (**UNVERIFIED**); the webhook neither detects nor classifies prorated invoices, which is relevant to the D13 rule that prorations are not paid periods (R29).
+6. **Status/trial display.** `syncStudioBillingSnapshot` nulls `trial_ends_at` after sync; a plan change in the portal during a trial has no DanceFlow handling (**UNVERIFIED** for portal behavior).
+
+#### 16.13.6 Grandfathered $129 Pro protection
+
+- **Identification (VERIFIED):** the grandfathered Price `price_1TdDHwEY0sTayNiSIe1nD3Lg` is held in `STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY` (Production only) and exists in `main` only in the runbook. **No application code references the legacy Price.** `resolvePlanCodeFromEnvPriceIds` recognizes it as Pro for plan resolution, but nothing else treats it differently: no flag on the studio, no ledger row, no UI cue.
+- **Change Plan exposure.** If that studio clicks Change Plan: it is managed, so it goes to the portal. Outcome is determined by the portal configuration (**UNVERIFIED**): with Switch plan On and a listed Price it could move to another Price and **permanently lose $129**; with Switch plan Off it can only cancel, update payment, or view invoices.
+- **Cancel then return.** Cancel is possible through the portal if enabled. After cancellation the studio is *unmanaged*, so the next Change Plan or Start Trial click goes to a **new Checkout at the current Founder Pro price ($159 per the PRICING-P1 table) with a new 30-day trial**: the $129 terms are **lost silently** and a second trial is granted. This is a **VERIFIED code path**; whether the studio actually did cancel is a separate fact.
+- **The original contract's cancellation and reactivation terms are not assumed.** The audit recommends the owner locate and state them before any enforcement (§16.8 O-items, new O9).
+- **Safeguards recommended (design, not implemented):** a server-side registry of protected subscriptions (identified by studio and subscription id, never by price alone); Change Plan disabled and replaced by a "contact support" path for those studios; an explicit warning and confirmation screen before any cancel or return for a protected studio; the new 12-month policy is never applied to them (§4, D5(f)). **No mutation of the subscription is proposed here.**
+
+#### 16.13.7 Verified code behavior versus unverified live configuration
+
+| Item | Status |
+|---|---|
+| Change Plan sends managed subscribers to the generic portal and discards the selected plan | **VERIFIED (code, both refs)** |
+| No DanceFlow-controlled subscription update exists | **VERIFIED (code, both refs)** |
+| Portal route returns a default (307) redirect; every other billing route uses 303 | **VERIFIED (code)** |
+| 307 on a form POST breaks the Stripe hand-off | **INFERRED** (documented browser/HTTP semantics); production effect **UNVERIFIED** |
+| Portal error codes missing from the page's message map | **VERIFIED (code)** |
+| Tenant and customer binding of both routes | **VERIFIED (code and tests)** |
+| Portal Switch plan, Manage downgrades, Use promotion codes, payment-method update, cancellation settings | **UNVERIFIED (Check P)** |
+| A saved Live default portal configuration exists | **UNVERIFIED** |
+| Coupons and promotion codes that can reduce a Founder price | **UNVERIFIED (Check C)** |
+| Count of Founder-priced subscriptions | **UNVERIFIED (Check S)** |
+| Whether the grandfathered studio has taken any action | **UNVERIFIED; not inspected** |
+| Proration, billing anchor and trial behavior of a portal-driven change | **UNVERIFIED** (needs a test-mode proof, O6-style) |
+
+Configuration-dependent findings are not vulnerabilities until Checks P and C return. Nothing in this table is a claim that production is currently exploited.
+
+#### 16.13.8 Recommended billing-management architecture
+
+| Option | Description | Assessment |
+|---|---|---|
+| **A (recommended)** | **Repair the portal for payment methods, invoices and billing details, while DanceFlow owns plan selection.** The portal is configured (account-wide, one saved configuration) with **Switch plan Off** (or no Founder products listed), **Use promotion codes Off**, **Payment methods On**, **Invoice history On**, and cancellation set per the O-decisions. A DanceFlow server action performs approved plan changes. | Matches D7 and the owner's stated preference; reuses the existing portal route, `canManageWorkspaceSubscription`, the webhook and `plans.ts`. |
+| B | Remove the portal button and handle all billing in DanceFlow. | Rejected: DanceFlow would have to build payment-method updates, invoices and card retry recovery, which D2/O2 need working; high cost, no benefit. |
+| C | Use Stripe Customer Portal **deep-link flows** (`flow_data`, for example `subscription_update_confirm` pinned to one target Price, or `payment_method_update`) created per request from the DanceFlow server. | A good hybrid *for the confirm step*, because the server chooses the target Price and Stripe shows the proration preview. **Constraint:** a flow requires the portal configuration to allow the corresponding feature, so a pinned update flow needs Switch plan enabled in the configuration; account-wide that re-opens the P1 exposure. **Unless a second configuration can be used for plan updates only** (the API accepts a `configuration` id), C is not safe. Recommended only after an isolated test-mode proof (O6). |
+
+**Recommended design (Option A, not implemented):**
+1. **Portal route:** keep, with 303, with logged and specific error handling, passing an explicit configuration id from an environment variable so that the plan-switching configuration is never the default.
+2. **Plan change = DanceFlow server action** (`/api/billing/plan-change`, owner role, studio from session): load the studio's subscription from Stripe (not from the request), verify the studio's ledger entitlement (R19–R25 once built) and that the target Price is permitted for that studio's class (Founder, Regular, protected, Organizer), compute and show the price, proration preview (Stripe upcoming invoice) and disclosure, require an explicit confirmation token, then call `subscriptions.update` (single-item swap, `proration_behavior` chosen by the design slice, `trial_end` preserved, no new subscription, idempotency key from studio and request id), then write an audit row (before and after Price ids, actor, request id). Founder-to-Founder keeps the allocation; Founder-to-Regular needs the O6-proven mutation and a stronger confirmation (R31).
+3. **Change Plan button:** points to the new server action for managed subscribers; unmanaged flows keep Checkout through the existing reservation design (§16.5).
+4. **Webhook:** unchanged for recognition; adds an exception row (R23) for a Founder Price on a studio with no entitlement.
+
+#### 16.13.9 Narrowly scoped remediation slices (independent, none authorized)
+
+| Slice | Content | Depends on | Hosted step | Tests |
+|---|---|---|---|---|
+| **D7-1 (portal fix)** | `portal/route.ts`: 303 on all three redirects; log the caught error server-side without secrets; add `billing_portal_failed` and `billing_customer_missing` messages to the page map; align button visibility with the route's customer source; optional `configuration` id from env | Owner reproduction (§16.13.3) to confirm A before the PR is described as a fix | None (code only); release from the isolated release branch, own approval | Unit: status is 303 for success, missing customer and failure; error codes rendered; non-owner sees no button |
+| **D7-2 (disclosure and guard)** | Replace "Change Plan" for managed subscribers with an honest label and explanation until D7-3 exists; show the studio's actual current plan and price (not the global-flag price); never claim a change was made | None | None | Snapshot of the labels; display uses the subscription's Price, not the flag |
+| **D7-3 (plan-change service)** | The §16.13.8 server action and audit table | Ledger (S-series), O6 proof, Check P | SQL (audit table) before app | See §16.13.11 |
+| **D7-4 (protected subscription registry)** | Grandfathered $129 identification and Change Plan/cancel/return safeguards | Owner statement of the original terms (O9) | SQL | Protected-studio tests |
+| **D7-5 (portal configuration)** | The M1 portal setting and a pinned configuration id | Check P | Stripe setting change, own approval, rollback by restoring the prior setting | Owner-run read-back |
+| **D7-6 (webhook hardening)** | Founder Price without entitlement raises an exception; `billing_plan` written; prorated invoices classified | #335 | none | See #335 and §16.13.11 |
+
+Each slice is independently releasable and independently revertible; D7-1 and D7-2 need no Stripe or database change.
+
+#### 16.13.10 BILLING-QA dependencies
+
+| PR | Relevance to D7 | Interaction |
+|---|---|---|
+| **#334** (draft; Stripe test-mode E2E spec) | Provides the harness to prove portal/Checkout behavior in test mode (the O6 and Switch-plan proofs) | D7-3 and the portal proof run on it; do not merge D7 work ahead of it |
+| **#335** (draft; webhook ordering, `billing_plan` and trial sync, unowned subscriptions; stacked on #334) | Edits `webhook/route.ts` and `ownershipFakes.ts`, which D7-6 and #292 also touch | D7-6 rebases onto #335; coordinate with #292 |
+| **#336** (draft; dark platform-admin price-config report) | The report that shows which Prices exist and are mapped; supports Check S counts | Read-only; D7-5 verification can reuse it |
+| **#340** (draft; owner-run no-payment smoke kit, stacked on #336) | Extends read-back to the live key; useful for a portal-configuration read-back | Edits `priceVerifier.ts`, `report.ts`, `docs/qa/billing-qa.md` together with #336 |
+
+All four stay untouched by this documentation update; #332 is merged.
+
+#### 16.13.11 Tests to require
+
+Founder-to-Founder upgrade and downgrade (same allocation, no second trial, paid-period count unchanged); a Regular subscriber requesting a Founder Price (rejected, audited); a protected grandfathered subscriber attempting a change, a cancel and a return (blocked or warned, terms preserved); trial preservation (no new trial, `trial_end` carried); Stripe proration behavior in test mode (amounts, credit, anchor) and that prorated invoices are not counted as paid periods; concurrent plan-change requests (idempotent, one subscription update); tenant isolation and direct-API authorization (other studio, non-owner, no session); portal success (303, GET follow-up), missing customer, Stripe failure, and visible error messages; price disclosure and an explicit confirmation requirement; and a `paused` or `incomplete` studio not receiving a second subscription.
+
+#### 16.13.12 Updated D7 requirements and owner decisions
+
+R29–R33 stand. The audit adds **R34–R38** (§13). Remaining owner items: **O8** (approve D7-1 and D7-2 as the first, no-Stripe, no-database code slice, after the owner-run reproduction); **O9** (state the original cancellation and reactivation terms of the grandfathered $129 contract, or authorize a read-only look at its documents); **O10** (portal configuration: choose between Option A with the portal's Switch plan Off and Option C with a second pinned configuration, after Check P and an isolated proof); **O11** (until D7-3 exists, whether plan changes are handled by support on request). Checks P, C and S results are still outstanding and gate D7-5.
 
 ## Standing non-claims
 
