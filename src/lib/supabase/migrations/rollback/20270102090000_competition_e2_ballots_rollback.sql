@@ -32,6 +32,8 @@ begin
   end if;
 end $$;
 
+drop trigger if exists compe2_guard_round_config on public.event_competition_rounds;
+drop function if exists public._compe2_guard_round_config();
 drop trigger if exists compe2_guard_round_lock_edges on public.event_competition_rounds;
 drop function if exists public._compe2_guard_round_lock_edges();
 

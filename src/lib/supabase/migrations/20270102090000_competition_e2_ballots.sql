@@ -29,6 +29,27 @@
 -- event_competition_ballot_events (K0 kinds ballot_submitted / ballot_corrected / judge_absence_recorded /
 -- round_state_changed, plus judge_presence_recorded). F2 may fold it into result_events later.
 --
+-- Once a round has started, its scoring method and callback target are frozen (ballots were validated against them).
+create function public._compe2_guard_round_config()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if old.status not in ('draft', 'scheduled')
+     and (new.scoring_method is distinct from old.scoring_method
+          or new.target_advancement_count is distinct from old.target_advancement_count) then
+    raise exception 'COMP_ROUND_CONFIG_FROZEN: scoring method and callback target cannot change once the round has started (status: %).', old.status
+      using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public._compe2_guard_round_config() from public, anon, authenticated;
+create trigger compe2_guard_round_config
+  before update of scoring_method, target_advancement_count on public.event_competition_rounds
+  for each row execute function public._compe2_guard_round_config();
+
 -- Round status: the two E2 edges (active -> ballots_locked, ballots_locked -> active) are written only by the lock /
 -- reopen RPCs; a guard trigger requires their audit row in the same transaction. Ballots are accepted only while the
 -- round is `active` (a trigger enforces it too); F2's correction path may relax that when it exists.
@@ -698,6 +719,8 @@ as $$
 declare
   v_scoring text;
   v_format text;
+  v_format_version integer;
+  v_stale jsonb;
   v_heats jsonb;
   v_open jsonb;
   v_missing jsonb;
@@ -709,7 +732,7 @@ declare
   v_panel_ok boolean;
 begin
   select r.scoring_method into v_scoring from public.event_competition_rounds r where r.id = p_round_id;
-  select f.format into v_format from public._compe2_format_for_scoring(v_scoring) f;
+  select f.format, f.version into v_format, v_format_version from public._compe2_format_for_scoring(v_scoring) f;
   select coalesce(jsonb_agg(h.heat_id order by h.heat_number), '[]'::jsonb) into v_heats from public._compe2_round_heats(p_round_id) h;
   select coalesce(jsonb_agg(h.heat_id order by h.heat_number), '[]'::jsonb) into v_open
   from public._compe2_round_heats(p_round_id) h where h.lock_state = 'open';
@@ -732,6 +755,20 @@ begin
     where not public._compe2_is_absent(p_round_id, j.official_id)
       and not exists (select 1 from public.event_competition_ballots b where b.heat_id = h.heat_id and b.official_id = j.official_id);
   end if;
+  -- Current ballots must still match the round as it is now (format, entries still on the heat, exactly T for callback).
+  select coalesce(jsonb_agg(b.id), '[]'::jsonb) into v_stale
+  from public.event_competition_ballots b
+  where b.round_id = p_round_id
+    and not exists (select 1 from public.event_competition_ballots s where s.supersedes_id = b.id)
+    and (
+      (b.ballot_format, b.ballot_format_version) is distinct from (v_format, v_format_version)
+      or (b.heat_id is not null and (
+            (select count(*) from public.event_competition_marks m where m.ballot_id = b.id) <> coalesce(array_length(public._compe2_heat_entries(b.heat_id), 1), 0)
+            or exists (select 1 from public.event_competition_marks m where m.ballot_id = b.id and not (m.entry_id = any (public._compe2_heat_entries(b.heat_id))))))
+      or (b.heat_id is null and (
+            (select count(*) from public.event_competition_marks m where m.ballot_id = b.id) is distinct from (select r.target_advancement_count from public.event_competition_rounds r where r.id = p_round_id)
+            or exists (select 1 from public.event_competition_marks m where m.ballot_id = b.id and not (m.entry_id = any (public._compe2_round_entries(p_round_id))))))
+    );
   -- K1 X-3 (owner-approved): ordinal and callback need >= 3 judges and an odd panel; proficiency needs >= 1.
   -- X-4: an absent judge leaves the effective panel (the attendance record is the audited removal; E1 freezes assignments).
   select pr.min_judges, pr.odd_required, pr.known into v_min, v_odd, v_known from public._compe2_panel_rule(v_scoring) pr;
@@ -739,8 +776,8 @@ begin
   return jsonb_build_object(
     'heats', v_heats, 'heats_not_locked', v_open, 'missing_ballots', v_missing,
     'judges', v_judges, 'judges_present', v_present,
-    'panel_min', v_min, 'panel_odd_required', v_odd, 'panel_rule_known', coalesce(v_known, false), 'panel_ok', v_panel_ok,
-    'ready', (jsonb_array_length(v_heats) > 0 and jsonb_array_length(v_open) = 0 and jsonb_array_length(v_missing) = 0 and v_panel_ok));
+    'panel_min', v_min, 'panel_odd_required', v_odd, 'panel_rule_known', coalesce(v_known, false), 'panel_ok', v_panel_ok, 'stale_ballots', v_stale,
+    'ready', (jsonb_array_length(v_heats) > 0 and jsonb_array_length(v_open) = 0 and jsonb_array_length(v_missing) = 0 and jsonb_array_length(v_stale) = 0 and v_panel_ok));
 end;
 $$;
 revoke all on function public._compe2_round_blockers(uuid) from public, anon, authenticated;
@@ -765,6 +802,7 @@ declare
   v_version integer := 1;
   v_format text;
   v_format_version integer;
+  v_fp text;
   v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
 begin
   if p_request_id is null then
@@ -777,9 +815,11 @@ begin
     raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
   end if;
 
+  v_fp := md5(coalesce(p_marks::text, '') || '|' || coalesce(v_reason, '') || '|' || p_source);
   select * into v_prev from public.event_competition_ballot_events e where e.request_id = p_request_id;
   if found then
     if v_prev.kind in ('ballot_submitted', 'ballot_corrected') and v_prev.actor_user_id = p_actor
+       and (v_prev.refs ->> 'fp') is not distinct from v_fp
        and v_prev.round_id = p_round_id and v_prev.heat_id is not distinct from p_heat_id and v_prev.official_id = p_official_id then
       return jsonb_build_object('replayed', true, 'ballot_id', v_prev.ballot_id, 'version', (v_prev.refs ->> 'version')::integer);
     end if;
@@ -850,7 +890,7 @@ begin
   perform public._compe2_audit(v_round.event_id, p_round_id, p_heat_id,
     case when v_version = 1 then 'ballot_submitted' else 'ballot_corrected' end,
     p_actor, p_official_id, v_ballot.id, null, null, p_request_id, v_reason,
-    jsonb_build_object('version', v_version, 'ballot_format', v_format || '@' || v_format_version, 'source', p_source, 'entered_by_official_id', p_entered_by, 'marks', jsonb_array_length(v_marks)));
+    jsonb_build_object('fp', v_fp, 'version', v_version, 'ballot_format', v_format || '@' || v_format_version, 'source', p_source, 'entered_by_official_id', p_entered_by, 'marks', jsonb_array_length(v_marks)));
 
   return jsonb_build_object('replayed', false, 'ballot_id', v_ballot.id, 'version', v_version, 'source', p_source);
 end;
@@ -972,7 +1012,7 @@ begin
   end if;
   select r.event_id into v_event from public.event_competition_rounds r where r.id = p_round_id;
   v_role := public._compe2_round_role(p_round_id);
-  if v_event is null or v_role not in ('manager', 'scorer') then
+  if v_event is null or coalesce(v_role, '') not in ('manager', 'scorer') then
     raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
   end if;
   if v_role = 'scorer' then
@@ -980,8 +1020,8 @@ begin
     where o.event_id = v_event and o.user_id = v_uid and o.role = 'scorer' and o.status = 'active';
   end if;
   -- The named judge must be on this round's panel (same event by construction).
-  if not exists (select 1 from public._compe2_round_judges(p_round_id) j where j.official_id = p_official_id) then
-    raise exception 'COMP_JUDGE_NOT_ASSIGNED: the named official is not a judge on this round''s panel.' using errcode = 'P0001';
+  if not exists (select 1 from public._compe2_round_judges(p_round_id) j where j.official_id = p_official_id and j.official_status = 'active') then
+    raise exception 'COMP_JUDGE_NOT_ASSIGNED: the named official is not an active judge on this round''s panel.' using errcode = 'P0001';
   end if;
   return public._compe2_insert_ballot(v_uid, p_round_id, p_heat_id, p_official_id, 'scorer_paper', v_scorer, p_marks, p_correction_reason, p_request_id);
 end;
@@ -1052,7 +1092,7 @@ declare
   v_prev public.event_competition_ballot_events;
   v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
 begin
-  if v_uid is null or v_role not in ('manager', 'chair') then
+  if v_uid is null or coalesce(v_role, '') not in ('manager', 'chair') then
     raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
   end if;
   if p_request_id is null then
@@ -1070,6 +1110,7 @@ begin
   select * into v_prev from public.event_competition_ballot_events e where e.request_id = p_request_id;
   if found then
     if v_prev.kind in ('judge_absence_recorded', 'judge_presence_recorded') and v_prev.actor_user_id = v_uid
+       and (v_prev.refs ->> 'fp') is not distinct from md5(p_status || '|' || coalesce(v_reason, ''))
        and v_prev.round_id = p_round_id and v_prev.official_id = p_official_id then
       return jsonb_build_object('replayed', true, 'official_id', p_official_id, 'status', (v_prev.refs ->> 'status'));
     end if;
@@ -1091,7 +1132,7 @@ begin
   values (v_round.event_id, p_round_id, p_official_id, p_status, v_reason, v_uid);
   perform public._compe2_audit(v_round.event_id, p_round_id, null,
     case when p_status = 'absent' then 'judge_absence_recorded' else 'judge_presence_recorded' end,
-    v_uid, p_official_id, null, null, null, p_request_id, v_reason, jsonb_build_object('status', p_status, 'actor_role', v_role));
+    v_uid, p_official_id, null, null, null, p_request_id, v_reason, jsonb_build_object('fp', md5(p_status || '|' || coalesce(v_reason, '')), 'status', p_status, 'actor_role', v_role));
   return jsonb_build_object('replayed', false, 'official_id', p_official_id, 'status', p_status);
 end;
 $$;
@@ -1111,7 +1152,7 @@ declare
   v_block jsonb;
   v_absent jsonb;
 begin
-  if v_uid is null or v_role not in ('manager', 'chair') then
+  if v_uid is null or coalesce(v_role, '') not in ('manager', 'chair') then
     raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
   end if;
   if p_request_id is null then
@@ -1141,6 +1182,10 @@ begin
   if not (v_block ->> 'panel_ok')::boolean then
     raise exception 'COMP_PANEL_SIZE: the present panel (% judges) does not meet the rule for this scoring method (at least % judges; odd panel required: %; K1 X-3/X-4).',
       v_block ->> 'judges_present', v_block ->> 'panel_min', v_block ->> 'panel_odd_required' using errcode = 'P0001', detail = v_block::text;
+  end if;
+  if jsonb_array_length(v_block -> 'stale_ballots') > 0 then
+    raise exception 'COMP_BALLOTS_STALE: % current ballot(s) no longer match the round (an entry was scratched, T or the format changed); correct them first.',
+      jsonb_array_length(v_block -> 'stale_ballots') using errcode = 'P0001', detail = v_block::text;
   end if;
   if jsonb_array_length(v_block -> 'missing_ballots') > 0 then
     raise exception 'COMP_BALLOTS_INCOMPLETE: % ballot(s) are missing (every assigned judge needs a ballot for every heat, or a recorded absence).',

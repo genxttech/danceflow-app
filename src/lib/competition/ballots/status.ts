@@ -45,6 +45,7 @@ export type BallotBoard = {
     panel_min: number;
     panel_odd_required: boolean;
     panel_ok: boolean;
+    stale_ballots?: string[];
     ready: boolean;
   };
 };
@@ -60,6 +61,7 @@ export function lockBlockerSummary(board: BallotBoard): string[] {
   if (board.blockers.missing_ballots.length > 0) {
     out.push(`${board.blockers.missing_ballots.length} ballot(s) missing: each present judge needs one per heat, or an absence must be recorded.`);
   }
+  if ((board.blockers.stale_ballots ?? []).length > 0) out.push("Some current ballots no longer match the round and must be corrected.");
   if (board.blockers.heats_not_locked.length > 0) out.push(`${board.blockers.heats_not_locked.length} heat(s) not locked yet.`);
   if (!board.scheme_available) out.push("Ballots for this scoring method are not available yet.");
   return out;

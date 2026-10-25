@@ -14,6 +14,8 @@ const MESSAGES: Record<string, string> = {
   COMP_CALLBACK_NOT_DANCED: "This callback round is not danced: everyone advances, so there is no ballot to take.",
   COMP_CALLBACK_COUNT: "Select exactly the number of couples to call back, across all heats.",
   COMP_BALLOT_FORMAT_NOT_APPROVED: "Ballots in this format are not available yet: the owner has not approved it.",
+  COMP_BALLOTS_STALE: "Some current ballots no longer match the round (an entry was scratched or the callback target changed). Correct them first.",
+  COMP_ROUND_CONFIG_FROZEN: "The scoring method and callback target cannot change once the round has started.",
   COMP_PANEL_SIZE: "The present panel is too small for this kind of round (ordinal and callback rounds need at least 3 judges and an odd number).",
   COMP_BALLOT_SCORING_METHOD_UNSUPPORTED: "This round's scoring method has no ballot yet.",
   COMP_BALLOT_NO_ENTRIES: "This heat has no entries to mark.",

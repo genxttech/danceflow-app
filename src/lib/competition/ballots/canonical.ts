@@ -36,7 +36,9 @@ export type BallotRecord = {
   id: string;
   officialId: string;
   roundId: string;
-  heatId: string;
+  /** null for round-scope formats (callback_yes). */
+  heatId: string | null;
+  ballotFormat: string; // "id@version"
   version: number;
   source: BallotSource;
   supersedesId: string | null;
@@ -55,12 +57,13 @@ export function sortMarks<T extends BallotMark>(marks: readonly T[]): T[] {
  * purpose: two ballots with the same official/round/heat/version/source/marks serialize identically.
  */
 export function canonicalBallot(
-  b: Pick<BallotRecord, "officialId" | "roundId" | "heatId" | "version" | "source" | "marks">,
+  b: Pick<BallotRecord, "officialId" | "roundId" | "heatId" | "ballotFormat" | "version" | "source" | "marks">,
 ): string {
   return canonicalJson({
     official_id: b.officialId,
     round_id: b.roundId,
     heat_id: b.heatId,
+    ballot_format: b.ballotFormat,
     version: b.version,
     source: b.source,
     marks: sortMarks(b.marks).map((m) => ({ entry_id: m.entryId, role: m.role ?? null, value: m.value })),

@@ -88,18 +88,20 @@ describe("canonical serialization", () => {
     expect(canonicalJson({ b: 1, a: [{ z: undefined, y: null, x: "s" }] })).toBe('{"a":[{"x":"s","y":null}],"b":1}');
     expect(() => canonicalJson({ a: Infinity })).toThrow();
   });
-  const base = { officialId: "o1", roundId: "r", heatId: "h", version: 1, source: "judge_web" as const };
+  const base = { officialId: "o1", roundId: "r", heatId: "h" as string | null, ballotFormat: "ordinal_rank@1", version: 1, source: "judge_web" as const };
   it("is independent of mark order", () => {
     const a = canonicalBallot({ ...base, marks: [{ entryId: "e1", value: 1 }, { entryId: "e2", value: 2 }] });
     const b = canonicalBallot({ ...base, marks: [{ entryId: "e2", value: 2 }, { entryId: "e1", value: 1 }] });
     expect(a).toBe(b);
     expect(a).toBe(
-      '{"heat_id":"h","marks":[{"entry_id":"e1","role":null,"value":1},{"entry_id":"e2","role":null,"value":2}],"official_id":"o1","round_id":"r","source":"judge_web","version":1}',
+      '{"ballot_format":"ordinal_rank@1","heat_id":"h","marks":[{"entry_id":"e1","role":null,"value":1},{"entry_id":"e2","role":null,"value":2}],"official_id":"o1","round_id":"r","source":"judge_web","version":1}',
     );
   });
   it("changes when any content changes", () => {
     const m = [{ entryId: "e1", value: 1 }];
     expect(canonicalBallot({ ...base, marks: m })).not.toBe(canonicalBallot({ ...base, version: 2, marks: m }));
+    expect(canonicalBallot({ ...base, marks: m })).not.toBe(canonicalBallot({ ...base, ballotFormat: "three_band@1", marks: m }));
+    expect(canonicalBallot({ ...base, heatId: null, marks: m })).toContain('"heat_id":null');
     expect(canonicalBallot({ ...base, marks: m })).not.toBe(canonicalBallot({ ...base, marks: [{ entryId: "e1", value: 2 }] }));
   });
   it("engine marks use current ballots only", () => {

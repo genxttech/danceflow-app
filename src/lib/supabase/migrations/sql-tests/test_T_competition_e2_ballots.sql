@@ -556,7 +556,9 @@ select pg_temp.chk('judge 1 reads exactly one draft row', (select count(*) from 
 select pg_temp.expect_msg('a draft cannot be written directly', $q$update public.event_competition_ballot_drafts set selections = '[]'$q$, 'permission denied');
 reset role;
 select pg_temp.chk('a draft is not a ballot', pg_temp.n($q$select count(*) from public.event_competition_ballots where round_id = pg_temp.u('006003')$q$) = 0);
+set session_replication_role = replica;
 update public.event_competition_rounds set target_advancement_count = 2 where id = pg_temp.u('006003');
+set session_replication_role = origin;
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000011'));
 select pg_temp.expect_msg('callback: one couple is not T (exactly T required)', format($q$select public.submit_competition_ballot(%L, null, '[{"entry_id":"%s","value":true}]', %L)$q$, pg_temp.u('006003'), pg_temp.u('008009'), pg_temp.u('f29001')), 'COMP_CALLBACK_COUNT');
@@ -578,14 +580,32 @@ select pg_temp.expect_msg('a second root round-level ballot is refused (unique)'
   format($q$insert into public.event_competition_ballots (event_id, round_id, official_id, version, source, submitted_by) values (%L, %L, %L, 1, 'judge_web', %L)$q$, pg_temp.u('00e001'), pg_temp.u('006003'), pg_temp.off('00e001','000011'), pg_temp.u('000011')), 'duplicate key');
 select pg_temp.expect_msg('a round-level ballot on an ordinal round is refused (trigger)',
   format($q$insert into public.event_competition_ballots (event_id, round_id, official_id, version, source, submitted_by) values (%L, %L, %L, 1, 'judge_web', %L)$q$, pg_temp.u('00e001'), pg_temp.u('006001'), pg_temp.off('00e001','000011'), pg_temp.u('000011')), 'COMP_BALLOT_HEAT_INVALID');
+set session_replication_role = replica;
 update public.event_competition_rounds set target_advancement_count = 4 where id = pg_temp.u('006003');
+set session_replication_role = origin;
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000011'));
 select pg_temp.expect_msg('callback: T >= eligible couples means the round is not danced (D-CT-5)', format($q$select public.submit_competition_ballot(%L, null, '[{"entry_id":"%s","value":true},{"entry_id":"%s","value":true}]', %L, 'again')$q$, pg_temp.u('006003'), pg_temp.u('008010'), pg_temp.u('008013'), pg_temp.u('f29010')), 'COMP_CALLBACK_NOT_DANCED');
 reset role;
+set session_replication_role = replica;
 update public.event_competition_rounds set target_advancement_count = 2 where id = pg_temp.u('006003');
+set session_replication_role = origin;
 -- X-3 is enforced at lock; callback and ordinal need an odd panel of at least 3
 select pg_temp.chk('lock readiness for a one-judge callback round reports panel_ok = false', not (public._compe2_round_blockers(pg_temp.u('006003')) ->> 'panel_ok')::boolean);
+
+-- Review regression (P0-1): a caller with NO relation to the round must be refused, not slip past a NULL role.
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000020'));
+select pg_temp.expect_msg('unrelated verified user cannot enter paper ballots', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d007', '[1,2]'), %L, 'x')$q$, pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.off('00e001','000011'), pg_temp.u('f2a001')), 'COMP_FORBIDDEN');
+select pg_temp.expect_msg('unrelated verified user cannot record attendance', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'x', %L)$q$, pg_temp.u('006005'), pg_temp.off('00e001','000011'), pg_temp.u('f2a002')), 'COMP_FORBIDDEN');
+select pg_temp.expect_msg('unrelated verified user cannot lock', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006005'), pg_temp.u('f2a003')), 'COMP_FORBIDDEN');
+select pg_temp.as_user(pg_temp.u('000018'));
+select pg_temp.expect_msg('a scorer assigned to another round cannot enter paper ballots on r5', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d007', '[1,2]'), %L, 'x')$q$, pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.off('00e001','000011'), pg_temp.u('f2a004')), 'COMP_FORBIDDEN');
+-- request id bound to its payload (P2-1)
+select pg_temp.as_user(pg_temp.u('000011'));
+select pg_temp.expect_msg('replaying a request id with different marks is refused', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d007', '[2,1]'), %L, 'again')$q$, pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.u('f24020')), 'COMP_REQUEST_REUSED');
+reset role;
+select pg_temp.expect_msg('scoring method / callback target are frozen once a round has started (P1-1)', format($q$update public.event_competition_rounds set scoring_method = 'callback_tally' where id = %L$q$, pg_temp.u('006005')), 'COMP_ROUND_CONFIG_FROZEN');
 
 -- ============================================================================
 -- 10. Lock preconditions and authority (round r1)
