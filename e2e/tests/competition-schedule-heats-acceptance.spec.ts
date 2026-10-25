@@ -672,6 +672,12 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
   test("SCN-10.1 no-show: an official marks an entry in the active heat as no-show with a reason; the floor console shows it", async ({ browser }, testInfo) => {
     test.skip(!ns1, "NS1 (#342) is not in the system under test");
     const shot = stepShots(testInfo);
+    // FINDING: reading no-shows needs a verified-email credential (verified_email_for_user); the console swallows the refusal and shows nothing.
+    // The fixture owner was created through the admin API without one, so the owner proves the mailbox through the real sign-in link first.
+    const verify = await (await browser.newContext()).newPage();
+    await assignUniqueSourceIp(verify);
+    await verifyEmailAndBindPassword(verify, fixture.owner);
+    await verify.context().close();
     const page = await signedIn(browser, fixture.owner);
     const target = await noShowTarget();
     await page.goto(`${base()}/day-of`);
