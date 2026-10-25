@@ -175,7 +175,9 @@ export type HeatEvidence = {
   placements: Row[];
   rounds: Row[];
   /** Per scoring heat: its floor heat number and the entries and competitors placed (not scratched). */
-  floorLayout: Array<{ floorId: string; versionId: string; floorNumber: number; heatId: string; heatNumber: number; status: string; lockState: string; entryIds: string[]; competitorIds: string[] }>;
+  floorLayout: Array<{ roundId: string; floorId: string; versionId: string; floorNumber: number; heatId: string; heatNumber: number; status: string; lockState: string; entryIds: string[]; competitorIds: string[] }>;
+  /** floorLayout restricted to the published (or live) version when one exists, else the whole layout. */
+  effective: HeatEvidence["floorLayout"];
   /** Competitors that appear twice in ONE floor heat (must always be empty). */
   doubleBookings: Array<{ floorNumber: number; competitorId: string }>;
 };
@@ -199,6 +201,7 @@ export async function readHeatEvidence(config: E2EConfig, eventId: string): Prom
   const floorLayout = scoringHeats.map((heat) => {
     const entryIds = placements.filter((p) => p.heat_id === heat.id && p.status !== "scratched").map((p) => p.entry_id as string);
     return {
+      roundId: heat.round_id as string,
       floorId: heat.floor_heat_id as string,
       versionId: floorHeats.find((row) => row.id === heat.floor_heat_id)?.schedule_version_id as string ?? "",
       floorNumber: numberByFloor.get(heat.floor_heat_id as string) ?? 0,
@@ -219,7 +222,9 @@ export async function readHeatEvidence(config: E2EConfig, eventId: string): Prom
       seen.add(competitorId);
     }
   }
-  return { versions, floorHeats, scoringHeats, placements, rounds, floorLayout, doubleBookings };
+  const inEffect = versions.find((v) => ["published", "live"].includes(v.status as string));
+  const effective = inEffect ? floorLayout.filter((heat) => heat.versionId === inEffect.id) : floorLayout;
+  return { versions, floorHeats, scoringHeats, placements, rounds, floorLayout, effective, doubleBookings };
 }
 
 /** The published (or live) version rows of an event. */

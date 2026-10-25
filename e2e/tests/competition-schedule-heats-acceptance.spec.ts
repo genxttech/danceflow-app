@@ -536,7 +536,7 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
 
     // Heat 1: call to floor, start, complete.
     const heatsNow = await readHeatEvidence(config, event.id);
-    const firstFloorId = heatsNow.floorHeats.find((row) => Number(row.heat_number) === 1)!.id as string;
+    const firstFloorId = heatsNow.floorHeats.find((row) => Number(row.heat_number) === 1 && row.schedule_version_id === publishedVersions(heatsNow)[0].id)!.id as string;
     const stateOfFirst = async () => [...new Set((await readHeatEvidence(config, event.id)).scoringHeats.filter((h) => h.floor_heat_id === firstFloorId).map((h) => h.status as string))];
     const heatCard = (title: "On the floor" | "Up next") => page.getByRole("region", { name: title });
     await heatCard("Up next").getByRole("button", { name: "Call to floor" }).click();
@@ -562,7 +562,7 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
   test("SCN-6.1 scratch in an open heat: no payment changes, the entry leaves the heat, the day-of console no longer lists it", async ({ browser }, testInfo) => {
     const shot = stepShots(testInfo);
     const page = await signedIn(browser, fixture.owner);
-    const layout = (await readHeatEvidence(config, event.id)).floorLayout.filter((heat) => heat.status === "scheduled" && heat.lockState === "open" && heat.entryIds.length > 0);
+    const layout = (await readHeatEvidence(config, event.id)).effective.filter((heat) => heat.status === "scheduled" && heat.lockState === "open" && heat.entryIds.length > 0);
     expect(layout.length, "an undanced, open heat with entries exists").toBeGreaterThan(0);
     const target = layout[0].entryIds[0];
     const key = (Object.keys(entryIds) as EntryKey[]).find((k) => entryIds[k] === target)!;
@@ -597,7 +597,7 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
     const shot = stepShots(testInfo);
     const page = await signedIn(browser, fixture.owner);
     const heats = await readHeatEvidence(config, event.id);
-    const danced = heats.floorLayout.find((heat) => heat.status === "complete" && heat.entryIds.length > 0);
+    const danced = heats.effective.find((heat) => heat.status === "complete" && heat.entryIds.length > 0);
     expect(danced, "heat 1 was completed in SCN-7.1").toBeTruthy();
     const target = danced!.entryIds[0];
     const auditBefore = (await readScratchAudit(config, event.id)).length;
@@ -618,7 +618,7 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
     // Ballots: the scorer's paper-ballot desk, one ballot per judge per heat (E2). Locking is what locks the heats.
     await page.goto(`${base()}/ballots/${roundId}`);
     await expect(page.getByRole("region", { name: "Round status" })).toContainText("Accepting ballots");
-    const heatCount = (await readHeatEvidence(config, event.id)).scoringHeats.filter((h) => h.round_id === roundId).length;
+    const heatCount = (await readHeatEvidence(config, event.id)).effective.filter((h) => h.roundId === roundId).length;
     const judgeCount = await page.locator('select[name="officialId"]').first().evaluate((el) => (el as HTMLSelectElement).options.length - 1).catch(() => 3);
     for (let heat = 0; heat < heatCount; heat += 1) {
       for (let judge = 1; judge <= Math.max(judgeCount, 3); judge += 1) {
@@ -639,7 +639,7 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
     await expect(page.getByRole("region", { name: "Round status" })).toContainText("Ballots locked", { timeout: 30_000 });
     await shot(page, "ballots-locked");
 
-    const locked = (await readHeatEvidence(config, event.id)).floorLayout.filter((heat) => heat.status !== "complete" && heat.lockState === "locked" && heat.entryIds.length > 0);
+    const locked = (await readHeatEvidence(config, event.id)).effective.filter((heat) => heat.status !== "complete" && heat.lockState === "locked" && heat.entryIds.length > 0);
     expect(locked.length, "an undanced, locked heat with entries exists").toBeGreaterThan(0);
     const target = locked[0].entryIds[0];
 
