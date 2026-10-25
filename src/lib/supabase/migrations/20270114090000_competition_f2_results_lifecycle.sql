@@ -480,7 +480,8 @@ revoke all on function public._compf2_engine_pin(uuid) from public, anon, authen
 
 -- X-5 no-show hook (NS1, migration 20270115, publishes competition_heat_no_show_entries(round) -> (entry_id uuid)). Absent: empty, and
 -- the evidence (and its hash) is exactly what it was without the hook. Present: the reader is authoritative; an error propagates, so a
--- calculation never proceeds on a half-read exclusion list. Only entries of the round count.
+-- calculation never proceeds on a half-read exclusion list. Only entries on the round's ballot heats count. The reader returns the entries
+-- that are a no-show in EVERY heat entry of the round; a no-show in one heat only is decided per heat entry (competition_heat_entry_is_no_show).
 create function public._compf2_no_show_entries(p_round_id uuid)
 returns uuid[]
 language plpgsql
@@ -495,10 +496,35 @@ begin
     return '{}'::uuid[];
   end if;
   execute 'select coalesce(array_agg(distinct n.entry_id), ''{}''::uuid[]) from public.competition_heat_no_show_entries($1) n' into v_ids using p_round_id;
-  return coalesce((select array_agg(x order by x) from unnest(v_ids) x where x = any (public._compe2_round_entries(p_round_id))), '{}'::uuid[]);
+  -- Intersect with the heat entries of the round's ballot heats, NOT with _compe2_round_entries: NS1 makes that function skip no-shows, which
+  -- would drop an entry that is a no-show in every heat before it could reach excludedEntries.
+  return coalesce((select array_agg(x order by x) from unnest(v_ids) x
+                   where exists (select 1 from public.event_competition_heat_entries he
+                                 where he.entry_id = x and he.heat_id in (select h.heat_id from public._compe2_round_heats(p_round_id) h))), '{}'::uuid[]);
 end;
 $$;
 revoke all on function public._compf2_no_show_entries(uuid) from public, anon, authenticated, service_role;
+
+-- Per heat entry (NS1 reader competition_heat_entry_is_no_show(heat_entry_id) -> boolean): an entry can be a no-show in one heat and
+-- danced in another. Absent reader: false, so the heats list is exactly what it was without the hook.
+create function public._compf2_heat_entry_no_show(p_heat_entry_id uuid)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v boolean;
+begin
+  if to_regprocedure('public.competition_heat_entry_is_no_show(uuid)') is null then
+    return false;
+  end if;
+  execute 'select public.competition_heat_entry_is_no_show($1)' into v using p_heat_entry_id;
+  return coalesce(v, false);
+end;
+$$;
+revoke all on function public._compf2_heat_entry_no_show(uuid) from public, anon, authenticated, service_role;
 
 -- Current ballots covering the round (same filter as E2's lock audit): not superseded, in a ballot heat or round-level.
 create function public._compf2_evidence(p_round_id uuid, p_engine_key text, p_engine_version text)
@@ -562,7 +588,7 @@ as $$
                          'entryIds', coalesce((select jsonb_agg(he.entry_id order by he.entry_id::text collate "C")
                                                from public.event_competition_heat_entries he
                                                where he.heat_id = h.heat_id and he.status <> 'scratched'
-                                                 and he.entry_id <> all (public._compf2_no_show_entries(r.id))), '[]'::jsonb))
+                                                 and not public._compf2_heat_entry_no_show(he.id)), '[]'::jsonb))
                        order by h.heat_id::text collate "C")
                        from public._compe2_round_heats(r.id) h), '[]'::jsonb),
     -- X-6: the dances of the ballot heats.
