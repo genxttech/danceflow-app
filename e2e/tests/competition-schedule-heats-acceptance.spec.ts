@@ -748,7 +748,8 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
     expect(heats.doubleBookings).toEqual([]);
     const scratched = heats.placements.filter((p) => p.status === "scratched").map((p) => p.entry_id as string);
     const audited = (await readScratchAudit(config, event.id)).map((s) => s.entry_id as string);
-    expect(scratched.sort()).toEqual(audited.sort());
+    // An entry is placed in every schedule version that holds it (published copy and its predecessor), so compare entries, not rows.
+    expect([...new Set(scratched)].sort()).toEqual([...new Set(audited)].sort());
     const state = await readCompetitionRegistrations(config, event.id);
     expect(state.orders.every((o) => o.payment_status === "paid")).toBe(true);
     expect(state.payments.filter((p) => p.status === "paid")).toHaveLength(3);
