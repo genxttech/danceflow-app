@@ -110,3 +110,12 @@ I confirmed the star tiers with `pdftotext -enc UTF-8`: "B★ = 23 … GG★ = 1
 ## Status
 
 Until C-1 to C-5 are applied and OQ-1/OQ-2 are answered, the spec stays DRAFT and UCWDC Majority Rules stays unavailable (S4-5). No engine code is authorized.
+
+---
+
+## Addendum (added by W6, 2026-10-25; the report above is unchanged)
+
+- **Independence caveat:** the verification above was done by the Competition OS coordinator, who had read Rules 3-6 and briefed the drafter before the draft was written (see the caveat at the top). It is therefore not a fully independent review.
+- The owner has asked for an **independent golden-fixture review to continue**. The spec stays DRAFT until that review and the owner's approval.
+- Corrections C-1 to C-5 are applied in the spec. C-1 was applied after the owner approved OQ-1 on 2026-10-25 (the 16-value scale governs; the rule-book lists no longer restrict marks). OQ-2 (AllStars/Spotlight use the 6-medal method) and OQ-3 (revised: no `J >= 3` guard; separate UNVERIFIED panel-eligibility check) are recorded in `engine-spec-ucwdc-majority-rules.md` section 15.
+- Fixtures F-U-04, F-U-05, F-U-07, F-U-08 and F-U-09 use 16-scale values and are consistent with the OQ-1 decision. F-U-15 cases were updated to the new rules; an independent reviewer should recompute them.
