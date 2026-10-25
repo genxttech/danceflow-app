@@ -256,7 +256,7 @@ object-ID suffix (`…EY0sTayNiS…`, matching `acct_1TKgL3EY0sTayNiS`), not the
 original Price edited in place; the Growth item in the Step 1 checklist therefore also confirms the original Growth Founder Price is
 untouched or archived and has no subscriptions. Everything else in the Step 1 verification checklist still applies to these exact IDs.
 
-## Step 2 — Production environment plan (exact; needs separate owner authorization — nothing applied)
+## Step 2 — Production environment plan (APPLIED 2026-10-24 on owner authorization; no build, deploy or promotion)
 
 Project: `danceflow-app-qfem` (serves idanceflow.com). Env changes apply only to NEW deployments; the live deployment is unaffected.
 Locked values cannot be read back in Vercel, so **never overwrite a shared entry**: split it so the original value is preserved
@@ -283,6 +283,20 @@ create real checkouts regardless.
 
 After the change, read back (names, scope, and the four plain values): each Production entry shows the exact ID above; each original
 entry shows Preview only; no other variable changed (compare the entry count and `Updated` times).
+
+### Applied record (2026-10-24, `danceflow-app-qfem`)
+
+Applied one variable at a time with a read-back after each; the project Activity log shows exactly these events and no others (the redeploy
+prompts were dismissed, nothing was redeployed):
+- `STRIPE_PRICE_STUDIO_STARTER_FOUNDER`: original entry → **Preview only** (value untouched, still a locked Secret); new Production-only plain entry
+  = `price_1TdDHBEY0sTayNiS0G2Ed9oI` (read back).
+- `STRIPE_PRICE_STUDIO_GROWTH_FOUNDER`: original → Preview only; new Production-only = `price_1UUG7uEY0sTayNiSh0d9cCL8` (read back).
+- `STRIPE_PRICE_STUDIO_PRO_FOUNDER`: original → Preview only; new Production-only = `price_1UUG4UEY0sTayNiSClLL4J0R` (read back).
+- `STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY`: new, Production only = `price_1TdDHwEY0sTayNiSIe1nD3Lg` (read back).
+Unchanged (verified in the filtered list): the three `STRIPE_PRICE_STUDIO_*_STANDARD` entries (Production and Preview, Added May 31), both Founder flags,
+and every other variable. The Preview entries' values were never read or retyped. The edits do not affect the live deployment; they take effect only
+for new builds. Caveat: other branches' Vercel builds started during the change window; those that are Preview use the preserved values, and any
+new Production-target build now picks up the Production-only entries.
 
 ### Rollback of the environment change (no value is ever read or retyped)
 1. For rows 1–3: delete the new Production-only entry, then edit the preserved entry and tick **Production** again (it returns to its original
@@ -361,7 +375,8 @@ click "Start Building Now" to jump the queue; wait for the queue.
 - [ ] Existing Pro subscription metadata checked and LEGACY env value decided
 - [x] #319 independently reviewed and merged to `main` (`d5786295`); release candidate re-verified with the exact reviewed code (256 tests, `tsc` clean, local)
 - [ ] Live Stripe portal configuration read (plan switching on/off)
-- [ ] Owner authorizes: release branch push, Production env change, staged build, promotion
+- [x] Release branch pushed (4bc938c6; both Vercel builds succeeded) and Production env split applied (see Step 2 record)
+- [ ] Owner authorizes: staged Production build from release/pricing-p1 with the new env, smoke test, then promotion
 
 ## Follow-up (explicit, not in this release): `studios.billing_plan` synchronization
 
