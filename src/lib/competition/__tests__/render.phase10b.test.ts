@@ -33,9 +33,9 @@ describe("workspace components render", () => {
     const html = renderToStaticMarkup(createElement(CompetitionNav, { eventId: "e1" }));
     expect(html).toContain("Overview");
     expect(html).toContain('aria-current="page"');
-    expect(html.match(/aria-disabled="true"/g)?.length).toBe(4);
-    for (const label of ["Officials", "Scoring", "Results", "Awards"]) expect(html).toContain(label);
-    expect(html).not.toMatch(/href="[^"]*(officials|scoring|results|awards)/);
+    expect(html.match(/aria-disabled="true"/g)?.length).toBe(3);
+    for (const label of ["Scoring", "Results", "Awards"]) expect(html).toContain(label);
+    expect(html).not.toMatch(/href="[^"]*(scoring|results|awards)/);
     expect(html).toContain('href="/app/events/e1/competition/divisions"');
   });
 
