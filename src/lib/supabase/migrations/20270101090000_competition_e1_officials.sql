@@ -265,7 +265,7 @@ language sql
 stable
 security definer
 set search_path = public, pg_temp
-as $
+as $$
   select exists (
     select 1 from public.events e
     where e.id = p_event_id
@@ -275,7 +275,7 @@ as $
               select 1 from public.organizer_users ou where ou.organizer_id = e.organizer_id and ou.user_id = p_user_id and ou.active = true))
       )
   );
-$;
+$$;
 revoke all on function public._comp_e1_is_team_member(uuid, uuid) from public, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
@@ -301,7 +301,7 @@ as $$
       and public.verified_email_for_user(o.user_id) is not null
       and public._comp_e1_is_team_member(o.event_id, o.user_id)
   );
-$;
+$$;
 revoke all on function public.competition_is_active_official(uuid) from public, anon;
 grant execute on function public.competition_is_active_official(uuid) to authenticated, service_role;
 
