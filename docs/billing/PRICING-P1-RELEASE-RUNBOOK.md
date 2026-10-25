@@ -91,6 +91,26 @@ different amount.
 - Later activation (not authorized) additionally needs: owner approval reference, the `…_STANDARD` env Price IDs set to the
   Regular Price IDs, `FOUNDER_PRICING_ACTIVE=false` to end Founder pricing, and a new release with its own smoke test.
 
+## Deployed Founder-selection check (2026-10-24, read-only)
+
+What the currently deployed build (`8fd075f5`) does: with Founder pricing active it uses `STRIPE_PRICE_STUDIO_<PLAN>_FOUNDER` if that variable
+is non-empty (after trim) and **does not verify the Price amount**. It falls back to `..._STANDARD` (then the database Price)
+only when Founder pricing is off or that Founder variable is missing/blank. A Founder variable that holds a wrong or
+other-account Price ID does **not** fall back: Stripe rejects it and checkout shows `checkout_failed`.
+
+Verified: the public page `https://www.idanceflow.com/get-started/studio` currently renders Founder pricing ($49 / $79 / $129 with
+"Founder price · regularly $59 / $99 / $159"). That page uses the same Founder determination as checkout
+(`FOUNDER_PRICING_ACTIVE` and `NEXT_PUBLIC_FOUNDER_PRICING_ACTIVE` both not "false"), so both flags are effectively on in the deployed build.
+Seen in Vercel (names and scope only): both flag entries and all three `STRIPE_PRICE_STUDIO_*_FOUNDER` entries exist, scoped
+Production and Preview.
+
+Not verifiable by me: that each of the three Founder entries is non-blank and holds the live Founder Price ID (values are locked;
+Production values did not reveal in the browser pane). Evidence that closes it: Stripe Dashboard (Live) → Developers → Logs (or the
+`checkout.session.created` events) showing the deployed app creating Checkout Sessions with `line_items[0][price]` equal to each
+current Founder Price ID. The owner-reported Pro purchase already shows the Pro Founder variable worked at that time. For
+Starter and Growth, one owner-run no-payment checkout attempt per plan on a non-subscribed workspace produces that log line
+(the session expires unpaid) and the Stripe page shows "Studio Starter - Founder" $49 / "Studio Growth - Founder" $79 before the edit.
+
 ## Step 0 — Identify the Stripe account production uses (owner; no secrets shared)
 
 Goal: prove which Stripe account and mode the deployed app (www.idanceflow.com) uses. Never paste a secret key (`sk_`,
@@ -193,13 +213,14 @@ amount, status, renewal date, `planCode=pro` metadata); no other subscription, c
 ## Step 2 — Environment plan (needs separate owner authorization)
 
 Env changes only affect NEW deployments; the live deployment is unaffected until a new build is promoted.
-`STRIPE_PRICE_STUDIO_*_FOUNDER` are single entries scoped "Production and Preview" holding sandbox IDs.
+`STRIPE_PRICE_STUDIO_*_FOUNDER` are single, locked (sensitive) entries scoped "Production and Preview", added May 31. Their values cannot be read back in
+Vercel; earlier notes that they hold sandbox IDs were an unsupported inference (taken from a local `.env.local`) and are retracted.
 
 | Variable | Production value | Preview |
 |---|---|---|
-| `STRIPE_PRICE_STUDIO_STARTER_FOUNDER` | existing Starter Price ID (same ID, now $59) | keep sandbox value |
-| `STRIPE_PRICE_STUDIO_GROWTH_FOUNDER` | existing Growth Price ID (same ID, now $99) | keep sandbox value |
-| `STRIPE_PRICE_STUDIO_PRO_FOUNDER` | **new** $159 Pro Price ID | keep sandbox value |
+| `STRIPE_PRICE_STUDIO_STARTER_FOUNDER` | existing Starter Price ID (same ID, now $59) | keep current value |
+| `STRIPE_PRICE_STUDIO_GROWTH_FOUNDER` | existing Growth Price ID (same ID, now $99) | keep current value |
+| `STRIPE_PRICE_STUDIO_PRO_FOUNDER` | **new** $159 Pro Price ID | keep current value |
 | `STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY` | original Pro Price ID (grandfathered, $129) | unset |
 
 Per variable: change the shared entry to **Preview only** with its current value, then add a Production-only entry with the
