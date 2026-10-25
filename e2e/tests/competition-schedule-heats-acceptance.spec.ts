@@ -666,7 +666,7 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
     const key = (Object.keys(entryIds) as EntryKey[]).find((k) => entryIds[k] === entry)!;
     return { heat: layout[0], entry, key, heatEntry: await heatEntryIdFor(config, event.id, entry, layout[0].heatId) };
   }
-  const noShowRow = (page: Page, key: EntryKey) => page.getByRole("region", { name: "On the floor" }).locator("li").filter({ hasText: KEY_NAME[key] });
+  const noShowRow = (page: Page, key: EntryKey) => page.getByRole("region", { name: "On the floor" }).locator("li").filter({ hasText: KEY_NAME[key] }).last();
   const keyOfEntry = (id: unknown) => (Object.keys(entryIds) as EntryKey[]).find((k) => entryIds[k] === id)!;
 
   test("SCN-10.1 no-show: an official marks an entry in the active heat as no-show with a reason; the floor console shows it", async ({ browser }, testInfo) => {
