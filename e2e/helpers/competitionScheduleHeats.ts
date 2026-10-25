@@ -273,7 +273,8 @@ export async function heatPanelNames(page: Page): Promise<string> {
 export async function openHeat(page: Page, eventId: string, number: number): Promise<string> {
   await page.goto(`/app/events/${eventId}/competition/schedule`);
   await page.getByRole("list", { name: "Running order" }).getByRole("link", { name: new RegExp(`^Heat ${number}\\b`) }).click();
-  await expect(page.getByRole("complementary", { name: `Heat ${number} details` })).toBeVisible();
+  await page.waitForURL(/[?&]heat=/, { timeout: 30_000 });
+  await expect(page.getByRole("complementary", { name: `Heat ${number} details` })).toBeVisible({ timeout: 30_000 });
   return heatPanelNames(page);
 }
 
