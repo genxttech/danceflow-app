@@ -86,3 +86,28 @@ All SCN-0 … SCN-9 scenarios have the same status and evidence as in the first 
   against the database.
 - Not run: mobile viewport, concurrent managers on the same draft, F1/F2/REG behaviour beyond their migrations applying
   (they are in the SUT but outside this walkthrough).
+
+## 8. Environment notes and the re-check / re-click logic (read with care)
+
+**Memory and load.** Peak memory was not sampled; the host was under heavy load (run times 31.7 / 22.4 min).
+
+**What was added.** Because clicks sometimes landed before the page hydrated under load (the click did nothing), three
+spec-level helpers re-check and re-click. They touch only these steps, all in
+`e2e/tests/competition-schedule-heats-acceptance.spec.ts`; no product code and no assertion was weakened:
+
+| Helper (spec) | Steps it touches | What it checks before re-clicking | Why a second click cannot duplicate an action |
+|---|---|---|---|
+| `setEligibility` (`toPass`, 90 s) | SCN-2.2, SCN-3.2 eligibility saves | **the database**: after each Save it polls the entry's stored eligibility for 10 s; it re-selects and re-saves only if the stored value is still not the one asked for | saving the same eligibility value twice is idempotent |
+| panel adds in SCN-5.1 (`toPass`, 120 s) | adding judges to the round panel | **the page** (rendered from the database): it skips the add if the judge is already listed on the panel, and re-adds only when the judge is not listed | the database refuses a second assignment of the same official (`COMP_PANEL_ALREADY_ASSIGNED`) |
+| `clickUntil` (`toPass`, 240 s) | floor-console "Call to floor", "Start heat", "Complete heat" in SCN-7.1 and SCN-10.1 | **the page**: it clicks again only if the expected result (e.g. the "On deck" chip, the "Complete heat" button, "No heat is on the floor.") is not visible; it does not query the database before re-clicking | each transition button disappears once the heat has moved, so a second click needs a button that no longer exists, and the database state machine refuses a repeated transition. The tests still assert the database state after each transition (the scoring-heat status polls) |
+
+So the accurate statement is: **re-clicks follow a failed check of the visible result (`clickUntil`, panel adds) or of the
+stored value (`setEligibility`); they are not gated on a database check in every case**, and each is protected from double effect by an
+idempotent write or a database guard, not by the helper alone. No mark/void of a no-show, scratch, publish or payment step
+has retry logic.
+
+**Retries in the final two runs.** Playwright retries are 0 (`retries: 0` in `e2e/playwright.acceptance.config.ts`), and both
+final runs report 0 failed, 0 flaky and no retried test. Whether the in-test re-click loops ever iterated during those runs
+was **not instrumented**, so it cannot be stated; the screenshots and traces show the end state of each step, not the
+number of clicks. Earlier development runs did need the re-clicks (they are why the helpers exist) and are not part of the
+acceptance count.

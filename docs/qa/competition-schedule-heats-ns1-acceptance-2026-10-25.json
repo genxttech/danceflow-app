@@ -1396,5 +1396,42 @@
         }
       ]
     }
-  ]
+  ],
+  "environmentNotes": {
+    "peakMemory": "Peak memory not sampled; host under heavy load (run times 31.7 / 22.4 min).",
+    "retriesLogic": {
+      "playwrightRetries": 0,
+      "finalRunsFailedOrFlaky": 0,
+      "helpers": [
+        {
+          "name": "setEligibility",
+          "steps": [
+            "SCN-2.2",
+            "SCN-3.2"
+          ],
+          "checksBeforeReclick": "database (stored eligibility)",
+          "duplicateProtection": "idempotent write"
+        },
+        {
+          "name": "panel adds (SCN-5.1)",
+          "steps": [
+            "SCN-5.1"
+          ],
+          "checksBeforeReclick": "page (judge already listed on the panel, rendered from the database)",
+          "duplicateProtection": "database refuses a second assignment (COMP_PANEL_ALREADY_ASSIGNED)"
+        },
+        {
+          "name": "clickUntil",
+          "steps": [
+            "SCN-7.1",
+            "SCN-10.1"
+          ],
+          "checksBeforeReclick": "page (expected result not visible); not a database check",
+          "duplicateProtection": "the transition button disappears after the move and the database state machine refuses a repeated transition; database state is asserted after each transition"
+        }
+      ],
+      "inTestRetryIterationsInFinalRuns": "not instrumented; unknown",
+      "note": "Re-clicks are not gated on a database check in every case. No no-show, scratch, publish or payment step has retry logic."
+    }
+  }
 }
