@@ -8,8 +8,9 @@ Status: plan only (revised 2026-10-24 with owner instructions). Nothing here has
 - Release **only** from a branch cut from the deployed commit `release/web-2a-website` = `8fd075f5`
   (live deployment `dpl_87xgSBVM…`). **Never deploy or promote `main`**: it is 85 commits ahead with unreleased
   TW-4F and Competition OS work, and `8fd075f5` is not an ancestor of `main`.
-- The release branch contains exactly the PRICING-P1 commit (#302, `d535720d`) and the webhook plan-resolution commits
-  from #319 (kept as a separate PR until independently reviewed and the owner authorizes a merge). Local candidate
+- The release branch contains exactly two commits: the PRICING-P1 commit (#302, `d535720d`) and the webhook plan-resolution
+  squash commit (#319, `d5786295`, merged 2026-10-24 after independent review). The #319 cherry-pick conflicts only in the
+  webhook import block (the live base has no SMS-credit import): keep just the plan-resolution import. Local candidate
   (not pushed): 14 files, all under `src/lib/billing`, `src/app/api/billing`, `src/app/api/payments/webhook`, the billing
   settings page, `get-started/studio` and `docs/billing`.
 - **Do not push the release candidate merely to start a Vercel build** without separate owner approval: qfem Preview shares
@@ -179,7 +180,7 @@ by other means.
 
 1. Step 0 evidence accepted (live account, matches production).
 2. Step 1 done; verification checklist passed.
-3. #319 independently reviewed; owner authorizes its merge (#302 is already merged).
+3. Done: #302 merged (`d535720d`) and #319 merged (`d5786295`) to `main`. `main` itself is never deployed.
 4. Owner authorizes pushing `release/pricing-p1` (cut from `8fd075f5`, only the commits above). The push triggers a Vercel
    build; no Preview URL will be visited or used for testing.
 5. Owner authorizes the Production env changes (Step 2).
@@ -205,9 +206,24 @@ by other means.
 - [ ] Dashboard confirms Starter and Growth edits keep their Price IDs (else stop)
 - [ ] Step 1 verification checklist passed
 - [ ] Existing Pro subscription metadata checked and LEGACY env value decided
-- [ ] #319 independent review complete and owner merge authorization
+- [x] #319 independently reviewed and merged to `main` (`d5786295`); release candidate re-verified with the exact reviewed code (256 tests, `tsc` clean, local)
 - [ ] Live Stripe portal configuration read (plan switching on/off)
 - [ ] Owner authorizes: release branch push, Production env change, staged build, promotion
+
+## Follow-up (explicit, not in this release): `studios.billing_plan` synchronization
+
+Finding: the subscription webhook updates `studio_subscriptions` but never `studios.billing_plan`. Most screens read the
+subscription's plan first; the public embed events route (`src/app/api/embed/studios/[studioSlug]/events/route.ts`) and
+`src/app/discover/studios/page.tsx` read `studios.billing_plan` directly, so after a Billing Portal plan change they still
+see the signup-time plan. Required before any fix ships:
+- **Plan-consistency tests:** after a plan change event (Growth→Pro, grandfathered Pro, add-on item first, ambiguous Price),
+  `studio_subscriptions.subscription_plan_id` and `studios.billing_plan` agree; a canceled or ended subscription follows the
+  existing downgrade rules; replayed and out-of-order events converge to the latest subscription state.
+- **Tenant-isolation tests:** an event for studio A (including via the `stripe_customer_id` fallback when metadata has no studio)
+  cannot change `billing_plan` or any plan state for studio B; two studios sharing a Price ID are independent; an
+  unknown customer changes nothing.
+- Decide whether to remove the denormalized column reads instead of syncing; either way public pages must not show a plan the
+  studio no longer has. Needs an owner decision and, if a column write or backfill is chosen, separate database authorization.
 
 ## Not in this release
 
