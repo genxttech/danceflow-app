@@ -20,9 +20,8 @@
 -- Hash binding. input_hash = sha256(canonical JSON of the "evidence input" document built in SQL from the CURRENT
 -- ballots by _compf2_evidence). The same document is built and hashed app-side (src/lib/competition/results/evidence.ts,
 -- golden vector shared with the SQL suite); calculate/approve refuse when the stored hash is not the hash of the
--- current ballots (COMP_RESULT_STALE). trace_hash is app-computed and only shape-checked here (a trace may carry decimals
--- whose JSON text differs between engines and Postgres); the trace itself is stored so anyone can recompute it.
---
+-- current ballots (COMP_RESULT_STALE). trace_hash is recomputed here with the same canonicalizer (engines must keep trace numbers out of exponent form, where
+-- JavaScript and jsonb text differ; a mismatch fails closed). The trace itself is stored so anyone can recompute it.
 -- Engine pin. REG (method registry) is not merged: _compf2_engine_pin is the single function to replace. Until then only
 -- ordinal_majority -> studio_ordinal_majority@1 and callback_tally -> studio_callback_tally@1 are accepted; every other
 -- scoring method fails closed (COMP_ENGINE_NOT_AVAILABLE).
@@ -373,6 +372,11 @@ begin
       raise exception 'COMPF2_ROUND_WRITER: % -> % is written only by its F2 lifecycle function.', old.status, new.status
         using errcode = '42501';
     end if;
+  end if;
+  -- An open correction cannot be abandoned through E2's reopen: that would clear correction_open and lift the O5 inverse guard
+  -- while the earlier round's result is still being corrected. The correction ends only by recalculation (or cancellation).
+  if old.correction_open and new.status = 'active' then
+    raise exception 'COMPF2_CORRECTION_REOPEN: a round with an open correction is recalculated, not reopened.' using errcode = 'P0001';
   end if;
   new.correction_open := new.status = 'ballots_locked' and old.status in ('calculated', 'approved', 'published');
   return new;
@@ -1092,7 +1096,8 @@ begin
   -- Owner O5: an earlier round cannot be corrected once a later round of the division holds any ballot. The later rounds are
   -- row-locked first, so a first ballot in a later round (which share-locks its own round) cannot commit concurrently.
   perform 1 from public.event_competition_rounds r2
-   where r2.event_id = v_round.event_id and r2.division_id = v_round.division_id and r2.sequence_number > v_round.sequence_number for update;
+   where r2.event_id = v_round.event_id and r2.division_id = v_round.division_id and r2.sequence_number > v_round.sequence_number
+   order by r2.sequence_number, r2.id for update;
   if exists (select 1 from public.event_competition_rounds r2
              join public.event_competition_ballots b on b.round_id = r2.id and b.event_id = r2.event_id
              where r2.event_id = v_round.event_id and r2.division_id = v_round.division_id and r2.sequence_number > v_round.sequence_number) then

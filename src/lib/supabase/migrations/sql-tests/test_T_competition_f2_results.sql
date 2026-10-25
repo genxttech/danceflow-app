@@ -752,9 +752,9 @@ select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('E2 reopen still refuses a round that is not ballots_locked (r2 is approved)', format($q$select public.reopen_competition_round_ballots(%L, 'why', gen_random_uuid())$q$, pg_temp.rid(2)), 'COMP_BALLOTS_BAD_STATE');
 -- r5 has an open correction and only stale versions: E2's reopen may abandon it, which clears correction_open.
 select pg_temp.chk('r5 holds an open correction before the reopen', pg_temp.rstatus(5) = 'ballots_locked' and (select correction_open from public.event_competition_rounds where id = pg_temp.rid(5)));
-select pg_temp.expect_ok('E2 reopen takes r5 back to active (no approved or published version)', format($q$select public.reopen_competition_round_ballots(%L, 'abandon the correction', gen_random_uuid())$q$, pg_temp.rid(5)));
+select pg_temp.expect_msg('E2 reopen cannot abandon an open correction (it would lift the O5 inverse guard)', format($q$select public.reopen_competition_round_ballots(%L, 'abandon the correction', gen_random_uuid())$q$, pg_temp.rid(5)), 'COMPF2_CORRECTION_REOPEN');
 reset role;
-select pg_temp.chk('r5 is active and correction_open was cleared by the status change', pg_temp.rstatus(5) = 'active' and not (select correction_open from public.event_competition_rounds where id = pg_temp.rid(5)));
+select pg_temp.chk('r5 still holds its open correction', pg_temp.rstatus(5) = 'ballots_locked' and (select correction_open from public.event_competition_rounds where id = pg_temp.rid(5)));
 
 -- ============================================================================
 -- 14b. REG pin reader (20270113) is authoritative when present; the allow-list is the fallback when absent

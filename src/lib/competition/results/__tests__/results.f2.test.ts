@@ -82,7 +82,7 @@ describe("engine registry", () => {
   it("application code never imports the stub", () => {
     const root = join(__dirname, "..", "..", "..", "..");
     for (const file of ["lib/competition/results/engines.ts", "lib/competition/results/calculate.ts", "app/app/events/[id]/competition/results/actions.ts"]) {
-      expect(readFileSync(join(root, file), "utf8")).not.toMatch(/froms+["'][^"']*stubEngine/);
+      expect(readFileSync(join(root, file), "utf8")).not.toMatch(/from\s+["'][^"']*stubEngine/);
     }
   });
 });
