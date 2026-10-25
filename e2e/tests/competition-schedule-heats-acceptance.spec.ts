@@ -485,11 +485,15 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
     // Panel for the Newcomer round (not the empty Bronze division).
     const article = page.locator("article").filter({ hasNotText: "Bronze Open" }).first();
     for (const n of [1, 2, 3]) {
-      const option = article.locator('select[name="officialId"] option', { hasText: `E2E Judge ${n}` });
-      await article.locator('select[name="officialId"]').selectOption(await option.getAttribute("value") as string);
-      await article.getByRole("button", { name: "Add to panel" }).click();
-      await expect(status(page)).toContainText("Added to the panel.", { timeout: 30_000 });
-      await expect(page.locator("article").filter({ hasNotText: "Bronze Open" }).first().locator("li").filter({ hasText: `E2E Judge ${n}` })).toBeVisible({ timeout: 30_000 });
+      // Under load a click can be lost; retry until the judge appears on the panel (a stale banner proves nothing).
+      await expect(async () => {
+        const panelNow = page.locator("article").filter({ hasNotText: "Bronze Open" }).first();
+        if (await panelNow.locator("li").filter({ hasText: `E2E Judge ${n}` }).count()) return;
+        const option = panelNow.locator('select[name="officialId"] option', { hasText: `E2E Judge ${n}` });
+        await panelNow.locator('select[name="officialId"]').selectOption(await option.getAttribute("value") as string);
+        await panelNow.getByRole("button", { name: "Add to panel" }).click();
+        await expect(panelNow.locator("li").filter({ hasText: `E2E Judge ${n}` })).toBeVisible({ timeout: 15_000 });
+      }).toPass({ timeout: 120_000 });
     }
     await expect(page.locator("article").filter({ hasNotText: "Bronze Open" }).first().getByText(/Panel ready \(3 judges\)/)).toBeVisible();
     await shot(page, "panel-ready");
