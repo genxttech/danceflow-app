@@ -685,7 +685,7 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
 
     const row = noShowRow(page, target.key);
     await expect(row.getByText("No-show", { exact: true })).toHaveCount(0);
-    await row.getByText("Mark no-show", { exact: true }).click();
+    await row.locator("summary").filter({ hasText: "Mark no-show" }).click();
     await row.getByLabel("No-show reason").fill("Did not arrive on the floor");
     await row.getByRole("button", { name: "Mark no-show" }).click();
     await expect(page.getByRole("status")).toContainText("No-show recorded. Judges will rank the remaining entries.", { timeout: 30_000 });
@@ -760,7 +760,7 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
     await page.goto(`${base()}/day-of`);
     const row = noShowRow(page, key);
     await expect(row.getByText("No-show", { exact: true })).toBeVisible();
-    await row.getByText("Undo no-show", { exact: true }).click();
+    await row.locator("summary").filter({ hasText: "Undo no-show" }).click();
     await expect(row.getByText(/Reason given: Did not arrive on the floor/)).toBeVisible();
     await row.getByLabel("Reason for undoing the no-show").fill("Couple arrived late and is ready");
     await row.getByRole("button", { name: "Undo no-show" }).click();
@@ -807,7 +807,7 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
     await expect(panel).toBeVisible();
     const row = panel.locator("li").filter({ hasText: KEY_NAME[key] });
     await expect(row.getByText("No-show", { exact: true })).toHaveCount(0);
-    await row.getByText("Mark no-show", { exact: true }).click();
+    await row.locator("summary").filter({ hasText: "Mark no-show" }).click();
     // The reason is required: an empty submit writes nothing.
     await row.getByRole("button", { name: "Mark no-show" }).click();
     expect((await readNoShows(config, event.id)).active).toHaveLength(0);
