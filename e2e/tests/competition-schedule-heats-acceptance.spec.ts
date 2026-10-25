@@ -1,4 +1,5 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { loadE2EConfig, type E2EConfig } from "@/lib/e2e/config";
@@ -10,7 +11,10 @@ import {
   anonymousPage,
   cleanupScheduleAcceptanceFixture,
   createScheduleAcceptanceFixture,
+  heatEntryIdFor,
+  ns1Present,
   openHeat,
+  readNoShows,
   publishedVersions,
   readBallotCount,
   readEntries,
@@ -80,6 +84,8 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
   /** Event B: the schedule event (Newcomer division with entries + an empty "Bronze Open" division). */
   let event: CreatedEvent;
   let roundId = "";
+  /** Whether the system under test includes NS1 (#342); the SCN-10 scenarios skip (NOT RUN) when it does not. */
+  let ns1 = false;
   const entryIds: Partial<Record<EntryKey, string>> = {};
   /** Scenario results the access scenarios record for the report. */
   const base = () => `/app/events/${event.id}/competition`;
@@ -91,6 +97,7 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
     stripe = new Stripe(TEST_KEY);
     if ((await stripe.balance.retrieve()).livemode) throw new Error("refusing: Stripe key is live");
     fixture = await createScheduleAcceptanceFixture(config, { connectedAccountId: ACCOUNT });
+    ns1 = await ns1Present(config);
   });
 
   test.afterAll(async () => {
@@ -632,6 +639,161 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
 
   test.fixme("SCN-6.3 official scratch in a locked heat: the reason is required, the heat stays locked, one audit row", async ({}, testInfo) => {
     scenarioStatus(testInfo, "BLOCKED", "Dependency: a UI path to a locked heat. Heats lock only when ballots are locked (E2E), and the wizard's Final round has scoring method 'custom', for which the ballot desk reports 'Ballots for Custom rounds are not available yet' (SCN-6.3a). No SQL shortcut is used. The helper-free assertions for this scenario (reason required, path official_locked, heat stays locked) are written in SC1's own walkthrough (PR 306) against seeded rows. Re-enable when a wizard-created round can be ballot-locked.");
+  });
+
+  // ================================================================== SCN-10 Heat no-shows (NS1, #342)
+
+  /** The scoring heat a no-show can be recorded in: the first undanced heat in effect that still has a placed entry. */
+  async function noShowTarget() {
+    const layout = (await readHeatEvidence(config, event.id)).effective.filter((heat) => heat.status !== "complete" && heat.entryIds.length > 0);
+    expect(layout.length, "an undanced heat with a placed entry exists").toBeGreaterThan(0);
+    const entry = layout[0].entryIds[0];
+    const key = (Object.keys(entryIds) as EntryKey[]).find((k) => entryIds[k] === entry)!;
+    return { heat: layout[0], entry, key, heatEntry: await heatEntryIdFor(config, event.id, entry, layout[0].heatId) };
+  }
+  const noShowRow = (page: Page, key: EntryKey) => page.getByRole("region", { name: "On the floor" }).locator("li").filter({ hasText: KEY_NAME[key] });
+  const keyOfEntry = (id: unknown) => (Object.keys(entryIds) as EntryKey[]).find((k) => entryIds[k] === id)!;
+
+  test("SCN-10.1 no-show: an official marks an entry in the active heat as no-show with a reason; the floor console shows it", async ({ browser }, testInfo) => {
+    test.skip(!ns1, "NS1 (#342) is not in the system under test");
+    const shot = stepShots(testInfo);
+    const page = await signedIn(browser, fixture.owner);
+    const target = await noShowTarget();
+    await page.goto(`${base()}/day-of`);
+    // Bring the heat onto the floor through the console (no-shows are recorded while a heat is active).
+    await page.getByRole("region", { name: "Up next" }).getByRole("button", { name: "Call to floor" }).click();
+    await expect(page.getByRole("region", { name: "On the floor" }).getByText("On deck")).toBeVisible({ timeout: 30_000 });
+    await page.getByRole("region", { name: "On the floor" }).getByRole("button", { name: "Start heat" }).click();
+    await expect(page.getByRole("region", { name: "On the floor" }).getByRole("button", { name: "Complete heat" })).toBeVisible({ timeout: 30_000 });
+    await expect.poll(async () => (await readHeatEvidence(config, event.id)).scoringHeats.find((h) => h.id === target.heat.heatId)?.status, { timeout: 30_000 }).toBe("active");
+    await shot(page, "heat-active");
+
+    const row = noShowRow(page, target.key);
+    await expect(row.getByText("No-show", { exact: true })).toHaveCount(0);
+    await row.getByText("Mark no-show", { exact: true }).click();
+    await row.getByLabel("No-show reason").fill("Did not arrive on the floor");
+    await row.getByRole("button", { name: "Mark no-show" }).click();
+    await expect(page.getByRole("status")).toContainText("No-show recorded. Judges will rank the remaining entries.", { timeout: 30_000 });
+    await expect(noShowRow(page, target.key).getByText("No-show", { exact: true })).toBeVisible();
+    await shot(page, "no-show-recorded");
+
+    const state = await readNoShows(config, event.id);
+    expect(state.active).toHaveLength(1);
+    expect(state.active[0]).toMatchObject({ heat_entry_id: target.heatEntry, entry_id: target.entry, reason: "Did not arrive on the floor", marked_by: fixture.owner.id });
+    expect(state.voids).toHaveLength(0);
+    await page.reload();
+    await expect(noShowRow(page, target.key).getByText("No-show", { exact: true })).toBeVisible();
+    evidence({ scenario: "SCN-10.1", heatEntry: target.heatEntry });
+    await page.context().close();
+  });
+
+  test("SCN-10.5 judge ballot page: the no-show entry is not on the judge's sheet, with a note; ballot submission itself is blocked by the setup-scoring gap", async ({ browser }, testInfo) => {
+    test.skip(!ns1, "NS1 (#342) is not in the system under test");
+    const shot = stepShots(testInfo);
+    const marked = (await readNoShows(config, event.id)).active[0];
+    expect(marked, "SCN-10.1 left an active no-show").toBeTruthy();
+    const entryName = KEY_NAME[keyOfEntry(marked.entry_id)];
+    const judge = await signedIn(browser, fixture.judges[1], `/app/judging/${event.id}/rounds/${roundId}/ballot`);
+    await expect(judge.getByRole("heading", { name: "Final", level: 1 })).toBeVisible();
+    await expect(judge.getByRole("status").filter({ hasText: /marked as no-show by an official/ })).toBeVisible();
+    // The note may name the entry; the sheet's rows must not list it.
+    const sheetRows = await judge.locator("main li, form li").allInnerTexts();
+    expect(sheetRows.join(" "), "the no-show entry is gone from the ranking sheet").not.toContain(entryName);
+    await shot(judge, "judge-sheet-with-note");
+    // Ballot submission is not possible here: wizard rounds are scored 'custom' (SCN-6.3a), so the sheet says so.
+    await expect(judge.getByText("Ballots for this kind of round are not available yet.")).toBeVisible();
+    scenarioStatus(testInfo, "BLOCKED", "Submitting a ballot (and the stale-ballot correction prompt) is blocked by the setup-scoring gap: the wizard's Final round is 'custom' and ballots are unavailable (SCN-6.3a). Only the note and the missing entry are verified.");
+    evidence({ scenario: "SCN-10.5", formRendered: (await judge.locator("form").count()) > 0 });
+    await judge.context().close();
+  });
+
+  test("SCN-10.3 a staff member who is not an official is refused: console pages are closed to them and a direct call is rejected; nothing is written", async ({ browser }, testInfo) => {
+    test.skip(!ns1, "NS1 (#342) is not in the system under test");
+    test.skip(!ANON_KEY, "E2E_SUPABASE_ANON_KEY not provided: the direct-call check is NOT RUN");
+    const shot = stepShots(testInfo);
+    const before = await readNoShows(config, event.id);
+    const marked = before.active[0];
+    expect(marked).toBeTruthy();
+    for (const [who, account] of [["front_desk", fixture.frontDesk], ["instructor", fixture.instructor], ["judge", fixture.judges[1]]] as const) {
+      const page = await signedIn(browser, account);
+      const { status: code, url } = await visit(page, `${base()}/day-of`);
+      if (who === "front_desk") expect(url.pathname, "front desk is sent to check-in").toBe(`${base()}/checkin`);
+      else expect(code, `${who} day-of`).toBe(404);
+      if (who === "judge") await shot(page, "judge-404");
+      await page.context().close();
+    }
+    // A direct call with each non-manager's own session is rejected by the database.
+    for (const account of [fixture.frontDesk, fixture.instructor, fixture.judges[1], fixture.judges[2]]) {
+      const client = createClient(config.supabaseUrl, ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+      const signedInAs = await client.auth.signInWithPassword({ email: account.email, password: account.password });
+      expect(signedInAs.error).toBeNull();
+      const result = await client.rpc("void_competition_heat_no_show", { p_heat_entry_id: marked.heat_entry_id, p_reason: "unauthorized attempt", p_request_id: randomUUID() });
+      expect(result.error, `${account.email} must be refused`).not.toBeNull();
+    }
+    const after = await readNoShows(config, event.id);
+    expect(after.marks).toHaveLength(before.marks.length);
+    expect(after.voids).toHaveLength(before.voids.length);
+    evidence({ scenario: "SCN-10.3", refused: 4 });
+  });
+
+  test("SCN-10.2 void: the official undoes the no-show with a reason; the entry is back, the mark stays as history, the judge note is gone", async ({ browser }, testInfo) => {
+    test.skip(!ns1, "NS1 (#342) is not in the system under test");
+    const shot = stepShots(testInfo);
+    const page = await signedIn(browser, fixture.owner);
+    const marked = (await readNoShows(config, event.id)).active[0];
+    const key = keyOfEntry(marked.entry_id);
+    await page.goto(`${base()}/day-of`);
+    const row = noShowRow(page, key);
+    await expect(row.getByText("No-show", { exact: true })).toBeVisible();
+    await row.getByText("Undo no-show", { exact: true }).click();
+    await expect(row.getByText(/Reason given: Did not arrive on the floor/)).toBeVisible();
+    await row.getByLabel("Reason for undoing the no-show").fill("Couple arrived late and is ready");
+    await row.getByRole("button", { name: "Undo no-show" }).click();
+    await expect(page.getByRole("status")).toContainText("No-show undone. Judges must correct their ballots.", { timeout: 30_000 });
+    await expect(noShowRow(page, key).getByText("No-show", { exact: true })).toHaveCount(0);
+    await shot(page, "no-show-voided");
+    const state = await readNoShows(config, event.id);
+    expect(state.active).toHaveLength(0);
+    expect(state.marks).toHaveLength(1);
+    expect(state.voids).toHaveLength(1);
+    expect(state.voids[0]).toMatchObject({ no_show_id: marked.id, reason: "Couple arrived late and is ready", voided_by: fixture.owner.id });
+    await page.reload();
+    await expect(noShowRow(page, key)).toBeVisible();
+    await expect(noShowRow(page, key).getByText("No-show", { exact: true })).toHaveCount(0);
+
+    const judge = await signedIn(browser, fixture.judges[1], `/app/judging/${event.id}/rounds/${roundId}/ballot`);
+    await expect(judge.getByRole("heading", { name: "Final", level: 1 })).toBeVisible();
+    await expect(judge.getByText(/marked as no-show by an official/)).toHaveCount(0);
+    await shot(judge, "judge-sheet-note-gone");
+    await judge.context().close();
+    await page.context().close();
+  });
+
+  test("SCN-10.6 a different studio gets a 404 on the floor console and the judge ballot page and cannot record a no-show", async ({ browser }, testInfo) => {
+    test.skip(!ns1, "NS1 (#342) is not in the system under test");
+    const shot = stepShots(testInfo);
+    const before = await readNoShows(config, event.id);
+    const page = await signedIn(browser, fixture.otherOwner);
+    expect((await visit(page, `${base()}/day-of`)).status).toBe(404);
+    expect((await visit(page, `/app/judging/${event.id}/rounds/${roundId}/ballot`)).status).toBe(404);
+    await shot(page, "other-studio-404");
+    if (ANON_KEY) {
+      const client = createClient(config.supabaseUrl, ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+      expect((await client.auth.signInWithPassword({ email: fixture.otherOwner.email, password: fixture.otherOwner.password })).error).toBeNull();
+      const marked = await client.rpc("mark_competition_heat_no_show", { p_heat_entry_id: before.marks[0].heat_entry_id, p_reason: "cross-tenant attempt", p_request_id: randomUUID() });
+      expect(marked.error, "mark by another studio is refused").not.toBeNull();
+    }
+    const after = await readNoShows(config, event.id);
+    expect([after.marks.length, after.voids.length]).toEqual([before.marks.length, before.voids.length]);
+    await page.context().close();
+  });
+
+  test.fixme("SCN-10.4 after ballots lock, marking a no-show is refused", async ({}, testInfo) => {
+    scenarioStatus(testInfo, "BLOCKED", "Dependency: locked ballots. Wizard rounds are scored 'custom', so ballots cannot be submitted or locked through the UI (SCN-1.3 / SCN-6.3 / SCN-6.3a). No SQL shortcut is used.");
+  });
+
+  test.fixme("SCN-10.7 the chief judge (chair) marks a no-show from the floor console", async ({}, testInfo) => {
+    scenarioStatus(testInfo, "NOT IMPLEMENTED", "NS1 lets the event manager or the chair record a no-show in the database, but the floor console is a manager-only page (a chair gets a 404), so the chair has no UI for it.");
   });
 
   test("SCN-7.2 day-of: cancel a round with a reason; the empty Bronze Open round shows Cancelled and stays cancelled after a reload", async ({ browser }, testInfo) => {

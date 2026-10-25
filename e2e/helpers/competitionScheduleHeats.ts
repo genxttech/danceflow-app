@@ -307,3 +307,26 @@ export async function startCompetitionWithJudging(page: Page, style: "Country" |
   await expect(page.getByRole("button", { name: /^Studio \/ Custom Rules/ })).toHaveAttribute("aria-pressed", "true");
   await advance("What will you offer?");
 }
+
+// ------------------------------------------------------------------ NS1 (heat no-shows, #342)
+
+/** True when the system under test includes NS1's tables (the spec skips the no-show scenarios otherwise). */
+export async function ns1Present(config: E2EConfig): Promise<boolean> {
+  const { error } = await e2eAdminClient(config).from("event_competition_heat_no_shows").select("id", { head: true, count: "exact" });
+  return !error;
+}
+
+export async function readNoShows(config: E2EConfig, eventId: string) {
+  const [marks, voids] = await Promise.all([
+    rows(config, "event_competition_heat_no_shows", "id, round_id, heat_id, heat_entry_id, entry_id, reason, marked_by, request_id", { event_id: eventId }),
+    rows(config, "event_competition_heat_no_show_voids", "id, no_show_id, reason, voided_by", { event_id: eventId }),
+  ]);
+  return { marks, voids, active: marks.filter((mark) => !voids.some((v) => v.no_show_id === mark.id)) };
+}
+
+/** The heat placement row (heat_entries.id) of an entry in a heat of the version in effect. */
+export async function heatEntryIdFor(config: E2EConfig, eventId: string, entryId: string, heatId: string): Promise<string> {
+  const found = (await rows(config, "event_competition_heat_entries", "id, heat_id, entry_id", { event_id: eventId })).find((row) => row.entry_id === entryId && row.heat_id === heatId);
+  if (!found) throw new Error(`no heat placement for entry ${entryId} in heat ${heatId}`);
+  return found.id as string;
+}
