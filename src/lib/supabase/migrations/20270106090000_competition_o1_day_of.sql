@@ -108,7 +108,7 @@ as $$
   order by v.published_at desc nulls last, v.created_at desc
   limit 1;
 $$;
-revoke all on function public._compo1_live_version(uuid) from public, anon, authenticated;
+revoke all on function public._compo1_live_version(uuid) from public, anon, authenticated, service_role;
 
 -- Heats of the round that count for readiness: not cancelled, and not parked in a draft or superseded version.
 create function public._compo1_round_heat_state(p_round_id uuid)
@@ -127,7 +127,7 @@ as $$
       where h.round_id = lv.round_id and h.status <> 'cancelled' and h.schedule_version_id is null)
   from lv;
 $$;
-revoke all on function public._compo1_round_heat_state(uuid) from public, anon, authenticated;
+revoke all on function public._compo1_round_heat_state(uuid) from public, anon, authenticated, service_role;
 
 create function public._compo1_lock_event(p_event_id uuid)
 returns void
@@ -135,7 +135,7 @@ language sql
 as $$
   select pg_advisory_xact_lock(hashtextextended('compo1:' || p_event_id::text, 0));
 $$;
-revoke all on function public._compo1_lock_event(uuid) from public, anon, authenticated;
+revoke all on function public._compo1_lock_event(uuid) from public, anon, authenticated, service_role;
 
 create function public._compo1_record(
   p_event_id uuid, p_round_id uuid, p_heat_id uuid, p_kind text, p_from text, p_to text,
@@ -152,7 +152,7 @@ as $$
     p_event_id, p_round_id, p_heat_id, p_kind, p_from, p_to, p_actor, p_request_id, p_reason, coalesce(p_refs, '{}'::jsonb)
   );
 $$;
-revoke all on function public._compo1_record(uuid, uuid, uuid, text, text, text, uuid, uuid, text, jsonb) from public, anon, authenticated;
+revoke all on function public._compo1_record(uuid, uuid, uuid, text, text, text, uuid, uuid, text, jsonb) from public, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- 3. Guards: no direct status writes
@@ -194,10 +194,21 @@ begin
         using errcode = '42501';
     end if;
   end if;
+  -- Static K0 section 4 edge list (E2 lock/reopen, F2 calculate/approve/correct/complete, F3 publish). A new edge
+  -- needs this list amended in the owning migration. Skip-ahead edges (draft -> active, scheduled -> calculated, any -> draft) are refused.
+  if new.status <> 'cancelled' and (old.status, new.status) not in (
+    ('draft', 'scheduled'), ('scheduled', 'active'),
+    ('active', 'ballots_locked'), ('ballots_locked', 'active'),
+    ('ballots_locked', 'calculated'), ('calculated', 'approved'), ('approved', 'published'), ('published', 'complete'),
+    ('calculated', 'ballots_locked'), ('approved', 'ballots_locked'), ('published', 'ballots_locked')
+  ) then
+    raise exception 'COMPO1_ROUND_EDGE: % -> % is not a round transition in the K0 state machine.', old.status, new.status
+      using errcode = '23514';
+  end if;
   return new;
 end;
 $$;
-revoke all on function public._compo1_guard_round_status() from public, anon, authenticated;
+revoke all on function public._compo1_guard_round_status() from public, anon, authenticated, service_role;
 
 create trigger compo1_guard_round_status
   before insert or update of status on public.event_competition_rounds
@@ -217,6 +228,12 @@ begin
         using errcode = '42501';
     end if;
     return new;
+  end if;
+  -- A heat that has started running keeps its identity: it cannot move to another round, division, floor heat or version.
+  if old.status = any (c_run)
+     and (new.round_id, new.division_id, new.floor_heat_id, new.schedule_version_id)
+         is distinct from (old.round_id, old.division_id, old.floor_heat_id, old.schedule_version_id) then
+    raise exception 'COMPO1_HEAT_FROZEN: a heat that has started running cannot be moved.' using errcode = '23514';
   end if;
   if new.status is not distinct from old.status then
     return new;
@@ -240,10 +257,10 @@ begin
   return new;
 end;
 $$;
-revoke all on function public._compo1_guard_heat_status() from public, anon, authenticated;
+revoke all on function public._compo1_guard_heat_status() from public, anon, authenticated, service_role;
 
 create trigger compo1_guard_heat_status
-  before insert or update of status on public.event_competition_heats
+  before insert or update of status, round_id, division_id, floor_heat_id, schedule_version_id on public.event_competition_heats
   for each row execute function public._compo1_guard_heat_status();
 
 -- A new running order copies scoring heats as `scheduled` (10D), which would erase day-of progress. Publishing is
@@ -254,22 +271,35 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_touches boolean;
 begin
-  if new.status in ('published', 'live') and old.status not in ('published', 'live')
-     and exists (
-       select 1 from public.event_competition_heats h
-       where h.event_id = new.event_id and h.status in ('staging', 'active', 'complete')
-     ) then
-    raise exception 'COMPO1_RUN_IN_PROGRESS: heats have already started running; the running order cannot be republished.'
-      using errcode = '23514';
+  v_touches := new.status in ('published', 'live');
+  if tg_op = 'UPDATE' then
+    if new.status is not distinct from old.status then
+      return new;
+    end if;
+    v_touches := v_touches or old.status in ('published', 'live');
+  end if;
+  if v_touches then
+    -- Same per-event lock as the day-of writers: a publish and a heat call serialize, so neither can miss the other's
+    -- committed state (the next statement takes a fresh snapshot after the lock).
+    perform public._compo1_lock_event(new.event_id);
+    if exists (
+      select 1 from public.event_competition_heats h
+      where h.event_id = new.event_id and h.status in ('staging', 'active', 'complete')
+    ) then
+      raise exception 'COMPO1_RUN_IN_PROGRESS: heats have already started running; the running order cannot change status.'
+        using errcode = '23514';
+    end if;
   end if;
   return new;
 end;
 $$;
-revoke all on function public._compo1_guard_publish_during_run() from public, anon, authenticated;
+revoke all on function public._compo1_guard_publish_during_run() from public, anon, authenticated, service_role;
 
 create trigger compo1_guard_publish_during_run
-  before update of status on public.event_competition_schedule_versions
+  before insert or update of status on public.event_competition_schedule_versions
   for each row execute function public._compo1_guard_publish_during_run();
 
 -- ---------------------------------------------------------------------------
@@ -432,6 +462,10 @@ begin
   end if;
 
   perform public._compo1_record(v_event, p_round_id, null, 'round_cancelled', v_status, 'cancelled', v_actor, p_request_id, v_reason, '{}'::jsonb);
+  -- Heats that have not run leave the running order with the round, so a numbered heat shared with another round is not
+  -- blocked by the cancelled one (complete heats stay as the record of what was danced).
+  update public.event_competition_heats set status = 'cancelled', updated_at = now()
+  where round_id = p_round_id and status in ('draft', 'scheduled') and lock_state = 'open';
   update public.event_competition_rounds set status = 'cancelled', updated_at = now() where id = p_round_id;
   return jsonb_build_object('replayed', false, 'round_id', p_round_id, 'status', 'cancelled');
 end;

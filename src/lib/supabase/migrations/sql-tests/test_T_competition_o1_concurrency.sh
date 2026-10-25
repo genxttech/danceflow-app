@@ -107,6 +107,23 @@ WON=$(cat "$OUT/o1_d.out" "$OUT/o1_e.out" | grep -c "\"replayed\": false"); LOST
 N=$($P -c "select count(*) from public.event_competition_round_transition_events where heat_id is not null and kind='heat_staged'")
 [ "$N" = "1" ] && ok "exactly one heat_staged audit row" || bad "exactly one heat_staged audit row ($N)"
 
+# --- publish racing a heat call: the publish must wait for the in-flight heat transaction, then refuse ---------------
+call "public.create_competition_schedule_version('$E', 'race v2', '00000000-0000-0000-0000-0c0a20400001')" 0 > "$OUT/o1_v2.out"
+V2=$($P -c "select id from public.event_competition_schedule_versions where event_id='$E' and name='race v2'")
+T2=$(date +%s)
+call "public.advance_competition_floor_heat('$F', 'active', '00000000-0000-0000-0000-0c0a2000f001')" 5 > "$OUT/o1_x.out" &
+PX=$!
+sleep 1
+call "public.publish_competition_schedule_version('$V2')" 0 > "$OUT/o1_y.out" &
+PY=$!
+wait $PX $PY
+T3=$(date +%s)
+echo "X: $(cat "$OUT/o1_x.out")"; echo "Y: $(cat "$OUT/o1_y.out")"
+grep -q '"replayed": false' "$OUT/o1_x.out" && ok "X started the heat" || bad "X started the heat"
+grep -q 'COMPO1_RUN_IN_PROGRESS' "$OUT/o1_y.out" && ok "Y (publish) was refused after waiting for X" || bad "Y (publish) was refused"
+[ "$($P -c "select status from public.event_competition_schedule_versions where id='$V2'")" = "draft" ] && ok "v2 is still a draft; v1 is still the live order" || bad "v2 is still a draft"
+[ "$($P -c "select count(*) from public.event_competition_heats where schedule_version_id='00000000-0000-0000-0000-0c0a20400001' and status='active'")" = "1" ] && ok "the heat is active in the live version" || bad "the heat is active in the live version"
+
 cleanup
 [ "$($P -c "select count(*) from public.events where id='$E'")" = "0" ] && ok "fixtures removed (audit cascade through the event delete)" || bad "fixtures removed"
 if [ $FAIL -eq 0 ]; then echo "O1 CONCURRENCY PASS"; else echo "O1 CONCURRENCY FAIL"; fi

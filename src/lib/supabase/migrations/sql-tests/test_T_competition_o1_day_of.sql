@@ -307,6 +307,7 @@ create table public.event_competition_result_publications (id uuid primary key d
 grant select on public.event_competition_result_publications to authenticated;
 insert into public.event_competition_result_publications (round_id) values (pg_temp.u('006003'));
 select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('D5b cancelling a draft round also cancels its heats that never ran', $q$select public.cancel_competition_round(pg_temp.u('006005'), 'Round dropped', pg_temp.u('0d0007'))$q$);select pg_temp.chk('D5b the unplaced heat of R5 is cancelled; the completed heats of R2 stay complete',  pg_temp.n($q$select count(*) from public.event_competition_heats where round_id = pg_temp.u('006005') and status = 'cancelled'$q$) = 1  and pg_temp.n($q$select count(*) from public.event_competition_heats where round_id = pg_temp.u('006002') and status = 'complete'$q$) = 1);
 select pg_temp.expect_msg('D6 a round with a publication cannot be cancelled',
   $q$select public.cancel_competition_round(pg_temp.u('006003'), 'Too late', pg_temp.u('0d0006'))$q$, 'COMPO1_PUBLISHED');
 reset role;
@@ -336,7 +337,7 @@ select pg_temp.expect_ok('E7 later writers (E2/F2 definer functions run as the o
 select pg_temp.expect_msg('E8 a cancelled round can never change status, even for the owner role',
   $q$update public.event_competition_rounds set status = 'draft' where id = pg_temp.u('006006')$q$, 'COMPO1_ROUND_TERMINAL');
 select pg_temp.expect_msg('E8 a complete round is terminal',
-  $q$update public.event_competition_rounds set status = 'complete' where id = pg_temp.u('006001'); update public.event_competition_rounds set status = 'active' where id = pg_temp.u('006001')$q$, 'COMPO1_ROUND_TERMINAL');
+$q$update public.event_competition_rounds set status = 'ballots_locked' where id = pg_temp.u('006001'); update public.event_competition_rounds set status = 'calculated' where id = pg_temp.u('006001'); update public.event_competition_rounds set status = 'approved' where id = pg_temp.u('006001'); update public.event_competition_rounds set status = 'published' where id = pg_temp.u('006001'); update public.event_competition_rounds set status = 'complete' where id = pg_temp.u('006001'); update public.event_competition_rounds set status = 'active' where id = pg_temp.u('006001')$q$, 'COMPO1_ROUND_TERMINAL');select pg_temp.expect_msg('E8b skip-ahead edges are refused even for the owner role (draft -> active)',  $q$update public.event_competition_rounds set status = 'active' where id = pg_temp.u('006007')$q$, 'COMPO1_ROUND_EDGE');select pg_temp.expect_msg('E8b ... scheduled -> calculated',  $q$update public.event_competition_rounds set status = 'calculated' where id = pg_temp.u('006003')$q$, 'COMPO1_ROUND_EDGE');select pg_temp.expect_msg('E8c a running heat cannot be moved to another round (manager, API)',  $q$update public.event_competition_heats set round_id = pg_temp.u('006004') where floor_heat_id = pg_temp.fh(pg_temp.id('v1'), 1) and round_id = pg_temp.u('006001')$q$, 'COMPO1_HEAT_FROZEN');select pg_temp.expect_msg('E8d a version cannot be inserted as published mid-run',  $q$insert into public.event_competition_schedule_versions (event_id, name, version_number, status, published_at) values (pg_temp.u('00e001'), 'rogue', 99, 'published', now())$q$, 'COMPO1_RUN_IN_PROGRESS');select pg_temp.expect_msg('E8d ... nor a published version reopened mid-run',  $q$update public.event_competition_schedule_versions set status = 'draft' where id = pg_temp.id('v1')$q$, 'COMPO1_RUN_IN_PROGRESS');
 select pg_temp.chk('E9 non-status round edits are unaffected',
   (select count(*) from (select 1 from public.event_competition_rounds where id = pg_temp.u('006007')) x) = 1
   and pg_temp.s($q$update public.event_competition_rounds set name = 'Spare 2 renamed' where id = pg_temp.u('006007') returning name$q$) = 'Spare 2 renamed');
@@ -375,7 +376,8 @@ select pg_temp.chk('F10 authenticated can execute them',
   and has_function_privilege('authenticated', 'public.advance_competition_floor_heat(uuid,text,uuid)', 'EXECUTE'));
 select pg_temp.chk('F11 the internal helpers are not executable by API roles',
   not has_function_privilege('authenticated', 'public._compo1_record(uuid,uuid,uuid,text,text,text,uuid,uuid,text,jsonb)', 'EXECUTE')
-  and not has_function_privilege('authenticated', 'public._compo1_lock_event(uuid)', 'EXECUTE'));
+  and not has_function_privilege('authenticated', 'public._compo1_lock_event(uuid)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public._compo1_record(uuid,uuid,uuid,text,text,text,uuid,uuid,text,jsonb)', 'EXECUTE'));
 select pg_temp.expect_msg('F12 no auth.uid() means not found',
   $q$select set_config('request.jwt.claims', '', true); select public.schedule_competition_round(pg_temp.u('006007'), pg_temp.u('0f0005'))$q$, 'COMPO1_NOT_FOUND');
 reset role;
