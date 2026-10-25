@@ -21,6 +21,7 @@ import {
   runEngine,
   sortedUnique,
   splitEntries,
+  traceMarks,
   type ValidationLog,
 } from "./common";
 import type { EngineRun, ScoringEngine, StudioEngineInput, TraceRecord } from "./types";
@@ -65,9 +66,7 @@ function body(input: StudioEngineInput, trace: TraceRecord[], v: ValidationLog):
       judges: ordered.map((j) => j.letter),
       entries: all,
       excluded: input.context.excludedEntries.map((e) => ({ entryId: e.entryId, reason: e.reason })).sort((a, b) => cmp(a.entryId, b.entryId)),
-      marks: input.marks
-        .map((m) => ({ judge: letterOf.get(m.officialId) ?? m.officialId, entryId: m.entryId, value: m.value }))
-        .sort((a, b) => cmp(a.judge, b.judge) || cmp(a.entryId, b.entryId)),
+      marks: traceMarks(input, letterOf),
     },
   });
 
@@ -96,6 +95,10 @@ function body(input: StudioEngineInput, trace: TraceRecord[], v: ValidationLog):
     v.fail("V14", "exactly one dance per run (X-6)", UC, "multi_dance_unsupported", input.context.danceIds, { dances: input.context.danceIds.length });
   }
   v.pass("V14", "exactly one dance per run (X-6)");
+  // X-3 refuses the whole round when either option is set, danced or not.
+  if (input.context.chiefJudgeTiebreak || input.context.scoreRolesSeparately) {
+    v.fail("V6a", "no chief-judge tiebreak / per-role scoring (X-3)", UC, "x3_option_unsupported");
+  }
 
   // X-5, then T >= eligible: everyone advances, the round is not danced, no ballots required (D-CT-5).
   const E = calculated.length;

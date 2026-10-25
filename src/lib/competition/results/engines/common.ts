@@ -116,6 +116,9 @@ export function normalizeStudioInput(input: StudioEngineInput): StudioEngineInpu
   const c = input.context;
   return {
     ...input,
+    marks: [...input.marks].sort(
+      (a, b) => cmp(a.officialId, b.officialId) || cmp(a.entryId, b.entryId) || cmp(String(a.role ?? ""), String(b.role ?? "")) || cmp(canonicalJson(a.value), canonicalJson(b.value)),
+    ),
     tieBreakChain: [...input.tieBreakChain],
     context: {
       ...c,
@@ -158,6 +161,10 @@ export function splitEntries(input: StudioEngineInput, validation: ValidationLog
     const dup = all.filter((id) => (seen.has(id) ? true : (seen.add(id), false)));
     validation.fail("S1", "entries unique", "COMP_ENGINE_INVALID_INPUT", "duplicate_entry", dup);
   }
+  const exIds = input.context.excludedEntries.map((e) => e.entryId);
+  if (new Set(exIds).size !== exIds.length) {
+    validation.fail("S2", "excluded entries unique", "COMP_ENGINE_INVALID_INPUT", "duplicate_excluded_entry", exIds.filter((id, i) => exIds.indexOf(id) !== i));
+  }
   const unknown = input.context.excludedEntries.map((e) => e.entryId).filter((id) => !unique.has(id));
   if (unknown.length > 0) validation.fail("S2", "excluded entries belong to the round", "COMP_ENGINE_INVALID_INPUT", "excluded_entry_not_in_round", unknown);
   const excluded = new Set(input.context.excludedEntries.map((e) => e.entryId));
@@ -183,6 +190,15 @@ export function checkPanelStructure(input: StudioEngineInput, judges: readonly P
   if (heats.length === 0) {
     validation.fail(ids.x7, "same panel in every heat (X-7)", "COMP_ENGINE_UNSPECIFIED_CASE", "heat_panels_missing");
   }
+  const heatIds = heats.map((h) => h.heatId);
+  if (new Set(heatIds).size !== heatIds.length) {
+    validation.fail(ids.x7, "heats unique", "COMP_ENGINE_INVALID_INPUT", "duplicate_heat", heatIds.filter((id, i) => heatIds.indexOf(id) !== i));
+  }
+  const roundEntries = new Set(input.entries.map((e) => e.entryId));
+  const strayHeatEntries = heats.flatMap((h) => h.entryIds).filter((id) => !roundEntries.has(id));
+  if (strayHeatEntries.length > 0) {
+    validation.fail(ids.x7, "heat entries belong to the round", "COMP_ENGINE_INVALID_INPUT", "heat_entry_not_in_round", strayHeatEntries);
+  }
   const mismatched = heats.filter((h) => {
     const hp = [...h.officialIds].sort(cmp);
     return hp.length !== panel.length || hp.some((id, i) => id !== panel[i]);
@@ -197,4 +213,11 @@ export function checkPanelStructure(input: StudioEngineInput, judges: readonly P
     });
   }
   validation.pass(ids.x6, "exactly one dance per run (X-6)");
+}
+
+/** Mark table for the `inputs` trace record: fully ordered, so duplicate marks with different values trace identically. */
+export function traceMarks(input: StudioEngineInput, letterOf: Map<string, string>) {
+  return input.marks
+    .map((m) => ({ judge: letterOf.get(m.officialId) ?? m.officialId, entryId: m.entryId, value: m.value }))
+    .sort((a, b) => cmp(a.judge, b.judge) || cmp(a.entryId, b.entryId) || cmp(canonicalJson(a.value), canonicalJson(b.value)));
 }

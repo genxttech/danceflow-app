@@ -19,6 +19,7 @@ import {
   runEngine,
   sortedUnique,
   splitEntries,
+  traceMarks,
   type ValidationLog,
 } from "./common";
 import type { EngineRun, ScoringEngine, StudioEngineInput, TraceRecord } from "./types";
@@ -56,9 +57,7 @@ function body(input: StudioEngineInput, trace: TraceRecord[], v: ValidationLog):
       judges: ordered.map((j) => j.letter),
       entries: all,
       excluded: input.context.excludedEntries.map((e) => ({ entryId: e.entryId, reason: e.reason })).sort((a, b) => cmp(a.entryId, b.entryId)),
-      marks: input.marks
-        .map((m) => ({ judge: letterOf.get(m.officialId) ?? m.officialId, entryId: m.entryId, value: m.value }))
-        .sort((a, b) => cmp(a.judge, b.judge) || cmp(a.entryId, b.entryId)),
+      marks: traceMarks(input, letterOf),
     },
   });
 
