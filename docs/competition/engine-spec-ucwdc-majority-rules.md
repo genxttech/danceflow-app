@@ -1,6 +1,6 @@
 # Engine spec — UCWDC "Majority Rules" scoring format (K1-U)
 
-Status: **DRAFT. Fixtures independently recomputed for the supported cases (§16.1); this is not a claim of compliance, panel eligibility or availability; method UNAVAILABLE for actual scoring pending UCWDC Q1–Q4.** Evidence: coordinator verification (`k1u-verification-report.md`) and independent fixture review (`k1u-independent-fixture-review.md`, 32 fixtures, arithmetic all agreeing). Owner decisions OQ-1, OQ-2, OQ-3 (2026-10-25) and D-1, D-2, D-4, G-13, panel (2026-10-25) are recorded. Docs only (no code, no SQL, no database). K1-U deliverable under Stage 4 decision S4-5 (`scoring-architecture-decisions.md`): UCWDC Majority Rules stays `COMP_ENGINE_NOT_AVAILABLE` until the spec is completely specified, verified and approved.
+Status: **DRAFT. Fixtures independently recomputed for the supported cases (§16.1); this is not a claim of compliance, panel eligibility or availability; method UNAVAILABLE for actual scoring pending UCWDC Q1–Q5.** Evidence: coordinator verification (`k1u-verification-report.md`) and independent fixture review (`k1u-independent-fixture-review.md`, 32 fixtures, arithmetic all agreeing). Owner decisions OQ-1, OQ-2, OQ-3 (2026-10-25) and D-1, D-2, D-4, G-13, panel (2026-10-25) are recorded. Docs only (no code, no SQL, no database). K1-U deliverable under Stage 4 decision S4-5 (`scoring-architecture-decisions.md`): UCWDC Majority Rules stays `COMP_ENGINE_NOT_AVAILABLE` until the spec is completely specified, verified and approved.
 
 Proposed registry identity (not yet registered): method `ucwdc_majority_rules`, version `v16.9b`.
 
@@ -68,22 +68,22 @@ This part constructs heats; it is not a result calculation and is not engine inp
 
 - Each judge marks **"Yes"** for a set number of contestants they most wish to promote, and may additionally mark up to **5 alternates** ranked Alt #1 … Alt #5 (counts are set by the Coordinator and may be adjusted).
 - Point values: **Yes = 10.0; Alt#1 = 5.0; Alt#2 = 4.6; Alt#3 = 4.3; Alt#4 = 4.1; Alt#5 = 4.0.**
-- "Totaling the points across this scale for each dance will be used to determine who moves on." **READING (G-1):** a contestant's callback total for a dance is the sum, over all judges, of the values of the marks that judge gave them. The source does not say "sum over judges" in words.
+- "Totaling the points across this scale for each dance will be used to determine who moves on." **OWNER-APPROVED INTERPRETATION I-1 (formerly reading G-1; not an independently verified UCWDC rule, owner 2026-10-25, supported scope only):** a contestant's callback total for a dance is the sum, over all judges, of the values of the marks that judge gave them. The source does not say "sum over judges" in words.
 - **G-2 RESOLVED by the owner (D-1, 2026-10-25):** "APPROVE zero callback points for an entry not selected by a judge on a valid, completed callback ballot. This does not apply to missing, incomplete or invalid ballots, which remain fail-closed." So an entry a judge did not select scores 0 from that judge on a valid, completed ballot; a missing, incomplete or invalid ballot (see the validity rules below) fails closed.
-- Promotion: the "most valued" contestants, **based on a designated number determined by the Contest Coordinator plus ties, if any occur**, are promoted (R1.4). So contestants tied at the dividing line are all promoted. **READING (G-3):** "ties" means equal callback totals at the dividing line.
+- Promotion: the "most valued" contestants, **based on a designated number determined by the Contest Coordinator plus ties, if any occur**, are promoted (R1.4). So contestants tied at the dividing line are all promoted. **READING (G-3):** "ties" means equal callback totals at the dividing line. **OWNER-APPROVED INTERPRETATION I-2 (formerly reading G-3; not a verified UCWDC rule):** all contestants tied at the promotion cutoff advance when capacity and competition structure permit; the engine takes a **Finals capacity as a Coordinator INPUT** and fails closed if the promoted contestants plus ties exceed it. No capacity number is invented; R2.3's "nine for one heat, up to twelve for two heats of six" is an example only.
 - Whether one judge may give the same contestant both a Yes and an Alt, or the same Alt rank twice, is **NOT SPECIFIED IN PROVIDED SOURCE** (G-4). The engine rejects such a ballot.
 
 ### 3.3 Semi-Finals ballot (R2.2–R2.4)
 
 - Each judge marks **"No"** for a set number of contestants they most wish to *retire*, plus up to 5 ranked alternates. **No = 10.0; Alt#1–#5 = 5.0, 4.6, 4.3, 4.1, 4.0** (same alternate values).
 - The totals decide who moves on; the **least valued contestants (plus ties) are retired** until the Finals target is reached (R2.4). After the Semi-Finals the Coordinator fills the Finals field "using the last callback values" (R2.3).
-- **Scope note (D-2):** Semi-Finals exist only when two or more Prelims rounds were danced (R2 heading, R2.2). The supported flow is Prelims → Finals only (owner D-4), so **no Semi-Finals calculation runs at all**. The Semi-Finals rules in this section stay documented as source-confirmed rules (12A); the tie at the retirement cut is an unanswered UCWDC question (Q1, 12C), and the meaning of alternates on a No ballot (G-5) is unresolved (12C). Any attempt to run a Semi-Finals round fails closed.
-- Because points accrue to retirements, a **higher** Semi-Finals total means *more* judges want the contestant retired. **READING (G-6):** the retired set is the highest totals up to the designated number plus ties. The source says "the least valued … are retired" without stating the direction of the points; this is the only reading consistent with "No = 10.0".
+- **Scope note (D-2):** Semi-Finals exist only when two or more Prelims rounds were danced (R2 heading, R2.2). The supported flow is Prelims → Finals only (owner D-4), so **no Semi-Finals calculation runs at all**. The Semi-Finals rules in this section stay documented as source-confirmed rules (12A); the tie at the retirement cut is an unanswered UCWDC question (Q1, 12D), and the meaning of alternates on a No ballot (G-5) is unresolved (12D). Any attempt to run a Semi-Finals round fails closed.
+- Because points accrue to retirements, a **higher** Semi-Finals total means *more* judges want the contestant retired. **Unsupported-structure note (G-6, not used in the supported flow):** the retired set is the highest totals up to the designated number plus ties. The source says "the least valued … are retired" without stating the direction of the points; this is the only reading consistent with "No = 10.0".
 - **Callback ballot validity (review D-5); each failure fails closed:** (1) the number of Yes (Prelims) or No (Semi-Finals) marks differs from the Coordinator's set number; (2) alternate ranks are not contiguous from Alt #1 (for example Alt #2 without Alt #1); (3) more than 5 alternates; (4) a missing ballot from an assigned judge.
 
 ### 3.4 Targets, dividing line
 
-The dividing line and the target counts are Contest Coordinator inputs (R1.2, R1.3, R2.2, R2.3). The source gives no default and no formula. The engine takes them as inputs and fails closed if absent.
+The dividing line and the target counts are Contest Coordinator inputs (R1.2, R1.3, R2.2, R2.3). The source gives no default and no formula. The engine takes them as inputs and fails closed if absent. The **Finals capacity** (interpretation I-2) is likewise a Coordinator input; the engine never supplies one.
 
 ### 3.5 Promotion across dances
 
@@ -119,8 +119,8 @@ Ties among contestants are allowed (R3.2).
 
 - Medal values: **HM = 6, B = 5, S = 4, G = 3, GH = 2, GG = 1.**
 - "Medals" marks are converted to **ranked placements**: a higher medal always defeats a lower medal; for the same medal, the judge's rank within it decides (lower number defeats higher: G1 beats G2; G5 beats G10); across standards, **G8 defeats S1**. Judges cannot tie contestants.
-- **READING (G-8):** for the majority calculation (§5) each judge's marks become, per contestant, that contestant's position (1…N) in the judge's overall order (all contestants ordered by medal value ascending, then by rank within the medal). R3.4's own example uses ranks (`[3,1,2,5,4]`) for these divisions, which supports the reading, but the source does not spell out that the conversion yields a dense 1…N rank.
-- **Group-and-Rank ballot validity (review D-7):** the engine fails closed on a duplicate rank within one medal, and on non-contiguous ranks within a medal (for example G1 then G3 with no G2, or ranks not starting at 1). It does not silently densify them; the G-8 conversion applies only to a valid ballot.
+- **OWNER-APPROVED INTERPRETATION I-3 (formerly reading G-8; not a verified UCWDC rule; owner 2026-10-25, only where the conversion is unambiguous):** for the majority calculation (§5) each judge's marks become, per contestant, that contestant's position (1…N) in the judge's overall order (all contestants ordered by medal value ascending, then by rank within the medal). R3.4's own example uses ranks (`[3,1,2,5,4]`) for these divisions, which supports the reading, but the source does not spell out that the conversion yields a dense 1…N rank.
+- **Group-and-Rank ballot validity (review D-7):** the engine fails closed on a duplicate rank within one medal, and on non-contiguous ranks within a medal (for example G1 then G3 with no G2, or ranks not starting at 1). It does not silently densify them; the G-8 conversion applies only to a valid ballot. Under I-3 any duplicate rank, gap or tie in a judge's conversion fails closed.
 - The plus and star tiers and ties exist only for ProAm/ProPro divisions that use the 16-mark scale (R3.1, R3.2, R3.3).
 - **ProAm AllStars and ProAm/ProPro Spotlight use this 6-medal Group-and-Rank method with no ties (owner OQ-2, approved 2026-10-25; G-20 RESOLVED)**, consistent with R3.3 naming Spotlights and AllStars. The standard ProAm/ProPro 16-mark ballot is **not** applied automatically to those categories.
 - **Ballot-format mapping:** ProAm and ProPro divisions other than AllStars and Spotlight → 16-mark scale (§4.2, ties allowed); ProAm AllStars, ProAm/ProPro Spotlight, Couples, Line Dance, Teams → 6-medal Group-and-Rank (this section, no ties).
@@ -247,7 +247,7 @@ The source defines **no feedback** and no derivation of feedback from marks. The
 
 ## 11. Engine contract (draft, for K0 alignment)
 
-Inputs (all supplied; none invented): dance type (ProAm/ProPro vs Couples/Line/Teams/Spotlights/AllStars), round (prelims, semi-finals, finals), division ruleset edition `v16.9b`, the judge order and each judge's marks per contestant, the Coordinator's targets and dividing line (callbacks), the championship's qualifying dance set and weights (multi-dance), and the heat-builder's randomization record (heating).
+Inputs (all supplied; none invented): dance type (ProAm/ProPro vs Couples/Line/Teams/Spotlights/AllStars), round (prelims, semi-finals, finals), division ruleset edition `v16.9b`, the judge order and each judge's marks per contestant, the Coordinator's targets, dividing line and Finals capacity (callbacks), the championship's qualifying dance set and weights (multi-dance), and the heat-builder's randomization record (heating).
 
 Outputs: per contestant per dance: majority mark, size, sum, look-ahead, look-behind, head-to-head records and loss values where used, placement, announced placement, carry-forward value, tie group; per championship: aggregate, placement.
 
@@ -257,16 +257,16 @@ Fixed behaviors:
 - The trace records, for each tie-breaker invoked: the tied contestants, the quantity compared per contestant, the outcome.
 - No Studio medal feedback method exists (S4); this method is not applied to a Studio program.
 
-## 12. Classification: source-confirmed rules, owner-approved limitations, unanswered questions
+## 12. Classification: source-confirmed rules, owner-approved interpretations, decisions and unsupported structures, open UCWDC questions
 
-Every rule and gap sits in exactly one of three parts. Detail sits in the section named in each row. Nothing here claims compliance with the UCWDC Scoring Format, panel eligibility, or availability of the method.
+Every rule and gap sits in exactly one of four categories: source-confirmed (12A), owner-approved interpretations (12B), owner-approved decisions and unsupported structures (12C), open UCWDC questions (12D). Detail sits in the section named in each row. Nothing here claims compliance with the UCWDC Scoring Format, panel eligibility, or availability of the method.
 
 ### 12A. SOURCE-CONFIRMED RULES (cited to v16.9b and the rule books)
 
 | Item | Source | Detail |
 |---|---|---|
 | Heating rules H1–H7 | H1–H7 | §2 |
-| Callback point values (Yes/No = 10.0; Alt#1–#5 = 5.0/4.6/4.3/4.1/4.0); structure of Prelims and Semi-Finals rounds; **Prelims promotion of the designated number plus ties** (R1.4). The Semi-Finals retirement count and the tie at its cut are not confirmed here (12C, Q1) | R1.1–R1.4, R2.1–R2.3 | §3.1, §3.2, §3.3 |
+| Callback point values (Yes/No = 10.0; Alt#1–#5 = 5.0/4.6/4.3/4.1/4.0); structure of Prelims and Semi-Finals rounds; **Prelims promotion of the designated number plus ties** (R1.4). The Semi-Finals retirement count and the tie at its cut are not confirmed here (12D, Q1) | R1.1–R1.4, R2.1–R2.3 | §3.1, §3.2, §3.3 |
 | Medal thresholds, ProAm/ProPro tiers and ties, Group-and-Rank, no ties for the 6-medal method | R3.1 | §4.1 |
 | 16-value ProAm/ProPro scale HM = 26 … GG★ = 11; 6-medal scale HM = 6 … GG = 1 and its defeat order (G8 beats S1) | R3.2, R3.3 | §4.2, §4.3 |
 | Majority position `floor(J/2) + 1` (odd J middle; even J "one more than half"); majority marks sorted; unique placements | R3.4, R3.5 | §5 |
@@ -279,47 +279,62 @@ Every rule and gap sits in exactly one of three parts. Detail sits in the sectio
 | Source notation errors: R6.1/R7.1 dropped-digit sums (G-12); "part #4" in R10.3 and R11.3 (G-16; R10.2's "part #3" is valid) | R6.1, R7.1, R10.3, R11.3 | §6, §8.2 |
 | Rule-book facts used: mark-list definitions (HM written "M"; fewer tiers) and Overall dance lists | RB-C/L/P/T | §4.4, §8.1 |
 
-### 12B. OWNER-APPROVED LIMITATIONS AND READINGS
+### 12B. OWNER-APPROVED INTERPRETATIONS (not independently verified UCWDC rules; supported scope only)
+
+These were approved by the owner on 2026-10-25 for the explicitly supported scope. They are interpretations of silent or ambiguous source text, not source statements and not verified UCWDC rules.
+
+| ID | Interpretation | Detail |
+|---|---|---|
+| I-1 (was G-1) | On complete, valid callback ballots, callback points are totalled across all eligible judges, and a contestant a judge did not select gets 0 from that judge (also D-1 / G-2). Missing, incomplete or invalid ballots fail closed | §3.2 |
+| I-2 (was G-3) | All contestants tied at the promotion cutoff advance when capacity and competition structure permit. The test: the engine takes a Finals capacity INPUT from the Coordinator and fails closed if promoted contestants plus ties exceed it. No capacity number is invented (R2.3's "nine … twelve" is an example only) | §3.2, §3.4 |
+| I-3 (was G-8) | Couples-style medal-and-rank marks convert to each judge's complete ordinal ranking 1…N, only where the conversion is unambiguous. Any duplicate, gap or tie fails closed (ties in with the D-7 validations) | §4.3 |
+
+### 12C. OWNER-APPROVED DECISIONS, LIMITATIONS AND UNSUPPORTED STRUCTURES
+
+**Owner-approved decisions and limitations:**
 
 | Item | Owner decision | Detail |
 |---|---|---|
-| G-2 / D-1: a contestant a judge did not select scores 0 from that judge on a **valid, completed** callback ballot | 2026-10-25 | §3.2, F-U-11 |
-| Callback ballots that are missing, incomplete or invalid fail closed (Yes/No count differs from the set number; Alt gaps; more than 5 alternates; missing assigned-judge ballot; duplicate or overlapping marks, G-4) | D-1 with the D-5 validity rules | §3.3 |
-| D-4: the supported flow is **Prelims → Finals only**. Rounds-removed applies only to a Prelims retiree, whose value is the number of finalists + 1; multi-Prelims structures are unavailable | 2026-10-25 | §3.1, §8.1, §16 |
+| Callback ballots that are missing, incomplete or invalid fail closed (Yes/No count differs from the set number; Alt gaps; more than 5 alternates; fewer alternates than the Coordinator set (R-5, treated as incomplete); missing assigned-judge ballot; duplicate or overlapping marks, G-4) | D-1 with the D-5 validity rules; R-5 owner ruling 2026-10-25 | §3.3 |
+| D-4: the supported flow is **Prelims → Finals only**. Rounds-removed applies only to a Prelims retiree, whose value is the number of finalists + 1 | 2026-10-25 | §3.1, §8.1, §16 |
 | OQ-1 / G-9: the R3.2 16-value scale governs ProAm/ProPro and supersedes the rule-book mark lists; v16.9b pinned; compliance only after checking for later official revisions | 2026-10-25 | §4.4 |
 | OQ-2 / G-20: ProAm AllStars and ProAm/ProPro Spotlight use the 6-medal Group-and-Rank method, no ties | 2026-10-25 | §4.3 |
-| OQ-3: no `J ≥ 3` guard; the majority is calculated as the source states; panel eligibility is a separate check and stays UNVERIFIED (see 12C) | 2026-10-25 | §5 |
+| OQ-3: no `J ≥ 3` guard; the majority is calculated as the source states; panel eligibility is a separate check and stays UNVERIFIED | 2026-10-25 | §5 |
 | G-15(a): Rule #10 "placement" meaning is immaterial (proof: both encodings give the same win/loss/tie); F-U-12 kept | independent review D-3(a) | §8.2 |
 | G-14: the qualifying dance set for Rule #9 is an input; the engine never picks the best dances | coordinator correction C-4 | §8.1 |
 | Group-and-Rank ballot validity: duplicate or non-contiguous ranks within a medal fail closed (D-7) | independent review D-7 | §4.3 |
-| The whole method stays UNAVAILABLE for actual scoring until panel eligibility is verified | 2026-10-25 | §16 |
+| The whole method stays UNAVAILABLE for actual scoring; compliance and panel eligibility stay UNVERIFIED | 2026-10-25 | §16 |
 
-### 12C. UNANSWERED UCWDC QUESTIONS AND OTHER UNRESOLVED ITEMS (each fails closed)
+**Unsupported structures (fail closed, unavailable):**
 
-**Questions drafted for UCWDC (`ucwdc-clarification-questions.md`, DRAFT, not sent):**
+| Item | Detail |
+|---|---|
+| Multiple Prelims rounds and any rounds-removed value above 1 | §3.1, §8.1 |
+| Any Semi-Finals round or ballot, including the meaning of alternates on a No ballot (G-5) and the direction of Semi-Finals points (G-6) | §3.3 |
+| Promotion of all dances together at Worlds (G-7) | §3.5 |
+| Different panels across contestants or heats (G-11) | §5 |
+| Rules #10/#11 for dances in which a tied contestant did not reach the Finals, and an empty common-dance set (G-15(b) / D-6). Rule #11 (with re-visitation to Rule #10) is supported only when every tied contestant reached the Finals in all common dances and the common set is non-empty; every other Rule #11 case is REFUSED | §8.2, §16 |
+
+### 12D. OPEN UCWDC QUESTIONS (each fails closed)
+
+**Questions drafted for UCWDC (`ucwdc-clarification-questions.md`, DRAFT, not sent; the owner sends externally):**
 
 | Q | Item | Status |
 |---|---|---|
-| Q1 | A tie spanning the Semi-Finals retirement cutoff (D-2) | BLOCKED. Semi-Finals exist only with two or more Prelims rounds (R2), so no Semi-Finals calculation runs in the supported flow at all |
-| Q2 | Counting "rounds removed" when two Prelims rounds are used | UNAVAILABLE (multi-Prelims unsupported) |
-| Q3 | Rule #8 where a shared best record has a remainder, and where equal best loss values have unequal records (G-13; fixture F-U-16 = IR-22) | BLOCKED |
+| Q1 | A tie spanning the Semi-Finals retirement cutoff (D-2) | BLOCKED. Semi-Finals exist only with two or more Prelims rounds (R2), so no Semi-Finals calculation runs in the supported flow |
+| Q2 | Counting "rounds removed" when two Prelims rounds are used | UNAVAILABLE |
+| Q3 | Rule #8 where a shared best record has a remainder, and where equal best loss values have unequal records (G-13; fixtures F-U-15(d), F-U-16) | BLOCKED |
 | Q4 | Panel eligibility and minimum judges (G-10), for every panel size | BLOCKED, UNVERIFIED |
+| Q5 | Whether the Coordinator-set count of alternates (R1.2: "may also be asked to additionally mark up to 5 alternates") is a mandatory completeness requirement (R-5) | OPEN; a ballot with fewer alternates is refused as incomplete meanwhile |
 
-**Other unresolved items (fail closed):**
+**Other open items (source silent; fail closed):**
 
 | ID | Item |
 |---|---|
-| G-15(b) / D-6 | Rules #10/#11 for dances in which a tied contestant did not reach the Finals; and an empty common-dance set |
-| G-5 | Meaning of alternates on a Semi-Finals "No" ballot (not run in the supported flow) |
-| G-7 | Promotion of all dances together at Worlds |
-| G-11 | Different panels across contestants or heats (rejected) |
 | G-17 | DSA content |
 | G-18 | Derivation of the medal threshold title from results |
 | G-19 | Randomization seed for heating |
 | G-21 | A missing Finals mark or an absent judge |
-| R-5 | A callback ballot with fewer alternates than the Coordinator set (Alt count below the set number but contiguous): owner/UCWDC open question; fails closed for now |
-
-**Readings used by the supported cases, awaiting owner/UCWDC confirmation (not source statements, not owner-approved):** G-1 (callback total is the sum over judges), G-3 ("ties" at the dividing line are equal totals and all tied are promoted), G-6 (Semi-Finals points direction; not used in the supported flow), G-8 (Group-and-Rank converts to a dense 1…N per-judge rank).
 
 ## 13. Golden fixtures (hand-computed)
 
@@ -392,7 +407,7 @@ Aggregates: X 1+4+1 = 6; Y 2+1+3 = 6; Z 3+2+2 = 7; W 4+3+4 = 11. X and Y tie at 
 
 ## 14. Verification checklist
 
-The independent verifier should: recompute every fixture from the source; confirm each READING (G-1, G-3, G-6, G-8); decide whether each NOT SPECIFIED item stays fail-closed or needs an owner decision; confirm the star ordering with `pdftotext -enc UTF-8`; confirm the rule-book mark lists (G-9); and confirm the 16-value scale against the owner's source. Until then this spec is **DRAFT** and the method stays unavailable (S4-5).
+The independent verifier should: recompute every fixture from the source; confirm each owner-approved interpretation (I-1, I-2, I-3) against the source and the owner's ruling; decide whether each NOT SPECIFIED item stays fail-closed or needs an owner decision; confirm the star ordering with `pdftotext -enc UTF-8`; confirm the rule-book mark lists (G-9); and confirm the 16-value scale against the owner's source. Until then this spec is **DRAFT** and the method stays unavailable (S4-5).
 
 ## 15. Owner questions and verification status
 
@@ -411,22 +426,22 @@ Status stays **DRAFT**. UCWDC Majority Rules stays unavailable (S4-5). No engine
 **The whole UCWDC Majority Rules method stays UNAVAILABLE for actual scoring until panel eligibility is verified (UCWDC Q4), even for the supported cases.** "Supported" below means fully specified in the pinned source and independently verified (coordinator verification `k1u-verification-report.md`; independent fixture review `k1u-independent-fixture-review.md`, 32 fixtures, all arithmetic agreeing). It does not mean enabled.
 
 ### 16.1 Supported cases (specified, fixtures independently recomputed; not enabled; no compliance or eligibility claim)
-- Finals single-dance majority (R3.4, R3.5) and tie-breakers Rule #4 to Rule #7 for the 16-mark ProAm/ProPro scale (OQ-1) with valid ballots. **The 6-medal Group-and-Rank scale (Couples, Line, Teams, ProAm AllStars, ProAm/ProPro Spotlight; OQ-2) is SUPPORTED ONLY IF the owner approves G-8 (pending)**, with valid ballots (contiguous, non-duplicated ranks).
+- Finals single-dance majority (R3.4, R3.5) and tie-breakers Rule #4 to Rule #7 for the 16-mark ProAm/ProPro scale (OQ-1) with valid ballots. **The 6-medal Group-and-Rank scale (Couples, Line, Teams, ProAm AllStars, ProAm/ProPro Spotlight; OQ-2) rests on the owner-approved interpretation I-3 (not a verified UCWDC rule)**, with valid ballots (contiguous, non-duplicated ranks).
 - Rule #8 head-to-head with re-visitation where the best record is unique at each step, or the whole tied group has exactly the same record (final tie, announced higher placement, carry-forward average).
-- Preliminaries callback totals (Yes 10.0; Alt#1–#5 5.0/4.6/4.3/4.1/4.0), an unselected entry scoring 0 on a **valid, completed** ballot (owner D-1), with ties at the dividing line promoted; **simple Prelims → Finals structure only** (owner D-4). **SUPPORTED ONLY IF the owner approves G-1 and G-3 (pending).**
+- Preliminaries callback totals (Yes 10.0; Alt#1–#5 5.0/4.6/4.3/4.1/4.0), an unselected entry scoring 0 on a **valid, completed** ballot (owner D-1), with ties at the dividing line promoted; **simple Prelims → Finals structure only** (owner D-4). **Rests on the owner-approved interpretations I-1 and I-2 (not verified UCWDC rules); Finals capacity is a Coordinator input and the engine fails closed if promoted plus ties exceed it.**
 - Rule #9 aggregate for a qualifying dance set supplied as input, with a Prelims retiree one round removed (finalists + 1; simple structure) and the weighted divisions.
-- Rule #10 and Rule #11 (including its re-visitation back to Rule #10), under the same conditions: every tied contestant reached the Finals in all common dances and the set of common dances is non-empty; otherwise the result is refused (D-6, G-15(b)). Rule #11 is cited in IR-27 of `k1u-independent-fixture-review.md`.
+- Rule #10 and Rule #11 (including its re-visitation back to Rule #10), supported only under the D-6 conditions: every tied contestant reached the Finals in all common dances and the set of common dances is non-empty. Every other Rule #11 case is REFUSED (fail closed): a tied contestant who did not reach the Finals in a common dance, an empty common set, and any head-to-head where competing readings give different winners (G-13). Rule #11 is cited in IR-27 of `k1u-independent-fixture-review.md`.
 
 ### 16.2 Explicit refusals (fail closed, `COMP_ENGINE_UNSPECIFIED_CASE` or `COMP_ENGINE_NOT_AVAILABLE`)
 - **Everything, for actual scoring, until panel eligibility is verified (Q4).** J = 1 or 2 are refused as UNVERIFIED; no panel size is marked verified-eligible.
 - Any Semi-Finals round or ballot: no Semi-Finals calculation runs in the supported flow (§3.3). The tie at the retirement cutoff (D-2, Q1) and alternates on a No ballot (G-5) are unresolved.
 - Multiple Preliminaries rounds or any Semi-Finals structure, and rounds-removed counting beyond 1 (D-4, Q2).
 - Head-to-head where competing interpretations give different winners (G-13, Q3), for example F-U-16/IR-22.
-- Missing, incomplete or invalid callback ballots; wrong Yes/No count; non-contiguous Alt ranks; more than 5 alternates; fewer alternates than the Coordinator set (R-5, open); a missing assigned-judge ballot.
+- Missing, incomplete or invalid callback ballots; wrong Yes/No count; non-contiguous Alt ranks; more than 5 alternates; fewer alternates than the Coordinator set (R-5, refused as incomplete pending Q5); a missing assigned-judge ballot; promoted plus ties exceeding the Coordinator-supplied Finals capacity (I-2); any duplicate, gap or tie in a Couples-style conversion (I-3).
 - Missing Finals marks or an absent judge (G-21); different panels across heats (G-11).
 - Duplicate or non-contiguous ranks within a medal (Group-and-Rank); ties in Couples/Line/Teams/AllStars/Spotlight; a 16-mark ballot for AllStars/Spotlight.
 - Rules #10/#11 on an empty common set or for dances where a tied contestant did not reach the Finals (D-6); G-15(b).
 - Dance groups not supplied as input (G-14); DSA content (G-17); threshold-title derivation (G-18); feedback (S4-4).
 
 ### 16.3 UCWDC clarification questions
-The draft questions for the UCWDC Scoring Sub-Committee are in `ucwdc-clarification-questions.md` (**DRAFT — not sent; the owner sends externally**): Q1 Semi-Finals tie at the retirement cut, Q2 rounds-removed counting with two Preliminaries rounds, Q3 Rule #8 where competing interpretations differ, Q4 panel eligibility and minimum judges. The method stays unavailable pending Q1–Q4.
+The draft questions for the UCWDC Scoring Sub-Committee are in `ucwdc-clarification-questions.md` (**DRAFT — not sent; the owner sends externally**): Q1 Semi-Finals tie at the retirement cut, Q2 rounds-removed counting with two Preliminaries rounds, Q3 Rule #8 where competing interpretations differ, Q4 panel eligibility and minimum judges, Q5 whether the Coordinator-set count of alternates is a mandatory completeness requirement. The method stays unavailable pending Q1–Q4.

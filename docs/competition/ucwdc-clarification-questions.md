@@ -89,6 +89,18 @@ We couldn't find a minimum or permitted panel size in the Scoring Format or in t
 
 ---
 
+## Q5. Is the Coordinator-set number of alternates a mandatory requirement?
+
+**Rule 1, part 2** says each judge "may also be asked to additionally mark up to 5 alternates and rank them in order of preference from Alt #1 to Alt #'s 2, 3, 4, and 5", and that the Contest Coordinator may adjust the number of "Yes" marks and "Alt" ranks for a particular contest.
+
+**Questions:**
+- When the Coordinator has set a number of alternates (for example 3), must every judge mark exactly that many for the ballot to be complete?
+- Or may a judge mark fewer alternates (including none) and still submit a complete, valid ballot?
+
+Until this is answered our scoring software will treat a ballot with fewer alternates than the Coordinator-set count as incomplete and refuse it.
+
+---
+
 ## Also helpful (optional)
 
 - Please confirm v16.9b is the current edition, or tell us about any later revision.
