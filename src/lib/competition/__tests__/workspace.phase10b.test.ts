@@ -66,8 +66,9 @@ describe("workspace authorization (shared with the action guard and the database
   });
 
   it("every workspace page and layout enforces the manager guard; every action does too", () => {
-    const pages = ["layout.tsx", "page.tsx", "new/page.tsx", "divisions/page.tsx", "settings/page.tsx"];
+    const pages = ["page.tsx", "new/page.tsx", "divisions/page.tsx", "settings/page.tsx"];
     for (const page of pages) expect(readFileSync(join(WORKSPACE, page), "utf8"), page).toContain("requireCompetitionWorkspace(");
+    expect(readFileSync(join(WORKSPACE, "layout.tsx"), "utf8")).toContain("requireCompetitionCheckinAccess("); // CB-2: the layout admits the front desk; every page applies its own gate
     const actions = readFileSync(join(WORKSPACE, "simpleActions.ts"), "utf8");
     const exported = [...actions.matchAll(/export async function (\w+)/g)].map((match) => match[1]);
     expect(exported.sort()).toEqual([
@@ -77,7 +78,7 @@ describe("workspace authorization (shared with the action guard and the database
     expect(actions.match(/requireCompetitionManager\(eventId\)/g)?.length).toBe(exported.length);
     const server = read("src/lib/competition/workspaceServer.ts");
     expect(server).toContain("if (!workspace.canManage) notFound();");
-    expect(server).toContain("canManageCompetition({");
+    expect(server).toContain("canManageCompetition(accessInput)");
     expect(server).toContain(".eq(\"studio_id\", context.studioId)");
   });
 });
