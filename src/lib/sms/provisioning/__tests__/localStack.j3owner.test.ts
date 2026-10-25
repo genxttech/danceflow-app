@@ -12,7 +12,7 @@
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { execFileSync } from "node:child_process";
-import { createHmac } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 300_000 });
@@ -150,7 +150,18 @@ const offerSql = (n: 1 | 2, live = true) => `insert into public.studio_sms_numbe
 // approval references are registered globally and used once (ALWAYS triggers, also in replica mode): every fixture approval gets a fresh one
 let refSeq = 0;
 const ref = (what: string) => `j3-fixture-${what}-${Date.now()}-${++refSeq}`;
-const pilot = (ceiling = 150) => `insert into public.studio_sms_pilot_exceptions (legal_entity_id, ceiling_cents, approval_ref, approved_by) values ('${E1}', ${ceiling}, '${ref("pilot")}', '${U.padmin}');`;
+// 20261231100000: a committed pilot exception / pilot spend event needs its append-only evidence row (the deferred check fires even under the replica role). The exception's evidence is permanent, so a later scenario
+// keeps the first one (on conflict do nothing); the ceiling is the same in every scenario.
+const pilot = (ceiling = 150) => `insert into public.studio_sms_pilot_exceptions (legal_entity_id, ceiling_cents, approval_ref, approved_by) values ('${E1}', ${ceiling}, '${ref("pilot")}', '${U.padmin}');
+  select set_config('tw4.pilotev_write', 'on', true);
+  insert into public.studio_sms_pilot_spend_evidence (subject, legal_entity_id, scope, authorized_on, authorized_by_role, amount_cents, document_ref, document_sha256, recorded_by)
+  values ('pilot_exception', '${E1}', 'pilot_exception', current_date, 'founder_written', ${ceiling}, 'AUTH-DOC-j3-${randomBytes(4).toString("hex")}', '${randomBytes(32).toString("hex")}', '${U.padmin}') on conflict do nothing;
+  select set_config('tw4.pilotev_write', 'off', true);`;
+const pilotSpendEvidence = (approval: string) => `select set_config('tw4.pilotev_write', 'on', true);
+  insert into public.studio_sms_pilot_spend_evidence (subject, spend_event_id, legal_entity_id, studio_id, fee_kind, scope, authorized_on, authorized_by_role, amount_cents, document_ref, document_sha256, recorded_by)
+  select 'spend_event', s.id, s.legal_entity_id, s.studio_id, s.kind, 'pilot_number_purchase', current_date, 'owner_written', s.amount_cents, 'AUTH-DOC-j3-' || '${randomBytes(4).toString("hex")}', '${randomBytes(32).toString("hex")}', s.authorized_by
+    from public.studio_sms_spend_events s where s.approval_ref = '${approval}';
+  select set_config('tw4.pilotev_write', 'off', true);`;
 const scenario = (sql: string) => psqlFile(`begin; set local session_replication_role = replica; ${CLEAR_SCENARIO} ${sql} commit;`);
 
 type Answer = { data: Record<string, unknown> | null; error: { code?: string; message?: string } | null };
@@ -261,9 +272,11 @@ describe.skipIf(!enabled)("TW-4F J3: owner number offers, approval and withdrawa
   });
 
   it("pinned (SQL hardening tracked separately): a DIRECT owner RPC approval at the pilot ceiling is recorded, but the purchase gate refuses it, so no money moves", async () => {
+    const spendRef = ref("spend");
     scenario(`${offerSql(1)} ${pilot()}
       insert into public.studio_sms_credit_reservations (legal_entity_id, studio_id, kind, amount_cents, funding, reservation_key, status) values ('${E1}', '${S1}', 'brand', 100, 'pilot', 'j3-fixture-used', 'reserved');
-      insert into public.studio_sms_spend_events (legal_entity_id, studio_id, kind, amount_cents, status, approval_ref, authorized_by, funding) values ('${E1}', '${S1}', 'number', ${PRICE}, 'authorized', '${ref("spend")}', '${U.padmin}', 'pilot');`);
+      insert into public.studio_sms_spend_events (legal_entity_id, studio_id, kind, amount_cents, status, approval_ref, authorized_by, funding) values ('${E1}', '${S1}', 'number', ${PRICE}, 'authorized', '${spendRef}', '${U.padmin}', 'pilot');
+      ${pilotSpendEvidence(spendRef)}`);
     // tw4_num_select does not check the ceiling: the approval is recorded
     expect((await select(U.owner1, S1, OFFER[1], NUMS[1][0])).error).toBeNull();
     expect(selections(S1)).toBe(`approved:studio_owner:${U.owner1}`);
