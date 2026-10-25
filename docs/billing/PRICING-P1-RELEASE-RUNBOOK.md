@@ -85,7 +85,7 @@ different amount.
 - **Currently deployed build (`8fd075f5`, until the release is promoted):** checkout falls back to
   `STRIPE_PRICE_STUDIO_<PLAN>_STANDARD` when Founder pricing is off or the Founder Price env var is missing, and it does **not**
   verify the Price amount. Its pages still describe the old copy. So before the Regular Prices are edited, confirm in Vercel
-  Production (names and scope only, no secret values): `FOUNDER_PRICING_ACTIVE` is **not** set to `false`, and the three
+  Production (names and scope only, no secret values): neither `FOUNDER_PRICING_ACTIVE` nor `NEXT_PUBLIC_FOUNDER_PRICING_ACTIVE` is set to `false`, and the three
   `STRIPE_PRICE_STUDIO_*_FOUNDER` variables exist in Production. If either is not true, do not edit the Regular Prices until it is
   fixed, or the live app could send a new customer to a $89/$149/$249 checkout under old copy.
 - Later activation (not authorized) additionally needs: owner approval reference, the `…_STANDARD` env Price IDs set to the
