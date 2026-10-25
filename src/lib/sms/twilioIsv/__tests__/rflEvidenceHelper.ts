@@ -94,9 +94,16 @@ export function pilotExceptionEvidenceFor(entity: string, ceilingCents: number, 
 }
 
 /** Named RPC parameters (PostgREST-style suites): the evidence of a pilot fee approval, or nothing for a credit one. */
-export function spendEvidenceRpc(funding: string, kind: string, entity: string, studio: string | null, cents: number): Record<string, unknown> {
+export function spendEvidenceRpc(funding: string, kind: string, entity: string, studio: string | null, cents: number, approval?: string): Record<string, unknown> {
   if (funding !== "pilot") return {};
-  const e = pilotSpendEvidenceFor(kind, entity, studio, cents);
+  // owner rule 2026-10-25 (one written document per approval): with the approval reference the document and hash are distinct per approval (normalized like pilotSpendArgs)
+  const over: Partial<PilotEvidence> = {};
+  if (approval !== undefined) {
+    const seed = seedOf("spend", entity, kind, studio ?? "", approval.normalize("NFKC").toLowerCase().replace(/s+/g, " ").trim());
+    over.documentRef = `AUTH-DOC-${seed.slice(0, 8)}`;
+    over.documentSha256 = seed;
+  }
+  const e = pilotSpendEvidenceFor(kind, entity, studio, cents, over);
   return {
     p_evidence_authorized_on: e.authorizedOn, p_evidence_role: e.authorizedByRole, p_evidence_scope: e.scope, p_evidence_amount_cents: e.amountCents, p_evidence_period_key: null,
     p_evidence_document_ref: e.documentRef, p_evidence_sha256: e.documentSha256,
