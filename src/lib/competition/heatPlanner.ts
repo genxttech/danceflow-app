@@ -6,7 +6,7 @@ export type HeatPlannerInput = {
   seed: string;
   contests: Array<{ id: string; name: string; contest_type: string }>;
   divisions: Array<{ id: string; contest_id: string; name: string }>;
-  rounds: Array<{ id: string; division_id: string; name: string; round_type: string; sequence_number: number; target_advancement_count: number | null }>;
+  rounds: Array<{ id: string; division_id: string; name: string; round_type: string; sequence_number: number; target_advancement_count: number | null; scoring_method?: string }>;
   dances: Array<{ id: string; dance_key: string; name: string }>;
   offerings: Array<{ division_id: string; dance_id: string; required: boolean; sort_order: number }>;
   entries: Array<{ id: string; division_id: string; display_name: string; entry_number: string | null }>;
@@ -213,6 +213,10 @@ export function buildHeatPlan(input: HeatPlannerInput) {
     const expectedHeatCount = Math.max(1, Math.ceil(job.expectedCount / capacity));
     const groups = job.isFirstRound ? actualGroups : Array.from({ length: expectedHeatCount }, () => [] as HeatPlannerInput["entries"]);
     if (groups.length === 0) continue;
+    // Ordinal majority scores one heat only (X-7); a multi-heat round would fail closed at scoring, so stop it at planning.
+    if (job.round.scoring_method === "ordinal_majority" && groups.length > 1) {
+      conflicts.push({ conflict_type: "round", severity: "blocker", title: `${job.division.name} · ${job.round.name} needs ${groups.length} heats`, details: "Ordinal majority scores a single heat. Increase the floor capacity or lower the callback target so this round fits one heat.", subjects: [{ division_id: job.division.id, round_id: job.round.id }] });
+    }
     let cursor = blockCursor.get(job.block.id) ?? new Date(job.block.starts_at).getTime();
     const durationSeconds = job.dances.reduce((sum, dance) => sum + dance.duration_seconds, 0);
 
