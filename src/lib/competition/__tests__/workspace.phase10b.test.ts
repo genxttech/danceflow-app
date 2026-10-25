@@ -86,7 +86,7 @@ describe("workspace navigation", () => {
   const items = competitionNav(EVENT);
 
   it("lists the target sections in order, with check-in nested under entries", () => {
-    expect(items.map((item) => item.label)).toEqual(["Overview", "Entries", "Check-in", "Divisions", "Schedule & Heats", "Officials", "Scoring", "Results", "Awards", "Settings"]);
+    expect(items.map((item) => item.label)).toEqual(["Overview", "Entries", "Check-in", "Divisions", "Schedule & Heats", "Day-of", "Officials", "Scoring", "Results", "Awards", "Settings"]);
     expect(items.find((item) => item.key === "check_in")?.child).toBe(true);
   });
 

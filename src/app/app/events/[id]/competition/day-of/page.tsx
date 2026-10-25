@@ -47,7 +47,7 @@ export default async function DayOfPage({
   const { current, next } = floorPosition(data.floorHeats);
   const scheduleHref = `/app/events/${id}/competition/schedule`;
 
-  function HeatCard({ heat, title }: { heat: DayOfFloorHeat; title: string }) {
+  const heatCard = (heat: DayOfFloorHeat, title: string) => {
     const action = nextHeatAction(heat.state);
     const offer = canOfferHeatAction(heat, roundStatusById);
     const scoring = data.heatsByFloor.get(heat.id) ?? [];
@@ -120,8 +120,8 @@ export default async function DayOfPage({
       ) : (
         <>
           <div className="grid gap-4 md:grid-cols-2">
-            {current ? <HeatCard heat={current} title="On the floor" /> : <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">No heat is on the floor.</p>}
-            {next ? <HeatCard heat={next} title="Up next" /> : <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">No more heats waiting.</p>}
+            {current ? heatCard(current, "On the floor") : <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">No heat is on the floor.</p>}
+            {next ? heatCard(next, "Up next") : <p className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">No more heats waiting.</p>}
           </div>
 
           <section aria-label="Rounds" className="min-w-0 space-y-3">
