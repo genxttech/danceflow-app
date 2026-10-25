@@ -857,10 +857,10 @@ create function public.competition_heat_no_show_entries(p_round_id uuid) returns
                             when p_round_id = pg_temp.rid(5) then array[pg_temp.eid(5, 3), pg_temp.eid(5, 1)]
                             else '{}'::uuid[] end) e
 $f$;
-select pg_temp.chk('present path: r1 excludes entry 3 as no_show; it stays in entries; the heat lists only the live entries',
+select pg_temp.chk('present path: r1 excludes entry 3 as no_show and keeps it in entries; heats change only through the per-heat reader (absent here)',
   (public._compf2_evidence(pg_temp.rid(1), 'studio_ordinal_majority', '1') -> 'excludedEntries') = jsonb_build_array(jsonb_build_object('entryId', pg_temp.eid(1, 3)::text, 'reason', 'no_show'))
   and jsonb_array_length(public._compf2_evidence(pg_temp.rid(1), 'studio_ordinal_majority', '1') -> 'entries') = 3
-  and jsonb_array_length(public._compf2_evidence(pg_temp.rid(1), 'studio_ordinal_majority', '1') -> 'heats' -> 0 -> 'entryIds') = 2
+  and jsonb_array_length(public._compf2_evidence(pg_temp.rid(1), 'studio_ordinal_majority', '1') -> 'heats' -> 0 -> 'entryIds') = 3
   and public._compf2_input_hash(pg_temp.rid(1), 'studio_ordinal_majority', '1') <> (select v from t_hash where k = 'r1_before'));
 select pg_temp.chk('present path: r5 keeps its scratched entry as scratched (not duplicated) and adds entry 1 as no_show',
   (select jsonb_agg(x order by x ->> 'entryId') from jsonb_array_elements(public._compf2_evidence(pg_temp.rid(5), 'studio_ordinal_majority', '1') -> 'excludedEntries') x)
