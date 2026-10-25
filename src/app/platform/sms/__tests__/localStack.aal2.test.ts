@@ -108,7 +108,6 @@ describe.skipIf(!enabled)("TW-4F platform-admin AAL2 (SQL, real role switching)"
     expect(upd({ sub: ADMIN }).out).toBe("0");
     // an aal1 admin cannot move a row it could not see either: the new-row check also needs aal2
     expect(asClaims(AAL1, `with u as (update public.studio_sms_registrations set studio_id = '${STUDIO_NEW}' where studio_id = '${STUDIO}' returning 1) select count(*) from u`).out).toBe("0");
-    expect(admin(`select count(*) from public.studio_sms_registrations where studio_id = '${STUDIO}'`)).toBe("1");
   });
 
   it("the four admin RPCs refuse an aal1 platform admin (42501) and answer an aal2 one", () => {

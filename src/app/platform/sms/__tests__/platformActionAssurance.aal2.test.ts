@@ -179,7 +179,7 @@ describe("completeness and source order", () => {
 describe("behaviour: a refused step-up stops every action before any side effect", () => {
   // the first import of each action module is slow (large dependency graph): load them all once, outside any test timeout
   beforeAll(async () => {
-    for (const file of Object.keys(REGISTRY)) await import(`../${file.replace(/.ts$/, "")}`);
+    for (const file of Object.keys(REGISTRY)) await import(`../${file.replace(/\.ts$/, "")}`);
   }, 120_000);
 
   beforeEach(() => {
