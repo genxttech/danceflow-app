@@ -1,0 +1,334 @@
+# Engine spec — UCWDC "Majority Rules" scoring format (K1-U)
+
+Status: **DRAFT, pending independent verification and then owner approval.** Docs only (no code, no SQL, no database). This is the K1-U deliverable under Stage 4 decision S4-5 (`scoring-architecture-decisions.md`): UCWDC Majority Rules stays **unavailable** (`COMP_ENGINE_NOT_AVAILABLE`) until this spec is completely specified, independently verified against the authoritative source, and approved. A separate read-only session will recompute every fixture from the source before the owner decides.
+
+Proposed registry identity (not yet registered): method `ucwdc_majority_rules`, version `v16.9b`.
+
+## 0. Source pin and ground rules
+
+| Item | Value |
+|---|---|
+| Authoritative source | `2026-Scoring-Format-v16.9b-1.pdf`, "UCWDC Scoring Format: Heating, Scoring, & Reporting Rules (v16.9b, 2026: to be used for the 2026-2028 Rules)", 8 pages |
+| sha256 | `44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f` (verified on 2026-10-24; the copy named `… (1).pdf` in the same folder is byte-identical) |
+| Pinned edition | **v16.9b** |
+| "March 2026" edition | **Unconfirmed.** No such edition was found; v16.9b is the pinned edition. If a newer edition exists it is a different method version and needs its own review |
+| Division-specific sources | UCWDC Rules books dated 1-26-2026: Couples (sha256 prefix `8a45ee58d189`), Line Dance (`98e900111310`), ProPro/ProAm (`d6257b659151`), Teams (`7e71fdce55b0`). Only their definitions of judges' marks and their Overall-championship dance lists were used |
+| Extraction | Text was extracted with `pdftotext -layout`. **The default encoding drops the star symbol (★)** and shows e.g. "B = 25, B+ = 24, B = 23". Re-extracting with `-enc UTF-8` restores it ("B★ = 23"). The mark order was also checked against the numeric values (§4.2), which is independent of the symbol |
+
+Rules for this spec:
+- Every rule cites its source section. Citation keys: **H1–H7** = Heating Rules 1–7; **R1.n … R11.n** = "Rule #1 … Rule #11", numbered part n; **REP** = "General Information and Requisite Reporting"; **RB-C / RB-L / RB-P / RB-T** = the Couples, Line Dance, ProPro/ProAm and Teams rule books.
+- Where the source is silent the text says **NOT SPECIFIED IN PROVIDED SOURCE**. The engine fails closed in that case (X-2 style: no result, a trace entry, the manager sees the reason). No gap is filled from general knowledge.
+- Where this spec states a *reading* of ambiguous source text it is labelled **READING** and listed in §12 for the verifier.
+- This is a method of the UCWDC, not a DanceFlow-sanctioned or UCWDC-authorized scoring system. DanceFlow makes no such claim (S4-1/S4-2: disclosed sanctioning, no implied sanction). The source requires a UCWDC "authorized" scoring system and certified/verified personnel (preamble); that authorization is organizational and outside this spec.
+- Lower numbers are better in Rules #3–#11 ("the lowest value number is considered the best score", R8.2). Callback points (R1, R2) work the other way: more points is more valued.
+
+## 1. What the format covers
+
+| Part | Source | In this spec |
+|---|---|---|
+| Heating (constructing heats) | H1–H7 | §2 (scheduling, not scoring) |
+| Preliminaries and Semi-Finals callbacks | R1, R2 | §3 |
+| Finals marks | R3.1–R3.3 | §4 |
+| Majority mark and placement | R3.4–R3.5 | §5 |
+| Single-dance tie-breakers | R4–R8 | §6 |
+| Multi-dance / Overall championship | R9–R11 | §8 |
+| Reporting | REP | §9 |
+| Feedback | none | §10 |
+
+Single-dance promotion at regional events is independent per dance; at the Country Dance World Championships all dances are promoted together under the prescribed Overall multi-dance format (R1.5, R2.5). The rule for promoting "all dances together" is **NOT SPECIFIED IN PROVIDED SOURCE** (see §3.5).
+
+## 2. Heating (H1–H7)
+
+This part constructs heats; it is not a result calculation and is not engine input. It is recorded so the heat builder (10D) can be checked against it. DanceFlow's 10D heats (default capacity 8, no randomization rule) are **not** claimed to conform.
+
+| Rule | Content |
+|---|---|
+| H1 | If space, time and circumstance allow, a heat holds only contestants of one division. Each division's contestants must be **randomized by the scoring system** for fairness of floor access. Contestants staying on the floor between heats retire to the back and re-enter when the Emcee calls them from the randomized list |
+| H2 | If a division needs more than one heat, the heat sizes differ by **no more than 1**. A division may be co-mingled with others if each division's co-mingled heat sizes still differ by at most 1 ("singular" logic when a division is kept together). Example: 9 ProAm contestants, one Pro with 3 students: a primary heat of 7 plus 2 outlier entries heated before or after |
+| H3 | Multiple heats of one division run **contiguously** |
+| H4 | Where heats of one division differ in size, the smaller precedes the larger (to let scratches be rebalanced by moving contestants up) |
+| H5 | Heats may be co-mingled across divisions; balancing a division evenly across heats ("modular" logic) is recommended. Example: 9 contestants, one Pro with 3 students: 3 heats of 3, filled with other divisions |
+| H6 | Where one Pro has several students in a division, unequal modules are allowed (example: 2, 4, 3 from the division with 5, 3, 4 from others). For better balance the largest number goes in the **middle** heat (15 contestants: 3, 7, 5) |
+| H7 | When a division is heated in several heats, the difference in total heat sizes (including co-mingled contestants) should be at most 1, and each division's heats stay contiguous |
+
+**NOT SPECIFIED IN PROVIDED SOURCE:** the random source or seed for the H1 randomization. K0 forbids randomness inside engines (S2); the randomized order is therefore an input produced by the heat builder and recorded with its seed, not engine behavior. Defining that seed is outside this spec.
+
+## 3. Callback rounds (R1, R2)
+
+### 3.1 Round structure (R1.1–R1.4, R2.1–R2.4)
+
+- A **Preliminaries** round *promotes* contestants to the Semi-Finals, or directly to the Finals if only one Prelims round is used (R1 heading, R1.1). Not-promoted contestants may dance another Prelims round (R1.1, R1.3).
+- A Prelims is deemed appropriate by the Contest Coordinator when there are more contestants than two heats of Finals can handle (Couples), or more than can be fairly judged beyond two lines (Line Dance), so that judges do not assess across three heats in a Finals (R1.1, R2.1).
+- A **Semi-Finals** round (used only if two or more Prelims rounds were danced, R2 heading, R2.2) *retires* contestants, possibly across a second Semi-Finals (R2.1).
+- The Contest Coordinator sets the numbers: the number of Yes/No marks, the number of alternates, the dividing line, the target number for the next round (R1.2, R1.3, R2.2, R2.3). For Worlds the Contest Director may adjust the Yes/No and Alt counts (R1.2, R2.2). A Finals field of no more than nine for one heat, up to twelve for two heats of six, is given as an example (R2.3).
+- Each dance in which a contestant dances at least one Prelims or Semi-Finals round counts toward their Championship eligibility for the division (R1.4, R2.4).
+
+### 3.2 Prelims callback ballot (R1.2)
+
+- Each judge marks **"Yes"** for a set number of contestants they most wish to promote, and may additionally mark up to **5 alternates** ranked Alt #1 … Alt #5 (counts are set by the Coordinator and may be adjusted).
+- Point values: **Yes = 10.0; Alt#1 = 5.0; Alt#2 = 4.6; Alt#3 = 4.3; Alt#4 = 4.1; Alt#5 = 4.0.**
+- "Totaling the points across this scale for each dance will be used to determine who moves on." **READING (G-1):** a contestant's callback total for a dance is the sum, over all judges, of the values of the marks that judge gave them. The source does not say "sum over judges" in words.
+- The value of a contestant a judge did not mark is **NOT SPECIFIED IN PROVIDED SOURCE** (G-2). Zero is the natural reading but is not stated; until confirmed the engine fails closed for any contestant a judge left unmarked in a way that changes the outcome (the fixtures say where this matters).
+- Promotion: the "most valued" contestants, **based on a designated number determined by the Contest Coordinator plus ties, if any occur**, are promoted (R1.4). So contestants tied at the dividing line are all promoted. **READING (G-3):** "ties" means equal callback totals at the dividing line.
+- Whether one judge may give the same contestant both a Yes and an Alt, or the same Alt rank twice, is **NOT SPECIFIED IN PROVIDED SOURCE** (G-4). The engine rejects such a ballot.
+
+### 3.3 Semi-Finals ballot (R2.2–R2.4)
+
+- Each judge marks **"No"** for a set number of contestants they most wish to *retire*, plus up to 5 ranked alternates. **No = 10.0; Alt#1–#5 = 5.0, 4.6, 4.3, 4.1, 4.0** (same alternate values).
+- The totals decide who moves on; the **least valued contestants (plus ties) are retired** until the Finals target is reached (R2.4). After the Semi-Finals the Coordinator fills the Finals field "using the last callback values" (R2.3).
+- What an alternate means on a *No* ballot (an alternate No? an alternate Yes?) is **NOT SPECIFIED IN PROVIDED SOURCE** (G-5). The engine does not run a Semi-Finals calculation until the verifier or owner resolves it.
+- Because points accrue to retirements, a **higher** Semi-Finals total means *more* judges want the contestant retired. **READING (G-6):** the retired set is the highest totals up to the designated number plus ties. The source says "the least valued … are retired" without stating the direction of the points; this is the only reading consistent with "No = 10.0".
+
+### 3.4 Targets, dividing line
+
+The dividing line and the target counts are Contest Coordinator inputs (R1.2, R1.3, R2.2, R2.3). The source gives no default and no formula. The engine takes them as inputs and fails closed if absent.
+
+### 3.5 Promotion across dances
+
+Regional events promote independently per dance (R1.5, R2.5). At Worlds promotion is based on "the prescribed Overall multi-dance format for each division, where all dances are promoted together" (R1.5, R2.5). The prescribed format is **NOT SPECIFIED IN PROVIDED SOURCE** (G-7); only regional single-dance promotion is specified here.
+
+## 4. Finals marks (R3.1–R3.3)
+
+### 4.1 Medal thresholds (R3.1)
+
+In the Finals each judge circles a **Medals** mark for each contestant, in ascending order of assessment: **HM** (Honorable Mention), **B** (Bronze), **S** (Silver), **G** (Gold), **GH** (Gold with Honors), **GG** (Gold Graduate). These are "thresholds" from the Judge Certification Methodology.
+
+- **ProAm / ProPro:** after circling a threshold mark it is not necessary to rank; **ties are acceptable**. A judge may add a **plus (+)** or a **star (★)** to a medal (not to HM): plus is higher than the base, star higher than plus (R3.1).
+- **Couples, Line Dance (and Teams, Spotlights, AllStars per R3.3):** if the same Medals mark is given to more than one contestant it must be **ranked within that medal** (1 = best). This is the "**Group and Rank**" process. Judges may not tie contestants (R3.1, R3.3).
+
+### 4.2 ProAm / ProPro value scale (R3.2)
+
+Sixteen values, lower is better. In ascending order of assessment:
+
+| Medal | base | + | ★ |
+|---|---|---|---|
+| HM | 26 | — | — |
+| B | 25 | 24 | 23 |
+| S | 22 | 21 | 20 |
+| G | 19 | 18 | 17 |
+| GH | 16 | 15 | 14 |
+| GG | 13 | 12 | 11 |
+
+Check against the numbers: the values 26 down to 11 are 16 consecutive integers, one per distinct mark; every threshold except HM has three tiers (regular, +, ★), and the plain/+/★ order inside each threshold runs high-to-low in value (e.g. G = 19, G+ = 18, G★ = 17), matching "plus is higher than the base, star higher than plus". The extraction without UTF-8 lists the third value of each tier with the star missing; the numeric positions (23, 20, 17, 14, 11) identify those as the ★ marks.
+
+Ties among contestants are allowed (R3.2).
+
+### 4.3 Couples / Line / Teams / Spotlights / AllStars (R3.3)
+
+- Medal values: **HM = 6, B = 5, S = 4, G = 3, GH = 2, GG = 1.**
+- "Medals" marks are converted to **ranked placements**: a higher medal always defeats a lower medal; for the same medal, the judge's rank within it decides (lower number defeats higher: G1 beats G2; G5 beats G10); across standards, **G8 defeats S1**. Judges cannot tie contestants.
+- **READING (G-8):** for the majority calculation (§5) each judge's marks become, per contestant, that contestant's position (1…N) in the judge's overall order (all contestants ordered by medal value ascending, then by rank within the medal). R3.4's own example uses ranks (`[3,1,2,5,4]`) for these divisions, which supports the reading, but the source does not spell out that the conversion yields a dense 1…N rank.
+- The plus and star tiers and ties exist only for ProAm/ProPro (R3.1, R3.2, R3.3).
+
+### 4.4 Division-specific mark lists in the rule books (conflict, G-9)
+
+| Source | Judges' marks listed |
+|---|---|
+| Scoring Format R3.2 | HM, B, B+, B★, S, S+, S★, G, G+, G★, GH, GH+, GH★, GG, GG+, GG★ for ProAm/ProPro |
+| RB-C, RB-L, RB-T "Judges' Marks" definition | M (Honorable mention), B, S, S+ (ProAm only), G, G+ (ProAm only), GH, GH+ (ProAm only), GG. No B+, GG+ or ★ listed |
+| RB-P (ProPro/ProAm) | M, B, S, S+, G, G+, GH, GH+, GG. No B+, GG+ or ★ listed |
+
+The rule books call Honorable Mention "M", the Scoring Format calls it "HM". The rule books list fewer tiers than the 16-value scale. Which list is permitted per division is **NOT RESOLVED** (G-9). Until the owner confirms, the engine accepts only marks present in both the division's rule-book list and the R3.2/R3.3 scale for that dance type, and fails closed on any mark outside the intersection (so a B+ or ★ mark is rejected today). The verifier should confirm this reading.
+
+## 5. Majority mark and placement (R3.4, R3.5)
+
+Let `J` be the number of judges for the dance.
+
+1. **Raw scores** (R3.4 Step 1): each judge's mark (ProAm/ProPro: value from §4.2; Couples etc.: rank per §4.3) in a fixed judge order, one row per contestant.
+2. **Re-ordered scores** (R3.4 Step 2): each contestant's marks sorted ascending (best to worst).
+3. **Majority mark:** the middle mark for an odd `J`: position `(J+1)/2`. Examples in the source: 5 judges → 3rd, 7 → 4th, 9 → 5th, 11 → 6th. For an even `J` ("contingency or emergency") the majority mark is "one mark more than half": 6 → 4th, 8 → 5th, 10 → 6th. Both cases equal position `floor(J/2) + 1`.
+4. Majority marks of all contestants are sorted ascending; smallest = 1st place, next = 2nd, and so on, until all contestants are assigned a unique placement (R3.5). **Equal majority marks are tied** and go to Rule #4 (R3.5).
+
+Worked source examples: raw `[13,11,12,15,14]` → re-ordered `[11,12,13,14,15]`, majority mark 13; ranks `[3,1,2,5,4]` → `[1,2,3,4,5]`, majority mark 3 (R3.4).
+
+The source does not state a minimum number of judges (G-10): `J = 1` or `J = 2` are not addressed. The engine requires `J ≥ 3` (this is a DanceFlow input guard, not a source rule, and is flagged) and fails closed otherwise. The source also does not say what happens if judges' panels differ between contestants or heats (G-11); the engine requires one panel per dance and fails closed otherwise.
+
+## 6. Single-dance tie-breakers, in order (R4–R8)
+
+A tie persisting after Rule #3 proceeds in order through Rule #8. Each rule is applied only among the contestants still tied, and "unique placements" are assigned within the tied group before moving on (R4.2, R5.2, R6.2, R7.2).
+
+Let `m` be the majority position `floor(J/2) + 1`, `v` the majority mark value, `S` the contestant's sorted marks `s1 ≤ … ≤ sJ`.
+
+| Rule | Quantity | Definition | Better |
+|---|---|---|---|
+| R4 | **Majority size** | number of marks to the right of position `m` whose value is strictly greater than `v` | smaller |
+| R5 | **Majority sum** | sum of the marks at positions `1 … m−1` (left of the majority mark) | smaller |
+| R6 | **Look-ahead** | compare the marks at positions `m+1 … J`, column by column, left to right; at the first column that differs, the smaller value places higher | smaller at first difference |
+| R7 | **Look-behind** | compare the marks at positions `1 … m−1`, column by column, left to right; at the first column that differs, the smaller value places higher | smaller at first difference |
+| R8 | **Head-to-head** | see §6.2 | see §6.2 |
+
+Source examples (all with 5 judges, majority mark 3rd):
+- R4.1: `[11,12,13,14,15]` has size 2; `[12,12,13,13,15]` size 1; `[13,13,13,13,13]` size 0. (Only marks strictly larger than the majority mark count, so the equal 13 in the second example is not counted.)
+- R5.1: `[11,12,13,14,15]` sum 23; `[12,12,13,14,15]` 24; `[12,13,13,14,15]` 25; `[13,13,13,14,15]` 26.
+- R6.1: `[11,12,13,14,14]` look-ahead `[14,14]`; `[11,12,13,14,15]` `[14,15]`; `[11,12,13,15,15]` `[15,15]`.
+- R7.1: `[11,13,13,14,15]` look-behind `[11,13]`; `[12,12,13,14,15]` `[12,12]`.
+
+**Source notation inconsistencies (G-12):** after the R6.1 examples the text says the three groups have "the same majority sum, '3'", but their sums by the R5 definition are all 23. After the R7.1 examples it says the sum is "4" and the look-ahead "4,5"; by definition the sums are 24 and the look-ahead is `[14,15]`. These drop leading digits and are treated as typographical; none changes a rule.
+
+### 6.1 After Rule #7
+
+R8.1: the final proof of a tie at Rule #7 is that the tied contestants have the **same identical re-ordered judges' marks**. If they do not, "a scoring error has occurred" and the previous rules must be recalculated. The engine fails closed (`COMP_ENGINE_SCORING_ERROR`, proposed) in that case instead of recalculating silently.
+
+### 6.2 Rule #8: head-to-head with re-visitation
+
+1. Only the tied contestants are compared. For every judge and every other tied contestant, comparing the two contestants' **raw** marks from that judge gives a win (lower value), loss (higher value) or tie (equal). The size of the numeric difference is not used (R8.2).
+2. Each contestant gets a record wins-losses-ties totalled over all opponents and judges. The total games per contestant must be the same for every tied contestant; otherwise a scoring error (fail closed) (R8.2).
+3. **Loss value** = losses + 0.5 × ties (each tie counts one half win and one half loss). Example: record 11-7-4 counts as 13 wins and 9 losses, loss value 9; 11-8-3 has loss value 9.5 (R8.2). The **smaller loss value** places higher. This awards **only the best record's placement** at this step.
+4. Re-visitation (R8.3): if the group was two contestants, the other takes the next lower placement. If the group was larger and the top was settled, the remaining contestants are tied for the next lower placement and R8.2 is **recomputed among only the remaining contestants** (the earlier contestant's effect is removed). A group of 3 needs 1 re-visitation, 4 needs 2, 5 needs 3, and so on.
+5. Contestants whose wins/losses/ties records are **exactly the same** after Rule #8 are in a **final tie** (R8.3, R8.4).
+6. **Final tie placements** (R8.4): the tied contestants share the placements they actually occupy (a 2-way tie for 2nd shares 2nd and 3rd). They are all announced with the higher placement only; the shared lower placements are not announced or awarded and the next announced placement skips them (two tied for 3rd are both "3rd", then "5th").
+7. **Carry-forward value** (R8.5, R8.6): each single-dance placement that counts toward the division's championship formula has a carry-forward value equal to the placement (1st = 1, 2nd = 2, …). A final tie gets the **average of the shared placements** (sum ÷ number tied): 2 tied for 3rd/4th → 3.5 each; 3 tied for 3rd/4th/5th → 12 ÷ 3 = 4; 4 tied for 3rd–6th → 18 ÷ 4 = 4.5.
+
+**NOT SPECIFIED IN PROVIDED SOURCE (G-13):**
+- When two or more contestants share the *best* loss value but their records are not exactly equal (for example 13-9-0 and 11-7-4 both have loss value 9), the source does not say whether loss value or exact record decides, nor how the *rest* of the group is then processed. The engine fails closed.
+- When two or more contestants have exactly the same best record and a lower-ranked contestant remains in the group, the source says the tie is "final" for those contestants but does not describe how the remaining contestants are placed. The engine fails closed unless the whole group has the same record (all share) or a single best record is unique at each step (re-visitation).
+
+## 7. Division-specific rules found in the rule books
+
+The source and the rule books do not define a panel size, a number of heats of Finals, or medal lists beyond §4.4. The rule books contribute: the Overall championship dance lists (§8.3) and graduation rules based on judges' marks (a rule about eligibility, not about computing results; out of scope here).
+
+## 8. Multi-dance / Overall championship (R9–R11)
+
+### 8.1 Points per dance and aggregate value (R9.1, R9.2)
+
+- All dances a contestant competed in, from their first round (Prelims, Semi-Finals or Finals) within the division, earn a points value tied to their **Finals placement** (the carry-forward value of §6.2 item 7). For a dance where the contestant did not make the Finals, the value is **one placement more than the number of finalists for that dance** if they were 1 round removed from the Finals, **2 more** if 2 rounds removed, **3 more** if 3, **4 more** if 4, and so on. These can create duplicate, thus tied, values (R9.1).
+- Each contestant's carry-forward values from the championship's dances are **summed** into an aggregate value; each dance has the same weight (R9.2). Example: values 1, 2, 3, 4, 5 → 15; 1, 2.5, 4, 5.5, 7 → 20.
+- Championship sizes named: 1-dance, 3-, 4-, 5-, 6- and 8-dance (e.g. an 8-dance ProAm or ProPro Championship). Which dances belong to each championship's "pre-designated dance groups" is **not listed in the Scoring Format** (G-14). The rule books give partial lists: Overall Couples/ProAm/ProPro competitors dance "five of eight dances" (at least Two-Step, Waltz, one Swing dance, and two of Triple Two, Polka, NightClub, Cha Cha) (RB-C, RB-P definitions; RB-C Section III.A); Line Dance requires all offered dance categories (RB-L definitions, Section III.A, with per-level counts); Showcase Masters and Showcase Crown must compete in Two-Step, Waltz and Solo Medley; Classic Masters and Classic Crown must also dance a ShowDance (RB-C III.A.3). The division-by-division group list is **NOT SPECIFIED IN PROVIDED SOURCE** (G-14), so the engine takes the qualifying dance set as an input and does not derive it.
+- **Weighted ("ascension") divisions** (Showcase Masters, Showcase Crown, SuperStars, RisingStars, Line Crown): each dance value is multiplied by a weight; Waltz and Two Step (Partner Dance) and Slow (Dance A) and Fast (Dance B) (Line Dance) count 30% each and the Solo Medley counts 40%. In numbers: factor **3** for the 30% dances and factor **4** for the Solo Medley. Example: values 1 and 2 become 3 and 6; Solo Medley value 3 becomes 12; aggregate 21 (R9.2).
+- Smaller aggregate = better; sort ascending and award placements; a tie after Rule #9 proceeds to Rule #10 (R9.3).
+
+### 8.2 Tie-breakers for the championship (R10, R11)
+
+- **Rule #10 (placements head-to-head):** among only the tied contestants, compare their **placements** in every dance they all competed in (commonly competed-in dances), including dances outside the championship formula (R10.1). For each dance and each opponent: win, loss or tie, ignoring the size of the difference (R10.2). Record, loss value (ties as half), best loss value places highest; re-visitation exactly as in Rule #8, with the commonly competed-in set recomputed for the remaining contestants because it may now contain dances the earlier contestant had not entered (R10.3). Tie persists → Rule #11.
+- **Rule #11 (judges' marks head-to-head):** among only the tied contestants, compare **individual judges' marks** across all commonly competed-in dances, win/loss/tie per judge per dance, totalled into one aggregate record (R11.2). Loss value as above. Re-visitation (R11.3): unlike Rules #8 and #10, a Rule #11 re-visitation must go **back to Rule #10** and recompute there first, then Rule #11 if still tied.
+- **Final tie** after Rule #11 (R11.4): the tied contestants share the championship placements they occupy and are announced with the higher placement only; the next announced placement skips the shared ones (same convention as R8.4).
+
+**NOT SPECIFIED IN PROVIDED SOURCE (G-15):**
+- In Rule #10 the "placement" compared per dance is not defined as the announced placement or the carry-forward value (they differ for final ties, e.g. 3 vs 3.5).
+- Which round's judges' marks Rule #11 uses for dances where a contestant did not reach the Finals (only Finals have majority-mark ballots in R3; callback ballots have points).
+- The best-loss-value ambiguity of G-13 applies equally to Rules #10 and #11.
+- **Source numbering errors (G-16):** R10.2 ends "proceed to Rule #10, part #3", R10.3 says "executing Rule #10, part #4 once again" and R11.3 says "computing wins/losses/ties from Rule #10, part #4" although Rule #10 has parts 1–3. The prose makes clear the intended step is the head-to-head computation of part 2. The engine follows part 2; the verifier should confirm.
+
+### 8.3 What is not ranked here
+
+The source does not describe the mechanics of a division with no championship (a single dance), other than ranking per dance (Rules #3–#8). A single dance's placements and carry-forward values are valid results on their own.
+
+## 9. Reporting (REP)
+
+- The source requires a **Divisional Scoring Analysis (DSA)**, also called the "CC Report", for Contest Coordinators to review or audit a division's results. It was formalized in 1999 and updated for the 2026–2028 Rules cycle.
+- The DSA must be available to: contestants (all divisions they dance at a UCWDC event), adjudicators (divisions they judge), Contest Coordinators (divisions they coordinate), the VP of Judge Certification, the VP of Rules, and the Chairman of the Scoring Committee (all DSA reports from every event).
+- The **content of the DSA is not defined** in this document (G-17). The engine trace (§11) is designed to contain everything Rules #3–#11 need, but a conforming DSA layout is **NOT SPECIFIED IN PROVIDED SOURCE**.
+- Awards presentation: the scoring system must produce **awards reports read to the public**, and only that report may be used for awards. Results may not be re-written into another document to announce placements; additional information must accompany the original awards report. For ProAm/ProPro awards paraphernalia (certificates, plaques, trophies) only the medal **threshold title** derived from the actual results is shown, never the plus or star.
+- How a "threshold title" is derived from the results (from a majority mark, placement or other) is **NOT SPECIFIED IN PROVIDED SOURCE** (G-18); no derivation is invented.
+- Scoring systems and personnel must keep contact with the UCWDC Rules Committee and Scoring Sub-Committee about adjustments, and may be tested by a UCWDC Scoring Examiner. Whether DanceFlow reaches "authorized" status is an organizational question, not an engine rule.
+
+## 10. Feedback (S4-4)
+
+The source defines **no feedback** and no derivation of feedback from marks. The word does not occur. Medal marks are the judges' assessment against Judge Certification thresholds; the source states how they produce a *placement* (R3–R8) and a *championship* value (R9–R11), not a feedback grade. Per S4-4 (`scoring-architecture-decisions.md`): the engine **refuses** to derive feedback from this method. Feedback and placement from one ballot are allowed only where the method defines both, and this method does not define feedback.
+
+## 11. Engine contract (draft, for K0 alignment)
+
+Inputs (all supplied; none invented): dance type (ProAm/ProPro vs Couples/Line/Teams/Spotlights/AllStars), round (prelims, semi-finals, finals), division ruleset edition `v16.9b`, the judge order and each judge's marks per contestant, the Coordinator's targets and dividing line (callbacks), the championship's qualifying dance set and weights (multi-dance), and the heat-builder's randomization record (heating).
+
+Outputs: per contestant per dance: majority mark, size, sum, look-ahead, look-behind, head-to-head records and loss values where used, placement, announced placement, carry-forward value, tie group; per championship: aggregate, placement.
+
+Fixed behaviors:
+- Deterministic, no randomness in the engine; fixed order of judges and contestants; the result and its trace hash are byte-identical for the same input (S2, K0 §5).
+- Fail closed (`COMP_ENGINE_UNSPECIFIED_CASE`, with a reason) on every item marked NOT SPECIFIED, and on inputs outside the rules (marks outside the scale, `J < 3`, differing panels, a tie group whose identical-marks proof fails, mixed best-loss-values).
+- The trace records, for each tie-breaker invoked: the tied contestants, the quantity compared per contestant, the outcome.
+- No Studio medal feedback method exists (S4); this method is not applied to a Studio program.
+
+## 12. Gaps and readings register (for the independent verifier)
+
+| ID | Item | Type |
+|---|---|---|
+| G-1 | Callback total is a sum over judges | READING |
+| G-2 | Value of an unmarked contestant on a callback ballot (zero?) | NOT SPECIFIED |
+| G-3 | "Ties" at the dividing line = equal totals; all tied are promoted | READING |
+| G-4 | Duplicate/overlapping Yes/Alt marks by one judge | NOT SPECIFIED (rejected) |
+| G-5 | Meaning of alternates on a Semi-Finals "No" ballot | NOT SPECIFIED |
+| G-6 | Direction of Semi-Finals points (highest totals retired) | READING |
+| G-7 | Promotion of all dances together at Worlds | NOT SPECIFIED |
+| G-8 | Couples/Line medal+rank converts to a dense 1…N per-judge rank | READING |
+| G-9 | Rule-book mark lists (M; fewer tiers, no ★) conflict with R3.2's 16 values | CONFLICT, intersection rule |
+| G-10 | Minimum number of judges | NOT SPECIFIED (DanceFlow guard `J ≥ 3`) |
+| G-11 | Different panels across contestants or heats | NOT SPECIFIED (rejected) |
+| G-12 | Typos in R6.1/R7.1 sum and look-ahead notation | SOURCE NOTATION |
+| G-13 | Best-loss-value ties with unequal records; how the rest of the group is placed after a shared best | NOT SPECIFIED |
+| G-14 | Dance groups per championship size and weights beyond the five ascension divisions | NOT SPECIFIED |
+| G-15 | R10 "placement" meaning, R11 marks for non-finals dances | NOT SPECIFIED |
+| G-16 | Part-number errors in R10.2/R10.3/R11.3 | SOURCE NOTATION |
+| G-17 | DSA content | NOT SPECIFIED |
+| G-18 | Derivation of the medal "threshold title" from results | NOT SPECIFIED |
+| G-19 | Randomization seed for heating | NOT SPECIFIED |
+
+## 13. Golden fixtures (hand-computed)
+
+Each fixture lists inputs, steps and expected output. They are written for the verifier to recompute from the source, not to be trusted.
+
+**F-U-01 — scale ordering (R3.2).** Values in ascending assessment order: HM 26; B 25, B+ 24, B★ 23; S 22, S+ 21, S★ 20; G 19, G+ 18, G★ 17; GH 16, GH+ 15, GH★ 14; GG 13, GG+ 12, GG★ 11. Sixteen values; each of B, S, G, GH, GG has three consecutive values; GG★ = 11 is the best, HM = 26 the worst. **Expected:** a contestant marked GG★ beats one marked GG+, which beats GG, which beats GH★ (14 > 13 in value).
+
+**F-U-02 — majority position (R3.4).** J = 5: sorted `[11,12,13,14,15]`, position 3 → 13. J = 7 → 4th, J = 9 → 5th, J = 11 → 6th. J = 6 → 4th, J = 8 → 5th, J = 10 → 6th. Raw `[13,11,12,15,14]` sorts to `[11,12,13,14,15]` → 13. Raw ranks `[3,1,2,5,4]` sorts to `[1,2,3,4,5]` → 3. **Expected:** as stated (all from R3.4).
+
+**F-U-03 — tie-breaker quantities (R4.1, R5.1, R6.1, R7.1).** With J = 5:
+
+| Sorted marks | Majority | Size (R4) | Sum (R5) | Look-ahead (R6) | Look-behind (R7) |
+|---|---|---|---|---|---|
+| `[11,12,13,14,15]` | 13 | 2 | 23 | `[14,15]` | `[11,12]` |
+| `[12,12,13,13,15]` | 13 | 1 | 24 | `[13,15]` | `[12,12]` |
+| `[13,13,13,13,13]` | 13 | 0 | 26 | `[13,13]` | `[13,13]` |
+| `[12,13,13,14,15]` | 13 | 2 | 25 | `[14,15]` | `[12,13]` |
+
+(Size of `[12,12,13,13,15]`: the marks right of position 3 are 13 and 15, and only 15 > 13, so 1. Sums by the R5 definition: 12+12 = 24, 13+13 = 26. The sizes 2, 1, 0 for the first three rows are the R4.1 examples; the R5.1 sums 23, 24, 25, 26 are for different arrays, so the other table cells are computed from the definitions.) **Expected:** as in the table.
+
+**F-U-04 — ProAm single dance, five judges, four contestants (R3.2, R3.4, R3.5, R4, R5, R6).** Raw marks by judge J1..J5:
+
+| Contestant | J1 | J2 | J3 | J4 | J5 | Sorted | Maj (3rd) | Size | Sum | Look-ahead |
+|---|---|---|---|---|---|---|---|---|---|---|
+| A | 19 | 18 | 19 | 17 | 22 | 17,18,19,19,22 | 19 | 1 (22) | 35 | [19,22] |
+| B | 18 | 19 | 17 | 19 | 20 | 17,18,19,19,20 | 19 | 1 (20) | 35 | [19,20] |
+| C | 20 | 20 | 21 | 19 | 19 | 19,19,20,20,21 | 20 | 1 (21) | 38 | [20,21] |
+| D | 22 | 21 | 22 | 20 | 23 | 20,21,22,22,23 | 22 | 1 (23) | 41 | [22,23] |
+
+Majority marks: A 19, B 19, C 20, D 22. A and B tie at 19 (R3.5). R4: both size 1 → tie. R5: both sum 35 → tie. R6: look-ahead first column 19 vs 19 equal; second column 20 vs 22 → B smaller → B higher. **Expected placements: B 1st, A 2nd, C 3rd, D 4th.**
+
+**F-U-05 — look-behind decides (R7).** Two contestants, 5 judges, ProAm values. X raw `[14,11,13,15,13]` sorts to `[11,13,13,14,15]`; Y raw `[12,15,13,12,14]` sorts to `[12,12,13,14,15]`. Majority both 13. Size both 2 (14, 15). Sum X 11+13 = 24, Y 12+12 = 24. Look-ahead both `[14,15]`. Look-behind X `[11,13]`, Y `[12,12]`: first column 11 < 12 → X higher. **Expected: X 1st, Y 2nd.** (Example sorted marks from R7.1.)
+
+**F-U-06 — Group and Rank, Couples (R3.3, R3.4, R4).** Three contestants A, B, C, three judges. J1: A G1, B G2, C S1. J2: B G1, A G2, C S1. J3: C G1, A S1, B S2. Medal then rank-within-medal order: J1 A1 B2 C3; J2 B1 A2 C3; J3 C1 A2 B3 (G beats S; S1 beats S2). Raw ranks: A `[1,2,2]`, B `[2,1,3]`, C `[3,3,1]`. J = 3, majority position 2. Sorted: A `[1,2,2]` → 2; B `[1,2,3]` → 2; C `[1,3,3]` → 3. A and B tie at 2; R4 size: A right of position 2 is `[2]` → none > 2 → 0; B `[3]` → 1. A smaller. **Expected: A 1st, B 2nd, C 3rd.** (Also illustrates "G8 defeats S1": a G in any rank beats an S in any rank.)
+
+**F-U-07 — full tie through Rule #7, head-to-head circular (R8).** Three contestants, three judges, values `{13,17,19}` per contestant: P `[13,17,19]`, Q `[17,13,19]`, R `[19,13,17]`.
+
+All sort to `[13,17,19]`: majority 17, size 1, sum 13, look-ahead `[19]`, look-behind `[13]` → identical through Rule #7 (R8.1 confirmed). Head-to-head (lower wins), per judge:
+- P vs Q: J1 13<17 P; J2 17>13 Q; J3 19=19 tie → P 1-1-1.
+- P vs R: J1 13<19 P; J2 17>13 R; J3 19>17 R → P 1-2-0.
+- Q vs R: J1 17<19 Q; J2 13=13 tie; J3 19>17 R → Q 1-1-1.
+
+Records: P: wins 2, losses 3, ties 1 (2-3-1), loss value 3.5. Q: vs P 1-1-1, vs R 1-1-1 → 2-2-2, loss value 3. R: vs P 2-1-0, vs Q 1-1-1 → 3-2-1, loss value 2.5. Games each: 6. **R best (2.5) → 1st.** Re-visitation among P and Q only: P vs Q 1-1-1 each, loss value 1.5 each → exactly equal records, final tie for 2nd/3rd. **Expected: R 1st; P and Q share 2nd/3rd, both announced "2nd"; no "3rd" announced. Carry-forward R = 1; P = Q = (2+3)/2 = 2.5.**
+
+**F-U-08 — fully circular three-way final tie (R8.4, R8.6).** Three contestants, three judges: P `[13,17,19]`, Q `[17,19,13]`, R `[19,13,17]`. All sort to `[13,17,19]`; tie through Rule #7. Head-to-head: P vs Q: J1 13<17 P; J2 17<19 P; J3 19>13 Q → P 2-1-0. P vs R: J1 13<19 P; J2 17>13 R; J3 19>17 R → P 1-2-0. Q vs R: J1 17<19 Q; J2 19>13 R; J3 13<17 Q → Q 2-1-0. Totals: P 3-3-0, Q: vs P 1-2-0, vs R 2-1-0 → 3-3-0, R: vs P 2-1-0, vs Q 1-2-0 → 3-3-0. Loss value 3 each, records exactly equal. **Expected: final three-way tie for 1st/2nd/3rd; all announced "1st"; carry-forward (1+2+3)/3 = 2 each (R8.6).**
+
+**F-U-09 — final tie with two, announced placement (R8.4, R8.6).** Two contestants, three judges: P `[13,19,17]`, Q `[19,13,17]`. Sorted both `[13,17,19]`, tied through Rule #7. Head-to-head: J1 13<19 P; J2 19>13 Q; J3 17=17 tie → each 1-1-1, loss value 1.5. **Expected: final tie for 1st/2nd; both announced "1st"; carry-forward 1.5 each; the next contestant, if any, is announced "3rd".**
+
+**F-U-10 — even panel (R3.4).** J = 6, sorted `[11,12,13,14,15,16]`: half of 6 is 3 (not a majority), the majority mark is position 4 → 14. Size: marks right of position 4 are 15, 16 (> 14) → 2. Sum: positions 1–3: 11+12+13 = 36. Look-ahead `[15,16]`; look-behind `[11,12,13]`. **Expected:** majority 14, size 2, sum 36.
+
+**F-U-11 — callback points (R1.2, R1.4).** Six contestants A–F, three judges; each judge marks 2 Yes and Alt#1, Alt#2. J1: Yes A, B; Alt#1 C; Alt#2 D. J2: Yes A, C; Alt#1 B; Alt#2 E. J3: Yes B, C; Alt#1 A; Alt#2 D. Values Yes 10.0, Alt#1 5.0, Alt#2 4.6. Totals: A 10+10+5.0 = 25.0; B 10+5.0+10 = 25.0; C 5.0+10+10 = 25.0; D 4.6+4.6 = 9.2; E 4.6; F unmarked (G-2). **Expected:** with a designated number of 3: A, B, C promoted (all 25.0). With a designated number of 2: A, B, C all tied at the dividing line → all three promoted (plus ties, R1.4). The F total (G-2) does not affect either outcome because 0 is below every marked total.
+
+**F-U-12 — championship aggregate and Rule #10 (R9.2, R9.3, R10.2, R10.3).** Four contestants X, Y, Z, W, three dances with final carry-forward values:
+
+| Dance | X | Y | Z | W |
+|---|---|---|---|---|
+| d1 | 1 | 2 | 3 | 4 |
+| d2 | 4 | 1 | 2 | 3 |
+| d3 | 1 | 3 | 2 | 4 |
+
+Aggregates: X 1+4+1 = 6; Y 2+1+3 = 6; Z 3+2+2 = 7; W 4+3+4 = 11. X and Y tie at 6 for the top (R9.3); Z 3rd, W 4th. Rule #10 between X and Y over commonly competed dances d1–d3: d1 X (1) beats Y (2); d2 Y (1) beats X (4); d3 X (1) beats Y (3). X 2-1-0 (loss value 1), Y 1-2-0 (loss value 2). **Expected: X 1st, Y 2nd, Z 3rd, W 4th.** (Uses carry-forward values as the compared placements; G-15 notes the source does not define which.)
+
+**F-U-13 — weighted aggregate (R9.2).** An ascension division with Waltz 1, Two Step 2 and Solo Medley 3: 1×3 = 3, 2×3 = 6, 3×4 = 12; aggregate 21. **Expected 21** (source example).
+
+**F-U-14 — rounds-removed points (R9.1).** A dance with 6 finalists: a contestant who made all rounds up to the Finals but did not make this dance's Finals is 1 round removed → value 6 + 1 = 7; 2 rounds removed → 8; 3 → 9. **Expected:** 7, 8, 9 (and ties among contestants at the same removal level are possible, R9.1).
+
+**F-U-15 — fail-closed cases.** Each must produce `COMP_ENGINE_UNSPECIFIED_CASE` with the stated reason: (a) a ProAm ballot marking B+ when the division's rule-book list excludes B+ (G-9); (b) `J = 2` (G-10); (c) two heats of one dance with different panels (G-11); (d) two contestants with equal best loss value but records 13-9-0 and 11-7-4 (G-13); (e) a Semi-Finals ballot containing alternates (G-5); (f) a request to derive feedback (S4-4, §10); (g) tied contestants whose re-ordered marks differ after Rule #7 (R8.1 scoring error).
+
+## 14. Verification checklist
+
+The independent verifier should: recompute every fixture from the source; confirm each READING (G-1, G-3, G-6, G-8); decide whether each NOT SPECIFIED item stays fail-closed or needs an owner decision; confirm the star ordering with `pdftotext -enc UTF-8`; confirm the rule-book mark lists (G-9); and confirm the 16-value scale against the owner's source. Until then this spec is **DRAFT** and the method stays unavailable (S4-5).

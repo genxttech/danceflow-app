@@ -42,7 +42,7 @@ The original three-band median proposal as a **universal studio method** is reje
 
 | Item | State |
 |---|---|
-| **K1-U**: UCWDC Majority Rules v16.9b full specification | Source: `2026-Scoring-Format-v16.9b-1.pdf`, sha `44290a06`. It already lists the 16-mark ProAm/ProPro scale, HM = 26 down to GG★ = 11. Whether a "March 2026" edition exists is **unconfirmed**. UCWDC Majority Rules stays unavailable until K1-U is complete and independently verified (S4-5) |
+| **K1-U**: UCWDC Majority Rules v16.9b full specification | DRAFT written in `engine-spec-ucwdc-majority-rules.md`, pending independent verification and owner approval. Source: `2026-Scoring-Format-v16.9b-1.pdf`, sha `44290a06`. It already lists the 16-mark ProAm/ProPro scale, HM = 26 down to GG★ = 11. Whether a "March 2026" edition exists is **unconfirmed**. UCWDC Majority Rules stays unavailable until K1-U is complete and independently verified (S4-5) |
 | Studio medal feedback or placement method | **None approved** |
 | NDCA Skating System | No authoritative algorithm source |
 | WSDC Relative Placement | No authoritative algorithm source |
