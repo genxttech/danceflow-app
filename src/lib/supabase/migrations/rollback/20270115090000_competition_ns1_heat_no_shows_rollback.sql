@@ -17,12 +17,12 @@ begin
   end if;
 
   for r in select * from (values
-    ('public._compe2_round_heats(uuid)', '@@PIN__compe2_round_heats@@'),
-    ('public._compe2_heat_entries(uuid)', '@@PIN__compe2_heat_entries@@'),
-    ('public._compe2_round_entries(uuid)', '@@PIN__compe2_round_entries@@'),
-    ('public._compe2_guard_mark_insert()', '@@PIN__compe2_guard_mark_insert@@'),
-    ('public.competition_round_ballot_status(uuid)', '@@PIN_competition_round_ballot_status@@'),
-    ('public.competition_judge_ballot_sheet(uuid)', '@@PIN_competition_judge_ballot_sheet@@')
+    ('public._compe2_round_heats(uuid)', '588b53f7e7662cb0df46554310312426'),
+    ('public._compe2_heat_entries(uuid)', '280a98ecd18f3cac6a332312dae4c8f8'),
+    ('public._compe2_round_entries(uuid)', '5733a9f338621b983a0b771570ad4833'),
+    ('public._compe2_guard_mark_insert()', '007fd7de4aa3dd6ca1ba25962b6f3b61'),
+    ('public.competition_round_ballot_status(uuid)', '6ed6628d3da9444ec24d25c36fd1d4c2'),
+    ('public.competition_judge_ballot_sheet(uuid)', 'f89262a01859317442be13c8d6be0239')
   ) as t(sig, pin) loop
     v_def := replace(pg_get_functiondef(r.sig::regprocedure), E'\r', '');
     if (length(v_def) - length(replace(v_def, v_new, ''))) / length(v_new) <> 1 then
@@ -36,8 +36,6 @@ begin
   end loop;
 end $$;
 
-drop trigger compns1_guard_heat_entry_status on public.event_competition_heat_entries;
-drop function public._compns1_guard_heat_entry_status();
 drop function public.competition_round_no_shows(uuid);
 drop function public.void_competition_heat_no_show(uuid, text, uuid);
 drop function public.mark_competition_heat_no_show(uuid, text, uuid);

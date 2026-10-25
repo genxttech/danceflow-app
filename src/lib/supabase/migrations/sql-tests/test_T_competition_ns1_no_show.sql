@@ -227,7 +227,7 @@ select pg_temp.chk('no API role holds any table privilege',
 select pg_temp.chk('anon cannot execute any NS1 function',
   not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
               where n.nspname = 'public' and p.proname in ('mark_competition_heat_no_show', 'void_competition_heat_no_show', 'competition_round_no_shows',
-                'competition_heat_entry_is_no_show', 'competition_heat_no_show_entries', '_compns1_guard_heat_entry_status')
+                'competition_heat_entry_is_no_show', 'competition_heat_no_show_entries')
                 and has_function_privilege('anon', p.oid, 'execute')));
 select pg_temp.chk('internal readers are not executable by API roles',
   not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -240,7 +240,7 @@ select pg_temp.chk('NS1 RPCs are SECURITY DEFINER with a pinned search_path and 
                      or not has_function_privilege('authenticated', p.oid, 'execute'))));
 select pg_temp.chk('history-protection triggers are installed on both tables',
   (select count(*) from pg_trigger where tgrelid in ('public.event_competition_heat_no_shows'::regclass, 'public.event_competition_heat_no_show_voids'::regclass)
-      and tgfoid = 'public.protect_competition_history_evidence()'::regproc) = 4);
+      and tgfoid = 'public.protect_competition_history_evidence()'::regprocedure) = 4);
 
 -- ============================================================================
 -- 2. Authorization matrix (mark on r1 h1)
@@ -280,8 +280,7 @@ select pg_temp.expect_ok('replay (same request, same payload) succeeds', format(
 select pg_temp.expect_msg('same request id, different reason is refused', format($q$select public.mark_competition_heat_no_show(%L, 'Other reason', %L)$q$, pg_temp.he('00d001', '008003'), pg_temp.u('f30020')), 'COMP_REQUEST_REUSED');
 select pg_temp.expect_msg('same request id, different heat entry is refused', format($q$select public.mark_competition_heat_no_show(%L, 'Did not report to the floor', %L)$q$, pg_temp.he('00d001', '008002'), pg_temp.u('f30020')), 'COMP_REQUEST_REUSED');
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.chk('replayed flag is true on the replay',
-  (public.mark_competition_heat_no_show(pg_temp.he('00d001', '008003'), 'Did not report to the floor', pg_temp.u('f30020')) ->> 'replayed')::boolean is not distinct from false, 'owner is a different actor');
+select pg_temp.expect_msg('a different actor replaying the same request id is refused', format($q$select public.mark_competition_heat_no_show(%L, 'Did not report to the floor', %L)$q$, pg_temp.he('00d001', '008003'), pg_temp.u('f30020')), 'COMP_REQUEST_REUSED');
 reset role;
 select pg_temp.chk('replay by a different actor was refused, so exactly one mark exists', pg_temp.nns() = 1);
 set role authenticated;
@@ -318,7 +317,9 @@ select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('a danced entry cannot be a no-show', format($q$select public.mark_competition_heat_no_show(%L, 'x', %L)$q$, pg_temp.he('00d001', '008001'), pg_temp.u('f30034')), 'COMP_NO_SHOW_ENTRY_STATE');
 reset role;
 update public.event_competition_heat_entries set status = 'scheduled' where id = pg_temp.he('00d001', '008001');
-select pg_temp.expect_msg('a no-show entry cannot become danced', format($q$update public.event_competition_heat_entries set status = 'danced' where id = %L$q$, pg_temp.he('00d001', '008003')), 'COMP_NO_SHOW_ACTIVE');
+-- (no heat_entries trigger: 10D.1 pins the trigger count; the mark RPC refuses danced entries)
+select pg_temp.chk('heat_entries trigger count is unchanged (10D.1 pins 4)', (select count(*) from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and not tgisinternal) = 4);
+-- removed: expect_msg(format($q$update public.event_competition_heat_entries set status = 'danced' where id = %L$q$, pg_temp.he('00d001', '008003')), 'COMP_NO_SHOW_ACTIVE');
 
 -- ============================================================================
 -- 5. E2 effects: required ranking set (D-OM-5)
@@ -392,14 +393,14 @@ set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('lock refuses stale ballots', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006005'), pg_temp.u('f60011')), 'COMP_BALLOTS_STALE');
 select pg_temp.as_user(pg_temp.u('000011'));
-select pg_temp.expect_ok('judge 1 corrects (version 2)', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d007', '[1,2]'), %L)$q$, pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.u('f60012')));
+select pg_temp.expect_ok('judge 1 corrects (version 2)', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d007', '[1,2]'), %L, 'correct after no-show')$q$, pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.u('f60012')));
 reset role;
 select pg_temp.chk('two ballots remain stale until the other judges correct', pg_temp.stale('006005') = 2);
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000012'));
-select public.submit_competition_ballot(pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.mk('00d007', '[2,1]'), pg_temp.u('f60013'));
+select public.submit_competition_ballot(pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.mk('00d007', '[2,1]'), pg_temp.u('f60013'), 'correct after no-show');
 select pg_temp.as_user(pg_temp.u('000013'));
-select public.submit_competition_ballot(pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.mk('00d007', '[2,1]'), pg_temp.u('f60014'));
+select public.submit_competition_ballot(pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.mk('00d007', '[2,1]'), pg_temp.u('f60014'), 'correct after no-show');
 reset role;
 select pg_temp.chk('all corrected: no stale ballot', pg_temp.stale('006005') = 0);
 -- void returns the entry to the required set; the corrected ballots now lack its mark -> stale again
@@ -527,7 +528,8 @@ select pg_temp.expect_msg('anon cannot read', format($q$select public.competitio
 select pg_temp.as_user(pg_temp.u('000011'));
 select pg_temp.chk('judge sheet hides no-show entries (r7 is not the judge''s round; r3 callback list excludes them)',
   jsonb_array_length((public.competition_judge_ballot_sheet(pg_temp.u('006003')) -> 'heats' -> 0 -> 'entries')) = 2);
-select pg_temp.expect_ok('ballot status board still renders', format($q$select public.competition_round_ballot_status(%L)$q$, pg_temp.u('006003')));
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('ballot status board still renders (manager)', format($q$select public.competition_round_ballot_status(%L)$q$, pg_temp.u('006003')));
 reset role;
 
 -- ============================================================================
@@ -545,6 +547,121 @@ select pg_temp.expect_msg('the owner cannot read the table directly', $q$select 
 select pg_temp.expect_msg('the owner cannot insert into the table directly', format($q$insert into public.event_competition_heat_no_shows(event_id, round_id, heat_id, heat_entry_id, entry_id, reason, marked_by, request_id)
   values (%L, %L, %L, %L, %L, 'x', %L, gen_random_uuid())$q$, pg_temp.u('00e001'), pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.he('00d001', '008002'), pg_temp.u('008002'), pg_temp.u('000001')), 'permission denied');
 reset role;
+
+-- ============================================================================
+-- 14. End to end with F2: no-show -> ballots without the entry -> lock -> calculate
+--     r5: full no-show (e16 in its only heat).  r12: partial + all-no-show heat (e33 no-show in h14 but dances h15; e34 no-show everywhere)
+-- ============================================================================
+create or replace function pg_temp.th() returns text language sql immutable as $$ select encode(sha256(convert_to('[{"step":1}]', 'UTF8')), 'hex') $$;
+create or replace function pg_temp.calc_rows(p_round text) returns jsonb
+language sql stable security definer as $$
+  select jsonb_agg(jsonb_build_object('entry_id', x.e, 'placement', x.rn) order by x.rn)
+  from (select e, row_number() over (order by e)::int rn
+        from unnest(public._compe2_round_entries(pg_temp.u(p_round))) e
+        where e <> all (public._compf2_no_show_entries(pg_temp.u(p_round)))) x
+$$;
+create or replace function pg_temp.calc2(p_round text) returns jsonb
+language plpgsql as $$
+declare v_in jsonb;
+begin
+  v_in := public.competition_round_calculation_input(pg_temp.u(p_round));
+  return public.calculate_competition_round(pg_temp.u(p_round), v_in ->> 'engine_key', v_in ->> 'engine_version', v_in ->> 'input_hash',
+    pg_temp.th(), '[{"step":1}]'::jsonb, pg_temp.calc_rows(p_round), '[]'::jsonb, gen_random_uuid());
+end $$;
+grant execute on all functions in schema pg_temp to authenticated, anon, service_role;
+
+-- r12 fixture (event A, own division), panel through E1, then active
+insert into public.event_competition_divisions (id, event_id, program_id, contest_id, name, status)
+values (pg_temp.u('003010'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('002001'), 'D10', 'open');
+insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method)
+values (pg_temp.u('006012'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003010'), 'R12 Partial', 'final', 1, 'draft', 'ordinal_majority');
+insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number) values
+  (pg_temp.u('008033'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003010'), 'E133', 'confirmed', 'eligible', '133'),
+  (pg_temp.u('008034'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003010'), 'E134', 'confirmed', 'eligible', '134'),
+  (pg_temp.u('008035'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003010'), 'E135', 'confirmed', 'eligible', '135');
+set session_replication_role = replica;
+insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, contest_id, schedule_version_id, status) values
+  (pg_temp.u('00d014'), pg_temp.u('00e001'), pg_temp.u('003010'), pg_temp.u('006012'), 10, pg_temp.u('002001'), pg_temp.u('00c001'), 'active'),
+  (pg_temp.u('00d015'), pg_temp.u('00e001'), pg_temp.u('003010'), pg_temp.u('006012'), 11, pg_temp.u('002001'), pg_temp.u('00c001'), 'active');
+insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order) values
+  (pg_temp.u('00e001'), pg_temp.u('003010'), pg_temp.u('00d014'), pg_temp.u('008033'), 1),
+  (pg_temp.u('00e001'), pg_temp.u('003010'), pg_temp.u('00d014'), pg_temp.u('008034'), 2),
+  (pg_temp.u('00e001'), pg_temp.u('003010'), pg_temp.u('00d015'), pg_temp.u('008033'), 1),
+  (pg_temp.u('00e001'), pg_temp.u('003010'), pg_temp.u('00d015'), pg_temp.u('008035'), 2);
+set session_replication_role = origin;
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000001'));
+select public.assign_competition_panel_member(pg_temp.u('006012'), pg_temp.off('00e001', '000011'), 'A', gen_random_uuid());
+select public.assign_competition_panel_member(pg_temp.u('006012'), pg_temp.off('00e001', '000012'), 'B', gen_random_uuid());
+select public.assign_competition_panel_member(pg_temp.u('006012'), pg_temp.off('00e001', '000013'), 'C', gen_random_uuid());
+reset role;
+set session_replication_role = replica;
+update public.event_competition_rounds set status = 'active' where id = pg_temp.u('006012');
+-- program profile + lock, as publish would (fixture shortcut)
+update public.event_competition_programs set rules_profile_key = 'studio_simple', rules_profile_version = 1, profile_locked_at = now() where id = pg_temp.u('001001');
+insert into public.event_competition_program_locks (program_id, event_id, rules_profile_key, rules_profile_version, snapshot, locked_at)
+values (pg_temp.u('001001'), pg_temp.u('00e001'), 'studio_simple', 1, jsonb_build_object('profile', jsonb_build_object('key', 'studio_simple', 'version', 1)), now());
+set session_replication_role = origin;
+select public.pin_competition_round_scoring(pg_temp.u('006005'));
+select public.pin_competition_round_scoring(pg_temp.u('006012'));
+
+-- r5 (full no-show): ballots are v2 over e14,e15 and the round is locked (section 9)
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('F2 calculate succeeds on r5 with the no-show excluded', $q$select pg_temp.calc2('006005')$q$);
+reset role;
+select pg_temp.chk('r5 result rows are exactly the danced entries (no row for the no-show)',
+  (select count(*) from public.event_competition_result_rows r join public.event_competition_result_versions v on v.id = r.result_version_id
+    where v.round_id = pg_temp.u('006005')) = 2
+  and not exists (select 1 from public.event_competition_result_rows r join public.event_competition_result_versions v on v.id = r.result_version_id
+                  where v.round_id = pg_temp.u('006005') and r.entry_id = pg_temp.u('008016')));
+select pg_temp.chk('r5 calculation input lists the no-show with reason no_show and keeps it in entries',
+  exists (select 1 from public.event_competition_result_versions v, jsonb_array_elements(v.input -> 'excludedEntries') x
+          where v.round_id = pg_temp.u('006005') and x ->> 'reason' = 'no_show' and (x ->> 'entryId')::uuid = pg_temp.u('008016'))
+  and exists (select 1 from public.event_competition_result_versions v, jsonb_array_elements(v.input -> 'entries') x
+          where v.round_id = pg_temp.u('006005') and (x ->> 'entryId')::uuid = pg_temp.u('008016')));
+select pg_temp.chk('r5 heat entryIds in the evidence omit the no-show',
+  not exists (select 1 from public.event_competition_result_versions v, jsonb_array_elements(v.input -> 'heats') h, jsonb_array_elements_text(h -> 'entryIds') i
+              where v.round_id = pg_temp.u('006005') and i::uuid = pg_temp.u('008016')));
+
+-- r12 (partial + all-no-show heat)
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000017'));
+select public.mark_competition_heat_no_show(pg_temp.he('00d014', '008033'), 'No show in the first heat', gen_random_uuid());
+select public.mark_competition_heat_no_show(pg_temp.he('00d014', '008034'), 'No show everywhere', gen_random_uuid());
+reset role;
+select pg_temp.chk('r12: h14 (every entry no-show) is no longer a ballot heat, h15 is',
+  not exists (select 1 from public._compe2_round_heats(pg_temp.u('006012')) h where h.heat_id = pg_temp.u('00d014'))
+  and exists (select 1 from public._compe2_round_heats(pg_temp.u('006012')) h where h.heat_id = pg_temp.u('00d015')));
+select pg_temp.chk('r12: partial no-show e33 still eligible (danced h15); e34 excluded',
+  pg_temp.u('008033') = any (public._compe2_round_entries(pg_temp.u('006012')))
+  and not (pg_temp.u('008034') = any (public._compe2_round_entries(pg_temp.u('006012')))));
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000011'));
+select public.submit_competition_ballot(pg_temp.u('006012'), pg_temp.u('00d015'), pg_temp.mk('00d015', '[1,2]'), gen_random_uuid());
+select pg_temp.as_user(pg_temp.u('000012'));
+select public.submit_competition_ballot(pg_temp.u('006012'), pg_temp.u('00d015'), pg_temp.mk('00d015', '[2,1]'), gen_random_uuid());
+select pg_temp.as_user(pg_temp.u('000013'));
+select public.submit_competition_ballot(pg_temp.u('006012'), pg_temp.u('00d015'), pg_temp.mk('00d015', '[1,2]'), gen_random_uuid());
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('r12 heat h15 locks', format($q$select public.set_competition_heat_lock_state(%L, 'locked', 'ns1 e2e')$q$, pg_temp.u('00d015')));
+select pg_temp.expect_ok('r12 ballots lock without a ballot for the no-show-only heat', format($q$select public.lock_competition_round_ballots(%L, gen_random_uuid())$q$, pg_temp.u('006012')));
+select pg_temp.expect_ok('F2 calculate succeeds on r12', $q$select pg_temp.calc2('006012')$q$);
+reset role;
+select pg_temp.chk('r12 result rows are e33 and e35 only',
+  (select array_agg(r.entry_id order by r.entry_id) from public.event_competition_result_rows r join public.event_competition_result_versions v on v.id = r.result_version_id
+    where v.round_id = pg_temp.u('006012')) = array[pg_temp.u('008033'), pg_temp.u('008035')]::uuid[]);
+select pg_temp.chk('r12 evidence: e34 excluded as no_show, e33 not excluded, all three stay in entries',
+  exists (select 1 from public.event_competition_result_versions v, jsonb_array_elements(v.input -> 'excludedEntries') x
+          where v.round_id = pg_temp.u('006012') and x ->> 'reason' = 'no_show' and (x ->> 'entryId')::uuid = pg_temp.u('008034'))
+  and not exists (select 1 from public.event_competition_result_versions v, jsonb_array_elements(v.input -> 'excludedEntries') x
+          where v.round_id = pg_temp.u('006012') and (x ->> 'entryId')::uuid = pg_temp.u('008033'))
+  and (select jsonb_array_length(v.input -> 'entries') from public.event_competition_result_versions v where v.round_id = pg_temp.u('006012')) = 3);
+select pg_temp.chk('r12 evidence: h15 lists e33 (danced there); no heat lists e34',
+  exists (select 1 from public.event_competition_result_versions v, jsonb_array_elements(v.input -> 'heats') h, jsonb_array_elements_text(h -> 'entryIds') i
+          where v.round_id = pg_temp.u('006012') and i::uuid = pg_temp.u('008033'))
+  and not exists (select 1 from public.event_competition_result_versions v, jsonb_array_elements(v.input -> 'heats') h, jsonb_array_elements_text(h -> 'entryIds') i
+          where v.round_id = pg_temp.u('006012') and i::uuid = pg_temp.u('008034')));
 
 -- ============================================================================
 -- 13. Real-flow round via the O1 fixture helper (event C): publish -> schedule -> start -> heat transitions -> no-show

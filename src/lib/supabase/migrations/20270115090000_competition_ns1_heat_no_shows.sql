@@ -168,29 +168,7 @@ $$;
 revoke all on function public.competition_heat_no_show_entries(uuid) from public, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
--- 3. Guards
--- ---------------------------------------------------------------------------
--- A heat entry with an active no-show cannot become `danced` (void the no-show first).
-create function public._compns1_guard_heat_entry_status()
-returns trigger
-language plpgsql
-security definer
-set search_path = public, pg_temp
-as $$
-begin
-  if new.status = 'danced' and old.status is distinct from 'danced' and public.competition_heat_entry_is_no_show(new.id) then
-    raise exception 'COMP_NO_SHOW_ACTIVE: heat entry % is marked no-show; void the no-show before marking it danced.', new.id using errcode = 'P0001';
-  end if;
-  return new;
-end;
-$$;
-revoke all on function public._compns1_guard_heat_entry_status() from public, anon, authenticated;
-create trigger compns1_guard_heat_entry_status
-  before update of status on public.event_competition_heat_entries
-  for each row execute function public._compns1_guard_heat_entry_status();
-
--- ---------------------------------------------------------------------------
--- 4. E2 redefinitions (pinned)
+-- 3. E2 redefinitions (pinned)
 -- ---------------------------------------------------------------------------
 do $$
 declare
@@ -200,12 +178,12 @@ declare
   v_new constant text := 'he.status <> ''scratched'' and not public.competition_heat_entry_is_no_show(he.id)';
 begin
   for r in select * from (values
-    ('public._compe2_round_heats(uuid)', '@@PIN__compe2_round_heats@@'),
-    ('public._compe2_heat_entries(uuid)', '@@PIN__compe2_heat_entries@@'),
-    ('public._compe2_round_entries(uuid)', '@@PIN__compe2_round_entries@@'),
-    ('public._compe2_guard_mark_insert()', '@@PIN__compe2_guard_mark_insert@@'),
-    ('public.competition_round_ballot_status(uuid)', '@@PIN_competition_round_ballot_status@@'),
-    ('public.competition_judge_ballot_sheet(uuid)', '@@PIN_competition_judge_ballot_sheet@@')
+    ('public._compe2_round_heats(uuid)', '588b53f7e7662cb0df46554310312426'),
+    ('public._compe2_heat_entries(uuid)', '280a98ecd18f3cac6a332312dae4c8f8'),
+    ('public._compe2_round_entries(uuid)', '5733a9f338621b983a0b771570ad4833'),
+    ('public._compe2_guard_mark_insert()', '007fd7de4aa3dd6ca1ba25962b6f3b61'),
+    ('public.competition_round_ballot_status(uuid)', '6ed6628d3da9444ec24d25c36fd1d4c2'),
+    ('public.competition_judge_ballot_sheet(uuid)', 'f89262a01859317442be13c8d6be0239')
   ) as t(sig, pin) loop
     v_def := replace(pg_get_functiondef(r.sig::regprocedure), E'\r', '');
     if md5(v_def) <> r.pin then
@@ -219,7 +197,7 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
--- 5. RPCs
+-- 4. RPCs
 -- ---------------------------------------------------------------------------
 create function public.mark_competition_heat_no_show(p_heat_entry_id uuid, p_reason text, p_request_id uuid)
 returns jsonb
