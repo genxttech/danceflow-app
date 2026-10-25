@@ -70,6 +70,7 @@ web_modules/
 .env.*
 !.env.example
 !.env.e2e.example
+!.env.billing-qa.example
 supabase-backups/
 
 # Playwright E2E harness local output (traces/screenshots/reports) --
