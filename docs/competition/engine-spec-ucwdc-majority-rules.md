@@ -331,7 +331,7 @@ Aggregates: X 1+4+1 = 6; Y 2+1+3 = 6; Z 3+2+2 = 7; W 4+3+4 = 11. X and Y tie at 
 
 **F-U-14 — rounds-removed points (R9.1).** A dance with 6 finalists: a contestant who made all rounds up to the Finals but did not make this dance's Finals is 1 round removed → value 6 + 1 = 7; 2 rounds removed → 8; 3 → 9. **Expected:** 7, 8, 9 (and ties among contestants at the same removal level are possible, R9.1).
 
-**F-U-15 — fail-closed cases.** Each must produce `COMP_ENGINE_UNSPECIFIED_CASE` with the stated reason: (a) a ProAm ballot marking B+ when the division's rule-book list excludes B+ (G-9); (b) `J = 2` (G-10); (c) two heats of one dance with different panels (G-11); (d) two contestants with equal best loss value but records 13-9-0 and 11-7-4 (G-13); (e) a Semi-Finals ballot containing alternates (G-5); (f) a request to derive feedback (S4-4, §10); (g) tied contestants whose re-ordered marks differ after Rule #7 (R8.1 scoring error).
+**F-U-15 — fail-closed cases.** Each must produce `COMP_ENGINE_UNSPECIFIED_CASE` with the stated reason: (a) [PENDING OWNER OQ-1, may change] a ProAm ballot marking B+ when the division's rule-book list excludes B+ (G-9); (a2) ProAm AllStars or ProAm/ProPro Spotlight (G-20); (a3) a missing Finals mark or absent judge (G-21); (b) `J = 2` (G-10); (c) two heats of one dance with different panels (G-11); (d) two contestants with equal best loss value but records 13-9-0 and 11-7-4 (G-13); (e) a Semi-Finals ballot containing alternates (G-5); (f) a request to derive feedback (S4-4, §10); (g) tied contestants whose re-ordered marks differ after Rule #7 (R8.1 scoring error).
 
 ## 14. Verification checklist
 
