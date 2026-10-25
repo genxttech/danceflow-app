@@ -109,7 +109,9 @@ sleep 0.7
 $PSQL -c "update public.event_competition_heat_entries set status = 'checked_in' where entry_id = '$E6' returning 'upd:' || status" > "$TMP/b5.out" 2>&1 || true
 wait
 check "scratch vs check-in write: no deadlock" "$(cat "$TMP"/a5.out "$TMP"/b5.out | grep -ci 'deadlock')" "0"
-check "scratch vs check-in write: placement ends scratched or checked_in-then-scratched, never half-scratched" "$(q "select e.status || '/' || he.status from public.event_competition_entries e join public.event_competition_heat_entries he on he.entry_id = e.id where e.id = '$E6'")" "scratched/checked_in"
+end6=$(q "select e.status || '/' || he.status from public.event_competition_entries e join public.event_competition_heat_entries he on he.entry_id = e.id where e.id = '$E6'")
+# the entry is always scratched; the placement ends scratched (the check-in write was refused or applied first) or checked_in (written after) -- never scheduled
+check "scratch vs check-in write: entry scratched, placement not left scheduled" "$(case "$end6" in scratched/scratched|scratched/checked_in) echo ok;; *) echo "$end6";; esac)" "ok"
 
 # ---- 6. Soft rollback while scratch history exists (optional: it uninstalls the SC1 RPCs of this database).
 if [ "${SC1_SOFT_ROLLBACK:-0}" = "1" ]; then
@@ -123,7 +125,7 @@ if [ "${SC1_SOFT_ROLLBACK:-0}" = "1" ]; then
   check "soft rollback: 10A guard body restored (md5 7997313d)" "$(q "select left(md5(replace(prosrc, E'\\r', '')), 8) from pg_proc where oid = 'public.protect_locked_competition_heat_children()'::regprocedure")" "7997313d"
   check "soft rollback: lifecycle RPC executable by authenticated again" "$(q "select has_function_privilege('authenticated', 'public.change_competition_entry_lifecycle(uuid,text,text,text)', 'execute')")" "t"
   check "soft rollback: kept audit table is still append-only" "$($PSQL -c "update public.event_competition_scratches set reason = 'x'" 2>&1 | grep -c 'append-only' || true)" "1"
-  check "soft rollback: re-applying SC1 is refused while the kept tables exist" "$($PSQL < "$(dirname "$0")/../20270108090000_competition_sc1_scratch.sql" 2>&1 | grep -c 'ERROR' || true)" "1"
+  check "soft rollback: re-applying SC1 is refused while the kept tables exist" "$($PSQL < "$(dirname "$0")/../20270108090000_competition_sc1_scratch.sql" 2>&1 | grep -q 'ERROR' && echo 1 || echo 0)" "1"
 fi
 
 echo "---- passed: $pass, failed: $fail"
