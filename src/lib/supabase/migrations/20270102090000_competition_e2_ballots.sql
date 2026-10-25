@@ -291,6 +291,8 @@ set search_path = public, pg_temp
 as $$
 declare
   v_status text;
+  v_exp_format text;
+  v_exp_version integer;
   v_prior public.event_competition_ballots;
 begin
   new.transaction_id := txid_current();
@@ -307,6 +309,11 @@ begin
 
   if not public._compe2_format_approved(new.ballot_format, new.ballot_format_version) then
     raise exception 'COMP_BALLOT_FORMAT_NOT_APPROVED: ballot format %@% is not approved; ballots fail closed.', new.ballot_format, new.ballot_format_version using errcode = 'P0001';
+  end if;
+  select f.format, f.version into v_exp_format, v_exp_version
+  from public._compe2_format_for_scoring((select r.scoring_method from public.event_competition_rounds r where r.id = new.round_id)) f;
+  if (new.ballot_format, new.ballot_format_version) is distinct from (v_exp_format, v_exp_version) then
+    raise exception 'COMP_BALLOT_FORMAT_MISMATCH: ballot format %@% is not the format of this round''s scoring method.', new.ballot_format, new.ballot_format_version using errcode = 'P0001';
   end if;
   if new.heat_id is null then
     if public._compe2_format_scope(new.ballot_format) <> 'round' then

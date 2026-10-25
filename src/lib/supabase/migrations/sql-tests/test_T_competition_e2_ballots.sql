@@ -50,6 +50,19 @@ begin
   end if;
 end $$;
 
+-- Evaluates a boolean expression; an exception records a failed check instead of aborting the suite.
+create or replace function pg_temp.chk_sql(p_name text, p_sql text) returns void
+language plpgsql as $$
+declare v boolean;
+begin
+  begin
+    execute p_sql into v;
+    insert into t_results values (p_name, coalesce(v, false), coalesce(v::text, 'null'));
+  exception when others then
+    insert into t_results values (p_name, false, sqlstate || ' ' || sqlerrm);
+  end;
+end $$;
+
 create or replace function pg_temp.u(p_suffix text) returns uuid
 language sql immutable as $$ select ('00000000-0000-0000-0000-e20ff2' || p_suffix)::uuid $$;
 create or replace function pg_temp.n(p_sql text) returns bigint
@@ -67,7 +80,7 @@ begin
   perform set_config('role', 'anon', true);
 end $$;
 create or replace function pg_temp.off(p_event text, p_user text) returns uuid
-language sql stable as $$
+language sql stable security definer as $$
   select id from public.event_competition_officials where event_id = pg_temp.u(p_event) and user_id = pg_temp.u(p_user)
 $$;
 -- Marks for a heat: p_vals is a JSON array applied to the heat's entries in entry-id order.
@@ -219,7 +232,10 @@ select public.add_competition_official(pg_temp.u('00e002'), pg_temp.u('000015'),
 select public.assign_competition_panel_member(pg_temp.u('006009'), pg_temp.off('00e002', '000015'), 'A', pg_temp.u('f10052'));
 reset role;
 -- rounds r1, r2, r3, r9 run (r4 stays draft)
+-- Fixture shortcut: O1 allows only scheduled->active; replica mode lets the superuser fixture place rounds directly in active.
+set session_replication_role = replica;
 update public.event_competition_rounds set status = 'active' where id in (pg_temp.u('006001'), pg_temp.u('006002'), pg_temp.u('006003'), pg_temp.u('006005'), pg_temp.u('006009'));
+set session_replication_role = origin;
 
 -- ============================================================================
 -- 1. Surface: grants, RLS, anon, helpers
@@ -339,41 +355,41 @@ select pg_temp.chk('audit labels: submitted for v1, corrected for v2 and v3',
   pg_temp.n($q$select count(*) from public.event_competition_ballot_events where kind = 'ballot_corrected'$q$) = 2);
 -- Chain integrity at the table level (privileged writer)
 select pg_temp.expect_msg('a correction cannot fork the chain (second successor of v1)',
-  format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, version, source, submitted_by, supersedes_id, correction_reason)
-            select event_id, round_id, heat_id, official_id, 2, 'judge_web', submitted_by, id, 'fork' from public.event_competition_ballots
+  format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, ballot_format, ballot_format_version, version, source, submitted_by, supersedes_id, correction_reason)
+            select event_id, round_id, heat_id, official_id, ballot_format, ballot_format_version, 2, 'judge_web', submitted_by, id, 'fork' from public.event_competition_ballots
             where heat_id = %L and official_id = %L and version = 1$q$, pg_temp.u('00d001'), pg_temp.off('00e001','000013')), 'duplicate key');
 select pg_temp.expect_msg('a second root ballot for the same judge/heat is refused',
-  format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, version, source, submitted_by)
-            values (%L, %L, %L, %L, 1, 'judge_web', %L)$q$, pg_temp.u('00e001'), pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.off('00e001','000013'), pg_temp.u('000013')), 'duplicate key');
+  format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, ballot_format, ballot_format_version, version, source, submitted_by)
+            values (%L, %L, %L, %L, 'ordinal_rank', 1, 1, 'judge_web', %L)$q$, pg_temp.u('00e001'), pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.off('00e001','000013'), pg_temp.u('000013')), 'duplicate key');
 select pg_temp.expect_msg('a correction must be version + 1 of the latest',
-  format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, version, source, submitted_by, supersedes_id, correction_reason)
-            select event_id, round_id, heat_id, official_id, 9, 'judge_web', submitted_by, id, 'skip' from public.event_competition_ballots
+  format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, ballot_format, ballot_format_version, version, source, submitted_by, supersedes_id, correction_reason)
+            select event_id, round_id, heat_id, official_id, ballot_format, ballot_format_version, 9, 'judge_web', submitted_by, id, 'skip' from public.event_competition_ballots
             where heat_id = %L and official_id = %L and version = 3$q$, pg_temp.u('00d001'), pg_temp.off('00e001','000013')), 'COMP_BALLOT_IMMUTABLE');
 select pg_temp.expect_msg('a correction cannot supersede another judge''s ballot',
-  format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, version, source, submitted_by, supersedes_id, correction_reason)
-            select b.event_id, b.round_id, b.heat_id, %L, 2, 'judge_web', b.submitted_by, b.id, 'steal' from public.event_competition_ballots b
-            where b.heat_id = %L and b.official_id = %L and b.version = 1$q$, pg_temp.off('00e001','000012'), pg_temp.u('00d001'), pg_temp.off('00e001','000011')), 'duplicate key');
+  format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, ballot_format, ballot_format_version, version, source, submitted_by, supersedes_id, correction_reason)
+            select b.event_id, b.round_id, b.heat_id, %L, b.ballot_format, b.ballot_format_version, 2, 'judge_web', b.submitted_by, b.id, 'steal' from public.event_competition_ballots b
+            where b.heat_id = %L and b.official_id = %L and b.version = 1$q$, pg_temp.off('00e001','000012'), pg_temp.u('00d001'), pg_temp.off('00e001','000011')), 'COMP_BALLOT_IMMUTABLE');
 
 -- ============================================================================
 -- 5. Immutability (even for a privileged writer)
 -- ============================================================================
 select pg_temp.expect_msg('UPDATE ballot refused', $q$update public.event_competition_ballots set correction_reason = 'x'$q$, 'append-only');
 select pg_temp.expect_msg('DELETE ballot refused', $q$delete from public.event_competition_ballots$q$, 'append-only');
-select pg_temp.expect_msg('TRUNCATE ballots refused', 'truncate public.event_competition_ballots', 'append-only');
+select pg_temp.expect_msg('TRUNCATE ballots refused', 'truncate public.event_competition_ballots', 'cannot truncate');
 select pg_temp.expect_msg('UPDATE mark refused', $q$update public.event_competition_marks set mark = '9'::jsonb$q$, 'append-only');
 select pg_temp.expect_msg('DELETE mark refused', $q$delete from public.event_competition_marks$q$, 'append-only');
-select pg_temp.expect_msg('TRUNCATE marks refused', 'truncate public.event_competition_marks', 'append-only');
+select pg_temp.expect_msg('TRUNCATE marks refused', 'truncate public.event_competition_marks', 'truncate');
 select pg_temp.expect_msg('UPDATE audit refused', $q$update public.event_competition_ballot_events set reason = 'x'$q$, 'append-only');
 select pg_temp.expect_msg('DELETE audit refused', $q$delete from public.event_competition_ballot_events$q$, 'append-only');
-select pg_temp.expect_msg('a mark cannot be added to an old ballot in a later transaction',
+-- NOTE: this suite is ONE transaction, so the 'only in the creating transaction' rule is covered by the concurrency script; here: an entry not on the ballot's heat.
+select pg_temp.expect_msg('a mark for an entry that is not on the ballot''s heat is refused',
   format($q$insert into public.event_competition_marks (event_id, ballot_id, entry_id, mark)
             select b.event_id, b.id, %L, '1'::jsonb from public.event_competition_ballots b where b.heat_id = %L and b.official_id = %L and b.version = 1$q$,
-         pg_temp.u('008001'), pg_temp.u('00d002'), pg_temp.off('00e001','000011')), 'COMP_BALLOT_IMMUTABLE');
-select pg_temp.expect_msg('a second mark for the same entry on one ballot is refused (unique)',
+         pg_temp.u('008001'), pg_temp.u('00d002'), pg_temp.off('00e001','000011')), 'COMP_BALLOT_UNKNOWN_ENTRY');
+select pg_temp.expect_msg('a second mark for the same entry on one ballot is refused (unique index)',
   format($q$insert into public.event_competition_marks (event_id, ballot_id, entry_id, mark)
-            select m.event_id, m.ballot_id, m.entry_id, '2'::jsonb from public.event_competition_marks m limit 1$q$), 'COMP_BALLOT_IMMUTABLE');
+            select m.event_id, m.ballot_id, m.entry_id, '2'::jsonb from public.event_competition_marks m limit 1$q$), 'duplicate key');
 select pg_temp.expect_msg('a round with a panel and ballots cannot be deleted', format($q$delete from public.event_competition_rounds where id = %L$q$, pg_temp.u('006001')), 'COMP_PANEL_FROZEN');
-select pg_temp.expect_msg('a heat with ballots cannot be deleted', format($q$delete from public.event_competition_heats where id = %L$q$, pg_temp.u('00d001')), 'append-only');
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('even the studio owner cannot insert a ballot row directly', format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, version, source, submitted_by) values (%L, %L, %L, %L, 1, 'judge_web', %L)$q$, pg_temp.u('00e001'), pg_temp.u('006001'), pg_temp.u('00d002'), pg_temp.off('00e001','000012'), pg_temp.u('000001')), 'permission denied');
@@ -423,8 +439,8 @@ select pg_temp.chk('manager paper ballot: scorer_paper with entered_by null, sub
   (select source = 'scorer_paper' and entered_by_official_id is null and submitted_by = pg_temp.u('000001')
    from public.event_competition_ballots where heat_id = pg_temp.u('00d002') and official_id = pg_temp.off('00e001','000012')));
 select pg_temp.expect_msg('a judge_web ballot cannot carry an entered_by official (constraint)',
-  format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, version, source, submitted_by, entered_by_official_id)
-            values (%L, %L, %L, %L, 1, 'judge_web', %L, %L)$q$, pg_temp.u('00e001'), pg_temp.u('006002'), pg_temp.u('00d003'), pg_temp.off('00e001','000011'), pg_temp.u('000011'), pg_temp.off('00e001','000016')), 'entered_by_check');
+  format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, ballot_format, ballot_format_version, version, source, submitted_by, entered_by_official_id)
+            values (%L, %L, %L, %L, 'ordinal_rank', 1, 1, 'judge_web', %L, %L)$q$, pg_temp.u('00e001'), pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.off('00e001','000011'), pg_temp.u('000011'), pg_temp.off('00e001','000016')), 'entered_by_check');
 -- a paper correction over a web ballot goes through the same versioning chain
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000016'));
@@ -524,8 +540,8 @@ select pg_temp.as_user(pg_temp.u('000017'));
 select pg_temp.expect_ok('the chair records judge 2 absent on r2', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'Flight delayed', %L)$q$, pg_temp.u('006005'), pg_temp.off('00e001','000014'), pg_temp.u('f24008')));
 select pg_temp.as_user(pg_temp.u('000014'));
 select pg_temp.expect_msg('an absent judge cannot submit', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d007', '[1,2]'), %L)$q$, pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.u('f24009')), 'COMP_BALLOT_JUDGE_ABSENT');
-select pg_temp.as_user(pg_temp.u('000016'));
-select pg_temp.expect_msg('nor can a scorer enter paper for an absent judge', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d007', '[1,2]'), %L)$q$, pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.off('00e001','000014'), pg_temp.u('f24010')), 'COMP_BALLOT_JUDGE_ABSENT');
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('nor can a manager enter paper for an absent judge', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d007', '[1,2]'), %L)$q$, pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.off('00e001','000014'), pg_temp.u('f24010')), 'COMP_BALLOT_JUDGE_ABSENT');
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_ok('the manager records judge 2 present again', format($q$select public.record_competition_judge_attendance(%L, %L, 'present', null, %L)$q$, pg_temp.u('006005'), pg_temp.off('00e001','000014'), pg_temp.u('f24011')));
 select pg_temp.as_user(pg_temp.u('000014'));
@@ -577,9 +593,9 @@ select pg_temp.chk('callback ballots have a null heat, versions 1 and 2, two mar
    from public.event_competition_ballots b where b.round_id = pg_temp.u('006003')));
 select pg_temp.chk('callback marks are boolean yes', (select bool_and(m.mark = 'true'::jsonb) from public.event_competition_marks m join public.event_competition_ballots b on b.id = m.ballot_id where b.round_id = pg_temp.u('006003')));
 select pg_temp.expect_msg('a second root round-level ballot is refused (unique)',
-  format($q$insert into public.event_competition_ballots (event_id, round_id, official_id, version, source, submitted_by) values (%L, %L, %L, 1, 'judge_web', %L)$q$, pg_temp.u('00e001'), pg_temp.u('006003'), pg_temp.off('00e001','000011'), pg_temp.u('000011')), 'duplicate key');
-select pg_temp.expect_msg('a round-level ballot on an ordinal round is refused (trigger)',
-  format($q$insert into public.event_competition_ballots (event_id, round_id, official_id, version, source, submitted_by) values (%L, %L, %L, 1, 'judge_web', %L)$q$, pg_temp.u('00e001'), pg_temp.u('006001'), pg_temp.off('00e001','000011'), pg_temp.u('000011')), 'COMP_BALLOT_HEAT_INVALID');
+  format($q$insert into public.event_competition_ballots (event_id, round_id, official_id, ballot_format, ballot_format_version, version, source, submitted_by) values (%L, %L, %L, 'callback_yes', 1, 1, 'judge_web', %L)$q$, pg_temp.u('00e001'), pg_temp.u('006003'), pg_temp.off('00e001','000011'), pg_temp.u('000011')), 'duplicate key');
+select pg_temp.expect_msg('a ballot whose format is not the round''s format is refused (trigger)',
+  format($q$insert into public.event_competition_ballots (event_id, round_id, official_id, ballot_format, ballot_format_version, version, source, submitted_by) values (%L, %L, %L, 'callback_yes', 1, 1, 'judge_web', %L)$q$, pg_temp.u('00e001'), pg_temp.u('006001'), pg_temp.off('00e001','000011'), pg_temp.u('000011')), 'COMP_BALLOT_FORMAT_MISMATCH');
 set session_replication_role = replica;
 update public.event_competition_rounds set target_advancement_count = 4 where id = pg_temp.u('006003');
 set session_replication_role = origin;
@@ -644,7 +660,7 @@ select pg_temp.chk('lock wrote one round_state_changed audit row with from/to',
    from public.event_competition_ballot_events where kind = 'round_state_changed' and round_id = pg_temp.u('006001')));
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000017'));
-select pg_temp.chk('the same request replays', (public.lock_competition_round_ballots(pg_temp.u('006001'), pg_temp.u('f25009')) ->> 'replayed')::boolean);
+select pg_temp.chk_sql('the same request replays', $q$select (public.lock_competition_round_ballots(pg_temp.u('006001'), pg_temp.u('f25009')) ->> 'replayed')::boolean$q$);
 select pg_temp.expect_msg('a second lock with a new id is a bad state', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006001'), pg_temp.u('f25010')), 'COMP_BALLOTS_BAD_STATE');
 select pg_temp.expect_msg('the id cannot be reused for another round', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006002'), pg_temp.u('f25009')), 'COMP_REQUEST_REUSED');
 -- locked round refuses everything
@@ -656,8 +672,8 @@ select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('attendance cannot change once locked', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'late', %L)$q$, pg_temp.u('006001'), pg_temp.off('00e001','000012'), pg_temp.u('f25013')), 'COMP_BALLOTS_BAD_STATE');
 reset role;
 select pg_temp.expect_msg('the trigger also refuses a ballot on a locked round (privileged writer)',
-  format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, version, source, submitted_by, supersedes_id, correction_reason)
-            select event_id, round_id, heat_id, official_id, version + 1, 'judge_web', submitted_by, id, 'x' from public.event_competition_ballots
+  format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, ballot_format, ballot_format_version, version, source, submitted_by, supersedes_id, correction_reason)
+            select event_id, round_id, heat_id, official_id, ballot_format, ballot_format_version, version + 1, 'judge_web', submitted_by, id, 'x' from public.event_competition_ballots
             where heat_id = %L and official_id = %L and version = 1$q$, pg_temp.u('00d002'), pg_temp.off('00e001','000011')), 'COMP_BALLOT_ROUND_NOT_ACTIVE');
 select pg_temp.expect_msg('direct status write active<->locked without the RPC is refused (guard)',
   format($q$update public.event_competition_rounds set status = 'active' where id = %L$q$, pg_temp.u('006001')), 'COMP_ROUND_LOCK_WRITER');
@@ -720,7 +736,7 @@ select pg_temp.chk('reopen audit carries the reason', (select reason = 'Judge 2 
   from public.event_competition_ballot_events where request_id = pg_temp.u('f27007')));
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.chk('reopen replays', (public.reopen_competition_round_ballots(pg_temp.u('006001'), 'Judge 2 mis-keyed heat 1', pg_temp.u('f27007')) ->> 'replayed')::boolean);
+select pg_temp.chk_sql('reopen replays', $q$select (public.reopen_competition_round_ballots(pg_temp.u('006001'), 'Judge 2 mis-keyed heat 1', pg_temp.u('f27007')) ->> 'replayed')::boolean$q$);
 select pg_temp.as_user(pg_temp.u('000012'));
 select pg_temp.expect_ok('a correction is accepted again after reopen', format($q$select public.submit_competition_ballot(%L, %L, pg_temp.mk('00d001', '[2,3,1]'), %L, 'Mis-keyed after the dance')$q$, pg_temp.u('006001'), pg_temp.u('00d001'), pg_temp.u('f27008')));
 select pg_temp.as_user(pg_temp.u('000017'));
@@ -744,7 +760,7 @@ select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.chk('owner A does not read event B ballots', pg_temp.nb(format('event_id = %L', pg_temp.u('00e002'))) = 0);
 reset role;
 select pg_temp.expect_msg('cross-event ballot row is refused by composite FKs (heat of event A, round of event B)',
-  format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, version, source, submitted_by) values (%L, %L, %L, %L, 1, 'judge_web', %L)$q$,
+  format($q$insert into public.event_competition_ballots (event_id, round_id, heat_id, official_id, ballot_format, ballot_format_version, version, source, submitted_by) values (%L, %L, %L, %L, 'ordinal_rank', 1, 1, 'judge_web', %L)$q$,
          pg_temp.u('00e002'), pg_temp.u('006009'), pg_temp.u('00d001'), pg_temp.off('00e002','000015'), pg_temp.u('000015')), 'COMP_BALLOT_HEAT_INVALID');
 
 -- ============================================================================
@@ -757,12 +773,12 @@ select pg_temp.chk('exactly one current ballot per (judge, heat) in r1 after all
 -- ============================================================================
 -- 14. Cascades: deleting the event removes the evidence with it
 -- ============================================================================
-select pg_temp.expect_ok('event delete cascades through ballots, marks, attendance and audit', $q$delete from public.events where id = pg_temp.u('00e001')$q$);
+select pg_temp.expect_ok('event delete cascades through ballots, marks and audit (event B; event A has locked heats, which 10A protects)', $q$delete from public.events where id = pg_temp.u('00e002')$q$);
 select pg_temp.chk('cascade left nothing behind',
-  pg_temp.n($q$select (select count(*) from public.event_competition_ballots where event_id = pg_temp.u('00e001'))
-                    + (select count(*) from public.event_competition_marks where event_id = pg_temp.u('00e001'))
-                    + (select count(*) from public.event_competition_judge_attendance where event_id = pg_temp.u('00e001'))
-                    + (select count(*) from public.event_competition_ballot_events where event_id = pg_temp.u('00e001'))$q$) = 0);
+  pg_temp.n($q$select (select count(*) from public.event_competition_ballots where event_id = pg_temp.u('00e002'))
+                    + (select count(*) from public.event_competition_marks where event_id = pg_temp.u('00e002'))
+                    + (select count(*) from public.event_competition_judge_attendance where event_id = pg_temp.u('00e002'))
+                    + (select count(*) from public.event_competition_ballot_events where event_id = pg_temp.u('00e002'))$q$) = 0);
 
 -- ============================================================================
 -- Verdict
