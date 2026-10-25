@@ -43,13 +43,26 @@ are resolved from the program (set by `set_event_competition_program_tenant`), n
 |---|---|---|---|
 | `event_competition_officials` | E1 | event_id, user_id (required), role (`judge`, `scorer`, `chair`), status | Managers edit; deactivation instead of delete once any ballot references it |
 | `event_competition_panel_assignments` | E1 | event_id, round_id (or heat_id), official_id, judge_letter | Frozen once the round leaves `scheduled` |
-| `event_competition_ballots` | E2 | event_id, round_id, heat_id, official_id, version, source (`judge_web`, `scorer_paper`), submitted_by, submitted_at, supersedes_id, correction_reason | Insert-only. Never UPDATE/DELETE (trigger) |
+| `event_competition_ballots` | E2 | event_id, round_id, heat_id (nullable only for round-scope formats such as `callback_yes@1`), official_id, `ballot_format`, `ballot_format_version`, version, source (`judge_web`, `scorer_paper`), submitted_by, submitted_at, supersedes_id, correction_reason | Insert-only. Never UPDATE/DELETE (trigger) |
 | `event_competition_marks` | E2 | ballot_id, entry_id, role (nullable, for role-scored), mark (jsonb, validated against the locked `MarkScheme`) | Insert-only, created with the ballot |
 | `event_competition_result_versions` | F2 | event_id, round_id, version, engine_key, engine_version, rules_profile_key/version, input_hash, trace_hash, trace (jsonb), calculated_by, calculated_at, status | Insert-only except `status` transitions via RPC |
 | `event_competition_result_rows` | F2 | result_version_id, entry_id, placement, tie_group, advanced (bool), rating_band, output (jsonb) | Insert-only with its version |
 | `event_competition_result_approvals` | F2 | result_version_id, approved_by, approved_at, override_reason (nullable) | Insert-only |
 | `event_competition_result_publications` | F3 | event_id, round_id, result_version_id, publication_version, visibility, published_by, published_at, withdrawn_at/by/reason, superseded_by | Insert-only except withdraw/supersede stamps |
 | `event_competition_result_events` | F2 (shared by F3) | event_id, round_id, kind, actor, at, from_state, to_state, refs (jsonb), reason | Append-only audit (trigger, like `protect_competition_history_evidence`) |
+| `event_competition_judge_attendance` | E2 | event_id, round_id, official_id, recorded_by, recorded_at, reason | Insert-only; audited absence. It satisfies the ballot-lock requirement for that judge (K0 O1), and the reduced panel must still meet the scoring method's panel rule (X-3 for Studio methods) |
+| `event_competition_ballot_drafts` | E2 | event_id, round_id, official_id, draft (jsonb), updated_at | Mutable, judge-only. **Never engine input and never hashed.** A submitted ballot is a separate immutable row |
+| `event_competition_ballot_events` | E2 | event_id, round_id, official_id, kind, actor, at, refs (jsonb), reason | Append-only audit (trigger) |
+| `event_competition_round_transition_events` | O1 | event_id, round_id, from_state, to_state, actor, at, reason | Append-only audit for schedule/start/cancel transitions |
+| `event_competition_official_events` | E1 | event_id, official_id, kind, actor, at, refs (jsonb), reason | Append-only audit for official and panel changes |
+
+### 3.1 Amendment 2026-10-24 (Competition coordinator, ratified deviations)
+
+1. **E2 ballots:** `ballot_format` and `ballot_format_version` columns; `heat_id` is nullable only for round-scope formats (`callback_yes@1`); new tables `event_competition_judge_attendance` (insert-only, audited absence), `event_competition_ballot_drafts` (mutable, judge-only, never engine input, never hashed) and `event_competition_ballot_events` (append-only audit).
+2. **O1** adds `event_competition_round_transition_events` (append-only).
+3. **E1** adds `event_competition_official_events`.
+4. Audit is split across these tables and F2's `event_competition_result_events` (see §8).
+5. The X-3 panel rule is method-specific (K1 Stage 4, `scoring-architecture-decisions.md`). Studio methods use X-3 (at least 3 judges and an odd panel for `ordinal_majority` and `callback_tally`); a method not yet in the registry fails closed.
 
 Existing columns reused, not duplicated: `event_competition_rounds.status`, `scoring_method`,
 `target_advancement_count`, `advancement_method`; heat `lock_state` (`open/locked/certified`) and the heat
@@ -175,6 +188,8 @@ state and references. The table is append-only (UPDATE/DELETE trigger refuses, a
 fixed in the contract (`RESULT_EVENT_KINDS`), not supplied by callers — this closes the 10A carry-forward
 "audit change-type labels are supplied by callers" for results.
 
+**Split audit (amendment 2026-10-24).** Audit is written to four append-only tables by their owners: E1 `event_competition_official_events` (officials, panels), O1 `event_competition_round_transition_events` (schedule/start/cancel), E2 `event_competition_ballot_events` (ballot submission, correction, lock/reopen, judge absence) and F2 `event_competition_result_events` (calculation, approval, correction, completion, publication and withdrawal). **F2 must provide a unified audit read** that merges the four for a round or event; no consumer reads the four tables separately. Absence is also recorded in `event_competition_judge_attendance`. Drafts (`event_competition_ballot_drafts`) are not audit and never enter hashes.
+
 ## 9. Isolation invariants (each becomes a SQL test)
 
 1. A ballot's official, round, heat and entries all share one `event_id` (composite FKs).
@@ -209,11 +224,11 @@ Owner words (2026-10-24): "K0 O1–O5: Accept all five proposed fail-safe defaul
 
 | Slot | Owner | Contract sections |
 |---|---|---|
-| `20270101090000` | E1 officials | §3 officials, panels; §9 #2 |
-| `20270102090000` | E2 ballots | §3 ballots/marks; §4 lock/reopen; §9 #1 |
-| `20270104090000` | F2 results lifecycle | §3 results/approvals/events; §4 calculate/approve/correct/complete; §6; §8 |
+| `20270101090000` | E1 officials | §3 officials, panels, official_events; §9 #2 |
+| `20270102090000` | E2 ballots | §3 ballots/marks, judge_attendance, ballot_drafts, ballot_events; §4 lock/reopen; §9 #1 |
+| `20270104090000` | F2 results lifecycle | §3 results/approvals/events; §4 calculate/approve/correct/complete; §6; §8; §8 unified audit read |
 | `20270105090000` | F3 publication + read RPCs | §3 publications; §4 publish/withdraw; §7; §9 #4–#6 |
-| `20270106090000` | O1 day-of | §4 schedule/start/cancel round |
+| `20270106090000` | O1 day-of | §4 schedule/start/cancel round; §3 round_transition_events |
 | `20270107090000` | C1 closeout | §10 |
 
 `20270103090000` is held by R2 (CI-D refunds). Changes to this contract after approval go through the Competition
