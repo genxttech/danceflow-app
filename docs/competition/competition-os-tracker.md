@@ -74,7 +74,7 @@ State as of 2026-10-24 (checks from `statusCheckRollup`; "CI" means the *Typeche
 
 | PR | Slice | Head | Base | State | CI | QA evidence | Blocking item | Merge authorized |
 |---|---|---|---|---|---|---|---|---|
-| #291 | K0 scoring→results contract (docs + types, no SQL) | `d8a84fa7` | main | OPEN | SUCCESS (+ Vercel) | §4 K0 | Merged K1 specs (bf43cec3) reference it while it is still unmerged; Opus review; owner approval to freeze (O1–O5 APPROVED 2026-10-24) | none |
+| #291 | K0 scoring→results contract (docs + types, no SQL) | `fa510405` | main | OPEN | SUCCESS (+ Vercel) | §4 K0 | Merged K1 specs (bf43cec3) reference it while it is still unmerged; Opus review; owner approval to freeze (O1–O5 APPROVED 2026-10-24) | none |
 | #292 | R2 / CI-D entry refunds (SQL `20270103`, webhook, staff flow) | `f5775a0a` | main | OPEN, **draft** | SUCCESS | §4 R2, §4 W1 integration | Release gate: #320 desk balance must land first; K0 correction-event tie-in; real-DB clean-chain rerun before PROD SQL (operational classification APPROVED 2026-10-24) | none |
 | #293 | K1 Studio v1 engine specs (docs only) | `5fa47468` (squash-merged as `bf43cec3`) | main | **MERGED** 2026-10-25 05:13Z, `bf43cec3` (docs only, 12 files, with owner authorization) | no CI test job on this PR (docs only); Vercel SUCCESS | §4 K1 | Owner decisions D-OM / D-PR / D-CT (Stages 1–3 and Stage 4 architecture APPROVED 2026-10-24; Stage 4 methodology (K1-U etc.) open) | none |
 | #295 | CI-B atomic check-in (no SQL) | `399d90ce` | main | OPEN | SUCCESS (+ Vercel) | §4 CI-B | CB-1 APPROVED 2026-10-24 (instructor roles lose event check-in); CB-2 front-desk SQL is a separate stacked workstream (slot 0112) | none |
@@ -103,7 +103,7 @@ Main has no `2027*` migrations (latest on main: `20261230090000_twilio_rfl_pilot
 | `20270102090000` | E2 ballots | K0 §12 | in development (Git-only), stacked on E1 + O1 |
 | `20270103090000` | **R2** entry refunds | K0 §12; #292 | in #292, unmerged, local-DB only |
 | `20270104090000` | **RETIRED, never used.** Its original placement sorted F2 before O1, which F2 depends on | K0 §12 (update 2026-10-25, coordinator) | retired |
-| `20270113090000` | REG scoring-method registry (session reg-scoring-registry) | coordinator 2026-10-25 | in development; PR to be added when it opens |
+| `20270113090000` | REG scoring-method registry (session reg-scoring-registry) | coordinator 2026-10-25 | see PR row |
 | `20270114090000` | F2 results lifecycle; also redefines two E2 functions for `correction_open` (md5-pinned, with rollback) | coordinator 2026-10-25 | in development (session f2-results-lifecycle); PR to be added when it opens |
 | `20270105090000` | F3 publication + read RPCs | K0 §12 | not built |
 | `20270106090000` | O1 day-of (schedule/start/cancel round) | K0 §12 | in development (Git-only) |
@@ -348,3 +348,4 @@ Stage 3 and stage 4 duplicate-scan rows are the spec's own "fixme" markers; W3 i
 | 2026-10-25 | K1-U re-verification of 7b48abdc PASS recorded; section 3.3 carve-out nit fixed; #293 head `5fa47468`; reviewer asked to confirm. |
 | 2026-10-25 | #293 (K1 specs) squash-merged to main as `bf43cec3` (docs only, 12 files, owner-authorized). #291 (K0 contract) is still UNMERGED and the merged specs reference it. The UCWDC Majority Rules method stays UNAVAILABLE pending Q1–Q5 (Q4 also gates actual scoring). K1 row above shows the pre-merge head. |
 | 2026-10-25 | Migration slots: 20270104090000 RETIRED (never used); 20270113090000 REG; 20270114090000 F2; F1 (#337, draft on #291) has no migration. K0 §12 updated on #291 (head `1e4b4a86`). REG and F2 PRs to be added when they open. |
+| 2026-10-25 | K0 amendment for F2 on #291 (head `fa510405`): `result_invalidated` event kind, E2 reopen refused while a correction is open, two E2 functions redefined by 0114. Added REG #338 and F2 #339 (drafts). |
