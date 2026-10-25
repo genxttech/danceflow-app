@@ -68,3 +68,10 @@ Does not edit `competition/layout.tsx` or the access helper.
 - Helper functions are not executable by `service_role` (audit rows cannot be forged).
 - `complete` is terminal; if F2 needs to reopen after `complete`, the guard must be amended.
 - Notes for E2/F2: `set_competition_heat_lock_state` can lock a heat that never ran; a heat locked while `active` cannot be completed until reopened. The console shows one current heat for the whole event (single floor); multi-floor display is not built.
+
+## Test helper for other suites
+
+`src/lib/supabase/migrations/sql-tests/fixtures/competition_round_ready.sql` defines `pg_temp.compo1_fixture_publish_rounds(uuid[], actor)`,
+`compo1_fixture_publish_round(round, actor)` and `compo1_fixture_activate_round(round, actor)`. They go only through the real
+create/apply/publish and `schedule_competition_round` / `start_competition_round` functions (no bypasses) and assume E1's panel is ready.
+Load it before the suite (`run_o1_suite.sh` does this for O1's own section G).

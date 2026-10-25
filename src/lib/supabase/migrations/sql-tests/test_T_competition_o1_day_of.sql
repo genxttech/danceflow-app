@@ -7,6 +7,7 @@
 -- E1 competition_round_panel_ready is real until B2, then replaced by a transaction-local stand-in; F3 result_publications is a stub table (rolled back).
 -- (created below, rolled back with the transaction). The concurrent double start (needs a real second connection)
 -- lives in test_T_competition_o1_concurrency.sh.
+-- Section G uses fixtures/competition_round_ready.sql: run with run_o1_suite.sh (or: cat fixtures/competition_round_ready.sql <this file> | psql).
 
 begin;
 
@@ -396,6 +397,39 @@ select pg_temp.chk('F11 the internal helpers are not executable by API roles',
   and not has_function_privilege('service_role', 'public._compo1_record(uuid,uuid,uuid,text,text,text,uuid,uuid,text,jsonb)', 'EXECUTE'));
 select pg_temp.expect_msg('F12 no auth.uid() means not found',
   $q$select set_config('request.jwt.claims', '', true); select public.schedule_competition_round(pg_temp.u('006007'), pg_temp.u('0f0005'))$q$, 'COMPO1_NOT_FOUND');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- G. The reusable fixture helper (fixtures/competition_round_ready.sql) drives the real RPCs for the other studio's event
+-- ---------------------------------------------------------------------------
+insert into public.event_competition_dances (id, event_id, program_id, dance_key, name)
+values (pg_temp.u('004009'), pg_temp.u('00e002'), pg_temp.u('001002'), 'two_step', 'Two Step');
+insert into public.event_competition_division_dances (id, event_id, program_id, division_id, dance_id, sort_order)
+values (pg_temp.u('005091'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('003009'), pg_temp.u('004009'), 1);
+insert into public.event_competition_competitors (id, event_id, first_name, last_name, created_via)
+values (pg_temp.u('007019'), pg_temp.u('00e002'), 'Otto', 'Other', 'staff');
+insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
+values (pg_temp.u('008019'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('003009'), 'Otto Other', 'confirmed', 'eligible', '119');
+insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, dance_role, display_name, sort_order)
+values (pg_temp.u('00e002'), pg_temp.u('008019'), pg_temp.u('007019'), 'student', 'follower', 'Otto Other', 1);
+insert into public.event_competition_entry_dances (event_id, entry_id, division_dance_id, dance_key, dance_label)
+values (pg_temp.u('00e002'), pg_temp.u('008019'), pg_temp.u('005091'), 'offering', 'Offering');
+
+select set_config('o1.panel_ready', 'on', true);
+select pg_temp.expect_ok('G1 helper publishes a running order for the other studio''s round (real create/apply/publish)',
+  $q$insert into t_ids values ('v9', pg_temp.compo1_fixture_publish_round(pg_temp.u('006009'), pg_temp.u('000004')))$q$);
+select pg_temp.chk('G1 the round has one heat in the live published version, role restored',
+  pg_temp.n($q$select count(*) from public.event_competition_heats where round_id = pg_temp.u('006009') and schedule_version_id = pg_temp.id('v9') and status = 'scheduled'$q$) = 1
+  and pg_temp.s($q$select status from public.event_competition_schedule_versions where id = pg_temp.id('v9')$q$) = 'published'
+  and current_user = session_user);
+select pg_temp.chk('G2 helper activates the round through schedule + start (real RPCs, audit rows written)',
+  pg_temp.compo1_fixture_activate_round(pg_temp.u('006009'), pg_temp.u('000004')) = 'active'
+  and pg_temp.n($q$select count(*) from public.event_competition_round_transition_events where round_id = pg_temp.u('006009') and kind in ('round_scheduled', 'round_started')$q$) = 2);
+select pg_temp.as_user(pg_temp.u('000004'));
+select pg_temp.expect_ok('G3 a heat of the helper-activated round can be called to the floor',
+  $q$select public.advance_competition_floor_heat((select floor_heat_id from public.event_competition_heats where round_id = pg_temp.u('006009')), 'staging', pg_temp.u('0e0001'))$q$);
+select pg_temp.expect_msg('G4 the helper refuses rounds from different events',
+  $q$select pg_temp.compo1_fixture_publish_rounds(array[pg_temp.u('006009'), pg_temp.u('006007')], pg_temp.u('000004'))$q$, 'compo1_fixture');
 reset role;
 
 -- ============================================================================
