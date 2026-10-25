@@ -99,7 +99,7 @@ async function readRows(config: E2EConfig, table: string, columns: string, filte
 /** Everything money-related about one order, read with the service-role client. */
 export async function readOrderMoney(config: E2EConfig, eventId: string, orderId: string) {
   const [orders, items, refunds, allocations, registrations, entries] = await Promise.all([
-    readRows(config, "event_orders", "id, status, payment_status, total_amount, subtotal_amount, discount_amount", { id: orderId }),
+    readRows(config, "event_orders", "id, status, payment_status, settlement_state, total_amount, subtotal_amount, discount_amount", { id: orderId }),
     readRows(config, "event_order_items", "id, item_type, description, total_price, metadata", { order_id: orderId }),
     readRows(config, "event_order_refunds", "id, status, amount_cents, source, stripe_refund_id, stripe_payment_intent_id, stripe_account_id, refund_request_id, reason, succeeded_at", { order_id: orderId }),
     readRows(config, "event_order_refund_allocations", "refund_id, order_item_id, entry_id, line_kind, amount_cents, withdraw_entry, participation_outcome", { order_id: orderId }),

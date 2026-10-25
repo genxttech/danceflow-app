@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { E2EConfig } from "@/lib/e2e/config";
 import { E2ESafetyError } from "@/lib/e2e/guards";
@@ -116,6 +117,28 @@ export async function createCompetitionFullEventFixture(config: E2EConfig, optio
   }
 }
 
+/**
+ * R2 made the refund ledger append-only for every API role (COMP_REFUND_LEDGER_IMMUTABLE), so the service-role client cannot
+ * remove a test run's refund rows or SC1 scratch audit rows -- both are append-only by design. On a throwaway LOCAL QA database a run clears its own rows through the
+ * database container with replication triggers off (the documented pattern for this repo's other append-only test evidence).
+ * Needs E2E_LOCAL_DB_CONTAINER=supabase_db_<project>; refuses anything else. Only this run's event ids (UUIDs) are touched.
+ */
+async function purgeRefundLedgerLocal(eventIds: string[]): Promise<{ error: { message: string } | null }> {
+  const container = process.env.E2E_LOCAL_DB_CONTAINER ?? "";
+  if (!/^supabase_db_[a-z0-9-]+$/.test(container)) {
+    return { error: { message: "refund ledger rows are immutable through the API; set E2E_LOCAL_DB_CONTAINER=supabase_db_<local project> so the run can clear its own rows on the local QA database" } };
+  }
+  if (!eventIds.every((id) => /^[0-9a-f-]{36}$/.test(id))) return { error: { message: "refusing: malformed event id" } };
+  const list = eventIds.map((id) => `'${id}'`).join(",");
+  const sql = `begin; set local session_replication_role = replica; delete from public.event_order_refund_allocations where event_id in (${list}); delete from public.event_order_refunds where event_id in (${list}); delete from public.event_competition_scratches where event_id in (${list}); commit;`;
+  try {
+    execFileSync("docker", ["exec", "-i", container, "psql", "-U", "postgres", "-v", "ON_ERROR_STOP=1", "-q", "-c", sql], { stdio: "pipe" });
+    return { error: null };
+  } catch (error) {
+    return { error: { message: `local ledger cleanup failed: ${(error as Error).message.split(String.fromCharCode(10))[0]}` } };
+  }
+}
+
 /** Removes the seed and everything the UI created under the run's studio (events cascade to competition rows). */
 export async function cleanupCompetitionFullEventFixture(config: E2EConfig, fixture: CompetitionFullEventFixture | undefined) {
   if (!fixture) return;
@@ -136,8 +159,7 @@ export async function cleanupCompetitionFullEventFixture(config: E2EConfig, fixt
     allRegistrationIds = regIds;
     if (regIds.length) await step("event_payments", () => admin.from("event_payments").delete().in("registration_id", regIds));
     // R2 refund evidence is ON DELETE RESTRICT (financial history); the run's own rows go first, allocations before refunds.
-    await step("refund allocations", () => admin.from("event_order_refund_allocations").delete().in("event_id", eventIds));
-    await step("refunds", () => admin.from("event_order_refunds").delete().in("event_id", eventIds));
+    await step("refund ledger", async () => purgeRefundLedgerLocal(eventIds));
     await step("registration client links", () => admin.from("event_registrations").update({ client_id: null }).in("event_id", eventIds));
     // The event goes first: its cascade removes the competition rows together, and the published-running-order and
     // entry/order-item guards allow that only once the event itself is gone. Orders are then a safety net.

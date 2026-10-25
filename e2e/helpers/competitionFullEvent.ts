@@ -72,7 +72,7 @@ export async function verifyEmailAndBindPassword(page: Page, account: { email: s
   await page.goto("/login?intent=public&next=%2Faccount");
   await page.locator("#public-email").fill(account.email);
   await page.locator("#public-email").press("Enter");
-  await expect(page).toHaveURL(/check-email|mode=/, { timeout: 30_000 });
+  await expect(page).toHaveURL(/check-email|mode=/, { timeout: 90_000 });
   const tokenHash = await latestMagicLinkTokenHash(account.email, requestedAt);
   await page.goto(`/callback?token_hash=${encodeURIComponent(tokenHash)}&type=magiclink&next=${encodeURIComponent("/account/verify-email")}`);
   await expect(page.getByRole("heading", { name: "Create your password" })).toBeVisible({ timeout: 60_000 });

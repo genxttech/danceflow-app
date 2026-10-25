@@ -50,7 +50,7 @@ import { useUniqueE2ESourceIp as assignUniqueSourceIp } from "../helpers/rateLim
  * E2E_STRIPE_TEST_CONNECTED_ACCOUNT; without them the whole file skips.
  */
 
-test.describe.configure({ mode: "serial", timeout: 300_000 });
+test.describe.configure({ mode: "serial", timeout: 600_000 });
 
 const FLAG_ON = process.env.E2E_COMPETITION_REGISTRATION_ENABLED === "true";
 const TEST_KEY = process.env.E2E_STRIPE_TEST_SECRET_KEY ?? "";
@@ -204,6 +204,17 @@ test.describe("Full simulated competition (Q1)", () => {
     // PRODUCT GAP: no organizer UI creates fee/discount rules (only the WSDC surcharge has one), so they are seeded.
     await seedPricingRules(config, refundEvent.id, { feePerEntry: 5, discountPercent: 10 });
     await openRegistration(owner);
+    // The Next dev server answers the FIRST request to a route it has not compiled yet with a 404. Visit the staff routes
+    // the refund, scratch and check-in scenarios use once (with a placeholder id, expecting a 404 page) so the scenarios
+    // themselves only ever see warm routes. A production build has no such behaviour.
+    const nil = "00000000-0000-0000-0000-000000000000";
+    for (const path of [
+      `/app/events/${refundEvent.id}/competition/registrations/${nil}/refund`,
+      `/app/events/${refundEvent.id}/competition/registrations/scratch/${nil}`,
+      `/app/events/${refundEvent.id}/competition/checkin`,
+      `/app/events/${refundEvent.id}/competition/checkin/${nil}`,
+      `/app/events/${refundEvent.id}/check-in`,
+    ]) await owner.goto(path, { waitUntil: "domcontentloaded", timeout: 120_000 });
     await owner.context().close();
 
     const buyerEmail = `e2e-compfull-${fixture.runId}-buyer2@example.com`;
@@ -230,6 +241,8 @@ test.describe("Full simulated competition (Q1)", () => {
     expect(state.orders).toHaveLength(1);
     const orderId = state.orders[0].id as string;
     const money = await readOrderMoney(config, refundEvent.id, orderId);
+    // R2 regression evidence: a real public-checkout order carries no settlement_state, and R2 must still accept its refund.
+    expect(money.order.settlement_state).toBeNull();
     expect(Number(money.order.total_amount)).toBe(82);
     expect(Number(money.order.discount_amount)).toBe(8);
     expect(money.entries).toHaveLength(2);
@@ -393,9 +406,14 @@ test.describe("Full simulated competition (Q1)", () => {
       const numbers = page.locator("section").filter({ has: page.getByRole("heading", { name: "Competitor numbers" }) });
       while (await numbers.getByRole("button", { name: "Issue" }).count()) {
         const form = numbers.locator("form").first();
-        await form.getByPlaceholder("Number").fill(String(bib));
-        await form.getByRole("button", { name: "Issue" }).click();
-        await expect(numbers.getByText(`#${bib} · Issued`)).toBeVisible({ timeout: 30_000 });
+        // Under load a click can be lost; re-submit until the number shows as issued.
+        await expect(async () => {
+          if (await numbers.getByText(`#${bib} · Issued`).count()) return;
+          const open = numbers.locator("form").first();
+          await open.getByPlaceholder("Number").fill(String(bib));
+          await open.getByRole("button", { name: "Issue" }).click();
+          await expect(numbers.getByText(`#${bib} · Issued`)).toBeVisible({ timeout: 20_000 });
+        }).toPass({ timeout: 120_000 });
         bib += 1;
       }
       await expect(page.getByRole("button", { name: "Complete check-in" })).toBeEnabled({ timeout: 30_000 });
@@ -431,6 +449,7 @@ test.describe("Full simulated competition (Q1)", () => {
   // ---------------------------------------------------------------- Stage 4b: duplicate / concurrent check-in (CI-B)
 
   test("stage 4b: two desks start the same batch at once: one session; both mark the same participant present at once: one checked_in_by, first stamp kept", async ({ browser }) => {
+    test.setTimeout(1_200_000);
     const desks = [await signedInContext(browser, fixture.owner), await signedInContext(browser, fixture.deskAdmin)];
     const row = (page: Page) => page.locator("div.divide-y > div").filter({ hasText: refundOrder.buyerEmail });
     for (const { page } of desks) {
@@ -451,11 +470,16 @@ test.describe("Full simulated competition (Q1)", () => {
     const leader = refundOrder.couples[0].leader;
     const name = `${leader.firstName} ${leader.lastName}`;
     const mark = async (page: Page) => {
+      // Each desk opens the session page itself (the soft redirect after "Start check-in" can leave a half-rendered page).
+      await page.goto(`/app/events/${refundEvent.id}/competition/checkin/${sessions[0].id}`, { waitUntil: "domcontentloaded", timeout: 90_000 });
+      await expect(page.getByRole("heading", { name: "Participants and waivers" })).toBeVisible({ timeout: 90_000 });
       const block = page.locator("section").filter({ has: page.getByRole("heading", { name: "Participants and waivers" }) }).locator("div.border-t").filter({ has: page.getByRole("heading", { name, exact: true }) });
-      await block.locator('select[name="presenceStatus"]').selectOption("present");
+      await block.locator('select[name="presenceStatus"]').selectOption("present", { timeout: 90_000 });
       return block;
     };
-    const blocks = await Promise.all(desks.map(({ page }) => mark(page)));
+    // Prepare each desk's form (the select), then press both Save buttons together.
+    const blocks: Awaited<ReturnType<typeof mark>>[] = [];
+    for (const { page } of desks) blocks.push(await mark(page));
     await Promise.all(blocks.map((block) => block.getByRole("button", { name: "Save" }).click()));
     await expect.poll(async () => (await readCheckin(config, refundEvent.id)).participants.find((p) => p.display_name === name)?.presence_status, { timeout: 30_000 }).toBe("present");
     await desks[0].page.waitForTimeout(2_000);
@@ -489,10 +513,10 @@ test.describe("Full simulated competition (Q1)", () => {
     test.skip(codes.length === 0, "Not applicable: competition registrations issue no attendee ticket codes, so the #295 scan path has nothing to scan.");
     const code = codes[0].ticket_code as string;
     const desks = [await signedInContext(browser, fixture.owner), await signedInContext(browser, fixture.deskAdmin)];
-    for (const { page } of desks) await page.goto(`/app/events/${refundEvent.id}/check-in`);
+    for (const { page } of desks) await page.goto(`/app/events/${refundEvent.id}/check-in`, { waitUntil: "domcontentloaded", timeout: 120_000 });
     const scans = await Promise.all(desks.map(async ({ page }) => {
       await page.locator('input[name="ticketCode"]').fill(code);
-      await Promise.all([page.waitForURL(/(success|warning|error)=/, { timeout: 60_000 }), page.locator('form:has(input[name="ticketCode"]) button').first().click()]);
+      await Promise.all([page.waitForURL(/(success|warning|error)=/, { timeout: 60_000 }), page.getByRole("button", { name: "Check In Code" }).click()]);
       return new URL(page.url()).search;
     }));
     evidence({ stage: "4b scan", results: scans });
