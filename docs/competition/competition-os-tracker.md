@@ -76,7 +76,7 @@ State as of 2026-10-24 (checks from `statusCheckRollup`; "CI" means the *Typeche
 |---|---|---|---|---|---|---|---|---|
 | #291 | K0 scoring→results contract (docs + types, no SQL) | `d8a84fa7` | main | OPEN | SUCCESS (+ Vercel) | §4 K0 | Opus review; owner approval to freeze (O1–O5 APPROVED 2026-10-24) | none |
 | #292 | R2 / CI-D entry refunds (SQL `20270103`, webhook, staff flow) | `f5775a0a` | main | OPEN, **draft** | SUCCESS | §4 R2, §4 W1 integration | Release gate: #320 desk balance must land first; K0 correction-event tie-in; real-DB clean-chain rerun before PROD SQL (operational classification APPROVED 2026-10-24) | none |
-| #293 | K1 Studio v1 engine specs (docs only) | `c7e91cd8` | main | OPEN | no CI test job on this PR (docs only); Vercel SUCCESS | §4 K1 | Owner decisions D-OM / D-PR / D-CT (Stages 1–3 and Stage 4 architecture APPROVED 2026-10-24; Stage 4 methodology (K1-U etc.) open) | none |
+| #293 | K1 Studio v1 engine specs (docs only) | `c9386777` | main | OPEN | no CI test job on this PR (docs only); Vercel SUCCESS | §4 K1 | Owner decisions D-OM / D-PR / D-CT (Stages 1–3 and Stage 4 architecture APPROVED 2026-10-24; Stage 4 methodology (K1-U etc.) open) | none |
 | #295 | CI-B atomic check-in (no SQL) | `399d90ce` | main | OPEN | SUCCESS (+ Vercel) | §4 CI-B | CB-1 APPROVED 2026-10-24 (instructor roles lose event check-in); CB-2 front-desk SQL is a separate stacked workstream (slot 0112) | none |
 | #297 | Q1 full simulated competition E2E (stages 1, 2, 4) | `6d46c837` | main | OPEN | SUCCESS (+ Vercel); spec skips in CI | §4 Q1 | Later stages are `test.fixme` until their slices exist; W3 extension in progress locally (brief) | none |
 | #301 | SC1/CC1 scratch policy + credit design (docs only; also edits roadmap Phase 10) | `1d87deda` | main | OPEN | Vercel SUCCESS | Docs only | Owns the roadmap Phase 10 edit; owner S-D1/S-D2 recorded as applied in #306; CC-D1…D8 open | none |
@@ -270,7 +270,7 @@ Docs only; no runtime paths changed. No tests run.
 | Gate | Walkthrough | Waived for Git-only E1/E2/O1 development (decision 4 above). **Mandatory before those PRs merge or deploy**, and still gates public registration (organizer and "this is me" walkthroughs) | Roadmap v2.22 l.140, l.165; §1.5 |
 | K1 | D-PR-1…5 | `proficiency_rating` D-PR items: not decided; the three-band median proposal was REJECTED as a universal studio method (2026-10-24) and the key stays fail-closed. No studio medal method is approved | `scoring-architecture-decisions.md` §1.6 |
 | CC1 | CC-D1…D8 | Credit owner, redeemable scope, default expiry, accounting categories, partial refund + credit on one item, transferability, fee lines, platform fees on future orders | #301 doc §5 |
-| K1 Stage 4 | K1-U | UCWDC Majority Rules v16.9b full spec. Source `2026-Scoring-Format-v16.9b-1.pdf` sha `44290a06` (lists the 16-mark ProAm/ProPro scale, HM = 26 down to GG★ = 11). A "March 2026" edition is unconfirmed | `scoring-architecture-decisions.md` §2 |
+| K1 Stage 4 | K1-U | UCWDC Majority Rules v16.9b full spec: **DRAFT written** (`engine-spec-ucwdc-majority-rules.md`, #293), pending independent verification (separate read-only session recomputes all fixtures), then owner approval; method stays unavailable meanwhile. Source `2026-Scoring-Format-v16.9b-1.pdf` sha `44290a06` (lists the 16-mark ProAm/ProPro scale, HM = 26 down to GG★ = 11). A "March 2026" edition is unconfirmed | `scoring-architecture-decisions.md` §2 |
 | K1 Stage 4 | Studio medal method | No studio medal feedback or placement method is approved | same |
 | K1 Stage 4 | NDCA / WSDC | NDCA Skating System and WSDC Relative Placement: no authoritative algorithm source | same |
 | K1 Stage 4 | S4-2 / S4-7 / registry | S4-2 disclosure wording; S4-7 draft-migration/duplication workflow design; registry storage and its migration slot | same |
@@ -333,3 +333,4 @@ Stage 3 and stage 4 duplicate-scan rows are the spec's own "fixme" markers; W3 i
 | 2026-10-24 | Recorded K1 Stage 2 (callbacks) and Stage 3 (ordinal majority) approvals; #293 head `79d32f5a`; F1 blocked until Stage 4. |
 | 2026-10-24 | Recorded K1 Stage 4 scoring architecture (approved in principle) and its pending methodology; #293 head `c7e91cd8`. |
 | 2026-10-24 | K0 amendment (E2/O1/E1 tables, split audit with F2 unified read, method-specific X-3) on #291, head `d8a84fa7`. |
+| 2026-10-24 | K1-U draft UCWDC Majority Rules spec added on #293 (head `c9386777`); verification and owner approval pending. |
