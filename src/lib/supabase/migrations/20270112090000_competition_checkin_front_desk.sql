@@ -9,7 +9,7 @@
 --   2. Admission tables, least privilege (managers keep competition_manage = ALL):
 --        event_competition_checkin_sessions       front desk: select, insert, update  (start/recalculate/complete a session)
 --        event_competition_checkin_participants   front desk: select, insert, update  (arrival / presence)
---        event_competition_participant_waivers    front desk: select, insert, update  (staff-signed waiver is part of admission; upsert)
+--        event_competition_participant_waivers    front desk: select, insert          (staff-signed waiver is part of admission; signed rows immutable for it)
 --        event_competition_credentials            front desk: select, insert          (issue a number; voiding stays manager-only)
 --      No delete on any of them.
 --   3. Read-only (SELECT) for front desk on what the desk screen and the session recalculation read: entries, entry
@@ -73,7 +73,7 @@ begin
   foreach spec slice 1 in array array[
     array['event_competition_checkin_sessions', 'select,insert,update'],
     array['event_competition_checkin_participants', 'select,insert,update'],
-    array['event_competition_participant_waivers', 'select,insert,update'],
+    array['event_competition_participant_waivers', 'select,insert'],
     array['event_competition_credentials', 'select,insert']
   ] loop
     t := spec[1];
@@ -89,6 +89,139 @@ begin
     end loop;
   end loop;
 end $$;
+
+-- Review hardening (CB-2 security review P1/P2/P3): the front desk keeps raw INSERT/UPDATE on the admission tables
+-- (the desk screen recalculates and completes sessions itself), so a guard trigger makes the derived and
+-- money-relevant columns trustworthy when the caller is a plain API role without competition-manager rights.
+-- service_role and the superuser are not API roles and are exempt; the desk payment RPC runs under the caller's role setting and passes the guard on its own consistent writes.
+--   sessions:     registration/order/cart/event links are immutable; a new session starts in_progress and not complete;
+--                 payment_status 'complete' and status ready/complete need a zero balance computed from the order and
+--                 captured payments; balance_due must equal that computed balance; status complete also needs every
+--                 participant present/excused; waiver_status 'complete' needs every participant signed/waived/not_required;
+--                 entry_status 'complete' and status ready/complete need confirmed, eligible and verified entries;
+--                 completed_by must be the caller.
+--   participants: waiver_status 'waived' is manager-only; 'signed' needs a signed waiver row; 'not_required' needs no
+--                 required document; a present mark must carry the caller as checked_in_by.
+-- credentials: the front desk may insert only issued credentials issued/assigned by itself.
+-- waivers: no front-desk UPDATE policy (signed evidence is immutable for it; the app upserts with ignoreDuplicates).
+create or replace function public._cb2_guard_checkin_writes()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_total numeric;
+  v_paid numeric;
+  v_balance numeric;
+  v_order_ok boolean;
+  v_entries_ok boolean;
+begin
+  if coalesce(nullif(current_setting('role', true), ''), 'none') not in ('authenticated', 'anon') then
+    return new;
+  end if;
+  if public.can_manage_event_competition(new.event_id) then
+    return new;
+  end if;
+
+  if tg_table_name = 'event_competition_checkin_participants' then
+    if new.waiver_status = 'waived' and (tg_op = 'INSERT' or old.waiver_status is distinct from 'waived') then
+      raise exception 'CB2: only a competition manager can waive a waiver' using errcode = '42501';
+    end if;
+    if new.waiver_status = 'signed' and (tg_op = 'INSERT' or old.waiver_status is distinct from 'signed')
+       and not exists (select 1 from public.event_competition_participant_waivers w where w.checkin_participant_id = new.id) then
+      raise exception 'CB2: a participant is signed only after a waiver is recorded' using errcode = '42501';
+    end if;
+    if new.waiver_status = 'not_required' and (tg_op = 'INSERT' or old.waiver_status is distinct from 'not_required')
+       and exists (select 1 from public.event_document_requirements r where r.event_id = new.event_id and r.active = true and r.is_required = true) then
+      raise exception 'CB2: this event has required waivers' using errcode = '42501';
+    end if;
+    if new.presence_status = 'present' and (tg_op = 'INSERT' or old.presence_status is distinct from 'present')
+       and new.checked_in_by is distinct from auth.uid() then
+      raise exception 'CB2: arrival must be recorded by the signed-in user' using errcode = '42501';
+    end if;
+    return new;
+  end if;
+
+  -- sessions
+  if tg_op = 'UPDATE' then
+    if new.event_id is distinct from old.event_id or new.registration_id is distinct from old.registration_id
+       or new.order_id is distinct from old.order_id or new.registration_cart_id is distinct from old.registration_cart_id then
+      raise exception 'CB2: a check-in session cannot be re-linked' using errcode = '42501';
+    end if;
+  else
+    if new.status <> 'in_progress' or new.completed_at is not null or new.completed_by is not null
+       or new.payment_status = 'complete' or new.waiver_status = 'complete' or new.entry_status = 'complete' then
+      raise exception 'CB2: a new check-in session must start in progress' using errcode = '42501';
+    end if;
+    return new;
+  end if;
+
+  select coalesce(o.total_amount, 0), (o.payment_status not in ('refunded', 'failed') and o.status not in ('cancelled', 'expired', 'refunded'))
+  into v_total, v_order_ok
+  from public.event_orders o where o.id = new.order_id;
+  select coalesce(sum(p.amount), 0) into v_paid
+  from public.event_payments p where p.registration_id = new.registration_id and p.status in ('paid', 'refunded');
+  v_balance := greatest(round(coalesce(v_total, 0) - v_paid, 2), 0);
+  v_order_ok := coalesce(v_order_ok, false);
+
+  select exists (
+    select 1 from public.event_competition_entries e
+    where e.event_id = new.event_id
+      and ((new.registration_cart_id is not null and e.registration_cart_id = new.registration_cart_id)
+        or (new.registration_cart_id is null and e.registration_id = new.registration_id))
+  ) and not exists (
+    select 1 from public.event_competition_entries e
+    where e.event_id = new.event_id
+      and ((new.registration_cart_id is not null and e.registration_cart_id = new.registration_cart_id)
+        or (new.registration_cart_id is null and e.registration_id = new.registration_id))
+      and not (e.status in ('confirmed', 'complete') and e.eligibility_status in ('eligible', 'waived') and e.verification_status in ('verified', 'corrected'))
+  ) into v_entries_ok;
+
+  if new.balance_due is distinct from old.balance_due and new.balance_due <> v_balance then
+    raise exception 'CB2: balance_due must equal the order total minus captured payments' using errcode = '42501';
+  end if;
+  if new.payment_status = 'complete' and old.payment_status is distinct from 'complete' and not (v_balance = 0 and v_order_ok) then
+    raise exception 'CB2: payment cannot be marked complete while a balance is due' using errcode = '42501';
+  end if;
+  if new.waiver_status = 'complete' and old.waiver_status is distinct from 'complete'
+     and exists (select 1 from public.event_competition_checkin_participants cp where cp.checkin_session_id = new.id and cp.waiver_status not in ('signed', 'waived', 'not_required')) then
+    raise exception 'CB2: waivers cannot be marked complete while a participant is missing one' using errcode = '42501';
+  end if;
+  if new.entry_status = 'complete' and old.entry_status is distinct from 'complete' and not v_entries_ok then
+    raise exception 'CB2: entries cannot be marked complete before they are confirmed, eligible and verified' using errcode = '42501';
+  end if;
+  if new.status in ('ready', 'complete') and old.status is distinct from new.status then
+    if not (v_balance = 0 and v_order_ok and v_entries_ok) then
+      raise exception 'CB2: a session is ready only when paid in full with verified entries' using errcode = '42501';
+    end if;
+    if exists (select 1 from public.event_competition_checkin_participants cp where cp.checkin_session_id = new.id and cp.waiver_status not in ('signed', 'waived', 'not_required')) then
+      raise exception 'CB2: a session is ready only when every waiver is in' using errcode = '42501';
+    end if;
+    if new.status = 'complete' and exists (select 1 from public.event_competition_checkin_participants cp where cp.checkin_session_id = new.id and cp.presence_status not in ('present', 'excused')) then
+      raise exception 'CB2: a session completes only when every participant is present or excused' using errcode = '42501';
+    end if;
+  end if;
+  if new.completed_by is not null and new.completed_by is distinct from old.completed_by and new.completed_by is distinct from auth.uid() then
+    raise exception 'CB2: completion must be recorded by the signed-in user' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public._cb2_guard_checkin_writes() from public, anon, authenticated;
+
+drop trigger if exists cb2_guard_checkin_sessions on public.event_competition_checkin_sessions;
+create trigger cb2_guard_checkin_sessions before insert or update on public.event_competition_checkin_sessions
+for each row execute function public._cb2_guard_checkin_writes();
+drop trigger if exists cb2_guard_checkin_participants on public.event_competition_checkin_participants;
+create trigger cb2_guard_checkin_participants before insert or update on public.event_competition_checkin_participants
+for each row execute function public._cb2_guard_checkin_writes();
+
+-- Credentials: the front desk issues numbers as itself, as 'issued'; managers keep competition_manage (ALL).
+drop policy if exists competition_checkin_insert on public.event_competition_credentials;
+create policy competition_checkin_insert on public.event_competition_credentials for insert to authenticated
+with check (public.can_manage_event_competition(event_id)
+  or (public.can_check_in_event_competition(event_id) and status = 'issued' and issued_by = auth.uid() and assigned_by = auth.uid() and holder_type in ('participant', 'entry')));
 
 -- Read-only access to the rows the desk screen and the session recalculation read.
 do $$

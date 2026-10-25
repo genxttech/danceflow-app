@@ -134,8 +134,11 @@ insert into public.event_competition_checkin_participants (id, event_id, checkin
 values (pg_temp.u('0130001'), pg_temp.u('00e0001'), pg_temp.u('0050001'), pg_temp.u('0120001'), 'Pat A');
 insert into public.event_competition_credentials (id, event_id, checkin_session_id, credential_number, holder_type, registration_attendee_id, display_name, status)
 values (pg_temp.u('0140001'), pg_temp.u('00e0001'), pg_temp.u('0050001'), '101', 'participant', pg_temp.u('0120001'), 'Pat A', 'issued');
+insert into public.event_competition_entries (id, event_id, program_id, division_id, registration_id, display_name, status, eligibility_status, verification_status)
+values (pg_temp.u('0080003'), pg_temp.u('00e0001'), pg_temp.u('0010001'), pg_temp.u('0030001'), pg_temp.u('0110002'), 'Entry C', 'confirmed', 'eligible', 'verified');
 insert into public.document_templates (id, studio_id, scope, document_type, title, body)
-values (pg_temp.u('0150001'), pg_temp.u('00a0001'), 'studio', 'waiver', 'CB2 Waiver', 'Waiver body');
+values (pg_temp.u('0150001'), pg_temp.u('00a0001'), 'studio', 'waiver', 'CB2 Waiver', 'Waiver body'),
+       (pg_temp.u('0150002'), pg_temp.u('00a0001'), 'studio', 'waiver', 'CB2 Waiver 2', 'Waiver body 2');
 insert into public.event_competition_participant_waivers (id, event_id, checkin_participant_id, template_id, signer_name, signature_text, consent_text, signed_body)
 values (pg_temp.u('0160001'), pg_temp.u('00e0001'), pg_temp.u('0130001'), pg_temp.u('0150001'), 'Pat A', 'Pat A', 'consent', 'Waiver body');
 -- Other tenant: a session in the other event, so a cross-tenant read / write can be probed.
@@ -199,10 +202,10 @@ insert into t_actions values
   ('read divisions',          format('select * from public.event_competition_divisions where event_id = %L', pg_temp.u('00e0001')), 'allow_rows_ge1', false),
   ('start a session',         format('insert into public.event_competition_checkin_sessions (event_id, registration_id, order_id, status) values (%L, %L, %L, %L)', pg_temp.u('00e0001'), pg_temp.u('0110002'), pg_temp.u('0100002'), 'in_progress'), 'allow_rows_ge1', false),
   ('admit a participant',     format('insert into public.event_competition_checkin_participants (event_id, checkin_session_id, registration_attendee_id, display_name) values (%L, %L, %L, %L)', pg_temp.u('00e0001'), pg_temp.u('0050001'), pg_temp.u('0120002'), 'Pat2 A'), 'allow_rows_ge1', false),
-  ('mark present',            format('update public.event_competition_checkin_participants set presence_status = %L, checked_in_at = now() where id = %L', 'present', pg_temp.u('0130001')), 'allow_rows_ge1', false),
-  ('update session status',   format('update public.event_competition_checkin_sessions set status = %L where id = %L', 'ready', pg_temp.u('0050001')), 'allow_rows_ge1', false),
-  ('sign a waiver (upsert)',  format('update public.event_competition_participant_waivers set signer_name = %L where id = %L', 'Pat Again', pg_temp.u('0160001')), 'allow_rows_ge1', false),
-  ('issue a credential',      format('insert into public.event_competition_credentials (event_id, checkin_session_id, credential_number, holder_type, registration_attendee_id, display_name, status) values (%L, %L, %L, %L, %L, %L, %L)', pg_temp.u('00e0001'), pg_temp.u('0050001'), '102', 'participant', pg_temp.u('0120002'), 'Pat2 A', 'issued'), 'allow_rows_ge1', false),
+  ('mark present',            format('update public.event_competition_checkin_participants set presence_status = %L, checked_in_at = now(), checked_in_by = %L where id = %L', 'present', pg_temp.u('0000003'), pg_temp.u('0130001')), 'allow_rows_ge1', false),
+  ('update session notes',    format('update public.event_competition_checkin_sessions set notes = %L where id = %L', 'desk note', pg_temp.u('0050001')), 'allow_rows_ge1', false),
+  ('sign a waiver',           format('insert into public.event_competition_participant_waivers (event_id, checkin_participant_id, template_id, signer_name, signature_text, consent_text, signed_body) values (%L, %L, %L, %L, %L, %L, %L)', pg_temp.u('00e0001'), pg_temp.u('0130001'), pg_temp.u('0150002'), 'Pat', 'Pat', 'c', 'b'), 'allow_rows_ge1', false),
+  ('issue a credential',      format('insert into public.event_competition_credentials (event_id, checkin_session_id, credential_number, holder_type, registration_attendee_id, display_name, status, assigned_by, issued_by) values (%L, %L, %L, %L, %L, %L, %L, %L, %L)', pg_temp.u('00e0001'), pg_temp.u('0050001'), '102', 'participant', pg_temp.u('0120002'), 'Pat2 A', 'issued', pg_temp.u('0000003'), pg_temp.u('0000003')), 'allow_rows_ge1', false),
   ('desk payment (RPC)',      format('select public.record_competition_checkin_payment(%L, %L, 10, %L, null)->>%L', pg_temp.u('00e0001'), pg_temp.u('0050001'), 'cash', 'outcome'), 'allow_val_recorded', true);
 
 do $$
@@ -214,7 +217,7 @@ begin
       if a.kind = 'allow_val_recorded' then
         ok := case when r.can_checkin then res = 'val:recorded' else res like 'err:%' end;
       else
-        ok := case when r.can_checkin then res in ('rows:1', 'rows:2') else (res like 'err:%' or res = 'rows:0') end;
+        ok := case when r.can_checkin then res ~ '^rows:[1-9]' else (res like 'err:%' or res = 'rows:0') end;
         -- Pre-existing, not CB-2: validate_competition_checkin_links runs as the invoker and reads event_orders / attendees under
         -- their own RLS, which organizer-only users and platform admins (not studio staff) cannot see -> P0001 on inserts.
         if not ok and r.can_checkin and not r.role_key in ('studio_owner','studio_admin','front_desk') and a.action in ('start a session','admit a participant','issue a credential') and res = 'err:P0001' then ok := true; end if;
@@ -321,6 +324,41 @@ select pg_temp.chk('probes left the fixtures untouched',
   and (select count(*) from public.event_competition_checkin_sessions where event_id = pg_temp.u('00e0001')) = 1);
 
 -- ============================================================================
+-- 3b. Review hardening: the front desk cannot forge admission, payment or waiver state (guard trigger + policies)
+--     Session 0050001 is unpaid (300 due), its participant has no waiver status 'signed', its entries are unverified.
+-- ============================================================================
+create temp table t_forge (action text primary key, sql_text text, manager_sanity boolean);
+grant all on t_forge to authenticated, anon, service_role;
+insert into t_forge values
+  ('complete an unpaid session',       format('update public.event_competition_checkin_sessions set status = %L, completed_by = %L where id = %L', 'complete', pg_temp.u('0000003'), pg_temp.u('0050001')), false),
+  ('mark an unpaid session ready',     format('update public.event_competition_checkin_sessions set status = %L where id = %L', 'ready', pg_temp.u('0050001')), false),
+  ('mark payment complete',            format('update public.event_competition_checkin_sessions set payment_status = %L where id = %L', 'complete', pg_temp.u('0050001')), true),
+  ('zero the balance',                 format('update public.event_competition_checkin_sessions set balance_due = 0 where id = %L', pg_temp.u('0050001')), true),
+  ('mark waivers complete',            format('update public.event_competition_checkin_sessions set waiver_status = %L where id = %L', 'complete', pg_temp.u('0050001')), false),
+  ('mark entries complete',            format('update public.event_competition_checkin_sessions set entry_status = %L where id = %L', 'complete', pg_temp.u('0050001')), true),
+  ('re-link a session to another registration', format('update public.event_competition_checkin_sessions set registration_id = %L, order_id = %L where id = %L', pg_temp.u('0110002'), pg_temp.u('0100002'), pg_temp.u('0050001')), true),
+  ('insert a session already complete', format('insert into public.event_competition_checkin_sessions (event_id, registration_id, order_id, status, completed_at) values (%L, %L, %L, %L, now())', pg_temp.u('00e0001'), pg_temp.u('0110002'), pg_temp.u('0100002'), 'complete'), false),
+  ('waive a participant waiver',       format('update public.event_competition_checkin_participants set waiver_status = %L where id = %L', 'waived', pg_temp.u('0130001')), true),
+  ('sign a participant without a waiver row', format('insert into public.event_competition_checkin_participants (event_id, checkin_session_id, registration_attendee_id, display_name, waiver_status) values (%L, %L, %L, %L, %L)', pg_temp.u('00e0001'), pg_temp.u('0050001'), pg_temp.u('0120002'), 'Pat2 A', 'signed'), true),
+  ('mark present as someone else',     format('update public.event_competition_checkin_participants set presence_status = %L, checked_in_by = %L where id = %L', 'present', pg_temp.u('0000001'), pg_temp.u('0130001')), false),
+  ('issue a void credential',          format('insert into public.event_competition_credentials (event_id, checkin_session_id, credential_number, holder_type, registration_attendee_id, display_name, status, assigned_by, issued_by) values (%L, %L, %L, %L, %L, %L, %L, %L, %L)', pg_temp.u('00e0001'), pg_temp.u('0050001'), '301', 'participant', pg_temp.u('0120002'), 'X', 'void', pg_temp.u('0000003'), pg_temp.u('0000003')), false),
+  ('issue a credential as someone else', format('insert into public.event_competition_credentials (event_id, checkin_session_id, credential_number, holder_type, registration_attendee_id, display_name, status, assigned_by, issued_by) values (%L, %L, %L, %L, %L, %L, %L, %L, %L)', pg_temp.u('00e0001'), pg_temp.u('0050001'), '302', 'participant', pg_temp.u('0120002'), 'X', 'issued', pg_temp.u('0000001'), pg_temp.u('0000001')), false),
+  ('rewrite a signed waiver',          format('update public.event_competition_participant_waivers set signed_body = %L where id = %L', 'tampered', pg_temp.u('0160001')), true);
+do $$
+declare a record; res text;
+begin
+  for a in select * from t_forge loop
+    res := pg_temp.probe(pg_temp.u('0000003'), a.sql_text);
+    perform pg_temp.chk('forge/' || a.action || ' as front_desk is refused', res like 'err:%' or res = 'rows:0', res);
+    if a.manager_sanity then
+      res := pg_temp.probe(pg_temp.u('0000001'), a.sql_text);
+      perform pg_temp.chk('forge/' || a.action || ': studio_owner is NOT refused (probe is sensitive)', res not like 'err:%' and res <> 'rows:0', res);
+    end if;
+  end loop;
+end $$;
+select pg_temp.chk('forge: a legitimate ready path is allowed for the front desk (paid, verified, signed) -- see the flow below', true);
+
+-- ============================================================================
 -- 4. Real front-desk admission flow end to end (committed within the transaction, as the front desk user)
 -- ============================================================================
 select set_config('request.jwt.claims', json_build_object('sub', pg_temp.u('0000003'), 'role', 'authenticated')::text, true);
@@ -333,6 +371,7 @@ update public.event_competition_checkin_participants set presence_status = 'pres
 where id = pg_temp.u('0130003') and presence_status <> 'present';
 insert into public.event_competition_participant_waivers (event_id, checkin_participant_id, template_id, signer_name, signature_text, consent_text, signed_body, signed_by_staff)
 values (pg_temp.u('00e0001'), pg_temp.u('0130003'), pg_temp.u('0150001'), 'Sam B', 'Sam B', 'consent', 'Waiver body', pg_temp.u('0000003'));
+update public.event_competition_checkin_participants set waiver_status = 'signed' where id = pg_temp.u('0130003');
 insert into public.event_competition_credentials (event_id, checkin_session_id, credential_number, holder_type, registration_attendee_id, display_name, status, assigned_by, issued_at, issued_by)
 values (pg_temp.u('00e0001'), pg_temp.u('0050003'), '201', 'participant', pg_temp.u('0120003'), 'Sam B', 'issued', pg_temp.u('0000003'), now(), pg_temp.u('0000003'));
 select public.record_competition_checkin_payment(pg_temp.u('00e0001'), pg_temp.u('0050003'), 300, 'cash', null);

@@ -148,6 +148,9 @@ begin
   end loop;
 end $$;
 
+drop trigger if exists cb2_guard_checkin_sessions on public.event_competition_checkin_sessions;
+drop trigger if exists cb2_guard_checkin_participants on public.event_competition_checkin_participants;
+drop function if exists public._cb2_guard_checkin_writes();
 drop function if exists public.can_check_in_event_competition(uuid);
 
 do $$
