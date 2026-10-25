@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { expect, type Browser, type Page, type TestInfo } from "@playwright/test";
 import type { E2EConfig } from "@/lib/e2e/config";
@@ -310,17 +311,33 @@ export async function startCompetitionWithJudging(page: Page, style: "Country" |
 
 // ------------------------------------------------------------------ NS1 (heat no-shows, #342)
 
-/** True when the system under test includes NS1's tables (the spec skips the no-show scenarios otherwise). */
-export async function ns1Present(config: E2EConfig): Promise<boolean> {
-  const { error } = await e2eAdminClient(config).from("event_competition_heat_no_shows").select("id", { head: true, count: "exact" });
-  return !error;
+/**
+ * NS1's no-show tables are append-only and closed to every API role (reads go through RPCs that need a signed-in
+ * official), so the harness reads them READ-ONLY through the local database container, like the ledger teardown does.
+ * Needs E2E_LOCAL_DB_CONTAINER=supabase_db_<local project>; refuses anything else.
+ */
+function localPsqlJson(sql: string): unknown {
+  const container = process.env.E2E_LOCAL_DB_CONTAINER ?? "";
+  if (!/^supabase_db_[a-z0-9-]+$/.test(container)) throw new Error("set E2E_LOCAL_DB_CONTAINER=supabase_db_<local project> to read the no-show history");
+  const out = execFileSync("docker", ["exec", "-i", container, "psql", "-U", "postgres", "-At", "-v", "ON_ERROR_STOP=1", "-c", `begin read only; ${sql}; commit`], { encoding: "utf8" });
+  const line = out.split(String.fromCharCode(10)).find((l) => l.startsWith("[") || l.startsWith("{"));
+  return line ? JSON.parse(line) : null;
 }
 
-export async function readNoShows(config: E2EConfig, eventId: string) {
-  const [marks, voids] = await Promise.all([
-    rows(config, "event_competition_heat_no_shows", "id, round_id, heat_id, heat_entry_id, entry_id, reason, marked_by, request_id", { event_id: eventId }),
-    rows(config, "event_competition_heat_no_show_voids", "id, no_show_id, reason, voided_by", { event_id: eventId }),
-  ]);
+/** True when the system under test includes NS1's tables (the spec skips the no-show scenarios otherwise). */
+export async function ns1Present(_config: E2EConfig): Promise<boolean> {
+  try {
+    const out = execFileSync("docker", ["exec", "-i", process.env.E2E_LOCAL_DB_CONTAINER ?? "", "psql", "-U", "postgres", "-At", "-c", "select to_regclass('public.event_competition_heat_no_shows') is not null"], { encoding: "utf8" });
+    return out.trim().split(String.fromCharCode(10)).includes("t");
+  } catch {
+    return false;
+  }
+}
+
+export async function readNoShows(_config: E2EConfig, eventId: string) {
+  if (!/^[0-9a-f-]{36}$/.test(eventId)) throw new Error("malformed event id");
+  const marks = (localPsqlJson(`select coalesce(json_agg(row_to_json(t)), '[]'::json) from (select id, round_id, heat_id, heat_entry_id, entry_id, reason, marked_by, request_id from public.event_competition_heat_no_shows where event_id = '${eventId}' order by marked_at) t`) ?? []) as Row[];
+  const voids = (localPsqlJson(`select coalesce(json_agg(row_to_json(t)), '[]'::json) from (select id, no_show_id, reason, voided_by from public.event_competition_heat_no_show_voids where event_id = '${eventId}' order by voided_at) t`) ?? []) as Row[];
   return { marks, voids, active: marks.filter((mark) => !voids.some((v) => v.no_show_id === mark.id)) };
 }
 
