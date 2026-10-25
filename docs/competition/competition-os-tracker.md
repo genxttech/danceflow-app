@@ -74,7 +74,7 @@ State as of 2026-10-24 (checks from `statusCheckRollup`; "CI" means the *Typeche
 
 | PR | Slice | Head | Base | State | CI | QA evidence | Blocking item | Merge authorized |
 |---|---|---|---|---|---|---|---|---|
-| #291 | K0 scoring→results contract (docs + types, no SQL) | `0ea4e10b` | main | OPEN | SUCCESS (+ Vercel) | §4 K0 | Opus review; owner approval to freeze (O1–O5 APPROVED 2026-10-24) | none |
+| #291 | K0 scoring→results contract (docs + types, no SQL) | `d8a84fa7` | main | OPEN | SUCCESS (+ Vercel) | §4 K0 | Opus review; owner approval to freeze (O1–O5 APPROVED 2026-10-24) | none |
 | #292 | R2 / CI-D entry refunds (SQL `20270103`, webhook, staff flow) | `f5775a0a` | main | OPEN, **draft** | SUCCESS | §4 R2, §4 W1 integration | Release gate: #320 desk balance must land first; K0 correction-event tie-in; real-DB clean-chain rerun before PROD SQL (operational classification APPROVED 2026-10-24) | none |
 | #293 | K1 Studio v1 engine specs (docs only) | `c7e91cd8` | main | OPEN | no CI test job on this PR (docs only); Vercel SUCCESS | §4 K1 | Owner decisions D-OM / D-PR / D-CT (Stages 1–3 and Stage 4 architecture APPROVED 2026-10-24; Stage 4 methodology (K1-U etc.) open) | none |
 | #295 | CI-B atomic check-in (no SQL) | `399d90ce` | main | OPEN | SUCCESS (+ Vercel) | §4 CI-B | CB-1 APPROVED 2026-10-24 (instructor roles lose event check-in); CB-2 front-desk SQL is a separate stacked workstream (slot 0112) | none |
@@ -332,3 +332,4 @@ Stage 3 and stage 4 duplicate-scan rows are the spec's own "fixme" markers; W3 i
 | 2026-10-24 | Recorded K1 Stage 1 (X-1…X-7) approval. |
 | 2026-10-24 | Recorded K1 Stage 2 (callbacks) and Stage 3 (ordinal majority) approvals; #293 head `79d32f5a`; F1 blocked until Stage 4. |
 | 2026-10-24 | Recorded K1 Stage 4 scoring architecture (approved in principle) and its pending methodology; #293 head `c7e91cd8`. |
+| 2026-10-24 | K0 amendment (E2/O1/E1 tables, split audit with F2 unified read, method-specific X-3) on #291, head `d8a84fa7`. |
