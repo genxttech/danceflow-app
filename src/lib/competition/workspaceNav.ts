@@ -34,7 +34,7 @@ export function competitionNav(eventId: string): CompetitionNavItem[] {
     { key: "divisions", label: "Divisions", href: `${base}/divisions`, available: true },
     { key: "schedule", label: "Schedule & Heats", href: `${base}/schedule`, available: true },
     { key: "officials", label: "Officials", href: `${base}/officials`, available: true },
-    { key: "scoring", label: "Scoring", href: null, available: false, note: LATER },
+    { key: "scoring", label: "Ballots", href: `${base}/ballots`, available: true },
     { key: "results", label: "Results", href: null, available: false, note: LATER },
     { key: "awards", label: "Awards", href: null, available: false, note: LATER },
     { key: "settings", label: "Settings", href: `${base}/settings`, available: true },
@@ -50,6 +50,7 @@ export function activeNavKey(eventId: string, pathname: string): CompetitionNavK
   if (rest.startsWith("/divisions")) return "divisions";
   if (rest.startsWith("/schedule") || rest.startsWith("/readiness") || rest.startsWith("/generation") || rest.startsWith("/advanced/schedule")) return "schedule";
   if (rest.startsWith("/officials")) return "officials";
+  if (rest.startsWith("/ballots")) return "scoring";
   if (rest.startsWith("/settings") || rest.startsWith("/advanced")) return "settings";
   return "overview";
 }
