@@ -34,7 +34,7 @@ describe("workspace components render", () => {
     expect(html).toContain("Overview");
     expect(html).toContain('aria-current="page"');
     expect(html.match(/aria-disabled="true"/g)?.length).toBe(2);
-    for (const label of ["Officials", "Ballots", "Results", "Awards"]) expect(html).toContain(label);
+    for (const label of ["Day-of", "Officials", "Ballots", "Results", "Awards"]) expect(html).toContain(label);
     expect(html).not.toMatch(/href="[^"]*(results|awards)/);
     expect(html).toContain('href="/app/events/e1/competition/divisions"');
   });

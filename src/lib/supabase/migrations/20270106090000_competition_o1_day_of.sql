@@ -4,7 +4,7 @@
 --   1. Round transition writers, exactly one per transition, SECURITY DEFINER, row lock on the round,
 --      idempotent on a client request id, one audit row each:
 --        schedule_competition_round  draft -> scheduled
---        start_competition_round     scheduled -> active   (fails closed until E1's competition_round_panel_ready exists)
+--        start_competition_round     scheduled -> active   (needs E1 competition_round_panel_ready)
 --        cancel_competition_round    any non-terminal -> cancelled (refused once a publication exists)
 --   2. Heat day-of writer (scheduled -> staging -> active -> complete) for the numbered floor heat; reuses the
 --      existing heat statuses and the 10A heat lock state (locked / certified heats are refused). It never edits
@@ -16,8 +16,8 @@
 -- minimal, append-only event_competition_round_transition_events instead (same append-only trigger as 10A history).
 -- F2 may keep both or fold this table into result_events later; nothing here depends on F2.
 --
--- Dependencies are checked, not assumed: competition_round_panel_ready(uuid) (E1) and
--- event_competition_result_publications (F3) are looked up with to_regprocedure / to_regclass at call time.
+-- Hard dependency: E1 competition_round_panel_ready(uuid) (migration 20270101090000), checked by the preflight below.
+-- Soft: event_competition_result_publications (F3) is looked up with to_regclass at call time (F3 is not merged yet).
 
 do $$
 begin
@@ -25,6 +25,9 @@ begin
      or to_regprocedure('public.protect_competition_history_evidence()') is null
      or to_regprocedure('public.set_competition_heat_lock_state(uuid,text,text)') is null then
     raise exception 'O1 preflight: 10A competition authority is not installed.';
+  end if;
+  if to_regprocedure('public.competition_round_panel_ready(uuid)') is null then
+    raise exception 'O1 preflight: E1 officials (competition_round_panel_ready) is not installed.';
   end if;
   if to_regclass('public.event_competition_floor_heats') is null then
     raise exception 'O1 preflight: 10D floor heats are not installed.';
@@ -105,7 +108,7 @@ as $$
   order by v.published_at desc nulls last, v.created_at desc
   limit 1;
 $$;
-revoke all on function public._compo1_live_version(uuid) from public, anon, authenticated;
+revoke all on function public._compo1_live_version(uuid) from public, anon, authenticated, service_role;
 
 -- Heats of the round that count for readiness: not cancelled, and not parked in a draft or superseded version.
 create function public._compo1_round_heat_state(p_round_id uuid)
@@ -124,7 +127,7 @@ as $$
       where h.round_id = lv.round_id and h.status <> 'cancelled' and h.schedule_version_id is null)
   from lv;
 $$;
-revoke all on function public._compo1_round_heat_state(uuid) from public, anon, authenticated;
+revoke all on function public._compo1_round_heat_state(uuid) from public, anon, authenticated, service_role;
 
 create function public._compo1_lock_event(p_event_id uuid)
 returns void
@@ -132,7 +135,7 @@ language sql
 as $$
   select pg_advisory_xact_lock(hashtextextended('compo1:' || p_event_id::text, 0));
 $$;
-revoke all on function public._compo1_lock_event(uuid) from public, anon, authenticated;
+revoke all on function public._compo1_lock_event(uuid) from public, anon, authenticated, service_role;
 
 create function public._compo1_record(
   p_event_id uuid, p_round_id uuid, p_heat_id uuid, p_kind text, p_from text, p_to text,
@@ -149,7 +152,7 @@ as $$
     p_event_id, p_round_id, p_heat_id, p_kind, p_from, p_to, p_actor, p_request_id, p_reason, coalesce(p_refs, '{}'::jsonb)
   );
 $$;
-revoke all on function public._compo1_record(uuid, uuid, uuid, text, text, text, uuid, uuid, text, jsonb) from public, anon, authenticated;
+revoke all on function public._compo1_record(uuid, uuid, uuid, text, text, text, uuid, uuid, text, jsonb) from public, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- 3. Guards: no direct status writes
@@ -191,10 +194,21 @@ begin
         using errcode = '42501';
     end if;
   end if;
+  -- Static K0 section 4 edge list (E2 lock/reopen, F2 calculate/approve/correct/complete, F3 publish). A new edge
+  -- needs this list amended in the owning migration. Skip-ahead edges (draft -> active, scheduled -> calculated, any -> draft) are refused.
+  if new.status <> 'cancelled' and (old.status, new.status) not in (
+    ('draft', 'scheduled'), ('scheduled', 'active'),
+    ('active', 'ballots_locked'), ('ballots_locked', 'active'),
+    ('ballots_locked', 'calculated'), ('calculated', 'approved'), ('approved', 'published'), ('published', 'complete'),
+    ('calculated', 'ballots_locked'), ('approved', 'ballots_locked'), ('published', 'ballots_locked')
+  ) then
+    raise exception 'COMPO1_ROUND_EDGE: % -> % is not a round transition in the K0 state machine.', old.status, new.status
+      using errcode = '23514';
+  end if;
   return new;
 end;
 $$;
-revoke all on function public._compo1_guard_round_status() from public, anon, authenticated;
+revoke all on function public._compo1_guard_round_status() from public, anon, authenticated, service_role;
 
 create trigger compo1_guard_round_status
   before insert or update of status on public.event_competition_rounds
@@ -214,6 +228,12 @@ begin
         using errcode = '42501';
     end if;
     return new;
+  end if;
+  -- A heat that has started running keeps its identity: it cannot move to another round, division, floor heat or version.
+  if old.status = any (c_run)
+     and (new.round_id, new.division_id, new.floor_heat_id, new.schedule_version_id)
+         is distinct from (old.round_id, old.division_id, old.floor_heat_id, old.schedule_version_id) then
+    raise exception 'COMPO1_HEAT_FROZEN: a heat that has started running cannot be moved.' using errcode = '23514';
   end if;
   if new.status is not distinct from old.status then
     return new;
@@ -237,10 +257,10 @@ begin
   return new;
 end;
 $$;
-revoke all on function public._compo1_guard_heat_status() from public, anon, authenticated;
+revoke all on function public._compo1_guard_heat_status() from public, anon, authenticated, service_role;
 
 create trigger compo1_guard_heat_status
-  before insert or update of status on public.event_competition_heats
+  before insert or update of status, round_id, division_id, floor_heat_id, schedule_version_id on public.event_competition_heats
   for each row execute function public._compo1_guard_heat_status();
 
 -- A new running order copies scoring heats as `scheduled` (10D), which would erase day-of progress. Publishing is
@@ -251,22 +271,35 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
+declare
+  v_touches boolean;
 begin
-  if new.status in ('published', 'live') and old.status not in ('published', 'live')
-     and exists (
-       select 1 from public.event_competition_heats h
-       where h.event_id = new.event_id and h.status in ('staging', 'active', 'complete')
-     ) then
-    raise exception 'COMPO1_RUN_IN_PROGRESS: heats have already started running; the running order cannot be republished.'
-      using errcode = '23514';
+  v_touches := new.status in ('published', 'live');
+  if tg_op = 'UPDATE' then
+    if new.status is not distinct from old.status then
+      return new;
+    end if;
+    v_touches := v_touches or old.status in ('published', 'live');
+  end if;
+  if v_touches then
+    -- Same per-event lock as the day-of writers: a publish and a heat call serialize, so neither can miss the other's
+    -- committed state (the next statement takes a fresh snapshot after the lock).
+    perform public._compo1_lock_event(new.event_id);
+    if exists (
+      select 1 from public.event_competition_heats h
+      where h.event_id = new.event_id and h.status in ('staging', 'active', 'complete')
+    ) then
+      raise exception 'COMPO1_RUN_IN_PROGRESS: heats have already started running; the running order cannot change status.'
+        using errcode = '23514';
+    end if;
   end if;
   return new;
 end;
 $$;
-revoke all on function public._compo1_guard_publish_during_run() from public, anon, authenticated;
+revoke all on function public._compo1_guard_publish_during_run() from public, anon, authenticated, service_role;
 
 create trigger compo1_guard_publish_during_run
-  before update of status on public.event_competition_schedule_versions
+  before insert or update of status on public.event_competition_schedule_versions
   for each row execute function public._compo1_guard_publish_during_run();
 
 -- ---------------------------------------------------------------------------
@@ -364,11 +397,9 @@ begin
   if v_state.live_version_id is null or v_state.unplaced_heats > 0 or v_state.live_heats = 0 then
     raise exception 'COMPO1_NO_HEATS: the round needs at least one heat in the published running order.' using errcode = '23514';
   end if;
-  -- Panel readiness is E1's contract. Until it exists the start fails closed.
-  if to_regprocedure('public.competition_round_panel_ready(uuid)') is null then
-    raise exception 'COMPO1_PANEL_UNAVAILABLE: panel readiness is not installed; the round cannot be started.' using errcode = '23514';
-  end if;
-  execute 'select public.competition_round_panel_ready($1)' into v_ready using p_round_id;
+  -- Panel readiness is E1's contract (20270101090000, a hard dependency checked by the preflight). The round row is
+  -- already locked FOR UPDATE above, so E1's panel freeze (FOR SHARE on the round) cannot interleave with this check.
+  v_ready := public.competition_round_panel_ready(p_round_id);
   if v_ready is distinct from true then
     raise exception 'COMPO1_PANEL_NOT_READY: assign the officials panel before starting the round.' using errcode = '23514';
   end if;
@@ -431,6 +462,10 @@ begin
   end if;
 
   perform public._compo1_record(v_event, p_round_id, null, 'round_cancelled', v_status, 'cancelled', v_actor, p_request_id, v_reason, '{}'::jsonb);
+  -- Heats that have not run leave the running order with the round, so a numbered heat shared with another round is not
+  -- blocked by the cancelled one (complete heats stay as the record of what was danced).
+  update public.event_competition_heats set status = 'cancelled', updated_at = now()
+  where round_id = p_round_id and status in ('draft', 'scheduled') and lock_state = 'open';
   update public.event_competition_rounds set status = 'cancelled', updated_at = now() where id = p_round_id;
   return jsonb_build_object('replayed', false, 'round_id', p_round_id, 'status', 'cancelled');
 end;
@@ -550,7 +585,7 @@ grant execute on function public.advance_competition_floor_heat(uuid, text, uuid
 comment on function public.schedule_competition_round(uuid, uuid) is
   'O1: draft -> scheduled. Manager only; every heat of the round must be in the live published schedule version. Idempotent on the request id.';
 comment on function public.start_competition_round(uuid, uuid) is
-  'O1: scheduled -> active. Manager only; needs at least one published heat and E1 competition_round_panel_ready(round). Fails closed when E1 is absent.';
+  'O1: scheduled -> active. Manager only; needs at least one published heat and E1 competition_round_panel_ready(round). Hard dependency on E1.';
 comment on function public.cancel_competition_round(uuid, text, uuid) is
   'O1: any non-terminal -> cancelled with a reason. Refused when a result publication exists or a heat is on the floor.';
 comment on function public.advance_competition_floor_heat(uuid, text, uuid) is

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Competition O1 -- concurrent double start with a REAL second connection.
 #
-# Needs a disposable Postgres with the O1 migration applied (never a hosted database). Fixtures are committed, then
+# Needs a disposable Postgres with E1 and O1 applied (E1 readiness is overridden during the run and restored) (never a hosted database). Fixtures are committed, then
 # removed again at the end (the event delete cascades the append-only audit rows; the 10A history trigger allows exactly that).
 #   CONTAINER=o1-db sh test_T_competition_o1_concurrency.sh
 # The synthetic studio/user rows are left in place (a studio delete cascades through the whole schema and is slow); only the event is removed.
@@ -22,18 +22,17 @@ bad() { echo "FAIL $1"; FAIL=1; }
 cleanup() {
   $P >/dev/null 2>&1 <<SQL
 delete from public.events where id = '$E';
-drop function if exists public.competition_round_panel_ready(uuid);
 SQL
+  # Put E1's real readiness function back (the run replaces it with a stand-in).
+  if [ -n "${RESTORE:-}" ]; then $P -c "$RESTORE" >/dev/null 2>&1; fi
 }
 
-if [ "$($P -c "select to_regprocedure('public.competition_round_panel_ready(uuid)') is not null")" = "t" ]; then
-  echo "BLOCKED: competition_round_panel_ready already exists in this database; refusing to replace it"
-  exit 3
-fi
+RESTORE="$($P -c "select pg_get_functiondef('public.competition_round_panel_ready(uuid)'::regprocedure)")"
+if [ -z "$RESTORE" ]; then echo "BLOCKED: E1 competition_round_panel_ready is not installed"; exit 3; fi
 cleanup
 
 $P <<SQL || { echo "BLOCKED: fixture setup failed"; cleanup; exit 3; }
-create function public.competition_round_panel_ready(p_round_id uuid) returns boolean language sql stable as \$\$ select true \$\$;
+create or replace function public.competition_round_panel_ready(p_round_id uuid) returns boolean language sql stable as \$\$ select true \$\$;
 grant execute on function public.competition_round_panel_ready(uuid) to authenticated;
 insert into auth.users (id, email) values ('$U', 't-o1-conc@example.test') on conflict do nothing;
 insert into public.profiles (id, email, full_name) values ('$U', 't-o1-conc@example.test', 'Conc Owner') on conflict do nothing;
@@ -107,6 +106,23 @@ WON=$(cat "$OUT/o1_d.out" "$OUT/o1_e.out" | grep -c "\"replayed\": false"); LOST
 [ "$WON" = "1" ] && [ "$LOST" = "1" ] && ok "one heat call won, the other lost with COMPO1_BAD_STATE" || bad "one heat call won, the other lost ($WON/$LOST)"
 N=$($P -c "select count(*) from public.event_competition_round_transition_events where heat_id is not null and kind='heat_staged'")
 [ "$N" = "1" ] && ok "exactly one heat_staged audit row" || bad "exactly one heat_staged audit row ($N)"
+
+# --- publish racing a heat call: the publish must wait for the in-flight heat transaction, then refuse ---------------
+call "public.create_competition_schedule_version('$E', 'race v2', '00000000-0000-0000-0000-0c0a20400001')" 0 > "$OUT/o1_v2.out"
+V2=$($P -c "select id from public.event_competition_schedule_versions where event_id='$E' and name='race v2'")
+T2=$(date +%s)
+call "public.advance_competition_floor_heat('$F', 'active', '00000000-0000-0000-0000-0c0a2000f001')" 5 > "$OUT/o1_x.out" &
+PX=$!
+sleep 1
+call "public.publish_competition_schedule_version('$V2')" 0 > "$OUT/o1_y.out" &
+PY=$!
+wait $PX $PY
+T3=$(date +%s)
+echo "X: $(cat "$OUT/o1_x.out")"; echo "Y: $(cat "$OUT/o1_y.out")"
+grep -q '"replayed": false' "$OUT/o1_x.out" && ok "X started the heat" || bad "X started the heat"
+grep -q 'COMPO1_RUN_IN_PROGRESS' "$OUT/o1_y.out" && ok "Y (publish) was refused after waiting for X" || bad "Y (publish) was refused"
+[ "$($P -c "select status from public.event_competition_schedule_versions where id='$V2'")" = "draft" ] && ok "v2 is still a draft; v1 is still the live order" || bad "v2 is still a draft"
+[ "$($P -c "select count(*) from public.event_competition_heats where schedule_version_id='00000000-0000-0000-0000-0c0a20400001' and status='active'")" = "1" ] && ok "the heat is active in the live version" || bad "the heat is active in the live version"
 
 cleanup
 [ "$($P -c "select count(*) from public.events where id='$E'")" = "0" ] && ok "fixtures removed (audit cascade through the event delete)" || bad "fixtures removed"
