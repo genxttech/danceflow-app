@@ -132,10 +132,10 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
     const owner = await signedIn(browser, fixture.owner);
     const anon = await anonymousPage(browser);
     const fake = "00000000-0000-4000-8000-000000000000";
-    const staff = ["competition/new", "competition", "competition/divisions", "competition/registrations", `competition/registrations/scratch/${fake}`, "competition/schedule", "competition/officials", "competition/day-of", "competition/ballots", `competition/ballots/${fake}`, "competition/readiness", "competition/checkin", "competition/advanced"];
+    const staff = ["competition/new", "competition", "competition/divisions", "competition/registrations", `competition/registrations/scratch/${fake}`, "competition/schedule", "competition/officials", "competition/day-of", "competition/ballots", `competition/ballots/${fake}`, "competition/readiness", "competition/checkin", "competition/advanced", "competition/day-of"];
     for (const round of [1, 2]) {
       for (const path of staff) await owner.goto(`/app/events/${fake}/${path}`);
-      for (const path of ["/app/judging", "/app/events/new?type=competition", "/account/verify-email", `/events/warm-up/competition/register`, "/login"]) await owner.goto(path);
+      for (const path of ["/app/judging", `/app/judging/${fake}/rounds/${fake}/ballot`, `/app/judging/${fake}/rounds/${fake}/ballot/desk`, "/app/events/new?type=competition", "/account/verify-email", `/events/warm-up/competition/register`, "/login"]) await owner.goto(path);
       await anon.goto("/login?intent=public");
       void round;
     }
