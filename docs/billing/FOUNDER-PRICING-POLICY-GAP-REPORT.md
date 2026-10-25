@@ -1,6 +1,6 @@
 # Founder Pricing Policy Gap Report
 
-Status: **audit and plan only** (2026-10-25). Nothing here is implemented, merged, deployed, applied to a database or created in Stripe.
+Status: **audit and plan only** (2026-10-25; D11 owner decisions recorded 2026-10-25, see §6A, §13 and §14). Nothing here is implemented, merged, deployed, applied to a database or created in Stripe.
 Scope: read-only inspection of `origin/main` (`1e66c8e9`) and the deployed branch `origin/release/pricing-p1` (`4bc938c6`, production `dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj`), the repository's migrations and docs, public pages, and the open BILLING-QA PRs. No hosted database or Stripe account was read.
 
 **Evidence basis.** Three independent read-only code audits (allocation and lifecycle; annual, portal, webhook and tests; marketing copy and early-access mechanisms) were run against committed refs. Findings the author re-checked personally are marked **[verified]**; the rest are the auditors' reports with file paths (line numbers are approximate where marked `~`). Historical documentation is not treated as proof of production behavior. Classification: **PASS / FAIL / BLOCKED / NOT IMPLEMENTED** (BLOCKED = cannot be determined without evidence we are not allowed or able to read; the missing evidence is named).
@@ -122,6 +122,25 @@ These are **recommendations, not approved rules.** Each lists the recommended de
 | D19 | Legal | Terms/checkout consent wording for the 12 paid months, Regular renewal price, notices and annual. | Terms §5 and checkout disclosure are currently generic. |
 | D20 | Grandfathered studio seeding | Approve the one-time operation that seeds position 1 after you confirm the studio and its Stripe subscription. | Requires a hosted DB write (not authorized now). |
 
+### 6A. Owner decisions recorded 2026-10-25 (D11 and related)
+
+These are the owner's business decisions. **They do not authorize any code implementation, PR merge, production deployment, hosted database change, Stripe Price change or activation of Regular pricing.**
+
+| # | Decision (owner) | Status | Effect on this report |
+|---|---|---|---|
+| 1 | The Regular monthly prices are **final for the initial Regular offering**: Starter $89, Growth $149, Pro $249. This is business approval of the rates only, not authorization to activate Regular in Production or to change Stripe. | **DECIDED** | Resolves D12. The "provisional" status of the Regular amounts ends as a business matter; activation still needs its own approval and the activation gates (§13 R1). |
+| 2 | Founder pricing stays limited to **25 total qualifying studios** including the grandfathered Founder; the allocation ledger makes an **individual eligibility decision for each studio**. | **DECIDED** | Every studio's checkout attempt produces a recorded decision (founder reserved, regular offered, refused-full, refused-ineligible) with a reason code (§13 R2). |
+| 3 | Studio #26 and later is offered **Regular pricing automatically** once the verified eligibility system and the approved Regular checkout exist. | **DECIDED** | Defines the end state; see sequencing in §14 (not before both exist). A switch must never be silent (§13 R5). |
+| 4 | All eligible new studios, **including Regular subscribers, keep the standard 30-day free trial**, subject to anti-abuse controls. | **DECIDED** (trial retained); anti-abuse design **OPEN** | Narrows D6: trial applies to Regular too; the one-trial-per-studio/customer/owner controls and the persisted trial-used marker are still to be designed (§13 R6). |
+| 5 | **Regular monthly may launch before annual.** Annual prices and discounts need separate approval. | **DECIDED** | Removes annual from the critical path of D11; slice S5 remains separate (§7). S0 (refuse unguarded annual checkout) stays recommended. |
+| 6 | If the cap is reached before Regular checkout is safely available: a polite **"Founder positions are currently filled"** message with a contact path; **no Founder overflow and no broken checkout**. | **DECIDED** | The refusal path ships **with** the enforcement slice, never after it (§13 R4). Existing contact path: `mailto:support@idanceflow.com` (footer, Terms; claims-guard tested). Showing the message on a public page is a website change needing separate authorization. |
+| 7 | **Released, uncommitted Founder positions may return to the pool.** Studios already enrolled at Regular are **not** automatically converted to Founder when a position frees up. | **DECIDED** | Resolves the "freed position" question and part of D4: only reserved/trial-hold positions released before the first paid invoice return; committed positions follow D4 (void by admin only). No Regular-to-Founder migration job (§13 R7). |
+| 8 | Founder and Regular **coexist through studio-specific eligibility, not a single global switch.** | **DECIDED** | Replaces the global Founder/Regular selection in checkout and the global price display (§13 R3, §14). |
+| 9 | The grandfathered **$129 Pro** subscription stays protected and **occupies one of the 25 positions.** | **DECIDED** | Matches §4; position 1 is a `grandfathered` ledger row (§13 R8). |
+| 10 | **No live remaining-position count is published** until the allocation ledger and the **existing-subscription reconciliation are verified.** | **DECIDED** | Public count is behind its own default-off gate that requires recorded reconciliation evidence (§13 R9). The live copy makes no count claim today. |
+
+**Decision table status after 2026-10-25:** D11 **DECIDED** (items 3, 6, 8 above). D12 **DECIDED** (rates final; activation separate). D6 **PARTIAL** (trial retained for all; anti-abuse open). D4 **PARTIAL** (uncommitted positions return; committed-position void rule still open). D18 **PARTIAL** (annual after monthly; amounts open). **Still open:** D1–D3, D5, D7–D10, D13–D17, D19, D20. **D17 (interim control for the unenforced cap) is not addressed by these decisions and remains open**; until it is decided the cap stays unenforced and no scarcity or count claim may be published (decision 10).
+
 ## 7. Annual billing: status and gaps
 
 | # | Item | Status | Evidence |
@@ -228,6 +247,9 @@ Reusable infrastructure (reuse, do not rebuild): `e2e/helpers/studioSubscription
 
 ## 12. Proposed bounded Git-only slices (none authorized)
 
+> **Update 2026-10-25:** the D11 decisions refine the slices: S2 must include the safe refusal and confirmation states (R4/R5) and the trial controls (R6); S3 includes pool return (R7); S6 may not publish a count until R9; S8 precedes turning enforcement on. See §13 and §14.4 for the updated, dependency-ordered sequence.
+
+
 Principles: Git-only, dark by default, no hosted DB/Stripe action inside a slice; each hosted step (migration apply, seeding, env, deployment) is a separate approval per the established gates. Release from branches off the deployed base when needed (production is not `main`).
 
 | Slice | Content | Depends on | Notes |
@@ -243,6 +265,87 @@ Principles: Git-only, dark by default, no hosted DB/Stripe action inside a slice
 | **S8 Reconciliation/ops** | verify ledger vs Stripe (count by Price), seed grandfathered and any existing Founder positions, dashboard for remaining capacity. | S1, owner Stripe evidence, D20 | hosted DB write: separate approval. |
 
 Recommended order: **S0** now-ish (small, independent) → decisions D1–D17 → **S1** → **S2 + S3** (after the owner resolves #334/#335) → **S8 seed** → **S4** → **S6** → **S5** (when annual is approved) → **S7**.
+
+## 13. Implementation requirements for the approved D11 policy
+
+Requirements derived from §6A. None is implemented. "Dark" means shipped disabled behind a default-off gate.
+
+| ID | Requirement | Why (decision) |
+|---|---|---|
+| R1 | **Regular activation stays a separate gate.** `REGULAR_PRICING_ACTIVATED` plus a non-empty `REGULAR_PRICING_APPROVAL_REF` remain required to **sell** Regular; the new behavior must stop coupling activation to the end of Founder (today activating Regular also requires `FOUNDER_PRICING_ACTIVE=false`, PRICING-P1.md). Rate approval (decision 1) is not the approval reference. | 1, 8 |
+| R2 | **Per-studio, auditable eligibility decision.** On every studio checkout attempt the ledger returns one of: `founder_reserved`, `regular_offered`, `refused_founder_full`, `refused_ineligible` (+ reason code), recorded append-only with studio, plan, idempotency key, Stripe session id and the flags in force. | 2 |
+| R3 | **No global switch decides a studio's price.** Selection becomes: ledger reservation succeeds → Founder Price; else if Regular is activated → Regular Price (after the confirmation in R5); else refuse with R4. `FOUNDER_PRICING_ACTIVE` is kept only as a global **kill switch** (off = no new Founder reservations). | 8, 3 |
+| R4 | **Safe refusal.** When the cap is full and Regular checkout is not enabled, checkout returns a customer-safe "Founder positions are currently filled" state with the contact path and **creates no Stripe session**; it never surfaces `missing_price_id`/`price_mismatch` for this case, and never lets Founder overflow. | 6 |
+| R5 | **No silent price swap.** A studio that clicked "Start Starter Trial" at the Founder price and is routed to Regular sees the Regular price and renewal terms on a confirmation step **before** Stripe, and must confirm; the amount shown equals the amount on the Checkout Session. | 3 (and the policy requirement that the renewal price is disclosed before checkout) |
+| R6 | **Trial and anti-abuse.** The 30-day trial applies to Founder and Regular alike; a persisted trial-used marker per studio and per Stripe customer (and a per-owner-user rule) prevents repeat trials; no new trial on return after any paid invoice. Detailed signals (for example the card fingerprint from Stripe) are a design choice for slice S2 with owner approval. | 4 |
+| R7 | **Pool return rules.** A position released before the first paid invoice returns to the pool and may be reserved by the next eligible studio. A studio already on Regular is **never** auto-converted to Founder; no job or admin default converts. Whether a refused or waiting studio is told when a position frees is a communications choice, not required. | 7 |
+| R8 | **Grandfathered row.** One `grandfathered` ledger row (position 1) for the $129 studio, seeded once by an approved operation after Stripe verification; immutable except via an audited platform-admin RPC; excluded from the 12-month schedule and from automatic Regular transition. | 9 |
+| R9 | **Count publication gate.** A separate default-off `FOUNDER_COUNT_PUBLIC` gate; it may only be enabled when the ledger records a completed, reviewed **reconciliation** of existing Founder-priced subscriptions against Stripe (run id, time, discrepancies resolved). Until then no page shows, and no message implies, a remaining count or scarcity. | 10 |
+| R10 | **Kill switch and rollout flag.** A dark `FOUNDER_ALLOCATION_ENFORCED` flag (default off) so enforcement can ship dark, be exercised in test mode, and be turned on per environment; with it off the current behavior is unchanged. | 2, 6 |
+| R11 | **Studio plans only.** The 25-cap and ledger apply to studio subscriptions. Organizer plan and Organizer Suite add-on pricing share `isFounderPricingActive()` today (`get-started/organizer/page.tsx`, `addons/organizer-suite/checkout/route.ts`); they are unchanged. **Owner to confirm** that Organizer Founder offers do not count toward the 25. | 2 |
+| R12 | **Per-studio display.** Public pricing pages show Founder price with the Regular price disclosed (while positions last or per policy copy); the studio's own billing and completion pages show the price the studio is actually entitled to from the ledger, not a global display function. | 8, 5 |
+
+## 14. Exact code and release dependencies
+
+### 14.1 Code touchpoints (all paths on `origin/main` and the deployed branch unless noted)
+
+| Area | File and symbol | Change required |
+|---|---|---|
+| Offer selection | `src/app/api/billing/checkout/route.ts` `resolveCheckoutPriceId` (~60-125), call at ~455 | Synchronous, flag-driven selection becomes an **async, ledger-driven** decision (R2/R3); the legacy non-studio branch (organizer, annual) stays isolated. |
+| Pure selector | `src/lib/billing/studioCheckoutPricing.ts` `selectStudioMonthlyPrice` (params `founderActive/regularActivated`) | Takes the ledger outcome instead of global flags; returns Founder or Regular Price id + expected amount; no fallback between them. **Also used by** `src/lib/billing-qa/priceVerifier.ts:188` (BILLING-QA #332 on main) which verifies one price per plan from global flags: it must verify **both** Founder and Regular Prices. |
+| Regular gate | `src/lib/billing/regularPricing.ts` `isRegularPricingActivated`, `resolveRegularMonthlyCents` | Keep as the activation gate (R1); split "may disclose Regular" from "may sell Regular". `plans.ts` `provisionalRegularAmountMonthlyCents` (8900/14900/24900) is promoted to the final Regular amount with comments and tests updated (decision 1); display is no longer gated on activation. |
+| Founder flag | `src/lib/billing/founderPricing.ts` `isFounderPricingActive` / `isFounderPricingActiveIn`, `resolveDisplayedMonthlyPriceCents`, `resolveReferenceRegularPriceCents`, `resolveTransparentPricingNote` | Global display functions stop being the source of truth for a studio's price; keep the flag as a kill switch. Callers: `get-started/studio/page.tsx` (~45, 201-211), `get-started/complete/page.tsx:189`, `app/settings/billing/page.tsx` (~1051, 1067, 1110), `for-studios/for-instructors/for-organizers/page.tsx`, `app/page.tsx:134` (home copy builder). |
+| New-studio entry | `src/app/get-started/actions.ts` `startPaidPathAction` (~505-616) and the redirect to `/api/billing/checkout` (~86) | Carries the refusal/confirmation states (R4/R5) back to a safe page; no new global state. |
+| Refusal and confirmation copy | `get-started/studio/page.tsx`, `settings/billing/page.tsx` error map (~389: `missing_price_id`, `price_mismatch`) | New states `founder_full` and `regular_offer_confirm`. **Public copy change: separate authorization.** Claims guards must be updated with the roadmap: `src/lib/public/__tests__/homeCopy.br4a.test.ts`, `launchQa.br4d.test.ts` (footer `mailto:support@idanceflow.com`); copy builders `src/lib/public/homeCopy.ts` (`buildTrialLine` ~257-273), `audienceCopy.ts`; Terms §5 (`src/app/terms/page.tsx` ~116-126). |
+| Session creation | checkout route ~600-635 (metadata, `trial_period_days`, `allow_promotion_codes: true` at 626) | Add reservation id and decision to metadata; set Stripe session `expires_at` (minimum 30 minutes); stop promotion-code stacking on Founder sessions; prior-trial check (R6). |
+| Webhook lifecycle | `src/app/api/payments/webhook/route.ts`: `upsertStudioSubscription` (~874-1060), `syncStudioBillingSnapshot` (~718-749), event switch (~3339-3610: `checkout.session.completed`, `checkout.session.expired`, `customer.subscription.*`, `invoice.paid`, `invoice.payment_failed`) | Reservation conversion (trial hold), first-paid-invoice commit, release on expiry/cancel/failure, studio `checkout.session.expired` handling (currently event-commerce only), record offer type and Price id; Regular subscribers must resolve through the `..._STANDARD` env map. |
+| Plan resolution | `src/lib/billing/subscriptionPlanResolution.ts` | Already maps `_FOUNDER`, `_STANDARD` and `_FOUNDER_LEGACY` to a plan code; the Regular Price ids must be present in `STRIPE_PRICE_STUDIO_*_STANDARD`. Founder vs Regular must then be distinguished by the **ledger/offer type**, not the plan code. |
+| DB (new) | new migrations: `studio_founder_entitlements`, `studio_founder_entitlement_events` (+ offer-decision events), RPCs reserve / convert / commit / release / expire-sweep / void / seed-grandfathered, trial-used marker, reconciliation record; RLS and guard triggers | See §8 and R2/R8/R9. Pattern: ENT-1 `20261013090000_ent1_usage_allowance_reservations.sql` (advisory lock, idempotent reserve/settle, service-role-only grants). |
+| Platform admin | `src/app/platform/billing/page.tsx` (displays overrides only), `platform_admin_actions` | Read-only ledger/capacity view and an audited void/seed action (admin-gated, AAL2 per the existing platform-admin pattern). |
+| Cron | `vercel.json` crons | New reservation-expiry sweeper and (later) notice job; notice copy needs approval. |
+| Tests | local-stack PG (`src/lib/billing/__tests__/localStack.*.test.ts`, `localStackLock.ts`), `src/lib/payments/__tests__/ownershipFakes.ts`, `e2e/helpers/studioSubscriptionFixture.ts` and `stripeTestModeFixture.ts`, `src/lib/billing-qa/report.ts` | Reuse; do not create a competing framework. Update the pinned yearly test (`founderPriceGuard.pricingp1.test.ts:181`) with S0. |
+
+### 14.2 Open PRs and ordering dependencies
+
+| Dependency | Detail |
+|---|---|
+| **#334 then #335** (BILLING-QA-2/3, drafts) | The lifecycle slice needs #335's webhook fixes (re-fetch current subscription for ordering, `trial_ends_at` sync, `billing_plan` sync, unowned-subscription acknowledgement) and #334's Stripe-test-mode fixtures. Owner decides whether to merge or rebase them first. |
+| **#292 (CI-D refunds) vs #335** | Both edit `payments/webhook/route.ts` and `ownershipFakes.ts`; sequence them to avoid conflicts. #337 and #342 list billing files only because their stacked Competition bases predate PRICING-P1 (diff artifacts, no real edit). |
+| **#336 then #340** (BILLING-QA-4/5, drafts) | Both edit `priceVerifier.ts`, `report.ts`, `docs/qa/billing-qa.md`; the price-config report and the session read-back must be updated for coexisting Founder and Regular Prices. |
+| **#332 (merged)** | `priceVerifier.ts` follows the global-flag selector; update with the selector change. |
+| **Production is not `main`** | Production runs `release/pricing-p1` (`4bc938c6`), not an ancestor of `main`. Any release of this work is again an isolated branch off the deployed base with cherry-picks (the webhook import-block conflict recurs), never a `main` promotion. |
+| **Migration timestamps** | Latest on `main` is the TW-4F series (`2026123009xxxx`); `20261231090000` and `20261231100000` are reserved (TW-4F tracker) and Competition has its own block (`2027010x` and slots 0110/0111/0112). Founder migrations need a **newly reserved block** recorded in the shared registry before authoring (proposal: `202702xx090000`; confirm with the TW-4F and Competition coordinators). |
+| **SQL before app** | Per the established rule, a Founder migration is applied to PROD (separate approval, fresh scratch workdir, preflight) **before** the application that calls it; the app ships dark. |
+| **DB test resources** | Local-stack PG runs and `npm install` follow the owner's resource rules: at most two isolated DB runs at once, check free disk (pause below 15 GB), and ask the Competition coordinator session for a slot first. |
+
+### 14.3 Release dependencies (each hosted step needs its own authorization)
+
+| Dependency | Needed before | Evidence/approval |
+|---|---|---|
+| Development authorization for each slice | any implementation | owner |
+| Stripe read of existing Founder-priced subscriptions (all three new Prices, old Founder Prices, the $129 Price) and open Checkout Sessions | reconciliation, seeding, any count | owner Dashboard or restricted read key |
+| Identification of the $129 studio and its subscription metadata (source, studioId) | seeding position 1 | owner; then a hosted DB write (approval) |
+| Regular Prices verified (IDs preserved, $89/$149/$249, USD, monthly, live) | Regular activation | owner checklist evidence still pending in the PRICING-P1 runbook |
+| `STRIPE_PRICE_STUDIO_{STARTER,GROWTH,PRO}_STANDARD` Production values equal to the Regular Price ids (currently a shared Production+Preview locked entry, unverified) | Regular checkout | Production-only env entries via the split procedure used for the Founder variables; env changes reach new builds only |
+| `REGULAR_PRICING_APPROVAL_REF` value and the decision to set `REGULAR_PRICING_ACTIVATED` | Regular checkout | owner (separate from rate approval) |
+| New gates `FOUNDER_ALLOCATION_ENFORCED` and `FOUNDER_COUNT_PUBLIC` (default off) | rollout | owner; Production env change |
+| Stripe portal configuration: which Prices are listed, plan switching, cancel/pause; promotion codes in live mode | any change that depends on portal behavior | owner Dashboard (unread) |
+| Stripe Checkout Session `expires_at` behavior with archived/inactive Prices and open sessions | reservation TTL design | Stripe test-mode proof in the design slice |
+| Website/copy authorization (refusal message, Regular disclosure, "12 paid months", approved headline, later the count) and Terms/checkout consent wording | any public change | owner + legal; claims-guard and roadmap updated together |
+| Reconciliation verified | publishing any remaining-position count (decision 10) | recorded in the ledger |
+| Staged build + smoke test + promotion from an isolated release branch | production | owner, per the PRICING-P1 pattern |
+
+### 14.4 Dependency-ordered sequence (updated for the 2026-10-25 decisions)
+
+1. **S0** (optional, independent): refuse new studio annual checkouts until a gate exists.
+2. **Owner decisions** still open (D1–D3, D5, D7–D10, D13–D17, D19, D20) and the R11 confirmation.
+3. **S1** ledger, RPCs, audit and offer-decision events, dark, tested on local-stack PG (1–25, 26 refused, concurrent last position, idempotency, grandfather immutability, tenant isolation).
+4. **S2 + S3** checkout reservation, safe refusal with the contact path (R4), confirmation step (R5), trial/anti-abuse (R6), webhook lifecycle and pool return (R7); built dark behind `FOUNDER_ALLOCATION_ENFORCED` on top of #334/#335; tests on the existing Stripe test-mode and local-DB harness.
+5. **Release of the dark build and the migration** (SQL first, then application) from an isolated branch.
+6. **S8**: Stripe reconciliation and one-time seeding of position 1 (and any other existing Founder positions), recorded as verified reconciliation.
+7. **Turn enforcement on** (flag) in the same change window as the polite refusal path. If Regular is approved and its Prices/env are verified, enable Regular for position 26+ (R3/R5) in a separate, explicitly approved step; otherwise position 26+ sees the refusal message.
+8. **S6** copy and disclosure changes (website authorization), **without a count** until R9 is satisfied; then the count gate may be enabled.
+9. **S4** duration, notices and the fail-safe transition; **S5** annual (after separate approval); **S7** early access.
 
 ## Standing non-claims
 
