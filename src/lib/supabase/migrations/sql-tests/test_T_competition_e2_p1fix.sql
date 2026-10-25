@@ -223,6 +223,24 @@ select pg_temp.chk_sql('C: ballots on the fully scratched heat are flagged in_ro
                     where (b ->> 'heat_id')::uuid = pg_temp.u('00d002') and (b ->> 'in_round')::boolean = false)$q$);
 reset role;
 
+-- ============================================================================
+-- D. A callback round with no T cannot be started (O1 guard COMPO1_CALLBACK_TARGET_UNSET); E2 relies on it because the
+--    round configuration freezes once active, so an unset T could never be entered afterwards (review P2-3)
+-- ============================================================================
+insert into public.event_competition_divisions (id, event_id, program_id, contest_id, name, status)
+  values (pg_temp.u('003003'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('002001'), 'D3', 'open');
+insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method, target_advancement_count)
+  values (pg_temp.u('006003'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003003'), 'R3 Callback no T', 'qualifying', 1, 'draft', 'callback_tally', null);
+set session_replication_role = replica;
+update public.event_competition_rounds set status = 'scheduled' where id = pg_temp.u('006003');
+set session_replication_role = origin;
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('D: O1 refuses to start a callback round whose T is unset',
+  format($q$select public.start_competition_round(%L, %L)$q$, pg_temp.u('006003'), pg_temp.u('f23001')), 'COMPO1_CALLBACK_TARGET_UNSET');
+reset role;
+select pg_temp.chk('D: the round stayed scheduled', (select status = 'scheduled' from public.event_competition_rounds where id = pg_temp.u('006003')));
+
 do $$
 declare
   v_total int;
