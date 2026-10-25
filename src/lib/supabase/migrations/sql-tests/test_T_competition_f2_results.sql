@@ -406,6 +406,21 @@ select pg_temp.expect_msg('placement 0 is refused', format($q$select public.calc
   jsonb_set(pg_temp.rows(1), '{0,placement}', '0')), 'COMP_ENGINE_INVALID_INPUT');
 select pg_temp.expect_msg('a fractional placement is refused', format($q$select public.calculate_competition_round(%L, 'studio_ordinal_majority', '1', %L, pg_temp.th(), '[{"step":1}]', %L, '[]', gen_random_uuid())$q$, pg_temp.rid(1), public.competition_round_calculation_input(pg_temp.rid(1)) ->> 'input_hash',
   jsonb_set(pg_temp.rows(1), '{0,placement}', '1.5')), 'COMP_ENGINE_INVALID_INPUT');
+-- NS1 hook present: rows are one per CALCULATED entry (round entries minus no-shows). Stand-in reader: entry 3 of r1 is a no-show.
+reset role;
+create function public.competition_heat_no_show_entries(p_round_id uuid) returns table(entry_id uuid) language sql stable as $f$
+  select e from unnest(case when p_round_id = pg_temp.rid(1) then array[pg_temp.eid(1, 3)] else '{}'::uuid[] end) e
+$f$;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('no-show hook: a result that still has a row for the no-show entry is refused', format($q$select public.calculate_competition_round(%L, 'studio_ordinal_majority', '1', %L, pg_temp.th(), '[{"step":1}]', %L, '[]', gen_random_uuid())$q$,
+  pg_temp.rid(1), public.competition_round_calculation_input(pg_temp.rid(1)) ->> 'input_hash', pg_temp.rows(1)), 'COMP_ENGINE_INVALID_INPUT');
+select pg_temp.expect_msg('no-show hook: a result with exactly one row per calculated entry is accepted (probe rolls back)', format($q$do $d$ begin
+    perform public.calculate_competition_round(%L, 'studio_ordinal_majority', '1', %L, pg_temp.th(), '[{"step":1}]', %L, '[]', gen_random_uuid());
+    raise exception 'PROBE_OK'; end $d$$q$,
+  pg_temp.rid(1), public.competition_round_calculation_input(pg_temp.rid(1)) ->> 'input_hash', pg_temp.rows(1) - 2), 'PROBE_OK');
+reset role;
+drop function public.competition_heat_no_show_entries(uuid);
+select pg_temp.as_user(pg_temp.u('000001'));
 reset role;
 select pg_temp.chk('no refused call left a version behind', pg_temp.n($q$select count(*) from public.event_competition_result_versions$q$) = 0);
 
@@ -821,6 +836,38 @@ values (pg_temp.rid(12), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.did(1
 set session_replication_role = origin;
 select pg_temp.chk('there is no fallback: a round with no pin fails closed even though its scoring method is ordinal_majority',
   not exists (select 1 from public.event_competition_scoring_pins where round_id = pg_temp.rid(12)) and not exists (select 1 from public._compf2_engine_pin(pg_temp.rid(12))));
+
+-- ============================================================================
+-- 14c. NS1 no-show hook: absent = identical evidence and hashes; present = no_show exclusions, deduplicated against scratched
+-- ============================================================================
+create temp table t_hash (k text primary key, v text);
+grant all on t_hash to authenticated, anon, service_role;
+insert into t_hash select 'r1_before', public._compf2_input_hash(pg_temp.rid(1), 'studio_ordinal_majority', '1');
+insert into t_hash select 'r5_before', public._compf2_evidence(pg_temp.rid(5), 'studio_ordinal_majority', '1')::text;
+select pg_temp.chk('absent path: the hook returns nothing and r1 has no exclusions',
+  to_regprocedure('public.competition_heat_no_show_entries(uuid)') is null
+  and cardinality(public._compf2_no_show_entries(pg_temp.rid(1))) = 0
+  and jsonb_array_length(public._compf2_evidence(pg_temp.rid(1), 'studio_ordinal_majority', '1') -> 'excludedEntries') = 0);
+-- Stand-in for NS1's reader: r1 no-show = entry 3; r5 no-shows = its scratched entry 3 (must dedupe) and entry 1.
+create function public.competition_heat_no_show_entries(p_round_id uuid) returns table(entry_id uuid) language sql stable as $f$
+  select e from unnest(case when p_round_id = pg_temp.rid(1) then array[pg_temp.eid(1, 3)]
+                            when p_round_id = pg_temp.rid(5) then array[pg_temp.eid(5, 3), pg_temp.eid(5, 1)]
+                            else '{}'::uuid[] end) e
+$f$;
+select pg_temp.chk('present path: r1 excludes entry 3 as no_show; it stays in entries; the heat lists only the live entries',
+  (public._compf2_evidence(pg_temp.rid(1), 'studio_ordinal_majority', '1') -> 'excludedEntries') = jsonb_build_array(jsonb_build_object('entryId', pg_temp.eid(1, 3)::text, 'reason', 'no_show'))
+  and jsonb_array_length(public._compf2_evidence(pg_temp.rid(1), 'studio_ordinal_majority', '1') -> 'entries') = 3
+  and jsonb_array_length(public._compf2_evidence(pg_temp.rid(1), 'studio_ordinal_majority', '1') -> 'heats' -> 0 -> 'entryIds') = 2
+  and public._compf2_input_hash(pg_temp.rid(1), 'studio_ordinal_majority', '1') <> (select v from t_hash where k = 'r1_before'));
+select pg_temp.chk('present path: r5 keeps its scratched entry as scratched (not duplicated) and adds entry 1 as no_show',
+  (select jsonb_agg(x order by x ->> 'entryId') from jsonb_array_elements(public._compf2_evidence(pg_temp.rid(5), 'studio_ordinal_majority', '1') -> 'excludedEntries') x)
+    = (select jsonb_agg(x order by x ->> 'entryId') from (values (jsonb_build_object('entryId', pg_temp.eid(5, 1)::text, 'reason', 'no_show')),
+                                                               (jsonb_build_object('entryId', pg_temp.eid(5, 3)::text, 'reason', 'scratched'))) v(x)));
+select pg_temp.chk('present path: an entry outside the round is ignored', cardinality(public._compf2_no_show_entries(pg_temp.rid(2))) = 0);
+drop function public.competition_heat_no_show_entries(uuid);
+select pg_temp.chk('absent path again: the hash and the evidence are byte-identical to before the hook existed',
+  public._compf2_input_hash(pg_temp.rid(1), 'studio_ordinal_majority', '1') = (select v from t_hash where k = 'r1_before')
+  and public._compf2_evidence(pg_temp.rid(5), 'studio_ordinal_majority', '1')::text = (select v from t_hash where k = 'r5_before'));
 
 -- ============================================================================
 -- 15. Cascades: deleting event B removes nothing of F2 (none there); event A is protected by 10A

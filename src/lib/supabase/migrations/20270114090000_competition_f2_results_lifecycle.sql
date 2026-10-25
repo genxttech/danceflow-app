@@ -478,6 +478,28 @@ end;
 $$;
 revoke all on function public._compf2_engine_pin(uuid) from public, anon, authenticated, service_role;
 
+-- X-5 no-show hook (NS1, migration 20270115, publishes competition_heat_no_show_entries(round) -> (entry_id uuid)). Absent: empty, and
+-- the evidence (and its hash) is exactly what it was without the hook. Present: the reader is authoritative; an error propagates, so a
+-- calculation never proceeds on a half-read exclusion list. Only entries of the round count.
+create function public._compf2_no_show_entries(p_round_id uuid)
+returns uuid[]
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_ids uuid[];
+begin
+  if to_regprocedure('public.competition_heat_no_show_entries(uuid)') is null then
+    return '{}'::uuid[];
+  end if;
+  execute 'select coalesce(array_agg(distinct n.entry_id), ''{}''::uuid[]) from public.competition_heat_no_show_entries($1) n' into v_ids using p_round_id;
+  return coalesce((select array_agg(x order by x) from unnest(v_ids) x where x = any (public._compe2_round_entries(p_round_id))), '{}'::uuid[]);
+end;
+$$;
+revoke all on function public._compf2_no_show_entries(uuid) from public, anon, authenticated, service_role;
+
 -- Current ballots covering the round (same filter as E2's lock audit): not superseded, in a ballot heat or round-level.
 create function public._compf2_evidence(p_round_id uuid, p_engine_key text, p_engine_version text)
 returns jsonb
@@ -514,12 +536,23 @@ as $$
     'entries', coalesce((select jsonb_agg(jsonb_build_object('entryId', x) order by x::text collate "C")
                          from (select distinct he.entry_id x from public.event_competition_heat_entries he
                                where he.heat_id in (select h.heat_id from public._compe2_round_heats(r.id) h)) s), '[]'::jsonb),
-    'excludedEntries', coalesce((select jsonb_agg(jsonb_build_object('entryId', x, 'reason', 'scratched') order by x::text collate "C")
-                                 from (select distinct he.entry_id x from public.event_competition_heat_entries he
-                                       where he.heat_id in (select h.heat_id from public._compe2_round_heats(r.id) h) and he.status = 'scratched'
-                                         and not exists (select 1 from public.event_competition_heat_entries he2
-                                                         where he2.entry_id = he.entry_id and he2.status <> 'scratched'
-                                                           and he2.heat_id in (select h2.heat_id from public._compe2_round_heats(r.id) h2))) s), '[]'::jsonb),
+    'excludedEntries', coalesce((select jsonb_agg(jsonb_build_object('entryId', u.x, 'reason', u.why) order by u.x::text collate "C")
+                                 from (select sc.x, 'scratched'::text why
+                                       from (select distinct he.entry_id x from public.event_competition_heat_entries he
+                                             where he.heat_id in (select h.heat_id from public._compe2_round_heats(r.id) h) and he.status = 'scratched'
+                                               and not exists (select 1 from public.event_competition_heat_entries he2
+                                                               where he2.entry_id = he.entry_id and he2.status <> 'scratched'
+                                                                 and he2.heat_id in (select h2.heat_id from public._compe2_round_heats(r.id) h2))) sc
+                                       union all
+                                       -- NS1 no-shows, deduplicated against the scratched entries above (scratched wins).
+                                       select ns, 'no_show'::text
+                                       from unnest(public._compf2_no_show_entries(r.id)) ns
+                                       where not exists (select 1 from public.event_competition_heat_entries he
+                                                         where he.entry_id = ns and he.status = 'scratched'
+                                                           and he.heat_id in (select h.heat_id from public._compe2_round_heats(r.id) h)
+                                                           and not exists (select 1 from public.event_competition_heat_entries he2
+                                                                           where he2.entry_id = he.entry_id and he2.status <> 'scratched'
+                                                                             and he2.heat_id in (select h2.heat_id from public._compe2_round_heats(r.id) h2)))) u), '[]'::jsonb),
     -- X-7: every ballot heat with its panel (E1 panels are per round, so each heat carries the present judges) and its entries.
     'heats', coalesce((select jsonb_agg(jsonb_build_object(
                          'heatId', h.heat_id,
@@ -528,7 +561,8 @@ as $$
                                                   where not public._compe2_is_absent(r.id, j.official_id)), '[]'::jsonb),
                          'entryIds', coalesce((select jsonb_agg(he.entry_id order by he.entry_id::text collate "C")
                                                from public.event_competition_heat_entries he
-                                               where he.heat_id = h.heat_id and he.status <> 'scratched'), '[]'::jsonb))
+                                               where he.heat_id = h.heat_id and he.status <> 'scratched'
+                                                 and he.entry_id <> all (public._compf2_no_show_entries(r.id))), '[]'::jsonb))
                        order by h.heat_id::text collate "C")
                        from public._compe2_round_heats(r.id) h), '[]'::jsonb),
     -- X-6: the dances of the ballot heats.
@@ -875,7 +909,8 @@ begin
   end if;
 
   -- Rows: exactly one per round entry, nothing else.
-  v_entries := public._compe2_round_entries(p_round_id);
+  select coalesce(array_agg(x), '{}'::uuid[]) into v_entries
+  from unnest(public._compe2_round_entries(p_round_id)) x where x <> all (public._compf2_no_show_entries(p_round_id));
   if p_rows is null or jsonb_typeof(p_rows) <> 'array' or jsonb_array_length(p_rows) <> coalesce(array_length(v_entries, 1), 0) then
     raise exception 'COMP_ENGINE_INVALID_INPUT: the result must hold exactly one row per round entry.' using errcode = 'P0001';
   end if;
