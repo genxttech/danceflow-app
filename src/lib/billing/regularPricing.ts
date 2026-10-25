@@ -11,13 +11,15 @@ import type { BillingPlan } from "./plans";
  * Turning this on is a launch decision that also requires the matching Stripe
  * STANDARD Price objects to exist (see docs/billing/PRICING-P1.md).
  */
-export function isRegularPricingActivated(): boolean {
+export function isRegularPricingActivated(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
   // Two independent settings must both be present, so one stray or copied
   // variable cannot switch regular pricing on: the flag AND a non-empty owner
   // approval reference (e.g. the approval date or ticket) for this release.
   return (
-    process.env.REGULAR_PRICING_ACTIVATED === "true" &&
-    (process.env.REGULAR_PRICING_APPROVAL_REF?.trim() ?? "") !== ""
+    env.REGULAR_PRICING_ACTIVATED === "true" &&
+    (env.REGULAR_PRICING_APPROVAL_REF?.trim() ?? "") !== ""
   );
 }
 
