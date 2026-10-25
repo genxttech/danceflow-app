@@ -769,6 +769,48 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
     await page.context().close();
   });
 
+  test("SCN-10.7 the chair marks a no-show on the ballot desk (reason required); a non-chair judge has no No-shows panel; the mark is attributed to the chair", async ({ browser }, testInfo) => {
+    test.skip(!ns1, "NS1 (#342) is not in the system under test");
+    const shot = stepShots(testInfo);
+    const before = await readNoShows(config, event.id);
+    expect(before.active, "SCN-10.2 voided the earlier mark").toHaveLength(0);
+    const target = before.marks[0];
+    const key = keyOfEntry(target.entry_id);
+    const deskPath = `/app/judging/${event.id}/rounds/${roundId}/ballot/desk`;
+
+    // A judge who is not the chair cannot mark from the desk.
+    const other = await signedIn(browser, fixture.judges[1]);
+    await visit(other, deskPath);
+    await expect(other.getByRole("region", { name: "No-shows" })).toHaveCount(0);
+    await shot(other, "non-chair-desk");
+    await other.context().close();
+
+    // Judge 1 is the chair (SCN-5.1).
+    const chair = await signedIn(browser, fixture.judges[0]);
+    await visit(chair, deskPath);
+    const panel = chair.getByRole("region", { name: "No-shows" });
+    await expect(panel).toBeVisible();
+    const row = panel.locator("li").filter({ hasText: KEY_NAME[key] });
+    await expect(row.getByText("No-show", { exact: true })).toHaveCount(0);
+    await row.getByText("Mark no-show", { exact: true }).click();
+    // The reason is required: an empty submit writes nothing.
+    await row.getByRole("button", { name: "Mark no-show" }).click();
+    expect((await readNoShows(config, event.id)).active).toHaveLength(0);
+    await row.getByLabel("No-show reason").fill("Chair confirmed the couple left the venue");
+    await row.getByRole("button", { name: "Mark no-show" }).click();
+    await expect(panel.locator("li").filter({ hasText: KEY_NAME[key] }).getByText("No-show", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await shot(chair, "chair-marked");
+
+    const after = await readNoShows(config, event.id);
+    expect(after.active).toHaveLength(1);
+    expect(after.active[0]).toMatchObject({ heat_entry_id: target.heat_entry_id, reason: "Chair confirmed the couple left the venue", marked_by: fixture.judges[0].id });
+    expect(after.marks).toHaveLength(before.marks.length + 1);
+    await chair.reload();
+    await expect(panel.locator("li").filter({ hasText: KEY_NAME[key] }).getByText("No-show", { exact: true })).toBeVisible();
+    evidence({ scenario: "SCN-10.7", markedBy: "chair" });
+    await chair.context().close();
+  });
+
   test("SCN-10.6 a different studio gets a 404 on the floor console and the judge ballot page and cannot record a no-show", async ({ browser }, testInfo) => {
     test.skip(!ns1, "NS1 (#342) is not in the system under test");
     const shot = stepShots(testInfo);
@@ -790,10 +832,6 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
 
   test.fixme("SCN-10.4 after ballots lock, marking a no-show is refused", async ({}, testInfo) => {
     scenarioStatus(testInfo, "BLOCKED", "Dependency: locked ballots. Wizard rounds are scored 'custom', so ballots cannot be submitted or locked through the UI (SCN-1.3 / SCN-6.3 / SCN-6.3a). No SQL shortcut is used.");
-  });
-
-  test.fixme("SCN-10.7 the chief judge (chair) marks a no-show from the floor console", async ({}, testInfo) => {
-    scenarioStatus(testInfo, "NOT IMPLEMENTED", "NS1 lets the event manager or the chair record a no-show in the database, but the floor console is a manager-only page (a chair gets a 404), so the chair has no UI for it.");
   });
 
   test("SCN-7.2 day-of: cancel a round with a reason; the empty Bronze Open round shows Cancelled and stays cancelled after a reload", async ({ browser }, testInfo) => {
