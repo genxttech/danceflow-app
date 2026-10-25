@@ -42,9 +42,9 @@ const admin = (sql: string) => {
 
 type Claims = Record<string, unknown> | null;
 /** Run `sql` as the authenticated role with the given claims inside a transaction that is always rolled back; returns the last output line or the error. */
-function asClaims(claims: Claims, sql: string): { ok: boolean; out: string } {
+function asClaims(claims: Claims, sql: string, asOwner = false): { ok: boolean; out: string } {
   const json = claims === null ? "" : JSON.stringify({ role: "authenticated", ...claims });
-  const r = psqlRaw(`begin;\nset local role authenticated;\nselect set_config('request.jwt.claims', '${json.replace(/'/g, "''")}', true);\n${sql};\nrollback;`);
+  const r = psqlRaw(`begin;\n${asOwner ? "" : "set local role authenticated;\n"}select set_config('request.jwt.claims', '${json.replace(/'/g, "''")}', true);\n${sql};\nrollback;`);
   // -At -q prints the set_config result first, then the statement result: the last line is the answer
   return { ok: r.ok, out: r.ok ? (r.out.split("\n").pop() ?? "") : r.out };
 }
@@ -83,11 +83,11 @@ describe.skipIf(!enabled)("TW-4F platform-admin AAL2 (SQL, real role switching)"
 
   it("the helper is true only for a platform admin whose verified token says aal2", () => {
     const h = "select public._sms_onb_is_platform_admin()";
-    expect(asClaims(AAL2, h).out).toBe("t");
+    expect(asClaims(AAL2, h, true).out).toBe("t");
     for (const claims of [AAL1, { sub: ADMIN }, { sub: ADMIN, aal: "" }, { sub: ADMIN, aal: null }, { sub: ADMIN, aal: "AAL2" }, { sub: ADMIN, aal: " aal2" }, { sub: ADMIN, aal: 2 }, { sub: ADMIN, aal: ["aal2"] }, { sub: PLAIN, aal: "aal2" }, { aal: "aal2" }]) {
-      expect(asClaims(claims as Claims, h).out, JSON.stringify(claims)).toBe("f");
+      expect(asClaims(claims as Claims, h, true).out, JSON.stringify(claims)).toBe("f");
     }
-    expect(asClaims(null, h).out).toBe("f");
+    expect(asClaims(null, h, true).out).toBe("f");
   });
 
   it("studio_sms_registrations RLS: aal2 admin reads, creates and updates; an aal1 admin is refused on all three", () => {
@@ -125,7 +125,7 @@ describe.skipIf(!enabled)("TW-4F platform-admin AAL2 (SQL, real role switching)"
       expect(asClaims(AAL2, call).ok, `aal2 ${call}`).toBe(true);
     }
     // the effect is visible inside the same transaction: aal2 writes the access row, the refused aal1 call does not get that far
-    const writes = (who: Claims) => asClaims(who, `select public.set_sms_onboarding_access('${STUDIO}'::uuid, true, 'ConfiDance pilot (local e2e)'); select count(*) from public.studio_sms_onboarding_access where studio_id = '${STUDIO}'`);
+    const writes = (who: Claims) => asClaims(who, `select public.set_sms_onboarding_access('${STUDIO}'::uuid, true, 'ConfiDance pilot (local e2e)'); reset role; select count(*) from public.studio_sms_onboarding_access where studio_id = '${STUDIO}'`);
     expect(writes(AAL2).out).toBe("1");
     expect(denied(writes(AAL1))).toBe(true);
     expect(admin(`select count(*) from public.studio_sms_onboarding_access where studio_id = '${STUDIO}'`)).toBe("0");
