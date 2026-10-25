@@ -14,22 +14,22 @@ export MSYS_NO_PATHCONV=1
 C="${1:-e2-db}"
 SU() { docker exec -i -e PGPASSWORD=postgres "$C" psql -U supabase_admin -d postgres -q -v ON_ERROR_STOP=1 -At "$@"; }
 U() { printf '00000000-0000-0000-0000-e20ff3%06x' "$((16#$1))"; }
-JUDGE1=$(U a1); JUDGE2=$(U a2); MGR=$(U a0)
+JUDGE1=$(U a1); JUDGE2=$(U a2); JUDGE3=$(U a3); MGR=$(U a0)
 EV=$(U e0); STUDIO=$(U 51)
 PASS=0; FAILS=""
 ok() { if [ "$2" = "1" ]; then PASS=$((PASS+1)); else FAILS="$FAILS; $1"; fi; }
 
-cleanup() { SU -c "delete from public.events where id = '$EV'; delete from public.studios where id='$STUDIO'; delete from auth.users where id::text like '00000000-0000-0000-0000-e20ff3%';" >/dev/null 2>&1; }
-trap cleanup EXIT
+cleanup() { SU -c "set session_replication_role = replica; update public.event_competition_heats set lock_state = 'open' where event_id = '$EV'; reset session_replication_role;" >/dev/null 2>&1; SU -c "delete from public.events where id = '$EV'; delete from public.studios where id='$STUDIO'; delete from public.verified_email_identities where user_id::text like '00000000-0000-0000-0000-e20ff3%'; delete from public.profiles where id::text like '00000000-0000-0000-0000-e20ff3%'; delete from auth.users where id::text like '00000000-0000-0000-0000-e20ff3%';" >/dev/null 2>&1; }
+[ "${KEEP:-}" = "1" ] || trap cleanup EXIT
 cleanup
 
 SU <<SQL
-insert into auth.users (id, email) values ('$MGR','t-e2c-mgr@example.test'),('$JUDGE1','t-e2c-j1@example.test'),('$JUDGE2','t-e2c-j2@example.test');
+insert into auth.users (id, email) values ('$MGR','t-e2c-mgr@example.test'),('$JUDGE1','t-e2c-j1@example.test'),('$JUDGE2','t-e2c-j2@example.test'),('$JUDGE3','t-e2c-j3@example.test');
 insert into public.profiles (id, email, full_name) select id, email, 'E2C ' || split_part(email,'@',1) from auth.users where id::text like '00000000-0000-0000-0000-e20ff3%';
 insert into public.verified_email_identities (user_id, email, first_verified_at, last_verified_at, method, source, credential_status, bound_at)
   select id, lower(email), now(), now(), 'otp', 'web_callback', 'bound', now() from auth.users where id::text like '00000000-0000-0000-0000-e20ff3%';
 insert into public.studios (id, name, slug) values ('$STUDIO','E2C Studio','t-e2c-studio');
-insert into public.user_studio_roles (user_id, studio_id, role, active) values ('$MGR','$STUDIO','studio_owner',true),('$JUDGE1','$STUDIO','instructor',true),('$JUDGE2','$STUDIO','instructor',true);
+insert into public.user_studio_roles (user_id, studio_id, role, active) values ('$MGR','$STUDIO','studio_owner',true),('$JUDGE1','$STUDIO','instructor',true),('$JUDGE2','$STUDIO','instructor',true),('$JUDGE3','$STUDIO','instructor',true);
 insert into public.events (id, studio_id, name, slug, event_type, start_date, end_date, status, visibility, registration_required)
   values ('$EV','$STUDIO','E2C Comp','t-e2c-e','competition', current_date+30, current_date+30,'published','public',true);
 insert into public.event_competition_programs (id, event_id, studio_id, name, discipline_family, competition_mode, scoring_method, status)
@@ -59,10 +59,12 @@ SU <<SQL
 $(as_user "$MGR")
 select public.add_competition_official('$EV','$JUDGE1','judge','$(U f001)');
 select public.add_competition_official('$EV','$JUDGE2','judge','$(U f002)');
+select public.add_competition_official('$EV','$JUDGE3','judge','$(U f003)');
 $(for i in 1 2 3; do echo "select public.assign_competition_panel_member('$(U 8$i)', (select id from public.event_competition_officials where event_id='$EV' and user_id='$JUDGE1'), 'A', '$(U f1$i)');
-select public.assign_competition_panel_member('$(U 8$i)', (select id from public.event_competition_officials where event_id='$EV' and user_id='$JUDGE2'), 'B', '$(U f2$i)');"; done)
+select public.assign_competition_panel_member('$(U 8$i)', (select id from public.event_competition_officials where event_id='$EV' and user_id='$JUDGE2'), 'B', '$(U f2$i)');
+select public.assign_competition_panel_member('$(U 8$i)', (select id from public.event_competition_officials where event_id='$EV' and user_id='$JUDGE3'), 'C', '$(U f3$i)');"; done)
 SQL
-SU -c "update public.event_competition_rounds set status='active' where event_id='$EV';"
+SU -c "set session_replication_role = replica; update public.event_competition_rounds set status='active' where event_id='$EV';"
 SU <<SQL
 $(as_user "$MGR")
 select public.set_competition_heat_lock_state('$(U d1)','locked','done');
@@ -75,6 +77,8 @@ now_ms() { date +%s%3N; }
 SU <<SQL
 $(as_user "$JUDGE1")
 select public.submit_competition_ballot('$(U 81)','$(U d1)',$(marks 1 1 2),'$(U a101)');
+$(as_user "$JUDGE3")
+select public.submit_competition_ballot('$(U 81)','$(U d1)',$(marks 1 2 1),'$(U a104)');
 SQL
 ( SU <<SQL
 $(as_user "$JUDGE2")
@@ -97,7 +101,7 @@ ELAPSED=$((T1-T0))
 echo "A: lock took ${ELAPSED}ms -> $LOCK_OUT"
 ok "A: lock waited for the in-flight submit (>=1800ms, was ${ELAPSED}ms)" $([ "$ELAPSED" -ge 1800 ] && echo 1 || echo 0)
 ok "A: lock succeeded after seeing the submitted ballot" $(echo "$LOCK_OUT" | grep -q '"status": "ballots_locked"' && echo 1 || echo 0)
-ok "A: round is ballots_locked and holds 2 ballots" $([ "$(SU -c "select (select status from public.event_competition_rounds where id='$(U 81)') || ':' || (select count(*) from public.event_competition_ballots where round_id='$(U 81)')")" = "ballots_locked:2" ] && echo 1 || echo 0)
+ok "A: round is ballots_locked and holds 3 ballots" $([ "$(SU -c "select (select status from public.event_competition_rounds where id='$(U 81)') || ':' || (select count(*) from public.event_competition_ballots where round_id='$(U 81)')")" = "ballots_locked:3" ] && echo 1 || echo 0)
 
 # ------------------------------------------------------------- Scenario B: submit waits for an in-flight lock
 SU <<SQL
@@ -105,6 +109,8 @@ $(as_user "$JUDGE1")
 select public.submit_competition_ballot('$(U 82)','$(U d2)',$(marks 2 1 2),'$(U b101)');
 $(as_user "$JUDGE2")
 select public.submit_competition_ballot('$(U 82)','$(U d2)',$(marks 2 2 1),'$(U b102)');
+$(as_user "$JUDGE3")
+select public.submit_competition_ballot('$(U 82)','$(U d2)',$(marks 2 1 2),'$(U b105)');
 SQL
 SU -c "select 1" >/dev/null
 # the lock txn holds the round row (FOR UPDATE) for 4s
@@ -129,7 +135,7 @@ ELAPSED=$((T1-T0))
 echo "B: submit took ${ELAPSED}ms -> $SUB_OUT"
 ok "B: submit waited for the in-flight lock (>=1800ms, was ${ELAPSED}ms)" $([ "$ELAPSED" -ge 1800 ] && echo 1 || echo 0)
 ok "B: submit was refused as round not active" $(echo "$SUB_OUT" | grep -q 'COMP_BALLOT_ROUND_NOT_ACTIVE' && echo 1 || echo 0)
-ok "B: no ballot slipped in after the lock (2 ballots, round locked)" $([ "$(SU -c "select (select status from public.event_competition_rounds where id='$(U 82)') || ':' || (select count(*) from public.event_competition_ballots where round_id='$(U 82)')")" = "ballots_locked:2" ] && echo 1 || echo 0)
+ok "B: no ballot slipped in after the lock (3 ballots, round locked)" $([ "$(SU -c "select (select status from public.event_competition_rounds where id='$(U 82)') || ':' || (select count(*) from public.event_competition_ballots where round_id='$(U 82)')")" = "ballots_locked:3" ] && echo 1 || echo 0)
 
 # ------------------------------------------------------------- Scenario C: simultaneous corrections serialize
 SU <<SQL
