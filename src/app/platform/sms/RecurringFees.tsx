@@ -11,7 +11,7 @@ import RecurringFeesVariances from "./RecurringFeesVariances";
  * and writes only through server-side-authorized actions, and every block says "not available" when its database function is not installed here.
  * Nothing on this panel renews, charges a studio, enables a schedule, or cancels anything at Twilio. Cents appear as dollars in this administrator panel only.
  */
-export default function RecurringFees({ ops, adminId, now, notice = null, error = null }: { ops: RflOps; adminId: string; now: number; notice?: string | null; error?: string | null }) {
+export default function RecurringFees({ ops, adminId, now, prices, notice = null, error = null }: { ops: RflOps; adminId: string; now: number; prices?: Record<string, number>; notice?: string | null; error?: string | null }) {
   const none = !ops.health && !ops.overview && !ops.exposures && !ops.variances && !ops.dual;
   return (
     <section id="recurring-fees" aria-labelledby="recurring-fees-title" className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
@@ -28,7 +28,7 @@ export default function RecurringFees({ ops, adminId, now, notice = null, error 
       <RecurringFeesVariances variances={ops.variances} />
       <RecurringFeesDual dual={ops.dual} overview={ops.overview} adminId={adminId} />
       <RecurringFeesCancel overview={ops.overview} dual={ops.dual} />
-      <RecurringFeesPilot overview={ops.overview} now={now} />
+      <RecurringFeesPilot overview={ops.overview} now={now} prices={prices} />
     </section>
   );
 }
