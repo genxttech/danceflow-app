@@ -26,7 +26,12 @@ export default async function CompetitionBallotsPage({ params }: { params: Promi
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-lg font-semibold text-slate-950">Ballots</h2>
+        <h2 className="text-lg font-semibold text-slate-950">
+          Ballots
+          <Link href={`/app/events/${id}/competition/results`} className="ml-3 text-sm font-medium text-slate-600 underline hover:text-slate-950">
+            Results
+          </Link>
+        </h2>
         <p className="mt-1 text-sm text-slate-600">
           Judges submit ballots from their own account; a submitted ballot is never edited, only corrected with a new version. Open a round to see who has
           submitted, enter paper ballots, record an absent judge and lock the ballots.

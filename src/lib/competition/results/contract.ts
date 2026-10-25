@@ -234,6 +234,8 @@ export const RESULT_EVENT_KINDS = [
   "result_superseded",
   "result_withdrawn",
   "advancement_applied",
+  // F2 amendment 2026-10-25: a new ballot version (or an opened correction) made unpublished result versions stale.
+  "result_invalidated",
 ] as const;
 
 export type ResultEventKind = (typeof RESULT_EVENT_KINDS)[number];
