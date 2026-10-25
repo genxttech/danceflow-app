@@ -38,7 +38,8 @@ export type StudioEngineContext = {
 
 export type StudioEngineInput = EngineInput & { context: StudioEngineContext };
 
-export type EngineRunSuccess = EngineOutput & {
+export type EngineRunSuccess = Omit<EngineOutput, "trace"> & {
+  trace: TraceRecord[];
   ok: true;
   engineKey: V1EngineKey;
   engineVersion: "1";
