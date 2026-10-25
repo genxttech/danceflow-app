@@ -104,6 +104,19 @@ Required mitigation without any Production change (owner, read-only evidence; no
 - Stripe Live → Payment Links and Pricing tables: confirm none references a Regular Price.
 - Move quickly to the release build: it refuses any non-Founder studio checkout without the activation gates and verifies amounts.
 
+Read-only review results (2026-10-24, after the Price IDs were supplied):
+- Public site (`/`, `/get-started`, `/get-started/studio`, `/for-studios`) and the deployed source contain no Payment Link
+  (`buy.stripe.com`), no Stripe Pricing Table, no hard-coded `price_…` ID and no `checkout.stripe.com` URL. **Passed.**
+- Live billing-portal configuration: **UNVERIFIED.** The only live credential on this machine belongs to a different business and is
+  not used; the DanceFlow live account has no read access here. Owner check: Stripe Live → Settings → Billing → Customer portal →
+  Subscriptions: "Customers can switch plans" off, or the product list contains no Regular Price (and no Founder Price a customer
+  should not reach). Record the answer here.
+- Stripe-side Payment Links / Pricing tables / Checkout links referencing a Regular Price: **UNVERIFIED** (Stripe Live → Payment
+  Links; Product catalog → each Regular Price → "Used by"). Owner check.
+- Whether the three Founder variables are non-blank in the deployed app: **UNVERIFIED** (locked values). Closed by the logs/no-payment
+  evidence above, or moot after the Step 2 env split and a release build, which verifies each Price amount before creating a session.
+- Production `subscription_plans` Price IDs vs the Regular Price IDs: **UNVERIFIED** (production database read not authorized).
+
 Regular pricing stays inactive in the release: `REGULAR_PRICING_ACTIVATED` and `REGULAR_PRICING_APPROVAL_REF` unset, no `…_STANDARD` env
 change, no regular price on any page, checkout behavior unchanged. Later activation (not authorized) needs an owner approval
 reference, the `…_STANDARD` env Price IDs set to the Regular Price IDs, `FOUNDER_PRICING_ACTIVE=false` to end Founder pricing, and a
@@ -222,27 +235,61 @@ Each of Starter, Growth, Pro must satisfy:
 | Currency USD | ☐ | ☐ | ☐ |
 | Recurring, every 1 month | ☐ | ☐ | ☐ |
 | Live mode (no "Test data" banner) | ☐ | ☐ | ☐ |
-| Price ID matches the env plan below | ☐ unchanged | ☐ unchanged | ☐ new |
+| Price ID equals the ID in the supplied table above | ☐ | ☐ | ☐ |
 | Price active | ☐ | ☐ | ☐ |
 
 Plus: the original Pro Price is still active and still $129; the existing Pro subscription is unchanged (same Price ID,
 amount, status, renewal date, `planCode=pro` metadata); no other subscription, customer, coupon or invoice changed.
 
-## Step 2 — Environment plan (needs separate owner authorization)
+## Production Founder Price IDs (supplied by owner, Live account `acct_1TKgL3EY0sTayNiS`)
 
-Env changes only affect NEW deployments; the live deployment is unaffected until a new build is promoted.
-`STRIPE_PRICE_STUDIO_*_FOUNDER` are single, locked (sensitive) entries scoped "Production and Preview", added May 31. Their values cannot be read back in
-Vercel; earlier notes that they hold sandbox IDs were an unsupported inference (taken from a local `.env.local`) and are retracted.
-
-| Variable | Production value | Preview |
+| Role | Amount | Price ID |
 |---|---|---|
-| `STRIPE_PRICE_STUDIO_STARTER_FOUNDER` | existing Starter Price ID (same ID, now $59) | keep current value |
-| `STRIPE_PRICE_STUDIO_GROWTH_FOUNDER` | existing Growth Price ID (same ID, now $99) | keep current value |
-| `STRIPE_PRICE_STUDIO_PRO_FOUNDER` | **new** $159 Pro Price ID | keep current value |
-| `STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY` | original Pro Price ID (grandfathered, $129) | unset |
+| Starter Founder | $59 / month | `price_1TdDHBEY0sTayNiS0G2Ed9oI` |
+| Growth Founder | $99 / month | `price_1UUG7uEY0sTayNiSh0d9cCL8` |
+| Pro Founder (new) | $159 / month | `price_1UUG4UEY0sTayNiSClLL4J0R` |
+| Pro Founder (grandfathered) | $129 / month | `price_1TdDHwEY0sTayNiSIe1nD3Lg` |
 
-Per variable: change the shared entry to **Preview only** with its current value, then add a Production-only entry with the
-value above. Leave `_STANDARD`, `REGULAR_PRICING_ACTIVATED` and `REGULAR_PRICING_APPROVAL_REF` unset. Record before/after values.
+Owner: there are no existing legacy Growth subscribers. Consistency check (read-only): all four IDs carry the production account's
+object-ID suffix (`…EY0sTayNiS…`, matching `acct_1TKgL3EY0sTayNiS`), not the DEV sandbox's (`…EYYNmPuFIX…`). The Growth ID
+(`price_1UUG7u…`) is newer than the Starter and grandfathered-Pro IDs (`price_1TdDH…`), so Growth is a new Price object rather than the
+original Price edited in place; the Growth item in the Step 1 checklist therefore also confirms the original Growth Founder Price is
+untouched or archived and has no subscriptions. Everything else in the Step 1 verification checklist still applies to these exact IDs.
+
+## Step 2 — Production environment plan (exact; needs separate owner authorization — nothing applied)
+
+Project: `danceflow-app-qfem` (serves idanceflow.com). Env changes apply only to NEW deployments; the live deployment is unaffected.
+Locked values cannot be read back in Vercel, so **never overwrite a shared entry**: split it so the original value is preserved
+in the Preview-only entry. That makes rollback exact without reading any value.
+
+Per Founder variable (do the three plus one new variable; do each variable's two edits back to back, before any build):
+
+| # | Variable | Before (shared entry, Production + Preview) | After: existing entry | After: new Production-only entry |
+|---|---|---|---|---|
+| 1 | `STRIPE_PRICE_STUDIO_STARTER_FOUNDER` | locked value V1 | scope **Preview only**, value V1 unchanged | `price_1TdDHBEY0sTayNiS0G2Ed9oI` |
+| 2 | `STRIPE_PRICE_STUDIO_GROWTH_FOUNDER` | locked value V2 | scope **Preview only**, value V2 unchanged | `price_1UUG7uEY0sTayNiSh0d9cCL8` |
+| 3 | `STRIPE_PRICE_STUDIO_PRO_FOUNDER` | locked value V3 | scope **Preview only**, value V3 unchanged | `price_1UUG4UEY0sTayNiSClLL4J0R` |
+| 4 | `STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY` | does not exist | — | **new**, Production only: `price_1TdDHwEY0sTayNiSIe1nD3Lg` |
+
+Procedure per row 1–3: Environment Variables → the entry → Edit → untick **Production** (leave **Preview** ticked) → Save; then
+Add Environment Variable with the same name, tick **Production only**, paste the Price ID. Create the new entries as plain
+(non-sensitive) values: Price IDs are not secrets and plain values can be re-read for later audit. For row 4 just add it.
+
+Explicitly **not touched**: every Preview value (the original entries keep their exact current values for Preview), both Founder flags
+(`FOUNDER_PRICING_ACTIVE`, `NEXT_PUBLIC_FOUNDER_PRICING_ACTIVE`), all `…_STANDARD` and Organizer Price variables, AI-credit Price variables,
+`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_WEBHOOK_SECRET`, publishable keys, Supabase and Twilio variables, every other
+variable. `REGULAR_PRICING_ACTIVATED` and `REGULAR_PRICING_APPROVAL_REF` stay unset. Preview has no Stripe secret key, so previews cannot
+create real checkouts regardless.
+
+After the change, read back (names, scope, and the four plain values): each Production entry shows the exact ID above; each original
+entry shows Preview only; no other variable changed (compare the entry count and `Updated` times).
+
+### Rollback of the environment change (no value is ever read or retyped)
+1. For rows 1–3: delete the new Production-only entry, then edit the preserved entry and tick **Production** again (it returns to its original
+   shared Production + Preview state with its original value).
+2. Row 4: delete `STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY`.
+3. Env changes only affect new deployments, so a code rollback (promote the previous deployment) must be paired with this env rollback,
+   in this order: promote `dpl_87xgSBVM…` first, then restore env.
 
 ## Webhook plan resolution (PR #319 — separate, pending independent review)
 
@@ -272,6 +319,13 @@ update `studios.billing_plan`, which the public embed/discover pages still read 
 Stripe's Billing Portal cannot change plans on subscriptions with more than one product, so studios with add-ons switch plans
 by other means.
 
+## Build status of `release/pricing-p1` (`4bc938c6`)
+
+Pushed 2026-10-24 with owner authorization (build only). As of the last check both Vercel builds (`danceflow-app` and `danceflow-app-qfem`)
+were **Queued/pending** behind other deployments (qfem deployment `F4ZbvHaEP…`, Environment: Preview, 13 minutes queued); no build has run, so
+there is no compile result yet. The preview URL has not been visited or used (qfem Preview shares the production Supabase project). Do not
+click "Start Building Now" to jump the queue; wait for the queue.
+
 ## Release sequence (each hosted step needs separate owner authorization)
 
 1. Step 0 evidence accepted (live account, matches production).
@@ -289,7 +343,8 @@ by other means.
 ## Rollback (code and config together)
 
 1. Promote the previous deployment (`dpl_87xgSBVM…`, `8fd075f5`) back.
-2. Restore Production `STRIPE_PRICE_STUDIO_PRO_FOUNDER` to the original Pro Price ID and remove `…_PRO_FOUNDER_LEGACY`.
+2. Restore the Production environment with the exact rollback in Step 2 (delete the new Production-only entries and re-tick Production on the preserved
+   entries; delete `…_PRO_FOUNDER_LEGACY`). Do this after promoting the previous deployment.
 3. Starter and Growth Prices keep their edited amounts ($59/$99) in Stripe. The old code does not verify amounts, so after a
    code rollback the old pages show $49/$79 while checkout charges $59/$99. Do not re-edit or archive a Price that has a
    subscription. Preferred: roll back only if the defect is in code, keep the approved Stripe amounts, and fix forward quickly.
