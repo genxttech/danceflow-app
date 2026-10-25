@@ -869,6 +869,32 @@ select pg_temp.chk('present path: r5 keeps its scratched entry as scratched (not
 select pg_temp.chk('present path: an entry outside the round is ignored', cardinality(public._compf2_no_show_entries(pg_temp.rid(2))) = 0);
 drop function public.competition_heat_no_show_entries(uuid);
 
+-- A heat with no live entry drops out of _compe2_round_heats; its entries must still be in entries and in excludedEntries (X-5 audit), and the
+-- no-show reader's answer for them must still be honoured. r8 gets entry 4 on heat 14 whose only heat entry is scratched.
+insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
+values (pg_temp.eid(8, 4), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.did(5), 'E84', 'confirmed', 'eligible', '84');
+set session_replication_role = replica;
+insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, contest_id, schedule_version_id, status)
+values (pg_temp.hid(14), pg_temp.u('00e001'), pg_temp.did(5), pg_temp.rid(8), 14, pg_temp.u('002001'), pg_temp.u('00c001'), 'scheduled');
+insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order, status)
+values (pg_temp.u('00e001'), pg_temp.did(5), pg_temp.hid(14), pg_temp.eid(8, 4), 1, 'scratched');
+set session_replication_role = origin;
+select pg_temp.chk('X-5: a heat with no live entry is not a scored heat, but its entry is in entries and excludedEntries (scratched)',
+  not exists (select 1 from public._compe2_round_heats(pg_temp.rid(8)) h where h.heat_id = pg_temp.hid(14))
+  and exists (select 1 from jsonb_array_elements(public._compf2_evidence(pg_temp.rid(8), 'studio_ordinal_majority', '1') -> 'entries') e where e ->> 'entryId' = pg_temp.eid(8, 4)::text)
+  and exists (select 1 from jsonb_array_elements(public._compf2_evidence(pg_temp.rid(8), 'studio_ordinal_majority', '1') -> 'excludedEntries') e
+              where e ->> 'entryId' = pg_temp.eid(8, 4)::text and e ->> 'reason' = 'scratched')
+  and not exists (select 1 from jsonb_array_elements(public._compf2_evidence(pg_temp.rid(8), 'studio_ordinal_majority', '1') -> 'heats') h where h ->> 'heatId' = pg_temp.hid(14)::text));
+create function public.competition_heat_no_show_entries(p_round_id uuid) returns table(entry_id uuid) language sql stable as $f$
+  select e from unnest(case when p_round_id = pg_temp.rid(8) then array[pg_temp.eid(8, 4)] else '{}'::uuid[] end) e
+$f$;
+select pg_temp.chk('X-5: the no-show reader''s answer for an entry only on a heat with no live entry is honoured (intersection uses all heats), and scratched wins in the audit',
+  public._compf2_no_show_entries(pg_temp.rid(8)) = array[pg_temp.eid(8, 4)]
+  and (select count(*) = 1 from jsonb_array_elements(public._compf2_evidence(pg_temp.rid(8), 'studio_ordinal_majority', '1') -> 'excludedEntries') e where e ->> 'entryId' = pg_temp.eid(8, 4)::text)
+  and exists (select 1 from jsonb_array_elements(public._compf2_evidence(pg_temp.rid(8), 'studio_ordinal_majority', '1') -> 'excludedEntries') e
+              where e ->> 'entryId' = pg_temp.eid(8, 4)::text and e ->> 'reason' = 'scratched'));
+drop function public.competition_heat_no_show_entries(uuid);
+
 -- NS1 semantics: an entry that is a no-show in EVERY heat reaches excludedEntries even when _compe2_round_entries stops listing it, and an
 -- entry that is a no-show in ONE heat but danced in another stays in the other heat's entryIds. r8 gets a second heat (replica fixture):
 -- entry 1 is a no-show in heat 8 only (danced in heat 13), entry 3 is a no-show everywhere.
@@ -886,9 +912,9 @@ create function public.competition_heat_entry_is_no_show(p_heat_entry_id uuid) r
                  where he.id = p_heat_entry_id and (he.entry_id = pg_temp.eid(8, 3) or (he.entry_id = pg_temp.eid(8, 1) and he.heat_id = pg_temp.hid(8))))
 $f$;
 select pg_temp.chk('NS1 semantics: a no-show in every heat is excluded (and stays in entries) even if the round-entries helper stopped listing it',
-  (public._compf2_evidence(pg_temp.rid(8), 'studio_ordinal_majority', '1') -> 'excludedEntries') = jsonb_build_array(jsonb_build_object('entryId', pg_temp.eid(8, 3)::text, 'reason', 'no_show'))
+  exists (select 1 from jsonb_array_elements(public._compf2_evidence(pg_temp.rid(8), 'studio_ordinal_majority', '1') -> 'excludedEntries') e where e ->> 'entryId' = pg_temp.eid(8, 3)::text and e ->> 'reason' = 'no_show')
   and cardinality(public._compf2_no_show_entries(pg_temp.rid(8))) = 1
-  and jsonb_array_length(public._compf2_evidence(pg_temp.rid(8), 'studio_ordinal_majority', '1') -> 'entries') = 3);
+  and jsonb_array_length(public._compf2_evidence(pg_temp.rid(8), 'studio_ordinal_majority', '1') -> 'entries') = 4);
 select pg_temp.chk('NS1 semantics: a no-show in one heat but danced in another stays in the other heat''s entryIds',
   (select h -> 'entryIds' from jsonb_array_elements(public._compf2_evidence(pg_temp.rid(8), 'studio_ordinal_majority', '1') -> 'heats') h where h ->> 'heatId' = pg_temp.hid(13)::text)
     = jsonb_build_array(pg_temp.eid(8, 1)::text)
