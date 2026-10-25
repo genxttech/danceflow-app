@@ -371,6 +371,8 @@ declare
   v_prior record;
   v_state record;
   v_ready boolean;
+  v_scoring text;
+  v_target integer;
 begin
   if v_actor is null or p_round_id is null or p_request_id is null then
     raise exception 'COMPO1_NOT_FOUND: round was not found or cannot be managed.' using errcode = '42501';
@@ -380,7 +382,7 @@ begin
     raise exception 'COMPO1_NOT_FOUND: round was not found or cannot be managed.' using errcode = '42501';
   end if;
   perform public._compo1_lock_event(v_event);
-  select status into v_status from public.event_competition_rounds where id = p_round_id for update;
+  select status, scoring_method, target_advancement_count into v_status, v_scoring, v_target from public.event_competition_rounds where id = p_round_id for update;
 
   select * into v_prior from public.event_competition_round_transition_events where request_id = p_request_id limit 1;
   if found then
@@ -392,6 +394,11 @@ begin
 
   if v_status <> 'scheduled' then
     raise exception 'COMPO1_BAD_STATE: only a scheduled round can be started (round is %).', v_status using errcode = '23514';
+  end if;
+  -- A callback round needs its callback target T before it starts: the round configuration freezes once it is active,
+  -- so an unset T could never be entered afterwards (same rule as the setup readiness check).
+  if v_scoring = 'callback_tally' and v_target is null then
+    raise exception 'COMPO1_CALLBACK_TARGET_UNSET: set the callback target for this round before starting it.' using errcode = '23514';
   end if;
   select * into v_state from public._compo1_round_heat_state(p_round_id);
   if v_state.live_version_id is null or v_state.unplaced_heats > 0 or v_state.live_heats = 0 then

@@ -249,6 +249,14 @@ select pg_temp.expect_msg('B6 an active round cannot be started again (new reque
 -- ---------------------------------------------------------------------------
 select pg_temp.expect_msg('C1 heat 1 cannot be staged while R3 (scheduled) is not active',
   $q$select public.advance_competition_floor_heat(pg_temp.fh(pg_temp.id('v1'), 1), 'staging', pg_temp.u('0c0001'))$q$, 'COMPO1_ROUND_NOT_ACTIVE');
+-- A callback round (scoring_method callback_tally) cannot start until its callback target is set; the round freezes once active.
+select pg_temp.expect_ok('C1b make R3 a callback round with no target', $q$update public.event_competition_rounds set scoring_method = 'callback_tally', target_advancement_count = null where id = pg_temp.u('006003')$q$);
+select pg_temp.expect_msg('C1b a callback round with an unset target cannot be started (fail closed)',
+  $q$select public.start_competition_round(pg_temp.u('006003'), pg_temp.u('0b00a1'))$q$, 'COMPO1_CALLBACK_TARGET_UNSET');
+select pg_temp.chk('C1b the refused start left R3 scheduled and wrote no audit row',
+  pg_temp.rstatus('006003') = 'scheduled'
+  and pg_temp.n($q$select count(*) from public.event_competition_round_transition_events where round_id = pg_temp.u('006003') and kind = 'round_started'$q$) = 0);
+select pg_temp.expect_ok('C1b set the callback target', $q$update public.event_competition_rounds set target_advancement_count = 1 where id = pg_temp.u('006003')$q$);
 select pg_temp.expect_ok('C2 start R3', $q$select public.start_competition_round(pg_temp.u('006003'), pg_temp.u('0b0006'))$q$);
 select pg_temp.expect_msg('C3 invalid target status is refused',
   $q$select public.advance_competition_floor_heat(pg_temp.fh(pg_temp.id('v1'), 1), 'draft', pg_temp.u('0c0002'))$q$, 'COMPO1_NOT_FOUND');
