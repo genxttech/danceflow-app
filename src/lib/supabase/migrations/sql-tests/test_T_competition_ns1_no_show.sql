@@ -319,6 +319,10 @@ reset role;
 update public.event_competition_heat_entries set status = 'scheduled' where id = pg_temp.he('00d001', '008001');
 -- (no heat_entries trigger: 10D.1 pins the trigger count; the mark RPC refuses danced entries)
 select pg_temp.chk('heat_entries trigger count is unchanged (10D.1 pins 4)', (select count(*) from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and not tgisinternal) = 4);
+-- KNOWN GAP (reported in the PR): the dropped trigger blocked a direct heat_entries.status = 'danced' on an entry with an active no-show. Without it only
+-- the mark RPC (which refuses danced entries) protects that direction; a trusted direct writer can still set danced afterwards. No such writer exists today.
+select pg_temp.expect_ok('KNOWN GAP: a direct superuser update to danced on a no-show entry is not blocked (documented, no writer exists)', format($q$update public.event_competition_heat_entries set status = 'danced' where id = %L$q$, pg_temp.he('00d001', '008003')));
+update public.event_competition_heat_entries set status = 'scheduled' where id = pg_temp.he('00d001', '008003');
 -- removed: expect_msg(format($q$update public.event_competition_heat_entries set status = 'danced' where id = %L$q$, pg_temp.he('00d001', '008003')), 'COMP_NO_SHOW_ACTIVE');
 
 -- ============================================================================
@@ -664,10 +668,100 @@ select pg_temp.chk('r12 evidence: h15 lists e33 (danced there); no heat lists e3
           where v.round_id = pg_temp.u('006012') and i::uuid = pg_temp.u('008034')));
 
 -- ============================================================================
--- 13. Real-flow round via the O1 fixture helper (event C): publish -> schedule -> start -> heat transitions -> no-show
+-- 13. Real-flow round via the O1 fixture helper (event C): publish -> schedule -> start (real RPCs) -> heat transitions -> no-show
+--     -> ballots -> lock -> F2 calculate.  Fixture shortcut: the helper puts ONE entry in the heat, so the second entry is added to the
+--     scoring heat with replica mode before the round is activated (everything after that goes through real RPCs).
 -- ============================================================================
--- Requires pg_temp.compo1_fixture_* (fixtures/competition_round_ready.sql loaded first). Skipped (recorded as NOT RUN in the detail) if absent.
+create or replace function pg_temp.hid30() returns uuid language sql stable security definer as $f$ select id from public.event_competition_heats where round_id = pg_temp.u('006030') $f$;
+grant execute on function pg_temp.hid30() to authenticated;
 select pg_temp.chk('O1 fixture helper loaded', to_regprocedure('pg_temp.compo1_fixture_activate_round(uuid,uuid)') is not null, 'cat fixtures/competition_round_ready.sql first');
+
+insert into public.events (id, studio_id, name, slug, event_type, start_date, end_date, status, visibility, registration_required)
+values (pg_temp.u('00e003'), pg_temp.u('00a001'), 'NS1 Real Flow Comp', 't-ns1-e3', 'competition', current_date + 50, current_date + 50, 'published', 'public', true);
+insert into public.event_competition_programs (id, event_id, studio_id, name, discipline_family, competition_mode, scoring_method, status)
+values (pg_temp.u('001003'), pg_temp.u('00e003'), pg_temp.u('00a001'), 'Country', 'country', 'relative', 'skating', 'configured');
+insert into public.event_competition_contests (id, event_id, program_id, name, contest_type, entry_format, status)
+values (pg_temp.u('002003'), pg_temp.u('00e003'), pg_temp.u('001003'), 'ProAm', 'single_dance', 'pro_am', 'open');
+insert into public.event_competition_divisions (id, event_id, program_id, contest_id, name, status)
+values (pg_temp.u('003030'), pg_temp.u('00e003'), pg_temp.u('001003'), pg_temp.u('002003'), 'D30', 'open');
+insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method)
+values (pg_temp.u('006030'), pg_temp.u('00e003'), pg_temp.u('001003'), pg_temp.u('003030'), 'R30 Real flow', 'final', 1, 'draft', 'ordinal_majority');
+insert into public.event_competition_competitors (id, event_id, first_name, last_name, created_via) values
+  (pg_temp.u('007050'), pg_temp.u('00e003'), 'Ada', 'Real', 'staff'), (pg_temp.u('007051'), pg_temp.u('00e003'), 'Bo', 'Real', 'staff');
+insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number) values
+  (pg_temp.u('008050'), pg_temp.u('00e003'), pg_temp.u('001003'), pg_temp.u('003030'), 'Ada Real', 'confirmed', 'eligible', '150'),
+  (pg_temp.u('008051'), pg_temp.u('00e003'), pg_temp.u('001003'), pg_temp.u('003030'), 'Bo Real', 'confirmed', 'eligible', '151');
+insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, dance_role, display_name, sort_order) values
+  (pg_temp.u('00e003'), pg_temp.u('008050'), pg_temp.u('007050'), 'student', 'follower', 'Ada Real', 1),
+  (pg_temp.u('00e003'), pg_temp.u('008051'), pg_temp.u('007051'), 'student', 'follower', 'Bo Real', 1);
+
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000001'));
+select public.add_competition_official(pg_temp.u('00e003'), pg_temp.u('000011'), 'judge', gen_random_uuid());
+select public.add_competition_official(pg_temp.u('00e003'), pg_temp.u('000012'), 'judge', gen_random_uuid());
+select public.add_competition_official(pg_temp.u('00e003'), pg_temp.u('000013'), 'judge', gen_random_uuid());
+select public.assign_competition_panel_member(pg_temp.u('006030'), pg_temp.off('00e003', '000011'), 'A', gen_random_uuid());
+select public.assign_competition_panel_member(pg_temp.u('006030'), pg_temp.off('00e003', '000012'), 'B', gen_random_uuid());
+select public.assign_competition_panel_member(pg_temp.u('006030'), pg_temp.off('00e003', '000013'), 'C', gen_random_uuid());
+reset role;
+
+select pg_temp.expect_ok('13a helper publishes the running order (real create / apply / publish)',
+  $q$select pg_temp.compo1_fixture_publish_round(pg_temp.u('006030'), pg_temp.u('000001'))$q$);
+set session_replication_role = replica;
+insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order)
+select h.event_id, h.division_id, h.id, pg_temp.u('008051'), 2 from public.event_competition_heats h where h.round_id = pg_temp.u('006030');
+set session_replication_role = origin;
+select pg_temp.chk('13b the heat holds both entries', pg_temp.n($q$select count(*) from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id where h.round_id = pg_temp.u('006030')$q$) = 2);
+select pg_temp.chk('13c helper activates the round through schedule + start (real RPCs)', pg_temp.compo1_fixture_activate_round(pg_temp.u('006030'), pg_temp.u('000001')) = 'active');
+
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('13d no-show before the heat is on the floor is outside the window (heat still scheduled)',
+  format($q$select public.mark_competition_heat_no_show(%L, 'early', gen_random_uuid())$q$,
+         (select he.id from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id where h.round_id = pg_temp.u('006030') and he.entry_id = pg_temp.u('008051'))),
+  'COMP_NO_SHOW_WINDOW');
+select pg_temp.expect_ok('13e heat called to the floor (real RPC)', $q$select public.advance_competition_floor_heat((select floor_heat_id from public.event_competition_heats where round_id = pg_temp.u('006030')), 'staging', gen_random_uuid())$q$);
+select pg_temp.expect_ok('13f heat started (real RPC)', $q$select public.advance_competition_floor_heat((select floor_heat_id from public.event_competition_heats where round_id = pg_temp.u('006030')), 'active', gen_random_uuid())$q$);
+select pg_temp.expect_ok('13g the manager marks Bo Real a no-show on the active heat',
+  format($q$select public.mark_competition_heat_no_show(%L, 'Did not come to the floor', gen_random_uuid())$q$,
+         (select he.id from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id where h.round_id = pg_temp.u('006030') and he.entry_id = pg_temp.u('008051'))));
+reset role;
+select pg_temp.chk('13h required set is Ada only', public._compe2_heat_entries(pg_temp.hid30()) = array[pg_temp.u('008050')]::uuid[]);
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000011'));
+select pg_temp.expect_ok('13i judge A ranks the one remaining entry', format($q$select public.submit_competition_ballot(%L, %L, jsonb_build_array(jsonb_build_object('entry_id', %L, 'value', 1)), gen_random_uuid())$q$,
+  pg_temp.u('006030'), pg_temp.hid30(), pg_temp.u('008050')));
+select pg_temp.as_user(pg_temp.u('000012'));
+select public.submit_competition_ballot(pg_temp.u('006030'), pg_temp.hid30(), jsonb_build_array(jsonb_build_object('entry_id', pg_temp.u('008050'), 'value', 1)), gen_random_uuid());
+select pg_temp.as_user(pg_temp.u('000013'));
+select public.submit_competition_ballot(pg_temp.u('006030'), pg_temp.hid30(), jsonb_build_array(jsonb_build_object('entry_id', pg_temp.u('008050'), 'value', 1)), gen_random_uuid());
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('13j heat completed (real RPC)', $q$select public.advance_competition_floor_heat((select floor_heat_id from public.event_competition_heats where round_id = pg_temp.u('006030')), 'complete', gen_random_uuid())$q$);
+select pg_temp.expect_ok('13k heat locked', format($q$select public.set_competition_heat_lock_state(%L, 'locked', 'ns1 real flow')$q$, pg_temp.hid30()));
+select pg_temp.expect_ok('13l ballots lock', format($q$select public.lock_competition_round_ballots(%L, gen_random_uuid())$q$, pg_temp.u('006030')));
+reset role;
+set session_replication_role = replica;
+update public.event_competition_programs set rules_profile_key = 'studio_simple', rules_profile_version = 1, profile_locked_at = now() where id = pg_temp.u('001003');
+insert into public.event_competition_program_locks (program_id, event_id, rules_profile_key, rules_profile_version, snapshot, locked_at)
+values (pg_temp.u('001003'), pg_temp.u('00e003'), 'studio_simple', 1, jsonb_build_object('profile', jsonb_build_object('key', 'studio_simple', 'version', 1)), now());
+set session_replication_role = origin;
+select public.pin_competition_round_scoring(pg_temp.u('006030'));
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('13m F2 calculate succeeds with the no-show excluded', $q$select pg_temp.calc2('006030')$q$);
+reset role;
+select pg_temp.chk('13n result has one row (Ada); Bo is excluded as no_show and still listed in entries',
+  (select array_agg(r.entry_id) from public.event_competition_result_rows r join public.event_competition_result_versions v on v.id = r.result_version_id where v.round_id = pg_temp.u('006030')) = array[pg_temp.u('008050')]::uuid[]
+  and exists (select 1 from public.event_competition_result_versions v, jsonb_array_elements(v.input -> 'excludedEntries') x
+              where v.round_id = pg_temp.u('006030') and x ->> 'reason' = 'no_show' and (x ->> 'entryId')::uuid = pg_temp.u('008051'))
+  and exists (select 1 from public.event_competition_result_versions v, jsonb_array_elements(v.input -> 'entries') x
+              where v.round_id = pg_temp.u('006030') and (x ->> 'entryId')::uuid = pg_temp.u('008051')));
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('13o after the lock the no-show cannot be voided (window closed)',
+  format($q$select public.void_competition_heat_no_show(%L, 'late', gen_random_uuid())$q$,
+         (select he.id from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id where h.round_id = pg_temp.u('006030') and he.entry_id = pg_temp.u('008051'))), 'COMP_NO_SHOW_WINDOW');
+reset role;
 
 -- ============================================================================
 -- Verdict
