@@ -1,6 +1,6 @@
 # Engine spec — UCWDC "Majority Rules" scoring format (K1-U)
 
-Status: **DRAFT, pending independent verification and then owner approval.** Docs only (no code, no SQL, no database). This is the K1-U deliverable under Stage 4 decision S4-5 (`scoring-architecture-decisions.md`): UCWDC Majority Rules stays **unavailable** (`COMP_ENGINE_NOT_AVAILABLE`) until this spec is completely specified, independently verified against the authoritative source, and approved. A separate read-only session will recompute every fixture from the source before the owner decides.
+Status: **DRAFT. Independently verified with corrections (see `k1u-verification-report.md`); owner questions OQ-1…OQ-3 and owner approval pending.** Docs only (no code, no SQL, no database). This is the K1-U deliverable under Stage 4 decision S4-5 (`scoring-architecture-decisions.md`): UCWDC Majority Rules stays **unavailable** (`COMP_ENGINE_NOT_AVAILABLE`) until this spec is completely specified, independently verified against the authoritative source, and approved. A separate read-only session will recompute every fixture from the source before the owner decides.
 
 Proposed registry identity (not yet registered): method `ucwdc_majority_rules`, version `v16.9b`.
 
@@ -120,7 +120,9 @@ Ties among contestants are allowed (R3.2).
 - **READING (G-8):** for the majority calculation (§5) each judge's marks become, per contestant, that contestant's position (1…N) in the judge's overall order (all contestants ordered by medal value ascending, then by rank within the medal). R3.4's own example uses ranks (`[3,1,2,5,4]`) for these divisions, which supports the reading, but the source does not spell out that the conversion yields a dense 1…N rank.
 - The plus and star tiers and ties exist only for ProAm/ProPro (R3.1, R3.2, R3.3).
 
-### 4.4 Division-specific mark lists in the rule books (conflict, G-9)
+### 4.4 Division-specific mark lists in the rule books (conflict, G-9) — PENDING OWNER OQ-1
+
+> **PENDING OWNER OQ-1 (verification report C-1 not applied).** The intersection rule below rejects B+, GG+ and every ★ mark, which conflicts with the owner's direction to preserve the 16-mark ProAm/ProPro scale and is inconsistent with fixtures F-U-04, F-U-05, F-U-07, F-U-08 and F-U-09 (they use scale values the rule books do not list). Treat the intersection rule as a placeholder until the owner answers OQ-1 (does the R3.2 scale govern ProAm/ProPro marks, and does a "March 2026" edition exist). Until then the spec makes no final claim about permitted marks.
 
 | Source | Judges' marks listed |
 |---|---|
@@ -141,7 +143,7 @@ Let `J` be the number of judges for the dance.
 
 Worked source examples: raw `[13,11,12,15,14]` → re-ordered `[11,12,13,14,15]`, majority mark 13; ranks `[3,1,2,5,4]` → `[1,2,3,4,5]`, majority mark 3 (R3.4).
 
-The source does not state a minimum number of judges (G-10): `J = 1` or `J = 2` are not addressed. The engine requires `J ≥ 3` (this is a DanceFlow input guard, not a source rule, and is flagged) and fails closed otherwise. The source also does not say what happens if judges' panels differ between contestants or heats (G-11); the engine requires one panel per dance and fails closed otherwise.
+The source formula defines a majority position for `J = 1` (the middle mark) and `J = 2` (half plus one, the 2nd mark), so it does not state a minimum (G-10; owner question OQ-3 on whether to keep a guard). The engine requires `J ≥ 3` (this is a stricter DanceFlow input guard, not a source rule; it fails closed and approximates nothing; kept until the owner decides OQ-3) and fails closed otherwise. The source also does not say what happens if judges' panels differ between contestants or heats (G-11); the engine requires one panel per dance and fails closed otherwise.
 
 ## 6. Single-dance tie-breakers, in order (R4–R8)
 
@@ -207,7 +209,7 @@ The source and the rule books do not define a panel size, a number of heats of F
 - In Rule #10 the "placement" compared per dance is not defined as the announced placement or the carry-forward value (they differ for final ties, e.g. 3 vs 3.5).
 - Which round's judges' marks Rule #11 uses for dances where a contestant did not reach the Finals (only Finals have majority-mark ballots in R3; callback ballots have points).
 - The best-loss-value ambiguity of G-13 applies equally to Rules #10 and #11.
-- **Source numbering errors (G-16):** R10.2 ends "proceed to Rule #10, part #3", R10.3 says "executing Rule #10, part #4 once again" and R11.3 says "computing wins/losses/ties from Rule #10, part #4" although Rule #10 has parts 1–3. The prose makes clear the intended step is the head-to-head computation of part 2. The engine follows part 2; the verifier should confirm.
+- **Source numbering errors (G-16):** R10.3 says "executing Rule #10, part #4 once again" and R11.3 says "computing wins/losses/ties from Rule #10, part #4" although Rule #10 has parts 1–3 (R10.2's own reference to "part #3" is valid and is not an error). The prose makes clear the intended step is the head-to-head computation of part 2. The engine follows part 2; the verifier should confirm.
 
 ### 8.3 What is not ranked here
 
@@ -251,16 +253,18 @@ Fixed behaviors:
 | G-7 | Promotion of all dances together at Worlds | NOT SPECIFIED |
 | G-8 | Couples/Line medal+rank converts to a dense 1…N per-judge rank | READING |
 | G-9 | Rule-book mark lists (M; fewer tiers, no ★) conflict with R3.2's 16 values | CONFLICT, intersection rule |
-| G-10 | Minimum number of judges | NOT SPECIFIED (DanceFlow guard `J ≥ 3`) |
+| G-10 | Minimum number of judges: the source formula covers J = 1 and 2; the `J ≥ 3` guard is stricter than the source (OQ-3, owner) | DanceFlow guard |
 | G-11 | Different panels across contestants or heats | NOT SPECIFIED (rejected) |
 | G-12 | Typos in R6.1/R7.1 sum and look-ahead notation | SOURCE NOTATION |
 | G-13 | Best-loss-value ties with unequal records; how the rest of the group is placed after a shared best | NOT SPECIFIED |
-| G-14 | Dance groups per championship size and weights beyond the five ascension divisions | NOT SPECIFIED |
+| G-14 | Dance groups per championship size and weights beyond the five ascension divisions. Overall competitors dance "at least" the required dances and the source does not say which extra dances count in Rule #9: the qualifying set is an input and the engine never picks the best dances | NOT SPECIFIED |
 | G-15 | R10 "placement" meaning, R11 marks for non-finals dances | NOT SPECIFIED |
-| G-16 | Part-number errors in R10.2/R10.3/R11.3 | SOURCE NOTATION |
+| G-16 | Part-number errors in R10.3 and R11.3 ("part #4"; R10.2 is valid) | SOURCE NOTATION |
 | G-17 | DSA content | NOT SPECIFIED |
 | G-18 | Derivation of the medal "threshold title" from results | NOT SPECIFIED |
 | G-19 | Randomization seed for heating | NOT SPECIFIED |
+| G-20 | R3.3 puts "Spotlights and AllStars" on the 6-medal Group-and-Rank scale, but RB-P lists AllStars and Spotlight as ProAm divisions (and Spotlight as ProPro), and R3.2 gives ProAm/ProPro the 16-value scale. Fail closed for ProAm AllStars and ProAm/ProPro Spotlight until resolved (OQ-2) | SOURCE CONFLICT |
+| G-21 | A missing Finals mark, or an absent judge: NOT SPECIFIED, so the engine fails closed. S4-4 requires a method to define missing marks | NOT SPECIFIED |
 
 ## 13. Golden fixtures (hand-computed)
 
@@ -332,3 +336,15 @@ Aggregates: X 1+4+1 = 6; Y 2+1+3 = 6; Z 3+2+2 = 7; W 4+3+4 = 11. X and Y tie at 
 ## 14. Verification checklist
 
 The independent verifier should: recompute every fixture from the source; confirm each READING (G-1, G-3, G-6, G-8); decide whether each NOT SPECIFIED item stays fail-closed or needs an owner decision; confirm the star ordering with `pdftotext -enc UTF-8`; confirm the rule-book mark lists (G-9); and confirm the 16-value scale against the owner's source. Until then this spec is **DRAFT** and the method stays unavailable (S4-5).
+
+## 15. Owner questions and verification status
+
+The independent verification report is `k1u-verification-report.md` (verdict: verified with corrections; every rule calculation matches the source and all 15 fixtures recompute identically). Corrections C-2 to C-5 and OQ-3 are applied above (G-20, G-21, G-14, G-16, G-10). **C-1 is not applied**; §4.4 is marked pending owner OQ-1.
+
+| ID | Question |
+|---|---|
+| OQ-1 | Does the Scoring Format's 16-value ProAm/ProPro scale (HM 26 … GG★ 11) govern, although the 1-26-2026 rule books list only 9 marks? Does a "March 2026" document exist that should be pinned? |
+| OQ-2 | Which scale applies to ProAm AllStars and ProAm/ProPro Spotlight: the 16-value scale (R3.2) or the 6-medal Group-and-Rank scale (R3.3)? |
+| OQ-3 | Keep the stricter `J ≥ 3` guard, or follow the source formula for J = 1 and J = 2? |
+
+Status stays **DRAFT**. UCWDC Majority Rules stays unavailable (S4-5). No engine code.
