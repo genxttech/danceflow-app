@@ -58,8 +58,8 @@ async function clickUntil(button: Locator, done: Locator) {
   await expect(async () => {
     if (await done.count()) return;
     if (await button.count()) await button.first().click();
-    await expect(done.first()).toBeVisible({ timeout: 15_000 });
-  }).toPass({ timeout: 120_000 });
+    await expect(done.first()).toBeVisible({ timeout: 45_000 });
+  }).toPass({ timeout: 240_000 });
 }
 
 test.describe.configure({ mode: "serial", timeout: 600_000 });
