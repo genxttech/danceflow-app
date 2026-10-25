@@ -1,6 +1,6 @@
 # Engine spec — UCWDC "Majority Rules" scoring format (K1-U)
 
-Status: **DRAFT. Spec verified for the supported cases (§16.1); method UNAVAILABLE for actual scoring pending UCWDC Q1–Q4.** Evidence: coordinator verification (`k1u-verification-report.md`) and independent fixture review (`k1u-independent-fixture-review.md`, 32 fixtures, arithmetic all agreeing). Owner decisions OQ-1, OQ-2, OQ-3 (2026-10-25) and D-1, D-2, D-4, G-13, panel (2026-10-25) are recorded. Docs only (no code, no SQL, no database). K1-U deliverable under Stage 4 decision S4-5 (`scoring-architecture-decisions.md`): UCWDC Majority Rules stays `COMP_ENGINE_NOT_AVAILABLE` until the spec is completely specified, verified and approved.
+Status: **DRAFT. Fixtures independently recomputed for the supported cases (§16.1); this is not a claim of compliance, panel eligibility or availability; method UNAVAILABLE for actual scoring pending UCWDC Q1–Q4.** Evidence: coordinator verification (`k1u-verification-report.md`) and independent fixture review (`k1u-independent-fixture-review.md`, 32 fixtures, arithmetic all agreeing). Owner decisions OQ-1, OQ-2, OQ-3 (2026-10-25) and D-1, D-2, D-4, G-13, panel (2026-10-25) are recorded. Docs only (no code, no SQL, no database). K1-U deliverable under Stage 4 decision S4-5 (`scoring-architecture-decisions.md`): UCWDC Majority Rules stays `COMP_ENGINE_NOT_AVAILABLE` until the spec is completely specified, verified and approved.
 
 Proposed registry identity (not yet registered): method `ucwdc_majority_rules`, version `v16.9b`.
 
@@ -12,7 +12,7 @@ Proposed registry identity (not yet registered): method `ucwdc_majority_rules`, 
 | sha256 | `44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f` (verified on 2026-10-24; the copy named `… (1).pdf` in the same folder is byte-identical) |
 | Pinned edition | **v16.9b** |
 | March 2026 evidence | The owner reviewed a UCWDC newsletter dated **11 March 2026** as supporting evidence for the expanded 16-mark scale (OQ-1). **File not yet pinned; sha256 pending** (the owner is asked to supply the file in the PR). v16.9b stays the pinned edition. No later official revision of the Scoring Format has been found; before any claim of current compliance, check for later official revisions (§4.4) |
-| Division-specific sources | UCWDC Rules books dated 1-26-2026: Couples (sha256 prefix `8a45ee58d189`), Line Dance (`98e900111310`), ProPro/ProAm (`d6257b659151`), Teams (`7e71fdce55b0`). Only their definitions of judges' marks and their Overall-championship dance lists were used |
+| Division-specific sources (UCWDC Rules books dated 1-26-2026; only their judges' mark definitions and Overall-championship dance lists were used) | Couples `2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf` sha256 `8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904`; Line Dance `2026-UCWDC-Rules_Line-Dance_V_1-26-2026-1.pdf` `98e9001113108eaf9b72e4c8c530a2a3fe7d53edc4dcb12118f67dc068b97fb7`; ProPro/ProAm `2026-UCWDC-Rules_ProPro-ProAm_v1-26-2026.pdf` `d6257b65915151ab8aa50a952b60166cf5abfe6ef70cf8be292f9044e704db84`; Teams `2026-UCWDC-Rules_Teams_V_1-26-2026-1.pdf` `7e71fdce55b0eade037c9c6df2a041a3f8a8390b4fc6274a0552e09d25cdb41a` (all four verified 2026-10-25). With the Scoring Format hash above these are the five pinned hashes |
 | Extraction | Text was extracted with `pdftotext -layout`. **The default encoding drops the star symbol (★)** and shows e.g. "B = 25, B+ = 24, B = 23". Re-extracting with `-enc UTF-8` restores it ("B★ = 23"). The mark order was also checked against the numeric values (§4.2), which is independent of the symbol |
 
 Rules for this spec:
@@ -62,6 +62,7 @@ This part constructs heats; it is not a result calculation and is not engine inp
 - A **Semi-Finals** round (used only if two or more Prelims rounds were danced, R2 heading, R2.2) *retires* contestants, possibly across a second Semi-Finals (R2.1).
 - The Contest Coordinator sets the numbers: the number of Yes/No marks, the number of alternates, the dividing line, the target number for the next round (R1.2, R1.3, R2.2, R2.3). For Worlds the Contest Director may adjust the Yes/No and Alt counts (R1.2, R2.2). A Finals field of no more than nine for one heat, up to twelve for two heats of six, is given as an example (R2.3).
 - Each dance in which a contestant dances at least one Prelims or Semi-Finals round counts toward their Championship eligibility for the division (R1.4, R2.4).
+- **Supported flow (owner D-4):** Prelims → Finals only. In it, "rounds removed" (R9.1) applies only to a Prelims retiree, whose multi-dance value is the number of finalists for that dance plus 1 (one round removed). Structures with two or more Prelims rounds, or with a Semi-Finals, are unavailable (Q2, Q1).
 
 ### 3.2 Prelims callback ballot (R1.2)
 
@@ -76,7 +77,7 @@ This part constructs heats; it is not a result calculation and is not engine inp
 
 - Each judge marks **"No"** for a set number of contestants they most wish to *retire*, plus up to 5 ranked alternates. **No = 10.0; Alt#1–#5 = 5.0, 4.6, 4.3, 4.1, 4.0** (same alternate values).
 - The totals decide who moves on; the **least valued contestants (plus ties) are retired** until the Finals target is reached (R2.4). After the Semi-Finals the Coordinator fills the Finals field "using the last callback values" (R2.3).
-- What an alternate means on a *No* ballot (an alternate No? an alternate Yes?) is **NOT SPECIFIED IN PROVIDED SOURCE** (G-5). **Scope (review D-3(b)):** only a Semi-Finals ballot that contains alternates fails closed. A No-only Semi-Finals ballot can be computed, but only once the Semi-Finals cut rule (D-2: whether tied contestants at the retire cut are all retired, R2.4, or the Coordinator decides, R2.3) is decided; until then the Semi-Finals cut also fails closed whenever a tie straddles it.
+- **Scope note (D-2):** Semi-Finals exist only when two or more Prelims rounds were danced (R2 heading, R2.2). The supported flow is Prelims → Finals only (owner D-4), so **no Semi-Finals calculation runs at all**. The Semi-Finals rules in this section stay documented as source-confirmed rules (12A); the tie at the retirement cut is an unanswered UCWDC question (Q1, 12C), and the meaning of alternates on a No ballot (G-5) is unresolved (12C). Any attempt to run a Semi-Finals round fails closed.
 - Because points accrue to retirements, a **higher** Semi-Finals total means *more* judges want the contestant retired. **READING (G-6):** the retired set is the highest totals up to the designated number plus ties. The source says "the least valued … are retired" without stating the direction of the points; this is the only reading consistent with "No = 10.0".
 - **Callback ballot validity (review D-5); each failure fails closed:** (1) the number of Yes (Prelims) or No (Semi-Finals) marks differs from the Coordinator's set number; (2) alternate ranks are not contiguous from Alt #1 (for example Alt #2 without Alt #1); (3) more than 5 alternates; (4) a missing ballot from an assigned judge.
 
@@ -207,6 +208,7 @@ The source and the rule books do not define a panel size, a number of heats of F
 ### 8.1 Points per dance and aggregate value (R9.1, R9.2)
 
 - All dances a contestant competed in, from their first round (Prelims, Semi-Finals or Finals) within the division, earn a points value tied to their **Finals placement** (the carry-forward value of §6.2 item 7). For a dance where the contestant did not make the Finals, the value is **one placement more than the number of finalists for that dance** if they were 1 round removed from the Finals, **2 more** if 2 rounds removed, **3 more** if 3, **4 more** if 4, and so on. These can create duplicate, thus tied, values (R9.1).
+- **Supported flow (owner D-4):** in the Prelims → Finals flow only a Prelims retiree is "not in the Finals": their value for that dance is the number of finalists + 1 (one round removed). Counting with two or more Prelims rounds or a Semi-Finals is unavailable (Q2).
 - Each contestant's carry-forward values from the championship's dances are **summed** into an aggregate value; each dance has the same weight (R9.2). Example: values 1, 2, 3, 4, 5 → 15; 1, 2.5, 4, 5.5, 7 → 20.
 - Championship sizes named: 1-dance, 3-, 4-, 5-, 6- and 8-dance (e.g. an 8-dance ProAm or ProPro Championship). Which dances belong to each championship's "pre-designated dance groups" is **not listed in the Scoring Format** (G-14). The rule books give partial lists: Overall Couples/ProAm/ProPro competitors dance "five of eight dances" (at least Two-Step, Waltz, one Swing dance, and two of Triple Two, Polka, NightClub, Cha Cha) (RB-C, RB-P definitions; RB-C Section III.A); Line Dance requires all offered dance categories (RB-L definitions, Section III.A, with per-level counts); Showcase Masters and Showcase Crown must compete in Two-Step, Waltz and Solo Medley; Classic Masters and Classic Crown must also dance a ShowDance (RB-C III.A.3). The division-by-division group list is **NOT SPECIFIED IN PROVIDED SOURCE** (G-14), so the engine takes the qualifying dance set as an input and does not derive it.
 - **Weighted ("ascension") divisions** (Showcase Masters, Showcase Crown, SuperStars, RisingStars, Line Crown): each dance value is multiplied by a weight; Waltz and Two Step (Partner Dance) and Slow (Dance A) and Fast (Dance B) (Line Dance) count 30% each and the Solo Medley counts 40%. In numbers: factor **3** for the 30% dances and factor **4** for the Solo Medley. Example: values 1 and 2 become 3 and 6; Solo Medley value 3 becomes 12; aggregate 21 (R9.2).
@@ -251,46 +253,72 @@ Outputs: per contestant per dance: majority mark, size, sum, look-ahead, look-be
 
 Fixed behaviors:
 - Deterministic, no randomness in the engine; fixed order of judges and contestants; the result and its trace hash are byte-identical for the same input (S2, K0 §5).
-- Fail closed (`COMP_ENGINE_UNSPECIFIED_CASE`, with a reason) on every item marked NOT SPECIFIED, and on inputs outside the rules (marks outside the scale, a panel whose eligibility is UNVERIFIED (J = 1 or 2, G-10), differing panels, a tie group whose identical-marks proof fails, mixed best-loss-values).
+- Fail closed (`COMP_ENGINE_UNSPECIFIED_CASE`, with a reason) on every item marked NOT SPECIFIED, and on inputs outside the rules (marks outside the scale, any panel (eligibility is UNVERIFIED for every panel size, G-10; J = 1 or 2 are refused outright), differing panels, a tie group whose identical-marks proof fails, mixed best-loss-values).
 - The trace records, for each tie-breaker invoked: the tied contestants, the quantity compared per contestant, the outcome.
 - No Studio medal feedback method exists (S4); this method is not applied to a Studio program.
 
-## 12. Gaps and readings register (for the independent verifier)
+## 12. Classification: source-confirmed rules, owner-approved limitations, unanswered questions
 
-| ID | Item | Type |
+Every rule and gap sits in exactly one of three parts. Detail sits in the section named in each row. Nothing here claims compliance with the UCWDC Scoring Format, panel eligibility, or availability of the method.
+
+### 12A. SOURCE-CONFIRMED RULES (cited to v16.9b and the rule books)
+
+| Item | Source | Detail |
 |---|---|---|
-| G-1 | Callback total is a sum over judges | READING |
-| G-2 | Value of an unselected contestant on a callback ballot | **RESOLVED by the owner (D-1, 2026-10-25):** 0 on a valid, completed ballot; missing/incomplete/invalid ballots fail closed |
-| G-3 | "Ties" at the dividing line = equal totals; all tied are promoted | READING |
-| G-4 | Duplicate/overlapping Yes/Alt marks by one judge | NOT SPECIFIED (rejected) |
-| G-5 | Meaning of alternates on a Semi-Finals "No" ballot | NOT SPECIFIED (fails closed) |
-| G-6 | Direction of Semi-Finals points (highest totals retired) | READING |
-| G-7 | Promotion of all dances together at Worlds | NOT SPECIFIED |
-| G-8 | Couples/Line medal+rank converts to a dense 1…N per-judge rank | READING |
-| G-9 | Rule-book mark lists (M; fewer tiers, no ★) vs R3.2's 16 values | **RESOLVED by the owner (OQ-1, 2026-10-25):** the R3.2 scale governs |
-| G-10 | Panel eligibility: no official minimum or permitted panel size found in the Scoring Format or the four rule books. The majority formula itself is exact for any J | **BLOCKED, pending UCWDC Q4** (panel eligibility UNVERIFIED; the method stays unavailable for actual scoring) |
-| G-11 | Different panels across contestants or heats | NOT SPECIFIED (rejected) |
-| G-12 | Typos in R6.1/R7.1 sum and look-ahead notation | SOURCE NOTATION |
-| G-13 | Best-loss-value ties with unequal records; how the rest of the group is placed after a shared best | **BLOCKED, owner, pending UCWDC Q3** (IR-22 is the evidence; owner: remain blocked, do not invent a rule) |
-| G-14 | Dance groups per championship size and weights beyond the five ascension divisions. Overall competitors dance "at least" the required dances and the source does not say which extra dances count in Rule #9: the qualifying set is an input and the engine never picks the best dances | NOT SPECIFIED |
-| G-15 | (a) Rule #10 "placement" meaning: RESOLVED by proof (immaterial). (b) Rules #10/#11 for dances where a tied contestant did not reach the Finals; empty common set | (a) RESOLVED; (b) NOT SPECIFIED (fail closed) |
-| G-16 | Part-number errors in R10.3 and R11.3 ("part #4"; R10.2 is valid) | SOURCE NOTATION |
-| G-17 | DSA content | NOT SPECIFIED |
-| G-18 | Derivation of the medal "threshold title" from results | NOT SPECIFIED |
-| G-19 | Randomization seed for heating | NOT SPECIFIED |
-| G-20 | R3.3 names Spotlights and AllStars; RB-P lists them as ProAm (Spotlight also ProPro) divisions | **RESOLVED by the owner (OQ-2, 2026-10-25):** 6-medal Group-and-Rank, no ties, for ProAm AllStars and ProAm/ProPro Spotlight |
-| G-21 | A missing Finals mark, or an absent judge: NOT SPECIFIED, so the engine fails closed. S4-4 requires a method to define missing marks | NOT SPECIFIED |
+| Heating rules H1–H7 | H1–H7 | §2 |
+| Callback point values (Yes/No = 10.0; Alt#1–#5 = 5.0/4.6/4.3/4.1/4.0), structure of Prelims and Semi-Finals, promotion/retirement of the designated number plus ties | R1.1–R1.4, R2.1–R2.4 | §3.1, §3.2, §3.3 |
+| Medal thresholds, ProAm/ProPro tiers and ties, Group-and-Rank, no ties for the 6-medal method | R3.1 | §4.1 |
+| 16-value ProAm/ProPro scale HM = 26 … GG★ = 11; 6-medal scale HM = 6 … GG = 1 and its defeat order (G8 beats S1) | R3.2, R3.3 | §4.2, §4.3 |
+| Majority position `floor(J/2) + 1` (odd J middle; even J "one more than half"); majority marks sorted; unique placements | R3.4, R3.5 | §5 |
+| Tie-breakers: majority size, majority sum, look-ahead, look-behind | R4–R7 | §6 |
+| Head-to-head mechanics (win/loss/tie by raw mark, loss value with ties halved, re-visitation, final-tie sharing and announced placement, carry-forward average) | R8.1–R8.6 | §6.2 |
+| Multi-dance points per dance (rounds-removed rule as written), aggregate, weights 3/3/4 for ascension divisions, placement by smaller aggregate | R9.1–R9.3 | §8.1 |
+| Championship tie-breakers by placements and by judges' marks, final tie | R10, R11 | §8.2 |
+| Reporting: DSA exists, awards reports, threshold titles only on awards items | REP | §9 |
+| The source defines no feedback | whole document | §10 |
+| Source notation errors: R6.1/R7.1 dropped-digit sums (G-12); "part #4" in R10.3 and R11.3 (G-16; R10.2's "part #3" is valid) | R6.1, R7.1, R10.3, R11.3 | §6, §8.2 |
+| Rule-book facts used: mark-list definitions (HM written "M"; fewer tiers) and Overall dance lists | RB-C/L/P/T | §4.4, §8.1 |
 
-**OWNER DISPOSITIONS of 2026-10-25 (from the independent fixture review `k1u-independent-fixture-review.md`, spec reviewed at a750e74f):**
+### 12B. OWNER-APPROVED LIMITATIONS AND READINGS
 
-| ID | Question | Status |
+| Item | Owner decision | Detail |
 |---|---|---|
-| D-1 | Unmarked callback value (G-2) | **RESOLVED, owner 2026-10-25:** 0 on a valid, completed ballot; invalid/missing/incomplete ballots fail closed |
-| D-2 | Semi-Finals tie at the retire cut | **BLOCKED, owner, pending UCWDC Q1.** Owner: "REMAIN BLOCKED pending authoritative UCWDC clarification about ties spanning the Semi-Finals retirement cutoff. Do not invent a rule." |
-| D-4 | Counting "rounds removed" (R9.1) | **APPROVED for the simple Prelims → Finals structure only** (a non-finalist is 1 round removed), owner 2026-10-25: "APPROVE the independently verified simple Prelims-to-Finals structure only. Unsupported multiple-preliminary structures remain unavailable pending clarification." Multiple Prelims or any Semi-Finals: **UNAVAILABLE, pending UCWDC Q2** |
-| G-13 | Shared best loss value / shared best record with a remainder (fixture F-U-16 = IR-22) | **BLOCKED, owner, pending UCWDC Q3.** Owner: "REMAIN BLOCKED pending authoritative clarification of the head-to-head rule where competing interpretations produce different winners." Evidence: IR-22, re-verified by hand by the coordinator: identical sorted marks `[12,13,13,14,15]`; A and B both 4-3-3 with loss value 4.5; A beats B 2-1-2 |
-| Panel | Panel eligibility and minimum judges (G-10) | **BLOCKED, pending UCWDC Q4.** Owner: "Keep the UCWDC method unavailable for actual scoring until the applicable official panel eligibility and minimum-judge requirements are verified. Do not assume that a mathematically valid calculation establishes eligibility." |
-| D-6 | Rule #10/#11 treatment of dances where a tied contestant was not a finalist | OPEN, owner/UCWDC (fails closed meanwhile) |
+| G-2 / D-1: a contestant a judge did not select scores 0 from that judge on a **valid, completed** callback ballot | 2026-10-25 | §3.2, F-U-11 |
+| Callback ballots that are missing, incomplete or invalid fail closed (Yes/No count differs from the set number; Alt gaps; more than 5 alternates; missing assigned-judge ballot; duplicate or overlapping marks, G-4) | D-1 with the D-5 validity rules | §3.2 |
+| D-4: the supported flow is **Prelims → Finals only**. Rounds-removed applies only to a Prelims retiree, whose value is the number of finalists + 1; multi-Prelims structures are unavailable | 2026-10-25 | §3.1, §8.1, §16 |
+| OQ-1 / G-9: the R3.2 16-value scale governs ProAm/ProPro and supersedes the rule-book mark lists; v16.9b pinned; compliance only after checking for later official revisions | 2026-10-25 | §4.4 |
+| OQ-2 / G-20: ProAm AllStars and ProAm/ProPro Spotlight use the 6-medal Group-and-Rank method, no ties | 2026-10-25 | §4.3 |
+| OQ-3: no `J ≥ 3` guard; the majority is calculated as the source states; panel eligibility is a separate check and stays UNVERIFIED (see 12C) | 2026-10-25 | §5 |
+| G-15(a): Rule #10 "placement" meaning is immaterial (proof: both encodings give the same win/loss/tie); F-U-12 kept | independent review D-3(a) | §8.2 |
+| G-14: the qualifying dance set for Rule #9 is an input; the engine never picks the best dances | coordinator correction C-4 | §8.1 |
+| Group-and-Rank ballot validity: duplicate or non-contiguous ranks within a medal fail closed (D-7) | independent review D-7 | §4.3 |
+| The whole method stays UNAVAILABLE for actual scoring until panel eligibility is verified | 2026-10-25 | §16 |
+
+### 12C. UNANSWERED UCWDC QUESTIONS AND OTHER UNRESOLVED ITEMS (each fails closed)
+
+**Questions drafted for UCWDC (`ucwdc-clarification-questions.md`, DRAFT, not sent):**
+
+| Q | Item | Status |
+|---|---|---|
+| Q1 | A tie spanning the Semi-Finals retirement cutoff (D-2) | BLOCKED. Semi-Finals exist only with two or more Prelims rounds (R2), so no Semi-Finals calculation runs in the supported flow at all |
+| Q2 | Counting "rounds removed" when two Prelims rounds are used | UNAVAILABLE (multi-Prelims unsupported) |
+| Q3 | Rule #8 where a shared best record has a remainder, and where equal best loss values have unequal records (G-13; fixture F-U-16 = IR-22) | BLOCKED |
+| Q4 | Panel eligibility and minimum judges (G-10), for every panel size | BLOCKED, UNVERIFIED |
+
+**Other unresolved items (fail closed):**
+
+| ID | Item |
+|---|---|
+| G-15(b) / D-6 | Rules #10/#11 for dances in which a tied contestant did not reach the Finals; and an empty common-dance set |
+| G-5 | Meaning of alternates on a Semi-Finals "No" ballot (not run in the supported flow) |
+| G-7 | Promotion of all dances together at Worlds |
+| G-11 | Different panels across contestants or heats (rejected) |
+| G-17 | DSA content |
+| G-18 | Derivation of the medal threshold title from results |
+| G-19 | Randomization seed for heating |
+| G-21 | A missing Finals mark or an absent judge |
+
+**Readings used by the supported cases, awaiting owner/UCWDC confirmation (not source statements, not owner-approved):** G-1 (callback total is the sum over judges), G-3 ("ties" at the dividing line are equal totals and all tied are promoted), G-6 (Semi-Finals points direction; not used in the supported flow), G-8 (Group-and-Rank converts to a dense 1…N per-judge rank).
 
 ## 13. Golden fixtures (hand-computed)
 
@@ -357,7 +385,7 @@ Aggregates: X 1+4+1 = 6; Y 2+1+3 = 6; Z 3+2+2 = 7; W 4+3+4 = 11. X and Y tie at 
 
 **F-U-14 — rounds-removed points (R9.1), simple Prelims → Finals structure only (owner D-4).** A dance with 6 finalists: a contestant who made all rounds up to the Finals but did not make this dance's Finals is 1 round removed → value 6 + 1 = 7; 2 rounds removed → 8; 3 → 9. **Expected:** 7, 8, 9 (and ties among contestants at the same removal level are possible, R9.1).
 
-**F-U-15 — fail-closed cases.** Each must produce `COMP_ENGINE_UNSPECIFIED_CASE` with the stated reason: (a) a ProAm/ProPro 16-mark ballot containing a mark outside the 16 values (B+ and ★ marks are valid after OQ-1); (a2) a 16-mark ballot or tied marks submitted for ProAm AllStars or ProAm/ProPro Spotlight (6-medal Group-and-Rank, OQ-2); (a3) a missing Finals mark or absent judge (G-21); (b) `J = 1` or `J = 2` (panel eligibility UNVERIFIED, G-10); (c) two heats of one dance with different panels (G-11); (d) at least three tied contestants (for example J = 11, 22 games each) with equal best loss value but different records such as 13-9-0 and 11-7-4 (G-13 bullet 1; a 2-way tie cannot do this because its records are mirror images, review D-9; concrete inputs still to be constructed and hand-computed); (d2) IR-22 below (G-13 bullet 2); (e) a Semi-Finals ballot containing alternates (G-5); (f) a request to derive feedback (S4-4, §10); (g) is not an input fixture (review D-11): equal majority mark, look-ahead and look-behind imply identical sorted marks, so tied contestants whose re-ordered marks differ after Rule #7 can only come from an implementation bug. It is kept as an internal assertion (R8.1 scoring error).
+**F-U-15 — fail-closed cases.** Each must produce `COMP_ENGINE_UNSPECIFIED_CASE` with the stated reason: (a) a ProAm/ProPro 16-mark ballot containing a mark outside the 16 values (B+ and ★ marks are valid after OQ-1); (a2) a 16-mark ballot or tied marks submitted for ProAm AllStars or ProAm/ProPro Spotlight (6-medal Group-and-Rank, OQ-2); (a3) a missing Finals mark or absent judge (G-21); (b) `J = 1` or `J = 2` (panel eligibility UNVERIFIED, G-10); (c) two heats of one dance with different panels (G-11); (d) at least three tied contestants (for example J = 11, 22 games each) with equal best loss value but different records such as 13-9-0 and 11-7-4 (G-13 bullet 1; a 2-way tie cannot do this because its records are mirror images, review D-9; concrete inputs still to be constructed and hand-computed); (d2) IR-22 below (G-13 bullet 2); (e) any Semi-Finals round or ballot (the supported flow is Prelims → Finals only, so no Semi-Finals calculation runs; G-5, Q1); (f) a request to derive feedback (S4-4, §10); (g) is not an input fixture (review D-11): equal majority mark, look-ahead and look-behind imply identical sorted marks, so tied contestants whose re-ordered marks differ after Rule #7 can only come from an implementation bug. It is kept as an internal assertion (R8.1 scoring error).
 
 **F-U-16 — shared best record with a remainder (review D-8, IR-22; G-13 bullet 2).** Five judges, three contestants: A `[12,13,13,14,15]`, B `[12,13,14,15,13]`, C `[13,13,15,12,14]`. Head-to-head per judge (lower wins): A vs B: tie, tie, A, A, B → A 2-1-2. A vs C: A, tie, A, C, C → 2-2-1. B vs C: B, tie, B, C, B → 3-1-1. Records: A 4-3-3 (loss value 4.5), B 1-2-2 + 3-1-1 = 4-3-3 (4.5), C 2-2-1 + 1-3-1 = 3-5-2 (6.0). A and B share the best record, and A beats B head-to-head 2-1-2. Two readings differ: (a) A and B share 1st/2nd (carry-forward 1.5) and C is 3rd; (b) C is 3rd and A vs B is re-visited, giving A 1st, B 2nd. **Expected: NOT SPECIFIED, fail closed.** (Taken from the independent review; the independent reviewer computed it, W6 did not.)
 
@@ -381,7 +409,7 @@ Status stays **DRAFT**. UCWDC Majority Rules stays unavailable (S4-5). No engine
 
 **The whole UCWDC Majority Rules method stays UNAVAILABLE for actual scoring until panel eligibility is verified (UCWDC Q4), even for the supported cases.** "Supported" below means fully specified in the pinned source and independently verified (coordinator verification `k1u-verification-report.md`; independent fixture review `k1u-independent-fixture-review.md`, 32 fixtures, all arithmetic agreeing). It does not mean enabled.
 
-### 16.1 Supported cases (specified and verified; not enabled)
+### 16.1 Supported cases (specified, fixtures independently recomputed; not enabled; no compliance or eligibility claim)
 - Finals single-dance majority (R3.4, R3.5) and tie-breakers Rule #4 to Rule #7, for the 16-mark ProAm/ProPro scale (OQ-1) and the 6-medal Group-and-Rank scale for Couples, Line, Teams, ProAm AllStars and ProAm/ProPro Spotlight (OQ-2), with valid ballots (including contiguous, non-duplicated ranks).
 - Rule #8 head-to-head with re-visitation where the best record is unique at each step, or the whole tied group has exactly the same record (final tie, announced higher placement, carry-forward average).
 - Preliminaries callback totals (Yes 10.0; Alt#1–#5 5.0/4.6/4.3/4.1/4.0), an unselected entry scoring 0 on a **valid, completed** ballot (owner D-1), with ties at the dividing line promoted; **simple Prelims → Finals structure only** (owner D-4).
