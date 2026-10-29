@@ -77,9 +77,11 @@ The checkout route allows 8 attempts per 10 minutes per network address; a smoke
    time (`session.<plan>.fresh`), so a leftover Session from an earlier smoke cannot pass; without it there is no such
    check and the window starts 10 minutes before the earliest Session. Always pass it. Values in `--read-key-file` win
    over variables already exported in the shell. Use `--read-key-file`, never `--env-file`: Node itself intercepts
-   `--env-file` and, if the path is wrong, prints it in full. Never put the key itself on the command line: any value
-   that looks like a Stripe key is refused without being printed, and other mistyped arguments are shown as at most 8
-   characters. Without `price-config.json`, pass
+   `--env-file` and, if the path is wrong, prints it in full. Never put the key itself on the command line. The tool
+   refuses any value that looks like a Stripe key without printing it (other mistyped arguments are shown as at most 8
+   characters), but `npm run` has already echoed the command and your shell has saved it in its history: if a key ever
+   ends up on the command line, **roll it** in the Stripe Dashboard and clear it from your shell history. Without
+   `price-config.json`, pass
    `--expect starter=price_... --expect growth=price_... --expect pro=price_...` and, for the grandfathered check, one
    `--legacy-price price_...` per grandfathered Price.
 6. **Record** the results in the template below and attach `smoke-report.json` (it contains no secrets).

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -271,12 +271,16 @@ describe("BILLING-QA-5 final review fixes (N1, N2)", () => {
 
   it("--read-key-file loads the key file: a live secret key in it is refused by the key guard (exit 2, not printed, no network)", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "bqa5-key-"));
-    const file = path.join(dir, "readback.env");
-    writeFileSync(file, `BILLING_QA_STRIPE_READ_KEY=${["sk", "live", "LiveSecretBodyNeverPrinted"].join("_")}\n`);
-    const run = cli("--session", "cs_live_abc", "--read-key-file", file);
-    expect(run.status).toBe(2);
-    expect(run.output).toContain("STRIPE_LIVE_SECRET_KEY_REFUSED");
-    expect(run.output).not.toContain("LiveSecretBody");
+    try {
+      const file = path.join(dir, "readback.env");
+      writeFileSync(file, `BILLING_QA_STRIPE_READ_KEY=${["sk", "live", "LiveSecretBodyNeverPrinted"].join("_")}\n`);
+      const run = cli("--session", "cs_live_abc", "--read-key-file", file);
+      expect(run.status).toBe(2);
+      expect(run.output).toContain("STRIPE_LIVE_SECRET_KEY_REFUSED");
+      expect(run.output).not.toContain("LiveSecretBody");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }, 90_000);
 
   it("N1: key detection and redaction cover every key shape, and leave Stripe object ids alone", () => {
