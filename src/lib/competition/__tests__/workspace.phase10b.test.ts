@@ -86,12 +86,12 @@ describe("workspace navigation", () => {
   const items = competitionNav(EVENT);
 
   it("lists the target sections in order, with check-in nested under entries", () => {
-    expect(items.map((item) => item.label)).toEqual(["Overview", "Entries", "Check-in", "Divisions", "Schedule & Heats", "Officials", "Scoring", "Results", "Awards", "Settings"]);
+    expect(items.map((item) => item.label)).toEqual(["Overview", "Entries", "Check-in", "Divisions", "Schedule & Heats", "Day-of", "Officials", "Ballots", "Results", "Awards", "Settings"]);
     expect(items.find((item) => item.key === "check_in")?.child).toBe(true);
   });
 
   it("does not link future areas: they are disabled with an explanation", () => {
-    for (const key of ["scoring", "results", "awards"]) {
+    for (const key of ["results", "awards"]) {
       const item = items.find((candidate) => candidate.key === key)!;
       expect(item.available, key).toBe(false);
       expect(item.href, key).toBeNull();

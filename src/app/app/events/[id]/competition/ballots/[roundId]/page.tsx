@@ -1,0 +1,38 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
+import type { BallotBoard } from "@/lib/competition/ballots/status";
+import BallotDesk from "../BallotDesk";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export default async function CompetitionRoundBallotsPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string; roundId: string }>;
+  searchParams: Promise<{ saved?: string; error?: string }>;
+}) {
+  const { id, roundId } = await params;
+  const query = await searchParams;
+  if (!UUID.test(roundId)) notFound();
+  const { supabase } = await requireCompetitionWorkspace(id);
+
+  // The round must belong to this event: the RPC alone is not told which event the URL named.
+  const { data: round } = await supabase.from("event_competition_rounds").select("id").eq("id", roundId).eq("event_id", id).maybeSingle();
+  if (!round) notFound();
+  const { data, error } = await supabase.rpc("competition_round_ballot_status", { p_round_id: roundId });
+  if (error || !data) notFound();
+  const board = data as BallotBoard;
+
+  return (
+    <div className="space-y-4">
+      <Link href={`/app/events/${id}/competition/ballots`} className="text-sm font-medium text-slate-600 hover:text-slate-950">
+        &larr; All rounds
+      </Link>
+      {query.saved ? <p role="status" className="rounded border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950">{query.saved}</p> : null}
+      {query.error ? <p role="alert" className="rounded border border-rose-300 bg-rose-50 p-3 text-sm text-rose-950">{query.error}</p> : null}
+      <BallotDesk board={board} returnTo={`/app/events/${id}/competition/ballots/${roundId}`} />
+    </div>
+  );
+}
