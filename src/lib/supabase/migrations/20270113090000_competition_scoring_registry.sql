@@ -553,7 +553,7 @@ begin
 end;
 $$;
 
-revoke all on function public.competition_round_scoring_effective(uuid) from public, anon;
+revoke all on function public.competition_round_scoring_effective(uuid) from public, anon, authenticated, service_role;
 grant execute on function public.competition_round_scoring_effective(uuid) to authenticated;
 
 notify pgrst, 'reload schema';
