@@ -1084,8 +1084,8 @@ function PlanCard({
             <span>{cta.label}</span>
           </a>
           <p className="mt-2 text-xs leading-5 text-slate-500">
-            Plan changes are reviewed by our team so your current price and
-            terms are protected. Nothing changes until you confirm.
+            Plan changes are reviewed individually by our team. Your plan and
+            price do not change until we confirm with you.
           </p>
         </div>
       ) : (
