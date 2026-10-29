@@ -4,7 +4,7 @@ import { lockHeatConfirm } from "@/lib/competition/ballots/heatLock";
 import { lockHeatAction } from "./actions";
 
 /** One heat's Lock heat control. The confirm runs before the server action; cancelling submits nothing. */
-export default function LockHeatButton({ heatId, heatNumber, returnTo }: { heatId: string; heatNumber: number; returnTo: string }) {
+export default function LockHeatButton({ roundId, heatId, heatNumber, returnTo }: { roundId: string; heatId: string; heatNumber: number; returnTo: string }) {
   return (
     <form
       action={lockHeatAction}
@@ -13,6 +13,7 @@ export default function LockHeatButton({ heatId, heatNumber, returnTo }: { heatI
       }}
       className="flex flex-wrap items-center gap-2"
     >
+      <input type="hidden" name="roundId" value={roundId} />
       <input type="hidden" name="heatId" value={heatId} />
       <input type="hidden" name="heatNumber" value={heatNumber} />
       <input type="hidden" name="returnTo" value={returnTo} />

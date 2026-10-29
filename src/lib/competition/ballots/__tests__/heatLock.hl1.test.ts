@@ -1,17 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { canLockHeat, heatLockErrorMessage, lockHeatConfirm, lockHeatHint } from "../heatLock";
 
+const HEAT = "11111111-1111-4111-8111-111111111111";
+const ROUND = "22222222-2222-4222-8222-222222222222";
 const rpc = vi.fn();
+const boardState: { board: unknown; heat: unknown } = { board: null, heat: null };
+function setup(over: { role?: string; roundStatus?: string; heatStatus?: string; lockState?: string; inRound?: boolean } = {}) {
+  boardState.board = {
+    viewer_role: over.role ?? "manager",
+    round: { status: over.roundStatus ?? "active" },
+    heats: over.inRound === false ? [] : [{ heat_id: HEAT, heat_number: 4 }],
+  };
+  boardState.heat = { status: over.heatStatus ?? "complete", lock_state: over.lockState ?? "open" };
+}
+const rpcAll = (name: string, args: unknown) => (name === "competition_round_ballot_status" ? Promise.resolve({ data: boardState.board, error: null }) : rpc(name, args));
 const redirect = vi.fn((url: string) => {
   throw new Error(`REDIRECT:${url}`);
 });
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({ redirect: (url: string) => redirect(url) }));
 vi.mock("@/lib/supabase/server", () => ({
-  createClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) }, rpc }),
+  createClient: async () => ({
+    auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) },
+    rpc: rpcAll,
+    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: boardState.heat }) }) }) }),
+  }),
 }));
 
-const HEAT = "11111111-1111-4111-8111-111111111111";
 const RETURN = "/app/events/e1/competition/ballots/r1";
 
 describe("HL1 canLockHeat visibility", () => {
@@ -50,6 +65,7 @@ describe("HL1 lockHeatAction", () => {
   beforeEach(() => {
     rpc.mockReset();
     redirect.mockClear();
+    setup();
   });
 
   async function run(fields: Record<string, string>) {
@@ -64,23 +80,38 @@ describe("HL1 lockHeatAction", () => {
 
   it("calls the 10A RPC with locked and the note", async () => {
     rpc.mockResolvedValue({ error: null });
-    const result = await run({ heatId: HEAT, heatNumber: "4", reason: " floor done ", returnTo: RETURN });
+    const result = await run({ roundId: ROUND, heatId: HEAT, heatNumber: "4", reason: " floor done ", returnTo: RETURN });
     expect(rpc).toHaveBeenCalledWith("set_competition_heat_lock_state", { selected_heat_id: HEAT, selected_state: "locked", selected_reason: "floor done" });
     expect(result).toContain("saved=Heat+4+locked.");
   });
 
   it("sends a null reason when no note is given", async () => {
     rpc.mockResolvedValue({ error: null });
-    await run({ heatId: HEAT, heatNumber: "1", returnTo: RETURN });
+    await run({ roundId: ROUND, heatId: HEAT, heatNumber: "1", returnTo: RETURN });
     expect(rpc.mock.calls[0][1].selected_reason).toBeNull();
   });
 
   it("shows RPC refusals and never reports success", async () => {
     rpc.mockResolvedValue({ error: { message: "Heat was not found or cannot be managed." } });
-    const result = await run({ heatId: HEAT, heatNumber: "2", returnTo: RETURN });
+    const result = await run({ roundId: ROUND, heatId: HEAT, heatNumber: "2", returnTo: RETURN });
     expect(result).toContain("error=");
     expect(result).not.toContain("saved=");
     expect(decodeURIComponent(result.replace(/\+/g, " "))).toContain("not allowed to manage");
+  });
+
+  it.each([
+    ["a chair", { role: "chair" }],
+    ["a scorer", { role: "scorer" }],
+    ["an undanced heat", { heatStatus: "active" }],
+    ["a cancelled heat", { heatStatus: "cancelled" }],
+    ["an already locked heat", { lockState: "locked" }],
+    ["a locked round", { roundStatus: "ballots_locked" }],
+    ["a heat from another round", { inRound: false }],
+  ])("refuses %s server-side without calling the RPC", async (_name, over) => {
+    setup(over);
+    const result = await run({ roundId: ROUND, heatId: HEAT, returnTo: RETURN });
+    expect(rpc).not.toHaveBeenCalled();
+    expect(result).toContain("error=");
   });
 
   it("refuses a malformed heat id without calling the RPC", async () => {
@@ -91,7 +122,7 @@ describe("HL1 lockHeatAction", () => {
 
   it("falls back to a safe return path", async () => {
     rpc.mockResolvedValue({ error: null });
-    const result = await run({ heatId: HEAT, returnTo: "https://evil.example/x" });
+    const result = await run({ roundId: ROUND, heatId: HEAT, returnTo: "https://evil.example/x" });
     expect(result).toContain("REDIRECT:/app/events?");
   });
 });

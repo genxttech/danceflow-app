@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { heatLockErrorMessage } from "@/lib/competition/ballots/heatLock";
+import type { BallotBoard } from "@/lib/competition/ballots/status";
+import { canLockHeat, heatLockErrorMessage } from "@/lib/competition/ballots/heatLock";
 import { ballotErrorMessage, safeReturnPath } from "@/lib/competition/ballots/messages";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -195,6 +196,17 @@ export async function lockHeatAction(formData: FormData): Promise<void> {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   if (!heatId) back(returnTo, { error: "The heat could not be locked. Reload the page and try again." });
+  // The form is untrusted: re-derive the same visibility rule the desk used. The heat must belong to the named round, the
+  // viewer must be a manager, the round active, and the heat open and danced. (The RPC checks none of the last three.)
+  const roundId = uuid(formData, "roundId");
+  const { data: boardData } = roundId ? await supabase.rpc("competition_round_ballot_status", { p_round_id: roundId }) : { data: null };
+  const board = boardData as BallotBoard | null;
+  const boardHeat = board?.heats.find((heat) => heat.heat_id === heatId);
+  const { data: heatRow } = boardHeat ? await supabase.from("event_competition_heats").select("status, lock_state").eq("id", heatId).maybeSingle() : { data: null };
+  if (!board || !boardHeat || !heatRow || !canLockHeat({ viewerRole: board.viewer_role, roundStatus: board.round.status, heatStatus: heatRow.status, lockState: heatRow.lock_state })) {
+    revalidatePath(returnTo);
+    back(returnTo, { error: "This heat cannot be locked right now. It must be danced and open, in an active round. Reload the page." });
+  }
   const reason = text(formData, "reason").slice(0, 500);
   const { error } = await supabase.rpc("set_competition_heat_lock_state", { selected_heat_id: heatId, selected_state: "locked", selected_reason: reason || null });
   revalidatePath(returnTo);

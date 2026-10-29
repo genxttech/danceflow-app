@@ -243,7 +243,7 @@ export default function BallotDesk({ board, returnTo, heatFloor }: { board: Ball
                       Floor: {floorStatus ? label(floorStatus) : "Unknown"} - {label(heat.lock_state)}
                     </span>
                   </span>
-                  {offer ? <LockHeatButton heatId={heat.heat_id} heatNumber={heat.heat_number} returnTo={returnTo} /> : hint ? <span className="text-xs text-slate-500">{hint}</span> : null}
+                  {offer ? <LockHeatButton roundId={roundId} heatId={heat.heat_id} heatNumber={heat.heat_number} returnTo={returnTo} /> : hint ? <span className="text-xs text-slate-500">{hint}</span> : null}
                 </li>
               );
             })}
