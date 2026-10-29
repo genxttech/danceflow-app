@@ -620,6 +620,7 @@ TW-4F moves to a focused pilot closeout. Competition E2E, New Student Intake and
 ### C. Nonblocking hardening and later enhancements
 
 - KI-2: rollback leaves widened CHECK constraints (document as intentional).
+- KI-2b (found 2026-10-29 by the PARTIAL rehearsal, fixed in Git by the owner-approved 1211 rollback change): the `20261211090000` rollback left `studio_sms_provider_alerts_kind_check` at 1211's wider list instead of the `1209` definition. The rollback now restores it exactly, refuses while an alert row uses a 1211-only kind (`owner_notice_second`, `owner_unresponsive`, `alert_delivery_exhausted`), and refuses when the live constraint is not exactly 1211's. Rollback sha256 in the manifest updated. Not applied anywhere.
 - KI-3: the `r2bp2.rfl` test is stale.
 - The r2b suite refuses to run on the merged chain.
 - Running TW-4F DB suites in CI.

@@ -97,7 +97,7 @@ CRLF handling, because it corrupted function-body fingerprints before:
 | 20261208090000 | 20261208090000_twilio_r2b_number_activation.sql | 7551885c236bbe5d41a76fca6c3926ee9ba176ded8bdaf99baf9111e99c93b42 | a765c4e4d930d7dbb3fa93927c48e587d42332aa3156c2884ec264cf0f46168b | LF |
 | 20261209090000 | 20261209090000_twilio_recurring_fee_lifecycle.sql | d5f3af102b4ccc23e951c7735213846231748d97f369ffc27edcd25bd4a84c9e | 4716984c1773c5edf6f11bd7e7e61fe7bcaed1a0df4297271518bc24b9ddead1 | LF |
 | 20261210090000 | 20261210090000_twilio_r2c_owner_provisioning_read.sql | a77e7f9762864ea12ba356a2386daf35c854600d224356fa349d24b629e6a918 | 98dc89ee2666d4cd2869ea1cc0174c369a6b5052357a6efa9ca4f69f20795690 | LF |
-| 20261211090000 | 20261211090000_twilio_rfl_ops.sql | 75e470601359e6bf18eec1141f94fb0af085ebda6bcdfa54b9b97e6241621d7f | e612b9bb0cf78f8e87c376265648118ec6727e2dd7ebeead8c29142ca1168b48 | LF |
+| 20261211090000 | 20261211090000_twilio_rfl_ops.sql | 75e470601359e6bf18eec1141f94fb0af085ebda6bcdfa54b9b97e6241621d7f | c1c7c6eade3498c2e75c8f1422444cd9e3d2015ffbfee04058ccd02c1916c55c | LF |
 | 20261212090000 | 20261212090000_twilio_prov_fee_resolution_evidence.sql | 280adc409572d185bc2a67c0802b30131e16164cdb740116c9d187bd36e99df3 | 142048860b0c78516538f4b749d0860239a64b3853130b97040fd6649d69666d | LF |
 | 20261213090000 | 20261213090000_twilio_r2b_p1_identity_evidence.sql | 3cb2f083bd59e6b6d7f48096c8d85119245e944ca2dca754fc29dc370659087b | 393df0bca1befd50aecf226d0c2b55e3d2dfe8135435d196fd9fb93d58ce118a | LF |
 | 20261214090000 | 20261214090000_twilio_r2b_p2_orphans_reconciliation.sql | 9978f3a7fa9f99fa5460be98dd59301ed02278fbf14168f0fb8e39c1ab8ecc87 | de8d74383285941edeca005487aa05a7f81f913d6830fc61baba73b63b5df8d3 | LF |
@@ -217,7 +217,7 @@ Requires are taken from each file's header or its precondition checks; the numer
 | 20261208090000 | R2b number activation | `1207` | `tw4_num_select_as_owner`, `tw4_num_withdraw_as_owner` | none | number provisioning evidence or number approval references exist | **yes** |
 | 20261209090000 | recurring-fee lifecycle | `1205` | `sms_rfl_owner_overview` | none | lifecycle evidence exists | **yes** |
 | 20261210090000 | R2c-I2 owner provisioning read | `1207` | `get_studio_sms_provisioning` | none | no gate (drops one read function) | no |
-| 20261211090000 | RFL ops | `1209` | none | none | operational evidence exists | **yes** |
+| 20261211090000 | RFL ops | `1209` | none | none | operational evidence exists; an alert row of a 1211-only kind (`owner_notice_second`, `owner_unresponsive`, `alert_delivery_exhausted`); the alert-kind constraint is not exactly 1211's | **yes** |
 | 20261212090000 | fee-resolution evidence | `1207`, `1208`, `1209` | none | none | evidence exists | **yes** |
 | 20261213090000 | R2b-P1 identity evidence | `1208` | none | none | provider identity evidence exists; a function it installed has been changed since (fingerprint) | **yes** + fingerprint |
 | 20261214090000 | R2b-P2 orphans and reconciliation | `1208`, `1213` | none | none | orphan findings exist; a function it installed has been changed since (fingerprint) | **yes** + fingerprint |
@@ -611,8 +611,8 @@ Generated from the blobs by `gen_manifest_data.mjs`; regenerate, do not hand-edi
 - replaced (CREATE OR REPLACE / re-created): `tw4_rfl_alerts_claim`, `tw4_rfl_scan_entity`, `tw4_rfl_exposure_dispose`, `tw4_rfl_cancel_authorize`, `tw4_rfl_admin_overview`, `_tw4rfl_guard`
 - client-exposed grants (anon/authenticated/PUBLIC): none
 - one-off data statements: none at top level
-- rollback: `rollback/20261211090000_twilio_rfl_ops_rollback.sql` sha256 `e612b9bb0cf78f8e87c376265648118ec6727e2dd7ebeead8c29142ca1168b48`
-  - refusal conditions: "rfl-ops rollback: not applied"; "rfl-ops rollback refused: operational evidence exists [55000]"
+- rollback: `rollback/20261211090000_twilio_rfl_ops_rollback.sql` sha256 `c1c7c6eade3498c2e75c8f1422444cd9e3d2015ffbfee04058ccd02c1916c55c`
+  - refusal conditions: "rfl-ops rollback: not applied"; "rfl-ops rollback refused: operational evidence exists [55000]"; "rfl-ops rollback refused: alert rows use a kind that only 20261211 allows ... [55000]"; "rfl-ops rollback refused: the alert-kind constraint is not exactly the 20261211 definition ... [55000]"; the rollback now restores `studio_sms_provider_alerts_kind_check` to its `1209` definition (rows are never deleted or rewritten)
 
 #### 20261212090000_twilio_prov_fee_resolution_evidence.sql
 

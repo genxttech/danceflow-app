@@ -2,7 +2,8 @@
 -- tw4_rfl_cancel_authorize to their 20261209090000 bodies BYTE FOR BYTE, then drops every object this migration created.
 -- REFUSES (SQLSTATE 55000) once any evidence row of the new tables exists (a switch change, a run, a delivery record, a variance acknowledgement, a dual-control request)
 -- or any audit row of the new actions exists: that evidence is never destroyed, and from then on the stance is forward-fix only. Roll the application back first.
--- The audit vocabulary and the alert-kind constraint keep this slice's values (harmless; removing them could orphan audit rows or alerts).
+-- The audit vocabulary keeps this slice's values (harmless; removing them could orphan audit rows). The alert-kind constraint is restored to its 20261209090000 definition, and the
+-- rollback REFUSES (55000) while any alert row uses a kind that only this migration allows, or when the live constraint is not exactly this migration's (a later layer must be rolled back first).
 begin;
 
 set local lock_timeout = '5s';
@@ -20,6 +21,46 @@ begin
      or exists (select 1 from public.studio_sms_onboarding_audit where action in ('rfl_switch_set', 'rfl_variance_acked', 'rfl_dual_requested', 'rfl_dual_approved', 'rfl_dual_rejected',
           'rfl_dual_invalidated', 'rfl_dual_consumed', 'rfl_alert_delivery')) then
     raise exception 'rfl-ops rollback refused: operational evidence exists' using errcode = '55000';
+  end if;
+end $$;
+
+-- the alert-kind constraint goes back to its 20261209090000 definition (same name, same kinds, same order). Nothing is deleted or rewritten: a row that uses a kind only
+-- 20261211090000 allows (owner_notice_second, owner_unresponsive, alert_delivery_exhausted) REFUSES the rollback (SQLSTATE 55000), and so does a constraint that is not exactly 20261211's.
+do $$
+declare
+  v_old text[] := array['authorization_expiring', 'next_period_uncovered', 'pilot_approval_needed', 'funding_low', 'negative_balance', 'account_on_hold',
+    'exposure_open', 'provider_variance', 'inventory_gap', 'cancel_unknown', 'cancelled_authorization_active', 'charged_after_cancellation', 'released_resource_active'];
+  v_new text[] := array['owner_notice_second', 'owner_unresponsive', 'alert_delivery_exhausted'];
+  v_n int;
+  v_name text;
+  v_def text;
+  v_live text[];
+  v_expected text;
+begin
+  -- no writer may insert a 20261211-only kind between the check and the constraint swap below
+  lock table public.studio_sms_provider_alerts in access exclusive mode;
+  select count(*) into v_n from pg_constraint c where c.conrelid = 'public.studio_sms_provider_alerts'::regclass and c.contype = 'c' and pg_get_constraintdef(c.oid) like '%authorization_expiring%';
+  if v_n <> 1 then
+    raise exception 'rfl-ops rollback refused: expected exactly one alert-kind constraint, found %', v_n using errcode = '55000';
+  end if;
+  select c.conname, pg_get_constraintdef(c.oid) into v_name, v_def from pg_constraint c
+   where c.conrelid = 'public.studio_sms_provider_alerts'::regclass and c.contype = 'c' and pg_get_constraintdef(c.oid) like '%authorization_expiring%';
+  select array_agg(distinct m[1] order by m[1]) into v_live from regexp_matches(substring(v_def from 'ANY (.*)$'), '([a-z][a-z0-9_]*)', 'g') m where m[1] not in ('text', 'array');
+  if v_name <> 'studio_sms_provider_alerts_kind_check'
+     or v_live is distinct from (select array_agg(distinct x order by x) from unnest(v_old || v_new) x) then
+    raise exception 'rfl-ops rollback refused: the alert-kind constraint is not exactly the 20261211 definition (a later change is still applied: roll it back first): % %', v_name, v_def using errcode = '55000';
+  end if;
+  if exists (select 1 from public.studio_sms_provider_alerts a where a.kind = any (v_new)) then
+    raise exception 'rfl-ops rollback refused: alert rows use a kind that only 20261211 allows (owner_notice_second, owner_unresponsive, alert_delivery_exhausted); they are never deleted or rewritten' using errcode = '55000';
+  end if;
+  alter table public.studio_sms_provider_alerts drop constraint studio_sms_provider_alerts_kind_check;
+  alter table public.studio_sms_provider_alerts add constraint studio_sms_provider_alerts_kind_check check (kind in ('authorization_expiring', 'next_period_uncovered', 'pilot_approval_needed', 'funding_low',
+    'negative_balance', 'account_on_hold', 'exposure_open', 'provider_variance', 'inventory_gap', 'cancel_unknown', 'cancelled_authorization_active', 'charged_after_cancellation', 'released_resource_active'));
+  -- postcondition: the restored definition is exactly what 20261209090000 creates
+  v_expected := 'CHECK ((kind = ANY (ARRAY[' || (select string_agg(quote_literal(x) || '::text', ', ' order by o) from unnest(v_old) with ordinality as t(x, o)) || '])))';
+  select pg_get_constraintdef(c.oid) into v_def from pg_constraint c where c.conrelid = 'public.studio_sms_provider_alerts'::regclass and c.conname = 'studio_sms_provider_alerts_kind_check';
+  if v_def is distinct from v_expected then
+    raise exception 'rfl-ops rollback postcondition failed: restored alert-kind constraint is % (expected %)', v_def, v_expected;
   end if;
 end $$;
 
