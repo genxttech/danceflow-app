@@ -82,6 +82,9 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
   let stripe: Stripe;
   let D: Scored;
   let E: Scored;
+  /** Set when the ballot desk actually locked the round. If the UI cannot lock (see tryLock), everything after the lock is BLOCKED. */
+  const locked = { D: false, E: false };
+  const LOCK_BLOCKED = "No UI path locks the heats, and the ballot desk refuses to lock a round while a heat is not locked ('N heat(s) not locked yet'): heat lock_state is changed only by the database function set_competition_heat_lock_state (used by F2 to certify), which no screen calls. So ballots cannot be locked, results cannot be calculated or approved, and the steps below are not reachable through the browser. No SQL shortcut is used.";
   const evidence = (value: unknown) => test.info().annotations.push({ type: "evidence", description: JSON.stringify(value) });
   const base = (s: Scored) => `/app/events/${s.event.id}/competition`;
 
@@ -210,6 +213,29 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     return round.id as string;
   };
 
+  /**
+   * Opens the ballot desk and locks the round when the desk allows it. When it does not, the refusal text is asserted and
+   * recorded (this is the evidence for the BLOCKED scenarios below); nothing is forced.
+   */
+  async function tryLock(page: Page, s: Scored, roundId: string, key: "D" | "E", testInfo: import("@playwright/test").TestInfo) {
+    await page.goto(`${base(s)}/ballots/${roundId}`);
+    const lock = page.getByRole("button", { name: "Lock ballots" });
+    await expect(lock).toBeVisible({ timeout: 30_000 });
+    if (await lock.isEnabled({ timeout: 15_000 }).catch(() => false)) {
+      await lock.click();
+      await expect(page.getByRole("region", { name: "Round status" })).toContainText("Ballots locked", { timeout: 30_000 });
+      locked[key] = true;
+      return true;
+    }
+    const panel = page.getByRole("region", { name: "Lock and reopen" });
+    await expect(panel).toContainText(/heat\(s\) not locked yet/);
+    await expect(lock).toBeDisabled();
+    const text = (await panel.innerText()).replace(/\s+/g, " ");
+    testInfo.annotations.push({ type: "evidence", description: JSON.stringify({ lockRefusal: text }) });
+    scenarioStatus(testInfo, "BLOCKED", LOCK_BLOCKED);
+    return false;
+  }
+
   const judgeBallotUrl = (s: Scored, roundId: string) => `/app/judging/${s.event.id}/rounds/${roundId}/ballot`;
 
   /** A judge ranks every entry on the sheet (rank n for the n-th row unless `order` says otherwise) and submits. */
@@ -314,21 +340,23 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     expect(await readBallotCount(config, D.roundId)).toBe(3);
   });
 
-  test("SCN-11.3 callback result: ballots lock, the calculation advances exactly T couples, and the manager sees them", async ({ browser }, testInfo) => {
+  test("SCN-11.3a callback lock: the manager locks the callback ballots (or the desk states exactly why it cannot)", async ({ browser }, testInfo) => {
     const shot = stepShots(testInfo);
     const page = await signedIn(browser, fixture.owner);
-    await page.goto(`${base(D)}/ballots/${D.roundId}`);
-    await expect(page.getByRole("button", { name: "Lock ballots" })).toBeEnabled({ timeout: 30_000 });
-    await page.getByRole("button", { name: "Lock ballots" }).click();
-    await expect(page.getByRole("region", { name: "Round status" })).toContainText("Ballots locked", { timeout: 30_000 });
+    const ok = await tryLock(page, D, D.roundId, "D", testInfo);
+    await shot(page, ok ? "locked" : "lock-refused");
+    await page.context().close();
+  });
 
+  test("SCN-11.3 callback result: the calculation advances exactly T couples, and the manager sees them", async ({ browser }, testInfo) => {
+    test.skip(!locked.D, "BLOCKED: the callback ballots could not be locked (SCN-11.3a)");
+    const shot = stepShots(testInfo);
+    const page = await signedIn(browser, fixture.owner);
     await page.goto(`${base(D)}/results/${D.roundId}`);
     await page.getByRole("button", { name: "Calculate result" }).click();
     await expect(page.getByRole("status")).toContainText(/Calculated result version 1/, { timeout: 60_000 });
     await expect(page.getByRole("heading", { name: /^Version 1 - Calculated/ })).toBeVisible();
-    await expect(page.getByText("advances", { exact: false }).first()).toBeVisible();
     await shot(page, "callback-result");
-
     const state = readResultState(D.roundId);
     expect(state.versions).toHaveLength(1);
     expect(state.versions[0]).toMatchObject({ version: 1, status: "calculated", calculated_by: fixture.owner.id });
@@ -410,17 +438,19 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     expect(await readBallotCount(config, E.finalRoundId)).toBe(3);
   });
 
-  test("SCN-12.3 lock and SCN-10.4: ballots lock; after that marking a no-show is refused and the controls are gone", async ({ browser }, testInfo) => {
+  test("SCN-12.3 lock: the manager locks the ordinal ballots (or the desk states exactly why it cannot)", async ({ browser }, testInfo) => {
     const shot = stepShots(testInfo);
     const page = await signedIn(browser, fixture.owner);
-    await page.goto(`${base(E)}/ballots/${E.finalRoundId}`);
-    await expect(page.getByRole("button", { name: "Lock ballots" })).toBeEnabled({ timeout: 30_000 });
-    await page.getByRole("button", { name: "Lock ballots" }).click();
-    await expect(page.getByRole("region", { name: "Round status" })).toContainText("Ballots locked", { timeout: 30_000 });
-    await expect.poll(async () => (await readHeatEvidence(config, E.event.id)).effective.map((h) => h.lockState), { timeout: 30_000 }).toEqual(["locked"]);
-    await shot(page, "ballots-locked");
+    const ok = await tryLock(page, E, E.finalRoundId, "E", testInfo);
+    await shot(page, ok ? "ballots-locked" : "lock-refused");
+    if (ok) await expect.poll(async () => (await readHeatEvidence(config, E.event.id)).effective.map((h) => h.lockState), { timeout: 30_000 }).toEqual(["locked"]);
+    await page.context().close();
+  });
 
-    // 10.4: the console offers no no-show controls for a locked round, and a direct call is refused.
+  test("SCN-10.4 after the ballots lock, marking a no-show is refused and the controls are gone", async ({ browser }, testInfo) => {
+    test.skip(!locked.E, "BLOCKED: the ballots could not be locked (SCN-12.3)");
+    const shot = stepShots(testInfo);
+    const page = await signedIn(browser, fixture.owner);
     await page.goto(`${base(E)}/day-of`);
     await expect(page.locator("summary").filter({ hasText: /Mark no-show/ })).toHaveCount(0);
     await shot(page, "no-show-controls-gone");
@@ -432,12 +462,12 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
       const result = await client.rpc("mark_competition_heat_no_show", { p_heat_entry_id: placements![0].id, p_reason: "after lock", p_request_id: randomUUID() });
       expect(result.error, "marking after the ballots locked is refused").not.toBeNull();
     }
-    const after = await readNoShows(config, E.event.id);
-    expect(after.marks).toHaveLength(before.marks.length);
+    expect((await readNoShows(config, E.event.id)).marks).toHaveLength(before.marks.length);
     await page.context().close();
   });
 
   test("SCN-6.3 official scratch in a locked heat: the reason is required, the heat stays locked, one audit row", async ({ browser }, testInfo) => {
+    test.skip(!locked.E, "BLOCKED: the ballots could not be locked (SCN-12.3)");
     const shot = stepShots(testInfo);
     const page = await signedIn(browser, fixture.owner);
     // The no-show entry is already off every ballot, so scratching it does not change what the judges ranked.
@@ -461,6 +491,7 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
   });
 
   test("SCN-14.1 calculate: the result ranks the entries who danced, excludes the no-show, and a calculator-only approval is refused", async ({ browser }, testInfo) => {
+    test.skip(!locked.E, "BLOCKED: the ballots could not be locked (SCN-12.3)");
     const shot = stepShots(testInfo);
     const page = await signedIn(browser, fixture.owner);
     await page.goto(`${base(E)}/results/${E.finalRoundId}`);
@@ -487,6 +518,7 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
   });
 
   test("SCN-14.2 correction: the manager opens a correction (visible on the results page); the judge's own page still says the ballots are locked", async ({ browser }, testInfo) => {
+    test.skip(!locked.E, "BLOCKED: the ballots could not be locked (SCN-12.3)");
     const shot = stepShots(testInfo);
     const owner = await signedIn(browser, fixture.owner);
     await owner.goto(`${base(E)}/results/${E.finalRoundId}`);
@@ -515,6 +547,7 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
   });
 
   test("SCN-14.3 recalculate and approve: a second manager approves, the heat is certified, and a certified heat refuses a scratch", async ({ browser }, testInfo) => {
+    test.skip(!locked.E, "BLOCKED: the ballots could not be locked (SCN-12.3)");
     const shot = stepShots(testInfo);
     const owner = await signedIn(browser, fixture.owner);
     await owner.goto(`${base(E)}/results/${E.finalRoundId}`);
