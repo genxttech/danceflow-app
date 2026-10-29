@@ -7,7 +7,7 @@ export const BILLING_SUPPORT_EMAIL = "support@idanceflow.com";
 
 export const BILLING_PORTAL_ERROR_MESSAGES: Record<string, string> = {
   billing_portal_failed:
-    "The billing portal could not be opened. Please try again in a few minutes. If it keeps happening, contact support@idanceflow.com and no billing change has been made.",
+    "The billing portal could not be opened. No billing change has been made. Please try again in a few minutes; if it keeps happening, contact support@idanceflow.com.",
   billing_customer_missing:
     "No billing account is linked to this workspace yet, so the billing portal cannot be opened. Contact support@idanceflow.com.",
   billing_owner_required:

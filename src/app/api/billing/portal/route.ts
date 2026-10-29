@@ -89,7 +89,8 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (billingCustomerError) {
-      throw new Error(billingCustomerError.message);
+      // Keep the PostgREST error code (not the message) so the log can tell database failures apart.
+      throw Object.assign(new Error("billing customer lookup failed"), { code: billingCustomerError.code });
     }
 
     if (!billingCustomer?.stripe_customer_id) {

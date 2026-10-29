@@ -15,7 +15,7 @@ const state = vi.hoisted(() => ({
   user: { id: "user-1" } as { id: string } | null,
   context: { studioId: "studio-1", studioRole: "studio_owner", isPlatformAdmin: false } as Record<string, unknown> | null,
   customer: "cus_server_written" as string | null,
-  dbError: null as { message: string } | null,
+  dbError: null as { message: string; code?: string } | null,
   stripeResult: { url: "https://billing.stripe.test/session/abc" } as { url?: string | null },
   stripeThrows: null as unknown,
   portalCalls: [] as Array<Record<string, unknown>>,
@@ -163,10 +163,13 @@ describe("billing portal error states are visible and diagnosable", () => {
   });
 
   it("database error -> billing_portal_failed", async () => {
-    state.dbError = { message: "relation missing" };
+    state.dbError = { message: "relation missing", code: "42P01" };
     const response = await call();
     expect(response.headers.get("location")).toContain("error=billing_portal_failed");
     expect(state.portalCalls).toEqual([]);
+    const logged = JSON.stringify(state.errors);
+    expect(logged).toContain("42P01");
+    expect(logged).not.toContain("relation missing");
   });
 
   it("Stripe error -> billing_portal_failed, logging type/code/status but no identifiers, URLs or messages", async () => {
