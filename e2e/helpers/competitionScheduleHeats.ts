@@ -316,7 +316,7 @@ export async function startCompetitionWithJudging(page: Page, style: "Country" |
  * official), so the harness reads them READ-ONLY through the local database container, like the ledger teardown does.
  * Needs E2E_LOCAL_DB_CONTAINER=supabase_db_<local project>; refuses anything else.
  */
-function localPsqlJson(sql: string): unknown {
+export function localPsqlJson(sql: string): unknown {
   const container = process.env.E2E_LOCAL_DB_CONTAINER ?? "";
   if (!/^supabase_db_[a-z0-9-]+$/.test(container)) throw new Error("set E2E_LOCAL_DB_CONTAINER=supabase_db_<local project> to read the no-show history");
   const out = execFileSync("docker", ["exec", "-i", container, "psql", "-U", "postgres", "-At", "-v", "ON_ERROR_STOP=1", "-c", `begin read only; ${sql}; commit`], { encoding: "utf8" });
@@ -346,4 +346,16 @@ export async function heatEntryIdFor(config: E2EConfig, eventId: string, entryId
   const found = (await rows(config, "event_competition_heat_entries", "id, heat_id, entry_id", { event_id: eventId })).find((row) => row.entry_id === entryId && row.heat_id === heatId);
   if (!found) throw new Error(`no heat placement for entry ${entryId} in heat ${heatId}`);
   return found.id as string;
+}
+
+// ------------------------------------------------------------------ F2 results (read-only, through the local DB container)
+
+/** Result versions, rows, approvals and audit kinds of one round. The F2 tables are not meant for API-role reads. */
+export function readResultState(roundId: string) {
+  if (!/^[0-9a-f-]{36}$/.test(roundId)) throw new Error("malformed round id");
+  const versions = (localPsqlJson(`select coalesce(json_agg(row_to_json(t)), '[]'::json) from (select id, version, status, engine_key, engine_version, calculated_by from public.event_competition_result_versions where round_id = '${roundId}' order by version) t`) ?? []) as Array<Record<string, unknown>>;
+  const rows = (localPsqlJson(`select coalesce(json_agg(row_to_json(t)), '[]'::json) from (select v.version, r.entry_id, r.placement, r.tie_group, r.advanced from public.event_competition_result_rows r join public.event_competition_result_versions v on v.id = r.result_version_id where v.round_id = '${roundId}' order by v.version, r.placement nulls last) t`) ?? []) as Array<Record<string, unknown>>;
+  const approvals = (localPsqlJson(`select coalesce(json_agg(row_to_json(t)), '[]'::json) from (select a.result_version_id, a.approved_by, a.calculated_by, a.override_reason from public.event_competition_result_approvals a join public.event_competition_result_versions v on v.id = a.result_version_id where v.round_id = '${roundId}') t`) ?? []) as Array<Record<string, unknown>>;
+  const kinds = (localPsqlJson(`select coalesce(json_agg(kind order by occurred_at), '[]'::json) from public.event_competition_result_events where round_id = '${roundId}'`) ?? []) as string[];
+  return { versions, rows, approvals, kinds };
 }

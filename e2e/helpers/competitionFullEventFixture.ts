@@ -130,7 +130,7 @@ async function purgeRefundLedgerLocal(eventIds: string[]): Promise<{ error: { me
   }
   if (!eventIds.every((id) => /^[0-9a-f-]{36}$/.test(id))) return { error: { message: "refusing: malformed event id" } };
   const list = eventIds.map((id) => `'${id}'`).join(",");
-  const sql = `begin; set local session_replication_role = replica; delete from public.event_order_refund_allocations where event_id in (${list}); delete from public.event_order_refunds where event_id in (${list}); delete from public.event_competition_scratches where event_id in (${list}); do $$ begin if to_regclass('public.event_competition_heat_no_show_voids') is not null then delete from public.event_competition_heat_no_show_voids where event_id in (${list}); delete from public.event_competition_heat_no_shows where event_id in (${list}); end if; end $$; commit;`;
+  const sql = `begin; set local session_replication_role = replica; delete from public.event_order_refund_allocations where event_id in (${list}); delete from public.event_order_refunds where event_id in (${list}); delete from public.event_competition_scratches where event_id in (${list}); do $$ declare t text; begin for t in select c.table_name from information_schema.columns c where c.table_schema = 'public' and c.column_name = 'event_id' and c.table_name like 'event\\_competition\\_%' loop execute format('delete from public.%I where event_id = any(%L::uuid[])', t, '{${eventIds.join(",")}}'); end loop; end $$; commit;`;
   try {
     execFileSync("docker", ["exec", "-i", container, "psql", "-U", "postgres", "-v", "ON_ERROR_STOP=1", "-q", "-c", sql], { stdio: "pipe" });
     return { error: null };
