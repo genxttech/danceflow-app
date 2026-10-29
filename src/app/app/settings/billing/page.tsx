@@ -28,6 +28,10 @@ import {
   resolveTransparentPricingNote,
 } from "@/lib/billing/founderPricing";
 import {
+  BILLING_PORTAL_ERROR_MESSAGES,
+  resolvePlanCardCta,
+} from "@/lib/billing/billingPortalErrors";
+import {
   getUsageAllowance,
   type UsageAllowanceResult,
 } from "@/lib/usage/addons";
@@ -286,7 +290,7 @@ function getSuccessMessage(
   if (success === "manage_subscription") {
     return {
       title: "Billing portal opened",
-      body: "You were redirected to manage your existing subscription.",
+      body: "You were redirected to manage your existing subscription's payment details and invoices. Plan changes are handled by DanceFlow support.",
       tone: "green",
     };
   }
@@ -294,7 +298,7 @@ function getSuccessMessage(
   if (success === "current_plan") {
     return {
       title: "Already on this plan",
-      body: "This workspace is already on that plan. Use subscription management to make changes.",
+      body: "This workspace is already on that plan. To change plans, contact support@idanceflow.com.",
       tone: "green",
     };
   }
@@ -381,6 +385,7 @@ function getErrorMessage(error?: string) {
   if (!error) return null;
 
   const messages: Record<string, string> = {
+    ...BILLING_PORTAL_ERROR_MESSAGES,
     plan_not_found: "The selected billing plan could not be found.",
     checkout_failed: "Billing checkout could not be started.",
     checkout_cancelled: "Billing checkout was canceled.",
@@ -995,11 +1000,11 @@ function PlanCard({
   entryMode: string;
   hasManagedSubscription: boolean;
 }) {
-  const ctaLabel = isCurrent
-    ? "Current Plan"
-    : hasManagedSubscription
-      ? "Change Plan"
-      : `Start ${plan.label} Trial`;
+  const cta = resolvePlanCardCta({
+    isCurrent,
+    hasManagedSubscription,
+    planLabel: plan.label,
+  });
 
   return (
     <div
@@ -1070,26 +1075,41 @@ function PlanCard({
         </div>
       ) : null}
 
-      <form action="/api/billing/checkout" method="post" className="mt-6">
-        <input type="hidden" name="planCode" value={plan.code} />
-        <input type="hidden" name="path" value={selectedAudience} />
-        <input type="hidden" name="entry" value={entryMode} />
-        <input type="hidden" name="billingInterval" value="month" />
+      {cta.kind === "contact_support" ? (
+        <div className="mt-6">
+          <a
+            href={cta.mailto}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-800 transition hover:bg-slate-50"
+          >
+            <span>{cta.label}</span>
+          </a>
+          <p className="mt-2 text-xs leading-5 text-slate-500">
+            Plan changes are reviewed by our team so your current price and
+            terms are protected. Nothing changes until you confirm.
+          </p>
+        </div>
+      ) : (
+        <form action="/api/billing/checkout" method="post" className="mt-6">
+          <input type="hidden" name="planCode" value={plan.code} />
+          <input type="hidden" name="path" value={selectedAudience} />
+          <input type="hidden" name="entry" value={entryMode} />
+          <input type="hidden" name="billingInterval" value="month" />
 
-        <button
-          type="submit"
-          disabled={isCurrent}
-          className={[
-            "inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition",
-            isCurrent
-              ? "cursor-not-allowed border border-slate-300 bg-white text-slate-500"
-              : "bg-slate-900 text-white hover:bg-slate-800",
-          ].join(" ")}
-        >
-          <span>{ctaLabel}</span>
-          {!isCurrent ? <ArrowRight className="h-4 w-4" /> : null}
-        </button>
-      </form>
+          <button
+            type="submit"
+            disabled={isCurrent}
+            className={[
+              "inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition",
+              isCurrent
+                ? "cursor-not-allowed border border-slate-300 bg-white text-slate-500"
+                : "bg-slate-900 text-white hover:bg-slate-800",
+            ].join(" ")}
+          >
+            <span>{cta.label}</span>
+            {!isCurrent ? <ArrowRight className="h-4 w-4" /> : null}
+          </button>
+        </form>
+      )}
     </div>
   );
 }
@@ -2000,8 +2020,9 @@ export default async function BillingSettingsPage({
                 </div>
                 <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
                   Subscription changes are usually occasional. Use this compact
-                  section when you need to start billing, change plans, or
-                  update payment details.
+                  section to start billing or to open the billing portal for
+                  payment methods and invoices. To change plans, contact{" "}
+                  support@idanceflow.com.
                 </p>
               </div>
 
