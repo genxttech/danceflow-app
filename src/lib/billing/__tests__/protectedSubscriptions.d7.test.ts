@@ -4,10 +4,11 @@ import {
   evaluateProtection,
   legacyProtectedPriceIds,
   loadProtectedRegistry,
+  type RegistryLoad,
 } from "../protectedSubscriptions";
 
 describe("evaluateProtection", () => {
-  const none = { status: "ok", activeRows: 0, customerIds: [] } as const;
+  const none: RegistryLoad = { status: "ok", activeRows: 0, customerIds: [] };
 
   it("is protected by a registry row alone", () => {
     expect(evaluateProtection({ registry: { status: "ok", activeRows: 1, customerIds: [] }, subscriptions: [], legacyPriceIds: [] })).toEqual({
