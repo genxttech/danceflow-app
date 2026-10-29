@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { requirePlatformStepUp } from "@/lib/auth/platform-assurance";
 import { checkRateLimit, rateLimitKey } from "@/lib/security/rate-limit";
 
 /**
@@ -24,7 +24,7 @@ function errorCode(code: string | undefined): string {
 }
 
 export async function resolveUsageAttemptAction(formData: FormData) {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("recent");
   const attemptId = String(formData.get("attemptId") ?? "").trim();
   const outcome = String(formData.get("outcome") ?? "").trim();
   const reason = String(formData.get("reason") ?? "").trim();
