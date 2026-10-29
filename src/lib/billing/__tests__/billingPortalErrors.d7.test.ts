@@ -48,7 +48,9 @@ describe("D7-2 plan card call to action", () => {
 
   it("the page no longer carries the misleading Change Plan label and routes through the helper", () => {
     const page = readFileSync("src/app/app/settings/billing/page.tsx", "utf8");
+    const card = readFileSync("src/app/app/settings/billing/PlanCard.tsx", "utf8");
     expect(page).not.toMatch(/["'`]Change Plan["'`]/);
-    expect(page).toContain("resolvePlanCardCta");
+    expect(card).not.toMatch(/["'`]Change Plan["'`]/);
+    expect(card).toContain("resolvePlanCardCta");
   });
 });
