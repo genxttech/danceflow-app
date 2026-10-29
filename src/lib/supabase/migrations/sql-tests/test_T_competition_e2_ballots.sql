@@ -751,7 +751,7 @@ do $$ begin
 end $$;
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.expect_ok('reopen allowed while the result version is only calculated', format($q$select public.reopen_competition_round_ballots(%L, 'Judge 2 mis-keyed heat 1', %L)$q$, pg_temp.u('006001'), pg_temp.u('f27007')));
+select pg_temp.expect_ok('reopen allowed when no result version is approved (no-F2 path: stub version only calculated; with F2: no version rows for r1)', format($q$select public.reopen_competition_round_ballots(%L, 'Judge 2 mis-keyed heat 1', %L)$q$, pg_temp.u('006001'), pg_temp.u('f27007')));
 reset role;
 do $$ begin
   if exists (select 1 from t_ids where k = 'stub_result_versions') then
