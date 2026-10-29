@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildDayOfFloorHeats, type DayOfHeatInput } from "@/lib/competition/dayOf";
+import { activeNoShows, friendlyNoShowError, type NoShowRow } from "@/lib/competition/noShow";
 
 /* O1: read model for the day-of console (manager RLS applies; one query per table, no per-row lookups). */
 
@@ -24,7 +25,7 @@ export async function loadDayOf(supabase: SupabaseClient, eventId: string) {
   const rounds = roundsResult.data ?? [];
   const divisionName = new Map((divisionsResult.data ?? []).map((division) => [division.id as string, division.name as string]));
 
-  if (!version) return { version: null, rounds, divisionName, floorHeats: [], heatsByFloor: new Map<string, ScoringRow[]>(), entriesByHeat: new Map<string, EntryRow[]>() };
+  if (!version) return { version: null, rounds, divisionName, floorHeats: [], heatsByFloor: new Map<string, ScoringRow[]>(), entriesByHeat: new Map<string, EntryRow[]>(), noShows: new Map<string, NoShowRow>(), noShowLoadError: null as string | null };
 
   const [floorResult, heatResult] = await Promise.all([
     supabase.from("event_competition_floor_heats").select("id, heat_number").eq("schedule_version_id", version.id).order("heat_number"),
@@ -36,7 +37,7 @@ export async function loadDayOf(supabase: SupabaseClient, eventId: string) {
   const heatIds = heats.map((heat) => heat.id);
   const entriesByHeat = new Map<string, EntryRow[]>();
   if (heatIds.length > 0) {
-    const entryResult = await supabase.from("event_competition_heat_entries").select("heat_id, entry_id, status, floor_order").in("heat_id", heatIds).neq("status", "scratched");
+    const entryResult = await supabase.from("event_competition_heat_entries").select("id, heat_id, entry_id, status, floor_order").in("heat_id", heatIds).neq("status", "scratched");
     if (entryResult.error) throw new Error("Could not load heat entries.");
     const entryRows = entryResult.data ?? [];
     const ids = Array.from(new Set(entryRows.map((row) => row.entry_id as string)));
@@ -47,7 +48,7 @@ export async function loadDayOf(supabase: SupabaseClient, eventId: string) {
     for (const row of entryRows) {
       const entry = info.get(row.entry_id as string);
       const list = entriesByHeat.get(row.heat_id as string) ?? [];
-      list.push({ entryId: row.entry_id as string, name: entry?.display_name ?? "Entry", number: entry?.entry_number ?? null, order: (row.floor_order as number | null) ?? 0 });
+      list.push({ heatEntryId: row.id as string, status: row.status as string, entryId: row.entry_id as string, name: entry?.display_name ?? "Entry", number: entry?.entry_number ?? null, order: (row.floor_order as number | null) ?? 0 });
       entriesByHeat.set(row.heat_id as string, list);
     }
     for (const list of entriesByHeat.values()) list.sort((a, b) => a.order - b.order);
@@ -61,8 +62,20 @@ export async function loadDayOf(supabase: SupabaseClient, eventId: string) {
   const inputs: DayOfHeatInput[] = heats.filter((heat) => heat.floor_heat_id).map((heat) => ({
     id: heat.id, floorHeatId: heat.floor_heat_id as string, roundId: heat.round_id, status: heat.status, lockState: heat.lock_state,
   }));
-  return { version, rounds, divisionName, floorHeats: buildDayOfFloorHeats(floorResult.data ?? [], inputs), heatsByFloor, entriesByHeat };
+  // NS1: active no-shows of the rounds that are running (the RPC checks the caller; a failure shows no marks).
+  const noShows = new Map<string, NoShowRow>();
+  let noShowLoadError: string | null = null;
+  for (const round of rounds.filter((candidate) => candidate.status === "active")) {
+    const { data: marks, error: noShowError } = await supabase.rpc("competition_round_no_shows", { p_round_id: round.id });
+    // Never swallow it: the console keeps working (the database enforces the rules) but tells the user why no-shows are not shown.
+    if (noShowError) {
+      noShowLoadError = friendlyNoShowError(noShowError);
+      continue;
+    }
+    for (const [key, value] of activeNoShows(marks as NoShowRow[])) noShows.set(key, value);
+  }
+  return { version, rounds, divisionName, floorHeats: buildDayOfFloorHeats(floorResult.data ?? [], inputs), heatsByFloor, entriesByHeat, noShows, noShowLoadError };
 }
 
 export type ScoringRow = { id: string; floor_heat_id: string | null; round_id: string; division_id: string; name: string | null; status: string; lock_state: string };
-export type EntryRow = { entryId: string; name: string; number: string | null; order: number };
+export type EntryRow = { heatEntryId: string; status: string; entryId: string; name: string; number: string | null; order: number };

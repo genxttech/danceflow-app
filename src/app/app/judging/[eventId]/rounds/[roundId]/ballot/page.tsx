@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { JudgeSheet } from "@/lib/competition/ballots/status";
+import { activeNoShows, ballotNeedsCorrection, type NoShowRow } from "@/lib/competition/noShow";
 import BallotMarksFields from "@/app/app/events/[id]/competition/ballots/BallotMarksFields";
 import { saveCallbackDraftAction, submitJudgeBallotAction } from "@/app/app/events/[id]/competition/ballots/actions";
 
@@ -36,6 +37,9 @@ export default async function JudgeBallotPage({
   const { data, error } = await supabase.rpc("competition_judge_ballot_sheet", { p_round_id: roundId });
   if (error || !data) notFound();
   const sheet = data as JudgeSheet;
+  // NS1: entries an official marked as no-show are already out of this sheet; say so, and flag a ballot they made out of date.
+  const { data: noShowData } = await supabase.rpc("competition_round_no_shows", { p_round_id: roundId });
+  const noShows = Array.from(activeNoShows(noShowData as NoShowRow[] | null).values());
   const returnTo = `/app/judging/${eventId}/rounds/${roundId}/ballot`;
   const open = sheet.round.status === "active" && sheet.scheme_available && !sheet.absent;
   const rating = sheet.round.scoring_method === "proficiency_rating";
@@ -66,6 +70,18 @@ export default async function JudgeBallotPage({
         <p className="mt-3 rounded border border-slate-300 bg-slate-50 p-3 text-sm text-slate-900">Ballots are locked. You can no longer submit or correct.</p>
       ) : sheet.round.status !== "active" ? (
         <p className="mt-3 rounded border border-slate-300 bg-slate-50 p-3 text-sm text-slate-900">This round is {label(sheet.round.status)}. Ballots open when it starts.</p>
+      ) : null}
+
+      {noShows.length > 0 ? (
+        <p role="status" className="mt-3 rounded border border-slate-300 bg-slate-50 p-3 text-sm text-slate-900">
+          {noShows.length === 1 ? "An entry was" : `${noShows.length} entries were`} marked as no-show by an official and {noShows.length === 1 ? "is" : "are"} not on your sheet: {noShows.map((row) => `${row.entry_number ? `#${row.entry_number} ` : ""}${row.display_name} (heat ${row.heat_number})`).join(", ")}. {callback ? "Choose only among the entries shown." : "Rank only the entries shown. An entry that is a no-show in one heat still appears in its other heats."}
+        </p>
+      ) : null}
+
+      {callback?.ballot && open && Array.from(picked).some((id) => !sheet.heats.some((heat) => heat.entries.some((entry) => entry.entry_id === id))) ? (
+        <p role="alert" className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+          One of the couples you called back was marked no-show after you submitted. Pick your couples again and submit a correction.
+        </p>
       ) : null}
 
       {callback ? (
@@ -123,6 +139,7 @@ export default async function JudgeBallotPage({
         {callback ? null : sheet.heats.length === 0 ? <p className="rounded border border-slate-200 bg-white p-4 text-sm text-slate-700">No heats are ready to judge yet.</p> : null}
         {callback ? null : sheet.heats.map((heat) => {
           const current = heat.ballot;
+          const needsCorrection = Boolean(current) && open && ballotNeedsCorrection(heat.entries.map((entry) => entry.entry_id), Object.keys(current?.marks ?? {}));
           return (
             <section key={heat.heat_id} aria-label={`Heat ${heat.heat_number}`} className="rounded border border-slate-200 bg-slate-50 p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
@@ -136,6 +153,11 @@ export default async function JudgeBallotPage({
                   <span className="rounded bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-900">Not submitted</span>
                 )}
               </div>
+              {needsCorrection ? (
+                <p role="alert" className="mb-2 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950">
+                  The entries in this heat changed after you submitted (a no-show was recorded or undone). Rank the entries below again and submit a correction.
+                </p>
+              ) : null}
               {open ? (
                 <form action={submitJudgeBallotAction} className="space-y-3">
                   <input type="hidden" name="roundId" value={roundId} />

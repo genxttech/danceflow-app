@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireCompetitionManager } from "@/lib/competition/workspaceServer";
 import { dayOfHref, friendlyDayOfError } from "@/lib/competition/dayOf";
+import { friendlyNoShowError } from "@/lib/competition/noShow";
 
 /* O1: day-of operations. Every change is one database writer call; nothing here is trusted. */
 
@@ -58,4 +59,18 @@ export async function heatTransitionAction(formData: FormData): Promise<void> {
   });
   if (error) back(eventId, { error: friendlyDayOfError(error) });
   back(eventId, { notice: to === "staging" ? "Heat called to the floor." : to === "active" ? "Heat started." : "Heat completed." });
+}
+
+/** NS1: mark or void a heat no-show. The reason is mandatory; the database checks authority, window and idempotency. */
+export async function noShowAction(formData: FormData): Promise<void> {
+  const { eventId, requestId, targetId, supabase } = await prepare(formData);
+  const kind = text(formData, "kind");
+  const reason = text(formData, "reason");
+  if (kind !== "mark" && kind !== "void") back(eventId, { error: "Unknown no-show action." });
+  if (reason.length < 1 || reason.length > 500) back(eventId, { error: "Give a reason (up to 500 characters)." });
+  const { error } = await supabase.rpc(kind === "mark" ? "mark_competition_heat_no_show" : "void_competition_heat_no_show", {
+    p_heat_entry_id: targetId, p_reason: reason, p_request_id: requestId,
+  });
+  if (error) back(eventId, { error: friendlyNoShowError(error) });
+  back(eventId, { notice: kind === "mark" ? "No-show recorded. Judges will rank the remaining entries." : "No-show undone. Judges must correct their ballots." });
 }

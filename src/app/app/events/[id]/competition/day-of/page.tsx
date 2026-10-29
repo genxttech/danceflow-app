@@ -13,7 +13,8 @@ import {
   scratchHref,
   type DayOfFloorHeat,
 } from "@/lib/competition/dayOf";
-import { heatTransitionAction, roundTransitionAction } from "./actions";
+import { canMarkNoShow } from "@/lib/competition/noShow";
+import { heatTransitionAction, noShowAction, roundTransitionAction } from "./actions";
 
 /* O1: staff floor console. Mobile first (375px): one column, large buttons, no horizontal scroll. */
 
@@ -63,17 +64,42 @@ export default async function DayOfPage({
             <li key={scoringHeat.id} className="min-w-0">
               <p className="break-words text-sm font-medium text-slate-900">{roundName.get(scoringHeat.round_id) ?? "Round"}</p>
               <ul className="mt-1 space-y-1">
-                {(data.entriesByHeat.get(scoringHeat.id) ?? []).map((entry) => (
-                  <li key={entry.entryId} className="flex min-w-0 items-center justify-between gap-2 text-sm text-slate-700">
-                    <span className="min-w-0 break-words">
-                      {entry.number ? `#${entry.number} ` : ""}
-                      {entry.name}
-                    </span>
-                    <Link href={scratchHref(id, entry.entryId)} className="shrink-0 text-xs font-semibold text-slate-600 underline">
-                      Scratch
-                    </Link>
-                  </li>
-                ))}
+                {(data.entriesByHeat.get(scoringHeat.id) ?? []).map((entry) => {
+                  const noShow = data.noShows.get(entry.heatEntryId);
+                  const canMark = canMarkNoShow({ roundStatus: roundStatusById.get(scoringHeat.round_id), heatStatus: scoringHeat.status, entryStatus: entry.status });
+                  return (
+                    <li key={entry.entryId} className="min-w-0 text-sm text-slate-700">
+                      <div className="flex min-w-0 items-center justify-between gap-2">
+                        <span className={`min-w-0 break-words ${noShow ? "text-slate-500 line-through" : ""}`}>
+                          {entry.number ? `#${entry.number} ` : ""}
+                          {entry.name}
+                        </span>
+                        <span className="flex shrink-0 items-center gap-3">
+                          {noShow ? <span className={`${chip} bg-rose-100 text-rose-900`}>No-show</span> : null}
+                          <Link href={scratchHref(id, entry.entryId)} className="text-xs font-semibold text-slate-600 underline">
+                            Scratch
+                          </Link>
+                        </span>
+                      </div>
+                      {noShow || canMark ? (
+                        <details className="mt-1">
+                          <summary className="flex min-h-11 cursor-pointer items-center text-xs font-semibold text-slate-700 underline">
+                            {noShow ? "Undo no-show" : "Mark no-show"}
+                          </summary>
+                          <form action={noShowAction} className="mt-2 flex min-w-0 flex-col gap-2">
+                            <input type="hidden" name="eventId" value={id} />
+                            <input type="hidden" name="targetId" value={entry.heatEntryId} />
+                            <input type="hidden" name="kind" value={noShow ? "void" : "mark"} />
+                            <input type="hidden" name="requestId" value={randomUUID()} />
+                            {noShow ? <p className="break-words text-xs text-slate-600">Reason given: {noShow.reason}</p> : null}
+                            <input name="reason" required maxLength={500} placeholder={noShow ? "Why undo this no-show?" : "Reason (required)"} aria-label={noShow ? "Reason for undoing the no-show" : "No-show reason"} className="h-11 min-w-0 rounded-lg border border-slate-300 px-3 text-sm" />
+                            <button className={secondary}>{noShow ? "Undo no-show" : "Mark no-show"}</button>
+                          </form>
+                        </details>
+                      ) : null}
+                    </li>
+                  );
+                })}
               </ul>
             </li>
           ))}
@@ -107,6 +133,7 @@ export default async function DayOfPage({
       </header>
 
       {query.notice ? <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{query.notice}</p> : null}
+      {data.noShowLoadError ? <p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-950">Couldn&apos;t load no-shows: {data.noShowLoadError} No-show marks may be missing below.</p> : null}
       {query.error ? <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-900">{query.error}</p> : null}
 
       {!data.version ? (

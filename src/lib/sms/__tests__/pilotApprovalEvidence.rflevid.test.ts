@@ -55,3 +55,16 @@ describe("pilot approval evidence (shared module)", () => {
     for (const over of cases) expect(validatePilotEvidence(ok(over), "2026-10", NOW).ok, JSON.stringify(over)).toBe(false);
   });
 });
+
+describe("centsToUsd (the published price as the form's dollar text)", () => {
+  it("round-trips through usdToCents", async () => {
+    const { centsToUsd, usdToCents: toCents } = await import("../pilotApprovalEvidence");
+    for (const c of [1, 5, 99, 100, 105, 2500, 9999999]) expect(toCents(centsToUsd(c) as string)).toBe(c);
+    expect(centsToUsd(2500)).toBe("25.00");
+    expect(centsToUsd(105)).toBe("1.05");
+  });
+  it("refuses anything that is not a positive whole number of cents the form accepts", async () => {
+    const { centsToUsd } = await import("../pilotApprovalEvidence");
+    for (const bad of [0, -1, 1.5, 10_000_000, Number.NaN, null, undefined]) expect(centsToUsd(bad as number)).toBeNull();
+  });
+});
