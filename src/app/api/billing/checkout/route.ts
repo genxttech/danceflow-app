@@ -553,7 +553,10 @@ async function handleCheckout(request: NextRequest) {
 
     // D7-4 (R36): a studio with protected terms never starts a new Checkout, whatever
     // the status of its subscription (canceled included). Unknown registry state fails closed.
-    const registry = await loadProtectedRegistry(supabaseAdmin, studioId);
+    const registry = await loadProtectedRegistry(
+      supabaseAdmin as unknown as Parameters<typeof loadProtectedRegistry>[0],
+      studioId,
+    );
 
     if (registry.status === "table_missing") {
       console.warn("billing checkout: protected_subscriptions table is missing; only the legacy-price backstop applies", { studioId });
