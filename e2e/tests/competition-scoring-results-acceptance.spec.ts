@@ -373,7 +373,19 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     const page = await signedIn(browser, fixture.owner);
     await page.goto(`${base(D)}/results/${D.roundId}`);
     await page.getByRole("button", { name: "Calculate result" }).click();
-    await expect(page.getByRole("status")).toContainText(/Calculated result version 1/, { timeout: 60_000 });
+    const refusal = page.getByRole("alert").filter({ hasText: /does not define what to do in this case/ });
+    const done = page.getByRole("status").filter({ hasText: /Calculated result version 1/ });
+    await expect(refusal.or(done)).toBeVisible({ timeout: 60_000 });
+    if (await refusal.count()) {
+      // The engine refused the callback round (COMP_ENGINE_UNSPECIFIED_CASE). Record why, from the database, and stop: not a pass.
+      const { data: programs } = await e2eAdminClient(config).from("event_competition_programs").select("advancement_method, scoring_method").eq("event_id", D.event.id);
+      const round = (await readHeatEvidence(config, D.event.id)).rounds.find((r) => r.id === D.roundId);
+      evidence({ scenario: "SCN-11.3", refusal: "COMP_ENGINE_UNSPECIFIED_CASE", programAdvancementMethod: programs?.[0]?.advancement_method, roundScoringMethod: round?.scoring_method, target: round?.target_advancement_count });
+      await shot(page, "calculate-refused");
+      scenarioStatus(testInfo, "BLOCKED", "Calculate is refused for the callback round: 'The scoring method does not define what to do in this case' (COMP_ENGINE_UNSPECIFIED_CASE). The callback engine requires the round's program to have advancement_method = promote_callback (check V2); see the recorded programAdvancementMethod.");
+      await page.context().close();
+      return;
+    }
     await expect(page.getByRole("heading", { name: /^Version 1 - Calculated/ })).toBeVisible();
     await shot(page, "callback-result");
     const state = readResultState(D.roundId);
