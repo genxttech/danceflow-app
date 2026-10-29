@@ -1,7 +1,9 @@
 import { randomUUID } from "crypto";
 import { lockBlockerSummary, type BallotBoard } from "@/lib/competition/ballots/status";
 import { CORRECTION_BANNER, ballotsAccepting, inCorrectionWindow } from "@/lib/competition/ballots/window";
+import { canLockHeat, lockHeatHint, type HeatFloorInfo } from "@/lib/competition/ballots/heatLock";
 import BallotMarksFields from "./BallotMarksFields";
+import LockHeatButton from "./LockHeatButton";
 import { enterPaperBallotAction, lockBallotsAction, recordAttendanceAction, reopenBallotsAction } from "./actions";
 
 const inputClass = "h-11 min-w-0 rounded border border-slate-300 bg-white px-3 text-sm text-slate-950";
@@ -16,7 +18,7 @@ function label(value: string) {
  * Ballot status board plus lock / reopen / attendance / paper-entry controls. Shared by the manager panel and the
  * scorer/chair desk. Which controls render only mirrors what the RPCs will allow; the RPCs refuse everyone else.
  */
-export default function BallotDesk({ board, returnTo }: { board: BallotBoard; returnTo: string }) {
+export default function BallotDesk({ board, returnTo, heatFloor }: { board: BallotBoard; returnTo: string; heatFloor?: Record<string, HeatFloorInfo> }) {
   const role = board.viewer_role;
   const roundId = board.round.id;
   const canLock = role === "manager" || role === "chair";
@@ -219,6 +221,33 @@ export default function BallotDesk({ board, returnTo }: { board: BallotBoard; re
               </details>
             ))}
           </div>
+        </section>
+      ) : null}
+
+      {heatFloor ? (
+        <section aria-label="Heats" className="rounded border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-semibold text-slate-950">Heats</h3>
+          <p className="mt-1 text-xs text-slate-600">
+            Every heat must be locked before the ballots can be locked. A heat can be locked once it has been danced; the floor then refuses changes to it.
+          </p>
+          <ul className="mt-3 divide-y divide-slate-100">
+            {board.heats.map((heat) => {
+              const floorStatus = heatFloor[heat.heat_id]?.status ?? null;
+              const offer = canLockHeat({ viewerRole: role, roundStatus: board.round.status, heatStatus: floorStatus, lockState: heat.lock_state });
+              const hint = lockHeatHint({ roundStatus: board.round.status, heatStatus: floorStatus, lockState: heat.lock_state });
+              return (
+                <li key={heat.heat_id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                  <span>
+                    <span className="font-medium text-slate-950">Heat {heat.heat_number}</span>
+                    <span className="ml-2 text-xs text-slate-600">
+                      Floor: {floorStatus ? label(floorStatus) : "Unknown"} - {label(heat.lock_state)}
+                    </span>
+                  </span>
+                  {offer ? <LockHeatButton heatId={heat.heat_id} heatNumber={heat.heat_number} returnTo={returnTo} /> : hint ? <span className="text-xs text-slate-500">{hint}</span> : null}
+                </li>
+              );
+            })}
+          </ul>
         </section>
       ) : null}
 

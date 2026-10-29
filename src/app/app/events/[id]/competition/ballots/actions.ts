@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { heatLockErrorMessage } from "@/lib/competition/ballots/heatLock";
 import { ballotErrorMessage, safeReturnPath } from "@/lib/competition/ballots/messages";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -178,4 +179,25 @@ export async function reopenBallotsAction(formData: FormData): Promise<void> {
         : Promise.resolve({ error: { message: "COMP_BALLOTS_BAD_STATE" } }),
     "Ballots reopened.",
   );
+}
+
+/**
+ * HL1: a manager locks one danced heat. Calls the 10A RPC directly (it is the authority and writes the audit row). The
+ * RPC's refusals are shown as text, never swallowed.
+ */
+export async function lockHeatAction(formData: FormData): Promise<void> {
+  const returnTo = safeReturnPath(text(formData, "returnTo"), "/app/events");
+  const heatId = uuid(formData, "heatId");
+  const heatNumber = text(formData, "heatNumber").replace(/[^0-9]/g, "");
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+  if (!heatId) back(returnTo, { error: "The heat could not be locked. Reload the page and try again." });
+  const reason = text(formData, "reason").slice(0, 500);
+  const { error } = await supabase.rpc("set_competition_heat_lock_state", { selected_heat_id: heatId, selected_state: "locked", selected_reason: reason || null });
+  revalidatePath(returnTo);
+  if (error) back(returnTo, { error: heatLockErrorMessage(error.message) });
+  back(returnTo, { saved: heatNumber ? `Heat ${heatNumber} locked.` : "Heat locked." });
 }
