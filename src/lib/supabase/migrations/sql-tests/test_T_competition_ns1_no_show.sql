@@ -561,6 +561,24 @@ select pg_temp.as_anon();
 select pg_temp.expect_msg('anon cannot read the floor view', format($q$select public.competition_round_floor_entries(%L)$q$, pg_temp.u('006001')), 'permission denied');
 reset role;
 
+-- Verified-email credential (LAUNCH-SEC-1C binding): a manager and a chair without one are refused by every NS1 RPC
+-- (fixture shortcut: the credential row is revoked and restored by the superuser)
+create temp table t_ve_backup on commit drop as select * from public.verified_email_identities where user_id in (pg_temp.u('000001'), pg_temp.u('000017'));
+delete from public.verified_email_identities where user_id in (pg_temp.u('000001'), pg_temp.u('000017'));
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('manager without a verified email cannot mark', format($q$select public.mark_competition_heat_no_show(%L, 'x', gen_random_uuid())$q$, pg_temp.he('00d001', '008002')), 'COMP_VERIFIED_EMAIL_REQUIRED');
+select pg_temp.expect_msg('manager without a verified email cannot void', format($q$select public.void_competition_heat_no_show(%L, 'x', gen_random_uuid())$q$, pg_temp.he('00d007', '008016')), 'COMP_VERIFIED_EMAIL_REQUIRED');
+select pg_temp.expect_msg('manager without a verified email cannot read no-shows', format($q$select public.competition_round_no_shows(%L)$q$, pg_temp.u('006001')), 'COMP_VERIFIED_EMAIL_REQUIRED');
+select pg_temp.expect_msg('manager without a verified email cannot read the floor view', format($q$select public.competition_round_floor_entries(%L)$q$, pg_temp.u('006001')), 'COMP_VERIFIED_EMAIL_REQUIRED');
+select pg_temp.as_user(pg_temp.u('000017'));
+select pg_temp.expect_msg('chair without a verified email cannot mark (authority check passes only with the credential)', format($q$select public.mark_competition_heat_no_show(%L, 'x', gen_random_uuid())$q$, pg_temp.he('00d001', '008002')), 'COMP_');
+select pg_temp.as_user(pg_temp.u('000011'));
+select pg_temp.expect_msg('the authority check still comes first: a judge is FORBIDDEN, not asked for an email', format($q$select public.mark_competition_heat_no_show(%L, 'x', gen_random_uuid())$q$, pg_temp.he('00d001', '008002')), 'COMP_FORBIDDEN');
+reset role;
+insert into public.verified_email_identities select * from t_ve_backup;
+select pg_temp.chk('no mark was written by an unverified caller', pg_temp.nns('reason = ' || quote_literal('x')) = 0);
+
 -- ============================================================================
 -- 12. Append-only protection
 -- ============================================================================

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildDayOfFloorHeats, type DayOfHeatInput } from "@/lib/competition/dayOf";
-import { activeNoShows, type NoShowRow } from "@/lib/competition/noShow";
+import { activeNoShows, friendlyNoShowError, type NoShowRow } from "@/lib/competition/noShow";
 
 /* O1: read model for the day-of console (manager RLS applies; one query per table, no per-row lookups). */
 
@@ -25,7 +25,7 @@ export async function loadDayOf(supabase: SupabaseClient, eventId: string) {
   const rounds = roundsResult.data ?? [];
   const divisionName = new Map((divisionsResult.data ?? []).map((division) => [division.id as string, division.name as string]));
 
-  if (!version) return { version: null, rounds, divisionName, floorHeats: [], heatsByFloor: new Map<string, ScoringRow[]>(), entriesByHeat: new Map<string, EntryRow[]>(), noShows: new Map<string, NoShowRow>() };
+  if (!version) return { version: null, rounds, divisionName, floorHeats: [], heatsByFloor: new Map<string, ScoringRow[]>(), entriesByHeat: new Map<string, EntryRow[]>(), noShows: new Map<string, NoShowRow>(), noShowLoadError: null as string | null };
 
   const [floorResult, heatResult] = await Promise.all([
     supabase.from("event_competition_floor_heats").select("id, heat_number").eq("schedule_version_id", version.id).order("heat_number"),
@@ -64,13 +64,17 @@ export async function loadDayOf(supabase: SupabaseClient, eventId: string) {
   }));
   // NS1: active no-shows of the rounds that are running (the RPC checks the caller; a failure shows no marks).
   const noShows = new Map<string, NoShowRow>();
+  let noShowLoadError: string | null = null;
   for (const round of rounds.filter((candidate) => candidate.status === "active")) {
     const { data: marks, error: noShowError } = await supabase.rpc("competition_round_no_shows", { p_round_id: round.id });
-    // Degrade, never fail the console: without marks the day-of controls still work (the database enforces the rules).
-    if (noShowError) continue;
+    // Never swallow it: the console keeps working (the database enforces the rules) but tells the user why no-shows are not shown.
+    if (noShowError) {
+      noShowLoadError = friendlyNoShowError(noShowError);
+      continue;
+    }
     for (const [key, value] of activeNoShows(marks as NoShowRow[])) noShows.set(key, value);
   }
-  return { version, rounds, divisionName, floorHeats: buildDayOfFloorHeats(floorResult.data ?? [], inputs), heatsByFloor, entriesByHeat, noShows };
+  return { version, rounds, divisionName, floorHeats: buildDayOfFloorHeats(floorResult.data ?? [], inputs), heatsByFloor, entriesByHeat, noShows, noShowLoadError };
 }
 
 export type ScoringRow = { id: string; floor_heat_id: string | null; round_id: string; division_id: string; name: string | null; status: string; lock_state: string };

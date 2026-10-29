@@ -13,6 +13,8 @@
 --   void_competition_heat_no_show(heat_entry_id, reason, request_id)
 --   competition_round_no_shows(round_id)           read for officials and the round's panel judges
 --   competition_round_floor_entries(round_id)      floor view (heats, entries, no-show state, window) for manager | chair; the ballot desk uses it
+-- Identity: every NS1 RPC (mark, void, both reads) also needs a verified-email credential (verified_email_for_user), the LAUNCH-SEC-1C binding,
+-- refused with COMP_VERIFIED_EMAIL_REQUIRED after the authority check. E2's _compe2_round_role skips that check for managers, so NS1 adds it.
 -- Authority = E2's lock authority (_compe2_round_role in manager | chair). Window: heat `active` or `complete`, round `active`
 -- (ballots open). After ballots_locked (and during an F2 correction, which is a ballots_locked round) the correction path applies.
 -- Refused for scratched / danced / disqualified entries. The round row is locked FOR UPDATE, so a mark/void serializes with lock
@@ -232,6 +234,9 @@ begin
   if coalesce(v_role, '') not in ('manager', 'chair') then
     raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
   end if;
+  if public.verified_email_for_user(v_uid) is null then
+    raise exception 'COMP_VERIFIED_EMAIL_REQUIRED: a verified email credential is required to record or read no-shows.' using errcode = '42501';
+  end if;
   if p_request_id is null then
     raise exception 'COMP_REQUEST_ID_REQUIRED: a request id is required.' using errcode = 'P0001';
   end if;
@@ -307,6 +312,9 @@ begin
      or coalesce(public._compe2_round_role(v_heat.round_id), '') not in ('manager', 'chair') then
     raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
   end if;
+  if public.verified_email_for_user(v_uid) is null then
+    raise exception 'COMP_VERIFIED_EMAIL_REQUIRED: a verified email credential is required to record or read no-shows.' using errcode = '42501';
+  end if;
   if p_request_id is null then
     raise exception 'COMP_REQUEST_ID_REQUIRED: a request id is required.' using errcode = 'P0001';
   end if;
@@ -371,15 +379,15 @@ begin
   if v_event is null then
     raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
   end if;
-  if public.verified_email_for_user(v_uid) is null then
-    raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
-  end if;
   if public._compe2_round_role(p_round_id) is null
      and not exists (select 1 from public.event_competition_officials o
                      join public.event_competition_panel_assignments a on a.official_id = o.id and a.event_id = o.event_id
                      where o.event_id = v_event and o.user_id = v_uid and o.status = 'active'
                        and o.role in ('judge', 'chair') and a.round_id = p_round_id and a.judge_letter is not null) then
     raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
+  end if;
+  if public.verified_email_for_user(v_uid) is null then
+    raise exception 'COMP_VERIFIED_EMAIL_REQUIRED: a verified email credential is required to record or read no-shows.' using errcode = '42501';
   end if;
   return coalesce((
     select jsonb_agg(jsonb_build_object(
@@ -410,6 +418,9 @@ declare
 begin
   if auth.uid() is null or p_round_id is null or coalesce(public._compe2_round_role(p_round_id), '') not in ('manager', 'chair') then
     raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
+  end if;
+  if public.verified_email_for_user(v_uid) is null then
+    raise exception 'COMP_VERIFIED_EMAIL_REQUIRED: a verified email credential is required to record or read no-shows.' using errcode = '42501';
   end if;
   select * into v_round from public.event_competition_rounds r where r.id = p_round_id;
   return jsonb_build_object(

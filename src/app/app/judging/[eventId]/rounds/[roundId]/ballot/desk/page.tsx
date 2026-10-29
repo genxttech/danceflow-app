@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { BallotBoard } from "@/lib/competition/ballots/status";
 import BallotDesk from "@/app/app/events/[id]/competition/ballots/BallotDesk";
 import NoShowPanel, { type FloorEntries } from "./NoShowPanel";
+import { friendlyNoShowError } from "@/lib/competition/noShow";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -35,6 +36,7 @@ export default async function BallotDeskPage({
   // NS1: the designated chair (and managers) mark no-shows here; scorers do not, so they do not load the floor view.
   const floor = board.viewer_role === "scorer" ? null : await supabase.rpc("competition_round_floor_entries", { p_round_id: roundId });
   const floorEntries = floor && !floor.error ? (floor.data as FloorEntries) : null;
+  const floorError = floor?.error ? friendlyNoShowError(floor.error) : null;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-5">
@@ -46,6 +48,7 @@ export default async function BallotDeskPage({
       <div className="mt-3">
         <BallotDesk board={board} returnTo={`/app/judging/${eventId}/rounds/${roundId}/ballot/desk`} />
       </div>
+      {floorError ? <p role="alert" className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">Couldn&apos;t load no-shows: {floorError}</p> : null}
       {floorEntries ? (
         <div className="mt-4">
           <NoShowPanel floor={floorEntries} returnTo={`/app/judging/${eventId}/rounds/${roundId}/ballot/desk`} />
