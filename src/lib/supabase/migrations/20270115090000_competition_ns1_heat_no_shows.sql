@@ -414,6 +414,7 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
+  v_uid uuid := auth.uid();
   v_round public.event_competition_rounds;
 begin
   if auth.uid() is null or p_round_id is null or coalesce(public._compe2_round_role(p_round_id), '') not in ('manager', 'chair') then
