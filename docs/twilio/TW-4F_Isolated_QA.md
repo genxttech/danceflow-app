@@ -136,3 +136,20 @@ Limits (read before trusting a rehearsal PASS):
 - `--matrix` runs the suites with `ISO_QA_REF_MAIN` set to the rehearsed commit, so the matrix applies the same SQL that the structural stages checked; `ISO_QA_MARKER` from the caller's environment is cleared (the marker is per-suite, from `matrix-suites.json`).
 - The host-load gate counts every `df-isoqa` and `df-q1` database container; the older `verify_manifest_hashes.sh` cross-check is opt-in (`--shell-verify`, very slow on Windows).
 - Matrix discovery without `--tests-ref` reads the working tree for URL-gated suites and HEAD for container-gated ones: commit new `localStack.*.test.ts` files before running, or pass `--tests-ref`.
+
+## 8. Harness proofs on the current chain (2026-10-29, #326 head 13d165ae, one stack at a time, ISO_QA_SELFTEST_WAVE=1)
+
+This is evidence for the harness changes in this PR. It is not the full-chain matrix or the full rehearsal, neither of which has been run. Host: about 2.4 GB RAM free of 32, so timing-sensitive results are marked.
+
+| Item | Result | Counts | Notes |
+|---|---|---|---|
+| `selftest` | PASS | 12/12 ok | pass/fail/skip/none/crash/badmig/dupmig/badscenario/badflag, cleanup, ports, ownership. A first attempt was ENVIRONMENT (no `node_modules` in the worktree), not a result. Run with one stack at a time, so the port-uniqueness check is weaker than at the default wave of 3. |
+| `tw4fj1` | PASS | 11/11 | `main` scenario with `--marker`. The old BLOCKED-by-harness cause (missing marker table) is closed. |
+| `tw4rfl` | PASS | 87/87 | `--marker --env TW4RFL_DB=postgres` |
+| `tw4rflops` | PASS | 64/64 | same flags |
+| `r2bp2.rfl` | KNOWN (KI-3) | 2 passed, 1 failed (3) | The failing test is exactly the one listed under KNOWN ("the real outbox's own runner can claim and finish what P2 raised", expected +0 to be 2). The tracker's earlier "2 of 3 fail" is not reproduced: it is 1 of 3. Cause still unconfirmed. |
+| `r2brfl` | FAIL, ENVIRONMENT suspected | 27 passed, 1 failed (28) | "the ledger retirement is all or nothing ...": a wall-clock assertion, expected < 4500 ms, observed 4609, 5371 and 13563 ms across runs on a loaded host. Assertion unchanged, no known entry added. To be settled in the exclusive quiet-host rehearsal. |
+| `rehearse --dry-run` | plan only (exit 5) | 46 migrations | every forward and rollback hash equals the manifest; scenario `main` equals the manifest chain |
+| `rehearse --partial` (cutoff 20261205090000) | **PARTIAL, FAIL** | 24 migrations applied, fingerprinted | see below. Not a full rehearsal. |
+
+**Partial rehearsal finding.** The 24 migrations 20261207..20261230 applied in manifest order and every forward hash matched. The strict reverse rollback then ran cleanly for 20261230 down to 20261212. Rolling back each of those files left only the KI-2 constraint `studio_sms_onboarding_audit_action_check` widened (the masked, documented residue). Rolling back **20261211** did not restore the catalog from before its apply: `studio_sms_provider_alerts_kind_check` (created by 20261209) is left with 20261211's wider list of kinds (`owner_notice_second`, `owner_unresponsive`, in a different form) instead of the 20261209 definition. It is the same family as KI-2 (a widened allowlist, safe, but not an exact restore), on a constraint that KI-2 does not list. The harness reports it as FAIL on purpose: the KI-2 mask is limited to its three named constraints. Decision needed (not taken here): list `studio_sms_provider_alerts_kind_check` as KI-2b after review, or fix the 20261211 rollback. The rehearsal stopped at the first failing step, so the steps below 20261211 were not exercised. Evidence: `rehearsal-steps.json` in the run directory (kept outside the repo).

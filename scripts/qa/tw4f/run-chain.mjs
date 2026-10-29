@@ -79,7 +79,7 @@ function parseArgs(argv) {
     if (!a.startsWith("--")) { rest.push(a); continue; }
     const k = a.slice(2);
     if (k === "keep") { flags.keep = true; continue; }
-    if (k === "matrix" || k === "exclusive" || k === "shell-verify" || k === "dry-run") { flags[k === "dry-run" ? "dryRun" : k === "shell-verify" ? "shellVerify" : k] = true; continue; }
+    if (k === "matrix" || k === "exclusive" || k === "shell-verify" || k === "partial" || k === "dry-run") { flags[k === "dry-run" ? "dryRun" : k === "shell-verify" ? "shellVerify" : k] = true; continue; }
     const v = argv[++i];
     if (v === undefined) die(`--${k} needs a value`);
     if (k === "extra-branch") flags.extraBranch.push(v);
@@ -470,7 +470,9 @@ const sealed = (lines) => ({ count: lines.length, sha256: sha256(lines.join("\n"
 function rehearsalPlanFromRef(rcutoff) {
   const ref = resolveRef(baseRef); // resolve once: plan, hashes and the recorded commit all come from the same sha
   const text = gitShow(ref, MANIFEST_DOC);
-  const order = parseApplyOrder(text);
+  const full = parseApplyOrder(text);
+  // --partial: the image already holds everything up to --cutoff (e.g. the 20261205090000 image); rehearse only the manifest entries above it, in manifest order. NOT a full rehearsal.
+  const order = flags.partial ? full.filter((v) => v > rcutoff) : full;
   const table = parseHashTable(text);
   const plan = buildRehearsalPlan({ order, table, filesAtRef: lsMig(ref, MIGRATIONS), cutoff: rcutoff });
   const problems = [];
@@ -483,7 +485,7 @@ function rehearsalPlanFromRef(rcutoff) {
     else if (p.rollbackSha && lfSha256(p.rollbackSql) !== p.rollbackSha) problems.push(`${p.rollbackFile}: rollback sha256 ${lfSha256(p.rollbackSql).slice(0, 12)} != manifest ${p.rollbackSha.slice(0, 12)}`);
   }
   if (problems.length) throw Object.assign(new Error(`hash check refused:\n  - ${problems.join("\n  - ")}`), { problems });
-  return { ref, plan };
+  return { ref, plan, partial: Boolean(flags.partial) };
 }
 
 /** The matrix scenario must be the manifest chain: the scenario's migration dates and the manifest's (above the 20261205090000 baseline) as sets. */
@@ -500,6 +502,7 @@ function scenarioMatchesManifest(plan, scenarioName = "main") {
 async function rehearse() {
   const rcutoff = flags.cutoff ?? PRE_TW4F_CUTOFF;
   const image = flags.image ?? `df-isoqa/base:${rcutoff}`;
+  if (flags.partial && flags.matrix) return die("--partial cannot be combined with --matrix: a partial chain is not the manifest chain", 2);
   let ref, plan;
   try { ({ ref, plan } = rehearsalPlanFromRef(rcutoff)); } catch (e) { return die(e.message, 1); }
   const sha = resolveRef(ref);
@@ -586,8 +589,8 @@ async function rehearse() {
     removeAll(name);
   }
   writeFileSync(path.join(outDir, "rehearsal-steps.json"), JSON.stringify({ ref, sha, image, cutoff: rcutoff, order: plan.map((p) => p.version), steps, stages, structural }, null, 2));
-  console.log(`### TW-4F rehearsal (structure): ${structural} in ${Math.round((Date.now() - t0) / 1000)}s\n- ${ref}@${sha.slice(0, 8)}, image ${image}, ${plan.length} migrations\n${stages.map((s) => `- ${s.status} ${s.stage}${s.note ? " - " + s.note : ""}${s.error ? " - " + String(s.error).slice(0, 200) : ""}`).join("\n")}`);
-  const structCode = { PASS: 0, KNOWN: 6, FAIL: 1, INFRA: 3, BLOCKED: 4 }[structural] ?? 1;
+  console.log(`### TW-4F rehearsal${flags.partial ? " (PARTIAL: only the manifest entries above the image cutoff " + rcutoff + "; NOT a full rehearsal)" : ""} (structure): ${structural} in ${Math.round((Date.now() - t0) / 1000)}s\n- ${ref}@${sha.slice(0, 8)}, image ${image}, ${plan.length} migrations\n${stages.map((s) => `- ${s.status} ${s.stage}${s.note ? " - " + s.note : ""}${s.error ? " - " + String(s.error).slice(0, 200) : ""}`).join("\n")}`);
+  const structCode = flags.partial && structural === "PASS" ? 5 : ({ PASS: 0, KNOWN: 6, FAIL: 1, INFRA: 3, BLOCKED: 4 }[structural] ?? 1); // a passing PARTIAL rehearsal is exit 5, never 0
   if (!flags.matrix) { log(`matrix: NOT RUN (use --matrix --exclusive in the owner-scheduled window); evidence ${outDir} exit=${structCode}`); return structCode; }
   if (structural !== "PASS" && structural !== "KNOWN") { log(`matrix: NOT RUN because the structural stages ended ${structural}`); return structCode; }
   const m = spawnSync(process.execPath, [path.join(REPO, "scripts", "qa", "iso-qa.mjs"), "matrix", "main", "--parallel", "1", "--tests-ref", sha], { stdio: "inherit", cwd: REPO, env: { ...process.env, ISO_QA_REF_MAIN: sha, ISO_QA_MARKER: "" } });

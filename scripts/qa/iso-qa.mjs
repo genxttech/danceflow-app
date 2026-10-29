@@ -727,8 +727,9 @@ async function cmdSelftest() {
   const results = [];
   const claimsSeen = new Set();
   let portsUnique = true;
-  for (let i = 0; i < cases.length; i += 3) {
-    const wave = cases.slice(i, i + 3).map((f) => f());
+  const SELFTEST_WAVE = Math.max(1, Number(process.env.ISO_QA_SELFTEST_WAVE ?? 3)); // stacks started at once (set 1 under the host-load rule)
+  for (let i = 0; i < cases.length; i += SELFTEST_WAVE) {
+    const wave = cases.slice(i, i + SELFTEST_WAVE).map((f) => f());
     const sampler = setInterval(() => { const ps = Object.values(readClaims()).map((v) => v.port); if (new Set(ps).size !== ps.length) portsUnique = false; for (const p of ps) claimsSeen.add(p); }, 400);
     results.push(...(await Promise.all(wave)));
     clearInterval(sampler);
