@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { requirePlatformStepUp } from "@/lib/auth/platform-assurance";
 import { setPilotAccess } from "@/lib/sms/onboarding/client";
 import { buildRunnerRuntime, buildRunnerStore } from "@/lib/sms/twilioIsv/factory";
 import { describeOutcome } from "@/lib/sms/twilioIsv/outcomes";
@@ -43,7 +43,7 @@ function done(params: { saved?: boolean; error?: string }): never {
  * table (profiles.platform_role = 'platform_admin'). It does not enable sending.
  */
 export async function saveStudioSmsRegistrationAction(formData: FormData) {
-  await requirePlatformAdmin();
+  await requirePlatformStepUp("aal2");
 
   const studioIdResult = normalizeOptionalUuid(rawFormString(formData, "studioId"), "Studio");
   const statusResult = normalizeRequiredEnum(
@@ -145,7 +145,7 @@ export async function saveStudioSmsRegistrationAction(formData: FormData) {
  * re-checks platform_role inside `set_sms_onboarding_access`, so this is the second check, not the only one.
  */
 export async function setSmsOnboardingAccessAction(formData: FormData) {
-  await requirePlatformAdmin();
+  await requirePlatformStepUp("aal2");
 
   const studioIdResult = normalizeOptionalUuid(rawFormString(formData, "studioId"), "Studio");
   const reasonResult = cleanTextValue(rawFormString(formData, "reason"), { fieldLabel: "Reason", maxLength: 500, allowNewlines: false });
@@ -178,7 +178,7 @@ export async function setSmsOnboardingAccessAction(formData: FormData) {
  * cannot be built (only the fake, if TW4_ISV_FAKE=on); in production it needs TW4_ISV_REAL_CALLS=on.
  */
 export async function runSmsOnboardingAction(formData: FormData) {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("recent");
 
   const studioIdResult = normalizeOptionalUuid(rawFormString(formData, "studioId"), "Studio");
   const intent = rawFormString(formData, "intent") === "refresh" ? "refresh" : "run";
@@ -245,7 +245,7 @@ export async function runSmsOnboardingAction(formData: FormData) {
  * action refuses to create anything outside an open window. The database re-checks the platform-admin actor.
  */
 export async function setSmsRunnerWindowAction(formData: FormData) {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("recent");
 
   const studioIdResult = normalizeOptionalUuid(rawFormString(formData, "studioId"), "Studio");
   const reasonResult = cleanTextValue(rawFormString(formData, "reason"), { fieldLabel: "Reason", maxLength: 300, allowNewlines: false });

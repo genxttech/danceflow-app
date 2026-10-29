@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { requirePlatformStepUp } from "@/lib/auth/platform-assurance";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { encodePanelFlash, PANEL_FLASH_MAX_AGE_SECONDS } from "@/lib/sms/twilioIsv/panelFlash";
 import { ProvisioningLedgerStore } from "@/lib/sms/provisioning/provisionLedger";
@@ -30,7 +30,7 @@ async function finish(result: CommandResult, studioId: string): Promise<never> {
 }
 
 export async function resolveProvisioningOperationAction(formData: FormData): Promise<void> {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("recent");
   const result = await resolveOperation(new ProvisioningLedgerStore(createAdminClient()), admin.id, formData);
   const studio = formData.get("studioId");
   await finish(result, typeof studio === "string" ? studio : "");
@@ -42,7 +42,7 @@ export async function resolveProvisioningOperationAction(formData: FormData): Pr
  * default). It never resolves an operation and never releases a held fee.
  */
 export async function recordProviderListingAction(formData: FormData): Promise<void> {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("aal2");
   const client = createAdminClient();
   const ledger = new ProvisioningLedgerStore(client);
   const store = new SupabaseProvisionStore(client);
@@ -64,7 +64,7 @@ export async function recordProviderListingAction(formData: FormData): Promise<v
 }
 
 export async function reopenProvisioningAction(formData: FormData): Promise<void> {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("recent");
   const result = await reopenProvisioning(new ProvisioningLedgerStore(createAdminClient()), admin.id, formData);
   const studio = formData.get("studioId");
   await finish(result, typeof studio === "string" ? studio : "");

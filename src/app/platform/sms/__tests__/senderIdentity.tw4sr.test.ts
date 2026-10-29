@@ -2,6 +2,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 
+vi.mock("@/lib/auth/platform-assurance", async () => (await import("@/lib/auth/__tests__/stepUpDouble")).stepUpDouble());
+
 /** TW-4F sender readiness: platform-admin actions (authorization, actor from the session, evidence never from the form) and the rendered block. */
 
 const redirects: string[] = [];
