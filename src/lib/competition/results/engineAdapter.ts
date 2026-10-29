@@ -31,7 +31,12 @@ export interface ResultEngine {
 }
 
 /** F1 appends its approved engines here. Nothing else may add to this list. */
-export const REGISTERED_ENGINES: readonly ResultEngine[] = [];
+import { STUDIO_ENGINES } from "./engines/index";
+
+/** INTEGRATION BRANCH ONLY (F1 #337 merged): F1's approved Studio engines, adapted to F2's interface. */
+export const REGISTERED_ENGINES: readonly ResultEngine[] = (Object.keys(STUDIO_ENGINES) as Array<keyof typeof STUDIO_ENGINES>).map((id) =>
+  adaptStudioEngine(STUDIO_ENGINES[id] as unknown as StudioEngineLike),
+);
 
 export type EngineLookup = (key: string, version: string) => ResultEngine | undefined;
 
