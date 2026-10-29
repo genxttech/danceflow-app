@@ -310,7 +310,10 @@ select pg_temp.as_postgres();
 select pg_temp.expect_msg('the lock holds even for postgres', $q$update public.event_competition_divisions set scoring_method_key = null, scoring_method_version = null where id = pg_temp.u('003001')$q$, 'COMP_METHOD_LOCKED');
 
 -- No silent rewrite: changing the stored legacy value of a locked round does not change what it resolves to.
+-- SS1 (20270116090000) now refuses this edit on a locked round; the fixture sidesteps the guard to keep proving the pin decides.
+set local session_replication_role = replica;
 update public.event_competition_rounds set scoring_method = 'none' where id = pg_temp.u('006004');
+set local session_replication_role = origin;
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.chk('the pin, not the live legacy value, decides a locked round',
   (select method_key || '@' || method_version || '/' || resolution || '/' || pinned::text from public.competition_round_scoring_effective(pg_temp.u('006004')))

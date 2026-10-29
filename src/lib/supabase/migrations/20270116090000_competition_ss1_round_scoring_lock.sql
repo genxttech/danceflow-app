@@ -89,7 +89,7 @@ returns trigger
 language plpgsql
 security definer
 set search_path = public, pg_temp
-as $
+as $$
 begin
   -- Cascades from a deleted event, program or division are allowed (restart, event deletion, 10B division removal).
   if not exists (select 1 from public.events e where e.id = old.event_id)
@@ -103,7 +103,7 @@ begin
   end if;
   return old;
 end;
-$;
+$$;
 
 revoke all on function public.guard_competition_round_delete() from public, anon, authenticated, service_role;
 
@@ -130,7 +130,7 @@ create or replace function public.apply_competition_scoring_setup(p_program_id u
 returns integer
 language plpgsql
 set search_path = public, pg_temp
-as $
+as $$
 declare
   v_prog record;
   v_op jsonb;
@@ -209,7 +209,7 @@ begin
   end loop;
   return v_applied;
 end;
-$;
+$$;
 
 revoke all on function public.apply_competition_scoring_setup(uuid, jsonb) from public, anon;
 grant execute on function public.apply_competition_scoring_setup(uuid, jsonb) to authenticated;
