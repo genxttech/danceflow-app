@@ -28,7 +28,7 @@ export type ProtectionResult = {
 };
 
 export type RegistryLoad =
-  | { status: "ok"; activeRows: number }
+  | { status: "ok"; activeRows: number; customerIds: string[] }
   // The table does not exist yet (migration not applied): the price backstop still applies.
   | { status: "table_missing" }
   // Anything else is unknown: callers must fail closed.
@@ -38,10 +38,20 @@ export type RegistryLoad =
 export function legacyProtectedPriceIds(
   env: Record<string, string | undefined> = process.env,
 ): string[] {
+  // A legacy id that equals a CURRENT Founder or standard Price would block every normal
+  // customer on that plan, so such ids are dropped (the registry still protects).
+  const current = new Set(
+    Object.entries(env)
+      .filter(([key]) => /^STRIPE_PRICE_(STUDIO|ORGANIZER)_(.+_)?(FOUNDER|STANDARD)$/.test(key))
+      .map(([, value]) => (value ?? "").trim())
+      .filter(Boolean),
+  );
+
   return (env.STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY ?? "")
     .split(",")
     .map((value) => value.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((id) => !current.has(id));
 }
 
 export function evaluateProtection(params: {
@@ -68,7 +78,7 @@ export function evaluateProtection(params: {
 }
 
 type RegistryRead = PromiseLike<{
-  data: Array<{ released_at?: string | null }> | null;
+  data: Array<{ released_at?: string | null; stripe_customer_id?: string | null }> | null;
   error: { code?: string; message?: string } | null;
 }>;
 
@@ -86,7 +96,7 @@ export async function loadProtectedRegistry(
 ): Promise<RegistryLoad> {
   const { data, error } = await admin
     .from(PROTECTED_REGISTRY_TABLE)
-    .select("released_at")
+    .select("released_at, stripe_customer_id")
     .eq("studio_id", studioId);
 
   if (error) {
@@ -95,5 +105,14 @@ export async function loadProtectedRegistry(
 
   if (!Array.isArray(data)) return { status: "error" };
 
-  return { status: "ok", activeRows: data.filter((row) => !row.released_at).length };
+  const active = data.filter((row) => !row.released_at);
+
+  return {
+    status: "ok",
+    activeRows: active.length,
+    // Customers named by the registry are inspected too (a replaced customer must not hide a legacy subscription).
+    customerIds: active
+      .map((row) => row.stripe_customer_id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0),
+  };
 }

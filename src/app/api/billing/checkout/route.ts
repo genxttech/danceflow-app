@@ -495,6 +495,49 @@ async function handleCheckout(request: NextRequest) {
     let stripeCustomerId =
       existingCustomer?.stripe_customer_id ?? studio.stripe_customer_id ?? null;
 
+    // D7-4 (R36): read the protected-subscription registry BEFORE any Stripe write, so a protected
+    // studio is refused without a customer being created. Unknown registry state fails closed.
+    const registry = await loadProtectedRegistry(
+      supabaseAdmin as unknown as Parameters<typeof loadProtectedRegistry>[0],
+      studioId,
+    );
+
+    if (registry.status === "error") {
+      console.error("billing checkout: protected-subscription registry unreadable", { studioId });
+      return billingRedirect(
+        request,
+        buildBillingReturnPath({
+          error: "protection_check_failed",
+          path: audience,
+          entry: entryMode,
+          recommended: planCode,
+        })
+      );
+    }
+
+    if (registry.status === "table_missing") {
+      console.warn("billing checkout: protected_subscriptions table is missing; only the legacy-price backstop applies", { studioId });
+    }
+
+    if (registry.status === "ok" && registry.activeRows > 0) {
+      console.warn("billing checkout: protected subscription routed to support", { studioId, reasons: ["registry"] });
+      return billingRedirect(
+        request,
+        buildBillingReturnPath({
+          error: "protected_subscription_needs_support",
+          path: audience,
+          entry: entryMode,
+          recommended: planCode,
+        })
+      );
+    }
+
+    const legacyPriceIds = legacyProtectedPriceIds();
+
+    if (legacyPriceIds.length === 0 && process.env.NODE_ENV === "production") {
+      console.warn("billing checkout: no legacy protected Price configured and the registry is empty; the legacy-price backstop is off");
+    }
+
     if (!stripeCustomerId) {
       const customer = await stripe.customers.create({
         email: user.email ?? undefined,
@@ -540,7 +583,12 @@ async function handleCheckout(request: NextRequest) {
 
     const knownCustomerIds = Array.from(
       new Set(
-        [stripeCustomerId, existingCustomer?.stripe_customer_id, studio.stripe_customer_id].filter(
+        [
+          stripeCustomerId,
+          existingCustomer?.stripe_customer_id,
+          studio.stripe_customer_id,
+          ...(registry.status === "ok" ? registry.customerIds : []),
+        ].filter(
           (id): id is string => Boolean(id),
         ),
       ),
@@ -551,19 +599,9 @@ async function handleCheckout(request: NextRequest) {
       stripeSubscriptions.map((subscription) => subscription.status),
     );
 
-    // D7-4 (R36): a studio with protected terms never starts a new Checkout, whatever
-    // the status of its subscription (canceled included). Unknown registry state fails closed.
-    const registry = await loadProtectedRegistry(
-      supabaseAdmin as unknown as Parameters<typeof loadProtectedRegistry>[0],
-      studioId,
-    );
-
-    if (registry.status === "table_missing") {
-      console.warn("billing checkout: protected_subscriptions table is missing; only the legacy-price backstop applies", { studioId });
-    }
-
-    if (registry.status === "error" || subscriptionsTruncated) {
-      console.error("billing checkout: protected-subscription registry check failed", { studioId });
+    // Truncated subscription lists cannot be fully inspected: fail closed.
+    if (subscriptionsTruncated) {
+      console.error("billing checkout: subscription list truncated; failing closed", { studioId });
       return billingRedirect(
         request,
         buildBillingReturnPath({
@@ -578,7 +616,7 @@ async function handleCheckout(request: NextRequest) {
     const protection = evaluateProtection({
       registry,
       subscriptions: stripeSubscriptions,
-      legacyPriceIds: legacyProtectedPriceIds(),
+      legacyPriceIds,
     });
 
     if (protection.protected) {

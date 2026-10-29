@@ -14,9 +14,11 @@ const LEGACY = "price_legacy_129";
 const state = vi.hoisted(() => ({
   stripeSubs: [] as Array<{ id: string; status: string; priceId: string; customer?: string }>,
   registry: { kind: "rows", rows: [] } as
-    | { kind: "rows"; rows: Array<{ released_at: string | null }> }
+    | { kind: "rows"; rows: Array<{ released_at: string | null; stripe_customer_id?: string | null }> }
     | { kind: "error"; code: string },
   hasMore: false,
+  noCustomer: false,
+  eqCalls: [] as string[][],
   studioCustomer: "cus_1",
   listedCustomers: [] as string[],
   calls: [] as string[],
@@ -41,13 +43,13 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     from: (table: string) => {
       const rows: Record<string, unknown> = {
-        studios: { id: "studio-1", name: "Test Studio", subscription_status: null, stripe_subscription_id: null, stripe_customer_id: state.studioCustomer },
+        studios: { id: "studio-1", name: "Test Studio", subscription_status: null, stripe_subscription_id: null, stripe_customer_id: state.noCustomer ? null : state.studioCustomer },
         subscription_plans: { id: "plan-1", code: "growth", name: "Growth", stripe_price_id_monthly: "price_month", stripe_price_id_yearly: "price_year" },
-        studio_billing_customers: { id: "sbc-1", stripe_customer_id: "cus_1" },
+        studio_billing_customers: state.noCustomer ? null : { id: "sbc-1", stripe_customer_id: "cus_1" },
       };
       const builder = {
         select: () => builder,
-        eq: () => builder,
+        eq: (column: string, value: string) => { state.eqCalls.push([table, column, value]); return builder; },
         then: (resolve: (value: unknown) => void) => {
           if (table !== "protected_subscriptions") return resolve({ data: null, error: null });
           return resolve(
@@ -98,6 +100,8 @@ beforeEach(() => {
   vi.stubEnv("STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY", LEGACY);
   state.stripeSubs = [];
   state.hasMore = false;
+  state.noCustomer = false;
+  state.eqCalls = [];
   state.studioCustomer = "cus_1";
   state.listedCustomers = [];
   state.registry = { kind: "rows", rows: [] };
@@ -162,6 +166,37 @@ describe("protected subscriptions never fall through to a new checkout", () => {
 });
 
 describe("review hardening", () => {
+  it("a registry-protected studio with no Stripe customer is refused WITHOUT a customer being created", async () => {
+    state.noCustomer = true;
+    state.registry = { kind: "rows", rows: [{ released_at: null }] };
+    const response = await POST(post());
+    expect(response.headers.get("location")).toContain("error=protected_subscription_needs_support");
+    expect(state.calls).toEqual([]);
+  });
+
+  it("customer ids named by the registry are inspected for a legacy subscription", async () => {
+    state.studioCustomer = "cus_new";
+    state.registry = { kind: "rows", rows: [{ released_at: "2026-10-01T00:00:00Z", stripe_customer_id: "cus_released_ignored" }] };
+    state.stripeSubs = [{ id: "sub_legacy", status: "canceled", priceId: LEGACY, customer: "cus_hidden" }];
+    expect((await POST(post())).headers.get("location")).toBe("https://checkout.stripe.test/s");
+    state.registry = { kind: "rows", rows: [{ released_at: null, stripe_customer_id: "cus_hidden" }] };
+    state.calls = [];
+    const response = await POST(post());
+    expect(response.headers.get("location")).toContain("error=protected_subscription_needs_support");
+  });
+
+  it("the registry is read for the current studio only", async () => {
+    await POST(post());
+    expect(state.eqCalls).toContainEqual(["protected_subscriptions", "studio_id", "studio-1"]);
+  });
+
+  it("a legacy env value equal to a current Founder price does not block normal customers", async () => {
+    vi.stubEnv("STRIPE_PRICE_STUDIO_PRO_FOUNDER", LEGACY);
+    state.stripeSubs = [{ id: "sub_a", status: "canceled", priceId: LEGACY }];
+    expect((await POST(post())).headers.get("location")).toBe("https://checkout.stripe.test/s");
+    vi.stubEnv("STRIPE_PRICE_STUDIO_PRO_FOUNDER", "");
+  });
+
   it("a legacy subscription on a replaced customer is still seen (every known customer id is listed)", async () => {
     state.studioCustomer = "cus_old";
     state.stripeSubs = [{ id: "sub_legacy", status: "canceled", priceId: LEGACY, customer: "cus_old" }];

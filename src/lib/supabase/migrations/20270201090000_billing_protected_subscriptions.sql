@@ -1,11 +1,11 @@
--- 20270115090000_billing_protected_subscriptions.sql
+-- 20270201090000_billing_protected_subscriptions.sql
 -- D7-4 (R36): registry of SaaS subscriptions that carry protected, grandfathered or contractual terms (the $129/month Pro first).
 --   * One row per protected Stripe subscription, keyed by studio and subscription id, never by price alone.
 --   * A studio with any unreleased row is "protected": the checkout route refuses to start a new Checkout for it (no new trial, no new Founder price)
 --     and routes it to support, whatever the Stripe status (including canceled). Release is explicit and audited (released_at + released_reason); rows are never deleted.
 --   * Service role only: RLS on, no policies, no grants to anon or authenticated. Tenants cannot read or write it.
 --   * This migration CREATES THE TABLE ONLY. It inserts no row: populating the registry is a separate, owner-approved, audited step that needs the subscriber's original terms (O9).
--- Rollback: rollback/20270115090000_billing_protected_subscriptions_rollback.sql
+-- Rollback: rollback/20270201090000_billing_protected_subscriptions_rollback.sql
 -- NOT APPLIED to any shared environment by this file's authoring.
 
 begin;
@@ -36,6 +36,7 @@ create table if not exists public.protected_subscriptions (
   constraint protected_subscriptions_terms_ref_check check (length(btrim(terms_reference)) > 0),
   constraint protected_subscriptions_release_pair check ((released_at is null) = (released_reason is null)),
   constraint protected_subscriptions_release_reason_check check (released_reason is null or length(btrim(released_reason)) > 0),
+  constraint protected_subscriptions_released_after_created check (released_at is null or released_at >= created_at),
   constraint protected_subscriptions_sub_unique unique (stripe_subscription_id)
 );
 
@@ -55,7 +56,11 @@ begin
   if tg_op = 'DELETE' then
     raise exception 'protected_subscriptions rows are permanent; release the row instead' using errcode = '42501';
   end if;
-  if new.studio_id is distinct from old.studio_id
+  if new.id is distinct from old.id
+     or new.studio_id is distinct from old.studio_id
+     or new.stripe_customer_id is distinct from old.stripe_customer_id
+     or new.stripe_price_id is distinct from old.stripe_price_id
+     or new.created_by is distinct from old.created_by
      or new.stripe_subscription_id is distinct from old.stripe_subscription_id
      or new.protection_kind is distinct from old.protection_kind
      or new.terms_reference is distinct from old.terms_reference

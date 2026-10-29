@@ -1,4 +1,4 @@
--- Rollback of 20270115090000_billing_protected_subscriptions.sql. REFUSES while any row exists (permanent evidence of protected terms).
+-- Rollback of 20270201090000_billing_protected_subscriptions.sql. REFUSES while any row exists (permanent evidence of protected terms).
 begin;
 set local lock_timeout = '5s';
 lock table public.protected_subscriptions in access exclusive mode;
