@@ -729,19 +729,35 @@ select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('reopen needs a reason', format($q$select public.reopen_competition_round_ballots(%L, '   ', %L)$q$, pg_temp.u('006001'), pg_temp.u('f27004')), 'COMP_RESULT_REASON_REQUIRED');
 select pg_temp.expect_msg('only locked rounds reopen', format($q$select public.reopen_competition_round_ballots(%L, 'why', %L)$q$, pg_temp.u('006004'), pg_temp.u('f27005')), 'COMP_BALLOTS_BAD_STATE');
 reset role;
--- F2/F3 guards: a fake result_versions table with an approved version blocks reopen (guard on existence)
-create table public.event_competition_result_versions (id uuid primary key default gen_random_uuid(), round_id uuid not null, status text not null);
-insert into public.event_competition_result_versions (round_id, status) values (pg_temp.u('006001'), 'approved');
+-- F2/F3 guards. Without F2 (migration 20270114) there is no result_versions table: a stub with an approved version proves the
+-- reopen guard fails closed on existence. With F2 installed the real table is used as it is (F2's own suite covers an approved
+-- version); the stub and its checks are skipped, so this suite runs with and without F2.
+do $$
+begin
+  if to_regclass('public.event_competition_result_versions') is null then
+    create table public.event_competition_result_versions (id uuid primary key default gen_random_uuid(), round_id uuid not null, status text not null);
+    insert into public.event_competition_result_versions (round_id, status) values (pg_temp.u('006001'), 'approved');
+    insert into t_ids values ('stub_result_versions', gen_random_uuid());
+  end if;
+end $$;
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.expect_msg('reopen refused once a result version is approved', format($q$select public.reopen_competition_round_ballots(%L, 'why', %L)$q$, pg_temp.u('006001'), pg_temp.u('f27006')), 'COMP_REOPEN_RESULT_APPROVED');
+select case when exists (select 1 from t_ids where k = 'stub_result_versions') then pg_temp.expect_msg('reopen refused once a result version is approved', format($q$select public.reopen_competition_round_ballots(%L, 'why', %L)$q$, pg_temp.u('006001'), pg_temp.u('f27006')), 'COMP_REOPEN_RESULT_APPROVED') end;
 reset role;
-update public.event_competition_result_versions set status = 'calculated';
+do $$ begin
+  if exists (select 1 from t_ids where k = 'stub_result_versions') then
+    execute 'update public.event_competition_result_versions set status = ''calculated''';
+  end if;
+end $$;
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_ok('reopen allowed while the result version is only calculated', format($q$select public.reopen_competition_round_ballots(%L, 'Judge 2 mis-keyed heat 1', %L)$q$, pg_temp.u('006001'), pg_temp.u('f27007')));
 reset role;
-drop table public.event_competition_result_versions;
+do $$ begin
+  if exists (select 1 from t_ids where k = 'stub_result_versions') then
+    execute 'drop table public.event_competition_result_versions';
+  end if;
+end $$;
 select pg_temp.chk('r1 is active again; ballots untouched', (select status = 'active' from public.event_competition_rounds where id = pg_temp.u('006001')) and pg_temp.n($q$select count(*) from public.event_competition_ballots where round_id = pg_temp.u('006001')$q$) = 9);
 select pg_temp.chk('reopen audit carries the reason', (select reason = 'Judge 2 mis-keyed heat 1' and from_state = 'ballots_locked' and to_state = 'active'
   from public.event_competition_ballot_events where request_id = pg_temp.u('f27007')));
