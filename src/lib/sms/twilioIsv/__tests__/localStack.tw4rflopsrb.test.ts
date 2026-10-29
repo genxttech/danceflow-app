@@ -30,7 +30,7 @@ const KINDS_1209 = ["authorization_expiring", "next_period_uncovered", "pilot_ap
 const EXPECTED_1209 = `CHECK ((kind = ANY (ARRAY[${KINDS_1209.map((k) => `'${k}'::text`).join(", ")}])))`;
 
 const run = (sql: string) => {
-  const r = spawnSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-d", DB, "-At", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8", maxBuffer: 1 << 26 });
+  const r = spawnSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-d", DB, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8", maxBuffer: 1 << 26 });
   return { code: r.status ?? 1, out: (r.stdout ?? "").trim(), err: (r.stderr ?? "").trim() };
 };
 const DEF = "select pg_get_constraintdef(oid) from pg_constraint where conrelid = 'public.studio_sms_provider_alerts'::regclass and conname = 'studio_sms_provider_alerts_kind_check'";
