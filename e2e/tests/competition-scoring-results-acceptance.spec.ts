@@ -228,6 +228,8 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     const lock = page.getByRole("button", { name: "Lock ballots" });
     await expect(lock).toBeVisible({ timeout: 30_000 });
     // TODO(HL1 labels): the per-heat action is expected to be a button named "Lock heat"; confirm the exact label when HL1 lands.
+    // The confirmation ("Lock heat N? Floor changes to this heat will be refused once locked.") may be a native dialog; accept it. If HL1 uses a modal instead, click its confirm button here (TODO once HL1 reports).
+    page.on("dialog", (dialog) => { void dialog.accept(); });
     const lockHeat = page.getByRole("button", { name: /^Lock heat/ });
     if (await lockHeat.count()) {
       await expect(async () => {
