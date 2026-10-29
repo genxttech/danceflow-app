@@ -104,6 +104,11 @@ export function expectationsFromPriceConfig(report: unknown): SmokeExpectations 
 // At most the 8-character prefix of a refused value is echoed (a mis-pasted key must not leak its body).
 const prefix = (value: string) => `${value.slice(0, 8)}…`;
 
+/** A command-line argument for an error message: a flag (`--name`) in full, anything else (e.g. a pasted key) as a prefix. */
+export function describeArgument(arg: string): string {
+  return /^--[a-z][a-z-]*$/.test(arg) ? arg : prefix(arg);
+}
+
 export function assertSessionIdsMatchKeyMode(sessionIds: string[], keyMode: "live" | "test") {
   for (const id of sessionIds) {
     const match = id.match(SESSION_ID);
@@ -212,7 +217,17 @@ export async function readBackSmoke(params: {
     const planCode = session.metadata?.planCode ?? "unknown";
     const count = (covered.get(planCode) ?? 0) + 1;
     covered.set(planCode, count);
-    checks.push(...sessionChecks(session, `session.${planCode}${count > 1 ? `.${count}` : ""}`, expectations, params.smokeCustomer ?? null, keyLive));
+    const key = `session.${planCode}${count > 1 ? `.${count}` : ""}`;
+    checks.push(...sessionChecks(session, key, expectations, params.smokeCustomer ?? null, keyLive));
+    // With a recorded start time (--since), each Session must have been created during this smoke: a leftover Session
+    // from an earlier smoke on the same Prices proves nothing about the current deployment.
+    if (params.since !== undefined) {
+      const title = "Session was created during this smoke (at or after --since)";
+      const evidence = { session: session.id, created: typeof session.created === "number" ? new Date(session.created * 1000).toISOString() : null, since: new Date(params.since * 1000).toISOString() };
+      if (typeof session.created !== "number") checks.push(blocked(`${key}.fresh`, title, "session_created_unknown", undefined, evidence));
+      else if (session.created < params.since) checks.push(fail(`${key}.fresh`, title, "session_before_smoke_start", "this Session predates the recorded start time", evidence));
+      else checks.push(pass(`${key}.fresh`, title, evidence));
+    }
   }
 
   const wanted = params.plans ?? (STUDIO_PLANS.map((p) => p.code) as StudioPlanCode[]);

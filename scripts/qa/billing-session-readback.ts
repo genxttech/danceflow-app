@@ -16,6 +16,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import Stripe from "stripe";
 import type { StudioPlanCode } from "@/lib/billing/plans";
 import {
+  describeArgument,
   expectationsFromPriceConfig,
   readBackSmoke,
   type BillingQaReadClient,
@@ -76,7 +77,7 @@ function parseArgs(argv: string[]) {
     else if (arg === "--json") o.json = true;
     else if (arg === "--out") o.out = value();
     else if (arg === "--help" || arg === "-h") o.help = true;
-    else throw new Error(`unknown argument ${arg}`);
+    else throw new Error(`unknown argument ${describeArgument(arg)}`);
   }
   if (!o.help && o.sessions.length === 0) throw new Error("at least one --session is required");
   return o;

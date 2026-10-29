@@ -1,6 +1,9 @@
+import { spawnSync } from "node:child_process";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { buildPriceConfigReport } from "@/lib/billing-qa/priceConfigReport";
 import {
+  describeArgument,
   expectationsFromPriceConfig,
   readBackSmoke,
   type BillingQaReadClient,
@@ -219,5 +222,47 @@ describe("BILLING-QA-5 independent review fixes", () => {
   it("expectations from a config report never take a malformed legacy value", () => {
     const config = buildPriceConfigReport({ STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY: "price_p129,notAPrice", STRIPE_PRICE_STUDIO_GROWTH_FOUNDER_LEGACY: "price_g79" });
     expect(expectationsFromPriceConfig(config).legacyPriceIds).toEqual(["price_g79", "price_p129"]);
+  });
+});
+
+describe("BILLING-QA-5 final review fixes (N1, N2)", () => {
+  // Fake values, assembled at runtime so secret scanners do not mistake fixtures for real keys.
+  const pastedKey = ["rk", "live", "PastedKeyBodyThatMustNeverBePrinted"].join("_");
+
+  it("N1: a stray argument is echoed as an 8-character prefix; real flags in full", () => {
+    expect(describeArgument(pastedKey)).toBe("rk_live_…");
+    expect(describeArgument("--sesion")).toBe("--sesion");
+    expect(describeArgument("--rk_live_abcdef")).toBe("--rk_liv…"); // not flag-shaped: still truncated
+  });
+
+  it("N1: the real CLI never prints a key pasted as a bare argument (exit 2, prefix only, no network)", () => {
+    const script = path.resolve(__dirname, "../../../../scripts/qa/billing-session-readback.ts");
+    const env = { ...process.env };
+    delete env.BILLING_QA_STRIPE_READ_KEY;
+    const run = spawnSync(process.execPath, ["--import", "tsx", script, "--session", "cs_live_abc", pastedKey], { env, encoding: "utf8", timeout: 60_000 });
+    expect(run.status).toBe(2);
+    expect(`${run.stdout}${run.stderr}`).toContain("unknown argument rk_live_…");
+    expect(`${run.stdout}${run.stderr}`).not.toContain("PastedKeyBody");
+  }, 90_000);
+
+  it("N2: with --since, a Session created before the recorded start FAILs; Sessions from this smoke pass", async () => {
+    const stale = session("growth", { created: CREATED - 3600 });
+    const c = client({ sessions: [session("starter"), stale, session("pro")] });
+    const report = await run(c, { since: CREATED - 60 });
+    const checks = byId(report);
+    expect(checks["session.growth.fresh"]).toMatchObject({ status: "FAIL", reason: "session_before_smoke_start" });
+    expect(checks["session.starter.fresh"].status).toBe("PASS");
+    expect(checks["session.pro.fresh"].status).toBe("PASS");
+    expect(report.overall).toBe("FAIL");
+  });
+
+  it("N2: without --since there is no freshness check (unchanged behaviour)", async () => {
+    const report = await run(client());
+    expect(report.checks.some((c) => c.id.endsWith(".fresh"))).toBe(false);
+  });
+
+  it("N2: a Session with no creation time is BLOCKED, never PASS", async () => {
+    const c = client({ sessions: [session("starter", { created: undefined }), session("growth"), session("pro")] });
+    expect(byId(await run(c, { since: CREATED - 60 }))["session.starter.fresh"]).toMatchObject({ status: "BLOCKED", reason: "session_created_unknown" });
   });
 });

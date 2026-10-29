@@ -73,8 +73,10 @@ The checkout route allows 8 attempts per 10 minutes per network address; a smoke
    npm run qa:billing-readback -- --env-file .env.billing-readback.local --price-config price-config.json --since 2026-11-01T15:00:00Z --session cs_live_STARTER --session cs_live_GROWTH --session cs_live_PRO --smoke-customer cus_SMOKE --portal-customer cus_SUBSCRIBER --grandfathered sub_GRANDFATHERED --out smoke-report.json
    ```
 
-   `--since` is the UTC start time recorded in step 0 (without it the window starts 10 minutes before the earliest
-   Session). Values in `--env-file` win over variables already exported in the shell. Without `price-config.json`, pass
+   `--since` is the UTC start time recorded in step 0. With it, every Session must have been created at or after that
+   time (`session.<plan>.fresh`), so a leftover Session from an earlier smoke cannot pass; without it there is no such
+   check and the window starts 10 minutes before the earliest Session. Always pass it. Values in `--env-file` win over
+   variables already exported in the shell, and a mistyped argument is never printed in full (at most 8 characters). Without `price-config.json`, pass
    `--expect starter=price_... --expect growth=price_... --expect pro=price_...` and, for the grandfathered check, one
    `--legacy-price price_...` per grandfathered Price.
 6. **Record** the results in the template below and attach `smoke-report.json` (it contains no secrets).
@@ -86,6 +88,7 @@ The checkout route allows 8 attempts per 10 minutes per network address; a smoke
 | `session.<plan>.unpaid` | the Session was not completed and created no subscription |
 | `session.<plan>.session` | a DanceFlow studio subscription Session (live, `mode=subscription`, `source=studio_subscription`, a known `planCode`, a `studioId`, the expected `offerType`, and the smoke customer when given) |
 | `session.<plan>.price` | exactly one monthly USD line item on the configured Price ID at the plan's amount. BLOCKED (`expected_price_id_unknown`) when only the amount could be checked |
+| `session.<plan>.fresh` | (with `--since`) the Session was created at or after the recorded start time; FAIL `session_before_smoke_start` otherwise |
 | `smoke.coverage` | every plan has a Session (BLOCKED otherwise, never PASS) |
 | `smoke.no_subscription` | the smoke workspace got no subscription since the start |
 | `portal.no_checkout_session` | the customer has a live subscription and its checkout created no Checkout Session (it went to the portal). BLOCKED (`portal_customer_not_subscriber`) when the customer has no live subscription |
