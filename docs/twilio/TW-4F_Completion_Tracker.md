@@ -318,6 +318,10 @@ Every slice starts from `main` = `960a9d02` in its own worktree, cut by the app 
 | J4 | F1 session (tw4f-f1-funding) | `twilio-tw4f-j4-activation-console` | new `Activation*.tsx`, `activationActions.ts`, `activation.ts`, one `page.tsx` mount | `_tw4act_*`/`tw4_act_*` incl. the deferred `superseded_at` filter (needs 1225) | `20261226090000` | #280 recheck after #290; #277 | Approved; starts after #280 recheck |
 | INV-R | F4 session (tw4f-f4-recovery) | `twilio-tw4f-inventory-reconcile-route` (merges #278) | new `src/app/api/cron/sms-inventory-reconcile/route.ts` (flag `SMS_INVENTORY_RECONCILE`, no vercel.json) | only if a job kind is needed | `20261223090000` (needed: extend run job check with `inventory_reconcile`, replace `tw4_reconcile_run_begin` job list only, new `tw4_reconcile_run_alive`) | J1 #278 `buildNumberRuntime` | Started 2026-10-23 (owner-approved) |
 | J3, J4 | not launched | — | J3: new owner `NumberSelection*`, `numberActions.ts`. J4: new `Activation*`, `activationActions.ts` | none | none | J3: J1 + J2. J4: J1 + F1 + F3 | Wave 2 |
+| A #312 | TW-4F AAL2 (slice A) | `claude/twilio-tw4f-aal2` | AAL2 enforcement (#312); files per PR #312 | per PR #312 | `20261231090000` (reserved) | #316 (1230) | Git-only. Renumbered from `20261230090000` (see note below). |
+| B Blocker 9 | TW-4F Blocker 9 (slice B) | `claude/twilio-tw4f-b-blocker9` | Blocker 9; files per its PR | per its PR | `20261231100000` (reserved) | 1230; sequenced after `20261231090000` | Git-only. Apply order: 1230 → 1231 → 1231b. |
+
+**Migration timestamp reservations (2026-10-24).** `20261231090000` is reserved for slice A (AAL2, #312) and `20261231100000` for slice B (Blocker 9). `20270101090000` through `20270112090000` belong to Competition and must not be used by TW-4F. #312's earlier use of `20261230090000` collided with merged #316 and is being renumbered to `20261231090000`.
 
 Notes on the files more than one slice touches:
 
