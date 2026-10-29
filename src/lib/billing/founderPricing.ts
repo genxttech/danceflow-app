@@ -14,9 +14,20 @@ import { resolveRegularMonthlyCents } from "./regularPricing";
  * loudly -- every current caller is a server component or API route.
  */
 export function isFounderPricingActive(): boolean {
+  // Literal process.env reads stay here so Next.js can still inline the NEXT_PUBLIC_ value.
+  return isFounderPricingActiveIn({
+    NEXT_PUBLIC_FOUNDER_PRICING_ACTIVE: process.env.NEXT_PUBLIC_FOUNDER_PRICING_ACTIVE,
+    FOUNDER_PRICING_ACTIVE: process.env.FOUNDER_PRICING_ACTIVE,
+  });
+}
+
+/** The same determination against an explicit env (BILLING-QA price verifier). */
+export function isFounderPricingActiveIn(
+  env: Record<string, string | undefined>,
+): boolean {
   return (
-    process.env.NEXT_PUBLIC_FOUNDER_PRICING_ACTIVE !== "false" &&
-    process.env.FOUNDER_PRICING_ACTIVE !== "false"
+    env.NEXT_PUBLIC_FOUNDER_PRICING_ACTIVE !== "false" &&
+    env.FOUNDER_PRICING_ACTIVE !== "false"
   );
 }
 

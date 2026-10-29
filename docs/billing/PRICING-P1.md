@@ -1,6 +1,17 @@
 # PRICING-P1 — Studio subscription pricing (Git-only)
 
-Status: draft for review. Nothing here is deployed or applied to Stripe/DB/env.
+Status: **RELEASED 2026-10-24** (Founder pricing only). Production `dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj` (`release/pricing-p1` `4bc938c6`); rollback `dpl_87xgSBVM2MqXi9KeyJHFeH9rdsoh`.
+This file is the pricing tracker; the step-by-step release record, gates, QA evidence and rollback are in [PRICING-P1-RELEASE-RUNBOOK.md](PRICING-P1-RELEASE-RUNBOOK.md).
+
+| Item | State |
+|---|---|
+| Founder $59 / $99 / $159 (new subscriptions) | **LIVE** (PR #302, PR #319; production env set; owner-reported staged and post-promotion QA passed) |
+| Grandfathered Pro $129 subscriber | unchanged on the original Price (`..._PRO_FOUNDER_LEGACY`) |
+| Regular $89 / $149 / $249 | prepared in Stripe (IDs preserved, unused); **inactive and not approved** in DanceFlow |
+| Organizer Suite $12 / $19, annual, add-ons | unchanged |
+| Open follow-ups | `studios.billing_plan` sync, legacy-subscriber MRR, entitlement enforcement, Founder duration policy (Master Roadmap, deferred register) |
+
+The sections below are the original pre-release design text (kept for history); where they say "not deployed", the table above and the runbook are authoritative.
 
 ## Pricing matrix
 
