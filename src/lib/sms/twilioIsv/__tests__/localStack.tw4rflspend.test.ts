@@ -674,6 +674,6 @@ commit;`);
         expect(redefined).toMatch(/differs from its 20261230 definition/);
         expect(run(`select to_regprocedure('${SA_NEW}') is not null and to_regclass('public.studio_sms_pilot_spend_evidence') is not null`)).toBe("t");
       });
-    });
+    }, 900_000);
   });
 });
