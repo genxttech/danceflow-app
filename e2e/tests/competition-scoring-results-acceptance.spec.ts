@@ -218,9 +218,26 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
    * recorded (this is the evidence for the BLOCKED scenarios below); nothing is forced.
    */
   async function tryLock(page: Page, s: Scored, roundId: string, key: "D" | "E", testInfo: import("@playwright/test").TestInfo) {
+    // HL1: a heat is locked by a manager from the ballot desk once it has been danced, so complete the heat first.
+    await page.goto(`/app/events/${s.event.id}/competition/day-of`);
+    const onFloor = page.getByRole("region", { name: "On the floor" });
+    if (await onFloor.getByRole("button", { name: "Complete heat" }).count()) {
+      await clickUntil(onFloor.getByRole("button", { name: "Complete heat" }), page.getByText("No heat is on the floor."));
+    }
     await page.goto(`${base(s)}/ballots/${roundId}`);
     const lock = page.getByRole("button", { name: "Lock ballots" });
     await expect(lock).toBeVisible({ timeout: 30_000 });
+    // TODO(HL1 labels): the per-heat action is expected to be a button named "Lock heat"; confirm the exact label when HL1 lands.
+    const lockHeat = page.getByRole("button", { name: /^Lock heat/ });
+    if (await lockHeat.count()) {
+      await expect(async () => {
+        if (!(await page.getByRole("button", { name: /^Lock heat/ }).count())) return;
+        await page.getByRole("button", { name: /^Lock heat/ }).first().click();
+        await page.waitForLoadState("networkidle");
+        await page.goto(`${base(s)}/ballots/${roundId}`);
+        await expect(page.getByRole("button", { name: /^Lock heat/ })).toHaveCount(0, { timeout: 15_000 });
+      }).toPass({ timeout: 120_000 });
+    }
     if (await lock.isEnabled({ timeout: 15_000 }).catch(() => false)) {
       await lock.click();
       await expect(page.getByRole("region", { name: "Round status" })).toContainText("Ballots locked", { timeout: 30_000 });
@@ -517,7 +534,7 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     await page.context().close();
   });
 
-  test("SCN-14.2 correction: the manager opens a correction (visible on the results page); the judge's own page still says the ballots are locked", async ({ browser }, testInfo) => {
+  test("SCN-14.2 correction: the manager opens a correction; the judge sheet shows the correction banner and takes a corrected ballot with a reason (CX1)", async ({ browser }, testInfo) => {
     test.skip(!locked.E, "BLOCKED: the ballots could not be locked (SCN-12.3)");
     const shot = stepShots(testInfo);
     const owner = await signedIn(browser, fixture.owner);
@@ -527,23 +544,28 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     await expect(owner.getByRole("status")).toContainText("Correction opened.", { timeout: 30_000 });
     await expect(owner.getByText(/\(correction open\)/)).toBeVisible();
     await shot(owner, "correction-open");
-    const kinds = readResultState(E.finalRoundId).kinds;
-    expect(kinds).toEqual(expect.arrayContaining(["result_calculated", "round_state_changed"]));
     expect((await readHeatEvidence(config, E.event.id)).rounds.find((r) => r.id === E.finalRoundId)?.status).toBe("ballots_locked");
 
-    // FINDING under test: the database accepts a corrected ballot while the correction is open, but the judge sheet only offers
-    // the form while the round is active, so there is no screen to submit it.
+    // Judge 1 sees the correction banner and submits a corrected ballot (swapping the top two) with a reason.
     const judge = await signedIn(browser, fixture.judges[0], judgeBallotUrl(E, E.finalRoundId));
-    await expect(judge.getByText("Ballots are locked. You can no longer submit or correct.")).toBeVisible();
-    await expect(judge.getByRole("button", { name: /^Submit/ })).toHaveCount(0);
+    await expect(judge.getByText(/Correction open: submit a corrected ballot\./)).toBeVisible();
     await shot(judge, "judge-sheet-correction-open");
-    scenarioStatus(testInfo, "BLOCKED", "A corrected ballot cannot be submitted through the UI while a correction is open (the judge sheet and the ballot desk only offer ballot forms while the round is active), so a result cannot be made stale by a new ballot in the browser.");
     await judge.context().close();
+    await submitOrdinal(browser, fixture.judges[0], E, [1, 0, 2], "Mis-ranked the top two");
+    expect(await readBallotCount(config, E.finalRoundId)).toBe(4);
     await owner.context().close();
   });
 
-  test.fixme("SCN-14.2b a new ballot makes the result stale; approval is refused until it is recalculated", async ({}, testInfo) => {
-    scenarioStatus(testInfo, "BLOCKED", "Dependency: a UI path to submit a corrected ballot while a correction is open (see SCN-14.2). The page text 'ballots changed - recalculate' is already in the results page code and is asserted once the path exists. No SQL shortcut is used.");
+  test("SCN-14.2b a corrected ballot makes the result stale: it cannot be approved until it is recalculated", async ({ browser }, testInfo) => {
+    test.skip(!locked.E, "BLOCKED: the ballots could not be locked (SCN-12.3)");
+    const shot = stepShots(testInfo);
+    const owner = await signedIn(browser, fixture.owner);
+    await owner.goto(`${base(E)}/results/${E.finalRoundId}`);
+    await expect(owner.getByText(/ballots changed - recalculate/)).toBeVisible({ timeout: 30_000 });
+    await expect(owner.getByRole("button", { name: /^Approve/ })).toHaveCount(0);
+    await shot(owner, "stale-no-approve");
+    expect(readResultState(E.finalRoundId).approvals).toHaveLength(0);
+    await owner.context().close();
   });
 
   test("SCN-14.3 recalculate and approve: a second manager approves, the heat is certified, and a certified heat refuses a scratch", async ({ browser }, testInfo) => {
@@ -566,8 +588,9 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     expect(state.approvals[0]).toMatchObject({ approved_by: fixture.deskAdmin.id, calculated_by: fixture.owner.id, override_reason: null });
     expect(state.versions.map((v) => v.status)).toEqual(expect.arrayContaining(["approved"]));
     expect((await readHeatEvidence(config, E.event.id)).effective.map((h) => h.lockState)).toEqual(["certified"]);
-    // No ballot changed, so the recalculated order is the same as version 1.
-    expect(state.rows.find((r) => r.version === 2 && r.entry_id === E.entries[0])?.placement).toBe(1);
+    // Judge 1's corrected ballot now agrees with judge 3 (couple 2 first), so the majority puts couple 2 first and couple 1 second.
+    expect(state.rows.find((r) => r.version === 2 && r.entry_id === E.entries[1])?.placement).toBe(1);
+    expect(state.rows.find((r) => r.version === 2 && r.entry_id === E.entries[0])?.placement).toBe(2);
 
     await second.goto(`${base(E)}/registrations/scratch/${E.entries[0]}`);
     await expect(second.getByRole("button", { name: "Scratch entry" })).toHaveCount(0);
