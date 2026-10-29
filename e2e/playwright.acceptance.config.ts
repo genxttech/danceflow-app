@@ -19,7 +19,7 @@ if (/[\/]studioapp[\/]?$|[\/]studioapp-qa[\/]?$/.test(runDir.replace(/[\/]+$/, "
 
 export default defineConfig({
   testDir: "./tests",
-  testMatch: /competition-schedule-heats-acceptance\.spec\.ts/,
+  testMatch: /competition-(schedule-heats|scoring-results)-acceptance\.spec\.ts/,
   fullyParallel: false,
   workers: 1,
   retries: 0,
