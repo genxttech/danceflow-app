@@ -2,12 +2,16 @@
  * BILLING-QA-5: read-back of an owner-run no-payment checkout smoke. See docs/qa/billing-owner-smoke-kit.md.
  *
  * Usage (from the repo root, run by the owner with their own restricted read-only key):
- *   npm run qa:billing-readback -- --env-file .env.billing-readback.local \
+ *   npm run qa:billing-readback -- --read-key-file .env.billing-readback.local \
  *     --price-config price-config.json --session cs_live_... --session cs_live_... --session cs_live_... \
  *     [--smoke-customer cus_...] [--portal-customer cus_...] [--grandfathered sub_...] [--out smoke-report.json]
  *
  * Key from BILLING_QA_STRIPE_READ_KEY only: rk_live_ (restricted) in live mode, sk_test_/rk_test_ in test mode; a live
  * secret key (sk_live_) is refused. Reads Checkout Sessions and Subscriptions only; changes nothing.
+ *
+ * The key file option is --read-key-file, NOT --env-file: Node itself consumes --env-file anywhere on the command line
+ * (even after the script name) and, if the file is missing, exits with code 9 printing the value in full, before this
+ * script can refuse a pasted key.
  *
  * Exit codes: 0 PASS, 1 FAIL, 4 BLOCKED (never a pass), 2 usage error or safety refusal.
  */
@@ -17,6 +21,8 @@ import Stripe from "stripe";
 import type { StudioPlanCode } from "@/lib/billing/plans";
 import {
   describeArgument,
+  looksLikeStripeKey,
+  redactKeys,
   expectationsFromPriceConfig,
   readBackSmoke,
   type BillingQaReadClient,
@@ -28,7 +34,7 @@ import { assertBillingQaReadKey, BILLING_QA_READ_KEY_ENV, BillingQaSafetyError }
 
 const USAGE = `Usage: billing-session-readback --session <cs_...> [--session ...] [--price-config <report.json> | --expect <plan>=<price_...> ...]
   [--offer founder|standard] [--plans starter,growth,pro] [--smoke-customer cus_...] [--portal-customer cus_...]
-  [--grandfathered sub_...] [--legacy-price price_... ...] [--since <ISO time>] [--env-file <path>] [--json] [--out <report.json>]
+  [--grandfathered sub_...] [--legacy-price price_... ...] [--since <ISO time>] [--read-key-file <path>] [--json] [--out <report.json>]
   Stripe key: ${BILLING_QA_READ_KEY_ENV} (restricted read-only).`;
 
 const PLANS: StudioPlanCode[] = ["starter", "growth", "pro"];
@@ -44,6 +50,8 @@ function parseArgs(argv: string[]) {
     const value = () => {
       const next = argv[i + 1];
       if (!next || next.startsWith("--")) throw new Error(`${arg} needs a value`);
+      // A key pasted as a value (e.g. --read-key-file rk_live_...) would otherwise reach a file path, an error or a file name.
+      if (looksLikeStripeKey(next)) throw new Error(`${arg}: that value looks like a Stripe key. Keys go only in ${BILLING_QA_READ_KEY_ENV}`);
       i += 1;
       return next.trim();
     };
@@ -73,7 +81,7 @@ function parseArgs(argv: string[]) {
       const ms = Date.parse(value());
       if (Number.isNaN(ms)) throw new Error("--since takes an ISO time");
       o.since = Math.floor(ms / 1000);
-    } else if (arg === "--env-file") o.envFile = value();
+    } else if (arg === "--read-key-file") o.envFile = value();
     else if (arg === "--json") o.json = true;
     else if (arg === "--out") o.out = value();
     else if (arg === "--help" || arg === "-h") o.help = true;
@@ -88,7 +96,7 @@ async function main() {
   try {
     o = parseArgs(process.argv.slice(2));
   } catch (error) {
-    console.error(`${error instanceof Error ? error.message : error}\n${USAGE}`);
+    console.error(`${redactKeys(String(error instanceof Error ? error.message : error))}\n${USAGE}`);
     process.exitCode = 2;
     return;
   }
@@ -121,8 +129,8 @@ async function main() {
     console.log(o.json ? JSON.stringify(report, null, 2) : renderReportTable(report));
     process.exitCode = exitCodeFor(report.overall);
   } catch (error) {
-    if (error instanceof BillingQaSafetyError) console.error(`Refused: ${error.code}: ${error.message}`);
-    else console.error(`billing session read-back failed: ${error instanceof Error ? error.message : error}`);
+    if (error instanceof BillingQaSafetyError) console.error(`Refused: ${error.code}: ${redactKeys(error.message)}`);
+    else console.error(`billing session read-back failed: ${redactKeys(String(error instanceof Error ? error.message : error))}`);
     process.exitCode = 2;
   }
 }

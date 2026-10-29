@@ -1,9 +1,13 @@
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { buildPriceConfigReport } from "@/lib/billing-qa/priceConfigReport";
 import {
   describeArgument,
+  looksLikeStripeKey,
+  redactKeys,
   expectationsFromPriceConfig,
   readBackSmoke,
   type BillingQaReadClient,
@@ -235,15 +239,54 @@ describe("BILLING-QA-5 final review fixes (N1, N2)", () => {
     expect(describeArgument("--rk_live_abcdef")).toBe("--rk_liv…"); // not flag-shaped: still truncated
   });
 
-  it("N1: the real CLI never prints a key pasted as a bare argument (exit 2, prefix only, no network)", () => {
-    const script = path.resolve(__dirname, "../../../../scripts/qa/billing-session-readback.ts");
+  // Runs the real CLI from the repo root (tsx and the @/ path aliases resolve from there). It fails in argument
+  // parsing, before any key, file or Stripe access, so no network is touched.
+  const repoRoot = path.resolve(__dirname, "../../../..");
+  const cli = (...args: string[]) => {
     const env = { ...process.env };
     delete env.BILLING_QA_STRIPE_READ_KEY;
-    const run = spawnSync(process.execPath, ["--import", "tsx", script, "--session", "cs_live_abc", pastedKey], { env, encoding: "utf8", timeout: 60_000 });
+    const run = spawnSync(process.execPath, ["--import", "tsx", path.join(repoRoot, "scripts/qa/billing-session-readback.ts"), ...args], {
+      cwd: repoRoot, env, encoding: "utf8", timeout: 60_000,
+    });
+    return { status: run.status, output: `${run.stdout}${run.stderr}` };
+  };
+
+  it("N1: the real CLI never prints a key pasted as a bare argument (exit 2, prefix only, no network)", () => {
+    const run = cli("--session", "cs_live_abc", pastedKey);
     expect(run.status).toBe(2);
-    expect(`${run.stdout}${run.stderr}`).toContain("unknown argument rk_live_…");
-    expect(`${run.stdout}${run.stderr}`).not.toContain("PastedKeyBody");
+    expect(run.output).toContain("unknown argument rk_live_…");
+    expect(run.output).not.toContain("PastedKeyBody");
   }, 90_000);
+
+  it.each(["--read-key-file", "--price-config", "--out", "--session"])(
+    "N1: a key pasted as the value of %s is refused without being printed (exit 2, no file read or written)",
+    (flag) => {
+      const run = cli("--session", "cs_live_abc", flag, pastedKey);
+      expect(run.status).toBe(2);
+      expect(run.output).toContain(`${flag}: that value looks like a Stripe key`);
+      expect(run.output).not.toContain("PastedKeyBody");
+    },
+    90_000,
+  );
+
+  it("--read-key-file loads the key file: a live secret key in it is refused by the key guard (exit 2, not printed, no network)", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "bqa5-key-"));
+    const file = path.join(dir, "readback.env");
+    writeFileSync(file, `BILLING_QA_STRIPE_READ_KEY=${["sk", "live", "LiveSecretBodyNeverPrinted"].join("_")}\n`);
+    const run = cli("--session", "cs_live_abc", "--read-key-file", file);
+    expect(run.status).toBe(2);
+    expect(run.output).toContain("STRIPE_LIVE_SECRET_KEY_REFUSED");
+    expect(run.output).not.toContain("LiveSecretBody");
+  }, 90_000);
+
+  it("N1: key detection and redaction cover every key shape, and leave Stripe object ids alone", () => {
+    const k = (...parts: string[]) => parts.join("_");
+    for (const key of [k("sk", "live", "abc"), k("rk", "test", "abc"), k("pk", "live", "abc"), k("ek", "test", "abc"), k("whsec", "abc")]) {
+      expect(looksLikeStripeKey(key), key.slice(0, 5)).toBe(true);
+    }
+    for (const id of ["cs_live_abc", "cus_abc", "price_abc", "sub_abc", "./price-config.json"]) expect(looksLikeStripeKey(id), id).toBe(false);
+    expect(redactKeys(`ENOENT: no such file or directory, open '${pastedKey}'`)).toBe("ENOENT: no such file or directory, open 'rk_live_…'");
+  });
 
   it("N2: with --since, a Session created before the recorded start FAILs; Sessions from this smoke pass", async () => {
     const stale = session("growth", { created: CREATED - 3600 });

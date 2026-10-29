@@ -70,13 +70,16 @@ The checkout route allows 8 attempts per 10 minutes per network address; a smoke
 5. **Read back.**
 
    ```bash
-   npm run qa:billing-readback -- --env-file .env.billing-readback.local --price-config price-config.json --since 2026-11-01T15:00:00Z --session cs_live_STARTER --session cs_live_GROWTH --session cs_live_PRO --smoke-customer cus_SMOKE --portal-customer cus_SUBSCRIBER --grandfathered sub_GRANDFATHERED --out smoke-report.json
+   npm run qa:billing-readback -- --read-key-file .env.billing-readback.local --price-config price-config.json --since 2026-11-01T15:00:00Z --session cs_live_STARTER --session cs_live_GROWTH --session cs_live_PRO --smoke-customer cus_SMOKE --portal-customer cus_SUBSCRIBER --grandfathered sub_GRANDFATHERED --out smoke-report.json
    ```
 
    `--since` is the UTC start time recorded in step 0. With it, every Session must have been created at or after that
    time (`session.<plan>.fresh`), so a leftover Session from an earlier smoke cannot pass; without it there is no such
-   check and the window starts 10 minutes before the earliest Session. Always pass it. Values in `--env-file` win over
-   variables already exported in the shell, and a mistyped argument is never printed in full (at most 8 characters). Without `price-config.json`, pass
+   check and the window starts 10 minutes before the earliest Session. Always pass it. Values in `--read-key-file` win
+   over variables already exported in the shell. Use `--read-key-file`, never `--env-file`: Node itself intercepts
+   `--env-file` and, if the path is wrong, prints it in full. Never put the key itself on the command line: any value
+   that looks like a Stripe key is refused without being printed, and other mistyped arguments are shown as at most 8
+   characters. Without `price-config.json`, pass
    `--expect starter=price_... --expect growth=price_... --expect pro=price_...` and, for the grandfathered check, one
    `--legacy-price price_...` per grandfathered Price.
 6. **Record** the results in the template below and attach `smoke-report.json` (it contains no secrets).

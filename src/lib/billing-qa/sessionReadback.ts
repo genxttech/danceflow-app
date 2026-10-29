@@ -109,6 +109,19 @@ export function describeArgument(arg: string): string {
   return /^--[a-z][a-z-]*$/.test(arg) ? arg : prefix(arg);
 }
 
+// Stripe secret, restricted, publishable or ephemeral keys and webhook secrets, wherever they appear in a string.
+const KEY_SHAPED = /(?<![A-Za-z0-9])((?:sk|rk|pk|ek)_(?:live|test)_|whsec_)[A-Za-z0-9]+/g;
+
+/** True when a command-line value looks like a Stripe key (keys belong only in BILLING_QA_STRIPE_READ_KEY). */
+export function looksLikeStripeKey(value: string): boolean {
+  return new RegExp(KEY_SHAPED.source).test(value);
+}
+
+/** Any key-shaped text cut to its 8-character prefix: the last line of defence for error messages. */
+export function redactKeys(text: string): string {
+  return text.replace(KEY_SHAPED, (match) => prefix(match));
+}
+
 export function assertSessionIdsMatchKeyMode(sessionIds: string[], keyMode: "live" | "test") {
   for (const id of sessionIds) {
     const match = id.match(SESSION_ID);
