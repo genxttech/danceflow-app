@@ -8,6 +8,8 @@
 -- One transaction; the final block ALWAYS raises, so nothing persists:
 --   "COMPETITION CX1 SQL SUITE PASS (<n> checks)"  or  "COMPETITION CX1 SQL SUITE FAIL: <failures>".
 
+begin;
+
 create temp table t_results (name text, ok boolean, detail text) on commit drop;
 grant all on t_results to authenticated, anon, service_role;
 

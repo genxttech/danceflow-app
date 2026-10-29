@@ -12,8 +12,8 @@ declare
   v_new constant text := '''status'', v_round.status, ''correction_open'', v_round.correction_open, ''scoring_method''';
 begin
   for r in select * from (values
-    ('public.competition_round_ballot_status(uuid)', '__PIN_STATUS__'),
-    ('public.competition_judge_ballot_sheet(uuid)', '__PIN_SHEET__')
+    ('public.competition_round_ballot_status(uuid)', 'd1aca173a954764731862a341a1d5e7e'),
+    ('public.competition_judge_ballot_sheet(uuid)', 'eada65f81faa04248816773818006a14')
   ) as t(sig, pin) loop
     v_def := replace(pg_get_functiondef(r.sig::regprocedure), E'\r', '');
     if (length(v_def) - length(replace(v_def, v_new, ''))) / length(v_new) <> 1 then
