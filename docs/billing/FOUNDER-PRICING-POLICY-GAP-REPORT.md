@@ -916,7 +916,61 @@ Founder-to-Founder upgrade and downgrade (same allocation, no second trial, paid
 
 #### 16.13.12 Updated D7 requirements and owner decisions
 
-R29–R33 stand. The audit adds **R34–R38** (§13). Remaining owner items: **O8** (approve D7-1 and D7-2 as the first, no-Stripe, no-database code slice, after the owner-run reproduction); **O9** (state the original cancellation and reactivation terms of the grandfathered $129 contract, or authorize a read-only look at its documents); **O10** (portal configuration: choose between Option A with the portal's Switch plan Off and Option C with a second pinned configuration, after Check P and an isolated proof); **O11** (until D7-3 exists, whether plan changes are handled by support on request). Checks P, C and S results are still outstanding and gate D7-5.
+R29–R33 stand. The audit adds **R34–R38** (§13). **O8-O11 are now DECIDED (see 16.14).** Original remaining items as audited: **O8** (approve D7-1 and D7-2 as the first, no-Stripe, no-database code slice, after the owner-run reproduction); **O9** (state the original cancellation and reactivation terms of the grandfathered $129 contract, or authorize a read-only look at its documents); **O10** (portal configuration: choose between Option A with the portal's Switch plan Off and Option C with a second pinned configuration, after Check P and an isolated proof); **O11** (until D7-3 exists, whether plan changes are handled by support on request). Checks P, C and S results are still outstanding and gate D7-5.
+
+### 16.14 D7 owner decisions O8–O11 and implementation status (2026-10-29)
+
+> **Status labels:** DECIDED = recorded owner direction. **DRAFT IN GIT** = implemented in an unmerged draft PR, never deployed. Nothing below is released, applied to a hosted database, or changed in Stripe. This section does not change PR #343's role as the docs-only policy record.
+
+#### 16.14.1 Owner decisions recorded
+
+| Id | Decision (owner, 2026-10-29) | Status |
+|---|---|---|
+| **O8** | Approved a bounded Git-only implementation of D7-1 and D7-2 in an independent worktree and draft PR: portal redirect 307 to 303, actionable errors and logging without sensitive data, honest Change Plan UI, regression tests (redirect, authorization, error states, destination); no new subscription-mutation path; test the 307 hypothesis rather than assume it is the only cause. | DECIDED; implemented as draft #345 |
+| **O9** | The $129/month Pro subscription and its established terms are preserved; the Founder duration, a new trial and the new Founder Pro price are **not** applied automatically. Original cancellation and reactivation rights **remain unresolved** until the original terms are reviewed. Document the re-checkout risk and propose fail-closed protection. | DECIDED; guard drafted in #351; **terms review still open** |
+| **O10** | **Option A.** DanceFlow-controlled, server-authorized plan changes; Stripe Billing Portal kept for payment methods, invoices and appropriate billing administration; portal plan switching and promotion-code redemption disabled as the **intended** configuration, subject to separate approval and live verification. Founder allocation, Regular pricing, grandfathered rights and trial eligibility are enforced inside DanceFlow. **No live portal change is authorized.** | DECIDED; configuration change **not authorized**, live state still UNVERIFIED (Check P) |
+| **O11** | Until a controlled plan-change workflow exists, existing subscribers are directed to DanceFlow support. Support-assisted changes are individually reviewed and explicitly authorized; no silent repricing, no replacement subscription, no promise of immediate automated upgrades or downgrades. Document the risk that paused, incomplete or canceled subscriptions are treated as eligible for a new Checkout and another trial. | DECIDED; implemented in #345/#346 |
+
+Coordination: none of the files touched by #345, #346 or #351 is edited by BILLING-QA #334, #335, #340 or by #292 (checked against their file lists on 2026-10-29). #335 and #292 still collide with each other on the webhook route; D7-6 (webhook hardening) remains blocked on #335.
+
+#### 16.14.2 What the three draft PRs change (and do not)
+
+| PR | Head | Base | Change | Verified |
+|---|---|---|---|---|
+| **#345** D7-1/D7-2 | `6b9b8c5a` | `main` | Portal route: every redirect is 303 (was the 307 default); caught errors logged with studio id and Stripe type, code, status and request id only (no customer id, URL, message or card data); specific customer-visible messages for `billing_portal_failed`, `billing_customer_missing`, `billing_owner_required`; non-owner no longer silently sent to `/app`. Plan cards for an existing subscriber no longer post to checkout: a "Contact support to change plan" mailto replaces "Change Plan" (O11). Misleading copy fixed. | 54 tests; the new portal tests fail 6 of 13 on the old route; a local HTTP test shows 307 re-POSTs and 303 becomes GET; `tsc` and eslint clean |
+| **#346** D7-3a | `d4b2838b` | #345 | One shared subscription-state rule (`managed` = active/trialing/past_due/unpaid, `hold` = paused/incomplete, `none` = none or only canceled/incomplete_expired) used by both the billing page and the checkout route. Checkout is fail-closed: managed -> `plan_change_requires_support`, hold -> `subscription_needs_support`; no new Checkout, no second subscription, no second trial, no portal redirect that discards the chosen plan. The studio row counts only when it names a subscription id (the no-card trial still checks out). | 69 tests; the new file fails 11 of 15 on #345's route; two older tests updated (existing subscribers now get the support message, not the portal) |
+| **#351** D7-4 | `8b6e31b3` | #346 | `protected_subscriptions` registry (migration `20270115090000` + rollback, **not applied**, inserts no row) and a checkout guard: a studio with an unreleased registry row, or any subscription of any known customer id, in any status, carrying a configured legacy price, never gets a new Checkout and is routed to support (`protected_subscription_needs_support`). Unreadable registry or more than 100 subscriptions on a customer fails closed (`protection_check_failed`); a missing table is logged and tolerated. Table is service-role only, no DELETE or TRUNCATE, immutable identity and terms, audited release. | 93 tests across touched suites; new route tests fail 7 of 10 on #346's route; migration checked by text assertions only — **BLOCKED: never executed against a database** |
+
+Each PR had an independent read-only subagent review. #345: no blockers (the non-owner message is redundant because that page already states owner-only access; stale-status gap fixed by #346). #351: no blockers; fixed service_role default privileges and TRUNCATE, missing-table logging, single-customer backstop, pagination, empty release reason. **No human review has happened yet; all three need approval to merge.**
+
+**Behavior changes to confirm before merge:** (1) a managed subscriber posting to `/api/billing/checkout` no longer reaches the Stripe portal (the Open Billing Portal button still does); (2) unauthenticated and no-studio redirects from the portal route change from 307 to 303; (3) a non-owner hitting the portal route lands on the billing page with a message instead of `/app`.
+
+#### 16.14.3 The Open Billing Portal root cause, updated
+
+The 307-on-form-POST defect is **code-verified and reproduced in a local HTTP test** (a 307 makes the client repeat the POST at the destination; a 303 turns it into a GET), and the route test fails on the old code. It is **still not confirmed as the production cause**: the owner-run reproduction (§16.13.3) and the live portal configuration (Check C/P) remain outstanding, and a missing saved default portal configuration would produce the same symptom. #345 makes each failure mode distinguishable in logs and in the UI.
+
+#### 16.14.4 Remaining billing-integrity risks (none closed by the drafts unless stated)
+
+| # | Risk | Status |
+|---|---|---|
+| 1 | Paused, incomplete or canceled subscriptions treated as eligible for a new Checkout and another 30-day trial | **Paused and incomplete closed in #346 (draft).** A truly **canceled** non-protected subscriber can still start a new trial: that is D5(c) and needs the Founder ledger (S-series) |
+| 2 | Grandfathered $129 Pro re-checkout (cancel, return, new trial, current Founder Pro price) | **Closed for checkout in #351 (draft) only once** the migration is applied, a registry row is inserted from owner-reviewed terms (O9), or the legacy price env is set in Production; otherwise open |
+| 3 | The Stripe portal can still cancel or (if switching is on) reprice a protected or Founder subscription | **Open**, depends on the live portal configuration (Check P); O10 configuration change not authorized |
+| 4 | Webhook does not alert when a protected subscription is canceled, repriced or paused | Open (D7-6; blocked on #335 and the #292 collision) |
+| 5 | Direct POST to checkout still allows `allow_promotion_codes`, an unchecked yearly price, and no idempotency or per-studio lock | Open (D16/M3; yearly path §7) |
+| 6 | Founder flag is global with no ledger or 25-studio cap enforcement; `studios.billing_plan` never written | Open (S-series, #335) |
+| 7 | A brand-new studio gets a Stripe customer created before the protection check (no Checkout is created) | Documented; only the registry can protect such a studio |
+| 8 | PostgREST schema-cache `PGRST205` on an existing table would skip a real registry row | Documented residual; the legacy-price backstop still applies |
+| 9 | The billing page shows no protected-specific button (falls back to the checkout refusal message) | Open, cosmetic |
+| 10 | Support-assisted plan changes are an offline, manual process (O11) with no audit table | Open until D7-3 (server-authorized plan change) |
+
+#### 16.14.5 Release and ordering notes (no authorization implied)
+
+- **Merge order:** #345 into `main`, then retarget #346, then #351. None is merged.
+- **Production is the `release/pricing-p1` branch, not `main`.** The three billing files were byte-identical on both refs when audited, so the same fixes would apply there, but a release needs its own isolated branch off the production base, QA and approval; **none is authorized or prepared**.
+- **#351 gates (separate approvals):** owner supplies the original contract terms and the studio and subscription ids (O9); a separate audited step inserts the registry row; migration to DEV then PROD with SQL before app; confirm `STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY` is set in Production as a release-gate check.
+- **Dependencies unchanged:** #334 (test-mode E2E) and #335 (webhook ordering) before D7-3 and D7-6; #336 is already merged; #340 (smoke kit) is draft and under review. D7-5 (portal configuration pin) needs Check P and a Stripe-setting approval.
+- **Still outstanding from the owner:** Checks P, C and S results; the §16.13.3 portal-click reproduction; the grandfathered contract terms (O9); O6 (isolated test-mode proof of the Founder-to-Regular mutation).
 
 ## Standing non-claims
 
