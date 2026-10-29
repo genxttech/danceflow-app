@@ -24,7 +24,15 @@ import {
   type PlanCode,
 } from "@/lib/billing/plans";
 import { resolveDisplayedMonthlyPriceCents } from "@/lib/billing/founderPricing";
-import { BILLING_PORTAL_ERROR_MESSAGES } from "@/lib/billing/billingPortalErrors";
+import {
+  BILLING_CHECKOUT_BLOCK_MESSAGES,
+  BILLING_PORTAL_ERROR_MESSAGES,
+} from "@/lib/billing/billingPortalErrors";
+import {
+  blocksNewCheckout,
+  classifySubscriptionStatus,
+  isManagedSubscriptionStatus,
+} from "@/lib/billing/subscriptionState";
 import {
   getUsageAllowance,
   type UsageAllowanceResult,
@@ -361,6 +369,7 @@ function getErrorMessage(error?: string) {
 
   const messages: Record<string, string> = {
     ...BILLING_PORTAL_ERROR_MESSAGES,
+    ...BILLING_CHECKOUT_BLOCK_MESSAGES,
     plan_not_found: "The selected billing plan could not be found.",
     checkout_failed: "Billing checkout could not be started.",
     checkout_cancelled: "Billing checkout was canceled.",
@@ -409,10 +418,6 @@ function getErrorMessage(error?: string) {
   };
 
   return messages[error] ?? "Something went wrong while loading billing.";
-}
-
-function isManagedSubscriptionStatus(status: string | null | undefined) {
-  return ["active", "trialing", "past_due", "unpaid"].includes(status ?? "");
 }
 
 function InfoCard({
@@ -1315,6 +1320,11 @@ export default async function BillingSettingsPage({
     effectiveSubscriptionStatus,
   );
 
+  // D7-3a: same rule the checkout route applies (paused/incomplete also block a new checkout).
+  const planChangeBlocked = blocksNewCheckout(
+    classifySubscriptionStatus(effectiveSubscriptionStatus),
+  );
+
   // Landmark 1A Slice 8: derived over-limit notice (studio workspaces only).
   const seatStatus =
     selectedAudience === "organizer"
@@ -1911,7 +1921,7 @@ export default async function BillingSettingsPage({
                     isCurrent={currentPlan?.code === plan.code}
                     isRecommended={recommendedPlan?.code === plan.code}
                     entryMode={entryMode}
-                    hasManagedSubscription={hasManagedSubscription}
+                    hasManagedSubscription={planChangeBlocked}
                   />
                 ))}
               </div>

@@ -13,6 +13,11 @@ import {
 } from "@/lib/billing/studioCheckoutPricing";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 import { hasCurrentBusinessLegalAcceptance } from "@/lib/legal/agreements";
+import {
+  blocksNewCheckout,
+  classifySubscriptionStatus,
+  strongestSubscriptionState,
+} from "@/lib/billing/subscriptionState";
 
 type StudioRow = {
   id: string;
@@ -216,11 +221,10 @@ function buildSourceValue(audience: PlanAudience) {
   return audience === "organizer" ? "organizer_subscription" : "studio_subscription";
 }
 
-function isManagedSubscriptionStatus(status: string | null | undefined) {
-  return ["active", "trialing", "past_due", "unpaid"].includes(status ?? "");
-}
-
-async function getManagedStripeSubscription(params: { stripeCustomerId: string }) {
+// D7-3a: the strongest state across the customer's Stripe subscriptions
+// (managed, then paused/incomplete "hold", then none). Terminal subscriptions
+// (canceled, incomplete_expired) do not count.
+async function getStripeSubscriptionState(params: { stripeCustomerId: string }) {
   const stripe = getStripe();
 
   const subscriptions = await stripe.subscriptions.list({
@@ -229,10 +233,8 @@ async function getManagedStripeSubscription(params: { stripeCustomerId: string }
     limit: 20,
   });
 
-  return (
-    subscriptions.data.find((subscription) =>
-      isManagedSubscriptionStatus(subscription.status)
-    ) ?? null
+  return strongestSubscriptionState(
+    subscriptions.data.map((subscription) => subscription.status),
   );
 }
 
@@ -509,36 +511,38 @@ async function handleCheckout(request: NextRequest) {
 
     const appUrl = buildAppUrl(request);
 
-    const stripeManagedSubscription = stripeCustomerId
-      ? await getManagedStripeSubscription({ stripeCustomerId })
-      : null;
+    const stripeState = stripeCustomerId
+      ? await getStripeSubscriptionState({ stripeCustomerId })
+      : "none";
 
-    const hasManagedSubscription =
-      Boolean(stripeManagedSubscription) ||
-      (Boolean(studio.stripe_subscription_id) &&
-        isManagedSubscriptionStatus(studio.subscription_status));
+    // The studio row only counts when it names a subscription; a status with no
+    // subscription id is the no-card trial, which must still be able to check out.
+    const studioState = studio.stripe_subscription_id
+      ? classifySubscriptionStatus(studio.subscription_status)
+      : "none";
 
-    if (stripeCustomerId && hasManagedSubscription) {
-      const successCode =
-        stripeManagedSubscription?.items.data.some(
-          (item) => item.price.id === stripePriceId
-        ) ||
-        studio.subscription_status === "trialing" ||
-        studio.subscription_status === "active"
-          ? "current_plan"
-          : "manage_subscription";
+    const subscriptionState = strongestSubscriptionState([
+      stripeState === "managed" ? "active" : stripeState === "hold" ? "paused" : null,
+      studioState === "managed" ? "active" : studioState === "hold" ? "paused" : null,
+    ]);
 
-      const portalSession = await stripe.billingPortal.sessions.create({
-        customer: stripeCustomerId,
-        return_url: `${appUrl}${buildBillingReturnPath({
-          success: successCode,
+    // D7-3a (O11): an existing or half-created subscription never starts a new
+    // Checkout (no second subscription, no second trial) and never silently
+    // reprices. Plan changes go to DanceFlow support; the billing portal button
+    // stays available for payment methods and invoices.
+    if (blocksNewCheckout(subscriptionState)) {
+      return billingRedirect(
+        request,
+        buildBillingReturnPath({
+          error:
+            subscriptionState === "managed"
+              ? "plan_change_requires_support"
+              : "subscription_needs_support",
           path: audience,
           entry: entryMode,
           recommended: planCode,
-        })}`,
-      });
-
-      return NextResponse.redirect(portalSession.url, { status: 303 });
+        })
+      );
     }
 
     if (!stripePriceId) {
