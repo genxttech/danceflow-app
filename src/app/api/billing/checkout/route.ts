@@ -231,17 +231,32 @@ function buildSourceValue(audience: PlanAudience) {
 // (managed, then paused/incomplete "hold", then none). Terminal subscriptions
 // (canceled, incomplete_expired) do not count.
 async function getStripeSubscriptions(params: {
-  stripeCustomerId: string;
-}): Promise<SubscriptionSnapshot[]> {
+  stripeCustomerIds: string[];
+}): Promise<{ snapshots: SubscriptionSnapshot[]; truncated: boolean }> {
   const stripe = getStripe();
+  const snapshots: SubscriptionSnapshot[] = [];
+  let truncated = false;
 
-  const subscriptions = await stripe.subscriptions.list({
-    customer: params.stripeCustomerId,
-    status: "all",
-    limit: 20,
-  });
+  // Every customer id the studio is known by (D7-4): a legacy subscription on a replaced customer must still be seen.
+  for (const stripeCustomerId of params.stripeCustomerIds) {
+    const subscriptions = await stripe.subscriptions.list({
+      customer: stripeCustomerId,
+      status: "all",
+      limit: 100,
+    });
 
-  return subscriptions.data.map((subscription) => ({
+    // More than one page: the rest cannot be inspected, so callers must fail closed.
+    if (subscriptions.has_more) truncated = true;
+    snapshots.push(...toSnapshots(subscriptions.data));
+  }
+
+  return { snapshots, truncated };
+}
+
+function toSnapshots(
+  data: Array<{ id?: string; status: string; items?: { data?: Array<{ price?: { id?: string } | null }> } }>,
+): SubscriptionSnapshot[] {
+  return data.map((subscription) => ({
     id: subscription.id ?? null,
     status: subscription.status,
     priceIds: (subscription.items?.data ?? [])
@@ -523,9 +538,15 @@ async function handleCheckout(request: NextRequest) {
 
     const appUrl = buildAppUrl(request);
 
-    const stripeSubscriptions = stripeCustomerId
-      ? await getStripeSubscriptions({ stripeCustomerId })
-      : [];
+    const knownCustomerIds = Array.from(
+      new Set(
+        [stripeCustomerId, existingCustomer?.stripe_customer_id, studio.stripe_customer_id].filter(
+          (id): id is string => Boolean(id),
+        ),
+      ),
+    );
+    const { snapshots: stripeSubscriptions, truncated: subscriptionsTruncated } =
+      await getStripeSubscriptions({ stripeCustomerIds: knownCustomerIds });
     const stripeState = strongestSubscriptionState(
       stripeSubscriptions.map((subscription) => subscription.status),
     );
@@ -534,7 +555,11 @@ async function handleCheckout(request: NextRequest) {
     // the status of its subscription (canceled included). Unknown registry state fails closed.
     const registry = await loadProtectedRegistry(supabaseAdmin, studioId);
 
-    if (registry.status === "error") {
+    if (registry.status === "table_missing") {
+      console.warn("billing checkout: protected_subscriptions table is missing; only the legacy-price backstop applies", { studioId });
+    }
+
+    if (registry.status === "error" || subscriptionsTruncated) {
       console.error("billing checkout: protected-subscription registry check failed", { studioId });
       return billingRedirect(
         request,

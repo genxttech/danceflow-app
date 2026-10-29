@@ -9,6 +9,8 @@ begin
   end if;
 end $$;
 drop trigger if exists protected_subscriptions_guard_trg on public.protected_subscriptions;
+drop trigger if exists protected_subscriptions_no_truncate_trg on public.protected_subscriptions;
+drop function if exists public.protected_subscriptions_no_truncate();
 drop function if exists public.protected_subscriptions_guard();
 drop table public.protected_subscriptions;
 commit;

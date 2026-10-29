@@ -35,6 +35,7 @@ create table if not exists public.protected_subscriptions (
   constraint protected_subscriptions_kind_check check (protection_kind in ('grandfathered_founder_legacy', 'contractual_exception')),
   constraint protected_subscriptions_terms_ref_check check (length(btrim(terms_reference)) > 0),
   constraint protected_subscriptions_release_pair check ((released_at is null) = (released_reason is null)),
+  constraint protected_subscriptions_release_reason_check check (released_reason is null or length(btrim(released_reason)) > 0),
   constraint protected_subscriptions_sub_unique unique (stripe_subscription_id)
 );
 
@@ -42,7 +43,7 @@ create index if not exists protected_subscriptions_studio_active_idx
   on public.protected_subscriptions (studio_id) where released_at is null;
 
 alter table public.protected_subscriptions enable row level security;
-revoke all on public.protected_subscriptions from public, anon, authenticated;
+revoke all on public.protected_subscriptions from public, anon, authenticated, service_role;
 grant select, insert, update on public.protected_subscriptions to service_role;
 
 -- Identity is immutable and rows are permanent evidence: change release fields only, never delete.
@@ -71,5 +72,18 @@ drop trigger if exists protected_subscriptions_guard_trg on public.protected_sub
 create trigger protected_subscriptions_guard_trg
   before update or delete on public.protected_subscriptions
   for each row execute function public.protected_subscriptions_guard();
+
+create or replace function public.protected_subscriptions_no_truncate()
+returns trigger language plpgsql
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  raise exception 'protected_subscriptions rows are permanent; truncate is not allowed' using errcode = '42501';
+end $$;
+
+drop trigger if exists protected_subscriptions_no_truncate_trg on public.protected_subscriptions;
+create trigger protected_subscriptions_no_truncate_trg
+  before truncate on public.protected_subscriptions
+  for each statement execute function public.protected_subscriptions_no_truncate();
 
 commit;

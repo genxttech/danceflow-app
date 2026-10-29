@@ -94,6 +94,12 @@ describe("migration 20270115090000 (text checks only; not executed against a dat
     expect(sql).toMatch(/NOT APPLIED/);
   });
 
+  it("revokes service_role before the narrow grant and blocks TRUNCATE, DELETE and empty release reasons", () => {
+    expect(sql).toMatch(/from public, anon, authenticated, service_role/i);
+    expect(sql).toMatch(/before truncate on public\.protected_subscriptions/i);
+    expect(sql).toContain("length(btrim(released_reason)) > 0");
+  });
+
   it("the rollback refuses while rows exist", () => {
     expect(rollback).toMatch(/rollback refused: rows exist/);
   });

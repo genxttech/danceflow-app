@@ -12,10 +12,13 @@ import { BILLING_PROTECTION_MESSAGES } from "@/lib/billing/billingPortalErrors";
 const LEGACY = "price_legacy_129";
 
 const state = vi.hoisted(() => ({
-  stripeSubs: [] as Array<{ id: string; status: string; priceId: string }>,
+  stripeSubs: [] as Array<{ id: string; status: string; priceId: string; customer?: string }>,
   registry: { kind: "rows", rows: [] } as
     | { kind: "rows"; rows: Array<{ released_at: string | null }> }
     | { kind: "error"; code: string },
+  hasMore: false,
+  studioCustomer: "cus_1",
+  listedCustomers: [] as string[],
   calls: [] as string[],
   warnings: [] as unknown[][],
 }));
@@ -38,7 +41,7 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     from: (table: string) => {
       const rows: Record<string, unknown> = {
-        studios: { id: "studio-1", name: "Test Studio", subscription_status: null, stripe_subscription_id: null, stripe_customer_id: "cus_1" },
+        studios: { id: "studio-1", name: "Test Studio", subscription_status: null, stripe_subscription_id: null, stripe_customer_id: state.studioCustomer },
         subscription_plans: { id: "plan-1", code: "growth", name: "Growth", stripe_price_id_monthly: "price_month", stripe_price_id_yearly: "price_year" },
         studio_billing_customers: { id: "sbc-1", stripe_customer_id: "cus_1" },
       };
@@ -65,8 +68,11 @@ vi.mock("@supabase/supabase-js", () => ({
 vi.mock("@/lib/payments/stripe", () => ({
   getStripe: () => ({
     subscriptions: {
-      list: async () => ({
-        data: state.stripeSubs.map((sub) => ({ id: sub.id, status: sub.status, items: { data: [{ price: { id: sub.priceId } }] } })),
+      list: async (params: { customer: string }) => ({
+        has_more: state.hasMore,
+        data: (state.listedCustomers.push(params.customer), state.stripeSubs)
+          .filter((sub) => !sub.customer || sub.customer === params.customer)
+          .map((sub) => ({ id: sub.id, status: sub.status, items: { data: [{ price: { id: sub.priceId } }] } })),
       }),
     },
     billingPortal: { sessions: { create: async () => { state.calls.push("portal"); return { url: "https://billing.stripe.test/p" }; } } },
@@ -91,6 +97,9 @@ beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://app.test");
   vi.stubEnv("STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY", LEGACY);
   state.stripeSubs = [];
+  state.hasMore = false;
+  state.studioCustomer = "cus_1";
+  state.listedCustomers = [];
   state.registry = { kind: "rows", rows: [] };
   state.calls = [];
   state.warnings = [];
@@ -117,7 +126,8 @@ describe("protected subscriptions never fall through to a new checkout", () => {
 
   it("the legacy-price backstop blocks a canceled legacy subscription with an empty registry (and with the table missing)", async () => {
     state.stripeSubs = [{ id: "sub_legacy", status: "canceled", priceId: LEGACY }];
-    for (const registry of [{ kind: "rows", rows: [] }, { kind: "error", code: "42P01" }, { kind: "error", code: "PGRST205" }] as const) {
+    const registries: Array<typeof state.registry> = [{ kind: "rows", rows: [] }, { kind: "error", code: "42P01" }, { kind: "error", code: "PGRST205" }];
+    for (const registry of registries) {
       state.registry = registry;
       const response = await POST(post());
       expect(response.headers.get("location")).toContain("error=protected_subscription_needs_support");
@@ -148,6 +158,29 @@ describe("protected subscriptions never fall through to a new checkout", () => {
     const response = await POST(post());
     expect(response.headers.get("location")).toContain("error=protection_check_failed");
     expect(state.calls).toEqual([]);
+  });
+});
+
+describe("review hardening", () => {
+  it("a legacy subscription on a replaced customer is still seen (every known customer id is listed)", async () => {
+    state.studioCustomer = "cus_old";
+    state.stripeSubs = [{ id: "sub_legacy", status: "canceled", priceId: LEGACY, customer: "cus_old" }];
+    const response = await POST(post());
+    expect([...new Set(state.listedCustomers)].sort()).toEqual(["cus_1", "cus_old"]);
+    expect(response.headers.get("location")).toContain("error=protected_subscription_needs_support");
+  });
+
+  it("more subscriptions than one page fails closed instead of guessing", async () => {
+    state.hasMore = true;
+    const response = await POST(post());
+    expect(response.headers.get("location")).toContain("error=protection_check_failed");
+    expect(state.calls).toEqual([]);
+  });
+
+  it("a missing registry table is logged, not silent", async () => {
+    state.registry = { kind: "error", code: "42P01" };
+    await POST(post());
+    expect(JSON.stringify(state.warnings)).toContain("table is missing");
   });
 });
 
