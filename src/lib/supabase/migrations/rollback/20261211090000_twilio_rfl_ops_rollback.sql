@@ -34,7 +34,7 @@ declare
   v_n int;
   v_name text;
   v_def text;
-  v_live text[];
+  v_live text;
   v_expected text;
 begin
   -- no writer may insert a 20261211-only kind between the check and the constraint swap below
@@ -45,9 +45,9 @@ begin
   end if;
   select c.conname, pg_get_constraintdef(c.oid) into v_name, v_def from pg_constraint c
    where c.conrelid = 'public.studio_sms_provider_alerts'::regclass and c.contype = 'c' and pg_get_constraintdef(c.oid) like '%authorization_expiring%';
-  select array_agg(distinct m[1] order by m[1]) into v_live from regexp_matches(substring(v_def from 'ANY (.*)$'), '([a-z][a-z0-9_]*)', 'g') m where m[1] not in ('text', 'array');
-  if v_name <> 'studio_sms_provider_alerts_kind_check'
-     or v_live is distinct from (select array_agg(distinct x order by x) from unnest(v_old || v_new) x) then
+  -- exactly what 20261211090000 builds: check (kind = any ('{<the sorted old and new kinds>}'::text[])), compared on the text pg_get_constraintdef returns
+  v_live := 'CHECK ((kind = ANY (''{' || (select string_agg(x, ',' order by x) from (select distinct x from unnest(v_old || v_new) x) s) || '}''::text[])))';
+  if v_name <> 'studio_sms_provider_alerts_kind_check' or v_def is distinct from v_live then
     raise exception 'rfl-ops rollback refused: the alert-kind constraint is not exactly the 20261211 definition (a later change is still applied: roll it back first): % %', v_name, v_def using errcode = '55000';
   end if;
   if exists (select 1 from public.studio_sms_provider_alerts a where a.kind = any (v_new)) then

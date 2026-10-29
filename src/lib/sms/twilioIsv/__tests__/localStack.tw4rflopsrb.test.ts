@@ -92,4 +92,12 @@ describe.skipIf(!enabled)("20261211 rollback: alert-kind constraint (real schema
     expect(wrongName.err).toContain("not exactly the 20261211 definition");
     expect(run(`${DEF};`).out).toContain("alert_delivery_exhausted");
   });
+
+  it("the same 16 kinds in a different form (kind in (...)) are not 1211's exact text, so it refuses", () => {
+    const all = [...KINDS_1209, "owner_notice_second", "owner_unresponsive", "alert_delivery_exhausted"].map((k) => `'${k}'`).join(", ");
+    const r = run(`begin; alter table public.studio_sms_provider_alerts drop constraint studio_sms_provider_alerts_kind_check;
+      alter table public.studio_sms_provider_alerts add constraint studio_sms_provider_alerts_kind_check check (kind in (${all})); ${BLOCK} rollback;`);
+    expect(r.code).not.toBe(0);
+    expect(r.err).toContain("not exactly the 20261211 definition");
+  });
 });
