@@ -1907,7 +1907,7 @@ export default async function BillingSettingsPage({
 
             <details className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <summary className="cursor-pointer text-sm font-semibold text-slate-900">
-                View or change available{" "}
+                View available{" "}
                 {selectedAudience === "organizer" ? "organizer" : "studio"}{" "}
                 plans
               </summary>
