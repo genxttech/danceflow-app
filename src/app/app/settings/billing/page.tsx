@@ -26,6 +26,7 @@ import {
 import { resolveDisplayedMonthlyPriceCents } from "@/lib/billing/founderPricing";
 import {
   BILLING_CHECKOUT_BLOCK_MESSAGES,
+  BILLING_PROTECTION_MESSAGES,
   BILLING_PORTAL_ERROR_MESSAGES,
 } from "@/lib/billing/billingPortalErrors";
 import {
@@ -370,6 +371,7 @@ function getErrorMessage(error?: string) {
   const messages: Record<string, string> = {
     ...BILLING_PORTAL_ERROR_MESSAGES,
     ...BILLING_CHECKOUT_BLOCK_MESSAGES,
+    ...BILLING_PROTECTION_MESSAGES,
     plan_not_found: "The selected billing plan could not be found.",
     checkout_failed: "Billing checkout could not be started.",
     checkout_cancelled: "Billing checkout was canceled.",

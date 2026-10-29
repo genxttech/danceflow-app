@@ -14,6 +14,12 @@ import {
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 import { hasCurrentBusinessLegalAcceptance } from "@/lib/legal/agreements";
 import {
+  evaluateProtection,
+  legacyProtectedPriceIds,
+  loadProtectedRegistry,
+  type SubscriptionSnapshot,
+} from "@/lib/billing/protectedSubscriptions";
+import {
   blocksNewCheckout,
   classifySubscriptionStatus,
   strongestSubscriptionState,
@@ -224,7 +230,9 @@ function buildSourceValue(audience: PlanAudience) {
 // D7-3a: the strongest state across the customer's Stripe subscriptions
 // (managed, then paused/incomplete "hold", then none). Terminal subscriptions
 // (canceled, incomplete_expired) do not count.
-async function getStripeSubscriptionState(params: { stripeCustomerId: string }) {
+async function getStripeSubscriptions(params: {
+  stripeCustomerId: string;
+}): Promise<SubscriptionSnapshot[]> {
   const stripe = getStripe();
 
   const subscriptions = await stripe.subscriptions.list({
@@ -233,9 +241,13 @@ async function getStripeSubscriptionState(params: { stripeCustomerId: string }) 
     limit: 20,
   });
 
-  return strongestSubscriptionState(
-    subscriptions.data.map((subscription) => subscription.status),
-  );
+  return subscriptions.data.map((subscription) => ({
+    id: subscription.id ?? null,
+    status: subscription.status,
+    priceIds: (subscription.items?.data ?? [])
+      .map((item) => item.price?.id)
+      .filter((id): id is string => Boolean(id)),
+  }));
 }
 
 async function readCheckoutInput(request: NextRequest): Promise<CheckoutInput> {
@@ -511,9 +523,51 @@ async function handleCheckout(request: NextRequest) {
 
     const appUrl = buildAppUrl(request);
 
-    const stripeState = stripeCustomerId
-      ? await getStripeSubscriptionState({ stripeCustomerId })
-      : "none";
+    const stripeSubscriptions = stripeCustomerId
+      ? await getStripeSubscriptions({ stripeCustomerId })
+      : [];
+    const stripeState = strongestSubscriptionState(
+      stripeSubscriptions.map((subscription) => subscription.status),
+    );
+
+    // D7-4 (R36): a studio with protected terms never starts a new Checkout, whatever
+    // the status of its subscription (canceled included). Unknown registry state fails closed.
+    const registry = await loadProtectedRegistry(supabaseAdmin, studioId);
+
+    if (registry.status === "error") {
+      console.error("billing checkout: protected-subscription registry check failed", { studioId });
+      return billingRedirect(
+        request,
+        buildBillingReturnPath({
+          error: "protection_check_failed",
+          path: audience,
+          entry: entryMode,
+          recommended: planCode,
+        })
+      );
+    }
+
+    const protection = evaluateProtection({
+      registry,
+      subscriptions: stripeSubscriptions,
+      legacyPriceIds: legacyProtectedPriceIds(),
+    });
+
+    if (protection.protected) {
+      console.warn("billing checkout: protected subscription routed to support", {
+        studioId,
+        reasons: protection.reasons,
+      });
+      return billingRedirect(
+        request,
+        buildBillingReturnPath({
+          error: "protected_subscription_needs_support",
+          path: audience,
+          entry: entryMode,
+          recommended: planCode,
+        })
+      );
+    }
 
     // The studio row only counts when it names a subscription; a status with no
     // subscription id is the no-card trial, which must still be able to check out.
