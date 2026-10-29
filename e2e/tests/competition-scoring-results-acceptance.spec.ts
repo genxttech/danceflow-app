@@ -227,8 +227,8 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     await page.goto(`${base(s)}/ballots/${roundId}`);
     const lock = page.getByRole("button", { name: "Lock ballots" });
     await expect(lock).toBeVisible({ timeout: 30_000 });
-    // TODO(HL1 labels): the per-heat action is expected to be a button named "Lock heat"; confirm the exact label when HL1 lands.
-    // The confirmation ("Lock heat N? Floor changes to this heat will be refused once locked.") may be a native dialog; accept it. If HL1 uses a modal instead, click its confirm button here (TODO once HL1 reports).
+    // HL1 (#350): the ballot desk's "Heats" section has a "Lock heat N" button per danced heat (manager only, round active). It asks with a
+    // native confirm ("Lock heat N? Floor changes to this heat will be refused once locked."), accepted below; the note input is optional.
     page.on("dialog", (dialog) => { void dialog.accept(); });
     const lockHeat = page.getByRole("button", { name: /^Lock heat/ });
     if (await lockHeat.count()) {
