@@ -172,3 +172,24 @@ Image `df-isoqa/base:20261118090000` (built with `iso-qa.mjs baseline --cutoff 2
 - **20261128 and 20261127 rollbacks:** `tw4_recurring_due(text)` has a different body md5 after the 20261128 rollback restores it; the text differs from 20261126's original only in a trailing line comment on the last statement. Behaviour is identical; the 20261126 rollback then drops the function.
 
 These two items are not on the KI-2 list, so the harness reports the rehearsal as FAIL rather than masking them. Decision for the coordinator or owner: list them as known cosmetic residue (KI-2c: constraint text form; KI-2d: a restored comment), or fix the rollbacks. Neither is a data or privilege difference, and nothing here is applied to any hosted database.
+
+## 10. Strict rehearsal and full matrix (2026-10-30, scratch merge of main 512fd7d2 + #356 + #349 + #357 + #326; one stack at a time, --parallel 1)
+
+Strict full-chain rehearsal (no --diagnose), from the pre-TW-4F baseline, 231 s: PASS in structure, exit 6 (KNOWN). 48 plan hashes equal the manifest; apply 48/48; the whole reverse rollback ends identical to the baseline; re-apply 48/48 with every step exactly equal to the first apply. Per-step rollback restores the exact prior catalog for 1231b, 1231, 1230..1226 and 1201..1119 (including the 1203/1202 price-list and 1128/1127 function steps that #357 fixes); 1225 down to 1202 differ only by the three documented KI-2 constraints. `tw4rbexact` 8/8 (2 static + 6 DB cases).
+
+Full matrix: `rehearse --matrix --exclusive` refused to start (exit 4) because another session's evidence stack (`df-isoqa-ph`) was up and `--exclusive` needs none, so the same matrix was started directly (`ISO_QA_REF_MAIN=<scratch sha> iso-qa.mjs matrix main --parallel 1 --tests-ref <scratch sha>`, 44 suites, about 1 h 50 min). Result: 34 PASS, 3 KNOWN, 7 FAIL, 0 infrastructure, 0 stale expectations (exit 1).
+
+| Group | Suites |
+|---|---|
+| PASS (34) | aal2 4, tw4f3bpay 18, tw4f3bui 7, tw4recexec 20, tw4recurring 30, tw4inbound 28, tw4recon 37, tw4rv 28, tw4sender 18, tw4usage 26, j3owner 11, r2ci1 10, r2ci2 15, dryRun.tw4r1 15, isolatedQa.canary 5, f1funding 25, f4recovery 31, f5canceltarget 8, feeres 46, r2brfl 28 (passed on the quiet host: the earlier 4500 ms timing assertion was load-driven), tw4a9 9, tw4f3a 16, tw4f3b0 18, tw4fi 25, tw4fj1 11, tw4pilothard 25, tw4r1 11, tw4rbexact 8, tw4rfl 87, tw4rfld5 21, tw4rflevid 60, tw4rflops 64, tw4rflopsrb 9, tw4rflspend 76 |
+| KNOWN (3) | tw4a (TW-1/2 pin), tw4f1b (function-count pin), r2bp2.rfl (KI-3, 1 of 3 tests) |
+| FAIL (7) | see below |
+
+The 7 FAIL, each classified:
+- `tw4monthly` 27/28: caused by #357. The rollback test passes the 1128 rollback script as a `psql -c` argument and the exact-restore made it 32,991 bytes, over the Windows command-line limit (ENAMETOOLONG). It passes 28/28 on plain main (control) and 28/28 with the test fixed on #357 (long scripts via stdin).
+- `f3recon` 9/10 (F3-09 (d)), `j2owner` 11/12 (activation checklist), `j4activation` 9/10 (one refusal per checklist item): each fails identically on plain `origin/main` (control runs, tests from origin/main), so they are stale tests on main and not caused by these PRs. f3recon rolls back 20261218 expecting success while later layers call `_tw4usage_reconciler_ready()` (the rollback correctly refuses).
+- `r2a` 28 passed, 1 failed, 1 skipped: "rollback discovery: every later rollback script is classified" fails because `20261231090000_twilio_platform_admin_aal2_rollback.sql` is not taught to the test's `appliedLaterLayers` (#312 merged without updating it). A test-only fix is needed.
+- `tw4payhardening` 14/15: the 90 s property test timed out (performance-bound; the known-failure entry requires the 3-test cascade, so this is reported as FAIL). Needs a quiet-host single rerun.
+- `r2b` 53 skipped (vitest exit 1: the suite's own `beforeAll` refuses a database with the real recurring-fee lifecycle): the SKIPPED-by-design disposition now also covers this exact pattern (exit 1, every test skipped, no failed test, the refusal message present in the log, via `logMatch`); the partial matrix run `--only localStack.r2b.test` reports it as SKIP* and exits 6.
+
+Not caused by, and not fixed in, the PRs under validation: f3recon, j2owner, j4activation, r2a classification, tw4payhardening.
