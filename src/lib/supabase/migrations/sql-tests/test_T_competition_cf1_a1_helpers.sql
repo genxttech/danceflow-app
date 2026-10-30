@@ -267,11 +267,13 @@ select pg_temp.chk('all eleven A1 functions exist',
 select pg_temp.chk('the exclusion table exists with RLS on and no policy',
   (select relrowsecurity from pg_class where oid = 'public.event_competition_round_exclusions'::regclass)
   and not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'event_competition_round_exclusions'));
-select pg_temp.chk('lock_competition_round_ballots is still the pinned post-HL1 text (A1 redefines nothing)',
-  md5(replace(pg_get_functiondef('public.lock_competition_round_ballots(uuid,uuid)'::regprocedure), E'\r', '')) = '6e4175342d51ffe274d70ce413bae8c3');
-select pg_temp.chk('_compe2_round_entries is still the NS1 text (A1 redefines nothing)',
-  pg_get_functiondef('public._compe2_round_entries(uuid)'::regprocedure) like '%competition_heat_entry_is_no_show%'
-  and pg_get_functiondef('public._compe2_round_entries(uuid)'::regprocedure) not like '%_cf1_%');
+-- A1 itself redefines neither function (its migration contains no create-or-replace of either; checked by grep in review). Later CF1
+-- packages do: A2 redefines the lock function (md5 c4ba327d...), A3 the ranking-set functions. So accept the post-HL1 text or the later one.
+select pg_temp.chk('lock_competition_round_ballots is the post-HL1 text or the A2 text (A1 redefines nothing)',
+  md5(replace(pg_get_functiondef('public.lock_competition_round_ballots(uuid,uuid)'::regprocedure), E'\r', ''))
+    in ('6e4175342d51ffe274d70ce413bae8c3', 'c4ba327df7943d559ab52ccd07d20ea0'));
+select pg_temp.chk('_compe2_round_entries keeps the NS1 no-show condition (A3 may add the exclusion filter; A1 adds nothing)',
+  pg_get_functiondef('public._compe2_round_entries(uuid)'::regprocedure) like '%competition_heat_entry_is_no_show%');
 select pg_temp.chk('the roster-problems function reuses _compe2_round_entries (does not re-derive the ranking set)',
   (select prosrc from pg_proc where oid = 'public._cf1_round_roster_problems(uuid)'::regprocedure) like '%_compe2_round_entries(p_round_id)%'
   and (select prosrc from pg_proc where oid = 'public._cf1_round_roster_problems(uuid)'::regprocedure) not like '%event_competition_heat_entries%');
