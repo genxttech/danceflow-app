@@ -128,7 +128,7 @@ create index event_competition_round_advancements_tx_idx on public.event_competi
 
 create table public.event_competition_round_advancement_entries (
   advancement_id uuid not null,
-  event_id uuid not null,
+  event_id uuid not null references public.events(id) on delete cascade,
   division_id uuid not null,
   entry_id uuid not null,
   tally jsonb not null default '{}'::jsonb,
@@ -140,7 +140,7 @@ create table public.event_competition_round_advancement_entries (
 
 create table public.event_competition_round_advancement_heats (
   advancement_id uuid not null,
-  event_id uuid not null,
+  event_id uuid not null references public.events(id) on delete cascade,
   heat_id uuid not null,
   floor_heat_id uuid not null,
   primary key (advancement_id, heat_id),
@@ -152,7 +152,7 @@ create table public.event_competition_round_advancement_heats (
 create table public.event_competition_round_advancement_revocations (
   id uuid primary key default gen_random_uuid(),
   advancement_id uuid not null unique,
-  event_id uuid not null,
+  event_id uuid not null references public.events(id) on delete cascade,
   revoked_by uuid not null,
   revoked_at timestamptz not null default now(),
   reason text not null check (length(btrim(reason)) between 1 and 500),
@@ -908,11 +908,12 @@ begin
     raise exception 'COMP_ADVANCEMENT_CONCURRENT_CHANGE: a Final heat or one of its couples is being changed; the round was not started. Try again.' using errcode = '55P03';
   end;
   -- Revalidate in fresh statements (they see what committed while a lock waited).
-  select count(*) into v_heats from public.event_competition_heats h where h.round_id = new.id and h.status <> 'cancelled';
+  select count(*) into v_heats from public.event_competition_heats h
+  where h.round_id = new.id and h.status <> 'cancelled' and h.schedule_version_id is not distinct from public._compo1_live_version(new.event_id);
   select coalesce(array_agg(he.entry_id order by he.entry_id), '{}') into v_roster
   from public.event_competition_heat_entries he
   join public.event_competition_heats h on h.id = he.heat_id
-  where h.round_id = new.id and h.status <> 'cancelled' and he.status <> 'scratched';
+  where h.round_id = new.id and h.status <> 'cancelled' and h.schedule_version_id is not distinct from public._compo1_live_version(new.event_id) and he.status <> 'scratched';
   select coalesce(array_agg(ae.entry_id order by ae.entry_id), '{}') into v_expected
   from public.event_competition_round_advancement_entries ae
   where ae.advancement_id = v_adv and ae.entry_id not in (select w.entry_id from public._cf1_withdrawn_entries(new.id) w);
@@ -1418,6 +1419,8 @@ create trigger cf1_guard_advancement_approval before update of status on public.
 create trigger cf1_guard_advancement_correction after update of status on public.event_competition_rounds
   for each row when (new.status = 'ballots_locked' and new.correction_open) execute function public.cf1_guard_advancement_correction();
 
+alter table public.event_competition_heats enable always trigger cf1_check_final_single_live_heat;
+alter table public.event_competition_round_advancements enable always trigger cf1_check_one_active_advancement;
 alter table public.event_competition_heats enable always trigger cf1_guard_final_heat_insert;
 alter table public.event_competition_heats enable always trigger cf1_guard_final_heat_status;
 alter table public.event_competition_heats enable always trigger cf1_guard_final_heat_identity;
@@ -1509,7 +1512,7 @@ begin
   -- CF1: the rounds an advancement connects, in the canonical (division_id, sequence_number) order, before any heat is read.
   perform 1 from public.event_competition_rounds r
   where r.event_id = v_event
-    and exists (select 1 from public.event_competition_round_advancements a where a.event_id = v_event and r.id in (a.source_round_id, a.target_round_id))
+    and (public._cf1_callback_successor(r.id) is not null or public._cf1_callback_source(r.id) is not null)
   order by r.division_id, r.sequence_number, r.id
   for key share;
   for v_floor in
@@ -1558,7 +1561,8 @@ begin
   foreach v_t in array array[
     'cf1_guard_final_heat_insert', 'cf1_guard_final_heat_status', 'cf1_guard_final_heat_identity', 'cf1_guard_final_heat_entry',
     'cf1_guard_final_heat_dance', 'cf1_guard_publish_final_heats', 'cf1_guard_final_start', 'cf1_guard_advancement_approval',
-    'cf1_guard_advancement_correction', 'cf1_guard_round_capacity', 'cf1_guard_callback_target_capacity', 'cf1_guard_callback_target_program_lock']
+    'cf1_guard_advancement_correction', 'cf1_guard_round_capacity', 'cf1_guard_callback_target_capacity', 'cf1_guard_callback_target_program_lock',
+    'cf1_check_final_single_live_heat', 'cf1_check_one_active_advancement']
   loop
     if not exists (select 1 from pg_trigger t where t.tgname = v_t and not t.tgisinternal and t.tgenabled = 'A') then
       raise exception 'CF1-A0 postflight: trigger % is missing or not ENABLE ALWAYS.', v_t;
