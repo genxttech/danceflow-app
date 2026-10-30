@@ -262,7 +262,7 @@ begin
   return coalesce((select jsonb_agg(a.id order by a.created_at) from public.studio_sms_recurring_authorizations a
      where a.status = 'active' and a.expires_at > now() and date_trunc('month', timezone('UTC', a.starts_at))::date <= (p_period_key || '-01')::date
        and ((p_period_key || '-01')::date::timestamp at time zone 'UTC') < a.expires_at
-       and not exists (select 1 from public.studio_sms_recurring_charges c where c.authorization_id = a.id and c.period_key = p_period_key and c.status in ('charged', 'refused'))), '[]'::jsonb);
+       and not exists (select 1 from public.studio_sms_recurring_charges c where c.authorization_id = a.id and c.period_key = p_period_key and c.status in ('charged', 'refused'))), '[]'::jsonb);   -- a refused period is decided (limit, price, term, another authorization): retrying adds nothing
 end $$;
 
 create or replace function public._tw4rc_service_state(p_studio_id uuid)
@@ -438,5 +438,13 @@ revoke all on function public._tw4rc_promised(uuid) from public, anon, authentic
 -- the previous due function was service-role only
 revoke all on function public.tw4_recurring_due(text) from public, anon, authenticated;
 grant execute on function public.tw4_recurring_due(text) to service_role;
+
+-- the restored body is exactly the one 20261126090000 created (comment included): md5 of prosrc, CR removed, as in the catalog fingerprint
+do $$
+begin
+  if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = 'public.tw4_recurring_due(text)'::regprocedure) is distinct from 'd38ad5accf56ffb7a106932b6cd6c58a' then
+    raise exception 'monthly-limits rollback postcondition failed: tw4_recurring_due is not the 20261126090000 body';
+  end if;
+end $$;
 
 commit;

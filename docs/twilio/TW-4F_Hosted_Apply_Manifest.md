@@ -82,14 +82,14 @@ CRLF handling, because it corrupted function-body fingerprints before:
 | 20261125090000 | 20261125090000_twilio_pay_integrity_hardening.sql | 10ef2b00c4831702cbb6e5b6939495557db69165d62aede43ef4a72d857f13a1 | 746f3bfdf411ab6f3fda0e0db59018e04dde70d82921180ec3db07dd08637a5f | LF |
 | 20261126090000 | 20261126090000_twilio_recurring_authorization.sql | 9fa3000f06d5ad7b8547d7a80d17b33a18818e488ac6bd396aa82ad7af3625ab | c23f8e87c8e1b7464f75f5b44e7cf0bff9b453d2b13548061aec31d9d4b90c2c | LF |
 | 20261127090000 | 20261127090000_twilio_recurring_execution.sql | 8decf51801b640f10d8a7adfb2180d1179446c8a757de33a441a3499f7d3a480 | d0900f28995fd04e3804f531ec63df493ae88bcdb178c3de6f8043ec3e540dd3 | LF |
-| 20261128090000 | 20261128090000_twilio_monthly_spending_limits.sql | 2b211559cb0a25facfe8c1e2dcd0dc1cb3854814d58f16856e55b56cb6a50f4c | 30dd965d38046bcc70680b791cf32442974347d12c6f635b4eeb04994205c2e5 | LF |
+| 20261128090000 | 20261128090000_twilio_monthly_spending_limits.sql | 2b211559cb0a25facfe8c1e2dcd0dc1cb3854814d58f16856e55b56cb6a50f4c | e69bf3d670c8f3efc547816228929cb89dc500ff926a112cc7445b2749080069 | LF |
 | 20261129090000 | 20261129090000_twilio_tw4f_provider_integration.sql | 5e9395e47c655eaa18c7b5445b515d052548c706b22a464c987c825f37361278 | c0f9954e71a3ac595844ae714039449d2cda854d51fb46ea0be5324595a68881 | LF |
 | 20261130090000 | 20261130090000_twilio_tw4f_admin_panel.sql | 2b7796173739138e1fb57aade02c3df04f946b85423a2cb79c9cbdf63298fae2 | 1ca56f470097d65af9bdc0142945abea2d54e676e6d2edc9b883b78bdc7fd55a | LF |
 | 20261201090000 | 20261201090000_twilio_sms_usage_financials.sql | 849fda85d353d74cfd66509d86cfd22bd87726f754886ada846081d52d74c561 | 6d1e536fdf97788debc4a2f33b9590bde8a6f8edb57ad027d08e92a2fd197a40 | LF |
 | 20261202090000 | 20261202090000_twilio_tw4f_financial_integrity.sql | f1fc7e81e60c4001654708e4726c446148566699f5946787451dc85155dd59fe | cfde042e52b2a3071656661015b274cf8b8a8556f81204d6ef879d1b319e8628 | LF |
 | 20261202140000 | 20261202140000_twilio_tw4ml_default_tz_perf.sql | eb75f67320f9dc0532e4854fea546d1adf5774094abfb3f3c6359ed596d79cf5 | 691dba3d934bdc1a8673d3ec4f803d3f7bff4a33c9cd7cf4cca583037db8afda | LF |
 | 20261202150000 | 20261202150000_twilio_tw4f_panel_monthly_limits.sql | dd9d4f210867c1dcae307e99d6969e918cbf23a4f5ab529cd08add2d440a064d | 786cfacaa3ab573cb865c9bd9ce4bcf639d835236967f360cc1fa8ea984bde0d | LF |
-| 20261203090000 | 20261203090000_twilio_inbound_usage_recording.sql | a21074c58bb07ecd2e76d730de8a658ab359feb3be5ae47c538b8e2a26728212 | b621ee50dc090a314ce68275288d6950eac0d079efa6919fe8d8f3fc513575a9 | LF |
+| 20261203090000 | 20261203090000_twilio_inbound_usage_recording.sql | a21074c58bb07ecd2e76d730de8a658ab359feb3be5ae47c538b8e2a26728212 | ad009965255b9efb32f2616bf8757fc8d2ccdc658ddf09e01c79aaff310ca304 | LF |
 | 20261204090000 | 20261204090000_twilio_sender_readiness.sql | 6671ed7ab4a896c5c25ce36fd1ec047a35758704298399b4ce8f1a3964e3f122 | 1c36772025edf1bdc65b1bcd864b20c67d116a543895934cd3d36e48fb888e55 | LF |
 | 20261205090000 | 20261205090000_twilio_usage_reconciliation.sql | 2e8f122800477af9d241b9989042445095a28a5d7dcc31a525653995c18c515e | 0e496d748a080296c1733e99f2b487ca1ff4b7d0c2a571f747232945b1bb39d5 | LF |
 | 20261206090000 | 20261206090000_twilio_sender_reverification.sql | 7e766d021d478d8615c88134e41f62dd5bae7eb4379583fff1b10aa3f89b0b0e | 2932f6b70b4b49a95d77f9a4dca753727349ac5eeff5870ea83b5a5cccc4145d | LF |
@@ -430,8 +430,8 @@ Generated from the blobs by `gen_manifest_data.mjs`; regenerate, do not hand-edi
 - client-exposed grants (anon/authenticated/PUBLIC): 
   - `GRANT EXECUTE public.sms_monthly_limit_overview(uuid) to authenticated`
 - one-off data statements: none at top level
-- rollback: `rollback/20261128090000_twilio_monthly_spending_limits_rollback.sql` sha256 `30dd965d38046bcc70680b791cf32442974347d12c6f635b4eeb04994205c2e5`
-  - refusal conditions: "monthly-limits rollback: not applied"; "monthly-limits rollback refused: limits, ceilings, timezone changes or set-aside commitments exist [55000]"
+- rollback: `rollback/20261128090000_twilio_monthly_spending_limits_rollback.sql` sha256 `e69bf3d670c8f3efc547816228929cb89dc500ff926a112cc7445b2749080069`
+  - refusal conditions: "monthly-limits rollback: not applied"; "monthly-limits rollback refused: limits, ceilings, timezone changes or set-aside commitments exist [55000]"; "monthly-limits rollback postcondition failed: tw4_recurring_due is not the 20261126090000 body"
 
 #### 20261129090000_twilio_tw4f_provider_integration.sql
 
@@ -516,8 +516,8 @@ Generated from the blobs by `gen_manifest_data.mjs`; regenerate, do not hand-edi
 - replaced (CREATE OR REPLACE / re-created): `_tw4ml_month_parts`, `tw4_credit_debit_usage`, `tw4_recurring_charge`
 - client-exposed grants (anon/authenticated/PUBLIC): none
 - one-off data statements: none at top level
-- rollback: `rollback/20261203090000_twilio_inbound_usage_recording_rollback.sql` sha256 `b621ee50dc090a314ce68275288d6950eac0d079efa6919fe8d8f3fc513575a9`
-  - refusal conditions: "inbound-recording rollback: not applied"; "inbound-recording rollback refused: inbound records, ceilings or inbound prices exist [55000]"
+- rollback: `rollback/20261203090000_twilio_inbound_usage_recording_rollback.sql` sha256 `ad009965255b9efb32f2616bf8757fc8d2ccdc658ddf09e01c79aaff310ca304`
+  - refusal conditions: "inbound-recording rollback: not applied"; "inbound-recording rollback refused: inbound records, ceilings or inbound prices exist [55000]"; "inbound-recording rollback refused: the price-list kinds are not the 20261202090000 list (a later change is still applied): %"; "inbound-recording rollback postcondition failed: the restored price-list kind constraint is not the 20261202090000 definition"
 
 #### 20261204090000_twilio_sender_readiness.sql
 

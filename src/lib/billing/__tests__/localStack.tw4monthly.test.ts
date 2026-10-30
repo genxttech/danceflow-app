@@ -64,8 +64,10 @@ const as = (who: keyof typeof U): SupabaseClient =>
 const psql = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-At", "-v", "ON_ERROR_STOP=1", "-c", sql], { encoding: "utf8" }).trim();
 const psqlFile = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-q", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8" });
 const psqlError = (sql: string): string => {
+  // a long script (the 20261128 rollback is over 32 KB) is fed on stdin: as a -c argument it exceeds the Windows command-line limit (ENAMETOOLONG)
+  const viaStdin = sql.length > 20_000;
   try {
-    execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-At", "-v", "ON_ERROR_STOP=1", "-c", sql], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-At", "-v", "ON_ERROR_STOP=1", ...(viaStdin ? [] : ["-c", sql])], { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], input: viaStdin ? sql : "" });
     return "";
   } catch (error) {
     return String((error as { stderr?: Buffer | string }).stderr ?? error);

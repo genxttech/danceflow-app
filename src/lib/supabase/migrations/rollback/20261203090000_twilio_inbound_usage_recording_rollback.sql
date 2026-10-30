@@ -1,5 +1,5 @@
 -- Rollback of 20261203090000 (inbound usage recording). Restores _tw4ml_month_parts and tw4_credit_debit_usage as of 20261201090000, removes the
--- 'sms_inbound' price kind from the live kind list (leaving every other kind as it is) and drops the inbound objects.
+-- 'sms_inbound' price kind from the live kind list, re-creating the constraint in the exact text form 20261202090000 created (REFUSES, 55000, unless the kinds left are exactly the 20261202090000 list), and drops the inbound objects.
 -- REFUSES once any inbound record, exposure ceiling or 'sms_inbound' price row exists (financial evidence): from then on the stance is forward-fix only.
 -- Roll the application back first.
 begin;
@@ -37,7 +37,16 @@ begin
     raise exception 'could not read the price kinds from %', v_def;
   end if;
   alter table public.studio_sms_price_list drop constraint studio_sms_price_list_kind_check;
-  execute format('alter table public.studio_sms_price_list add constraint studio_sms_price_list_kind_check check (kind = any (%L::text[]))', v_kinds);
+  -- 20261203090000 added the inbound kind to the 20261202090000 list: what remains must be exactly that list, else a later layer changed it
+  if (select array_agg(x order by x) from unnest(v_kinds) x) is distinct from (select array_agg(x order by x) from unnest(array['brand', 'brand_low_volume', 'campaign_vetting', 'monthly', 'monthly_low_volume', 'number', 'sms_usage']::text[]) x) then
+    raise exception 'inbound-recording rollback refused: the price-list kinds are not the 20261202090000 list (a later change is still applied): %', v_kinds using errcode = '55000';
+  end if;
+  -- back in the text form 20261202090000 created (ARRAY[...] in the 20261202090000 order), so the catalog matches the pre-20261203090000 state exactly
+  alter table public.studio_sms_price_list add constraint studio_sms_price_list_kind_check check (kind in ('brand', 'brand_low_volume', 'campaign_vetting', 'number', 'monthly', 'monthly_low_volume', 'sms_usage'));
+  if (select pg_get_constraintdef(c.oid) from pg_constraint c where c.conrelid = 'public.studio_sms_price_list'::regclass and c.conname = 'studio_sms_price_list_kind_check')
+     is distinct from $c$CHECK ((kind = ANY (ARRAY['brand'::text, 'brand_low_volume'::text, 'campaign_vetting'::text, 'number'::text, 'monthly'::text, 'monthly_low_volume'::text, 'sms_usage'::text])))$c$ then
+    raise exception 'inbound-recording rollback postcondition failed: the restored price-list kind constraint is not the 20261202090000 definition';
+  end if;
 end $$;
 
 -- as of 20261201090000
