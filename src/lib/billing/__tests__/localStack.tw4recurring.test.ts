@@ -54,9 +54,9 @@ function sign(payload: Record<string, unknown>) {
 }
 const anonKey = () => (enabled ? sign({ iss: "supabase-demo", role: "anon", exp: 1983812996 }) : "");
 const serviceKey = () => (enabled ? sign({ iss: "supabase-demo", role: "service_role", exp: 1983812996 }) : "");
-const userToken = (sub: string) => sign({ sub, role: "authenticated", aud: "authenticated", exp: Math.floor(Date.now() / 1000) + 3600 });
-const as = (who: keyof typeof U): SupabaseClient =>
-  createClient(URL_, anonKey(), { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: { Authorization: `Bearer ${userToken(U[who])}` } } });
+const userToken = (sub: string, aal = "aal2") => sign({ sub, role: "authenticated", aud: "authenticated", aal, exp: Math.floor(Date.now() / 1000) + 3600 });
+const as = (who: keyof typeof U, aal = "aal2"): SupabaseClient =>
+  createClient(URL_, anonKey(), { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: { Authorization: `Bearer ${userToken(U[who], aal)}` } } });
 const psql = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-At", "-v", "ON_ERROR_STOP=1", "-c", sql], { encoding: "utf8" }).trim();
 const psqlFile = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-q", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8" });
 const psqlError = (sql: string): string => {
@@ -732,6 +732,9 @@ describe.skipIf(!enabled)("recurring SMS service charges: authorization, funding
       expect(JSON.stringify(overview)).not.toMatch(/8882|8881|@/);
       expect(await getRecurringAdminOverview(as("owner_b") as never)).toBeNull();
       expect(await getRecurringAdminOverview(as("admin_a") as never)).toBeNull();
+      // TW-4F AAL2: a platform admin whose token is only aal1 is refused in SQL too
+      expect((await as("padmin", "aal1").rpc("sms_recurring_admin_overview")).error?.code).toBe("42501");
+      expect(await getRecurringAdminOverview(as("padmin", "aal1") as never)).toBeNull();
     });
   });
 

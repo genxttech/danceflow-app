@@ -3,7 +3,7 @@ import { blocked, buildReport, exitCodeFor, fail, overallStatus, pass, renderRep
 import { assertBillingQaTestModeKey } from "@/lib/billing-qa/stripeKey";
 
 const build = (checks: ReturnType<typeof pass>[]) =>
-  buildReport({ tool: "t", startedAt: "2026-10-25T00:00:00.000Z", completedAt: "2026-10-25T00:00:01.000Z", config: {}, checks });
+  buildReport({ tool: "t", mode: "test", startedAt: "2026-10-25T00:00:00.000Z", completedAt: "2026-10-25T00:00:01.000Z", config: {}, checks });
 
 describe("BILLING-QA report status", () => {
   it("PASS only when every check passed", () => {
