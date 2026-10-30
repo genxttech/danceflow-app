@@ -470,7 +470,7 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     expect(heat.status, "locked before it was danced").toBe("scheduled");
     await shot(page, "heat-locked-early");
     // Locked but not danced: Lock ballots stays disabled, with the not-danced reason.
-    await expect(page.getByRole("region", { name: "Lock and reopen" })).toContainText(/1 heat(s) not danced yet: 1./, { timeout: 30_000 });
+    await expect(page.getByRole("region", { name: "Lock and reopen" })).toContainText("1 heat(s) not danced yet: 1.", { timeout: 30_000 });
     await expect(page.getByRole("button", { name: "Lock ballots" })).toBeDisabled();
 
     await page.goto(`${base(E)}/day-of`);
@@ -589,7 +589,7 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     const page = await signedIn(browser, fixture.owner);
     // The heat is on the floor: it has not been locked, so the desk refuses to lock the round (a heat on the floor counts as danced for the not-danced rule).
     await openDesk(page, E, E.finalRoundId);
-    await expect(page.getByRole("region", { name: "Lock and reopen" })).toContainText(/1 heat(s) not locked yet./, { timeout: 30_000 });
+    await expect(page.getByRole("region", { name: "Lock and reopen" })).toContainText("1 heat(s) not locked yet.", { timeout: 30_000 });
     await expect(page.getByRole("button", { name: "Lock ballots" })).toBeDisabled();
     await shot(page, "heat-not-locked-yet");
     const ok = await tryLock(page, E, E.finalRoundId, "E", testInfo);
