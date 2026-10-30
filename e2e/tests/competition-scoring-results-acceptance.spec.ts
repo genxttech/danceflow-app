@@ -497,32 +497,24 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     await page.context().close();
   });
 
-  test("SCN-6.3 official scratch in a locked heat: the reason is required, the heat stays locked, one audit row", async ({ browser }, testInfo) => {
+  test("SCN-6.3 official scratch in a locked heat: with HL1 a heat locks only after it is danced, so the scratch page refuses it as danced (the official locked-heat path is not reachable)", async ({ browser }, testInfo) => {
     test.skip(!locked.E, "BLOCKED: the ballots could not be locked (SCN-12.3)");
     const shot = stepShots(testInfo);
     const page = await signedIn(browser, fixture.owner);
-    // The no-show entry is already off every ballot, so scratching it does not change what the judges ranked.
+    // The no-show entry is already off every ballot. The dev server answers requests to a route it is still compiling with a 404: retry until served.
     const target = E.entries[3];
-    // The dev server answers the first request to an uncompiled route with a 404, so open the page twice.
-    // The dev server answers requests to a route it is still compiling with a 404: retry until the page itself is served.
     await expect(async () => {
       await page.goto(`${base(E)}/registrations/scratch/${target}`);
       await expect(page.getByRole("heading", { name: "Scratch entry", level: 1 })).toBeVisible({ timeout: 8_000 });
     }).toPass({ timeout: 120_000 });
-    await expect(page.getByText(/This entry is in a locked heat\. As an official you can scratch it without reopening the heat/)).toBeVisible();
-    await page.getByRole("button", { name: "Scratch entry" }).click();
-    await expect(page.getByRole("heading", { name: "Scratch entry", level: 1 })).toBeVisible();
+    await expect(page.getByText("This entry has already danced. Changes go through the results correction workflow.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Scratch entry" })).toHaveCount(0);
+    await shot(page, "locked-heat-is-danced");
     expect((await readScratchAudit(config, E.event.id)).filter((s) => s.entry_id === target)).toHaveLength(0);
-    await page.getByLabel("Reason").fill("Couple withdrew after the no-show");
-    await page.getByRole("button", { name: "Scratch entry" }).click();
-    await page.goto(`${base(E)}/registrations/scratch/${target}`);
-    await expect(page.getByText("Couple withdrew after the no-show")).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/locked heat/).first()).toBeVisible();
-    await shot(page, "official-locked-scratch-history");
-    const audit = (await readScratchAudit(config, E.event.id)).filter((s) => s.entry_id === target);
-    expect(audit).toHaveLength(1);
-    expect(audit[0]).toMatchObject({ path: "official_locked", reason: "Couple withdrew after the no-show", performed_by: fixture.owner.id });
-    expect((await readHeatEvidence(config, E.event.id)).effective.map((h) => h.lockState)).toEqual(["locked"]);
+    const heat = (await readHeatEvidence(config, E.event.id)).effective[0];
+    expect([heat.status, heat.lockState]).toEqual(["complete", "locked"]);
+    evidence({ scenario: "SCN-6.3", heatStatus: heat.status, heatLockState: heat.lockState });
+    scenarioStatus(testInfo, "BLOCKED", "The official scratch in a locked, not-yet-danced heat (SC1 path official_locked) cannot be reached: HL1 offers Lock heat only for a danced heat, and a danced and locked heat is classed as danced, which the scratch page refuses. The refusal itself is asserted here.");
     await page.context().close();
   });
 
