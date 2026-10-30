@@ -267,7 +267,7 @@ Setup totals (brand + vetting + first month + number): Low Volume $31.90, Standa
 | Per-segment loss at pair A / pair B list prices | none in expected or worst-carrier outbound; pair B inbound AT&T-heavy margin 12% (positive) |
 | Twilio list cost rise | outbound break-even (before the variance reserve) at about +114% (pair A) / +36% (pair B) over worst-carrier cost; the 10% republish rule triggers first |
 | Lost dispute on a spent $100 pack | about -$82 (received $96.80, Twilio cost about $63.5 incurred at 2¢-equivalent, refunded $100 + $15) unless the negative balance is recovered; five packs at the $500 ceiling about -$410 |
-| Inbound drain by an unknown sender | $10 ceiling per business then absorbed; the 200 segments/day alert implies about $2.04-$2.36 per day at inbound cost, about $61-$71 per 30 days |
+| Inbound drain by an unknown sender | $10 ceiling bounds customer debt only; the remainder is absorbed without a cap; the 200 segments/day flag (admin overview only) equals about $2.04-$2.36 per day at inbound cost, about $61-$71 per 30 days (illustration, not a limit; see section 14.5 correction) |
 | Duplicate or erroneous registration absorbed | Standard path $72.15; Low Volume path $22.15 |
 | Failed-message fee | $0.001 each |
 | STOP/HELP confirmations | about $0.0127 per outbound confirmation, absorbed |
@@ -353,7 +353,7 @@ None of these come from the per-segment list prices; they are the unbilled or ab
 | Refunded unused top-up | Stripe fee ($1.03 / $1.75 / $3.20) | refunded | Stripe keeps its fee |
 | Settlement overage past the reservation | up to 2 segments x price beyond the hold | charged, but balance may go negative | the message already went out |
 
-The unbounded one is the flood case (S9): without a cap, absorbed inbound is limited only by the $10 ceiling per business and the 200-segments-a-day alert. At the $0.0102-$0.0118 inbound cost that is about $61-$71 per business per 30 days if left unattended.
+The unbounded one is the flood case (S9). **Correction (2026-10-30, after reading `tw4_inbound_record` in `20261203`):** the $10 ceiling bounds what a *customer* can be charged (negative balance), not what DanceFlow absorbs. Past it every further segment is recorded as uncollected and Twilio still bills it; nothing refuses or throttles an ordinary inbound text, and the 200-segments/day flag is an admin-overview indicator only (no automatic action). The earlier "about $61-$71 per 30 days" is just 200 segments/day extrapolated at inbound cost ($0.0102-$0.0118); it is an illustration, not a cap. Absorbed inbound is limited only by the flood's size. For the pilot business (ceiling 0) every ordinary inbound segment beyond its available credit is absorbed. See `TW-4F_Pilot_Readiness_Checklist.md`.
 
 ### 14.6 Hidden sensitivities
 
