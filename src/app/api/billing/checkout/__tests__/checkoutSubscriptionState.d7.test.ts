@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import {
   blocksNewCheckout,
+  classifyStudioRowStatus,
   classifySubscriptionStatus,
   strongestSubscriptionState,
 } from "@/lib/billing/subscriptionState";
@@ -114,6 +115,14 @@ describe("subscription state rule", () => {
     expect(blocksNewCheckout("none")).toBe(false);
   });
 
+  it("maps the studio-row (webhook) vocabulary", () => {
+    expect(classifyStudioRowStatus("inactive")).toBe("hold");
+    expect(classifyStudioRowStatus("cancelled")).toBe("none");
+    expect(classifyStudioRowStatus("past_due")).toBe("managed");
+    expect(classifyStudioRowStatus("trialing")).toBe("managed");
+    expect(classifyStudioRowStatus(null)).toBe("none");
+  });
+
   it("takes the strongest state across subscriptions", () => {
     expect(strongestSubscriptionState(["canceled", "paused", "active"])).toBe("managed");
     expect(strongestSubscriptionState(["canceled", "incomplete"])).toBe("hold");
@@ -147,14 +156,18 @@ describe("checkout is fail-closed for existing and half-created subscriptions", 
     expect(state.calls).toEqual([]);
   });
 
-  it("local paused/incomplete studio with a subscription id is blocked even if Stripe lists nothing", async () => {
+  it("studio row in webhook vocabulary: inactive (= paused or incomplete) with a subscription id is a hold even if Stripe lists nothing; cancelled is not", async () => {
     state.studioSubscriptionId = "sub_1";
-    for (const status of ["paused", "incomplete"]) {
+    for (const status of ["inactive"]) {
       state.studioStatus = status;
       const response = await POST(post());
       expect(response.headers.get("location")).toContain("error=subscription_needs_support");
     }
     expect(state.calls).toEqual([]);
+
+    state.studioStatus = "cancelled";
+    const response = await POST(post());
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.test/s");
   });
 
   it("a mix of terminal and live subscriptions is blocked by the live one", async () => {

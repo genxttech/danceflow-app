@@ -21,7 +21,7 @@ import {
 } from "@/lib/billing/protectedSubscriptions";
 import {
   blocksNewCheckout,
-  classifySubscriptionStatus,
+  classifyStudioRowStatus,
   strongestSubscriptionState,
 } from "@/lib/billing/subscriptionState";
 
@@ -389,8 +389,8 @@ async function handleCheckout(request: NextRequest) {
       );
     }
 
-    // LAUNCH-SEC-2A: both branches below (new plan checkout and the billing
-    // portal for an existing subscription) are owner-level billing actions.
+    // LAUNCH-SEC-2A: starting a plan checkout (and the support-routed refusals for an
+    // existing subscription) are owner-level billing actions.
     if (!canManageWorkspaceSubscription(context.studioRole, context.isPlatformAdmin)) {
       return billingRedirect(
         request,
@@ -638,7 +638,7 @@ async function handleCheckout(request: NextRequest) {
     // The studio row only counts when it names a subscription; a status with no
     // subscription id is the no-card trial, which must still be able to check out.
     const studioState = studio.stripe_subscription_id
-      ? classifySubscriptionStatus(studio.subscription_status)
+      ? classifyStudioRowStatus(studio.subscription_status)
       : "none";
 
     const subscriptionState = strongestSubscriptionState([

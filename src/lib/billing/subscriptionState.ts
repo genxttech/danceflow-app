@@ -23,6 +23,20 @@ export function classifySubscriptionStatus(
   return "none";
 }
 
+/**
+ * The studio row stores the webhook vocabulary, not Stripe statuses: paused and incomplete
+ * are written as "inactive", canceled and incomplete_expired as "cancelled", unpaid as
+ * "past_due". With a subscription id on the row, "inactive" therefore means paused or
+ * incomplete (a hold). Used by the checkout route only: on the page an "inactive" studio
+ * without a subscription id is simply new.
+ */
+export function classifyStudioRowStatus(
+  status: string | null | undefined,
+): SubscriptionStateKind {
+  if (status === "inactive") return "hold";
+  return classifySubscriptionStatus(status);
+}
+
 export function isManagedSubscriptionStatus(status: string | null | undefined) {
   return classifySubscriptionStatus(status) === "managed";
 }
