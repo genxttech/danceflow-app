@@ -201,7 +201,8 @@ test.describe("Studio subscription checkout and webhooks through real Stripe tes
     const customer = String((await readStudioBilling(config, fixture.fresh.id)).customers[0].stripe_customer_id);
     const before = await stripe.checkout.sessions.list({ customer, limit: 100 });
     const location = await startCheckout(request, "pro");
-    expect(new URL(location).hostname, "expected a Billing Portal redirect (is a test-mode portal configuration saved?)").toBe("billing.stripe.com");
+    // main (D7-3a/#351): an existing subscriber is routed to support, never to a new Checkout or a self-serve plan change.
+    expect(new URL(location, "http://localhost").searchParams.get("error")).toBe("plan_change_requires_support");
     const after = await stripe.checkout.sessions.list({ customer, limit: 100 });
     expect(after.data.map((s) => s.id)).toEqual(before.data.map((s) => s.id));
     const subscription = await stripe.subscriptions.retrieve(state.subscriptionId!);
@@ -271,7 +272,8 @@ test.describe("Studio subscription checkout and webhooks through real Stripe tes
 
     const { context, request } = await signedInRequest(browser, fixture.legacy);
     const location = await startCheckout(request, "pro");
-    expect(new URL(location).hostname).toBe("billing.stripe.com");
+    // main (D7-3a/D7-4): routed to support (protected legacy Price or plan-change refusal), never to Checkout.
+    expect(["protected_subscription_needs_support", "plan_change_requires_support"]).toContain(new URL(location, "http://localhost").searchParams.get("error"));
     expect((await stripe.checkout.sessions.list({ customer: customer.id, limit: 10 })).data).toHaveLength(0);
     const after = await stripe.subscriptions.retrieve(subscription.id);
     expect(after.items.data.map((i) => [i.price.id, i.price.unit_amount])).toEqual([[legacyPrice.id, legacyPrice.unit_amount]]);
