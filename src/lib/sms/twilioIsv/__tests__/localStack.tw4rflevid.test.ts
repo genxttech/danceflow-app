@@ -457,6 +457,8 @@ commit;`);
             return String((error as { stderr?: Buffer | string }).stderr ?? error);
           }
         };
+        // 20261231100000 (pilot spend hardening) sits on top of 20261230: strict reverse order, it goes first
+        if (run(`select to_regprocedure('public._tw4psh_spend_authorize(uuid,text,integer,text,uuid,text,uuid,date,text,text,integer,text,text,text)') is not null`) === "t") run(readFileSync(join(mdir, "rollback/20261231100000_twilio_pilot_spend_hardening_rollback.sql"), "utf8"));
         if (spendEvidenceApplied(psql)) run(readFileSync(spendBack, "utf8"));
         body(run, fail);
       } finally {
