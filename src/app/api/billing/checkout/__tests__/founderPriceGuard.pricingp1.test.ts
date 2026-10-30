@@ -168,13 +168,13 @@ describe("PRICING-P1 studio checkout price guard", () => {
     expect(state.sessionPrice).toBe("price_standard_growth");
   });
 
-  it("existing subscribers still go to the billing portal and are not re-priced, even with no Price ID configured", async () => {
+  it("existing subscribers are routed to support (D7-3a), never re-priced and never sent to a new checkout, even with no Price ID configured", async () => {
     vi.stubEnv("STRIPE_PRICE_STUDIO_GROWTH_FOUNDER", "");
     state.subscriptionStatus = "active";
     state.managedSubscription = true;
     const r = await POST(post());
-    expect(r.headers.get("location")).toBe("https://billing.stripe.test/portal");
-    expect(state.stripeCalls).toEqual(["portal"]);
+    expect(r.headers.get("location")).toContain("error=plan_change_requires_support");
+    expect(state.stripeCalls).toEqual([]);
     expect(state.retrieved).toEqual([]);
   });
 

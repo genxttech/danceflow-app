@@ -43,3 +43,11 @@ export function resolvePlanCardCta(params: {
 
   return { kind: "start_trial", label: `Start ${params.planLabel} Trial` };
 }
+
+/** D7-3a: checkout refusals for studios that already have, or are mid-way through, a subscription. */
+export const BILLING_CHECKOUT_BLOCK_MESSAGES: Record<string, string> = {
+  plan_change_requires_support:
+    "This workspace already has a subscription. Plan changes are handled by DanceFlow support so your current price and terms are protected. Contact support@idanceflow.com. Nothing has been changed.",
+  subscription_needs_support:
+    "This workspace's subscription is paused or incomplete, so a new checkout can't be started. Contact support@idanceflow.com. No new subscription or trial has been created.",
+};

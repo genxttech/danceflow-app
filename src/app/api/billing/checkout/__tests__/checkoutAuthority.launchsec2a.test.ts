@@ -159,11 +159,12 @@ describe("LAUNCH-SEC-2A billing checkout authority", () => {
     expect(response.headers.get("location")).toBe("https://checkout.stripe.test/session");
   });
 
-  it("the owner still reaches the billing portal for an existing subscription", async () => {
+  it("the owner with an existing subscription is routed to support, not a new checkout (D7-3a)", async () => {
     state.subscriptionStatus = "active";
     state.managedSubscription = true;
     const response = await POST(postRequest());
-    expect(response.headers.get("location")).toBe("https://billing.stripe.test/portal");
+    expect(response.headers.get("location")).toContain("error=plan_change_requires_support");
+    expect(state.stripeCalls).not.toContain("checkout.sessions.create");
   });
 
   it.each([
