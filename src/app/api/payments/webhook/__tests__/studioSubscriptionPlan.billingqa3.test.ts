@@ -19,6 +19,8 @@ const realStripe = new Stripe("sk_test_billingqa3_not_a_real_key");
 let signatureHeader: string | null = null;
 let fake: ReturnType<typeof createOwnershipFakeSupabase>;
 let completions: Array<{ status: unknown; error: unknown }> = [];
+// What the database claim reports for the next delivery: "claimed", "already_processed" or another worker holding the lease.
+let claimOutcome = "claimed";
 // Stripe's CURRENT subscription state, which the webhook re-reads; post() keeps it in step unless an event is stale.
 let stripeState: Record<string, unknown> = {};
 const notFound = () => Object.assign(new Error("No such subscription"), { code: "resource_missing", statusCode: 404 });
@@ -66,7 +68,7 @@ function seed(extra: Record<string, Row[]> = {}) {
     },
     {
       rpcOverride: (name, params) => {
-        if (name === "claim_payment_provider_event") return { data: { outcome: "claimed" }, error: null };
+        if (name === "claim_payment_provider_event") return { data: { outcome: claimOutcome }, error: null };
         if (name === "complete_payment_provider_event") {
           completions.push({ status: params.p_status, error: params.p_error });
           return { data: true, error: null };
@@ -96,9 +98,9 @@ function subscription(fields: { id?: string; status?: string; prices: string[]; 
   };
 }
 
-function eventBody(type: string, object: unknown, account?: string) {
+function eventBody(type: string, object: unknown, account?: string, eventId?: string) {
   return JSON.stringify({
-    id: `evt_${Math.random().toString(36).slice(2)}`,
+    id: eventId ?? `evt_${Math.random().toString(36).slice(2)}`,
     object: "event",
     type,
     api_version: "2026-03-25.dahlia",
@@ -114,9 +116,9 @@ function eventBody(type: string, object: unknown, account?: string) {
 type TestHeaderOptions = Parameters<typeof realStripe.webhooks.generateTestHeaderString>[0];
 
 /** `stale: true` delivers an event whose payload is older than Stripe's current state (late, retried or reordered). */
-async function post(type: string, object: unknown, account?: string, opts: { stale?: boolean } = {}) {
+async function post(type: string, object: unknown, account?: string, opts: { stale?: boolean; eventId?: string } = {}) {
   if (type.startsWith("customer.subscription.") && !opts.stale) stripeState[(object as { id: string }).id] = object;
-  const body = eventBody(type, object, account);
+  const body = eventBody(type, object, account, opts.eventId);
   signatureHeader = realStripe.webhooks.generateTestHeaderString({ payload: body, secret: account ? CONNECT_SECRET : PLATFORM_SECRET } as TestHeaderOptions);
   const response = await POST(new Request("https://example.test/api/payments/webhook", { method: "POST", body }));
   return { status: response.status, text: await response.text() };
@@ -127,6 +129,7 @@ const subsFor = (id: string) => fake.rows("studio_subscriptions").filter((row) =
 
 beforeEach(() => {
   completions = [];
+  claimOutcome = "claimed";
   stripeState = {};
   // Full reset: a one-shot mock a previous test did not consume must never leak into the next one.
   stripeApi.subscriptions.retrieve.mockReset().mockImplementation(currentSubscription);
@@ -362,5 +365,51 @@ describe("independent review fixes (BILLING-QA-3)", () => {
     expect(fake.rows("studio_invoices")).toEqual([expect.objectContaining({ studio_id: "studio-1", stripe_invoice_id: "in_fail", status: "open", amount_due: 99 })]);
     expect(subsFor("studio-1")[0].status).toBe("past_due");
     expect(studio("studio-1")).toMatchObject({ subscription_status: "past_due", billing_plan: "growth" });
+  });
+});
+
+describe("retries and replay protection at the delivery claim (BILLING-QA-3)", () => {
+  it("a replay of an already-processed event is acknowledged with no handler, no write and no Stripe read", async () => {
+    claimOutcome = "already_processed";
+    const result = await post("customer.subscription.updated", subscription({ status: "active", prices: [PRICES.pro] }));
+    expect(result).toEqual({ status: 200, text: "Already processed" });
+    expect(fake.mutations).toHaveLength(0);
+    expect(stripeApi.subscriptions.retrieve).not.toHaveBeenCalled();
+    expect(completions).toHaveLength(0);
+  });
+
+  it("a delivery another worker is still processing is answered 409 (Stripe retries it later) with no write", async () => {
+    claimOutcome = "in_progress";
+    const result = await post("customer.subscription.updated", subscription({ status: "active", prices: [PRICES.pro] }));
+    expect(result.status).toBe(409);
+    expect(fake.mutations).toHaveLength(0);
+    expect(completions).toHaveLength(0);
+  });
+
+  it("a failed delivery is retried under the same event id: the first attempt writes nothing, the retry applies the state exactly once", async () => {
+    const sub = subscription({ status: "active", prices: [PRICES.pro] });
+    const eventId = "evt_retry_same_id";
+    stripeApi.subscriptions.retrieve.mockRejectedValueOnce(Object.assign(new Error("socket hang up"), { type: "StripeConnectionError" }));
+    const first = await post("customer.subscription.updated", sub, undefined, { eventId });
+    expect(first.status).toBe(500);
+    expect(fake.mutations).toHaveLength(0);
+    expect(completions).toEqual([{ status: "failed", error: "socket hang up" }]);
+
+    const second = await post("customer.subscription.updated", sub, undefined, { eventId });
+    expect(second).toEqual({ status: 200, text: "Webhook processed." });
+    expect(subsFor("studio-1")).toEqual([expect.objectContaining({ subscription_plan_id: "plan-pro", status: "active" })]);
+    expect(studio("studio-1")).toMatchObject({ billing_plan: "pro", subscription_status: "active" });
+    expect(completions.map((c) => c.status)).toEqual(["failed", "processed"]);
+  });
+
+  it("re-applying the same live subscription is idempotent: one row, same plan and status", async () => {
+    const sub = subscription({ status: "active", prices: [PRICES.growth] });
+    await post("customer.subscription.updated", sub);
+    const before = JSON.parse(JSON.stringify({ studio: studio("studio-1"), subs: subsFor("studio-1") }));
+    await post("customer.subscription.updated", sub);
+    const after = { studio: studio("studio-1"), subs: subsFor("studio-1") };
+    expect(after.subs).toHaveLength(1);
+    expect(after.subs[0]).toMatchObject({ subscription_plan_id: before.subs[0].subscription_plan_id, status: before.subs[0].status, stripe_subscription_id: before.subs[0].stripe_subscription_id });
+    expect(after.studio).toMatchObject({ billing_plan: before.studio.billing_plan, subscription_status: before.studio.subscription_status });
   });
 });
