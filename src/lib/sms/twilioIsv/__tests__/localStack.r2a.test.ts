@@ -672,6 +672,9 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
           : pre ? `to_regprocedure('public.${pre[1]}') is not null`
           : col ? `exists (select 1 from pg_attribute a where a.attrelid = 'public.${col[1]}'::regclass and a.attname = '${col[2]}' and not a.attisdropped)`
           : fp ? `coalesce((select left(md5(replace(p.prosrc, chr(13), '')), 8) = '${fp[2]}' from pg_proc p where p.oid = to_regprocedure('public.${fp[1]}')), false)`
+          // 20261231090000 (platform-admin AAL2) only REPLACES _sms_onb_is_platform_admin() and re-creates policies; its rollback has no "not applied" guard and drops nothing.
+          // It is applied exactly when the live function requires the aal2 claim (the rollback restores the role-only body).
+          : /create or replace function public\._sms_onb_is_platform_admin\(\)/i.test(text) ? `coalesce((select position('aal2' in p.prosrc) > 0 from pg_proc p where p.oid = to_regprocedure('public._sms_onb_is_platform_admin()')), false)`
           : "";
         return { file, probe, applied: probe !== "" && psql(`select ${probe}`) === "t" };
       });
