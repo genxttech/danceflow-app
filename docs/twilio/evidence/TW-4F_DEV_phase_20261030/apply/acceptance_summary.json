@@ -1,0 +1,57 @@
+{
+ "AT-1 counts": {
+  "10_table=PRESENT": 75,
+  "11_table_unlisted=UNEXPECTED": 1,
+  "20_function=PRESENT": 413,
+  "30_trigger=ENABLED": 158,
+  "40_policy=PRESENT": 3,
+  "50_dependency=PRESENT": 6,
+  "60_migration_history=PRESENT": 1
+ },
+ "AT-1 MISSING": 0,
+ "AT-1 UNEXPECTED": [
+  "11_table_unlisted studio_sms_registrations :: rls=t force=f rows=0 (not created by a migration on main)"
+ ],
+ "AT-1 read_only_txn": "on",
+ "AT-2 rollup:ALL now / after step 41": "3a38f6b6 / 3a38f6b6",
+ "AT-2 fingerprint rows differing from step-41 after (drift)": 0,
+ "AT-2 other_sms_functions equals CP0": true,
+ "AT-2 equals local DEV-equivalent expected final (all rows)": true,
+ "AT-3 tables (probe, exact counts)": 75,
+ "AT-3 tables with non-zero rows": [],
+ "AT-3 studio_sms_* count query": "74 tables, non-zero=0",
+ "AT-4 tables lacking RLS or with API privileges": [],
+ "AT-4 functions": 413,
+ "AT-4 unpinned search_path (security definer)": [],
+ "AT-4 anon:true": [],
+ "AT-4 public:true": [],
+ "AT-4 authenticated:true set size (probe / manifest §5)": "23 / 23",
+ "AT-4 authenticated:true NOT in manifest": [],
+ "AT-4 manifest-exposed NOT authenticated:true": [],
+ "AT-5 _sms_onb_is_platform_admin() requires aal2": true,
+ "AT-6 registrations policies": [
+  "Platform admins create studio sms registrations=true",
+  "Platform admins read studio sms registrations=true",
+  "Platform admins update studio sms registrations=true"
+ ],
+ "AT-7 named functions body md5 equals Docker chain": {
+  "tw4_spend_authorize": true,
+  "tw4_pilot_exception_create": true,
+  "tw4_rfl_pilot_cover": true
+ },
+ "AT-7 all functions by name: equal / differing / not comparable": "412 / 0  / 0",
+ "AT-8 switch/activation/pilot/provisioning tables rows": {
+  "studio_sms_recurring_switch_log": 0,
+  "studio_sms_usage_switch_log": 0,
+  "studio_sms_rfl_switch_log": 0,
+  "studio_sms_runner_windows": 0,
+  "studio_sms_onboarding_access": 0,
+  "studio_sms_billed_senders": 0,
+  "studio_sms_credit_accounts": 0,
+  "studio_sms_pilot_exceptions": 0,
+  "studio_sms_spend_events": 0,
+  "studio_sms_provider_charges": 0,
+  "studio_sms_provisioning_steps": 0,
+  "studio_sms_twilio_accounts": 0
+ }
+}
