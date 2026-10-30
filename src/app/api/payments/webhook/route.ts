@@ -760,56 +760,6 @@ const STUDIO_BILLING_PLAN_VALUES = new Set(["starter", "growth", "pro"]);
 // Mapped studio_subscriptions statuses of a subscription the studio is actually on.
 const LIVE_STUDIO_SUBSCRIPTION_STATUSES = new Set(["trialing", "active", "past_due"]);
 
-async function syncStudioBillingSnapshot(params: {
-  supabase: SupabaseClient;
-  studioId: string;
-  stripeCustomerId: string;
-  stripeSubscriptionId: string;
-  subscriptionStatus: string;
-  trialEndsAt?: string | null;
-  /** BILLING-QA-3: the plan the subscription's Price resolved to; omitted (left unchanged) when it is not a billing_plan value. */
-  billingPlan?: string | null;
-}) {
-  const {
-    supabase,
-    studioId,
-    stripeCustomerId,
-    stripeSubscriptionId,
-    subscriptionStatus,
-    trialEndsAt = null,
-    billingPlan = null,
-  } = params;
-
-  const { error } = await supabase
-    .from("studios")
-    .update({
-      stripe_customer_id: stripeCustomerId,
-      stripe_subscription_id: stripeSubscriptionId,
-      subscription_status: mapStudioSubscriptionStatus(subscriptionStatus),
-      trial_ends_at: trialEndsAt,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", studioId);
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  // Public embed, Discover and calendar pages read studios.billing_plan, so it follows Billing Portal plan changes. A
-  // comped/ambassador studio (billing_override_enabled) gets its plan from billing_plan itself: never overwrite it.
-  if (billingPlan && STUDIO_BILLING_PLAN_VALUES.has(billingPlan)) {
-    const { error: planError } = await supabase
-      .from("studios")
-      .update({ billing_plan: billingPlan })
-      .eq("id", studioId)
-      .eq("billing_override_enabled", false);
-
-    if (planError) {
-      throw new Error(planError.message);
-    }
-  }
-}
-
 async function getStudioIdFromStripeCustomer(params: {
   supabase: SupabaseClient;
   stripeCustomerId: string | null;
@@ -861,78 +811,6 @@ function isOrganizerSuiteSubscriptionItem(item: Stripe.SubscriptionItem) {
     source === "organizer_suite_addon" ||
     Boolean(priceId && priceIds.has(priceId))
   );
-}
-
-async function syncOrganizerSuiteAddonEntitlements(params: {
-  supabase: SupabaseClient;
-  studioId: string;
-  subscription: Stripe.Subscription;
-}) {
-  const { supabase, studioId, subscription } = params;
-  const now = new Date().toISOString();
-  const subscriptionIsActive =
-    subscription.status === "active" || subscription.status === "trialing";
-  const organizerSuiteItems = subscription.items.data.filter(
-    isOrganizerSuiteSubscriptionItem,
-  );
-  const activeItemIds = new Set(organizerSuiteItems.map((item) => item.id));
-
-  for (const item of organizerSuiteItems) {
-    const { error } = await supabase.from("usage_addon_entitlements").upsert(
-      {
-        studio_id: studioId,
-        workspace_type: "studio",
-        feature_key: ORGANIZER_SUITE_FEATURE_KEY,
-        source: "stripe_subscription_item",
-        stripe_subscription_item_id: item.id,
-        quantity_included: 1,
-        status: subscriptionIsActive ? "active" : "canceled",
-        updated_at: now,
-      },
-      { onConflict: "studio_id,feature_key" },
-    );
-
-    if (error) {
-      throw new Error(error.message);
-    }
-  }
-
-  const { data: existingEntitlements, error: existingEntitlementsError } =
-    await supabase
-      .from("usage_addon_entitlements")
-      .select("id, stripe_subscription_item_id, status")
-      .eq("studio_id", studioId)
-      .eq("feature_key", ORGANIZER_SUITE_FEATURE_KEY)
-      .eq("source", "stripe_subscription_item");
-
-  if (existingEntitlementsError) {
-    throw new Error(existingEntitlementsError.message);
-  }
-
-  const staleEntitlementIds = (existingEntitlements ?? [])
-    .filter((row) => {
-      const itemId =
-        typeof row.stripe_subscription_item_id === "string"
-          ? row.stripe_subscription_item_id
-          : null;
-      return (
-        row.status === "active" &&
-        (!itemId || !activeItemIds.has(itemId) || !subscriptionIsActive)
-      );
-    })
-    .map((row) => row.id)
-    .filter((id): id is string => typeof id === "string");
-
-  if (staleEntitlementIds.length > 0) {
-    const { error } = await supabase
-      .from("usage_addon_entitlements")
-      .update({ status: "canceled", updated_at: now })
-      .in("id", staleEntitlementIds);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-  }
 }
 
 /**
@@ -1143,98 +1021,61 @@ async function upsertStudioSubscription(params: {
       ? "year"
       : "month";
 
-  const payload = {
-    studio_id: studioId,
-    subscription_plan_id: planRow.id,
-    stripe_subscription_id: subscription.id,
-    status: mappedStatus,
-    billing_interval: billingInterval,
-    current_period_start: toIsoOrNull(currentPeriodStartUnix),
-    current_period_end: toIsoOrNull(currentPeriodEndUnix),
-    cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
-    cancelled_at: toIsoOrNull(getNumber(subscription.canceled_at)),
-    ended_at: toIsoOrNull(getNumber(subscription.ended_at)),
-    updated_at: new Date().toISOString(),
-    // Only a stamped Stripe read moves the watermark; an event-payload fallback leaves it untouched.
-    ...(readStartedAt ? { stripe_state_read_at: readStartedAt.toISOString() } : {}),
-  };
-
-  if (existingByStudio) {
-    let update = supabase
-      .from("studio_subscriptions")
-      .update(payload)
-      .eq("id", existingByStudio.id);
-
-    // BILLING-QA-6: apply only if no newer read is stored. Zero rows = a newer Stripe state is already in the row.
-    if (readStartedAt) {
-      update = update.or(
-        `stripe_state_read_at.is.null,stripe_state_read_at.lte.${readStartedAt.toISOString()}`,
-      );
-    }
-
-    const { data: updatedRows, error: updateError } = await update.select("id");
-
-    if (updateError) {
-      throw new Error(updateError.message);
-    }
-
-    if (readStartedAt && (updatedRows ?? []).length === 0) {
-      // Zero rows is "a newer read is stored" only if the row still exists; a row deleted since it was read must fail
-      // the delivery (Stripe retries) instead of silently dropping the event.
-      const { data: stillThere, error: stillThereError } = await supabase
-        .from("studio_subscriptions")
-        .select("id")
-        .eq("id", existingByStudio.id)
-        .maybeSingle();
-
-      if (stillThereError) {
-        throw new Error(stillThereError.message);
-      }
-
-      if (!stillThere) {
-        throw new Error(`studio_subscriptions row ${existingByStudio.id} disappeared during the update`);
-      }
-
-      console.error("subscription_event_stale_read");
-      return true;
-    }
-  } else {
-    const { error: insertError } = await supabase
-      .from("studio_subscriptions")
-      .insert({
-        ...payload,
-        created_at: new Date().toISOString(),
-      });
-
-    if (insertError) {
-      throw new Error(insertError.message);
-    }
-  }
-
+  // The customer mapping is state-independent and idempotent, so it is written outside the locked apply below.
   await upsertStudioBillingCustomer({
     supabase,
     stripeCustomerId,
     studioId,
   });
 
-  await syncStudioBillingSnapshot({
-    supabase,
-    studioId,
-    stripeCustomerId,
-    stripeSubscriptionId: subscription.id,
-    subscriptionStatus: subscription.status,
-    trialEndsAt: toIsoOrNull(getNumber(subscription.trial_end)),
-    // Only a plan the studio is actually on: an incomplete (never paid) subscription does not change billing_plan, and
-    // a cancelled one keeps the last plan (subscription_status carries the cancellation).
-    billingPlan: LIVE_STUDIO_SUBSCRIPTION_STATUSES.has(mappedStatus) ? planRow.code : null,
+  // BILLING-QA-6: the subscription row, the studios billing snapshot and the Organizer Suite add-on entitlements are applied
+  // in ONE transaction under a studio row lock, and only if no newer Stripe read is stored (stripe_state_read_at). A stale read
+  // returns "stale" and writes nothing; an unstamped read (event-payload fallback) applies without moving the watermark.
+  const addon =
+    source === "studio_subscription"
+      ? {
+          active: subscription.status === "active" || subscription.status === "trialing",
+          item_ids: subscription.items.data.filter(isOrganizerSuiteSubscriptionItem).map((item) => item.id),
+        }
+      : null;
+
+  // Only a plan the studio is actually on: an incomplete (never paid) subscription does not change billing_plan, and a
+  // cancelled one keeps the last plan (subscription_status carries the cancellation). Never a plan outside Starter/Growth/Pro.
+  const billingPlan =
+    LIVE_STUDIO_SUBSCRIPTION_STATUSES.has(mappedStatus) && STUDIO_BILLING_PLAN_VALUES.has(planRow.code)
+      ? planRow.code
+      : null;
+
+  const { data: applied, error: applyError } = await supabase.rpc("apply_studio_subscription_state", {
+    p_studio_id: studioId,
+    p_subscription: {
+      subscription_plan_id: planRow.id,
+      stripe_subscription_id: subscription.id,
+      status: mappedStatus,
+      billing_interval: billingInterval,
+      current_period_start: toIsoOrNull(currentPeriodStartUnix),
+      current_period_end: toIsoOrNull(currentPeriodEndUnix),
+      cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
+      cancelled_at: toIsoOrNull(getNumber(subscription.canceled_at)),
+      ended_at: toIsoOrNull(getNumber(subscription.ended_at)),
+    },
+    p_read_started_at: readStartedAt ? readStartedAt.toISOString() : null,
+    p_snapshot: {
+      stripe_customer_id: stripeCustomerId,
+      stripe_subscription_id: subscription.id,
+      subscription_status: mapStudioSubscriptionStatus(subscription.status),
+      trial_ends_at: toIsoOrNull(getNumber(subscription.trial_end)),
+      billing_plan: billingPlan,
+    },
+    p_addon: addon,
   });
 
-  if (source === "studio_subscription") {
-    await syncOrganizerSuiteAddonEntitlements({
-      supabase,
-      studioId,
-      subscription,
-    });
+  if (applyError) {
+    throw new Error(applyError.message);
+  }
+
+  if (applied === "stale") {
+    console.error("subscription_event_stale_read");
   }
 
   return true;

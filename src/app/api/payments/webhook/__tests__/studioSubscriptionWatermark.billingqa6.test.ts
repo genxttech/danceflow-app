@@ -219,14 +219,14 @@ describe("studio_subscriptions.stripe_state_read_at (BILLING-QA-6)", () => {
     expect(completions.map((c) => c.status)).toEqual(["processed", "processed"]);
   });
 
-  it("a stale write has no side effects: no billing customer, snapshot or add-on write", async () => {
+  it("a stale write has no side effects: no subscription row, studios snapshot or add-on write", async () => {
     await post("customer.subscription.updated", sub2("active"));
     vi.setSystemTime(at(2000));
     await post("customer.subscription.updated", sub2("past_due"));
     const before = fake.mutations.length;
     vi.setSystemTime(at(100)); // a read stamped EARLIER than the stored 2000 ms watermark
     await post("customer.subscription.updated", sub2("active"), undefined, { stale: true });
-    const newMutations = fake.mutations.slice(before).filter((m) => ["studios", "studio_billing_customers", "usage_addon_entitlements"].includes(m.table));
+    const newMutations = fake.mutations.slice(before).filter((m) => ["studios", "studio_subscriptions", "usage_addon_entitlements"].includes(m.table));
     expect(newMutations).toEqual([]);
     expect(subsFor("studio-2")[0].status).toBe("past_due");
   });
@@ -254,18 +254,16 @@ describe("studio_subscriptions.stripe_state_read_at (BILLING-QA-6)", () => {
     expect(subsFor("studio-2")[0]).toMatchObject({ status: expect.not.stringMatching(/^active$/), stripe_state_read_at: T0.toISOString() });
   });
 
-  it("zero rows because the row was DELETED since it was read fails the delivery (not a silent stale skip)", async () => {
-    const original = fake.adminClient.from;
-    let subscriptionCalls = 0;
-    fake.adminClient.from = ((table: string) => {
-      if (table === "studio_subscriptions" && ++subscriptionCalls === 2) {
-        fake.tables.studio_subscriptions = []; // gone between the read (call 1) and the update (call 2)
-      }
-      return original(table);
-    }) as typeof original;
-    const result = await post("customer.subscription.updated", sub2("active"));
+  it("an error from the transactional apply fails the delivery (500, ledger failed) and nothing is applied", async () => {
+    seed();
+    const original = fake.adminClient.rpc;
+    fake.adminClient.rpc = (async (name: string, params: Record<string, unknown>) =>
+      name === "apply_studio_subscription_state" ? { data: null, error: { message: "function does not exist" } } : original(name, params)) as typeof original;
+    const before = { ...subsFor("studio-2")[0] };
+    const result = await post("customer.subscription.updated", sub2("past_due"));
     expect(result.status).toBe(500);
     expect(completions.map((c) => c.status)).toEqual(["failed"]);
+    expect(subsFor("studio-2")[0]).toEqual(before);
   });
 
   it("a failing write still fails the delivery (500, ledger failed) and Stripe retries", async () => {
