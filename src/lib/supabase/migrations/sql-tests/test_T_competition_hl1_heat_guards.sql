@@ -264,8 +264,9 @@ select pg_temp.chk('HL1 helper and trigger functions are not executable by API r
 select pg_temp.chk('lock_competition_round_ballots keeps its grants',
   has_function_privilege('authenticated', 'public.lock_competition_round_ballots(uuid,uuid)', 'execute')
   and not has_function_privilege('anon', 'public.lock_competition_round_ballots(uuid,uuid)', 'execute'));
-select pg_temp.chk('danced rule: scheduled and staging are not danced, active and complete are',
+select pg_temp.chk('danced rule: draft, scheduled, staging and cancelled are not danced, active and complete are',
   not public._hl1_heat_is_danced(pg_temp.u('00d003'), 'scheduled') and not public._hl1_heat_is_danced(pg_temp.u('00d003'), 'staging')
+  and not public._hl1_heat_is_danced(pg_temp.u('00d003'), 'draft') and not public._hl1_heat_is_danced(pg_temp.u('00d003'), 'cancelled')
   and public._hl1_heat_is_danced(pg_temp.u('00d003'), 'active') and public._hl1_heat_is_danced(pg_temp.u('00d003'), 'complete'));
 
 -- ============================================================================

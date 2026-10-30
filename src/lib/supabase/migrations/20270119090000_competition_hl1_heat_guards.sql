@@ -6,7 +6,7 @@
 --
 --   1. trigger hl1_guard_heat_reopen (BEFORE UPDATE OF lock_state on event_competition_heats), locked -> open only:
 --        - refused when the round is ballots_locked or later (ballots_locked, calculated, approved, published, complete, cancelled)
---        - refused when the heat is danced (status active/complete, or an entry placement danced/disqualified: SC1's rule)
+--        - refused when the heat is danced (status active/complete, or an entry placement danced/disqualified: SC1's rule; draft/cancelled are not danced)
 --        - takes the round row FOR SHARE first, which conflicts with lock_competition_round_ballots' FOR UPDATE, so a reopen and
 --          Lock ballots serialize: whichever commits first decides, the other sees it.
 --   2. trigger hl1_guard_heat_lock (same table), open -> locked refused while the heat is `active` (mid-dance; a lock would strand
@@ -48,7 +48,8 @@ begin
   end if;
 end $$;
 
--- SC1's danced rule, one definition: the heat is on the floor or finished, or one of its placements is danced / disqualified.
+-- SC1's danced rule, one definition: the heat is on the floor or finished (active/complete), or one of its placements is danced /
+-- disqualified. A draft or cancelled heat is not danced.
 create function public._hl1_heat_is_danced(p_heat_id uuid, p_status text)
 returns boolean
 language sql
@@ -56,7 +57,7 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select coalesce(p_status, '') not in ('scheduled', 'staging')
+  select coalesce(p_status, '') in ('active', 'complete')
       or exists (select 1 from public.event_competition_heat_entries he where he.heat_id = p_heat_id and he.status in ('danced', 'disqualified'));
 $$;
 revoke all on function public._hl1_heat_is_danced(uuid, text) from public, anon, authenticated;
