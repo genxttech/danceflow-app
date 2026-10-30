@@ -620,6 +620,7 @@ TW-4F moves to a focused pilot closeout. Competition E2E, New Student Intake and
 ### C. Nonblocking hardening and later enhancements
 
 - KI-2: rollback leaves widened CHECK constraints (document as intentional).
+- Rollback exact-restore (found by the 2026-10-30 full-chain rehearsal, fixed in Git by the owner-approved change): the `20261203090000` rollback re-created `studio_sms_price_list_kind_check` in the `'{...}'::text[]` form instead of the `ARRAY[...]` form `20261202090000` created, and the `20261128090000` rollback restored `tw4_recurring_due(text)` without the trailing comment `20261126090000` created. Both now restore the catalog exactly and assert the result (the price-list rollback also refuses when the kinds left are not exactly the `20261202090000` list; the other asserts the body md5). Rollback sha256 values in the manifest updated. Not applied anywhere. Not KI-2c/2d: the owner chose to fix, not to document.
 - KI-3: the `r2bp2.rfl` test is stale.
 - The r2b suite refuses to run on the merged chain.
 - Running TW-4F DB suites in CI.
