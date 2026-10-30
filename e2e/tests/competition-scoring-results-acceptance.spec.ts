@@ -503,6 +503,8 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     const page = await signedIn(browser, fixture.owner);
     // The no-show entry is already off every ballot, so scratching it does not change what the judges ranked.
     const target = E.entries[3];
+    // The dev server answers the first request to an uncompiled route with a 404, so open the page twice.
+    await page.goto(`${base(E)}/registrations/scratch/${target}`);
     await page.goto(`${base(E)}/registrations/scratch/${target}`);
     await expect(page.getByText(/This entry is in a locked heat\. As an official you can scratch it without reopening the heat/)).toBeVisible();
     await page.getByRole("button", { name: "Scratch entry" }).click();
@@ -606,6 +608,7 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     expect(state.rows.find((r) => r.version === 2 && r.entry_id === E.entries[1])?.placement).toBe(1);
     expect(state.rows.find((r) => r.version === 2 && r.entry_id === E.entries[0])?.placement).toBe(2);
 
+    await second.goto(`${base(E)}/registrations/scratch/${E.entries[0]}`);
     await second.goto(`${base(E)}/registrations/scratch/${E.entries[0]}`);
     await expect(second.getByRole("button", { name: "Scratch entry" })).toHaveCount(0);
     await expect(second.locator("main p.bg-amber-50")).toBeVisible();
