@@ -17,6 +17,9 @@
 --   r7 D7  proficiency_rating (no approved engine), r8 = round 2 of D5, active and ballot-free (inverse O5), r9 event B, r10 D10 locked never calculated,
 --   r11 D11 published (fixture) for the complete precondition
 
+-- psql variable: are NS1's no-show readers absent? (the stand-in reader sections run only then)
+select to_regprocedure('public.competition_heat_no_show_entries(uuid)') is null as ns1_absent \gset
+
 begin;
 
 create temp table t_results (name text, ok boolean, detail text) on commit drop;
@@ -406,6 +409,7 @@ select pg_temp.expect_msg('placement 0 is refused', format($q$select public.calc
   jsonb_set(pg_temp.rows(1), '{0,placement}', '0')), 'COMP_ENGINE_INVALID_INPUT');
 select pg_temp.expect_msg('a fractional placement is refused', format($q$select public.calculate_competition_round(%L, 'studio_ordinal_majority', '1', %L, pg_temp.th(), '[{"step":1}]', %L, '[]', gen_random_uuid())$q$, pg_temp.rid(1), public.competition_round_calculation_input(pg_temp.rid(1)) ->> 'input_hash',
   jsonb_set(pg_temp.rows(1), '{0,placement}', '1.5')), 'COMP_ENGINE_INVALID_INPUT');
+\if :ns1_absent
 -- NS1 hook present: rows are one per CALCULATED entry (round entries minus no-shows). Stand-in reader: entry 3 of r1 is a no-show.
 reset role;
 create function public.competition_heat_no_show_entries(p_round_id uuid) returns table(entry_id uuid) language sql stable as $f$
@@ -421,6 +425,8 @@ select pg_temp.expect_msg('no-show hook: a result with exactly one row per calcu
 reset role;
 drop function public.competition_heat_no_show_entries(uuid);
 select pg_temp.as_user(pg_temp.u('000001'));
+reset role;
+\endif
 reset role;
 select pg_temp.chk('no refused call left a version behind', pg_temp.n($q$select count(*) from public.event_competition_result_versions$q$) = 0);
 
@@ -837,6 +843,8 @@ set session_replication_role = origin;
 select pg_temp.chk('there is no fallback: a round with no pin fails closed even though its scoring method is ordinal_majority',
   not exists (select 1 from public.event_competition_scoring_pins where round_id = pg_temp.rid(12)) and not exists (select 1 from public._compf2_engine_pin(pg_temp.rid(12))));
 
+-- The stand-in readers below cannot coexist with the real NS1 reader (same name): on a stack that has NS1 the NS1 suite owns that behaviour.
+\if :ns1_absent
 -- ============================================================================
 -- 14c. NS1 no-show hook: absent = identical evidence and hashes; present = no_show exclusions, deduplicated against scratched
 -- ============================================================================
@@ -926,6 +934,7 @@ select pg_temp.chk('absent path again: the hash and the evidence are byte-identi
   public._compf2_input_hash(pg_temp.rid(1), 'studio_ordinal_majority', '1') = (select v from t_hash where k = 'r1_before')
   and public._compf2_evidence(pg_temp.rid(5), 'studio_ordinal_majority', '1')::text = (select v from t_hash where k = 'r5_before'));
 
+\endif
 -- ============================================================================
 -- 15. Cascades: deleting event B removes nothing of F2 (none there); event A is protected by 10A
 -- ============================================================================
