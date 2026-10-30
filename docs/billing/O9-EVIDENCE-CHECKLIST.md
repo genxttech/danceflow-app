@@ -3,23 +3,33 @@
 Status: documentation and read-only verification only. Nothing here changes Stripe, a database, a subscription, an entitlement or a registry row.
 Do not paste API keys, card numbers or full payment details anywhere. IDs (`cus_`, `sub_`, `price_`, `cs_`, `in_`) are fine.
 
-## 0. Owner pricing decision (recorded 2026-10-30)
+## 0. Owner-confirmed policy (recorded 2026-10-30)
 
-These are the owner's stated terms. They are a **decision to implement and a target to verify**, not yet verified against Stripe or any original agreement.
+**Everything in this section is OWNER-CONFIRMED policy.** It is a decision to implement and a target to verify. It is **not** a Stripe record and not a recovered agreement. Items marked UNVERIFIED below have not been matched to Stripe, the hosted databases or any document.
 
-1. DanceAbel Ballroom Studio's $129/month Legacy Pro price is protected for **12 paid months following its July 9, 2026 trial end**.
-2. After the protected period (ending **July 9, 2027**) the subscription transitions to the **then-applicable regular Pro rate, with advance notice**.
-3. This is **not** a permanent $129/month concession.
-4. Existing **Organizer Suite access stays at no additional charge throughout the same protected period**. Its treatment after the period is an **open owner decision**: nothing may assume it ends, and nothing may assume it continues.
-5. DanceAbel counts as **one of the 25 Founder positions**. The cap allocation is not reopened.
-6. The subscriber's current billing terms are preserved until the transition is separately authorized. Nothing is changed on the subscription, price, discounts, schedule or customer.
+Pro pricing:
+1. DanceAbel Ballroom Studio pays **$129/month for the first 12 paid months beginning July 9, 2026**.
+2. Grandfathered pricing ends **July 9, 2027**.
+3. The subscription then transitions to the **then-applicable regular Pro rate, with advance notice**. It is **not** a permanent $129/month concession.
 
-Price protection and feature protection are **two separate protections with separate end dates and separate post-period rules**. Records, code and notices must never share one "protected until" value for both.
+Organizer Suite:
+4. Included **at no additional charge during the grandfathered period**.
+5. The complimentary entitlement **expires July 9, 2027**.
+6. From July 9, 2027 Organizer Suite requires a **separately purchased paid add-on**. If it is not purchased, access **must end** when the complimentary entitlement expires.
+7. **Historical Organizer Suite data is preserved**; it is never deleted when access expires.
+8. The system must **not** automatically purchase the add-on, charge the studio, or silently extend complimentary access.
 
-Not yet established (verify before specifying any transition):
-- The original terms, if any, that the subscriber was given (evidence in sections 2 and 3). Where the evidence is missing the finding is "not established"; the owner decision above is then the operative term, recorded as an owner decision and not as a recovered contract.
-- The actual billing-period boundaries (section 1, items 4 and 8).
-- How the Organizer Suite access is actually provisioned today (section 1, item 9).
+Founder allocation and current state:
+9. DanceAbel keeps its **Founder position (1 of 25)**. The cap allocation is not reopened.
+10. Nothing is changed now on the existing Stripe subscription or on any entitlement.
+
+The pricing grandfather and the complimentary Suite entitlement **share an expiration date but are independently identifiable protections** (separate records, separate end handling, separate audit). Records, code and notices must never share one "protected until" value for both.
+
+UNVERIFIED (what the checklist below is for):
+- The original terms, if any, that the subscriber was given (sections 2 and 3). Where the evidence is missing the finding is "not established"; the owner policy above is then the operative term, recorded as a dated owner decision and not as a recovered contract.
+- The actual billing-period boundaries, and whether 12 paid months end on July 9, 2027 (section 1, items 2, 4 and 8). The effective date is derived from verified periods. Any difference from the owner-stated dates is reported to the owner, not resolved by assumption.
+- How the Organizer Suite access is provisioned today (Stripe item, coupon, manual grant) and whether any end date is already recorded (section 1, item 9; section 4).
+- Whether the hosted `usage_addon_entitlements` table has a unique index on `(studio_id, feature_key)` (section 4). If it does, a paid add-on would overwrite the complimentary grant row instead of coexisting with it.
 
 Known so far (owner-supplied, not independently verified): Live account `acct_1TKgL3EY0sTayNiS`, Price `price_1TdDHwEY0sTayNiSIe1nD3Lg` ($129/month).
 
@@ -69,7 +79,23 @@ Exact-match lookups once the `sub_`/`cus_` ids are known. Nothing else would be 
 - `studios` row for that studio: name, created date, whether it looks internal.
 - `legal_agreement_acceptances` for that studio: Terms version accepted and when.
 - `usage_addon_entitlements` rows for that studio and `organizer_suite`: `source`, `status`, `period_start`, `period_end`, `stripe_subscription_item_id`, `notes`. This shows how the Suite is provisioned and whether any end date is recorded.
+- Catalog only (no row data): the indexes on `usage_addon_entitlements`, specifically whether a unique index on `(studio_id, feature_key)` exists in DEV and PROD.
 
-## 5. What to send back
+## 5. Evidence still outstanding for the Suite and notice workflow
+
+| # | Needed | From |
+|---|---|---|
+| S1 | How the Suite is provisioned today: Stripe item, coupon-discounted item, or `manual_grant` row (section 1 item 9; section 4) | Owner-run Dashboard read; optional row read |
+| S2 | Whether any end date is already stored on the Suite entitlement (`period_end`) | Optional row read |
+| S3 | Unique index on `(studio_id, feature_key)` in DEV and PROD | Optional catalog read |
+| S4 | The paid Organizer Suite add-on price that would apply on and after July 9, 2027, and the regular Pro rate then in force | Owner decision at notice time |
+| S5 | Minimum notice period and wording required by applicable law and the Terms; approved channel | Owner and legal |
+| S6 | The exact enforcement instant for July 9, 2027 (time zone, start or end of day, relation to the billing boundary) | Owner decision |
+| S7 | What the studio may see or export after Suite access ends (data is preserved) | Owner decision |
+| S8 | Whether the protected studio's Suite access should survive a payment problem (`past_due`) | Owner decision |
+
+Implementation gaps that would stop the intended transition (price and Suite) are G1 to G12 in `D7-RELEASE-READINESS.md`, section 8.6. None is built, and no Stripe, database, entitlement or notification change is authorized by this document.
+
+## 6. What to send back
 
 Paste the section 1 and 2 answers into the chat (IDs and dates are fine, no secrets). I will return the evidence findings and a proposed classification, with duration and renewal recorded as found or "not established". The first findings go to the owner for separate review before anything is drafted for the registry.

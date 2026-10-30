@@ -69,76 +69,125 @@ Do not promote if: P1-P5 are not all complete and read back (or the owner explic
 
 A stale non-primary Stripe customer id could make a normal studio's checkout fail closed (follow-up: treat a missing-resource error on non-primary ids as no subscriptions); the "backstop is off" warning is noisy until P5 is done; the missing-table tolerance should be removed after the table exists in PROD; right after the migration a stale PostgREST schema cache can briefly look like a missing table; the billing page is advisory (local status only).
 
-## 8. O9 owner pricing decision (2026-10-30) and what it requires
+## 8. O9 owner policy for DanceAbel Ballroom Studio (2026-10-30) and what it requires
 
-**Status: decision recorded; not implemented; not verified against Stripe. Nothing here authorizes a Stripe, registry, entitlement, schedule or data change.**
+**Status: owner-confirmed policy, recorded. Not implemented. Not verified against Stripe. Nothing here authorizes a Stripe, registry, entitlement, schedule, data, notification or deployment change.**
 
-### 8.1 The decision
+### 8.0 How to read this section
 
-- DanceAbel Ballroom Studio's $129/month Legacy Pro price is protected for **12 paid months after its 2026-07-09 trial end**, ending **2027-07-09**.
-- After that the subscription moves to the **then-applicable regular Pro rate, with advance notice**. It is **not** a permanent concession.
-- Existing **Organizer Suite access stays at no additional charge for the same period**. What happens to it afterward is an **open owner decision**: the system must neither assume it ends nor assume it continues.
-- DanceAbel is **one of the 25 Founder positions**. The cap allocation is not reopened.
-- Nothing about the subscription changes until the transition is separately authorized.
+| Label | Meaning |
+|---|---|
+| **OWNER-CONFIRMED** | Stated by the owner in chat on 2026-10-30. It is policy to implement. It is not evidence about what Stripe or any agreement contains. |
+| **CODE-VERIFIED** | Read from `origin/main` `75c4b28b` on 2026-10-30 (read-only). |
+| **PROBE-VERIFIED** | Read-only production catalog probe on 2026-10-30 (object existence and counts only). |
+| **UNVERIFIED** | Not yet checked against Stripe, the hosted databases or any agreement. Listed in the evidence checklist. |
 
-This supersedes the earlier working assumption in the gap report that this subscriber is "permanently excluded" from the 12-month rule: the owner has now set a dated end for price protection. The gap report's D13 text (permanent exclusion) should be reconciled in a separate docs update.
+Nothing in sections 8.1 and 8.2 has been matched to a Stripe record yet.
 
-### 8.2 Price protection and feature protection are two protections
+### 8.1 The policy (OWNER-CONFIRMED)
 
-| | Price protection | Feature protection (Organizer Suite) |
+**Pro pricing**
+- $129/month for the first 12 paid months beginning July 9, 2026.
+- Grandfathered pricing ends **July 9, 2027**.
+- The subscription then transitions to the then-applicable regular Pro rate, **with advance notice**. It is not a permanent concession.
+
+**Organizer Suite**
+- Included at no additional charge during the grandfathered period.
+- The complimentary entitlement **expires July 9, 2027**.
+- From July 9, 2027 Organizer Suite requires a **separately purchased paid add-on**.
+- If the add-on is not purchased, Suite access **must end** when the complimentary entitlement expires.
+- Historical Organizer Suite data is **preserved**. It is never deleted when access expires.
+- The system must **not** automatically purchase the add-on, charge the studio, or silently extend complimentary access.
+
+**Founder allocation**
+- DanceAbel keeps its existing Founder position (1 of the 25). The cap allocation is not reopened.
+
+**Now**
+- Nothing is changed on the existing Stripe subscription or on any entitlement.
+
+This supersedes two earlier statements: the gap report's working assumption that this subscriber is "permanently excluded" from the 12-month rule, and the earlier readiness draft's "Suite post-period treatment is an open owner decision". Both are now decided. The gap report (#343) text should be reconciled in a separate docs update (G8).
+
+### 8.2 Two protections, independently identifiable
+
+The pricing grandfather and the complimentary Suite entitlement **share an expiration date but are separate protections**. Each needs its own record, its own end date, its own audit trail and its own transition. A shared "protected until" value is a defect.
+
+| | Price grandfather | Complimentary Organizer Suite entitlement |
 |---|---|---|
-| What is protected | The $129/month rate | No-charge Organizer Suite access |
-| Ends | 2027-07-09 (to be confirmed from billing periods) | Same date for the protected period; **post-period treatment undecided** |
-| After the end | Moves to the then-regular Pro rate after advance notice | **Open owner decision**; default must be "keep and flag for owner review", never an automatic revoke |
-| Where it lives today | Nowhere with an end date: the registry marks a studio/subscription protected indefinitely; the legacy-price env var is a standing backstop | `usage_addon_entitlements` (`organizer_suite`); rows have `status`, `period_start`, `period_end`, `source` |
-| Authority | Registry row (once applied and inserted) plus Stripe state | Entitlement row; Stripe item if provisioned there |
+| What it is | $129/month Pro rate | No-charge Suite access |
+| Ends | July 9, 2027 (confirm against verified billing periods) | July 9, 2027 (exact instant not yet defined: see G10) |
+| At the end | Moves to the then-regular Pro rate after advance notice | Access ends unless a separately purchased paid add-on is active |
+| If the customer does nothing | The new rate applies after notice | Access ends. Never auto-purchased, auto-charged or silently extended |
+| Data | Not applicable | Historical data preserved; only access ends |
+| Where it can live | `protected_subscriptions` registry (dated end needs a design: G1) | `usage_addon_entitlements`, source `manual_grant`, with `period_start`, `period_end`, `notes` (expiry enforcement needs a design: G3) |
+| Must not be | Merged into the entitlement record | Merged into the pricing record, or into a paid add-on row |
 
-Records, code and notices must carry **separate** end dates and separate post-period rules for each. A single shared "protected until" value is a defect.
+### 8.3 Existing code and schema (CODE-VERIFIED, `origin/main` 75c4b28b)
 
-### 8.3 Verified facts about the existing code (read-only, `origin/main` 75c4b28b)
+1. The registry (`protected_subscriptions`) records a kind, immutable identity and terms fields, a `terms_reference` and a one-time audited release. **It has no end date, no notice record and no feature dimension.** Protection is by existence, so it would last until the row is released.
+2. Checkout refuses a protected studio and any legacy-priced subscription. **No code moves an existing subscription to another price.** There is no price-transition mechanism.
+3. Suite access (`src/lib/billing/access.ts`) is granted when `usage_addon_entitlements` has `feature_key = organizer_suite`, `status = 'active'` and `source` in (`stripe_subscription_item`, `manual_grant`). **The check ignores `period_end`, and nothing sets expired rows to `expired`.** An active grant row never lapses on its own: **by default the system silently extends complimentary access forever**, which is exactly what the policy forbids.
+4. `usage_addon_entitlements.status` allows `active`, `canceled` and `expired`, and the table has `period_start`, `period_end`, `source` and `notes`, so an expired state and a dated grant can be represented without a schema change. There is **no audit or event table** for entitlement changes.
+5. The Suite add-on checkout (`/api/billing/addons/organizer-suite/checkout`) requires an active or trialing studio subscription, looks only for an existing active row with `source = stripe_subscription_item`, so a `manual_grant` row does **not** short-circuit a paid purchase. It then adds a Stripe subscription item with no proration and upserts the entitlement on `stripe_subscription_item_id`. A paid add-on row would therefore coexist with the grant row.
+6. The Stripe webhook (`syncOrganizerSuiteAddonEntitlements`) writes Stripe-item Suite entitlements and marks stale `stripe_subscription_item` rows `canceled` when the subscription is **not `active` or `trialing`** (a `past_due` studio loses Stripe-sourced Suite access). A `manual_grant` row is not touched by that sweep.
+7. The webhook upserts with conflict target `studio_id,feature_key`. **The repository's migrations define no unique index on that pair** (only on `stripe_subscription_item_id`). Either the hosted databases have an index the repo does not, or that upsert errors; and if such an index exists, a paid add-on would overwrite the grant row, destroying the separate record. **UNVERIFIED** against the hosted catalogs (G4).
+8. The Terms (section 5) allow prospective price changes "after providing notice required by applicable law or the applicable order". No notice period is defined in the repo.
+9. How DanceAbel's Suite access is provisioned today (Stripe item, coupon, manual grant) is **UNVERIFIED**.
 
-1. The registry (`protected_subscriptions`) has a kind, immutable identity and terms fields, `terms_reference`, and a one-time release. **It has no end date, no notice record and no feature dimension.** Its protection is by existence, so a time-limited protection would otherwise last until someone releases the row.
-2. Checkout refuses a protected studio or any legacy-priced subscription. **It does not move the subscription to another price.** No code anywhere performs a price transition for an existing subscriber.
-3. Organizer Suite access (`src/lib/billing/access.ts`) is granted when `usage_addon_entitlements` has `feature_key = organizer_suite`, `status = 'active'` and `source` in (`stripe_subscription_item`, `manual_grant`). **The check ignores `period_end`.** A manual grant with an end date does not expire by itself, and nothing sweeps expired rows.
-4. The Stripe webhook (`syncOrganizerSuiteAddonEntitlements`) sets Suite entitlements from the subscription's items and marks stale `stripe_subscription_item` rows `canceled` when the subscription is **not `active` or `trialing`**. A `past_due` state would therefore cancel Stripe-sourced Suite access. A `manual_grant` row is not touched by that sweep. How DanceAbel's Suite access is provisioned today is **not established** (checklist section 1 item 9, and section 4).
-5. The webhook upserts Stripe-item Suite entitlements with conflict target `studio_id,feature_key`, which could overwrite a manual grant for the same studio and feature if both exist (to be confirmed against the live unique index; not verified).
-6. The Terms (section 5) allow prospective price changes "after providing notice required by applicable law or the applicable order". The notice period itself is not defined anywhere in the repo.
+### 8.4 Verification required before any transition is specified (UNVERIFIED items)
 
-### 8.4 Verification required before any transition is specified
+1. Stripe: exact trial end, first paid invoice, every paid period in order (paused, failed, voided or credited periods), billing-cycle anchor, schedules, discounts and other items (`O9-EVIDENCE-CHECKLIST.md`, section 1).
+2. Whether 12 paid months actually end on July 9, 2027, or on another date. **The effective date is derived from verified periods, not hard-coded.** Where Stripe's boundaries differ from the owner-stated dates, the difference is reported to the owner, not resolved by assumption.
+3. How the Suite access is provisioned today, and whether any end date is already recorded.
+4. Whether the hosted catalogs have a unique index on `usage_addon_entitlements (studio_id, feature_key)`.
+5. Any original agreement or message (checklist section 2). If none exists, "original terms not established"; the dated owner policy is then the operative term and is recorded as such, not as a recovered contract.
 
-1. Stripe: exact trial end, first paid invoice, every paid period in order (paused, failed, voided or credited periods), the billing-cycle anchor, any schedule or discount, any other items (`O9-EVIDENCE-CHECKLIST.md`, section 1).
-2. Whether 12 paid periods actually end on 2027-07-09, or on another date. **The end date is derived from verified periods, not hard-coded.**
-3. How Suite access is provisioned (Stripe item, coupon, manual grant).
-4. Any original agreement or message (checklist section 2). If none exists, report "not established".
+### 8.5 Required properties of the transitions (design only; not built)
 
-### 8.5 Advance-notice workflow and safeguards (design only; not built; thresholds need owner and legal approval)
+**A. Price transition**
 
-Required properties for any future transition:
+1. No price change, schedule phase or Stripe edit before the verified period end. A scheduled change takes effect at a billing-period boundary, with no unscheduled proration.
+2. A notice record must exist before any transition can be scheduled. No record, no schedule.
+3. The rate charged equals the rate disclosed in the notice. "Then-applicable regular Pro rate" is resolved and written into the notice when it is sent.
+4. The transition is created only after an explicit owner approval of the verified date, the notice evidence and the rate. It is never automatic.
+5. A dry run shows the intended Stripe change before it is made; a read-back compares the result afterward. A failure leaves the subscription unchanged.
+6. When price protection ends, the registry row is released through the audited one-time release (reason recorded), or the registry gains a dated end. Otherwise the guard keeps treating the studio as protected.
 
-1. **No premature change.** No price change, schedule phase or entitlement change occurs before the verified period end. A scheduled change takes effect at a period boundary (no mid-period change, no unscheduled proration).
-2. **Notice precedes the schedule.** A notice record (date, channel, delivered-to, the exact new rate and effective date, what happens to the Suite) must exist before any transition can be scheduled. No record, no schedule.
-3. **The new rate is disclosed.** "Then-applicable regular Pro rate" is resolved and written in the notice at notice time. The rate charged must equal the rate disclosed.
-4. **Notice timing is a parameter, not a guess.** The minimum notice period (and any reminders) needs owner and legal confirmation of what applicable law and the Terms require. Placeholders for review: first notice at least 60 days before, reminders at 30 and 7 days.
-5. **Owner approval step.** The transition is created only after an explicit owner approval of the verified date, the notice evidence and the rate. It is never automatic.
-6. **Dry run and read-back.** The intended Stripe change is computed and shown before it is made; afterward the resulting schedule is read back and compared. A failure leaves the subscription unchanged.
-7. **Suite is separate.** The transition does not touch the Suite entitlement. At the Suite's own end date the system flags the studio for an owner decision and keeps access until the owner decides; it never revokes automatically.
-8. **Registry row.** When price protection ends, the registry row is released through the audited one-time release (reason recorded), or the registry gains a dated end; otherwise the guard keeps treating the studio as protected.
-9. **Cancel and reactivate rights.** The subscriber's rights during and after the period follow verified terms, or are reported "not established" and handled by the owner.
-10. **Audit and alerting.** Notice sent, transition scheduled, transition applied and any failure are logged and alert the owner. The subscriber's customer, price, discounts and schedule are never edited outside this workflow.
+**B. Complimentary Suite entitlement expiry**
 
-### 8.6 Gaps requiring separate authorization
+1. **Separate record.** The grant is its own `manual_grant` row with `period_start`, `period_end` and `notes` identifying it as the DanceAbel complimentary grant. It is never merged into the pricing record or into a paid add-on row.
+2. **Enforced end.** Access must be denied once the grant has ended even if no job has run: the access check evaluates `period_end` (and the status), not status alone. An expiry job then records the transition.
+3. **Safe under retries.** The expiry transition is a conditional update that only affects a row that is still `active` and past its `period_end`, writes one audit record keyed by (entitlement id, transition), and is a no-op the second time. Running it twice, concurrently or after a crash gives the same final state.
+4. **Auditable.** Each grant, notice, expiry and any owner-approved exception writes an immutable audit entry (who or what, when, before and after, notice reference). No audit table exists today (CODE-VERIFIED); this needs a design (G3).
+5. **Paid add-on respected.** If a paid add-on item is active at expiry, the studio keeps access through that row and only the complimentary grant moves to `expired`. If it is not, access ends. The system never creates the purchase, never charges, and never extends the grant. An extension, if the owner ever wants one, is a deliberate owner action that writes a new, audited grant.
+6. **Data preserved.** Expiry changes access state only. No Suite data is deleted, anonymized or detached. What the studio can still see or export once access ends (read-only history versus nothing) is an open owner decision (G11).
+7. **`past_due` does not erase the grant.** The webhook sweep acts only on Stripe-sourced rows; whether a protected studio's access should also survive a payment problem is an owner decision (G5).
+8. **Exact instant.** The policy gives a date. The enforcement instant (time zone, start or end of the day, relation to the July 9 billing boundary) must be defined once and used by both the access check and the notice text (G10).
 
-| # | Gap | Needs |
+**C. Advance-notice and customer-communication workflow** (nothing is sent now; no notification is authorized)
+
+1. One combined notice schedule covers both changes, with each change described separately: the new Pro rate and its date, and the Suite ending unless the paid add-on is purchased, its price, and how to buy it.
+2. Notice content: the effective date, the exact rate or price in force from that date, what the studio keeps (data), what ends (Suite access), what to do (purchase the add-on) and whom to contact. It states plainly that nothing is purchased or charged automatically.
+3. Timing is a parameter. The minimum notice period under applicable law and the Terms needs owner and legal confirmation. Placeholders for review: a first notice at least 60 days before July 9, 2027, reminders at 30 and 7 days, and a notice that access has ended on the day. A purchase of the add-on suppresses the remaining Suite reminders.
+4. Channel: email to the owner of record plus an in-app notice on the billing page. Delivery evidence (sent time, recipient, message id, bounce) is stored per notice.
+5. Safeguards: no entitlement or price change may be scheduled unless the matching notice record exists with its delivery evidence; the notice text is generated from the same dates and rates the transition will use; every notice and its suppression is logged; the owner approves the wording and the send.
+6. A bounce, a missing record or a changed date stops the transition and alerts the owner. Nothing proceeds on a guess.
+
+### 8.6 Implementation gaps and policy decisions requiring separate authorization
+
+| # | Gap or decision | What would be needed |
 |---|---|---|
 | G1 | Registry has no price-protection end date, notice state or feature dimension (8.3.1) | A design decision and a new migration (additive columns or a companion table), validated in the isolated chain, DEV then PROD; a decision on whether to add it before the first PROD apply of `20270201090000` |
 | G2 | No price-transition mechanism exists (8.3.2) | Owner authorization for a design and implementation slice; Stripe test-mode proof of a subscription schedule that changes price at a period boundary; no live change |
-| G3 | Suite entitlement ignores `period_end` and nothing sweeps expiry (8.3.3) | A decision on whether feature protection needs an enforced end at all (post-period treatment is open); if so, a code and data slice. Until then no end date should be relied on |
-| G4 | Webhook cancels Stripe-sourced Suite access when the subscription is not active/trialing, and may overwrite a manual grant (8.3.4, 8.3.5) | Confirm how the access is provisioned; an owner decision on whether a protected studio's Suite access must survive `past_due`; a code slice if so |
-| G5 | Notice period, channel and wording are undefined (8.3.6, 8.5.4) | Owner and legal confirmation; a notice template and a delivery-evidence record |
-| G6 | The post-period Suite treatment is undecided | Owner decision; until then the default is retain and flag |
-| G7 | The "regular Pro rate" at transition time is not fixed | Owner decision at notice time, recorded in the notice |
-| G8 | The gap report's D13 "permanent exclusion" text conflicts with this dated decision | A docs update to the gap report (#343) with owner approval |
-| G9 | Original terms and billing periods are unverified | Owner-run Stripe and records checks (checklist); optional production row reads need their own approval |
+| G3 | No enforced expiry, no expiry job and no entitlement audit (8.3.3, 8.3.4); default behavior is silent extension | A code and data slice: access check honors `period_end`, idempotent expiry job, audit record, tests for retries and concurrency |
+| G4 | Unique index on `(studio_id, feature_key)` unverified; if it exists a paid add-on would overwrite the grant row (8.3.7) | A read-only hosted catalog check (needs authorization); then a decision on the entitlement key design so grant and paid rows can coexist |
+| G5 | Webhook cancels Stripe-sourced Suite access when the subscription is not active or trialing (8.3.6) | An owner decision on whether the protected studio's access survives `past_due`; a code slice if so |
+| G6 | Notice period, channel and wording are undefined (8.3.8, 8.5.C) | Owner and legal confirmation; a template and a delivery-evidence record. Sending any notice needs separate authorization |
+| G7 | The "regular Pro rate" and the paid Suite add-on price at the time of notice are not fixed | Owner decision at notice time, recorded in the notice |
+| G8 | The gap report's D13 "permanent exclusion" text conflicts with the dated policy | A docs update to PR #343 with owner approval |
+| G9 | Original terms, billing periods and Suite provisioning are unverified | Owner-run Stripe and records checks (checklist); optional hosted row reads need their own approval |
+| G10 | The exact enforcement instant for July 9, 2027 is undefined | Owner decision (time zone, start or end of day, relation to the billing boundary) |
+| G11 | What the studio may see or export after access ends is undefined (data is preserved) | Owner decision; a code slice if read-only history is wanted |
+| G12 | The paid add-on purchase path must be verified as the only way access continues after expiry | Test-mode verification of the add-on checkout for a protected studio; no live charge |
 
 ## 9. Refresh findings (2026-10-30, read-only)
 
