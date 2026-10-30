@@ -14,8 +14,8 @@ The application part of PR #335 (BILLING-QA-3) — three files, no migration, no
 | `src/lib/payments/__tests__/ownershipFakes.ts` | Test fake gains PostgREST `or()` (test-only) |
 | `src/app/api/payments/webhook/__tests__/studioSubscriptionPlan.billingqa3.test.ts` | 43 POST-level tests (test-only) |
 
-Behaviour changes in production if released (all platform-scoped `customer.subscription.*` events; connected-account events
-are untouched):
+Behaviour changes in production if released (platform-scoped `customer.subscription.*` events, plus one note on connected-account
+events in item 5):
 
 1. **Order-safe state.** The subscription is re-read from Stripe and *that* is applied, so a delayed, retried or reordered
    event cannot overwrite a newer plan or status. A Stripe outage during the read fails the delivery (500, ledger `failed`);
@@ -33,6 +33,9 @@ are untouched):
    metadata is fixed.
 5. **`trial_ends_at` is synced** from the subscription's `trial_end`, and the billing period is read from the subscription or
    its items (Stripe API 2025-03-31+), identically for every entry point (subscription events, checkout completion, invoices).
+   The period is lifted inside the two writers, so it also applies to connected-account (legacy studio membership) subscription
+   events: a payload that carries the period only on its items now writes real dates instead of NULL (a strict improvement, but
+   a behaviour change outside "platform only" — mention it in the release notes).
 
 Not changed: checkout, portal, Price selection, Founder/Regular gating, entitlements, any other webhook handler.
 
@@ -127,8 +130,9 @@ unlabelled-customer case; a studio's plan/status is visibly wrong; or entitlemen
 - Comped (`billing_override_enabled`) studios still have `subscription_status` / `stripe_subscription_id` / `trial_ends_at`
   overwritten; only `billing_plan` is protected. Pre-existing; public pages gate on `subscription_status`.
 - `items.data[0]` is assumed to be the plan item for plan resolution and now also for the period lift.
-- Connected-account (legacy membership) subscription events are not re-read and not period-lifted; the invoice-paid
-  membership path reads its own period.
+- Connected-account (legacy membership) subscription events are not re-read (their period is lifted when the payload carries
+  it on items, see 1.5); the invoice-paid legacy-membership path reads its own, un-lifted period and can write NULL dates as a
+  first write until the next subscription event overwrites them.
 - A small race between concurrent deliveries of *different* events for the same subscription remains (needs a stored
   watermark, i.e. a migration — a separate, separately authorized change).
 - Yearly checkout is ungated (the DB yearly Price IDs must be confirmed empty — owner/DB read), and which plans the live
