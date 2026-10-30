@@ -519,11 +519,34 @@ async function verifyConnectedStudio(
   return studio?.stripe_connected_account_id === stripeAccountId;
 }
 
+/** A Stripe customer DanceFlow already bills: mapped in studio_billing_customers, or recorded on a studio row itself. */
+async function isKnownStudioBillingCustomer(supabase: SupabaseClient, stripeCustomerId: string) {
+  const { data: mapped, error: mappedError } = await supabase
+    .from("studio_billing_customers")
+    .select("studio_id")
+    .eq("stripe_customer_id", stripeCustomerId)
+    .limit(1)
+    .maybeSingle();
+  if (mappedError) throw new Error(mappedError.message);
+  if (mapped?.studio_id) return true;
+
+  const { data: onStudio, error: onStudioError } = await supabase
+    .from("studios")
+    .select("id")
+    .eq("stripe_customer_id", stripeCustomerId)
+    .limit(1)
+    .maybeSingle();
+  if (onStudioError) throw new Error(onStudioError.message);
+  return Boolean(onStudio?.id);
+}
+
 export async function upsertStripeSubscriptionRecord(
   supabase: SupabaseClient,
-  subscription: Stripe.Subscription,
+  subscriptionAsDelivered: Stripe.Subscription,
   stripeAccountId?: string | null,
 ) {
+  // The billing period may live on the items (Stripe API 2025-03-31 and later): read it the same way whatever the entry point.
+  const subscription = withSubscriptionPeriod(subscriptionAsDelivered);
   const stripeSubscriptionId = subscription.id;
   const stripeCustomerId = getString(subscription.customer);
 
@@ -536,6 +559,21 @@ export async function upsertStripeSubscriptionRecord(
   const studioId = metadata.studioId || null;
   const clientId = metadata.clientId || null;
   const membershipPlanId = metadata.membershipPlanId || null;
+
+  // BILLING-QA-3: a platform subscription that is neither a DanceFlow plan subscription (handled before this) nor a
+  // legacy studio membership (studioId metadata), e.g. one created in the Stripe Dashboard, has no tenant: acknowledge
+  // it without a write instead of failing on stripe_subscriptions.studio_id and making Stripe retry indefinitely.
+  // A DanceFlow plan subscription whose studio is not resolvable yet still fails, so Stripe's retry can settle it.
+  if (!stripeAccountId && !studioId) {
+    if (getSubscriptionSource(subscription)) throw new Error("subscription_event_studio_unresolved");
+    // Unlabelled but for a customer DanceFlow already bills (e.g. a studio's subscription recreated in the Dashboard
+    // without metadata): fail loudly instead of dropping it, so it is noticed and Stripe keeps retrying until fixed.
+    if (await isKnownStudioBillingCustomer(supabase, stripeCustomerId)) {
+      throw new Error("subscription_event_unlabelled_known_customer");
+    }
+    console.error("subscription_event_unowned");
+    return;
+  }
 
   // PAY-DC-2B: for connected events, metadata alone never decides the tenant.
   if (stripeAccountId) {
@@ -715,6 +753,13 @@ async function upsertStudioBillingCustomer(params: {
   }
 }
 
+// The studio plans whose studios.billing_plan this webhook keeps in step. Deliberately NOT "organizer": organizer
+// workspaces never had this column written here, and whether every database's billing_plan enum has that value is not
+// something this code can assume (a missing value would fail every organizer delivery after the subscription row was written).
+const STUDIO_BILLING_PLAN_VALUES = new Set(["starter", "growth", "pro"]);
+// Mapped studio_subscriptions statuses of a subscription the studio is actually on.
+const LIVE_STUDIO_SUBSCRIPTION_STATUSES = new Set(["trialing", "active", "past_due"]);
+
 async function syncStudioBillingSnapshot(params: {
   supabase: SupabaseClient;
   studioId: string;
@@ -722,6 +767,8 @@ async function syncStudioBillingSnapshot(params: {
   stripeSubscriptionId: string;
   subscriptionStatus: string;
   trialEndsAt?: string | null;
+  /** BILLING-QA-3: the plan the subscription's Price resolved to; omitted (left unchanged) when it is not a billing_plan value. */
+  billingPlan?: string | null;
 }) {
   const {
     supabase,
@@ -730,6 +777,7 @@ async function syncStudioBillingSnapshot(params: {
     stripeSubscriptionId,
     subscriptionStatus,
     trialEndsAt = null,
+    billingPlan = null,
   } = params;
 
   const { error } = await supabase
@@ -745,6 +793,20 @@ async function syncStudioBillingSnapshot(params: {
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  // Public embed, Discover and calendar pages read studios.billing_plan, so it follows Billing Portal plan changes. A
+  // comped/ambassador studio (billing_override_enabled) gets its plan from billing_plan itself: never overwrite it.
+  if (billingPlan && STUDIO_BILLING_PLAN_VALUES.has(billingPlan)) {
+    const { error: planError } = await supabase
+      .from("studios")
+      .update({ billing_plan: billingPlan })
+      .eq("id", studioId)
+      .eq("billing_override_enabled", false);
+
+    if (planError) {
+      throw new Error(planError.message);
+    }
   }
 }
 
@@ -873,12 +935,48 @@ async function syncOrganizerSuiteAddonEntitlements(params: {
   }
 }
 
+/**
+ * Since Stripe API version 2025-03-31 (basil) a subscription's billing period lives on its items, not on the subscription.
+ * The readers below use the subscription-level fields, and a re-read uses the SDK's pinned API version while an event
+ * payload uses the webhook endpoint's, so lift the period from the first item when the subscription lacks it. Without
+ * this, a re-read could write NULL period dates.
+ */
+function withSubscriptionPeriod(subscription: Stripe.Subscription): Stripe.Subscription {
+  const top = subscription as unknown as { current_period_start?: number; current_period_end?: number };
+  const item = subscription.items?.data?.[0] as unknown as { current_period_start?: number; current_period_end?: number } | undefined;
+  const start = top.current_period_start ?? item?.current_period_start;
+  const end = top.current_period_end ?? item?.current_period_end;
+  if (start === top.current_period_start && end === top.current_period_end) return subscription;
+  return { ...subscription, current_period_start: start, current_period_end: end } as unknown as Stripe.Subscription;
+}
+
+/**
+ * BILLING-QA-3: the subscription as Stripe holds it now. A subscription Stripe no longer knows (resource_missing)
+ * falls back to the event payload (logged, because if the API key and webhook secret ever belonged to different
+ * accounts every read would land here and the ordering protection would silently be off); any other error throws, so
+ * the delivery fails and Stripe retries it.
+ */
+async function retrieveCurrentSubscription(stripe: Stripe, fromEvent: Stripe.Subscription): Promise<Stripe.Subscription> {
+  try {
+    return withSubscriptionPeriod(await stripe.subscriptions.retrieve(fromEvent.id));
+  } catch (error) {
+    if ((error as { code?: unknown }).code === "resource_missing") {
+      console.error("subscription_event_retrieve_missing");
+      return withSubscriptionPeriod(fromEvent);
+    }
+    throw error;
+  }
+}
+
 async function upsertStudioSubscription(params: {
   supabase: SupabaseClient;
   stripe: Stripe;
   subscription: Stripe.Subscription;
 }) {
-  const { supabase, subscription } = params;
+  const { supabase } = params;
+  // Every entry point (subscription events, checkout completion, invoice events) hands over a re-read subscription: read
+  // the billing period the same way for all of them, so none writes NULL dates over another's real ones.
+  const subscription = withSubscriptionPeriod(params.subscription);
 
   const metadata = subscription.metadata ?? {};
   const stripeCustomerId = getString(subscription.customer);
@@ -900,6 +998,35 @@ async function upsertStudioSubscription(params: {
 
   if (!studioId || !stripeCustomerId) {
     return false;
+  }
+
+  const mappedStatus = mapStudioSubscriptionStatus(subscription.status);
+
+  const { data: existingByStudio, error: existingByStudioError } =
+    await supabase
+      .from("studio_subscriptions")
+      .select("id, stripe_subscription_id, status")
+      .eq("studio_id", studioId)
+      .maybeSingle();
+
+  if (existingByStudioError) {
+    throw new Error(existingByStudioError.message);
+  }
+
+  // BILLING-QA-3: studio_subscriptions holds ONE subscription per studio. An event about a different subscription that
+  // is no longer live (an older one that was cancelled and replaced, a late event for it) must not overwrite the
+  // studio's live subscription, its status or its plan. Decided before the plan is resolved, so a late event for an old
+  // subscription whose Price no longer resolves is skipped instead of failing and being retried for days.
+  const existingSubscriptionId = (existingByStudio as { stripe_subscription_id?: string | null } | null)?.stripe_subscription_id ?? null;
+  const existingStatus = (existingByStudio as { status?: string | null } | null)?.status ?? null;
+  if (
+    existingSubscriptionId &&
+    existingSubscriptionId !== subscription.id &&
+    !LIVE_STUDIO_SUBSCRIPTION_STATUSES.has(mappedStatus) &&
+    LIVE_STUDIO_SUBSCRIPTION_STATUSES.has(existingStatus ?? "")
+  ) {
+    console.error("subscription_event_superseded");
+    return true;
   }
 
   const metadataPlanCode = getString(metadata.planCode);
@@ -991,8 +1118,6 @@ async function upsertStudioSubscription(params: {
       ? "year"
       : "month";
 
-  const mappedStatus = mapStudioSubscriptionStatus(subscription.status);
-
   const payload = {
     studio_id: studioId,
     subscription_plan_id: planRow.id,
@@ -1006,17 +1131,6 @@ async function upsertStudioSubscription(params: {
     ended_at: toIsoOrNull(getNumber(subscription.ended_at)),
     updated_at: new Date().toISOString(),
   };
-
-  const { data: existingByStudio, error: existingByStudioError } =
-    await supabase
-      .from("studio_subscriptions")
-      .select("id")
-      .eq("studio_id", studioId)
-      .maybeSingle();
-
-  if (existingByStudioError) {
-    throw new Error(existingByStudioError.message);
-  }
 
   if (existingByStudio) {
     const { error: updateError } = await supabase
@@ -1052,6 +1166,10 @@ async function upsertStudioSubscription(params: {
     stripeCustomerId,
     stripeSubscriptionId: subscription.id,
     subscriptionStatus: subscription.status,
+    trialEndsAt: toIsoOrNull(getNumber(subscription.trial_end)),
+    // Only a plan the studio is actually on: an incomplete (never paid) subscription does not change billing_plan, and
+    // a cancelled one keeps the last plan (subscription_status carries the cancellation).
+    billingPlan: LIVE_STUDIO_SUBSCRIPTION_STATUSES.has(mappedStatus) ? planRow.code : null,
   });
 
   if (source === "studio_subscription") {
@@ -3567,7 +3685,12 @@ export async function POST(request: Request) {
       case "customer.subscription.created":
       case "customer.subscription.updated":
       case "customer.subscription.deleted": {
-        const subscription = event.data.object as Stripe.Subscription;
+        // BILLING-QA-3: a platform subscription is applied from Stripe's CURRENT state, not the event payload, so a
+        // delayed, retried or out-of-order event can never overwrite a newer plan or status (the same rule
+        // checkout.session.completed and invoice.payment_failed already follow by re-retrieving).
+        const subscription = event.account
+          ? (event.data.object as Stripe.Subscription)
+          : await retrieveCurrentSubscription(stripe, event.data.object as Stripe.Subscription);
 
         // PAY-DC-1: only platform-scoped events can be DanceFlow SaaS subscriptions.
         const handled = event.account
