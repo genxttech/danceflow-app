@@ -10,7 +10,7 @@
       "migrations": []
     },
     "main": {
-      "description": "origin/main in repo (merge) order: 20261207..20261217, 20261206 (PR #251, merged after 1217), then 20261218..20261230 (1220 is unused)",
+      "description": "origin/main in repo (merge) order: 20261207..20261217, 20261206 (PR #251, merged after 1217), then 20261218..20261231100000 (1220 is unused)",
       "migrations": [
         [
           "MAIN",
@@ -107,11 +107,19 @@
         [
           "MAIN",
           "20261230"
+        ],
+        [
+          "MAIN",
+          "20261231090000"
+        ],
+        [
+          "MAIN",
+          "20261231100000"
         ]
       ]
     },
     "numeric": {
-      "description": "fresh-install order: every TW-4F migration above the cutoff in numeric order, 20261206..20261230",
+      "description": "fresh-install order: every TW-4F migration above the cutoff in numeric order, 20261206..20261231100000",
       "migrations": [
         [
           "MAIN",
@@ -208,6 +216,14 @@
         [
           "MAIN",
           "20261230"
+        ],
+        [
+          "MAIN",
+          "20261231090000"
+        ],
+        [
+          "MAIN",
+          "20261231100000"
         ]
       ]
     }
