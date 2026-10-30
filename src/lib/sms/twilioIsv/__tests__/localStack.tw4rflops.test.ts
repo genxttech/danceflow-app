@@ -1280,7 +1280,7 @@ commit;`);
       const evid = evidenceApplied(psql);
       const d5text = d5 ? readFileSync(join(dir, "20261225090000_twilio_rfl_d5_cover.sql"), "utf8") : "";
       // 20261230 (pilot spend evidence) replaces the cover body once more (its tw4_spend_authorize call passes the evidence through): on a database that carries it, the body must match THAT text
-      const evidtext = evid ? readFileSync(join(dir, spendEvidenceApplied(psql) ? "20261230090000_twilio_rfl_pilot_spend_evidence.sql" : "20261229090000_twilio_rfl_pilot_evidence.sql"), "utf8") : "";
+      const evidtext = evid ? readFileSync(join(dir, psql(`select to_regprocedure('public._tw4psh_spend_authorize(uuid,text,integer,text,uuid,text,uuid,date,text,text,integer,text,text,text)') is not null`) === "t" ? "20261231100000_twilio_pilot_spend_hardening.sql" : spendEvidenceApplied(psql) ? "20261230090000_twilio_rfl_pilot_spend_evidence.sql" : "20261229090000_twilio_rfl_pilot_evidence.sql"), "utf8") : "";
       for (const n of ["tw4_rfl_suspend_df", "tw4_rfl_pilot_cover", "tw4_rfl_register", "tw4_rfl_cancel_withdraw", "tw4_rfl_cancel_begin", "tw4_rfl_cancel_finish", "tw4_rfl_cancel_resolve",
         "tw4_rfl_observe_provider_bill", "tw4_rfl_alert_finish", "tw4_rfl_inventory_gaps", "tw4_rfl_studio_ready", "tw4_rfl_scan_entities", "_tw4rc_service_state", "tw4_recurring_charge",
         "_tw4rfl_cover", "_tw4rfl_gate_suspended", "_tw4rfl_alert", "_tw4rfl_lock"]) {

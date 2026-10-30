@@ -1596,6 +1596,8 @@ commit;`);
         expect(run(`select to_regclass('public.studio_sms_provider_resources') is not null`)).toBe("t");
         // 20261229 (pilot evidence) replaced tw4_rfl_pilot_cover with the eleven-argument form: on a database that carries it, it is rolled back first (this copy has no evidence rows)
         // 20261230 (pilot spend evidence) sits on top of 20261229: on a database that carries it, it is rolled back first (this copy has no evidence rows)
+        // 20261231100000 (pilot spend hardening) sits on top of 20261230: strict reverse order, it goes first
+        if (run(`select to_regprocedure('public._tw4psh_spend_authorize(uuid,text,integer,text,uuid,text,uuid,date,text,text,integer,text,text,text)') is not null`) === "t") run(readFileSync(join(process.cwd(), "src/lib/supabase/migrations/rollback/20261231100000_twilio_pilot_spend_hardening_rollback.sql"), "utf8"));
         if (spendEvidenceApplied(psql)) run(readFileSync(join(process.cwd(), "src/lib/supabase/migrations/rollback/20261230090000_twilio_rfl_pilot_spend_evidence_rollback.sql"), "utf8"));
         if (evidenceApplied(psql)) run(readFileSync(join(process.cwd(), "src/lib/supabase/migrations/rollback/20261229090000_twilio_rfl_pilot_evidence_rollback.sql"), "utf8"));
         // the cancellation-target read (20261224) adds tw4_rfl_cancel_target, which the leftover-function check below would count: it is rolled back first, in strict reverse order
