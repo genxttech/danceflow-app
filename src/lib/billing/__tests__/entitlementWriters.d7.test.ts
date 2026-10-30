@@ -57,10 +57,12 @@ function scan(): { accesses: Access[]; strayMentions: string[] } {
     }
 
     // Every non-comment mention of the table name must be a literal .from(...) target, so a writer cannot hide
-    // behind a constant or a dynamic table name.
+    // behind a constant or a dynamic table name. Whole-word mentions only: a longer identifier that merely contains the
+    // table name (e.g. the RPC expire_due_usage_addon_entitlements) is not a table access.
+    const wholeWord = new RegExp(`\\b${TABLE}\\b`);
     const codeMentions = text
       .split(/\r?\n/)
-      .filter((line) => line.includes(TABLE) && !/^\s*(\/\/|\*|\/\*)/.test(line)).length;
+      .filter((line) => wholeWord.test(line) && !/^\s*(\/\/|\*|\/\*)/.test(line)).length;
     if (codeMentions !== fromCount) strayMentions.push(`${file} (${codeMentions} mentions, ${fromCount} .from calls)`);
   }
   return { accesses, strayMentions };
