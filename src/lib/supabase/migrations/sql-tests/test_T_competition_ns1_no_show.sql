@@ -11,6 +11,16 @@
 
 begin;
 
+-- HL1: Lock ballots now requires every ballot heat to be danced; suite heats that are locked are marked complete first (superuser, trigger bypass).
+create or replace function pg_temp.hl1_danced(p_heat uuid) returns void language plpgsql security definer as $$
+begin
+  perform set_config('session_replication_role', 'replica', true);
+  update public.event_competition_heats set status = 'complete' where id = p_heat;
+  perform set_config('session_replication_role', 'origin', true);
+end $$;
+grant execute on function pg_temp.hl1_danced(uuid) to authenticated, anon, service_role;
+
+
 create temp table t_results (name text, ok boolean, detail text) on commit drop;
 grant all on t_results to authenticated, anon, service_role;
 
@@ -487,6 +497,7 @@ select pg_temp.chk('F2 evidence: entries of the all-no-show heat stay in entries
 -- (r5's heat must be locked for the E2 lock; use the real 10A RPC as the manager)
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.hl1_danced(pg_temp.u('00d007'));
 select pg_temp.expect_ok('manager locks the r5 heat', format($q$select public.set_competition_heat_lock_state(%L, 'locked', 'ns1 suite')$q$, pg_temp.u('00d007')));
 select pg_temp.expect_ok('manager locks the r5 round ballots (ballots match the required set)', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006005'), pg_temp.u('f80001')));
 select pg_temp.expect_msg('after lock a mark is refused', format($q$select public.mark_competition_heat_no_show(%L, 'late', %L)$q$, pg_temp.he('00d007', '008015'), pg_temp.u('f80002')), 'COMP_NO_SHOW_WINDOW');
@@ -691,6 +702,7 @@ select public.submit_competition_ballot(pg_temp.u('006012'), pg_temp.u('00d015')
 select pg_temp.as_user(pg_temp.u('000013'));
 select public.submit_competition_ballot(pg_temp.u('006012'), pg_temp.u('00d015'), pg_temp.mk('00d015', '[1,2]'), gen_random_uuid());
 select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.hl1_danced(pg_temp.u('00d015'));
 select pg_temp.expect_ok('r12 heat h15 locks', format($q$select public.set_competition_heat_lock_state(%L, 'locked', 'ns1 e2e')$q$, pg_temp.u('00d015')));
 select pg_temp.expect_ok('r12 ballots lock without a ballot for the no-show-only heat', format($q$select public.lock_competition_round_ballots(%L, gen_random_uuid())$q$, pg_temp.u('006012')));
 select pg_temp.expect_ok('F2 calculate succeeds on r12', $q$select pg_temp.calc2('006012')$q$);
@@ -780,6 +792,7 @@ select pg_temp.as_user(pg_temp.u('000013'));
 select public.submit_competition_ballot(pg_temp.u('006030'), pg_temp.hid30(), jsonb_build_array(jsonb_build_object('entry_id', pg_temp.u('008050'), 'value', 1)), gen_random_uuid());
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_ok('13j heat completed (real RPC)', $q$select public.advance_competition_floor_heat((select floor_heat_id from public.event_competition_heats where round_id = pg_temp.u('006030')), 'complete', gen_random_uuid())$q$);
+select pg_temp.hl1_danced(pg_temp.hid30());
 select pg_temp.expect_ok('13k heat locked', format($q$select public.set_competition_heat_lock_state(%L, 'locked', 'ns1 real flow')$q$, pg_temp.hid30()));
 select pg_temp.expect_ok('13l ballots lock', format($q$select public.lock_competition_round_ballots(%L, gen_random_uuid())$q$, pg_temp.u('006030')));
 reset role;

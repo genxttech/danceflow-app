@@ -51,7 +51,7 @@ export default async function CompetitionBallotsPage({ params }: { params: Promi
               </span>
               <span className="flex items-center gap-3">
                 <span className="text-xs text-slate-600">{label(round.status)}</span>
-                {round.status === "active" || round.status === "ballots_locked" ? (
+                {round.status === "scheduled" || round.status === "active" || round.status === "ballots_locked" ? (
                   <Link href={`/app/events/${id}/competition/ballots/${round.id}`} className="text-sm font-semibold text-slate-950 underline">
                     Open
                   </Link>

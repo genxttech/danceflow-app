@@ -11,6 +11,16 @@
 
 begin;
 
+-- HL1: Lock ballots now requires every ballot heat to be danced; suite heats that are locked are marked complete first (superuser, trigger bypass).
+create or replace function pg_temp.hl1_danced(p_heat uuid) returns void language plpgsql security definer as $$
+begin
+  perform set_config('session_replication_role', 'replica', true);
+  update public.event_competition_heats set status = 'complete' where id = p_heat;
+  perform set_config('session_replication_role', 'origin', true);
+end $$;
+grant execute on function pg_temp.hl1_danced(uuid) to authenticated, anon, service_role;
+
+
 create temp table t_results (name text, ok boolean, detail text) on commit drop;
 grant all on t_results to authenticated, anon, service_role;
 create temp table t_ids (k text primary key, v uuid) on commit drop;
@@ -180,6 +190,7 @@ reset role;
 update public.event_competition_heat_entries set status = 'scratched' where heat_id = pg_temp.u('00d002');
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.hl1_danced(pg_temp.u('00d001'));
 select public.set_competition_heat_lock_state(pg_temp.u('00d001'), 'locked', 'dance complete');
 select pg_temp.expect_ok('A: a heat with every entry scratched does not block the lock (its ballots are void, not stale)',
   format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006001'), pg_temp.u('f21010')));
@@ -203,7 +214,9 @@ reset role;
 update public.event_competition_heat_entries set status = 'scratched' where entry_id in (pg_temp.u('008007'), pg_temp.u('008008'));
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.hl1_danced(pg_temp.u('00d003'));
 select public.set_competition_heat_lock_state(pg_temp.u('00d003'), 'locked', 'dance complete');
+select pg_temp.hl1_danced(pg_temp.u('00d004'));
 select public.set_competition_heat_lock_state(pg_temp.u('00d004'), 'locked', 'dance complete');
 select pg_temp.expect_msg('B: lock on a callback round with T >= eligible returns COMP_CALLBACK_NOT_DANCED',
   format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006002'), pg_temp.u('f22010')), 'COMP_CALLBACK_NOT_DANCED');

@@ -31,6 +31,7 @@ const MESSAGES: Record<string, string> = {
   COMP_ABSENCE_HAS_BALLOTS: "This judge already has ballots in the round, so they cannot be recorded absent.",
   COMP_BALLOTS_BAD_STATE: "The round is not in the right state for that.",
   COMP_BALLOTS_INCOMPLETE: "Not every judge has a ballot for every heat. Record the missing ballots or an absence first.",
+  COMP_HL1_HEAT_NOT_DANCED: "Every heat of the round must be danced before its ballots can be locked. A heat locked early still has to be run on the floor.",
   COMP_BALLOTS_HEATS_NOT_LOCKED: "Lock every heat of the round before locking its ballots.",
   COMP_RESULT_REASON_REQUIRED: "Give a reason (up to 500 characters).",
   COMP_REOPEN_RESULT_APPROVED: "A result for this round is already approved, so the ballots cannot be reopened here.",

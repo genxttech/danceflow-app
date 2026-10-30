@@ -22,6 +22,16 @@ select to_regprocedure('public.competition_heat_no_show_entries(uuid)') is null 
 
 begin;
 
+-- HL1: Lock ballots now requires every ballot heat to be danced; suite heats that are locked are marked complete first (superuser, trigger bypass).
+create or replace function pg_temp.hl1_danced(p_heat uuid) returns void language plpgsql security definer as $$
+begin
+  perform set_config('session_replication_role', 'replica', true);
+  update public.event_competition_heats set status = 'complete' where id = p_heat;
+  perform set_config('session_replication_role', 'origin', true);
+end $$;
+grant execute on function pg_temp.hl1_danced(uuid) to authenticated, anon, service_role;
+
+
 create temp table t_results (name text, ok boolean, detail text) on commit drop;
 grant all on t_results to authenticated, anon, service_role;
 
@@ -170,6 +180,7 @@ language plpgsql as $$
 begin
   perform pg_temp.ballots(p);
   perform pg_temp.as_user(pg_temp.u('000001'));
+  perform pg_temp.hl1_danced(pg_temp.hid(p));
   perform public.set_competition_heat_lock_state(pg_temp.hid(p), 'locked', 'fixture');
   perform public.lock_competition_round_ballots(pg_temp.rid(p), gen_random_uuid());
   execute 'reset role';

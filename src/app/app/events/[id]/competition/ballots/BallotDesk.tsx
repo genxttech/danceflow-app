@@ -1,7 +1,9 @@
 import { randomUUID } from "crypto";
 import { lockBlockerSummary, type BallotBoard } from "@/lib/competition/ballots/status";
 import { CORRECTION_BANNER, ballotsAccepting, inCorrectionWindow } from "@/lib/competition/ballots/window";
+import { canReopenHeat, heatIsDanced, lockHeatHint, lockHeatKind, type HeatFloorInfo } from "@/lib/competition/ballots/heatLock";
 import BallotMarksFields from "./BallotMarksFields";
+import LockHeatButton from "./LockHeatButton";
 import { enterPaperBallotAction, lockBallotsAction, recordAttendanceAction, reopenBallotsAction } from "./actions";
 
 const inputClass = "h-11 min-w-0 rounded border border-slate-300 bg-white px-3 text-sm text-slate-950";
@@ -16,7 +18,7 @@ function label(value: string) {
  * Ballot status board plus lock / reopen / attendance / paper-entry controls. Shared by the manager panel and the
  * scorer/chair desk. Which controls render only mirrors what the RPCs will allow; the RPCs refuse everyone else.
  */
-export default function BallotDesk({ board, returnTo }: { board: BallotBoard; returnTo: string }) {
+export default function BallotDesk({ board, returnTo, heatFloor }: { board: BallotBoard; returnTo: string; heatFloor?: Record<string, HeatFloorInfo> }) {
   const role = board.viewer_role;
   const roundId = board.round.id;
   const canLock = role === "manager" || role === "chair";
@@ -29,7 +31,9 @@ export default function BallotDesk({ board, returnTo }: { board: BallotBoard; re
   // locking stay on the plain `active` window; reopen is refused by the database while a correction is open.
   const correcting = inCorrectionWindow(board.round);
   const accepting = ballotsAccepting(board.round);
-  const blockers = lockBlockerSummary(board);
+  // HL1: the database refuses Lock ballots while a ballot heat is undanced; the desk says so instead of offering a button that fails.
+  const undancedHeats = heatFloor ? board.heats.filter((heat) => heatFloor[heat.heat_id] && !heatIsDanced(heatFloor[heat.heat_id].status, heatFloor[heat.heat_id].has_danced_entry)) : [];
+  const blockers = [...lockBlockerSummary(board), ...(undancedHeats.length > 0 ? [`${undancedHeats.length} heat(s) not danced yet: ${undancedHeats.map((heat) => heat.heat_number).join(", ")}.`] : [])];
   const heatNumber = new Map(board.heats.map((heat) => [heat.heat_id, heat.heat_number]));
 
   return (
@@ -222,6 +226,41 @@ export default function BallotDesk({ board, returnTo }: { board: BallotBoard; re
         </section>
       ) : null}
 
+      {heatFloor ? (
+        <section aria-label="Heats" className="rounded border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-semibold text-slate-950">Heats</h3>
+          <p className="mt-1 text-xs text-slate-600">
+            Every heat must be locked before the ballots can be locked. A heat can be locked once it has been danced, or earlier so officials can still scratch entries; the floor then refuses changes to it until it is reopened.
+          </p>
+          <ul className="mt-3 divide-y divide-slate-100">
+            {board.heats.map((heat) => {
+              const floorStatus = heatFloor[heat.heat_id]?.status ?? null;
+              const facts = { viewerRole: role, roundStatus: board.round.status, heatStatus: floorStatus, lockState: heat.lock_state, hasDancedEntry: heatFloor[heat.heat_id]?.has_danced_entry };
+              const lockKind = lockHeatKind(facts);
+              const reopen = canReopenHeat(facts);
+              const hint = lockHeatHint(facts);
+              return (
+                <li key={heat.heat_id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                  <span>
+                    <span className="font-medium text-slate-950">Heat {heat.heat_number}</span>
+                    <span className="ml-2 text-xs text-slate-600">
+                      Floor: {floorStatus ? label(floorStatus) : "Unknown"} - {label(heat.lock_state)}
+                    </span>
+                  </span>
+                  {lockKind ? (
+                    <LockHeatButton mode="lock" kind={lockKind} roundId={roundId} heatId={heat.heat_id} heatNumber={heat.heat_number} returnTo={returnTo} />
+                  ) : reopen ? (
+                    <LockHeatButton mode="reopen" roundId={roundId} heatId={heat.heat_id} heatNumber={heat.heat_number} returnTo={returnTo} />
+                  ) : hint ? (
+                    <span className="text-xs text-slate-500">{hint}</span>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
+
       <section aria-label="Lock and reopen" className="rounded border border-slate-200 bg-white p-4">
         <h3 className="text-sm font-semibold text-slate-950">Lock ballots</h3>
         {active ? (
@@ -248,7 +287,7 @@ export default function BallotDesk({ board, returnTo }: { board: BallotBoard; re
                 <input type="hidden" name="roundId" value={roundId} />
                 <input type="hidden" name="requestId" value={randomUUID()} />
                 <input type="hidden" name="returnTo" value={returnTo} />
-                <button className={buttonClass} disabled={!board.blockers.ready || !board.scheme_available}>
+                <button className={buttonClass} disabled={!board.blockers.ready || !board.scheme_available || undancedHeats.length > 0}>
                   Lock ballots
                 </button>
                 <p className="mt-2 text-xs text-slate-600">Locking stops all new ballots and corrections until a manager reopens the round, with a reason.</p>
