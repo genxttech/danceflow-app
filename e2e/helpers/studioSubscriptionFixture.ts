@@ -99,7 +99,7 @@ export async function readStudioBilling(config: E2EConfig, studioId: string) {
   const studio = await must<Record<string, unknown> | null>(
     admin.from("studios").select("billing_plan, subscription_status, stripe_customer_id, stripe_subscription_id").eq("id", studioId).maybeSingle(), "studio billing");
   const subscriptions = (await must<Record<string, unknown>[]>(
-    admin.from("studio_subscriptions").select("id, subscription_plan_id, stripe_subscription_id, status, billing_interval").eq("studio_id", studioId), "studio subscriptions")) ?? [];
+    admin.from("studio_subscriptions").select("id, subscription_plan_id, stripe_subscription_id, status, billing_interval, current_period_start, current_period_end").eq("studio_id", studioId), "studio subscriptions")) ?? [];
   const customers = (await must<Record<string, unknown>[]>(
     admin.from("studio_billing_customers").select("stripe_customer_id").eq("studio_id", studioId), "billing customers")) ?? [];
   return { studio, subscriptions, customers };

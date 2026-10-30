@@ -186,6 +186,10 @@ test.describe("Studio subscription checkout and webhooks through real Stripe tes
     await waitForPlan(fixture.fresh.id, "growth");
     const billing = await readStudioBilling(config, fixture.fresh.id);
     expect(billing.subscriptions).toEqual([expect.objectContaining({ stripe_subscription_id: subscription.id, status: subscription.status, billing_interval: "month" })]);
+    // Real Stripe objects: the billing period must reach the row whichever shape (subscription or items) this API version uses.
+    const period = billing.subscriptions[0] as { current_period_start: string | null; current_period_end: string | null };
+    expect([typeof period.current_period_start, typeof period.current_period_end]).toEqual(["string", "string"]);
+    expect(Date.parse(period.current_period_end!)).toBeGreaterThan(Date.parse(period.current_period_start!));
     expect([billing.studio?.stripe_subscription_id, billing.studio?.subscription_status, billing.studio?.billing_plan]).toEqual([subscription.id, subscription.status, "growth"]);
     // Tenant isolation: the other studio is untouched.
     expect((await readStudioBilling(config, fixture.legacy.id)).subscriptions).toHaveLength(0);
