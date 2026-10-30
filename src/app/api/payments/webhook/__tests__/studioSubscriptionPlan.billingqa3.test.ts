@@ -413,3 +413,72 @@ describe("retries and replay protection at the delivery claim (BILLING-QA-3)", (
     expect(after.studio).toMatchObject({ billing_plan: before.studio.billing_plan, subscription_status: before.studio.subscription_status });
   });
 });
+
+describe("independent review (Opus) follow-up fixes (BILLING-QA-3)", () => {
+  // Stripe API 2025-03-31 (basil) and later: the billing period is on the subscription items, not on the subscription.
+  const basil = (fields: Parameters<typeof subscription>[0], start: number, end: number) => {
+    const copy = JSON.parse(JSON.stringify(subscription(fields)));
+    delete copy.current_period_start;
+    delete copy.current_period_end;
+    copy.items.data = copy.items.data.map((item: object) => ({ ...item, current_period_start: start, current_period_end: end }));
+    return copy;
+  };
+  const iso = (unix: number) => new Date(unix * 1000).toISOString();
+
+  it("R1: a re-read subscription with the period on its items still fills current_period_start/end", async () => {
+    const stale = subscription({ status: "active", prices: [PRICES.pro] }); // old-shape payload from an older-API endpoint
+    stripeState.sub_1 = basil({ status: "active", prices: [PRICES.pro] }, 1791000000, 1793600000); // what the SDK's pinned version returns
+    await post("customer.subscription.updated", stale, undefined, { stale: true });
+    expect(subsFor("studio-1")[0]).toMatchObject({ current_period_start: iso(1791000000), current_period_end: iso(1793600000) });
+  });
+
+  it("R1: an old-shape re-read (period on the subscription) is unchanged", async () => {
+    await post("customer.subscription.updated", subscription({ status: "active", prices: [PRICES.pro] }));
+    expect(subsFor("studio-1")[0]).toMatchObject({ current_period_start: iso(1790000000), current_period_end: iso(1792600000) });
+  });
+
+  it("R1: the resource_missing payload fallback also lifts a period from the items, and logs that the fallback was used", async () => {
+    stripeState = {};
+    const payload = basil({ status: "active", prices: [PRICES.growth] }, 1791000000, 1793600000);
+    const body = eventBody("customer.subscription.updated", payload);
+    signatureHeader = realStripe.webhooks.generateTestHeaderString({ payload: body, secret: PLATFORM_SECRET } as TestHeaderOptions);
+    expect((await POST(new Request("https://example.test/api/payments/webhook", { method: "POST", body }))).status).toBe(200);
+    expect(subsFor("studio-1")[0]).toMatchObject({ current_period_start: iso(1791000000), current_period_end: iso(1793600000) });
+    expect(vi.mocked(console.error).mock.calls.flat().map(String)).toContain("subscription_event_retrieve_missing");
+  });
+
+  it("R2: an organizer-plan subscription is recorded but never writes studios.billing_plan (the enum value is not assumed)", async () => {
+    const result = await post("customer.subscription.created", subscription({ status: "active", prices: ["price_organizer"], metadata: { source: "organizer_subscription", studioId: "studio-1", planCode: "organizer" } }));
+    expect(result.status).toBe(200);
+    expect(subsFor("studio-1")[0]).toMatchObject({ subscription_plan_id: "plan-organizer", status: "active" });
+    expect(studio("studio-1")).toMatchObject({ billing_plan: "starter", subscription_status: "active" });
+  });
+
+  it("a late event for an old, replaced subscription whose Price no longer resolves is skipped (200), not failed and retried", async () => {
+    const before = JSON.parse(JSON.stringify({ studio: studio("studio-2"), subs: subsFor("studio-2") }));
+    const result = await post("customer.subscription.deleted", subscription({ id: "sub_ancient", customer: "cus_2", status: "canceled", prices: ["price_retired_long_ago"], metadata: { source: "studio_subscription", studioId: "studio-2" } }));
+    expect(result.status).toBe(200);
+    expect({ studio: studio("studio-2"), subs: subsFor("studio-2") }).toEqual(before);
+    expect(completions).toEqual([{ status: "processed", error: null }]);
+  });
+
+  it("an incomplete subscription with a different id is skipped while the studio's subscription is live", async () => {
+    const before = JSON.parse(JSON.stringify(subsFor("studio-2")));
+    await post("customer.subscription.created", subscription({ id: "sub_incomplete", customer: "cus_2", status: "incomplete", prices: [PRICES.growth], metadata: { source: "studio_subscription", studioId: "studio-2" } }));
+    expect(subsFor("studio-2")).toEqual(before);
+  });
+
+  it("a different-id subscription replaces the row when the existing subscription is already cancelled (not live)", async () => {
+    fake.rows("studio_subscriptions").find((row) => row.studio_id === "studio-2")!.status = "cancelled";
+    await post("customer.subscription.created", subscription({ id: "sub_replacement", customer: "cus_2", status: "incomplete", prices: [PRICES.growth], metadata: { source: "studio_subscription", studioId: "studio-2" } }));
+    expect(subsFor("studio-2")).toEqual([expect.objectContaining({ stripe_subscription_id: "sub_replacement", status: "inactive", subscription_plan_id: "plan-growth" })]);
+  });
+
+  it("an unlabelled subscription for a customer recorded only on studios.stripe_customer_id still fails loudly", async () => {
+    fake.rows("studios").push({ id: "studio-3", billing_plan: "starter", subscription_status: "inactive", billing_override_enabled: false, stripe_customer_id: "cus_only_on_studio" });
+    const result = await post("customer.subscription.created", subscription({ id: "sub_dash2", customer: "cus_only_on_studio", status: "active", prices: [PRICES.pro], metadata: {} }));
+    expect(result.status).toBe(500);
+    expect(fake.mutations).toHaveLength(0);
+    expect(completions).toEqual([{ status: "failed", error: "subscription_event_unlabelled_known_customer" }]);
+  });
+});

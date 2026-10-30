@@ -519,6 +519,27 @@ async function verifyConnectedStudio(
   return studio?.stripe_connected_account_id === stripeAccountId;
 }
 
+/** A Stripe customer DanceFlow already bills: mapped in studio_billing_customers, or recorded on a studio row itself. */
+async function isKnownStudioBillingCustomer(supabase: SupabaseClient, stripeCustomerId: string) {
+  const { data: mapped, error: mappedError } = await supabase
+    .from("studio_billing_customers")
+    .select("studio_id")
+    .eq("stripe_customer_id", stripeCustomerId)
+    .limit(1)
+    .maybeSingle();
+  if (mappedError) throw new Error(mappedError.message);
+  if (mapped?.studio_id) return true;
+
+  const { data: onStudio, error: onStudioError } = await supabase
+    .from("studios")
+    .select("id")
+    .eq("stripe_customer_id", stripeCustomerId)
+    .limit(1)
+    .maybeSingle();
+  if (onStudioError) throw new Error(onStudioError.message);
+  return Boolean(onStudio?.id);
+}
+
 export async function upsertStripeSubscriptionRecord(
   supabase: SupabaseClient,
   subscription: Stripe.Subscription,
@@ -545,7 +566,7 @@ export async function upsertStripeSubscriptionRecord(
     if (getSubscriptionSource(subscription)) throw new Error("subscription_event_studio_unresolved");
     // Unlabelled but for a customer DanceFlow already bills (e.g. a studio's subscription recreated in the Dashboard
     // without metadata): fail loudly instead of dropping it, so it is noticed and Stripe keeps retrying until fixed.
-    if (await getStudioIdFromStripeCustomer({ supabase, stripeCustomerId })) {
+    if (await isKnownStudioBillingCustomer(supabase, stripeCustomerId)) {
       throw new Error("subscription_event_unlabelled_known_customer");
     }
     console.error("subscription_event_unowned");
@@ -730,8 +751,10 @@ async function upsertStudioBillingCustomer(params: {
   }
 }
 
-// Values of the studios.billing_plan enum.
-const STUDIO_BILLING_PLAN_VALUES = new Set(["starter", "growth", "pro", "organizer"]);
+// The studio plans whose studios.billing_plan this webhook keeps in step. Deliberately NOT "organizer": organizer
+// workspaces never had this column written here, and whether every database's billing_plan enum has that value is not
+// something this code can assume (a missing value would fail every organizer delivery after the subscription row was written).
+const STUDIO_BILLING_PLAN_VALUES = new Set(["starter", "growth", "pro"]);
 // Mapped studio_subscriptions statuses of a subscription the studio is actually on.
 const LIVE_STUDIO_SUBSCRIPTION_STATUSES = new Set(["trialing", "active", "past_due"]);
 
@@ -911,14 +934,34 @@ async function syncOrganizerSuiteAddonEntitlements(params: {
 }
 
 /**
+ * Since Stripe API version 2025-03-31 (basil) a subscription's billing period lives on its items, not on the subscription.
+ * The readers below use the subscription-level fields, and a re-read uses the SDK's pinned API version while an event
+ * payload uses the webhook endpoint's, so lift the period from the first item when the subscription lacks it. Without
+ * this, a re-read could write NULL period dates.
+ */
+function withSubscriptionPeriod(subscription: Stripe.Subscription): Stripe.Subscription {
+  const top = subscription as unknown as { current_period_start?: number; current_period_end?: number };
+  const item = subscription.items?.data?.[0] as unknown as { current_period_start?: number; current_period_end?: number } | undefined;
+  const start = top.current_period_start ?? item?.current_period_start;
+  const end = top.current_period_end ?? item?.current_period_end;
+  if (start === top.current_period_start && end === top.current_period_end) return subscription;
+  return { ...subscription, current_period_start: start, current_period_end: end } as unknown as Stripe.Subscription;
+}
+
+/**
  * BILLING-QA-3: the subscription as Stripe holds it now. A subscription Stripe no longer knows (resource_missing)
- * falls back to the event payload; any other error throws, so the delivery fails and Stripe retries it.
+ * falls back to the event payload (logged, because if the API key and webhook secret ever belonged to different
+ * accounts every read would land here and the ordering protection would silently be off); any other error throws, so
+ * the delivery fails and Stripe retries it.
  */
 async function retrieveCurrentSubscription(stripe: Stripe, fromEvent: Stripe.Subscription): Promise<Stripe.Subscription> {
   try {
-    return await stripe.subscriptions.retrieve(fromEvent.id);
+    return withSubscriptionPeriod(await stripe.subscriptions.retrieve(fromEvent.id));
   } catch (error) {
-    if ((error as { code?: unknown }).code === "resource_missing") return fromEvent;
+    if ((error as { code?: unknown }).code === "resource_missing") {
+      console.error("subscription_event_retrieve_missing");
+      return withSubscriptionPeriod(fromEvent);
+    }
     throw error;
   }
 }
@@ -950,6 +993,35 @@ async function upsertStudioSubscription(params: {
 
   if (!studioId || !stripeCustomerId) {
     return false;
+  }
+
+  const mappedStatus = mapStudioSubscriptionStatus(subscription.status);
+
+  const { data: existingByStudio, error: existingByStudioError } =
+    await supabase
+      .from("studio_subscriptions")
+      .select("id, stripe_subscription_id, status")
+      .eq("studio_id", studioId)
+      .maybeSingle();
+
+  if (existingByStudioError) {
+    throw new Error(existingByStudioError.message);
+  }
+
+  // BILLING-QA-3: studio_subscriptions holds ONE subscription per studio. An event about a different subscription that
+  // is no longer live (an older one that was cancelled and replaced, a late event for it) must not overwrite the
+  // studio's live subscription, its status or its plan. Decided before the plan is resolved, so a late event for an old
+  // subscription whose Price no longer resolves is skipped instead of failing and being retried for days.
+  const existingSubscriptionId = (existingByStudio as { stripe_subscription_id?: string | null } | null)?.stripe_subscription_id ?? null;
+  const existingStatus = (existingByStudio as { status?: string | null } | null)?.status ?? null;
+  if (
+    existingSubscriptionId &&
+    existingSubscriptionId !== subscription.id &&
+    !LIVE_STUDIO_SUBSCRIPTION_STATUSES.has(mappedStatus) &&
+    LIVE_STUDIO_SUBSCRIPTION_STATUSES.has(existingStatus ?? "")
+  ) {
+    console.error("subscription_event_superseded");
+    return true;
   }
 
   const metadataPlanCode = getString(metadata.planCode);
@@ -1041,8 +1113,6 @@ async function upsertStudioSubscription(params: {
       ? "year"
       : "month";
 
-  const mappedStatus = mapStudioSubscriptionStatus(subscription.status);
-
   const payload = {
     studio_id: studioId,
     subscription_plan_id: planRow.id,
@@ -1056,32 +1126,6 @@ async function upsertStudioSubscription(params: {
     ended_at: toIsoOrNull(getNumber(subscription.ended_at)),
     updated_at: new Date().toISOString(),
   };
-
-  const { data: existingByStudio, error: existingByStudioError } =
-    await supabase
-      .from("studio_subscriptions")
-      .select("id, stripe_subscription_id, status")
-      .eq("studio_id", studioId)
-      .maybeSingle();
-
-  if (existingByStudioError) {
-    throw new Error(existingByStudioError.message);
-  }
-
-  // BILLING-QA-3: studio_subscriptions holds ONE subscription per studio. An event about a different subscription that
-  // is no longer live (an older one that was cancelled and replaced, a late event for it) must not overwrite the
-  // studio's live subscription, its status or its plan.
-  const existingSubscriptionId = (existingByStudio as { stripe_subscription_id?: string | null } | null)?.stripe_subscription_id ?? null;
-  const existingStatus = (existingByStudio as { status?: string | null } | null)?.status ?? null;
-  if (
-    existingSubscriptionId &&
-    existingSubscriptionId !== subscription.id &&
-    !LIVE_STUDIO_SUBSCRIPTION_STATUSES.has(mappedStatus) &&
-    LIVE_STUDIO_SUBSCRIPTION_STATUSES.has(existingStatus ?? "")
-  ) {
-    console.error("subscription_event_superseded");
-    return true;
-  }
 
   if (existingByStudio) {
     const { error: updateError } = await supabase
