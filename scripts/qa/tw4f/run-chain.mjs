@@ -79,7 +79,7 @@ function parseArgs(argv) {
     if (!a.startsWith("--")) { rest.push(a); continue; }
     const k = a.slice(2);
     if (k === "keep") { flags.keep = true; continue; }
-    if (k === "matrix" || k === "exclusive" || k === "shell-verify" || k === "partial" || k === "dry-run") { flags[k === "dry-run" ? "dryRun" : k === "shell-verify" ? "shellVerify" : k] = true; continue; }
+    if (k === "matrix" || k === "exclusive" || k === "shell-verify" || k === "partial" || k === "diagnose" || k === "dry-run") { flags[k === "dry-run" ? "dryRun" : k === "shell-verify" ? "shellVerify" : k] = true; continue; }
     const v = argv[++i];
     if (v === undefined) die(`--${k} needs a value`);
     if (k === "extra-branch") flags.extraBranch.push(v);
@@ -546,6 +546,8 @@ async function rehearse() {
       if (infra) { rec(stage, "INFRA", { ...extra, error: `${infra}; ${extra?.error ?? ""}` }); structural = "INFRA"; } else { rec(stage, "FAIL", extra); structural = "FAIL"; }
       throw STOP;
     };
+    // --diagnose: a catalog mismatch is recorded and the run continues (to list every residue in one pass); the verdict stays FAIL. A rollback/apply SQL error still stops the run.
+    const soft = (stage, extra) => { if (flags.diagnose) { rec(stage, "FAIL", extra); } else fail(stage, extra); };
     for (const p of plan) {
       const r = applySql(name, p.file, p.sql);
       if (!r.ok) fail(`apply ${p.version}`, { error: r.error });
@@ -562,12 +564,12 @@ async function rehearse() {
       const cmp = compareFp(i === 0 ? fp0 : fwd[i - 1], fp);
       steps.push({ phase: "rollback", version: p.version, file: p.rollbackFile, ms: r.ms, equalToPrevious: cmp.exact, ...sealed(fp) });
       judged.push({ name: `rollback ${p.version}`, cmp });
-      if (!cmp.maskedEqual) fail(`rollback ${p.version} restores the catalog from before its apply`, { onlyBefore: cmp.onlyBefore.slice(0, 20), onlyAfter: cmp.onlyAfter.slice(0, 20) });
+      if (!cmp.maskedEqual) soft(`rollback ${p.version} restores the catalog from before its apply`, { onlyBefore: cmp.onlyBefore.slice(0, 20), onlyAfter: cmp.onlyAfter.slice(0, 20) });
     }
     const down = compareFp(fp0, fingerprint(name));
     judged.push({ name: "rollback all == pre-TW-4F baseline", cmp: down });
-    if (!down.maskedEqual) fail("strict reverse rollback == baseline", { onlyBefore: down.onlyBefore.slice(0, 20), onlyAfter: down.onlyAfter.slice(0, 20) });
-    rec("strict reverse rollback == baseline", down.exact ? "PASS" : "KNOWN", { note: down.exact ? "identical" : `only the KI-2 widened CHECK constraints remain (${down.onlyBefore.length + down.onlyAfter.length} line(s))` });
+    if (!down.maskedEqual) soft("strict reverse rollback == baseline", { onlyBefore: down.onlyBefore.slice(0, 20), onlyAfter: down.onlyAfter.slice(0, 20) });
+    rec("strict reverse rollback == baseline", down.exact ? "PASS" : down.maskedEqual ? "KNOWN" : "FAIL", { note: down.exact ? "identical" : down.maskedEqual ? `only the KI-2 widened CHECK constraints remain (${down.onlyBefore.length + down.onlyAfter.length} line(s))` : "the catalog differs from the baseline beyond the KI-2 constraints", onlyBefore: down.maskedEqual ? undefined : down.onlyBefore.slice(0, 30), onlyAfter: down.maskedEqual ? undefined : down.onlyAfter.slice(0, 30) });
     for (const [i, p] of plan.entries()) {
       const r = applySql(name, p.file, p.sql);
       if (!r.ok) fail(`re-apply ${p.version}`, { error: r.error });
@@ -575,7 +577,7 @@ async function rehearse() {
       const cmp = compareFp(fwd[i], fp);
       steps.push({ phase: "reapply", version: p.version, file: p.file, ms: r.ms, equalToFirstApply: cmp.exact, ...sealed(fp) });
       judged.push({ name: `re-apply ${p.version}`, cmp });
-      if (!cmp.maskedEqual) fail(`re-apply ${p.version} equals its first apply`, { onlyBefore: cmp.onlyBefore.slice(0, 20), onlyAfter: cmp.onlyAfter.slice(0, 20) });
+      if (!cmp.maskedEqual) soft(`re-apply ${p.version} equals its first apply`, { onlyBefore: cmp.onlyBefore.slice(0, 20), onlyAfter: cmp.onlyAfter.slice(0, 20) });
     }
     const fin = compareFp(fwd[fwd.length - 1], fingerprint(name));
     judged.push({ name: "re-apply all == first apply", cmp: fin });
