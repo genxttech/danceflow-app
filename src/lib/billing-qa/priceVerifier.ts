@@ -107,13 +107,14 @@ export function priceConfigSection(env: Record<string, string | undefined>, foun
 
 type Retrieved = { ok: true; price: BillingQaPrice } | { ok: false; status: "FAIL" | "BLOCKED"; reason: string; detail: string };
 
-function classifyStripeError(error: unknown): Retrieved {
+/** Shared with the session read-back verifier: what a failed Stripe read means for a check (never the raw message). */
+export function classifyStripeError(error: unknown, object: { name: string; reason: string } = { name: "Price", reason: "price" }): Extract<Retrieved, { ok: false }> {
   const e = (error ?? {}) as { code?: unknown; statusCode?: unknown; type?: unknown };
   if (e.code === "resource_missing" || e.statusCode === 404) {
-    return { ok: false, status: "FAIL", reason: "price_not_found", detail: "Stripe has no such Price for this key's account" };
+    return { ok: false, status: "FAIL", reason: `${object.reason}_not_found`, detail: `Stripe has no such ${object.name} for this key's account` };
   }
   if (e.statusCode === 401) return { ok: false, status: "BLOCKED", reason: "stripe_auth_failed", detail: "Stripe rejected the key" };
-  if (e.statusCode === 403) return { ok: false, status: "BLOCKED", reason: "stripe_permission_denied", detail: "the key cannot read Prices" };
+  if (e.statusCode === 403) return { ok: false, status: "BLOCKED", reason: "stripe_permission_denied", detail: `the key cannot read ${object.name}s` };
   return { ok: false, status: "BLOCKED", reason: "stripe_unavailable", detail: `Stripe request failed (${String(e.type ?? "unknown error")})` };
 }
 
