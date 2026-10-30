@@ -22,6 +22,17 @@ end $$;
 alter table public.studio_subscriptions
   add column if not exists stripe_state_read_at timestamptz;
 
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'studio_subscriptions'
+      and column_name = 'stripe_state_read_at' and data_type = 'timestamp with time zone'
+  ) then
+    raise exception 'read-watermark postflight failed: stripe_state_read_at is missing or not timestamptz';
+  end if;
+end $$;
+
 comment on column public.studio_subscriptions.stripe_state_read_at is
   'Instant the subscription webhook started the Stripe read whose state this row holds. Writers apply a newer-or-equal read only; NULL = no watermark yet.';
 

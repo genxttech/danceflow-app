@@ -1179,6 +1179,22 @@ async function upsertStudioSubscription(params: {
     }
 
     if (readStartedAt && (updatedRows ?? []).length === 0) {
+      // Zero rows is "a newer read is stored" only if the row still exists; a row deleted since it was read must fail
+      // the delivery (Stripe retries) instead of silently dropping the event.
+      const { data: stillThere, error: stillThereError } = await supabase
+        .from("studio_subscriptions")
+        .select("id")
+        .eq("id", existingByStudio.id)
+        .maybeSingle();
+
+      if (stillThereError) {
+        throw new Error(stillThereError.message);
+      }
+
+      if (!stillThere) {
+        throw new Error(`studio_subscriptions row ${existingByStudio.id} disappeared during the update`);
+      }
+
       console.error("subscription_event_stale_read");
       return true;
     }

@@ -254,6 +254,20 @@ describe("studio_subscriptions.stripe_state_read_at (BILLING-QA-6)", () => {
     expect(subsFor("studio-2")[0]).toMatchObject({ status: expect.not.stringMatching(/^active$/), stripe_state_read_at: T0.toISOString() });
   });
 
+  it("zero rows because the row was DELETED since it was read fails the delivery (not a silent stale skip)", async () => {
+    const original = fake.adminClient.from;
+    let subscriptionCalls = 0;
+    fake.adminClient.from = ((table: string) => {
+      if (table === "studio_subscriptions" && ++subscriptionCalls === 2) {
+        fake.tables.studio_subscriptions = []; // gone between the read (call 1) and the update (call 2)
+      }
+      return original(table);
+    }) as typeof original;
+    const result = await post("customer.subscription.updated", sub2("active"));
+    expect(result.status).toBe(500);
+    expect(completions.map((c) => c.status)).toEqual(["failed"]);
+  });
+
   it("a failing write still fails the delivery (500, ledger failed) and Stripe retries", async () => {
     const original = fake.adminClient.from;
     fake.adminClient.from = ((table: string) => {
