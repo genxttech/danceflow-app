@@ -175,7 +175,22 @@ export function createOwnershipFakeSupabase(
     const subs = (tables.studio_subscriptions ??= []);
     const existing = subs.find((row) => row.studio_id === studioId);
     const watermark = existing?.stripe_state_read_at ? new Date(String(existing.stripe_state_read_at)).getTime() : null;
+    const liveStatuses = ["trialing", "active", "past_due"];
+    if (
+      existing && existing.stripe_subscription_id && existing.stripe_subscription_id !== sub.stripe_subscription_id &&
+      liveStatuses.includes(String(existing.status)) && !liveStatuses.includes(String(sub.status))
+    ) {
+      return { data: "superseded", error: null };
+    }
     if (existing && readAt != null && watermark != null && watermark > readAt) return { data: "stale", error: null };
+
+    // The real function is transactional: an add-on item owned by another studio raises BEFORE anything is kept.
+    for (const itemId of addon?.item_ids ?? []) {
+      const owner = (tables.usage_addon_entitlements ??= []).find((e) => e.stripe_subscription_item_id === itemId);
+      if (owner && owner.studio_id !== studioId) {
+        return { data: null, error: { message: `apply_studio_subscription_state: subscription item ${itemId} belongs to another studio` } };
+      }
+    }
 
     const nowIso = new Date().toISOString();
     const subValues: Row = {
@@ -220,15 +235,15 @@ export function createOwnershipFakeSupabase(
       const itemIds = addon.item_ids ?? [];
       for (const itemId of itemIds) {
         const values: Row = {
-          workspace_type: "studio", source: "stripe_subscription_item", stripe_subscription_item_id: itemId,
+          workspace_type: "studio", feature_key: "organizer_suite", source: "stripe_subscription_item",
           quantity_included: 1, status: active ? "active" : "canceled", updated_at: nowIso,
         };
-        const row = entitlements.find((e) => e.studio_id === studioId && e.feature_key === "organizer_suite");
+        const row = entitlements.find((e) => e.stripe_subscription_item_id === itemId);
         if (row) {
           Object.assign(row, values);
           mutations.push({ table: "usage_addon_entitlements", op: "update", values, ids: [String(row.id)], client: "admin" });
         } else {
-          const created: Row = { id: `usage_addon_entitlements-new-${entitlements.length + 1}`, studio_id: studioId, feature_key: "organizer_suite", ...values };
+          const created: Row = { id: `usage_addon_entitlements-new-${entitlements.length + 1}`, studio_id: studioId, stripe_subscription_item_id: itemId, ...values };
           entitlements.push(created);
           mutations.push({ table: "usage_addon_entitlements", op: "insert", values: { ...created }, ids: [String(created.id)], client: "admin" });
         }

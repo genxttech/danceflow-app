@@ -1076,6 +1076,8 @@ async function upsertStudioSubscription(params: {
 
   if (applied === "stale") {
     console.error("subscription_event_stale_read");
+  } else if (applied === "superseded") {
+    console.error("subscription_event_superseded");
   }
 
   return true;

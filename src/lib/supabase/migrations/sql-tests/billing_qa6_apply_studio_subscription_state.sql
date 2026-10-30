@@ -66,6 +66,34 @@ begin
   r := public.apply_studio_subscription_state(s, sub, '2026-10-30T10:04:00Z', snap, '{"active":true,"item_ids":[]}');
   assert (select status from public.usage_addon_entitlements where studio_id = s and feature_key = 'organizer_suite') = 'canceled', 'removed item canceled';
 
+  -- 6b. P1 regression: historical cancelled row + manual row + new item. Only the new item is written; nothing is rewritten.
+  insert into public.usage_addon_entitlements (studio_id, workspace_type, feature_key, source, stripe_subscription_item_id, quantity_included, status)
+    values (s, 'studio', 'organizer_suite', 'manual', null, 1, 'active');
+  r := public.apply_studio_subscription_state(s, sub, '2026-10-30T10:05:00Z', snap, '{"active":true,"item_ids":["si_addon_qa6_b"]}');
+  assert r = 'applied', 'new item applies despite several historical rows, got ' || r;
+  assert (select count(*) from public.usage_addon_entitlements where studio_id = s and feature_key = 'organizer_suite') = 3, 'old + manual + new rows';
+  assert (select status from public.usage_addon_entitlements where stripe_subscription_item_id = 'si_addon_qa6') = 'canceled', 'historical row untouched';
+  assert (select status from public.usage_addon_entitlements where studio_id = s and source = 'manual') = 'active', 'manual row untouched';
+  assert (select status from public.usage_addon_entitlements where stripe_subscription_item_id = 'si_addon_qa6_b') = 'active', 'new item active';
+
+  -- 6c. an item owned by ANOTHER studio raises and the whole apply rolls back (no partial subscription state)
+  insert into public.usage_addon_entitlements (studio_id, workspace_type, feature_key, source, stripe_subscription_item_id, quantity_included, status)
+    values (c, 'studio', 'organizer_suite', 'stripe_subscription_item', 'si_other_studio', 1, 'active');
+  begin
+    perform public.apply_studio_subscription_state(s, sub || '{"status":"past_due"}', '2026-10-30T10:06:00Z', snap || '{"subscription_status":"past_due"}', '{"active":true,"item_ids":["si_other_studio"]}');
+    raise exception 'should have raised for a foreign item';
+  exception when raise_exception then
+    assert sqlerrm like '%belongs to another studio%', 'foreign item error: ' || sqlerrm;
+  end;
+  assert (select status from public.studio_subscriptions where studio_id = s) <> 'past_due', 'no partial subscription state after the raise';
+
+  -- 6d. superseded rule under the lock: a different, non-live subscription cannot overwrite the live one, even with a newer stamp
+  r := public.apply_studio_subscription_state(s, sub || '{"status":"active"}', '2026-10-30T10:07:00Z', snap, null);
+  r := public.apply_studio_subscription_state(s, sub || '{"stripe_subscription_id":"sub_old","status":"cancelled"}', '2026-10-30T10:08:00Z', snap || '{"stripe_subscription_id":"sub_old","subscription_status":"canceled"}', null);
+  assert r = 'superseded', 'superseded expected, got ' || r;
+  assert (select stripe_subscription_id from public.studio_subscriptions where studio_id = s) = 'sub_qa6', 'live subscription kept';
+  assert (select stripe_subscription_id from public.studios where id = s) = 'sub_qa6', 'studio snapshot kept';
+
   -- 7. unknown studio raises; null arguments raise
   begin
     perform public.apply_studio_subscription_state(gen_random_uuid(), sub, null, snap, null);

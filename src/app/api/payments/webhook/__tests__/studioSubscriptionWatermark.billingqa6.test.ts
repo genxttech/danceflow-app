@@ -254,6 +254,43 @@ describe("studio_subscriptions.stripe_state_read_at (BILLING-QA-6)", () => {
     expect(subsFor("studio-2")[0]).toMatchObject({ status: expect.not.stringMatching(/^active$/), stripe_state_read_at: T0.toISOString() });
   });
 
+  const withAddon = (status: string, itemId: string) => ({
+    ...sub2(status),
+    items: { data: [
+      { id: "si_1", price: { id: PRICES.pro }, metadata: {} },
+      { id: itemId, price: { id: PRICES.addon }, metadata: { featureKey: "organizer_suite" } },
+    ] },
+  });
+
+  it("add-on: a historical cancelled row and a manual (comped) row are left alone; the new item gets its own active row", async () => {
+    seed({
+      usage_addon_entitlements: [
+        { id: "ent-old", studio_id: "studio-2", workspace_type: "studio", feature_key: "organizer_suite", source: "stripe_subscription_item", stripe_subscription_item_id: "si_old", status: "canceled" },
+        { id: "ent-manual", studio_id: "studio-2", workspace_type: "studio", feature_key: "organizer_suite", source: "manual", stripe_subscription_item_id: null, status: "active" },
+      ],
+    });
+    expect((await post("customer.subscription.updated", withAddon("active", "si_new"))).status).toBe(200);
+    const rows = fake.rows("usage_addon_entitlements");
+    expect(rows.find((r) => r.id === "ent-old")).toMatchObject({ stripe_subscription_item_id: "si_old", status: "canceled" });
+    expect(rows.find((r) => r.id === "ent-manual")).toMatchObject({ source: "manual", status: "active", stripe_subscription_item_id: null });
+    expect(rows.filter((r) => r.stripe_subscription_item_id === "si_new")).toEqual([expect.objectContaining({ studio_id: "studio-2", status: "active" })]);
+  });
+
+  it("add-on: an item that belongs to another studio fails the whole apply (500) and writes no subscription state", async () => {
+    seed({
+      usage_addon_entitlements: [
+        { id: "ent-other", studio_id: "studio-1", workspace_type: "studio", feature_key: "organizer_suite", source: "stripe_subscription_item", stripe_subscription_item_id: "si_shared", status: "active" },
+      ],
+    });
+    const before = { ...subsFor("studio-2")[0] };
+    const studioBefore = { ...studio("studio-2") };
+    const result = await post("customer.subscription.updated", withAddon("past_due", "si_shared"));
+    expect(result.status).toBe(500);
+    expect(subsFor("studio-2")[0]).toEqual(before);
+    expect(studio("studio-2")).toEqual(studioBefore);
+    expect(fake.rows("usage_addon_entitlements").find((r) => r.id === "ent-other")).toMatchObject({ studio_id: "studio-1", status: "active" });
+  });
+
   it("an error from the transactional apply fails the delivery (500, ledger failed) and nothing is applied", async () => {
     seed();
     const original = fake.adminClient.rpc;
