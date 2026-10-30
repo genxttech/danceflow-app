@@ -193,3 +193,12 @@ The 7 FAIL, each classified:
 - `r2b` 53 skipped (vitest exit 1: the suite's own `beforeAll` refuses a database with the real recurring-fee lifecycle): the SKIPPED-by-design disposition now also covers this exact pattern (exit 1, every test skipped, no failed test, the refusal message present in the log, via `logMatch`); the partial matrix run `--only localStack.r2b.test` reports it as SKIP* and exits 6.
 
 Not caused by, and not fixed in, the PRs under validation: f3recon, j2owner, j4activation, r2a classification, tw4payhardening.
+
+### 10.1 Conditions and follow-up runs (2026-10-30)
+
+- **`--exclusive` was not honoured.** `rehearse --matrix --exclusive` refused to start (exit 4) because another session's idle evidence stack (`df-isoqa-ph`, no active run) was up. The matrix was started directly, without the exclusive guard, with that stack idle and the Competition workstream quiet. One stack of ours at a time throughout.
+- **External load.** Competition's QA-A ran a production `next build` / `next start` until about 04:37 to 04:40Z (memory in use peaked at 29.2 GB, free memory bottomed at 3.0 GB). Overlap: `tw4rbexact` (04:19Z) and the strict rehearsal (04:20Z) are deterministic catalog and byte checks, so their results stand. Matrix suites that started before 04:40Z, tagged "ran under external load": aal2 (04:26Z), tw4f3bpay, tw4f3bui, tw4monthly, tw4payhardening (04:34Z), tw4recexec (04:38Z). Passes under load stand (load does not make a test pass). tw4recurring started at 04:40Z, borderline, and passed. Every other suite started after 04:44Z. `r2brfl` started at 05:24Z, after the load ended, and passed 28/28, so no rerun was needed.
+- **tw4payhardening:** the matrix failure (90 s property timeout, 04:34Z) was load-driven. Rerun alone on the quiet host: PASS 15/15 (06:43Z).
+- **tw4monthly:** deterministic ENAMETOOLONG caused by #357, fixed on #357 (long scripts via stdin) and rerun: PASS 28/28; passes 28/28 on plain main.
+- **f3recon, j2owner, j4activation:** main-only controls (tests from origin/main) fail identically, so they are stale tests on main.
+- **Long rollback SQL passed via `psql -c`:** a scan of the localStack tests for the `-c` helper pattern against rollback files over 30 KB found only the 20261128 rollback (fixed). The only other TW-4F rollback over the Windows limit, 20261217 (33,387 bytes), is not passed via `-c` by any suite that failed or passed with an ENAMETOOLONG error in this matrix.
