@@ -27,7 +27,7 @@ All pilot-blocking TW-4F code is merged into `main`. It is Git only: no migratio
 
 Known issues carried forward: KI-1 (pilot double capture; activation is blocked in the DB until the owner re-decides), KI-2 (rollback leaves widened CHECK constraints), KI-3 (r2bp2.rfl stale test on main). See §7.
 
-### 0.1 Owner decisions and follow-up merges (2026-10-24, `main` = `67bb64f2`)
+### 0.1 Owner decisions and follow-up merges (2026-10-24, `main` = `67bb64f2` when written; `1231`/`1231b` rows added at `512fd7d2`)
 
 **Owner decisions (2026-10-24):**
 
