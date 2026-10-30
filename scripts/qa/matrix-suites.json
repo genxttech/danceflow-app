@@ -1,0 +1,102 @@
+{
+  "_comment": "Local-stack suites that do NOT carry the TW4A_LOCAL_URL gate (they talk to the database container directly) and are therefore invisible to the TW4A_LOCAL_URL grep that `matrix` uses. `matrix` runs each one on its own fresh stack with the environment listed here. In `env`, {DB} is replaced by the stack's database container name. `marker` creates the tw4_local_qa_only marker table on that stack (the same as ISO_QA_MARKER=1). `matrix` refuses (incomplete, exit 4) when a localStack.*.test.ts file at the tested ref carries neither the TW4A_LOCAL_URL gate nor an entry here, so a new suite can never be silently left out. Listing a suite here only makes it run; its result is judged like any other (a skip is exit 4, never green). urlSuiteOptions: per-suite options for TW4A_LOCAL_URL-gated suites (marker only); the marker is opt-in because it changes what fake-provider paths accept, so it is never on for suites that do not need it.",
+  "suites": {
+    "src/lib/sms/twilioIsv/__tests__/localStack.tw4rfl.test.ts": {
+      "env": {
+        "TW4RFL_DB": "postgres"
+      },
+      "marker": true
+    },
+    "src/lib/sms/twilioIsv/__tests__/localStack.tw4rflops.test.ts": {
+      "env": {
+        "TW4RFL_DB": "postgres"
+      },
+      "marker": true
+    },
+    "src/lib/sms/twilioIsv/__tests__/localStack.tw4rfld5.test.ts": {
+      "env": {
+        "TW4RFL_DB": "postgres"
+      },
+      "marker": true
+    },
+    "src/lib/sms/twilioIsv/__tests__/localStack.tw4rflevid.test.ts": {
+      "env": {
+        "TW4RFL_DB": "postgres"
+      },
+      "marker": true
+    },
+    "src/lib/sms/twilioIsv/__tests__/localStack.tw4rflspend.test.ts": {
+      "env": {
+        "TW4RFL_DB": "postgres"
+      },
+      "marker": true
+    },
+    "src/lib/sms/twilioIsv/__tests__/localStack.r2brfl.test.ts": {
+      "env": {
+        "TW4RFL_DB": "postgres"
+      },
+      "marker": true
+    },
+    "src/lib/sms/twilioIsv/__tests__/localStack.r2bp2.rfl.test.ts": {
+      "env": {
+        "TW4A_RFL_DB_CONTAINER": "{DB}",
+        "TW4A_RFL_DB_NAME": "postgres"
+      },
+      "marker": true
+    },
+    "src/lib/sms/twilioIsv/__tests__/localStack.f1funding.test.ts": {
+      "env": {
+        "TW4RFL_DB": "postgres"
+      },
+      "marker": true
+    },
+    "src/lib/sms/twilioIsv/__tests__/localStack.f5canceltarget.test.ts": {
+      "env": {
+        "TW4RFL_DB": "postgres"
+      },
+      "marker": true
+    },
+    "src/lib/sms/twilioIsv/__tests__/localStack.j4activation.test.ts": {
+      "env": {
+        "TW4RFL_DB": "postgres"
+      },
+      "marker": true
+    },
+    "src/lib/sms/twilioIsv/__tests__/localStack.f4recovery.test.ts": {
+      "env": {
+        "TW4F4_DB": "postgres"
+      },
+      "marker": true
+    },
+    "src/lib/sms/twilioIsv/__tests__/localStack.tw4a9.test.ts": {
+      "env": {
+        "TW4A9_DB": "postgres"
+      },
+      "marker": false
+    },
+    "src/lib/sms/twilioIsv/__tests__/localStack.tw4rflopsrb.test.ts": {
+      "env": {
+        "TW4RFL_DB": "postgres"
+      },
+      "marker": true
+    },
+    "src/lib/sms/twilioIsv/__tests__/localStack.tw4pilothard.test.ts": {
+      "env": {
+        "TW4RFL_DB": "postgres"
+      },
+      "marker": true
+    },
+    "src/lib/sms/twilioIsv/__tests__/localStack.tw4rbexact.test.ts": {
+      "env": {
+        "TW4RFL_DB": "postgres"
+      },
+      "marker": true
+    }
+  },
+  "urlSuiteOptions": {
+    "src/lib/sms/twilioIsv/__tests__/localStack.tw4fj1.test.ts": {
+      "marker": true,
+      "_note": "its first beforeAll assertion requires the tw4_local_qa_only marker table; without it the whole suite fails (the old BLOCKED-by-harness state)"
+    }
+  }
+}
