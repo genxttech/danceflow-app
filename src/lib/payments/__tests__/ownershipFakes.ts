@@ -121,6 +121,17 @@ export function createOwnershipFakeSupabase(
         filters.push((row) => list.includes(row[column]));
         return builder;
       },
+      // PostgREST `or` with `column.eq.value` terms only (e.g. "a.eq.x,b.eq.y").
+      or: (expression: string) => {
+        const terms = expression.split(",").map((term) => {
+          const [column, operator, ...rest] = term.split(".");
+          if (operator !== "eq") throw new Error(`ownership fake: unsupported or() operator ${operator}`);
+          return { column, value: rest.join(".") };
+        });
+        // A null/absent column never equals any value, as in PostgreSQL (`col.eq.` must not match NULL).
+        filters.push((row) => terms.some((term) => row[term.column] != null && String(row[term.column]) === term.value));
+        return builder;
+      },
       is: (column: string, value: unknown) => {
         filters.push((row) => (row[column] ?? null) === value);
         return builder;
