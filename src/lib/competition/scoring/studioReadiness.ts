@@ -142,7 +142,7 @@ export function studioScoringReadiness(input: {
     // F2 reads the program row). A draft can be fixed (blocker); a published program is never rewritten (notice).
     if (entry.key === "studio_callback_tally" && (round.round_type !== "preliminary" || program?.advancement_method !== "promote_callback")) {
       add(locked ? "notice" : "blocker", "COMP_SCORING_CALLBACK_CONFIG",
-        `${round.name}: the callback tally needs a preliminary round in a competition whose advancement is "promote callback", otherwise results cannot be calculated. ${locked ? "This competition is published and is not rewritten." : "Re-apply Studio scoring on this division."}`);
+        `${round.name}: the callback tally needs a preliminary round in a competition whose advancement is "promote callback", otherwise results cannot be calculated. ${locked ? "The advancement method is frozen at publish and is never rewritten; create a new competition to use callbacks." : "Re-apply Studio scoring on this division."}`);
     }
 
     // Ordinal majority is a single-heat method by spec (X-7): a multi-heat round fails closed.
