@@ -5,8 +5,8 @@
 -- fixture-scope part of U77 (the suites that carry callback targets are run separately and unchanged: O1 day-of, SS1, E2, K1, NS1, CX1, A0).
 -- Run as a SUPERUSER. One transaction, synthetic fixtures only (md5-derived ids). The final block ALWAYS raises, so nothing persists:
 --   "COMPETITION CF1 A4a SQL SUITE PASS (<n> checks, <b> blocked)"  or  "... FAIL: <failures>".
--- Rows with T = 1 that the guard would now refuse (the "existing programs are not retro-failed" fixtures) are seeded with the two F2 triggers
--- disabled inside the transaction; the triggers are re-enabled ALWAYS immediately afterwards.
+-- Rows with T = 1 that the guard would now refuse (the "existing programs are not retro-failed" fixtures) are seeded with the F2 setup trigger
+-- disabled inside the transaction; the trigger is re-enabled ALWAYS immediately afterwards.
 
 begin;
 
@@ -120,7 +120,7 @@ begin
   insert into public.event_competition_divisions (id, event_id, program_id, contest_id, name, status)
   values (pg_temp.id('div', p_n), pg_temp.id('evt', 1), pg_temp.id('prg', p_prog), pg_temp.id('cts', p_prog), 'D' || p_n, 'open');
 end $$;
--- Seeds a round with BOTH F2 triggers disabled, so the "existing row" fixtures the guard would now refuse can exist.
+-- Seeds a round with the F2 setup trigger disabled, so the "existing row" fixtures the guard would now refuse can exist.
 create or replace function pg_temp.rnd(p_n int, p_prog int, p_seq int, p_type text, p_t int, p_cap int default null) returns void
 language plpgsql security definer as $$
 begin
@@ -193,7 +193,7 @@ select pg_temp.expect_msg('successor INSERT: the Final inserted behind T = 1 is 
   format($q$insert into public.event_competition_rounds (event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method) values (%L, %L, %L, 'f3', 'final', 2, 'draft', 'ordinal_majority')$q$,
     pg_temp.id('evt', 1), pg_temp.id('prg', 7), pg_temp.id('div', 3)), 'COMP_CALLBACK_TARGET_BELOW_MINIMUM', 'P0001');
 select pg_temp.chk('successor INSERT refused: no Final row was written', not exists (select 1 from public.event_competition_rounds where division_id = pg_temp.id('div', 3) and round_type = 'final'));
-select pg_temp.expect_ok('successor INSERT with T null on the callback round passes',
+select pg_temp.expect_ok('INSERT of a Final at sequence 3 (its predecessor is a Final, not a preliminary) passes',
   format($q$insert into public.event_competition_rounds (event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method) values (%L, %L, %L, 'f2b', 'final', 3, 'draft', 'ordinal_majority')$q$,
     pg_temp.id('evt', 1), pg_temp.id('prg', 7), pg_temp.id('div', 2)));
 
@@ -255,7 +255,7 @@ select pg_temp.expect_ok('callback preliminary whose Final is not the next seque
 select pg_temp.rnd(25, 5, 1, 'preliminary', null);
 select pg_temp.rnd(25, 5, 2, 'final', null);
 select pg_temp.expect_ok('non-callback program: preliminary + Final, T = 1 passes', format($q$update public.event_competition_rounds set target_advancement_count = 1 where id = %L$q$, pg_temp.rid(25, 1)));
-select pg_temp.expect_ok('non-callback program: the Final capacity edit path is not touched by the new bound (insert of a Final with a capacity)',
+select pg_temp.expect_ok('non-callback program: inserting a further round passes',
   format($q$insert into public.event_competition_rounds (event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method) values (%L, %L, %L, 'x', 'semifinal', 3, 'draft', 'callback_tally')$q$,
     pg_temp.id('evt', 1), pg_temp.id('prg', 5), pg_temp.id('div', 25)));
 -- A callback preliminary in ANOTHER division is not affected by a Final elsewhere (same sequence numbers, different division).
@@ -305,7 +305,7 @@ select pg_temp.expect_ok('locked program: a later T edit to 3 passes', format($q
 -- ============================================================================
 -- 8. Items outside this file
 -- ============================================================================
-select pg_temp.blocked('U77 fixture suites (O1 day-of, SS1 round lock, E2, K1, NS1, CX1, A0) run unchanged', 'run as separate files by the harness; results are in the PR matrix');
+select pg_temp.blocked('U77 fixture suites (O1 day-of, SS1 round lock, E2, K1, NS1, CX1, A0) run (the A0 file needs its T = 1 seed changed, see the contract)', 'run as separate files by the harness; results are in the PR matrix');
 select pg_temp.blocked('apply / rollback / apply / rollback / apply', 'run by the harness around this file; results are in the PR matrix');
 
 -- ============================================================================
