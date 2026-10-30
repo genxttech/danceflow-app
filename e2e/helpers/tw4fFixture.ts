@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { Browser, BrowserContext, Page } from "@playwright/test";
 import type { E2EConfig } from "@/lib/e2e/config";
 import { e2eAdminClient } from "./competitionFixture";
@@ -100,7 +100,13 @@ export async function seedTw4fEntity(browser: Browser, config: E2EConfig, fixtur
   await rpc(config, "tw4_entity_set_spend_cap", { p_entity_id: entity, p_cents: PILOT_CEILING_CENTS, p_actor: actor });
   await publishTestPrices(config, fixture.platformAdmin);
   if (opts.pilotException !== false) {
-    await rpc(config, "tw4_pilot_exception_create", { p_entity_id: entity, p_ceiling_cents: PILOT_CEILING_CENTS, p_approval_ref: `TW-4F E2E pilot ${fixture.runId}`, p_actor: actor });
+    // 20261230 (U-4): the pilot exception carries the founder's dated written authorization as hashed evidence (synthetic here: a hash of the run id, never any text)
+    const evidenceSha = createHash("sha256").update(`tw4f-e2e-pilot-${fixture.runId}`).digest("hex");
+    await rpc(config, "tw4_pilot_exception_create", {
+      p_entity_id: entity, p_ceiling_cents: PILOT_CEILING_CENTS, p_approval_ref: `TW-4F E2E pilot ${fixture.runId}`, p_actor: actor,
+      p_evidence_authorized_on: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10), p_evidence_role: "founder_written", p_evidence_scope: "pilot_exception",
+      p_evidence_amount_cents: PILOT_CEILING_CENTS, p_evidence_document_ref: `E2E-AUTH-${evidenceSha.slice(0, 12)}`, p_evidence_sha256: evidenceSha,
+    });
   }
   if (opts.settledCreditCents) {
     await rpc(config, "tw4_credit_settle_topup", { p_entity_id: entity, p_paid_by_studio_id: fixture.studioA.id, p_provider_ref: `pi_tw4f_${fixture.runId}`, p_amount_cents: opts.settledCreditCents, p_event_id: `evt_tw4f_${fixture.runId}` });

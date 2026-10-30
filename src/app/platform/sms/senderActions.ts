@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { requirePlatformStepUp } from "@/lib/auth/platform-assurance";
 import { checkRateLimit, rateLimitKey } from "@/lib/security/rate-limit";
 import { senderReadProviderFromEnv, verifySender, type SenderTokenProvider } from "@/lib/sms/senderVerification";
 import { normalizeSmsPhone } from "@/lib/sms/compliance";
@@ -55,7 +55,7 @@ function recordFailure(code: string | undefined): string {
 }
 
 export async function recordSenderAction(formData: FormData) {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("aal2");
   const studioId = text(formData, "studioId");
   if (!UUID.test(studioId)) return finish({ ok: false, message: "That studio could not be identified." }, studioId);
   const messagingServiceSid = text(formData, "messagingServiceSid");
@@ -76,7 +76,7 @@ export async function recordSenderAction(formData: FormData) {
 }
 
 export async function verifySenderAction(formData: FormData) {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("aal2");
   const studioId = text(formData, "studioId");
   const senderId = text(formData, "senderId");
   if (!UUID.test(studioId) || !UUID.test(senderId)) return finish({ ok: false, message: "That sender could not be identified." }, studioId);
@@ -94,7 +94,7 @@ export async function verifySenderAction(formData: FormData) {
 }
 
 export async function revokeSenderAction(formData: FormData) {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("aal2");
   const studioId = text(formData, "studioId");
   const reason = text(formData, "reason");
   if (!UUID.test(studioId)) return finish({ ok: false, message: "That studio could not be identified." }, studioId);

@@ -6,8 +6,24 @@ import { getStripe } from "@/lib/payments/stripe";
 import { getBillingPlan, type PlanAudience } from "@/lib/billing/plans";
 import { canManageWorkspaceSubscription } from "@/lib/billing/subscriptionAuthority";
 import { isFounderPricingActive } from "@/lib/billing/founderPricing";
+import { isRegularPricingActivated } from "@/lib/billing/regularPricing";
+import {
+  selectStudioMonthlyPrice,
+  stripePriceMatchesExpected,
+} from "@/lib/billing/studioCheckoutPricing";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 import { hasCurrentBusinessLegalAcceptance } from "@/lib/legal/agreements";
+import {
+  evaluateProtection,
+  legacyProtectedPriceIds,
+  loadProtectedRegistry,
+  type SubscriptionSnapshot,
+} from "@/lib/billing/protectedSubscriptions";
+import {
+  blocksNewCheckout,
+  classifyStudioRowStatus,
+  strongestSubscriptionState,
+} from "@/lib/billing/subscriptionState";
 
 type StudioRow = {
   id: string;
@@ -38,11 +54,13 @@ type CheckoutInput = {
 };
 
 
-const FOUNDER_PRICING_ACTIVE = isFounderPricingActive();
 
 type PriceLookupResult = {
   stripePriceId: string | null;
   offerType: "founder" | "standard" | "database";
+  // PRICING-P1: set only for monthly studio plans, whose Stripe Price must
+  // carry exactly this amount (verified before a Checkout Session is created).
+  expectedAmountCents?: number;
 };
 
 function getEnvPriceId(name: string) {
@@ -52,6 +70,7 @@ function getEnvPriceId(name: string) {
 
 function resolveCheckoutPriceId(params: {
   planCode: string;
+  sharedPlan: NonNullable<ReturnType<typeof getBillingPlan>>;
   billingInterval: "month" | "year";
   databaseMonthlyPriceId: string | null;
   databaseYearlyPriceId: string | null;
@@ -60,6 +79,25 @@ function resolveCheckoutPriceId(params: {
     return {
       stripePriceId: params.databaseYearlyPriceId,
       offerType: "database",
+    };
+  }
+
+  // PRICING-P1: monthly studio plans are fail-closed -- no fallback between
+  // Founder, standard and database Price IDs.
+  if (params.sharedPlan.audience === "studio") {
+    const selection = selectStudioMonthlyPrice({
+      plan: params.sharedPlan,
+      founderActive: isFounderPricingActive(),
+      regularActivated: isRegularPricingActivated(),
+      env: process.env,
+    });
+
+    if (!selection.ok) return { stripePriceId: null, offerType: "database" };
+
+    return {
+      stripePriceId: selection.stripePriceId,
+      offerType: selection.offerType,
+      expectedAmountCents: selection.expectedAmountCents,
     };
   }
 
@@ -79,7 +117,7 @@ function resolveCheckoutPriceId(params: {
     organizer: "STRIPE_PRICE_ORGANIZER_FOUNDER",
   };
 
-  const founderPriceId = FOUNDER_PRICING_ACTIVE
+  const founderPriceId = isFounderPricingActive()
     ? getEnvPriceId(founderEnvByPlan[normalizedPlanCode])
     : null;
 
@@ -189,24 +227,42 @@ function buildSourceValue(audience: PlanAudience) {
   return audience === "organizer" ? "organizer_subscription" : "studio_subscription";
 }
 
-function isManagedSubscriptionStatus(status: string | null | undefined) {
-  return ["active", "trialing", "past_due", "unpaid"].includes(status ?? "");
+// D7-3a: the strongest state across the customer's Stripe subscriptions
+// (managed, then paused/incomplete "hold", then none). Terminal subscriptions
+// (canceled, incomplete_expired) do not count.
+async function getStripeSubscriptions(params: {
+  stripeCustomerIds: string[];
+}): Promise<{ snapshots: SubscriptionSnapshot[]; truncated: boolean }> {
+  const stripe = getStripe();
+  const snapshots: SubscriptionSnapshot[] = [];
+  let truncated = false;
+
+  // Every customer id the studio is known by (D7-4): a legacy subscription on a replaced customer must still be seen.
+  for (const stripeCustomerId of params.stripeCustomerIds) {
+    const subscriptions = await stripe.subscriptions.list({
+      customer: stripeCustomerId,
+      status: "all",
+      limit: 100,
+    });
+
+    // More than one page: the rest cannot be inspected, so callers must fail closed.
+    if (subscriptions.has_more) truncated = true;
+    snapshots.push(...toSnapshots(subscriptions.data));
+  }
+
+  return { snapshots, truncated };
 }
 
-async function getManagedStripeSubscription(params: { stripeCustomerId: string }) {
-  const stripe = getStripe();
-
-  const subscriptions = await stripe.subscriptions.list({
-    customer: params.stripeCustomerId,
-    status: "all",
-    limit: 20,
-  });
-
-  return (
-    subscriptions.data.find((subscription) =>
-      isManagedSubscriptionStatus(subscription.status)
-    ) ?? null
-  );
+function toSnapshots(
+  data: Array<{ id?: string; status: string; items?: { data?: Array<{ price?: { id?: string } | null }> } }>,
+): SubscriptionSnapshot[] {
+  return data.map((subscription) => ({
+    id: subscription.id ?? null,
+    status: subscription.status,
+    priceIds: (subscription.items?.data ?? [])
+      .map((item) => item.price?.id)
+      .filter((id): id is string => Boolean(id)),
+  }));
 }
 
 async function readCheckoutInput(request: NextRequest): Promise<CheckoutInput> {
@@ -333,8 +389,8 @@ async function handleCheckout(request: NextRequest) {
       );
     }
 
-    // LAUNCH-SEC-2A: both branches below (new plan checkout and the billing
-    // portal for an existing subscription) are owner-level billing actions.
+    // LAUNCH-SEC-2A: starting a plan checkout (and the support-routed refusals for an
+    // existing subscription) are owner-level billing actions.
     if (!canManageWorkspaceSubscription(context.studioRole, context.isPlatformAdmin)) {
       return billingRedirect(
         request,
@@ -425,18 +481,33 @@ async function handleCheckout(request: NextRequest) {
       );
     }
 
-    const { stripePriceId, offerType } = resolveCheckoutPriceId({
+    const { stripePriceId, offerType, expectedAmountCents } = resolveCheckoutPriceId({
       planCode,
+      sharedPlan,
       billingInterval,
       databaseMonthlyPriceId: planRow.stripe_price_id_monthly,
       databaseYearlyPriceId: planRow.stripe_price_id_yearly,
     });
 
-    if (!stripePriceId) {
+    // PRICING-P1: a missing Price ID no longer blocks the billing portal for an
+    // existing subscriber; it is enforced below, before any new Checkout Session.
+    const stripe = getStripe();
+    let stripeCustomerId =
+      existingCustomer?.stripe_customer_id ?? studio.stripe_customer_id ?? null;
+
+    // D7-4 (R36): read the protected-subscription registry BEFORE any Stripe write, so a protected
+    // studio is refused without a customer being created. Unknown registry state fails closed.
+    const registry = await loadProtectedRegistry(
+      supabaseAdmin as unknown as Parameters<typeof loadProtectedRegistry>[0],
+      studioId,
+    );
+
+    if (registry.status === "error") {
+      console.error("billing checkout: protected-subscription registry unreadable", { studioId });
       return billingRedirect(
         request,
         buildBillingReturnPath({
-          error: "missing_price_id",
+          error: "protection_check_failed",
           path: audience,
           entry: entryMode,
           recommended: planCode,
@@ -444,9 +515,28 @@ async function handleCheckout(request: NextRequest) {
       );
     }
 
-    const stripe = getStripe();
-    let stripeCustomerId =
-      existingCustomer?.stripe_customer_id ?? studio.stripe_customer_id ?? null;
+    if (registry.status === "table_missing") {
+      console.warn("billing checkout: protected_subscriptions table is missing; only the legacy-price backstop applies", { studioId });
+    }
+
+    if (registry.status === "ok" && registry.activeRows > 0) {
+      console.warn("billing checkout: protected subscription routed to support", { studioId, reasons: ["registry"] });
+      return billingRedirect(
+        request,
+        buildBillingReturnPath({
+          error: "protected_subscription_needs_support",
+          path: audience,
+          entry: entryMode,
+          recommended: planCode,
+        })
+      );
+    }
+
+    const legacyPriceIds = legacyProtectedPriceIds();
+
+    if (legacyPriceIds.length === 0 && process.env.NODE_ENV === "production") {
+      console.warn("billing checkout: no legacy protected Price configured and the registry is empty; the legacy-price backstop is off");
+    }
 
     if (!stripeCustomerId) {
       const customer = await stripe.customers.create({
@@ -491,36 +581,122 @@ async function handleCheckout(request: NextRequest) {
 
     const appUrl = buildAppUrl(request);
 
-    const stripeManagedSubscription = stripeCustomerId
-      ? await getManagedStripeSubscription({ stripeCustomerId })
-      : null;
+    const knownCustomerIds = Array.from(
+      new Set(
+        [
+          stripeCustomerId,
+          existingCustomer?.stripe_customer_id,
+          studio.stripe_customer_id,
+          ...(registry.status === "ok" ? registry.customerIds : []),
+        ].filter(
+          (id): id is string => Boolean(id),
+        ),
+      ),
+    );
+    const { snapshots: stripeSubscriptions, truncated: subscriptionsTruncated } =
+      await getStripeSubscriptions({ stripeCustomerIds: knownCustomerIds });
+    const stripeState = strongestSubscriptionState(
+      stripeSubscriptions.map((subscription) => subscription.status),
+    );
 
-    const hasManagedSubscription =
-      Boolean(stripeManagedSubscription) ||
-      (Boolean(studio.stripe_subscription_id) &&
-        isManagedSubscriptionStatus(studio.subscription_status));
-
-    if (stripeCustomerId && hasManagedSubscription) {
-      const successCode =
-        stripeManagedSubscription?.items.data.some(
-          (item) => item.price.id === stripePriceId
-        ) ||
-        studio.subscription_status === "trialing" ||
-        studio.subscription_status === "active"
-          ? "current_plan"
-          : "manage_subscription";
-
-      const portalSession = await stripe.billingPortal.sessions.create({
-        customer: stripeCustomerId,
-        return_url: `${appUrl}${buildBillingReturnPath({
-          success: successCode,
+    // Truncated subscription lists cannot be fully inspected: fail closed.
+    if (subscriptionsTruncated) {
+      console.error("billing checkout: subscription list truncated; failing closed", { studioId });
+      return billingRedirect(
+        request,
+        buildBillingReturnPath({
+          error: "protection_check_failed",
           path: audience,
           entry: entryMode,
           recommended: planCode,
-        })}`,
-      });
+        })
+      );
+    }
 
-      return NextResponse.redirect(portalSession.url, { status: 303 });
+    const protection = evaluateProtection({
+      registry,
+      subscriptions: stripeSubscriptions,
+      legacyPriceIds,
+    });
+
+    if (protection.protected) {
+      console.warn("billing checkout: protected subscription routed to support", {
+        studioId,
+        reasons: protection.reasons,
+      });
+      return billingRedirect(
+        request,
+        buildBillingReturnPath({
+          error: "protected_subscription_needs_support",
+          path: audience,
+          entry: entryMode,
+          recommended: planCode,
+        })
+      );
+    }
+
+    // The studio row only counts when it names a subscription; a status with no
+    // subscription id is the no-card trial, which must still be able to check out.
+    const studioState = studio.stripe_subscription_id
+      ? classifyStudioRowStatus(studio.subscription_status)
+      : "none";
+
+    const subscriptionState = strongestSubscriptionState([
+      stripeState === "managed" ? "active" : stripeState === "hold" ? "paused" : null,
+      studioState === "managed" ? "active" : studioState === "hold" ? "paused" : null,
+    ]);
+
+    // D7-3a (O11): an existing or half-created subscription never starts a new
+    // Checkout (no second subscription, no second trial) and never silently
+    // reprices. Plan changes go to DanceFlow support; the billing portal button
+    // stays available for payment methods and invoices.
+    if (blocksNewCheckout(subscriptionState)) {
+      return billingRedirect(
+        request,
+        buildBillingReturnPath({
+          error:
+            subscriptionState === "managed"
+              ? "plan_change_requires_support"
+              : "subscription_needs_support",
+          path: audience,
+          entry: entryMode,
+          recommended: planCode,
+        })
+      );
+    }
+
+    if (!stripePriceId) {
+      return billingRedirect(
+        request,
+        buildBillingReturnPath({
+          error: "missing_price_id",
+          path: audience,
+          entry: entryMode,
+          recommended: planCode,
+        })
+      );
+    }
+
+    if (expectedAmountCents !== undefined) {
+      const stripePrice = await stripe.prices.retrieve(stripePriceId);
+
+      if (!stripePriceMatchesExpected(stripePrice, expectedAmountCents)) {
+        console.error("billing checkout: Stripe Price does not match plan configuration", {
+          planCode,
+          offerType,
+          stripePriceId,
+        });
+
+        return billingRedirect(
+          request,
+          buildBillingReturnPath({
+            error: "price_mismatch",
+            path: audience,
+            entry: entryMode,
+            recommended: planCode,
+          })
+        );
+      }
     }
 
     const successPath =

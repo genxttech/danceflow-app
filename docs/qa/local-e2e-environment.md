@@ -66,6 +66,43 @@ stripe listen --forward-connect-to http://localhost:3100/api/payments/webhook   
 - `stripe listen` changes nothing in the Stripe dashboard. The DEV Stripe **test** platform currently has no webhook
   endpoints, so test events reach only the local listener.
 
+## 3a. Platform-scoped run: studio subscriptions (BILLING-QA-2)
+
+`e2e/tests/studio-subscription-stripe-test-mode.spec.ts` covers DanceFlow's own subscription billing
+(`/api/billing/checkout`, the Billing Portal redirect and the platform `checkout.session.completed` /
+`customer.subscription.*` webhooks). Its events are platform-scoped, so the secrets are swapped:
+
+```bash
+stripe listen --api-key <sk_test_...> --forward-to http://localhost:3100/api/payments/webhook
+```
+
+- `STRIPE_WEBHOOK_SECRET` = that listen secret; `STRIPE_CONNECT_WEBHOOK_SECRET` = a different value that never verifies.
+- App **and** spec get the same `STRIPE_PRICE_STUDIO_{STARTER,GROWTH,PRO}_FOUNDER` (TEST Prices of the current
+  amounts; check them first with the BILLING-QA-1 price verifier) and the same pricing flags. The spec computes what checkout
+  should charge with the app's own `selectStudioMonthlyPrice`, so a run with Regular pricing activated (and Founder off)
+  checks the Regular Prices instead.
+- Optional `STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY` (app and spec): a TEST Price standing in for the grandfathered Pro
+  Price; without it the grandfathered case (B6) is skipped, which is reported as skipped, never as passed.
+- The sandbox needs a saved **test-mode** Billing Portal configuration, otherwise the existing-subscriber cases fail at
+  the portal redirect.
+- `E2E_STRIPE_TEST_SECRET_KEY` must be the app's test key (same account). No connected account is needed.
+
+```bash
+E2E_BASE_URL=http://localhost:3100 E2E_SUPABASE_URL=http://127.0.0.1:55321 E2E_SUPABASE_SERVICE_ROLE_KEY=<local QA key> \
+E2E_STRIPE_TEST_SECRET_KEY=<sk_test_...> STRIPE_PRICE_STUDIO_STARTER_FOUNDER=... STRIPE_PRICE_STUDIO_GROWTH_FOUNDER=... \
+STRIPE_PRICE_STUDIO_PRO_FOUNDER=... STRIPE_PRICE_STUDIO_PRO_FOUNDER_LEGACY=... \
+npx playwright test e2e/tests/studio-subscription-stripe-test-mode.spec.ts --project chromium
+```
+
+What it proves: each plan's checkout opens a test Session on exactly the expected Price and amount; paying it records
+the plan for exactly that studio via signed webhooks; an existing subscriber is sent to the Billing Portal with no new
+Session and no re-pricing; a plan change follows the Price (not stale `planCode` metadata) and a replayed event changes
+nothing; a grandfathered subscription on a legacy Price resolves by Price alone and is never re-priced. Case B5 is an
+expected failure (`test.fail`) documenting the known gap that `studios.billing_plan` is not synced; it starts failing
+loudly once that is fixed, so the marker must then be removed. Test customers (and their subscriptions) are deleted
+afterwards. Not covered here: a server whose Price is the wrong amount (`price_mismatch`) -- that needs a different
+app configuration and is covered by unit tests and the BILLING-QA-1 price verifier.
+
 ## 4. Stripe test account
 
 - DEV's Stripe **test** platform with an existing Express **test** connected account that has charges enabled (event

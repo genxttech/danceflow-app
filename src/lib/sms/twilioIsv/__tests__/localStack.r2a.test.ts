@@ -14,6 +14,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { spendEvidenceRpc, exceptionEvidenceRpc } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 600_000 });
 
@@ -176,7 +177,7 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
   const aged = (sql: string) => psqlFile(`begin; set local session_replication_role = replica; ${sql}; commit;`);
   const ref = (label: string) => `Owner email ${RUN} ${label} approving one fee`;
   const authorize = (entity: string, studio: string, kind: string, cents: number, approvalRef: string, funding: "credit" | "pilot" = "credit") =>
-    rpc("tw4_spend_authorize", { p_entity_id: entity, p_kind: kind, p_amount_cents: cents, p_approval_ref: approvalRef, p_actor: U.padmin, p_funding: funding, p_studio_id: studio });
+    rpc("tw4_spend_authorize", { p_entity_id: entity, p_kind: kind, p_amount_cents: cents, p_approval_ref: approvalRef, p_actor: U.padmin, p_funding: funding, p_studio_id: studio, ...spendEvidenceRpc(funding, kind, entity, studio, cents, approvalRef) });
   const fund = async (entity: string, studio: string, pack: number, settle = true) => {
     n += 1;
     const pref = `cs_r2a_${RUN}_${n}`;
@@ -543,7 +544,7 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       // a standing authorization that exists BEFORE the pilot exception would charge the same month from credit: the pilot business is refused
       aged(`insert into public.studio_sms_recurring_authorizations (legal_entity_id, studio_id, kind, price_cents, term_months, total_limit_cents, expires_at, authorized_by, statement)
              values ('${EC}', '${SC1}', 'monthly', ${PRICE.monthly}, 3, ${PRICE.monthly * 3}, now() + interval '90 days', '${U.owner_a}', 'fixture: a standing authorization made before the pilot exception existed')`);
-      expect((await rpc("tw4_pilot_exception_create", { p_entity_id: EC, p_ceiling_cents: 15_000, p_approval_ref: base, p_actor: U.padmin })).error).toBeNull();
+      expect((await rpc("tw4_pilot_exception_create", { p_entity_id: EC, p_ceiling_cents: 15_000, p_approval_ref: base, p_actor: U.padmin, ...exceptionEvidenceRpc(EC, 15_000) })).error).toBeNull();
       expect((await authorize(EC, SC1, "campaign_vetting", PRICE.vetting, ref("pilot-vetting-0"), "pilot")).error).toBeNull();
       expect((await authorize(EC, SC1, "monthly", PRICE.monthly, ref("pilot-monthly-0"), "pilot")).error).toBeNull();
       const conflict = await run(SC1, c);
@@ -684,6 +685,12 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
    * found from the catalogue by foreign key, one level below each lifecycle parent). The 20261209 rollback refuses while ANY such row exists; that refusal stays covered
    * by its own test below, so the rows are removed here only for the fixtures and only to show that the stack comes off cleanly when they are gone. No CASCADE, no truncate.
    */
+  // 20261230: the fixtures' pilot approvals carry append-only evidence, which makes the 20261230 rollback refuse by design; inside this rolled-back transaction the fixture rows are removed
+  // (its guard is `enable always`, so it is disabled for the delete and restored; the whole block is rolled back)
+  const clearSpendEvidence = () => psql("select to_regclass('public.studio_sms_pilot_spend_evidence') is not null") !== "t" ? "" : `
+      alter table public.studio_sms_pilot_spend_evidence disable trigger studio_sms_pilot_spend_evidence_guard;
+      delete from public.studio_sms_pilot_spend_evidence where legal_entity_id in (${sqlList(FIXTURE_ENTITIES)});
+      alter table public.studio_sms_pilot_spend_evidence enable always trigger studio_sms_pilot_spend_evidence_guard;`;
   const clearFixtureLifecycle = () => psql("select to_regclass('public.studio_sms_provider_resources') is not null") !== "t" ? "" : `
       do $clear$
       declare
@@ -717,6 +724,7 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       delete from public.studio_sms_prov_operations where studio_id in (${sqlList(FIXTURE_STUDIOS)});
       delete from public.studio_sms_onboarding_audit where action like 'prov\\_%' and studio_id in (${sqlList(FIXTURE_STUDIOS)});
       ${clearFixtureLifecycle()}
+      ${clearSpendEvidence()}
       set local session_replication_role = origin;`;
   const r2aIntact = () => psql(`select to_regclass('public.studio_sms_prov_operations') is not null and to_regprocedure('public.tw4_prov_settle_admin(uuid,uuid,text,text,text)') is not null`);
 

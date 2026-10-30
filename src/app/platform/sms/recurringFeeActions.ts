@@ -4,11 +4,12 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { requirePlatformStepUp, type AssuranceTier } from "@/lib/auth/platform-assurance";
 import { ProviderFeeLifecycleStore, type CancelDecision } from "@/lib/sms/providerFeeLifecycle";
 import { loadExposureReport, loadRecurringFeeOps, ProviderFeeOpsStore, RFL_FLASH_COOKIE, type DualAction } from "@/lib/sms/providerFeeOps";
 import { encodePanelFlash } from "@/lib/sms/twilioIsv/panelFlash";
 import { cancelReleaseRuntime } from "@/lib/sms/twilioIsv/cancelRuntime";
+import { APPROVAL_REF_MAX, APPROVAL_REF_MIN, approvalRefInRange, usdToCents, validatePilotEvidence } from "@/lib/sms/pilotApprovalEvidence";
 
 /**
  * TW-4F recurring provider fees: platform-administrator operations. Every action runs `requirePlatformAdmin()` FIRST, takes the ACTOR from the session
@@ -33,8 +34,9 @@ const done = (message: string): Flash => ({ ok: true, message });
 const ERRORS: Record<string, string> = {
   "42501": "Not allowed. Only a platform administrator can do this, and a request can never be approved by the administrator who made it. Nothing changed.",
   "22023": "The database refused the input (check the lengths, the period and the references). Nothing changed.",
+  TW052: "The approval evidence was refused: the date, the authorizing role, the scope, the amount (it must equal the published price), the period, the document reference and its sha256 must all be present and consistent. Nothing changed.",
   TW007: "The credit account is on hold, negative or the pilot ceiling would be exceeded. Nothing changed.",
-  TW008: "No published price exists for this fee. Nothing changed.",
+  TW008: "No published price exists for this fee, or the authorized amount does not equal it. Nothing changed.",
   TW041: "This is not allowed in the resource's current state. Nothing changed.",
   TW042: "The required approval is missing or does not match (business, resource, period, reference and reason must be identical), or the period is outside the allowed window. Nothing changed.",
   TW043: "The record was refused: the evidence digest must be 64 lowercase hex characters, a refusal needs the error code api, or this period/operation is already recorded. Nothing changed.",
@@ -73,8 +75,8 @@ async function finish(result: Flash): Promise<never> {
 }
 
 /** Validation first, then the service-role client, then the call. A thrown error becomes a fixed sentence. */
-async function guarded(work: (admin: { id: string }) => Promise<Flash>): Promise<never> {
-  const admin = await requirePlatformAdmin();
+async function guarded(tier: AssuranceTier, work: (admin: { id: string }) => Promise<Flash>): Promise<never> {
+  const admin = await requirePlatformStepUp(tier);
   let result: Flash;
   try {
     result = await work(admin);
@@ -91,7 +93,7 @@ const lifecycle = () => new ProviderFeeLifecycleStore(createAdminClient());
 // scheduler switches
 // ---------------------------------------------------------------------------------------------------------------
 export async function rflSetSwitchAction(formData: FormData) {
-  await guarded(async (admin) => {
+  await guarded("recent", async (admin) => {
     const sw = field(formData, "switch");
     const enable = field(formData, "enabled");
     const reason = text(formData, "reason", 10, 300);
@@ -106,7 +108,7 @@ export async function rflSetSwitchAction(formData: FormData) {
 // provider-cost variances (DanceFlow-borne, never charged to a studio)
 // ---------------------------------------------------------------------------------------------------------------
 export async function rflVarianceAckAction(formData: FormData) {
-  await guarded(async (admin) => {
+  await guarded("aal2", async (admin) => {
     const chargeId = id(formData, "chargeId");
     const note = text(formData, "note", 10, 500);
     if (!chargeId || !note) return fail("Give an acknowledgement note of 10 to 500 characters. Nothing changed.");
@@ -119,7 +121,7 @@ export async function rflVarianceAckAction(formData: FormData) {
 // dual control
 // ---------------------------------------------------------------------------------------------------------------
 export async function rflDualRequestAction(formData: FormData) {
-  await guarded(async (admin) => {
+  await guarded("recent", async (admin) => {
     const action = field(formData, "action");
     const resourceId = id(formData, "resourceId");
     const reason = text(formData, "reason", 10, 500);
@@ -143,7 +145,7 @@ export async function rflDualRequestAction(formData: FormData) {
 }
 
 export async function rflDualApproveAction(formData: FormData) {
-  await guarded(async (admin) => {
+  await guarded("recent", async (admin) => {
     const requestId = id(formData, "requestId");
     const note = text(formData, "note", 10, 500);
     if (!requestId || !note) return fail("Give an approval note of 10 to 500 characters. Nothing changed.");
@@ -156,7 +158,7 @@ export async function rflDualApproveAction(formData: FormData) {
 }
 
 export async function rflDualRejectAction(formData: FormData) {
-  await guarded(async (admin) => {
+  await guarded("aal2", async (admin) => {
     const requestId = id(formData, "requestId");
     const note = text(formData, "note", 10, 500);
     if (!requestId || !note) return fail("Give a note of 10 to 500 characters. Nothing changed.");
@@ -169,7 +171,7 @@ export async function rflDualRejectAction(formData: FormData) {
 // exposure disposition
 // ---------------------------------------------------------------------------------------------------------------
 export async function rflDisposeExposureAction(formData: FormData) {
-  await guarded(async (admin) => {
+  await guarded("recent", async (admin) => {
     const resourceId = id(formData, "resourceId");
     const periodKey = field(formData, "periodKey");
     const disposition = field(formData, "disposition");
@@ -198,17 +200,25 @@ export async function rflDisposeExposureAction(formData: FormData) {
 // pilot (ConfiDance) per-period written approval
 // ---------------------------------------------------------------------------------------------------------------
 export async function rflPilotCoverAction(formData: FormData) {
-  await guarded(async (admin) => {
+  await guarded("recent", async (admin) => {
     const resourceId = id(formData, "resourceId");
     const periodKey = field(formData, "periodKey");
-    const approvalRef = text(formData, "approvalRef", 10, 200);
-    if (!resourceId || !PERIOD.test(periodKey) || !approvalRef) return fail("Give the period and a written approval reference of 10 to 200 characters. Nothing changed.");
+    // the ONE shared reference length (pilotApprovalEvidence.ts), checked here before any RPC; the database refuses the same range with errcode 22023
+    const approvalRef = approvalRefInRange(field(formData, "approvalRef")) ? field(formData, "approvalRef") : null;
+    if (!resourceId || !PERIOD.test(periodKey) || !approvalRef) return fail(`Give the period and a written approval reference of ${APPROVAL_REF_MIN} to ${APPROVAL_REF_MAX} characters. Nothing changed.`);
     if (!checked(formData, "ack")) return fail("Acknowledge that this approval covers one period of one resource and is not a standing authorization. Nothing changed.");
+    // U-4: the reference alone is not authorization. The owner's dated written authorization is recorded as evidence (hash and reference only, never the text).
+    // The amount is NOT trusted: the database requires it to equal the published price of the fee being covered and refuses otherwise.
+    const evidence = validatePilotEvidence({
+      authorizedOn: field(formData, "authorizedOn"), authorizedByRole: field(formData, "authorizedByRole"), scope: field(formData, "scope"), amountCents: String(usdToCents(field(formData, "amountUsd")) ?? ""),
+      periodKey, documentRef: field(formData, "documentRef"), documentSha256: field(formData, "documentSha256").toLowerCase(),
+    }, periodKey, Date.now());
+    if (!evidence.ok) return fail(`${evidence.message} Nothing changed.`);
     const overview = (await loadRecurringFeeOps(createAdminClient(), admin.id)).overview;
     const resource = overview?.resources.find((r) => r.resourceId === resourceId);
     if (!resource?.pilot || resource.providerState !== "active") return fail("Per-period approvals are only for a live resource of the pilot business. Nothing changed.");
-    const out = await lifecycle().pilotCover(resourceId, periodKey, approvalRef, admin.id);
-    return done(out.replayed ? "This approval was already recorded." : "Period approval recorded. It counts against the cumulative pilot ceiling and does not renew.");
+    const out = await lifecycle().pilotCover(resourceId, periodKey, approvalRef, evidence.value, admin.id);
+    return done(out.replayed ? "This approval was already recorded." : "Period approval recorded with its evidence. It counts against the cumulative pilot ceiling and does not renew.");
   });
 }
 
@@ -216,7 +226,7 @@ export async function rflPilotCoverAction(formData: FormData) {
 // immediate safety suspension (never waits for dual approval; stops DanceFlow sending only)
 // ---------------------------------------------------------------------------------------------------------------
 export async function rflSuspendAction(formData: FormData) {
-  await guarded(async (admin) => {
+  await guarded("aal2", async (admin) => {
     const studioId = id(formData, "studioId");
     const reason = text(formData, "reason", 10, 500);
     if (!studioId || !reason) return fail("Choose a location and give a written reason of 10 to 500 characters. Nothing changed.");
@@ -229,7 +239,7 @@ export async function rflSuspendAction(formData: FormData) {
 // controlled cancellation (nothing is cancelled at Twilio by DanceFlow)
 // ---------------------------------------------------------------------------------------------------------------
 export async function rflCancelAuthorizeAction(formData: FormData) {
-  await guarded(async (admin) => {
+  await guarded("recent", async (admin) => {
     const resourceId = id(formData, "resourceId");
     const approvalRef = text(formData, "approvalRef", 10, 200);
     const decidedBy = field(formData, "decidedBy");
@@ -251,7 +261,7 @@ export async function rflCancelAuthorizeAction(formData: FormData) {
 }
 
 export async function rflCancelBeginAction(formData: FormData) {
-  await guarded(async (admin) => {
+  await guarded("recent", async (admin) => {
     const operationId = id(formData, "operationId");
     if (!operationId) return fail("Enter the cancellation operation id. Nothing changed.");
     const out = await lifecycle().beginCancel(operationId, admin.id);
@@ -274,7 +284,7 @@ export async function rflCancelBeginAction(formData: FormData) {
 }
 
 export async function rflCancelFinishAction(formData: FormData) {
-  await guarded(async (admin) => {
+  await guarded("recent", async (admin) => {
     const operationId = id(formData, "operationId");
     const outcome = field(formData, "outcome");
     const digest = field(formData, "evidenceDigest");
@@ -290,7 +300,7 @@ export async function rflCancelFinishAction(formData: FormData) {
 }
 
 export async function rflCancelResolveAction(formData: FormData) {
-  await guarded(async (admin) => {
+  await guarded("recent", async (admin) => {
     const operationId = id(formData, "operationId");
     const resolution = field(formData, "resolution");
     const digest = field(formData, "evidenceDigest");
@@ -310,7 +320,7 @@ export async function rflCancelResolveAction(formData: FormData) {
  * never repeated. A number additionally needs the consumed approval of two different administrators, checked before anything is claimed.
  */
 export async function rflCancelReleaseAction(formData: FormData) {
-  await guarded(async (admin) => {
+  await guarded("recent", async (admin) => {
     const operationId = id(formData, "operationId");
     if (!operationId) return fail("Enter the cancellation operation id. Nothing changed.");
     if (!checked(formData, "releaseAck")) return fail("Acknowledge that DanceFlow will release this resource at Twilio now and that it cannot be undone. Nothing changed.");
@@ -342,7 +352,7 @@ export async function rflCancelReleaseAction(formData: FormData) {
 }
 
 export async function rflCancelWithdrawAction(formData: FormData) {
-  await guarded(async (admin) => {
+  await guarded("aal2", async (admin) => {
     const operationId = id(formData, "operationId");
     const note = text(formData, "note", 10, 500);
     if (!operationId || !note) return fail("Enter the operation id and a note of 10 to 500 characters. Nothing changed.");

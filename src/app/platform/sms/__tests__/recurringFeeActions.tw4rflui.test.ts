@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/auth/platform-assurance", async () => (await import("@/lib/auth/__tests__/stepUpDouble")).stepUpDouble());
+
 vi.mock("server-only", () => ({}));
 
 const redirects: string[] = [];
@@ -52,6 +54,11 @@ const OP = U(4);
 const REQ = U(5);
 const NOTE = "A written note that is long enough.";
 const REF = "WRITTEN-REF-2026-10-001";
+// 20261229 (U-4): a pilot cover carries structured evidence. The date is built from "now" so the not-in-the-future / not-too-old rules hold on any day.
+const EVID_DATE = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
+const EVID = {
+  authorizedOn: EVID_DATE, authorizedByRole: "owner_written", scope: "pilot_period_cover", amountUsd: "25.00", documentRef: "AUTH-DOC-2026-10-0001", documentSha256: "a".repeat(64),
+};
 
 function form(fields: Record<string, string>): FormData {
   const f = new FormData();
@@ -173,7 +180,7 @@ describe("input validation", () => {
   });
 
   it("a pilot approval needs the not-standing acknowledgement", async () => {
-    const r = await run(rflPilotCoverAction, { resourceId: RES, periodKey: "2026-10", approvalRef: REF });
+    const r = await run(rflPilotCoverAction, { resourceId: RES, periodKey: "2026-10", approvalRef: REF, ...EVID });
     expect(r.message).toContain("not a standing authorization");
     expect(rpc).toHaveLength(0);
   });
@@ -273,15 +280,21 @@ describe("dual control gating", () => {
 describe("pilot approvals", () => {
   it("only for a live resource of the pilot business", async () => {
     replies.tw4_rfl_admin_overview = overviewOf("number", false);
-    let r = await run(rflPilotCoverAction, { resourceId: RES, periodKey: "2026-10", approvalRef: REF, ack: "yes" });
+    let r = await run(rflPilotCoverAction, { resourceId: RES, periodKey: "2026-10", approvalRef: REF, ack: "yes", ...EVID });
     expect(r.message).toContain("pilot business");
     expect(writes()).toHaveLength(0);
 
     replies.tw4_rfl_admin_overview = overviewOf("number", true);
     replies.tw4_rfl_pilot_cover = { data: { cover_id: U(7) } };
-    r = await run(rflPilotCoverAction, { resourceId: RES, periodKey: "2026-10", approvalRef: REF, ack: "yes" });
+    r = await run(rflPilotCoverAction, { resourceId: RES, periodKey: "2026-10", approvalRef: REF, ack: "yes", ...EVID });
     expect(r.message).toContain("does not renew");
-    expect(writes()).toEqual([{ fn: "tw4_rfl_pilot_cover", args: { p_resource_id: RES, p_period_key: "2026-10", p_approval_ref: REF, p_actor: ADMIN } }]);
+    expect(writes()).toEqual([{
+      fn: "tw4_rfl_pilot_cover",
+      args: {
+        p_resource_id: RES, p_period_key: "2026-10", p_approval_ref: REF, p_actor: ADMIN, p_authorized_on: EVID_DATE, p_authorized_by_role: "owner_written", p_scope: "pilot_period_cover",
+        p_amount_cents: 2500, p_evidence_period_key: "2026-10", p_document_ref: "AUTH-DOC-2026-10-0001", p_document_sha256: "a".repeat(64),
+      },
+    }]);
   });
 });
 
