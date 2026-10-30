@@ -504,8 +504,11 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     // The no-show entry is already off every ballot, so scratching it does not change what the judges ranked.
     const target = E.entries[3];
     // The dev server answers the first request to an uncompiled route with a 404, so open the page twice.
-    await page.goto(`${base(E)}/registrations/scratch/${target}`);
-    await page.goto(`${base(E)}/registrations/scratch/${target}`);
+    // The dev server answers requests to a route it is still compiling with a 404: retry until the page itself is served.
+    await expect(async () => {
+      await page.goto(`${base(E)}/registrations/scratch/${target}`);
+      await expect(page.getByRole("heading", { name: "Scratch entry", level: 1 })).toBeVisible({ timeout: 8_000 });
+    }).toPass({ timeout: 120_000 });
     await expect(page.getByText(/This entry is in a locked heat\. As an official you can scratch it without reopening the heat/)).toBeVisible();
     await page.getByRole("button", { name: "Scratch entry" }).click();
     await expect(page.getByRole("heading", { name: "Scratch entry", level: 1 })).toBeVisible();
@@ -608,8 +611,10 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     expect(state.rows.find((r) => r.version === 2 && r.entry_id === E.entries[1])?.placement).toBe(1);
     expect(state.rows.find((r) => r.version === 2 && r.entry_id === E.entries[0])?.placement).toBe(2);
 
-    await second.goto(`${base(E)}/registrations/scratch/${E.entries[0]}`);
-    await second.goto(`${base(E)}/registrations/scratch/${E.entries[0]}`);
+    await expect(async () => {
+      await second.goto(`${base(E)}/registrations/scratch/${E.entries[0]}`);
+      await expect(second.getByRole("heading", { name: "Scratch entry", level: 1 })).toBeVisible({ timeout: 8_000 });
+    }).toPass({ timeout: 120_000 });
     await expect(second.getByRole("button", { name: "Scratch entry" })).toHaveCount(0);
     await expect(second.locator("main p.bg-amber-50")).toBeVisible();
     await shot(second, "certified-scratch-refused");
