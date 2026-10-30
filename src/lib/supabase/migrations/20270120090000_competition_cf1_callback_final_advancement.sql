@@ -196,9 +196,9 @@ begin
     execute format('create trigger %I before update or delete on public.%I for each row execute function public.protect_competition_history_evidence()',
                    'protect_' || v_t || '_history', v_t);
     execute format('create trigger %I before truncate on public.%I for each statement execute function public.protect_competition_history_evidence()',
-                   'protect_' || v_t || '_history_truncate', v_t);
+                   'protect_' || v_t || '_htrunc', v_t);
     execute format('alter table public.%I enable always trigger %I', v_t, 'protect_' || v_t || '_history');
-    execute format('alter table public.%I enable always trigger %I', v_t, 'protect_' || v_t || '_history_truncate');
+    execute format('alter table public.%I enable always trigger %I', v_t, 'protect_' || v_t || '_htrunc');
   end loop;
 end $$;
 
