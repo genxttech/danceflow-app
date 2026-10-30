@@ -30,7 +30,7 @@ Facts verified in the HL1 tree (file → what it establishes):
 | OD-1 / D-CT-4 | **Option D.** If tied couples at the cut-off exceed the Final's permitted capacity: approval and advancement are blocked. No arbitrary elimination, no manager override, no automatic over-capacity advancement. A runoff (CF2) remains a separate, unapproved candidate. | §2, §5, §9 |
 | OD-6 | Before official publication the generated Final roster is visible **only to authorized competition officials and staff**; competitors and the public see it only after the applicable publication action. The reader inventory is a **hard CF1-A preflight deliverable**. | §3.6, §12 |
 | OD-8 | Approved: a **narrowly scoped, audited exception** that lets *only* the CF1 advancement operation insert its generated Final heat into an otherwise published running order. All ordinary 10D and O1 restrictions are preserved. | §3.2 |
-| OD-3 | Capacity changes require authorization, a recorded reason and audit history, and must **never invalidate an active, locked or already-balloted Final**. The event's applicable competition rules are enforced. The exact guard is specified in §3.4.1; B1–B4 and B7 are decided, **B5/B6 are an unapproved candidate** (§3.4.2). | §3.4.1, §3.4.2 |
+| OD-3 | Capacity changes require authorization, a recorded reason and audit history, and must **never invalidate an active, locked or already-balloted Final**. The event's applicable competition rules are enforced. The exact guard is specified in §3.4.1; B1–B7 are decided, **B5 is approved with the F1 exemption and B6 with the F2 setup guard** (§3.4.3). | §3.4.1–§3.4.3 |
 
 ### 0.2 UCWDC requirements versus DanceFlow product decisions
 
@@ -125,7 +125,7 @@ So there are two sub-cases:
 **Decision (owner, 2026-10-30, OD-1): option D.** CF1 ships with it. Options A and B are not permitted; C (runoff, CF2) is a separate, unapproved candidate that needs its own spec, K1 verification and approval. Nothing below adds a manager override, an elimination rule or an automatic over-capacity advance. CF1 must make "blocked" actually blocking:
 
 * **2.4 Approval gate.** Today a calculated callback result with every `advanced` null can still be approved (and then completed, since F2's completion check looks only for `advanced is true`). That would let a round "finish" with nobody advancing. CF1 adds a BEFORE UPDATE OF `status` trigger on `event_competition_result_versions` (calculated → approved): for a round with `round_type='preliminary'` and program `advancement_method='promote_callback'`, refuse with `COMP_ADVANCEMENT_BLOCKED` when any row has `advanced is null`. Additive trigger; no redefinition of F2 `approve_competition_round_result`.
-* **Ways out of a blocked tie that are not manager picks:** a corrected ballot version through the correction path (CX1/K0 P1) if a judge made an error. Changing the Final capacity must **not** be a way out (OD-1): the candidate freeze B5 in §3.4.2 (UNAPPROVED) is what would close that route; until the owner decides, the loophole analysis in §3.4.2 applies.
+* **Ways out of a blocked tie that are not manager picks:** a corrected ballot version through the correction path (CX1/K0 P1) if a judge made an error. Changing the Final capacity is **not** a way out (OD-1): the approved freeze B5 (§3.4.2, with only the F1 exemption of §3.4.3, which cannot dissolve a tie) closes that route.
 
 Mapping: SCN-11.4 splits into **11.4a** (tie within capacity → all advance, Final holds `T+k` couples) and **11.4b** (tie over capacity → `tie_over_capacity`, approve refused, `apply` refused, no manager override control exists in UI or RPC).
 
@@ -180,13 +180,13 @@ Verified today: `set_competition_round_heat_capacity(p_round_id, p_capacity)` (1
 | B2 | Any non-cancelled heat of the round is `staging/active/complete`, or has `lock_state <> 'open'` | blocked |
 | B3 | The round has any ballot | blocked |
 | B4 | The round has an **active advancement** (the generated Final exists) | blocked; the only way back is the correction path of §4 |
-| B5 (**UNAPPROVED candidate**) | The round is the successor of a callback round that has any ballot, or any result version (including stale), or status `ballots_locked` or later | blocked. This stops capacity from being raised to dissolve a blocked tie (D-CT-4 / OD-1) |
-| B6 (**UNAPPROVED candidate**) | New capacity is below the callback round's `target_advancement_count` `T` | blocked (the `T` couples must fit; consistent with OD-2) |
-| B7 | New capacity outside `1..100` (the existing 10D rule), or reason missing, blank or over 500 characters, or request id missing | blocked |
+| B5 (**approved 2026-10-30, with the F1 exemption only, §3.4.3**) | The round is the successor of a callback round that has any ballot, or any result version (including stale), or status `ballots_locked` or later | blocked. This stops capacity from being raised to dissolve a blocked tie (D-CT-4 / OD-1) |
+| B6 (**approved as the capacity-edit arm of F2, §3.4.3**) | New capacity is below the callback round's `target_advancement_count` `T` | blocked (the `T` couples must fit; consistent with OD-2) |
+| B7 | New capacity outside `1..100` (the existing 10D rule), or the reason is not substantive (§3.4.3: 20–500 characters, at least 4 words, at least 3 distinct, not a placeholder), or request id missing | blocked |
 
-**What is allowed:** a capacity change by an authorized manager, with a reason and an audit row, while the round is `draft/scheduled`, has no ballots and has no active advancement (B1–B4, B7: **approved in principle** by OD-3). **B5 and B6 are an UNAPPROVED conservative CANDIDATE** (preferred by the review, not approved by the owner); §3.4.2 shows their effects and the alternatives. A non-callback round follows B1–B4 and B7 only. Because capacity is part of the hashed evidence, a change after calculation makes the version stale and forces recalculation. The unified audit read (`competition_audit_log`) gains the capacity events by a pinned redefinition; if that pin fails the events stay readable through the preview and the gap is reported.
+**What is allowed:** a capacity change by an authorized manager (manager plus verified email), with a substantive reason and an immutable audit row, while the round is `draft/scheduled`, has no ballots, has no active advancement (B1–B4), the callback round has no ballot, no result and is before `ballots_locked` (B5), and the after-state keeps `T ≤ capacity` (B6). **B5 is approved with one exemption, F1 (§3.4.3).** A non-callback round follows B1–B4 and B7 only. Because capacity is part of the hashed evidence, a change after calculation makes the version stale and forces recalculation. The unified audit read (`competition_audit_log`) gains the capacity events by a pinned redefinition; if that pin fails the events stay readable through the preview and the gap is reported.
 
-#### 3.4.2 Effects of the conservative capacity freeze (B5/B6) — UNAPPROVED CANDIDATE
+#### 3.4.2 Effects of the capacity freeze (B5/B6) — DECIDED 2026-10-30: B5 approved with the F1 exemption, B6 with F2 (analysis kept as the record)
 
 Facts that drive the analysis: capacity is read (i) by the engine only to decide whether a tie at the cut fits (`|A| ≤ cap`), and (ii) by apply to check the Final fits one heat (precondition 6). If the advanced count equals `T` and `T ≤ cap`, capacity never matters. **So a capacity change after callback ballots exist can only matter when there is a tie at the cut.** An *increase* that matters is exactly the one that dissolves a blocked tie, which OD-1 forbids. A *decrease* that matters turns an allowed all-tied-advance into a block.
 
@@ -195,13 +195,13 @@ Worked example (F-CT-02 shape): `T = 4`, entries 11–18, three judges, capacity
 | Case | B5 as written (symmetric freeze once the callback has a ballot or result) |
 |---|---|
 | **(a) Legitimate correction while capacity is frozen** | B5 freezes **capacity only**, never ballots or corrections. A CX1 judge-entry correction and the exclusion correction (§4.1) both proceed normally; recalculation reads the same capacity 8. Example: entry 13 excluded, judges re-file, result is still five at/above the cut and capacity 8 still holds them. No capacity edit is needed, so nothing is lost. |
-| **(b) Legitimate capacity increase after ballots** (say 8 → 10 because the floor was enlarged) | **Blocked** (`COMP_CAPACITY_CALLBACK_FROZEN`). The organizer cannot raise it on this round. Safe path: **none that is also safe against OD-1**. If the count is `T` (no tie) the increase is unnecessary (capacity does not matter). If there is a tie, the increase would dissolve a tie that must stay blocked, so it must not be allowed. Practical guidance: set capacity **before the first callback ballot** (allowed, with reason and audit); the readiness check should warn when capacity is below `T` or below a plausible tie. A genuine floor change after ballots is handled by CF2 (runoff, unapproved) or by correcting ballots, not by editing capacity. |
+| **(b) Legitimate capacity increase after ballots** (say 8 → 10 because the floor was enlarged) | **Blocked** (`COMP_CAPACITY_CALLBACK_FROZEN`). The organizer cannot raise it on this round. Safe path: **none that is also safe against OD-1**, except the F1 exemption (§3.4.3), which allows only a raise to exactly `T` when `T` exceeds capacity. If the count is `T` (no tie) the increase is unnecessary (capacity does not matter). If there is a tie, the increase would dissolve a tie that must stay blocked, so it must not be allowed. Practical guidance: set capacity **before the first callback ballot** (allowed, with reason and audit); the readiness check should warn when capacity is below `T` or below a plausible tie. A genuine floor change after ballots is handled by CF2 (runoff, unapproved) or by correcting ballots, not by editing capacity. |
 | **(c) Capacity decrease after ballots** (say 8 → 4 because the floor shrank) | **Blocked** too. Consequence: the five tied couples (or `T` couples) advance into a Final built at the recorded capacity even if the physical floor is now smaller; the day-of desk must handle the physical constraint outside the system (scratch via SC1 after build is possible, a smaller Final is not created automatically). A decrease cannot dissolve a tie (it only tightens), so blocking it is *stricter than needed for OD-1*. |
 | **(d) B6 (capacity below `T`)** | Blocks lowering capacity to a value under `T` at any time it is otherwise allowed (e.g. before ballots). It does **not** stop `T` itself from being raised above an existing capacity: raising `T` (editable until the round starts, E2) is a different write. Required companion (CF1-B / setup readiness): reject `T > capacity` at the callback-target edit, otherwise the same condition is only caught late by apply (OD-2). If B6 is not adopted, apply still refuses `T > capacity` (precondition 6), so the system stays fail-closed either way. |
 
 **(e) The dead end the freeze can create (found in review, stated plainly).** Apply refuses when the advanced count exceeds the Final's **live** capacity **even with no tie** (precondition 6). `T` (`target_advancement_count`) is frozen once the callback round starts (E2 `compe2_guard_round_config`), and under B5 capacity is frozen from the first callback ballot. So if `T > capacity` is discovered **after the first ballot**, neither number can change: the callback can be balloted, calculated and approved, but apply refuses forever and the organizer is stranded with no in-system way out (the exits left are cancelling the callback round via O1 and rebuilding, or CF2). Today nothing stops `T > capacity` being configured: `create_simple_competition` leaves `T` null (S11), W4 lets managers set it until the round starts, and capacity defaults to 8.
 
-Fix options (all **UNAPPROVED**; B5 stays unapproved either way):
+Fix options (**F1 and F2 approved 2026-10-30**; F3 not adopted):
 
 | Fix | Rule | Effect | Risk |
 |---|---|---|---|
@@ -209,9 +209,9 @@ Fix options (all **UNAPPROVED**; B5 stays unapproved either way):
 | **F2. Prevention at setup** | A DB-level guard (trigger on rounds) refuses any state where a callback round's successor capacity < `T`: on `T` edit, on capacity edit/insert and at publish (program lock) | The dead end cannot arise for new programs. Does not help a round already past its first ballot | Needs a successor-round lookup in the guard; adds a publish-time blocker (readiness) |
 | **F3. Do nothing** | Rely on apply's refusal and the readiness warning | No new rule | The dead end is reachable; a mis-set round strands the organizer |
 
-**Recommendation (UNAPPROVED):** F2 for prevention and F1 as the narrow cure, with B5 as above. If the owner approves neither F1 nor F2, B5 must not be adopted, because B5 turns a fixable setup error into a dead end.
+**Decision (2026-10-30):** F2 for prevention **and** F1 as the narrow cure are both approved, with B5. The binding rules, conditions and the F-CT-02 proof that F1 cannot dissolve a blocked tie are in §3.4.3.
 
-Alternatives (all **UNAPPROVED**):
+Alternatives considered (**A adopted** with F1; B, C, D not adopted):
 
 | Option | Rule | Effect | Risk |
 |---|---|---|---|
@@ -220,7 +220,47 @@ Alternatives (all **UNAPPROVED**):
 | **C. Audited increase allowed when no tie is blocked** | Increases allowed with reason+audit until a blocked result exists; any capacity change after ballots is flagged at approval and needs the second approver's acknowledgment | Allows (b) | Same pre-calculation loophole as B, mitigated only by audit and the second approver; relies on people, not a guard |
 | **D. A for increases, audited decreases** | Increases frozen after the callback has a ballot; decreases allowed with reason+audit while no advancement is active, making any existing version stale | Fixes (c) without opening the OD-1 loophole (a decrease can never dissolve a tie); decrease can newly block a tie, which fails closed | A manager could force a block by decreasing (denial, not a selection); visible in the audit and the approver sees the flag |
 
-**Recommendation (UNAPPROVED):** **A** as the preferred candidate (conservative, closes the loophole), with **D** as the refinement if the owner wants physical-floor decreases to be reflectable. Do not adopt B or C. Until the owner decides, CF1-A implements B1–B4 and B7 only; B5/B6 (or the chosen variant) are added to CF1-A only once approved, and the SQL suite then proves them.
+**Decision (2026-10-30):** **A** (B5 as written, symmetric freeze) is approved **with the F1 exemption**; B and C are rejected (pre-calculation loophole); D (audited decreases) is not adopted, so a capacity decrease after callback ballots stays blocked (case (c)). Until CF1-A implements B1–B7, F1 and F2, the analysis above is the acceptance record.
+
+#### 3.4.3 Binding capacity rules decided 2026-10-30: B5 with the F1 exemption, and the F2 setup guard
+
+The owner approved **both safeguards** for the dead end of §3.4.2(e). The rules below are binding for CF1-A. B1–B7 stay in force **except for the single F1 exemption**; B5 (the freeze) is approved **with** F1. The general published-order restrictions of 10D/O1 are unchanged. The design as a whole is **not** approved.
+
+**F2. Setup guard (prevention).** A DB-level trigger `cf1_guard_callback_target_capacity` makes it impossible to *write* a callback configuration whose target `T` exceeds the Final's single-heat capacity. A "callback configuration" is a `preliminary` round of a program with `advancement_method = 'promote_callback'`, whose successor round (`sequence_number + 1`, same division) is the Final. The after-state must satisfy `T ≤ capacity` (capacity = `max_entries_per_heat`, default 8) whenever `T` is not null; otherwise `COMP_CALLBACK_TARGET_EXCEEDS_CAPACITY`. It fires on:
+
+| Arm | Write | Note |
+|---|---|---|
+| T edit | UPDATE OF `target_advancement_count` on the callback round | The T edit today is a direct table update (`competition/actions.ts` l.364), so a trigger covers it for every client |
+| Capacity edit | UPDATE OF `configuration` on the successor, where `max_entries_per_heat` changes (this is B6) | Lowering below `T` is refused |
+| Successor insert | INSERT of the successor round | Also covered by the INSERT arm of `cf1_guard_round_capacity` (§3.4.1) |
+| Publish / program lock | UPDATE OF `profile_locked_at` on the program (additive trigger; 10B's protect function is not redefined) | A program with a callback round whose `T` is set and greater than the successor's capacity cannot be published. `T` null at publish is allowed (D-CT-5: set before ballots) |
+
+It does not retro-fail existing rows; it fires only on a write to one of the fields above, and refuses any write whose after-state violates `T ≤ capacity`. To fix an existing mismatch before the callback round starts, lower `T` or raise capacity to at least `T` (both ordinary writes).
+
+**F1. Narrow exemption (cure for an EXISTING mismatch).** An authorized, audited capacity increase to **exactly `T`**, permitted only when **all** hold (each a stable `COMP_CAPACITY_F1_*` refusal):
+
+| # | Binding condition |
+|---|---|
+| 1 | **Authorization:** actor is an event manager (`can_manage_event_competition`) **and** has a verified email credential. Chair, scorer, judge, other studio, anon: refused |
+| 2 | **Scope:** the round is the successor Final of a callback round; current capacity `< T`; new capacity `= T` **exactly** (not more, not less); `T ≤ 100`; and the change is within the event's applicable rules (`1..100`, B7) |
+| 3 | **No prohibited Final activity:** the Final round is `draft` or `scheduled` (B1); no Final heat is `staging/active/complete`, none has `lock_state <> 'open'` (B2); the Final has **no ballot** (B3); there is **no active advancement** (B4). This is what "no capacity edit after Final ballots or other prohibited Final activity" means in the database |
+| 4 | **Callback state:** the callback round is before `approved` (`draft/scheduled/active/ballots_locked/calculated`) and **no blocked-tie result version exists** (no version of the round whose rows have `advanced is null`). After approval, use the correction path |
+| 5 | **Substantive reason** (below) and a request id |
+| 6 | **Immutable audit:** one insert-only `event_competition_round_capacity_events` row carrying `exemption = 'f1_raise_to_t'`, old capacity, new capacity, `T`, the callback round status and the ids of the callback result versions at that moment, actor, reason, request id and transaction id; shown in the unified audit read |
+| 7 | **One use:** after the raise, capacity = `T` so condition 2 (`capacity < T`) is false; F1 cannot be applied again to step capacity higher |
+
+An existing calculated version becomes stale (capacity is in the hashed evidence) and must be recalculated; nothing else changes.
+
+**Minimum substance of a reason (all capacity changes, recommended; binding for F1).** After trimming: 20–500 characters, at least 4 words of which at least 3 are distinct (case-insensitive), not a single repeated character or word, and not in a short placeholder list (`n/a`, `none`, `test`, `testing`, `fix`, `fixed`, `asdf`, `tbd`, `ok`). Computed in SQL by `_cf1_reason_is_substantive(text)`. It cannot judge truthfulness; the audit row is the control. The reason need not restate old capacity, `T` or round status (stored automatically). B7 is updated to this rule.
+
+**F1 can never override D-CT-4 (worked with F-CT-02).** `T = 4`, entries 11–18, tallies 11 = 3, 12 = 3, 13 = 2, 14 = 2, 15 = 2: five couples at or above the cut.
+* Capacity already 4 (= `T`): the tie of five is over capacity, advancement is blocked. F1 does not apply (`capacity < T` is false) and nothing else can raise capacity (B5). **Still blocked.**
+* Capacity 3 (< `T`, an existing mismatch): F1 may raise it to exactly 4. The tie of five is still above 4. **Still blocked.**
+* F1 cannot raise to 5 or 8 (condition 2: exactly `T`), and cannot be repeated (condition 7).
+* A callback with a blocked-tie version already calculated: F1 is refused (condition 4).
+Capacity can therefore never be moved to a value that fits a tie of more than `T` couples through F1.
+
+**What this does to the old app, existing programs and rollback** (see §12.2): F2 refuses a T edit or publish that would create `T > capacity` with a DB error even from the old app; the old app still cannot edit capacity at all in the window (2-argument RPC refusal), so F1 exists only through the new RPC in CF1-B; existing programs with `T > capacity` are not retro-failed but are caught at the next write, at publish, by the readiness warning and at apply; rollback stays roll-forward-only after the first capacity-event row (F1 produces one).
 
 
 ### 3.5 Locking of the Final heat
@@ -368,43 +408,74 @@ Stacking: CF1 sits on HL1 → CX1 → SS1 → F2 → REG; none of those are merg
 
 ## 9. Owner decisions
 
-IDs are unique and cross-referenced consistently (the earlier `OD-3a/3b` are now `OD-11/OD-12`).
+IDs are unique and cross-referenced consistently (the earlier `OD-3a/3b` are now `OD-11/OD-12`). **The design as a whole is not approved**; only the items below marked Decided are.
 
 **Decided 2026-10-30:**
 
 | ID | Decision |
 |---|---|
 | OD-1 | D-CT-4 Option D: block approval and advancement when tied couples exceed the Final's permitted capacity; no override, no elimination, no automatic over-capacity advance. Runoff (CF2) stays unapproved |
-| OD-3 (part) | Capacity changes need authorization, a recorded reason and audit, and never invalidate an active, locked or already-balloted Final: blocks B1–B4 and B7 (§3.4.1). **B5/B6 are NOT approved** (§3.4.2) |
+| OD-3 | Capacity changes need authorization, a recorded reason and audit, and never invalidate an active, locked or already-balloted Final: blocks B1–B7 (§3.4.1), **B5 (freeze) approved with the F1 exemption**, **B6 approved as the capacity-edit arm of F2** (§3.4.3). Options B, C, D of §3.4.2 are not adopted |
+| F2 | Setup guard: no new callback configuration where `T` exceeds the single-heat Final capacity (T edit, capacity edit/insert, publish/program lock) (§3.4.3) |
+| F1 | Narrow exemption for existing mismatches: audited raise to **exactly `T`** under the binding conditions of §3.4.3; it can never override D-CT-4 |
 | OD-6 | Final roster visible to officials and staff only until publication; the reader inventory (P-1) is a hard CF1-A preflight deliverable |
 | OD-8 | Narrow, audited exception for the CF1 operation only, to insert its Final heat into the published running order (§3.2) |
-| OD-13 | **Option R** for correction ballots caused by a competitor exclusion: replace only the excluded selection(s). Option F only for separately authorized genuine judge-entry corrections; every correction stores original ballot, replacement ballot, reason, actor, timestamp and diff (§4.1) |
+| OD-9 (scope) | Multi-dance callback-to-Final advancement is **out of v1** (fail closed `COMP_ADVANCEMENT_MULTI_DANCE`); owner-decided scope, **subject to the technical review in §9.3 confirming it** |
+| OD-13 | **Option R** for correction ballots caused by a competitor exclusion; Option F only for separately authorized genuine judge-entry corrections; every correction stores original ballot, replacement ballot, reason, actor, timestamp and diff (§4.1) |
 
-**OPEN:**
+**OPEN (owner policy, answer line by line in §9.2):** OD-2, OD-10, OD-11, OD-12. **OPEN (smaller):** OD-13b (which roles may co-sign a judge-entry correction; the constraints in §4.1 are fixed), OD-13c (Final-round exclusion equivalent, out of CF1 scope), OD-14 (legacy capacity RPC: recommended option (iii), §12.1). **Technical review pending:** OD-4, OD-5, OD-7, OD-9 (§9.3).
 
-| ID | Question | Recommendation |
-|---|---|---|
-| OD-3 (B5/B6) | Choose among A (B5 as written), B, C, D (§3.4.2) | **UNAPPROVED:** A preferred, D if physical-floor decreases must be reflectable; never B or C |
-| OD-13b | Who co-signs a judge-entry (F) correction: chair, second manager, or either | Chair or a second manager (either), never the opener alone |
-| OD-13c | Does a Final-round exclusion need the same restricted correction ballot (`ordinal_rank@1`)? | Raise to the owner; out of CF1 scope |
-| OD-14 | Legacy 2-argument capacity RPC transition (§12.1) | Option (iii): refuse from CF1-A apply; roll SQL and app in one release train |
-| OD-2, OD-4, OD-5, OD-7, OD-9, OD-10, OD-11, OD-12 | See the table below | See the table below |
+### 9.1 Dependencies between decisions
 
-### 9.1 Recommendations for the remaining open decisions
+| Decision | Depends on |
+|---|---|
+| OD-4 (trigger) and OD-12 (supplemental publication) | OD-6 (roster visibility) and F3 (publication) |
+| OD-5 (unavailable couple) | P-3 (excluding a couple on a certified heat) and OD-13 (Option R covers derivable exclusions only) |
+| OD-2 (`T` greater than capacity) | Largely **answered by F2 + F1**; the apply-time check remains technical |
 
-"Owner policy" = a product/business choice only the owner can make. "Technical review" = determined by the approved rules and the code; the owner is informed, not asked to choose.
+### 9.2 Decision-ready choices for the owner (answer line by line)
 
-| Decision | Recommendation | Owner policy choice or technical-review item (why) | Impact if wrong |
-|---|---|---|---|
-| **OD-2** `T` greater than Final capacity (no tie) | Block at apply (technical) and at the callback-target edit and capacity setup (F2 in §3.4.2) | **Two parts.** *At apply* it is **technical review** (a Final must be one heat, X-7). *At the callback-target and capacity edit* it is **owner policy** (whether an organizer may even configure `T > capacity`). It also **depends on the §3.4.2 dead-end fix**: without F1/F2, blocking at apply alone strands an organizer | If allowed: the Final would be multi-heat and ordinal majority refuses it, stranding the round. If blocked wrongly: organizers cannot run a callback larger than the floor |
-| **OD-4** Trigger of apply | Explicit manager action after approval | **Technical review**, but it **depends on OD-6 and F3**: whether apply may run before publication is decided by when the roster can be hidden from entrants. If a reader cannot be gated, apply waits for F3 | Automatic apply could expose the roster early (OD-6) and hide errors; an extra click is the cost of being too manual |
-| **OD-5** Unavailable advanced couple | Apply refuses; route is correction and deterministic recalculation (§4.1), no backfill | **Technical review**, but it **depends on P-3 and OD-13**: the route exists only for derivable exclusions (scratched, no-show); an ineligible or refunded couple has no derivable record today, so apply stays refused until P-3 closes. Judges' replacement picks follow Option R | A backfill would be a hidden manager-style selection; silent shrink would change the advanced set without a recorded result |
-| **OD-7** Final heat display order | Ascending entry id (deterministic) | **Technical review.** Order does not affect the ordinal score; determinism is what the engine needs | Cosmetic; a different order is a one-line change. Only matters if the owner later wants entry-number or seeded order |
-| **OD-9** Multi-dance callback round | Fail closed (`COMP_ADVANCEMENT_MULTI_DANCE`) | **Technical review** (X-6: a combined multi-dance result is unsupported in v1). **Plain product note for the owner: this is a capability limit. Multi-dance divisions cannot advance from a callback round in v1** | If wrong: multi-dance divisions cannot advance until a combined rule is approved; if allowed wrongly: an unapproved combined advancement |
-| **OD-10** Correction after the Final started but before ballots | Refuse; cancel the Final round first via O1 | **Owner policy.** Trades day-of flexibility against integrity; the code can do either | If too strict: an organizer must cancel a started Final to fix a callback. If too loose: a half-run Final is reset under it |
-| **OD-11** Final heat placement in the live order | Append at the end (no renumbering) | **Owner policy.** What competitors see of running order, and whether the Final should follow its callback heat. Technical constraint: only append avoids renumbering a published, frozen version | Appending may put the Final late in the day; placing it earlier needs renumbering, which the freeze forbids without a larger exception |
-| **OD-12** Supplemental schedule publication for the day-of Final heat | Yes, a supplemental record so the snapshot stays truthful | **Owner policy**, and it **depends on OD-6 and F3**: what entrants and the public are told about a day-of addition, and when | Without it the published snapshot omits the Final; with it, a publication appears that must obey OD-6 timing |
-| **OD-6** Final roster visibility (DECIDED) | Officials and staff only until publication; P-1 reader inventory is a hard CF1-A deliverable | Decided by the owner on 2026-10-30; listed because **OD-4 and OD-12 depend on it** and on F3 | If an ungated reader exists the roster leaks the callback result before publication (K0 P5) |
+Each block: options, recommendation, and what an organizer or entrant would see. Worked example: division "Bronze Waltz", 24 entries, one callback round then a one-heat Final, floor default capacity 8.
+
+**OD-2. May an organizer configure a callback target larger than the Final's capacity?**
+Example: the organizer sets `T = 10` with Final capacity 8.
+- **A. No: refuse at save and at publish (recommended; this is what F2 does).** The organizer sees "Callback target 10 is more than the Final holds (8). Lower the target or raise the Final capacity to at least 10." Nothing reaches the door.
+- **B. Allow with a warning.** Judges ballot 10 picks each; after calculation the desk cannot build a one-heat Final of 10 into capacity 8 ("advanced 10, Final holds 8"). With F1 an authorized manager can still raise to exactly 10, with a reason; otherwise the round is stranded.
+- **C. Allow and split the Final into two heats.** Not possible: the Studio ordinal method scores one heat only (X-7); needs a new approved method.
+- *If wrong:* B strands organizers after the judges have already judged; A only costs a setup step. **Please confirm A (closed by the F2/F1 approval) or choose B.**
+
+**OD-10. The callback result must be corrected after the Final has started but before any Final ballot.**
+Example: the Final heat is `staging` on the floor and judges have not submitted; the desk finds couple 14 was mis-entered in the callback.
+- **A. Refuse until the Final round is cancelled (recommended).** The organizer sees "The Final has started; cancel the Final first." At the door: stop the heat, cancel the Final round (O1), correct the callback, recalculate, second-person approve, apply again (a new Final heat, generation 2). Entrants see nothing until publication.
+- **B. Allow, and automatically reset the started Final.** Needs a new round status edge (none exists back to `draft`) and cancels a heat dancers may already be on.
+- **C. Never allow once advancement is applied (even before the heat starts).** Simplest; but a mis-entered couple discovered while the Final is only scheduled would need the same cancel step.
+- *If wrong:* A is slower on the day but never resets a live floor; B risks a heat reset under couples; C removes the safe window. **Choose A, B or C.**
+
+**OD-11. Where does the generated Final sit in the published running order?**
+Example: the published order has heats 1–20; the Bronze Waltz callback is heat 4.
+- **A. Append as heat 21 (recommended).** No renumbering; the 20 published heats keep their numbers. The Final is called after heat 20, so couples may wait much of the day. The announcer calls it as an addition.
+- **B. Insert right after the callback (heat 5).** Natural flow, but renumbers 16 published heats; printed schedules and competitor expectations shift; needs a larger exception to the 10D freeze than OD-8 approves.
+- **C. Day-of board only, no running-order number ("Final: time to be announced").** No change to the frozen order; weakest for entrants who expect a number.
+- *If wrong:* B breaks every printed or posted schedule; A may feel late to dancers. **Choose A, B or C.**
+
+**OD-12. Is a supplemental schedule publication recorded for the day-of Final heat?**
+Example: the schedule was published Friday; the Saturday callback result is approved and the Final is added as heat 21.
+- **A. Yes: a supplemental publication record "day-of additions", visible to entrants only once the callback result is published (recommended).** The public/entrant schedule then lists the Final after publication, and the checksummed snapshot stays truthful.
+- **B. No record.** The Friday snapshot says 20 heats while the live floor shows 21; the public schedule page keeps showing 20, so entrants may not find the Final.
+- **C. Publish a whole new schedule version.** Not possible during a run (`COMPO1_RUN_IN_PROGRESS`).
+- *If wrong:* B leaves entrants unaware; A adds a publication that must obey OD-6 timing (F3). **Choose A or B.**
+
+### 9.3 Technical-review items (not owner policy): recommendation, evidence, and what the reviewer must verify
+
+**OD-4. Explicit manager action after approval (recommended).** Evidence: K0 §6 says next-round heats are created "from a round in approved or later"; O1 `_compo1_guard_round_status` (static edge list; one writer per edge); F2 `approve_competition_round_result` is single-purpose and certifies heats. The reviewer must verify: (1) no existing path already creates later-round heats or changes the callback round's status at apply time (grep `event_competition_heats` inserts and `round status` writers); (2) a crash between approve and apply leaves a recoverable state (preview shows `ready`); (3) idempotent replay by request id; (4) the P-1 reader inventory result decides whether apply may run before publication (OD-6/F3); (5) scenario: approve, apply twice concurrently.
+
+**OD-5. Apply refuses; route is correction and deterministic recalculation (recommended).** Evidence: D-CT-4 (no manager pick), D-CT-10 (nothing carried forward), X-5; F2 `_compf2_evidence` `excludedEntries` (scratched + `_compf2_no_show_entries`); E2 `_compe2_round_entries` drops only scratched; `set_competition_heat_lock_state` refuses changes on certified heats; NS1 marks need an `active` round. The reviewer must verify: (1) which existing writer can exclude a couple on a **certified** callback heat (P-3: scratch, NS1, R2 resolution #292); (2) that an ineligible or refunded couple has no derivable exclusion record; (3) the §4.1 worked example reproduces with the real engine and ballots (judge counts V11, tie at the cut); (4) Option R check against `_compe2_insert_ballot` (placement after `v_prior`); (5) scenario: couple withdraws between approve and apply.
+
+**OD-7. Display order: ascending entry id (recommended).** Evidence: the callback spec lists tied entries by `entry_id` in the trace (the ordinal spec must be checked by the reviewer); `event_competition_entries.entry_number` is nullable (unique only where not null), so "by entry number" is not a total order; `apply_competition_floor_plan` writes `floor_order` as a sequence. The reviewer must verify: (1) which readers use `floor_order` (day-of boards, ballot desk, `dayOf.ts`, schedule pages) and that none implies ranking; (2) the ordinal engine and ballot ordering do not depend on `floor_order`; (3) scenario: Final heat with entries lacking numbers.
+
+**OD-9. Multi-dance out of v1, fail closed (owner-decided scope).** Evidence: X-6 (a combined result is unsupported), F2 evidence `danceIds`, K0 §2 (multi-dance overall held by 10H). The reviewer must verify: (1) a multi-dance callback round already fails closed at calculation (`COMP_ENGINE_UNSPECIFIED_CASE`, X-6) so apply never sees it, and that `COMP_ADVANCEMENT_MULTI_DANCE` is the second layer; (2) how the 10D planner makes scoring heats for a division with several dances (one heat per dance or a single multi-dance heat) and whether a callback division can be configured multi-dance at all; (3) that setup readiness (`studioReadiness.ts`) warns before ballots, so the organizer is not surprised after judging; (4) scenario: callback division with two dances reaches calculation and is refused with a clear message.
+
+(OD-6, decided, is listed in §9 because OD-4 and OD-12 depend on it and on F3.)
 
 ## 10. Not in this document
 
@@ -428,6 +499,7 @@ All slices are Git-only and stacked on HL1 → CX1 → SS1 → NS1 → F2 → E2
 | P-4 | Suite location (corrected after review; verified with `git ls-tree` on HL1 `ca6c0b8d`): the Competition SQL suites **are tracked** in `src/lib/supabase/migrations/sql-tests/` (`test_T_competition_e2_ballots.sql`, `test_T_competition_e2_p1fix.sql`, `test_T_competition_f2_results.sql`, `test_T_competition_hl1_heat_guards.sql`, `test_T_competition_ns1_no_show.sql`, `test_T_competition_cx1_correction_readers.sql`, `test_T_competition_ss1_round_lock.sql`, `test_T_competition_ss1_advancement_freeze.sql`, `test_T_competition_o1_day_of.sql`, `test_T_competition_o1_concurrency.sh`, `run_o1_suite.sh`, plus `fixtures/` and `concurrency/`). The CF1 suite `test_T_competition_cf1_callback_final_advancement.sql` and the concurrency script `test_T_competition_cf1_concurrency.sh` go in the **same directory**, following the O1 runner/fixture conventions | Where the CF1 suite is committed |
 | P-5 | The 10D freeze-guard authorization: prove a second BEFORE trigger can authorize CF1's inserts without redefining the three guards; otherwise pin and redefine them | OD-8 scope |
 | P-6 | Tombstone floor heats: which day-of/schedule readers must ignore a floor heat with no live scoring heat | §4 |
+| P-7 | Inventory of callback rounds with `T > capacity` (program, status, ballots present) before apply, so affected organizers are known (§12.2); local QA replay by default, hosted read not authorized here | F2/F1 |
 
 ### 12.1 Capacity RPC transition, rollout and rollback (OD-14)
 
@@ -454,18 +526,30 @@ Ordering and what the old app can or cannot do in each window (old app = build b
 
 If the app must roll back and capacity editing is needed before the SQL can be rolled back, the answer is **no**: it stays blocked (W3). That is intentional. There is no cutover migration to run or undo, so there is no state in which the audited switch could be left half-applied. Rollback order is always **app first, then SQL** (never SQL first: a rolled-back SQL under the new app would break the new RPC call).
 
+### 12.2 Effects of the F2 setup guard and the F1 exemption on rollout
+
+Both ship inside CF1-A's one migration (slot `20270120090000`), so the §12.1 order and rollback rules apply unchanged: SQL then app in one release train; rollback app first then SQL; **roll-forward-only after the first capacity-event row** (any ordinary capacity change through the new RPC or an F1 raise creates one).
+
+| Subject | Old app (window W1, before CF1-B) | Existing programs with `T > capacity` | Rollback |
+|---|---|---|---|
+| **F2 guard, T edit** | A callback-target save that would leave `T > capacity` is **refused by the database** (the old app shows the raw error; the new app maps `COMP_CALLBACK_TARGET_EXCEEDS_CAPACITY`). Saves that keep `T ≤ capacity` work | Not retro-failed. They surface at the next T/capacity write, at publish/lock (refused until fixed), in the readiness warning (CF1-B) and at apply | Rollback drops the guard, so a mismatch can be created again (pre-CF1 behavior) |
+| **F2 guard, publish/lock** | Publishing a program with `T` set above the successor's capacity is refused; the old app shows the error | Must be fixed before publish: lower `T` or raise capacity to at least `T` (ordinary writes before any ballot) | Same |
+| **F2 guard, capacity edit (B6)** | Moot in W1: the old app cannot edit capacity (2-argument RPC refuses) | n/a | n/a |
+| **F1 exemption** | **Not available** (needs the new RPC). A stranded organizer must wait for CF1-B | Cures a mismatch found after the first ballot, to exactly `T`, with a substantive reason and audit | The F1 row is evidence: SQL rollback is unreachable afterwards; recovery is roll-forward |
+| **Preflight P-7** | — | Read-only inventory of callback rounds with `T > capacity` (by program, status, whether ballots exist) so affected organizers are contacted before apply. Running it against hosted DEV/PROD is **not authorized here**; it needs the same authorization as any hosted read, and the local QA replay is the default | — |
+
 ### CF1-A — SQL (one PR, `competition-cf1-a-advancement-sql`, base HL1)
 
 | Item | Content |
 |---|---|
 | Files | `src/lib/supabase/migrations/20270120090000_competition_cf1_callback_final_advancement.sql`; `src/lib/supabase/migrations/rollback/20270120090000_competition_cf1_callback_final_advancement_rollback.sql`; `src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_callback_final_advancement.sql` and `…/test_T_competition_cf1_concurrency.sh` (P-4); reader-inventory note (P-1); `docs/competition/scoring-results-contract.md` §3/§6/§8 amendment and the matching `src/lib/competition/results/contract.ts` kinds (same PR, K0 rule) |
-| Objects | Tables of §1.2, `event_competition_round_capacity_events`, `event_competition_correction_causes` and `event_competition_ballot_corrections` (RLS on, no policies, no grants); history-protection triggers; `competition_round_advancement_preview`, `apply_competition_round_advancement`, the new capacity RPC `(uuid, integer, text, uuid)`; the 2-argument 10D capacity RPC **rewritten to always refuse** `COMP_CAPACITY_REASON_REQUIRED` (§12.1); internal `_cf1_revoke_advancement` and `_cf1_check_correction_ballot`; guard triggers §2.4, §4, §5, `cf1_guard_round_capacity` §3.4.1 (B1–B4, B7; B5/B6 only if approved) and the correction-cause status-edge trigger §4.1; pinned `_compe2_insert_ballot` insertion plus the deferred backstop (§4.1); result-events kind check replacement (`advancement_applied`, `advancement_revoked`); `complete_competition_round` advancement-check change; `competition_audit_log` extension |
+| Objects | Tables of §1.2, `event_competition_round_capacity_events`, `event_competition_correction_causes` and `event_competition_ballot_corrections` (RLS on, no policies, no grants); history-protection triggers; `competition_round_advancement_preview`, `apply_competition_round_advancement`, the new capacity RPC `(uuid, integer, text, uuid)`; the 2-argument 10D capacity RPC **rewritten to always refuse** `COMP_CAPACITY_REASON_REQUIRED` (§12.1); internal `_cf1_revoke_advancement` and `_cf1_check_correction_ballot`; guard triggers §2.4, §4, §5, `cf1_guard_round_capacity` §3.4.1 (B1–B7, INSERT and UPDATE arms), the F2 setup guard `cf1_guard_callback_target_capacity` and the program-lock arm (§3.4.3), the F1 exemption inside the capacity RPC, `_cf1_reason_is_substantive` and the correction-cause status-edge trigger §4.1; pinned `_compe2_insert_ballot` insertion plus the deferred backstop (§4.1); result-events kind check replacement (`advancement_applied`, `advancement_revoked`); `complete_competition_round` advancement-check change; `competition_audit_log` extension |
 | Order | **SQL before app**, in one release train with CF1-B (§12.1). After CF1-A applies, the **old app's capacity edit is refused** (`COMP_CAPACITY_REASON_REQUIRED`): a block, never a reasonless pass. Nothing else in the old app changes. CF1-B cannot deploy before CF1-A is applied |
 | Pins | Pinned text-replace for `complete_competition_round`, the 2-argument capacity RPC (rewritten to refuse), `competition_audit_log` and `_compe2_insert_ballot` (P-2); preflight asserts `md5(def)` and that each anchor occurs exactly once, else raises. 10D guards: second trigger preferred (P-5) |
 | Lock order | `_compo1_lock_event` → source round `FOR UPDATE` → target round `FOR UPDATE` (ascending `sequence_number`) → approved result version row `FOR UPDATE` → live schedule version `FOR SHARE`; capacity RPC: event lock → round `FOR UPDATE`. Same round order as F2 correction (which takes no event lock), so no cycle. `40P01` maps to the HL1 retry message |
 | SECURITY DEFINER / grants | `search_path = public, pg_temp`; preview, apply and capacity RPC `authenticated` only (manager + verified email), never `anon`; revoke function and guard functions have no grants; tenant derived from rows, never from the caller |
 | Rollback | **App first, then SQL** (§12.1). **SQL rollback is available only while no CF1 evidence row exists** (advancement, capacity event, correction cause, co-sign, ballot correction); after the first use of the new capacity RPC **recovery is roll-forward only**. With the app rolled back and SQL still applied, the old app's capacity edit stays refused (a block). The rollback file restores the pinned F2/E2/10D function texts (including the original 2-argument capacity RPC, verified by pin), restores the kind check, drops triggers and tables. Rolling back restores today's unaudited capacity editing: the pre-CF1 state, by design. Hosted application is not authorized here |
-| Tests | §7.1 SQL suite, §7.2 concurrency script, plus: capacity guard B1–B4 and B7 (reason required, audit row, the transaction-bound trigger rejects a direct `UPDATE`); the **2-argument RPC refuses every call with `COMP_CAPACITY_REASON_REQUIRED`, changes no row and writes no capacity event**; the new RPC works with a reason; correction-cause derivation and Option R/F write-path checks (§4.1); publish-needs-F3 refusal; no-op for "Final only" |
+| Tests | §7.1 SQL suite, §7.2 concurrency script, plus: capacity guard B1–B7, the F2 arms (T edit, capacity update, successor INSERT, program lock, no retro-fail), the F1 matrix (new capacity not equal to `T`, capacity not below `T`, callback approved, blocked-tie version present, Final ballot/started/locked/active advancement, wrong actor, non-substantive reasons, one-use) and the F-CT-02 proof that capacity `= T` or F1 from 3 to 4 leaves a tie of five blocked (reason required, audit row, the transaction-bound trigger rejects a direct `UPDATE`); the **2-argument RPC refuses every call with `COMP_CAPACITY_REASON_REQUIRED`, changes no row and writes no capacity event**; the new RPC works with a reason; correction-cause derivation and Option R/F write-path checks (§4.1); publish-needs-F3 refusal; no-op for "Final only" |
 | Existing tests that break and must be updated in CF1-A/B (verified) | `src/lib/supabase/migrations/sql-tests/test_T_phase10d_floor_schedule.sql` l.374–378: it expects the 2-argument `set_competition_round_heat_capacity` to raise `COMP10D_CAPACITY` for 0 and to succeed for 12 and store the value; after CF1-A the 2-argument form always raises `COMP_CAPACITY_REASON_REQUIRED`, so these cases move to the new RPC (and a new case asserts the refusal). `src/lib/competition/__tests__/floorPlanner.phase10d.test.ts` l.272: it asserts `schedule/actions.ts` contains `"set_competition_round_heat_capacity"` and the 10D migration contains `create function public.set_competition_round_heat_capacity(`; if CF1-B renames the action's RPC the first assertion fails, so either keep the name as an overload (recommended: the string stays) or update the test. l.213 reads the unchanged 10D migration file and is **not** affected unless that file is edited, which CF1 never does (the review flagged it; verified it only reads `20261111090000_phase10d_heats_floor_schedule.sql`) |
 | Not in scope | Any UI or server action; any engine change; runoff/CF2; F3 publication; reader gating code beyond what P-1 requires to make apply safe; hosted anything |
 
@@ -474,7 +558,7 @@ If the app must roll back and capacity editing is needed before the SQL can be r
 | Item | Content |
 |---|---|
 | Files (expected) | `src/app/app/events/[id]/competition/results/actions.ts`, `results/[roundId]/…` (the "Advance to Final" panel and blocked-tie display), `schedule/actions.ts` (switch to the capacity RPC with a required reason), a pure `src/lib/competition/results/advancement.ts` (preview model, error→message map), `messages.ts`, `contract.ts` kinds, vitest files beside them |
-| Behavior | Panel states `ready / blocked (tie over capacity, lists the tied entries) / applied / revoked`; server action passes a request id; **no override control exists** for a blocked tie; Final roster rendered only to managers/officials (P-1 gating); capacity form calls the new RPC, **requires a reason**, and shows the B1–B4/B7 refusals (B5/B6 once decided); correction screens show the derived cause (exclusion or judge-entry error), the restricted-ballot form for `entry_exclusion` (only the excluded picks are editable) and the stored diff at approval |
+| Behavior | Panel states `ready / blocked (tie over capacity, lists the tied entries) / applied / revoked`; server action passes a request id; **no override control exists** for a blocked tie; Final roster rendered only to managers/officials (P-1 gating); capacity form calls the new RPC, **requires a reason**, and shows the B1–B7 refusals, the F1 control (visible only when its conditions hold, with the stored old/new/`T`), the F2 save-time refusal message, and a readiness warning for existing `T > capacity`; correction screens show the derived cause (exclusion or judge-entry error), the restricted-ballot form for `entry_exclusion` (only the excluded picks are editable) and the stored diff at approval |
 | Order | After CF1-A is applied, in the same release train (§12.1). Until CF1-B is live, capacity editing in the UI shows the refusal. App rollback first |
 | Tests | §7.3 vitest; the contract test that this doc's kind list equals `contract.ts` |
 | Not in scope | SQL; QA-A harness; runoff; F3 wording; hosted deploy |
