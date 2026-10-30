@@ -59,8 +59,9 @@ const COUPLES: RosterCouple[] = [
   { leader: { firstName: "Eli", lastName: "Spin" }, follower: { firstName: "Fay", lastName: "Dip" } },
   { leader: { firstName: "Gus", lastName: "Glide" }, follower: { firstName: "Hana", lastName: "Sway" } },
 ];
-/** The name that identifies each entry on every screen. */
-const NAME = ["Ada Lead", "Cy Step", "Eli Spin", "Gus Glide"];
+const COUPLES5: RosterCouple[] = [...COUPLES, { leader: { firstName: "Ivy", lastName: "Reel" }, follower: { firstName: "Jo", lastName: "Swing" } }];
+/** The name that identifies each entry on every screen (event E also has "Ivy Reel", the entry scratched in the early-locked heat). */
+const NAME = ["Ada Lead", "Cy Step", "Eli Spin", "Gus Glide", "Ivy Reel"];
 
 type Scored = { event: CreatedEvent; roundId: string; finalRoundId: string; entries: string[] };
 
@@ -132,35 +133,35 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
   }
 
   /** One buyer, four distinct couples, one Stripe TEST payment. */
-  async function registerAndPay(browser: Browser, event: CreatedEvent, tag: string) {
+  async function registerAndPay(browser: Browser, event: CreatedEvent, tag: string, couples: RosterCouple[] = COUPLES) {
     const page = await (await browser.newContext()).newPage();
     await assignUniqueSourceIp(page);
     const email = `e2e-compfull-${fixture.runId}-${tag}@example.com`;
-    const checkoutUrl = await registerRoster(page, event.slug, { name: "Ada Lead", email, phone: "5125550100" }, COUPLES);
+    const checkoutUrl = await registerRoster(page, event.slug, { name: "Ada Lead", email, phone: "5125550100" }, couples);
     const sessionId = checkoutUrl.match(/cs_test_[A-Za-z0-9]+/)?.[0];
     expect(sessionId, "hosted Checkout URL carries a test session").toBeTruthy();
     const open = await stripe.checkout.sessions.retrieve(sessionId!, {}, { stripeAccount: ACCOUNT });
-    expect([open.livemode, open.status, open.amount_total]).toEqual([false, "open", 4 * ENTRY_FEE * 100]);
+    expect([open.livemode, open.status, open.amount_total]).toEqual([false, "open", couples.length * ENTRY_FEE * 100]);
     const paid = await payCheckoutSession(stripe, ACCOUNT, sessionId!);
     expect([paid.status, paid.payment_status]).toEqual(["complete", "paid"]);
     await expect.poll(async () => (await readCompetitionRegistrations(config, event.id)).orders.find((o) => o.stripe_checkout_session_id === sessionId)?.payment_status, { timeout: 90_000, intervals: [1_000] }).toBe("paid");
     await page.context().close();
     const { entries } = await readEntries(config, event.id);
-    expect(entries).toHaveLength(4);
+    expect(entries).toHaveLength(couples.length);
     expect(entries.every((e) => e.status === "confirmed")).toBe(true);
-    return NAME.map((name) => {
+    return NAME.slice(0, couples.length).map((name) => {
       const { entries: all } = { entries };
       return all.find((e) => String(e.display_name).includes(name))!.id as string;
     });
   }
 
-  async function generateAndPublish(page: Page, eventId: string) {
+  async function generateAndPublish(page: Page, eventId: string, count = 4) {
     await page.goto(`/app/events/${eventId}/competition/schedule`);
     await page.getByRole("button", { name: "Generate heats" }).click();
-    await expect(page.getByRole("status")).toContainText(/Created \d+ heats? for 4 entries/, { timeout: 60_000 });
+    await expect(page.getByRole("status")).toContainText(new RegExp(`Created \\d+ heats? for ${count} entries`), { timeout: 60_000 });
     await page.getByRole("button", { name: "Publish running order" }).click();
     await expect(page.getByRole("status")).toContainText("Running order published.", { timeout: 60_000 });
-    await expect(page.getByText(/^Published · \d+ heats · 4 entries on the floor$/)).toBeVisible();
+    await expect(page.getByText(new RegExp(`^Published · \\d+ heats · ${count} entries on the floor[$]`))).toBeVisible();
   }
 
   /** Officials page: three judges, judge 1 as chair, all three on the panel of the named round. */
@@ -195,16 +196,26 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     await expect(page.locator("article").filter({ hasText: roundText }).first().getByText(/Panel ready/)).toBeVisible();
   }
 
-  /** Day-of console: schedule and start the named round, then bring its first heat onto the floor. */
-  async function startRoundAndHeat(page: Page, eventId: string, roundText: string) {
+  /** Day-of console: schedule and start the named round. */
+  async function startRound(page: Page, eventId: string, roundText: string) {
     await page.goto(`/app/events/${eventId}/competition/day-of`);
     const round = page.getByRole("region", { name: "Rounds" }).locator("li").filter({ hasText: roundText }).first();
     await clickUntil(round.getByRole("button", { name: "Schedule round" }), round.getByRole("button", { name: "Start round" }));
     await clickUntil(round.getByRole("button", { name: "Start round" }), round.getByText("Running", { exact: true }));
+  }
+
+  /** Day-of console: bring the first heat onto the floor (the round must be running). */
+  async function startHeat(page: Page, eventId: string) {
+    await page.goto(`/app/events/${eventId}/competition/day-of`);
     const upNext = page.getByRole("region", { name: "Up next" });
     const onFloor = page.getByRole("region", { name: "On the floor" });
     await clickUntil(upNext.getByRole("button", { name: "Call to floor" }), onFloor.getByText("On deck"));
     await clickUntil(onFloor.getByRole("button", { name: "Start heat" }), onFloor.getByRole("button", { name: "Complete heat" }));
+  }
+
+  async function startRoundAndHeat(page: Page, eventId: string, roundText: string) {
+    await startRound(page, eventId, roundText);
+    await startHeat(page, eventId);
   }
 
   const roundIdByName = async (eventId: string, name: string) => {
@@ -409,24 +420,117 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
 
   // ================================================================== E: Final only (ordinal majority)
 
-  test("SCN-12.1 ordinal competition: scoring set up and published, four entries paid, running order published, panel ready, heat on the floor", async ({ browser }, testInfo) => {
+  test("SCN-12.1 ordinal competition: scoring set up and published, five entries paid, running order published, panel ready, round running (the heat is not started yet)", async ({ browser }, testInfo) => {
     const shot = stepShots(testInfo);
     const page = await signedIn(browser, fixture.owner);
     const event = await createDraftEvent(page, `E2E Ordinal Results ${fixture.runId}`, "2027-06-13");
     await applyScoring(page, event.id, "Final only (ordinal majority)");
     await shot(page, "final-only-applied");
     await publishAndOpen(page, event.id);
-    const entries = await registerAndPay(browser, event, "e");
+    const entries = await registerAndPay(browser, event, "e", COUPLES5);
     const finalRoundId = await roundIdByName(event.id, "Final");
     E = { event, roundId: finalRoundId, finalRoundId, entries };
-    await generateAndPublish(page, event.id);
+    await generateAndPublish(page, event.id, 5);
     const layout = (await readHeatEvidence(config, event.id)).effective;
     expect(layout, "an ordinal Final is one heat").toHaveLength(1);
-    expect(layout[0].entryIds).toHaveLength(4);
+    expect(layout[0].entryIds).toHaveLength(5);
     await buildPanel(page, event.id, "Final");
-    await startRoundAndHeat(page, event.id, "Final");
-    await shot(page, "heat-on-the-floor");
+    await startRound(page, event.id, "Final");
+    await shot(page, "round-running");
     expect((await readHeatEvidence(config, event.id)).rounds.find((r) => r.id === finalRoundId)?.status).toBe("active");
+    expect((await readHeatEvidence(config, event.id)).effective[0].status).toBe("scheduled");
+    await page.context().close();
+  });
+
+  // ---- HL1: lock an unstarted heat, scratch inside it, reopen it, then run the heat -------------------------------------
+
+  const lockHeatConfirm = (n: number) => `Lock heat ${n}? It has not been danced. The floor can't start or change it until it is reopened. Officials can still scratch entries with a reason.`;
+  const heatsPanel = (page: Page) => page.getByRole("region", { name: "Heats" });
+
+  test("SCN-15.1 early lock: a manager locks the not-yet-started heat; the confirm says so, the heat locks, and the floor console will not start it", async ({ browser }, testInfo) => {
+    const shot = stepShots(testInfo);
+    const page = await signedIn(browser, fixture.owner);
+    await page.goto(`${base(E)}/ballots/${E.finalRoundId}`);
+    const messages: string[] = [];
+    page.on("dialog", (dialog) => { messages.push(dialog.message()); void dialog.accept(); });
+    await expect(heatsPanel(page)).toBeVisible({ timeout: 30_000 });
+    await heatsPanel(page).getByLabel("Note for locking heat 1").fill("Held for a scratch review");
+    await heatsPanel(page).getByRole("button", { name: "Lock heat 1" }).click();
+    await expect.poll(async () => (await readHeatEvidence(config, E.event.id)).effective[0].lockState, { timeout: 30_000 }).toBe("locked");
+    expect(messages).toEqual([lockHeatConfirm(1)]);
+    const heat = (await readHeatEvidence(config, E.event.id)).effective[0];
+    expect(heat.status, "locked before it was danced").toBe("scheduled");
+    await shot(page, "heat-locked-early");
+
+    await page.goto(`${base(E)}/day-of`);
+    await expect(page.getByRole("button", { name: "Call to floor" })).toHaveCount(0);
+    await expect(page.getByText("A scoring heat in this heat is locked.").first()).toBeVisible();
+    await shot(page, "floor-refuses");
+    await page.context().close();
+  });
+
+  test("SCN-6.3 official scratch in a locked, not-yet-danced heat: the reason is required, the heat stays locked, one audit row", async ({ browser }, testInfo) => {
+    const shot = stepShots(testInfo);
+    const page = await signedIn(browser, fixture.owner);
+    const target = E.entries[4];
+    await expect(async () => {
+      await page.goto(`${base(E)}/registrations/scratch/${target}`);
+      await expect(page.getByRole("heading", { name: "Scratch entry", level: 1 })).toBeVisible({ timeout: 8_000 });
+    }).toPass({ timeout: 120_000 });
+    await expect(page.getByText(/This entry is in a locked heat\. As an official you can scratch it without reopening the heat/)).toBeVisible();
+    // The reason is required: submitting empty writes nothing.
+    await page.getByRole("button", { name: "Scratch entry" }).click();
+    await expect(page.getByRole("heading", { name: "Scratch entry", level: 1 })).toBeVisible();
+    expect((await readScratchAudit(config, E.event.id)).filter((x) => x.entry_id === target)).toHaveLength(0);
+    await page.getByLabel("Reason").fill("Couple withdrew before the heat");
+    await page.getByRole("button", { name: "Scratch entry" }).click();
+    await expect(async () => {
+      await page.goto(`${base(E)}/registrations/scratch/${target}`);
+      await expect(page.getByText("Couple withdrew before the heat")).toBeVisible({ timeout: 8_000 });
+    }).toPass({ timeout: 60_000 });
+    await expect(page.getByText(/locked heat/).first()).toBeVisible();
+    await shot(page, "official-locked-scratch-history");
+    const audit = (await readScratchAudit(config, E.event.id)).filter((x) => x.entry_id === target);
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({ path: "official_locked", reason: "Couple withdrew before the heat", performed_by: fixture.owner.id });
+    const heats = await readHeatEvidence(config, E.event.id);
+    expect(heats.effective[0].lockState, "the heat stays locked").toBe("locked");
+    expect(heats.placements.find((p) => p.entry_id === target)?.status).toBe("scratched");
+    await page.context().close();
+  });
+
+  test("SCN-15.2 reopen: the manager reopens the early-locked heat with a reason; the floor can start it again", async ({ browser }, testInfo) => {
+    const shot = stepShots(testInfo);
+    const page = await signedIn(browser, fixture.owner);
+    await page.goto(`${base(E)}/ballots/${E.finalRoundId}`);
+    const messages: string[] = [];
+    page.on("dialog", (dialog) => { messages.push(dialog.message()); void dialog.accept(); });
+    await heatsPanel(page).getByLabel("Reason for reopening heat 1").fill("Scratch handled, run the heat");
+    await heatsPanel(page).getByRole("button", { name: "Reopen heat 1" }).click();
+    await expect.poll(async () => (await readHeatEvidence(config, E.event.id)).effective[0].lockState, { timeout: 30_000 }).toBe("open");
+    expect(messages).toEqual(["Reopen heat 1? The floor will be able to start or change it again. The reason is kept in the audit history."]);
+    await shot(page, "heat-reopened");
+    await page.goto(`${base(E)}/day-of`);
+    await expect(page.getByRole("button", { name: "Call to floor" })).toBeVisible();
+    await page.context().close();
+  });
+
+  test("SCN-15.3 the heat runs; a lock on a heat that is on the floor is refused (no button, and the database refuses a direct call)", async ({ browser }, testInfo) => {
+    const shot = stepShots(testInfo);
+    const page = await signedIn(browser, fixture.owner);
+    await startHeat(page, E.event.id);
+    await page.goto(`${base(E)}/ballots/${E.finalRoundId}`);
+    await expect(heatsPanel(page).getByRole("button", { name: /^Lock heat/ })).toHaveCount(0);
+    await expect(heatsPanel(page)).toContainText("On the floor");
+    await shot(page, "no-lock-on-active-heat");
+    if (ANON_KEY) {
+      const heat = (await readHeatEvidence(config, E.event.id)).effective[0];
+      const client = createClient(config.supabaseUrl, ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+      expect((await client.auth.signInWithPassword({ email: fixture.owner.email, password: fixture.owner.password })).error).toBeNull();
+      const result = await client.rpc("set_competition_heat_lock_state", { selected_heat_id: heat.heatId, selected_state: "locked", selected_reason: "mid-dance" });
+      expect(result.error?.message ?? "", "locking a heat on the floor is refused").toContain("COMP_HL1_LOCK_ACTIVE");
+      expect((await readHeatEvidence(config, E.event.id)).effective[0].lockState).toBe("open");
+    }
     await page.context().close();
   });
 
@@ -469,12 +573,35 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     expect(await readBallotCount(config, E.finalRoundId)).toBe(3);
   });
 
-  test("SCN-12.3 lock: the manager locks the ordinal ballots (or the desk states exactly why it cannot)", async ({ browser }, testInfo) => {
+  test("SCN-12.3 lock: Lock ballots stays disabled while the heat is not danced; after the heat is completed, Lock heat and Lock ballots work", async ({ browser }, testInfo) => {
     const shot = stepShots(testInfo);
     const page = await signedIn(browser, fixture.owner);
+    // The heat is on the floor (not danced): the desk says so and will not lock the round.
+    await page.goto(`${base(E)}/ballots/${E.finalRoundId}`);
+    await expect(page.getByRole("region", { name: "Lock and reopen" })).toContainText(/1 heat\(s\) not danced yet: 1\./, { timeout: 30_000 });
+    await expect(page.getByRole("button", { name: "Lock ballots" })).toBeDisabled();
+    await shot(page, "not-danced-yet");
     const ok = await tryLock(page, E, E.finalRoundId, "E", testInfo);
     await shot(page, ok ? "ballots-locked" : "lock-refused");
     if (ok) await expect.poll(async () => (await readHeatEvidence(config, E.event.id)).effective.map((h) => h.lockState), { timeout: 30_000 }).toEqual(["locked"]);
+    await page.context().close();
+  });
+
+  test("SCN-15.4 reopen is refused for a danced heat after the ballots lock (no button, and the database refuses a direct call)", async ({ browser }, testInfo) => {
+    test.skip(!locked.E, "BLOCKED: the ballots could not be locked (SCN-12.3)");
+    const shot = stepShots(testInfo);
+    const page = await signedIn(browser, fixture.owner);
+    await page.goto(`${base(E)}/ballots/${E.finalRoundId}`);
+    await expect(page.getByRole("button", { name: /^Reopen heat/ })).toHaveCount(0);
+    await shot(page, "no-reopen-after-lock");
+    if (ANON_KEY) {
+      const heat = (await readHeatEvidence(config, E.event.id)).effective[0];
+      const client = createClient(config.supabaseUrl, ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+      expect((await client.auth.signInWithPassword({ email: fixture.owner.email, password: fixture.owner.password })).error).toBeNull();
+      const result = await client.rpc("set_competition_heat_lock_state", { selected_heat_id: heat.heatId, selected_state: "open", selected_reason: "reopen after the ballots locked" });
+      expect(result.error?.message ?? "", "reopening is refused").toMatch(/COMP_HL1_REOPEN_(DANCED|ROUND_LOCKED)/);
+      expect((await readHeatEvidence(config, E.event.id)).effective[0].lockState).toBe("locked");
+    }
     await page.context().close();
   });
 
@@ -494,27 +621,6 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
       expect(result.error, "marking after the ballots locked is refused").not.toBeNull();
     }
     expect((await readNoShows(config, E.event.id)).marks).toHaveLength(before.marks.length);
-    await page.context().close();
-  });
-
-  test("SCN-6.3 official scratch in a locked heat: with HL1 a heat locks only after it is danced, so the scratch page refuses it as danced (the official locked-heat path is not reachable)", async ({ browser }, testInfo) => {
-    test.skip(!locked.E, "BLOCKED: the ballots could not be locked (SCN-12.3)");
-    const shot = stepShots(testInfo);
-    const page = await signedIn(browser, fixture.owner);
-    // The no-show entry is already off every ballot. The dev server answers requests to a route it is still compiling with a 404: retry until served.
-    const target = E.entries[3];
-    await expect(async () => {
-      await page.goto(`${base(E)}/registrations/scratch/${target}`);
-      await expect(page.getByRole("heading", { name: "Scratch entry", level: 1 })).toBeVisible({ timeout: 8_000 });
-    }).toPass({ timeout: 120_000 });
-    await expect(page.getByText("This entry has already danced. Changes go through the results correction workflow.")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Scratch entry" })).toHaveCount(0);
-    await shot(page, "locked-heat-is-danced");
-    expect((await readScratchAudit(config, E.event.id)).filter((s) => s.entry_id === target)).toHaveLength(0);
-    const heat = (await readHeatEvidence(config, E.event.id)).effective[0];
-    expect([heat.status, heat.lockState]).toEqual(["complete", "locked"]);
-    evidence({ scenario: "SCN-6.3", heatStatus: heat.status, heatLockState: heat.lockState });
-    scenarioStatus(testInfo, "BLOCKED", "The official scratch in a locked, not-yet-danced heat (SC1 path official_locked) cannot be reached: HL1 offers Lock heat only for a danced heat, and a danced and locked heat is classed as danced, which the scratch page refuses. The refusal itself is asserted here.");
     await page.context().close();
   });
 
