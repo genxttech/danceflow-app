@@ -956,9 +956,33 @@ function withSubscriptionPeriod(subscription: Stripe.Subscription): Stripe.Subsc
  * accounts every read would land here and the ordering protection would silently be off); any other error throws, so
  * the delivery fails and Stripe retries it.
  */
+/**
+ * BILLING-QA-6 (issue #354 R-B): the instant a Stripe read of a subscription STARTED, carried on the object itself (an
+ * own symbol property survives the object spreads that merge metadata or lift the billing period). The writer applies a
+ * read only if no newer read has been stored (studio_subscriptions.stripe_state_read_at), so a slower delivery holding an
+ * older Stripe state cannot overwrite a newer one. Objects built from an event payload carry no stamp.
+ */
+const SUBSCRIPTION_READ_STARTED_AT = Symbol("subscriptionReadStartedAt");
+
+async function retrieveStampedSubscription(
+  stripe: Stripe,
+  subscriptionId: string,
+  ...rest: unknown[]
+): Promise<Stripe.Subscription> {
+  const startedAt = new Date();
+  const retrieve = stripe.subscriptions.retrieve as unknown as (...args: unknown[]) => Promise<Stripe.Subscription>;
+  const subscription = await retrieve.call(stripe.subscriptions, subscriptionId, ...rest);
+  return { ...subscription, [SUBSCRIPTION_READ_STARTED_AT]: startedAt } as unknown as Stripe.Subscription;
+}
+
+function readStartedAtOf(subscription: Stripe.Subscription): Date | null {
+  const value = (subscription as unknown as Record<symbol, unknown>)[SUBSCRIPTION_READ_STARTED_AT];
+  return value instanceof Date && !Number.isNaN(value.getTime()) ? value : null;
+}
+
 async function retrieveCurrentSubscription(stripe: Stripe, fromEvent: Stripe.Subscription): Promise<Stripe.Subscription> {
   try {
-    return withSubscriptionPeriod(await stripe.subscriptions.retrieve(fromEvent.id));
+    return withSubscriptionPeriod(await retrieveStampedSubscription(stripe, fromEvent.id));
   } catch (error) {
     if ((error as { code?: unknown }).code === "resource_missing") {
       console.error("subscription_event_retrieve_missing");
@@ -977,6 +1001,7 @@ async function upsertStudioSubscription(params: {
   // Every entry point (subscription events, checkout completion, invoice events) hands over a re-read subscription: read
   // the billing period the same way for all of them, so none writes NULL dates over another's real ones.
   const subscription = withSubscriptionPeriod(params.subscription);
+  const readStartedAt = readStartedAtOf(params.subscription);
 
   const metadata = subscription.metadata ?? {};
   const stripeCustomerId = getString(subscription.customer);
@@ -1130,16 +1155,32 @@ async function upsertStudioSubscription(params: {
     cancelled_at: toIsoOrNull(getNumber(subscription.canceled_at)),
     ended_at: toIsoOrNull(getNumber(subscription.ended_at)),
     updated_at: new Date().toISOString(),
+    // Only a stamped Stripe read moves the watermark; an event-payload fallback leaves it untouched.
+    ...(readStartedAt ? { stripe_state_read_at: readStartedAt.toISOString() } : {}),
   };
 
   if (existingByStudio) {
-    const { error: updateError } = await supabase
+    let update = supabase
       .from("studio_subscriptions")
       .update(payload)
       .eq("id", existingByStudio.id);
 
+    // BILLING-QA-6: apply only if no newer read is stored. Zero rows = a newer Stripe state is already in the row.
+    if (readStartedAt) {
+      update = update.or(
+        `stripe_state_read_at.is.null,stripe_state_read_at.lte.${readStartedAt.toISOString()}`,
+      );
+    }
+
+    const { data: updatedRows, error: updateError } = await update.select("id");
+
     if (updateError) {
       throw new Error(updateError.message);
+    }
+
+    if (readStartedAt && (updatedRows ?? []).length === 0) {
+      console.error("subscription_event_stale_read");
+      return true;
     }
   } else {
     const { error: insertError } = await supabase
@@ -1317,7 +1358,7 @@ async function handleStudioCheckoutCompleted(
     contactName,
   });
 
-  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  const subscription = await retrieveStampedSubscription(stripe, subscriptionId);
 
   const subscriptionWithMergedMetadata = {
     ...subscription,
@@ -2636,7 +2677,8 @@ export async function handleInvoicePaid(
   const stripeSubscriptionId = getInvoiceSubscriptionId(invoice);
 
   if (studioInvoiceHandled && stripeSubscriptionId) {
-    const subscription = await stripe.subscriptions.retrieve(
+    const subscription = await retrieveStampedSubscription(
+      stripe,
       stripeSubscriptionId,
       {},
       stripeAccountId ? { stripeAccount: stripeAccountId } : undefined,
@@ -2963,8 +3005,7 @@ export async function handleInvoicePaymentFailed(
   const stripeSubscriptionId = getInvoiceSubscriptionId(invoice);
 
   if (studioInvoiceHandled && stripeSubscriptionId) {
-    const subscription =
-      await stripe.subscriptions.retrieve(stripeSubscriptionId);
+    const subscription = await retrieveStampedSubscription(stripe, stripeSubscriptionId);
     await upsertStudioSubscription({
       supabase,
       stripe,
