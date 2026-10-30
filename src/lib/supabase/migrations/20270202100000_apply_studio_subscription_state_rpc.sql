@@ -49,6 +49,8 @@ declare
   v_active boolean;
   v_item_ids text[];
   v_owner uuid;
+  v_owner_feature text;
+  v_owner_source text;
   v_existing_sub_id text;
   v_existing_status text;
 begin
@@ -136,9 +138,14 @@ begin
     -- Keyed by the Stripe subscription ITEM id (the only unique key; a studio can hold several historical rows after remove + re-add).
     -- Never touches manual/comped rows, never rewrites another row's item id, and refuses an item that belongs to another studio.
     foreach v_item_id in array v_item_ids loop
-      select studio_id into v_owner from public.usage_addon_entitlements where stripe_subscription_item_id = v_item_id;
+      select studio_id, feature_key, source into v_owner, v_owner_feature, v_owner_source
+      from public.usage_addon_entitlements where stripe_subscription_item_id = v_item_id;
       if found and v_owner is distinct from p_studio_id then
         raise exception 'apply_studio_subscription_state: subscription item % belongs to another studio', v_item_id;
+      end if;
+      -- Never coerce another feature's row (e.g. an AI credit pack with its own quantity) into an Organizer Suite entitlement.
+      if found and (v_owner_feature is distinct from 'organizer_suite' or v_owner_source is distinct from 'stripe_subscription_item') then
+        raise exception 'apply_studio_subscription_state: subscription item % is already used by another entitlement', v_item_id;
       end if;
       if found then
         update public.usage_addon_entitlements set

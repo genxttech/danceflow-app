@@ -190,6 +190,9 @@ export function createOwnershipFakeSupabase(
       if (owner && owner.studio_id !== studioId) {
         return { data: null, error: { message: `apply_studio_subscription_state: subscription item ${itemId} belongs to another studio` } };
       }
+      if (owner && (owner.feature_key !== "organizer_suite" || owner.source !== "stripe_subscription_item")) {
+        return { data: null, error: { message: `apply_studio_subscription_state: subscription item ${itemId} is already used by another entitlement` } };
+      }
     }
 
     const nowIso = new Date().toISOString();

@@ -87,6 +87,17 @@ begin
   end;
   assert (select status from public.studio_subscriptions where studio_id = s) <> 'past_due', 'no partial subscription state after the raise';
 
+  -- 6c2. an item already used by ANOTHER feature's row (e.g. an AI credit pack) is never coerced into an Organizer Suite entitlement
+  insert into public.usage_addon_entitlements (studio_id, workspace_type, feature_key, source, stripe_subscription_item_id, quantity_included, status)
+    values (s, 'studio', 'ai_actions', 'stripe_subscription_item', 'si_ai_pack', 5, 'active');
+  begin
+    perform public.apply_studio_subscription_state(s, sub, '2026-10-30T10:06:30Z', snap, '{"active":true,"item_ids":["si_ai_pack"]}');
+    raise exception 'should have raised for a foreign-feature item';
+  exception when raise_exception then
+    assert sqlerrm like '%already used by another entitlement%', 'foreign feature error: ' || sqlerrm;
+  end;
+  assert (select quantity_included from public.usage_addon_entitlements where stripe_subscription_item_id = 'si_ai_pack') = 5, 'AI pack row untouched';
+
   -- 6d. superseded rule under the lock: a different, non-live subscription cannot overwrite the live one, even with a newer stamp
   r := public.apply_studio_subscription_state(s, sub || '{"status":"active"}', '2026-10-30T10:07:00Z', snap, null);
   r := public.apply_studio_subscription_state(s, sub || '{"stripe_subscription_id":"sub_old","status":"cancelled"}', '2026-10-30T10:08:00Z', snap || '{"stripe_subscription_id":"sub_old","subscription_status":"canceled"}', null);

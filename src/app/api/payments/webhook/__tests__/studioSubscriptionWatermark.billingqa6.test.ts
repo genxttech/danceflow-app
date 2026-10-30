@@ -291,6 +291,17 @@ describe("studio_subscriptions.stripe_state_read_at (BILLING-QA-6)", () => {
     expect(fake.rows("usage_addon_entitlements").find((r) => r.id === "ent-other")).toMatchObject({ studio_id: "studio-1", status: "active" });
   });
 
+  it("add-on: an item already used by another feature's row (AI credit pack) fails the apply and is not coerced", async () => {
+    seed({
+      usage_addon_entitlements: [
+        { id: "ent-ai", studio_id: "studio-2", workspace_type: "studio", feature_key: "ai_actions", source: "stripe_subscription_item", stripe_subscription_item_id: "si_ai", quantity_included: 5, status: "active" },
+      ],
+    });
+    const result = await post("customer.subscription.updated", withAddon("active", "si_ai"));
+    expect(result.status).toBe(500);
+    expect(fake.rows("usage_addon_entitlements").find((r) => r.id === "ent-ai")).toMatchObject({ feature_key: "ai_actions", quantity_included: 5 });
+  });
+
   it("an error from the transactional apply fails the delivery (500, ledger failed) and nothing is applied", async () => {
     seed();
     const original = fake.adminClient.rpc;
