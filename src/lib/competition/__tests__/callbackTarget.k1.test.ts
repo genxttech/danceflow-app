@@ -38,7 +38,7 @@ describe("parseCallbackTarget", () => {
   });
 
   it("rejects zero, negatives, decimals and junk", () => {
-    for (const bad of ["0", "1", "-1", "2.5", "abc", "1e3", "1234567"]) {
+    for (const bad of ["0", "-1", "2.5", "abc", "1e3", "1234567"]) {
       expect(parseCallbackTarget(bad, 0).ok).toBe(false);
     }
   });

@@ -89,19 +89,12 @@ describe("callbackTargetBelowMinimumFindings", () => {
   });
 });
 
-describe("parseCallbackTarget (OD-21 minimum)", () => {
-  it("rejects 0 and 1 with the minimum message and accepts 2", () => {
-    for (const bad of ["0", "1", " 1 "]) {
-      expect(parseCallbackTarget(bad, 0)).toEqual({ ok: false, error: callbackTargetBelowMinimumMessage() });
-    }
-    expect(parseCallbackTarget("2", 0)).toEqual({ ok: true, value: 2 });
-    expect(parseCallbackTarget("2", 3)).toEqual({ ok: true, value: 2 });
+describe("parseCallbackTarget stays scope-neutral", () => {
+  it("does not apply the minimum (the database guard does, for guarded rounds only)", () => {
+    expect(parseCallbackTarget("1", 0)).toEqual({ ok: true, value: 1 });
+    expect(parseCallbackTarget("0", 0).ok).toBe(false);
   });
-  it("still clears on blank and keeps the below-entries bound", () => {
-    expect(parseCallbackTarget("", 10)).toEqual({ ok: true, value: null });
-    expect(parseCallbackTarget("10", 10).ok).toBe(false);
-  });
-  it("tells the organizer why", () => {
+  it("tells the organizer why a target below two is refused", () => {
     expect(callbackTargetBelowMinimumMessage()).toContain("at least two couples");
   });
 });

@@ -86,15 +86,15 @@ export type CallbackTargetParse = { ok: true; value: number | null } | { ok: fal
 
 /**
  * Parses an organizer-entered callback target. Blank clears the target (it then blocks readiness again).
- * A value must be a whole number of 2 or more (OD-21) and, once the division has entries, strictly below that entry count.
+ * A value must be a positive integer (the OD-21 minimum of two is enforced by the database guard for guarded rounds only; see callbackTargetCheck) and, once the division has entries, strictly below that entry count.
  * With no entries yet the upper bound cannot be checked here; readiness re-checks it once entries exist.
  */
 export function parseCallbackTarget(raw: string, entryCount: number): CallbackTargetParse {
   const text = raw.trim();
   if (text === "") return { ok: true, value: null };
-  if (!/^[0-9]{1,6}$/.test(text)) return { ok: false, error: callbackTargetBelowMinimumMessage() };
+  if (!/^[0-9]{1,6}$/.test(text)) return { ok: false, error: "The callback target must be a whole number of 1 or more." };
   const value = Number(text);
-  if (value < CALLBACK_TARGET_MINIMUM) return { ok: false, error: callbackTargetBelowMinimumMessage() };
+  if (value < 1) return { ok: false, error: "The callback target must be a whole number of 1 or more." };
   if (entryCount > 0 && value >= entryCount) {
     return { ok: false, error: `The callback target must be below the number of entries in this division (${entryCount}).` };
   }
