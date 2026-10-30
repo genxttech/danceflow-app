@@ -469,6 +469,9 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     const heat = (await readHeatEvidence(config, E.event.id)).effective[0];
     expect(heat.status, "locked before it was danced").toBe("scheduled");
     await shot(page, "heat-locked-early");
+    // Locked but not danced: Lock ballots stays disabled, with the not-danced reason.
+    await expect(page.getByRole("region", { name: "Lock and reopen" })).toContainText(/1 heat(s) not danced yet: 1./, { timeout: 30_000 });
+    await expect(page.getByRole("button", { name: "Lock ballots" })).toBeDisabled();
 
     await page.goto(`${base(E)}/day-of`);
     await expect(page.getByRole("button", { name: "Call to floor" })).toHaveCount(0);
@@ -584,11 +587,11 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
   test("SCN-12.3 lock: Lock ballots stays disabled while the heat is not danced; after the heat is completed, Lock heat and Lock ballots work", async ({ browser }, testInfo) => {
     const shot = stepShots(testInfo);
     const page = await signedIn(browser, fixture.owner);
-    // The heat is on the floor (not danced): the desk says so and will not lock the round.
+    // The heat is on the floor: it has not been locked, so the desk refuses to lock the round (a heat on the floor counts as danced for the not-danced rule).
     await openDesk(page, E, E.finalRoundId);
-    await expect(page.getByRole("region", { name: "Lock and reopen" })).toContainText(/1 heat\(s\) not danced yet: 1\./, { timeout: 30_000 });
+    await expect(page.getByRole("region", { name: "Lock and reopen" })).toContainText(/1 heat(s) not locked yet./, { timeout: 30_000 });
     await expect(page.getByRole("button", { name: "Lock ballots" })).toBeDisabled();
-    await shot(page, "not-danced-yet");
+    await shot(page, "heat-not-locked-yet");
     const ok = await tryLock(page, E, E.finalRoundId, "E", testInfo);
     await shot(page, ok ? "ballots-locked" : "lock-refused");
     if (ok) await expect.poll(async () => (await readHeatEvidence(config, E.event.id)).effective.map((h) => h.lockState), { timeout: 30_000 }).toEqual(["locked"]);
