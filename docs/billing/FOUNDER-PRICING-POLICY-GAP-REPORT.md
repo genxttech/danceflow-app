@@ -972,6 +972,31 @@ The 307-on-form-POST defect is **code-verified and reproduced in a local HTTP te
 - **Dependencies unchanged:** #334 (test-mode E2E) and #335 (webhook ordering) before D7-3 and D7-6; #336 is already merged; #340 (smoke kit) is draft and under review. D7-5 (portal configuration pin) needs Check P and a Stripe-setting approval.
 - **Still outstanding from the owner:** Checks P, C and S results; the §16.13.3 portal-click reproduction; the grandfathered contract terms (O9); O6 (isolated test-mode proof of the Founder-to-Regular mutation).
 
+### 16.15 D7 stack closeout (verified 2026-10-30)
+
+> **Status:** the three D7 pull requests are **merged to `main`**. **Nothing is deployed, no migration is applied to any hosted database, no registry record exists, no Stripe setting or subscription changed, and grandfathered-subscription protection is NOT active.** Production still runs the `release/pricing-p1` branch (`4bc938c6`), which contains none of this work.
+
+| Order | PR | Squash commit on `main` | Pinned head merged | Contents |
+|---|---|---|---|---|
+| 1 | #345 D7-1/D7-2 | `60027786` | `284365dd` | Portal route redirects are 303 with logged, non-sensitive errors and customer-visible messages; existing subscribers see a "Contact support to change plan" mailto instead of a Change Plan form; `PlanCard` extracted with rendered tests |
+| 2 | #346 D7-3a | `bef70ee4` | `3edeab79` | One shared subscription-state rule; checkout refuses managed subscriptions (`plan_change_requires_support`) and paused/incomplete ones (`subscription_needs_support`); no new Checkout, second subscription, second trial, or portal redirect that discards the chosen plan |
+| 3 | #351 D7-4 | `512fd7d2` | `a0355ffa` | Protected-subscription registry migration `20270201090000` (not applied) and a fail-closed checkout guard (registry row or legacy-price backstop) |
+
+**Merge evidence.** Each merge was made only after re-verifying the pinned head, green required CI, both Vercel previews, MERGEABLE/CLEAN, and an unchanged reviewed diff; each squash commit contains exactly the reviewed files, byte-identical to the reviewed heads, with no AI attribution. `main` after the stack: `512fd7d2` (the later `cacadd57`, TW-4F Blocker 9, is unrelated). The merge was by squash with the head pinned (`--match-head-commit`); no force-push was used anywhere (merges of `main` into the stacked branches only). **Independent reviews:** Opus, read-only, on each exact final head: #345 GO, #346 GO, #351 GO (earlier heads had one blocker, the migration-number collision, since fixed by renumbering to `20270201090000`).
+
+**Validation evidence.**
+- Exact-head CI and both Vercel previews: green for all three.
+- Local at the final heads: 374 tests passed / 118 skipped (existing DB-dependent suites), `tsc` clean, eslint 0 errors.
+- **Production-base applicability (local, nothing pushed):** the three squash commits cherry-pick cleanly onto `release/pricing-p1` (`4bc938c6`) with no conflicts; on that tree 193 billing tests pass, `tsc` is clean, eslint 0 errors, and only billing files and the new migration change.
+- **Migration validated twice in an isolated database (no hosted database touched):** (a) a one-migration run with a `studios` stub, 40 checks; (b) the full chain: disposable df-isoqa stack from the baseline image, every `main` migration after the cutoff in repo order (20261207 ... 20261231090000), then `20270201090000` last: all applied, 40 checks PASS, 0 FAIL (idempotent re-apply, rollback on empty, reapply, access control, constraints, immutability, delete/truncate denied, rollback refused with rows). **Caveat:** that chain ended at `20261231090000`; `20261231100000_twilio_pilot_spend_hardening.sql` (merged afterward in #330) was not in it. It touches Twilio objects only and sorts before ours, but the chain should be re-run once more immediately before any hosted apply.
+- Real-browser check of the mailto and the 303 hand-off: **not done** (BLOCKED: no authenticated DEV session used).
+
+**What the merge does and does not do.** It closes in code: the dead portal hand-off (307 on a form POST, probable cause, not confirmed in production), invisible portal errors, the misleading Change Plan control, paused/incomplete/managed re-checkout (second subscription, second trial) and the code path for protecting a registered or legacy-priced subscription. It does **not** protect the $129 Pro subscriber until the production prerequisites in `docs/billing/D7-RELEASE-READINESS.md` are completed with their own approvals.
+
+**Remaining exposures (tracked, none closed by the stack).** Two Checkout sessions opened before either completes can both complete (no lock, no open-session check, no idempotency key); a canceled, non-protected resubscriber still gets a fresh 30-day trial (needs the Founder ledger, D5(c)); the billing page is advisory (local status only; paused/incomplete studios still see "Start Trial" and the route refuses safely); `allow_promotion_codes` and the unchecked yearly price remain (D16/M3); the route lists subscriptions for every known customer id, so a stale non-primary id would make a normal studio's checkout fail closed (follow-up); the "backstop is off" warning logs on every production checkout until the legacy env var is set; the missing-table tolerance should be removed once the migration is in PROD.
+
+**Unresolved and NOT verified.** Stripe Checks P (portal), C (coupons and promotion codes) and S (Founder subscriptions by Price); the live portal-click reproduction; the live portal configuration; the O9 original $129 contract terms.
+
 ## Standing non-claims
 
 This report does not state that production enforces any Founder-cap, duration, renewal, annual or early-access rule: it does not. Existing documentation that implies "limited", "first 25" or "12 months" describes intent or copy, not behavior.
