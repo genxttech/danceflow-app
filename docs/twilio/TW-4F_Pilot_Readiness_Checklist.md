@@ -41,9 +41,9 @@ Not found in the code reviewed: any automatic per-number or per-sender inbound c
 
 | # | Item | Owner | State |
 |---|---|---|---|
-| B-1 | Stage B draft handled (U-10, tracker blocker 4): verify, preserve evidence, written deletion authorization, owner Console deletion | owner; tracker/coordinator tracks it | runbook written (`TW-4F_StageB_Draft_Cleanup_Runbook.md`); **nothing deleted; nothing authorized**; coordinator confirmation pending (see section 5) |
-| B-2 | Absorbed-inbound allowance and pilot preconditions (section 6) | owner | allowance decided (relayed by the coordinator, 2026-10-30): $20 carved out of the $150 cap; preconditions below open; any other messaging test budget still needs its own approval |
-| B-3 | Final retail price approval after D7 pilot cycle and invoice evidence (V-1) | owner | closed |
+| B-1 | Stage B draft handled (U-10, tracker blocker 4): verify, preserve evidence, written deletion authorization, owner Console deletion | owner; tracker/coordinator tracks it | runbook written (`TW-4F_StageB_Draft_Cleanup_Runbook.md`); **nothing deleted; nothing authorized**; coordinator confirmed the ownership split (section 5) |
+| B-2 | Absorbed-inbound allowance and pilot preconditions (section 6) | owner | **allocation DECIDED** ($20 absorbed inbound + $130 setup fees, within the $150 cumulative cap; owner, 2026-10-30). Allocations are planning only and authorize no spending. Preconditions below remain open; any other messaging test budget still needs its own approval |
+| B-3 | Final retail price approval after D7 pilot cycle and invoice evidence (V-1) | owner | open (needs V-1 invoice evidence after the D7 pilot cycle) |
 | B-4 | Stripe written answer on closed-loop prepaid credit | owner submits drafted request | unsent |
 | B-5 | Counsel/CPA review (credit terms, tax, refunds, closure, unclaimed property) | owner | not started |
 | B-6 | Decision on dual control vs documented single admin for `tw4_price_set` | owner | open |
@@ -64,14 +64,14 @@ Not found in the code reviewed: any automatic per-number or per-sender inbound c
 
 | # | Item |
 |---|---|
-| E-1 | Automatic inbound hold/alert when daily segments or absorbed cents pass a threshold (hardening owner) |
+| E-1 | Automatic inbound hold/alert when daily segments or absorbed cents pass a threshold (hardening owner). Any future automatic hold must not release the number or block STOP/START/HELP |
 | E-2 | Per-sender limit on STOP confirmations if V-6 shows the app does send them |
 | E-3 | Repricing to a lower whole-cent pair or sub-cent design if invoices show Option A is well above target (cheaper before live rows exist) |
 | E-4 | Dual control for price publication |
 
 ## 5. U-10 ownership and coordination
 
-The tracker keeps U-10 / blocker 4 as an owner-authorized action; the coordinator session ("TW-4F pilot readiness coordination") owns the tracker rows. Ownership proposed: the **owner performs** verification and Console deletion; the **coordinator** records pass/fail and updates blocker 4, U-10 and Q-dup; this PR only supplies the runbook and does not edit the tracker. The hand-off was sent to the coordinator session on 2026-10-30 asking it to confirm; no reply is recorded here. Nothing was deleted or authorized.
+The tracker keeps U-10 / blocker 4 as an owner-authorized action; the coordinator session ("TW-4F pilot readiness coordination") owns the tracker rows. The coordinator **confirmed the split** (2026-10-30): the **owner verifies and does the Console deletion**, under separate written authorization naming the SIDs; the **coordinator records the result** in the tracker (blocker 4 / U-10 / Q-dup) through slice D once the owner's PR hold lifts. This PR only supplies the runbook and does not edit the tracker. Nothing was deleted or authorized.
 
 ## 6. ConfiDance absorbed-inbound allowance and pilot preconditions (owner decision relayed by the TW-4F coordinator, 2026-10-30)
 
@@ -79,7 +79,7 @@ The tracker keeps U-10 / blocker 4 as an owner-authorized action; the coordinato
 
 **Pilot preconditions (all open; none done by this PR):**
 1. A named person checks `sms_inbound_admin_overview` and Twilio usage daily.
-2. Pre-agreed stop action: release the number (accepting that STOP handling stops with it).
+2. Pre-agreed stop action when daily checks show absorbed inbound near the $20 allowance or abnormal volume: pause pilot outbound sends and escalate to the owner. Number release is NOT a cost-control mechanism: never automatic, never routine (it interrupts STOP/HELP handling). Any release is a separate, explicit owner decision.
 3. `SMS_INBOUND_RECORDING=on` with an inbound price published (publishing needs its own owner approval; Option A stays provisional).
 4. Advanced Opt-Out verified (V-6).
 5. U-10 closed (B-1).
