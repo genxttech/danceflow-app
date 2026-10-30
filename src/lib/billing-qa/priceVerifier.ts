@@ -52,22 +52,69 @@ export type BillingQaStripeClient = {
 
 export const PRICE_VERIFIER_TOOL = "billing-qa price verifier";
 
-const STUDIO_PLANS = BILLING_PLANS.filter((plan) => plan.audience === "studio");
+// Shared with the deployed price-config report (priceConfigReport.ts).
+export const STUDIO_PLANS = BILLING_PLANS.filter((plan) => plan.audience === "studio");
 
-const legacyEnvName = (plan: BillingPlan) => `${STUDIO_FOUNDER_PRICE_ENV[plan.code]}_LEGACY`;
-const read = (env: Record<string, string | undefined>, name: string) => env[name]?.trim() || null;
-const label = (plan: BillingPlan) => plan.code[0].toUpperCase() + plan.code.slice(1);
-const money = (cents: number | null | undefined) => (typeof cents === "number" ? formatPlanMoney(cents) : "no amount");
+export const legacyEnvName = (plan: BillingPlan) => `${STUDIO_FOUNDER_PRICE_ENV[plan.code]}_LEGACY`;
+export const readEnv = (env: Record<string, string | undefined>, name: string) => env[name]?.trim() || null;
+const read = readEnv;
+export const planLabel = (plan: BillingPlan) => plan.code[0].toUpperCase() + plan.code.slice(1);
+const label = planLabel;
+export const money = (cents: number | null | undefined) => (typeof cents === "number" ? formatPlanMoney(cents) : "no amount");
+export const legacyPriceIds = (env: Record<string, string | undefined>, plan: BillingPlan) =>
+  (env[legacyEnvName(plan)] ?? "").split(",").map((id) => id.trim()).filter(Boolean);
+
+/** Every configured Price env var of a plan, legacy entries numbered, for mapping checks. */
+export function configuredPlanPrices(env: Record<string, string | undefined>, plan: BillingPlan): Array<[string, string]> {
+  return [
+    [STUDIO_FOUNDER_PRICE_ENV[plan.code], readEnv(env, STUDIO_FOUNDER_PRICE_ENV[plan.code]) ?? ""],
+    [STUDIO_STANDARD_PRICE_ENV[plan.code], readEnv(env, STUDIO_STANDARD_PRICE_ENV[plan.code]) ?? ""],
+    ...legacyPriceIds(env, plan).map((legacyId, index): [string, string] => [`${legacyEnvName(plan)}[${index + 1}]`, legacyId]),
+  ].filter(([, priceId]) => priceId) as Array<[string, string]>;
+}
+
+/** mapping.<ENV>: the Price ID resolves to exactly its own plan in subscription plan resolution. */
+export function planMappingCheck(envName: string, priceId: string, plan: BillingPlan, env: Record<string, string | undefined>): BillingQaCheck {
+  const resolved = resolvePlanCodeFromEnvPriceId(priceId, env);
+  const title = `${envName} resolves to the ${plan.code} plan`;
+  return resolved === plan.code
+    ? pass(`mapping.${envName}`, title, { priceId, resolvedPlan: resolved })
+    : fail(`mapping.${envName}`, title, resolved === null ? "price_maps_to_no_single_plan" : "price_maps_to_other_plan",
+        resolved === null ? "the Price is configured for more than one plan (webhook falls back to metadata)" : `resolves to ${resolved}`,
+        { priceId, resolvedPlan: resolved });
+}
+
+export const PRICE_ID_SHAPE = /^price_[A-Za-z0-9]+$/;
+
+// Only well-formed Price IDs are ever echoed: anything else (e.g. a credential pasted into the wrong variable) is
+// reported as "malformed", never as its value.
+const shownPriceId = (value: string) => (PRICE_ID_SHAPE.test(value) ? value : "malformed");
+
+/** Config section: flags plus every studio Price ID variable (Price IDs only; never another value). */
+export function priceConfigSection(env: Record<string, string | undefined>, founderActive: boolean, regularActivated: boolean) {
+  return {
+    founderPricingActive: founderActive,
+    regularPricingActivated: regularActivated,
+    ...Object.fromEntries(
+      STUDIO_PLANS.flatMap((plan) => [
+        [STUDIO_FOUNDER_PRICE_ENV[plan.code], readEnv(env, STUDIO_FOUNDER_PRICE_ENV[plan.code])],
+        [STUDIO_STANDARD_PRICE_ENV[plan.code], readEnv(env, STUDIO_STANDARD_PRICE_ENV[plan.code])],
+        [legacyEnvName(plan), legacyPriceIds(env, plan).join(",") || null],
+      ]).map(([name, value]) => [name, value ? value.split(",").map(shownPriceId).join(",") : null]),
+    ),
+  };
+}
 
 type Retrieved = { ok: true; price: BillingQaPrice } | { ok: false; status: "FAIL" | "BLOCKED"; reason: string; detail: string };
 
-function classifyStripeError(error: unknown): Retrieved {
+/** Shared with the session read-back verifier: what a failed Stripe read means for a check (never the raw message). */
+export function classifyStripeError(error: unknown, object: { name: string; reason: string } = { name: "Price", reason: "price" }): Extract<Retrieved, { ok: false }> {
   const e = (error ?? {}) as { code?: unknown; statusCode?: unknown; type?: unknown };
   if (e.code === "resource_missing" || e.statusCode === 404) {
-    return { ok: false, status: "FAIL", reason: "price_not_found", detail: "Stripe has no such Price for this key's account" };
+    return { ok: false, status: "FAIL", reason: `${object.reason}_not_found`, detail: `Stripe has no such ${object.name} for this key's account` };
   }
   if (e.statusCode === 401) return { ok: false, status: "BLOCKED", reason: "stripe_auth_failed", detail: "Stripe rejected the key" };
-  if (e.statusCode === 403) return { ok: false, status: "BLOCKED", reason: "stripe_permission_denied", detail: "the key cannot read Prices" };
+  if (e.statusCode === 403) return { ok: false, status: "BLOCKED", reason: "stripe_permission_denied", detail: `the key cannot read ${object.name}s` };
   return { ok: false, status: "BLOCKED", reason: "stripe_unavailable", detail: `Stripe request failed (${String(e.type ?? "unknown error")})` };
 }
 
@@ -151,8 +198,7 @@ export async function verifyStudioPrices(params: {
       checks.push(blocked(`regular.${plan.code}`, regularTitle, "price_id_not_configured", `${STUDIO_STANDARD_PRICE_ENV[plan.code]} is not set`));
     }
 
-    const legacyIds = (env[legacyEnvName(plan)] ?? "").split(",").map((id) => id.trim()).filter(Boolean);
-    for (const [index, legacyId] of legacyIds.entries()) {
+    for (const [index, legacyId] of legacyPriceIds(env, plan).entries()) {
       const id = `legacy.${plan.code}.${index + 1}`;
       const title = `Grandfathered ${label(plan)} Price ${index + 1} is a monthly USD Price`;
       const r = await retrieve(legacyId);
@@ -166,23 +212,7 @@ export async function verifyStudioPrices(params: {
       }
     }
 
-    const configured: Array<[string, string]> = [
-      [STUDIO_FOUNDER_PRICE_ENV[plan.code], founderId ?? ""],
-      [STUDIO_STANDARD_PRICE_ENV[plan.code], standardId ?? ""],
-      ...legacyIds.map((legacyId, index): [string, string] => [`${legacyEnvName(plan)}[${index + 1}]`, legacyId]),
-    ];
-    for (const [envName, priceId] of configured) {
-      if (!priceId) continue;
-      const resolved = resolvePlanCodeFromEnvPriceId(priceId, env);
-      const title = `${envName} resolves to the ${plan.code} plan`;
-      checks.push(
-        resolved === plan.code
-          ? pass(`mapping.${envName}`, title, { priceId, resolvedPlan: resolved })
-          : fail(`mapping.${envName}`, title, resolved === null ? "price_maps_to_no_single_plan" : "price_maps_to_other_plan",
-              resolved === null ? "the Price is configured for more than one plan (webhook falls back to metadata)" : `resolves to ${resolved}`,
-              { priceId, resolvedPlan: resolved }),
-      );
-    }
+    for (const [envName, priceId] of configuredPlanPrices(env, plan)) checks.push(planMappingCheck(envName, priceId, plan, env));
 
     const checkoutTitle = `New ${label(plan)} subscriber checkout`;
     const selection = selectStudioMonthlyPrice({ plan, founderActive, regularActivated, env });
@@ -203,17 +233,10 @@ export async function verifyStudioPrices(params: {
 
   return buildReport({
     tool: PRICE_VERIFIER_TOOL,
+    mode: "test",
     startedAt,
     completedAt: now().toISOString(),
-    config: {
-      founderPricingActive: founderActive,
-      regularPricingActivated: regularActivated,
-      requireRegular,
-      ...Object.fromEntries(
-        STUDIO_PLANS.flatMap((plan) => [STUDIO_FOUNDER_PRICE_ENV[plan.code], STUDIO_STANDARD_PRICE_ENV[plan.code], legacyEnvName(plan)])
-          .map((name) => [name, read(env, name)]),
-      ),
-    },
+    config: { ...priceConfigSection(env, founderActive, regularActivated), requireRegular },
     checks,
   });
 }

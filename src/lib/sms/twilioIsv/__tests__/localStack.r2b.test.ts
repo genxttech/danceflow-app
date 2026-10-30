@@ -226,7 +226,7 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
   const aged = (sql: string) => psqlFile(`begin; set local session_replication_role = replica; ${sql}; commit;`);
   const ref = (label: string) => `Owner email ${RUN} ${label} approving one fee`;
   const authorize = (entity: string, studio: string, kind: string, cents: number, approvalRef: string, funding: "credit" | "pilot" = "credit") =>
-    rpc("tw4_spend_authorize", { p_entity_id: entity, p_kind: kind, p_amount_cents: cents, p_approval_ref: approvalRef, p_actor: U.padmin, p_funding: funding, p_studio_id: studio, ...spendEvidenceRpc(funding, kind, entity, studio, cents) });
+    rpc("tw4_spend_authorize", { p_entity_id: entity, p_kind: kind, p_amount_cents: cents, p_approval_ref: approvalRef, p_actor: U.padmin, p_funding: funding, p_studio_id: studio, ...spendEvidenceRpc(funding, kind, entity, studio, cents, approvalRef) });
   const fund = async (entity: string, studio: string, pack: number) => {
     n += 1;
     const pref = `cs_r2b_${RUN}_${n}`;

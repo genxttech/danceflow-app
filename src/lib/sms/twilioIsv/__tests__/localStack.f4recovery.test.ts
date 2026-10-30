@@ -128,10 +128,18 @@ function campaign(w: World, o: { status?: "succeeded" | "unknown_outcome" | "in_
   return c;
 }
 /** The spend event that makes a pilot reservation settleable by tw4_prov_observe (R2a: settlement goes through the spend event). */
-const spendEvent = (w: World, c: Campaign, ago: string) =>
-  replica(`insert into public.studio_sms_spend_events (legal_entity_id, studio_id, kind, amount_cents, status, approval_ref, authorized_by, authorized_at, reservation_key, reserved_at, credit_reservation_id, funding)
-    values ('${w.entity}', '${w.studio}', 'monthly', 1500, 'reserved', 'Written approval ${RUN} first month ${hex(3)}', '${P}', now() - interval '${ago}', 'prov:${c.op}:monthly', now() - interval '${ago}',
-            (select id from public.studio_sms_credit_reservations where reservation_key = 'prov:${c.op}:monthly'), 'pilot');`);
+const spendEvent = (w: World, c: Campaign, ago: string) => {
+  const approval = `Written approval ${RUN} first month ${hex(3)}`;
+  // 20261231100000: a pilot spend event cannot commit without its evidence row (the deferred check fires even under the replica role), so the fixture records it exactly as the authorizing function would
+  return replica(`insert into public.studio_sms_spend_events (legal_entity_id, studio_id, kind, amount_cents, status, approval_ref, authorized_by, authorized_at, reservation_key, reserved_at, credit_reservation_id, funding)
+    values ('${w.entity}', '${w.studio}', 'monthly', 1500, 'reserved', '${approval}', '${P}', now() - interval '${ago}', 'prov:${c.op}:monthly', now() - interval '${ago}',
+            (select id from public.studio_sms_credit_reservations where reservation_key = 'prov:${c.op}:monthly'), 'pilot');
+    select set_config('tw4.pilotev_write', 'on', true);
+    insert into public.studio_sms_pilot_spend_evidence (subject, spend_event_id, legal_entity_id, studio_id, fee_kind, scope, authorized_on, authorized_by_role, amount_cents, document_ref, document_sha256, recorded_by)
+    select 'spend_event', s.id, s.legal_entity_id, s.studio_id, s.kind, 'pilot_campaign_fee', current_date, 'owner_written', s.amount_cents, 'AUTH-DOC-' || '${hex(5)}', '${hex(32)}', s.authorized_by
+      from public.studio_sms_spend_events s where s.approval_ref = '${approval}';
+    select set_config('tw4.pilotev_write', 'off', true);`);
+};
 /** The pilot ceiling's usage, exactly as tw4_rfl_pilot_cover computes it (reserved + captured pilot reservations of the business). */
 const pilotUsed = (w: World) => Number(psql(`select coalesce(sum(amount_cents), 0) from public.studio_sms_credit_reservations where legal_entity_id = '${w.entity}' and funding = 'pilot' and status in ('reserved', 'captured')`));
 const ledgerSum = (w: World) => Number(psql(`select coalesce(sum(balance_delta_cents), 0) from public.studio_sms_credit_ledger where legal_entity_id = '${w.entity}'`));
@@ -346,11 +354,15 @@ commit;`);
     it("KI-1: a cross-month VETTING reservation is still captured, and a cross-month REJECTION still releases as campaign_rejected (no KI-1 marker)", () => {
       const w = world({ pilot: true });
       const c = campaign(w, { startedAgo: "40 days" });
-      const vet = (key: string) => replica(`insert into public.studio_sms_credit_reservations (legal_entity_id, studio_id, kind, amount_cents, funding, status, reservation_key, created_at)
+      const vet = (key: string) => { const approval = `Written approval ${RUN} vetting ${hex(3)}`; return replica(`insert into public.studio_sms_credit_reservations (legal_entity_id, studio_id, kind, amount_cents, funding, status, reservation_key, created_at)
           values ('${w.entity}', '${w.studio}', 'campaign_vetting', 1500, 'pilot', 'reserved', '${key}', now() - interval '40 days');
         insert into public.studio_sms_spend_events (legal_entity_id, studio_id, kind, amount_cents, status, approval_ref, authorized_by, authorized_at, reservation_key, reserved_at, credit_reservation_id, funding)
-          values ('${w.entity}', '${w.studio}', 'campaign_vetting', 1500, 'reserved', 'Written approval ${RUN} vetting ${hex(3)}', '${P}', now() - interval '40 days', '${key}', now() - interval '40 days',
-                  (select id from public.studio_sms_credit_reservations where reservation_key = '${key}'), 'pilot');`);
+          values ('${w.entity}', '${w.studio}', 'campaign_vetting', 1500, 'reserved', '${approval}', '${P}', now() - interval '40 days', '${key}', now() - interval '40 days',
+                  (select id from public.studio_sms_credit_reservations where reservation_key = '${key}'), 'pilot');
+        select set_config('tw4.pilotev_write', 'on', true);
+        insert into public.studio_sms_pilot_spend_evidence (subject, spend_event_id, legal_entity_id, studio_id, fee_kind, scope, authorized_on, authorized_by_role, amount_cents, document_ref, document_sha256, recorded_by)
+        select 'spend_event', s.id, s.legal_entity_id, s.studio_id, s.kind, 'pilot_campaign_fee', current_date, 'owner_written', s.amount_cents, 'AUTH-DOC-' || '${hex(5)}', '${hex(32)}', s.authorized_by from public.studio_sms_spend_events s where s.approval_ref = '${approval}';
+        select set_config('tw4.pilotev_write', 'off', true);`); };
       vet(`prov:${c.op}:campaign_vetting`);
       observeCampaign(w, c);
       expect(psql(`select status from public.studio_sms_credit_reservations where reservation_key = 'prov:${c.op}:campaign_vetting'`)).toBe("captured");

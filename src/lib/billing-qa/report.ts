@@ -28,7 +28,11 @@ export type BillingQaCheck = {
 
 export type BillingQaReport = {
   readonly tool: string;
-  readonly mode: "test";
+  /**
+   * "test": checked against Stripe test mode. "config": the running app's configuration only, no Stripe call.
+   * "readback": read-only Stripe read-back of objects the owner created (test or live, per the key).
+   */
+  readonly mode: BillingQaMode;
   readonly startedAt: string;
   readonly completedAt: string;
   readonly config: Readonly<Record<string, BillingQaEvidenceValue>>;
@@ -56,8 +60,11 @@ export function overallStatus(checks: readonly BillingQaCheck[]): BillingQaStatu
   return "PASS";
 }
 
+export type BillingQaMode = "test" | "config" | "readback";
+
 export function buildReport(params: {
   tool: string;
+  mode: BillingQaMode;
   startedAt: string;
   completedAt: string;
   config: Record<string, BillingQaEvidenceValue>;
@@ -73,7 +80,7 @@ export function buildReport(params: {
   for (const check of params.checks) counts[check.status] += 1;
   const report: BillingQaReport = {
     tool: params.tool,
-    mode: "test",
+    mode: params.mode,
     startedAt: params.startedAt,
     completedAt: params.completedAt,
     config: params.config,

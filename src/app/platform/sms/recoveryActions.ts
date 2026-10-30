@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { requirePlatformStepUp } from "@/lib/auth/platform-assurance";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { encodePanelFlash, PANEL_FLASH_MAX_AGE_SECONDS } from "@/lib/sms/twilioIsv/panelFlash";
 import type { CommandResult } from "@/lib/sms/provisioning/provisionCommands";
@@ -27,11 +27,11 @@ async function finish(result: CommandResult): Promise<never> {
 }
 
 export async function retryRegistrationAction(formData: FormData): Promise<void> {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("recent");
   await finish(await retryRegistration(new RecoveryStore(createAdminClient()), admin.id, formData));
 }
 
 export async function retireDeferredAction(formData: FormData): Promise<void> {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("aal2");
   await finish(await retireDeferred(new RecoveryStore(createAdminClient()), admin.id, formData));
 }

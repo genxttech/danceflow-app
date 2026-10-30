@@ -139,6 +139,7 @@ const COVER_SIG = "public.tw4_rfl_pilot_cover(uuid,text,text,uuid,date,text,text
 const mdir = join(process.cwd(), "src/lib/supabase/migrations");
 const forward = readFileSync(join(mdir, "20261230090000_twilio_rfl_pilot_spend_evidence.sql"), "utf8");
 const back = readFileSync(join(mdir, "rollback/20261230090000_twilio_rfl_pilot_spend_evidence_rollback.sql"), "utf8");
+const back1231 = readFileSync(join(mdir, "rollback/20261231100000_twilio_pilot_spend_hardening_rollback.sql"), "utf8");
 const bodyMd5 = (reg: string) => psql(`select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = '${reg}'::regprocedure`);
 
 const PRICES: Record<string, number> = { brand: 1000, campaign_vetting: 1500, number: 200, monthly: 1000 };
@@ -188,7 +189,9 @@ commit;`);
         const approval = ref(`happy-${kind}`);
         const out = spend(w, kind, approval);
         expect(out.replayed).toBe(false);
-        const e = pilotSpendEvidenceFor(kind, w.entity, w.studio, priceOf(kind));
+        // the helper derives the document from the approval reference as well (owner rule 2026-10-25: one document per approval)
+        const sa = pilotSpendArgs(psql, w.entity, kind, priceOf(kind), approval, P, "pilot", w.studio);
+        const e = pilotSpendEvidenceFor(kind, w.entity, w.studio, priceOf(kind), { documentRef: String(sa[12]), documentSha256: String(sa[13]) });
         expect(evOfSpend(out.spend_event_id)).toEqual({ subject: "spend_event", scope: e.scope, kind, period: null, on: e.authorizedOn, role: e.authorizedByRole, cents: priceOf(kind), doc: e.documentRef, sha: e.documentSha256, by: P });
         expect(psql(`select funding || ':' || status || ':' || amount_cents from public.studio_sms_spend_events where id = '${out.spend_event_id}'`)).toBe(`pilot:authorized:${priceOf(kind)}`);
         expect(spendEvCount(w)).toBe(1);
@@ -224,7 +227,7 @@ commit;`);
       ["unknown scope", () => ({ scope: "standing_authorization" }), "TW052"],
       ["the exception scope on a fee", () => ({ scope: "pilot_exception" }), "TW052"],
       ["a scope that does not allow the fee kind", (kind) => ({ scope: kind === "brand" ? "pilot_number_purchase" : "pilot_onboarding_fee" }), "TW052"],
-      ["the cover scope without a period", () => ({ scope: "pilot_period_cover", period: null }), "TW052"],
+      ["the cover scope without a period (a direct call can never use the cover scope: TW053, 20261231100000)", () => ({ scope: "pilot_period_cover", period: null }), "TW053"],
       ["a non-cover scope that names a period", () => ({ period: "2026-10" }), "TW052"],
       ["missing evidence amount", () => ({ amount: null }), "TW052"],
       ["evidence amount differs from the amount approved", (_k, cents) => ({ amount: cents + 1 }), "TW052"],
@@ -262,7 +265,8 @@ commit;`);
       const w = pilotWorld();
       for (const scope of ["pilot_onboarding_fee", "pilot_campaign_fee", "pilot_number_purchase", "pilot_period_cover"]) {
         const err = callErr("tw4_spend_authorize", w.entity, "sms_usage", 100, ref(`unmapped-${scope}`), P, "pilot", w.studio, day(-3), "owner_written", scope, 100, scope === "pilot_period_cover" ? cur() : null, "AUTH-DOC-UNMAPPED1", "e".repeat(64));
-        expect(hasCode(err, "TW052"), `${scope}: ${err}`).toBe(true);
+        // 20261231100000: the cover scope is refused earlier (TW053) for a direct call
+        expect(hasCode(err, scope === "pilot_period_cover" ? "TW053" : "TW052"), `${scope}: ${err}`).toBe(true);
       }
       expect(spendRows(w)).toBe(0);
     });
@@ -276,7 +280,9 @@ commit;`);
           const w = pilotWorld();
           const period = scope === "pilot_period_cover" ? cur() : null;
           const err = spendErr(w, kind, ref(`map-${kind}-${scope}`), { scope, period });
-          if (scopes.includes(scope)) expect(err, `${kind}/${scope}`).toBe("");
+          // 20261231100000: a direct call can never use the cover scope (TW053); the cover itself is tested through tw4_rfl_pilot_cover
+          if (scope === "pilot_period_cover") expect(hasCode(err, "TW053"), `${kind}/${scope}: ${err}`).toBe(true);
+          else if (scopes.includes(scope)) expect(err, `${kind}/${scope}`).toBe("");
           else expect(hasCode(err, "TW052"), `${kind}/${scope}: ${err}`).toBe(true);
         }
       }
@@ -500,7 +506,8 @@ commit;`);
     });
 
     it("tw4_spend_authorize is the ONLY function that inserts a spend approval, so no automated path can create a pilot approval (runners only reserve against an existing event)", () => {
-      expect(psql(`select string_agg(p.proname, ',' order by p.proname) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosrc ilike '%insert into public.studio_sms_spend_events%'`)).toBe("tw4_spend_authorize");
+      expect(psql(`select string_agg(p.proname, ',' order by p.proname) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosrc ilike '%insert into public.studio_sms_spend_events%'`)).toBe("_tw4psh_spend_authorize");
+      // (20261231100000: the insert moved into the internal function behind the public tw4_spend_authorize wrapper)
       // and every reservation insert that takes a funding from a variable reads it from the authorized event
       expect(psql(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosrc ilike '%insert into public.studio_sms_pilot_spend_evidence%'`)).toBe("2");
     });
@@ -572,6 +579,8 @@ commit;`);
             return String((error as { stderr?: Buffer | string }).stderr ?? error);
           }
         };
+        // 20261231100000 (pilot spend hardening) sits on top of this migration: strict reverse order, it is rolled back first so this copy is at the 20261230 shape
+        if (run(`select to_regprocedure('public._tw4psh_spend_authorize(uuid,text,integer,text,uuid,text,uuid,date,text,text,integer,text,text,text)') is not null`) === "t") run(back1231);
         body(run, fail);
       } finally {
         sh(`psql -U postgres -q -c "select pg_terminate_backend(pid) from pg_stat_activity where datname = '${scratch}'" -c 'drop database if exists ${scratch}' > /dev/null 2>&1; true`);
@@ -618,7 +627,8 @@ commit;`);
         cover: md5Of(bodyOf(m1229, "create or replace function public.tw4_rfl_pilot_cover(")),
       };
       expect(want.cover).toBe("deffc1b878778dced134334260d62512");
-      const nowMd5 = { auth: bodyMd5(SA_NEW), exc: bodyMd5(PE_NEW), cover: bodyMd5(COVER_SIG) };
+      // the 20261230 bodies (the live ones are 20261231100000's wrapper and cover)
+      const nowMd5 = { auth: "daee5a70b4c7fe97cc35e9f172ef78fb", exc: "171b2d12a7476290b3e3efcdab71cef8", cover: "f5dffdaa3062febef97fa2ce9b0fa422" };
       withScratch("rb", (run) => {
         const fp = () => run(`select md5(string_agg(p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')|' || md5(p.prosrc), ',' order by p.proname, pg_get_function_identity_arguments(p.oid))) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'`);
         const after = fp();
@@ -637,14 +647,25 @@ commit;`);
         expect([m(SA_NEW), m(PE_NEW), m(COVER_SIG)]).toEqual([nowMd5.auth, nowMd5.exc, nowMd5.cover]);
         expect(before).not.toBe(after);
       });
-    });
+    }, 900_000);
 
-    it("the rollback refuses while evidence rows exist (nothing is dropped) and when a live new body was redefined", () => {
+    it("the rollback refuses while 20261231100000 sits on top (strict reverse order), while evidence rows exist (nothing is dropped) and when a live new body was redefined", () => {
       pilotWorld();
       expect(Number(psql(`select count(*) from public.studio_sms_pilot_spend_evidence`))).toBeGreaterThan(0);
       const err = psqlError(back);
-      expect(err).toMatch(/pilot-spend-evidence rollback refused: approval evidence exists and is permanent/);
+      expect(err).toMatch(/differs from its 20261230 definition; roll back the later migration first/);
       expect(psql(`select to_regprocedure('${SA_NEW}') is not null and to_regclass('public.studio_sms_pilot_spend_evidence') is not null and to_regprocedure('${SA_OLD}') is null`)).toBe("t");
+      withScratch("ev", (run, fail) => {
+        // the copy is at the 20261230 shape with no rows: give it one pilot exception WITH its evidence (as the function would write it) and the rollback must refuse
+        const entityId = randomUUID();
+        run(`begin; set local session_replication_role = replica;
+          insert into public.studio_sms_pilot_exceptions (legal_entity_id, ceiling_cents, approval_ref, approved_by) values ('${entityId}', 15000, 'Founder written pilot approval ev ${RUN}', '${P}');
+          select set_config('tw4.pilotev_write', 'on', true);
+          insert into public.studio_sms_pilot_spend_evidence (subject, legal_entity_id, scope, authorized_on, authorized_by_role, amount_cents, document_ref, document_sha256, recorded_by)
+          values ('pilot_exception', '${entityId}', 'pilot_exception', current_date, 'founder_written', 15000, 'AUTH-DOC-evx${RUN}', '${"a".repeat(64)}', '${P}'); commit;`);
+        expect(fail(back)).toMatch(/pilot-spend-evidence rollback refused: approval evidence exists and is permanent/);
+        expect(run(`select to_regprocedure('${SA_NEW}') is not null and to_regclass('public.studio_sms_pilot_spend_evidence') is not null`)).toBe("t");
+      });
       withScratch("fp", (run, fail) => {
         const def = run(`select pg_get_functiondef('${SA_NEW}'::regprocedure)`);
         expect(def).toContain("this authorization would exceed the spend cap");
@@ -653,6 +674,6 @@ commit;`);
         expect(redefined).toMatch(/differs from its 20261230 definition/);
         expect(run(`select to_regprocedure('${SA_NEW}') is not null and to_regclass('public.studio_sms_pilot_spend_evidence') is not null`)).toBe("t");
       });
-    });
+    }, 900_000);
   });
 });
