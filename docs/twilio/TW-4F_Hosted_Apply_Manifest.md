@@ -183,12 +183,62 @@ If `1220` (F2) ever gets a PR, a follow-up commit adds its row (hash, objects, g
 
 Numeric order, one file at a time:
 
-`1119_090 → 1119_091 → 1119_092 → 1119_092100 → 1120 → 1121 → 1122 → 1123 → 1124 → 1125 → 1126 → 1127 → 1128 → 1129 → 1130 → 1201 → 1202_090 → 1202_140 → 1202_150 → 1203 → 1204 → 1205 → 1207 → 1208 → 1209 → 1210 → 1211 → 1212 → 1213 → 1214 → [1215, merged] → 1216 → 1217 → 1206 → 1218 → 1219 → 1221 → 1222 → 1223 → 1224 → 1225 → 1226 → 1227 → 1228 → 1229 → 1230 → 1231 → 1231b`
+`1119_090 → 1119_091 → 1119_092 → 1119_092100 → 1120 → 1121 → 1122 → 1123 → 1124 → 1125 → 1126 → 1127 → 1128 → 1129 → 1130 → 1201 → 1202_090 → 1202_140 → 1202_150 → 1203 → 1204 → 1205 → 1206 → 1207 → 1208 → 1209 → 1210 → 1211 → 1212 → 1213 → 1214 → [1215, merged] → 1216 → 1217 → 1218 → 1219 → 1221 → 1222 → 1223 → 1224 → 1225 → 1226 → 1227 → 1228 → 1229 → 1230 → 1231 → 1231b`
 
 - Each file wraps itself in a transaction and refuses to run out of order or twice (precondition `to_regprocedure` / fingerprint checks), so a wrong order aborts with `precondition failed` and changes nothing.
 - The Supabase CLI history table is **not authoritative** on these projects (2026-10-19 sync record), so the CLI's out-of-order refusal does not apply. If `supabase db push` were ever used, `1206` and `1215` would need `--include-all`; this runbook uses `supabase db query --linked -f <file>` from a scratch workdir instead.
-- `1206` is order-independent of the main files after it (tracker section 1) but sits after `1217` by merge order; this runbook applies it after `1217` and before `1218` (the order line above shows it there; it is not in its numeric slot).
+- `1206` takes its numeric slot, between `1205` and `1207`. Earlier revisions of this runbook placed it after `1217` (its merge order); that was not a dependency. `1206` requires only `1205` (section 5), no file between `1207` and `1217` touches its functions, and every audit-constraint widening reads the live constraint and extends it, so both placements are dependency-valid. The numeric slot is the order the 27-file Docker QA chain applied, rolled back and re-applied, and it makes the strict-reverse rollback order the exact reverse of the timestamps. Hosted DEV and PROD were not changed by this correction; no hosted apply has happened.
 - All application of these files is **forward-only schema**; no file seeds price rows and none registers `pg_cron`.
+
+### 4.1 DEV pending list at main `b0257594` (41 files, numeric order)
+
+DEV (`epdrtzcydvnoidwrepqz`) was read-only probed 2026-10-30 at `20261122090000` (the `1122` layer; whole-schema fingerprint equal to the recorded value). The 41 files below are everything after it, in the order D2 applies them. Hashes are in section 3 (unchanged; `verify_manifest_hashes.sh` checks them against main). "App pairing" restates section 5 and the app-release notes: `app first` means the SQL drops or re-creates a signature or changes behaviour that an older build would not survive, so the matching build must be live before the file; `confirm reader` means a read RPC changed shape.
+
+| # | File | App pairing |
+|---|---|---|
+| 1 | 20261123090000_twilio_tw4f3b_pay_stripe_credit_purchases.sql | app first |
+| 2 | 20261124090000_twilio_tw4f3b_ui_credit_reads.sql | confirm reader |
+| 3 | 20261125090000_twilio_pay_integrity_hardening.sql | - |
+| 4 | 20261126090000_twilio_recurring_authorization.sql | - |
+| 5 | 20261127090000_twilio_recurring_execution.sql | app first |
+| 6 | 20261128090000_twilio_monthly_spending_limits.sql | app first |
+| 7 | 20261129090000_twilio_tw4f_provider_integration.sql | - |
+| 8 | 20261130090000_twilio_tw4f_admin_panel.sql | - |
+| 9 | 20261201090000_twilio_sms_usage_financials.sql | - |
+| 10 | 20261202090000_twilio_tw4f_financial_integrity.sql | - |
+| 11 | 20261202140000_twilio_tw4ml_default_tz_perf.sql | - |
+| 12 | 20261202150000_twilio_tw4f_panel_monthly_limits.sql | confirm reader |
+| 13 | 20261203090000_twilio_inbound_usage_recording.sql | - |
+| 14 | 20261204090000_twilio_sender_readiness.sql | - |
+| 15 | 20261205090000_twilio_usage_reconciliation.sql | - |
+| 16 | 20261206090000_twilio_sender_reverification.sql | - |
+| 17 | 20261207090000_twilio_r2a_messaging_service_campaign.sql | - |
+| 18 | 20261208090000_twilio_r2b_number_activation.sql | - |
+| 19 | 20261209090000_twilio_recurring_fee_lifecycle.sql | - |
+| 20 | 20261210090000_twilio_r2c_owner_provisioning_read.sql | confirm reader |
+| 21 | 20261211090000_twilio_rfl_ops.sql | - |
+| 22 | 20261212090000_twilio_prov_fee_resolution_evidence.sql | - |
+| 23 | 20261213090000_twilio_r2b_p1_identity_evidence.sql | app first |
+| 24 | 20261214090000_twilio_r2b_p2_orphans_reconciliation.sql | app first |
+| 25 | 20261215090000_twilio_prov_evidence_targets.sql | confirm reader |
+| 26 | 20261216090000_twilio_prov_orphan_exposure.sql | confirm reader |
+| 27 | 20261217090000_twilio_r2b_rfl_lifecycle_integration.sql | - |
+| 28 | 20261218090000_twilio_usage_reconciler_readiness.sql | - |
+| 29 | 20261219090000_twilio_act_pilot_funding_lock_order.sql | - |
+| 30 | 20261221090000_twilio_admin_recovery_tooling.sql | - |
+| 31 | 20261222090000_twilio_owner_texting_status.sql | confirm reader |
+| 32 | 20261223090000_twilio_inventory_reconcile_run.sql | - |
+| 33 | 20261224090000_twilio_rfl_cancel_target.sql | confirm reader |
+| 34 | 20261225090000_twilio_rfl_d5_cover.sql | - |
+| 35 | 20261226090000_twilio_act_console_gates.sql | - |
+| 36 | 20261227090000_twilio_owner_number_offers.sql | - |
+| 37 | 20261228090000_twilio_ki1_cross_month_release.sql | - |
+| 38 | 20261229090000_twilio_rfl_pilot_evidence.sql | app first |
+| 39 | 20261230090000_twilio_rfl_pilot_spend_evidence.sql | app first |
+| 40 | 20261231090000_twilio_platform_admin_aal2.sql | app first |
+| 41 | 20261231100000_twilio_pilot_spend_hardening.sql | - |
+
+The 27-file Docker QA chain covers `1206` through `1231b` (26 of these files) plus the unrelated `20270201090000_billing_protected_subscriptions.sql`, which is not part of the DEV plan. The other 15 (`1123` through `1205`) are inside the chain's baseline image and were exercised forward only. This list is documentation; it authorizes nothing.
 
 ## 5. Dependencies, client-exposed grants, data changes, rollback gates
 
