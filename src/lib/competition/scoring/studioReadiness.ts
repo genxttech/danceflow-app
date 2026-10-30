@@ -13,7 +13,7 @@ import { ballotFormatForScoring } from "../ballots/formats";
 import { checkCompatibility, findMethod, methodId, resolveRoundMethod } from "./registry";
 import { legacyValueFor } from "./studioSetup";
 
-export type ReadinessProgram = { id: string; name: string; status: string; profile_locked_at: string | null };
+export type ReadinessProgram = { id: string; name: string; status: string; profile_locked_at: string | null; advancement_method?: string | null };
 export type ReadinessDivision = { id: string; program_id: string | null; name: string; scoring_method_key: string | null; scoring_method_version: string | null };
 export type ReadinessRound = {
   id: string;
@@ -36,6 +36,7 @@ export type ScoringFindingCode =
   | "COMP_METHOD_BALLOT_FORMAT_MISMATCH"
   | "COMP_ORDINAL_MULTI_HEAT"
   | "COMP_SCORING_NOT_PINNED"
+  | "COMP_SCORING_CALLBACK_CONFIG"
   | "COMP_SCORING_LOCKED_UNSUPPORTED"
   | "COMP_SCORING_NO_METHOD";
 
@@ -135,6 +136,13 @@ export function studioScoringReadiness(input: {
         add(severity, compat.code === "COMP_METHOD_BALLOT_FORMAT_MISMATCH" ? "COMP_METHOD_BALLOT_FORMAT_MISMATCH" : "COMP_METHOD_PURPOSE_MISMATCH",
           `${round.name}: ${methodId(entry.key, entry.version)} cannot score a ${round.round_type === "final" ? "Final (placements)" : "non-final round (advancement)"}.`);
       }
+    }
+
+    // The callback engine only accepts a preliminary round of a program whose advancement_method is promote_callback (F1 V2 /
+    // F2 reads the program row). A draft can be fixed (blocker); a published program is never rewritten (notice).
+    if (entry.key === "studio_callback_tally" && (round.round_type !== "preliminary" || program?.advancement_method !== "promote_callback")) {
+      add(locked ? "notice" : "blocker", "COMP_SCORING_CALLBACK_CONFIG",
+        `${round.name}: the callback tally needs a preliminary round in a competition whose advancement is "promote callback", otherwise results cannot be calculated. ${locked ? "The advancement method is frozen at publish and is never rewritten; create a new competition to use callbacks." : "Re-apply Studio scoring on this division."}`);
     }
 
     // Ordinal majority is a single-heat method by spec (X-7): a multi-heat round fails closed.

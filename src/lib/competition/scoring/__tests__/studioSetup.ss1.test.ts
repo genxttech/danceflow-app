@@ -96,7 +96,9 @@ describe("SS1 planning", () => {
     if (!first.ok) throw new Error("plan failed");
     const after = apply(first.ops, [finalOnly()], input().division);
     const again = planStudioScoring(input({ rounds: after.rounds, division: after.division }));
-    expect(again).toEqual({ ok: true, ops: [] });
+    expect(again).toEqual({ ok: true, ops: [], programAdvancement: "promote_callback" });
+    const done = planStudioScoring(input({ rounds: after.rounds, division: after.division, program: { ...draftProgram, advancement_method: "promote_callback" } }));
+    expect(done).toEqual({ ok: true, ops: [], programAdvancement: null });
   });
 
   it("final only: rescoring the Final and selecting ordinal majority, no extra round", () => {
@@ -136,7 +138,7 @@ const round = (over: Partial<ReadinessRound> = {}): ReadinessRound => ({
 });
 const report = (over: Partial<Parameters<typeof studioScoringReadiness>[0]> = {}) =>
   studioScoringReadiness({
-    programs: [{ id: "p1", name: "Country", status: "draft", profile_locked_at: null }],
+    programs: [{ id: "p1", name: "Country", status: "draft", profile_locked_at: null, advancement_method: "promote_callback" }],
     divisions: [division({ scoring_method_key: "studio_ordinal_majority", scoring_method_version: "1" })],
     rounds: [round()],
     heatsByRound: new Map(),
@@ -163,7 +165,7 @@ describe("SS1 readiness", () => {
 
   it("blocks a method that cannot produce the round's purpose (callback tally on a Final)", () => {
     const r = report({ divisions: [division({ scoring_method_key: "studio_callback_tally", scoring_method_version: "1" })], rounds: [round({ scoring_method: "callback_tally" })] });
-    expect(r.blockers.map((b) => b.code)).toEqual(["COMP_METHOD_PURPOSE_MISMATCH"]);
+    expect(r.blockers.map((b) => b.code)).toEqual(["COMP_METHOD_PURPOSE_MISMATCH", "COMP_SCORING_CALLBACK_CONFIG"]);
     const ordinalOnPrelim = report({ rounds: [round({ round_type: "preliminary" })] });
     expect(ordinalOnPrelim.blockers.map((b) => b.code)).toEqual(["COMP_METHOD_PURPOSE_MISMATCH"]);
   });
@@ -263,5 +265,47 @@ describe("SS1 readiness heat counting across schedule versions is done by the lo
   it("the loader takes the max per version, not the sum", () => {
     const src = readFileSync(join(__dirname, "..", "studioReadinessServer.ts"), "utf8");
     expect(src).toContain("Math.max(...versions.values())");
+  });
+});
+
+// Mirror of the F1 callback-tally precondition (results/engines/studioCallbackTally.ts V2; F2 passes advancementMethod from the
+// PROGRAM row). Kept here as the contract SS1 must satisfy; the full-stack run exercises the real engine.
+const engineAcceptsCallbackRound = (roundType: string, programAdvancement: string | null | undefined) =>
+  roundType === "preliminary" && programAdvancement === "promote_callback";
+
+describe("SS1 callback preset yields a program the callback engine accepts", () => {
+  it("sets the callback round to preliminary and asks for the program advancement_method promote_callback", () => {
+    const plan = planStudioScoring(input({ program: { ...draftProgram, advancement_method: "none" } }));
+    if (!plan.ok) throw new Error("plan failed");
+    const after = apply(plan.ops, [finalOnly()], input().division);
+    const callback = after.rounds.find((r) => r.scoring_method === "callback_tally")!;
+    expect(plan.programAdvancement).toBe("promote_callback");
+    // once the action writes the program value, the engine precondition holds
+    expect(engineAcceptsCallbackRound(callback.round_type, plan.programAdvancement)).toBe(true);
+    // without that write (the defect: wizard programs start as "none") the engine refuses the round
+    expect(engineAcceptsCallbackRound(callback.round_type, "none")).toBe(false);
+  });
+
+  it("final-only never touches the program advancement_method", () => {
+    const plan = planStudioScoring(input({ presetKey: "final_only", program: { ...draftProgram, advancement_method: "none" } }));
+    expect(plan.ok && plan.programAdvancement).toBeNull();
+  });
+
+  it("readiness blocks a callback round in a draft whose program is not promote_callback, and only notices on a published one", () => {
+    const cb = round({ id: "cb", name: "Callback round", round_type: "preliminary", scoring_method: "callback_tally", scoring_override_key: "studio_callback_tally", scoring_override_version: "1" });
+    const draft = report({ rounds: [cb, round()], programs: [{ id: "p1", name: "Country", status: "draft", profile_locked_at: null, advancement_method: "none" }] });
+    expect(draft.blockers.map((b) => b.code)).toEqual(["COMP_SCORING_CALLBACK_CONFIG"]);
+    const locked = report({
+      rounds: [cb, round()],
+      programs: [{ id: "p1", name: "Country", status: "configured", profile_locked_at: "2026-10-01T00:00:00Z", advancement_method: "none" }],
+      effective: new Map([
+        ["cb", { method_key: "studio_callback_tally", method_version: "1", selectable: true, pinned: true, registry_status: "approved" }],
+        ["r1", { method_key: "studio_ordinal_majority", method_version: "1", selectable: true, pinned: true, registry_status: "approved" }],
+      ]),
+    });
+    expect(locked.blockers).toEqual([]);
+    expect(locked.notices.map((n) => n.code)).toEqual(["COMP_SCORING_CALLBACK_CONFIG"]);
+    const wrongType = report({ rounds: [{ ...cb, round_type: "qualifying" }, round()] });
+    expect(wrongType.blockers.map((b) => b.code)).toContain("COMP_SCORING_CALLBACK_CONFIG");
   });
 });
