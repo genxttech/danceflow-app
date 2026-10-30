@@ -218,6 +218,14 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     await startHeat(page, eventId);
   }
 
+  /** Opens the ballot desk, retrying while the dev server is still compiling the route (it answers a 404 meanwhile). */
+  async function openDesk(page: Page, s: Scored, roundId: string) {
+    await expect(async () => {
+      await openDesk(page, s, roundId);
+      await expect(page.getByRole("region", { name: "Round status" })).toBeVisible({ timeout: 8_000 });
+    }).toPass({ timeout: 120_000 });
+  }
+
   const roundIdByName = async (eventId: string, name: string) => {
     const round = (await readHeatEvidence(config, eventId)).rounds.find((r) => r.name === name);
     if (!round) throw new Error(`no round named ${name}`);
@@ -235,7 +243,7 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     if (await onFloor.getByRole("button", { name: "Complete heat" }).count()) {
       await clickUntil(onFloor.getByRole("button", { name: "Complete heat" }), page.getByText("No heat is on the floor."));
     }
-    await page.goto(`${base(s)}/ballots/${roundId}`);
+    await openDesk(page, s, roundId);
     const lock = page.getByRole("button", { name: "Lock ballots" });
     await expect(lock).toBeVisible({ timeout: 30_000 });
     // HL1 (#350): the ballot desk's "Heats" section has a "Lock heat N" button per danced heat (manager only, round active). It asks with a
@@ -247,7 +255,7 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
         if (!(await page.getByRole("button", { name: /^Lock heat/ }).count())) return;
         await page.getByRole("button", { name: /^Lock heat/ }).first().click();
         await page.waitForLoadState("networkidle");
-        await page.goto(`${base(s)}/ballots/${roundId}`);
+        await openDesk(page, s, roundId);
         await expect(page.getByRole("button", { name: /^Lock heat/ })).toHaveCount(0, { timeout: 15_000 });
       }).toPass({ timeout: 120_000 });
     }
@@ -450,7 +458,7 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
   test("SCN-15.1 early lock: a manager locks the not-yet-started heat; the confirm says so, the heat locks, and the floor console will not start it", async ({ browser }, testInfo) => {
     const shot = stepShots(testInfo);
     const page = await signedIn(browser, fixture.owner);
-    await page.goto(`${base(E)}/ballots/${E.finalRoundId}`);
+    await openDesk(page, E, E.finalRoundId);
     const messages: string[] = [];
     page.on("dialog", (dialog) => { messages.push(dialog.message()); void dialog.accept(); });
     await expect(heatsPanel(page)).toBeVisible({ timeout: 30_000 });
@@ -502,7 +510,7 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
   test("SCN-15.2 reopen: the manager reopens the early-locked heat with a reason; the floor can start it again", async ({ browser }, testInfo) => {
     const shot = stepShots(testInfo);
     const page = await signedIn(browser, fixture.owner);
-    await page.goto(`${base(E)}/ballots/${E.finalRoundId}`);
+    await openDesk(page, E, E.finalRoundId);
     const messages: string[] = [];
     page.on("dialog", (dialog) => { messages.push(dialog.message()); void dialog.accept(); });
     await heatsPanel(page).getByLabel("Reason for reopening heat 1").fill("Scratch handled, run the heat");
@@ -519,7 +527,7 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     const shot = stepShots(testInfo);
     const page = await signedIn(browser, fixture.owner);
     await startHeat(page, E.event.id);
-    await page.goto(`${base(E)}/ballots/${E.finalRoundId}`);
+    await openDesk(page, E, E.finalRoundId);
     await expect(heatsPanel(page).getByRole("button", { name: /^Lock heat/ })).toHaveCount(0);
     await expect(heatsPanel(page)).toContainText("On the floor");
     await shot(page, "no-lock-on-active-heat");
@@ -577,7 +585,7 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     const shot = stepShots(testInfo);
     const page = await signedIn(browser, fixture.owner);
     // The heat is on the floor (not danced): the desk says so and will not lock the round.
-    await page.goto(`${base(E)}/ballots/${E.finalRoundId}`);
+    await openDesk(page, E, E.finalRoundId);
     await expect(page.getByRole("region", { name: "Lock and reopen" })).toContainText(/1 heat\(s\) not danced yet: 1\./, { timeout: 30_000 });
     await expect(page.getByRole("button", { name: "Lock ballots" })).toBeDisabled();
     await shot(page, "not-danced-yet");
@@ -591,7 +599,7 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     test.skip(!locked.E, "BLOCKED: the ballots could not be locked (SCN-12.3)");
     const shot = stepShots(testInfo);
     const page = await signedIn(browser, fixture.owner);
-    await page.goto(`${base(E)}/ballots/${E.finalRoundId}`);
+    await openDesk(page, E, E.finalRoundId);
     await expect(page.getByRole("button", { name: /^Reopen heat/ })).toHaveCount(0);
     await shot(page, "no-reopen-after-lock");
     if (ANON_KEY) {
