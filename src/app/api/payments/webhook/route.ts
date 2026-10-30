@@ -542,9 +542,11 @@ async function isKnownStudioBillingCustomer(supabase: SupabaseClient, stripeCust
 
 export async function upsertStripeSubscriptionRecord(
   supabase: SupabaseClient,
-  subscription: Stripe.Subscription,
+  subscriptionAsDelivered: Stripe.Subscription,
   stripeAccountId?: string | null,
 ) {
+  // The billing period may live on the items (Stripe API 2025-03-31 and later): read it the same way whatever the entry point.
+  const subscription = withSubscriptionPeriod(subscriptionAsDelivered);
   const stripeSubscriptionId = subscription.id;
   const stripeCustomerId = getString(subscription.customer);
 
@@ -971,7 +973,10 @@ async function upsertStudioSubscription(params: {
   stripe: Stripe;
   subscription: Stripe.Subscription;
 }) {
-  const { supabase, subscription } = params;
+  const { supabase } = params;
+  // Every entry point (subscription events, checkout completion, invoice events) hands over a re-read subscription: read
+  // the billing period the same way for all of them, so none writes NULL dates over another's real ones.
+  const subscription = withSubscriptionPeriod(params.subscription);
 
   const metadata = subscription.metadata ?? {};
   const stripeCustomerId = getString(subscription.customer);

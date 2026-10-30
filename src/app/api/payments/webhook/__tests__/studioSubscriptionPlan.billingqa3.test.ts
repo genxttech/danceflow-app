@@ -482,3 +482,39 @@ describe("independent review (Opus) follow-up fixes (BILLING-QA-3)", () => {
     expect(completions).toEqual([{ status: "failed", error: "subscription_event_unlabelled_known_customer" }]);
   });
 });
+
+describe("one period reading for every entry point (BILLING-QA-3, review N1)", () => {
+  // Stripe API 2025-03-31 (basil) and later: the billing period is on the subscription items.
+  const basilShaped = (fields: Parameters<typeof subscription>[0]) => {
+    const copy = JSON.parse(JSON.stringify(subscription(fields)));
+    delete copy.current_period_start;
+    delete copy.current_period_end;
+    copy.items.data = copy.items.data.map((item: object) => ({ ...item, current_period_start: 1791000000, current_period_end: 1793600000 }));
+    return copy;
+  };
+  const periods = { current_period_start: new Date(1791000000 * 1000).toISOString(), current_period_end: new Date(1793600000 * 1000).toISOString() };
+  const invoice = { id: "in_paid", object: "invoice", customer: "cus_1", subscription: "sub_1", status: "paid", amount_due: 9900, amount_paid: 9900, currency: "usd", lines: { data: [] } };
+
+  it("invoice.paid after customer.subscription.updated does not blank the dates the subscription event wrote", async () => {
+    await post("customer.subscription.updated", basilShaped({ status: "active", prices: [PRICES.growth] }));
+    expect(subsFor("studio-1")[0]).toMatchObject(periods);
+    stripeState.sub_1 = basilShaped({ status: "active", prices: [PRICES.growth] });
+    expect((await post("invoice.paid", invoice)).status).toBe(200);
+    expect(subsFor("studio-1")[0]).toMatchObject(periods);
+  });
+
+  it("the first write, from checkout.session.completed, already has the real dates", async () => {
+    stripeApi.subscriptions.retrieve.mockResolvedValueOnce(basilShaped({ prices: [PRICES.pro], metadata: {} }));
+    const session = { id: "cs_test_period", object: "checkout.session", mode: "subscription", customer: "cus_1", subscription: "sub_1", metadata: { source: "studio_subscription", studioId: "studio-1", planCode: "pro" } };
+    expect((await post("checkout.session.completed", session)).status).toBe(200);
+    expect(subsFor("studio-1")[0]).toMatchObject(periods);
+  });
+
+  it("invoice.payment_failed with a basil-shaped re-read keeps the dates too", async () => {
+    await post("customer.subscription.created", basilShaped({ status: "active", prices: [PRICES.growth] })); // maps the customer to the studio, as in a real sequence
+    stripeState.sub_1 = basilShaped({ status: "past_due", prices: [PRICES.growth] });
+    const failed = { ...invoice, id: "in_failed", status: "open", amount_paid: 0 };
+    expect((await post("invoice.payment_failed", failed)).status).toBe(200);
+    expect(subsFor("studio-1")[0]).toMatchObject({ status: "past_due", ...periods });
+  });
+});
