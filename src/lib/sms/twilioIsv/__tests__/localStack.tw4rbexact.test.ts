@@ -46,6 +46,7 @@ const ORIG_MD5 = createHash("md5").update(ORIG_BODY).digest("hex");
 
 const EXPECTED_KIND_DEF = "CHECK ((kind = ANY (ARRAY['brand'::text, 'brand_low_volume'::text, 'campaign_vetting'::text, 'number'::text, 'monthly'::text, 'monthly_low_volume'::text, 'sms_usage'::text])))";
 const KIND_DEF = "select pg_get_constraintdef(oid) from pg_constraint where conrelid = 'public.studio_sms_price_list'::regclass and conname = 'studio_sms_price_list_kind_check'";
+const FN_EXISTS = "select to_regprocedure('public.tw4_recurring_due(text)') is not null";
 const FN_MD5 = "select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.tw4_recurring_due(text)'::regprocedure";
 
 const run = (sql: string) => {
@@ -100,10 +101,10 @@ describe.skipIf(!enabled)("exact-restore rollbacks (real schema, always rolled b
     expect(run(`${KIND_DEF};`).out).toContain("sms_inbound");
   });
 
-  it("20261128: the live function is not the 1126 body before the block (1128's)", () => {
-    const r = run(`${FN_MD5};`);
+  it("20261128: on the full chain the function does not exist before the block (20261128 dropped it; the rollback re-creates it)", () => {
+    const r = run(`${FN_EXISTS};`);
     expect(r.code).toBe(0);
-    expect(r.out).not.toBe(ORIG_MD5);
+    expect(r.out).toBe("f");
   });
 
   it("20261128: the restored function has exactly the 20261126090000 body (md5 and trailing comment)", () => {
@@ -111,8 +112,8 @@ describe.skipIf(!enabled)("exact-restore rollbacks (real schema, always rolled b
     expect(r.err).toBe("");
     expect(r.code).toBe(0);
     expect(r.out.split("\n")).toEqual([ORIG_MD5, "t"]);
-    // the transaction was rolled back: 1128's function is back
-    expect(run(`${FN_MD5};`).out).not.toBe(ORIG_MD5);
+    // the transaction was rolled back: the function is absent again, as on the full chain
+    expect(run(`${FN_EXISTS};`).out).toBe("f");
   });
 
   it("20261128: the assertion fails when the restored body differs by even a comment", () => {

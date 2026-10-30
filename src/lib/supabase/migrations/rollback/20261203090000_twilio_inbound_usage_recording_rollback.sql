@@ -1,5 +1,5 @@
 -- Rollback of 20261203090000 (inbound usage recording). Restores _tw4ml_month_parts and tw4_credit_debit_usage as of 20261201090000, removes the
--- 'sms_inbound' price kind from the live kind list (leaving every other kind as it is) and drops the inbound objects.
+-- 'sms_inbound' price kind from the live kind list, re-creating the constraint in the exact text form 20261202090000 created (REFUSES, 55000, unless the kinds left are exactly the 20261202090000 list), and drops the inbound objects.
 -- REFUSES once any inbound record, exposure ceiling or 'sms_inbound' price row exists (financial evidence): from then on the stance is forward-fix only.
 -- Roll the application back first.
 begin;
