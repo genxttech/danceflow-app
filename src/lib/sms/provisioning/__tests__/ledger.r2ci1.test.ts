@@ -4,6 +4,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/auth/platform-assurance", async () => (await import("@/lib/auth/__tests__/stepUpDouble")).stepUpDouble());
+
 const platform = vi.hoisted(() => ({ requirePlatformAdmin: vi.fn() }));
 const admin = vi.hoisted(() => ({ rpc: vi.fn(), createAdminClient: vi.fn() }));
 const nav = vi.hoisted(() => ({ cookieSet: vi.fn(), redirect: vi.fn() }));

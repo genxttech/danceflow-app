@@ -51,9 +51,9 @@ function sign(payload: Record<string, unknown>) {
 }
 const anonKey = () => (enabled ? sign({ iss: "supabase-demo", role: "anon", exp: 1983812996 }) : "");
 const serviceKey = () => (enabled ? sign({ iss: "supabase-demo", role: "service_role", exp: 1983812996 }) : "");
-const userToken = (sub: string) => sign({ sub, role: "authenticated", aud: "authenticated", exp: Math.floor(Date.now() / 1000) + 3600 });
-const as = (who: keyof typeof U): SupabaseClient =>
-  createClient(URL_, anonKey(), { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: { Authorization: `Bearer ${userToken(U[who])}` } } });
+const userToken = (sub: string, aal = "aal2") => sign({ sub, role: "authenticated", aud: "authenticated", aal, exp: Math.floor(Date.now() / 1000) + 3600 });
+const as = (who: keyof typeof U, aal = "aal2"): SupabaseClient =>
+  createClient(URL_, anonKey(), { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: { Authorization: `Bearer ${userToken(U[who], aal)}` } } });
 const psql = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-At", "-v", "ON_ERROR_STOP=1", "-c", sql], { encoding: "utf8" }).trim();
 const psqlFile = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-q", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8" });
 
@@ -214,6 +214,9 @@ describe.skipIf(!enabled)("TW-4F-3b-UI: credit read functions, real schema, real
     expect((await as("owner_a").rpc("sms_credit_admin_overview")).error?.code).toBe("42501");
     expect((await as("fd_a").rpc("sms_credit_admin_overview")).error?.code).toBe("42501");
     expect(await getAdminCreditOverview(as("owner_a") as never)).toBeNull();
+    // TW-4F AAL2: a platform admin whose token is only aal1 is refused in SQL too
+    expect((await as("padmin", "aal1").rpc("sms_credit_admin_overview")).error?.code).toBe("42501");
+    expect(await getAdminCreditOverview(as("padmin", "aal1") as never)).toBeNull();
 
     await credits.adjust(EB, -300, `ui-negative-${RUN}`, "fixture: drive the balance negative for the monitoring view", U.padmin);
     aged(`update public.studio_sms_credit_topups set created_at = now() - interval '3 hours', expires_at = now() - interval '2 hours' where id = (select id from public.studio_sms_credit_topups where legal_entity_id = '${EB}' and status = 'pending' order by created_at limit 1);`);

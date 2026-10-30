@@ -83,7 +83,7 @@ reset role;
 -- ============================================================================
 set local role authenticated;
 select set_config('request.jwt.claims',
-  '{"sub":"00000000-0000-0000-0000-00005a200003","role":"authenticated"}', true);
+  '{"sub":"00000000-0000-0000-0000-00005a200003","role":"authenticated","aal":"aal2"}', true);
 
 select pg_temp.expect_ok('admin can create (not_registered default)',
   $q$insert into public.studio_sms_registrations (studio_id) values ('00000000-0000-0000-0000-00005a2000a1')$q$);
