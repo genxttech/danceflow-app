@@ -178,6 +178,7 @@ export async function POST(request: NextRequest) {
         visibility,
         public_directory_enabled,
         studio_id,
+        organizer_id,
         studios:studio_id (
           id,
           name,
@@ -263,6 +264,25 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // D7: a guest-coach slot belongs to an Organizer Suite event when the event (or the slot) is tied to an organizer.
+  // New purchases for such an event need a current Organizer Suite entitlement, exactly like the cart and student
+  // checkouts (a fee of 0 means "Suite required", not "no fee"). Checked BEFORE the slot is held so a refused
+  // purchase never touches the slot. Events with no organizer (ordinary studio listings) are unaffected, and
+  // bookings that are already paid or in flight are never re-checked here (the webhook finalizes them as before).
+  const organizerId = event.organizer_id ?? slot.organizer_id ?? null;
+  const feePercent = organizerId
+    ? await getOrganizerPlatformFeePercent(
+        supabase,
+        event.studio_id ?? slot.studio_id,
+      )
+    : 0;
+
+  if (organizerId && feePercent <= 0) {
+    return NextResponse.redirect(
+      absoluteEventUrl(request, eventSlug, "?error=organizer_suite_required"),
+    );
+  }
+
   const holdToken = randomUUID();
   const holdUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
@@ -295,9 +315,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const feePercent = slot.organizer_id
-    ? await getOrganizerPlatformFeePercent(supabase, slot.studio_id)
-    : 0;
   const applicationFeeAmount = calculateApplicationFeeAmount(
     amount,
     feePercent,
