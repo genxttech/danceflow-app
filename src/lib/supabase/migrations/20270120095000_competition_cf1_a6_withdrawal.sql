@@ -214,7 +214,9 @@ begin
         using errcode = 'P0001';
     end if;
     -- OD-18 A: no heat entry is ever inserted. While an active Final heat exists the couple must still have its scratched row there.
-    if v_heat is not null and (v_he.id is null or v_he.status <> 'scratched') then
+    if v_heat is not null and (v_he.id is null or v_he.status <> 'scratched'
+                               or v_prior.heat_entry_id is distinct from v_he.id
+                               or v_prior.prior_heat_entry_status is null or v_prior.prior_heat_entry_status not in ('scheduled', 'checked_in')) then
       raise exception 'COMP_ADVANCEMENT_REINSTATE_NO_HEAT_ENTRY: the active Final heat has no heat entry for this couple; correct the callback (revoke), reinstate, then advance again.'
         using errcode = 'P0001';
     end if;

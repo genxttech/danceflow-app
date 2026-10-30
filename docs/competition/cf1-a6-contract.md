@@ -90,3 +90,8 @@ A0 table columns, checks and FKs, `_cf1_withdrawn_entries`, `_cf1_active_advance
 * "Not anyone who files a replacement ballot" (OD-19 D's inherited clause) is **vacuous** here: a withdrawal is refused once the Final has any ballot (`COMP_WITHDRAWAL_BALLOTS`). It matters for the OD-13 judge-entry correction (A0b / A5).
 * Pending-request expiry/cancel, a UI list beyond `competition_final_withdrawal_state`, an audit-log projection of withdrawals (`competition_audit_log`): not in A6.
 * The `lock_competition_round_ballots` cross-check for a withdrawn pair on the roster (OD-17 D third leg, §4.5) belongs to A2.
+
+## Independent review (read-only subagent): no P0/P1
+
+Fixed: reinstate precheck now also requires the active heat entry to be the row the withdrawal recorded, with a restorable prior status (no stuck-pending request).
+Accepted and recorded (P2/P3): requester authority is not re-checked at co-sign and requests do not expire or cancel (follow-up with B); the guard reads in the caller's snapshot, so REPEATABLE READ/SERIALIZABLE writers are outside its guarantee (PostgREST is READ COMMITTED; U51 covers that); the DELETE "heat gone" exemption relies on the withdrawals FK, which does not fire under `session_replication_role = replica`; withdrawn rows in cancelled heats cannot be cleaned up; co-sign returns REQUEST_NOT_FOUND before the role check (uuid probe, negligible).
