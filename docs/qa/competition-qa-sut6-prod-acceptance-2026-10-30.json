@@ -1,0 +1,707 @@
+{
+  "generatedAt": "2026-10-30T04:36:48.396Z",
+  "sut": "qa-sut-6 (d7fcde04), PRODUCTION build (next build + next start)",
+  "halves": {
+    "ordinal": [
+      {
+        "name": "q7E",
+        "artifactDir": "C:/Users/mcurt/AppData/Local/Temp/claude/C--Dev-studioapp/e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f/scratchpad/runs/20261030-002744-q7E",
+        "counts": {
+          "PASS": 17,
+          "NOT IMPLEMENTED": 1
+        },
+        "wallClockMs": 174650.41999999998,
+        "scenarios": [
+          {
+            "id": "SCN-0c",
+            "title": "SCN-0c setup (not a scenario): the three judges prove their mailbox through the real sign-in link; the owner does too (reading no-shows needs it)",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 14343,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-56026--reading-no-shows-needs-it--chromium\\test-finished-1.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-56026--reading-no-shows-needs-it--chromium\\test-finished-2.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-56026--reading-no-shows-needs-it--chromium\\test-finished-3.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-56026--reading-no-shows-needs-it--chromium\\test-finished-4.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-56026--reading-no-shows-needs-it--chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-12.1",
+            "title": "SCN-12.1 ordinal competition: scoring set up and published, five entries paid, running order published, panel ready, round running (the heat is not started yet)",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 40175,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-661fe-he-heat-is-not-started-yet--chromium\\attachments\\01-final-only-applied-6b9b15dc7b0c67765aceff5924337c3e3fd4c3a8.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-661fe-he-heat-is-not-started-yet--chromium\\attachments\\02-round-running-92a9b1b69e8f8dc22c4ab640db52ca53f7bdc4d3.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-661fe-he-heat-is-not-started-yet--chromium\\test-finished-1.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-661fe-he-heat-is-not-started-yet--chromium\\test-finished-2.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-661fe-he-heat-is-not-started-yet--chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-15.1",
+            "title": "SCN-15.1 early lock: a manager locks the not-yet-started heat; the confirm says so, the heat locks, and the floor console will not start it",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 4261,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-d7c7b-r-console-will-not-start-it-chromium\\attachments\\01-heat-locked-early-8339ac0cb28e40329d09ea37e073841511d85c8f.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-d7c7b-r-console-will-not-start-it-chromium\\attachments\\02-floor-refuses-3490aea83d176374637619c4e8a7472b21eeebcd.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-d7c7b-r-console-will-not-start-it-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-d7c7b-r-console-will-not-start-it-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-6.3",
+            "title": "SCN-6.3 official scratch in a locked, not-yet-danced heat: the reason is required, the heat stays locked, one audit row",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 12225,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-a9060--stays-locked-one-audit-row-chromium\\attachments\\01-official-locked-scratch-history-b18f6699bf84cd17c2e1597590637f68a74d308b.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-a9060--stays-locked-one-audit-row-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-a9060--stays-locked-one-audit-row-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-15.2",
+            "title": "SCN-15.2 reopen: the manager reopens the early-locked heat with a reason; the floor can start it again",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 5438,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-d0011-he-floor-can-start-it-again-chromium\\attachments\\01-heat-reopened-a08a98331826ecb113342c2b4192991614f01e11.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-d0011-he-floor-can-start-it-again-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-d0011-he-floor-can-start-it-again-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-15.3",
+            "title": "SCN-15.3 the heat runs; a lock on a heat that is on the floor is refused (no button, and the database refuses a direct call)",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 6375,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-b10a9-base-refuses-a-direct-call--chromium\\attachments\\01-no-lock-on-active-heat-257106f6ac22d6ca04f767f4163be103d7ff0bb4.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-b10a9-base-refuses-a-direct-call--chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-b10a9-base-refuses-a-direct-call--chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-10.1",
+            "title": "SCN-10.1 no-show: the official marks the last entry as no-show in the active heat",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 5956,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-dd76d--no-show-in-the-active-heat-chromium\\attachments\\01-no-show-recorded-043b27854b9f94f504ba9c42aa48b6581e1232ed.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-dd76d--no-show-in-the-active-heat-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-dd76d--no-show-in-the-active-heat-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-10.5",
+            "title": "SCN-10.5 judge sheet: the no-show entry is gone from the ranking form, with a note",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 1351,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-7e799-he-ranking-form-with-a-note-chromium\\attachments\\01-sheet-without-no-show-56c39fa1113a64423823ece6f833ac478ef6d6a2.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-7e799-he-ranking-form-with-a-note-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-7e799-he-ranking-form-with-a-note-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-12.2",
+            "title": "SCN-12.2 ordinal ballots: three judges rank the three entries who danced from their own accounts",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 6535,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-33fa9-ced-from-their-own-accounts-chromium\\test-finished-2.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-33fa9-ced-from-their-own-accounts-chromium\\test-finished-1.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-33fa9-ced-from-their-own-accounts-chromium\\test-finished-3.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-33fa9-ced-from-their-own-accounts-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-12.3",
+            "title": "SCN-12.3 lock: Lock ballots stays disabled while the heat is not danced; after the heat is completed, Lock heat and Lock ballots work",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 10712,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-9742b--heat-and-Lock-ballots-work-chromium\\attachments\\01-heat-not-locked-yet-2277476447ee3da7169d6ea8226d924c8185275a.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-9742b--heat-and-Lock-ballots-work-chromium\\attachments\\02-ballots-locked-04f26ef8c88d434f56f9265289357d359f6439b5.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-9742b--heat-and-Lock-ballots-work-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-9742b--heat-and-Lock-ballots-work-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-15.4",
+            "title": "SCN-15.4 reopen is refused for a danced heat after the ballots lock (no button, and the database refuses a direct call)",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 3233,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-709b1-base-refuses-a-direct-call--chromium\\attachments\\01-no-reopen-after-lock-569316b810266e8bda9f1043926f040f37dbe2b6.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-709b1-base-refuses-a-direct-call--chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-709b1-base-refuses-a-direct-call--chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-10.4",
+            "title": "SCN-10.4 after the ballots lock, marking a no-show is refused and the controls are gone",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 3676,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-a6e12-d-and-the-controls-are-gone-chromium\\attachments\\01-no-show-controls-gone-491cd2a12c0376fdb062b675bc85832e1b990714.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-a6e12-d-and-the-controls-are-gone-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-a6e12-d-and-the-controls-are-gone-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-14.1",
+            "title": "SCN-14.1 calculate: the result ranks the entries who danced, excludes the no-show, and a calculator-only approval is refused",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 5965,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-61a8a-or-only-approval-is-refused-chromium\\attachments\\01-result-v1-69cea45385facd0e07df11c435e9f28b63700ce0.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-61a8a-or-only-approval-is-refused-chromium\\attachments\\02-calculator-only-approve-refused-f78a61eeb0af213b8368f2505df58b32b7885c11.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-61a8a-or-only-approval-is-refused-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-61a8a-or-only-approval-is-refused-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-14.2",
+            "title": "SCN-14.2 correction: the manager opens a correction; the judge sheet shows the correction banner and takes a corrected ballot with a reason (CX1)",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 7867,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-eca4a-d-ballot-with-a-reason-CX1--chromium\\attachments\\01-correction-open-4f0ed47c13e0a09f2d59461e006529ca0e353df3.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-eca4a-d-ballot-with-a-reason-CX1--chromium\\attachments\\02-judge-sheet-correction-open-cb48cff2a8c10531f9c3552cdb2c98f8cd6d3ea3.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-eca4a-d-ballot-with-a-reason-CX1--chromium\\test-finished-1.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-eca4a-d-ballot-with-a-reason-CX1--chromium\\test-finished-2.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-eca4a-d-ballot-with-a-reason-CX1--chromium\\test-finished-3.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-eca4a-d-ballot-with-a-reason-CX1--chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-14.2b",
+            "title": "SCN-14.2b a corrected ballot makes the result stale: it cannot be approved until it is recalculated",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 6056,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-f432f-ed-until-it-is-recalculated-chromium\\attachments\\01-stale-no-approve-6dd9b95224e89044adf0fc3f457b57568477ef23.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-f432f-ed-until-it-is-recalculated-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-f432f-ed-until-it-is-recalculated-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-14.3",
+            "title": "SCN-14.3 recalculate and approve: a second manager approves, the heat is certified, and a certified heat refuses a scratch",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 9445,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-8b351-fied-heat-refuses-a-scratch-chromium\\attachments\\01-result-v2-0e072593cf8b9c01a48ec601186d22b9d119b315.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-8b351-fied-heat-refuses-a-scratch-chromium\\attachments\\02-approved-ba81ba7bc2650a1564086fb163d898f6c94eb9b1.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-8b351-fied-heat-refuses-a-scratch-chromium\\attachments\\03-certified-scratch-refused-82cf0f9547d712678c986329ebceb708c0da05d9.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-8b351-fied-heat-refuses-a-scratch-chromium\\test-finished-1.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-8b351-fied-heat-refuses-a-scratch-chromium\\test-finished-2.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-8b351-fied-heat-refuses-a-scratch-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-14.4",
+            "title": "SCN-14.4 who can see results: judges, the other studio, the instructor, and anonymous visitors cannot open them; the public event page shows none",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 13564,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-a106a-ublic-event-page-shows-none-chromium\\attachments\\01-public-event-page-b5f0562ead276a7b1bd5dcdf91735eeb754b1af6.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-a106a-ublic-event-page-shows-none-chromium\\test-finished-1.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-a106a-ublic-event-page-shows-none-chromium\\test-finished-2.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-a106a-ublic-event-page-shows-none-chromium\\test-finished-3.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-a106a-ublic-event-page-shows-none-chromium\\test-finished-5.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-a106a-ublic-event-page-shows-none-chromium\\test-finished-4.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-a106a-ublic-event-page-shows-none-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-13.1",
+            "title": "SCN-13.1 publication: the dancer sees only their own entries and the published placements; a correction republishes as v2",
+            "status": "NOT IMPLEMENTED",
+            "note": "F3 publication is not built.",
+            "setupShortcut": false,
+            "durationMs": 0,
+            "screenshots": [],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-002744-q7E\\artifacts\\competition-scoring-result-9031e-orrection-republishes-as-v2-chromium\\trace.zip",
+            "evidence": []
+          }
+        ]
+      },
+      {
+        "name": "q7E2",
+        "artifactDir": "C:/Users/mcurt/AppData/Local/Temp/claude/C--Dev-studioapp/e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f/scratchpad/runs/20261030-003057-q7E2",
+        "counts": {
+          "PASS": 17,
+          "NOT IMPLEMENTED": 1
+        },
+        "wallClockMs": 174790.089,
+        "scenarios": [
+          {
+            "id": "SCN-0c",
+            "title": "SCN-0c setup (not a scenario): the three judges prove their mailbox through the real sign-in link; the owner does too (reading no-shows needs it)",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 13887,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-56026--reading-no-shows-needs-it--chromium\\test-finished-1.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-56026--reading-no-shows-needs-it--chromium\\test-finished-2.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-56026--reading-no-shows-needs-it--chromium\\test-finished-3.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-56026--reading-no-shows-needs-it--chromium\\test-finished-4.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-56026--reading-no-shows-needs-it--chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-12.1",
+            "title": "SCN-12.1 ordinal competition: scoring set up and published, five entries paid, running order published, panel ready, round running (the heat is not started yet)",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 45847,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-661fe-he-heat-is-not-started-yet--chromium\\attachments\\01-final-only-applied-104c07aa0908fcf1bc87208483c0ba60256b2efc.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-661fe-he-heat-is-not-started-yet--chromium\\attachments\\02-round-running-c443dd41e6e594cd39c754a89d831a8fee0ba682.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-661fe-he-heat-is-not-started-yet--chromium\\test-finished-1.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-661fe-he-heat-is-not-started-yet--chromium\\test-finished-2.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-661fe-he-heat-is-not-started-yet--chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-15.1",
+            "title": "SCN-15.1 early lock: a manager locks the not-yet-started heat; the confirm says so, the heat locks, and the floor console will not start it",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 4288,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-d7c7b-r-console-will-not-start-it-chromium\\attachments\\01-heat-locked-early-8a5f4890fd5ee7accb7cb705e1db5aab35e6b756.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-d7c7b-r-console-will-not-start-it-chromium\\attachments\\02-floor-refuses-27f0f0d52bfaf2b4b51326f338fd4b03d33ca47b.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-d7c7b-r-console-will-not-start-it-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-d7c7b-r-console-will-not-start-it-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-6.3",
+            "title": "SCN-6.3 official scratch in a locked, not-yet-danced heat: the reason is required, the heat stays locked, one audit row",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 12043,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-a9060--stays-locked-one-audit-row-chromium\\attachments\\01-official-locked-scratch-history-99c7fe8833c208438eb18cd57112ef862047c31b.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-a9060--stays-locked-one-audit-row-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-a9060--stays-locked-one-audit-row-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-15.2",
+            "title": "SCN-15.2 reopen: the manager reopens the early-locked heat with a reason; the floor can start it again",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 4608,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-d0011-he-floor-can-start-it-again-chromium\\attachments\\01-heat-reopened-a6b4b0534e70e807a0f7d4e678005d95d399af98.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-d0011-he-floor-can-start-it-again-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-d0011-he-floor-can-start-it-again-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-15.3",
+            "title": "SCN-15.3 the heat runs; a lock on a heat that is on the floor is refused (no button, and the database refuses a direct call)",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 6266,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-b10a9-base-refuses-a-direct-call--chromium\\attachments\\01-no-lock-on-active-heat-50e278c20a8f28376f2859bbec070ee2d33d9813.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-b10a9-base-refuses-a-direct-call--chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-b10a9-base-refuses-a-direct-call--chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-10.1",
+            "title": "SCN-10.1 no-show: the official marks the last entry as no-show in the active heat",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 4819,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-dd76d--no-show-in-the-active-heat-chromium\\attachments\\01-no-show-recorded-601cae59cc991eebf627c49d7cc7d1531bb5b175.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-dd76d--no-show-in-the-active-heat-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-dd76d--no-show-in-the-active-heat-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-10.5",
+            "title": "SCN-10.5 judge sheet: the no-show entry is gone from the ranking form, with a note",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 1662,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-7e799-he-ranking-form-with-a-note-chromium\\attachments\\01-sheet-without-no-show-8dfcc9c0591358e749ed5b27aff98f43402378a7.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-7e799-he-ranking-form-with-a-note-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-7e799-he-ranking-form-with-a-note-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-12.2",
+            "title": "SCN-12.2 ordinal ballots: three judges rank the three entries who danced from their own accounts",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 7230,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-33fa9-ced-from-their-own-accounts-chromium\\test-finished-1.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-33fa9-ced-from-their-own-accounts-chromium\\test-finished-2.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-33fa9-ced-from-their-own-accounts-chromium\\test-finished-3.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-33fa9-ced-from-their-own-accounts-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-12.3",
+            "title": "SCN-12.3 lock: Lock ballots stays disabled while the heat is not danced; after the heat is completed, Lock heat and Lock ballots work",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 9198,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-9742b--heat-and-Lock-ballots-work-chromium\\attachments\\01-heat-not-locked-yet-fae609aa3ee57137dd09dd1d8e51632c9d79dda4.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-9742b--heat-and-Lock-ballots-work-chromium\\attachments\\02-ballots-locked-c397390d5b1adf7a68e64962fa9d3fe11071b841.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-9742b--heat-and-Lock-ballots-work-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-9742b--heat-and-Lock-ballots-work-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-15.4",
+            "title": "SCN-15.4 reopen is refused for a danced heat after the ballots lock (no button, and the database refuses a direct call)",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 2781,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-709b1-base-refuses-a-direct-call--chromium\\attachments\\01-no-reopen-after-lock-392fda3187f85ba3b19207d1ade5315dfd18bd9b.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-709b1-base-refuses-a-direct-call--chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-709b1-base-refuses-a-direct-call--chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-10.4",
+            "title": "SCN-10.4 after the ballots lock, marking a no-show is refused and the controls are gone",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 4154,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-a6e12-d-and-the-controls-are-gone-chromium\\attachments\\01-no-show-controls-gone-b6cd1025075a968d4a563a5ec4b682ee314b501f.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-a6e12-d-and-the-controls-are-gone-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-a6e12-d-and-the-controls-are-gone-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-14.1",
+            "title": "SCN-14.1 calculate: the result ranks the entries who danced, excludes the no-show, and a calculator-only approval is refused",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 6732,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-61a8a-or-only-approval-is-refused-chromium\\attachments\\01-result-v1-1acdc62f6410c65b318b635444a3293afced3204.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-61a8a-or-only-approval-is-refused-chromium\\attachments\\02-calculator-only-approve-refused-0cb9ec2748566980d1332051bcf2bcfe6ca6ea32.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-61a8a-or-only-approval-is-refused-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-61a8a-or-only-approval-is-refused-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-14.2",
+            "title": "SCN-14.2 correction: the manager opens a correction; the judge sheet shows the correction banner and takes a corrected ballot with a reason (CX1)",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 6734,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-eca4a-d-ballot-with-a-reason-CX1--chromium\\attachments\\01-correction-open-8c7be6d80a781cf7dba98c01a7f88a3258baacd4.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-eca4a-d-ballot-with-a-reason-CX1--chromium\\attachments\\02-judge-sheet-correction-open-4862faa3ddab0aebbbd2b7355e7efb46ee1479e2.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-eca4a-d-ballot-with-a-reason-CX1--chromium\\test-finished-1.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-eca4a-d-ballot-with-a-reason-CX1--chromium\\test-finished-2.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-eca4a-d-ballot-with-a-reason-CX1--chromium\\test-finished-3.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-eca4a-d-ballot-with-a-reason-CX1--chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-14.2b",
+            "title": "SCN-14.2b a corrected ballot makes the result stale: it cannot be approved until it is recalculated",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 5170,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-f432f-ed-until-it-is-recalculated-chromium\\attachments\\01-stale-no-approve-159534123001804a232875f0255c0ca23c3a64ae.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-f432f-ed-until-it-is-recalculated-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-f432f-ed-until-it-is-recalculated-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-14.3",
+            "title": "SCN-14.3 recalculate and approve: a second manager approves, the heat is certified, and a certified heat refuses a scratch",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 10262,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-8b351-fied-heat-refuses-a-scratch-chromium\\attachments\\01-result-v2-14ef7323abdf6742f7abcc20ac28cad6f71bcd60.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-8b351-fied-heat-refuses-a-scratch-chromium\\attachments\\02-approved-1ca0fde056a489697bab39398721fe57d4bc8c86.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-8b351-fied-heat-refuses-a-scratch-chromium\\attachments\\03-certified-scratch-refused-87e1f177e329964bcf1cfc8f980906216463aea6.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-8b351-fied-heat-refuses-a-scratch-chromium\\test-finished-1.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-8b351-fied-heat-refuses-a-scratch-chromium\\test-finished-2.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-8b351-fied-heat-refuses-a-scratch-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-14.4",
+            "title": "SCN-14.4 who can see results: judges, the other studio, the instructor, and anonymous visitors cannot open them; the public event page shows none",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 12222,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-a106a-ublic-event-page-shows-none-chromium\\attachments\\01-public-event-page-b804f1a82125d720bb5d19c3e17ea5eb1c454ffe.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-a106a-ublic-event-page-shows-none-chromium\\test-finished-1.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-a106a-ublic-event-page-shows-none-chromium\\test-finished-2.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-a106a-ublic-event-page-shows-none-chromium\\test-finished-3.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-a106a-ublic-event-page-shows-none-chromium\\test-finished-4.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-a106a-ublic-event-page-shows-none-chromium\\test-finished-5.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-a106a-ublic-event-page-shows-none-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-13.1",
+            "title": "SCN-13.1 publication: the dancer sees only their own entries and the published placements; a correction republishes as v2",
+            "status": "NOT IMPLEMENTED",
+            "note": "F3 publication is not built.",
+            "setupShortcut": false,
+            "durationMs": 0,
+            "screenshots": [],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003057-q7E2\\artifacts\\competition-scoring-result-9031e-orrection-republishes-as-v2-chromium\\trace.zip",
+            "evidence": []
+          }
+        ]
+      }
+    ],
+    "callback": [
+      {
+        "name": "q7D",
+        "artifactDir": "C:/Users/mcurt/AppData/Local/Temp/claude/C--Dev-studioapp/e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f/scratchpad/runs/20261030-003400-q7D",
+        "counts": {
+          "PASS": 6,
+          "NOT RUN": 2
+        },
+        "wallClockMs": 93085.942,
+        "scenarios": [
+          {
+            "id": "SCN-0c",
+            "title": "SCN-0c setup (not a scenario): the three judges prove their mailbox through the real sign-in link; the owner does too (reading no-shows needs it)",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 12532,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-56026--reading-no-shows-needs-it--chromium\\test-finished-1.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-56026--reading-no-shows-needs-it--chromium\\test-finished-2.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-56026--reading-no-shows-needs-it--chromium\\test-finished-3.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-56026--reading-no-shows-needs-it--chromium\\test-finished-4.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-56026--reading-no-shows-needs-it--chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-1.3",
+            "title": "SCN-1.3 callback target: 'Callbacks + Final' is set up in Advanced settings; the 'Callback target not set' blocker shows until the organizer sets T, then persists",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 12544,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-03118-anizer-sets-T-then-persists-chromium\\attachments\\01-callbacks-final-applied-a0ca24661c823b83ca9a14f57741779d42f1182f.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-03118-anizer-sets-T-then-persists-chromium\\attachments\\02-target-set-3b9266b6b48bcd5b957804f4926622260e1bce31.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-03118-anizer-sets-T-then-persists-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-03118-anizer-sets-T-then-persists-chromium\\trace.zip",
+            "evidence": [
+              {
+                "scenario": "SCN-1.3",
+                "target": 2
+              }
+            ]
+          },
+          {
+            "id": "SCN-11.1",
+            "title": "SCN-11.1 callback competition: publish (methods pinned), register and pay four entries, publish the running order, build the panel, start the round and heat",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 37329,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-e4f36-el-start-the-round-and-heat-chromium\\attachments\\01-schedule-published-0d1b572e129af48d9d4e7795f768dc9977c1856b.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-e4f36-el-start-the-round-and-heat-chromium\\attachments\\02-panel-ready-13494c262401e173c708a35c2dff71fb21c4e53b.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-e4f36-el-start-the-round-and-heat-chromium\\attachments\\03-heat-on-the-floor-5346a273818eceb3765f59635f21906ad6f068d6.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-e4f36-el-start-the-round-and-heat-chromium\\test-finished-1.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-e4f36-el-start-the-round-and-heat-chromium\\test-finished-2.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-e4f36-el-start-the-round-and-heat-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-11.2",
+            "title": "SCN-11.2 callback ballots: a ballot with the wrong number of picks is refused; three judges each submit exactly T picks from their own account",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 6720,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-4b05e-icks-from-their-own-account-chromium\\attachments\\01-wrong-pick-count-refused-780336a336bf69fc6b0f366ee66131bff8a02bfe.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-4b05e-icks-from-their-own-account-chromium\\test-finished-1.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-4b05e-icks-from-their-own-account-chromium\\test-finished-2.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-4b05e-icks-from-their-own-account-chromium\\test-finished-3.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-4b05e-icks-from-their-own-account-chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-11.3a",
+            "title": "SCN-11.3a callback lock: the manager locks the callback ballots (or the desk states exactly why it cannot)",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 7313,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-52740-ates-exactly-why-it-cannot--chromium\\attachments\\01-locked-43c1337d48dcd04b2e484d393210c1f6b6993b1e.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-52740-ates-exactly-why-it-cannot--chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-52740-ates-exactly-why-it-cannot--chromium\\trace.zip",
+            "evidence": []
+          },
+          {
+            "id": "SCN-11.3",
+            "title": "SCN-11.3 callback result: the calculation advances exactly T couples, and the manager sees them",
+            "status": "PASS",
+            "note": null,
+            "setupShortcut": false,
+            "durationMs": 4928,
+            "screenshots": [
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-2f5a8-s-and-the-manager-sees-them-chromium\\attachments\\01-callback-result-ddeaed739c9f5b485d823c7087bd51dfb2fb34f2.png",
+              "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-2f5a8-s-and-the-manager-sees-them-chromium\\test-finished-1.png"
+            ],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-2f5a8-s-and-the-manager-sees-them-chromium\\trace.zip",
+            "evidence": [
+              {
+                "scenario": "SCN-11.3",
+                "advanced": 2
+              }
+            ]
+          },
+          {
+            "id": "SCN-11.4",
+            "title": "SCN-11.4 callback ties: a tie at the callback line is resolved within capacity by the approved rule",
+            "status": "NOT RUN",
+            "note": "Callback tie: not written yet (the engine refuses a tie over capacity by design).",
+            "setupShortcut": false,
+            "durationMs": 0,
+            "screenshots": [],
+            "trace": null,
+            "evidence": []
+          },
+          {
+            "id": "SCN-11.5",
+            "title": "SCN-11.5 the Final of a callback competition is built from the advanced couples and judged in one heat",
+            "status": "NOT RUN",
+            "note": "The Final built from the advanced couples: no screen creating the Final's heat was found; to confirm.",
+            "setupShortcut": false,
+            "durationMs": 0,
+            "screenshots": [],
+            "trace": "C:\\Users\\mcurt\\AppData\\Local\\Temp\\claude\\C--Dev-studioapp\\e41dccd4-4dbb-4b02-8cf7-3f3ec6e94c9f\\scratchpad\\runs\\20261030-003400-q7D\\artifacts\\competition-scoring-result-6db5a-ples-and-judged-in-one-heat-chromium\\trace.zip",
+            "evidence": []
+          }
+        ]
+      }
+    ]
+  },
+  "environmentNotes": {
+    "build": "next build with NODE_OPTIONS=--max-old-space-size=6144, nothing else running, exit 0; during the build the peak system memory in use was 29,247 MB and the minimum free 3,034 MB (55 samples at 5 s).",
+    "memory": "Runs against next start: 31 samples at 20 s, peak system memory in use 25,865 MB, minimum free 6,416 MB, peak server working set 451 MB.",
+    "reductions": "Supabase services excluded: studio, imgproxy, postgres-meta, logflare, vector, supavisor, edge-runtime. Server NODE_OPTIONS --max-old-space-size=2048. Playwright headless, 1 worker, retries 0.",
+    "publicEnv": "NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:57921 and the local demo anon key (checked equal to the stack key), NEXT_PUBLIC_APP_URL and NEXT_PUBLIC_SITE_URL=http://localhost:3100, NEXT_PUBLIC_COMPETITION_REGISTRATION_ENABLED=true, baked at build time; no Stripe key in the build."
+  }
+}
