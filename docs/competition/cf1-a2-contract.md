@@ -61,3 +61,13 @@ Preflight refuses unless the installed text has the pre-A2 md5, the anchor occur
 
 * A3's pinned functions (calculate, approve, E2 ranking set) and A0's guards are not touched. A4's integration suite composes A2 for the lock call-site.
 * A5's exclusion action changes the ranking set; the lock check sees it automatically through `_compe2_round_entries`.
+
+## Review notes (independent security review, no P0/P1)
+
+* **Second inverse-order writer (P2).** The registration-sync trigger on `event_registrations` (20260620 generation operations, ~l.405-431) updates the entries of a registration (`FOR NO KEY UPDATE`, no id ordering) and can also be a deadlock counterpart of Lock ballots (a refund covering several entries vs. entries `FOR SHARE` in id order). Postgres picks one victim with `40P01`; if it is the refund transaction the caller (webhook) must retry. Not modelled by the concurrency probe (which emulates only the lifecycle writer). Ordering the sync's updates by id would remove the cycle with Lock ballots; that is a change outside A2's scope.
+* **Refund inputs unlocked (P2).** Accepted race; **approve (A3) must remain the last check** — keep as an A3 acceptance item.
+* **Chairs see per-entry payment reasons (P3)** in the error detail (A1 behaviour); coarsening is an owner decision.
+* **CR note (P3):** pins hash CR-stripped text. If the installed body had CRs, the replace rewrites it as LF, and the rollback restores LF; "exact restore" holds modulo CR (post-HL1 was already LF: HL1 executed CR-free text).
+* **Callers should set a statement timeout (P3):** no `lock_timeout` is set, so a long open entry-updating transaction makes the lock RPC wait.
+* **Rollback round-trip** (apply, rollback, apply, rollback, apply, with the HL1 rollback in between) was run on the QA chain; see the PR matrix.
+* The concurrency script must run on a fresh database and its `pg_locks` check is instance-global (run it alone).
