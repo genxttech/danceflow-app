@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { requirePlatformStepUp } from "@/lib/auth/platform-assurance";
 import { checkRateLimit, rateLimitKey } from "@/lib/security/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { encodePanelFlash, PANEL_FLASH_MAX_AGE_SECONDS } from "@/lib/sms/twilioIsv/panelFlash";
@@ -60,7 +60,7 @@ function studioFrom(form: FormData, adminId: string, scope: string, limit: numbe
 
 /** Records (pending) the sender from the ledger's own service, campaign and number. No identifier is read from the form. */
 export async function recordActivationSenderAction(formData: FormData): Promise<void> {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("aal2");
   const s = studioFrom(formData, admin.id, "record", 20);
   if ("refusal" in s) return finish(s.refusal);
   if (!checked(formData, "confirm")) return finish(bad("Confirm that the sender should be recorded from the ledger's identifiers."));
@@ -71,7 +71,7 @@ export async function recordActivationSenderAction(formData: FormData): Promise<
 
 /** Advanced Opt-Out is a Twilio Console setting (D4): the administrator attests every item with an evidence reference. Nothing is read from or written to Twilio. */
 export async function attestOptOutAction(formData: FormData): Promise<void> {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("aal2");
   const s = studioFrom(formData, admin.id, "attest", 20);
   if ("refusal" in s) return finish(s.refusal);
   if (!CHECKLIST_KEYS.every((k) => checked(formData, k))) return finish(bad("Every Advanced Opt-Out item must be confirmed in the Twilio Console before attesting. Nothing was recorded."));
@@ -85,7 +85,7 @@ export async function attestOptOutAction(formData: FormData): Promise<void> {
 
 /** Read-only compliance validation: GET reads of the ledger's campaign and service in the ledger's subaccount; the database judges the facts. */
 export async function runComplianceAction(formData: FormData): Promise<void> {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("aal2");
   const s = studioFrom(formData, admin.id, "compliance", 6);
   if ("refusal" in s) return finish(s.refusal);
   const runtime = complianceReadRuntime(process.env);
@@ -110,7 +110,7 @@ export async function runComplianceAction(formData: FormData): Promise<void> {
 
 /** Read-only sender verification for activation (PR #249 evidence); the database derives the opt-out attestation itself and refuses without it (TW041). */
 export async function verifyActivationSenderAction(formData: FormData): Promise<void> {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("aal2");
   const s = studioFrom(formData, admin.id, "verify", 6);
   if ("refusal" in s) return finish(s.refusal);
   const provider = activationSenderReadProvider(process.env);
@@ -127,7 +127,7 @@ export async function verifyActivationSenderAction(formData: FormData): Promise<
 
 /** Mark ready: campaign_pending -> ready_for_activation. The database re-evaluates the checklist and refuses with TW042 if anything is unmet. */
 export async function markReadyAction(formData: FormData): Promise<void> {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("recent");
   const s = studioFrom(formData, admin.id, "ready", 20);
   if ("refusal" in s) return finish(s.refusal);
   const note = field(formData, "note");
@@ -140,7 +140,7 @@ export async function markReadyAction(formData: FormData): Promise<void> {
 
 /** Manual activation: ready_for_activation or suspended -> active, only after the database re-checks the whole checklist in the same transaction. */
 export async function activateAction(formData: FormData): Promise<void> {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("recent");
   const s = studioFrom(formData, admin.id, "activate", 10);
   if ("refusal" in s) return finish(s.refusal);
   const note = field(formData, "note");
@@ -153,7 +153,7 @@ export async function activateAction(formData: FormData): Promise<void> {
 
 /** Immediate stop: the sender is revoked and the location suspended. Always available for an active location (the pilot included); a reason is required. */
 export async function suspendAction(formData: FormData): Promise<void> {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("aal2");
   // the emergency stop counts only well-formed submits against the rate limit: a mistyped reason never uses up the stop
   const studioId = field(formData, "studioId");
   if (!UUID.test(studioId)) return finish(bad("Choose a location from the list."));

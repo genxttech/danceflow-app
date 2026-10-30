@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { requirePlatformStepUp } from "@/lib/auth/platform-assurance";
 import { buildRunnerRuntime } from "@/lib/sms/twilioIsv/factory";
 import { SupabasePanelStore } from "@/lib/sms/twilioIsv/panel";
 import * as commands from "@/lib/sms/twilioIsv/panelCommands";
@@ -39,22 +39,22 @@ async function finish(result: CommandResult, formData?: FormData): Promise<never
 const store = () => new SupabasePanelStore(createAdminClient());
 
 export async function panelCreateEntityAction(formData: FormData) {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("aal2");
   await finish(await commands.createEntity(store(), admin.id, formData), formData);
 }
 
 export async function panelDecideLinkAction(formData: FormData) {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("aal2");
   await finish(await commands.decideLink(store(), admin.id, formData), formData);
 }
 
 export async function panelSetSpendCapAction(formData: FormData) {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("recent");
   await finish(await commands.setSpendCap(store(), admin.id, formData), formData);
 }
 
 export async function panelAuthorizeFeeAction(formData: FormData) {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("recent");
   const panelStore = store();
   // the location's registration tier comes from the database, never from the form
   let studioTier: string | null = null;
@@ -71,17 +71,17 @@ export async function panelAuthorizeFeeAction(formData: FormData) {
 }
 
 export async function panelWithdrawFeeAction(formData: FormData) {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("aal2");
   await finish(await commands.withdrawFee(store(), admin.id, formData), formData);
 }
 
 export async function panelCreatePilotExceptionAction(formData: FormData) {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("recent");
   await finish(await commands.createPilotException(store(), admin.id, formData), formData);
 }
 
 export async function panelCreateSubaccountAction(formData: FormData) {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("recent");
   const runtime = buildRunnerRuntime();
   const deps: SubaccountDeps = runtime.ok ? { entities: runtime.entities, parent: runtime.parent, envName: runtime.config.envName } : { refused: runtime.reason };
   let result: CommandResult;
@@ -94,6 +94,6 @@ export async function panelCreateSubaccountAction(formData: FormData) {
 }
 
 export async function panelDecideTierAction(formData: FormData) {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("aal2");
   await finish(await commands.decideTier(store(), admin.id, formData), formData);
 }

@@ -446,6 +446,24 @@ The owner-reported rows are recorded as reported; they were not independently ve
 
 Documentation PRs (this runbook, PR #323) are not merged; merging is a separate owner authorization.
 
+## Production deployment history (verified records; added 2026-10-25)
+
+Purpose: preserve the deployment and rollback IDs that the PRICING-P1 Current State edit replaced, using records that can be re-checked, not reconstructed values.
+
+**Method (read-only, 2026-10-25):** `vercel list --prod --format json` (project `danceflow-app-qfem`, the 800 most recent production-target deployments; the fetch stopped at its page limit, so this is not a complete inventory) for creation time, state and source metadata (`githubCommitRef/Sha`), and `vercel inspect <deployment>` for the full `dpl_` ID. Vercel does **not** expose promotion timestamps in these records, so a promotion time appears below only where an already-committed document states it; otherwise the column says so. Times are UTC.
+
+| Deployment ID | Created (UTC) | Source (Vercel git metadata unless noted) | State | Role and where it is recorded |
+|---|---|---|---|---|
+| `dpl_9GRhgfVhT6eDHyQooiqjXnEvpbj3` | 2026-10-13 08:29 | `main` `21ec7b6d` (PAY-WH-1, #215) | Ready | Recorded in the Current State file (until 2026-10-24) as the application-only rollback target for PAY-WH-1B; PAY-WH-1 SQL stays in place. Promotion time not recorded in Git. |
+| `dpl_5BjsJaSPqn1qA3D4fCDijZbRNqqK` | 2026-10-13 11:44 | `main` `24a37a15` (PAY-WH-1B, #216) | Ready | Recorded in Current State and Master Roadmap v2.23 as production, "promoted 2026-10-13 11:58Z" (the documents' statement; the time here is the build creation). |
+| `dpl_9JYuwjxf9ikjac3VtS8PSWhEZD2x` | 2026-10-16 02:22 | `main` `2cc05d9e` (TW-4 4A/4A.1 + R1/R1.1, #222) | Ready | Verified to exist with this source. Whether and when it was promoted is **not recorded in Git by this follow-up**; do not infer a promotion window. (A sibling build of the same commit, `dpl_5p88beBYkzAdD6iGyvMKAAukepVP`, was created 2026-10-16 02:05.) |
+| `dpl_87xgSBVM2MqXi9KeyJHFeH9rdsoh` | 2026-10-23 13:38 | `release/web-2a-website` `8fd075f5` (WEB-2B, #289; not an ancestor of `main`) | Ready | Verified as the deployment the production domains served immediately before the PRICING-P1 promotion (`vercel inspect www.idanceflow.com`, 2026-10-24); it is the PRICING-P1 rollback target. |
+| `dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj` | 2026-10-25 03:16 (2026-10-24 23:16 EDT) | `release/pricing-p1` `4bc938c6` (CLI upload of an exact `git archive` of that commit; the commit and branch values are uploader-supplied deployment metadata, not Vercel git-integration data; the tree was verified equal to the branch tree before upload) | Ready | PRICING-P1: staged, then promoted the evening of 2026-10-24 EDT (owner-authorized; recorded in the runbook above; the exact promotion time is not captured in these Vercel records, and in UTC it falls on 2026-10-25). Verified again 2026-10-25: `www.idanceflow.com` and `idanceflow.com` both serve it. |
+
+**Do not mistake staged builds for live ones.** Every merge to `main` creates a production-target deployment that is **not promoted** (automatic custom-domain assignment is off). After PRICING-P1, newer Ready production-target deployments exist for `main` commits (for example #323 `364c9d52`, build URL prefix `76fnsa5n5`); the domains still serve `dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj`. Promoting any `main` build requires the main-versus-production reconciliation listed in the closeout follow-ups.
+
+**Not recorded here (unknown, not reconstructed):** which deployment served production between 2026-10-13 11:58Z and 2026-10-23, and any promotion times other than the one stated above. If the owner wants a complete promotion timeline, the source is the Vercel project Activity log, which is outside this Git-only record.
+
 ## Release sequence (each hosted step needs separate owner authorization)
 
 1. Step 0 evidence accepted (live account, matches production).

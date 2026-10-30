@@ -2,6 +2,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/auth/platform-assurance", async () => (await import("@/lib/auth/__tests__/stepUpDouble")).stepUpDouble());
+
 /** TW-4F platform-admin panel: server actions (authorization, wiring, the tier read for fee approvals) and the rendered panel. */
 
 const redirects: string[] = [];

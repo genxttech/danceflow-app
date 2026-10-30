@@ -73,7 +73,7 @@ function sign(payload: Record<string, unknown>) {
 }
 const service = () => sign({ iss: "supabase-demo", role: "service_role", exp: 1983812996 });
 const anon = () => sign({ iss: "supabase-demo", role: "anon", exp: 1983812996 });
-const userJwt = (sub: string) => sign({ sub, role: "authenticated", aud: "authenticated", exp: Math.floor(Date.now() / 1000) + 3600 });
+const userJwt = (sub: string) => sign({ sub, role: "authenticated", aud: "authenticated", aal: "aal2", exp: Math.floor(Date.now() / 1000) + 3600 });
 const client = (token: string | null, key: string): SupabaseClient =>
   createClient(URL_, key, { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: token ? { Authorization: `Bearer ${token}` } : {} } });
 const psqlFile = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-q", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8" });
