@@ -65,3 +65,11 @@ Dependency note: the helpers are plain definer functions called at run time (PL/
 ## Rollback
 
 `rollback/20270120085000_…_rollback.sql` is the **last** CF1 rollback (CF1 before HL1). It refuses if any exclusion row exists (roll forward only), if any other function body still mentions an A1 helper or the table, or if another table references the exclusion table. Restores state by dropping the 11 functions and the table.
+
+## Caveats downstream packages must know (from the independent review)
+
+* **Locking of the refund inputs.** P reads `event_registrations` and `event_orders` (the entry's own links). Locking the entry rows `FOR SHARE` does **not** serialize against a refund: the registration sync skips entries on locked or certified heats, so it never touches the entry row. A refund committing concurrently with lock/approve can pass the check on an older snapshot. Lock and calculate are re-checked later; **approve is the last check**. A2/A3/A0 may additionally lock the linked registration and order rows `FOR SHARE` (in id order) or record this as an accepted race; A1 takes no locks.
+* **Callback-Final detection is the design §5 definition, literally.** The previous round is the one at exactly `sequence_number - 1` with `round_type = 'preliminary'`. Sequence gaps (managers can type any positive sequence), a callback scored `callback_tally` but typed `quarterfinal`/`semifinal`, and a cancelled previous round are therefore treated as written in §5 (gap or other type → not a callback Final; cancelled preliminary → still one). Flagged to the coordinator as a possible design question, not changed here.
+* **Error `detail` carries per-entry payment reasons** (`registration_payment_refunded`, `order_payment_failed`, …) to whoever can call lock/calculate/approve. The design asks for reasons in `detail`; coarsening is an owner decision.
+* **`evidence_heat_entry_ids` is an unvalidated `uuid[]`** (no FK, no statuses); A5 builds the snapshot.
+* **`decision_id` / `reverses_id` are not constrained to a matching `(round, entry, kind)`**; A5 must write them consistently (the readers trust the co-sign row's own `entry_id`).

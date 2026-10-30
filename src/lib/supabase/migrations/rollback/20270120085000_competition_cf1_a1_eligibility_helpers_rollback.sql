@@ -5,6 +5,9 @@
 
 begin;
 
+-- Blocks an in-flight writer so the emptiness check below cannot be overtaken by a commit before the drop.
+lock table public.event_competition_round_exclusions in access exclusive mode;
+
 do $$
 declare
   v_names constant text[] := array[

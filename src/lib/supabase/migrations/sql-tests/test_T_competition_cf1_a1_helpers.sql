@@ -153,14 +153,15 @@ insert into public.event_registrations (id, studio_id, event_id, order_id, statu
   (pg_temp.u('0b0007'), pg_temp.u('00a001'), pg_temp.u('00e001'), pg_temp.u('0a0005'), 'pending', 'pending', 'G', 'Pending', 'g7@example.test'),
   (pg_temp.u('0b0008'), pg_temp.u('00a001'), pg_temp.u('00e001'), pg_temp.u('0a0006'), 'confirmed', 'paid', 'G', 'SyncLocked', 'g8@example.test'),
   (pg_temp.u('0b0009'), pg_temp.u('00a001'), pg_temp.u('00e001'), pg_temp.u('0a0006'), 'confirmed', 'paid', 'G', 'SyncOpen', 'g9@example.test'),
-  (pg_temp.u('0b000a'), pg_temp.u('00a001'), pg_temp.u('00e001'), pg_temp.u('0a0006'), 'checked_in', 'partial', 'G', 'CheckedIn', 'ga@example.test');
+  (pg_temp.u('0b000a'), pg_temp.u('00a001'), pg_temp.u('00e001'), pg_temp.u('0a0006'), 'checked_in', 'partial', 'G', 'CheckedIn', 'ga@example.test'),
+  (pg_temp.u('0b000b'), pg_temp.u('00a001'), pg_temp.u('00e001'), pg_temp.u('0a0002'), 'confirmed', 'paid', 'G', 'PaidInRefundedOrder', 'gb@example.test');
 
 -- Entries (inserts bypass the link-validation trigger: replica). D1 roster under test:
 --  e01 no links | e02 pending | e03 withdrawn | e04 ineligible | e05 needs_review | e06 waived | e07 reg cancelled | e08 reg status refunded
 --  e09 reg payment refunded | e10 reg payment failed | e11 reg paid + order paid | e12 order refunded (no reg) | e13 order failed (no reg)
 --  e14 order partially_refunded (no reg) | e15 order pending | e16,e17 SAME cancelled reg (multi-entry) in a paid order | e18 other reg, same paid order
 --  e19 reg pending | e20 ineligible but its heat entry is scratched | e21 ineligible, only in a cancelled heat | e22 ineligible, only in a draft version
---  e23 reg paid but order refunded (order-level evidence wins) | e24 reg checked_in/partial | es sync target on a LOCKED heat | eu sync target on an open heat
+--  e23 reg paid but its order refunded (order-level evidence wins) | e24 reg checked_in/partial | es sync target on a LOCKED heat | eu sync target on an open heat
 set session_replication_role = replica;
 insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number, registration_id, order_id) values
   (pg_temp.u('008001'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'e01', 'confirmed', 'eligible', '1', null, null),
@@ -185,7 +186,7 @@ insert into public.event_competition_entries (id, event_id, program_id, division
   (pg_temp.u('008020'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'e20', 'confirmed', 'ineligible', '20', null, null),
   (pg_temp.u('008021'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'e21', 'confirmed', 'ineligible', '21', null, null),
   (pg_temp.u('008022'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'e22', 'confirmed', 'ineligible', '22', null, null),
-  (pg_temp.u('008023'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'e23', 'confirmed', 'eligible', '23', pg_temp.u('0b0001'), pg_temp.u('0a0001')),
+  (pg_temp.u('008023'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'e23', 'confirmed', 'eligible', '23', pg_temp.u('0b000b'), pg_temp.u('0a0002')),
   (pg_temp.u('008024'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'e24', 'confirmed', 'eligible', '24', pg_temp.u('0b000a'), pg_temp.u('0a0001')),
   (pg_temp.u('0080a1'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'es', 'confirmed', 'eligible', '31', pg_temp.u('0b0008'), pg_temp.u('0a0006')),
   (pg_temp.u('0080a2'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'eu', 'confirmed', 'eligible', '32', pg_temp.u('0b0009'), pg_temp.u('0a0006')),
@@ -288,7 +289,7 @@ select pg_temp.chk('P (iii-a): registration status cancelled (e07)', public._cf1
 select pg_temp.chk('P (iii-a): registration status refunded with payment_status paid (e08)', public._cf1_entry_unavailable_reason(pg_temp.u('008008')) = 'registration_refunded');
 select pg_temp.chk('P (iii-a): registration payment_status refunded (e09)', public._cf1_entry_unavailable_reason(pg_temp.u('008009')) = 'registration_payment_refunded');
 select pg_temp.chk('P (iii-a): registration payment_status failed (e10)', public._cf1_entry_unavailable_reason(pg_temp.u('008010')) = 'registration_payment_failed');
-select pg_temp.chk('P: paid registration in a paid order is available (e11, the documented per-entry false negative)', not public._cf1_entry_unavailable(pg_temp.u('008011')));
+select pg_temp.chk('P: paid registration in a paid order is available (e11; a refund of just this entry is not visible in the data: documented false negative)', not public._cf1_entry_unavailable(pg_temp.u('008011')));
 select pg_temp.chk('P (iii-b): fully refunded order (e12)', public._cf1_entry_unavailable_reason(pg_temp.u('008012')) = 'order_payment_refunded');
 select pg_temp.chk('P (iii-b): failed order (e13)', public._cf1_entry_unavailable_reason(pg_temp.u('008013')) = 'order_payment_failed');
 select pg_temp.chk('P: partially_refunded order excludes nobody (e14)', not public._cf1_entry_unavailable(pg_temp.u('008014')));
@@ -298,12 +299,12 @@ select pg_temp.chk('P multi-entry registration: every entry that references the 
   public._cf1_entry_unavailable(pg_temp.u('008016')) and public._cf1_entry_unavailable(pg_temp.u('008017')));
 select pg_temp.chk('P multi-entry order: a sibling entry on ANOTHER registration of the same order is not unavailable (e18, e11)',
   not public._cf1_entry_unavailable(pg_temp.u('008018')) and not public._cf1_entry_unavailable(pg_temp.u('008011')));
-select pg_temp.chk('P: paid registration in a paid order is available (e23)',
-  not public._cf1_entry_unavailable(pg_temp.u('008023')));
+select pg_temp.chk('P (iii-b): a paid registration inside a refunded order is unavailable (e23)',
+  public._cf1_entry_unavailable_reason(pg_temp.u('008023')) = 'order_payment_refunded');
 select pg_temp.chk('P: checked_in / partial registration is available (e24)', not public._cf1_entry_unavailable(pg_temp.u('008024')));
 select pg_temp.chk('P: an unknown entry id is unavailable (entry_missing); null is unavailable',
   public._cf1_entry_unavailable_reason(pg_temp.u('0ffff1')) = 'entry_missing' and public._cf1_entry_unavailable(null));
-select pg_temp.chk('P is a pure reader: same answer twice, entry rows unchanged (updated_at)',
+select pg_temp.chk('P is a pure reader: same answer twice, entry row unchanged',
   public._cf1_entry_unavailable(pg_temp.u('008007')) = public._cf1_entry_unavailable(pg_temp.u('008007'))
   and (select count(*) from public.event_competition_entries where id = pg_temp.u('008007') and status = 'confirmed') = 1);
 
@@ -337,7 +338,7 @@ select pg_temp.chk('roster problems: exactly the expected entries of the D1 Fina
      (pg_temp.u('008009'), 'registration_payment_refunded'), (pg_temp.u('008010'), 'registration_payment_failed'),
      (pg_temp.u('008012'), 'order_payment_refunded'), (pg_temp.u('008013'), 'order_payment_failed'),
      (pg_temp.u('008016'), 'registration_cancelled'), (pg_temp.u('008017'), 'registration_cancelled'),
-     (pg_temp.u('0080a1'), 'registration_payment_refunded'), (pg_temp.u('0080a2'), 'entry_not_confirmed'),
+     (pg_temp.u('0080a1'), 'registration_payment_refunded'), (pg_temp.u('0080a2'), 'entry_not_confirmed'), (pg_temp.u('008023'), 'order_payment_refunded'),
      (pg_temp.u('008002'), 'entry_not_confirmed')) as t(k, v)));
 select pg_temp.chk('roster problems: a scratched heat entry (e20) is NOT in the ranking set, so it is not reported', pg_temp.rsn('006002', '008020') is null);
 select pg_temp.chk('roster problems: entries only in a cancelled heat (e21) or a draft-version heat (e22) are not reported',
@@ -346,7 +347,7 @@ select pg_temp.chk('roster problems: ordered by entry id and unique per entry (e
   (select array_agg(entry_id order by entry_id) from public._cf1_round_roster_problems(pg_temp.u('006002')))
    = (select array_agg(entry_id order by entry_id) from (select distinct entry_id from public._cf1_round_roster_problems(pg_temp.u('006002'))) d)
   and (select count(*) from public._cf1_round_roster_problems(pg_temp.u('006002'))) = (select count(distinct entry_id) from public._cf1_round_roster_problems(pg_temp.u('006002'))));
-select pg_temp.chk('roster problems: a round with no heats, and an unknown round, report nothing',
+select pg_temp.chk('roster problems: an unknown round reports nothing, and its problems stay within the ranking set',
   not exists (select 1 from public._cf1_round_roster_problems(pg_temp.u('006001')) where entry_id not in (select unnest(public._compe2_round_entries(pg_temp.u('006001')))))
   and not exists (select 1 from public._cf1_round_roster_problems(pg_temp.u('0fffff'))));
 select pg_temp.chk('roster problems are a subset of E2''s ranking set',
@@ -369,12 +370,12 @@ select pg_temp.chk('callback Final: D5, D6, D7 finals are',
 select pg_temp.chk('count helper: counts distinct available entries, ignores duplicates, nulls and unavailable',
   public._cf1_count_available_entries(array[pg_temp.u('008001'), pg_temp.u('008001'), pg_temp.u('008002'), null, pg_temp.u('008011')]::uuid[]) = 2
   and public._cf1_count_available_entries(null) = 0 and public._cf1_count_available_entries('{}'::uuid[]) = 0);
-select pg_temp.chk('eligible roster count: D1 Final = ranking set minus P (e01, e05, e06, e11, e14, e15, e18, e19, e23, e24 = 10)',
-  public._cf1_eligible_roster_count(pg_temp.u('006002')) = 10);
+select pg_temp.chk('eligible roster count: D1 Final = ranking set minus P (e01, e05, e06, e11, e14, e15, e18, e19, e24 = 9)',
+  public._cf1_eligible_roster_count(pg_temp.u('006002')) = 9);
 select pg_temp.chk('eligible roster count: D5 (3 entries, 2 unavailable) = 1; D6 = 2; D7 = 1; unknown round = 0',
   public._cf1_eligible_roster_count(pg_temp.u('006009')) = 1 and public._cf1_eligible_roster_count(pg_temp.u('006011')) = 2
   and public._cf1_eligible_roster_count(pg_temp.u('006013')) = 1 and public._cf1_eligible_roster_count(pg_temp.u('0fffff')) = 0);
-select pg_temp.chk('minimum: D1 Final (10 eligible) ok; D5 (1) NOT ok; D6 (2) ok; D7 (1) NOT ok',
+select pg_temp.chk('minimum: D1 Final (9 eligible) ok; D5 (1) NOT ok; D6 (2) ok; D7 (1) NOT ok',
   public._cf1_final_minimum_ok(pg_temp.u('006002')) and not public._cf1_final_minimum_ok(pg_temp.u('006009'))
   and public._cf1_final_minimum_ok(pg_temp.u('006011')) and not public._cf1_final_minimum_ok(pg_temp.u('006013')));
 select pg_temp.chk('minimum NEVER applies to a Final-only division, even with one couple (D2, D8), nor to a non-callback prelim+final (D3) or a qualifying+final (D4)',
@@ -394,7 +395,7 @@ select pg_temp.expect_msg('raiser: stage approve', format($q$select public._cf1_
 select pg_temp.expect_msg('raiser: an unknown stage is refused', format($q$select public._cf1_require_roster_eligible(%L, 'start')$q$, pg_temp.u('006011')), 'unknown roster stage', 'P0001');
 select pg_temp.expect_msg('raiser: a null stage is refused', format($q$select public._cf1_require_roster_eligible(%L, null)$q$, pg_temp.u('006011')), 'unknown roster stage', 'P0001');
 select pg_temp.chk('raiser detail carries the stage, round and every unavailable entry with its reason',
-  (select (detail::jsonb ->> 'stage') = 'approve' and jsonb_array_length(detail::jsonb -> 'entries') = 13
+  (select (detail::jsonb ->> 'stage') = 'approve' and jsonb_array_length(detail::jsonb -> 'entries') = 14
           and (detail::jsonb -> 'entries') @> jsonb_build_array(jsonb_build_object('entry_id', pg_temp.u('0080a1'), 'reason', 'registration_payment_refunded'))
    from (select pg_temp.catch_detail(format($q$select public._cf1_require_roster_eligible(%L, 'approve')$q$, pg_temp.u('006002'))) as detail) x));
 select pg_temp.expect_ok('raiser: D6 (two eligible, none unavailable) passes', format($q$select public._cf1_require_roster_eligible(%L, 'lock')$q$, pg_temp.u('006011')));
