@@ -85,6 +85,12 @@
         "TW4RFL_DB": "postgres"
       },
       "marker": true
+    },
+    "src/lib/sms/twilioIsv/__tests__/localStack.tw4rbexact.test.ts": {
+      "env": {
+        "TW4RFL_DB": "postgres"
+      },
+      "marker": true
     }
   },
   "urlSuiteOptions": {
