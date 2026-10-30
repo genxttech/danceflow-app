@@ -315,6 +315,11 @@ function statusBadgeClass(status: string | null | undefined) {
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
+/** Start of the reporting window. Kept outside the page component because Date.now() is impure during render (react-hooks/purity). */
+function getRangeStart(days: number) {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+}
+
 export default async function PlatformAccountingPage({
   searchParams,
 }: {
@@ -324,7 +329,7 @@ export default async function PlatformAccountingPage({
 
   const params = await searchParams;
   const range = getRange(params.range);
-  const rangeStart = new Date(Date.now() - range.days * 24 * 60 * 60 * 1000);
+  const rangeStart = getRangeStart(range.days);
   const supabase = await createClient();
 
   const [
