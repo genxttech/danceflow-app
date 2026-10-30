@@ -42,7 +42,7 @@ Not found in the code reviewed: any automatic per-number or per-sender inbound c
 | # | Item | Owner | State |
 |---|---|---|---|
 | B-1 | Stage B draft handled (U-10, tracker blocker 4): verify, preserve evidence, written deletion authorization, owner Console deletion | owner; tracker/coordinator tracks it | runbook written (`TW-4F_StageB_Draft_Cleanup_Runbook.md`); **nothing deleted; nothing authorized**; coordinator confirmation pending (see section 5) |
-| B-2 | Messaging test budget (separate from the $150 pilot ceiling), including an absorbed-inbound allowance and daily flag check | owner | not approved |
+| B-2 | Absorbed-inbound allowance and pilot preconditions (section 6) | owner | allowance decided (relayed by the coordinator, 2026-10-30): $20 carved out of the $150 cap; preconditions below open; any other messaging test budget still needs its own approval |
 | B-3 | Final retail price approval after D7 pilot cycle and invoice evidence (V-1) | owner | closed |
 | B-4 | Stripe written answer on closed-loop prepaid credit | owner submits drafted request | unsent |
 | B-5 | Counsel/CPA review (credit terms, tax, refunds, closure, unclaimed property) | owner | not started |
@@ -72,3 +72,22 @@ Not found in the code reviewed: any automatic per-number or per-sender inbound c
 ## 5. U-10 ownership and coordination
 
 The tracker keeps U-10 / blocker 4 as an owner-authorized action; the coordinator session ("TW-4F pilot readiness coordination") owns the tracker rows. Ownership proposed: the **owner performs** verification and Console deletion; the **coordinator** records pass/fail and updates blocker 4, U-10 and Q-dup; this PR only supplies the runbook and does not edit the tracker. The hand-off was sent to the coordinator session on 2026-10-30 asking it to confirm; no reply is recorded here. Nothing was deleted or authorized.
+
+## 6. ConfiDance absorbed-inbound allowance and pilot preconditions (owner decision relayed by the TW-4F coordinator, 2026-10-30)
+
+**Allowance:** $20 for absorbed inbound, carved out of the existing $150 cumulative pilot cap; it is not an additional budget. Procedurally the pilot exception's setup-fee ceiling becomes **$130**, with $20 held for absorbed inbound. **Not enforced in code today:** pilot usage sums count only setup kinds, so nothing stops absorbed inbound or setup fees from passing these figures. This is a procedural limit only.
+
+**Pilot preconditions (all open; none done by this PR):**
+1. A named person checks `sms_inbound_admin_overview` and Twilio usage daily.
+2. Pre-agreed stop action: release the number (accepting that STOP handling stops with it).
+3. `SMS_INBOUND_RECORDING=on` with an inbound price published (publishing needs its own owner approval; Option A stays provisional).
+4. Advanced Opt-Out verified (V-6).
+5. U-10 closed (B-1).
+
+**Gaps that make any broader rollout NO-GO:**
+- No scheduled reconciler.
+- No alert delivery.
+- `alert_ceiling` never fires for the pilot business (it compares against the $10 default, not its ceiling of 0).
+- No enforceable absorbed-cost limit.
+
+No implementation work is proposed or started here.
