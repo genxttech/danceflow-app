@@ -863,7 +863,20 @@ function isOrganizerSuiteSubscriptionItem(item: Stripe.SubscriptionItem) {
   );
 }
 
-async function syncOrganizerSuiteAddonEntitlements(params: {
+/**
+ * Mirrors the studio's Organizer Suite Stripe add-on items into usage_addon_entitlements.
+ *
+ * D7: each Stripe item is its own row, keyed on stripe_subscription_item_id (the same conflict
+ * target as the add-on checkout route; there is no unique index on (studio_id, feature_key), so
+ * the previous onConflict "studio_id,feature_key" could not work). Every write here is restricted
+ * to source 'stripe_subscription_item': a manual_grant (complimentary) row is never inserted,
+ * updated or canceled by this sync, so the two kinds coexist and a lapsed grant is never extended.
+ *
+ * Open owner decision (behavior intentionally unchanged): any status other than active/trialing
+ * (including past_due) marks this subscription's Stripe Suite rows canceled, so a past_due
+ * subscription loses Suite access until it recovers and the next event re-activates the row.
+ */
+export async function syncOrganizerSuiteAddonEntitlements(params: {
   supabase: SupabaseClient;
   studioId: string;
   subscription: Stripe.Subscription;
@@ -889,7 +902,7 @@ async function syncOrganizerSuiteAddonEntitlements(params: {
         status: subscriptionIsActive ? "active" : "canceled",
         updated_at: now,
       },
-      { onConflict: "studio_id,feature_key" },
+      { onConflict: "stripe_subscription_item_id" },
     );
 
     if (error) {
@@ -927,7 +940,10 @@ async function syncOrganizerSuiteAddonEntitlements(params: {
     const { error } = await supabase
       .from("usage_addon_entitlements")
       .update({ status: "canceled", updated_at: now })
-      .in("id", staleEntitlementIds);
+      .in("id", staleEntitlementIds)
+      // Belt and braces: the sweep can only ever touch this studio's Stripe-item rows.
+      .eq("studio_id", studioId)
+      .eq("source", "stripe_subscription_item");
 
     if (error) {
       throw new Error(error.message);

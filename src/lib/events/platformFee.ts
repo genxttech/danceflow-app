@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { studioHasCurrentOrganizerSuiteEntitlement } from "@/lib/billing/organizerSuiteEntitlement";
 
 /*
   Canonical DanceFlow organizer platform fee for event checkouts (direct charges on the
@@ -42,14 +43,7 @@ export async function getOrganizerPlatformFeePercent(admin: Db, studioId: string
   if (code === "organizer") return ORGANIZER_STANDARD_FEE_PERCENT;
   if (!["starter", "growth", "pro"].includes(code)) return 0;
 
-  const { data: addOns } = await admin
-    .from("usage_addon_entitlements")
-    .select("id")
-    .eq("studio_id", studioId)
-    .eq("feature_key", "organizer_suite")
-    .in("source", ["stripe_subscription_item", "manual_grant"])
-    .eq("status", "active")
-    .limit(1);
-  if (!addOns?.length) return 0;
+  // D7: a lapsed complimentary grant (past period_end) no longer earns the discounted add-on tier.
+  if (!(await studioHasCurrentOrganizerSuiteEntitlement(admin, studioId))) return 0;
   return code === "pro" ? ORGANIZER_PRO_ADDON_FEE_PERCENT : ORGANIZER_STUDIO_ADDON_FEE_PERCENT;
 }

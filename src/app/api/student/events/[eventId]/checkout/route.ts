@@ -5,6 +5,7 @@ import {
   releaseUnattemptedEventCartOrders,
 } from "@/lib/events/cartSettlement";
 import { getStripe } from "@/lib/payments/stripe";
+import { studioHasCurrentOrganizerSuiteEntitlement } from "@/lib/billing/organizerSuiteEntitlement";
 import { fromMinorUnits, ticketLineTotalCents } from "@/lib/events/ticketPricing";
 import { parseExpectedUnitPriceCents, priceNativeTicketSelections } from "@/lib/events/nativeTicketPricing";
 import { beginEventSigningCheckpoint } from "@/lib/documents/event-signing";
@@ -316,16 +317,8 @@ async function getOrganizerPlatformFeePercent(supabase: SupabaseClient, studioId
 
   if (!["starter", "growth", "pro"].includes(planCode)) return 0;
 
-  const { data: addOns } = await supabase
-    .from("usage_addon_entitlements")
-    .select("id")
-    .eq("studio_id", studioId)
-    .eq("feature_key", "organizer_suite")
-    .in("source", ["stripe_subscription_item", "manual_grant"])
-    .eq("status", "active")
-    .limit(1);
-
-  if (!addOns?.length) return 0;
+  // D7: shared reader (period_end boundary rule); a read error still means no discounted tier.
+  if (!(await studioHasCurrentOrganizerSuiteEntitlement(supabase, studioId))) return 0;
   return planCode === "pro" ? 0.03 : 0.0325;
 }
 
