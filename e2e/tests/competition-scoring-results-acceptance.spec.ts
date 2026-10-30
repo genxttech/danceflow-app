@@ -161,7 +161,7 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     await expect(page.getByRole("status")).toContainText(new RegExp(`Created \\d+ heats? for ${count} entries`), { timeout: 60_000 });
     await page.getByRole("button", { name: "Publish running order" }).click();
     await expect(page.getByRole("status")).toContainText("Running order published.", { timeout: 60_000 });
-    await expect(page.getByText(new RegExp("^Published · \d+ heats · " + count + " entries on the floor" + "$"))).toBeVisible();
+    await expect(page.getByText(new RegExp("^Published · \[0-9]+ heats · " + count + " entries on the floor" + "$"))).toBeVisible();
   }
 
   /** Officials page: three judges, judge 1 as chair, all three on the panel of the named round. */
