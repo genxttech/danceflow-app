@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { requirePlatformStepUp } from "@/lib/auth/platform-assurance";
 import { encodePanelFlash, PANEL_FLASH_MAX_AGE_SECONDS } from "@/lib/sms/twilioIsv/panelFlash";
 import { buildNumberRuntime, buildProvisioningRuntime } from "@/lib/sms/twilioIsv/factory";
 import { PROV_FLASH_COOKIE } from "@/lib/sms/provisioning/provisionFlash";
@@ -28,12 +28,12 @@ async function finish(result: RunCommandResult): Promise<never> {
 
 /** intent: service (free Messaging Service only) | campaign (fee-bearing; confirmFee + the typed phrase) | refresh (GET-only). */
 export async function runProvisioningStepAction(formData: FormData): Promise<void> {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("recent");
   await finish(await provisioningCommand(deps, admin.id, formData, audit));
 }
 
 /** intent: offer (free search, recorded as an offer for the owner) | acquire (fee-bearing; confirmFee + the typed owner-approved number) | refresh (GET-only). */
 export async function runNumberStepAction(formData: FormData): Promise<void> {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("recent");
   await finish(await numberCommand(deps, admin.id, formData, audit));
 }
