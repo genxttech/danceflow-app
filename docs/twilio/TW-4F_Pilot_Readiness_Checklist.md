@@ -71,4 +71,4 @@ Not found in the code reviewed: any automatic per-number or per-sender inbound c
 
 ## 5. U-10 ownership and coordination
 
-The tracker keeps U-10 / blocker 4 as an owner-authorized action; the coordinator session ("TW-4F pilot readiness coordination") owns the tracker rows. Ownership proposed: the **owner performs** verification and Console deletion; the **coordinator** records pass/fail and updates blocker 4, U-10 and Q-dup; this PR only supplies the runbook and does not edit the tracker. A message to the coordinator has been prepared in the session hand-off; nothing was deleted or authorized.
+The tracker keeps U-10 / blocker 4 as an owner-authorized action; the coordinator session ("TW-4F pilot readiness coordination") owns the tracker rows. Ownership proposed: the **owner performs** verification and Console deletion; the **coordinator** records pass/fail and updates blocker 4, U-10 and Q-dup; this PR only supplies the runbook and does not edit the tracker. The hand-off was sent to the coordinator session on 2026-10-30 asking it to confirm; no reply is recorded here. Nothing was deleted or authorized.
