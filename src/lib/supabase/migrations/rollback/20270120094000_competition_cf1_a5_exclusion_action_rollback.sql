@@ -12,8 +12,8 @@ do $$
 declare
   v_names constant text[] := array[
     'request_round_exclusion', 'cosign_round_exclusion', 'request_round_exclusion_reversal', 'cosign_round_exclusion_reversal',
-    'competition_round_exclusions', '_cf1_a5_require_no_publication', '_cf1_a5_entry_heat_entries', '_cf1_a5_entry_danced',
-    '_cf1_a5_effective', '_cf1_a5_filed_replacement_ballot', '_cf1_a5_result', '_cf1_a5_guard_replacement_ballot_filer'];
+    'competition_round_exclusions', '_a5_cf1_require_no_publication', '_a5_cf1_entry_heat_entries', '_a5_cf1_entry_danced',
+    '_a5_cf1_effective', '_a5_cf1_filed_replacement_ballot', '_a5_cf1_result', '_a5_cf1_guard_replacement_ballot_filer'];
   v_user text;
 begin
   if exists (select 1 from public.event_competition_round_exclusions) then
@@ -23,24 +23,24 @@ begin
   from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace and n.nspname = 'public'
   where p.proname <> all (v_names)
-    and exists (select 1 from unnest(v_names) f where p.prosrc ~ ('\m' || f || '\M'));
+    and exists (select 1 from unnest(v_names) f where p.prosrc ~ (E'\\m' || f || E'\\M'));
   if v_user is not null then
     raise exception 'CF1-A5 rollback refused: still referenced by % (roll back the later CF1 packages first).', v_user;
   end if;
 end $$;
 
 drop trigger cf1_a5_guard_replacement_ballot_filer on public.event_competition_ballots;
-drop function public._cf1_a5_guard_replacement_ballot_filer();
+drop function public._a5_cf1_guard_replacement_ballot_filer();
 drop function public.competition_round_exclusions(uuid);
 drop function public.cosign_round_exclusion_reversal(uuid, uuid);
 drop function public.request_round_exclusion_reversal(uuid, uuid, text, uuid);
 drop function public.cosign_round_exclusion(uuid, uuid);
 drop function public.request_round_exclusion(uuid, uuid, text, text, uuid);
-drop function public._cf1_a5_result(public.event_competition_round_exclusions, boolean);
-drop function public._cf1_a5_filed_replacement_ballot(uuid, uuid);
-drop function public._cf1_a5_effective(uuid, uuid);
-drop function public._cf1_a5_entry_danced(uuid, uuid);
-drop function public._cf1_a5_entry_heat_entries(uuid, uuid);
-drop function public._cf1_a5_require_no_publication(uuid);
+drop function public._a5_cf1_result(public.event_competition_round_exclusions, boolean);
+drop function public._a5_cf1_filed_replacement_ballot(uuid, uuid);
+drop function public._a5_cf1_effective(uuid, uuid);
+drop function public._a5_cf1_entry_danced(uuid, uuid);
+drop function public._a5_cf1_entry_heat_entries(uuid, uuid);
+drop function public._a5_cf1_require_no_publication(uuid);
 
 commit;

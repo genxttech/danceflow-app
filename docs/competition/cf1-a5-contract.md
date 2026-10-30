@@ -28,7 +28,7 @@ Every call returns `jsonb`: `{replayed, exclusion_id, kind, decision_id, reverse
 
 `competition_round_exclusions` is added because the table has no grants, so a co-signer's UI otherwise cannot list the **pending** requests it must co-sign. `completed` = a co-sign row names this row as its `decision_id`. A3's review `excluded` section covers only the *effective* decisions.
 
-Internal helpers `_cf1_a5_*` have no grants (U70 style). The BEFORE INSERT trigger `cf1_a5_guard_replacement_ballot_filer` on `event_competition_ballots` is described below.
+Internal helpers `_a5_cf1_*` have no grants (U70 style). The BEFORE INSERT trigger `cf1_a5_guard_replacement_ballot_filer` on `event_competition_ballots` is described below.
 
 ### Decision flow for B
 
@@ -52,7 +52,7 @@ A request id is single-use across **all four functions and all kinds** (`unique 
 
 ## Replacement-ballot trigger (A5 addition, not in the A.9.2 list; flagged)
 
-`cf1_a5_guard_replacement_ballot_filer` (BEFORE INSERT on `event_competition_ballots`, `WHEN` evaluated inside: `supersedes_id is not null`) raises `COMP_EXCLUSION_COSIGNER_CONFLICT` when the filer (`submitted_by`, or the judge's / entering scorer's user) already co-signed an exclusion decision of that round. This is the second half of "never anyone filing a replacement ballot" (the co-sign call checks the filers that exist *now*; the trigger covers filers *later*). Ballot filing holds the round `FOR SHARE` (E2) and the co-sign holds it `FOR UPDATE`, so the two are serialized. It adds one indexed-less read of the exclusion table per replacement ballot only; original ballots are untouched. B should map the code on the correction-ballot screen. **A3 note**: because A3/CX1 will add their own replacement-ballot checks (`_cf1_check_correction_ballot`), they need not repeat this one.
+`cf1_a5_guard_replacement_ballot_filer` (BEFORE INSERT on `event_competition_ballots`, `WHEN` evaluated inside: `supersedes_id is not null`) raises `COMP_EXCLUSION_COSIGNER_CONFLICT` when the filer (`submitted_by`, or the judge's / entering scorer's user) already co-signed an exclusion decision of that round. This is the second half of "never anyone filing a replacement ballot" (the co-sign call checks the filers that exist *now*; the trigger covers filers *later*). Ballot filing holds the round `FOR SHARE` (E2) and the co-sign holds it `FOR UPDATE`, so the two are serialized. It reads the exclusion table only for replacement ballots; original ballots are untouched. B should map the code on the correction-ballot screen. **A3 note**: because A3/CX1 will add their own replacement-ballot checks (`_cf1_check_correction_ballot`), they need not repeat this one.
 
 ## Error codes (all `P0001` unless noted)
 
@@ -83,3 +83,10 @@ A5 only records decisions. The ranking-set effect comes from A3's readers (`_cf1
 ## Rollback
 
 `rollback/20270120094000_…_rollback.sql` is position 2 (A6 first; A3, A2, A4a, A0, A1 after). It takes `ACCESS EXCLUSIVE` on the exclusion table, refuses if any exclusion row exists (roll forward only), refuses while another function body still mentions an A5 name, then drops the trigger and the functions. A1's rollback additionally refuses while A5 functions exist (they mention the table).
+
+## Review follow-ups (independent review, no P0/P1)
+
+* **P2 fixed:** a co-signer who holds a judge letter on the round's panel is refused up front (`COMP_EXCLUSION_COSIGNER_FILED_BALLOT`), so the replacement-ballot trigger can never trap a round by blocking a judge who co-signed.
+* P3 fixed: missing round after the lock, non-request-id unique violations no longer masked as `COMP_REQUEST_REUSED`, one snapshot array both locked and stored, `published`/`live` schedule-version filter (as `_compe2_round_heats`), rollback regex written `E'\m'`.
+* **Open, for the coordinator:** `reason_kind` is not cross-checked against the actual reason P is true (a labelling choice by the manager; reaches the review). Design §4.1 line "refuse a new exclusion while an F2 correction is open (`COMP_CORRECTION_EXCLUSION_DURING_CORRECTION`)" conflicts with §4.7 route (4) (open correction, then exclude); A5 follows §4.7. Resolve when the correction-causes table (A0/A3) lands.
+* Helper names use the prefix `_a5_cf1_` (not `_cf1_`) because A1's suite asserts properties of every `_cf1_%` function.
