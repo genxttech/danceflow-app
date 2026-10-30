@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ballotErrorMessage } from "../messages";
 import { canLockHeat, canReopenHeat, heatIsDanced, heatLockErrorMessage, lockHeatConfirm, lockHeatHint, lockHeatKind, reopenHeatConfirm } from "../heatLock";
 
 const HEAT = "11111111-1111-4111-8111-111111111111";
@@ -220,6 +221,13 @@ describe("HL1 heatLockErrorMessage", () => {
     expect(heatLockErrorMessage("Certified heats require a formal correction workflow")).toMatch(/certified/);
     expect(heatLockErrorMessage("COMPO1_HEAT_LOCKED: heat 3")).toMatch(/locked/);
     expect(heatLockErrorMessage("A reason is required to reopen a locked heat.")).toMatch(/reason/);
+  });
+  it("maps the HL1 database guards", () => {
+    expect(heatLockErrorMessage("COMP_HL1_LOCK_ACTIVE: x")).toMatch(/on the floor/);
+    expect(heatLockErrorMessage("COMP_HL1_ALREADY_LOCKED: x")).toMatch(/already locked/);
+    expect(heatLockErrorMessage("COMP_HL1_REOPEN_ROUND_LOCKED: x", "reopened")).toMatch(/ballots are locked/);
+    expect(heatLockErrorMessage("COMP_HL1_REOPEN_DANCED: x", "reopened")).toMatch(/danced/);
+    expect(ballotErrorMessage("COMP_HL1_HEAT_NOT_DANCED: x")).toMatch(/must be danced/);
   });
   it("never swallows an unknown error", () => {
     expect(heatLockErrorMessage("boom", "reopened")).toContain("reopened: boom");

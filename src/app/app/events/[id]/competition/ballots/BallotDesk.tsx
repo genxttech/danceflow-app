@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { lockBlockerSummary, type BallotBoard } from "@/lib/competition/ballots/status";
 import { CORRECTION_BANNER, ballotsAccepting, inCorrectionWindow } from "@/lib/competition/ballots/window";
-import { canReopenHeat, lockHeatHint, lockHeatKind, type HeatFloorInfo } from "@/lib/competition/ballots/heatLock";
+import { canReopenHeat, heatIsDanced, lockHeatHint, lockHeatKind, type HeatFloorInfo } from "@/lib/competition/ballots/heatLock";
 import BallotMarksFields from "./BallotMarksFields";
 import LockHeatButton from "./LockHeatButton";
 import { enterPaperBallotAction, lockBallotsAction, recordAttendanceAction, reopenBallotsAction } from "./actions";
@@ -31,7 +31,9 @@ export default function BallotDesk({ board, returnTo, heatFloor }: { board: Ball
   // locking stay on the plain `active` window; reopen is refused by the database while a correction is open.
   const correcting = inCorrectionWindow(board.round);
   const accepting = ballotsAccepting(board.round);
-  const blockers = lockBlockerSummary(board);
+  // HL1: the database refuses Lock ballots while a ballot heat is undanced; the desk says so instead of offering a button that fails.
+  const undancedHeats = heatFloor ? board.heats.filter((heat) => heatFloor[heat.heat_id] && !heatIsDanced(heatFloor[heat.heat_id].status, heatFloor[heat.heat_id].has_danced_entry)) : [];
+  const blockers = [...lockBlockerSummary(board), ...(undancedHeats.length > 0 ? [`${undancedHeats.length} heat(s) not danced yet: ${undancedHeats.map((heat) => heat.heat_number).join(", ")}.`] : [])];
   const heatNumber = new Map(board.heats.map((heat) => [heat.heat_id, heat.heat_number]));
 
   return (
@@ -285,7 +287,7 @@ export default function BallotDesk({ board, returnTo, heatFloor }: { board: Ball
                 <input type="hidden" name="roundId" value={roundId} />
                 <input type="hidden" name="requestId" value={randomUUID()} />
                 <input type="hidden" name="returnTo" value={returnTo} />
-                <button className={buttonClass} disabled={!board.blockers.ready || !board.scheme_available}>
+                <button className={buttonClass} disabled={!board.blockers.ready || !board.scheme_available || undancedHeats.length > 0}>
                   Lock ballots
                 </button>
                 <p className="mt-2 text-xs text-slate-600">Locking stops all new ballots and corrections until a manager reopens the round, with a reason.</p>

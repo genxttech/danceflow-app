@@ -76,6 +76,10 @@ export function heatLockErrorMessage(raw: string | null | undefined, verb: "lock
   const text = raw ?? "";
   if (text.includes("cannot be managed")) return "Heat was not found, or you are not allowed to manage this competition.";
   if (text.includes("Certified heats")) return "This heat is certified and cannot be changed here.";
+  if (text.includes("COMP_HL1_LOCK_ACTIVE")) return "This heat is on the floor. Finish it before locking.";
+  if (text.includes("COMP_HL1_ALREADY_LOCKED")) return "This heat is already locked.";
+  if (text.includes("COMP_HL1_REOPEN_ROUND_LOCKED")) return "The round's ballots are locked, so this heat cannot be reopened.";
+  if (text.includes("COMP_HL1_REOPEN_DANCED")) return "This heat has been danced and cannot be reopened here. Changes go through the results correction workflow.";
   if (text.includes("COMPO1_HEAT_LOCKED")) return "The floor refused the change because the heat is locked.";
   if (text.includes("A reason is required")) return "A reason is required to reopen a locked heat.";
   if (text.includes("Locked or certified")) return "This heat is already locked or certified.";

@@ -9,6 +9,16 @@
 
 begin;
 
+-- HL1: Lock ballots now requires every ballot heat to be danced; suite heats that are locked are marked complete first (superuser, trigger bypass).
+create or replace function pg_temp.hl1_danced(p_heat uuid) returns void language plpgsql security definer as $$
+begin
+  perform set_config('session_replication_role', 'replica', true);
+  update public.event_competition_heats set status = 'complete' where id = p_heat;
+  perform set_config('session_replication_role', 'origin', true);
+end $$;
+grant execute on function pg_temp.hl1_danced(uuid) to authenticated, anon, service_role;
+
+
 create temp table t_results (name text, ok boolean, detail text) on commit drop;
 grant all on t_results to authenticated, anon, service_role;
 create temp table t_ids (k text primary key, v uuid) on commit drop;
@@ -630,7 +640,9 @@ select pg_temp.expect_msg('scoring method / callback target are frozen once a ro
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('lock refused while heats are open', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006001'), pg_temp.u('f25001')), 'COMP_BALLOTS_HEATS_NOT_LOCKED');
+select pg_temp.hl1_danced(pg_temp.u('00d001'));
 select public.set_competition_heat_lock_state(pg_temp.u('00d001'), 'locked', 'dance complete');
+select pg_temp.hl1_danced(pg_temp.u('00d002'));
 select public.set_competition_heat_lock_state(pg_temp.u('00d002'), 'locked', 'dance complete');
 select pg_temp.as_user(pg_temp.u('000011'));
 select pg_temp.expect_msg('a judge cannot lock', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006001'), pg_temp.u('f25002')), 'COMP_FORBIDDEN');
@@ -699,6 +711,7 @@ reset role;
 update public.event_competition_heat_entries set status = 'scheduled' where heat_id = pg_temp.u('00d007') and entry_id = pg_temp.u('008015');
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.hl1_danced(pg_temp.u('00d007'));
 select public.set_competition_heat_lock_state(pg_temp.u('00d007'), 'locked', 'dance complete');
 select pg_temp.expect_ok('r5 locks with one judge absent (recorded) and a reduced odd panel of 3', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006005'), pg_temp.u('f26003')));
 reset role;
@@ -710,7 +723,9 @@ select pg_temp.chk('the lock audit names the absent judge',
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('a judge with a round-level ballot cannot be recorded absent', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'Out', %L)$q$, pg_temp.u('006003'), pg_temp.off('00e001','000011'), pg_temp.u('f26004')), 'COMP_ABSENCE_HAS_BALLOTS');
+select pg_temp.hl1_danced(pg_temp.u('00d004'));
 select public.set_competition_heat_lock_state(pg_temp.u('00d004'), 'locked', 'dance complete');
+select pg_temp.hl1_danced(pg_temp.u('00d006'));
 select public.set_competition_heat_lock_state(pg_temp.u('00d006'), 'locked', 'dance complete');
 select pg_temp.expect_msg('a one-judge callback round cannot lock (X-3: at least 3, odd)', format($q$select public.lock_competition_round_ballots(%L, %L)$q$, pg_temp.u('006003'), pg_temp.u('f26005')), 'COMP_PANEL_SIZE');
 reset role;
