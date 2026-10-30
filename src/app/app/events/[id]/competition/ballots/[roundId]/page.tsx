@@ -32,6 +32,8 @@ export default async function CompetitionRoundBallotsPage({
     const { data: heatRows, error: heatError } = await supabase.from("event_competition_heats").select("id, status, lock_state").in("id", heatIds);
     if (heatError) throw new Error(`Could not load heats: ${heatError.message}`);
     for (const row of (heatRows ?? []) as Array<{ id: string; status: string; lock_state: string }>) heatFloor[row.id] = { status: row.status, lock_state: row.lock_state };
+    const { data: dancedRows } = await supabase.from("event_competition_heat_entries").select("heat_id").in("heat_id", heatIds).in("status", ["danced", "disqualified"]);
+    for (const row of (dancedRows ?? []) as Array<{ heat_id: string }>) if (heatFloor[row.heat_id]) heatFloor[row.heat_id].has_danced_entry = true;
   }
 
   return (

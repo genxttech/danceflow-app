@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { BallotBoard } from "@/lib/competition/ballots/status";
-import { canLockHeat, heatLockErrorMessage } from "@/lib/competition/ballots/heatLock";
+import { canLockHeat, canReopenHeat, heatLockErrorMessage } from "@/lib/competition/ballots/heatLock";
 import { ballotErrorMessage, safeReturnPath } from "@/lib/competition/ballots/messages";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -183,9 +183,30 @@ export async function reopenBallotsAction(formData: FormData): Promise<void> {
 }
 
 /**
- * HL1: a manager locks one danced heat. Calls the 10A RPC directly (it is the authority and writes the audit row). The
- * RPC's refusals are shown as text, never swallowed.
+ * HL1 server-side guard. The form is untrusted, so the same rules the desk used are re-derived here: the heat must belong
+ * to the named round, the viewer must be a manager, and the round, heat status and lock state must allow the change. The
+ * RPC checks none of the last three. Returns the heat's floor facts, or null when the heat is not on this round's board.
  */
+async function loadHeatForLock(supabase: Awaited<ReturnType<typeof createClient>>, roundId: string | null, heatId: string) {
+  if (!roundId) return null;
+  const { data } = await supabase.rpc("competition_round_ballot_status", { p_round_id: roundId });
+  const board = data as BallotBoard | null;
+  if (!board?.heats.some((heat) => heat.heat_id === heatId)) return null;
+  const { data: heatRow } = await supabase.from("event_competition_heats").select("status, lock_state").eq("id", heatId).maybeSingle();
+  if (!heatRow) return null;
+  const { data: dancedRows } = await supabase.from("event_competition_heat_entries").select("id").eq("heat_id", heatId).in("status", ["danced", "disqualified"]).limit(1);
+  return {
+    viewerRole: board.viewer_role,
+    roundStatus: board.round.status,
+    heatStatus: heatRow.status as string,
+    lockState: heatRow.lock_state as string,
+    hasDancedEntry: (dancedRows ?? []).length > 0,
+  };
+}
+
+const HEAT_REFUSED = "This heat cannot be changed right now. Reload the page.";
+
+/** A manager locks one heat: a danced heat of an active round, or (HL1b) an undanced heat so officials can still scratch. */
 export async function lockHeatAction(formData: FormData): Promise<void> {
   const returnTo = safeReturnPath(text(formData, "returnTo"), "/app/events");
   const heatId = uuid(formData, "heatId");
@@ -196,20 +217,38 @@ export async function lockHeatAction(formData: FormData): Promise<void> {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   if (!heatId) back(returnTo, { error: "The heat could not be locked. Reload the page and try again." });
-  // The form is untrusted: re-derive the same visibility rule the desk used. The heat must belong to the named round, the
-  // viewer must be a manager, the round active, and the heat open and danced. (The RPC checks none of the last three.)
-  const roundId = uuid(formData, "roundId");
-  const { data: boardData } = roundId ? await supabase.rpc("competition_round_ballot_status", { p_round_id: roundId }) : { data: null };
-  const board = boardData as BallotBoard | null;
-  const boardHeat = board?.heats.find((heat) => heat.heat_id === heatId);
-  const { data: heatRow } = boardHeat ? await supabase.from("event_competition_heats").select("status, lock_state").eq("id", heatId).maybeSingle() : { data: null };
-  if (!board || !boardHeat || !heatRow || !canLockHeat({ viewerRole: board.viewer_role, roundStatus: board.round.status, heatStatus: heatRow.status, lockState: heatRow.lock_state })) {
+  const state = await loadHeatForLock(supabase, uuid(formData, "roundId"), heatId);
+  if (!state || !canLockHeat(state)) {
     revalidatePath(returnTo);
-    back(returnTo, { error: "This heat cannot be locked right now. It must be danced and open, in an active round. Reload the page." });
+    back(returnTo, { error: `${HEAT_REFUSED} A heat can be locked when it is open, not cancelled, and either danced in an active round or not yet danced in a scheduled or active round.` });
   }
   const reason = text(formData, "reason").slice(0, 500);
   const { error } = await supabase.rpc("set_competition_heat_lock_state", { selected_heat_id: heatId, selected_state: "locked", selected_reason: reason || null });
   revalidatePath(returnTo);
-  if (error) back(returnTo, { error: heatLockErrorMessage(error.message) });
+  if (error) back(returnTo, { error: heatLockErrorMessage(error.message, "locked") });
   back(returnTo, { saved: heatNumber ? `Heat ${heatNumber} locked.` : "Heat locked." });
+}
+
+/** A manager reopens a locked, never-certified, undanced heat. A reason is required here and by the RPC; certified heats are refused. */
+export async function reopenHeatAction(formData: FormData): Promise<void> {
+  const returnTo = safeReturnPath(text(formData, "returnTo"), "/app/events");
+  const heatId = uuid(formData, "heatId");
+  const heatNumber = text(formData, "heatNumber").replace(/[^0-9]/g, "");
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+  if (!heatId) back(returnTo, { error: "The heat could not be reopened. Reload the page and try again." });
+  const reason = text(formData, "reason").slice(0, 500);
+  if (!reason) back(returnTo, { error: "A reason is required to reopen a locked heat." });
+  const state = await loadHeatForLock(supabase, uuid(formData, "roundId"), heatId);
+  if (!state || !canReopenHeat(state)) {
+    revalidatePath(returnTo);
+    back(returnTo, { error: `${HEAT_REFUSED} Only a locked, uncertified heat that has not been danced can be reopened, and only before the round's ballots are locked.` });
+  }
+  const { error } = await supabase.rpc("set_competition_heat_lock_state", { selected_heat_id: heatId, selected_state: "open", selected_reason: reason });
+  revalidatePath(returnTo);
+  if (error) back(returnTo, { error: heatLockErrorMessage(error.message, "reopened") });
+  back(returnTo, { saved: heatNumber ? `Heat ${heatNumber} reopened.` : "Heat reopened." });
 }
