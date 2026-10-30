@@ -43,7 +43,8 @@ export async function getOrganizerPlatformFeePercent(admin: Db, studioId: string
   if (code === "organizer") return ORGANIZER_STANDARD_FEE_PERCENT;
   if (!["starter", "growth", "pro"].includes(code)) return 0;
 
-  // D7: a lapsed complimentary grant (past period_end) no longer earns the discounted add-on tier.
+  // D7: a lapsed complimentary grant (past period_end) returns 0 here, which the organizer checkouts treat as
+  // "Organizer Suite required" (they refuse organizer listings at a fee of 0) rather than as "no fee".
   if (!(await studioHasCurrentOrganizerSuiteEntitlement(admin, studioId))) return 0;
   return code === "pro" ? ORGANIZER_PRO_ADDON_FEE_PERCENT : ORGANIZER_STUDIO_ADDON_FEE_PERCENT;
 }

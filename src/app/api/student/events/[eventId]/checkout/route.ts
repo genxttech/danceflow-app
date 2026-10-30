@@ -317,7 +317,8 @@ async function getOrganizerPlatformFeePercent(supabase: SupabaseClient, studioId
 
   if (!["starter", "growth", "pro"].includes(planCode)) return 0;
 
-  // D7: shared reader (period_end boundary rule); a read error still means no discounted tier.
+  // D7: shared reader (period_end boundary rule); a read error or lapsed grant returns 0, which this route treats as
+  // "Organizer Suite required" (organizer listings are refused at a fee of 0).
   if (!(await studioHasCurrentOrganizerSuiteEntitlement(supabase, studioId))) return 0;
   return planCode === "pro" ? 0.03 : 0.0325;
 }

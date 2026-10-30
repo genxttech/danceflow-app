@@ -43,10 +43,17 @@ type Db = SupabaseClient<any, any, any>;
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})/;
 const formatterCache = new Map<string, Intl.DateTimeFormat>();
 
-/** A usable IANA timezone, or the UTC fallback for NULL / empty / invalid values. */
+/**
+ * A usable IANA timezone, or the UTC fallback for NULL / empty / invalid values.
+ *
+ * Kept in step with the SQL twin (usage_addon_entitlement_safe_timezone), which only accepts names from pg_timezone_names:
+ * UTC-offset strings such as "+05:00" are rejected here too (Intl would accept them), and a "posix/" prefix is dropped
+ * (pg_timezone_names lists those names, Intl does not).
+ */
 export function resolveEntitlementTimeZone(timeZone: string | null | undefined): string {
-  const candidate = typeof timeZone === "string" ? timeZone.trim() : "";
-  if (!candidate) return ENTITLEMENT_FALLBACK_TIME_ZONE;
+  const trimmed = typeof timeZone === "string" ? timeZone.trim() : "";
+  const candidate = trimmed.replace(/^posix\//i, "");
+  if (!candidate || /^[+-]/.test(candidate)) return ENTITLEMENT_FALLBACK_TIME_ZONE;
   try {
     getFormatter(candidate);
     return candidate;
