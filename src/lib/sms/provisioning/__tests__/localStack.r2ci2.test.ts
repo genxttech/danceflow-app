@@ -57,8 +57,8 @@ function sign(payload: Record<string, unknown>) {
 }
 const exp = 1983812996;
 const anonKey = () => (enabled ? sign({ iss: "supabase-demo", role: "anon", exp }) : "");
-const userKey = (id: string) => sign({ iss: "supabase-demo", sub: id, role: "authenticated", aud: "authenticated", exp });
-const asUser = (id: string): SupabaseClient => createClient(URL_, anonKey(), { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: { Authorization: `Bearer ${userKey(id)}` } } });
+const userKey = (id: string, aal = "aal2") => sign({ iss: "supabase-demo", sub: id, role: "authenticated", aud: "authenticated", aal, exp });
+const asUser = (id: string, aal = "aal2"): SupabaseClient => createClient(URL_, anonKey(), { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: { Authorization: `Bearer ${userKey(id, aal)}` } } });
 const psql = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-At", "-v", "ON_ERROR_STOP=1", "-c", sql], { encoding: "utf8" }).trim();
 const psqlFile = (sql: string) => execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-q", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8" });
 
@@ -143,6 +143,11 @@ describe.skipIf(!enabled)("TW-4F R2c-I2: get_studio_sms_provisioning (real schem
       expect(r.error, `user ${ok}`).toBeNull();
       expect(r.data).toMatchObject({ available: true });
     }
+    // TW-4F AAL2: the platform admin whose token is only aal1 is refused (the helper requires aal2); an aal1 owner is unaffected
+    const aal1 = await call(asUser(U.padmin, "aal1"), S1);
+    expect(aal1.error?.code).toBe("42501");
+    expect(aal1.data).toBeNull();
+    expect((await call(asUser(U.owner1, "aal1"), S1)).error).toBeNull();
     for (const no of [U.front1, U.owner2, U.owner3, U.plain]) {
       const r = await call(asUser(no), S1);
       expect(r.error?.code, `user ${no}`).toBe("42501");

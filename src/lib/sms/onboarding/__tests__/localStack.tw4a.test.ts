@@ -67,7 +67,7 @@ function sign(payload: Record<string, unknown>) {
 }
 const anonKey = () => (enabled ? sign({ iss: "supabase-demo", role: "anon", exp: 1983812996 }) : "");
 const serviceKey = () => (enabled ? sign({ iss: "supabase-demo", role: "service_role", exp: 1983812996 }) : "");
-const userToken = (sub: string) => sign({ sub, role: "authenticated", aud: "authenticated", exp: Math.floor(Date.now() / 1000) + 3600 });
+const userToken = (sub: string, aal = "aal2") => sign({ sub, role: "authenticated", aud: "authenticated", aal, exp: Math.floor(Date.now() / 1000) + 3600 });
 function client(token: string | null, key = anonKey()): SupabaseClient {
   return createClient(URL_, key, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -75,6 +75,7 @@ function client(token: string | null, key = anonKey()): SupabaseClient {
   });
 }
 const as = (who: keyof typeof U) => client(userToken(U[who]));
+const asAal1 = (who: keyof typeof U) => client(userToken(U[who], "aal1"));
 function psql(sql: string): string {
   return execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-At", "-v", "ON_ERROR_STOP=1", "-c", sql], { encoding: "utf8" }).trim();
 }
@@ -154,6 +155,12 @@ describe.skipIf(!enabled)("TW-4A against the local QA stack (real schema, real J
     expect(await getStudioSmsStatus(as("owner_a") as never, A)).toMatchObject({ available: true, paused: false, state: "not_started", canEdit: true, canCancel: false });
     expect(await getStudioSmsStatus(as("owner_b") as never, B).catch(() => null)).toEqual({ available: false, textingOn: false });
     expect(row(`select note from public.studio_sms_onboarding_audit where studio_id = '${A}' and action = 'access_enabled'`)).toBe("ConfiDance pilot (local e2e)");
+  });
+
+  it("a platform admin whose token is only aal1 is refused by the SQL helper: access toggle and onboarding list (TW-4F AAL2)", async () => {
+    await expect(setPilotAccess(asAal1("padmin") as never, A, true, "aal1 attempt")).rejects.toMatchObject({ code: "42501" });
+    await expect(listOnboardings(asAal1("padmin") as never)).rejects.toMatchObject({ code: "42501" });
+    expect(row(`select count(*) from public.studio_sms_onboarding_audit where studio_id = '${A}' and note = 'aal1 attempt'`)).toBe("0");
   });
 
   it("owner vs admin vs front desk vs instructor vs outsider vs another studio's owner", async () => {
