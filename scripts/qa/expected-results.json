@@ -66,7 +66,8 @@
         "main",
         "numeric"
       ],
-      "reason": "all 53 tests skip on the full chain: beforeAll refuses a database that has the real recurring-fee lifecycle (20261209+); the suite only runs on a partial R2b chain with the RFL stand-ins. Its coverage on the full chain is carried by localStack.r2brfl / tw4rfl / tw4fj1. Not a pass; re-run it only on a partial chain via `run`."
+      "reason": "all 53 tests skip on the full chain: beforeAll refuses a database that has the real recurring-fee lifecycle (20261209+); the suite only runs on a partial R2b chain with the RFL stand-ins. Its coverage on the full chain is carried by localStack.r2brfl / tw4rfl / tw4fj1. Not a pass; re-run it only on a partial chain via `run`. On the full chain vitest exits 1 (the beforeAll refusal) with all 53 tests skipped and no failed test; the disposition applies to that exact pattern only (logMatch).",
+      "logMatch": "use an isolated database without the real recurring-fee lifecycle"
     }
   ]
 }

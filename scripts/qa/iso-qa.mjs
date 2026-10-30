@@ -595,9 +595,17 @@ function planMatrixFiles(urlGated, allLocalStack, dbSuites = DB_SUITES) {
 function classifySkip(file, scenarioName, runDir, ref) {
   let r;
   try { r = JSON.parse(readFileSync(path.join(runDir, "result.json"), "utf8")); } catch { return null; }
-  if (r.exit !== 4 || r.counts.total === 0 || r.counts.failed > 0 || r.counts.passed > 0 || r.counts.skipped !== r.counts.total) return null;
+  if (r.counts.total === 0 || r.counts.failed > 0 || r.counts.passed > 0 || r.counts.skipped !== r.counts.total) return null;
   const d = DISPOSITIONS.find((x) => x.suite === file && appliesTo(x, scenarioName, ref));
-  return d ? { kind: d.kind, reason: d.reason } : null;
+  if (!d) return null;
+  if (r.exit === 4) return { kind: d.kind, reason: d.reason };
+  // exit 1 with every test skipped and no failed test: the suite's own beforeAll refused the database. Explained only when the disposition names that refusal and the log carries it verbatim.
+  if (r.exit === 1 && d.logMatch) {
+    let log = "";
+    try { log = readFileSync(path.join(runDir, "vitest.log"), "utf8"); } catch { return null; }
+    if (log.includes(d.logMatch)) return { kind: d.kind, reason: d.reason };
+  }
+  return null;
 }
 const appliesTo = (e, scenarioName, ref) => (e.scenarios.includes("*") || e.scenarios.includes(scenarioName)) && (!e.testsRef || (ref ?? "").includes(e.testsRef)) && (!e.workingTreeOnly || !ref);
 function classify(file, scenarioName, runDirFromTail, ref) {
@@ -629,7 +637,7 @@ async function cmdMatrix(scenarioName, flags) {
   // container-gated localStack suites (no TW4A_LOCAL_URL gate) are found by file name and run only when declared in matrix-suites.json
   const allLocal = git("ls-tree", "-r", "--name-only", ref ? resolveRef(ref) : "HEAD", "--", "src").split("\n").filter((f) => /(^|\/)localStack\.[^/]*\.test\.ts$/.test(f));
   const plan = planMatrixFiles(urlGated, allLocal);
-  const files = plan.files;
+  const files = flags.only ? plan.files.filter((f) => f.includes(flags.only)) : plan.files; // --only <substring>: a partial matrix (never a full one)
   if (files.length === 0) { log("INCOMPLETE MATRIX: no suites found"); process.exit(4); }
   if (plan.undeclared.length) { log(`INCOMPLETE MATRIX: localStack suite(s) with neither the TW4A_LOCAL_URL gate nor an entry in scripts/qa/matrix-suites.json: ${plan.undeclared.join(", ")}`); process.exit(4); }
   if (flags["plan-only"]) { for (const f of files) console.log(`${f}${matrixFlagsFor(f).length ? "  " + matrixFlagsFor(f).join(" ") : ""}`); console.log(`${files.length} suite(s) planned (--plan-only: nothing was run)`); process.exit(5); }
@@ -644,9 +652,9 @@ async function cmdMatrix(scenarioName, flags) {
       const tail = err.split("\n").filter((l) => l.includes("[iso-qa] scenario=")).pop() ?? err.split("\n").filter((l) => l.includes("[iso-qa]")).pop() ?? "";
       const evidence = (tail.match(/evidence=(.*)$/) ?? [])[1];
       const known = status === 1 && evidence ? classify(f, scenarioName, evidence.trim(), ref) : null;
-      const skipped = status === 4 && evidence ? classifySkip(f, scenarioName, evidence.trim(), ref) : null;
+      const skipped = (status === 4 || (status === 1 && !known)) && evidence ? classifySkip(f, scenarioName, evidence.trim(), ref) : null;
       results.push({ file: f, status: status ?? 3, known: known?.reason ?? null, explainedSkip: skipped ? `${skipped.kind}: ${skipped.reason}` : null, tail });
-      console.log(`${status === 0 ? "PASS " : status === 3 ? "INFRA" : status === 4 ? (skipped ? "SKIP*" : "SKIP ") : known ? "KNOWN" : "FAIL "} ${f}  ${tail.replace(/.*\[iso-qa\] /, "").replace(/.*scenario=/, "")}${known ? `  [known: ${known.reason.slice(0, 90)}]` : ""}${skipped ? `  [${skipped.kind}: ${skipped.reason.slice(0, 90)}]` : ""}`);
+      console.log(`${status === 0 ? "PASS " : status === 3 ? "INFRA" : status === 4 ? (skipped ? "SKIP*" : "SKIP ") : known ? "KNOWN" : skipped ? "SKIP*" : "FAIL "} ${f}  ${tail.replace(/.*\[iso-qa\] /, "").replace(/.*scenario=/, "")}${known ? `  [known: ${known.reason.slice(0, 90)}]` : ""}${skipped ? `  [${skipped.kind}: ${skipped.reason.slice(0, 90)}]` : ""}`);
       resolve();
     });
   });
@@ -760,7 +768,7 @@ const cmdList = () => console.log(dockerTry("ps", "-a", "--filter", `label=${LAB
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 const ALLOWED = {
   baseline: ["cutoff", "ref", "base"], up: ["name", "migration", "cutoff", "no-api"], run: ["name", "keep", "migration", "cutoff", "tests-ref", "env", "marker"],
-  matrix: ["parallel", "tests-ref", "migration", "cutoff", "plan-only"], compare: ["cutoff"], down: ["name", "all", "force"], list: [], repro: [], selftest: [], scenarios: [],
+  matrix: ["parallel", "tests-ref", "migration", "cutoff", "plan-only", "only"], compare: ["cutoff"], down: ["name", "all", "force"], list: [], repro: [], selftest: [], scenarios: [],
 };
 const BOOLEAN = new Set(["keep", "all", "force", "no-api", "marker", "plan-only"]);
 function parse(argv) {
