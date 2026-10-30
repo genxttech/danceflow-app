@@ -18,7 +18,7 @@
 -- NOTE: the "Phase A fingerprint 7d4442fa" recorded in the 2026-10-19 sync review was produced by a different, unrecorded query. This probe's rollups are NOT
 -- comparable with it; take a fresh baseline with this probe before the first apply and compare against that.
 with
-  -- BEGIN GENERATED expected objects (gen_manifest_data.mjs --sync-probes; chain through 20261230090000)
+  -- BEGIN GENERATED expected objects (gen_manifest_data.mjs --sync-probes; chain through 20261231100000)
   exp_fn(name, since) as (values
     ('_sms_onb_access_enabled', '20261119090000'),
     ('_sms_onb_append_only', '20261119090000'),
@@ -428,7 +428,10 @@ with
     ('tw4_rfl_pilot_cover', '20261229090000'),
     ('_tw4pse_guard', '20261230090000'),
     ('tw4_pilot_exception_create', '20261230090000'),
-    ('tw4_spend_authorize', '20261230090000')
+    ('tw4_spend_authorize', '20261230090000'),
+    ('_tw4psh_event_evidence_check', '20261231100000'),
+    ('_tw4psh_exception_evidence_check', '20261231100000'),
+    ('_tw4psh_spend_authorize', '20261231100000')
   ),
   exp_tbl(name, since) as (values
     ('studio_sms_onboarding', '20261119090000'),
