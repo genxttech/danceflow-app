@@ -153,3 +153,22 @@ This is evidence for the harness changes in this PR. It is not the full-chain ma
 | `rehearse --partial` (cutoff 20261205090000) | **PARTIAL, FAIL** | 24 migrations applied, fingerprinted | see below. Not a full rehearsal. |
 
 **Partial rehearsal finding.** The 24 migrations 20261207..20261230 applied in manifest order and every forward hash matched. The strict reverse rollback then ran cleanly for 20261230 down to 20261212. Rolling back each of those files left only the KI-2 constraint `studio_sms_onboarding_audit_action_check` widened (the masked, documented residue). Rolling back **20261211** did not restore the catalog from before its apply: `studio_sms_provider_alerts_kind_check` (created by 20261209) is left with 20261211's wider list of kinds (`owner_notice_second`, `owner_unresponsive`, in a different form) instead of the 20261209 definition. It is the same family as KI-2 (a widened allowlist, safe, but not an exact restore), on a constraint that KI-2 does not list. The harness reports it as FAIL on purpose: the KI-2 mask is limited to its three named constraints. Resolved: the owner approved fixing the 20261211 rollback (PR #349: it restores the 1209 definition, refuses while a 1211-only kind row exists or the constraint is not exactly 1211's). With that change in a local scratch merge, the same partial rehearsal ran to the end: reverse rollback completes through 20261211 with only the documented KI-2 constraints left (KNOWN, exit 6), and re-apply equals the first apply. Still PARTIAL. The rehearsal stopped at the first failing step, so the steps below 20261211 were not exercised. Evidence: `rehearsal-steps.json` in the run directory (kept outside the repo).
+
+## 9. Full-chain rehearsal, structural stages (2026-10-30, scratch merge of main 512fd7d2 + #356 + #349 + #326, pre-TW-4F baseline, one stack)
+
+Image `df-isoqa/base:20261118090000` (built with `iso-qa.mjs baseline --cutoff 20261118090000`: 196 migrations applied, 22 known-unreplayable skipped). The matrix was NOT run (no grant); this is the structural half of the rehearsal only. Host: about 5.7 to 7.3 GB RAM free.
+
+| Stage | Result |
+|---|---|
+| Plan and hashes | PASS: 48 migrations in manifest order (`1119_090` .. `1231b`); every forward and rollback sha256 equals the manifest (this includes the new 1211 rollback hash from #349 and the 1231 / 1231b rows from #356) |
+| (a)+(b) Apply in manifest order, fingerprint after each file | PASS: 48 of 48 applied, 5295 catalog entries at the baseline |
+| (c) Strict reverse rollback, each step compared with the catalog from before that file was applied | FAIL under the strict rule (first failure at the 20261203 rollback), see below. All 48 rollbacks ran without error. The 1231b, 1231, 1230, 1229, 1228, 1227, 1226 steps restore the exact prior catalog; the 1211 step now matches except the documented KI-2 constraints |
+| (c) Final catalog after the whole reverse rollback vs the baseline | PASS, **identical** (the KI-2 leftovers disappear again once 20261201 .. 20261127 are rolled back) |
+| (d) Re-apply in order | PASS: all 48 steps equal the first-apply fingerprint, and the final catalog equals the first apply exactly |
+
+`--diagnose` (continue after a mismatch, verdict stays FAIL) lists every step that does not restore the exact prior catalog beyond the three documented KI-2 constraints:
+
+- **20261203, 20261202150000, 20261202140000 rollbacks:** `studio_sms_price_list_kind_check` is re-created with the same seven kinds (including `sms_usage`) in a different text form (`'{...}'::text[]`, sorted) instead of the `ARRAY[...]` form. Same allowlist, no widening; the next rollbacks restore the original form.
+- **20261128 and 20261127 rollbacks:** `tw4_recurring_due(text)` has a different body md5 after the 20261128 rollback restores it; the text differs from 20261126's original only in a trailing line comment on the last statement. Behaviour is identical; the 20261126 rollback then drops the function.
+
+These two items are not on the KI-2 list, so the harness reports the rehearsal as FAIL rather than masking them. Decision for the coordinator or owner: list them as known cosmetic residue (KI-2c: constraint text form; KI-2d: a restored comment), or fix the rollbacks. Neither is a data or privilege difference, and nothing here is applied to any hosted database.
