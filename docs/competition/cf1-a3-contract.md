@@ -2,7 +2,7 @@
 
 Migration `20270120093000_competition_cf1_a3_results_integrity.sql` (rollback in `rollback/`, suite `sql-tests/test_T_competition_cf1_a3_results.sql`, vitest `src/lib/competition/results/__tests__/evidence.cf1a3.test.ts`).
 Design: `callback-to-final-advancement-design.md` §4.6 (a), §4.7, A.3, A.9.1–A.9.5. A3 creates no new object: it redefines ten existing functions by pinned text-replace.
-**Global results-integrity change** (every scored round of every program and discipline). The OD-17 cross-checks stay disabled for live events until release blocker RB1.
+**Global results-integrity change** (every scored round of every program and discipline). **There is no database switch: applying the migration IS the enablement of the OD-17 calculate/approve cross-checks.** It must not reach a hosted database before RB1 (A5 built, RB2, U58/U59/U65), because a couple refunded or made ineligible after dancing would otherwise strand a round at `ballots_locked`/`calculated` with no exclusion action to resolve it.
 
 ## What changes (pins from an applied QA chain through A1, CRs removed)
 
@@ -43,3 +43,9 @@ Each function keeps `SECURITY DEFINER`, `search_path = public, pg_temp` and its 
 ## Rollback
 
 `rollback/20270120093000_competition_cf1_a3_results_integrity_rollback.sql` is CF1 rollback position 3 (after A6 and A5, before A2). It restores the exact pre-A3 texts (md5 checked per function), refuses if any function no longer holds the post-A3 text, and refuses while any `event_competition_round_exclusions` row exists (roll forward only).
+
+## Open points from the independent review (decisions for the coordinator / owner, not changed here)
+
+* **P2 verified-email gate:** the review `excluded` section returns reasons and actor names to any `manager`/`scorer` role without the `verified_email_for_user` check NS1 applies to its no-show reader. Either gate the section on it or record that managers may read reasons without it.
+* **P3 label precedence:** the review lists every couple from `_cf1_excluded_entries`; the hashed evidence applies scratched > no_show > excluded. A couple excluded and also scratched/no-show in every heat shows as excluded in the review but as scratched/no_show in the evidence. Filter the review likewise, or have A5/NS1 refuse the combination.
+* **P3 retry mapping:** a `FOR SHARE` wait ends at `statement_timeout` (`57014`), which package B should map alongside `40P01`/`55P03`.

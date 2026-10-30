@@ -3,7 +3,7 @@
 -- Design: docs/competition/callback-to-final-advancement-design.md section 4.6 (a), 4.7, A.3, A.9.1-A.9.5. Contract: docs/competition/cf1-a3-contract.md.
 -- Slot 20270120093000, after A1 (20270120085000), A0 (090000), A4a (091000) and A2 (092000); before A5 (094000). SQL before app.
 -- GLOBAL results-integrity change: it touches calculate, approve, the E2 ranking-set functions, the F2 evidence builder and the results review
--- for EVERY scored round of every program and discipline. The OD-17 cross-checks stay disabled for live events until release blocker RB1.
+-- for EVERY scored round of every program and discipline. There is NO database switch: applying this file IS the enablement of the OD-17 calculate/approve cross-checks, so it must not reach a hosted database before release blocker RB1 is satisfied (A5 exclusion action built and passed, RB2 F3 exit, U58/U59/U65).
 --
 -- Every function below is redefined by pinned text-replace: the installed pg_get_functiondef text (CRs removed) must match the md5 recorded
 -- here (taken from an applied QA chain through A1, never from DEV or PROD), each old anchor must occur exactly once, and the md5 of the
