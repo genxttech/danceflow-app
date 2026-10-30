@@ -1,5 +1,7 @@
 -- SQL tests for 20270203090000_organizer_suite_entitlement_integrity.sql and 20270203100000_usage_addon_entitlements_least_privilege.sql.
 -- Disposable, isolated PROD-equivalent Postgres ONLY (scripts/qa/iso-qa.mjs baseline). Never run against a hosted database.
+-- Stack: baseline (cutoff 20261119092100) + origin/main 20270202090000 + 20270202100000 (#360, apply_studio_subscription_state),
+-- WITHOUT the two D7 migrations (this script applies, rolls back and re-applies them itself). Section L exercises the #360 RPC.
 -- Expects the four files copied into the container as:
 --   /tmp/m1_up.sql /tmp/m1_down.sql /tmp/m2_up.sql /tmp/m2_down.sql
 -- Run: psql -U postgres -d postgres -f /tmp/test_D7_organizer_suite_entitlements.sql
@@ -77,6 +79,20 @@ begin
   return (select count(*) from public.usage_addon_entitlement_events where entitlement_id = p_ent and (p_type is null or event_type = p_type));
 end $f$;
 
+-- Calls the #360 SECURITY DEFINER RPC as service_role (same subscription id every time).
+create function public.t_apply(p_studio uuid, p_read timestamptz, p_status text, p_addon jsonb) returns text language plpgsql as $f$
+declare v text;
+begin
+  execute 'set local role service_role';
+  v := public.apply_studio_subscription_state(p_studio,
+    jsonb_build_object('stripe_subscription_id', 'sub_d7_rpc', 'status', p_status, 'billing_interval', 'month', 'cancel_at_period_end', false),
+    p_read,
+    jsonb_build_object('stripe_customer_id', 'cus_d7_rpc', 'stripe_subscription_id', 'sub_d7_rpc', 'subscription_status', p_status),
+    p_addon);
+  execute 'reset role';
+  return v;
+end $f$;
+
 create function public.t_acl() returns text language sql as $f$
   select relacl::text from pg_class where oid = 'public.usage_addon_entitlements'::regclass;
 $f$;
@@ -92,7 +108,9 @@ insert into public.studios (id, name, slug, timezone) values
   ('d7000000-0000-0000-0000-000000000004', 'd7 s4 utc', 'd7-s4', 'UTC'),
   ('d7000000-0000-0000-0000-000000000005', 'd7 s5 stripe', 'd7-s5', 'UTC'),
   ('d7000000-0000-0000-0000-000000000006', 'd7 s6 auckland', 'd7-s6', 'Pacific/Auckland'),
-  ('d7000000-0000-0000-0000-000000000007', 'd7 s7 delete', 'd7-s7', 'UTC');
+  ('d7000000-0000-0000-0000-000000000007', 'd7 s7 delete', 'd7-s7', 'UTC'),
+  ('d7000000-0000-0000-0000-000000000008', 'd7 s8 rpc', 'd7-s8', 'America/New_York'),
+  ('d7000000-0000-0000-0000-000000000009', 'd7 s9 svc delete', 'd7-s9', 'UTC');
 insert into public.user_studio_roles (user_id, studio_id, role, active) values
   ('a7000000-0000-0000-0000-00000000000a', 'd7000000-0000-0000-0000-000000000001', 'studio_owner', true);
 insert into public.usage_addon_entitlements (id, studio_id, workspace_type, feature_key, quantity_included, source, status) values
@@ -129,6 +147,11 @@ select public.t_assert(not exists (select 1 from pg_constraint where conrelid = 
 select public.t_assert((select prosecdef from pg_proc where oid = 'public.usage_addon_entitlements_audit()'::regprocedure) = false, 'audit trigger function is SECURITY INVOKER');
 select public.t_assert((select prosecdef from pg_proc where oid = 'public.expire_due_usage_addon_entitlements(timestamptz,text)'::regprocedure) = false, 'expire function is SECURITY INVOKER');
 select public.t_assert((select proconfig::text from pg_proc where oid = 'public.usage_addon_entitlements_audit()'::regprocedure) like '%search_path=pg_catalog, public, pg_temp%', 'audit trigger function has a fixed search_path');
+-- (d) object owners after apply
+select public.t_assert((select pg_get_userbyid(relowner) from pg_class where oid = 'public.usage_addon_entitlement_events'::regclass) = 'postgres', 'events table owner is postgres');
+select public.t_assert((select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname in ('usage_addon_entitlements_audit', 'usage_addon_entitlement_events_guard', 'usage_addon_entitlement_safe_timezone', 'usage_addon_entitlement_end_instant', 'usage_addon_entitlement_start_instant', 'usage_addon_entitlement_is_current', 'expire_due_usage_addon_entitlements') and pg_get_userbyid(proowner) = 'postgres') = 7, 'all 7 migration-1 functions owned by postgres');
+select public.t_assert((select count(*) from pg_class where relname in ('usage_addon_entitlements_one_active_manual_grant_studio', 'usage_addon_entitlements_one_active_manual_grant_organizer', 'usage_addon_entitlement_events_entitlement_idx', 'usage_addon_entitlement_events_studio_idx') and pg_get_userbyid(relowner) = 'postgres') = 4, 'all 4 migration-1 indexes owned by postgres');
+select public.t_assert((select pg_get_userbyid(proowner) from pg_proc where oid = 'public.apply_studio_subscription_state(uuid,jsonb,timestamptz,jsonb,jsonb)'::regprocedure) = 'postgres' and (select prosecdef from pg_proc where oid = 'public.apply_studio_subscription_state(uuid,jsonb,timestamptz,jsonb,jsonb)'::regprocedure), '#360 RPC present: SECURITY DEFINER owned by postgres (unchanged by D7)');
 
 \echo === B: idempotent re-apply of migration 1
 \i /tmp/m1_up.sql
@@ -138,6 +161,7 @@ select public.t_assert((select count(*) from pg_trigger where tgrelid = 'public.
 \i /tmp/m2_up.sql
 \i /tmp/m2_down.sql
 select public.t_assert(t_acl() = :'acl_before', 'privilege rollback restores the prior ACL exactly');
+select public.t_assert(current_setting('server_version_num')::int >= 170000 and has_table_privilege('service_role', 'public.usage_addon_entitlements', 'maintain'), 'PG17+: privilege rollback re-granted MAINTAIN (version-gated branch taken)');
 \i /tmp/m1_down.sql
 select public.t_assert(to_regclass('public.usage_addon_entitlement_events') is null and to_regprocedure('public.expire_due_usage_addon_entitlements(timestamptz,text)') is null and to_regprocedure('public.usage_addon_entitlement_is_current(text,date,date,text,timestamptz)') is null and to_regprocedure('public.usage_addon_entitlements_audit()') is null and to_regprocedure('public.usage_addon_entitlement_end_instant(date,text)') is null and to_regclass('public.usage_addon_entitlements_one_active_manual_grant_studio') is null, 'rollback (empty) removed all migration-1 objects');
 select public.t_assert(not exists (select 1 from pg_trigger where tgrelid = 'public.usage_addon_entitlements'::regclass and not tgisinternal), 'no user trigger left on entitlements');
@@ -202,6 +226,21 @@ insert into public.usage_addon_entitlements (id, studio_id, workspace_type, feat
   ('e7000000-0000-0000-0000-000000000071', 'd7000000-0000-0000-0000-000000000007', 'studio', 'organizer_suite', 1, 'manual_grant', 'active');
 delete from public.studios where id = 'd7000000-0000-0000-0000-000000000007';
 select public.t_assert(not exists (select 1 from public.usage_addon_entitlements where id = 'e7000000-0000-0000-0000-000000000071') and public.t_ev('e7000000-0000-0000-0000-000000000071', 'insert') = 1 and public.t_ev('e7000000-0000-0000-0000-000000000071', 'delete') = 1, 'studio cascade delete recorded as a delete event; evidence survives without FK');
+select public.t_assert((select actor = 'postgres' and reason is null from public.usage_addon_entitlement_events where entitlement_id = 'e7000000-0000-0000-0000-000000000071' and event_type = 'delete'), 'owner-session cascade delete: actor postgres, no default reason (same role)');
+-- identity changes (studio_id, organizer_id, workspace_type, feature_key)
+select public.t_expect_ok('service_role', $$insert into public.usage_addon_entitlements (id, studio_id, workspace_type, feature_key, quantity_included, source, status) values ('e7000000-0000-0000-0000-000000000081','d7000000-0000-0000-0000-000000000004','studio','identity_test',1,'manual_grant','canceled')$$);
+select public.t_assert((select to_workspace_type = 'studio' from public.usage_addon_entitlement_events where entitlement_id = 'e7000000-0000-0000-0000-000000000081' and event_type = 'insert'), 'insert event records workspace_type');
+select public.t_expect_ok('service_role', $$update public.usage_addon_entitlements set studio_id = 'd7000000-0000-0000-0000-000000000005' where id = 'e7000000-0000-0000-0000-000000000081'$$);
+select public.t_assert(public.t_ev('e7000000-0000-0000-0000-000000000081', 'identity_change') = 1 and public.t_ev('e7000000-0000-0000-0000-000000000081', null) = 2, 'studio_id move wrote exactly one identity_change event');
+select public.t_assert((select from_studio_id = 'd7000000-0000-0000-0000-000000000004' and to_studio_id = 'd7000000-0000-0000-0000-000000000005' and studio_id = 'd7000000-0000-0000-0000-000000000005' and from_feature_key = 'identity_test' and to_feature_key = 'identity_test' and actor = 'service_role' from public.usage_addon_entitlement_events where entitlement_id = 'e7000000-0000-0000-0000-000000000081' and event_type = 'identity_change'), 'identity_change from/to studio correct; snapshot holds the new studio');
+select public.t_expect_ok('service_role', $$update public.usage_addon_entitlements set studio_id = null, organizer_id = '0d700000-0000-0000-0000-000000000001', workspace_type = 'organizer' where id = 'e7000000-0000-0000-0000-000000000081'$$);
+select public.t_assert(public.t_ev('e7000000-0000-0000-0000-000000000081', 'identity_change') = 2 and public.t_ev('e7000000-0000-0000-0000-000000000081', null) = 3, 'studio->organizer workspace move wrote exactly one more identity_change event');
+select public.t_assert((select from_studio_id = 'd7000000-0000-0000-0000-000000000005' and to_studio_id is null and from_organizer_id is null and to_organizer_id = '0d700000-0000-0000-0000-000000000001' and from_workspace_type = 'studio' and to_workspace_type = 'organizer' from public.usage_addon_entitlement_events where entitlement_id = 'e7000000-0000-0000-0000-000000000081' and event_type = 'identity_change' and to_workspace_type = 'organizer'), 'organizer/workspace_type from/to correct');
+select public.t_expect_ok('service_role', $$update public.usage_addon_entitlements set feature_key = 'identity_test_2', status = 'expired' where id = 'e7000000-0000-0000-0000-000000000081'$$);
+select public.t_assert(public.t_ev('e7000000-0000-0000-0000-000000000081', 'identity_change') = 3 and public.t_ev('e7000000-0000-0000-0000-000000000081', 'status_change') = 1 and public.t_ev('e7000000-0000-0000-0000-000000000081', null) = 5, 'feature_key + status change: one identity_change and one status_change');
+select public.t_assert((select from_feature_key = 'identity_test' and to_feature_key = 'identity_test_2' and feature_key = 'identity_test_2' from public.usage_addon_entitlement_events where entitlement_id = 'e7000000-0000-0000-0000-000000000081' and event_type = 'identity_change' and to_feature_key = 'identity_test_2'), 'feature_key from/to correct');
+select public.t_expect_ok('service_role', $$update public.usage_addon_entitlements set studio_id = studio_id, organizer_id = organizer_id, workspace_type = workspace_type, feature_key = feature_key where id = 'e7000000-0000-0000-0000-000000000081'$$);
+select public.t_assert(public.t_ev('e7000000-0000-0000-0000-000000000081', null) = 5, 'no-op identity update writes no event');
 -- append-only
 select public.t_expect_fail('postgres', $$update public.usage_addon_entitlement_events set reason = 'x'$$, '%append-only%');
 select public.t_expect_fail('postgres', $$delete from public.usage_addon_entitlement_events$$, '%append-only%');
@@ -235,6 +274,11 @@ select public.t_assert(public.usage_addon_entitlement_end_instant('2027-07-09', 
 select public.t_assert(public.usage_addon_entitlement_end_instant('2027-07-09', 'america/new_york') = '2027-07-09 04:00+00', 'timezone name matched case-insensitively');
 select public.t_assert(public.usage_addon_entitlement_end_instant('2027-01-09', 'America/New_York') = '2027-01-09 05:00+00', 'New York winter (EST) end instant 05:00Z');
 select public.t_assert(public.usage_addon_entitlement_end_instant(null, 'UTC') is null, 'null period_end: no end instant');
+-- (c) DST transitions AT local midnight (the day's 00:00 does not exist, or occurs twice)
+select public.t_assert(public.usage_addon_entitlement_end_instant('2027-03-14', 'America/Havana') = '2027-03-14 05:00+00', 'Havana 2027-03-14 (spring-forward gap at 00:00): end instant 05:00Z');
+select public.t_assert(public.usage_addon_entitlement_end_instant('2027-11-07', 'America/Havana') = '2027-11-07 05:00+00', 'Havana 2027-11-07 (fall-back, 00:00 occurs twice): end instant 05:00Z');
+select public.t_assert(public.usage_addon_entitlement_end_instant('2027-09-05', 'America/Santiago') = '2027-09-05 04:00+00', 'Santiago 2027-09-05 (spring-forward gap at 00:00): end instant 04:00Z');
+select public.t_assert(public.usage_addon_entitlement_is_current('active', null, '2027-03-14', 'America/Havana', '2027-03-14 04:59:59+00') and not public.usage_addon_entitlement_is_current('active', null, '2027-03-14', 'America/Havana', '2027-03-14 05:00:00+00'), 'Havana gap: current until 04:59:59Z, ended at 05:00Z');
 select public.t_assert(not public.usage_addon_entitlement_is_current('active', '2027-01-01', null, 'UTC', '2026-12-31 23:59:59+00') and public.usage_addon_entitlement_is_current('active', '2027-01-01', null, 'UTC', '2027-01-01 00:00:00+00'), 'period_start inclusive from the start of its day');
 select public.t_assert(not public.usage_addon_entitlement_is_current('active', '2027-07-09', '2027-07-09', 'UTC', '2027-07-09 00:00:00+00'), 'start = end: empty window');
 select public.t_assert(not has_function_privilege('anon', 'public.usage_addon_entitlement_is_current(text,date,date,text,timestamptz)', 'execute') and has_function_privilege('authenticated', 'public.usage_addon_entitlement_is_current(text,date,date,text,timestamptz)', 'execute') and has_function_privilege('service_role', 'public.usage_addon_entitlement_is_current(text,date,date,text,timestamptz)', 'execute'), 'is_current EXECUTE: authenticated + service_role, not anon');
@@ -340,6 +384,37 @@ select public.t_assert(public.t_count_as('authenticated', 'a7000000-0000-0000-00
 select public.t_assert(public.t_count_as('authenticated', 'a7000000-0000-0000-0000-00000000000a', $$select * from public.usage_addon_entitlements where studio_id <> 'd7000000-0000-0000-0000-000000000001'$$) = 0, 'studio owner cannot read other studios');
 select public.t_assert(public.t_count_as('authenticated', 'b7000000-0000-0000-0000-00000000000b', 'select * from public.usage_addon_entitlements') = 0, 'user without a role reads nothing');
 select public.t_assert((select count(*) from pg_policies where tablename = 'usage_addon_entitlements' and cmd = 'SELECT') = 2 and (select count(*) from pg_policies where tablename = 'usage_addon_entitlements') = 2, 'RLS policies unchanged (2 SELECT)');
+
+-- ---------- L: #360 RPC and service_role cascade under the trigger and least-privilege grants ----------
+\echo === L: apply_studio_subscription_state (SECURITY DEFINER) and service_role studio delete
+select public.t_assert(t_acl() = '{postgres=arwdDxtm/postgres,authenticated=r/postgres,service_role=arw/postgres}', 'L runs under the least-privilege ACL');
+select public.t_expect_ok('service_role', $$insert into public.usage_addon_entitlements (id, studio_id, workspace_type, feature_key, quantity_included, source, status, period_end) values ('e7000000-0000-0000-0000-000000000082','d7000000-0000-0000-0000-000000000008','studio','organizer_suite',1,'manual_grant','active','2027-07-09')$$);
+create table public.t_pre_rpc as select * from public.usage_addon_entitlements where source = 'manual_grant';
+select count(*) as ev_pre_rpc, clock_timestamp() as t_rpc_start from public.usage_addon_entitlement_events \gset
+select public.t_assert(public.t_apply('d7000000-0000-0000-0000-000000000008', '2027-01-01 00:00+00', 'active', '{"active": true, "item_ids": ["si_d7_rpc"]}') = 'applied', 'RPC (service_role) applied a Suite item');
+select public.t_assert((select count(*) from public.usage_addon_entitlements where stripe_subscription_item_id = 'si_d7_rpc' and studio_id = 'd7000000-0000-0000-0000-000000000008' and status = 'active' and source = 'stripe_subscription_item') = 1, 'RPC created one active Stripe Suite row next to the manual grant');
+select id as rpc_ent from public.usage_addon_entitlements where stripe_subscription_item_id = 'si_d7_rpc' \gset
+select public.t_assert(public.t_ev(:'rpc_ent', 'insert') = 1 and public.t_ev(:'rpc_ent', null) = 1, 'RPC insert audited exactly once');
+select public.t_assert((select actor = 'postgres' and reason = 'no app.entitlement_reason set; written as postgres on behalf of role service_role (SECURITY DEFINER context)' from public.usage_addon_entitlement_events where entitlement_id = :'rpc_ent' and event_type = 'insert'), 'definer write: actor is the owner role, default reason names the invoking role service_role');
+select public.t_assert(public.t_apply('d7000000-0000-0000-0000-000000000008', '2027-01-02 00:00+00', 'cancelled', '{"active": false, "item_ids": ["si_d7_rpc"]}') = 'applied', 'RPC applied the cancellation');
+select public.t_assert((select status from public.usage_addon_entitlements where id = :'rpc_ent') = 'canceled', 'Stripe Suite row canceled by the RPC');
+select public.t_assert(public.t_ev(:'rpc_ent', 'status_change') = 1 and public.t_ev(:'rpc_ent', null) = 2 and (select from_status = 'active' and to_status = 'canceled' and actor = 'postgres' and reason like '%on behalf of role service_role%' from public.usage_addon_entitlement_events where entitlement_id = :'rpc_ent' and event_type = 'status_change'), 'cancellation audited once (active -> canceled, owner actor, service_role named)');
+select public.t_assert(public.t_apply('d7000000-0000-0000-0000-000000000008', '2027-01-03 00:00+00', 'cancelled', '{"active": false, "item_ids": ["si_d7_rpc"]}') = 'applied' and public.t_ev(:'rpc_ent', null) = 2, 'repeat RPC with the same state writes no event (no-op update)');
+begin;
+select set_config('app.entitlement_reason', 'stripe webhook evt_d7', true);
+select set_config('app.entitlement_actor', 'webhook:stripe', true);
+select public.t_apply('d7000000-0000-0000-0000-000000000008', '2027-01-04 00:00+00', 'active', '{"active": true, "item_ids": ["si_d7_rpc"]}');
+commit;
+select public.t_assert((select reason = 'stripe webhook evt_d7' and actor = 'webhook:stripe' from public.usage_addon_entitlement_events where entitlement_id = :'rpc_ent' and event_type = 'status_change' and to_status = 'active'), 'caller-set reason/actor carried through the definer RPC');
+select public.t_assert(not exists (select * from public.t_pre_rpc except select * from public.usage_addon_entitlements where source = 'manual_grant') and (select count(*) from public.usage_addon_entitlements where source = 'manual_grant') = (select count(*) from public.t_pre_rpc), 'RPC touched no manual_grant row');
+select public.t_assert((select count(*) from public.usage_addon_entitlement_events e where e.created_at > :'t_rpc_start'::timestamptz and e.entitlement_id in (select id from public.t_pre_rpc)) = 0, 'no event written for any manual_grant row during the RPC calls');
+select public.t_assert((select count(*) from public.usage_addon_entitlement_events) = :ev_pre_rpc + 3, 'RPC calls wrote exactly 3 events (insert, cancel, reactivate)');
+-- (b) studio delete as service_role (no DELETE on entitlements): the FK cascade still removes the row and is audited
+select public.t_expect_ok('service_role', $$insert into public.usage_addon_entitlements (id, studio_id, workspace_type, feature_key, quantity_included, source, status) values ('e7000000-0000-0000-0000-000000000091','d7000000-0000-0000-0000-000000000009','studio','organizer_suite',1,'manual_grant','active')$$);
+select public.t_expect_fail('service_role', $$delete from public.usage_addon_entitlements where id = 'e7000000-0000-0000-0000-000000000091'$$, 'permission denied%');
+select public.t_assert(public.t_rows_as('service_role', null, $$delete from public.studios where id = 'd7000000-0000-0000-0000-000000000009'$$) = 1, 'service_role deleted the studio');
+select public.t_assert(not exists (select 1 from public.usage_addon_entitlements where id = 'e7000000-0000-0000-0000-000000000091') and public.t_ev('e7000000-0000-0000-0000-000000000091', 'delete') = 1, 'service_role studio delete cascaded and the delete event was recorded');
+select public.t_assert((select actor = 'service_role' and reason is null and from_status = 'active' and from_source = 'manual_grant' and studio_id = 'd7000000-0000-0000-0000-000000000009' from public.usage_addon_entitlement_events where entitlement_id = 'e7000000-0000-0000-0000-000000000091' and event_type = 'delete'), 'cascade delete event attributed to the deleting role service_role (AFTER trigger fires in caller identity), snapshot kept');
 
 -- ---------- K: rollbacks with data ----------
 \echo === K: rollbacks with data

@@ -2,10 +2,18 @@
 -- Restores the exact previous ACL observed on PROD (2026-10-30) and the PROD-equivalent baseline (PostgreSQL 17):
 --   {postgres=arwdDxtm/postgres, anon=arwdDxtm/postgres, authenticated=arwdDxtm/postgres, service_role=arwdDxtm/postgres}
 --   arwdDxtm = INSERT, SELECT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN (listed explicitly, not ALL).
+-- MAINTAIN (the 'm') exists only on PostgreSQL 17+. It is granted only when server_version_num >= 170000, so this file also runs
+-- on an older server (where the previous ACL could not have held MAINTAIN either: arwdDxt there).
 -- Run as the table owner (postgres) so the grantor matches. RLS and policies are untouched.
 begin;
 set local lock_timeout = '5s';
 revoke all on public.usage_addon_entitlements from public, anon, authenticated, service_role;
-grant select, insert, update, delete, truncate, references, trigger, maintain
+grant select, insert, update, delete, truncate, references, trigger
   on public.usage_addon_entitlements to anon, authenticated, service_role;
+do $$
+begin
+  if current_setting('server_version_num')::int >= 170000 then
+    execute 'grant maintain on public.usage_addon_entitlements to anon, authenticated, service_role';
+  end if;
+end $$;
 commit;

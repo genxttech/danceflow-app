@@ -1,6 +1,15 @@
 -- Rollback of 20270203090000_organizer_suite_entitlement_integrity.sql.
 -- REFUSES while any audit event exists (append-only evidence of entitlement changes). Export the events first if a rollback is
 -- ever required; this file never deletes them. Entitlement rows and their statuses are not changed by this rollback.
+--
+-- ONE-WAY ONCE EVENTS EXIST. After the first audited write this file will always refuse, by design. EMERGENCY PATH (e.g. the audit
+-- trigger blocks a production writer): drop ONLY the audit trigger, as the table owner, and leave everything else in place:
+--   drop trigger if exists usage_addon_entitlements_audit_trg on public.usage_addon_entitlements;
+-- That stops event writes immediately; the events table, its evidence, the indexes, the boundary helpers and the expiry function
+-- stay. Writes made while the trigger is absent are NOT audited, so record the window. Restore it later by re-running
+-- 20270203090000 (idempotent; it recreates the trigger and keeps existing events).
+-- New in this revision: the identity_change event type and its from_/to_ columns live in the events table, so the table drop
+-- below removes them; no separate object needs dropping.
 begin;
 set local lock_timeout = '5s';
 

@@ -18,8 +18,10 @@
 --      existing fixture teardown. Without an FK the events always survive, and a deletion of an entitlement row (cascade or
 --      direct) is itself recorded as a 'delete' event.
 --   3. AFTER INSERT/UPDATE/DELETE trigger on usage_addon_entitlements writing one event per real change (status, period,
---      source, stripe item, quantity). Reason/actor come from the transaction-local settings app.entitlement_reason and
---      app.entitlement_actor; actor defaults to current_user. A no-op update writes nothing.
+--      source, stripe item, quantity, and identity = studio_id/organizer_id/workspace_type/feature_key). Reason/actor come from the
+--      transaction-local settings app.entitlement_reason and app.entitlement_actor; actor defaults to current_user (the OWNER role
+--      for writes made inside a SECURITY DEFINER function, with a default reason naming the invoking role; see
+--      section 3). A no-op update writes nothing.
 --      The trigger function is SECURITY INVOKER: every role that can write entitlement rows (service_role, owner) can insert
 --      events; authenticated/anon cannot write entitlement rows (RLS has no write policy), so no definer rights are needed,
 --      current_user stays the real writer for the actor default, and a role without event INSERT fails closed.
@@ -99,11 +101,21 @@ create table if not exists public.usage_addon_entitlement_events (
   to_stripe_subscription_item_id text,
   from_quantity_included integer,
   to_quantity_included integer,
+  -- identity_change: the row was moved to another workspace or feature (studio_id, organizer_id, workspace_type, feature_key).
+  -- The snapshot columns above (studio_id, organizer_id, feature_key) hold the NEW values; these hold from/to.
+  from_studio_id uuid,
+  to_studio_id uuid,
+  from_organizer_id uuid,
+  to_organizer_id uuid,
+  from_workspace_type text,
+  to_workspace_type text,
+  from_feature_key text,
+  to_feature_key text,
   reason text,
   actor text not null,
   created_at timestamptz not null default clock_timestamp(),
   constraint usage_addon_entitlement_events_type_check check (event_type in
-    ('insert', 'status_change', 'period_change', 'source_change', 'stripe_item_change', 'quantity_change', 'delete'))
+    ('insert', 'status_change', 'period_change', 'source_change', 'stripe_item_change', 'quantity_change', 'identity_change', 'delete'))
 );
 
 create index if not exists usage_addon_entitlement_events_entitlement_idx
@@ -136,6 +148,22 @@ create trigger usage_addon_entitlement_events_no_truncate_trg
 revoke all on function public.usage_addon_entitlement_events_guard() from public, anon, authenticated, service_role;
 
 -- ---------- 3. audit trigger on entitlements ----------
+-- Attribution (actor / reason):
+--   * actor = app.entitlement_actor when the writer set it (transaction-local), else current_user.
+--   * reason = app.entitlement_reason when set. When it is NOT set and current_user differs from the invoking role (the SET ROLE
+--     value, else session_user), the write ran with someone else's rights: a SECURITY DEFINER function (for example
+--     public.apply_studio_subscription_state from 20270202100000, owned by postgres, called by service_role). The actor is then
+--     the function OWNER role (e.g. 'postgres'), and the default reason names both roles: 'no app.entitlement_reason set; written
+--     as postgres on behalf of role service_role (SECURITY DEFINER context)'. (The calling function is not parsed from the call
+--     stack: that text is not a stable API.)
+--     An FK cascade (e.g. a studio deleted by service_role) is attributed to the deleting role: this AFTER ROW trigger fires after
+--     the RI action has returned to the caller's identity, so actor = service_role and no default reason (verified in the tests).
+--     The #360 function itself is not modified; set app.entitlement_reason/actor before calling it for a richer record.
+--   * Nothing here widens who can forge attribution: app.entitlement_* were already settable by any session, but only roles that can
+--     write entitlement rows (service_role, owner) ever produce events; the SET ROLE value can only name a role the session is a
+--     member of, and session_user cannot be changed by SQL.
+--   * NOT tamper-evident against service_role: service_role holds INSERT on the events table (needed because this function is
+--     SECURITY INVOKER), so it can insert arbitrary event rows directly. It still cannot UPDATE, DELETE or TRUNCATE events.
 create or replace function public.usage_addon_entitlements_audit()
 returns trigger language plpgsql
 security invoker
@@ -144,24 +172,39 @@ as $$
 declare
   v_reason text := nullif(btrim(current_setting('app.entitlement_reason', true)), '');
   v_actor text := coalesce(nullif(btrim(current_setting('app.entitlement_actor', true)), ''), current_user::text);
+  v_invoker text := coalesce(nullif(nullif(current_setting('role', true), ''), 'none'), session_user::text);
 begin
+  if v_reason is null and v_invoker is distinct from current_user::text then
+    v_reason := 'no app.entitlement_reason set; written as ' || current_user::text || ' on behalf of role ' || v_invoker
+      || ' (SECURITY DEFINER context)';
+  end if;
+
   if tg_op = 'INSERT' then
     insert into public.usage_addon_entitlement_events (entitlement_id, studio_id, organizer_id, feature_key, event_type,
-      to_status, to_period_start, to_period_end, to_source, to_stripe_subscription_item_id, to_quantity_included, reason, actor)
+      to_status, to_period_start, to_period_end, to_source, to_stripe_subscription_item_id, to_quantity_included, to_workspace_type, reason, actor)
     values (new.id, new.studio_id, new.organizer_id, new.feature_key, 'insert',
-      new.status, new.period_start, new.period_end, new.source, new.stripe_subscription_item_id, new.quantity_included, v_reason, v_actor);
+      new.status, new.period_start, new.period_end, new.source, new.stripe_subscription_item_id, new.quantity_included, new.workspace_type, v_reason, v_actor);
     return null;
   end if;
 
   if tg_op = 'DELETE' then
     insert into public.usage_addon_entitlement_events (entitlement_id, studio_id, organizer_id, feature_key, event_type,
-      from_status, from_period_start, from_period_end, from_source, from_stripe_subscription_item_id, from_quantity_included, reason, actor)
+      from_status, from_period_start, from_period_end, from_source, from_stripe_subscription_item_id, from_quantity_included, from_workspace_type, reason, actor)
     values (old.id, old.studio_id, old.organizer_id, old.feature_key, 'delete',
-      old.status, old.period_start, old.period_end, old.source, old.stripe_subscription_item_id, old.quantity_included, v_reason, v_actor);
+      old.status, old.period_start, old.period_end, old.source, old.stripe_subscription_item_id, old.quantity_included, old.workspace_type, v_reason, v_actor);
     return null;
   end if;
 
   -- UPDATE: one event per real change; nothing when no audited column changed.
+  if new.studio_id is distinct from old.studio_id or new.organizer_id is distinct from old.organizer_id
+     or new.workspace_type is distinct from old.workspace_type or new.feature_key is distinct from old.feature_key then
+    insert into public.usage_addon_entitlement_events (entitlement_id, studio_id, organizer_id, feature_key, event_type,
+      from_studio_id, to_studio_id, from_organizer_id, to_organizer_id, from_workspace_type, to_workspace_type,
+      from_feature_key, to_feature_key, reason, actor)
+    values (new.id, new.studio_id, new.organizer_id, new.feature_key, 'identity_change',
+      old.studio_id, new.studio_id, old.organizer_id, new.organizer_id, old.workspace_type, new.workspace_type,
+      old.feature_key, new.feature_key, v_reason, v_actor);
+  end if;
   if new.status is distinct from old.status then
     insert into public.usage_addon_entitlement_events (entitlement_id, studio_id, organizer_id, feature_key, event_type, from_status, to_status, reason, actor)
     values (new.id, new.studio_id, new.organizer_id, new.feature_key, 'status_change', old.status, new.status, v_reason, v_actor);
@@ -257,6 +300,10 @@ grant execute on function public.usage_addon_entitlement_is_current(text, date, 
 -- Never deletes, never touches Stripe-sourced rows, never creates or extends anything. Returns the rows it expired.
 -- Retry-safe: a second call finds no due active row. Concurrency-safe: rows are claimed with FOR UPDATE SKIP LOCKED and the
 -- update re-checks status='active', so concurrent calls never expire (or audit) the same row twice.
+-- Skip-locked consequence (by design): a due row that is locked by ANY concurrent writer at call time (another expiry run, a
+-- Stripe sync, an owner edit) is skipped silently, not waited for, and is NOT returned. It stays 'active' past its end instant
+-- until the NEXT run picks it up, so callers must run this repeatedly (scheduled) rather than once; readers must decide access
+-- with usage_addon_entitlement_is_current() (date-based), never from status alone.
 create or replace function public.expire_due_usage_addon_entitlements(
   p_as_of timestamptz default now(), p_feature_key text default 'organizer_suite')
 returns setof public.usage_addon_entitlements
