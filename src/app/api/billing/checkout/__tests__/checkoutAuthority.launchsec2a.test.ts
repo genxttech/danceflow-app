@@ -64,6 +64,7 @@ vi.mock("@supabase/supabase-js", () => ({
       };
       const builder = {
         select: () => builder,
+        then: (resolve: (value: unknown) => void) => resolve({ data: table === "protected_subscriptions" ? [] : null, error: null }),
         eq: () => builder,
         single: async () => ({ data: rows[table] ?? null, error: null }),
         maybeSingle: async () => ({ data: rows[table] ?? null, error: null }),
