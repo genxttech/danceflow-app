@@ -4,6 +4,8 @@ Prepared 2026-10-23; revised 2026-10-24 after the owner's U-2 review decisions. 
 
 Every provider figure is a **public list price, to verify on the Twilio invoice/Console**. None is confirmed.
 
+> **Update 2026-10-29 (owner direction): Option A is the preferred PROVISIONAL retail candidate: outbound $0.03 and inbound $0.02 per billable segment.** Not activated, not published. Section 14 re-reads the public prices, checks segment accounting and models realistic usage scenarios, including the cases where the structure loses money. Option B (sub-cent) stays documented in sections 6-7 and 9 as the alternative if pilot cost evidence argues for cost-based pricing. Unchanged controls: prepaid credit, no automatic top-ups, separate inbound/outbound tracking, STOP/START/HELP never charged or blocked.
+
 ## 0. Owner direction applied in this revision
 
 | # | Direction | Where handled |
@@ -200,7 +202,7 @@ Decision driver: **timing.** Nothing from `20261123` onward is applied to DEV or
 
 1. **Do not publish any price now.** D7 and direction 6 require the carrier fees and A2P charges verified from provider billing, then one pilot cycle.
 2. **Fixed fees:** unchanged candidates, itemized (section 10), all provisional.
-3. **Per-segment pricing, two acceptable paths:** (A) **3¢ out / 2¢ in** now, no schema change, with a published intent to reprice after the pilot; or (B) **$0.019 out / $0.015 in** only if the owner accepts the section 9 change set before the first hosted apply. My recommendation: **decide between A and B before any hosted apply of `20261201`/`20261203`.** If the owner will not accept the sub-cent review effort, take A. If the owner wants cost-based pricing, authorize the design review in section 9 now.
+3. **Update 2026-10-29: the owner selected Option A as the preferred provisional candidate (see section 14).** Original text follows. **Per-segment pricing, two acceptable paths:** (A) **3¢ out / 2¢ in** now, no schema change, with a published intent to reprice after the pilot; or (B) **$0.019 out / $0.015 in** only if the owner accepts the section 9 change set before the first hosted apply. My recommendation: **decide between A and B before any hosted apply of `20261201`/`20261203`.** If the owner will not accept the sub-cent review effort, take A. If the owner wants cost-based pricing, authorize the design review in section 9 now.
 4. **Not recommended:** 2¢/2¢ (no inbound benefit), 1¢ inbound (loses money), per-carrier pass-through lines (cannot be reserved), R1 per-message rounding (collapses the differential).
 5. **Allowance:** deferred until pilot evidence (direction 5). Roadmap D7's "included allowance" wording is not met by itemized prepaid pricing; the owner should confirm that is intended.
 6. Dual control for price publication should land before the first `tw4_price_set` (tracker follow-up).
@@ -282,3 +284,88 @@ Setup totals (brand + vetting + first month + number): Low Volume $31.90, Standa
 ## 13. Assumptions to replace with pilot data
 
 85/15 outbound/inbound split and 1.3 segments per message (assumed); carrier mix 28/37/35 (record); 5% variance reserve and 1% compliance leakage (assumed); Stripe pack mix 50/30/20 (assumed); 63.5% cost/price in the dispute scenario; competitor pricing not researched.
+
+## 14. Option A provisional candidate: verification and usage scenarios (2026-10-29)
+
+Candidate (provisional, not activated, not published): **outbound $0.03 and inbound $0.02 per billable segment**, whole cents, carrier fees bundled, itemized fixed fees per section 10. No schema change.
+
+### 14.1 Re-check of public prices (read 2026-10-29)
+
+I re-read Twilio's US SMS pricing page HTML and the SMSPricing.csv. Both are **unchanged since 2026-10-24**: base $0.0083 out and in; long-code carrier fees as in section 2 (Verizon and "all other" inbound blank); number $1.15; failed-message fee $0.001; the page still says "Pricing current as of October 2026". The CSV is byte-identical to the 2026-10-24 download and carries only the $0.0083 base. These are **public list prices; "actual" costs cannot be verified without a Twilio invoice or Console**, which this work does not have. The A2P fee article (brand, vetting, campaign monthly) is still unreadable to my tool (403), so the fixed-fee costs remain search extractions.
+
+### 14.2 Segment accounting check
+
+- The database estimates segments at send time (`_tw4us_segments`): GSM-7 160 single / 153 concatenated (152 when extension characters are present, which count twice), UCS-2 70 / 67 with astral characters as two units; 1 to 10 segments, otherwise refused. This only sizes the **reservation**.
+- **The charge is the provider's count.** Settlement bills `num_segments` from the Message resource (for `delivered`, `undelivered`, `read`, or `sent` older than 72 hours) times the price frozen at begin; a count outside 1 to 10, above the estimate plus 2, or any media sends the attempt to admin review. Revenue therefore tracks Twilio's own billed segments, so a mis-estimate cannot create a per-segment loss; it only affects how much credit is held while the text is in flight.
+- Carrier fees are billed by Twilio per segment, so cost and revenue both scale with segments. A UCS-2 (emoji) message costs the studio 2-3x a GSM-7 message of the same length and DanceFlow's margin per segment is unchanged.
+- Inbound segments come from the webhook's segment count (`NumSegments`); only plain SMS (`SM...`, no media) with a published inbound price is billable. STOP/START/HELP are classified `compliance` and never charged.
+- **Not verifiable offline:** whether Twilio bills the carrier fee on `undelivered` and `failed` messages, and what `num_segments` it reports for UCS-2 edge cases. Both need the first invoice lines.
+
+### 14.3 Unit economics at Option A
+
+Per billable segment, after Stripe (3.5% expected / 4.1% worst), 1% compliance leakage and a 5% variance reserve:
+
+| | Price | List cost (expected / worst carrier) | Net per segment (expected / worst) | Margin (expected / worst) |
+|---|---|---|---|---|
+| Outbound | $0.03 | $0.01269 / $0.0133 | $0.0153 / $0.0145 | 51% / 48% |
+| Inbound | $0.02 | $0.01021 / $0.0118 (AT&T) | $0.0086 / $0.0068 | 43% / 34% |
+
+Both directions are far above the provisional 20% target. Option A is therefore price-protective rather than cost-based: outbound is about 2.4x list cost.
+
+### 14.4 Scenario model
+
+Basis: 1,000 billable segments, 85% outbound / 15% inbound unless stated (assumed), carrier mix AT&T 28 / T-Mobile 37 / Verizon 35 (record), 5% variance reserve, opt-outs at 1% of outbound segments (each costs one inbound plus one confirmation, never charged), list prices above. "Margin" is contribution after Stripe, provider cost and the absorbed items listed.
+
+| Scenario | Revenue | Net | Margin |
+|---|---|---|---|
+| S1 baseline | $28.50 | $14.37 | 50.4% |
+| S2 worst carrier outbound (all Verizon/US Cellular) | $28.50 | $13.83 | 48.5% |
+| S3 inbound-heavy, 50/50 | $25.00 | $11.99 | 48.0% |
+| S3b inbound only, all AT&T | $20.00 | $6.91 | 34.6% |
+| S4 every top-up a $25 pack (Stripe 4.1%) | $28.50 | $14.20 | 49.8% |
+| S5 opt-outs at 5% of outbound segments | $28.50 | $13.59 | 47.7% |
+| S5b opt-outs at 10% | $28.50 | $12.62 | 44.3% |
+| S6 10% of outbound texts fail (fee, no revenue) | $28.50 | $14.29 | 50.1% |
+| S7a Twilio cost +30% | $28.50 | $10.43 | 36.6% |
+| S7b Twilio cost +50% | $28.50 | $7.80 | 27.4% |
+| S7c Twilio cost +100% | $28.50 | $1.24 | 4.3% |
+| S7d variance 20% instead of 5% | $28.50 | $12.52 | 43.9% |
+| S8 5% of inbound events are photos (inbound MMS, not billable) | $28.50 | $14.20 | 49.8% |
+| S10 pilot business: inbound uncollected (no inbound debt) | $25.50 | $11.48 | 45.0% |
+| **S9 unknown-sender flood: 90% of inbound beyond the ceiling, uncollected** | **$7.60** | **-$3.95** | **-52.0%** |
+| S11 stacked: +30% cost, Stripe 4.1%, 5% opt-outs, 10% failures | $28.50 | $9.16 | 32.1% |
+
+**Break-even:** the whole mix breaks even only if Twilio list cost is about **2.0-2.1x** today's; at +100% the margin is 4%. The 10% republish rule triggers long before.
+
+### 14.5 Where Option A produces negative margin
+
+None of these come from the per-segment list prices; they are the unbilled or absorbed categories, each negative by design:
+
+| Case | Cost per event to DanceFlow | Revenue | Why it exists |
+|---|---|---|---|
+| STOP/START/HELP inbound plus confirmation | about $0.023 (up to $0.025) per opt-out | none | compliance traffic is never charged (database constraint) and must work at zero balance |
+| Failed outbound text | $0.001 fee | none (released) | failed and canceled are not charged |
+| Inbound photo (MMS) | about $0.023 ($0.0165 + carrier; $0.0255-$0.0265 on AT&T and T-Mobile) | none | only plain SMS is billable; media is recorded unbilled |
+| Inbound beyond the $10 negative-balance ceiling | $0.0083-$0.0118 per segment | none (uncollected) | the text is never refused (D1) |
+| Pilot business inbound with no credit | same | none | pilot has ceiling 0, so inbound is charged only from available credit |
+| Unknown or unresolved outcome | the message cost if later billed with no reservation | none until settled/admin-resolved | unknown outcomes are never charged automatically |
+| Lost dispute on a spent $100 pack | about -$82 | refunded | Stripe |
+| Refunded unused top-up | Stripe fee ($1.03 / $1.75 / $3.20) | refunded | Stripe keeps its fee |
+| Settlement overage past the reservation | up to 2 segments x price beyond the hold | charged, but balance may go negative | the message already went out |
+
+The unbounded one is the flood case (S9): without a cap, absorbed inbound is limited only by the $10 ceiling per business and the 200-segments-a-day alert. At the $0.0102-$0.0118 inbound cost that is about $61-$71 per business per 30 days if left unattended.
+
+### 14.6 Hidden sensitivities
+
+- If the blank Verizon and "all other" inbound cells actually carry the same fee as outbound, inbound cost rises to about $0.0133 and the inbound margin falls from 43% to about 26%, still positive.
+- If the 1% leakage were 5%, outbound margin drops about 4 points.
+- Option A margin is 2.5x the provisional target. If pilot invoices confirm the cost, the owner may prefer to reprice toward B or to a lower whole-cent pair; republishing is cheap (a new price row), whereas going to sub-cent after live rows exist is not (section 7).
+
+### 14.7 Remaining approval gates (all still closed)
+
+1. Verify costs against the first Twilio invoice/Console (carrier fees by direction, undelivered/failed billing, A2P fees, ConfiDance tier). Nothing is authorized to obtain them.
+2. D7 pilot cycle, then owner approval of exact prices.
+3. Dual-control (or documented single-admin) decision for `tw4_price_set`, then publication. No pricing activation.
+4. Counsel/CPA review of credit terms, sales tax, refunds, closure and unclaimed property.
+5. Stripe's written answer on closed-loop prepaid credit (request drafted, unsent).
+6. Hosted migrations, live SMS, Twilio provisioning and any fee-bearing operation: each needs its own explicit authorization, none given.
