@@ -221,7 +221,7 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
   /** Opens the ballot desk, retrying while the dev server is still compiling the route (it answers a 404 meanwhile). */
   async function openDesk(page: Page, s: Scored, roundId: string) {
     await expect(async () => {
-      await openDesk(page, s, roundId);
+      await page.goto(`${base(s)}/ballots/${roundId}`);
       await expect(page.getByRole("region", { name: "Round status" })).toBeVisible({ timeout: 8_000 });
     }).toPass({ timeout: 120_000 });
   }
