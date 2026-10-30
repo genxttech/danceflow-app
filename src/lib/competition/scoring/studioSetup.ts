@@ -24,6 +24,13 @@ import {
   type ResultPurpose,
 } from "./registry";
 
+/**
+ * The F1 callback-tally engine accepts a round only when roundType === "preliminary" AND the PROGRAM's advancement_method is
+ * "promote_callback" (studioCallbackTally.ts V2; F2 reads advancementMethod from the program row). Wizard-created studio programs
+ * start with advancement_method "none", so applying a callback preset must set it (draft programs only).
+ */
+export const CALLBACK_ADVANCEMENT_METHOD = "promote_callback";
+
 export type StudioPresetKey = "callbacks_final" | "final_only";
 
 type Slot = { slot: "callback" | "final"; roundType: "preliminary" | "final"; name: string; key: string; version: string; purpose: ResultPurpose };
@@ -130,7 +137,7 @@ export type SetupRound = {
 
 export type ConfigureInput = {
   presetKey: string;
-  program: { id: string; status: string; profile_locked_at: string | null; rules_profile_key: string | null };
+  program: { id: string; status: string; profile_locked_at: string | null; rules_profile_key: string | null; advancement_method?: string | null };
   division: { id: string; scoring_method_key: string | null; scoring_method_version: string | null };
   rounds: readonly SetupRound[];
   /** Sequence numbers held by CANCELLED rounds of the division (they still count for unique(division_id, sequence_number)). */
@@ -152,7 +159,7 @@ const fail = (code: SetupCode, message: string): SetupFail => ({ ok: false, code
  * non-studio or already-entered division is refused (S4-7), and a division whose rounds were customised is refused rather than
  * reshaped. The plan is idempotent: running it on an already configured division yields no ops.
  */
-export function planStudioScoring(input: ConfigureInput): { ok: true; ops: SetupOp[] } | SetupFail {
+export function planStudioScoring(input: ConfigureInput): { ok: true; ops: SetupOp[]; programAdvancement: string | null } | SetupFail {
   const resolved = resolvePreset(input.presetKey);
   if (!resolved.ok) return resolved;
   const { program } = input;
@@ -214,5 +221,7 @@ export function planStudioScoring(input: ConfigureInput): { ok: true; ops: Setup
     const round = roundById.get(op.roundId)!;
     return Object.entries(op.patch).some(([k, v]) => (round as unknown as Record<string, unknown>)[k] !== v);
   });
-  return { ok: true, ops: effective };
+  // The program-level value the callback engine needs; null when the preset has no callback round or it is already set.
+  const programAdvancement = callbackSlot && input.program.advancement_method !== CALLBACK_ADVANCEMENT_METHOD ? CALLBACK_ADVANCEMENT_METHOD : null;
+  return { ok: true, ops: effective, programAdvancement };
 }

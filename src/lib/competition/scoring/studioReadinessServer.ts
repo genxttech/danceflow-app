@@ -10,7 +10,7 @@ type Supabase = Awaited<ReturnType<typeof createClient>>;
  */
 export async function loadStudioScoringReadiness(supabase: Supabase, eventId: string): Promise<ScoringReadiness> {
   const [programs, divisions, rounds, heats, pins, methods] = await Promise.all([
-    supabase.from("event_competition_programs").select("id, name, status, profile_locked_at").eq("event_id", eventId),
+    supabase.from("event_competition_programs").select("id, name, status, profile_locked_at, advancement_method").eq("event_id", eventId),
     supabase.from("event_competition_divisions").select("id, program_id, name, scoring_method_key, scoring_method_version").eq("event_id", eventId).neq("status", "cancelled"),
     supabase.from("event_competition_rounds").select("id, division_id, name, round_type, scoring_method, status, scoring_override_key, scoring_override_version").eq("event_id", eventId),
     supabase.from("event_competition_heats").select("round_id, schedule_version_id").eq("event_id", eventId).neq("status", "cancelled"),

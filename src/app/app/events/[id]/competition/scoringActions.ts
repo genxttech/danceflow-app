@@ -44,7 +44,7 @@ export async function configureStudioScoringAction(_previous: ScoringActionState
 
   const { data: program } = await supabase
     .from("event_competition_programs")
-    .select("id, status, profile_locked_at, rules_profile_key")
+    .select("id, status, profile_locked_at, rules_profile_key, advancement_method")
     .eq("id", programId)
     .eq("event_id", eventId)
     .maybeSingle();
@@ -64,6 +64,7 @@ export async function configureStudioScoringAction(_previous: ScoringActionState
 
   // Plan everything first, so a refused division changes nothing in the whole request.
   const plans: Array<{ division: (typeof divisions)[number]; ops: SetupOp[] }> = [];
+  let programAdvancement: string | null = null;
   for (const division of divisions) {
     const [{ data: rounds, error: roundError }, { count, error: countError }] = await Promise.all([
       supabase
@@ -85,6 +86,7 @@ export async function configureStudioScoringAction(_previous: ScoringActionState
     });
     if (!plan.ok) return { ok: false, error: divisions.length > 1 ? `${division.name}: ${plan.message}` : plan.message };
     plans.push({ division, ops: plan.ops });
+    programAdvancement = programAdvancement ?? plan.programAdvancement;
   }
 
   // One database transaction for the whole request: the RPC holds the program row FOR SHARE, so a publish cannot land between
@@ -106,7 +108,24 @@ export async function configureStudioScoringAction(_previous: ScoringActionState
     }
   }
 
+  // The callback engine reads advancement_method from the PROGRAM row (F2). Set it after the rounds, only on an unlocked draft,
+  // and also when no round changed (a retry after a failed first attempt must still complete it).
+  if (programAdvancement) {
+    const { data: updated, error: advancementError } = await supabase
+      .from("event_competition_programs")
+      .update({ advancement_method: programAdvancement })
+      .eq("id", programId)
+      .eq("event_id", eventId)
+      .eq("status", "draft")
+      .is("profile_locked_at", null)
+      .select("id");
+    if (advancementError || !updated || updated.length !== 1) {
+      refresh(eventId);
+      return { ok: false, error: "The rounds were set up, but the competition could not be marked for callbacks. Apply the scoring setup again." };
+    }
+  }
+
   refresh(eventId);
-  const changed = plans.filter((p) => p.ops.length > 0).length;
+  const changed = plans.filter((p) => p.ops.length > 0).length + (programAdvancement && plans.every((p) => p.ops.length === 0) ? 1 : 0);
   return { ok: true, message: changed === 0 ? "Scoring was already set up." : `Scoring set up for ${changed} division${changed === 1 ? "" : "s"}.` };
 }
