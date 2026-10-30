@@ -209,7 +209,7 @@ Decision driver: **timing.** Nothing from `20261123` onward is applied to DEV or
 
 ## 9. Bounded implementation proposal (not authorized; no migration written)
 
-### 9.1 Scope: one forward migration, numbered after `20261227090000`, plus app and tests
+### 9.1 Scope: one forward migration, numbered after `20261231100000`, plus app and tests
 
 Forward-only file (no edits to the merged `20261201`/`20261203`, whose hashes are pinned in the hosted manifest). Applied in the same first hosted batch, so it converts zero rows.
 
@@ -235,7 +235,7 @@ Prepaid controls (funds check, holds, kill switch, monthly limit, negative-balan
 |---|---|---|
 | Redefining money-path functions that already exist in up to three versions | **High** | take the latest definition of each from the merged file, change only the arithmetic, diff against it; a stale copy silently reverts later fixes. Two prior incidents in this area: CRLF function bodies and per-version uniqueness (project memory) |
 | Carry corruption under concurrency or replay | **High** | all carry writes inside the existing entity-then-account lock and the attempt's single state transition; invariant check in `tw4_credit_verify`; property and concurrency tests |
-| Hosted order and idempotence | Medium | forward file must apply after `20261227090000`; refuse if per-segment prices already exist with different semantics (none today) |
+| Hosted order and idempotence | Medium | forward file must apply after `20261231100000`; refuse if per-segment prices already exist with different semantics (none today) |
 | Inbound ceiling and protection arithmetic | Medium | limit computed in cents on `due`; reuse existing logic; new cases for carry at the ceiling |
 | Display/consumer drift (cents shown for a micro price) | Medium | informational `ceil` cents column; app uses micros for per-segment kinds; test every price reader |
 | Rollback | Low before first apply (no rows); **forward-fix only** once attempts exist | follow the existing drain procedure |
