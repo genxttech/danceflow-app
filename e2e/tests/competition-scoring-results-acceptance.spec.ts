@@ -572,8 +572,11 @@ test.describe("Scoring and results acceptance (QA-A)", () => {
     const shot = stepShots(testInfo);
     const owner = await signedIn(browser, fixture.owner);
     await owner.goto(`${base(E)}/results/${E.finalRoundId}`);
-    await expect(owner.getByText(/ballots changed - recalculate/)).toBeVisible({ timeout: 30_000 });
+    // F2 marks the superseded version "Stale" and offers Calculate result again; there is nothing to approve.
+    await expect(owner.getByRole("heading", { name: /^Version 1 - Stale/ })).toBeVisible({ timeout: 30_000 });
+    await expect(owner.getByRole("button", { name: "Calculate result" })).toBeVisible();
     await expect(owner.getByRole("button", { name: /^Approve/ })).toHaveCount(0);
+    expect(readResultState(E.finalRoundId).versions.map((v) => v.status)).toEqual(["stale"]);
     await shot(owner, "stale-no-approve");
     expect(readResultState(E.finalRoundId).approvals).toHaveLength(0);
     await owner.context().close();
