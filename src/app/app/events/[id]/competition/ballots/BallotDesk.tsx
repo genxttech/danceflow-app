@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { lockBlockerSummary, type BallotBoard } from "@/lib/competition/ballots/status";
+import { CORRECTION_BANNER, ballotsAccepting, inCorrectionWindow } from "@/lib/competition/ballots/window";
 import BallotMarksFields from "./BallotMarksFields";
 import { enterPaperBallotAction, lockBallotsAction, recordAttendanceAction, reopenBallotsAction } from "./actions";
 
@@ -24,6 +25,10 @@ export default function BallotDesk({ board, returnTo }: { board: BallotBoard; re
   const canReopen = role === "manager";
   const active = board.round.status === "active";
   const locked = board.round.status === "ballots_locked";
+  // CX1: during an open results correction the round is ballots_locked but a corrected ballot may be entered. Attendance and
+  // locking stay on the plain `active` window; reopen is refused by the database while a correction is open.
+  const correcting = inCorrectionWindow(board.round);
+  const accepting = ballotsAccepting(board.round);
   const blockers = lockBlockerSummary(board);
   const heatNumber = new Map(board.heats.map((heat) => [heat.heat_id, heat.heat_number]));
 
@@ -42,9 +47,10 @@ export default function BallotDesk({ board, returnTo }: { board: BallotBoard; re
               locked ? "bg-slate-900 text-white" : active ? "bg-emerald-100 text-emerald-900" : "bg-slate-100 text-slate-800"
             }`}
           >
-            {locked ? "Ballots locked" : active ? "Accepting ballots" : label(board.round.status)}
+            {correcting ? "Correction open" : locked ? "Ballots locked" : active ? "Accepting ballots" : label(board.round.status)}
           </span>
         </div>
+        {correcting ? <p role="status" className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">{CORRECTION_BANNER}</p> : null}
         {!board.scheme_available ? (
           <p className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
             Ballots for {label(board.round.scoring_method)} rounds are not available yet. The owner still has to decide how callback marks work.
@@ -133,7 +139,7 @@ export default function BallotDesk({ board, returnTo }: { board: BallotBoard; re
         </section>
       ) : null}
 
-      {active && canPaper && board.scheme_available ? (
+      {accepting && canPaper && board.scheme_available ? (
         <section aria-label="Paper ballots" className="rounded border border-slate-200 bg-white p-4">
           <h3 className="text-sm font-semibold text-slate-950">Enter a paper ballot</h3>
           <p className="mt-1 text-xs text-slate-600">
@@ -253,8 +259,12 @@ export default function BallotDesk({ board, returnTo }: { board: BallotBoard; re
           </>
         ) : locked ? (
           <>
-            <p className="mt-2 text-sm text-slate-700">Ballots are locked. No ballot or correction can be added.</p>
-            {canReopen ? (
+            <p className="mt-2 text-sm text-slate-700">
+              {correcting
+                ? "A results correction is open. Corrected ballots can be entered above; the round cannot be reopened until the correction is resolved."
+                : "Ballots are locked. No ballot or correction can be added."}
+            </p>
+            {correcting ? null : canReopen ? (
               <form action={reopenBallotsAction} className="mt-3 space-y-2">
                 <input type="hidden" name="roundId" value={roundId} />
                 <input type="hidden" name="requestId" value={randomUUID()} />

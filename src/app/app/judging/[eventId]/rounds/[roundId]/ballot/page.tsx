@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { JudgeSheet } from "@/lib/competition/ballots/status";
+import { CORRECTION_BANNER, ballotsAccepting, inCorrectionWindow } from "@/lib/competition/ballots/window";
 import { activeNoShows, ballotNeedsCorrection, type NoShowRow } from "@/lib/competition/noShow";
 import BallotMarksFields from "@/app/app/events/[id]/competition/ballots/BallotMarksFields";
 import { saveCallbackDraftAction, submitJudgeBallotAction } from "@/app/app/events/[id]/competition/ballots/actions";
@@ -41,7 +42,8 @@ export default async function JudgeBallotPage({
   const { data: noShowData } = await supabase.rpc("competition_round_no_shows", { p_round_id: roundId });
   const noShows = Array.from(activeNoShows(noShowData as NoShowRow[] | null).values());
   const returnTo = `/app/judging/${eventId}/rounds/${roundId}/ballot`;
-  const open = sheet.round.status === "active" && sheet.scheme_available && !sheet.absent;
+  const open = ballotsAccepting(sheet.round) && sheet.scheme_available && !sheet.absent;
+  const correcting = inCorrectionWindow(sheet.round);
   const rating = sheet.round.scoring_method === "proficiency_rating";
   const callback = sheet.callback;
   const picked = new Set<string>(callback?.ballot ? Object.keys(callback.ballot.marks) : (callback?.draft ?? []));
@@ -66,6 +68,8 @@ export default async function JudgeBallotPage({
         <p className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">Ballots for this kind of round are not available yet.</p>
       ) : sheet.absent ? (
         <p className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">You are recorded absent for this round. Ask the chair or a manager if that is wrong.</p>
+      ) : correcting ? (
+        <p role="status" className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">{CORRECTION_BANNER}</p>
       ) : sheet.round.status === "ballots_locked" ? (
         <p className="mt-3 rounded border border-slate-300 bg-slate-50 p-3 text-sm text-slate-900">Ballots are locked. You can no longer submit or correct.</p>
       ) : sheet.round.status !== "active" ? (
@@ -122,7 +126,8 @@ export default async function JudgeBallotPage({
                   Why are you correcting this ballot?
                   <input name="reason" maxLength={500} className="mt-1 block h-12 w-full rounded border border-slate-300 bg-white px-3 text-base" />
                 </label>
-              ) : (
+              ) : correcting ? null : (
+                // A callback draft can be saved only while the round is active (the database refuses it in a correction).
                 <button formAction={saveCallbackDraftAction} className="h-12 w-full rounded border border-slate-300 bg-white px-4 text-base font-semibold text-slate-900">
                   Save selections (not submitted)
                 </button>

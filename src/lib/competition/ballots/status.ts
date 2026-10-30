@@ -11,7 +11,7 @@ export type SheetBallot = {
 };
 
 export type JudgeSheet = {
-  round: { id: string; name: string; status: string; scoring_method: string };
+  round: { id: string; name: string; status: string; scoring_method: string; correction_open?: boolean };
   judge_letter: string;
   absent: boolean;
   scheme_available: boolean;
@@ -24,7 +24,7 @@ export type BoardBallot = { heat_id: string | null; ballot_id: string; version: 
 
 export type BallotBoard = {
   viewer_role: "manager" | "chair" | "scorer";
-  round: { id: string; name: string; status: string; scoring_method: string };
+  round: { id: string; name: string; status: string; scoring_method: string; correction_open?: boolean };
   scheme_available: boolean;
   callback_target: number | null;
   callback_entries: BallotEntry[] | null;
