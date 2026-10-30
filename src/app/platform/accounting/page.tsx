@@ -1,6 +1,7 @@
 import Link from "next/link";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { filterCurrentEntitlements } from "@/lib/billing/organizerSuiteEntitlement";
 import { getBillingPlan } from "@/lib/billing/plans";
 import { createClient } from "@/lib/supabase/server";
 
@@ -15,6 +16,7 @@ type StudioRow = {
   billing_plan: string | null;
   subscription_status: string | null;
   active: boolean | null;
+  timezone: string | null;
 };
 
 type SubscriptionPlanRow = {
@@ -42,6 +44,8 @@ type AddonEntitlementRow = {
   feature_key: string | null;
   status: string | null;
   source: string | null;
+  period_start: string | null;
+  period_end: string | null;
   created_at: string;
 };
 
@@ -334,7 +338,7 @@ export default async function PlatformAccountingPage({
   ] = await Promise.all([
     supabase
       .from("studios")
-      .select("id, name, created_at, billing_plan, subscription_status, active")
+      .select("id, name, created_at, billing_plan, subscription_status, active, timezone")
       .order("created_at", { ascending: false }),
     supabase
       .from("studio_subscriptions")
@@ -356,7 +360,7 @@ export default async function PlatformAccountingPage({
       `),
     supabase
       .from("usage_addon_entitlements")
-      .select("id, studio_id, feature_key, status, source, created_at")
+      .select("id, studio_id, feature_key, status, source, period_start, period_end, created_at")
       .eq("feature_key", "organizer_suite"),
     supabase
       .from("studio_invoices")
@@ -429,8 +433,10 @@ export default async function PlatformAccountingPage({
     };
   });
 
-  const activeAddonEntitlements = typedAddonEntitlements.filter(
-    (entitlement) => normalize(entitlement.status) === "active"
+  // D7: a lapsed grant (past its period_end in the studio's timezone) is not an active add-on.
+  const activeAddonEntitlements = filterCurrentEntitlements(
+    typedAddonEntitlements,
+    new Map(typedStudios.map((studio) => [studio.id, studio.timezone]))
   );
 
   const invoicesInRange = typedInvoices.filter((invoice) =>

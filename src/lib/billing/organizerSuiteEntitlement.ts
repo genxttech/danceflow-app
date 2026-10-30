@@ -143,6 +143,37 @@ export function isEntitlementCurrent(
   return true;
 }
 
+export type StudioEntitlementRow = {
+  studio_id: string | null;
+  status: string | null;
+  period_start?: string | null;
+  period_end?: string | null;
+};
+
+/**
+ * Display/count helper for readers that load many studios' add-on rows at once (platform analytics and
+ * accounting). Pure: no I/O. Keeps only rows that are current under `isEntitlementCurrent`, using each
+ * row's studio timezone from `timezoneByStudioId` (a studio missing from the map, or a NULL / invalid
+ * value, falls back to UTC exactly like the shared reader).
+ *
+ * Status is compared trimmed and lower-cased, as those pages always did, so a row with no period bound
+ * counts exactly as before: active means active, regardless of source.
+ */
+export function filterCurrentEntitlements<T extends StudioEntitlementRow>(
+  rows: readonly T[],
+  timezoneByStudioId: ReadonlyMap<string, string | null | undefined>,
+  now: Date = new Date(),
+): T[] {
+  return rows.filter((row) => {
+    if ((row.status ?? "").trim().toLowerCase() !== "active") return false;
+    const periodStart = row.period_start ?? null;
+    const periodEnd = row.period_end ?? null;
+    if (!periodStart && !periodEnd) return true;
+    const timeZone = row.studio_id ? timezoneByStudioId.get(row.studio_id) : null;
+    return isEntitlementCurrent({ status: "active", period_start: periodStart, period_end: periodEnd }, timeZone, now);
+  });
+}
+
 export type OrganizerSuiteEntitlementRead =
   | { ok: true; current: boolean }
   | { ok: false; current: false; error: { message: string } };
