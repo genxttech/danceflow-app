@@ -70,6 +70,11 @@ begin
   execute 'reset role';
   return r;
 end $$;
+create or replace function pg_temp.catch(p_sql text) returns text language plpgsql as $c$
+begin
+  begin execute p_sql; exception when others then return sqlerrm; end;
+  return 'OK';
+end $c$;
 create or replace function pg_temp.code(p_j jsonb) returns text language sql as $$ select split_part(coalesce(p_j ->> 'error', 'OK'), ':', 1) $$;
 create or replace function pg_temp.su(p_sql text) returns void
 language plpgsql security definer as $$
@@ -351,12 +356,14 @@ select pg_temp.expect_msg('F14 direct insert: the opener as co-signer is refused
 select pg_temp.mk(10); select pg_temp.v1(10); select pg_temp.approve_state(10); select pg_temp.open_corr(10);
 select pg_temp.chk('M0 setup: S10 is a judge_entry_error correction', (pg_temp.cause(10)).cause = 'judge_entry_error');
 -- an A5-shaped co-signed exclusion row of entry 3 written after the correction opened
+alter table public.event_competition_round_exclusions disable trigger cf1_a7_guard_exclusion_during_correction;
 select pg_temp.su(format($q$insert into public.event_competition_round_exclusions (id, event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq)
   values (%L, %L, %L, %L, 'exclude_requested', 'ineligible', 'became ineligible', %L, 'manager', %L, 1)$q$,
   pg_temp.id('exr', 10), pg_temp.id('evt', 1), pg_temp.id('src', 10), pg_temp.id('ent', 10, 3), pg_temp.id('user', 1), pg_temp.id('exq', 10)));
 select pg_temp.su(format($q$insert into public.event_competition_round_exclusions (id, event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq, decision_id)
   values (%L, %L, %L, %L, 'exclude_cosigned', 'ineligible', 'became ineligible', %L, 'chair', %L, 2, %L)$q$,
   pg_temp.id('exc', 10), pg_temp.id('evt', 1), pg_temp.id('src', 10), pg_temp.id('ent', 10, 3), pg_temp.id('user', 2), pg_temp.id('exq2', 10), pg_temp.id('exr', 10)));
+alter table public.event_competition_round_exclusions enable trigger cf1_a7_guard_exclusion_during_correction; alter table public.event_competition_round_exclusions enable always trigger cf1_a7_guard_exclusion_during_correction;
 select pg_temp.chk('M1 the live restricted set is {entry 3}', public._cf1_a7_new_exclusions(pg_temp.id('src', 10), (pg_temp.cause(10)).baseline_version_id) = array[pg_temp.id('ent', 10, 3)]);
 select pg_temp.chk('M2 a free re-pick is now refused even though the cause row says judge_entry_error',
   pg_temp.code(pg_temp.file(10, 11, array[5, 6, 7], 'r')) in ('COMP_CORRECTION_BALLOT_RESTRICTED', 'COMP_CORRECTION_BALLOT_NOT_PERMITTED'));
@@ -366,12 +373,14 @@ select pg_temp.chk('M4 a filer of a replacement ballot cannot then co-sign (COMP
 set constraints all immediate;
 set constraints all deferred;
 -- reversing the exclusion empties the set: nothing may change
+alter table public.event_competition_round_exclusions disable trigger cf1_a7_guard_exclusion_during_correction;
 select pg_temp.su(format($q$insert into public.event_competition_round_exclusions (id, event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq, reverses_id)
   values (%L, %L, %L, %L, 'reverse_requested', 'ineligible', 'cause fixed', %L, 'manager', %L, 3, %L)$q$,
   pg_temp.id('exv', 10), pg_temp.id('evt', 1), pg_temp.id('src', 10), pg_temp.id('ent', 10, 3), pg_temp.id('user', 1), pg_temp.id('exq3', 10), pg_temp.id('exc', 10)));
 select pg_temp.su(format($q$insert into public.event_competition_round_exclusions (id, event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq, decision_id, reverses_id)
   values (%L, %L, %L, %L, 'reverse_cosigned', 'ineligible', 'cause fixed', %L, 'chair', %L, 4, %L, %L)$q$,
   pg_temp.id('exw', 10), pg_temp.id('evt', 1), pg_temp.id('src', 10), pg_temp.id('ent', 10, 3), pg_temp.id('user', 2), pg_temp.id('exq4', 10), pg_temp.id('exv', 10), pg_temp.id('exc', 10)));
+alter table public.event_competition_round_exclusions enable trigger cf1_a7_guard_exclusion_during_correction; alter table public.event_competition_round_exclusions enable always trigger cf1_a7_guard_exclusion_during_correction;
 select pg_temp.chk('M5 after the reversal the live set is empty and the cause is judge_entry_error again: the co-sign rule applies',
   public._cf1_a7_new_exclusions(pg_temp.id('src', 10), (pg_temp.cause(10)).baseline_version_id) = '{}'::uuid[]
   and pg_temp.code(pg_temp.file(10, 12, array[5, 6, 7], 'r')) = 'COMP_CORRECTION_COSIGN_REQUIRED');
@@ -424,6 +433,57 @@ select pg_temp.chk('B5 a direct free re-pick without a co-sign is rejected at co
   pg_temp.direct_ballot(13, 11, array[5, 6, 7], true) like 'COMP_CORRECTION_COSIGN_REQUIRED%');
 
 -- ============================================================================
+-- 4b. A7-1: no exclusion decision while a correction is open (strict design 4.1 rule)
+-- ============================================================================
+-- S16 correction is open with entry 5 ineligible (so A5's own checks pass and only the A7 guard can refuse).
+select pg_temp.mk(16); select pg_temp.v1(16); select pg_temp.approve_state(16); select pg_temp.open_corr(16);
+select pg_temp.su(format($q$update public.event_competition_entries set eligibility_status = 'ineligible' where id = %L$q$, pg_temp.id('ent', 16, 5)));
+select pg_temp.chk('X1 the A5 request is refused with the stable code while the correction is open',
+  pg_temp.code(pg_temp.run_as(pg_temp.id('user', 1), format($q$select public.request_round_exclusion(%L, %L, 'ineligible', 'became ineligible', gen_random_uuid())$q$,
+    pg_temp.id('src', 16), pg_temp.id('ent', 16, 5)))) = 'COMP_CORRECTION_EXCLUSION_DURING_CORRECTION');
+select pg_temp.chk('X2 every kind of direct insert is refused too (request, co-sign, reversal request, reversal co-sign)',
+  (select bool_and(pg_temp.catch(format($q$insert into public.event_competition_round_exclusions (event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq, decision_id, reverses_id)
+     values (%L, %L, %L, %L, 'ineligible', 'direct insert test', %L, 'manager', gen_random_uuid(), %s, null, null)$q$,
+     pg_temp.id('evt', 1), pg_temp.id('src', 16), pg_temp.id('ent', 16, 5), k.kind, pg_temp.id('user', 1), k.n)) like 'COMP_CORRECTION_EXCLUSION_DURING_CORRECTION%')
+   from (values ('exclude_requested', 1), ('exclude_cosigned', 2), ('reverse_requested', 3), ('reverse_cosigned', 4)) k(kind, n)));
+select pg_temp.chk('X3 nothing was written by the refused attempts', not exists (select 1 from public.event_competition_round_exclusions where round_id = pg_temp.id('src', 16)));
+-- no correction open: A5's documented request / co-sign flow is intact (round 17 active, entry 5 ineligible)
+select pg_temp.mk(17); select pg_temp.v1(17);
+select pg_temp.su(format($q$update public.event_competition_entries set eligibility_status = 'ineligible' where id = %L$q$, pg_temp.id('ent', 17, 5)));
+select pg_temp.run_as(pg_temp.id('user', 1), format($q$select public.request_round_exclusion(%L, %L, 'ineligible', 'became ineligible', %L)$q$,
+    pg_temp.id('src', 17), pg_temp.id('ent', 17, 5), pg_temp.id('xq', 17))) x4;
+select pg_temp.chk('X4 with no correction open the A5 request is accepted', exists (select 1 from public.event_competition_round_exclusions where round_id = pg_temp.id('src', 17) and kind = 'exclude_requested'));
+select pg_temp.run_as(pg_temp.id('user', 2), format($q$select public.cosign_round_exclusion(%L, %L)$q$,
+    (select id from public.event_competition_round_exclusions where round_id = pg_temp.id('src', 17) and kind = 'exclude_requested'), pg_temp.id('xq2', 17))) x5;
+select pg_temp.chk('X5 ... and the A5 co-sign is accepted (takes effect)', exists (select 1 from public.event_competition_round_exclusions where round_id = pg_temp.id('src', 17) and kind = 'exclude_cosigned'));
+-- after the correction closes (recalculation clears correction_open) an exclusion is accepted again (fixture: flag cleared the way F2 does)
+select pg_temp.su(format($q$update public.event_competition_rounds set status = 'ballots_locked', correction_open = false where id = %L$q$, pg_temp.id('src', 16)));
+select pg_temp.chk('X6 after the correction closes the guard lets the A5 request through',
+  pg_temp.code(pg_temp.run_as(pg_temp.id('user', 1), format($q$select public.request_round_exclusion(%L, %L, 'ineligible', 'became ineligible', gen_random_uuid())$q$,
+    pg_temp.id('src', 16), pg_temp.id('ent', 16, 5)))) = 'OK');
+
+-- ============================================================================
+-- 4c. A7-2: the opener never files the replacement ballot (user 14 is a manager AND a panel judge)
+-- ============================================================================
+select pg_temp.mk(18, array[11, 12, 14]);
+select pg_temp.file(18, 11, array[1, 2, 3]); select pg_temp.file(18, 12, array[1, 2, 4]); select pg_temp.file(18, 14, array[1, 3, 4]);
+select pg_temp.approve_state(18); select pg_temp.scratch(18, 3); select pg_temp.open_corr(18, 14);
+select pg_temp.chk('O1 setup: user 14 opened an entry_exclusion correction', (pg_temp.cause(18)).opened_by = pg_temp.id('user', 14) and (pg_temp.cause(18)).cause = 'entry_exclusion');
+select pg_temp.chk('O2 Option R: the opener (judge 14, holds the excluded pick) is refused as filer; judge 11 may file',
+  pg_temp.code(pg_temp.file(18, 14, array[1, 4, 5], 'r')) = 'COMP_CORRECTION_OPENER_CONFLICT'
+  and pg_temp.code(pg_temp.file(18, 11, array[1, 2, 5], 'r')) = 'OK');
+select pg_temp.chk('O3 the opener cannot file through an entering scorer either (actor = scorer, judge = opener)',
+  pg_temp.code(pg_temp.file(18, 14, array[1, 4, 5], 'r', gen_random_uuid(), 11)) = 'COMP_CORRECTION_OPENER_CONFLICT');
+select pg_temp.chk('O4 the commit-time backstop rejects a direct opener ballot', pg_temp.direct_ballot(18, 14, array[1, 4, 5], true) like 'COMP_CORRECTION_OPENER_CONFLICT%');
+select pg_temp.mk(19, array[11, 12, 14]);
+select pg_temp.file(19, 11, array[1, 2, 3]); select pg_temp.file(19, 12, array[1, 2, 4]); select pg_temp.file(19, 14, array[1, 3, 4]);
+select pg_temp.approve_state(19); select pg_temp.open_corr(19, 14);
+select pg_temp.run_as(pg_temp.id('user', 1), format($q$select public.cosign_competition_correction(%L, %L)$q$, (pg_temp.cause(19)).id, pg_temp.id('cs', 19))) o5;
+select pg_temp.chk('O5 Option F, co-signed by another manager: the opener is still refused; another judge may file',
+  pg_temp.code(pg_temp.file(19, 14, array[5, 6, 7], 'r')) = 'COMP_CORRECTION_OPENER_CONFLICT'
+  and pg_temp.code(pg_temp.file(19, 11, array[5, 6, 7], 'r')) = 'OK');
+
+-- ============================================================================
 -- 6. Immutability, privileges, pins, event deletion
 -- ============================================================================
 select pg_temp.expect_msg('I1 UPDATE of a cause is refused', format($q$update public.event_competition_correction_causes set reason = 'x' where id = %L$q$, (pg_temp.cause(1)).id), 'append-only');
@@ -436,7 +496,7 @@ select pg_temp.expect_msg('I5 UPDATE of a correction record is refused even with
   format($q$select pg_temp.su(%L)$q$, format($s$update public.event_competition_ballot_corrections set reason = 'x' where round_id = %L$s$, pg_temp.id('src', 1))), 'append-only');
 select pg_temp.chk('I6 the A7 triggers are ENABLE ALWAYS (and the six history triggers)',
   (select count(*) from pg_trigger t where not t.tgisinternal and t.tgenabled = 'A'
-     and (t.tgname like 'cf1_a7_%' or t.tgname like 'protect_event_competition_correction_%' or t.tgname like 'protect_event_competition_ballot_corrections_%')) = 10);
+     and (t.tgname like 'cf1_a7_%' or t.tgname like 'protect_event_competition_correction_%' or t.tgname like 'protect_event_competition_ballot_corrections_%')) = 11);
 select pg_temp.chk('P1 the new tables have RLS on, no policies and no grants for anon / authenticated / service_role',
   (select bool_and(c.relrowsecurity) from pg_class c where c.relname in ('event_competition_correction_causes', 'event_competition_correction_cosigns', 'event_competition_ballot_corrections') and c.relnamespace = 'public'::regnamespace)
   and not exists (select 1 from pg_policies where tablename in ('event_competition_correction_causes', 'event_competition_correction_cosigns', 'event_competition_ballot_corrections'))
@@ -450,7 +510,7 @@ select pg_temp.chk('P2 the two RPCs are executable by authenticated only; every 
   and not has_function_privilege('anon', 'public.competition_round_correction(uuid)', 'execute')
   and not exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace
                   and (p.proname like '\_cf1\_a7\_%' or p.proname in ('_cf1_check_correction_ballot', '_cf1_record_ballot_correction', 'cf1_a7_record_correction_cause',
-                       'cf1_a7_guard_cosign_insert', 'cf1_a7_backstop_ballot', 'cf1_a7_backstop_correction'))
+                       'cf1_a7_guard_cosign_insert', 'cf1_a7_backstop_ballot', 'cf1_a7_backstop_correction', 'cf1_a7_guard_exclusion_during_correction'))
                   and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute') or has_function_privilege('service_role', p.oid, 'execute'))));
 select pg_temp.chk('P3 all A7 functions are SECURITY DEFINER with search_path = public, pg_temp',
   not exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace
