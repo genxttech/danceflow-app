@@ -443,7 +443,7 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
   describe("F1: published prices are undeletable, untruncatable and unrepeatable, also under session_replication_role = replica", () => {
     const superuser = (sql: string): string => {
       try {
-        return execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "supabase_admin", "-d", DB, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { input: `\\set VERBOSITY verbose\n${sql}`, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }) && "";
+        return execFileSync("docker", ["exec", "-i", "-e", "PGPASSWORD=postgres", PG, "psql", "-U", "supabase_admin", "-d", DB, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { input: `\\set VERBOSITY verbose\n${sql}`, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }) && "";
       } catch (error) {
         return String((error as { stderr?: Buffer | string }).stderr ?? error);
       }
@@ -453,7 +453,7 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
       const before = [num(`select count(*) from public.studio_sms_price_list`), active("number")];
       expect(psqlError(`begin; set local session_replication_role = replica; delete from public.studio_sms_price_list where active; rollback;`)).toMatch(/never deleted/);
       expect(psqlError(`begin; set local session_replication_role = replica; delete from public.studio_sms_price_list; rollback;`)).toMatch(/never deleted/);
-      expect(psqlError(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_list; rollback;`)).toMatch(/never truncated/);
+      expect(psqlError(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_list; rollback;`)).toMatch(/never truncated|cannot truncate a table referenced in a foreign key/);
       expect(psqlError(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_list cascade; rollback;`)).toMatch(/never truncated/);
       expect(psqlError(`begin; truncate public.studio_sms_price_list cascade; rollback;`)).toMatch(/never truncated/);
       expect(psqlError(`begin; set local session_replication_role = replica; update public.studio_sms_price_list set active = false where kind = 'number' and active; ${ins} rollback;`)).toMatch(/approved dual-control price change/);
@@ -576,9 +576,9 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
       const f = JSON.parse(forged) as { ok: boolean; anomalies: { code: string; kind: string }[] };
       expect(f.ok).toBe(false);
       expect(f.anomalies).toEqual(expect.arrayContaining([expect.objectContaining({ code: "price_unattested", kind: "number" })]));
-      // forged decision: requester == decider on an applied request
+      // forged state: an applied request rewritten to an 'approved' row that never moved on (and so no longer attests its price)
       const forged2 = psql(`begin; alter table public.studio_sms_price_change_requests disable trigger studio_sms_price_change_requests_guard;
-        update public.studio_sms_price_change_requests set decided_by = requested_by where id = (select id from public.studio_sms_price_change_requests where status = 'applied' limit 1);
+        update public.studio_sms_price_change_requests set status = 'approved', applied_price_id = null, applied_at = null where id = (select id from public.studio_sms_price_change_requests where status = 'applied' limit 1);
         select public.tw4_price_verify()::text; rollback;`).split("\n").filter((l) => l.startsWith("{")).pop()!;
       expect((JSON.parse(forged2) as { anomalies: { code: string }[] }).anomalies.map((a) => a.code)).toEqual(expect.arrayContaining(["request_anomaly", "price_unattested"]));
       // an approver who was not registered when he approved
@@ -598,6 +598,10 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
       expect(base).toBeTruthy();
       const lim = (approved: boolean) => `insert into public.studio_sms_price_limits (kind, max_customer_cents, max_provider_cents, max_provider_pct_of_customer, max_step_pct, approved, approved_by_note, approved_at)
         values ('brand_low_volume', 2000, 1000, 80, 20, ${approved}, ${approved ? "'owner approved in the limits test'" : "null"}, ${approved ? "now()" : "null"})`;
+      // the shipped rows are proposals only: eight kinds, none approved, none enforced
+      expect(psql(`select count(*) || ':' || count(*) filter (where approved) from public.studio_sms_price_limits`)).toBe("8:0");
+      expect(psql(`select string_agg(kind, ',' order by kind) from public.studio_sms_price_limits`)).toBe(psql(`select array_to_string(public._tw4price_kinds(), ',')`));
+      psql(`delete from public.studio_sms_price_limits where kind = 'brand_low_volume';`);
       psql(`${lim(false)};`);
       const free = propose("brand_low_volume", 9000, A, 8000);
       expect(free.status).toBe("pending"); // not enforced
