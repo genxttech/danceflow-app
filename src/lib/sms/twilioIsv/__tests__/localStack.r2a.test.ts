@@ -14,7 +14,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { PRICE_FIXTURE_REQUESTER, ownerReactivate, seedPrice } from "./priceFixture";
+import { deleteFixtureRequestsSql, ownerReactivate, seedPrice } from "./priceFixture";
 import { spendEvidenceRpc, exceptionEvidenceRpc } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 600_000 });
@@ -103,7 +103,7 @@ delete from public.studio_sms_credit_reservations where legal_entity_id in (${EN
 delete from public.studio_sms_credit_disputes where topup_id in (select id from public.studio_sms_credit_topups where legal_entity_id in (${ENTITIES}));
 delete from public.studio_sms_credit_topups where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_credit_accounts where legal_entity_id in (${ENTITIES});
-do $d41$ begin if to_regclass('public.studio_sms_price_change_requests') is not null then delete from public.studio_sms_price_change_requests where requested_by = '${PRICE_FIXTURE_REQUESTER}' or decided_by = '${U.padmin}'; end if; end $d41$;
+${deleteFixtureRequestsSql(U.padmin)}
 delete from public.studio_sms_price_list where created_by = '${U.padmin}';
 delete from public.studio_sms_provisioning_steps where studio_id in (${STUDIOS});
 delete from public.studio_sms_registrations where studio_id in (${STUDIOS});
@@ -727,7 +727,7 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
         delete from public.studio_sms_onboarding_audit where action like 'rfl\\_%' and studio_id = any(array[${sqlList(FIXTURE_STUDIOS)}]::uuid[]);
       end $clear$;`;
   const clearFixtureEvidence = () => `set local session_replication_role = replica;
-      do $d41$ begin if to_regclass('public.studio_sms_price_change_requests') is not null then delete from public.studio_sms_price_change_requests where requested_by = '${PRICE_FIXTURE_REQUESTER}' or decided_by = '${U.padmin}'; end if; end $d41$;
+      ${deleteFixtureRequestsSql(U.padmin)}
       ${psql("select to_regclass('public.studio_sms_prov_listings') is not null") === "t"
         ? `delete from public.studio_sms_prov_orphans where legal_entity_id in (${sqlList(FIXTURE_ENTITIES)}); delete from public.studio_sms_prov_dispositions where legal_entity_id in (${sqlList(FIXTURE_ENTITIES)}); delete from public.studio_sms_prov_listings where legal_entity_id in (${sqlList(FIXTURE_ENTITIES)});`
         : ""}
