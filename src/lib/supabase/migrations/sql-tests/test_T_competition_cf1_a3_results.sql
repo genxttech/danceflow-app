@@ -235,7 +235,8 @@ begin
   for r in select t.tgname, t.tgrelid::regclass as rel from pg_trigger t
            where not t.tgisinternal and t.tgname like 'cf1_%'
              and t.tgrelid in ('public.event_competition_heats'::regclass, 'public.event_competition_heat_entries'::regclass,
-                               'public.event_competition_rounds'::regclass, 'public.event_competition_entries'::regclass) loop
+                               'public.event_competition_rounds'::regclass, 'public.event_competition_entries'::regclass,
+                               'public.event_competition_round_exclusions'::regclass) loop
     execute format('alter table %s disable trigger %I', r.rel, r.tgname);
   end loop;
 end $$;

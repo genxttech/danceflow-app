@@ -16,8 +16,8 @@ PS() { docker exec -i "$C" psql -h 127.0.0.1 -U supabase_admin "$@"; }
 PS -d postgres -qc "drop database if exists a3probe" >/dev/null 2>&1
 # CREATE DATABASE needs the template idle: the only other sessions are extension workers (pg_net, pg_cron); stop them and retry until it works.
 for i in 1 2 3 4 5 6 7 8; do
-  PS -d postgres -qAt -c "select pg_terminate_backend(pid) from pg_stat_activity where datname = 'postgres' and pid <> pg_backend_pid()" >/dev/null 2>&1
-  PS -d postgres -qc "create database a3probe template postgres" 2>/dev/null && break
+  # terminate the extension workers and CREATE DATABASE in ONE psql session (they respawn between separate sessions)
+  PS -d postgres -qAt -c "select pg_terminate_backend(pid) from pg_stat_activity where datname = 'postgres' and pid <> pg_backend_pid()" -c "create database a3probe template postgres" >/dev/null 2>&1 && break
   sleep 0.3
 done
 PS -d postgres -qAtc "select 1 from pg_database where datname = 'a3probe'" | grep -q 1 || { echo "cannot create a3probe"; exit 2; }
