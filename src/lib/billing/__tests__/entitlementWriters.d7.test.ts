@@ -14,6 +14,9 @@ const TABLE = "usage_addon_entitlements";
 
 /** file (relative to src, forward slashes) -> receivers allowed to write the table in that file. */
 const WRITER_ALLOWLIST: Record<string, string[]> = {
+  // release/pricing-p1 only: this baseline predates BILLING-QA-6, so the webhook still upserts/updates Suite rows with the
+  // service-role client (select/insert/update stay granted to service_role). Drop on re-sync with main.
+  "app/api/payments/webhook/route.ts": ["supabase"],
   // The Stripe webhook no longer writes this table directly: since BILLING-QA-6 (#360) Suite rows are written by the
   // SECURITY DEFINER apply_studio_subscription_state RPC (service-role only), which keeps its rights under the
   // least-privilege grants. A direct write reappearing in the webhook would have to be added here deliberately.
