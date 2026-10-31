@@ -370,12 +370,13 @@ select pg_temp.expect_msg('heat numbers out of range are refused',
   $q$select public.move_competition_floor_heat(pg_temp.fh(pg_temp.id('v1'), 1), 9)$q$, 'COMP10D_HEAT_NUMBERS');
 
 -- capacity (DanceFlow default 8; editable per round)
-select pg_temp.expect_msg('capacity must be 1..100',
-  $q$select public.set_competition_round_heat_capacity('00000000-0000-0000-0000-0c10d0006003', 0)$q$, 'COMP10D_CAPACITY');
-select pg_temp.expect_ok('capacity is editable per round',
-  $q$select public.set_competition_round_heat_capacity('00000000-0000-0000-0000-0c10d0006003', 12)$q$);
-select pg_temp.chk('capacity stored on the round',
-  (select configuration->>'max_entries_per_heat' from public.event_competition_rounds where id = '00000000-0000-0000-0000-0c10d0006003') = '12');
+-- CF1 A0 (OD-14 A): the legacy 2-arg RPC refuses for every round; capacity changes use the reasoned 4-arg RPC (covered by the CF1 A0 suite)
+select pg_temp.expect_msg('legacy 2-arg capacity RPC refuses (invalid value)',
+  $q$select public.set_competition_round_heat_capacity('00000000-0000-0000-0000-0c10d0006003', 0)$q$, 'COMP_CAPACITY_REASON_REQUIRED');
+select pg_temp.expect_msg('legacy 2-arg capacity RPC refuses (valid value)',
+  $q$select public.set_competition_round_heat_capacity('00000000-0000-0000-0000-0c10d0006003', 12)$q$, 'COMP_CAPACITY_REASON_REQUIRED');
+select pg_temp.chk('capacity on the round is unchanged by the refused legacy calls',
+  (select configuration->>'max_entries_per_heat' from public.event_competition_rounds where id = '00000000-0000-0000-0000-0c10d0006003') is distinct from '12');
 
 -- (16)(17) cross-event / cross-version / cross-competition placement (as postgres to bypass the RPC layer)
 reset role;
