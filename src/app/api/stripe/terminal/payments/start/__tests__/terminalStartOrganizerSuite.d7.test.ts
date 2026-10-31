@@ -95,7 +95,7 @@ async function start() {
   body.set("paymentId", PAYMENT);
   body.set("readerId", "reader-1");
   const response = await POST(new NextRequest("https://app.test/api/stripe/terminal/payments/start", { method: "POST", body }));
-  return new URL(response.headers.get("location") ?? "https://none.test");
+  return new URL(response?.headers.get("location") ?? "https://none.test");
 }
 
 function error(url: URL) {
