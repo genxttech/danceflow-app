@@ -12,13 +12,13 @@ export const enabled = Boolean(PG && DB);
 export const RUN = randomBytes(3).toString("hex");
 /** Synthetic administrators and users (distinct ids). A, B: platform administrators whose sessions are aal2. C: not an administrator. D: administrator whose session is aal1.
  *  E: deactivated (was an administrator, demoted). F: a third administrator (aal2). G: administrator whose auth user is banned. */
-export const A = `d4${RUN}00-0000-4000-8000-0000000000a1`;
-export const B = `d4${RUN}00-0000-4000-8000-0000000000b2`;
-export const C = `d4${RUN}00-0000-4000-8000-0000000000c3`;
-export const D = `d4${RUN}00-0000-4000-8000-0000000000d4`;
-export const E = `d4${RUN}00-0000-4000-8000-0000000000e5`;
-export const F = `d4${RUN}00-0000-4000-8000-0000000000f6`;
-export const G = `d4${RUN}00-0000-4000-8000-000000000097`;
+export const A = `d4${RUN}-0000-4000-8000-0000000000a1`;
+export const B = `d4${RUN}-0000-4000-8000-0000000000b2`;
+export const C = `d4${RUN}-0000-4000-8000-0000000000c3`;
+export const D = `d4${RUN}-0000-4000-8000-0000000000d4`;
+export const E = `d4${RUN}-0000-4000-8000-0000000000e5`;
+export const F = `d4${RUN}-0000-4000-8000-0000000000f6`;
+export const G = `d4${RUN}-0000-4000-8000-000000000097`;
 
 const sqlArgs = ["exec", "-i", PG, "psql", "-U", "postgres", "-d", DB, "-q", "-At", "-v", "ON_ERROR_STOP=1"];
 export const psql = (sql: string): string => execFileSync("docker", sqlArgs, { input: sql, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
