@@ -154,7 +154,7 @@ grant execute on all functions in schema pg_temp to authenticated, anon, service
 -- users: 01 ownerA (manager), 02 ownerA2 (manager, also judge C), 05 ownerB, 06 ownerA3 (manager, NO verified email), 07 ownerA4 (manager, judge D),
 --        11 judge A, 17 chair, 18 chair2, 20 nobody
 insert into auth.users (id, email) values
-  (pg_temp.us(1), 't-cf1a5-ownera@example.test'), (pg_temp.us(2), 't-cf1a5-ownera2@example.test'), (pg_temp.us(3), 't-cf1a5-ownera5@example.test'), (pg_temp.us(5), 't-cf1a5-ownerb@example.test'),
+  (pg_temp.us(1), 't-cf1a5-ownera@example.test'), (pg_temp.us(2), 't-cf1a5-ownera2@example.test'), (pg_temp.us(3), 't-cf1a5-ownera5@example.test'), (pg_temp.us(4), 't-cf1a5-scorer@example.test'), (pg_temp.us(5), 't-cf1a5-ownerb@example.test'),
   (pg_temp.us(6), 't-cf1a5-ownera3@example.test'), (pg_temp.us(7), 't-cf1a5-ownera4@example.test'), (pg_temp.us(11), 't-cf1a5-judge@example.test'),
   (pg_temp.us(17), 't-cf1a5-chair@example.test'), (pg_temp.us(18), 't-cf1a5-chair2@example.test'), (pg_temp.us(20), 't-cf1a5-nobody@example.test');
 insert into public.profiles (id, email, full_name)
@@ -167,7 +167,7 @@ insert into public.studios (id, name, slug) values
   (pg_temp.u('00a001'), 'CF1 A5 Studio A', 't-cf1a5-studio-a'), (pg_temp.u('00b001'), 'CF1 A5 Studio B', 't-cf1a5-studio-b');
 insert into public.user_studio_roles (user_id, studio_id, role, active) values
   (pg_temp.us(1), pg_temp.u('00a001'), 'studio_owner', true), (pg_temp.us(2), pg_temp.u('00a001'), 'studio_owner', true),
-  (pg_temp.us(3), pg_temp.u('00a001'), 'studio_owner', true), (pg_temp.us(6), pg_temp.u('00a001'), 'studio_owner', true), (pg_temp.us(7), pg_temp.u('00a001'), 'studio_owner', true),
+  (pg_temp.us(3), pg_temp.u('00a001'), 'studio_owner', true), (pg_temp.us(4), pg_temp.u('00a001'), 'studio_owner', true), (pg_temp.us(6), pg_temp.u('00a001'), 'studio_owner', true), (pg_temp.us(7), pg_temp.u('00a001'), 'studio_owner', true),
   (pg_temp.us(5), pg_temp.u('00b001'), 'studio_owner', true),
   (pg_temp.us(11), pg_temp.u('00a001'), 'instructor', true), (pg_temp.us(17), pg_temp.u('00a001'), 'instructor', true),
   (pg_temp.us(18), pg_temp.u('00a001'), 'studio_owner', true);
@@ -284,6 +284,8 @@ select public.add_competition_official(pg_temp.u('00e001'), pg_temp.us(17), 'cha
 select public.add_competition_official(pg_temp.u('00e001'), pg_temp.us(18), 'scorer', pg_temp.u('f10003'));
 select public.add_competition_official(pg_temp.u('00e001'), pg_temp.us(2), 'judge', pg_temp.u('f10004'));
 select public.add_competition_official(pg_temp.u('00e001'), pg_temp.us(7), 'judge', pg_temp.u('f10005'));
+select public.add_competition_official(pg_temp.u('00e001'), pg_temp.us(4), 'scorer', pg_temp.u('f10006'));
+select public.assign_competition_panel_member(pg_temp.rd(1), (select id from public.event_competition_officials where event_id = pg_temp.u('00e001') and user_id = pg_temp.us(4)), null, gen_random_uuid());
 select public.assign_competition_panel_member(pg_temp.rd(1), (select id from public.event_competition_officials where event_id = pg_temp.u('00e001') and user_id = pg_temp.us(11)), 'A', gen_random_uuid());
 select public.assign_competition_panel_member(pg_temp.rd(1), (select id from public.event_competition_officials where event_id = pg_temp.u('00e001') and user_id = pg_temp.us(2)), 'C', gen_random_uuid());
 select public.assign_competition_panel_member(pg_temp.rd(1), (select id from public.event_competition_officials where event_id = pg_temp.u('00e001') and user_id = pg_temp.us(7)), 'D', gen_random_uuid());
@@ -311,11 +313,11 @@ select pg_temp.chk('the five public functions: authenticated EXECUTE, not anon /
    where p.proname in ('request_round_exclusion', 'cosign_round_exclusion', 'request_round_exclusion_reversal',
                        'cosign_round_exclusion_reversal', 'competition_round_exclusions')));
 select pg_temp.chk('all A5 functions are SECURITY DEFINER with search_path = public, pg_temp',
-  (select count(*) = 11 and bool_and(p.prosecdef) and bool_and(coalesce(p.proconfig, '{}') @> array['search_path=public, pg_temp'])
+  (select count(*) = 12 and bool_and(p.prosecdef) and bool_and(coalesce(p.proconfig, '{}') @> array['search_path=public, pg_temp'])
    from pg_proc p join pg_namespace n on n.oid = p.pronamespace and n.nspname = 'public'
    where p.proname in ('request_round_exclusion', 'cosign_round_exclusion', 'request_round_exclusion_reversal', 'cosign_round_exclusion_reversal',
                        'competition_round_exclusions', '_a5_cf1_require_no_publication', '_a5_cf1_entry_heat_entries', '_a5_cf1_entry_danced',
-                       '_a5_cf1_effective', '_a5_cf1_filed_replacement_ballot', '_a5_cf1_guard_replacement_ballot_filer')
+                       '_a5_cf1_effective', '_a5_cf1_filed_replacement_ballot', '_a5_cf1_require_reason_kind', '_a5_cf1_guard_replacement_ballot_filer')
       ),
   (select count(*)::text from pg_proc p where p.proname like '%a5_cf1%' or p.proname like '%round_exclusion%'));
 select pg_temp.chk('internal _a5_cf1_* helpers carry no grants (authenticated / anon / service_role)',
@@ -533,11 +535,11 @@ select pg_temp.chk('the trigger leaves an ORIGINAL ballot (supersedes_id null) b
 
 -- stale / ordering
 select pg_temp.run('two pending requests for e12', pg_temp.us(1), pg_temp.q_req(1, 12, 'ineligible', 'first request', 9230), 'e12_a');
-select pg_temp.run('second pending request for e12 (allowed: requests are not exclusive)', pg_temp.us(2), pg_temp.q_req(1, 12, 'refunded', 'second request', 9231), 'e12_b');
+select pg_temp.run('second pending request for e12 (allowed: requests are not exclusive)', pg_temp.us(2), pg_temp.q_req(1, 12, 'other', 'second request', 9231), 'e12_b');
 select pg_temp.run('co-sign the LATER request first', pg_temp.us(17), pg_temp.q_cos('e12_b', 9232), 'e12_b_cos');
 select pg_temp.ex('the earlier request is now stale or already (COMP_EXCLUSION_REQUEST_STALE)', pg_temp.us(3), pg_temp.q_cos('e12_a', 9233), 'COMP_EXCLUSION_REQUEST_STALE');
-select pg_temp.chk('the effective reason is the co-signed request''s (refunded), seq strictly increasing without duplicates',
-  (select reason_kind = 'refunded' from public.event_competition_round_exclusions where id = pg_temp.vid('e12_b_cos'))
+select pg_temp.chk('the effective reason is the co-signed request''s (other), seq strictly increasing without duplicates',
+  (select reason_kind = 'other' from public.event_competition_round_exclusions where id = pg_temp.vid('e12_b_cos'))
   and not exists (select 1 from public.event_competition_round_exclusions group by round_id, seq having count(*) > 1)
   and (select max(seq) from public.event_competition_round_exclusions where round_id = pg_temp.rd(1)) = (select count(*) from public.event_competition_round_exclusions where round_id = pg_temp.rd(1)));
 
@@ -545,6 +547,30 @@ select pg_temp.chk('the effective reason is the co-signed request''s (refunded),
 select pg_temp.run('request exclusion of e17', pg_temp.us(1), pg_temp.q_req(1, 17, 'ineligible', 'to be corrected', 9240), 'e17_req');
 select pg_temp.set_elig(17, 'eligible');
 select pg_temp.ex('U65: co-sign is refused once P is false again (COMP_EXCLUSION_NOT_UNAVAILABLE)', pg_temp.us(17), pg_temp.q_cos('e17_req', 9241), 'COMP_EXCLUSION_NOT_UNAVAILABLE');
+
+-- Review round 2 (M1, L1, L2): panel assignments, visible reasons, reason kind tied to the cause
+select pg_temp.run('M1: request for e18 (cause: ineligible)', pg_temp.us(1), pg_temp.q_req(1, 18, 'ineligible', 'ineligible, for the M1 probe', 9250), 'e18_req');
+select pg_temp.ex('M1: a manager with a SCORER panel assignment on the round cannot co-sign (the trigger would trap their paper entry)', pg_temp.us(4), pg_temp.q_cos('e18_req', 9251), 'COMP_EXCLUSION_COSIGNER_FILED_BALLOT');
+select pg_temp.ex('L1: a tab/newline-only reason is refused (request)', pg_temp.us(1), format('select public.request_round_exclusion(%L,%L,%L,E''	
+ 	
+'',%L)', pg_temp.rd(1), pg_temp.en(15), 'ineligible', pg_temp.rq(9252)), 'COMP_EXCLUSION_REASON_REQUIRED');
+select pg_temp.ex('L1: a NBSP-only reason is refused', pg_temp.us(1), format('select public.request_round_exclusion(%L,%L,%L,%L,%L)', pg_temp.rd(1), pg_temp.en(15), 'ineligible', repeat(chr(160), 5), pg_temp.rq(9253)), 'COMP_EXCLUSION_REASON_REQUIRED');
+select pg_temp.ex('L1: a zero-width-only reason is refused', pg_temp.us(1), format('select public.request_round_exclusion(%L,%L,%L,%L,%L)', pg_temp.rd(1), pg_temp.en(15), 'ineligible', repeat(chr(8203), 4), pg_temp.rq(9254)), 'COMP_EXCLUSION_REASON_REQUIRED');
+select pg_temp.ex('L1: BOM / word-joiner padding with two letters is refused', pg_temp.us(1), format('select public.request_round_exclusion(%L,%L,%L,%L,%L)', pg_temp.rd(1), pg_temp.en(15), 'ineligible', chr(65279) || chr(8288) || 'ab' , pg_temp.rq(9255)), 'COMP_EXCLUSION_REASON_REQUIRED');
+select pg_temp.ex('L1: a whitespace-only reversal reason is refused', pg_temp.us(1), format('select public.request_round_exclusion_reversal(%L,%L,%L,%L)', pg_temp.rd(1), pg_temp.en(1), repeat(chr(160), 5), pg_temp.rq(9256)), 'COMP_EXCLUSION_REASON_REQUIRED');
+select pg_temp.run('L1: a reason with three visible characters passes', pg_temp.us(1), pg_temp.q_req(1, 15, 'ineligible', 'ok.', 9257), 'e15_req');
+select pg_temp.ex('L2: kind refunded on an entry that is only ineligible is refused', pg_temp.us(1), pg_temp.q_req(1, 16, 'refunded', 'claims a refund', 9258), 'COMP_EXCLUSION_REASON_MISMATCH');
+select pg_temp.ex('L2: kind ineligible on an entry whose cause is a cancelled registration is refused', pg_temp.us(1), pg_temp.q_req(1, 3, 'ineligible', 'claims ineligible', 9259), 'COMP_EXCLUSION_REASON_MISMATCH');
+select pg_temp.run('L2: kind other is allowed whenever P is true', pg_temp.us(1), pg_temp.q_req(1, 16, 'other', 'other cause recorded', 9260), 'e16_req');
+-- the cause changes between request and co-sign: ineligible -> a cancelled registration (kind ineligible no longer matches)
+do $$
+begin
+  perform set_config('session_replication_role', 'replica', true);
+  update public.event_competition_entries set eligibility_status = 'eligible', registration_id = pg_temp.u('0b0002'), order_id = pg_temp.u('0a0001') where id = pg_temp.en(15);
+  perform set_config('session_replication_role', 'origin', true);
+end $$;
+select pg_temp.ex('L2: co-sign re-checks the kind against the cause as of NOW', pg_temp.us(17), pg_temp.q_cos('e15_req', 9261), 'COMP_EXCLUSION_REASON_MISMATCH');
+select pg_temp.chk('L1/L2 refusals wrote nothing (e15 has only its request row)', pg_temp.rows('entry_id = ' || quote_literal(pg_temp.en(15))) = 1);
 
 -- ============================================================================
 -- 5. Reversal (P-gate): only while P is false (U65, U76 A5 part)
@@ -683,7 +709,7 @@ drop table public.event_competition_result_publications;
 -- ============================================================================
 -- 8. U76: callback round interplay (A5 side). The lock refusal itself needs A3 (the ranking set is filtered by A3).
 -- ============================================================================
-select pg_temp.run('U76: exclude callback couple c1 (e41) in the active callback round', pg_temp.us(1), pg_temp.q_req(10, 41, 'refunded', 'c1 refunded after dancing', 9501), 'c1_req');
+select pg_temp.run('U76: exclude callback couple c1 (e41) in the active callback round', pg_temp.us(1), pg_temp.q_req(10, 41, 'ineligible', 'c1 ineligible after dancing', 9501), 'c1_req');
 select pg_temp.run('U76: co-sign', pg_temp.us(17), pg_temp.q_cos('c1_req', 9502), 'c1_cos');
 select pg_temp.chk('U76: the callback couple is in _cf1_excluded_entries and its heat entry is excluded',
   exists (select 1 from public._cf1_excluded_entries(pg_temp.rd(10)) x where x.entry_id = pg_temp.en(41))

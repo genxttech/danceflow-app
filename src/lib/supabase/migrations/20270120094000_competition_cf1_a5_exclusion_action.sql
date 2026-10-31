@@ -137,7 +137,8 @@ $$;
 revoke all on function public._a5_cf1_effective(uuid, uuid) from public, anon, authenticated, service_role;
 
 -- A person who filed a REPLACEMENT ballot (supersedes_id not null) in the round, as submitter, as the judge, or as the entering scorer,
--- OR who holds a judge letter on the round's panel (such a person could be asked to file one later, and the trigger below would then trap the round).
+-- OR who holds ANY panel assignment on the round (judge letter or scorer): such a person can file or enter a replacement ballot later, and the
+-- trigger below would then trap the round. (Converse, documented in the contract: an assignment made AFTER a co-sign is not blocked.)
 create function public._a5_cf1_filed_replacement_ballot(p_round_id uuid, p_user_id uuid)
 returns boolean
 language sql
@@ -154,9 +155,48 @@ as $$
   or exists (
     select 1 from public.event_competition_panel_assignments a
     join public.event_competition_officials o on o.id = a.official_id and o.event_id = a.event_id
-    where a.round_id = p_round_id and a.judge_letter is not null and o.user_id = p_user_id);
+    where a.round_id = p_round_id and o.user_id = p_user_id);
 $$;
 revoke all on function public._a5_cf1_filed_replacement_ballot(uuid, uuid) from public, anon, authenticated, service_role;
+
+-- L1: a reason needs at least three visible characters (not whitespace, NBSP, zero-width space/joiners, word joiner or BOM).
+create function public._a5_cf1_reason_ok(p_reason text)
+returns boolean
+language sql
+immutable
+set search_path = public, pg_temp
+as $$
+  select p_reason is not null
+     and length(btrim(p_reason)) <= 500
+     and length(regexp_replace(p_reason, '[[:space:]' || chr(160) || chr(8203) || '-' || chr(8205) || chr(8288) || chr(65279) || ']', '', 'g')) >= 3;
+$$;
+revoke all on function public._a5_cf1_reason_ok(text) from public, anon, authenticated, service_role;
+
+-- L2: the recorded reason kind must match the real cause (A1's first-matching reason). 'other' needs only P true (checked by the callers).
+-- Limit: A1 reports the FIRST matching reason, so a couple that is both ineligible and refunded must be recorded 'ineligible' or 'other'.
+create function public._a5_cf1_require_reason_kind(p_entry_id uuid, p_reason_kind text)
+returns void
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_reason text := public._cf1_entry_unavailable_reason(p_entry_id);
+begin
+  if p_reason_kind = 'other' then
+    return;
+  end if;
+  if (p_reason_kind = 'ineligible' and v_reason in ('entry_not_confirmed', 'entry_ineligible'))
+     or (p_reason_kind = 'refunded' and v_reason in ('registration_cancelled', 'registration_refunded', 'registration_payment_failed',
+                                                       'registration_payment_refunded', 'order_payment_failed', 'order_payment_refunded')) then
+    return;
+  end if;
+  raise exception 'COMP_EXCLUSION_REASON_MISMATCH: the recorded reason kind (%) does not match the couple''s actual cause (%); use the matching kind or other.',
+    p_reason_kind, coalesce(v_reason, 'none') using errcode = 'P0001';
+end;
+$$;
+revoke all on function public._a5_cf1_require_reason_kind(uuid, text) from public, anon, authenticated, service_role;
 
 -- The JSON every write returns (and replays).
 create function public._a5_cf1_result(p_row public.event_competition_round_exclusions, p_replayed boolean)
@@ -210,7 +250,7 @@ begin
   if p_reason_kind is null or p_reason_kind not in ('ineligible', 'refunded', 'other') then
     raise exception 'COMP_EXCLUSION_REASON_KIND: the reason kind must be ineligible, refunded or other.' using errcode = 'P0001';
   end if;
-  if v_reason is null or length(v_reason) not between 3 and 500 then
+  if not public._a5_cf1_reason_ok(v_reason) then
     raise exception 'COMP_EXCLUSION_REASON_REQUIRED: an exclusion needs a reason (3-500 characters).' using errcode = 'P0001';
   end if;
 
@@ -239,6 +279,7 @@ begin
   if not found then
     raise exception 'COMP_EXCLUSION_ENTRY_NOT_IN_ROUND: the entry does not belong to this round.' using errcode = 'P0001';
   end if;
+  perform 1 from public.event_competition_heats hh where hh.round_id = p_round_id and hh.status <> 'cancelled' order by hh.id for share;
   v_snapshot := public._a5_cf1_entry_heat_entries(p_round_id, p_entry_id);
   perform 1 from public.event_competition_heat_entries he
    where he.id = any (v_snapshot) order by he.id for share;
@@ -256,6 +297,7 @@ begin
   if not public._cf1_entry_unavailable(p_entry_id) then
     raise exception 'COMP_EXCLUSION_NOT_UNAVAILABLE: the couple is currently eligible and not refunded; an exclusion needs a currently true ineligible/refund predicate.' using errcode = 'P0001';
   end if;
+  perform public._a5_cf1_require_reason_kind(p_entry_id, p_reason_kind);
 
   begin
     insert into public.event_competition_round_exclusions
@@ -347,6 +389,7 @@ begin
   end if;
 
   perform 1 from public.event_competition_entries e where e.id = v_dec.entry_id and e.event_id = v_dec.event_id for share;
+  perform 1 from public.event_competition_heats hh where hh.round_id = v_dec.round_id and hh.status <> 'cancelled' order by hh.id for share;
   v_snapshot := public._a5_cf1_entry_heat_entries(v_dec.round_id, v_dec.entry_id);
   perform 1 from public.event_competition_heat_entries he
    where he.id = any (v_snapshot) order by he.id for share;
@@ -364,6 +407,10 @@ begin
   if not public._cf1_entry_unavailable(v_dec.entry_id) then
     raise exception 'COMP_EXCLUSION_NOT_UNAVAILABLE: the couple is currently eligible and not refunded; an exclusion needs a currently true ineligible/refund predicate.' using errcode = 'P0001';
   end if;
+  if not public._a5_cf1_reason_ok(v_dec.reason) then
+    raise exception 'COMP_EXCLUSION_REASON_REQUIRED: an exclusion needs a reason with a visible character.' using errcode = 'P0001';
+  end if;
+  perform public._a5_cf1_require_reason_kind(v_dec.entry_id, v_dec.reason_kind);
 
   begin
     insert into public.event_competition_round_exclusions
@@ -415,7 +462,7 @@ begin
   if p_request_id is null then
     raise exception 'COMP_REQUEST_ID_REQUIRED: a request id is required.' using errcode = 'P0001';
   end if;
-  if v_reason is null or length(v_reason) not between 3 and 500 then
+  if not public._a5_cf1_reason_ok(v_reason) then
     raise exception 'COMP_EXCLUSION_REASON_REQUIRED: a reversal needs a reason (3-500 characters).' using errcode = 'P0001';
   end if;
 
@@ -441,6 +488,7 @@ begin
   perform public._a5_cf1_require_no_publication(p_round_id);
 
   perform 1 from public.event_competition_entries e where e.id = p_entry_id and e.event_id = v_round.event_id for share;
+  perform 1 from public.event_competition_heats hh where hh.round_id = p_round_id and hh.status <> 'cancelled' order by hh.id for share;
   v_snapshot := public._a5_cf1_entry_heat_entries(p_round_id, p_entry_id);
   perform 1 from public.event_competition_heat_entries he
    where he.id = any (v_snapshot) order by he.id for share;
@@ -543,6 +591,7 @@ begin
   end if;
 
   perform 1 from public.event_competition_entries e where e.id = v_dec.entry_id and e.event_id = v_dec.event_id for share;
+  perform 1 from public.event_competition_heats hh where hh.round_id = v_dec.round_id and hh.status <> 'cancelled' order by hh.id for share;
   v_snapshot := public._a5_cf1_entry_heat_entries(v_dec.round_id, v_dec.entry_id);
   perform 1 from public.event_competition_heat_entries he
    where he.id = any (v_snapshot) order by he.id for share;

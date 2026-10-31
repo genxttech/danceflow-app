@@ -13,7 +13,7 @@ declare
   v_names constant text[] := array[
     'request_round_exclusion', 'cosign_round_exclusion', 'request_round_exclusion_reversal', 'cosign_round_exclusion_reversal',
     'competition_round_exclusions', '_a5_cf1_require_no_publication', '_a5_cf1_entry_heat_entries', '_a5_cf1_entry_danced',
-    '_a5_cf1_effective', '_a5_cf1_filed_replacement_ballot', '_a5_cf1_result', '_a5_cf1_guard_replacement_ballot_filer'];
+    '_a5_cf1_effective', '_a5_cf1_filed_replacement_ballot', '_a5_cf1_result', '_a5_cf1_reason_ok', '_a5_cf1_require_reason_kind', '_a5_cf1_guard_replacement_ballot_filer'];
   v_user text;
 begin
   if exists (select 1 from public.event_competition_round_exclusions) then
@@ -36,6 +36,8 @@ drop function public.cosign_round_exclusion_reversal(uuid, uuid);
 drop function public.request_round_exclusion_reversal(uuid, uuid, text, uuid);
 drop function public.cosign_round_exclusion(uuid, uuid);
 drop function public.request_round_exclusion(uuid, uuid, text, text, uuid);
+drop function public._a5_cf1_require_reason_kind(uuid, text);
+drop function public._a5_cf1_reason_ok(text);
 drop function public._a5_cf1_result(public.event_competition_round_exclusions, boolean);
 drop function public._a5_cf1_filed_replacement_ballot(uuid, uuid);
 drop function public._a5_cf1_effective(uuid, uuid);
