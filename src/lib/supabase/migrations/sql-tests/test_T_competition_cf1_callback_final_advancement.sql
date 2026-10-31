@@ -67,7 +67,7 @@ begin
   perform set_config('role', 'anon', true);
 end $$;
 create or replace function pg_temp.n(p_sql text) returns bigint
-language plpgsql as $$ declare r bigint; begin execute p_sql into r; return r; end $$;
+language plpgsql security definer as $$ declare r bigint; begin execute p_sql into r; return r; end $$;
 -- Runs a SQL text that returns jsonb and gives back the jsonb (or {"error": "<sqlerrm>", "state": ...}).
 create or replace function pg_temp.try(p_sql text) returns jsonb
 language plpgsql as $$
@@ -81,7 +81,7 @@ begin
   return r;
 end $$;
 create or replace function pg_temp.detail_has(p_sql text, p_frag text) returns boolean
-language plpgsql as $
+language plpgsql as $$
 declare v_detail text;
 begin
   begin
@@ -91,7 +91,7 @@ begin
     return position(p_frag in coalesce(v_detail, '')) > 0;
   end;
   return false;
-end $;
+end $$;
 -- Superuser helper run under a role: executes SQL as the session owner (fixture mutations in the middle of a role-based section).
 create or replace function pg_temp.su(p_sql text) returns void
 language plpgsql security definer as $$
@@ -131,6 +131,15 @@ select pg_temp.id('cts', e), pg_temp.id('evt', e), pg_temp.id('prg', e), 'Contes
 insert into public.event_competition_contests (id, event_id, program_id, name, contest_type, entry_format, status)
 values (pg_temp.id('cts', 9), pg_temp.id('evt', 1), pg_temp.id('prg', 9), 'Plain contest', 'single_dance', 'pro_am', 'open');
 
+-- Event 5 (L5 owner decision: preserved publication freeze): its own live version, so rule B is reached in isolation after a revoke.
+insert into public.events (id, studio_id, name, slug, event_type, start_date, end_date, status, visibility, registration_required)
+values (pg_temp.id('evt', 5), pg_temp.id('studio', 1), 'CF1 A0 Comp 5', 't-cf1a0-e5', 'competition', current_date + 30, current_date + 30, 'published', 'public', true);
+insert into public.event_competition_programs (id, event_id, studio_id, name, discipline_family, competition_mode, scoring_method, status, advancement_method)
+values (pg_temp.id('prg', 5), pg_temp.id('evt', 5), pg_temp.id('studio', 1), 'Callback program 5', 'country', 'relative', 'skating', 'configured', 'promote_callback');
+insert into public.event_competition_contests (id, event_id, program_id, name, contest_type, entry_format, status)
+values (pg_temp.id('cts', 5), pg_temp.id('evt', 5), pg_temp.id('prg', 5), 'Contest 5', 'single_dance', 'pro_am', 'open');
+insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status, published_at) values (pg_temp.id('sv', 5), pg_temp.id('evt', 5), 1, 'V1', 'published', now());
+insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status) values (pg_temp.id('sv', 60), pg_temp.id('evt', 1), 60, 'draft60', 'draft');
 -- Live schedule versions: event 1 (floor mode, published), event 3 (published, no floor heats), event 4 (floor mode). Event 2 has none.
 insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status, published_at) values
   (pg_temp.id('sv', 1), pg_temp.id('evt', 1), 1, 'V1', 'published', now()),
@@ -152,13 +161,13 @@ begin
   insert into public.event_competition_divisions (id, event_id, program_id, contest_id, name, status)
   values (pg_temp.id('div', p_n), v_event, pg_temp.id('prg', p_e), pg_temp.id('cts', p_e), 'D' || p_n, 'open');
   insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method, target_advancement_count)
-  values (pg_temp.id('src', p_n), v_event, pg_temp.id('prg', p_e), pg_temp.id('div', p_n), 'D' || p_n || ' Callback', 'preliminary', 1, 'approved', 'callback_tally', p_adv);
+  values (pg_temp.id('src', p_n), v_event, pg_temp.id('prg', p_e), pg_temp.id('div', p_n), 'D' || p_n || ' Callback', 'preliminary', 1, 'approved', 'callback_tally', greatest(p_adv, 2));
   insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method)
   values (pg_temp.id('fin', p_n), v_event, pg_temp.id('prg', p_e), pg_temp.id('div', p_n), 'D' || p_n || ' Final', 'final', 2, p_fin, 'ordinal_majority');
   for v_k in 1..p_entries loop
     insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
     values (pg_temp.id('ent', p_n, v_k), v_event, pg_temp.id('prg', p_e), pg_temp.id('div', p_n), 'e' || p_n || '-' || v_k, 'confirmed', 'eligible',
-            case when p_numbers is null then v_k::text else p_numbers[v_k] end);
+            case when p_numbers is null then (p_n * 100 + v_k)::text else p_numbers[v_k] end);
   end loop;
   if p_e <> 2 then
     insert into public.event_competition_floor_heats (id, event_id, schedule_version_id, heat_number)
@@ -179,7 +188,7 @@ begin
   end if;
   select public._compf2_input_hash(pg_temp.id('src', p_n), 'callback_tally', '1') into v_hash;
   insert into public.event_competition_result_versions (id, event_id, round_id, version, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, status, request_id)
-  values (pg_temp.id('rv', p_n), v_event, pg_temp.id('src', p_n), 1, 'callback_tally', '1', v_hash, 'trace-' || p_n, '{}', '{}', pg_temp.id('user', 1), 'approved', pg_temp.id('req-rv', p_n));
+  values (pg_temp.id('rv', p_n), v_event, pg_temp.id('src', p_n), 1, 'callback_tally', '1', v_hash, repeat('a', 64), '{}', '[]', pg_temp.id('user', 1), 'approved', pg_temp.id('req-rv', p_n));
   insert into public.event_competition_result_rows (event_id, result_version_id, entry_id, advanced, output)
   select v_event, pg_temp.id('rv', p_n), pg_temp.id('ent', p_n, k), k <= p_adv, jsonb_build_object('tally', 10 - k) from generate_series(1, p_entries) k;
   perform set_config('session_replication_role', 'origin', true);
@@ -213,6 +222,10 @@ select pg_temp.mk(19);
 select pg_temp.mk(20, 2);
 select pg_temp.mk(21, 3);
 select pg_temp.mk(22, 4);
+--  24 start guard: definition changed after apply (M1) | 25 start guard: only dance cancelled (M2) | 26 start guard: dance key differs (M2)
+select pg_temp.mk(24);
+select pg_temp.mk(25);
+select pg_temp.mk(26);
 
 -- ============================================================================
 -- 1. Catalogue: grants, ENABLE ALWAYS, pins
@@ -221,6 +234,12 @@ select pg_temp.chk('U70-style: no CF1 core table has any grant for public/anon/a
   not exists (select 1 from information_schema.role_table_grants g where g.table_schema = 'public'
               and (g.table_name like 'event_competition_round_advancement%' or g.table_name in ('event_competition_final_withdrawals', 'event_competition_round_capacity_events'))
               and g.grantee in ('PUBLIC', 'anon', 'authenticated', 'service_role')));
+-- L1: every CF1 table, every role, every privilege
+select pg_temp.chk('L1: none of the six CF1 tables grants any privilege to anon, authenticated, service_role',
+  not exists (select 1 from unnest(array['event_competition_round_advancements', 'event_competition_round_advancement_entries', 'event_competition_round_advancement_heats',
+      'event_competition_round_advancement_revocations', 'event_competition_final_withdrawals', 'event_competition_round_capacity_events']) t(n)
+    cross join unnest(array['anon', 'authenticated', 'service_role']) r(role)
+    where has_table_privilege(r.role, ('public.' || t.n)::regclass, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')));
 select pg_temp.chk('all CF1 core tables have RLS on and no policies',
   (select count(*) from pg_class c where c.relnamespace = 'public'::regnamespace and (c.relname like 'event_competition_round_advancement%' or c.relname in ('event_competition_final_withdrawals', 'event_competition_round_capacity_events')) and c.relkind = 'r' and c.relrowsecurity) = 6
   and not exists (select 1 from pg_policies where tablename like 'event_competition_round_advancement%' or tablename in ('event_competition_final_withdrawals', 'event_competition_round_capacity_events')));
@@ -247,6 +266,10 @@ select pg_temp.chk('pinned redefinitions installed: complete_competition_round /
   and position('_cf1_auth_apply' in pg_get_functiondef('public.validate_competition_heat_schedule_placement()'::regprocedure)) > 0
   and position('event_competition_round_advancements' in pg_get_functiondef('public._comp10d_copy_floor_plan(uuid,uuid)'::regprocedure)) > 0
   and position('event_competition_round_capacity_events' in pg_get_functiondef('public.competition_audit_log(uuid,uuid,integer)'::regprocedure)) > 0);
+
+-- Test-only: the assertions below read the evidence tables while a role is set; the isolation checks above already ran. Rolled back with the transaction.
+grant select on public.event_competition_round_advancements, public.event_competition_round_advancement_entries, public.event_competition_round_advancement_heats,
+  public.event_competition_round_advancement_revocations, public.event_competition_final_withdrawals, public.event_competition_round_capacity_events to authenticated;
 
 -- ============================================================================
 -- 2. Capacity: legacy refusal, the reasoned RPC, B1-B7, F1, the direct-write trigger, the F2 setup guard
@@ -277,7 +300,7 @@ select pg_temp.as_anon();
 select pg_temp.expect_msg('capacity RPC: anon is refused', format($q$select public.set_competition_round_heat_capacity(%L, 6, 'The floor was resized after the survey.', %L)$q$, pg_temp.id('fin', 2), pg_temp.id('r', 6)), 'permission denied');
 select pg_temp.as_user(pg_temp.id('user', 1));
 -- B5: the callback of scenario 2 is approved with a result version: the Final's capacity is frozen; F1 (raise to exactly T) needs capacity < T.
-select pg_temp.expect_msg('B5: capacity is frozen once the callback has a result (capacity 8 >= T 3: no F1)', format($q$select public.set_competition_round_heat_capacity(%L, 6, 'The floor was resized after the survey.', %L)$q$, pg_temp.id('fin', 2), pg_temp.id('r', 7)), 'COMP_CAPACITY_F1_CALLBACK_STATE');
+select pg_temp.expect_msg('B5: capacity is frozen once the callback has a result (capacity 8 >= T 3: no F1)', format($q$select public.set_competition_round_heat_capacity(%L, 6, 'The floor was resized after the survey.', %L)$q$, pg_temp.id('fin', 2), pg_temp.id('r', 7)), 'COMP_CAPACITY_CALLBACK_FROZEN');
 reset role;
 -- A callback that has not started: capacity can change with a reason, an audit row is written, replay is idempotent.
 select pg_temp.mk(30, 1, 4, 3, 'draft');
@@ -295,9 +318,10 @@ select pg_temp.chk('one capacity event with the reason and the transaction id',
   (select count(*) = 1 and bool_and(old_capacity = 8 and new_capacity = 6 and reason like 'The floor%' and transaction_id = txid_current() and exemption is null) from public.event_competition_round_capacity_events where round_id = pg_temp.id('fin', 30)));
 set role authenticated;
 select pg_temp.as_user(pg_temp.id('user', 1));
+create temp table t_rp0 on commit drop as select pg_temp.try(format($q$select public.set_competition_round_heat_capacity(%L, 6, 'The floor was resized after the survey.', %L)$q$, pg_temp.id('fin', 30), pg_temp.id('r', 20))) as r;
+grant all on t_rp0 to authenticated, anon, service_role;
 select pg_temp.chk('replay of the capacity request id returns replayed and writes no second row',
-  (pg_temp.try(format($q$select public.set_competition_round_heat_capacity(%L, 6, 'The floor was resized after the survey.', %L)$q$, pg_temp.id('fin', 30), pg_temp.id('r', 20)))->>'replayed') = 'true'
-  and (select count(*) from public.event_competition_round_capacity_events) = 1);
+  (select r->>'replayed' = 'true' from t_rp0) and pg_temp.n('select count(*) from public.event_competition_round_capacity_events') = 1, (select r::text from t_rp0) || ' / ' || pg_temp.n('select count(*) from public.event_competition_round_capacity_events')::text);
 select pg_temp.expect_msg('capacity request id reused for another value is refused', format($q$select public.set_competition_round_heat_capacity(%L, 7, 'The floor was resized after the survey.', %L)$q$, pg_temp.id('fin', 30), pg_temp.id('r', 20)), 'COMP_REQUEST_REUSED');
 select pg_temp.expect_msg('B6: capacity below T (3) is refused', format($q$select public.set_competition_round_heat_capacity(%L, 2, 'The floor was resized after the survey.', %L)$q$, pg_temp.id('fin', 30), pg_temp.id('r', 21)), 'COMP_CALLBACK_TARGET_EXCEEDS_CAPACITY');
 reset role;
@@ -364,9 +388,10 @@ select pg_temp.as_user(pg_temp.id('user', 1));
 select pg_temp.chk('competition_audit_log includes advancement_applied and capacity_changed',
   exists (select 1 from public.competition_audit_log(pg_temp.id('evt', 1), null, 500) where kind = 'advancement_applied')
   and exists (select 1 from public.competition_audit_log(pg_temp.id('evt', 1), null, 500) where kind = 'capacity_changed' and source = 'capacity'));
+create temp table t_rp1 on commit drop as select pg_temp.try(format($q$select public.apply_competition_round_advancement(%L, %L, %L)$q$, pg_temp.id('src', 1), pg_temp.id('rv', 1), pg_temp.id('a', 1))) as r;
+grant all on t_rp1 to authenticated, anon, service_role;
 select pg_temp.chk('replay: same request id returns replayed true, no duplicate',
-  (pg_temp.try(format($q$select public.apply_competition_round_advancement(%L, %L, %L)$q$, pg_temp.id('src', 1), pg_temp.id('rv', 1), pg_temp.id('a', 1))) ->> 'replayed') = 'true'
-  and (select count(*) = 1 from public.event_competition_round_advancements where source_round_id = pg_temp.id('src', 1)));
+  (select r->>'replayed' = 'true' from t_rp1) and pg_temp.n(format('select count(*) from public.event_competition_round_advancements where source_round_id = %L', pg_temp.id('src', 1))) = 1, (select r::text from t_rp1));
 select pg_temp.expect_msg('the same request id for other arguments is refused', format($q$select public.apply_competition_round_advancement(%L, %L, %L)$q$, pg_temp.id('src', 2), pg_temp.id('rv', 2), pg_temp.id('a', 1)), 'COMP_REQUEST_REUSED');
 select pg_temp.expect_msg('a second apply with a new request id while active: ALREADY_APPLIED', format($q$select public.apply_competition_round_advancement(%L, %L, %L)$q$, pg_temp.id('src', 1), pg_temp.id('rv', 1), pg_temp.id('a', 2)), 'COMP_ADVANCEMENT_ALREADY_APPLIED');
 select pg_temp.chk('preview of an applied round is applied', (pg_temp.try(format($q$select public.competition_round_advancement_preview(%L)$q$, pg_temp.id('src', 1)))) ->> 'state' = 'applied');
@@ -383,7 +408,7 @@ grant execute on function pg_temp.code(jsonb) to authenticated;
 set role authenticated;
 select pg_temp.as_user(pg_temp.id('user', 1));
 -- 12 stale hash
-select pg_temp.su(format($q$update public.event_competition_result_versions set input_hash = 'deadbeef' where id = %L$q$, pg_temp.id('rv', 12)));
+select pg_temp.su(format($q$update public.event_competition_result_versions set input_hash = repeat('b', 64) where id = %L$q$, pg_temp.id('rv', 12)));
 select pg_temp.chk('apply: a stale input hash is COMP_RESULT_STALE', pg_temp.code(pg_temp.ap(12, 12)) = 'COMP_RESULT_STALE', pg_temp.ap(12, 12)::text);
 -- 13 blocked
 select pg_temp.su(format($q$update public.event_competition_result_rows set advanced = null where result_version_id = %L$q$, pg_temp.id('rv', 13)));
@@ -397,8 +422,11 @@ select pg_temp.chk('apply: a Final that is already active is TARGET_ROUND_STATE 
 select pg_temp.su(format($q$insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, status, contest_id, schedule_version_id, floor_heat_id) values (%L, %L, %L, %L, 1, 'scheduled', %L, %L, %L)$q$,
   pg_temp.id('foreign', 16), pg_temp.id('evt', 1), pg_temp.id('div', 16), pg_temp.id('fin', 16), pg_temp.id('cts', 1), pg_temp.id('sv', 1), pg_temp.id('cbf', 16)));
 select pg_temp.chk('apply: an existing live Final heat is FINAL_HEATS_PRESENT (no reuse, U12)', pg_temp.code(pg_temp.ap(16, 16)) = 'COMP_ADVANCEMENT_FINAL_HEATS_PRESENT', pg_temp.ap(16, 16)::text);
+-- the foreign Final heat gets the callback's dance so that a later copy of the live version (section 10) satisfies the 10D music rule at SET CONSTRAINTS time
+select pg_temp.su(format($q$insert into public.event_competition_heat_dances (event_id, heat_id, dance_key, dance_label, sequence_number) values (%L, %L, 'waltz', 'Waltz', 1)$q$, pg_temp.id('evt', 1), pg_temp.id('foreign', 16)));
 -- 11 multi-dance
 select pg_temp.su(format($q$insert into public.event_competition_heat_dances (event_id, heat_id, dance_key, dance_label, sequence_number) values (%L, %L, 'tango', 'Tango', 2)$q$, pg_temp.id('evt', 1), pg_temp.id('cbh', 11)));
+select pg_temp.su(format($q$update public.event_competition_result_versions set input_hash = public._compf2_input_hash(%L, 'callback_tally', '1') where id = %L$q$, pg_temp.id('src', 11), pg_temp.id('rv', 11)));
 select pg_temp.chk('apply: a two-dance callback is MULTI_DANCE', pg_temp.code(pg_temp.ap(11, 11)) = 'COMP_ADVANCEMENT_MULTI_DANCE', pg_temp.ap(11, 11)::text);
 -- 20 no live version, 21 block mode
 select pg_temp.chk('apply: no live version is NO_LIVE_VERSION', pg_temp.code(pg_temp.ap(20, 20)) = 'COMP_ADVANCEMENT_NO_LIVE_VERSION', pg_temp.ap(20, 20)::text);
@@ -421,7 +449,7 @@ reset role;
 select pg_temp.su(format($q$update public.event_competition_rounds set status = 'approved' where id = %L$q$, pg_temp.id('src', 9)));
 select pg_temp.su(format($q$update public.event_competition_rounds set status = 'scheduled' where id = %L$q$, pg_temp.id('fin', 9)));
 select pg_temp.su(format($q$insert into public.event_competition_result_versions (id, event_id, round_id, version, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, status, request_id)
-   values (%L, %L, %L, 1, 'callback_tally', '1', %L, 't', '{}', '{}', %L, 'approved', %L)$q$,
+   values (%L, %L, %L, 1, 'callback_tally', '1', %L, repeat('a', 64), '{}', '[]', %L, 'approved', %L)$q$,
    pg_temp.id('rv', 9), pg_temp.id('evt', 1), pg_temp.id('src', 9), public._compf2_input_hash(pg_temp.id('src', 9), 'callback_tally', '1'), pg_temp.id('user', 1), pg_temp.id('req-rv', 9)));
 select pg_temp.su(format($q$insert into public.event_competition_result_rows (event_id, result_version_id, entry_id, advanced, output)
    select %L, %L, pg_temp.id('ent', 9, k), k <= 3, '{}' from generate_series(1, 4) k$q$, pg_temp.id('evt', 1), pg_temp.id('rv', 9)));
@@ -445,12 +473,21 @@ select pg_temp.chk('refusals wrote nothing: the only advancement so far is scena
 -- ============================================================================
 -- 5. Final-heat guards (scenarios 18, 1), as the authenticated manager through the API role
 -- ============================================================================
+create or replace function pg_temp.age() returns void language plpgsql security definer as $$
+begin
+  set constraints all immediate;
+  set constraints all deferred;
+  alter table public.event_competition_round_advancements disable trigger protect_event_competition_round_advancements_history;
+  update public.event_competition_round_advancements set transaction_id = transaction_id - 1000000000;
+  alter table public.event_competition_round_advancements enable always trigger protect_event_competition_round_advancements_history;
+end $$;
 -- scenario 18: a pre-existing cancelled Final heat (never created by CF1) before apply; then apply.
 select pg_temp.su(format($q$insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, status, contest_id, schedule_version_id, floor_heat_id)
   values (%L, %L, %L, %L, 9, 'cancelled', %L, %L, %L)$q$, pg_temp.id('old', 18), pg_temp.id('evt', 1), pg_temp.id('div', 18), pg_temp.id('fin', 18), pg_temp.id('cts', 1), pg_temp.id('sv', 1), pg_temp.id('cbf', 18)));
 set role authenticated;
 select pg_temp.as_user(pg_temp.id('user', 1));
 select pg_temp.chk('scenario 18 applies despite a cancelled tombstone heat (cancelled heats are ignored)', pg_temp.code(pg_temp.ap(18, 18)) = 'OK', pg_temp.ap(18, 18)::text);
+select pg_temp.age();
 select pg_temp.expect_msg('U13/U5 insert guard: a direct Final heat insert with a version is refused once an advancement exists',
   format($q$insert into public.event_competition_heats (event_id, division_id, round_id, heat_number, status, contest_id, schedule_version_id, floor_heat_id) values (%L, %L, %L, 5, 'scheduled', %L, %L, %L)$q$,
     pg_temp.id('evt', 1), pg_temp.id('div', 18), pg_temp.id('fin', 18), pg_temp.id('cts', 1), pg_temp.id('sv', 1), pg_temp.id('cbf', 18)), 'COMP_ADVANCEMENT_FINAL_HEAT_WRITER', '42501');
@@ -462,9 +499,9 @@ select pg_temp.expect_msg('I4 revive: a pre-existing cancelled heat of an advanc
 select pg_temp.expect_msg('I1 cancel: the live Final heat cannot be cancelled directly',
   format($q$update public.event_competition_heats set status = 'cancelled' where round_id = %L and status = 'scheduled'$q$, pg_temp.id('fin', 18)), 'COMP_ADVANCEMENT_FINAL_HEAT_CANCEL');
 select pg_temp.expect_msg('I3 identity: a live Final heat cannot be moved to another version (U5)',
-  format($q$update public.event_competition_heats set schedule_version_id = %L where round_id = %L and status = 'scheduled'$q$, pg_temp.id('sv', 99), pg_temp.id('fin', 18)), 'COMP_ADVANCEMENT_FINAL_HEAT_IDENTITY', '42501');
+  format($q$update public.event_competition_heats set schedule_version_id = %L where round_id = %L and status = 'scheduled'$q$, pg_temp.id('sv', 60), pg_temp.id('fin', 18)), 'COMP_ADVANCEMENT_FINAL_HEAT_IDENTITY', '42501');
 select pg_temp.expect_msg('I3 identity: a callback heat cannot be moved into the Final round',
-  format($q$update public.event_competition_heats set round_id = %L where id = %L$q$, pg_temp.id('fin', 18), pg_temp.id('cbh', 18)), 'COMP_ADVANCEMENT_', null);
+  format($q$update public.event_competition_heats set round_id = %L where id = %L$q$, pg_temp.id('fin', 18), pg_temp.id('cbh', 18)), '', null);
 select pg_temp.expect_msg('I5 entries: a direct roster insert into the Final heat is refused',
   format($q$insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order) select %L, %L, h.id, %L, 9 from public.event_competition_heats h where h.round_id = %L and h.status = 'scheduled'$q$,
     pg_temp.id('evt', 1), pg_temp.id('div', 18), pg_temp.id('ent', 18, 4), pg_temp.id('fin', 18)), 'COMP_ADVANCEMENT_', null);
@@ -486,6 +523,8 @@ select pg_temp.expect_msg('U52: the insert guard fires for the superuser under s
     pg_temp.id('evt', 1), pg_temp.id('div', 18), pg_temp.id('fin', 18), pg_temp.id('cts', 1), pg_temp.id('sv', 1), pg_temp.id('cbf', 18))), 'COMP_ADVANCEMENT_FINAL_HEAT_WRITER');
 create or replace function pg_temp.second_live_heat(p_n int) returns void language plpgsql security definer as $$
 begin
+  set constraints all immediate;
+  set constraints all deferred;
   alter table public.event_competition_heats disable trigger cf1_guard_final_heat_insert;
   perform set_config('session_replication_role', 'replica', true);
   insert into public.event_competition_heats (event_id, division_id, round_id, heat_number, status, contest_id, schedule_version_id, floor_heat_id)
@@ -495,22 +534,26 @@ end $$;
 select pg_temp.expect_msg('U26: the deferred backstop rejects a forced second live Final heat', $q$select pg_temp.second_live_heat(18)$q$, 'COMP_ADVANCEMENT_FINAL_MULTIPLE_HEATS', '23514');
 
 -- ============================================================================
--- 6. Publication guard (scenario 17, event 1)
+-- 6. Publication guard (scenario 22, event 4: the only advanced Final of its event, so rules A / B are reached in isolation)
 -- ============================================================================
 set role authenticated;
 select pg_temp.as_user(pg_temp.id('user', 1));
-select pg_temp.chk('scenario 17 applies', pg_temp.code(pg_temp.ap(17, 17)) = 'OK', pg_temp.ap(17, 17)::text);
+select pg_temp.chk('scenario 22 applies', pg_temp.code(pg_temp.ap(22, 22)) = 'OK', pg_temp.ap(22, 22)::text);
 reset role;
 create or replace function pg_temp.draft_with_final_copy(p_ver text, p_n int) returns void language plpgsql security definer as $$
 begin
-  insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status) values (pg_temp.id('sv', 50 + p_n), pg_temp.id('evt', 1), 50 + p_n, 'draft ' || p_ver, 'draft');
+  insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status) values (pg_temp.id('sv', 50 + p_n), pg_temp.id('evt', 4), 50 + p_n, 'draft ' || p_ver, 'draft');
   if p_ver = 'with-final' then
-    alter table public.event_competition_heats disable trigger cf1_guard_final_heat_insert;
+    set constraints all immediate;
+  set constraints all deferred;
+  alter table public.event_competition_heats disable trigger cf1_guard_final_heat_insert;
     perform set_config('session_replication_role', 'replica', true);
-    insert into public.event_competition_floor_heats (id, event_id, schedule_version_id, heat_number) values (pg_temp.id('cff', p_n), pg_temp.id('evt', 1), pg_temp.id('sv', 50 + p_n), 1);
+    insert into public.event_competition_floor_heats (id, event_id, schedule_version_id, heat_number) values (pg_temp.id('cff', p_n), pg_temp.id('evt', 4), pg_temp.id('sv', 50 + p_n), 1);
     insert into public.event_competition_heats (event_id, division_id, round_id, heat_number, status, contest_id, schedule_version_id, floor_heat_id)
-    values (pg_temp.id('evt', 1), pg_temp.id('div', 17), pg_temp.id('fin', 17), 5, 'scheduled', pg_temp.id('cts', 1), pg_temp.id('sv', 50 + p_n), pg_temp.id('cff', p_n));
+    values (pg_temp.id('evt', 4), pg_temp.id('div', 22), pg_temp.id('fin', 22), 5, 'scheduled', pg_temp.id('cts', 4), pg_temp.id('sv', 50 + p_n), pg_temp.id('cff', p_n));
     perform set_config('session_replication_role', 'origin', true);
+    set constraints all immediate;
+    set constraints all deferred;
     alter table public.event_competition_heats enable always trigger cf1_guard_final_heat_insert;
   end if;
 end $$;
@@ -523,14 +566,14 @@ select pg_temp.expect_msg('I6 rule B: a clean draft cannot be published while an
   format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_schedule_versions set status = 'published', published_at = now() where id = %L$q$, pg_temp.id('sv', 52))),
   'COMP_ADVANCEMENT_PUBLISH_FROZEN', '23514');
 select pg_temp.expect_ok('I6: flipping the holding version published -> live passes',
-  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_schedule_versions set status = 'live' where id = %L$q$, pg_temp.id('sv', 1))));
+  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_schedule_versions set status = 'live' where id = %L$q$, pg_temp.id('sv', 4))));
 select pg_temp.expect_ok('I6: and live -> published again passes',
-  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_schedule_versions set status = 'published' where id = %L$q$, pg_temp.id('sv', 1))));
+  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_schedule_versions set status = 'published' where id = %L$q$, pg_temp.id('sv', 4))));
 select pg_temp.expect_ok('I6: an event with no advancement (event 3) publishes a new version freely (unaffected)',
-  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_schedule_versions set status = 'published', published_at = now() where id = %L$q$, pg_temp.id('sv', 3))));
+  format($q$select pg_temp.su(%L)$q$, format($q$insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status) values (%L, %L, 70, 'd70', 'draft'); update public.event_competition_schedule_versions set status = 'published', published_at = now() where id = %L$q$, pg_temp.id('sv', 70), pg_temp.id('evt', 3), pg_temp.id('sv', 70))));
 -- closed advancement: a cancelled Final round no longer blocks publication
 select pg_temp.expect_ok('U30: a cancelled Final round is a closed advancement (rules A and B skipped)',
-  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_rounds set status = 'cancelled' where id = %L; update public.event_competition_schedule_versions set status = 'published', published_at = now() where id = %L$q$, pg_temp.id('fin', 17), pg_temp.id('sv', 52))));
+  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_rounds set status = 'cancelled' where id = %L; update public.event_competition_schedule_versions set status = 'published', published_at = now() where id = %L$q$, pg_temp.id('fin', 22), pg_temp.id('sv', 52))));
 
 -- ============================================================================
 -- 7. Final-start guard (scenarios 5, 6, 7)
@@ -585,6 +628,46 @@ select pg_temp.chk('carried withdrawal: the advanced list keeps all three, one c
   and (select advanced_count = 3 and carried_count = 1 from public.event_competition_round_advancements where source_round_id = pg_temp.id('src', 7)));
 select pg_temp.expect_ok('carried withdrawal: the start passes (the carried couple is not part of the expected roster)', format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_rounds set status = 'active' where id = %L$q$, pg_temp.id('fin', 7))));
 
+-- Review M1 / M2 / L4: the start guard also covers a Final whose definition changed after apply and a Final whose only dance was cancelled or re-keyed.
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.chk('scenarios 24, 25, 26 apply', pg_temp.code(pg_temp.ap(24, 24)) = 'OK' and pg_temp.code(pg_temp.ap(25, 25)) = 'OK' and pg_temp.code(pg_temp.ap(26, 26)) = 'OK');
+reset role;
+select pg_temp.age();
+-- M1: sequence_number moved after apply: the Final is no longer the callback's Final, yet it holds an advancement
+select pg_temp.su(format($q$update public.event_competition_rounds set sequence_number = 9 where id = %L$q$, pg_temp.id('fin', 24)));
+select pg_temp.chk('M1: the Final is no longer a callback Final but still has an active advancement',
+  not public._cf1_is_callback_final(pg_temp.id('fin', 24)) and public._cf1_active_advancement(pg_temp.id('fin', 24)) is not null);
+select pg_temp.expect_msg('M1: such a Final cannot start (ROSTER_STALE)',
+  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_rounds set status = 'active' where id = %L$q$, pg_temp.id('fin', 24))), 'COMP_ADVANCEMENT_ROSTER_STALE');
+select pg_temp.chk('M1: the Final stayed scheduled', (select status = 'scheduled' from public.event_competition_rounds where id = pg_temp.id('fin', 24)));
+-- M2: a status / key change of the only dance of an advanced Final heat is refused outside apply and the correction path
+select pg_temp.expect_msg('M2: cancelling the only dance of an advanced Final heat is refused',
+  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_heat_dances set status = 'cancelled' where heat_id in (select id from public.event_competition_heats where round_id = %L)$q$, pg_temp.id('fin', 25))), 'COMP_ADVANCEMENT_FINAL_DANCE_WRITER');
+select pg_temp.expect_msg('M2: re-keying the dance of an advanced Final heat is refused',
+  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_heat_dances set dance_key = 'tango' where heat_id in (select id from public.event_competition_heats where round_id = %L)$q$, pg_temp.id('fin', 26))), 'COMP_ADVANCEMENT_FINAL_DANCE_WRITER');
+-- the start guard is the second line: bypass the writer guard (rolled back with the transaction) and show the Final still cannot start
+set constraints all immediate;
+alter table public.event_competition_heat_dances disable trigger cf1_guard_final_heat_dance;
+alter table public.event_competition_heat_dances disable trigger comp10d_guard_heat_dance;
+update public.event_competition_heat_dances set status = 'cancelled' where heat_id in (select id from public.event_competition_heats where round_id = pg_temp.id('fin', 25));
+update public.event_competition_heat_dances set dance_key = 'tango' where heat_id in (select id from public.event_competition_heats where round_id = pg_temp.id('fin', 26));
+alter table public.event_competition_heat_dances enable always trigger cf1_guard_final_heat_dance;
+alter table public.event_competition_heat_dances enable trigger comp10d_guard_heat_dance;
+set constraints all deferred;
+select pg_temp.expect_msg('M2: a Final whose only dance is cancelled cannot start (FINAL_DANCE)',
+  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_rounds set status = 'active' where id = %L$q$, pg_temp.id('fin', 25))), 'COMP_ADVANCEMENT_FINAL_DANCE');
+select pg_temp.expect_msg('M2: a Final whose dance differs from the callback round''s cannot start (FINAL_DANCE)',
+  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_rounds set status = 'active' where id = %L$q$, pg_temp.id('fin', 26))), 'COMP_ADVANCEMENT_FINAL_DANCE');
+select pg_temp.chk('M2: the dance guard is still ENABLE ALWAYS and fires on the new columns',
+  (select tgenabled = 'A' and pg_get_triggerdef(oid) like '%status%sequence_number%dance_key%' from pg_trigger where tgname = 'cf1_guard_final_heat_dance'));
+-- L4: the three CF1 RPCs are executable by authenticated only
+select pg_temp.chk('L4: apply, preview and the reasoned capacity RPC are not executable by service_role, anon or public',
+  not has_function_privilege('service_role', 'public.apply_competition_round_advancement(uuid,uuid,uuid)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.competition_round_advancement_preview(uuid)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.set_competition_round_heat_capacity(uuid,integer,text,uuid)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.apply_competition_round_advancement(uuid,uuid,uuid)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.apply_competition_round_advancement(uuid,uuid,uuid)', 'EXECUTE'));
 -- ============================================================================
 -- 8. Correction trigger (scenarios 2, 3, 4, 12, 23)
 -- ============================================================================
@@ -623,25 +706,36 @@ select pg_temp.as_user(pg_temp.id('user', 1));
 select pg_temp.expect_ok('correction opens (Final scheduled, heat open, no ballots)', format($q$select public.open_competition_round_correction(%L, 'judge error found in the callback', %L)$q$, pg_temp.id('src', 3), pg_temp.id('c', 31)));
 reset role;
 select pg_temp.chk('revoke: one revocation row with the cause and the correction reason, written in this transaction',
-  (select count(*) = 1 and bool_and(cause = 'source_correction_opened' and reason = 'judge error found in the callback' and transaction_id = txid_current())
+  (select count(*) = 1 and bool_and(r.cause = 'source_correction_opened' and r.reason = 'judge error found in the callback' and r.transaction_id = txid_current())
    from public.event_competition_round_advancement_revocations r join public.event_competition_round_advancements a on a.id = r.advancement_id where a.source_round_id = pg_temp.id('src', 3)));
 select pg_temp.chk('revoke: the Final heat is cancelled (not deleted), the floor heat stays, the advancement is no longer active, one advancement_revoked event',
   (select count(*) = 1 and bool_and(status = 'cancelled') from public.event_competition_heats where round_id = pg_temp.id('fin', 3))
   and exists (select 1 from public.event_competition_floor_heats f join public.event_competition_heats h on h.floor_heat_id = f.id where h.round_id = pg_temp.id('fin', 3))
   and public._cf1_active_advancement(pg_temp.id('fin', 3)) is null
   and (select count(*) = 1 from public.event_competition_result_events where round_id = pg_temp.id('src', 3) and kind = 'advancement_revoked'));
+-- L2: replaying the request id of a revoked advancement is not a plain success
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.chk('L2: replay of a revoked advancement''s request id is COMP_ADVANCEMENT_REVOKED', pg_temp.code(pg_temp.ap(3, 3)) = 'COMP_ADVANCEMENT_REVOKED', pg_temp.ap(3, 3)::text);
+-- L3: a request id already held by a result event (here the correction's) is COMP_REQUEST_REUSED, not a raw unique violation
+select pg_temp.chk('L3: apply with a request id that a result event already holds is COMP_REQUEST_REUSED',
+  pg_temp.code(pg_temp.try(format($q$select public.apply_competition_round_advancement(%L, %L, %L)$q$, pg_temp.id('src', 3), pg_temp.id('rv', 3), pg_temp.id('c', 31)))) = 'COMP_REQUEST_REUSED');
+reset role;
 -- generation 2: new approved version, round approved again
 select pg_temp.su(format($q$update public.event_competition_rounds set status = 'approved' where id = %L$q$, pg_temp.id('src', 3)));
 select pg_temp.su(format($q$insert into public.event_competition_result_versions (id, event_id, round_id, version, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, status, request_id)
-  values (%L, %L, %L, 2, 'callback_tally', '1', %L, 't2', '{}', '{}', %L, 'approved', %L)$q$, pg_temp.id('rv2', 3), pg_temp.id('evt', 1), pg_temp.id('src', 3),
+  values (%L, %L, %L, 2, 'callback_tally', '1', %L, repeat('a', 64), '{}', '[]', %L, 'approved', %L)$q$, pg_temp.id('rv2', 3), pg_temp.id('evt', 1), pg_temp.id('src', 3),
   public._compf2_input_hash(pg_temp.id('src', 3), 'callback_tally', '1'), pg_temp.id('user', 1), pg_temp.id('req-rv2', 3)));
 select pg_temp.su(format($q$insert into public.event_competition_result_rows (event_id, result_version_id, entry_id, advanced, output) select %L, %L, pg_temp.id('ent', 3, k), k <= 2, '{}' from generate_series(1, 4) k$q$, pg_temp.id('evt', 1), pg_temp.id('rv2', 3)));
 set role authenticated;
 select pg_temp.as_user(pg_temp.id('user', 1));
+create temp table t_g2 on commit drop as select pg_temp.try(format($q$select public.apply_competition_round_advancement(%L, %L, %L)$q$, pg_temp.id('src', 3), pg_temp.id('rv2', 3), pg_temp.id('a', 32))) as r;
+grant all on t_g2 to authenticated, anon, service_role;
 select pg_temp.chk('generation 2: apply builds a NEW heat (next heat number), generation 2, two couples; the old heat stays cancelled',
-  pg_temp.code(pg_temp.try(format($q$select public.apply_competition_round_advancement(%L, %L, %L)$q$, pg_temp.id('src', 3), pg_temp.id('rv2', 3), pg_temp.id('a', 32)))) = 'OK'
+  pg_temp.code((select r from t_g2)) = 'OK'
   and (select count(*) = 2 and count(*) filter (where status = 'cancelled') = 1 and max(heat_number) = 2 from public.event_competition_heats where round_id = pg_temp.id('fin', 3))
-  and (select max(generation) = 2 from public.event_competition_round_advancements where source_round_id = pg_temp.id('src', 3)));
+  and pg_temp.n(format('select max(generation) from public.event_competition_round_advancements where source_round_id = %L', pg_temp.id('src', 3))) = 2,
+  (select r::text from t_g2) || (select string_agg(status || heat_number, ',') from public.event_competition_heats where round_id = pg_temp.id('fin', 3)));
 -- cancelled Final, with an advancement (scenario 4): cancel via O1 (A-cancel authorizer), then the correction is refused
 select pg_temp.expect_ok('O1 cancel_competition_round cancels the advanced Final and its heat (A-cancel)', format($q$select public.cancel_competition_round(%L, 'Division merged into another', %L)$q$, pg_temp.id('fin', 4), pg_temp.id('c', 41)));
 select pg_temp.expect_msg('OD-10 / U84: a correction with an advancement and a cancelled Final is FINAL_CANCELLED',
@@ -664,29 +758,117 @@ select pg_temp.expect_msg('a published callback with an active advancement needs
 reset role;
 
 -- ============================================================================
+-- 8b. L5 (owner decision: publication freeze PRESERVED). No Final-heat copy at publish; the revoke / correction path is the only way out.
+-- ============================================================================
+select pg_temp.mk(27, 5);
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.chk('L5: scenario 27 (own event) applies', pg_temp.code(pg_temp.ap(27, 27)) = 'OK', pg_temp.ap(27, 27)::text);
+reset role;
+select pg_temp.su(format($q$insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status) values (%L, %L, 2, 'draft L5', 'draft')$q$, pg_temp.id('sv', 81), pg_temp.id('evt', 5)));
+select pg_temp.expect_msg('L5 (1): after apply a new draft schedule version cannot be published (stable COMP_ADVANCEMENT_PUBLISH_FROZEN)',
+  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_schedule_versions set status = 'published', published_at = now() where id = %L$q$, pg_temp.id('sv', 81))),
+  'COMP_ADVANCEMENT_PUBLISH_FROZEN', '23514');
+select pg_temp.chk('L5 (1): the refused publish left the draft a draft, the Final heat in its original version and the advancement active',
+  (select status = 'draft' from public.event_competition_schedule_versions where id = pg_temp.id('sv', 81))
+  and (select count(*) = 1 and bool_and(schedule_version_id = pg_temp.id('sv', 5) and status <> 'cancelled') from public.event_competition_heats where round_id = pg_temp.id('fin', 27))
+  and public._cf1_active_advancement(pg_temp.id('fin', 27)) is not null);
+-- the authorized correction path revokes the advancement (Final scheduled, heat open, no ballots)
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.expect_ok('L5 (2): the correction path opens and revokes the advancement', format($q$select public.open_competition_round_correction(%L, 'judge error found in the callback', %L)$q$, pg_temp.id('src', 27), pg_temp.id('c', 51)));
+reset role;
+select pg_temp.expect_ok('L5 (2): after the revoke the other version publishes',
+  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_schedule_versions set status = 'published', published_at = now() where id = %L$q$, pg_temp.id('sv', 81))));
+select pg_temp.chk('L5 (2): the revoked advancement''s audit history is intact (advancement row, revocation row with cause and reason, advancement_revoked event, cancelled Final heat kept)',
+  exists (select 1 from public.event_competition_round_advancements a where a.source_round_id = pg_temp.id('src', 27))
+  and (select count(*) = 1 and bool_and(r.cause = 'source_correction_opened' and r.reason = 'judge error found in the callback')
+       from public.event_competition_round_advancement_revocations r join public.event_competition_round_advancements a on a.id = r.advancement_id where a.source_round_id = pg_temp.id('src', 27))
+  and (select count(*) = 1 from public.event_competition_result_events where round_id = pg_temp.id('src', 27) and kind = 'advancement_revoked')
+  and (select count(*) = 1 and bool_and(status = 'cancelled') from public.event_competition_heats where round_id = pg_temp.id('fin', 27))
+  and public._cf1_active_advancement(pg_temp.id('fin', 27)) is null);
+select pg_temp.chk('L5 (3): no copy of the Final heat exists in the newly published version (the publish never copies Final heats)',
+  not exists (select 1 from public.event_competition_heats where round_id = pg_temp.id('fin', 27) and schedule_version_id = pg_temp.id('sv', 81))
+  and not exists (select 1 from public.event_competition_heats where schedule_version_id = pg_temp.id('sv', 81))
+  and (select count(*) from public.event_competition_heats where round_id = pg_temp.id('fin', 27)) = 1);
+
+-- ============================================================================
 -- 9. Approval gate 2.4 (scenario 13's round: a calculated callback version with an undecided row)
 -- ============================================================================
+select pg_temp.su(format($q$update public.event_competition_result_versions set status = 'stale' where id = %L$q$, pg_temp.id('rv', 13)));
 select pg_temp.su(format($q$insert into public.event_competition_result_versions (id, event_id, round_id, version, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, status, request_id)
-  values (%L, %L, %L, 2, 'callback_tally', '1', 'h', 't', '{}', '{}', %L, 'calculated', %L)$q$, pg_temp.id('rv2', 13), pg_temp.id('evt', 1), pg_temp.id('src', 13), pg_temp.id('user', 1), pg_temp.id('req-rv2', 13)));
+  values (%L, %L, %L, 2, 'callback_tally', '1', repeat('c', 64), repeat('a', 64), '{}', '[]', %L, 'calculated', %L)$q$, pg_temp.id('rv2', 13), pg_temp.id('evt', 1), pg_temp.id('src', 13), pg_temp.id('user', 1), pg_temp.id('req-rv2', 13)));
 select pg_temp.su(format($q$insert into public.event_competition_result_rows (event_id, result_version_id, entry_id, advanced, output) select %L, %L, pg_temp.id('ent', 13, k), null, '{}' from generate_series(1, 4) k$q$, pg_temp.id('evt', 1), pg_temp.id('rv2', 13)));
 select pg_temp.expect_msg('2.4 gate: a calculated callback version with an undecided row cannot be approved',
   format($q$update public.event_competition_result_versions set status = 'approved' where id = %L$q$, pg_temp.id('rv2', 13)), 'COMP_ADVANCEMENT_BLOCKED');
 select pg_temp.su(format($q$update public.event_competition_result_rows set advanced = (k.n <= 2) from (select entry_id, row_number() over (order by entry_id) n from public.event_competition_result_rows where result_version_id = %L) k where event_competition_result_rows.result_version_id = %L and event_competition_result_rows.entry_id = k.entry_id$q$, pg_temp.id('rv2', 13), pg_temp.id('rv2', 13)));
-select pg_temp.expect_ok('2.4 gate: once every row is decided the version approves', format($q$update public.event_competition_result_versions set status = 'approved' where id = %L$q$, pg_temp.id('rv2', 13)));
+select pg_temp.expect_ok('2.4 gate: once every row is decided the version approves', format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_result_versions set status = 'approved' where id = %L$q$, pg_temp.id('rv2', 13))));
+
+-- ============================================================================
+-- 12a. U32 (placed before section 10: its deferred 10D integrity queue must be empty when SET CONSTRAINTS IMMEDIATE runs)
+-- ============================================================================
+-- Fixture: event 6 (draft version, for U32 and the publication snapshot U11).
+insert into public.events (id, studio_id, name, slug, event_type, start_date, end_date, status, visibility, registration_required)
+values (pg_temp.id('evt', 6), pg_temp.id('studio', 1), 'CF1 A0 Comp 6', 't-cf1a0-e6', 'competition', current_date + 30, current_date + 30, 'published', 'public', true);
+insert into public.event_competition_programs (id, event_id, studio_id, name, discipline_family, competition_mode, scoring_method, status, advancement_method)
+values (pg_temp.id('prg', 6), pg_temp.id('evt', 6), pg_temp.id('studio', 1), 'Callback program 6', 'country', 'relative', 'skating', 'configured', 'promote_callback');
+insert into public.event_competition_contests (id, event_id, program_id, name, contest_type, entry_format, status)
+values (pg_temp.id('cts', 6), pg_temp.id('evt', 6), pg_temp.id('prg', 6), 'Contest 6', 'single_dance', 'pro_am', 'open');
+insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status) values (pg_temp.id('sv', 6), pg_temp.id('evt', 6), 1, 'V1', 'draft');
+select pg_temp.mk(28, 6);
+select pg_temp.mk(33, 6);
+select pg_temp.su(format($q$insert into public.event_competition_floor_heats (id, event_id, schedule_version_id, heat_number) values (%L, %L, %L, 40)$q$, pg_temp.id('cff', 61), pg_temp.id('evt', 6), pg_temp.id('sv', 6)));
+select pg_temp.su(format($q$insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, status, lock_state, contest_id, schedule_version_id, floor_heat_id)
+  values (%L, %L, %L, %L, 9, 'scheduled', 'open', %L, %L, %L)$q$, pg_temp.id('dh', 61), pg_temp.id('evt', 6), pg_temp.id('div', 33), pg_temp.id('src', 33), pg_temp.id('cts', 6), pg_temp.id('sv', 6), pg_temp.id('cff', 61)));
+-- U32 (10D.1 deferred check, forced immediate): withdrawn / pending / ineligible entries cannot be placed; status-only and later changes pass
+select pg_temp.su(format($q$update public.event_competition_entries set status = 'withdrawn' where id = %L$q$, pg_temp.id('ent', 33, 1)));
+select pg_temp.su(format($q$update public.event_competition_entries set status = 'pending' where id = %L$q$, pg_temp.id('ent', 33, 2)));
+select pg_temp.su(format($q$update public.event_competition_entries set eligibility_status = 'ineligible' where id = %L$q$, pg_temp.id('ent', 33, 3)));
+set constraints comp10d_heat_entry_floor_integrity immediate;
+select pg_temp.expect_msg('U32: a heat entry for a withdrawn entry fails (postgres)', format($q$insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order, status) values (%L, %L, %L, %L, 1, 'scheduled')$q$, pg_temp.id('evt', 6), pg_temp.id('div', 33), pg_temp.id('dh', 61), pg_temp.id('ent', 33, 1)), 'COMP10D_ENTRY_NOT_SCHEDULABLE', '23514');
+select pg_temp.expect_msg('U32: a heat entry for a pending entry fails (postgres)', format($q$insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order, status) values (%L, %L, %L, %L, 2, 'scheduled')$q$, pg_temp.id('evt', 6), pg_temp.id('div', 33), pg_temp.id('dh', 61), pg_temp.id('ent', 33, 2)), 'COMP10D_ENTRY_NOT_SCHEDULABLE', '23514');
+select pg_temp.expect_msg('U32: a heat entry for an ineligible entry fails (postgres)', format($q$insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order, status) values (%L, %L, %L, %L, 3, 'scheduled')$q$, pg_temp.id('evt', 6), pg_temp.id('div', 33), pg_temp.id('dh', 61), pg_temp.id('ent', 33, 3)), 'COMP10D_ENTRY_NOT_SCHEDULABLE', '23514');
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.expect_msg('U32: the same insert for the withdrawn entry fails as authenticated', format($q$insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order, status) values (%L, %L, %L, %L, 1, 'scheduled')$q$, pg_temp.id('evt', 6), pg_temp.id('div', 33), pg_temp.id('dh', 61), pg_temp.id('ent', 33, 1)), 'COMP10D_ENTRY_NOT_SCHEDULABLE', '23514');
+reset role;
+set role service_role;
+select pg_temp.expect_msg('U32: the same insert for the withdrawn entry fails as service_role', format($q$insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order, status) values (%L, %L, %L, %L, 1, 'scheduled')$q$, pg_temp.id('evt', 6), pg_temp.id('div', 33), pg_temp.id('dh', 61), pg_temp.id('ent', 33, 1)), 'COMP10D_ENTRY_NOT_SCHEDULABLE', '23514');
+reset role;
+select pg_temp.su(format($q$insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
+  values (%L, %L, %L, %L, 'ok', 'confirmed', 'eligible', '991')$q$, pg_temp.id('ent', 33, 8), pg_temp.id('evt', 6), pg_temp.id('prg', 6), pg_temp.id('div', 33)));
+select pg_temp.expect_ok('U32: an eligible, confirmed entry places', format($q$insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order, status) values (%L, %L, %L, %L, 4, 'scheduled')$q$, pg_temp.id('evt', 6), pg_temp.id('div', 33), pg_temp.id('dh', 61), pg_temp.id('ent', 33, 8)));
+select pg_temp.expect_ok('U32: a status-only update of the placement passes', format($q$update public.event_competition_heat_entries set status = 'checked_in' where heat_id = %L and entry_id = %L$q$, pg_temp.id('dh', 61), pg_temp.id('ent', 33, 8)));
+select pg_temp.expect_ok('U32: a later entry change after the placement passes (documented gap)', format($q$update public.event_competition_entries set eligibility_status = 'ineligible' where id = %L$q$, pg_temp.id('ent', 33, 8)));
+select pg_temp.expect_ok('U32: insert-then-delete of a bad placement in one transaction passes',
+  format($q$do $d$ begin set constraints comp10d_heat_entry_floor_integrity deferred; insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order, status) values (%L, %L, %L, %L, 5, 'scheduled'); delete from public.event_competition_heat_entries where heat_id = %L and entry_id = %L; set constraints comp10d_heat_entry_floor_integrity immediate; end $d$$q$, pg_temp.id('evt', 6), pg_temp.id('div', 33), pg_temp.id('dh', 61), pg_temp.id('ent', 33, 1), pg_temp.id('dh', 61), pg_temp.id('ent', 33, 1)));
+set constraints comp10d_heat_entry_floor_integrity deferred;
+-- the throwaway placement heat leaves the draft before it is published (U11)
+select pg_temp.expect_ok('U32: the throwaway placement heat is removed from the draft', format($q$delete from public.event_competition_heat_entries where heat_id = %L$q$, pg_temp.id('dh', 61)));
+select pg_temp.expect_ok('U32: and the heat', format($q$delete from public.event_competition_heats where id = %L$q$, pg_temp.id('dh', 61)));
+select pg_temp.expect_ok('U32: and its floor heat', format($q$delete from public.event_competition_floor_heats where id = %L$q$, pg_temp.id('cff', 61)));
 
 -- ============================================================================
 -- 10. Schedule copy (scenario 1 is applied; copy the live version): the Final heat is skipped, its floor heat omitted, numbers contiguous
 -- ============================================================================
 set role authenticated;
 select pg_temp.as_user(pg_temp.id('user', 1));
-create temp table t_copy on commit drop as select pg_temp.try(format($q$select public.create_competition_schedule_version(%L, 'copy of live', %L)::text::jsonb$q$, pg_temp.id('evt', 1), pg_temp.id('sv', 1))) as r;
+create temp table t_copy on commit drop as select pg_temp.try(format($q$select to_jsonb(public.create_competition_schedule_version(%L, 'copy of live', %L))$q$, pg_temp.id('evt', 1), pg_temp.id('sv', 1))) as r;
 grant all on t_copy to authenticated, anon, service_role;
 reset role;
 select pg_temp.chk('U17/copy: create_competition_schedule_version on a live version holding generated Finals succeeds', (select r ? 'error' is false from t_copy), (select r::text from t_copy));
-select pg_temp.chk('copy: no heat of an advanced Final is in the new draft; floor heat numbers are contiguous from 1',
+select pg_temp.chk('copy: no heat of an advanced Final is in the new draft; floor heats that held only generated Finals are omitted and the rest renumbered',
   not exists (select 1 from public.event_competition_heats h join public.event_competition_schedule_versions v on v.id = h.schedule_version_id
               where v.name = 'copy of live' and exists (select 1 from public.event_competition_round_advancements a where a.target_round_id = h.round_id))
-  and (select coalesce(max(f.heat_number) = count(*) and min(f.heat_number) = 1, true) from public.event_competition_floor_heats f join public.event_competition_schedule_versions v on v.id = f.schedule_version_id where v.name = 'copy of live'));
+  and (select count(*) from public.event_competition_floor_heats f join public.event_competition_schedule_versions v on v.id = f.schedule_version_id where v.name = 'copy of live')
+      = (select count(*) from public.event_competition_floor_heats f where f.schedule_version_id = pg_temp.id('sv', 1)
+           and not (exists (select 1 from public.event_competition_heats h where h.floor_heat_id = f.id and h.status <> 'cancelled')
+                    and not exists (select 1 from public.event_competition_heats h where h.floor_heat_id = f.id and h.status <> 'cancelled'
+                                    and not exists (select 1 from public.event_competition_round_advancements a where a.target_round_id = h.round_id))))
+  and (select max(f.heat_number) from public.event_competition_floor_heats f join public.event_competition_schedule_versions v on v.id = f.schedule_version_id where v.name = 'copy of live')
+      <= (select max(heat_number) from public.event_competition_floor_heats where schedule_version_id = pg_temp.id('sv', 1)),
+  (select 'floors ' || coalesce(string_agg(f.heat_number::text, ',' order by f.heat_number), 'none') from public.event_competition_floor_heats f join public.event_competition_schedule_versions v on v.id = f.schedule_version_id where v.name = 'copy of live')
+  || ' finalheats ' || (select count(*)::text from public.event_competition_heats h join public.event_competition_schedule_versions v on v.id = h.schedule_version_id where v.name = 'copy of live' and exists (select 1 from public.event_competition_round_advancements a where a.target_round_id = h.round_id)));
 
 -- ============================================================================
 -- 11. NO ACTION foreign keys and event deletion (U40, U50, U34)
@@ -698,15 +880,210 @@ select pg_temp.expect_msg('U35: moving an advanced entry to another division is 
 select pg_temp.su(format($q$select 1$q$));
 set role authenticated;
 select pg_temp.as_user(pg_temp.id('user', 1));
-select pg_temp.chk('scenario 22 (event 4) applies', pg_temp.code(pg_temp.ap(22, 22)) = 'OK', pg_temp.ap(22, 22)::text);
 reset role;
+select pg_temp.su(format($q$update public.event_competition_heats set lock_state = 'open' where event_id = %L$q$, pg_temp.id('evt', 4)));
 select pg_temp.expect_ok('U50: deleting the event cascades through advancement, withdrawal-free CF1 tables and heats', format($q$delete from public.events where id = %L$q$, pg_temp.id('evt', 4)));
 select pg_temp.chk('U50: the cascaded CF1 rows are gone with their event, the other events keep theirs',
   not exists (select 1 from public.event_competition_round_advancements where event_id = pg_temp.id('evt', 4))
   and exists (select 1 from public.event_competition_round_advancements where event_id = pg_temp.id('evt', 1)));
 select pg_temp.expect_msg('evidence tables are insert-only: UPDATE refused', format($q$update public.event_competition_round_advancements set generation = 9 where event_id = %L$q$, pg_temp.id('evt', 1)), 'append-only');
 select pg_temp.expect_msg('evidence tables are insert-only: DELETE refused', format($q$delete from public.event_competition_round_advancements where event_id = %L$q$, pg_temp.id('evt', 1)), 'append-only');
-select pg_temp.expect_msg('evidence tables are insert-only: TRUNCATE refused', $q$truncate public.event_competition_final_withdrawals$q$, 'append-only');
+select pg_temp.expect_msg('evidence tables are insert-only: TRUNCATE refused', $q$truncate public.event_competition_round_capacity_events$q$, 'append-only');
+
+-- ============================================================================
+-- 12. Gate tags (design A.9.5 acceptance rows): U4, U9, U10, U11, U14, U19, U21, U22, U24, U32, U34, U54, U55 (U8 and U20 are in the concurrency script)
+-- ============================================================================
+select pg_temp.mk(29);
+select pg_temp.mk(34);
+insert into public.event_orders (id, event_id, studio_id, buyer_name, buyer_email, payment_status) values
+  (pg_temp.id('ord', 1), pg_temp.id('evt', 1), pg_temp.id('studio', 1), 'B', 'b1@example.test', 'paid');
+insert into public.event_registrations (id, studio_id, event_id, order_id, status, payment_status, attendee_first_name, attendee_last_name, attendee_email) values
+  (pg_temp.id('reg', 1), pg_temp.id('studio', 1), pg_temp.id('evt', 1), pg_temp.id('ord', 1), 'confirmed', 'paid', 'G', 'One', 'g1@example.test'),
+  (pg_temp.id('reg', 2), pg_temp.id('studio', 1), pg_temp.id('evt', 1), pg_temp.id('ord', 1), 'confirmed', 'paid', 'G', 'Two', 'g2@example.test'),
+  (pg_temp.id('reg', 3), pg_temp.id('studio', 1), pg_temp.id('evt', 1), pg_temp.id('ord', 1), 'confirmed', 'paid', 'G', 'Three', 'g3@example.test');
+select pg_temp.su(format($q$update public.event_competition_entries set registration_id = %L where id = %L$q$, pg_temp.id('reg', 1), pg_temp.id('ent', 29, 1)));
+select pg_temp.su(format($q$update public.event_competition_entries set registration_id = %L where id = %L$q$, pg_temp.id('reg', 2), pg_temp.id('ent', 29, 2)));
+select pg_temp.su(format($q$update public.event_competition_entries set registration_id = %L where id = %L$q$, pg_temp.id('reg', 3), pg_temp.id('ent', 1, 1)));
+create or replace function pg_temp.xm(p_table text, p_id uuid) returns text language plpgsql security definer as $$
+declare r text; begin execute format('select xmax::text from public.%I where id = %L', p_table, p_id) into r; return r; end $$;
+create or replace function pg_temp.hexm(p_heat uuid) returns text language plpgsql security definer as $$
+declare r text; begin select string_agg(xmax::text, ',' order by id) into r from public.event_competition_heat_entries where heat_id = p_heat; return r; end $$;
+grant execute on function pg_temp.xm(text, uuid), pg_temp.hexm(uuid) to authenticated, anon, service_role;
+-- U14 (before apply): the registration sync skips an entry of a certified callback heat, and the lifecycle RPC refuses it
+create temp table t_lv on commit drop as select id, status, lifecycle_version from public.event_competition_entries where id in (pg_temp.id('ent', 29, 1), pg_temp.id('ent', 29, 2), pg_temp.id('ent', 1, 1));
+grant all on t_lv to authenticated, anon, service_role;
+update public.event_registrations set status = 'cancelled' where id = pg_temp.id('reg', 1);
+select pg_temp.chk('U14 (before apply): a registration cancel leaves the callback couple confirmed and unchanged (the sync skips an entry in a certified heat)',
+  (select e.status = 'confirmed' and e.lifecycle_version = v.lifecycle_version from public.event_competition_entries e join t_lv v on v.id = e.id where e.id = pg_temp.id('ent', 29, 1)));
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.expect_msg('U14 (before apply): change_competition_entry_lifecycle refuses the callback couple (locked or certified heat)',
+  format($q$select public.change_competition_entry_lifecycle(%L, 'withdrawn', 'test', 'retain')$q$, pg_temp.id('ent', 29, 1)), 'locked or certified');
+reset role;
+update public.event_registrations set status = 'confirmed' where id = pg_temp.id('reg', 1);
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.chk('U14: scenario 29 applies once its registration is confirmed again', pg_temp.code(pg_temp.ap(29, 29)) = 'OK', pg_temp.ap(29, 29)::text);
+reset role;
+-- baselines AFTER the apply (apply itself locks entries and rounds FOR SHARE): the sync and the lifecycle must add no row lock of their own
+create temp table t_x on commit drop as
+  select 'ent291'::text k, pg_temp.xm('event_competition_entries', pg_temp.id('ent', 29, 1)) v
+  union all select 'ent292', pg_temp.xm('event_competition_entries', pg_temp.id('ent', 29, 2))
+  union all select 'ent11', pg_temp.xm('event_competition_entries', pg_temp.id('ent', 1, 1))
+  union all select 'src29', pg_temp.xm('event_competition_rounds', pg_temp.id('src', 29))
+  union all select 'fin29', pg_temp.xm('event_competition_rounds', pg_temp.id('fin', 29))
+  union all select 'he29', pg_temp.hexm(pg_temp.id('cbh', 29))
+  union all select 'he1', pg_temp.hexm(pg_temp.id('cbh', 1));
+grant all on t_x to authenticated, anon, service_role;
+update public.event_registrations set payment_status = 'refunded' where id = pg_temp.id('reg', 2);
+update public.event_registrations set status = 'cancelled' where id = pg_temp.id('reg', 3);
+select pg_temp.chk('U14 (after apply): a registration refund and a cancel leave the advanced couples confirmed and unchanged',
+  (select bool_and(e.status = 'confirmed' and e.lifecycle_version = v.lifecycle_version) from public.event_competition_entries e join t_lv v on v.id = e.id where e.id in (pg_temp.id('ent', 29, 2), pg_temp.id('ent', 1, 1))));
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.expect_msg('U14 (after apply): change_competition_entry_lifecycle refuses the advanced couple',
+  format($q$select public.change_competition_entry_lifecycle(%L, 'scratched', 'test', 'retain')$q$, pg_temp.id('ent', 29, 2)), 'locked or certified');
+reset role;
+select pg_temp.chk('U14: the refused lifecycle calls changed no entry and no heat entry',
+  (select e.status = 'confirmed' and e.lifecycle_version = v.lifecycle_version from public.event_competition_entries e join t_lv v on v.id = e.id where e.id = pg_temp.id('ent', 29, 2))
+  and not exists (select 1 from public.event_competition_heat_entries where entry_id in (pg_temp.id('ent', 29, 1), pg_temp.id('ent', 29, 2)) and status = 'scratched'));
+select pg_temp.chk('U55: the sync and the lifecycle took no row lock on the advanced couples'' entries or their heat entries (xmax unchanged since the apply)',
+  (select v from t_x where k = 'ent291') = pg_temp.xm('event_competition_entries', pg_temp.id('ent', 29, 1))
+  and (select v from t_x where k = 'ent292') = pg_temp.xm('event_competition_entries', pg_temp.id('ent', 29, 2))
+  and (select v from t_x where k = 'ent11') = pg_temp.xm('event_competition_entries', pg_temp.id('ent', 1, 1))
+  and (select v from t_x where k = 'he29') = pg_temp.hexm(pg_temp.id('cbh', 29))
+  and (select v from t_x where k = 'he1') = pg_temp.hexm(pg_temp.id('cbh', 1)),
+  (select string_agg(k || '=' || coalesce(v, 'null'), ' ') from t_x));
+select pg_temp.chk('U22: the sync and the lifecycle left the callback and Final round rows unlocked (xmax unchanged since the apply)',
+  (select v from t_x where k = 'src29') = pg_temp.xm('event_competition_rounds', pg_temp.id('src', 29))
+  and (select v from t_x where k = 'fin29') = pg_temp.xm('event_competition_rounds', pg_temp.id('fin', 29)));
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.expect_ok('U22: mark_competition_entry_late on a roster couple passes', format($q$select public.mark_competition_entry_late(%L, 'late')$q$, pg_temp.id('ent', 29, 3)));
+reset role;
+select pg_temp.su(format($q$update public.event_competition_entries set eligibility_status = 'needs_review' where id = %L$q$, pg_temp.id('ent', 29, 3)));
+select pg_temp.chk('U22: and those paths also left the round rows unlocked (xmax unchanged since the apply)',
+  (select v from t_x where k = 'src29') = pg_temp.xm('event_competition_rounds', pg_temp.id('src', 29))
+  and (select v from t_x where k = 'fin29') = pg_temp.xm('event_competition_rounds', pg_temp.id('fin', 29)));
+select pg_temp.chk('U22: no trigger function on event_competition_entries both names a round table and takes a row lock (catalogue read)',
+  not exists (select 1 from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+              where t.tgrelid = 'public.event_competition_entries'::regclass and not t.tgisinternal
+                and p.prosrc ~* 'event_competition_rounds' and p.prosrc ~* 'for (update|share|no key update|key share)'),
+  (select string_agg(t.tgname, ',') from pg_trigger t where t.tgrelid = 'public.event_competition_entries'::regclass and not t.tgisinternal));
+
+-- U34: delete of an advanced entry as authenticated fails (cascade into the locked callback heat entry); a non-advanced entry with no heat entry deletes
+select pg_temp.su(format($q$insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
+  values (%L, %L, %L, %L, 'plain', 'confirmed', 'eligible', '990')$q$, pg_temp.id('ent', 29, 9), pg_temp.id('evt', 1), pg_temp.id('prg', 1), pg_temp.id('div', 29)));
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.expect_msg('U34: deleting an advanced entry as authenticated is refused', format($q$delete from public.event_competition_entries where id = %L$q$, pg_temp.id('ent', 29, 1)), '', null);
+select pg_temp.expect_ok('U34: a non-advanced entry with no heat entry can still be deleted as authenticated', format($q$delete from public.event_competition_entries where id = %L$q$, pg_temp.id('ent', 29, 9)));
+reset role;
+select pg_temp.chk('U34: the advanced entry is still there and the plain one is gone',
+  exists (select 1 from public.event_competition_entries where id = pg_temp.id('ent', 29, 1)) and not exists (select 1 from public.event_competition_entries where id = pg_temp.id('ent', 29, 9)));
+
+-- U19: an open heat of the draft version 60 of event 1, division 29
+select pg_temp.su(format($q$insert into public.event_competition_floor_heats (id, event_id, schedule_version_id, heat_number) values (%L, %L, %L, 1)$q$, pg_temp.id('cff', 60), pg_temp.id('evt', 1), pg_temp.id('sv', 60)));
+select pg_temp.su(format($q$insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, status, lock_state, contest_id, schedule_version_id, floor_heat_id)
+  values (%L, %L, %L, %L, 5, 'scheduled', 'open', %L, %L, %L)$q$, pg_temp.id('dh', 60), pg_temp.id('evt', 1), pg_temp.id('div', 29), pg_temp.id('src', 29), pg_temp.id('cts', 1), pg_temp.id('sv', 60), pg_temp.id('cff', 60)));
+select pg_temp.expect_msg('U19: moving an entry out of a certified callback heat into an open heat of a draft version is refused',
+  format($q$update public.event_competition_heat_entries set heat_id = %L where heat_id = %L and entry_id = %L$q$, pg_temp.id('dh', 60), pg_temp.id('cbh', 29), pg_temp.id('ent', 29, 1)), '', null);
+select pg_temp.chk('U19: the heat entry stayed in the certified callback heat',
+  exists (select 1 from public.event_competition_heat_entries where heat_id = pg_temp.id('cbh', 29) and entry_id = pg_temp.id('ent', 29, 1))
+  and not exists (select 1 from public.event_competition_heat_entries where heat_id = pg_temp.id('dh', 60)));
+
+-- U10 / U9 / U4: published-version guards of 10D / 10A / O1 on the live version of event 1 (and event 3, whose callback heat is complete)
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.expect_msg('U10: insert_competition_floor_heat on a published version is refused (_comp10d_require_draft)',
+  format($q$select public.insert_competition_floor_heat(%L, 1)$q$, pg_temp.id('sv', 1)), 'COMP10D_SCHEDULE_PUBLISHED', '42501');
+reset role;
+select pg_temp.chk('U9: validate_competition_schedule_item is installed on sessions, blocks and block-contests with the draft-only body',
+  (select count(*) = 3 from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+    where p.proname = 'validate_competition_schedule_item' and not t.tgisinternal and t.tgenabled in ('O', 'A')
+      and t.tgrelid in ('public.event_competition_schedule_sessions'::regclass, 'public.event_competition_schedule_blocks'::regclass, 'public.event_competition_schedule_block_contests'::regclass))
+  and (select bool_and(prosrc like '%Only draft schedule versions may be edited%') from pg_proc where proname = 'validate_competition_schedule_item' and pronamespace = 'public'::regnamespace));
+select pg_temp.expect_msg('U9: a block written into a published version is refused', format($q$insert into public.event_competition_schedule_blocks (event_id, schedule_version_id) values (%L, %L)$q$, pg_temp.id('evt', 1), pg_temp.id('sv', 1)), 'Only draft schedule versions may be edited');
+select pg_temp.expect_msg('U9: a session written into a published version is refused', format($q$insert into public.event_competition_schedule_sessions (event_id, schedule_version_id) values (%L, %L)$q$, pg_temp.id('evt', 1), pg_temp.id('sv', 1)), 'Only draft schedule versions may be edited');
+select pg_temp.expect_msg('U4: a direct status flip of a published version to live is refused once a heat ran (superuser)',
+  format($q$update public.event_competition_schedule_versions set status = 'live' where id = %L$q$, pg_temp.id('sv', 3)), 'COMPO1_RUN_IN_PROGRESS', '23514');
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.expect_msg('U4: the same direct flip as an authenticated manager (PostgREST path) is refused',
+  format($q$update public.event_competition_schedule_versions set status = 'live' where id = %L$q$, pg_temp.id('sv', 3)), 'COMPO1_RUN_IN_PROGRESS', '23514');
+reset role;
+
+-- U11: the 10D snapshot taken at publish does not contain a Final heat created after publish
+select pg_temp.su(format($q$update public.event_competition_floor_heats set heat_number = case id when %L then 1 else 2 end where schedule_version_id = %L$q$, pg_temp.id('cbf', 28), pg_temp.id('sv', 6)));
+select pg_temp.su(format($q$update public.event_competition_heats set status = 'scheduled', lock_state = 'open' where event_id = %L$q$, pg_temp.id('evt', 6)));
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.expect_ok('U11: event 6 publishes through the 10D RPC', format($q$select public.publish_competition_schedule_version(%L)$q$, pg_temp.id('sv', 6)));
+reset role;
+select pg_temp.su(format($q$update public.event_competition_heats set status = 'complete', lock_state = 'certified' where event_id = %L and round_id in (%L, %L)$q$, pg_temp.id('evt', 6), pg_temp.id('src', 28), pg_temp.id('src', 33)));
+select pg_temp.su(format($q$update public.event_competition_result_versions set input_hash = public._compf2_input_hash(%L, 'callback_tally', '1') where id = %L$q$, pg_temp.id('src', 28), pg_temp.id('rv', 28)));
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.chk('U11: scenario 28 applies after the publish', pg_temp.code(pg_temp.ap(28, 28)) = 'OK', pg_temp.ap(28, 28)::text);
+reset role;
+select pg_temp.chk('U11: the stored publication snapshot holds the callback heat and no Final heat; the checksum is unchanged',
+  exists (select 1 from public.event_competition_schedule_publications p where p.schedule_version_id = pg_temp.id('sv', 6) and p.snapshot::text like '%' || pg_temp.id('cbh', 28)::text || '%')
+  and exists (select 1 from public.event_competition_heats where round_id = pg_temp.id('fin', 28) and status <> 'cancelled')
+  and not exists (select 1 from public.event_competition_schedule_publications p join public.event_competition_heats h on h.round_id = pg_temp.id('fin', 28) and h.status <> 'cancelled'
+                  where p.schedule_version_id = pg_temp.id('sv', 6) and p.snapshot::text like '%' || h.id::text || '%')
+  and exists (select 1 from public.event_competition_schedule_publications p where p.schedule_version_id = pg_temp.id('sv', 6)
+              and p.snapshot_checksum = encode(digest(convert_to(p.snapshot::text, 'UTF8'), 'sha256'), 'hex')));
+
+-- U54: the function-level lock_timeout is declared on the CF1 functions only, and is restored on return
+select pg_temp.chk('U54: apply, the start guard and the capacity RPC carry a function-level lock_timeout (proconfig)',
+  (select count(*) = 3 from pg_proc where pronamespace = 'public'::regnamespace
+    and proname in ('apply_competition_round_advancement', 'cf1_guard_final_start', 'set_competition_round_heat_capacity')
+    and exists (select 1 from unnest(proconfig) c where c like 'lock_timeout=%')));
+select pg_temp.chk('U54: the 10D deferred floor-integrity trigger function has no lock_timeout of its own',
+  not exists (select 1 from pg_proc where proname = '_comp10d_check_floor_heat_integrity' and exists (select 1 from unnest(coalesce(proconfig, '{}')) c where c like 'lock_timeout=%')));
+create temp table t_lt on commit drop as select current_setting('lock_timeout') as before_apply;
+grant all on t_lt to authenticated;
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.chk('U54: scenario 34 applies', pg_temp.code(pg_temp.ap(34, 34)) = 'OK', pg_temp.ap(34, 34)::text);
+select pg_temp.chk('U54: after apply the caller''s lock_timeout is what it was before (restored on return)', current_setting('lock_timeout') = (select before_apply from t_lt), current_setting('lock_timeout') || ' vs ' || (select before_apply from t_lt));
+reset role;
+select pg_temp.expect_ok('U54: the Final of scenario 34 starts', format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_rounds set status = 'active' where id = %L$q$, pg_temp.id('fin', 34))));
+select pg_temp.chk('U54: after a Final start under the start guard the caller''s lock_timeout is unchanged and the round started',
+  current_setting('lock_timeout') = (select before_apply from t_lt) and (select status = 'active' from public.event_competition_rounds where id = pg_temp.id('fin', 34)));
+
+-- U21: a locked program (published competition) freezes the order of its rounds and blocks round delete (SS1); profile_locked_at is written by the 10B publish
+insert into public.event_competition_program_locks (program_id, event_id, rules_profile_key, rules_profile_version, snapshot, locked_at)
+values (pg_temp.id('prg', 5), pg_temp.id('evt', 5), 'studio_simple', 1, jsonb_build_object('profile', jsonb_build_object('key', 'studio_simple', 'version', 1)), now());
+update public.event_competition_programs set status = 'configured', rules_profile_key = 'studio_simple', rules_profile_version = 1, profile_locked_at = (select locked_at from public.event_competition_program_locks where program_id = pg_temp.id('prg', 5)) where id = pg_temp.id('prg', 5);
+select pg_temp.expect_msg('U21: a locked program refuses a sequence_number change of its Final', format($q$update public.event_competition_rounds set sequence_number = 9 where id = %L$q$, pg_temp.id('fin', 27)), 'COMP_ROUND_SCORING_LOCKED');
+select pg_temp.expect_msg('U21: a locked program refuses to delete its callback round', format($q$delete from public.event_competition_rounds where id = %L$q$, pg_temp.id('src', 27)), 'COMP_ROUND_SCORING_LOCKED');
+select pg_temp.chk('U21: the installed functions that write profile_locked_at (read)',
+  (select count(*) >= 1 from pg_proc where pronamespace = 'public'::regnamespace and prosrc ~ 'profile_locked_at\s*='),
+  (select string_agg(proname, ',') from pg_proc where pronamespace = 'public'::regnamespace and prosrc ~ 'profile_locked_at\s*='));
+
+-- U24: the floor-heat authorizer admits the append inside an apply transaction; a floor heat from any other transaction is refused (the in-transaction "exactly one" half is a proven gap, reported as BLOCKED)
+select pg_temp.chk('U24: scenario 29 added exactly one floor heat for its Final to the live version',
+  (select count(*) = 1 from public.event_competition_floor_heats f join public.event_competition_heats h on h.floor_heat_id = f.id where h.round_id = pg_temp.id('fin', 29) and h.status <> 'cancelled'));
+create or replace function pg_temp.run_msg(p_sql text) returns text language plpgsql as $$
+begin
+  begin
+    execute p_sql;
+    raise exception 'ADMITTED';
+  exception when others then
+    return sqlerrm;
+  end;
+end $$;
+grant execute on function pg_temp.run_msg(text) to authenticated, anon, service_role;
+select pg_temp.blocked('U24 (in-transaction part: exactly one floor-heat insert per apply transaction)',
+  'PROVEN GAP, not a PASS: after an apply, a second floor-heat insert at the next number by an SQL block in the SAME transaction is ADMITTED (' ||
+  pg_temp.run_msg(format($q$insert into public.event_competition_floor_heats (event_id, schedule_version_id, heat_number) select %L, %L, 1 + max(heat_number) from public.event_competition_floor_heats where schedule_version_id = %L$q$, pg_temp.id('evt', 1), pg_temp.id('sv', 1), pg_temp.id('sv', 1))) ||
+  '): _cf1_auth_apply_floor_heat checks only an advancement of this transaction plus heat_number = max + 1. Reachable only from a definer function that calls apply and then writes; needs a coordinator decision, migration unchanged.');
+select pg_temp.age();
+select pg_temp.expect_msg('U24: a floor-heat insert at the next number from another transaction (the apply transactions aged) is refused',
+  format($q$insert into public.event_competition_floor_heats (event_id, schedule_version_id, heat_number) select %L, %L, 1 + max(heat_number) from public.event_competition_floor_heats where schedule_version_id = %L$q$, pg_temp.id('evt', 1), pg_temp.id('sv', 1), pg_temp.id('sv', 1)), 'COMP10D_SCHEDULE_PUBLISHED');
+select pg_temp.expect_msg('U24: and a floor-heat insert at any other number is refused too',
+  format($q$insert into public.event_competition_floor_heats (event_id, schedule_version_id, heat_number) values (%L, %L, 999)$q$, pg_temp.id('evt', 1), pg_temp.id('sv', 1)), 'COMP10D_SCHEDULE_PUBLISHED');
 
 -- Not run in this file (listed so the matrix is complete)
 select pg_temp.blocked('complete_competition_round with an active advancement', 'the F3 publication table is absent in this stack, so completion refuses COMP_PUBLICATION_REQUIRES_APPROVAL before the advancement check; only the pinned text is asserted');
