@@ -110,3 +110,30 @@ Accepted and recorded (P2/P3): requester authority is not re-checked at co-sign 
 * **Withdrawals during the no-approved-version window (P2).** Rows are keyed by (round, entry), not by advancement; apply carries the withdrawn set (`_cf1_withdrawn_entries`). Owner question alongside Low-2: refuse requests in that window or keep OD-18 row-only behavior (current).
 * **No cancel path (P2).** There is no TTL and no cancel; one manager can hold up to 10 live slots. Policy item raised with the coordinator (TTL / cancel RPC).
 * **P3.** A6 must roll back before A0 (FK `advancement_id`); a replayed request reports `pending` even when stale (the state reader flags `stale`); `_cf1_a6_live_requests` is volatile on purpose-free (could be stable).
+
+## Re-review corrections (owner-authorized) and open owner decisions
+
+### Done (policy-neutral)
+
+* **P2-1 ABA on the NULL binding — fixed.** A request now stores `advancement_id` (active advancement, null if none) **and** `advancement_generation` (highest generation of the Final, 0 if none ever). `_cf1_a6_is_stale(round, advancement_id, generation)` is true when either differs from the Final's current state. Apply-then-revoke returns the active advancement to null but raises the generation, so the request is `COMP_WITHDRAWAL_REQUEST_STALE` at co-sign, flagged `stale` by the reader, and no longer counts toward the duplicate / cap rules. The same predicate is used by the cap, the duplicate check, the co-sign and the reader.
+* **P3 replay.** A replay of a request that is no longer co-signable reports `state: 'stale'` (a completed one still `completed`).
+* **P2-2 test gap closed.** Scenario 12 pins the current behavior: with no approved version after a correction, a withdrawal is accepted (row only, roster = last applied list); when the corrected version omits that couple, apply succeeds and the withdrawn couple gets no heat entry. Scenario 11 pins P2-1.
+* **P3 rollback order.** A6 rolls back before A0 (FK from the request table to the advancements table).
+
+### Open owner decisions (no policy chosen here)
+
+**D-A. Withdrawal while a correction has left the Final with no approved callback result** (P2-2).
+* Scenario: the chair opens a correction on the callback round (the advancement is revoked, the approved version is invalidated); a manager and a co-signer record a withdrawal of couple X before the corrected result is approved. The corrected result may then rank X out of the Final, or the roster may differ entirely.
+* Current behavior (proposed default): accept it, row only, minimum counted on the last applied roster; apply carries the withdrawal and X is simply not seated. No data is lost; the withdrawal row is evidence and stays in the history.
+* Alternatives: (1) refuse withdraw/reinstate until a new result is approved (`COMP_WITHDRAWAL_NO_APPROVED_RESULT`); (2) accept but mark the row "provisional" and re-validate at apply, refusing apply if X is not on the new list.
+* Consequences: (1) cannot withdraw a couple who drops out during a correction, so the director must wait for the corrected result — blocks an urgent real-world withdrawal; (2) needs an A0 apply change and a new column. Depends on: nothing in P2-1; related to D-C.
+
+**D-B. Stuck pending requests: TTL and/or a cancel call** (P2-3).
+* Scenario: a manager files 10 requests (the per-round cap) that no one co-signs, or files one for a couple and leaves; another manager cannot file for that couple and kind until a *different* manager co-signs it, or a revoke/apply makes it stale.
+* Proposed default: add `cancel_final_withdrawal_request(request_id)` callable by the requester or any manager/chair (evidence row `event_competition_final_withdrawal_request_cancellations`, insert-only, reason required), no TTL. Cancelled requests drop out of "live".
+* Alternatives: a TTL (e.g. 24 h) after which a request is treated as stale; both; or leave as is (operational: any other manager can co-sign and then reinstate).
+* Consequences: cancel adds a table, an RPC and tests; TTL adds a clock dependency and surprising expiries during a live event; leaving it as is keeps the griefing window for a verified manager (not an outside attacker). Depends on: P2-1 (stale already frees slots after a re-advance; cancel/TTL covers the no-advance case).
+
+**D-C. Withdrawal refused when the Final is already below two because of an ineligible couple** (Low-2; unchanged).
+* Scenario: three advanced, one becomes ineligible (so two eligible remain... or one), a manager withdraws another: BELOW_MINIMUM. The director cannot reach a valid state without an ineligibility change.
+* Proposed default: keep the refusal (OD-15 A). Alternatives: let a chair override with a recorded reason; allow it and let the start guard refuse the Final. Consequences: override needs a new authority path and evidence; allow-and-refuse-at-start moves the failure to the day of the event. Depends on: none.
