@@ -271,7 +271,8 @@ insert into t_fix values
   (4, 4, 'final', 1, 3, 'ordinal_majority'), (5, 5, 'final', 1, 3, 'ordinal_majority'), (6, 6, 'final', 1, 3, 'ordinal_majority'),
   (7, 3, 'final', 1, 3, 'ordinal_majority'), (8, 3, 'final', 1, 3, 'ordinal_majority'), (9, 3, 'final', 1, 3, 'ordinal_majority'),
   (10, 3, 'final', 1, 3, 'ordinal_majority'), (11, 7, 'final', 2, 3, 'ordinal_majority'), (12, 3, 'final', 1, 1, 'ordinal_majority'),
-  (13, 3, 'final', 1, 5, 'ordinal_majority'), (14, 7, 'preliminary', 1, 0, 'callback_tally'), (15, 3, 'final', 1, 2, 'ordinal_majority');
+  (13, 3, 'final', 1, 5, 'ordinal_majority'), (14, 7, 'preliminary', 1, 0, 'callback_tally'), (15, 3, 'final', 1, 2, 'ordinal_majority'),
+  (16, 3, 'final', 1, 3, 'ordinal_majority');
 -- one division per round, except r14 which shares r11's division
 insert into public.event_competition_divisions (id, event_id, program_id, contest_id, name, status)
 select pg_temp.dvid(n), pg_temp.u('00e001'), pg_temp.pid(prog), pg_temp.u('0020' || lpad(prog::text, 2, '0')), 'D' || n, 'open' from t_fix where n <> 14;
@@ -305,6 +306,7 @@ select public.add_competition_official(pg_temp.u('00e001'), pg_temp.u('000013'),
 reset role;
 select pg_temp.panel(n) from generate_series(1, 13) n;
 select pg_temp.panel(15);
+select pg_temp.panel(16);
 
 set session_replication_role = replica;
 update public.event_competition_rounds set status = 'active' where id in (select pg_temp.rid(n) from t_fix where k > 0 and n <> 14);
@@ -335,7 +337,7 @@ insert into public.event_registrations (id, studio_id, event_id, order_id, statu
   (pg_temp.u('0b0002'), pg_temp.u('00a001'), pg_temp.u('00e001'), pg_temp.u('0a0001'), 'cancelled', 'paid', 'G', 'Cancelled', 'g2@example.test');
 
 -- Ballots and locks through the real E2 RPCs for every round that is calculated or approved in this suite.
-select pg_temp.prep(n) from unnest(array[1, 2, 3, 4, 5, 6, 9, 10, 11, 12]) n;
+select pg_temp.prep(n) from unnest(array[1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 16]) n;
 
 -- ============================================================================
 -- 1. U79 / U61: pins, privileges, anchors, lock order (static) -- on the installed definitions
@@ -741,6 +743,56 @@ reset role;
 
 -- U61 row locks actually taken by calculate / approve are proven by the two-session probe (sql-tests/concurrency/run_cf1_a3_locks.sh), not here:
 -- inside one transaction an earlier statement's locks would mask the ones under test.
+
+-- ============================================================================
+-- U53: baseline. What calculate / approve did BEFORE A3 for a Final that contains an ineligible couple: they read no eligibility.
+-- The pre-A3 functions are reconstructed from the installed text by reversing A3's one insertion each (md5 must equal the pre-A3 pins), so
+-- the baseline runs the real pre-A3 logic on this database. Publication (F3) does not exist in this tree: that part is BLOCKED.
+-- ============================================================================
+do $$
+declare
+  v_calc text := replace(pg_get_functiondef('public.calculate_competition_round(uuid,text,text,text,text,jsonb,jsonb,jsonb,uuid)'::regprocedure), E'', '');
+  v_appr text := replace(pg_get_functiondef('public.approve_competition_round_result(uuid,uuid,text,uuid)'::regprocedure), E'', '');
+  v_cb text := $n$-- CF1 A3 (OD-17 D, A.3): entries of the ranking set FOR SHARE in id order (after the round FOR UPDATE), then the roster check as a
+  -- separate statement so it reads a fresh snapshot after the locks. Placed after the replay branch: a replayed request is never refused here.
+  perform 1 from public.event_competition_entries en
+  where en.id in (select x from unnest(public._compe2_round_entries(p_round_id)) x)
+  order by en.id for share;
+  perform public._cf1_require_roster_eligible(p_round_id, 'calculate');
+
+  -- Method must be approved and pinned; anything else fails closed.$n$;
+  v_ab text := $n$-- CF1 A3 (OD-17 D, A.3): the last check. Entries of the ranking set FOR SHARE in id order (after the round, version and heat locks of the
+  -- certification loop), then the roster check as a separate statement. Raising rolls the whole approval back (version, approval row, events, heats).
+  perform 1 from public.event_competition_entries en
+  where en.id in (select x from unnest(public._compe2_round_entries(p_round_id)) x)
+  order by en.id for share;
+  perform public._cf1_require_roster_eligible(p_round_id, 'approve');
+
+  update public.event_competition_rounds set status = 'approved', updated_at = now() where id = p_round_id;$n$;
+begin
+  v_calc := replace(v_calc, v_cb, '-- Method must be approved and pinned; anything else fails closed.');
+  v_appr := replace(v_appr, v_ab, $o$update public.event_competition_rounds set status = 'approved', updated_at = now() where id = p_round_id;$o$);
+  perform pg_temp.chk('U53: the reconstructed pre-A3 calculate / approve texts match the pre-A3 md5 pins (ddaa45cb..., 0650367b...)',
+    md5(v_calc) = 'ddaa45cbb518f7592f5ca6dd0ba00176' and md5(v_appr) = '0650367be64e3d1b4387a3dbceba3d4a', md5(v_calc) || ' ' || md5(v_appr));
+  execute replace(v_calc, 'public.calculate_competition_round(', 'public._a3test_calc_pre(');
+  execute replace(v_appr, 'public.approve_competition_round_result(', 'public._a3test_approve_pre(');
+end $$;
+grant execute on function public._a3test_calc_pre(uuid,text,text,text,text,jsonb,jsonb,jsonb,uuid), public._a3test_approve_pre(uuid,uuid,text,uuid) to authenticated;
+update public.event_competition_entries set eligibility_status = 'ineligible' where id = pg_temp.eid(16, 2);
+select pg_temp.chk('U53: fixture: r16 is a locked Final holding an ineligible couple',
+  pg_temp.rstatus(16) = 'ballots_locked' and (select eligibility_status = 'ineligible' from public.event_competition_entries where id = pg_temp.eid(16, 2))
+  and exists (select 1 from public._cf1_round_roster_problems(pg_temp.rid(16)) where entry_id = pg_temp.eid(16, 2)));
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('U53 baseline: the pre-A3 calculate ACCEPTS a Final that contains an ineligible couple (no eligibility read)',
+  $q$select public._a3test_calc_pre(pg_temp.rid(16), v ->> 'engine_key', v ->> 'engine_version', v ->> 'input_hash', pg_temp.th(), '[{"step":1}]'::jsonb, pg_temp.rows(16), '[]'::jsonb, gen_random_uuid())
+      from (select public.competition_round_calculation_input(pg_temp.rid(16)) v) x$q$);
+reset role;
+select pg_temp.as_user(pg_temp.u('000002'));
+select pg_temp.expect_ok('U53 baseline: the pre-A3 approve ACCEPTS the same couple', $q$select public._a3test_approve_pre(pg_temp.rid(16), pg_temp.vid(16, 1), null, gen_random_uuid())$q$);
+reset role;
+select pg_temp.chk('U53 baseline: the round ends approved with the ineligible couple ranked (what HL1 / E2 do today)',
+  pg_temp.rstatus(16) = 'approved' and exists (select 1 from public.event_competition_result_rows where result_version_id = pg_temp.vid(16, 1) and entry_id = pg_temp.eid(16, 2)));
+select pg_temp.blocked('U53 baseline: publish of that Final', 'publication (F3) does not exist in this tree; calculate and approve are recorded above');
 
 -- ============================================================================
 -- 10. U73 (conditional) and the parts that belong to other packages
