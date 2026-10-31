@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { isOrganizerWorkspaceRole } from "@/lib/auth/permissions";
+import { readOrganizerSuiteEntitlement } from "@/lib/billing/organizerSuiteEntitlement";
 import { competitionSetupHref, continuesToCompetitionSetup } from "@/lib/competition/workspaceLink";
 import {
   planHasBasicEventListings,
@@ -1085,25 +1086,19 @@ async function getWorkspaceAndOrganizerPolicy(params: {
   let hasActiveOrganizerSuiteEntitlement = false;
 
   if (!planOrOrganizerWorkspaceHasOrganizerSuite) {
-    const { data: organizerSuiteEntitlements, error: organizerSuiteError } =
-      await supabase
-        .from("usage_addon_entitlements")
-        .select("id")
-        .eq("studio_id", studioId)
-        .eq("feature_key", "organizer_suite")
-        .in("source", ["stripe_subscription_item", "manual_grant"])
-        .eq("status", "active")
-        .limit(1);
+    // D7: shared reader (period_end boundary rule). This caller keeps throwing on a read error.
+    const organizerSuiteRead = await readOrganizerSuiteEntitlement(
+      supabase,
+      studioId,
+    );
 
-    if (organizerSuiteError) {
+    if (!organizerSuiteRead.ok) {
       throw new Error(
-        `Failed to load Organizer Suite access: ${organizerSuiteError.message}`,
+        `Failed to load Organizer Suite access: ${organizerSuiteRead.error.message}`,
       );
     }
 
-    hasActiveOrganizerSuiteEntitlement = Boolean(
-      organizerSuiteEntitlements?.length,
-    );
+    hasActiveOrganizerSuiteEntitlement = organizerSuiteRead.current;
   }
 
   const hasOrganizerSuite =

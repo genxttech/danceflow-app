@@ -5,6 +5,7 @@ import {
   SupabaseClient,
 } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
+import { studioHasCurrentOrganizerSuiteEntitlement } from "@/lib/billing/organizerSuiteEntitlement";
 import {
   checkRateLimit,
   getIpFromRequest,
@@ -53,27 +54,6 @@ function isActiveBillingStatus(value: string | null | undefined) {
   return value === "active" || value === "trialing";
 }
 
-async function studioHasActiveOrganizerSuiteAddOn(
-  supabase: SupabaseClient,
-  studioId: string,
-) {
-  const { data, error } = await supabase
-    .from("usage_addon_entitlements")
-    .select("id")
-    .eq("studio_id", studioId)
-    .eq("feature_key", "organizer_suite")
-    .in("source", ["stripe_subscription_item", "manual_grant"])
-    .eq("status", "active")
-    .limit(1);
-
-  if (error) {
-    console.error("Failed to read Organizer Suite add-on entitlement", error);
-    return false;
-  }
-
-  return Boolean(data?.length);
-}
-
 async function getOrganizerPlatformFeePercent(
   supabase: SupabaseClient,
   studioId: string,
@@ -116,7 +96,7 @@ async function getOrganizerPlatformFeePercent(
     return 0;
   }
 
-  const hasOrganizerSuiteAddOn = await studioHasActiveOrganizerSuiteAddOn(
+  const hasOrganizerSuiteAddOn = await studioHasCurrentOrganizerSuiteEntitlement(
     supabase,
     studioId,
   );
@@ -198,6 +178,7 @@ export async function POST(request: NextRequest) {
         visibility,
         public_directory_enabled,
         studio_id,
+        organizer_id,
         studios:studio_id (
           id,
           name,
@@ -283,6 +264,25 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // D7: a guest-coach slot belongs to an Organizer Suite event when the event (or the slot) is tied to an organizer.
+  // New purchases for such an event need a current Organizer Suite entitlement, exactly like the cart and student
+  // checkouts (a fee of 0 means "Suite required", not "no fee"). Checked BEFORE the slot is held so a refused
+  // purchase never touches the slot. Events with no organizer (ordinary studio listings) are unaffected, and
+  // bookings that are already paid or in flight are never re-checked here (the webhook finalizes them as before).
+  const organizerId = event.organizer_id ?? slot.organizer_id ?? null;
+  const feePercent = organizerId
+    ? await getOrganizerPlatformFeePercent(
+        supabase,
+        event.studio_id ?? slot.studio_id,
+      )
+    : 0;
+
+  if (organizerId && feePercent <= 0) {
+    return NextResponse.redirect(
+      absoluteEventUrl(request, eventSlug, "?error=organizer_suite_required"),
+    );
+  }
+
   const holdToken = randomUUID();
   const holdUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
@@ -315,9 +315,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const feePercent = slot.organizer_id
-    ? await getOrganizerPlatformFeePercent(supabase, slot.studio_id)
-    : 0;
   const applicationFeeAmount = calculateApplicationFeeAmount(
     amount,
     feePercent,
