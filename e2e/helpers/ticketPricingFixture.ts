@@ -114,7 +114,9 @@ export async function cleanupTicketPricingFixture(config: E2EConfig, fixture: Ti
   await admin.from("event_orders").delete().in("event_id", eventIds);
   await admin.from("events").delete().in("id", eventIds);
   await admin.from("document_templates").delete().eq("id", fixture.templateId);
-  await admin.from("usage_addon_entitlements").delete().eq("studio_id", fixture.studioId);
+  // No direct delete of usage_addon_entitlements: since D7 (migration 20270203100000) the service role has no DELETE on that
+  // table. The organizer suite row is studio-scoped (studio_id ... on delete cascade), so the studios delete below removes it
+  // and the audit trigger records a 'delete' event.
   await admin.from("user_studio_roles").delete().eq("studio_id", fixture.studioId);
   await admin.from("studios").delete().eq("id", fixture.studioId);
   await admin.from("profiles").delete().eq("id", fixture.owner.id);

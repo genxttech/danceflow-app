@@ -1,6 +1,7 @@
 import Link from "next/link";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { filterCurrentEntitlements } from "@/lib/billing/organizerSuiteEntitlement";
 import { getBillingPlan } from "@/lib/billing/plans";
 import { createClient } from "@/lib/supabase/server";
 
@@ -17,6 +18,7 @@ type StudioRow = {
   active: boolean | null;
   trial_ends_at: string | null;
   last_workspace_access_at: string | null;
+  timezone: string | null;
 };
 
 type SubscriptionPlanRow = {
@@ -44,6 +46,8 @@ type AddonEntitlementRow = {
   feature_key: string | null;
   status: string | null;
   source: string | null;
+  period_start: string | null;
+  period_end: string | null;
   created_at: string;
 };
 
@@ -287,6 +291,11 @@ function statusBadgeClass(status: string) {
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
+/** Start of the reporting window. Kept outside the page component because Date.now() is impure during render (react-hooks/purity). */
+function getRangeStart(days: number) {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+}
+
 export default async function PlatformAnalyticsPage({
   searchParams,
 }: {
@@ -296,7 +305,7 @@ export default async function PlatformAnalyticsPage({
 
   const params = await searchParams;
   const range = getRange(params.range);
-  const rangeStart = new Date(Date.now() - range.days * 24 * 60 * 60 * 1000);
+  const rangeStart = getRangeStart(range.days);
   const supabase = await createClient();
 
   const [
@@ -311,7 +320,7 @@ export default async function PlatformAnalyticsPage({
   ] = await Promise.all([
     supabase
       .from("studios")
-      .select("id, name, created_at, billing_plan, subscription_status, active, trial_ends_at, last_workspace_access_at")
+      .select("id, name, created_at, billing_plan, subscription_status, active, trial_ends_at, last_workspace_access_at, timezone")
       .order("created_at", { ascending: false }),
     supabase
       .from("studio_subscriptions")
@@ -333,7 +342,7 @@ export default async function PlatformAnalyticsPage({
       `),
     supabase
       .from("usage_addon_entitlements")
-      .select("id, studio_id, feature_key, status, source, created_at")
+      .select("id, studio_id, feature_key, status, source, period_start, period_end, created_at")
       .eq("feature_key", "organizer_suite"),
     supabase.from("organizers").select("id, studio_id, active"),
     supabase.from("events").select("id, studio_id, visibility, status, event_type, created_at"),
@@ -366,8 +375,10 @@ export default async function PlatformAnalyticsPage({
     typedSubscriptions.map((subscription) => [subscription.studio_id, subscription])
   );
 
-  const activeOrganizerSuiteAddons = typedAddonEntitlements.filter(
-    (entitlement) => normalize(entitlement.status) === "active"
+  // D7: a lapsed grant (past its period_end in the studio's timezone) is not an active add-on.
+  const activeOrganizerSuiteAddons = filterCurrentEntitlements(
+    typedAddonEntitlements,
+    new Map(typedStudios.map((studio) => [studio.id, studio.timezone]))
   );
 
   const studiosWithSubscription = typedStudios.map((studio) => {

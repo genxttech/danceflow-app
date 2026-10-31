@@ -19,6 +19,7 @@ import { queueOutboundDelivery } from "@/lib/notifications/outbound";
 import { buildEventConfirmedEmailTemplate } from "@/lib/notifications/templates";
 import { resolveEventEmailBranding } from "@/lib/notifications/event-email-branding";
 import { resolveEventMerchantLine } from "@/lib/notifications/merchantIdentity";
+import { terminalSaleNeedsOrganizerSuite } from "@/lib/events/terminalOrganizerSuite";
 
 type RegistrationRow = {
   id: string;
@@ -69,10 +70,14 @@ type RegistrationAttendeeCheckInRow = {
   checked_in_at: string | null;
 };
 
+/** D7: thrown inside markEventRegistrationPaidAction's try so the refusal is not swallowed into mark_paid_failed. */
+class OrganizerSuiteRefusal extends Error {}
+
 type EventAccessRow = {
   id: string;
   event_type: string | null;
   studio_id: string;
+  organizer_id: string | null;
   studios:
     | { stripe_connected_account_id: string | null }
     | { stripe_connected_account_id: string | null }[]
@@ -197,7 +202,7 @@ async function validateEventAccess(
   const { data: event, error } = await supabase
     .from("events")
     .select(
-      "id, event_type, studio_id, studios:studio_id(stripe_connected_account_id)",
+      "id, event_type, studio_id, organizer_id, studios:studio_id(stripe_connected_account_id)",
     )
     .eq("id", eventId)
     .eq("studio_id", studioId)
@@ -1992,7 +1997,7 @@ export async function markEventRegistrationPaidAction(formData: FormData) {
       isPlatformAdmin,
       eventId,
     );
-    await validateEventAccess(supabase, eventId, studioId);
+    const event = await validateEventAccess(supabase, eventId, studioId);
 
     const registration = await getRegistrationForEvent({
       supabase,
@@ -2008,6 +2013,16 @@ export async function markEventRegistrationPaidAction(formData: FormData) {
     // order refund flow). Refuse before any write or Stripe call.
     if (registration.order_id) {
       redirect(buildReturnUrl(eventId, "error=order_backed_registration_payment_locked"));
+    }
+
+    // D7 P2-3: marking an UNPAID registration paid completes an in-person sale (it confirms the ticket), so for an
+    // organizer event it needs a current Organizer Suite entitlement. Re-marking an already paid registration is not
+    // a new sale and is not gated. Refused before any write.
+    if (
+      (registration.payment_status ?? "").trim().toLowerCase() !== "paid" &&
+      (await terminalSaleNeedsOrganizerSuite(createAdminClient(), { studioId, organizerId: event.organizer_id }))
+    ) {
+      throw new OrganizerSuiteRefusal();
     }
 
     const amount = Number(
@@ -2039,7 +2054,13 @@ export async function markEventRegistrationPaidAction(formData: FormData) {
     }
 
     redirect(buildReturnUrl(eventId, "success=registration_paid"));
-  } catch {
+  } catch (error) {
+    // redirect() works by throwing. The intentional redirects above (success, not found, order-backed lock, access
+    // and sign-in redirects) must pass through; only a real failure becomes mark_paid_failed. Without this rethrow every
+    // outcome, success included, was reported as mark_paid_failed.
+    if (isRedirectError(error)) throw error;
+    // The Organizer Suite refusal is surfaced as its own error.
+    if (error instanceof OrganizerSuiteRefusal) redirect(buildReturnUrl(eventId, "error=organizer_suite_required"));
     redirect(buildReturnUrl(eventId, "error=mark_paid_failed"));
   }
 }
