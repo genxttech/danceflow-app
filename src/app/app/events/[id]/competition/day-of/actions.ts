@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireCompetitionManager } from "@/lib/competition/workspaceServer";
-import { dayOfHref, friendlyDayOfError } from "@/lib/competition/dayOf";
+import { dayOfHref, friendlyDayOfError, startCompetitionRound } from "@/lib/competition/dayOf";
 import { friendlyNoShowError } from "@/lib/competition/noShow";
 
 /* O1: day-of operations. Every change is one database writer call; nothing here is trusted. */
@@ -34,9 +34,10 @@ export async function roundTransitionAction(formData: FormData): Promise<void> {
   const { eventId, requestId, targetId, supabase } = await prepare(formData);
   const kind = text(formData, "kind");
   if (kind === "schedule" || kind === "start") {
-    const { error } = await supabase.rpc(kind === "schedule" ? "schedule_competition_round" : "start_competition_round", {
-      p_round_id: targetId, p_request_id: requestId,
-    });
+    const { error } =
+      kind === "start"
+        ? await startCompetitionRound((name, args) => supabase.rpc(name, args), targetId, requestId)
+        : await supabase.rpc("schedule_competition_round", { p_round_id: targetId, p_request_id: requestId });
     if (error) back(eventId, { error: friendlyDayOfError(error) });
     back(eventId, { notice: kind === "schedule" ? "Round scheduled." : "Round started." });
   }
