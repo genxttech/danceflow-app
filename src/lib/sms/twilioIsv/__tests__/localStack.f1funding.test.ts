@@ -14,6 +14,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { seedPriceIfMissing } from "./priceFixture";
 import { pilotCoverArgs, pilotExceptionArgs } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 300_000, hookTimeout: 300_000 });
@@ -217,7 +218,7 @@ insert into auth.users (id, instance_id, aud, role, email, created_at, updated_a
 insert into public.profiles (id, platform_role) values ('${P}', 'platform_admin'), ('${OUTSIDER}', null) on conflict (id) do update set platform_role = excluded.platform_role;
 commit;`);
     for (const [kind, customer, provider] of [["number", 200, 115], ["monthly", 1000, 150]] as const) {
-      if (!psql(`select 1 from public.studio_sms_price_list where kind = '${kind}' and active`)) call("tw4_price_set", kind, customer, provider, `fixture ${kind} price`, P);
+      seedPriceIfMissing(psql, { kind, customer, provider, description: `fixture ${kind} price`, approver: P });
     }
   });
 

@@ -14,6 +14,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { ownerReactivate, seedPrice } from "./priceFixture";
 import { spendEvidenceRpc, exceptionEvidenceRpc } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 600_000 });
@@ -326,7 +327,7 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
     for (let i = 0; i < 4; i += 1) await admin.rpc("tw4_num_status", { p_studio_id: SA1, p_actor: U.padmin });
     snapshotActivePrices = psql("select id from public.studio_sms_price_list where active").split("\n").filter(Boolean);
     for (const [kind, customer, provider] of [["number", PRICE.number, 115], ["monthly", PRICE.monthly, 1000], ["campaign_vetting", PRICE.vetting, 1500]] as const) {
-      expect((await rpc("tw4_price_set", { p_kind: kind, p_customer_cents: customer, p_provider_cents: provider, p_description: `fixture ${kind}`, p_actor: U.padmin })).error).toBeNull();
+      seedPrice(psql, { kind: kind, customer: customer, provider: provider, description: `fixture ${kind}`, approver: U.padmin });
     }
     for (const s of [SA1, SA2, SB1, SC1, SD1]) await window(s);
     // the provider's world: numbers a search can return, and the (already verified) services and campaigns of each subaccount
@@ -345,7 +346,7 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
     if (!enabled) return;
     try {
       psqlFile(CLEANUP);
-      aged(`update public.studio_sms_price_list set active = true where id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
+      ownerReactivate(psql, `id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
     } catch {
       /* best effort */
     }
@@ -540,9 +541,9 @@ describe.skipIf(!enabled)("TW-4F R2b: number provisioning and sender activation 
       noRunnerWork(a);
       aged(`update public.studio_sms_credit_reservations set status = 'reserved', closed_at = null where id = '${commit}'`);
       // the published price moved: the approval was for the old price
-      expect((await rpc("tw4_price_set", { p_kind: "number", p_customer_cents: PRICE.number + 50, p_provider_cents: 115, p_description: "fixture: price moved", p_actor: U.padmin })).error).toBeNull();
+      seedPrice(psql, { kind: "number", customer: PRICE.number + 50, provider: 115, description: "fixture: price moved", approver: U.padmin });
       expect((await run(SA1, a)).outcome).toBe("price_unavailable");
-      expect((await rpc("tw4_price_set", { p_kind: "number", p_customer_cents: PRICE.number, p_provider_cents: 115, p_description: "fixture: price restored", p_actor: U.padmin })).error).toBeNull();
+      seedPrice(psql, { kind: "number", customer: PRICE.number, provider: 115, description: "fixture: price restored", approver: U.padmin });
       // an expired approval
       const selId = psql(`select id from public.studio_sms_number_selections where studio_id = '${SA1}' and status = 'approved'`);
       aged(`update public.studio_sms_number_selections set expires_at = now() - interval '1 minute' where id = '${selId}'`);

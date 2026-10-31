@@ -14,6 +14,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { seedPriceIfMissing } from "./priceFixture";
 import { pilotCoverArgs, pilotExceptionArgs } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 300_000 });
@@ -276,7 +277,7 @@ commit;`);
       expect(rows).toHaveLength(1);
       expect(count(`select 1 from public.studio_sms_provider_cover where resource_id = '${rows[0].id}'`)).toBe(0);
       // the remedy works (no "already covered"): one written approval for the registration month
-      if (!psql(`select 1 from public.studio_sms_price_list where kind = 'monthly' and active`)) call("tw4_price_set", "monthly", 1000, 150, "fixture monthly price", P);
+      seedPriceIfMissing(psql, { kind: "monthly", customer: 1000, provider: 150, description: "fixture monthly price", approver: P });
       const cover = call<{ cover_id: string; replayed: boolean }>("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, rows[0].id, psql(`select public._tw4ml_month_key('${w.entity}', now())`), `Written approval ${RUN} campaign month ${hex(3)}`, P));
       expect(cover.replayed).toBe(false);
       expect(psql(`select basis from public.studio_sms_provider_cover where resource_id = '${rows[0].id}'`)).toBe("pilot_approval");
@@ -301,7 +302,7 @@ commit;`);
       const rows = resourcesOf(w);
       expect(rows).toHaveLength(1);
       expect(count(`select 1 from public.studio_sms_provider_cover where resource_id = '${rows[0].id}'`)).toBe(0);   // D5: no cover from a released reservation
-      if (!psql(`select 1 from public.studio_sms_price_list where kind = 'monthly' and active`)) call("tw4_price_set", "monthly", 1000, 150, "fixture monthly price", P);
+      seedPriceIfMissing(psql, { kind: "monthly", customer: 1000, provider: 150, description: "fixture monthly price", approver: P });
       const price = Number(psql(`select customer_price_cents from public.studio_sms_price_list where kind = 'monthly' and active`));
       call("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, rows[0].id, psql(`select public._tw4ml_month_key('${w.entity}', now())`), `Written approval ${RUN} campaign month ${hex(3)}`, P));
       // one provider month, ONE pilot capture

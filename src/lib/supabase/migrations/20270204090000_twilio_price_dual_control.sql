@@ -89,13 +89,15 @@ alter table public.studio_sms_price_change_requests enable row level security;
 -- ---------------------------------------------------------------------------------------------------------------
 -- an ACTIVE platform administrator: holds the role, and the auth user exists and is not banned (a deleted user takes the profile with it)
 create or replace function public._tw4price_admin_active(p_user uuid)
-returns boolean language sql stable security definer
+returns boolean language plpgsql stable security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
-  select p_user is not null
+begin
+  -- plpgsql (not sql): the auth schema is resolved when the function runs, never when the migration is applied
+  return p_user is not null
     and public._tw4_r1_is_platform_admin(p_user)
     and exists (select 1 from auth.users u where u.id = p_user and (u.banned_until is null or u.banned_until <= now()));
-$$;
+end $$;
 
 -- the price kinds the price list accepts, read from its own check constraint (so a later kind is never refused or accepted here by a stale copy of the list)
 create or replace function public._tw4price_kinds()
@@ -193,7 +195,7 @@ begin
     raise exception 'a published price is never edited: retire it and publish a new one through a price change request' using errcode = '42501';
   end if;
   if old.active = false and new.active = true then
-    raise exception 'a retired price is never re-activated: publish a new price through a price change request' using errcode = '42501';
+    raise exception 'a published price is never edited: a retired price is never re-activated; publish a new price through a price change request' using errcode = '42501';
   end if;
   return new;
 end $$;
