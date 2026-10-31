@@ -328,7 +328,8 @@ select pg_temp.expect_msg('a danced entry cannot be a no-show', format($q$select
 reset role;
 update public.event_competition_heat_entries set status = 'scheduled' where id = pg_temp.he('00d001', '008001');
 -- (no heat_entries trigger: 10D.1 pins the trigger count; the mark RPC refuses danced entries)
-select pg_temp.chk('heat_entries trigger count is unchanged (10D.1 pins 4)', (select count(*) from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and not tgisinternal) = 4);
+select pg_temp.chk('heat_entries triggers are the 4 pinned by 10D.1 plus CF1 A0 cf1_guard_final_heat_entry (no NS1 trigger)',
+  (select count(*) from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and not tgisinternal and tgname <> 'cf1_guard_final_heat_entry') = 4);
 -- KNOWN GAP (reported in the PR): the dropped trigger blocked a direct heat_entries.status = 'danced' on an entry with an active no-show. Without it only
 -- the mark RPC (which refuses danced entries) protects that direction; a trusted direct writer can still set danced afterwards. No such writer exists today.
 select pg_temp.expect_ok('KNOWN GAP: a direct superuser update to danced on a no-show entry is not blocked (documented, no writer exists)', format($q$update public.event_competition_heat_entries set status = 'danced' where id = %L$q$, pg_temp.he('00d001', '008003')));
