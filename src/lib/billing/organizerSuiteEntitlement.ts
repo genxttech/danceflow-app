@@ -44,6 +44,16 @@ const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})/;
 const formatterCache = new Map<string, Intl.DateTimeFormat>();
 
 /**
+ * Legacy three-letter / SystemV ids that Node's Intl resolves to a real zone but PostgreSQL's pg_timezone_names does not list
+ * (found by the SQL/TS parity corpus: e.g. "PST" is America/Los_Angeles in Node and an unknown name, hence UTC, in the SQL twin).
+ * They are rejected here so both sides fall back to UTC for the same inputs. Compared upper-cased.
+ */
+const LEGACY_ALIASES_NOT_IN_PG: ReadonlySet<string> = new Set([
+  "ACT", "AET", "AGT", "ART", "AST", "BET", "BST", "CAT", "CNT", "CST", "CTT", "EAT", "ECT", "IET", "IST", "JST", "MIT",
+  "NET", "NST", "PLT", "PNT", "PRT", "PST", "SST", "VST", "SYSTEMV/EST5",
+]);
+
+/**
  * A usable IANA timezone, or the UTC fallback for NULL / empty / invalid values.
  *
  * Kept in step with the SQL twin (usage_addon_entitlement_safe_timezone), which only accepts names from pg_timezone_names:
@@ -54,6 +64,7 @@ export function resolveEntitlementTimeZone(timeZone: string | null | undefined):
   const trimmed = typeof timeZone === "string" ? timeZone.trim() : "";
   const candidate = trimmed.replace(/^posix\//i, "");
   if (!candidate || /^[+-]/.test(candidate)) return ENTITLEMENT_FALLBACK_TIME_ZONE;
+  if (LEGACY_ALIASES_NOT_IN_PG.has(candidate.toUpperCase())) return ENTITLEMENT_FALLBACK_TIME_ZONE;
   try {
     getFormatter(candidate);
     return candidate;

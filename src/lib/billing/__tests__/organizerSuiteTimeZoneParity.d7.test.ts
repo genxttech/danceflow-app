@@ -48,3 +48,24 @@ describe("timezone strings the SQL twin does not accept", () => {
     expect(resolveEntitlementTimeZone("America/New_York")).toBe("America/New_York");
   });
 });
+
+describe("legacy aliases that Node resolves but PostgreSQL pg_timezone_names does not list (parity corpus finding)", () => {
+  const legacy = [
+    "ACT", "AET", "AGT", "ART", "AST", "BET", "BST", "CAT", "CNT", "CST", "CTT", "EAT", "ECT", "IET", "IST", "JST", "MIT",
+    "NET", "NST", "PLT", "PNT", "PRT", "PST", "SST", "VST", "SystemV/EST5",
+  ];
+  it.each(legacy)("%s falls back to UTC, like the SQL twin (any letter case, padded)", (tz) => {
+    for (const variant of [tz, tz.toLowerCase(), `  ${tz}  `]) {
+      expect(resolveEntitlementTimeZone(variant)).toBe("UTC");
+      expect(end("2027-07-09", variant)).toBe("2027-07-09T00:00:00.000Z");
+    }
+  });
+  it("the real zones behind those aliases still resolve (America/Los_Angeles, EST5EDT, US/Eastern)", () => {
+    expect(end("2027-07-09", "America/Los_Angeles")).toBe("2027-07-09T07:00:00.000Z");
+    expect(end("2027-07-09", "EST5EDT")).toBe("2027-07-09T04:00:00.000Z");
+    expect(end("2027-07-09", "US/Eastern")).toBe("2027-07-09T04:00:00.000Z");
+  });
+  it("the DanceAbel boundary is unchanged: America/New_York ends at 2027-07-09T04:00:00Z", () => {
+    expect(end("2027-07-09", "America/New_York")).toBe("2027-07-09T04:00:00.000Z");
+  });
+});
