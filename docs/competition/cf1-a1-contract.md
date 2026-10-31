@@ -30,7 +30,7 @@ Predicate P (one definition, §4.6): `status <> 'confirmed'` **or** `eligibility
 
 ## Table `public.event_competition_round_exclusions` (insert-only)
 
-Columns: `id`, `event_id` (→ `events`, cascade), `round_id`, `entry_id`, `evidence_heat_entry_ids uuid[]`, `kind` (`exclude_requested`, `exclude_cosigned`, `reverse_requested`, `reverse_cosigned`), `reason_kind` (`ineligible`, `refunded`, `other`), `reason` (3–500 chars after trim), `actor`, `actor_role` (`chair`, `manager`), `at`, `request_id` (unique), `transaction_id`, `seq` (≥ 1, `unique (round_id, seq)`), `decision_id` and `reverses_id` (self FKs, `NO ACTION`).
+Columns: `id`, `event_id` (→ `events`, cascade), `round_id`, `entry_id`, `evidence_heat_entry_ids uuid[]`, `kind` (`exclude_requested`, `exclude_cosigned`, `reverse_requested`, `reverse_cosigned`), `reason_kind` (`ineligible`, `refunded`, `other`), `reason` (at least 3 visible characters, at most 500 after trim; ASCII whitespace, NBSP, U+200B–U+200D, U+FEFF, U+200E/F and the soft hyphen are not counted as visible), `actor`, `actor_role` (`chair`, `manager`), `at`, `request_id` (unique), `transaction_id`, `seq` (≥ 1, `unique (round_id, seq)`), `decision_id` and `reverses_id` (self FKs, `NO ACTION`).
 
 * Composite FKs `(round_id, event_id)` → rounds and `(entry_id, event_id)` → entries (`NO ACTION`). There is no FK to heats or heat entries (the snapshot is the `uuid[]`).
 * CHECKs: `decision_id` is null **iff** `kind` is a `*_requested`; `reverse_requested` requires `reverses_id`; `exclude_*` rows must have `reverses_id` null; `reverse_cosigned` may carry it; a row cannot reference itself.
@@ -38,7 +38,7 @@ Columns: `id`, `event_id` (→ `events`, cascade), `round_id`, `entry_id`, `evid
 * History protection: `BEFORE UPDATE OR DELETE` (row) and `BEFORE TRUNCATE` (statement) triggers calling `protect_competition_history_evidence()`, **`ENABLE ALWAYS`** (fire under `session_replication_role = replica`). The only removal is the cascade of deleting the event.
 * Index `(round_id, entry_id, seq desc) where kind in (cosigned kinds)` backs the readers.
 
-## Error codes (all `P0001`, permanent; lock timeout / deadlock stay the retryable `55P03` / `40P01`)
+## Error codes (seven, all `P0001`, permanent; lock timeout / deadlock stay the retryable `55P03` / `40P01`)
 
 | Code | Raised by | Detail |
 |---|---|---|
@@ -48,6 +48,7 @@ Columns: `id`, `event_id` (→ `events`, cascade), `round_id`, `entry_id`, `evid
 | `COMP_ADVANCEMENT_ROSTER_STALE` | A0 Final-start guard | A0 raises (use `_cf1_entry_unavailable`) |
 | `COMP_ADVANCEMENT_ROSTER_INCOMPLETE` | A0 Final-start guard | A0 raises |
 | `COMP_EXCLUSION_NOT_DANCED` | A5 | A5 raises |
+| `COMP_CALLBACK_TARGET_BELOW_MINIMUM` | A4a (F2 setup guard) | A4a raises; listed in `_cf1_error_codes()` so B reads one catalogue |
 
 Only the first two are raised by A1 code. The messages start `CODE: …` like the other competition errors.
 

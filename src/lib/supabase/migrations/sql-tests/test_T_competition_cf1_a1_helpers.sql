@@ -56,6 +56,22 @@ begin
   end if;
 end $$;
 
+-- The eleven functions A1 owns (later CF1 packages add more _cf1_* functions with their own grants).
+create or replace function pg_temp.a1_fns() returns text[] language sql immutable as $$ select array['_cf1_entry_unavailable_reason', '_cf1_entry_unavailable', '_cf1_round_roster_problems', '_cf1_is_callback_final', '_cf1_count_available_entries', '_cf1_eligible_roster_count', '_cf1_final_minimum_ok', '_cf1_heat_entry_is_excluded', '_cf1_excluded_entries', '_cf1_error_codes', '_cf1_require_roster_eligible'] $$;
+
+-- true when an exclusion row with this reason can be inserted (the insert is rolled back)
+create or replace function pg_temp.try_reason(p_reason text, p_seq integer, p_rid text) returns boolean
+language plpgsql as $$
+begin
+  begin
+    insert into public.event_competition_round_exclusions (event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq)
+    values (pg_temp.u('00e001'), pg_temp.u('006002'), pg_temp.u('008003'), 'exclude_requested', 'other', p_reason, pg_temp.u('000001'), 'manager', pg_temp.u(p_rid), 900 + p_seq);
+    raise exception 'rollback probe';
+  exception when others then
+    return sqlerrm = 'rollback probe';
+  end;
+end $$;
+
 create or replace function pg_temp.u(p_suffix text) returns uuid
 language sql immutable as $$ select ('00000000-0000-0000-0000-cf1a10' || p_suffix)::uuid $$;
 
@@ -84,6 +100,20 @@ grant execute on all functions in schema pg_temp to authenticated, anon, service
 -- ============================================================================
 -- Fixtures (superuser, replica mode for placements)
 -- ============================================================================
+-- A0 compatibility: once A0 (20270120090000) is applied its ENABLE ALWAYS guards refuse the hand-built Final heat rows below (the suite
+-- places heats and heat entries directly, like the E2/HL1 suites). Inside this rolled-back transaction the CF1 guards on the four fixture
+-- tables are switched off so the A1 predicate and readers are tested on the same fixtures with or without A0. A1's own triggers are untouched.
+do $$
+declare r record;
+begin
+  for r in select t.tgname, t.tgrelid::regclass as rel from pg_trigger t
+           where not t.tgisinternal and t.tgname like 'cf1_%'
+             and t.tgrelid in ('public.event_competition_heats'::regclass, 'public.event_competition_heat_entries'::regclass,
+                               'public.event_competition_rounds'::regclass, 'public.event_competition_entries'::regclass) loop
+    execute format('alter table %s disable trigger %I', r.rel, r.tgname);
+  end loop;
+end $$;
+
 insert into auth.users (id, email) values
   (pg_temp.u('000001'), 't-cf1a1-actor@example.test'), (pg_temp.u('000002'), 't-cf1a1-cosign@example.test');
 insert into public.profiles (id, email, full_name)
@@ -267,11 +297,13 @@ select pg_temp.chk('all eleven A1 functions exist',
 select pg_temp.chk('the exclusion table exists with RLS on and no policy',
   (select relrowsecurity from pg_class where oid = 'public.event_competition_round_exclusions'::regclass)
   and not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'event_competition_round_exclusions'));
-select pg_temp.chk('lock_competition_round_ballots is still the pinned post-HL1 text (A1 redefines nothing)',
-  md5(replace(pg_get_functiondef('public.lock_competition_round_ballots(uuid,uuid)'::regprocedure), E'\r', '')) = '6e4175342d51ffe274d70ce413bae8c3');
-select pg_temp.chk('_compe2_round_entries is still the NS1 text (A1 redefines nothing)',
-  pg_get_functiondef('public._compe2_round_entries(uuid)'::regprocedure) like '%competition_heat_entry_is_no_show%'
-  and pg_get_functiondef('public._compe2_round_entries(uuid)'::regprocedure) not like '%_cf1_%');
+-- A1 itself redefines neither function (its migration contains no create-or-replace of either; checked by grep in review). Later CF1
+-- packages do: A2 redefines the lock function (md5 c4ba327d...), A3 the ranking-set functions. So accept the post-HL1 text or the later one.
+select pg_temp.chk('lock_competition_round_ballots is the post-HL1 text or the A2 text (A1 redefines nothing)',
+  md5(replace(pg_get_functiondef('public.lock_competition_round_ballots(uuid,uuid)'::regprocedure), E'\r', ''))
+    in ('6e4175342d51ffe274d70ce413bae8c3', 'c4ba327df7943d559ab52ccd07d20ea0'));
+select pg_temp.chk('_compe2_round_entries keeps the NS1 no-show condition (A3 may add the exclusion filter; A1 adds nothing)',
+  pg_get_functiondef('public._compe2_round_entries(uuid)'::regprocedure) like '%competition_heat_entry_is_no_show%');
 select pg_temp.chk('the roster-problems function reuses _compe2_round_entries (does not re-derive the ranking set)',
   (select prosrc from pg_proc where oid = 'public._cf1_round_roster_problems(uuid)'::regprocedure) like '%_compe2_round_entries(p_round_id)%'
   and (select prosrc from pg_proc where oid = 'public._cf1_round_roster_problems(uuid)'::regprocedure) not like '%event_competition_heat_entries%');
@@ -279,29 +311,29 @@ select pg_temp.chk('the roster-problems function reuses _compe2_round_entries (d
 -- ============================================================================
 -- 1. U57: predicate P, one entry at a time (per-entry semantics, no false positives)
 -- ============================================================================
-select pg_temp.chk('P: confirmed + eligible + no links is available (e01)', not public._cf1_entry_unavailable(pg_temp.u('008001')));
-select pg_temp.chk('P (i): status pending is unavailable (e02)', public._cf1_entry_unavailable_reason(pg_temp.u('008002')) = 'entry_not_confirmed');
-select pg_temp.chk('P (i): status withdrawn is unavailable (e03)', public._cf1_entry_unavailable_reason(pg_temp.u('008003')) = 'entry_not_confirmed');
-select pg_temp.chk('P (ii): eligibility ineligible is unavailable (e04)', public._cf1_entry_unavailable_reason(pg_temp.u('008004')) = 'entry_ineligible');
-select pg_temp.chk('P (ii): needs_review / waived are NOT unavailable (e05, e06)',
+select pg_temp.chk('U57 P: confirmed + eligible + no links is available (e01)', not public._cf1_entry_unavailable(pg_temp.u('008001')));
+select pg_temp.chk('U57 P (i): status pending is unavailable (e02)', public._cf1_entry_unavailable_reason(pg_temp.u('008002')) = 'entry_not_confirmed');
+select pg_temp.chk('U57 P (i): status withdrawn is unavailable (e03)', public._cf1_entry_unavailable_reason(pg_temp.u('008003')) = 'entry_not_confirmed');
+select pg_temp.chk('U57 P (ii): eligibility ineligible is unavailable (e04)', public._cf1_entry_unavailable_reason(pg_temp.u('008004')) = 'entry_ineligible');
+select pg_temp.chk('U57 P (ii): needs_review / waived are NOT unavailable (e05, e06)',
   not public._cf1_entry_unavailable(pg_temp.u('008005')) and not public._cf1_entry_unavailable(pg_temp.u('008006')));
-select pg_temp.chk('P (iii-a): registration status cancelled (e07)', public._cf1_entry_unavailable_reason(pg_temp.u('008007')) = 'registration_cancelled');
-select pg_temp.chk('P (iii-a): registration status refunded with payment_status paid (e08)', public._cf1_entry_unavailable_reason(pg_temp.u('008008')) = 'registration_refunded');
-select pg_temp.chk('P (iii-a): registration payment_status refunded (e09)', public._cf1_entry_unavailable_reason(pg_temp.u('008009')) = 'registration_payment_refunded');
-select pg_temp.chk('P (iii-a): registration payment_status failed (e10)', public._cf1_entry_unavailable_reason(pg_temp.u('008010')) = 'registration_payment_failed');
+select pg_temp.chk('U57 P (iii-a): registration status cancelled (e07)', public._cf1_entry_unavailable_reason(pg_temp.u('008007')) = 'registration_cancelled');
+select pg_temp.chk('U57 P (iii-a): registration status refunded with payment_status paid (e08)', public._cf1_entry_unavailable_reason(pg_temp.u('008008')) = 'registration_refunded');
+select pg_temp.chk('U57 P (iii-a): registration payment_status refunded (e09)', public._cf1_entry_unavailable_reason(pg_temp.u('008009')) = 'registration_payment_refunded');
+select pg_temp.chk('U57 P (iii-a): registration payment_status failed (e10)', public._cf1_entry_unavailable_reason(pg_temp.u('008010')) = 'registration_payment_failed');
 select pg_temp.chk('P: paid registration in a paid order is available (e11; a refund of just this entry is not visible in the data: documented false negative)', not public._cf1_entry_unavailable(pg_temp.u('008011')));
-select pg_temp.chk('P (iii-b): fully refunded order (e12)', public._cf1_entry_unavailable_reason(pg_temp.u('008012')) = 'order_payment_refunded');
-select pg_temp.chk('P (iii-b): failed order (e13)', public._cf1_entry_unavailable_reason(pg_temp.u('008013')) = 'order_payment_failed');
-select pg_temp.chk('P: partially_refunded order excludes nobody (e14)', not public._cf1_entry_unavailable(pg_temp.u('008014')));
-select pg_temp.chk('P: pending order / pending registration are available (e15, e19)',
+select pg_temp.chk('U57 P (iii-b): fully refunded order (e12)', public._cf1_entry_unavailable_reason(pg_temp.u('008012')) = 'order_payment_refunded');
+select pg_temp.chk('U57 P (iii-b): failed order (e13)', public._cf1_entry_unavailable_reason(pg_temp.u('008013')) = 'order_payment_failed');
+select pg_temp.chk('U57 P: partially_refunded order excludes nobody (e14)', not public._cf1_entry_unavailable(pg_temp.u('008014')));
+select pg_temp.chk('U57 P: pending order / pending registration are available (e15, e19)',
   not public._cf1_entry_unavailable(pg_temp.u('008015')) and not public._cf1_entry_unavailable(pg_temp.u('008019')));
-select pg_temp.chk('P multi-entry registration: every entry that references the cancelled registration is unavailable (e16, e17)',
+select pg_temp.chk('U57 P multi-entry registration: every entry that references the cancelled registration is unavailable (e16, e17)',
   public._cf1_entry_unavailable(pg_temp.u('008016')) and public._cf1_entry_unavailable(pg_temp.u('008017')));
-select pg_temp.chk('P multi-entry order: a sibling entry on ANOTHER registration of the same order is not unavailable (e18, e11)',
+select pg_temp.chk('U57 P multi-entry order: a sibling entry on ANOTHER registration of the same order is not unavailable (e18, e11)',
   not public._cf1_entry_unavailable(pg_temp.u('008018')) and not public._cf1_entry_unavailable(pg_temp.u('008011')));
-select pg_temp.chk('P (iii-b): a paid registration inside a refunded order is unavailable (e23)',
+select pg_temp.chk('U57 P (iii-b): a paid registration inside a refunded order is unavailable (e23)',
   public._cf1_entry_unavailable_reason(pg_temp.u('008023')) = 'order_payment_refunded');
-select pg_temp.chk('P: checked_in / partial registration is available (e24)', not public._cf1_entry_unavailable(pg_temp.u('008024')));
+select pg_temp.chk('U57 P: checked_in / partial registration is available (e24)', not public._cf1_entry_unavailable(pg_temp.u('008024')));
 select pg_temp.chk('P: an unknown entry id is unavailable (entry_missing); null is unavailable',
   public._cf1_entry_unavailable_reason(pg_temp.u('0ffff1')) = 'entry_missing' and public._cf1_entry_unavailable(null));
 select pg_temp.chk('P is a pure reader: same answer twice, entry row unchanged',
@@ -311,26 +343,26 @@ select pg_temp.chk('P is a pure reader: same answer twice, entry row unchanged',
 -- ============================================================================
 -- 1b. U57: the refunded-but-confirmed state through the REAL registration-sync path (the entry sits on a locked heat)
 -- ============================================================================
-select pg_temp.chk('sync fixture: es is confirmed and available before the refund; es heat is locked',
+select pg_temp.chk('U57 sync fixture: es is confirmed and available before the refund; es heat is locked',
   not public._cf1_entry_unavailable(pg_temp.u('0080a1'))
   and (select lock_state from public.event_competition_heats where id = pg_temp.u('00d202')) = 'locked');
 update public.event_registrations set payment_status = 'refunded' where id = pg_temp.u('0b0008');   -- real sync trigger (origin mode)
 update public.event_registrations set payment_status = 'refunded' where id = pg_temp.u('0b0009');
-select pg_temp.chk('sync path: the entry on the LOCKED heat stays confirmed (the sync skips it)',
+select pg_temp.chk('U57 sync path: the entry on the LOCKED heat stays confirmed (the sync skips it)',
   (select status from public.event_competition_entries where id = pg_temp.u('0080a1')) = 'confirmed');
-select pg_temp.chk('sync path: the entry on the open heat was withdrawn by the sync',
+select pg_temp.chk('U57 sync path: the entry on the open heat was withdrawn by the sync',
   (select status from public.event_competition_entries where id = pg_temp.u('0080a2')) = 'withdrawn');
-select pg_temp.chk('sync path: refunded-but-confirmed es is unavailable by registration_payment_refunded',
+select pg_temp.chk('U57 sync path: refunded-but-confirmed es is unavailable by registration_payment_refunded',
   public._cf1_entry_unavailable_reason(pg_temp.u('0080a1')) = 'registration_payment_refunded');
-select pg_temp.chk('sync path: the withdrawn entry is unavailable by entry_not_confirmed',
+select pg_temp.chk('U57 sync path: the withdrawn entry is unavailable by entry_not_confirmed',
   public._cf1_entry_unavailable_reason(pg_temp.u('0080a2')) = 'entry_not_confirmed');
-select pg_temp.chk('sync path: the refunded-but-confirmed entry is reported in the D1 Final roster problems',
+select pg_temp.chk('U57 sync path: the refunded-but-confirmed entry is reported in the D1 Final roster problems',
   pg_temp.rsn('006002', '0080a1') = 'registration_payment_refunded');
 
 -- ============================================================================
 -- 2. U57: the set function (ranking set from _compe2_round_entries only)
 -- ============================================================================
-select pg_temp.chk('roster problems: exactly the expected entries of the D1 Final, with reasons',
+select pg_temp.chk('U57 roster problems: exactly the expected entries of the D1 Final, with reasons',
   (select jsonb_object_agg(entry_id, reason) from public._cf1_round_roster_problems(pg_temp.u('006002'))) =
   (select jsonb_object_agg(k, v) from (values
      (pg_temp.u('008003'), 'entry_not_confirmed'), (pg_temp.u('008004'), 'entry_ineligible'),
@@ -340,17 +372,17 @@ select pg_temp.chk('roster problems: exactly the expected entries of the D1 Fina
      (pg_temp.u('008016'), 'registration_cancelled'), (pg_temp.u('008017'), 'registration_cancelled'),
      (pg_temp.u('0080a1'), 'registration_payment_refunded'), (pg_temp.u('0080a2'), 'entry_not_confirmed'), (pg_temp.u('008023'), 'order_payment_refunded'),
      (pg_temp.u('008002'), 'entry_not_confirmed')) as t(k, v)));
-select pg_temp.chk('roster problems: a scratched heat entry (e20) is NOT in the ranking set, so it is not reported', pg_temp.rsn('006002', '008020') is null);
-select pg_temp.chk('roster problems: entries only in a cancelled heat (e21) or a draft-version heat (e22) are not reported',
+select pg_temp.chk('U57 roster problems: a scratched heat entry (e20) is NOT in the ranking set, so it is not reported', pg_temp.rsn('006002', '008020') is null);
+select pg_temp.chk('U57 roster problems: entries only in a cancelled heat (e21) or a draft-version heat (e22) are not reported',
   pg_temp.rsn('006002', '008021') is null and pg_temp.rsn('006002', '008022') is null);
-select pg_temp.chk('roster problems: ordered by entry id and unique per entry (e01 sits in two heats, available)',
+select pg_temp.chk('U57 roster problems: ordered by entry id and unique per entry (e01 sits in two heats, available)',
   (select array_agg(entry_id order by entry_id) from public._cf1_round_roster_problems(pg_temp.u('006002')))
    = (select array_agg(entry_id order by entry_id) from (select distinct entry_id from public._cf1_round_roster_problems(pg_temp.u('006002'))) d)
   and (select count(*) from public._cf1_round_roster_problems(pg_temp.u('006002'))) = (select count(distinct entry_id) from public._cf1_round_roster_problems(pg_temp.u('006002'))));
-select pg_temp.chk('roster problems: an unknown round reports nothing, and its problems stay within the ranking set',
+select pg_temp.chk('U57 roster problems: an unknown round reports nothing, and its problems stay within the ranking set',
   not exists (select 1 from public._cf1_round_roster_problems(pg_temp.u('006001')) where entry_id not in (select unnest(public._compe2_round_entries(pg_temp.u('006001')))))
   and not exists (select 1 from public._cf1_round_roster_problems(pg_temp.u('0fffff'))));
-select pg_temp.chk('roster problems are a subset of E2''s ranking set',
+select pg_temp.chk('U57 roster problems are a subset of E2''s ranking set',
   not exists (select 1 from public._cf1_round_roster_problems(pg_temp.u('006002')) p
               where p.entry_id <> all (public._compe2_round_entries(pg_temp.u('006002')))));
 
@@ -407,11 +439,11 @@ select pg_temp.expect_ok('raiser: a Final-only division with ONE eligible couple
   format($q$select public._cf1_require_roster_eligible(%L, 'approve'); select public._cf1_require_roster_eligible(%L, 'lock')$q$, pg_temp.u('006014'), pg_temp.u('006003')));
 select pg_temp.expect_ok('raiser: a round with no ranking set passes (preliminary D4 qualifying)', format($q$select public._cf1_require_roster_eligible(%L, 'lock')$q$, pg_temp.u('006006')));
 
-select pg_temp.chk('catalogue: the six A1 codes, all P0001, none retryable',
-  (select count(*) from public._cf1_error_codes()) = 6 and (select bool_and(sqlstate_code = 'P0001' and not retryable) from public._cf1_error_codes())
+select pg_temp.chk('catalogue: the seven codes (six A1 codes + COMP_CALLBACK_TARGET_BELOW_MINIMUM from A4a), all P0001, none retryable',
+  (select count(*) from public._cf1_error_codes()) = 7 and (select bool_and(sqlstate_code = 'P0001' and not retryable) from public._cf1_error_codes())
   and (select array_agg(code order by code) from public._cf1_error_codes()) = array[
     'COMP_ADVANCEMENT_BELOW_MINIMUM', 'COMP_ADVANCEMENT_ROSTER_INCOMPLETE', 'COMP_ADVANCEMENT_ROSTER_STALE',
-    'COMP_EXCLUSION_NOT_DANCED', 'COMP_ROSTER_BELOW_MINIMUM', 'COMP_ROSTER_ENTRY_UNAVAILABLE']);
+    'COMP_CALLBACK_TARGET_BELOW_MINIMUM', 'COMP_EXCLUSION_NOT_DANCED', 'COMP_ROSTER_BELOW_MINIMUM', 'COMP_ROSTER_ENTRY_UNAVAILABLE']);
 
 -- ============================================================================
 -- 5. U70: helper privileges. No grants to PUBLIC, anon, authenticated or service_role; definer, pinned search_path.
@@ -419,18 +451,18 @@ select pg_temp.chk('catalogue: the six A1 codes, all P0001, none retryable',
 select pg_temp.chk('U70: no role among public/anon/authenticated/service_role may execute any A1 function',
   not exists (
     select 1 from pg_proc p, unnest(array['anon', 'authenticated', 'service_role']) r
-    where p.pronamespace = 'public'::regnamespace and p.proname like '\_cf1\_%'
+    where p.pronamespace = 'public'::regnamespace and p.proname = any (pg_temp.a1_fns())
       and has_function_privilege(r, p.oid, 'execute'))
   and not exists (
     select 1 from pg_proc p, lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
-    where p.pronamespace = 'public'::regnamespace and p.proname like '\_cf1\_%' and a.grantee = 0));
+    where p.pronamespace = 'public'::regnamespace and p.proname = any (pg_temp.a1_fns()) and a.grantee = 0));
 select pg_temp.chk('U70: every A1 function is SECURITY DEFINER with search_path = public, pg_temp',
   (select bool_and(p.prosecdef and p.proconfig @> array['search_path=public, pg_temp']) from pg_proc p
-   where p.pronamespace = 'public'::regnamespace and p.proname like '\_cf1\_%'));
+   where p.pronamespace = 'public'::regnamespace and p.proname = any (pg_temp.a1_fns())));
 select pg_temp.chk('U70: volatility: the raiser is VOLATILE, readers are STABLE, the catalogue is IMMUTABLE',
   (select provolatile from pg_proc where oid = 'public._cf1_require_roster_eligible(uuid,text)'::regprocedure) = 'v'
   and (select provolatile from pg_proc where oid = 'public._cf1_error_codes()'::regprocedure) = 'i'
-  and (select bool_and(provolatile = 's') from pg_proc where pronamespace = 'public'::regnamespace and proname like '\_cf1\_%'
+  and (select bool_and(provolatile = 's') from pg_proc where pronamespace = 'public'::regnamespace and proname = any (pg_temp.a1_fns())
          and proname not in ('_cf1_require_roster_eligible', '_cf1_error_codes')));
 set role authenticated;
 select pg_temp.expect_msg('U70: authenticated cannot call _cf1_entry_unavailable', format($q$select public._cf1_entry_unavailable(%L)$q$, pg_temp.u('008001')), 'permission denied', '42501');
@@ -457,8 +489,9 @@ select pg_temp.chk('U74: no grants on the table for public/anon/authenticated/se
   and not exists (select 1 from pg_class c, lateral aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
                   where c.oid = 'public.event_competition_round_exclusions'::regclass and a.grantee = 0));
 select pg_temp.chk('U74: both history triggers exist and are ENABLE ALWAYS (tgenabled = A)',
-  (select count(*) from pg_trigger where tgrelid = 'public.event_competition_round_exclusions'::regclass and not tgisinternal and tgenabled = 'A') = 2
-  and (select count(*) from pg_trigger where tgrelid = 'public.event_competition_round_exclusions'::regclass and not tgisinternal) = 2);
+  -- by name, no total count: later CF1 packages add their own triggers on this table (A7: cf1_a7_guard_exclusion_during_correction)
+  (select count(*) from pg_trigger where tgrelid = 'public.event_competition_round_exclusions'::regclass and not tgisinternal and tgenabled = 'A'
+     and tgname in ('protect_event_competition_round_exclusions_history', 'protect_event_competition_round_exclusions_history_truncate')) = 2);
 select pg_temp.chk('U74: the update/delete trigger is row level, the truncate trigger statement level',
   exists (select 1 from pg_trigger where tgrelid = 'public.event_competition_round_exclusions'::regclass and tgname = 'protect_event_competition_round_exclusions_history'
           and (tgtype & 1) = 1 and (tgtype & 8) = 8 and (tgtype & 16) = 16 and (tgtype & 2) = 2)
@@ -525,6 +558,24 @@ select pg_temp.expect_msg('constraint: unknown reason_kind', format($q$insert in
 select pg_temp.expect_msg('constraint: reason shorter than 3 characters', format($q$insert into public.event_competition_round_exclusions
   (event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq) values (%L,%L,%L,'exclude_requested','other','ab ',%L,'manager',%L,23)$q$,
   pg_temp.u('00e001'), pg_temp.u('006002'), pg_temp.u('008003'), pg_temp.u('000001'), pg_temp.u('0f0023')), 'round_exclusions_reason_check', '23514');
+select pg_temp.expect_msg('constraint: whitespace-only reason (spaces, tab, newline, CR) refused', format($q$insert into public.event_competition_round_exclusions
+  (event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq) values (%L,%L,%L,'exclude_requested','other',chr(32)||chr(9)||chr(10)||chr(13)||chr(32),%L,'manager',%L,50)$q$,
+  pg_temp.u('00e001'), pg_temp.u('006002'), pg_temp.u('008003'), pg_temp.u('000001'), pg_temp.u('0f0050')), 'round_exclusions_reason_check', '23514');
+select pg_temp.expect_msg('constraint: NBSP-only reason refused', format($q$insert into public.event_competition_round_exclusions
+  (event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq) values (%L,%L,%L,'exclude_requested','other',chr(160)||chr(160)||chr(160)||chr(160),%L,'manager',%L,51)$q$,
+  pg_temp.u('00e001'), pg_temp.u('006002'), pg_temp.u('008003'), pg_temp.u('000001'), pg_temp.u('0f0051')), 'round_exclusions_reason_check', '23514');
+select pg_temp.expect_msg('constraint: zero-width / BOM / LRM / RLM / soft-hyphen-only reason refused', format($q$insert into public.event_competition_round_exclusions
+  (event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq) values (%L,%L,%L,'exclude_requested','other',chr(8203)||chr(8204)||chr(8205)||chr(65279)||chr(8206)||chr(8207)||chr(173),%L,'manager',%L,52)$q$,
+  pg_temp.u('00e001'), pg_temp.u('006002'), pg_temp.u('008003'), pg_temp.u('000001'), pg_temp.u('0f0052')), 'round_exclusions_reason_check', '23514');
+select pg_temp.expect_msg('constraint: one visible character among invisibles refused', format($q$insert into public.event_competition_round_exclusions
+  (event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq) values (%L,%L,%L,'exclude_requested','other',chr(160)||'a'||chr(8203)||chr(32)||chr(173),%L,'manager',%L,53)$q$,
+  pg_temp.u('00e001'), pg_temp.u('006002'), pg_temp.u('008003'), pg_temp.u('000001'), pg_temp.u('0f0053')), 'round_exclusions_reason_check', '23514');
+select pg_temp.expect_msg('constraint: two visible characters refused', format($q$insert into public.event_competition_round_exclusions
+  (event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq) values (%L,%L,%L,'exclude_requested','other',' a'||chr(160)||'b ',%L,'manager',%L,54)$q$,
+  pg_temp.u('00e001'), pg_temp.u('006002'), pg_temp.u('008003'), pg_temp.u('000001'), pg_temp.u('0f0054')), 'round_exclusions_reason_check', '23514');
+select pg_temp.chk('constraint: a valid reason with inner spaces and invisibles around it is accepted (3 visible characters)',
+  pg_temp.try_reason(chr(160)||'a b c'||chr(8203), 0, '0f0060'));
+select pg_temp.chk('constraint: a plain valid reason is accepted', pg_temp.try_reason('Refunded after dancing', 0, '0f0061'));
 select pg_temp.expect_msg('constraint: reason longer than 500 characters', format($q$insert into public.event_competition_round_exclusions
   (event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq) values (%L,%L,%L,'exclude_requested','other',repeat('x',501),%L,'manager',%L,24)$q$,
   pg_temp.u('00e001'), pg_temp.u('006002'), pg_temp.u('008003'), pg_temp.u('000001'), pg_temp.u('0f0024')), 'round_exclusions_reason_check', '23514');
@@ -608,6 +659,7 @@ select pg_temp.chk('U74: the cascaded exclusion row is gone with its event, the 
 -- ============================================================================
 -- 7. Rollback guard (the rollback file is exercised by the harness; here: the refusal logic is documented, not executed)
 -- ============================================================================
+select pg_temp.blocked('U57 per-entry refund inside a still-paid order (documented false negative)', 'no per-entry refund state exists in the data before R2, so the non-detection cannot be demonstrated; the design accepts it; check e11 only shows a paid link stays available');
 select pg_temp.blocked('U64 callback apply refuses a refunded-but-confirmed advanced couple, then withdrawal exit, then apply again', 'apply_competition_round_advancement and the withdrawal are A0 / A6; A1 delivers and tests the predicate and the roster set they call (checks in sections 1b, 2, 3)');
 select pg_temp.blocked('U64 Final-start guard (cf1_guard_final_start) refuses COMP_ADVANCEMENT_ROSTER_STALE', 'the start guard is A0; A1 supplies _cf1_entry_unavailable / _cf1_count_available_entries');
 select pg_temp.blocked('lock / calculate / approve insertions (A2, A3) call _cf1_require_roster_eligible and the six E2 ranking-set functions filter _cf1_heat_entry_is_excluded', 'redefinitions belong to A2 and A3; A1 changes none of them');
