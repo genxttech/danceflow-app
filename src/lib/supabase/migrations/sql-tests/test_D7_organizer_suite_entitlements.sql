@@ -4,8 +4,16 @@
 -- WITHOUT the two D7 migrations (this script applies, rolls back and re-applies them itself). Section L exercises the #360 RPC.
 -- Expects the four files copied into the container as:
 --   /tmp/m1_up.sql /tmp/m1_down.sql /tmp/m2_up.sql /tmp/m2_down.sql
--- Run: psql -U postgres -d postgres -f /tmp/test_D7_organizer_suite_entitlements.sql
+-- Run: psql -U postgres -d postgres -v d7_local_only=1 -f /tmp/test_D7_organizer_suite_entitlements.sql
 -- Uses psql \! to open a second session (concurrency test) inside the same container.
+-- HARD REFUSAL: this file creates public.t_* helper functions that run arbitrary SQL under any role (set local role ...). On a hosted
+-- Supabase database that would hand a caller service_role. It therefore only runs when the caller opts in explicitly with
+--   psql -v d7_local_only=1 ...   (the disposable local iso-qa stack only). The helpers are also locked down and dropped at the end.
+\if :{?d7_local_only}
+\else
+  \echo REFUSING TO RUN: pass -v d7_local_only=1 to confirm this is a disposable local database
+  \quit
+\endif
 \set ON_ERROR_STOP on
 \set QUIET on
 \pset tuples_only on
@@ -96,6 +104,17 @@ end $f$;
 create function public.t_acl() returns text language sql as $f$
   select relacl::text from pg_class where oid = 'public.usage_addon_entitlements'::regclass;
 $f$;
+
+-- Lock the helpers: only the owner may call them (default privileges would otherwise grant EXECUTE to anon/authenticated).
+do $x$
+declare r record;
+begin
+  for r in select p.oid::regprocedure as sig from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public' and p.proname like 't\_%' escape '\' loop
+    execute format('revoke all on function %s from public, anon, authenticated, service_role', r.sig);
+  end loop;
+end $x$;
+
 
 -- ---------- seed: PROD-like state ----------
 \echo === 0: seed PROD-like state (2 active manual_grant organizer_suite rows, two studios, no stripe item, no period_end)
@@ -432,4 +451,13 @@ select public.t_assert(to_regclass('public.usage_addon_entitlement_events') is n
 \i /tmp/m1_up.sql
 select public.t_assert((select count(*) from public.usage_addon_entitlement_events) = :ev_keep, 're-apply over live data keeps events');
 
+-- Remove the helpers so nothing callable is left behind.
+do $x$
+declare r record;
+begin
+  for r in select p.oid::regprocedure as sig from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public' and p.proname like 't\_%' escape '\' loop
+    execute format('drop function %s', r.sig);
+  end loop;
+end $x$;
 \echo === ALL CHECKS DONE
