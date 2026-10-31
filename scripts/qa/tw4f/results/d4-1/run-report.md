@@ -1,0 +1,14 @@
+### D4-1 local QA (disposable Docker databases only; runner scripts/qa/tw4f/run-chain.mjs)
+Flags: `--base 23ffbc43 --extra-branch claude/d4-1-price-dual-control --tests-ref claude/d4-1-price-dual-control --image df-isoqa/base:20261119092100 --cutoff 20261119092100 --until 20270204090000 --marker --env TW4RFL_DB=postgres` (plus `--env TW4F4_DB=postgres --env TW4A9_DB=postgres` for f4recovery / tw4a9).
+
+**Chain**: apply (47 main + 20270204090000), rollback of the extra == main-only catalog, re-apply == first apply, rollback of all (48 rollbacks, reverse order) == baseline catalog, re-apply == first apply, second cycle == first apply: all PASS (0/0 catalog diff).
+
+**Suites** (each on a fresh clone of the applied chain), final result per suite:
+- New: localStack.pricedual 23/23, localStack.pricedualactions 11/11 (app layer, real actions + real step-up logic).
+- WP-D4: localStack.wpd4dual 29/29 (the 12 PRICE-* cells moved to pricedual; ABS/CAN/PRIV cells unchanged), localStack.wpd4actions 9/9.
+- Fixtures converted to the two-administrator workflow, all PASS: aal2 4/4, tw4f3bpay 18/18, tw4f3bui 7/7, tw4recexec 20/20, tw4recurring 30/30, f3recon 11/11, tw4inbound 28/28, tw4recon 37/37, tw4rv 28/28, tw4sender 18/18, tw4usage 26/26, j2owner 12/12, j3owner 11/11, r2ci1 10/10, r2ci2 15/15, dryRun.tw4r1 15/15, feeres 46/46, tw4f3a 16/16, tw4f3b0 18/18, tw4fi 25/25, tw4fj1 11/11, tw4r1 11/11, f1funding 25/25, f4recovery 31/31, f5canceltarget 8/8, j4activation 11/11, r2brfl 28/28, tw4a9 9/9, tw4pilothard 25/25, tw4rfl 87/87, tw4rfld5 21/21, tw4rflevid 60/60, tw4rflops 64/64, tw4rflspend 76/76.
+- r2a 29/30 (+1 skipped by the suite itself: "R2a-only stack" test; runner class BLOCKED, no failure).
+- KNOWN (unchanged from main, documented in known-failures.json): tw4payhardening 14/15, tw4a 14/15, tw4f1b 18/19.
+- FAIL, identical on the WP-D0 baseline without D4-1 (verified): tw4monthly 27/28 (a calendar-month test that depends on today's date; 2026-10-31).
+- BLOCKED by environment, not run: isolatedQa.canary (5 skipped), r2bp2.rfl (needs TW4A_RFL_DB_CONTAINER); r2b refuses the merged chain by design (0/53).
+- Unit/app tests (no database): src/app/platform/sms, src/lib/sms: 81 files / 1545 tests passed (+ 35 database-gated files skipped without a database), tsc clean, eslint 0 errors.
