@@ -348,7 +348,7 @@ describe.skipIf(!enabled)("TW-4F F3 usage-reconciler readiness gate (real schema
     expect(switchOn()).toBe(false);
   });
 
-  const EXPECTED_LATER_CALLER = "public._tw4act_items(uuid)";
+  const EXPECTED_LATER_CALLER = "_tw4act_items(uuid)";
   const externalCallers = () => psql(`select coalesce(string_agg(p.oid::regprocedure::text, ',' order by p.oid::regprocedure::text), '') from pg_proc p
     where (p.prosrc like '%\_tw4usage\_reconciler\_ready%' or p.prosrc like '%\_tw4usage\_run\_proved%')
       and p.oid not in ('public._tw4usage_reconciler_ready()'::regprocedure, '${BEGIN_SIG}'::regprocedure, '${SWITCH_SIG}'::regprocedure)`);
