@@ -4,23 +4,37 @@ D-C	checks=5	blocked=0	cf1_a6_withdrawal	cf1_a6_withdrawal: D-C: scenario 15 app
 L5	checks=7	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: L5: scenario 27 (own event) applies
 U1	checks=0	blocked=1		
 U3	checks=0	blocked=1		
+U4	checks=2	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U4: a direct status flip of a published version to live is refused once a heat ran (superuser)
 U5	checks=2	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U13/U5 insert guard: a direct Final heat insert with a version is refused once an advancement exists
 U6	checks=1	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U6/U40: a direct delete of the live version holding the Final heat is refused
+U8	checks=3	blocked=0	cf1_concurrency	cf1_concurrency: U8 the retry of an apply that committed (the client lost the answer) is a replay: replayed true, no second adv
+U9	checks=3	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U9: validate_competition_schedule_item is installed on sessions, blocks and block-contests with the draft-only
+U10	checks=1	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U10: insert_competition_floor_heat on a published version is refused (_comp10d_require_draft)
+U11	checks=3	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U11: event 6 publishes through the 10D RPC
 U12	checks=1	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: apply: an existing live Final heat is FINAL_HEATS_PRESENT (no reuse, U12)
 U13	checks=1	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U13/U5 insert guard: a direct Final heat insert with a version is refused once an advancement exists
+U14	checks=6	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U14 (before apply): a registration cancel leaves the callback couple confirmed and unchanged (the sync skips a
 U16	checks=0	blocked=1		
 U17	checks=1	blocked=1	cf1_callback_final_advancement	cf1_callback_final_advancement: U17/copy: create_competition_schedule_version on a live version holding generated Finals succeeds
+U19	checks=2	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U19: moving an entry out of a certified callback heat into an open heat of a draft version is refused
+U20	checks=2	blocked=0	cf1_concurrency	cf1_concurrency: U20/U24 a floor-heat insert at the next number in a LATER transaction (after the apply committed) is refused
+U21	checks=3	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U21: a locked program refuses a sequence_number change of its Final
+U22	checks=4	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U22: the sync and the lifecycle left the callback and Final round rows unlocked (xmax unchanged since the appl
 U23	checks=0	blocked=1		
+U24	checks=4	blocked=1	cf1_callback_final_advancement,cf1_concurrency	cf1_callback_final_advancement: U24: scenario 29 added exactly one floor heat for its Final to the live version
 U25	checks=1	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: I6 rule A (U25): a draft copy holding a foreign Final heat cannot be published
 U26	checks=1	blocked=1	cf1_callback_final_advancement	cf1_callback_final_advancement: U26: the deferred backstop rejects a forced second live Final heat
 U27	checks=0	blocked=1		
 U29	checks=3	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U29/U36: a complete, eligible roster starts
 U30	checks=1	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U30: a cancelled Final round is a closed advancement (rules A and B skipped)
 U31	checks=0	blocked=1		
+U32	checks=12	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U32: a heat entry for a withdrawn entry fails (postgres)
 U33	checks=1	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: apply: a Final that is already active is TARGET_ROUND_STATE (also the pre-migration active Final, U33)
+U34	checks=3	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U34: deleting an advanced entry as authenticated is refused
 U35	checks=1	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U35: moving an advanced entry to another division is refused
 U36	checks=1	blocked=1	cf1_callback_final_advancement	cf1_callback_final_advancement: U29/U36: a complete, eligible roster starts
 U37	checks=10	blocked=0	cf1_a6_withdrawal	cf1_a6_withdrawal: U37/U63: a second manager co-signs; row written, role manager
+U38	checks=17	blocked=0	cf1_a2_lock,cf1_a5_u38_composed	cf1_a2_lock: U38: manager records an NS1 no-show for the refunded couple E103 (real RPC)
 U39	checks=17	blocked=0	cf1_a6_withdrawal	cf1_a6_withdrawal: U39: as authenticated: status moves out of scratched (scheduled)
 U40	checks=3	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U40: a direct delete of an advanced entry is refused
 U41	checks=3	blocked=1	cf1_a6_withdrawal	cf1_a6_withdrawal: U41: seq is 1, 2 (monotonic, duplicate-free) for the round
@@ -35,7 +49,11 @@ U49	checks=5	blocked=0	cf1_a6_withdrawal	cf1_a6_withdrawal: U49: a direct scratc
 U50	checks=2	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U50: deleting the event cascades through advancement, withdrawal-free CF1 tables and heats
 U51	checks=2	blocked=1	cf1_a6_concurrency,cf1_a6_withdrawal	cf1_a6_concurrency: R4 U51: the direct un-scratch waited on the row lock, the guard re-fired on the newest row version, saw the co
 U52	checks=12	blocked=1	cf1_a5_exclusion,cf1_a6_withdrawal,cf1_callback_final_advancement	cf1_a5_exclusion: U52: the history triggers on the exclusion table are ENABLE ALWAYS (tgenabled = A)
+U53	checks=5	blocked=1	cf1_a3_results	cf1_a3_results: U53: the reconstructed pre-A3 calculate / approve texts match the pre-A3 md5 pins (ddaa45cb..., 0650367b...)
+U54	checks=9	blocked=0	cf1_a2_lock,cf1_callback_final_advancement,cf1_concurrency	cf1_a2_lock: U54 (A2 half): lock_competition_round_ballots carries no function-level lock_timeout (proconfig is search_path
+U55	checks=1	blocked=0	cf1_callback_final_advancement	cf1_callback_final_advancement: U55: the sync and the lifecycle took no row lock on the advanced couples'' entries or their heat entries (xmax
 U56	checks=1	blocked=0	cf1_a4_minimum_integration	cf1_a4_minimum_integration: U43/U56: the lock, calculate and approve bodies carry the OD-17 D roster check (A2, A3), the start guard the m
+U57	checks=29	blocked=1	cf1_a1_helpers	cf1_a1_helpers: U57 P: confirmed + eligible + no links is available (e01)
 U58	checks=7	blocked=0	cf1_a2_lock	cf1_a2_lock: U58: lock refused with COMP_ROSTER_ENTRY_UNAVAILABLE (P0001), exact message
 U59	checks=21	blocked=0	cf1_a3_results	cf1_a3_results: U59: calculate refuses an ineligible couple in the ranking set (COMP_ROSTER_ENTRY_UNAVAILABLE, P0001)
 U60	checks=15	blocked=0	cf1_a3_results,cf1_a4_minimum_integration	cf1_a3_results: U60: r12 is a one-couple Final-only division: not a callback Final, one eligible couple, the roster check pass
@@ -44,6 +62,8 @@ U62	checks=3	blocked=0	cf1_a6_withdrawal	cf1_a6_withdrawal: U48(b)/U62: after th
 U63	checks=19	blocked=1	cf1_a5_exclusion,cf1_a6_withdrawal	cf1_a5_exclusion: U63: the co-sign row records the chair role, the co-signer, decision_id = the request and a later seq
 U64	checks=3	blocked=2	cf1_callback_final_advancement	cf1_callback_final_advancement: U64: an ineligible advanced couple is ENTRY_UNAVAILABLE and nothing is written
 U65	checks=6	blocked=1	cf1_a5_exclusion	cf1_a5_exclusion: U65: the request row stores actor, role, reason kind, reason, kind, seq 1, transaction id and the heat-entry s
+U67	checks=50	blocked=0	cf1_a4a_target_guard	cf1_a4a_target_guard: U67 T edit: T = 1 is refused
+U68	checks=1	blocked=0	cf1_a2_lock	cf1_a2_lock: U68: post-A2 pin: md5 of the installed text (CRs removed) equals the pinned value (the same value the HL1 suit
 U69	checks=9	blocked=0	cf1_a2_lock,cf1_a3_results	cf1_a2_lock: U69: replay of the lock request id after E102 (withdrawn, ineligible) and E103 (refunded) became unavailable r
 U70	checks=14	blocked=0	cf1_a1_helpers,cf1_a6_withdrawal,cf1_callback_final_advancement	cf1_a1_helpers: U70: no role among public/anon/authenticated/service_role may execute any A1 function
 U71	checks=6	blocked=0	cf1_a4_minimum_integration	cf1_a4_minimum_integration: U71: a one-couple Final-only division (program without advancement) starts
