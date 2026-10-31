@@ -639,9 +639,11 @@ select pg_temp.expect_msg('M2: re-keying the dance of an advanced Final heat is 
 -- the start guard is the second line: bypass the writer guard (rolled back with the transaction) and show the Final still cannot start
 set constraints all immediate;
 alter table public.event_competition_heat_dances disable trigger cf1_guard_final_heat_dance;
+alter table public.event_competition_heat_dances disable trigger comp10d_guard_heat_dance;
 update public.event_competition_heat_dances set status = 'cancelled' where heat_id in (select id from public.event_competition_heats where round_id = pg_temp.id('fin', 25));
 update public.event_competition_heat_dances set dance_key = 'tango' where heat_id in (select id from public.event_competition_heats where round_id = pg_temp.id('fin', 26));
 alter table public.event_competition_heat_dances enable always trigger cf1_guard_final_heat_dance;
+alter table public.event_competition_heat_dances enable trigger comp10d_guard_heat_dance;
 set constraints all deferred;
 select pg_temp.expect_msg('M2: a Final whose only dance is cancelled cannot start (FINAL_DANCE)',
   format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_rounds set status = 'active' where id = %L$q$, pg_temp.id('fin', 25))), 'COMP_ADVANCEMENT_FINAL_DANCE');
