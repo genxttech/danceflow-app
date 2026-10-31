@@ -160,7 +160,7 @@ describe.skipIf(!enabled)("WP-D2 layer b: platform-admin AAL2 with real GoTrue t
     admin = { ...a, aal1: a1, aal2: await stepUp(a1) };
     plain = { ...p, aal1: p1, aal2: await stepUp(p1) };
     fns = JSON.parse(
-      psql(`select coalesce(json_agg(json_build_object('name', p.proname, 'sig', p.oid::regprocedure::text, 'names', p.proargnames, 'types',
+      psql(`select coalesce(json_agg(json_build_object('name', p.proname, 'sig', p.oid::regprocedure::text, 'names', p.proargnames[1:p.pronargs], 'types',
               (select json_agg(format_type(t, null) order by o) from unnest(p.proargtypes::oid[]) with ordinality u(t, o)),
               'authExec', has_function_privilege('authenticated', p.oid, 'execute'), 'anonExec', has_function_privilege('anon', p.oid, 'execute')) order by p.oid::regprocedure::text), '[]'::json)
             from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prokind = 'f' and p.prosrc like '%_sms_onb_is_platform_admin%' and p.proname <> '_sms_onb_is_platform_admin'`),
@@ -237,7 +237,9 @@ describe.skipIf(!enabled)("WP-D2 layer b: platform-admin AAL2 with real GoTrue t
     expect(i2.status, i2.text.slice(0, 200)).toBe(201);
     expect(psql(`select count(*) from public.studio_sms_registrations where studio_id = '${STUDIO_NEW}'`)).toBe("1");
 
-    const upd = (t: string) => rest("PATCH", `studio_sms_registrations?studio_id=eq.${STUDIO}`, t, { registration_status: "draft" }, { Prefer: "return=representation" });
+    const current = (await rest("GET", `studio_sms_registrations?select=registration_status&studio_id=eq.${STUDIO}`, admin.aal2)).json as { registration_status: string }[];
+    const status = current[0].registration_status;
+    const upd = (t: string) => rest("PATCH", `studio_sms_registrations?studio_id=eq.${STUDIO}`, t, { registration_status: status }, { Prefer: "return=representation" });
     const u1 = await upd(admin.aal1);
     expect([200, 204]).toContain(u1.status);
     expect(Array.isArray(u1.json) ? u1.json.length : 0).toBe(0);
@@ -265,7 +267,9 @@ describe.skipIf(!enabled)("WP-D2 layer b: platform-admin AAL2 with real GoTrue t
       }
       const body: Record<string, unknown> = {};
       (f.names ?? []).forEach((n, i) => {
-        body[n] = sampleFor((f.types ?? [])[i] ?? "text");
+        const type = (f.types ?? [])[i] ?? "text";
+        // a real studio id where the function takes one, so the aal2 call gets past argument validation when it can
+        body[n] = type === "uuid" && /studio/.test(n) ? STUDIO : /reason|note/.test(n) && type === "text" ? "WP-D2 local aal2 check, throwaway database" : sampleFor(type);
       });
       const call = (t: string) => rest("POST", `rpc/${f.name}`, t, body);
       const a1 = await call(admin.aal1);
