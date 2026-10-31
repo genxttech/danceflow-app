@@ -138,7 +138,7 @@ begin
   update public.event_competition_rounds set status = 'approved' where id = pg_temp.id('src', p_n);
   insert into public.event_competition_result_versions (id, event_id, round_id, version, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, status, request_id)
   values (pg_temp.id('rvg', p_n, p_ver), v_event, pg_temp.id('src', p_n), p_ver, 'callback_tally', '1', public._compf2_input_hash(pg_temp.id('src', p_n), 'callback_tally', '1'),
-          't' || p_ver, '{}', '{}', pg_temp.id('user', 1), 'approved', pg_temp.id('req-rvg', p_n, p_ver));
+          repeat(md5('t' || p_ver), 2), '{}', '[]', pg_temp.id('user', 1), 'approved', pg_temp.id('req-rvg', p_n, p_ver));
   insert into public.event_competition_result_rows (event_id, result_version_id, entry_id, advanced, output)
   select v_event, pg_temp.id('rvg', p_n, p_ver), pg_temp.id('ent', p_n, k), k = any (p_adv), '{}'
   from public.event_competition_entries e, generate_series(1, 4) k where e.id = pg_temp.id('ent', p_n, k);
@@ -198,7 +198,7 @@ begin
   values (pg_temp.id('fin', p_n), v_event, pg_temp.id('prg', p_e), pg_temp.id('div', p_n), 'D' || p_n || ' Final', 'final', 2, p_fin, 'ordinal_majority');
   for v_k in 1..p_entries loop
     insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
-    values (pg_temp.id('ent', p_n, v_k), v_event, pg_temp.id('prg', p_e), pg_temp.id('div', p_n), 'e' || p_n || '-' || v_k, 'confirmed', 'eligible', v_k::text);
+    values (pg_temp.id('ent', p_n, v_k), v_event, pg_temp.id('prg', p_e), pg_temp.id('div', p_n), 'e' || p_n || '-' || v_k, 'confirmed', 'eligible', (p_n * 10 + v_k)::text);
   end loop;
   insert into public.event_competition_floor_heats (id, event_id, schedule_version_id, heat_number) values (pg_temp.id('cbf', p_n), v_event, v_ver, p_n);
   insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, status, lock_state, contest_id, schedule_version_id, floor_heat_id)
@@ -208,7 +208,7 @@ begin
   select v_event, pg_temp.id('div', p_n), pg_temp.id('cbh', p_n), pg_temp.id('ent', p_n, k), k, 'danced' from generate_series(1, p_entries) k;
   select public._compf2_input_hash(pg_temp.id('src', p_n), 'callback_tally', '1') into v_hash;
   insert into public.event_competition_result_versions (id, event_id, round_id, version, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, status, request_id)
-  values (pg_temp.id('rv', p_n), v_event, pg_temp.id('src', p_n), 1, 'callback_tally', '1', v_hash, 'trace-' || p_n, '{}', '{}', pg_temp.id('user', 1), 'approved', pg_temp.id('req-rv', p_n));
+  values (pg_temp.id('rv', p_n), v_event, pg_temp.id('src', p_n), 1, 'callback_tally', '1', v_hash, repeat(md5('t' || p_n), 2), '{}', '[]', pg_temp.id('user', 1), 'approved', pg_temp.id('req-rv', p_n));
   insert into public.event_competition_result_rows (event_id, result_version_id, entry_id, advanced, output)
   select v_event, pg_temp.id('rv', p_n), pg_temp.id('ent', p_n, k), k <= p_adv, jsonb_build_object('tally', 10 - k) from generate_series(1, p_entries) k;
   perform set_config('session_replication_role', 'origin', true);
@@ -224,7 +224,7 @@ select pg_temp.mk(4);
 select pg_temp.mk(5);
 select pg_temp.mk(6);
 select pg_temp.mk(7);
-select pg_temp.mk(8, 4, 4, 3);
+select pg_temp.mk(8, 4, 4, 4);
 
 -- ============================================================================
 -- 1. Catalogue: grants, ENABLE ALWAYS, VOLATILE, search_path, RLS
@@ -412,10 +412,12 @@ select pg_temp.chk('scenario 4: generation 1 is revoked, its heat is cancelled, 
   public._cf1_active_advancement(pg_temp.id('fin', 4)) is null and (select bool_and(h.status = 'cancelled') from public.event_competition_heats h where h.round_id = pg_temp.id('fin', 4))
   and pg_temp.hes(4, 1) = 'none');
 select pg_temp.regen(4, 2, array[1, 2, 3]);
+select set_config('cf1a6.r', pg_temp.ap(4, 42)::text, false);
+reset role;
 select pg_temp.chk('scenario 4: generation 2 applies and carries couple 1 (no heat entry; flagged with the withdrawal id)',
-  pg_temp.code(pg_temp.ap(4, 42)) = 'OK' and pg_temp.hes(4, 1) = 'none'
+  pg_temp.code(current_setting('cf1a6.r')::jsonb) = 'OK' and pg_temp.hes(4, 1) = 'none'
   and (select count(*) = 1 from public.event_competition_round_advancement_entries ae join public.event_competition_round_advancements a on a.id = ae.advancement_id
-       where a.target_round_id = pg_temp.id('fin', 4) and a.generation = 2 and ae.entry_id = pg_temp.id('ent', 4, 1) and ae.carried_withdrawal_id is not null), pg_temp.ap(4, 42)::text);
+       where a.target_round_id = pg_temp.id('fin', 4) and a.generation = 2 and ae.entry_id = pg_temp.id('ent', 4, 1) and ae.carried_withdrawal_id is not null), current_setting('cf1a6.r'));
 select pg_temp.chk('U48(a): while generation 2''s Final heat is active the reinstatement is refused COMP_ADVANCEMENT_REINSTATE_NO_HEAT_ENTRY',
   pg_temp.code(pg_temp.req('reinstate', 4, 1, 1, 42)) = 'COMP_ADVANCEMENT_REINSTATE_NO_HEAT_ENTRY', pg_temp.req('reinstate', 4, 1, 1, 42)::text);
 reset role;
@@ -438,10 +440,12 @@ select pg_temp.chk('U62: no heat entry changed or was added anywhere in the Fina
   pg_temp.hedigest(4) = current_setting('cf1a6.digest4')
   and (select count(*)::text from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id where h.round_id = pg_temp.id('fin', 4)) = current_setting('cf1a6.he4'));
 select pg_temp.regen(4, 3, array[1, 2, 3]);
+select set_config('cf1a6.r', pg_temp.ap(4, 43)::text, false);
+reset role;
 select pg_temp.chk('U48(b): generation 3 applies and includes the reinstated couple with its own heat entry (not carried)',
-  pg_temp.code(pg_temp.ap(4, 43)) = 'OK' and pg_temp.hes(4, 1) = 'scheduled'
+  pg_temp.code(current_setting('cf1a6.r')::jsonb) = 'OK' and pg_temp.hes(4, 1) = 'scheduled'
   and (select ae.carried_withdrawal_id is null from public.event_competition_round_advancement_entries ae join public.event_competition_round_advancements a on a.id = ae.advancement_id
-       where a.target_round_id = pg_temp.id('fin', 4) and a.generation = 3 and ae.entry_id = pg_temp.id('ent', 4, 1)), pg_temp.ap(4, 43)::text);
+       where a.target_round_id = pg_temp.id('fin', 4) and a.generation = 3 and ae.entry_id = pg_temp.id('ent', 4, 1)), current_setting('cf1a6.r'));
 reset role;
 select pg_temp.chk('U48(b): after the reinstatement the old scratched row stays scratched in the cancelled heat (history)', exists (
   select 1 from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id
@@ -464,6 +468,8 @@ reset role;
 select pg_temp.su(format($q$update public.event_competition_entries set eligibility_status = 'ineligible' where id = %L$q$, pg_temp.id('ent', 5, 2)));
 select pg_temp.regen(5, 2, array[1, 2, 3]);
 select pg_temp.chk('4.4 dead end gone: the ineligible, withdrawn couple does not block generation 2 (carried, not validated)', pg_temp.code(pg_temp.ap(5, 52)) = 'OK' and pg_temp.hes(5, 2) = 'none', pg_temp.ap(5, 52)::text);
+reset role;
+select pg_temp.su(format($q$update public.event_competition_entries set eligibility_status = 'eligible' where id = %L$q$, pg_temp.id('ent', 5, 2)));
 
 -- ============================================================================
 -- 7. Scenario 6: lifecycle refusals at the request and again at the co-sign
@@ -532,7 +538,7 @@ select pg_temp.blocked('U52: TRUNCATE of the heat entry table (not covered by a 
 -- evidence immutability
 select pg_temp.expect_msg('evidence: UPDATE of a withdrawal row is refused', format($q$update public.event_competition_final_withdrawals set reason = 'changed afterwards' where request_id = %L$q$, pg_temp.id('rq', 21)), 'append-only');
 select pg_temp.expect_msg('evidence: DELETE of a withdrawal row is refused', format($q$delete from public.event_competition_final_withdrawals where request_id = %L$q$, pg_temp.id('rq', 21)), 'append-only');
-select pg_temp.expect_msg('evidence: TRUNCATE of the withdrawals table is refused', $q$truncate public.event_competition_final_withdrawals$q$, 'append-only');
+select pg_temp.expect_msg('evidence: TRUNCATE of the withdrawals table is refused (the FK from A0''s advancement entries / A6 requests blocks it first)', $q$truncate public.event_competition_final_withdrawals$q$, 'truncate');
 select pg_temp.expect_msg('evidence: UPDATE of a request row is refused', format($q$update public.event_competition_final_withdrawal_requests set reason = 'changed afterwards' where request_id = %L$q$, pg_temp.id('rq', 21)), 'append-only');
 select pg_temp.expect_msg('evidence: DELETE of a request row is refused', format($q$delete from public.event_competition_final_withdrawal_requests where request_id = %L$q$, pg_temp.id('rq', 21)), 'append-only');
 select pg_temp.expect_msg('evidence: TRUNCATE of the request table is refused', $q$truncate public.event_competition_final_withdrawal_requests$q$, 'append-only');
@@ -547,9 +553,13 @@ select pg_temp.expect_msg('U63 backstop: the table refuses requester = co-signer
 select pg_temp.as_user(1);
 select pg_temp.chk('scenario 8 applies', pg_temp.code(pg_temp.ap(8, 8)) = 'OK');
 reset role;
-select pg_temp.chk('scenario 8: withdraw couple 1 (completed) and leave a pending request for couple 2', pg_temp.code(pg_temp.flow('withdraw', 8, 1, 81)) = 'OK' and (pg_temp.req('withdraw', 8, 2, 1, 82) ->> 'state') = 'pending');
+select set_config('cf1a6.r', pg_temp.flow('withdraw', 8, 1, 81)::text || pg_temp.req('withdraw', 8, 2, 1, 82)::text, false);
+reset role;
+select pg_temp.chk('scenario 8: withdraw couple 1 (completed) and leave a pending request for couple 2', current_setting('cf1a6.r') like '%"kind": "withdraw"%"state": "pending"%', current_setting('cf1a6.r'));
 reset role;
 select pg_temp.expect_msg('NO ACTION FK: a direct delete of the scratched heat entry''s round is refused', format($q$delete from public.event_competition_rounds where id = %L$q$, pg_temp.id('fin', 8)), '', null);
+-- (pre-existing, not CF1: deleting an event that still has a certified heat is refused by protect_locked_competition_heat_children, so the heats are opened first)
+select pg_temp.su(format($q$update public.event_competition_heats set lock_state = 'open' where event_id = %L$q$, pg_temp.id('evt', 4)));
 select pg_temp.expect_ok('deleting the event cascades through heats, heat entries (guard exception), withdrawals and requests', format($q$delete from public.events where id = %L$q$, pg_temp.id('evt', 4)));
 select pg_temp.chk('the cascaded rows are gone with their event, other events keep theirs',
   not exists (select 1 from public.event_competition_final_withdrawals where event_id = pg_temp.id('evt', 4)) and not exists (select 1 from public.event_competition_final_withdrawal_requests where event_id = pg_temp.id('evt', 4))
@@ -559,6 +569,7 @@ select pg_temp.chk('the cascaded rows are gone with their event, other events ke
 -- 10. The guard in isolation (U39, every branch with its own message): all other user triggers on heat entries are disabled for this transaction,
 --     then only the A6 guard is re-enabled ALWAYS. Also shows the residual: the table owner can DISABLE the trigger.
 -- ============================================================================
+set constraints all immediate;
 alter table public.event_competition_heat_entries disable trigger user;
 alter table public.event_competition_heat_entries enable always trigger cf1_guard_withdrawn_heat_entry;
 select pg_temp.chk('isolation: only the A6 guard is active on the heat entry table', (select count(*) = 1 from pg_trigger t where t.tgrelid = 'public.event_competition_heat_entries'::regclass and not t.tgisinternal and t.tgenabled <> 'D'));

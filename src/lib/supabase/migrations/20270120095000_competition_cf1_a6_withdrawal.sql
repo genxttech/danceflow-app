@@ -64,12 +64,12 @@ create index event_competition_final_withdrawal_requests_round_idx on public.eve
 
 alter table public.event_competition_final_withdrawal_requests enable row level security;
 revoke all on public.event_competition_final_withdrawal_requests from public, anon, authenticated, service_role;
-create trigger protect_event_competition_final_withdrawal_requests_history before update or delete on public.event_competition_final_withdrawal_requests
+create trigger protect_cf1_wdreq_history before update or delete on public.event_competition_final_withdrawal_requests
   for each row execute function public.protect_competition_history_evidence();
-create trigger protect_event_competition_final_withdrawal_requests_history_truncate before truncate on public.event_competition_final_withdrawal_requests
+create trigger protect_cf1_wdreq_history_truncate before truncate on public.event_competition_final_withdrawal_requests
   for each statement execute function public.protect_competition_history_evidence();
-alter table public.event_competition_final_withdrawal_requests enable always trigger protect_event_competition_final_withdrawal_requests_history;
-alter table public.event_competition_final_withdrawal_requests enable always trigger protect_event_competition_final_withdrawal_requests_history_truncate;
+alter table public.event_competition_final_withdrawal_requests enable always trigger protect_cf1_wdreq_history;
+alter table public.event_competition_final_withdrawal_requests enable always trigger protect_cf1_wdreq_history_truncate;
 
 -- ---------------------------------------------------------------------------
 -- 2. Readers (definer, no grants). Volatile on purpose: each statement takes a fresh snapshot (READ COMMITTED sees a concurrent commit).

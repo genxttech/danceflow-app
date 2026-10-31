@@ -12,8 +12,8 @@
 #        R5 U51 negative control: the same race with the guard declared STABLE lets the un-scratch through (why the guard must be VOLATILE).
 set -u
 C="${CONTAINER:-cf1-a6-db}"
-P="docker exec -i $C psql -U postgres -h localhost -v ON_ERROR_STOP=1 -X -q -At"
-PN="docker exec -i $C psql -U postgres -h localhost -X -q -At"
+P="docker exec -i -e PGPASSWORD=postgres $C psql -U supabase_admin -d postgres -h localhost -v ON_ERROR_STOP=1 -X -q -At"
+PN="docker exec -i -e PGPASSWORD=postgres $C psql -U supabase_admin -d postgres -h localhost -X -q -At"
 E=00000000-0000-0000-0000-cf6c0e000001
 S=00000000-0000-0000-0000-cf6c0e00a001
 U1=00000000-0000-0000-0000-cf6c0e000011
@@ -26,13 +26,19 @@ mkdir -p "$T"
 
 cleanup() {
   $PN >/dev/null 2>&1 <<SQL
-alter function public.cf1_guard_withdrawn_heat_entry() volatile;
+alter function public.cf1_guard_withdrawn_heat_entry() volatile; alter function public._cf1_a6_pair_state(uuid, uuid) volatile;
+begin; set local session_replication_role = replica; update public.event_competition_heats set lock_state = 'open' where event_id = '$E'; commit;
 delete from public.events where id = '$E';
+delete from public.user_studio_roles where studio_id = '$S';
+delete from public.studios where id = '$S';
+delete from public.verified_email_identities where user_id in ('$U1', '$U2');
+delete from public.profiles where id in ('$U1', '$U2');
+delete from auth.users where id in ('$U1', '$U2');
 drop schema if exists cf6c cascade;
 SQL
 }
 
-cleanup
+[ -n "${NOCLEAN:-}" ] || cleanup
 $P <<'SQL' || { echo "BLOCKED: fixture setup failed"; cleanup; exit 3; }
 create schema cf6c;
 create function cf6c.id(k text, n int default 0, j int default 0) returns uuid language sql immutable as $$ select md5('cf6c:' || k || ':' || n || ':' || j)::uuid $$;
@@ -63,7 +69,7 @@ begin
     values (cf6c.id('fin', n), e, cf6c.id('prg'), cf6c.id('div', n), 'fin' || n, 'final', 2, 'scheduled', 'ordinal_majority');
   for k in 1..5 loop
     insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
-      values (cf6c.id('ent', n, k), e, cf6c.id('prg'), cf6c.id('div', n), 'e' || n || '-' || k, 'confirmed', 'eligible', k::text);
+      values (cf6c.id('ent', n, k), e, cf6c.id('prg'), cf6c.id('div', n), 'e' || n || '-' || k, 'confirmed', 'eligible', (n * 10 + k)::text);
   end loop;
   insert into public.event_competition_floor_heats (id, event_id, schedule_version_id, heat_number) values (cf6c.id('cbf', n), e, cf6c.id('sv'), n);
   insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, status, lock_state, contest_id, schedule_version_id, floor_heat_id)
@@ -73,7 +79,7 @@ begin
     select e, cf6c.id('div', n), cf6c.id('cbh', n), cf6c.id('ent', n, k2), k2, 'danced' from generate_series(1, 5) k2;
   h := public._compf2_input_hash(cf6c.id('src', n), 'callback_tally', '1');
   insert into public.event_competition_result_versions (id, event_id, round_id, version, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, status, request_id)
-    values (cf6c.id('rv', n), e, cf6c.id('src', n), 1, 'callback_tally', '1', h, 't', '{}', '{}', '00000000-0000-0000-0000-cf6c0e000011', 'approved', cf6c.id('rq', n));
+    values (cf6c.id('rv', n), e, cf6c.id('src', n), 1, 'callback_tally', '1', h, repeat('a', 64), '{}', '[]', '00000000-0000-0000-0000-cf6c0e000011', 'approved', cf6c.id('rq', n));
   insert into public.event_competition_result_rows (event_id, result_version_id, entry_id, advanced, output)
     select e, cf6c.id('rv', n), cf6c.id('ent', n, k2), k2 <= 4, '{}' from generate_series(1, 5) k2;
   perform set_config('session_replication_role', 'origin', true);
@@ -113,29 +119,32 @@ wait
 [ "$(q "select count(*) from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id where h.round_id = cf6c.id('fin', 1) and he.status = 'scratched'")" = "2" ] \
   && ok "R1: both Final heat entries are scratched" || bad "R1 scratch count"
 
-# ---------------------------------------------------------------- R2: co-sign || correction (heat NOWAIT)
+# ---------------------------------------------------------------- R2: co-sign || the callback correction (the correction waits on the Final round lock; the co-sign never waits for it)
 [ "$(apply 2 2)" = "1" ] || { echo "BLOCKED: apply 2 failed"; cleanup; exit 3; }
 [ "$(request 2 1)" = "pending" ] || { echo "BLOCKED: request 2 failed"; cleanup; exit 3; }
 ( $PN >"$T/r2a.out" 2>&1 <<SQL
 begin;
 $AS2
 select (public.cosign_final_withdrawal_request(cf6c.id('rw', 2, 1)))->>'seq';
-select pg_sleep(3);
+select pg_sleep(7);
 commit;
 SQL
 ) &
-sleep 1
-( $PN >"$T/r2b.out" 2>&1 <<SQL
+n=0; while [ "$n" -lt 40 ] && [ "$($P -c "select count(*) from pg_stat_activity where wait_event = 'PgSleep'")" = "0" ]; do sleep 0.5; n=$((n+1)); done
+T0=$(date +%s)
+$PN >"$T/r2b.out" 2>&1 <<SQL
 $AS1
 select public.open_competition_round_correction(cf6c.id('src', 2), 'judge error found in the callback', cf6c.id('cr', 2));
 SQL
-) &
+T1=$(date +%s)
 wait
-if grep -q 'COMP_ADVANCEMENT_CONCURRENT_CHANGE' "$T/r2b.out" || grep -q '55P03' "$T/r2b.out" || grep -qi 'could not obtain lock' "$T/r2b.out"; then
-  ok "R2: the correction behind a held Final heat is refused retryably (55P03 / CONCURRENT_CHANGE) and the co-sign committed"
-else bad "R2: correction output: $(cat "$T/r2b.out")"; fi
-[ "$(q "select status from public.event_competition_rounds where id = cf6c.id('src', 2)")" = "approved" ] && [ "$(q "select count(*) from public.event_competition_final_withdrawals where target_round_id = cf6c.id('fin', 2)")" = "1" ] \
-  && ok "R2: nothing half-done (callback still approved, one withdrawal row, advancement still active)" || bad "R2 state"
+if [ $((T1 - T0)) -ge 3 ] && grep -q 'ballots_locked' "$T/r2b.out"; then
+  ok "R2: the correction waited for the co-sign's Final round lock ($((T1 - T0))s) and then succeeded"
+else bad "R2: correction waited $((T1 - T0))s output: $(cat "$T/r2b.out") A=$(cat "$T/r2a.out")"; fi
+[ "$(q "select count(*) from public.event_competition_final_withdrawals w where w.target_round_id = cf6c.id('fin', 2) and w.heat_entry_id is not null and w.prior_heat_entry_status = 'scheduled'")" = "1" ] \
+  && [ "$(q "select count(*) from public.event_competition_round_advancement_revocations r join public.event_competition_round_advancements a on a.id = r.advancement_id where a.target_round_id = cf6c.id('fin', 2)")" = "1" ] \
+  && [ "$(q "select (select min(transaction_id) from public.event_competition_final_withdrawals where target_round_id = cf6c.id('fin', 2)) < (select min(r.transaction_id) from public.event_competition_round_advancement_revocations r join public.event_competition_round_advancements a on a.id = r.advancement_id where a.target_round_id = cf6c.id('fin', 2))")" = "t" ] \
+  && ok "R2: serialized co-sign then revoke: one withdrawal row linked to the heat entry, one revocation, nothing half-done" || bad "R2 state"
 
 # ---------------------------------------------------------------- R3: co-sign || apply (between a revoke and the next apply)
 [ "$(apply 3 3)" = "1" ] || { echo "BLOCKED: apply 3 failed"; cleanup; exit 3; }
@@ -145,7 +154,7 @@ begin;
 select set_config('session_replication_role', 'replica', true);
 update public.event_competition_rounds set status = 'approved' where id = cf6c.id('src', 3);
 insert into public.event_competition_result_versions (id, event_id, round_id, version, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, status, request_id)
-  values (cf6c.id('rv2', 3), '$E', cf6c.id('src', 3), 2, 'callback_tally', '1', public._compf2_input_hash(cf6c.id('src', 3), 'callback_tally', '1'), 't2', '{}', '{}', '$U1', 'approved', cf6c.id('rq2', 3));
+  values (cf6c.id('rv2', 3), '$E', cf6c.id('src', 3), 2, 'callback_tally', '1', public._compf2_input_hash(cf6c.id('src', 3), 'callback_tally', '1'), repeat('b', 64), '{}', '[]', '$U1', 'approved', cf6c.id('rq2', 3));
 insert into public.event_competition_result_rows (event_id, result_version_id, entry_id, advanced, output)
   select '$E', cf6c.id('rv2', 3), cf6c.id('ent', 3, k), k <= 4, '{}' from generate_series(1, 5) k;
 commit;
@@ -194,7 +203,7 @@ else bad "R4 output: $(cat "$T/r4b.out")"; fi
 
 [ "$(apply 5 5)" = "1" ] || { echo "BLOCKED: apply 5 failed"; cleanup; exit 3; }
 [ "$(request 5 1)" = "pending" ] || { echo "BLOCKED: request 5 failed"; cleanup; exit 3; }
-$P -c "alter function public.cf1_guard_withdrawn_heat_entry() stable;" >/dev/null
+$P -c "alter function public.cf1_guard_withdrawn_heat_entry() stable; alter function public._cf1_a6_pair_state(uuid, uuid) stable;" >/dev/null
 ( $PN >"$T/r5a.out" 2>&1 <<SQL
 begin;
 $AS2
@@ -209,13 +218,13 @@ update public.event_competition_heat_entries set status = 'checked_in' where ent
 SQL
 ) &
 wait
-$P -c "alter function public.cf1_guard_withdrawn_heat_entry() volatile;" >/dev/null
+$P -c "alter function public.cf1_guard_withdrawn_heat_entry() volatile; alter function public._cf1_a6_pair_state(uuid, uuid) volatile;" >/dev/null
 if ! grep -q 'COMP_WITHDRAWAL_GUARD' "$T/r5b.out" && [ "$(q "select he.status from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id where h.round_id = cf6c.id('fin', 5) and he.entry_id = cf6c.id('ent', 5, 1)")" = "checked_in" ]; then
-  ok "R5 control: with the guard STABLE the same race lets the un-scratch through (a withdrawn couple un-scratched), which is why the guard is VOLATILE (restored to VOLATILE)"
+  ok "R5 control: with the guard and its pair-state reader STABLE the same race lets the un-scratch through (a withdrawn couple un-scratched), which is why the guard is VOLATILE (restored to VOLATILE)"
 else bad "R5 control did not demonstrate the stale-snapshot bypass: $(cat "$T/r5b.out")"; fi
 [ "$(q "select provolatile from pg_proc where proname = 'cf1_guard_withdrawn_heat_entry'")" = "v" ] && ok "the guard is VOLATILE again" || bad "guard volatility not restored"
 
-cleanup
+[ -n "${NOCLEAN:-}" ] || cleanup
 rm -rf "$T"
 [ "$FAIL" = "0" ] && echo "COMPETITION CF1 A6 CONCURRENCY PASS" || echo "COMPETITION CF1 A6 CONCURRENCY FAIL"
 exit $FAIL
