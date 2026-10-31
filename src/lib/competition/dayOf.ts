@@ -142,7 +142,7 @@ export function friendlyDayOfError(error: { message?: string; code?: string | nu
  * Starts a round. Final start can meet a deadlock (40P01), a lock wait (55P03) or a statement timeout (57014); the call is repeated
  * once with the same request id, so a lost answer is replayed by the database instead of applied twice. Other errors are returned as is.
  */
-export function startCompetitionRound(rpc: RpcCall, roundId: string, requestId: string): Promise<RpcResult> {
+export function startCompetitionRound(rpc: RpcCall, roundId: string, requestId: string): PromiseLike<RpcResult> {
   return withRetryOnce(rpc)("start_competition_round", { p_round_id: roundId, p_request_id: requestId });
 }
 
