@@ -4,6 +4,8 @@ import { randomUUID } from "crypto";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { TERMINAL_ORGANIZER_SUITE_MESSAGE, terminalSaleNeedsOrganizerSuite } from "@/lib/events/terminalOrganizerSuite";
 
 export type SellTicketsState = {
   error?: string;
@@ -490,6 +492,12 @@ export async function sellTicketsAction(
       return {
         error: "Tickets cannot be sold for a cancelled or completed event.",
       };
+    }
+
+    // D7 P2-3: a NEW card-reader sale for an organizer event needs a current Organizer Suite entitlement.
+    // Manual (cash, check, external card, comp) sales are unchanged by this decision.
+    if (useCardReader && (await terminalSaleNeedsOrganizerSuite(createAdminClient(), { studioId, organizerId: event.organizer_id }))) {
+      return { error: TERMINAL_ORGANIZER_SUITE_MESSAGE };
     }
 
     const { data: ticket, error: ticketError } = await supabase
