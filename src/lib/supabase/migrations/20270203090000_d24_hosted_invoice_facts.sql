@@ -8,6 +8,11 @@
 --                                 placeholder for a later authorization workflow that this migration does not create.
 --   * hosted_invoice_source_events immutable per-event evidence (sanitized snapshot, never a raw payload).
 --   * hosted_invoice_recon_audit  append-only log of every reconciliation-state change and acknowledgement.
+--   * hosted_invoice_deferred_events  sanitized events recorded while the app runs in 'defer' mode, applied later and idempotently by d24_drain_deferred.
+-- Classification (trusted evidence only): registered (registry match) | subscription (Stripe subscription markers on the invoice, or the platform's own studio_invoices
+-- record) | unresolved. Subscription invoices are preserved but leave the attention queue (state out_of_scope). Nothing is ever attributed to a studio except through the registry.
+-- Tenant ownership is enforced by the database itself: composite foreign keys tie an invoice to its registry row (id, studio, account scope, invoice id), child rows to their invoice
+-- (id, account scope, invoice id), and deferred constraint triggers require child and invoice studio ids to agree at commit, whoever writes.
 -- All writes go through SECURITY DEFINER functions that first require the caller to still own the PAY-WH-1 event claim.
 -- Service role only: RLS on, no tenant policies, no grants to anon or authenticated. service_role may SELECT; it cannot write the tables directly.
 -- Dark: nothing calls these functions until the app flag D24_HOSTED_INVOICE_EVENTS is on. NOT APPLIED to any shared environment by this file.
@@ -41,6 +46,7 @@ create table public.hosted_invoice_registry (
   business_object_id text not null,
   created_at timestamptz not null default now(),
   created_by uuid,
+  account_key text generated always as (coalesce(stripe_account_id, '')) stored,
   constraint hosted_invoice_registry_account_fmt check (stripe_account_id is null or stripe_account_id ~ '^acct_[A-Za-z0-9]+$'),
   constraint hosted_invoice_registry_invoice_fmt check (stripe_invoice_id ~ '^in_[A-Za-z0-9]+$'),
   constraint hosted_invoice_registry_object_type check (length(btrim(business_object_type)) > 0),
@@ -49,6 +55,7 @@ create table public.hosted_invoice_registry (
 create unique index hosted_invoice_registry_key_uq
   on public.hosted_invoice_registry (coalesce(stripe_account_id, ''), stripe_invoice_id);
 create index hosted_invoice_registry_studio_idx on public.hosted_invoice_registry (studio_id);
+create unique index hosted_invoice_registry_fk_uq on public.hosted_invoice_registry (id, studio_id, account_key, stripe_invoice_id);
 
 create table public.hosted_invoices (
   id uuid primary key default gen_random_uuid(),
@@ -73,6 +80,9 @@ create table public.hosted_invoices (
   first_seen_event_id text not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  account_key text generated always as (coalesce(stripe_account_id, '')) stored,
+  classification text not null default 'unresolved',
+  subscription_evidence boolean not null default false,
   constraint hosted_invoices_account_fmt check (stripe_account_id is null or stripe_account_id ~ '^acct_[A-Za-z0-9]+$'),
   constraint hosted_invoices_invoice_fmt check (stripe_invoice_id ~ '^in_[A-Za-z0-9]+$'),
   constraint hosted_invoices_status_chk check (status is null or status in ('draft', 'open', 'paid', 'void', 'uncollectible')),
@@ -80,11 +90,16 @@ create table public.hosted_invoices (
     (status is null) = (total is null and amount_due is null and amount_paid is null and amount_remaining is null and currency is null and last_event_created is null)
     and (total is null or (amount_due >= 0 and amount_paid >= 0 and amount_remaining >= 0))),
   constraint hosted_invoices_currency_fmt check (currency is null or currency ~ '^[a-z]{3}$'),
-  constraint hosted_invoices_state_chk check (reconciliation_state in ('unmatched', 'anomalous', 'resolved', 'clear')),
+  constraint hosted_invoices_state_chk check (reconciliation_state in ('unmatched', 'anomalous', 'resolved', 'clear', 'out_of_scope')),
+  constraint hosted_invoices_class_chk check (classification in ('registered', 'subscription', 'unresolved')),
+  constraint hosted_invoices_class_match check ((classification = 'registered') = (studio_id is not null)),
+  constraint hosted_invoices_registry_fk foreign key (registry_id, studio_id, account_key, stripe_invoice_id)
+    references public.hosted_invoice_registry (id, studio_id, account_key, stripe_invoice_id) on delete restrict,
   constraint hosted_invoices_match_pair check ((studio_id is null) = (registry_id is null)),
   constraint hosted_invoices_ack_subset check (acknowledged_codes <@ anomaly_codes)
 );
 create unique index hosted_invoices_key_uq on public.hosted_invoices (coalesce(stripe_account_id, ''), stripe_invoice_id);
+create unique index hosted_invoices_child_fk_uq on public.hosted_invoices (id, account_key, stripe_invoice_id);
 create index hosted_invoices_studio_idx on public.hosted_invoices (studio_id) where studio_id is not null;
 create index hosted_invoices_attention_idx on public.hosted_invoices (reconciliation_state) where reconciliation_state in ('unmatched', 'anomalous');
 
@@ -101,6 +116,7 @@ create table public.hosted_invoice_payments (
   currency text not null,
   first_event_id text not null,
   last_event_id text not null,
+  account_key text generated always as (coalesce(stripe_account_id, '')) stored,
   conflict boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -125,6 +141,7 @@ create table public.hosted_credit_notes (
   currency text not null,
   first_event_id text not null,
   last_event_id text not null,
+  account_key text generated always as (coalesce(stripe_account_id, '')) stored,
   conflict boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -136,6 +153,11 @@ create table public.hosted_credit_notes (
 );
 create unique index hosted_credit_notes_key_uq on public.hosted_credit_notes (coalesce(stripe_account_id, ''), stripe_credit_note_id);
 create index hosted_credit_notes_invoice_idx on public.hosted_credit_notes (invoice_row_id);
+
+alter table public.hosted_invoice_payments add constraint hosted_invoice_payments_invoice_fk
+  foreign key (invoice_row_id, account_key, stripe_invoice_id) references public.hosted_invoices (id, account_key, stripe_invoice_id) on delete restrict;
+alter table public.hosted_credit_notes add constraint hosted_credit_notes_invoice_fk
+  foreign key (invoice_row_id, account_key, stripe_invoice_id) references public.hosted_invoices (id, account_key, stripe_invoice_id) on delete restrict;
 
 create table public.hosted_invoice_status_transitions (
   id uuid primary key default gen_random_uuid(),
@@ -187,6 +209,27 @@ create table public.hosted_invoice_recon_audit (
 );
 create index hosted_invoice_recon_audit_invoice_idx on public.hosted_invoice_recon_audit (invoice_row_id);
 
+create table public.hosted_invoice_deferred_events (
+  provider_event_id text primary key,
+  event_type text not null,
+  stripe_account_id text,
+  livemode boolean not null,
+  event_created bigint not null,
+  payload_hash text not null,
+  object_kind text not null,
+  object_snapshot jsonb not null,
+  state text not null default 'pending',
+  attempts integer not null default 0,
+  last_error text,
+  received_at timestamptz not null default now(),
+  settled_at timestamptz,
+  constraint hosted_invoice_deferred_kind_chk check (object_kind in ('invoice', 'invoice_payment', 'credit_note')),
+  constraint hosted_invoice_deferred_state_chk check (state in ('pending', 'applied', 'rejected')),
+  constraint hosted_invoice_deferred_settled_chk check ((state = 'pending') = (settled_at is null)),
+  constraint hosted_invoice_deferred_size_chk check (pg_column_size(object_snapshot) <= 4096)
+);
+create index hosted_invoice_deferred_pending_idx on public.hosted_invoice_deferred_events (event_created, provider_event_id) where state = 'pending';
+
 -- ---------------------------------------------------------------------------------------------------------------------
 -- Privileges and RLS: service role reads; every write goes through the definer functions below.
 -- ---------------------------------------------------------------------------------------------------------------------
@@ -195,7 +238,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['hosted_invoice_registry', 'hosted_invoices', 'hosted_invoice_payments', 'hosted_credit_notes',
-                           'hosted_invoice_status_transitions', 'hosted_invoice_source_events', 'hosted_invoice_recon_audit'] loop
+                           'hosted_invoice_status_transitions', 'hosted_invoice_source_events', 'hosted_invoice_recon_audit', 'hosted_invoice_deferred_events'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on public.%I from public, anon, authenticated, service_role', t);
     execute format('grant select on public.%I to service_role', t);
@@ -290,15 +333,90 @@ begin
   end loop;
 end $$;
 
+create or replace function public._d24_deferred_guard()
+returns trigger language plpgsql
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  if tg_op = 'DELETE' then
+    raise exception 'd24: deferred events are permanent evidence' using errcode = '42501';
+  end if;
+  if tg_op = 'INSERT' then
+    if coalesce(current_setting('d24.writer', true), '') <> 'on' then
+      raise exception 'd24: INSERT on % is only allowed through the d24 functions', tg_table_name using errcode = '42501';
+    end if;
+    return new;
+  end if;
+  if coalesce(current_setting('d24.writer', true), '') <> 'on' then
+    raise exception 'd24: UPDATE on % is only allowed through the d24 functions', tg_table_name using errcode = '42501';
+  end if;
+  if new.provider_event_id is distinct from old.provider_event_id or new.event_type is distinct from old.event_type
+     or new.stripe_account_id is distinct from old.stripe_account_id or new.livemode is distinct from old.livemode
+     or new.event_created is distinct from old.event_created or new.payload_hash is distinct from old.payload_hash
+     or new.object_kind is distinct from old.object_kind or new.object_snapshot is distinct from old.object_snapshot
+     or new.received_at is distinct from old.received_at then
+    raise exception 'd24: deferred event evidence is immutable' using errcode = '42501';
+  end if;
+  if old.state <> 'pending' and (new.state is distinct from old.state or new.settled_at is distinct from old.settled_at) then
+    raise exception 'd24: a settled deferred event cannot change state' using errcode = '42501';
+  end if;
+  if new.attempts < old.attempts then
+    raise exception 'd24: attempts cannot decrease' using errcode = '42501';
+  end if;
+  return new;
+end $$;
+
+create trigger hosted_invoice_deferred_guard_trg before insert or update or delete on public.hosted_invoice_deferred_events
+  for each row execute function public._d24_deferred_guard();
+create trigger hosted_invoice_deferred_trunc_trg before truncate on public.hosted_invoice_deferred_events
+  for each statement execute function public._d24_append_only();
+
+-- Tenant ownership at commit, whoever wrote: a child row carries exactly its invoice's studio, and an invoice's studio never disagrees with a child.
+create or replace function public._d24_child_studio_check()
+returns trigger language plpgsql
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare v_parent uuid;
+begin
+  select studio_id into v_parent from public.hosted_invoices where id = new.invoice_row_id;
+  if new.studio_id is distinct from v_parent then
+    raise exception 'd24: % studio does not match its invoice', tg_table_name using errcode = '42501';
+  end if;
+  return null;
+end $$;
+
+create or replace function public._d24_parent_studio_check()
+returns trigger language plpgsql
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  if exists (select 1 from public.hosted_invoice_payments where invoice_row_id = new.id and studio_id is distinct from new.studio_id)
+     or exists (select 1 from public.hosted_credit_notes where invoice_row_id = new.id and studio_id is distinct from new.studio_id)
+     or exists (select 1 from public.hosted_invoice_status_transitions where invoice_row_id = new.id and studio_id is not null and studio_id is distinct from new.studio_id) then
+    raise exception 'd24: invoice studio disagrees with its payments, credit notes or transitions' using errcode = '42501';
+  end if;
+  return null;
+end $$;
+
+create constraint trigger hosted_invoice_payments_studio_ct after insert or update of studio_id, invoice_row_id on public.hosted_invoice_payments
+  deferrable initially deferred for each row execute function public._d24_child_studio_check();
+create constraint trigger hosted_credit_notes_studio_ct after insert or update of studio_id, invoice_row_id on public.hosted_credit_notes
+  deferrable initially deferred for each row execute function public._d24_child_studio_check();
+create constraint trigger hosted_invoice_transitions_studio_ct after insert on public.hosted_invoice_status_transitions
+  deferrable initially deferred for each row execute function public._d24_child_studio_check();
+create constraint trigger hosted_invoices_studio_ct after update of studio_id on public.hosted_invoices
+  deferrable initially deferred for each row execute function public._d24_parent_studio_check();
+
 -- ---------------------------------------------------------------------------------------------------------------------
 -- Internal helpers
 -- ---------------------------------------------------------------------------------------------------------------------
 
-create or replace function public._d24_derive_state(p_studio_id uuid, p_codes text[], p_ack text[])
+create or replace function public._d24_derive_state(p_studio_id uuid, p_class text, p_codes text[], p_ack text[])
 returns text language sql immutable
 set search_path = pg_catalog, public, pg_temp
 as $$
   select case
+    when p_studio_id is null and p_class = 'subscription' then 'out_of_scope'
     when p_studio_id is null then 'unmatched'
     when exists (select 1 from unnest(coalesce(p_codes, '{}')) c where c <> all (coalesce(p_ack, '{}'))) then 'anomalous'
     when coalesce(array_length(p_codes, 1), 0) > 0 then 'resolved'
@@ -324,7 +442,7 @@ declare
   v_new text;
 begin
   select * into v from public.hosted_invoices where id = p_row_id;
-  v_new := public._d24_derive_state(v.studio_id, v.anomaly_codes, v.acknowledged_codes);
+  v_new := public._d24_derive_state(v.studio_id, v.classification, v.anomaly_codes, v.acknowledged_codes);
   if v_new is distinct from v.reconciliation_state then
     update public.hosted_invoices set reconciliation_state = v_new, updated_at = now() where id = p_row_id;
     insert into public.hosted_invoice_recon_audit (invoice_row_id, studio_id, trigger_kind, from_state, to_state, anomaly_codes, source_event_id)
@@ -364,13 +482,42 @@ begin
     end if;
     return false;
   end if;
-  update public.hosted_invoices set studio_id = r.studio_id, registry_id = r.id, updated_at = now() where id = p_row_id;
+  update public.hosted_invoices set studio_id = r.studio_id, registry_id = r.id, classification = 'registered', updated_at = now() where id = p_row_id;
   update public.hosted_invoice_payments set studio_id = r.studio_id, updated_at = now() where invoice_row_id = p_row_id and studio_id is null;
   update public.hosted_credit_notes set studio_id = r.studio_id, updated_at = now() where invoice_row_id = p_row_id and studio_id is null;
   if r.livemode is distinct from v.livemode then perform public._d24_flag(p_row_id, 'livemode_mismatch'); end if;
   if v.metadata_ref is not null and v.metadata_ref <> r.id::text then perform public._d24_flag(p_row_id, 'metadata_mismatch'); end if;
   if v.metadata_studio is not null and v.metadata_studio <> r.studio_id::text then perform public._d24_flag(p_row_id, 'metadata_mismatch'); end if;
   return true;
+end $$;
+
+-- Classify from trusted evidence only. A registry match is the only way to a studio; subscription evidence (Stripe markers on the invoice object, or the platform's own
+-- studio_invoices record) only moves an unattributed invoice out of the attention queue and never assigns a studio.
+create or replace function public._d24_classify(p_row_id uuid)
+returns text language plpgsql
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  v public.hosted_invoices%rowtype;
+  v_hit boolean := false;
+  v_class text;
+begin
+  select * into v from public.hosted_invoices where id = p_row_id;
+  if v.stripe_account_id is null and not v.subscription_evidence and to_regclass('public.studio_invoices') is not null then
+    execute 'select exists (select 1 from public.studio_invoices where stripe_invoice_id = $1)' into v_hit using v.stripe_invoice_id;
+  end if;
+  if v_hit and not v.subscription_evidence then
+    update public.hosted_invoices set subscription_evidence = true where id = p_row_id;
+    v.subscription_evidence := true;
+  end if;
+  v_class := case when v.studio_id is not null then 'registered' when v.subscription_evidence then 'subscription' else 'unresolved' end;
+  if v.studio_id is not null and v.subscription_evidence then
+    perform public._d24_flag(p_row_id, 'subscription_registry_conflict');
+  end if;
+  if v_class is distinct from v.classification then
+    update public.hosted_invoices set classification = v_class, updated_at = now() where id = p_row_id;
+  end if;
+  return v_class;
 end $$;
 
 create or replace function public._d24_key_lock(p_account text, p_invoice_id text)
@@ -430,14 +577,44 @@ begin
   for update;
   if v_row is not null then
     v_adopted := public._d24_try_adopt(v_row);
+    perform public._d24_classify(v_row);
     perform public._d24_refresh_state(v_row, 'registration', null);
   end if;
   return jsonb_build_object('outcome', 'registered', 'registry_id', v_reg, 'adopted_existing_facts', v_adopted and v_row is not null);
 end $$;
 
--- Apply one verified, claimed Stripe event. p_object is the sanitized normalized object (see src/lib/payments/hostedInvoice/normalize.ts).
-create or replace function public.d24_apply_event(
-  p_provider_event_id text, p_owner uuid, p_event_type text, p_event_created bigint,
+create or replace function public._d24_validate_event(
+  p_provider_event_id text, p_event_type text, p_event_created bigint, p_account text, p_livemode boolean, p_payload_hash text, p_kind text, p_object jsonb)
+returns void language plpgsql
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  if p_provider_event_id is null or length(p_provider_event_id) = 0 or p_event_created is null or p_livemode is null
+     or p_payload_hash is null or p_object is null or (p_object->>'invoice_id') is null then
+    raise exception 'd24: event id, created, livemode, hash and invoice id are required' using errcode = '22023';
+  end if;
+  if p_account is not null and p_account !~ '^acct_[A-Za-z0-9]+$' then
+    raise exception 'd24: malformed account id' using errcode = '22023';
+  end if;
+  if (p_object->>'invoice_id') !~ '^in_[A-Za-z0-9]+$' then
+    raise exception 'd24: malformed invoice id' using errcode = '22023';
+  end if;
+  if not ((p_kind = 'invoice' and p_event_type in ('invoice.voided', 'invoice.marked_uncollectible'))
+       or (p_kind = 'invoice_payment' and p_event_type = 'invoice_payment.paid')
+       or (p_kind = 'credit_note' and p_event_type in ('credit_note.created', 'credit_note.updated', 'credit_note.voided'))) then
+    raise exception 'd24: event type % does not match kind %', p_event_type, p_kind using errcode = '22023';
+  end if;
+  if p_kind <> 'invoice' and (p_object->>'object_id') is null then
+    raise exception 'd24: object id required' using errcode = '22023';
+  end if;
+  if p_kind = 'invoice' and (p_object->>'status') not in ('void', 'uncollectible') then
+    raise exception 'd24: invoice event with unsupported status %', p_object->>'status' using errcode = '22023';
+  end if;
+end $$;
+
+-- Core: apply one sanitized event. No claim check here (callers: d24_apply_event after verifying the claim, and d24_drain_deferred). Fully idempotent.
+create or replace function public._d24_apply_core(
+  p_provider_event_id text, p_event_type text, p_event_created bigint,
   p_account text, p_livemode boolean, p_payload_hash text, p_kind text, p_object jsonb)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
@@ -458,31 +635,13 @@ declare
   v_paid_sum bigint;
   v_new_payment boolean := false;
 begin
-  if p_provider_event_id is null or length(p_provider_event_id) = 0 or p_owner is null or p_event_created is null or p_livemode is null
-     or p_payload_hash is null or p_object is null or v_invoice_id is null then
-    raise exception 'd24_apply_event: event id, owner, created, livemode, hash and invoice id are required' using errcode = '22023';
-  end if;
-  if p_account is not null and p_account !~ '^acct_[A-Za-z0-9]+$' then
-    raise exception 'd24_apply_event: malformed account id' using errcode = '22023';
-  end if;
-  if v_invoice_id !~ '^in_[A-Za-z0-9]+$' then
-    raise exception 'd24_apply_event: malformed invoice id' using errcode = '22023';
-  end if;
-  if not ((p_kind = 'invoice' and p_event_type in ('invoice.voided', 'invoice.marked_uncollectible'))
-       or (p_kind = 'invoice_payment' and p_event_type = 'invoice_payment.paid')
-       or (p_kind = 'credit_note' and p_event_type in ('credit_note.created', 'credit_note.updated', 'credit_note.voided'))) then
-    raise exception 'd24_apply_event: event type % does not match kind %', p_event_type, p_kind using errcode = '22023';
-  end if;
+  perform public._d24_validate_event(p_provider_event_id, p_event_type, p_event_created, p_account, p_livemode, p_payload_hash, p_kind, p_object);
   v_object_id := case p_kind when 'invoice' then v_invoice_id else p_object->>'object_id' end;
-  if v_object_id is null then
-    raise exception 'd24_apply_event: object id required' using errcode = '22023';
-  end if;
-
-  -- 1. the caller must still own the PAY-WH-1 claim (a worker whose lease was taken over can never commit)
-  perform public._paywh1_require_event_claim(p_provider_event_id, p_owner);
   perform set_config('d24.writer', 'on', true);
+  -- serialize everything about this invoice key (events, registration, adoption, drain) BEFORE the replay check
+  perform public._d24_key_lock(p_account, v_invoice_id);
 
-  -- 2. replay of an event this function already applied: evidence exists, nothing to redo
+  -- replay of an event this function already applied: evidence exists, nothing to redo
   select * into v_existing_evt from public.hosted_invoice_source_events where provider_event_id = p_provider_event_id;
   if found then
     if v_existing_evt.payload_hash <> p_payload_hash then
@@ -493,9 +652,6 @@ begin
     end if;
     return jsonb_build_object('outcome', 'replayed', 'invoice_row_id', v_existing_evt.invoice_row_id);
   end if;
-
-  -- 3. serialize everything about this invoice key (events, registration, adoption)
-  perform public._d24_key_lock(p_account, v_invoice_id);
 
   insert into public.hosted_invoices (stripe_account_id, stripe_invoice_id, livemode, reconciliation_state, first_seen_event_id)
   values (p_account, v_invoice_id, p_livemode, 'unmatched', p_provider_event_id)
@@ -523,6 +679,10 @@ begin
 
   -- 5. attribute from the trusted registry only
   perform public._d24_try_adopt(v_row_id);
+  if p_kind = 'invoice' and coalesce((p_object->>'subscription_evidence')::boolean, false) then
+    update public.hosted_invoices set subscription_evidence = true, updated_at = now() where id = v_row_id and not subscription_evidence;
+  end if;
+  perform public._d24_classify(v_row_id);
   select * into v_inv from public.hosted_invoices where id = v_row_id;
 
   -- 6. apply the fact
@@ -615,6 +775,96 @@ begin
                             'reconciliation_state', v_state, 'anomaly_codes', to_jsonb(v_inv.anomaly_codes));
 end $$;
 
+-- Apply one verified, claimed Stripe event (route entry point).
+create or replace function public.d24_apply_event(
+  p_provider_event_id text, p_owner uuid, p_event_type text, p_event_created bigint,
+  p_account text, p_livemode boolean, p_payload_hash text, p_kind text, p_object jsonb)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare v jsonb;
+begin
+  if p_owner is null then
+    raise exception 'd24_apply_event: owner is required' using errcode = '22023';
+  end if;
+  -- the caller must still own the PAY-WH-1 claim (a worker whose lease was taken over can never commit)
+  perform public._paywh1_require_event_claim(p_provider_event_id, p_owner);
+  v := public._d24_apply_core(p_provider_event_id, p_event_type, p_event_created, p_account, p_livemode, p_payload_hash, p_kind, p_object);
+  perform set_config('d24.writer', 'on', true);
+  -- a deferred copy of the same event is now settled; skip it if a drain holds it (the drain will see 'replayed')
+  update public.hosted_invoice_deferred_events
+  set state = 'applied', settled_at = now(), last_error = null
+  where provider_event_id in (select provider_event_id from public.hosted_invoice_deferred_events
+                              where provider_event_id = p_provider_event_id and state = 'pending' for update skip locked);
+  return v;
+end $$;
+
+-- Defer mode: durably record the sanitized event so enabling the feature later applies it (idempotently) without any Stripe resend.
+create or replace function public.d24_defer_event(
+  p_provider_event_id text, p_owner uuid, p_event_type text, p_event_created bigint,
+  p_account text, p_livemode boolean, p_payload_hash text, p_kind text, p_object jsonb)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  v_existing public.hosted_invoice_deferred_events%rowtype;
+begin
+  if p_owner is null then
+    raise exception 'd24_defer_event: owner is required' using errcode = '22023';
+  end if;
+  perform public._paywh1_require_event_claim(p_provider_event_id, p_owner);
+  perform public._d24_validate_event(p_provider_event_id, p_event_type, p_event_created, p_account, p_livemode, p_payload_hash, p_kind, p_object);
+  perform set_config('d24.writer', 'on', true);
+  if exists (select 1 from public.hosted_invoice_source_events where provider_event_id = p_provider_event_id) then
+    return jsonb_build_object('outcome', 'already_applied');
+  end if;
+  insert into public.hosted_invoice_deferred_events
+    (provider_event_id, event_type, stripe_account_id, livemode, event_created, payload_hash, object_kind, object_snapshot)
+  values (p_provider_event_id, p_event_type, p_account, p_livemode, p_event_created, p_payload_hash, p_kind, p_object)
+  on conflict (provider_event_id) do nothing;
+  if not found then
+    select * into v_existing from public.hosted_invoice_deferred_events where provider_event_id = p_provider_event_id;
+    return jsonb_build_object('outcome', 'deferred', 'duplicate', true, 'payload_mismatch', v_existing.payload_hash <> p_payload_hash, 'state', v_existing.state);
+  end if;
+  return jsonb_build_object('outcome', 'deferred', 'duplicate', false, 'state', 'pending');
+end $$;
+
+-- Apply pending deferred events (oldest first). Each event is its own savepoint; reducers are order independent and keyed, so draining twice, draining while the
+-- live route applies the same events, or draining after the feature is on can never double-record a payment, credit note or transition.
+-- Only a validation failure (22023) rejects an event, and a rejected event is kept; any other failure leaves it pending with the error recorded.
+create or replace function public.d24_drain_deferred(p_limit integer default 100)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  r public.hosted_invoice_deferred_events%rowtype;
+  v_applied integer := 0;
+  v_rejected integer := 0;
+  v_failed integer := 0;
+begin
+  perform set_config('d24.writer', 'on', true);
+  for r in select * from public.hosted_invoice_deferred_events where state = 'pending'
+           order by event_created, provider_event_id limit least(greatest(coalesce(p_limit, 100), 1), 500) for update skip locked loop
+    begin
+      perform public._d24_apply_core(r.provider_event_id, r.event_type, r.event_created, r.stripe_account_id, r.livemode, r.payload_hash, r.object_kind, r.object_snapshot);
+      update public.hosted_invoice_deferred_events set state = 'applied', settled_at = now(), attempts = attempts + 1, last_error = null
+      where provider_event_id = r.provider_event_id;
+      v_applied := v_applied + 1;
+    exception when others then
+      perform set_config('d24.writer', 'on', true);
+      if sqlstate = '22023' then
+        update public.hosted_invoice_deferred_events set state = 'rejected', settled_at = now(), attempts = attempts + 1, last_error = left(sqlerrm, 500)
+        where provider_event_id = r.provider_event_id;
+        v_rejected := v_rejected + 1;
+      else
+        update public.hosted_invoice_deferred_events set attempts = attempts + 1, last_error = left(sqlerrm, 500) where provider_event_id = r.provider_event_id;
+        v_failed := v_failed + 1;
+      end if;
+    end;
+  end loop;
+  return jsonb_build_object('applied', v_applied, 'rejected', v_rejected, 'failed', v_failed);
+end $$;
+
 -- Acknowledge (review) anomalies. The only manual state change: it can never attribute an unmatched invoice or erase a code.
 create or replace function public.d24_acknowledge_anomalies(p_invoice_row_id uuid, p_codes text[], p_actor uuid, p_reason text)
 returns jsonb language plpgsql security definer
@@ -640,7 +890,7 @@ begin
   update public.hosted_invoices
   set acknowledged_codes = (select array_agg(distinct c order by c) from unnest(acknowledged_codes || p_codes) c), updated_at = now()
   where id = p_invoice_row_id;
-  v_state := public._d24_derive_state(v.studio_id, v.anomaly_codes, (select array_agg(distinct c) from unnest(v.acknowledged_codes || p_codes) c));
+  v_state := public._d24_derive_state(v.studio_id, v.classification, v.anomaly_codes, (select array_agg(distinct c) from unnest(v.acknowledged_codes || p_codes) c));
   update public.hosted_invoices set reconciliation_state = v_state where id = p_invoice_row_id;
   insert into public.hosted_invoice_recon_audit (invoice_row_id, studio_id, trigger_kind, from_state, to_state, anomaly_codes, actor_user_id, reason)
   values (p_invoice_row_id, v.studio_id, 'acknowledgement', v.reconciliation_state, v_state, p_codes, p_actor, p_reason);
@@ -650,12 +900,22 @@ end $$;
 revoke all on function public._d24_require_writer() from public, anon, authenticated, service_role;
 revoke all on function public._d24_append_only() from public, anon, authenticated, service_role;
 revoke all on function public._d24_identity_guard() from public, anon, authenticated, service_role;
-revoke all on function public._d24_derive_state(uuid, text[], text[]) from public, anon, authenticated, service_role;
+revoke all on function public._d24_derive_state(uuid, text, text[], text[]) from public, anon, authenticated, service_role;
 revoke all on function public._d24_add_code(text[], text) from public, anon, authenticated, service_role;
 revoke all on function public._d24_refresh_state(uuid, text, text) from public, anon, authenticated, service_role;
 revoke all on function public._d24_flag(uuid, text, boolean) from public, anon, authenticated, service_role;
 revoke all on function public._d24_try_adopt(uuid) from public, anon, authenticated, service_role;
 revoke all on function public._d24_key_lock(text, text) from public, anon, authenticated, service_role;
+revoke all on function public._d24_classify(uuid) from public, anon, authenticated, service_role;
+revoke all on function public._d24_validate_event(text, text, bigint, text, boolean, text, text, jsonb) from public, anon, authenticated, service_role;
+revoke all on function public._d24_apply_core(text, text, bigint, text, boolean, text, text, jsonb) from public, anon, authenticated, service_role;
+revoke all on function public._d24_deferred_guard() from public, anon, authenticated, service_role;
+revoke all on function public._d24_child_studio_check() from public, anon, authenticated, service_role;
+revoke all on function public._d24_parent_studio_check() from public, anon, authenticated, service_role;
+revoke all on function public.d24_defer_event(text, uuid, text, bigint, text, boolean, text, text, jsonb) from public, anon, authenticated;
+revoke all on function public.d24_drain_deferred(integer) from public, anon, authenticated;
+grant execute on function public.d24_defer_event(text, uuid, text, bigint, text, boolean, text, text, jsonb) to service_role;
+grant execute on function public.d24_drain_deferred(integer) to service_role;
 revoke all on function public.d24_register_invoice(uuid, text, text, boolean, text, text, uuid) from public, anon, authenticated;
 revoke all on function public.d24_apply_event(text, uuid, text, bigint, text, boolean, text, text, jsonb) from public, anon, authenticated;
 revoke all on function public.d24_acknowledge_anomalies(uuid, text[], uuid, text) from public, anon, authenticated;

@@ -26,7 +26,7 @@ export const D24_METADATA_STUDIO_KEY = "df_studio_id";
 
 export type NormalizedD24Event = {
   kind: D24Kind;
-  object: Record<string, string | number | null>;
+  object: Record<string, string | number | boolean | null>;
 };
 
 export type NormalizeResult = { ok: true; value: NormalizedD24Event } | { ok: false; reason: string };
@@ -60,8 +60,8 @@ export function normalizeD24Object(type: D24EventType, raw: unknown): NormalizeR
     // The database stores Stripe's actual status. An event type that contradicts the object is refused, not guessed.
     const expected = type === "invoice.voided" ? "void" : "uncollectible";
     if (status !== expected) return fail("invoice_status_contradicts_event");
-    // Subscription billing invoices are handled by the existing subscription handlers; they are not hosted invoices.
-    if (raw.subscription || (typeof raw.billing_reason === "string" && raw.billing_reason.startsWith("subscription"))) return fail("subscription_invoice");
+    // Stripe's own subscription markers are classification evidence only: the invoice is still recorded, never discarded, and never attributed by them.
+    const subscriptionEvidence = Boolean(raw.subscription) || (typeof raw.billing_reason === "string" && raw.billing_reason.startsWith("subscription"));
     const total = signed(raw.total);
     const due = cents(raw.amount_due);
     const paid = cents(raw.amount_paid);
@@ -84,6 +84,7 @@ export function normalizeD24Object(type: D24EventType, raw: unknown): NormalizeR
           currency,
           metadata_ref: uuidRef(metadata[D24_METADATA_REGISTRY_KEY]),
           metadata_studio: uuidRef(metadata[D24_METADATA_STUDIO_KEY]),
+          subscription_evidence: subscriptionEvidence,
         },
       },
     };
@@ -126,7 +127,10 @@ export function normalizeD24Object(type: D24EventType, raw: unknown): NormalizeR
   };
 }
 
-export const d24Enabled = (env: Record<string, string | undefined> = process.env): boolean =>
-  (env.D24_HOSTED_INVOICE_EVENTS ?? "").trim().toLowerCase() === "on";
+export type D24Mode = "off" | "defer" | "on";
+export const d24Mode = (env: Record<string, string | undefined> = process.env): D24Mode => {
+  const v = (env.D24_HOSTED_INVOICE_EVENTS ?? "").trim().toLowerCase();
+  return v === "on" ? "on" : v === "defer" ? "defer" : "off";
+};
 
 export type D24EventInput = Pick<Stripe.Event, "id" | "type" | "created" | "livemode" | "account"> & { data: { object: unknown } };

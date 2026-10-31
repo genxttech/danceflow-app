@@ -1,20 +1,28 @@
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { d24Enabled, isD24EventType, kindOf, normalizeD24Object, type D24EventInput } from "./normalize";
+import { d24Mode, isD24EventType, kindOf, normalizeD24Object, type D24EventInput } from "./normalize";
 
 /**
- * D24 M1: record hosted-invoice facts (invoice void / uncollectible, invoice payments, credit notes) from a verified,
- * claimed Stripe event. Everything that decides ownership, order and idempotency lives in the database function
- * d24_apply_event, which re-checks the PAY-WH-1 claim, validates the account scope against the trusted registry and
- * stores the facts in one transaction. This module only sanitizes input and maps the outcome.
+ * D24: record hosted-invoice facts (invoice void / uncollectible, invoice payments, credit notes) from a verified,
+ * claimed Stripe event. Everything that decides ownership, order and idempotency lives in the database
+ * (d24_apply_event / d24_defer_event), which re-check the PAY-WH-1 claim, validate the account scope against the trusted
+ * registry and store the facts in one transaction. This module only sanitizes input and maps the outcome.
  *
- * No settlement, ledger, refund, credit or registration side effect exists here. Dark unless D24_HOSTED_INVOICE_EVENTS=on.
+ * Modes (D24_HOSTED_INVOICE_EVENTS):
+ *   on     apply now.
+ *   defer  durably store the sanitized event; d24_drain_deferred applies it later, idempotently. Requires the migration.
+ *   other  OFF: no database access. The event is acknowledged with outcome d24_not_enabled, which means NOT reconciled and
+ *          not recoverable from this system. Run `defer` (or `on`) in the same release as the SQL.
+ *
+ * No settlement, ledger, refund, credit or registration side effect exists here.
  */
 
 export type HostedInvoiceOutcome =
-  | "d24_disabled"
+  | "d24_not_enabled"
   | "d24_malformed_ignored"
-  | "d24_not_applicable_ignored"
+  | "d24_test_mode_ignored"
+  | "d24_deferred"
+  | "d24_already_applied"
   | "d24_applied_matched"
   | "d24_applied_unmatched"
   | "d24_replayed";
@@ -37,15 +45,16 @@ export async function handleHostedInvoiceEvent(input: {
   env?: Record<string, string | undefined>;
 }): Promise<{ outcome: HostedInvoiceOutcome }> {
   const { supabase, event, claim } = input;
-  if (!d24Enabled(input.env)) return { outcome: "d24_disabled" };
+  const env = input.env ?? process.env;
+  const mode = d24Mode(env);
+  if (mode === "off") return { outcome: "d24_not_enabled" };
   if (!isD24EventType(event.type)) return { outcome: "d24_malformed_ignored" };
 
   // A test-mode event reaching a deployment with a live key (for example Connect test traffic) is never recorded as a fact.
-  const key = (input.env ?? process.env).STRIPE_SECRET_KEY?.trim() ?? "";
-  if (event.livemode !== true && (key.startsWith("sk_live_") || key.startsWith("rk_live_"))) return { outcome: "d24_not_applicable_ignored" };
+  const key = env.STRIPE_SECRET_KEY?.trim() ?? "";
+  if (event.livemode !== true && (key.startsWith("sk_live_") || key.startsWith("rk_live_"))) return { outcome: "d24_test_mode_ignored" };
 
   const normalized = normalizeD24Object(event.type, event.data.object);
-  if (!normalized.ok && normalized.reason === "subscription_invoice") return { outcome: "d24_not_applicable_ignored" };
   if (!normalized.ok) {
     // A structurally impossible object can never succeed on retry; acknowledge it and keep only the reason code.
     console.error("d24_event_malformed", { eventId: event.id, type: event.type, reason: normalized.reason });
@@ -54,9 +63,11 @@ export async function handleHostedInvoiceEvent(input: {
   if (claim.eventId !== event.id) throw new Error("d24: claim does not belong to this event");
 
   // Hash of what is stored (not the raw body): a replay of the same event id must reproduce it exactly.
-  const payloadHash = createHash("sha256").update(stable({ type: event.type, account: event.account ?? null, kind: kindOf(event.type), object: normalized.value.object })).digest("hex");
+  const payloadHash = createHash("sha256")
+    .update(stable({ type: event.type, account: event.account ?? null, kind: kindOf(event.type), object: normalized.value.object }))
+    .digest("hex");
 
-  const { data, error } = await supabase.rpc("d24_apply_event", {
+  const { data, error } = await supabase.rpc(mode === "on" ? "d24_apply_event" : "d24_defer_event", {
     p_provider_event_id: event.id,
     p_owner: claim.owner,
     p_event_type: event.type,
@@ -68,9 +79,14 @@ export async function handleHostedInvoiceEvent(input: {
     p_object: normalized.value.object,
   });
   // A failure (including a lost claim) is thrown so the route finalizes the event as failed and Stripe retries it.
-  if (error) throw new Error(`d24_apply_event failed: ${error.code ?? "error"}`);
+  if (error) throw new Error(`d24 ${mode === "on" ? "apply" : "defer"} failed: ${error.code ?? "error"}`);
 
   const result = (data ?? {}) as { outcome?: string; matched?: boolean };
+  if (mode === "defer") {
+    if (result.outcome === "deferred") return { outcome: "d24_deferred" };
+    if (result.outcome === "already_applied") return { outcome: "d24_already_applied" };
+    throw new Error("d24_defer_event returned an unexpected result");
+  }
   if (result.outcome === "replayed") return { outcome: "d24_replayed" };
   if (result.outcome === "applied") return { outcome: result.matched ? "d24_applied_matched" : "d24_applied_unmatched" };
   throw new Error("d24_apply_event returned an unexpected result");

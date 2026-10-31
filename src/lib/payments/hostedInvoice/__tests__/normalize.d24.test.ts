@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { D24_EVENT_TYPES, d24Enabled, isD24EventType, kindOf, normalizeD24Object } from "../normalize";
+import { D24_EVENT_TYPES, d24Mode, isD24EventType, kindOf, normalizeD24Object } from "../normalize";
 
 const invoice = (over: Record<string, unknown> = {}) => ({
   id: "in_1", object: "invoice", status: "void", total: 1000, amount_due: 1000, amount_paid: 0, amount_remaining: 1000, currency: "USD",
@@ -17,10 +17,11 @@ describe("D24 event types", () => {
     expect(isD24EventType("invoice.paid")).toBe(false);
     expect(isD24EventType("invoice.payment_failed")).toBe(false);
   });
-  it("is dark unless the flag is exactly 'on'", () => {
-    expect(d24Enabled({})).toBe(false);
-    expect(d24Enabled({ D24_HOSTED_INVOICE_EVENTS: "true" })).toBe(false);
-    expect(d24Enabled({ D24_HOSTED_INVOICE_EVENTS: "ON " })).toBe(true);
+  it("is off unless the flag is exactly 'on' or 'defer'", () => {
+    expect(d24Mode({})).toBe("off");
+    expect(d24Mode({ D24_HOSTED_INVOICE_EVENTS: "true" })).toBe("off");
+    expect(d24Mode({ D24_HOSTED_INVOICE_EVENTS: "ON " })).toBe("on");
+    expect(d24Mode({ D24_HOSTED_INVOICE_EVENTS: " Defer" })).toBe("defer");
   });
 });
 
@@ -31,7 +32,7 @@ describe("invoice normalization", () => {
     if (!r.ok) return;
     expect(r.value.object).toEqual({
       invoice_id: "in_1", status: "void", total: 1000, amount_due: 1000, amount_paid: 0, amount_remaining: 1000, currency: "usd",
-      metadata_ref: "11111111-1111-4111-8111-111111111111", metadata_studio: "22222222-2222-4222-8222-222222222222",
+      metadata_ref: "11111111-1111-4111-8111-111111111111", metadata_studio: "22222222-2222-4222-8222-222222222222", subscription_evidence: false,
     });
     expect(JSON.stringify(r.value)).not.toMatch(/pii@example|Pat Private|secret/);
   });
@@ -54,10 +55,12 @@ describe("invoice normalization", () => {
     const r = normalizeD24Object("invoice.voided", invoice({ total: -250 }));
     expect(r.ok && r.value.object.total).toBe(-250);
   });
-  it("ignores subscription billing invoices (handled by the subscription handlers)", () => {
-    expect(normalizeD24Object("invoice.voided", invoice({ subscription: "sub_1" }))).toEqual({ ok: false, reason: "subscription_invoice" });
-    expect(normalizeD24Object("invoice.voided", invoice({ billing_reason: "subscription_cycle" }))).toEqual({ ok: false, reason: "subscription_invoice" });
-    expect(normalizeD24Object("invoice.voided", invoice({ billing_reason: "manual" })).ok).toBe(true);
+  it("keeps subscription invoices as evidence-flagged facts instead of discarding them", () => {
+    const flag = (over: Record<string, unknown>) => { const r = normalizeD24Object("invoice.voided", invoice(over)); return r.ok ? r.value.object.subscription_evidence : "rejected"; };
+    expect(flag({ subscription: "sub_1" })).toBe(true);
+    expect(flag({ billing_reason: "subscription_cycle" })).toBe(true);
+    expect(flag({ billing_reason: "manual" })).toBe(false);
+    expect(flag({})).toBe(false);
   });
   it("drops metadata references that are not UUIDs instead of storing free text", () => {
     const r = normalizeD24Object("invoice.voided", invoice({ metadata: { df_registry_id: "x".repeat(200), df_studio_id: "not-a-uuid" } }));

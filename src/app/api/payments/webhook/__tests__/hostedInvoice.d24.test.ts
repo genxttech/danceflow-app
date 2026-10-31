@@ -18,6 +18,7 @@ const rpcLog: Array<{ fn: string; args: Record<string, unknown> }> = [];
 const tableLog: string[] = [];
 let applyError: { code: string } | null = null;
 let applyResult: Record<string, unknown> = { outcome: "applied", matched: false };
+let deferResult: Record<string, unknown> = { outcome: "deferred", duplicate: false };
 
 function claim(args: Record<string, unknown>) {
   const id = String(args.p_provider_event_id);
@@ -49,6 +50,7 @@ vi.mock("@supabase/supabase-js", () => ({
       rpcLog.push({ fn, args });
       if (fn === "claim_payment_provider_event") return { data: claim(args), error: null };
       if (fn === "complete_payment_provider_event") return { data: complete(args), error: null };
+      if (fn === "d24_defer_event") return applyError ? { data: null, error: applyError } : { data: deferResult, error: null };
       if (fn === "d24_apply_event") return applyError ? { data: null, error: applyError } : { data: applyResult, error: null };
       return { data: null, error: null };
     },
@@ -84,6 +86,7 @@ async function send(body: string, secret = PLATFORM_SECRET, sig: string | null =
 }
 
 const applyCalls = () => rpcLog.filter((c) => c.fn === "d24_apply_event");
+const deferCalls = () => rpcLog.filter((c) => c.fn === "d24_defer_event");
 
 beforeEach(() => {
   store.clear();
@@ -91,6 +94,7 @@ beforeEach(() => {
   tableLog.length = 0;
   applyError = null;
   applyResult = { outcome: "applied", matched: false };
+  deferResult = { outcome: "deferred", duplicate: false };
   process.env.STRIPE_WEBHOOK_SECRET = PLATFORM_SECRET;
   process.env.STRIPE_CONNECT_WEBHOOK_SECRET = CONNECT_SECRET;
   process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
@@ -116,13 +120,44 @@ const CASES: Array<[string, Record<string, unknown>]> = [
   ["credit_note.voided", { ...noteObject, status: "void" }],
 ];
 
-describe("dark by default", () => {
-  it.each(CASES)("%s is acknowledged with no D24 database call and no table access", async (type, object) => {
+describe("off by default", () => {
+  it.each(CASES)("%s is acknowledged as NOT enabled with no D24 database call and no table access", async (type, object) => {
     const body = JSON.stringify(envelope(`evt_dark_${type}`, type, object));
     expect((await send(body)).status).toBe(200);
     expect(applyCalls()).toHaveLength(0);
     expect(tableLog).toHaveLength(0);
-    expect(store.get(`evt_dark_${type}`)?.outcome).toBe("d24_disabled");
+    expect(store.get(`evt_dark_${type}`)?.outcome).toBe("d24_not_enabled");
+  });
+});
+
+describe("defer mode", () => {
+  beforeEach(() => { process.env.D24_HOSTED_INVOICE_EVENTS = "defer"; });
+
+  it.each(CASES)("%s is stored through d24_defer_event, never applied, and finalized as deferred", async (type, object) => {
+    const id = "evt_defer_" + type;
+    expect((await send(JSON.stringify(envelope(id, type, object)))).status).toBe(200);
+    expect(deferCalls()).toHaveLength(1);
+    expect(applyCalls()).toHaveLength(0);
+    expect(deferCalls()[0].args.p_owner).toBe(rpcLog.find((c) => c.fn === "claim_payment_provider_event")!.args.p_owner);
+    expect(store.get(id)?.outcome).toBe("d24_deferred");
+    expect(tableLog).toHaveLength(0);
+  });
+
+  it("a store failure finalizes the event as failed so Stripe retries it", async () => {
+    const body = JSON.stringify(envelope("evt_defer_fail", "invoice.voided", invoiceObject));
+    applyError = { code: "42883" };
+    expect((await send(body)).status).toBe(500);
+    expect(store.get("evt_defer_fail")?.status).toBe("failed");
+    applyError = null;
+    expect((await send(body)).status).toBe(200);
+    expect(store.get("evt_defer_fail")?.outcome).toBe("d24_deferred");
+  });
+
+  it("a replay of a deferred event is acknowledged without another store call", async () => {
+    const body = JSON.stringify(envelope("evt_defer_replay", "invoice_payment.paid", paymentObject));
+    await send(body);
+    await send(body);
+    expect(deferCalls()).toHaveLength(1);
   });
 });
 
