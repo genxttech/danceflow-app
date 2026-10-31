@@ -16,6 +16,11 @@
 -- All writes go through SECURITY DEFINER functions that first require the caller to still own the PAY-WH-1 event claim.
 -- Service role only: RLS on, no tenant policies, no grants to anon or authenticated. service_role may SELECT; it cannot write the tables directly.
 -- Dark: nothing calls these functions until the app flag D24_HOSTED_INVOICE_EVENTS is on. NOT APPLIED to any shared environment by this file.
+-- KNOWN LIMITATIONS (accepted, documented in docs/billing/D24-M1-ROLLOUT.md):
+--   * d24_acknowledge_anomalies trusts its p_actor argument (no studio-membership / admin check). It is executable by service_role only, is not called by any application
+--     code, and must not be exposed to an endpoint until a verified-authorization operator workflow exists.
+--   * Two registrations of the same invoice id under two different account scopes (or a registration racing a drain over the same keys) can deadlock; PostgreSQL aborts one
+--     transaction with 40P01. Retrying is safe: every write is inside the aborted transaction, every key is idempotent, and no external effect is taken.
 -- Requires 20261116090000_paywh1_webhook_event_claims.sql (_paywh1_require_event_claim). Rollback: rollback/20270203090000_d24_hosted_invoice_facts_rollback.sql
 
 begin;

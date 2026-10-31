@@ -492,6 +492,24 @@ claim evt_big >/dev/null
 r=$(q "select public.d24_defer_event('evt_big','$O1','invoice_payment.paid',1,null,false,'$H','invoice_payment','{\"invoice_id\":\"in_big\",\"object_id\":\"inpay_big\",\"status\":\"paid\",\"amount_requested\":1,\"amount_paid\":1,\"currency\":\"usd\",\"pad\":\"$BIG$BIG$BIG$BIG$BIG$BIG$BIG$BIG$BIG$BIG$BIG$BIG$BIG$BIG\"}'::jsonb)" 2>&1 | tr -d '\n' | cut -c1-200)
 check "an oversized snapshot is a permanent validation error (22023)" "$(echo "$r" | grep -c 'too large')" "1"
 
+# 14h. cross-account registration deadlock: induced, then retried safely -------------------------------------------------------
+claim evt_dla >/dev/null; claim evt_dlb >/dev/null
+ap evt_dla invoice_payment invoice_payment.paid 27000 acct_dla "$(pj in_dl inpay_dla 11)" >/dev/null
+ap evt_dlb invoice_payment invoice_payment.paid 27001 acct_dlb "$(pj in_dl inpay_dlb 22)" >/dev/null
+SNAP_BEFORE=$(q "select (select count(*) from public.hosted_invoice_source_events)||'/'||(select count(*) from public.hosted_invoice_payments)||'/'||(select count(*) from public.hosted_invoices)||'/'||(select count(*) from public.hosted_invoice_registry)")
+( docker exec -i "$NAME" psql -U postgres -qAt -c "begin; select pg_advisory_xact_lock(hashtextextended('d24:acct_dla:in_dl',0)); select pg_sleep(3); select pg_advisory_xact_lock(hashtextextended('d24:acct_dlb:in_dl',0)); commit;" </dev/null >"$TMPD/dl_1.txt" 2>&1 ) &
+sleep 1
+( docker exec -i "$NAME" psql -U postgres -qAt -c "select public.d24_register_invoice('$SA','acct_dlb','in_dl',false,'event_fee','bo-in_dl')" </dev/null >"$TMPD/dl_2.txt" 2>&1 ) &
+wait
+DLCOUNT=$(cat "$TMPD"/dl_1.txt "$TMPD"/dl_2.txt | grep -c 'deadlock detected')
+check "the crossed lock order produces a PostgreSQL deadlock abort (40P01) for exactly one session" "$DLCOUNT" "1"
+check "the aborted transaction left nothing behind" "$(q "select (select count(*) from public.hosted_invoice_registry where stripe_invoice_id='in_dl')")/$(q "select (select count(*) from public.hosted_invoice_source_events)||'/'||(select count(*) from public.hosted_invoice_payments)||'/'||(select count(*) from public.hosted_invoices)")" "$( [ "$(grep -c 'deadlock detected' "$TMPD/dl_2.txt")" = 1 ] && echo 0 || echo 1)/$(echo "$SNAP_BEFORE" | awk -F/ '{print $1"/"$2"/"$3}')"
+reg $SA "'acct_dlb'" in_dl >/dev/null
+check "retrying the registration succeeds (or was already complete) and registers exactly once" "$(q "select count(*) from public.hosted_invoice_registry where stripe_invoice_id='in_dl'")" "1"
+check "...retrying again is idempotent" "$(reg $SA "'acct_dlb'" in_dl)" "already_registered"
+check "retry created no duplicate source events, payments or invoice rows" "$(q "select (select count(*) from public.hosted_invoice_source_events)||'/'||(select count(*) from public.hosted_invoice_payments)||'/'||(select count(*) from public.hosted_invoices)")" "$(echo "$SNAP_BEFORE" | awk -F/ '{print $1"/"$2"/"$3}')"
+check "the registered scope is attributed to the studio; the other scope is NOT, and is flagged" "$(rowof acct_dlb in_dl "studio_id = '$SA'")/$(rowof acct_dla in_dl "studio_id is null")/$(rowof acct_dla in_dl "anomaly_codes @> array['account_scope_mismatch']")" "t/t/t"
+
 # 15. rollback# 15. rollback -------------------------------------------------------------------------------------------------------------
 r=$(docker exec -i "$NAME" psql -U postgres -v ON_ERROR_STOP=1 -q < "$M_RB" 2>&1 | tr -d '\n' | cut -c1-120)
 check "rollback is refused while evidence rows exist" "$(echo "$r" | grep -c 'rollback refused')" "1"
