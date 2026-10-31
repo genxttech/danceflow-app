@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildDayOfFloorHeats,
   canCancelRound,
@@ -9,6 +9,7 @@ import {
   nextHeatAction,
   nextRoundAction,
   scratchHref,
+  startCompetitionRound,
 } from "@/lib/competition/dayOf";
 import { activeNavKey, competitionNav } from "@/lib/competition/workspaceNav";
 
@@ -100,5 +101,52 @@ describe("workspace nav", () => {
     const items = competitionNav("e1");
     expect(items.filter((item) => item.key === "day_of")).toEqual([{ key: "day_of", label: "Day-of", href: "/app/events/e1/competition/day-of", available: true }]);
     expect(activeNavKey("e1", "/app/events/e1/competition/day-of")).toBe("day_of");
+  });
+});
+
+describe("CF1 B2: Final start retry and messages", () => {
+  const ok = { data: null, error: null };
+  const err = (code: string | null, message: string) => ({ data: null, error: { code, message } });
+
+  it.each(["40P01", "55P03", "57014"])("retries once on %s with the same arguments and request id", async (code) => {
+    const rpc = vi.fn().mockResolvedValueOnce(err(code, "x")).mockResolvedValueOnce(ok);
+    const result = await startCompetitionRound(rpc, "round-1", "req-1");
+    expect(result).toBe(ok);
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(rpc.mock.calls[0]).toEqual(["start_competition_round", { p_round_id: "round-1", p_request_id: "req-1" }]);
+    expect(rpc.mock.calls[1]).toEqual(rpc.mock.calls[0]);
+  });
+  it("retries only once when the second answer is also retryable", async () => {
+    const rpc = vi.fn().mockResolvedValue(err("40P01", "deadlock detected"));
+    const result = await startCompetitionRound(rpc, "r", "q");
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(friendlyDayOfError(result.error)).toMatch(/Nothing was saved/);
+  });
+  it("does not retry permanent errors", async () => {
+    for (const e of [err("P0001", "COMP_ADVANCEMENT_NOT_APPLIED"), err("P0001", "COMPO1_PANEL_NOT_READY: assign the panel."), err("23505", "duplicate key")]) {
+      const rpc = vi.fn().mockResolvedValue(e);
+      await startCompetitionRound(rpc, "r", "q");
+      expect(rpc).toHaveBeenCalledTimes(1);
+    }
+  });
+  it("does not retry a success", async () => {
+    const rpc = vi.fn().mockResolvedValue(ok);
+    await startCompetitionRound(rpc, "r", "q");
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+  it("maps CF1 codes to friendly copy", () => {
+    expect(friendlyDayOfError({ message: "COMP_ADVANCEMENT_NOT_APPLIED" })).toBe("Advance the callback couples to this Final before starting it.");
+    expect(friendlyDayOfError({ code: "P0001", message: "COMP_ADVANCEMENT_ROSTER_STALE: detail" })).toMatch(/no longer eligible/);
+    expect(friendlyDayOfError({ message: "COMP_ADVANCEMENT_ROSTER_INCOMPLETE" })).toMatch(/withdrawal/);
+    expect(friendlyDayOfError({ message: "COMP_ROSTER_ENTRY_UNAVAILABLE" })).toMatch(/no longer eligible/);
+    expect(friendlyDayOfError({ message: "COMP_ROSTER_BELOW_MINIMUM" })).toMatch(/at least two/);
+    expect(friendlyDayOfError({ message: "COMP_CALLBACK_TARGET_BELOW_MINIMUM" })).toMatch(/2 or more/);
+    expect(friendlyDayOfError({ code: "40P01", message: "deadlock detected" })).toMatch(/Nothing was saved/);
+  });
+  it("keeps COMPO1_ and unknown behaviour unchanged", () => {
+    expect(friendlyDayOfError({ message: "COMPO1_RUN_IN_PROGRESS: heats started." })).toBe("heats started.");
+    expect(friendlyDayOfError({ message: "COMP10D_SCHEDULE_PUBLISHED" })).toBe("The running order cannot change once heats have started.");
+    expect(friendlyDayOfError({ message: "COMP_UNKNOWN_THING" })).toBe("That change could not be saved. Refresh and try again.");
+    expect(friendlyDayOfError(null)).toBe("That change could not be saved. Refresh and try again.");
   });
 });
