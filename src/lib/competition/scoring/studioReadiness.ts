@@ -12,6 +12,7 @@
 import { ballotFormatForScoring } from "../ballots/formats";
 import { checkCompatibility, findMethod, methodId, resolveRoundMethod } from "./registry";
 import { legacyValueFor } from "./studioSetup";
+import { callbackTargetBelowMinimumFindings, callbackTargetBelowMinimumMessage, type CallbackConfigurationRound } from "../callbackTarget";
 
 export type ReadinessProgram = { id: string; name: string; status: string; profile_locked_at: string | null; advancement_method?: string | null };
 export type ReadinessDivision = { id: string; program_id: string | null; name: string; scoring_method_key: string | null; scoring_method_version: string | null };
@@ -156,4 +157,25 @@ export function studioScoringReadiness(input: {
 /** Blockers that stop a program from being published (heats do not exist yet, so only configuration problems appear). */
 export function publishScoringBlockers(report: ScoringReadiness, programId: string): ScoringFinding[] {
   return report.blockers.filter((f) => f.programId === programId);
+}
+
+/**
+ * CF1 OD-21: a callback target below two on a guarded round (a preliminary round of a promote_callback program with a successor Final) is a
+ * readiness refusal. The database refuses a new write of such a target; existing rows are reported here and never rewritten.
+ * The scope and the rule live in callbackTarget.ts (A4a); this only shapes the finding for the readiness page.
+ */
+export type CallbackTargetMinimumFinding = { roundId: string; divisionId: string; roundName: string; target: number; detail: string };
+
+export function callbackTargetMinimumReadiness(input: {
+  rounds: readonly CallbackConfigurationRound[];
+  programs: readonly { id: string; advancement_method?: string | null }[];
+}): CallbackTargetMinimumFinding[] {
+  const promoteCallbackProgramIds = new Set(input.programs.filter((p) => p.advancement_method === "promote_callback").map((p) => p.id));
+  return callbackTargetBelowMinimumFindings({ rounds: [...input.rounds], promoteCallbackProgramIds }).map((round) => ({
+    roundId: round.id,
+    divisionId: round.division_id,
+    roundName: round.name,
+    target: round.target_advancement_count ?? 0,
+    detail: `${round.name}: the callback target is ${round.target_advancement_count}. ${callbackTargetBelowMinimumMessage()}`,
+  }));
 }

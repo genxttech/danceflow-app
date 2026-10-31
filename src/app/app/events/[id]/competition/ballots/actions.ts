@@ -6,6 +6,14 @@ import { createClient } from "@/lib/supabase/server";
 import type { BallotBoard } from "@/lib/competition/ballots/status";
 import { canLockHeat, canReopenHeat, heatLockErrorMessage } from "@/lib/competition/ballots/heatLock";
 import { ballotErrorMessage, safeReturnPath } from "@/lib/competition/ballots/messages";
+import { errorText, isRetryableError, withRetryOnce } from "@/lib/competition/results/advancement";
+
+/** The ballot copy wins where it knows the code; CF1 codes (roster eligibility at lock, exclusion co-signer conflict) and retryable errors use the results copy. */
+function actionErrorMessage(error: { message: string; code?: string | null }): string {
+  if (isRetryableError(error)) return errorText(error);
+  const ballot = ballotErrorMessage(error.message);
+  return ballot === ballotErrorMessage(null) ? errorText(error) : ballot;
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -53,7 +61,7 @@ function back(returnTo: string, params: Record<string, string>): never {
 async function run(
   formData: FormData,
   fallbackReturn: string,
-  call: (rpc: (name: string, args: Record<string, unknown>) => PromiseLike<{ error: { message: string } | null }>) => PromiseLike<{ error: { message: string } | null }>,
+  call: (rpc: (name: string, args: Record<string, unknown>) => PromiseLike<{ error: { message: string; code?: string | null } | null }>) => PromiseLike<{ error: { message: string; code?: string | null } | null }>,
   okMessage: string,
 ): Promise<never> {
   const returnTo = safeReturnPath(text(formData, "returnTo"), fallbackReturn);
@@ -62,9 +70,10 @@ async function run(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
-  const result = await call((name, args) => supabase.rpc(name, args));
+  // CF1: a deadlock (40P01) or refused lock wait (55P03) is repeated once with the same arguments, hence the same request id.
+  const result = await call(withRetryOnce((name, args) => supabase.rpc(name, args)));
   revalidatePath(returnTo);
-  if (result.error) back(returnTo, { error: ballotErrorMessage(result.error.message) });
+  if (result.error) back(returnTo, { error: actionErrorMessage(result.error) });
   back(returnTo, { saved: okMessage });
 }
 
