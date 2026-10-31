@@ -7,7 +7,8 @@
 # Exit 0 = every assertion held, 1 = a failure, 3 = blocked (could not set up).
 # Races: R1 apply || apply (second request id), R2 apply || a direct entry update (U23), R3 apply never waits on a version-row update (U1/U3),
 #        R4 Final start || a held Final heat (U47: NOWAIT -> 55P03 COMP_ADVANCEMENT_CONCURRENT_CHANGE, the round does not start),
-#        R5 correction (revoke) || a held Final heat (55P03, correction not opened, advancement still active).
+#        R5 correction (revoke) || a held Final heat (55P03, correction not opened, advancement still active),
+#        U20/U24 later-transaction writes after a committed apply, U8 replay, R6 apply behind a held round row (U54 lock_timeout bound, U8 retry).
 set -u
 C="${CONTAINER:-cf1-a0-db}"
 P="docker exec -i -e PGPASSWORD=postgres $C psql -U supabase_admin -d postgres -h localhost -v ON_ERROR_STOP=1 -X -q -At"
@@ -130,6 +131,31 @@ wait
 ST="$(echo "select status from public.event_competition_rounds where id = cf1c.id('src', 5)" | $PN | tr -d '\r')"
 ACT="$(echo "select public._cf1_active_advancement(cf1c.id('fin', 5)) is not null" | $PN | tr -d '\r')"
 if [ "$ST" = "approved" ] && [ "$ACT" = "t" ] && grep -q "COMP_ADVANCEMENT_CONCURRENT_CHANGE" /tmp/cf1c_r5b.out; then ok "R5 correction vs a held Final heat: 55P03, correction not opened, advancement still active"; else bad "R5 ($ST $ACT): $(head -3 /tmp/cf1c_r5b.out)"; fi
+
+# ---------------------------------------------------------------- U20 / U24 (other transaction): an earlier request's apply cannot authorize a later write
+# Scenario 1 was applied (and committed) by R1 in its own transaction. Two later, separate transactions try the writes the apply transaction was allowed to make.
+FH0="$(echo "select count(*) from public.event_competition_floor_heats where schedule_version_id = cf1c.id('sv')" | $PN | tr -d '')"
+echo "insert into public.event_competition_floor_heats (event_id, schedule_version_id, heat_number) select '$E', cf1c.id('sv'), 1 + max(heat_number) from public.event_competition_floor_heats where schedule_version_id = cf1c.id('sv');" | $PN > /tmp/cf1c_u20a.out 2>&1
+FH="$(echo "select count(*) from public.event_competition_floor_heats where schedule_version_id = cf1c.id('sv')" | $PN | tr -d '\r')"
+if grep -q "COMP10D_SCHEDULE_PUBLISHED" /tmp/cf1c_u20a.out && [ "$FH" = "$FH0" ]; then ok "U20/U24 a floor-heat insert at the next number in a LATER transaction (after the apply committed) is refused"; else bad "U20/U24 floor heat ($FH): $(head -3 /tmp/cf1c_u20a.out)"; fi
+echo "insert into public.event_competition_heats (event_id, division_id, round_id, heat_number, status, contest_id, schedule_version_id) values ('$E', cf1c.id('div',1), cf1c.id('fin',1), 9, 'scheduled', cf1c.id('cts'), cf1c.id('sv'));" | $PN > /tmp/cf1c_u20b.out 2>&1
+FHN="$(echo "select count(*) from public.event_competition_heats where round_id = cf1c.id('fin',1) and heat_number = 9" | $PN | tr -d '\r')"
+if grep -q "COMP_ADVANCEMENT" /tmp/cf1c_u20b.out && [ "$FHN" = "0" ]; then ok "U20 a Final heat insert in a LATER transaction (after the apply committed) is refused"; else bad "U20 final heat ($FHN): $(head -3 /tmp/cf1c_u20b.out)"; fi
+echo "$AS select public.apply_competition_round_advancement(cf1c.id('src',1), cf1c.id('rv',1), cf1c.id('req1',1));" | $PN > /tmp/cf1c_u8a.out 2>&1
+if grep -q '"replayed": *true' /tmp/cf1c_u8a.out; then ok "U8 the retry of an apply that committed (the client lost the answer) is a replay: replayed true, no second advancement ($(adv_count 1))"; else bad "U8 replay: $(head -3 /tmp/cf1c_u8a.out)"; fi
+
+# ---------------------------------------------------------------- R6 (U8 / U54) apply behind a held round row: bounded by the function-level lock_timeout, then a retry with the SAME request id succeeds, then replays
+(echo "begin; select 1 from public.event_competition_rounds where id = cf1c.id('fin', 6) for update; select pg_sleep(8); commit;" | $PN > /tmp/cf1c_r6a.out 2>&1) &
+sleep 1
+T0=$(date +%s)
+echo "$AS select public.apply_competition_round_advancement(cf1c.id('src',6), cf1c.id('rv',6), cf1c.id('req1',6)); show lock_timeout;" | $PN > /tmp/cf1c_r6b.out 2>&1
+T1=$(date +%s)
+wait
+if [ "$(adv_count 6)" = "0" ] && [ $((T1 - T0)) -ge 4 ] && [ $((T1 - T0)) -le 7 ] && grep -qiE "lock timeout|55P03|COMP_ADVANCEMENT_CONCURRENT_CHANGE" /tmp/cf1c_r6b.out && tail -1 /tmp/cf1c_r6b.out | tr -d '\r' | grep -qx "0"; then ok "U54 apply behind a held round row is bounded by the function-level lock_timeout ($((T1 - T0))s), writes nothing, and the session's lock_timeout reads 0 afterwards"; else bad "U54 R6 ($(adv_count 6), $((T1 - T0))s): $(cat /tmp/cf1c_r6b.out | head -4)"; fi
+echo "$AS select public.apply_competition_round_advancement(cf1c.id('src',6), cf1c.id('rv',6), cf1c.id('req1',6));" | $PN > /tmp/cf1c_r6c.out 2>&1
+if [ "$(adv_count 6)" = "1" ] && grep -q '"replayed": *false' /tmp/cf1c_r6c.out; then ok "U8 the retry with the same request id after the lock timeout applies once (replayed false)"; else bad "U8 retry ($(adv_count 6)): $(head -3 /tmp/cf1c_r6c.out)"; fi
+echo "$AS select public.apply_competition_round_advancement(cf1c.id('src',6), cf1c.id('rv',6), cf1c.id('req1',6));" | $PN > /tmp/cf1c_r6d.out 2>&1
+if [ "$(adv_count 6)" = "1" ] && grep -q '"replayed": *true' /tmp/cf1c_r6d.out; then ok "U8 a further retry is a replay (replayed true), still one advancement"; else bad "U8 replay ($(adv_count 6)): $(head -3 /tmp/cf1c_r6d.out)"; fi
 
 cleanup
 rm -f /tmp/cf1c_*.out
