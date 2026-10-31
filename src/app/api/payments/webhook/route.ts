@@ -7,7 +7,7 @@ import {
 } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
 import { resolveMembershipStripeAccount } from "@/lib/payments/membershipStripeAccount";
-import { verifyStripeWebhook } from "@/lib/payments/webhookVerification";
+import { livemodeMismatch, verifyStripeWebhook } from "@/lib/payments/webhookVerification";
 import { handleSmsCreditStripeEvent } from "@/lib/billing/smsCreditPurchases";
 import { resolvePlanCodeFromEnvPriceIds } from "@/lib/billing/subscriptionPlanResolution";
 
@@ -3350,6 +3350,12 @@ export async function POST(request: Request) {
   }
 
   const event = verification.event;
+
+  // Stage 3 (F-1): refuse live-mode events in a deployment configured with a test key, before any claim or handler.
+  if (livemodeMismatch(event, process.env.STRIPE_SECRET_KEY)) {
+    console.error("webhook_livemode_mismatch");
+    return webhookResponse("Invalid webhook environment.", 400);
+  }
 
   const supabase = getSupabaseAdmin();
   const payloadHash = createHash("sha256").update(body).digest("hex");

@@ -58,3 +58,13 @@ export function verifyStripeWebhook(input: {
 
   return { ok: false, reason: "invalid_signature" };
 }
+
+/**
+ * Stage 3 (F-1): a verified event whose livemode contradicts the configured Stripe secret key is refused before any
+ * claim or handler work. Only the unambiguous case is blocked: live-mode events reaching a deployment that is
+ * configured with a TEST key (sk_test_ / rk_test_). A missing or unrecognised key blocks nothing.
+ */
+export function livemodeMismatch(event: Pick<Stripe.Event, "livemode">, secretKey: string | null | undefined): boolean {
+  const key = typeof secretKey === "string" ? secretKey.trim() : "";
+  return event.livemode === true && (key.startsWith("sk_test_") || key.startsWith("rk_test_"));
+}
