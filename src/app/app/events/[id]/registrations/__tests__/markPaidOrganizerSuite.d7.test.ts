@@ -120,7 +120,7 @@ describe("markEventRegistrationPaidAction: unpaid organizer-event registrations 
 
   it("with a current grant it marks the registration paid, confirms it and records the payment", async () => {
     seed({ organizerId: "org-1", entitlements: [grant()] });
-    expect(await markPaid()).not.toContain("organizer_suite_required");
+    expect(await markPaid()).toContain("success=registration_paid");
     expect(registration()).toMatchObject({ status: "confirmed", payment_status: "paid" });
     expect(state.user.inserts.filter((insert) => insert.table === "event_payments")).toHaveLength(1);
   });
@@ -128,7 +128,7 @@ describe("markEventRegistrationPaidAction: unpaid organizer-event registrations 
   it("DanceAbel boundary: allowed at 03:59:59Z, refused at 04:00:00Z on 2027-07-09", async () => {
     seed({ organizerId: "org-1", entitlements: [grant({ period_end: "2027-07-09" })] });
     vi.setSystemTime(new Date("2027-07-09T03:59:59Z"));
-    expect(await markPaid()).not.toContain("organizer_suite_required");
+    expect(await markPaid()).toContain("success=registration_paid");
     expect(registration()).toMatchObject({ payment_status: "paid" });
     seed({ organizerId: "org-1", entitlements: [grant({ period_end: "2027-07-09" })] });
     vi.setSystemTime(new Date("2027-07-09T04:00:00Z"));
@@ -137,18 +137,18 @@ describe("markEventRegistrationPaidAction: unpaid organizer-event registrations 
 
   it("an ordinary studio event (no organizer) is unaffected even with no entitlement", async () => {
     seed({ organizerId: null, entitlements: [] });
-    expect(await markPaid()).not.toContain("organizer_suite_required");
+    expect(await markPaid()).toContain("success=registration_paid");
     expect(registration()).toMatchObject({ status: "confirmed", payment_status: "paid" });
   });
 
   it("re-marking an already paid registration is not a new sale and is not gated", async () => {
     seed({ organizerId: "org-1", entitlements: [], paymentStatus: "paid" });
-    expect(await markPaid()).not.toContain("organizer_suite_required");
+    expect(await markPaid()).toContain("success=registration_paid");
   });
 
-  it("an order-backed registration is still refused before any write (existing behavior unchanged)", async () => {
+  it("an order-backed registration is refused before any write with its own message", async () => {
     seed({ organizerId: "org-1", entitlements: [grant()], orderId: "order-1" });
-    expect(await markPaid()).not.toContain("organizer_suite_required");
+    expect(await markPaid()).toContain("error=order_backed_registration_payment_locked");
     expect(registration()).toMatchObject({ status: "pending", payment_status: "pending" });
   });
 });
