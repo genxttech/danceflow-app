@@ -48,6 +48,7 @@ import {
   handleEventCartPaymentIntentEvent,
   type WebhookClaim,
 } from "@/lib/events/cartWebhook";
+import { handleHostedInvoiceEvent } from "@/lib/payments/hostedInvoice/handlers";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -3387,6 +3388,8 @@ export async function POST(request: Request) {
   }
   const claim: WebhookClaim = { eventId: event.id, owner: claimOwner };
 
+  let completionOutcome: string | null = null;
+
   try {
     // TW-4F-3b-pay: events about prepaid SMS credit purchases (our own Checkout Sessions / PaymentIntents, platform-scoped only) are handled exclusively here;
     // the database decides what is ours. Anything else falls through to the handlers below unchanged.
@@ -3638,6 +3641,17 @@ export async function POST(request: Request) {
         break;
       }
 
+      case "invoice.voided":
+      case "invoice.marked_uncollectible":
+      case "invoice_payment.paid":
+      case "credit_note.created":
+      case "credit_note.updated":
+      case "credit_note.voided": {
+        // D24 M1: hosted-invoice facts only (no settlement, ledger, refund or credit effect). Dark unless D24_HOSTED_INVOICE_EVENTS=on.
+        completionOutcome = (await handleHostedInvoiceEvent({ supabase, event, claim })).outcome;
+        break;
+      }
+
       case "payout.created":
       case "payout.updated":
       case "payout.paid":
@@ -3680,7 +3694,7 @@ export async function POST(request: Request) {
       p_provider_event_id: event.id,
       p_owner: claimOwner,
       p_status: "processed",
-      p_outcome: null,
+      p_outcome: completionOutcome,
       p_error: null,
     });
 
