@@ -234,6 +234,8 @@ export const RESULT_EVENT_KINDS = [
   "result_superseded",
   "result_withdrawn",
   "advancement_applied",
+  // CF1 A0 (2026-10-30): the correction trigger revokes an active callback-to-Final advancement in the same transaction.
+  "advancement_revoked",
   // F2 amendment 2026-10-25: a new ballot version (or an opened correction) made unpublished result versions stale.
   "result_invalidated",
 ] as const;
