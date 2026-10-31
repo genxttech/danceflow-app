@@ -28,6 +28,8 @@ const MESSAGES: Record<string, string> = {
   COMP_ADVANCEMENT_FINAL_PLACEMENT_MODE: "The Final's placement mode does not support advancement from a callback.",
   COMP_ADVANCEMENT_FINAL_HEATS_PRESENT: "The Final already has heats. Remove or clear them before advancing couples.",
   COMP_ADVANCEMENT_MULTI_DANCE: "Advancement into a multi-dance Final is not supported yet.",
+  COMP_ADVANCEMENT_FINAL_DANCE: "The Final must hold exactly one dance, the callback round's dance. Check the Final's dance setup.",
+  COMP_ADVANCEMENT_REVOKED: "This request was already applied and has since been revoked by a correction. Advance again (a new request is made automatically when you reload the page).",
   COMP_ADVANCEMENT_BELOW_MINIMUM: "A Final needs at least two couples. Fewer than two eligible couples would remain.",
   COMP_ADVANCEMENT_OVER_CAPACITY: "More couples advance than the Final's heat holds. Raise the Final's heat size, with a reason, and try again.",
   COMP_ADVANCEMENT_ENTRY_UNAVAILABLE: "An advancing couple is no longer eligible (for example a refund or a cancelled entry). Resolve it and try again.",
