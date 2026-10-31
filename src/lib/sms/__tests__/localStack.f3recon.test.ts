@@ -389,8 +389,7 @@ describe.skipIf(!enabled)("TW-4F F3 usage-reconciler readiness gate (real schema
     // inside this rolled-back transaction it is replaced by an inert stub with the same signature, which is exactly the state after those layers are gone.
     const stub = externalCallers() === "" ? "" : "create or replace function public._tw4act_items(p_studio_id uuid) returns jsonb language sql as $stub$ select '[]'::jsonb $stub$;";
     const line = (label: string, sig: string) => `select '${label}=' || coalesce((select left(md5(replace(p.prosrc, chr(13), '')), 8) from pg_proc p where p.oid = to_regprocedure('${sig}')), '');`;
-    const fps = (tag: string) => [line(`${tag}.begin`, BEGIN_SIG), line(`${tag}.switch`, SWITCH_SIG), line(`${tag}.ready`, "public._tw4usage_reconciler_ready()")].join("
-");
+    const fps = (tag: string) => [line(`${tag}.begin`, BEGIN_SIG), line(`${tag}.switch`, SWITCH_SIG), line(`${tag}.ready`, "public._tw4usage_reconciler_ready()")].join(" ");
     const aclSql = (tag: string) => `select '${tag}.acl=' || (select string_agg(p.proname || ':' || array_to_string(p.proacl, ','), ' ' order by p.proname) from pg_proc p where p.oid in ('${BEGIN_SIG}'::regprocedure, '${SWITCH_SIG}'::regprocedure));`;
     const anonSql = "select 'anon=' || (has_function_privilege('anon', 'public._tw4usage_reconciler_ready()', 'execute') or has_function_privilege('authenticated', 'public._tw4usage_reconciler_ready()', 'execute'))::text;";
     const gone = "select 'gone=' || (to_regprocedure('public._tw4usage_run_proved(jsonb)') is null and to_regclass('public.studio_sms_reconcile_runs_completed') is null)::text;";
@@ -400,8 +399,7 @@ describe.skipIf(!enabled)("TW-4F F3 usage-reconciler readiness gate (real schema
       ${fps("rolled")} ${aclSql("rolled")} ${gone}
       ${strip(migration)}
       ${fps("reapplied")} ${aclSql("reapplied")} ${anonSql}
-      rollback;`).split("
-").filter((l) => /^(before|rolled|reapplied|gone|anon)/.test(l));
+      rollback;`).split(String.fromCharCode(10)).filter((l) => /^(before|rolled|reapplied|gone|anon)/.test(l));
     const v = (k: string) => out.find((l) => l.startsWith(k + "="))?.slice(k.length + 1);
     expect([v("rolled.begin"), v("rolled.switch"), v("rolled.ready")]).toEqual(["3013c006", "90813ea0", ""]);
     expect(v("rolled.acl")).toBe(v("before.acl"));
