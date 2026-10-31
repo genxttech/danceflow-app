@@ -35,3 +35,21 @@ Accepted/flagged for the owner (not changed):
 * L3: open correction -> recalculate without replacing the excluded picks -> open again makes the baseline the newest version, so X is empty and the cause is `judge_entry_error`; any pick may change but only after a co-sign by a different person. Confirm this matches §4.1 intent.
 * L4: the opener is not barred from filing a replacement ballot (only the co-signer is). A manager who is also an official could open, obtain a colluding co-sign, and file. Confirm against §4.7.
 * L6: the co-signer prior-filer check uses `submitted_at >= cause.at` (transaction start time); no exploitable path found because the round lock queues the filer ahead of the co-sign.
+
+---
+## Update: owner decisions A7-1 and A7-2 (coordinator relay)
+* **A7-1 (strict §4.1):** BEFORE INSERT trigger `cf1_a7_guard_exclusion_during_correction` on `event_competition_round_exclusions` (ENABLE ALWAYS, definer, round `FOR UPDATE` first) refuses all four exclusion kinds while `correction_open`: **`COMP_CORRECTION_EXCLUSION_DURING_CORRECTION`** (P0001). Live-X lookup kept as defence in depth. A5's flow unchanged when no correction is open (tested).
+* **A7-2:** `COMP_CORRECTION_OPENER_CONFLICT` — the correction's opener may not file its replacement ballot (submitter, judge's user, or entering scorer's user), both modes, at the anchor and in the backstop; co-signer ban unchanged.
+* **Consequence:** A5's window (`active`/`ballots_locked`) plus A7-1 means §4.6 route (4) is unavailable (see `cf1-a7-contract.md`). Over-block noted: if the opener is also the official whose ballot is corrected, a different official cannot file for them either (rule follows the relayed decision: compare with the filing official's user id).
+
+### QA matrix (re-run on a fresh container, chain through A5 + A7)
+| Item | Result |
+|---|---|
+| A7 SQL suite | PASS (74 checks, 1 blocked = the .sh) — adds X1–X6 (A7-1 refusals, A5 flow intact, closes after correction) and O1–O5 (A7-2 incl. backstop) |
+| A7 concurrency | PASS (6 probes): concurrent filers; filing vs co-sign; filing vs round lock; **A5 request racing correction open (waits, refused, no row)**; **correction open racing an exclusion insert (waits, derives entry_exclusion)**; **opener filing racing co-sign (refused before and after; another judge lands)** |
+| Rollback then re-apply fingerprints | PASS / PASS (ACL noise from QA-only `grant … to postgres` normalised) |
+| Regression E2 211, F2 198, CX1 15, HL1 42, A0 128 | PASS |
+| A5 suite | 1 expected FAIL: U52 asserts exactly 2 triggers on the exclusion table; A7-1 adds a third ENABLE ALWAYS trigger. The A5 file is untouched by decision; the assertion should count only the history triggers (coordinator/A5 owner). All other A5 checks PASS (173 checks incl. 4 blocked otherwise) |
+| NS1, A3, A1, SS1-round-lock suites | unchanged pre-existing composition failures (see above) |
+| Targeted re-review of only the delta (fresh reviewer, diff only) | No high/medium. Low: late A5 error (A5 share locks taken before the trigger refuses; optional early check in A5 follow-up), opener-is-also-judge over-block (per decision), roll back A7 before A1 (runbook), live `officials.user_id` resolution same as co-sign |
+| Hosted DB / app consumption | NOT RUN |

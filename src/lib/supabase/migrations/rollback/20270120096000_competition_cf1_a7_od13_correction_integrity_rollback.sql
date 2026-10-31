@@ -67,6 +67,7 @@ drop trigger cf1_a7_backstop_ballot on public.event_competition_ballots;
 drop trigger cf1_a7_backstop_correction on public.event_competition_ballot_corrections;
 drop trigger cf1_a7_record_correction_cause on public.event_competition_rounds;
 drop trigger cf1_a7_guard_cosign_insert on public.event_competition_correction_cosigns;
+drop trigger cf1_a7_guard_exclusion_during_correction on public.event_competition_round_exclusions;
 
 drop function public.cosign_competition_correction(uuid, uuid);
 drop function public.competition_round_correction(uuid);
@@ -74,6 +75,7 @@ drop function public.cf1_a7_backstop_ballot();
 drop function public.cf1_a7_backstop_correction();
 drop function public.cf1_a7_record_correction_cause();
 drop function public.cf1_a7_guard_cosign_insert();
+drop function public.cf1_a7_guard_exclusion_during_correction();
 drop function public._cf1_a7_backstop(uuid);
 drop function public._cf1_check_correction_ballot(uuid, uuid, uuid, jsonb, uuid, uuid);
 drop function public._cf1_record_ballot_correction(uuid, uuid, uuid, text, uuid);

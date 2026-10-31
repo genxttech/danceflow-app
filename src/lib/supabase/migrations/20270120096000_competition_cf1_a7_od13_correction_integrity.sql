@@ -16,6 +16,7 @@
 --     cf1_a7_record_correction_cause   AFTER UPDATE OF status ON event_competition_rounds (the F2 correction edge): derives and stores the cause,
 --                                      raises COMP_CORRECTION_CAUSE_REQUIRED when it cannot. The F2 RPC needs no signature change.
 --     cf1_a7_guard_cosign_insert       BEFORE INSERT ON ..._cosigns: cause kind and co-signer is not the opener (the RPC checks role and current correction)
+--     cf1_a7_guard_exclusion_during_correction   BEFORE INSERT ON round_exclusions (A1 table): refuses every exclusion decision while a correction is open (A7-1)
 --     cf1_a7_backstop_ballot / _correction   DEFERRED constraint triggers: the same rule at commit, so no other writer can bypass the RPC check
 --   Redefined (pinned text-replace, md5 from an applied chain): public._compe2_insert_ballot(uuid,uuid,uuid,uuid,text,uuid,jsonb,text,uuid), three
 --   single-line anchors: a declaration, the check before the ballot INSERT (after the v_prior block), the record after the marks INSERT.
@@ -296,6 +297,11 @@ declare
   v_kept uuid[];
   v_added uuid[];
 begin
+  -- A7-2 (owner decision): the manager who opened the correction never files its replacement ballot, in either mode.
+  if p_cause.opened_by = any (p_filers) then
+    raise exception 'COMP_CORRECTION_OPENER_CONFLICT: the person who opened this correction cannot file its replacement ballot; a separate eligible official must.'
+      using errcode = 'P0001';
+  end if;
   v_x := public._cf1_a7_new_exclusions(p_round_id, p_cause.baseline_version_id);
   if p_cause.cause = 'entry_exclusion' or cardinality(v_x) > 0 then
     v_ox := array(select x from unnest(p_old) x where x = any (v_x));
@@ -595,6 +601,34 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
+-- 4b. A7-1 (owner decision, design 4.1 strict rule): no exclusion decision of any kind is recorded while a ballot correction is open for the
+-- round. The round row is locked first, so the check serialises with F2's open (round FOR UPDATE) and with A5 (which already holds it).
+-- The live excluded-set lookup in _cf1_a7_rule stays as defence in depth only.
+-- ---------------------------------------------------------------------------
+create function public.cf1_a7_guard_exclusion_during_correction()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_open boolean;
+begin
+  select r.correction_open into v_open from public.event_competition_rounds r
+  where r.id = new.round_id and r.event_id = new.event_id for update;
+  if coalesce(v_open, false) then
+    raise exception 'COMP_CORRECTION_EXCLUSION_DURING_CORRECTION: a ballot correction is open for this round; complete it (recalculate) before recording an exclusion decision.'
+      using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.cf1_a7_guard_exclusion_during_correction() from public, anon, authenticated, service_role;
+create trigger cf1_a7_guard_exclusion_during_correction before insert on public.event_competition_round_exclusions
+  for each row execute function public.cf1_a7_guard_exclusion_during_correction();
+alter table public.event_competition_round_exclusions enable always trigger cf1_a7_guard_exclusion_during_correction;
+
+-- ---------------------------------------------------------------------------
 -- 5. Commit-time backstops (deferred constraint triggers): the same rule for any writer
 -- ---------------------------------------------------------------------------
 create function public._cf1_a7_backstop(p_ballot_id uuid)
@@ -732,7 +766,7 @@ begin
   select string_agg(p.oid::regprocedure::text, ', ') into v_bad
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace and n.nspname = 'public'
   where (p.proname like '\_cf1\_a7\_%' or p.proname in ('_cf1_check_correction_ballot', '_cf1_record_ballot_correction',
-         'cf1_a7_record_correction_cause', 'cf1_a7_guard_cosign_insert', 'cf1_a7_backstop_ballot', 'cf1_a7_backstop_correction'))
+         'cf1_a7_record_correction_cause', 'cf1_a7_guard_cosign_insert', 'cf1_a7_backstop_ballot', 'cf1_a7_backstop_correction', 'cf1_a7_guard_exclusion_during_correction'))
     and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
          or has_function_privilege('service_role', p.oid, 'execute'));
   if v_bad is not null then
@@ -749,7 +783,7 @@ begin
     raise exception 'CF1-A7 postflight: a new table carries a grant.';
   end if;
   if (select count(*) from pg_trigger t where not t.tgisinternal and t.tgenabled = 'A'
-        and t.tgname in ('cf1_a7_record_correction_cause', 'cf1_a7_guard_cosign_insert', 'cf1_a7_backstop_ballot', 'cf1_a7_backstop_correction')) <> 4 then
+        and t.tgname in ('cf1_a7_record_correction_cause', 'cf1_a7_guard_cosign_insert', 'cf1_a7_backstop_ballot', 'cf1_a7_backstop_correction', 'cf1_a7_guard_exclusion_during_correction')) <> 5 then
     raise exception 'CF1-A7 postflight: an A7 trigger is not ENABLE ALWAYS.';
   end if;
   -- The A7 definer helpers (owned by the applying role) call these; an owner mismatch would fail every correction open (reviewer finding).

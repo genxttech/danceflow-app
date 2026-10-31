@@ -116,5 +116,50 @@ wait
 rec=$(psq -c "select count(*) from public.event_competition_ballots b where b.round_id = '$R3' and b.supersedes_id is not null and not exists (select 1 from public.event_competition_ballot_corrections c where c.ballot_id = b.id);")
 [ "$rec" = 0 ] && [ "$r" = OK ] && ok "the ballot waited for the round lock, landed in the correction with its record" || bad "unrecorded ballot" "$rec"
 
+echo "== probe 4 (A7-1): an A5 exclusion request racing the correction open =="
+mk 4
+E4=$(u "00804""5"); R4=$(u 006004)
+psq -c "set session_replication_role = replica; update public.event_competition_entries set eligibility_status = 'ineligible' where id = '$E4';" >/dev/null
+( { as_sql "$M1" "begin; select public.open_competition_round_correction('$R4', 'race', gen_random_uuid()); select pg_sleep(4); commit;"; } | psq -v ON_ERROR_STOP=1 >/dev/null ) &
+sleep 1
+out=$(as_sql "$M1" "select public.request_round_exclusion('$R4', '$E4', 'ineligible', 'became ineligible', gen_random_uuid());" | psq 2>&1)
+wait
+echo "$out" | grep -q COMP_CORRECTION_EXCLUSION_DURING_CORRECTION \
+  && [ "$(psq -c "select count(*) from public.event_competition_round_exclusions where round_id = '$R4';")" = 0 ] \
+  && ok "the request waited for the open, then was refused (no row written)" || bad "request vs open" "$out"
+
+echo "== probe 5 (A7-1): a correction open racing an exclusion insert holding the round lock =="
+mk 5
+R5=$(u 006005); E5=$(u "00805""5")
+( psq -v ON_ERROR_STOP=1 >/dev/null <<SQL
+begin;
+insert into public.event_competition_round_exclusions (id, event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq)
+values ('$(u 00f501)', '$EV', '$R5', '$E5', 'exclude_requested', 'ineligible', 'race fixture', '$M1', 'manager', '$(u 00f601)', 1);
+insert into public.event_competition_round_exclusions (id, event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq, decision_id)
+values ('$(u 00f502)', '$EV', '$R5', '$E5', 'exclude_cosigned', 'ineligible', 'race fixture', '$M1', 'manager', '$(u 00f602)', 2, '$(u 00f501)');
+select pg_sleep(4);
+commit;
+SQL
+) &
+sleep 1
+out=$(as_sql "$M1" "select public.open_competition_round_correction('$R5', 'race', gen_random_uuid());" | psq 2>&1)
+wait
+cause=$(psq -c "select cause from public.event_competition_correction_causes where round_id = '$R5';")
+echo "$out" | grep -q ballots_locked && [ "$cause" = entry_exclusion ] \
+  && ok "the open waited for the exclusion's round lock and then derived entry_exclusion" || bad "open vs exclusion" "out=$out cause=$cause"
+
+echo "== probe 6 (A7-2): the opener filing racing the co-sign =="
+mk 6
+R6=$(u 006006)
+psq -v ON_ERROR_STOP=1 -c "set session_replication_role = replica; insert into public.user_studio_roles (user_id, studio_id, role, active) values ('$J1', '$(u 00a001)', 'studio_owner', true) on conflict do nothing;" >/dev/null
+as_sql "$J1" "select public.open_competition_round_correction('$R6', 'opener is also judge 1', gen_random_uuid());" | psq -v ON_ERROR_STOP=1 >/dev/null
+CID6=$(psq -c "select id from public.event_competition_correction_causes where round_id = '$R6';")
+( { as_sql "$M1" "begin; select public.cosign_competition_correction('$CID6', gen_random_uuid()); select pg_sleep(3); commit;"; } | psq -v ON_ERROR_STOP=1 >/dev/null ) &
+sleep 1
+r=$(fileb 6 $J1 $(u 00b011) 5 6 7)
+wait
+r2=$(fileb 6 $J2 $(u 00b012) 5 6 7)
+[ "$r" = ERR ] && [ "$r2" = OK ] && ok "the opener's filing is refused (before and after the co-sign); another judge's lands" || bad "opener race" "r=$r r2=$r2"
+
 echo "== done: $FAILS failure(s) =="
 exit $FAILS
