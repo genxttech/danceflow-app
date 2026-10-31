@@ -11,11 +11,13 @@ import {
   type ExclusionRow,
   type WithdrawalState,
 } from "@/lib/competition/results/advancement";
+import { resultErrorMessage } from "@/lib/competition/results/messages";
 import { excludedCoupleLabel, type ReviewExcludedCouple } from "@/lib/competition/results/reviewTypes";
 import {
   applyAdvancementAction,
   cosignExclusionAction,
   cosignExclusionReversalAction,
+  cancelFinalWithdrawalAction,
   cosignFinalWithdrawalAction,
   requestExclusionAction,
   requestExclusionReversalAction,
@@ -232,12 +234,15 @@ export function WithdrawalPanel({
   roundId,
   viewerId,
   returnTo,
+  controlsBlocked = false,
 }: {
   state: WithdrawalState;
   candidates: readonly Candidate[];
   roundId: string;
   viewerId: string;
   returnTo: string;
+  /** D-A: no approved callback result and no active advancement. New requests are refused by the database; the controls say why. */
+  controlsBlocked?: boolean;
 }) {
   return (
     <section className="space-y-3 rounded border border-slate-200 bg-white p-4" aria-label="Withdraw a couple from the Final">
@@ -253,7 +258,8 @@ export function WithdrawalPanel({
               <p>
                 <span className="font-medium">{p.kind === "withdraw" ? "Withdrawal" : "Reinstatement"} requested</span> for {coupleName(candidates, p.entryId)}: {p.reason}
               </p>
-              {p.requestedBy !== viewerId ? (
+              {p.stale ? <p className="mt-1 text-xs font-medium text-amber-800">Out of date: {resultErrorMessage("COMP_WITHDRAWAL_REQUEST_STALE")}</p> : null}
+              {p.requestedBy !== viewerId && !p.stale ? (
                 <form action={cosignFinalWithdrawalAction} className="mt-2">
                   <input type="hidden" name="requestId" value={p.requestId} />
                   <input type="hidden" name="returnTo" value={returnTo} />
@@ -261,14 +267,42 @@ export function WithdrawalPanel({
                     Co-sign
                   </button>
                 </form>
-              ) : (
+              ) : p.stale ? null : (
                 <p className="mt-1 text-xs text-slate-600">Waiting for a different person to co-sign.</p>
               )}
+              <form action={cancelFinalWithdrawalAction} className="mt-2 flex flex-wrap items-end gap-2">
+                <input type="hidden" name="requestId" value={p.requestId} />
+                <input type="hidden" name="returnTo" value={returnTo} />
+                <label className="text-xs text-slate-700">
+                  Reason to cancel (required)
+                  <input name="reason" required minLength={20} maxLength={500} className={input} />
+                </label>
+                <button type="submit" className={secondary}>
+                  Cancel request
+                </button>
+              </form>
             </li>
           ))}
         </ul>
       ) : null}
-      {(["withdraw", "reinstate"] as const).map((kind) => {
+      {state.cancelled.length > 0 ? (
+        <div className="text-xs text-slate-600">
+          <p className="font-medium">Cancelled requests</p>
+          <ul className="list-disc pl-5">
+            {state.cancelled.map((c) => (
+              <li key={c.requestId}>
+                {c.kind === "withdraw" ? "Withdrawal" : "Reinstatement"} for {coupleName(candidates, c.entryId)} cancelled{c.byRequester ? " by the requester" : ""}: {c.reason}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {controlsBlocked ? (
+        <p role="note" className="rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950">
+          {resultErrorMessage("COMP_WITHDRAWAL_NO_APPROVED_RESULT")}
+        </p>
+      ) : null}
+      {(controlsBlocked ? [] : (["withdraw", "reinstate"] as const)).map((kind) => {
         const options = kind === "withdraw" ? candidates.filter((c) => !state.withdrawn.some((w) => w.entryId === c.entry_id)) : candidates.filter((c) => state.withdrawn.some((w) => w.entryId === c.entry_id));
         if (options.length === 0) return null;
         return (

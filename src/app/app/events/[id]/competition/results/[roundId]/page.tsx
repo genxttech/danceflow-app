@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
-import { parseAdvancementPreview, parseExclusionRows, parseWithdrawalState } from "@/lib/competition/results/advancement";
+import { parseAdvancementPreview, parseExclusionRows, parseWithdrawalState, withdrawalControlsBlocked } from "@/lib/competition/results/advancement";
 import { parseReviewExcluded } from "@/lib/competition/results/reviewTypes";
 import { approveRoundResultAction, calculateRoundResultAction, completeRoundAction, openRoundCorrectionAction } from "../actions";
 import { AdvancementSection, ExcludedSection, ExclusionPanel, WithdrawalPanel, type Candidate } from "./CallbackPanels";
@@ -82,15 +82,17 @@ export default async function CompetitionRoundResultsPage({
   // CF1 (manager only; every read below is also refused by the database for anyone else, and an unreadable answer shows nothing).
   const isCallbackPreliminary = round.scoring_method === "callback_tally" && round.round_type !== "final";
   let isCallbackFinal = false;
+  let sourceRound: { id: string; status: string } | null = null;
   if (isManager && round.round_type === "final") {
     const { data: previous } = await supabase
       .from("event_competition_rounds")
-      .select("scoring_method")
+      .select("id, scoring_method, status")
       .eq("event_id", id)
       .eq("division_id", round.division_id)
       .eq("sequence_number", round.sequence_number - 1)
       .maybeSingle();
     isCallbackFinal = previous?.scoring_method === "callback_tally";
+    if (isCallbackFinal && previous) sourceRound = { id: previous.id as string, status: previous.status as string };
   }
   const [previewResult, exclusionResult, withdrawalResult, boardResult] = isManager
     ? await Promise.all([
@@ -101,6 +103,8 @@ export default async function CompetitionRoundResultsPage({
       ])
     : [{ data: null }, { data: null }, { data: null }, { data: null }];
   const preview = parseAdvancementPreview(previewResult.data);
+  const sourcePreview = sourceRound ? parseAdvancementPreview((await supabase.rpc("competition_round_advancement_preview", { p_round_id: sourceRound.id })).data) : null;
+  const withdrawalBlocked = sourceRound && sourcePreview ? withdrawalControlsBlocked({ advancementState: sourcePreview.state, sourceStatus: sourceRound.status }) : false;
   const exclusionRows = parseExclusionRows(exclusionResult.data);
   const withdrawalState = parseWithdrawalState(withdrawalResult.data);
   const candidates: Candidate[] = [];
@@ -224,7 +228,7 @@ export default async function CompetitionRoundResultsPage({
       ) : null}
 
       {isManager && isCallbackFinal ? (
-        <WithdrawalPanel state={withdrawalState} candidates={candidates} roundId={roundId} viewerId={review.viewer_id} returnTo={returnTo} />
+        <WithdrawalPanel state={withdrawalState} candidates={candidates} roundId={roundId} viewerId={review.viewer_id} returnTo={returnTo} controlsBlocked={withdrawalBlocked} />
       ) : null}
 
       {isManager && ["calculated", "approved", "published"].includes(status) ? (

@@ -94,7 +94,14 @@ const MESSAGES: Record<string, string> = {
   COMP_WITHDRAWAL_REASON_WEAK: "Give a specific reason: at least 20 characters and a few different words.",
   COMP_WITHDRAWAL_REQUEST_NOT_FOUND: "That request was not found.",
   COMP_WITHDRAWAL_COSIGN_SAME_PERSON: "A different person than the requester must co-sign.",
-  COMP_WITHDRAWAL_GUARD: "The Final's roster can only change through a recorded withdrawal or reinstatement.",
+  COMP_WITHDRAWAL_NO_APPROVED_RESULT: "Withdrawals and reinstatements are unavailable until the corrected callback result is approved.",
+  COMP_WITHDRAWAL_REQUEST_CANCELLED: "That request was cancelled.",
+  COMP_WITHDRAWAL_REQUEST_COMPLETED: "That request was already co-signed, so it cannot be cancelled. A completed withdrawal is undone by a reinstatement.",
+  COMP_WITHDRAWAL_REQUESTER_INVALID: "The person who made this request is no longer a manager with a verified email, so it cannot be co-signed. Cancel it and make a new request.",
+  COMP_WITHDRAWAL_REQUEST_STALE: "This request is out of date: the Final's advancement changed after it was made. Cancel it and make a new request if still needed.",
+  COMP_WITHDRAWAL_REQUEST_PENDING: "There is already an open request for this couple. Co-sign or cancel it first.",
+  COMP_WITHDRAWAL_TOO_MANY_PENDING: "Too many requests are open for this Final. Co-sign or cancel some first.",
+  COMP_WITHDRAWAL_GUARD:"The Final's roster can only change through a recorded withdrawal or reinstatement.",
 
   // CF1: heat capacity (schedule screen).
   COMP_CAPACITY_REASON_REQUIRED: "Give a reason for changing the heat size.",
