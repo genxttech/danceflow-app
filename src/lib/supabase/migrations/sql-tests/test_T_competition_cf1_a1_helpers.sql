@@ -489,8 +489,9 @@ select pg_temp.chk('U74: no grants on the table for public/anon/authenticated/se
   and not exists (select 1 from pg_class c, lateral aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
                   where c.oid = 'public.event_competition_round_exclusions'::regclass and a.grantee = 0));
 select pg_temp.chk('U74: both history triggers exist and are ENABLE ALWAYS (tgenabled = A)',
-  (select count(*) from pg_trigger where tgrelid = 'public.event_competition_round_exclusions'::regclass and not tgisinternal and tgenabled = 'A') = 2
-  and (select count(*) from pg_trigger where tgrelid = 'public.event_competition_round_exclusions'::regclass and not tgisinternal) = 2);
+  -- by name, no total count: later CF1 packages add their own triggers on this table (A7: cf1_a7_guard_exclusion_during_correction)
+  (select count(*) from pg_trigger where tgrelid = 'public.event_competition_round_exclusions'::regclass and not tgisinternal and tgenabled = 'A'
+     and tgname in ('protect_event_competition_round_exclusions_history', 'protect_event_competition_round_exclusions_history_truncate')) = 2);
 select pg_temp.chk('U74: the update/delete trigger is row level, the truncate trigger statement level',
   exists (select 1 from pg_trigger where tgrelid = 'public.event_competition_round_exclusions'::regclass and tgname = 'protect_event_competition_round_exclusions_history'
           and (tgtype & 1) = 1 and (tgtype & 8) = 8 and (tgtype & 16) = 16 and (tgtype & 2) = 2)
