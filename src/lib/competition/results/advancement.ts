@@ -225,7 +225,8 @@ export function parseExclusionReasonKind(raw: string): ExclusionReasonKind | nul
 
 export type WithdrawalState = {
   withdrawn: Array<{ entryId: string; withdrawalId: string }>;
-  pending: Array<{ requestId: string; kind: "withdraw" | "reinstate"; entryId: string; requestedBy: string; reason: string; at: string }>;
+  pending: Array<{ requestId: string; kind: "withdraw" | "reinstate"; entryId: string; requestedBy: string; reason: string; at: string; stale: boolean }>;
+  cancelled: CancelledWithdrawal[];
 };
 
 export function parseWithdrawalState(raw: unknown): WithdrawalState {
@@ -246,9 +247,10 @@ export function parseWithdrawalState(raw: unknown): WithdrawalState {
           requestedBy: typeof p.requested_by === "string" ? p.requested_by : "",
           reason: typeof p.reason === "string" ? p.reason : "",
           at: typeof p.at === "string" ? p.at : "",
+          stale: p.stale === true,
         }))
     : [];
-  return { withdrawn, pending };
+  return { withdrawn, pending, cancelled: parseCancelledWithdrawals(raw) };
 }
 
 /** Client-side hint only; `_cf1_reason_is_substantive` is the authority (20-500 chars, 4 words, 3 distinct). */
@@ -257,4 +259,41 @@ export function withdrawalReasonLooksSubstantive(raw: string): boolean {
   if (value.length < 20 || value.length > 500) return false;
   const words = value.toLowerCase().split(/\s+/).filter(Boolean);
   return words.length >= 4 && new Set(words).size >= 3;
+}
+
+// ----- A6 D-A / D-B: stale flag, cancelled requests, and the "no approved result" window -----
+
+export type CancelledWithdrawal = { requestId: string; kind: "withdraw" | "reinstate"; entryId: string; cancelledBy: string; byRequester: boolean; reason: string; at: string };
+
+export function parseCancelledWithdrawals(raw: unknown): CancelledWithdrawal[] {
+  const list = (raw as { cancelled?: unknown } | null | undefined)?.cancelled;
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((c): c is Record<string, unknown> => !!c && typeof (c as { request_id?: unknown }).request_id === "string" && typeof (c as { entry_id?: unknown }).entry_id === "string")
+    .filter((c) => c.kind === "withdraw" || c.kind === "reinstate")
+    .map((c) => ({
+      requestId: String(c.request_id),
+      kind: c.kind as "withdraw" | "reinstate",
+      entryId: String(c.entry_id),
+      cancelledBy: typeof c.cancelled_by === "string" ? c.cancelled_by : "",
+      byRequester: c.by_requester === true,
+      reason: typeof c.reason === "string" ? c.reason : "",
+      at: typeof c.at === "string" ? c.at : "",
+    }));
+}
+
+/** Pending request ids the state reader flags `stale` (their co-sign would be refused). */
+export function staleRequestIds(raw: unknown): Set<string> {
+  const pending = (raw as { pending?: unknown } | null | undefined)?.pending;
+  if (!Array.isArray(pending)) return new Set();
+  return new Set(pending.filter((p) => p && (p as { stale?: unknown }).stale === true && typeof (p as { request_id?: unknown }).request_id === "string").map((p) => String((p as { request_id: string }).request_id)));
+}
+
+/**
+ * D-A mirror (the database is the authority, `_cf1_a6_roster_blocked`): no new withdrawal or reinstatement while the Final has no active
+ * advancement and its callback round has no approved result. `sourceStatus` is the callback round's status.
+ */
+export function withdrawalControlsBlocked(input: { advancementState: AdvancementState; sourceStatus: string | null }): boolean {
+  if (input.advancementState === "applied") return false;
+  return !(input.sourceStatus && ["approved", "published", "complete"].includes(input.sourceStatus));
 }

@@ -60,3 +60,25 @@ describe("CF1 B: action wiring (static)", () => {
     expect(page).toMatch(/isManager && isCallbackFinal/);
   });
 });
+
+describe("CF1 B: A6 cancel wiring (static)", () => {
+  const results = read("results", "actions.ts");
+  const panels = read("results", "[roundId]", "CallbackPanels.tsx");
+  const page = read("results", "[roundId]", "page.tsx");
+
+  it("the cancel action calls cancel_final_withdrawal_request with a request id and a reason", () => {
+    expect(results).toContain('"cancel_final_withdrawal_request"');
+    expect(results).toMatch(/p_request_id: requestId, p_reason: reason/);
+    expect(results).toMatch(/export async function cancelFinalWithdrawalAction/);
+  });
+
+  it("the panel offers cancel with a reason, flags stale, lists cancelled requests and disables new controls with the D-A message", () => {
+    expect(panels).toMatch(/action=\{cancelFinalWithdrawalAction\}/);
+    expect(panels).toMatch(/Reason to cancel/);
+    expect(panels).toMatch(/p\.stale/);
+    expect(panels).toMatch(/Cancelled requests/);
+    expect(panels).toMatch(/controlsBlocked \? \[\] : \(\["withdraw", "reinstate"\]/);
+    expect(panels).toContain('resultErrorMessage("COMP_WITHDRAWAL_NO_APPROVED_RESULT")');
+    expect(page).toMatch(/controlsBlocked=\{withdrawalBlocked\}/);
+  });
+});

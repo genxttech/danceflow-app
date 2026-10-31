@@ -230,3 +230,17 @@ export async function cosignFinalWithdrawalAction(formData: FormData): Promise<v
   const kind = (data as { kind?: string } | null)?.kind;
   back(returnTo, { saved: kind === "reinstate" ? "Reinstatement recorded." : "Withdrawal recorded." });
 }
+
+/** A6 D-B: the requester (while still a manager) or any manager/chair cancels a pending request. Reason required, no expiry. */
+export async function cancelFinalWithdrawalAction(formData: FormData): Promise<void> {
+  const requestId = uuid(formData, "requestId");
+  const reason = text(formData, "reason");
+  const { rpc, returnTo } = await session(formData);
+  if (!requestId) back(returnTo, { error: resultErrorMessage("COMP_REQUEST_ID_REQUIRED") });
+  if (!withdrawalReasonLooksSubstantive(reason)) back(returnTo, { error: resultErrorMessage("COMP_WITHDRAWAL_REASON_WEAK") });
+  const { data, error } = await rpc("cancel_final_withdrawal_request", { p_request_id: requestId, p_reason: reason });
+  revalidatePath(returnTo);
+  if (error) back(returnTo, { error: errorText(error) });
+  const replayed = (data as { replayed?: boolean } | null)?.replayed === true;
+  back(returnTo, { saved: replayed ? "That request was already cancelled." : "Request cancelled." });
+}
