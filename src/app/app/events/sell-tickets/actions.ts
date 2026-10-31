@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { TERMINAL_ORGANIZER_SUITE_MESSAGE, terminalSaleNeedsOrganizerSuite } from "@/lib/events/terminalOrganizerSuite";
+import { IN_PERSON_ORGANIZER_SUITE_MESSAGE, terminalSaleNeedsOrganizerSuite } from "@/lib/events/terminalOrganizerSuite";
 
 export type SellTicketsState = {
   error?: string;
@@ -494,10 +494,10 @@ export async function sellTicketsAction(
       };
     }
 
-    // D7 P2-3: a NEW card-reader sale for an organizer event needs a current Organizer Suite entitlement.
-    // Manual (cash, check, external card, comp) sales are unchanged by this decision.
-    if (useCardReader && (await terminalSaleNeedsOrganizerSuite(createAdminClient(), { studioId, organizerId: event.organizer_id }))) {
-      return { error: TERMINAL_ORGANIZER_SUITE_MESSAGE };
+    // D7 P2-3: a NEW in-person sale (card reader, cash, check, external card or comp) for an organizer event needs a
+    // current Organizer Suite entitlement. Checked before anything is created. Ordinary studio events are never gated.
+    if (await terminalSaleNeedsOrganizerSuite(createAdminClient(), { studioId, organizerId: event.organizer_id })) {
+      return { error: IN_PERSON_ORGANIZER_SUITE_MESSAGE };
     }
 
     const { data: ticket, error: ticketError } = await supabase

@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTerminalFakeDb, type Row } from "@/lib/events/__tests__/terminalFake";
-import { TERMINAL_ORGANIZER_SUITE_MESSAGE } from "@/lib/events/terminalOrganizerSuite";
+import { IN_PERSON_ORGANIZER_SUITE_MESSAGE } from "@/lib/events/terminalOrganizerSuite";
 
 /**
- * D7 owner decision P2-3 at sale creation: a NEW card-reader (Terminal) ticket sale for an organizer event is refused,
- * with nothing created, once the Organizer Suite entitlement has lapsed. Manual sales (cash, check, external card, comp)
- * are NOT changed by this decision, ordinary studio events are never gated, and no fee is introduced.
+ * D7 owner decision P2-3 at sale creation (extended to every in-person method): a NEW card-reader, cash, check, external
+ * card or comp ticket sale for an organizer event is refused, with nothing created, once the Organizer Suite entitlement
+ * has lapsed. Ordinary studio events are never gated and no fee is introduced.
  */
 
 const STUDIO = "studio-1";
@@ -84,17 +84,41 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 
-describe("sellTicketsAction: new card-reader sales for organizer events need a current Organizer Suite entitlement", () => {
-  it.each([
+const IN_PERSON_METHODS = ["card_reader", "cash", "check", "external_card", "comp", "other"];
+
+describe("sellTicketsAction: new in-person sales for organizer events need a current Organizer Suite entitlement", () => {
+  const lapsedCases = [
     { name: "no entitlement", entitlements: [] as Row[] },
     { name: "a lapsed grant", entitlements: [grant({ period_end: "2026-12-01" })] },
-  ])("refuses a card-reader sale with $name and creates nothing", async ({ entitlements }) => {
-    seed({ organizerId: "org-1", entitlements });
-    const { result, redirectTo } = await sell("card_reader");
-    expect(redirectTo).toBeNull();
-    expect(result).toEqual({ error: TERMINAL_ORGANIZER_SUITE_MESSAGE });
-    expect(created("event_registrations")).toHaveLength(0);
-    expect(created("payments")).toHaveLength(0);
+  ];
+
+  for (const method of IN_PERSON_METHODS) {
+    it.each(lapsedCases)(`refuses a ${method} sale with $name and creates nothing`, async ({ entitlements }) => {
+      seed({ organizerId: "org-1", entitlements });
+      const { result, redirectTo } = await sell(method);
+      expect(redirectTo).toBeNull();
+      expect(result).toEqual({ error: IN_PERSON_ORGANIZER_SUITE_MESSAGE });
+      for (const table of ["event_registrations", "event_registration_items", "event_registration_attendees", "event_payments", "payments", "attendance_records"]) {
+        expect(created(table)).toHaveLength(0);
+      }
+    });
+  }
+
+  it.each(IN_PERSON_METHODS)("a %s sale with a current grant is created", async (method) => {
+    seed({ organizerId: "org-1", entitlements: [grant()] });
+    const { result, redirectTo } = await sell(method);
+    expect(result).toBeNull();
+    expect(redirectTo).not.toBeNull();
+    expect(created("event_registrations")).toHaveLength(1);
+  });
+
+  it("DanceAbel boundary: a cash sale is allowed at 03:59:59Z and refused at 04:00:00Z on 2027-07-09", async () => {
+    seed({ organizerId: "org-1", entitlements: [grant({ period_end: "2027-07-09" })] });
+    vi.setSystemTime(new Date("2027-07-09T03:59:59Z"));
+    expect((await sell("cash")).result).toBeNull();
+    seed({ organizerId: "org-1", entitlements: [grant({ period_end: "2027-07-09" })] });
+    vi.setSystemTime(new Date("2027-07-09T04:00:00Z"));
+    expect((await sell("cash")).result).toEqual({ error: IN_PERSON_ORGANIZER_SUITE_MESSAGE });
   });
 
   it("with a current grant the card-reader sale is created and sent to the reader (fee behavior unchanged: no fee fields)", async () => {
@@ -111,14 +135,6 @@ describe("sellTicketsAction: new card-reader sales for organizer events need a c
     seed({ organizerId: null, entitlements: [] });
     const { redirectTo } = await sell("card_reader");
     expect(redirectTo).toMatch(/^\/app\/payments\/terminal\//);
-    expect(created("event_registrations")).toHaveLength(1);
-  });
-
-  it.each(["cash", "check", "external_card", "comp"])("manual %s sales are unchanged by this decision (open question reported)", async (method) => {
-    seed({ organizerId: "org-1", entitlements: [] });
-    const { result, redirectTo } = await sell(method);
-    expect(result).toBeNull();
-    expect(redirectTo).toMatch(/manual_ticket_sale_created/);
     expect(created("event_registrations")).toHaveLength(1);
   });
 });
