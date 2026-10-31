@@ -150,7 +150,7 @@ describe.skipIf(!enabled)("WP-D4 dual-control matrix (real schema, synthetic adm
         } else {
           // the written reference is single-use for good: a new request with it is refused
           expect(codeOf(callErr("tw4_rfl_dual_request", A, "cancel_number", register(world(), "number").resource_id, null, CR, c.approval, "owner_written"))).toBe("TW043");
-          expect(codeOf(S.requestErr(c, A))).toBe("TW041"); // and the number is already cancelled / being cancelled
+          expect(codeOf(S.requestErr(c, A))).toBe("TW043"); // and the same reference / an open cancellation is refused
         }
         expect(reqStatus(r.request_id)).toBe("consumed");
       });

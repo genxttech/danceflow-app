@@ -40,8 +40,9 @@ vi.mock("@/lib/supabase/server", async () => {
         select: () => ({
           eq: (_c: string, id: string) => ({
             maybeSingle: async () => {
-              const role = h.psql(`select coalesce((select platform_role from public.profiles where id = '${id}'), '#none')`);
-              return role === "#none" ? { data: null, error: null } : { data: { id, email: null, platform_role: role === "" ? null : role }, error: null };
+              const found = h.psql(`select count(*) from public.profiles where id = '${id}'`) === "1";
+              const role = found ? h.psql(`select coalesce(platform_role, '') from public.profiles where id = '${id}'`) : "";
+              return !found ? { data: null, error: null } : { data: { id, email: null, platform_role: role === "" ? null : role }, error: null };
             },
           }),
         }),
