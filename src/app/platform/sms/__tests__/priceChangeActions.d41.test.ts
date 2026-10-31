@@ -34,6 +34,11 @@ let replies: Record<string, { data?: unknown; error?: { code?: string; message?:
 let clientsBuilt = 0;
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => {
+    throw new Error("the service-role client must never be used on the price path");
+  },
+}));
+vi.mock("@/lib/supabase/server", () => ({
+  createClient: async () => {
     clientsBuilt += 1;
     return {
       rpc: async (fn: string, args: Record<string, unknown>) => {
@@ -90,13 +95,13 @@ describe("the assurance guard comes first, at the registered tier", () => {
 });
 
 describe("propose", () => {
-  it("converts dollars to cents, sends the SESSION administrator as the actor (a forged actor / requester in the form is ignored) and says nothing changed", async () => {
+  it("converts dollars to cents, sends NO actor at all (the database takes the identity from the administrator's own session; a forged actor / requester in the form is ignored) and says nothing changed", async () => {
     replies.tw4_price_propose = { data: { request_id: REQ, status: "pending", replayed: false } };
     const r = await run(pricePropose, { ...GOOD, actor: "x", actorId: "x", p_actor: "x", requestedBy: "x" });
     expect(r.ok).toBe(true);
     expect(r.message).toMatch(/no price has changed/);
     expect(r.url).toBe("/platform/sms?price=1#price-changes");
-    expect(rpc).toEqual([{ fn: "tw4_price_propose", args: { p_kind: "number", p_customer_cents: 325, p_provider_cents: 115, p_description: "Phone number rent", p_reason: "Twilio raised the monthly number rent", p_actor: ADMIN } }]);
+    expect(rpc).toEqual([{ fn: "tw4_price_propose", args: { p_kind: "number", p_customer_cents: 325, p_provider_cents: 115, p_description: "Phone number rent", p_reason: "Twilio raised the monthly number rent" } }]);
   });
 
   it("validates everything BEFORE any client is built: unknown kind, injection in the kind, zero / negative / malformed amounts, short description or reason", async () => {
@@ -134,11 +139,11 @@ describe("propose", () => {
 });
 
 describe("approve and reject", () => {
-  it("approve sends the session administrator and the note, nothing else from the form; an applied result is a success", async () => {
+  it("approve sends the note and the request id, nothing else from the form (no actor); an applied result is a success", async () => {
     replies.tw4_price_approve = { data: { status: "applied", replayed: false, price_id: REQ } };
     const r = await run(priceApprove, { requestId: REQ, note: NOTE, actor: "x", p_actor: "x", customerUsd: "999" });
     expect(r.ok).toBe(true);
-    expect(rpc).toEqual([{ fn: "tw4_price_approve", args: { p_request_id: REQ, p_actor: ADMIN, p_note: NOTE } }]);
+    expect(rpc).toEqual([{ fn: "tw4_price_approve", args: { p_request_id: REQ, p_note: NOTE } }]);
   });
 
   it("expired and invalidated results are refusals, not successes; a self-approval refusal reads as separation of duties", async () => {
@@ -166,6 +171,6 @@ describe("approve and reject", () => {
     expect((await run(priceReject, { requestId: REQ, note: NOTE })).message).toMatch(/withdrawn/);
     replies.tw4_price_reject = { data: { status: "rejected", replayed: false, withdrawn: false } };
     expect((await run(priceReject, { requestId: REQ, note: NOTE })).message).toMatch(/rejected/);
-    expect(rpc.every((c) => c.fn === "tw4_price_reject" && c.args.p_actor === ADMIN)).toBe(true);
+    expect(rpc.every((c) => c.fn === "tw4_price_reject" && !("p_actor" in c.args))).toBe(true);
   });
 });

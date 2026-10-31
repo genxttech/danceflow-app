@@ -31,7 +31,7 @@ const raw = (over: Record<string, unknown> = {}) => ({
 const client = (data: unknown, error: { code: string } | null = null) => ({ rpc: async () => ({ data, error }) }) as never;
 
 async function overview(requests: Record<string, unknown>[]): Promise<PriceChangeOverview> {
-  const o = await loadPriceChanges(client({ active: [{ price_id: U(5), kind: "number", customer_price_cents: 200, provider_cost_cents: 115, description: "Phone number", created_at: "2026-10-01T00:00:00Z" }], requests }), ME);
+  const o = await loadPriceChanges(client({ active: [{ price_id: U(5), kind: "number", customer_price_cents: 200, provider_cost_cents: 115, description: "Phone number", created_at: "2026-10-01T00:00:00Z" }], requests }));
   if (!o) throw new Error("overview");
   return o;
 }
@@ -40,7 +40,7 @@ const count = (html: string, needle: string) => html.split(needle).length - 1;
 
 describe("PriceChanges section", () => {
   it("degrades to not available when the control is not installed (the read returns nothing)", async () => {
-    expect(await loadPriceChanges(client(null, { code: "42883" }), ME)).toBeNull();
+    expect(await loadPriceChanges(client(null, { code: "42883" }))).toBeNull();
     const html = render(null);
     expect(html).toContain("Not available: price change control is not installed");
     expect(count(html, "<form")).toBe(0);

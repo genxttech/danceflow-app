@@ -11,7 +11,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { ownerReactivate, seedPrice } from "../../sms/twilioIsv/__tests__/priceFixture";
+import { deletePricesSql, ownerReactivate, seedPrice } from "../../sms/twilioIsv/__tests__/priceFixture";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 1_000_000 });
 
@@ -200,7 +200,7 @@ describe.skipIf(!enabled)("recurring-charge execution: spending cap, pilot busin
   afterAll(() => {
     try {
       psqlFile(CLEANUP);
-      aged(`delete from public.studio_sms_price_list where created_by = '${U.padmin}'`);
+      psql(deletePricesSql(`created_by = '${U.padmin}'`));
       ownerReactivate(psql, `id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
     } catch {
       /* best effort */
