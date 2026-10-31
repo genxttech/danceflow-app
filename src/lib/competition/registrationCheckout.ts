@@ -239,7 +239,8 @@ export async function refuseIfOrganizerSuiteLapsed(admin: Db, params: { orderId:
     .maybeSingle();
   // A paid order, or one with a bound Checkout Session (possibly open or mid-payment), is handled by the resume path
   // in beginCompetitionPayment (retrieve, expire, release against that session) and by the payment callbacks.
-  if (!order || order.payment_status === "paid" || order.status === "confirmed" || order.stripe_checkout_session_id) return;
+  if (!order) throw organizerNotAccepting();
+  if (order.payment_status === "paid" || order.status === "confirmed" || order.stripe_checkout_session_id) return;
   try {
     await releaseCompetitionRegistration(admin, { orderId: params.orderId, reason: "abandoned" });
   } catch {
@@ -303,9 +304,13 @@ export async function beginCompetitionPayment(params: {
         let settled = await expireCheckoutQuietly(stripe, prepared.checkout_session_id, accountId);
         if (!settled) {
           // Expiry failed: the session may have been paid or may already have expired. Re-read it before deciding.
-          const latest = await stripe.checkout.sessions.retrieve(prepared.checkout_session_id, {}, { stripeAccount: accountId });
-          if (latest.status === "complete") return { kind: "status", url: urls.statusUrl };
-          settled = latest.status === "expired";
+          try {
+            const latest = await stripe.checkout.sessions.retrieve(prepared.checkout_session_id, {}, { stripeAccount: accountId });
+            if (latest.status === "complete") return { kind: "status", url: urls.statusUrl };
+            settled = latest.status === "expired";
+          } catch {
+            console.warn("comp_d7_session_reread_failed"); // unknown state: refuse, release nothing
+          }
         }
         if (settled) {
           try {

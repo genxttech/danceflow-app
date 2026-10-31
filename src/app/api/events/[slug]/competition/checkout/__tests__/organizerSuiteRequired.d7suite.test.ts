@@ -415,6 +415,18 @@ describe("P2-2: resuming an unpaid pending order with an open Checkout Session a
     expect(releases[0].args).toMatchObject({ p_checkout_session_id: "cs_bound" });
   });
 
+  it("F3: if expiry fails and the re-read also fails, the buyer is refused (not a 500) and nothing is released", async () => {
+    lapsedSeed();
+    resumeOpen();
+    state.stripeExpire.mockRejectedValue(new Error("stripe down"));
+    state.stripeRetrieve
+      .mockResolvedValueOnce({ id: "cs_bound", status: "open", url: "https://stripe.test/cs_bound" })
+      .mockRejectedValueOnce(new Error("stripe down"));
+    const response = await post();
+    expect(response.status).toBe(409);
+    expect(rpcNames()).not.toContain("release_competition_registration");
+  });
+
   it("F3: if expiry fails and the session is still open, the buyer is refused and nothing is released", async () => {
     lapsedSeed();
     resumeOpen();
