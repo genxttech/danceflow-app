@@ -4,6 +4,9 @@
   everything here only decides what to show and which button to offer.
 */
 
+import { withRetryOnce, type RpcCall, type RpcResult } from "@/lib/competition/results/advancement";
+import { hasResultMessage, isRetryableText, resultErrorMessage } from "@/lib/competition/results/messages";
+
 export type HeatRunState = "scheduled" | "staging" | "active" | "complete" | "mixed";
 
 export type DayOfHeatInput = {
@@ -124,12 +127,23 @@ export function heatStateLabel(state: HeatRunState) {
 }
 
 /** Plain-language message for staff; never a raw database error. */
-export function friendlyDayOfError(error: { message?: string } | null | undefined) {
+export function friendlyDayOfError(error: { message?: string; code?: string | null } | null | undefined) {
   const message = error?.message ?? "";
   const match = message.match(/COMPO1_[A-Z_]+:\s*([\s\S]+?)(?:\n|$)/);
   if (match) return match[1].replace(/\s+/g, " ").trim();
   if (/COMP10D_SCHEDULE_PUBLISHED|COMPO1_RUN_IN_PROGRESS/.test(message)) return "The running order cannot change once heats have started.";
+  // CF1: Final start refusals (COMP_ADVANCEMENT_*, COMP_ROSTER_*, COMP_CALLBACK_TARGET_BELOW_MINIMUM) and "try again" database answers.
+  const raw = `${error?.code ?? ""} ${message}`;
+  if (hasResultMessage(raw) || isRetryableText(raw)) return resultErrorMessage(raw);
   return "That change could not be saved. Refresh and try again.";
+}
+
+/**
+ * Starts a round. Final start can meet a deadlock (40P01), a lock wait (55P03) or a statement timeout (57014); the call is repeated
+ * once with the same request id, so a lost answer is replayed by the database instead of applied twice. Other errors are returned as is.
+ */
+export function startCompetitionRound(rpc: RpcCall, roundId: string, requestId: string): Promise<RpcResult> {
+  return withRetryOnce(rpc)("start_competition_round", { p_round_id: roundId, p_request_id: requestId });
 }
 
 /** SC1 owns scratching; the console only links to it. */
