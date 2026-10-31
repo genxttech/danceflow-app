@@ -437,12 +437,21 @@ with
     ('apply_studio_subscription_state', '20270202100000'),
     ('_tw4price_activation_guard', '20270204090000'),
     ('_tw4price_admin_active', '20270204090000'),
+    ('_tw4price_do_approve', '20270204090000'),
+    ('_tw4price_do_list', '20270204090000'),
+    ('_tw4price_do_propose', '20270204090000'),
+    ('_tw4price_do_reject', '20270204090000'),
     ('_tw4price_kinds', '20270204090000'),
+    ('_tw4price_registered_at', '20270204090000'),
+    ('_tw4price_registry_guard', '20270204090000'),
+    ('_tw4price_session_actor', '20270204090000'),
+    ('_tw4price_truncate_guard', '20270204090000'),
     ('_tw4pricedual_guard', '20270204090000'),
     ('tw4_price_approve', '20270204090000'),
     ('tw4_price_propose', '20270204090000'),
     ('tw4_price_reject', '20270204090000'),
-    ('tw4_price_requests_list', '20270204090000')
+    ('tw4_price_requests_list', '20270204090000'),
+    ('tw4_price_verify', '20270204090000')
   ),
   exp_tbl(name, since) as (values
     ('studio_sms_onboarding', '20261119090000'),
@@ -521,7 +530,9 @@ with
     ('studio_sms_provider_cover_evidence', '20261229090000'),
     ('studio_sms_pilot_spend_evidence', '20261230090000'),
     ('protected_subscriptions', '20270201090000'),
-    ('studio_sms_price_change_requests', '20270204090000')
+    ('studio_sms_price_approvers', '20270204090000'),
+    ('studio_sms_price_change_requests', '20270204090000'),
+    ('studio_sms_price_limits', '20270204090000')
   ),
   -- END GENERATED expected objects
   fn as (
