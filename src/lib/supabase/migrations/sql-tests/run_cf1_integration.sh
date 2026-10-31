@@ -1,10 +1,11 @@
 #!/bin/bash
 # CF1 integration: rebuild the composed chain from the latest package heads and run every suite + concurrency script. Local QA Postgres only.
-#   bash run_all.sh            (fetches, merges heads into the cf1/integration worktree, builds, runs, writes /c/Dev/cf1-a4-qa/report.txt)
+#   bash run_all.sh [partial|full]   partial (default): ns1-base:snap + K1,NS1,SS1,CX1,HL1; full: clean full chain from the chain-probe recipe (July prod dump + all migrations).
+#   Writes /c/Dev/cf1-a4-qa/report_<mode>.txt. Partial and full counts are NEVER merged into one number.
 # Partial chain: image ns1-base:snap (E1,E2,O1,REG,F2 only) + K1,NS1,SS1,CX1,HL1 applied here. NOT a from-scratch chain (cf1-e1-chain-probe owns that).
 export MSYS_NO_PATHCONV=1
 W=/c/Dev/studioapp-cf1-int            # cf1/integration worktree
-Q=/c/Dev/cf1-a4-qa; OUT=$Q/report.txt; : > $OUT
+MODE=${1:-partial}; Q=/c/Dev/cf1-a4-qa; OUT=$Q/report_$MODE.txt; : > $OUT; CFU=supabase_admin; [ "$MODE" = full ] && CFU=postgres
 M=$W/src/lib/supabase/migrations; T=$M/sql-tests; L=/c/Dev/.cf1-db-slot.lock; C=cf1-a4-db
 log() { echo "$*" | tee -a $OUT; }
 cleanup() { docker rm -f -v $C >/dev/null 2>&1; rm -rf $L; }
@@ -23,23 +24,40 @@ echo "session=cf1-a4 container=$C started=$(date -u +%FT%TZ) purpose=run_all" > 
 ap() { u=$1; shift; for f in "$@"; do o=$(sed 's/\r$//' "$f" | docker exec -i -e PGPASSWORD=postgres $C psql -U $u -h localhost -d postgres -q -v ON_ERROR_STOP=1 2>&1); if echo "$o" | grep -q ERROR; then log "APPLY FAIL ($u) $(basename $f): $(echo "$o" | grep -m2 ERROR | tr '\n' ' ' | cut -c1-300)"; return 1; fi; done; }
 fp() { docker exec -i -e PGPASSWORD=postgres $C psql -U supabase_admin -h localhost -d postgres -Atq < $Q/fp.sql | sort; }
 docker rm -f -v $C >/dev/null 2>&1
-docker run -d --name $C -e POSTGRES_PASSWORD=postgres ns1-base:snap >/dev/null
-for i in $(seq 1 40); do docker exec $C pg_isready -U supabase_admin -h localhost >/dev/null 2>&1 && break; sleep 3; done
 cd $M
-ap postgres 20270110* 20270115* 20270116* 20270117* 20270118* 20270119* || exit 4
+if [ "$MODE" = full ]; then
+  # clean full chain (chain-probe recipe): July prod dump + bootstrap + GoTrue columns, replay in order, 4 skips, 3 CRLF files, trigger enable
+  FC=$Q/fullchain; BL=$FC/build.log; : > $BL; REF=origin/cf1/integration; SK=20260721234500_create_commerce_cover_images.sql,20260918030000_landmark1a_slice5a_capability_activation_bridge.sql,20261005090000_launchsec1b_client_photos_private_storage.sql,20261006090000_launchsec1b2_public_asset_storage_authorization.sql
+  CR=20260831090000_user_has_client_portal_access_helper.sql,20260715_payroll_prep_v1_pay_periods_batches.sql,20260715_payroll_operations_completion.sql
+  docker run -d --name $C --memory 1500m --cpus 2 -e POSTGRES_PASSWORD=postgres public.ecr.aws/supabase/postgres:17.6.1.106 postgres -D /etc/postgresql -c supautils.hint_roles= >/dev/null
+  ok=0; for i in $(seq 1 80); do if docker exec $C psql -U postgres -d postgres -At -c 'select 1' >/dev/null 2>&1; then ok=$((ok+1)); [ $ok -ge 3 ] && break; sleep 4; else ok=0; sleep 3; fi; done
+  A="docker exec -i -e PGPASSWORD=postgres $C psql -h localhost -U supabase_admin -d postgres -q -v ON_ERROR_STOP=1"
+  $A < $FC/bootstrap.sql && $A -c "alter table auth.users add column if not exists email_confirmed_at timestamptz, add column if not exists banned_until timestamptz, add column if not exists deleted_at timestamptz;" || { log FULLCHAIN bootstrap FAIL; exit 4; }
+  docker exec -i -e PGPASSWORD=postgres $C psql -U postgres -d postgres -q -v ON_ERROR_STOP=1 < C:/Dev/studioapp/backups/danceflow-production-pre-accounting-v1-2026-07-15.sql >/dev/null 2>&1 || { log FULLCHAIN dump FAIL; exit 4; }
+  export CHAIN_CONTAINER=$C
+  awk '{print} /20261010090000_launchsec2a/{exit}' $FC/order_pre.txt > $FC/ord_a.txt; awk 'f{print} /20261010090000_launchsec2a/{f=1}' $FC/order_pre.txt > $FC/ord_b.txt
+  node $FC/build.mjs --ref $REF --order $FC/ord_a.txt --stop --skip $SK --crlf $CR --log $BL >/dev/null 2>&1 || { log 'FULLCHAIN build stage A FAIL (see report)'; exit 4; }
+  docker exec -e PGPASSWORD=postgres $C psql -U postgres -d postgres -q -c 'alter table public.appointments enable trigger appointments_sync_membership_usage_for_private_lesson' || exit 4
+  node $FC/build.mjs --ref $REF --order $FC/ord_b.txt --stop --skip $SK --crlf $CR --log $BL >/dev/null 2>&1 || { log 'FULLCHAIN build stage B FAIL (see report)'; exit 4; }
+  log "CHAIN: full chain built (clean, uniformly postgres-owned): $(grep -c "^OK" $BL) applied, $(grep -c "^SKIP" $BL) skipped, $(grep -c "^FAIL" $BL) failed"
+else
+  docker run -d --name $C -e POSTGRES_PASSWORD=postgres ns1-base:snap >/dev/null
+  for i in $(seq 1 40); do docker exec $C pg_isready -U supabase_admin -h localhost >/dev/null 2>&1 && break; sleep 3; done
+  ap postgres 20270110* 20270115* 20270116* 20270117* 20270118* 20270119* || exit 4
+fi
 CF="20270120085000 20270120090000 20270120091000 20270120092000 20270120093000 20270120094000 20270120095000 20270120096000"
 fp > $Q/fpA_pre.txt 2>/dev/null
 ap postgres 20270120085000_* || exit 4
-rb() { ap supabase_admin rollback/${1}_*_rollback.sql; }
+rb() { ap $CFU rollback/${1}_*_rollback.sql; }
 # pre-CF1 fingerprint (A1 not applied yet in this run: take it before)
-ap supabase_admin 20270120090000_* 20270120091000_* 20270120092000_* 20270120093000_* 20270120094000_* 20270120095000_* 20270120096000_* || { log "COMPOSED APPLY: FAIL"; exit 4; }
-log "COMPOSED APPLY (partial chain, snap): PASS"
+ap $CFU 20270120090000_* 20270120091000_* 20270120092000_* 20270120093000_* 20270120094000_* 20270120095000_* 20270120096000_* || { log "COMPOSED APPLY: FAIL"; exit 4; }
+log "COMPOSED APPLY ($MODE chain): PASS"
 fp > $Q/fpA_comp.txt
 for n in 20270120096000 20270120095000 20270120094000 20270120093000 20270120092000 20270120091000 20270120090000; do rb $n || { log "ROLLBACK FAIL $n"; exit 5; }; done
 ap postgres rollback/20270120085000_*_rollback.sql || { log "ROLLBACK FAIL A1"; exit 5; }
 fp > $Q/fpA_rb.txt
 d=$(diff $Q/fpA_pre.txt $Q/fpA_rb.txt | wc -l); log "REVERSE ROLLBACK fingerprint diff vs pre-CF1: $d lines $([ $d = 0 ] && echo PASS || echo FAIL)"
-ap postgres 20270120085000_* && ap supabase_admin 20270120090000_* 20270120091000_* 20270120092000_* 20270120093000_* 20270120094000_* 20270120095000_* 20270120096000_* || exit 4
+ap postgres 20270120085000_* && ap $CFU 20270120090000_* 20270120091000_* 20270120092000_* 20270120093000_* 20270120094000_* 20270120095000_* 20270120096000_* || exit 4
 fp > $Q/fpA_re.txt; d=$(diff $Q/fpA_comp.txt $Q/fpA_re.txt | wc -l); log "RE-APPLY fingerprint diff vs first apply: $d lines $([ $d = 0 ] && echo PASS || echo FAIL)"
 # --- suites
 run() { n=$1; s=$2; fx=${3:-}; if [ -n "$fx" ]; then src=$(cat $T/fixtures/competition_round_ready.sql "$T/$s"); else src=$(cat "$T/$s"); fi
