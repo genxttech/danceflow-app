@@ -12,3 +12,9 @@ Flags: `--base 23ffbc43 --extra-branch claude/d4-1-price-dual-control --tests-re
 - FAIL, identical on the WP-D0 baseline without D4-1 (verified): tw4monthly 27/28 (a calendar-month test that depends on today's date; 2026-10-31).
 - BLOCKED by environment, not run: isolatedQa.canary (5 skipped), r2bp2.rfl (needs TW4A_RFL_DB_CONTAINER); r2b refuses the merged chain by design (0/53).
 - Unit/app tests (no database): src/app/platform/sms, src/lib/sms: 81 files / 1545 tests passed (+ 35 database-gated files skipped without a database), tsc clean, eslint 0 errors.
+
+### Review-fix re-run (same flags, TW4RFL_DB=postgres; plus TW4F4_DB / TW4A9_DB for f4recovery)
+- Chain (apply, rollback extra == main-only, re-apply, reverse rollback == baseline, re-apply, second cycle): all PASS.
+- pricedual 26/26, pricedualactions 11/11, wpd4dual 29/29, wpd4actions 9/9.
+- 24 fixture suites PASS: tw4recexec 20, tw4recurring 30, f3recon 11, tw4inbound 28, tw4recon 37, tw4rv 28, tw4sender 18, tw4usage 26, j3owner 11, f1funding 25, f4recovery 31, feeres 46, j4activation 11, r2brfl 28, tw4f3a 16, tw4f3b0 18, tw4fi 25, tw4fj1 11, tw4pilothard 25, tw4rfl 87, tw4rfld5 21, tw4rflevid 60, tw4rflops 64, tw4rflspend 76 (all N/N).
+- r2a 29/30 (+1 self-skip, class BLOCKED); tw4monthly 27/28 FAIL (identical on the WP-D0 baseline, date-dependent); r2b 0/53 (refuses the merged chain by design). No saturation-triggered failure in this run.
