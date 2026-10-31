@@ -226,6 +226,20 @@ grant execute on all functions in schema pg_temp to authenticated, anon, service
 -- ============================================================================
 -- Fixtures (superuser; replica mode for placements, as the E2/F2/HL1 suites do)
 -- ============================================================================
+-- A0 compatibility: once A0 (20270120090000) is applied its ENABLE ALWAYS guards refuse the hand-built heats / heat entries below (the suite
+-- places fixtures directly, like the E2/HL1 suites). Inside this rolled-back transaction the CF1 guards on the four fixture tables are switched
+-- off, so the same fixtures run with or without A0. A3 behaviour (functions, not triggers) is unaffected; A1's own triggers are untouched.
+do $$
+declare r record;
+begin
+  for r in select t.tgname, t.tgrelid::regclass as rel from pg_trigger t
+           where not t.tgisinternal and t.tgname like 'cf1_%'
+             and t.tgrelid in ('public.event_competition_heats'::regclass, 'public.event_competition_heat_entries'::regclass,
+                               'public.event_competition_rounds'::regclass, 'public.event_competition_entries'::regclass) loop
+    execute format('alter table %s disable trigger %I', r.rel, r.tgname);
+  end loop;
+end $$;
+
 insert into auth.users (id, email) values
   (pg_temp.u('000001'), 't-cf1a3-owner@example.test'), (pg_temp.u('000002'), 't-cf1a3-owner2@example.test'),
   (pg_temp.u('000011'), 't-cf1a3-judge1@example.test'), (pg_temp.u('000012'), 't-cf1a3-judge2@example.test'), (pg_temp.u('000013'), 't-cf1a3-judge3@example.test');
