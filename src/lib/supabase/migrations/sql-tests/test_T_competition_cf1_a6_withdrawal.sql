@@ -136,6 +136,8 @@ declare
 begin
   perform set_config('session_replication_role', 'replica', true);
   update public.event_competition_rounds set status = 'approved' where id = pg_temp.id('src', p_n);
+  -- chain-independent: the unique live index allows one calculated/approved version per round, and a fuller chain may leave one live after the correction
+  update public.event_competition_result_versions set status = 'superseded' where round_id = pg_temp.id('src', p_n) and status in ('calculated', 'approved');
   insert into public.event_competition_result_versions (id, event_id, round_id, version, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, status, request_id)
   values (pg_temp.id('rvg', p_n, p_ver), v_event, pg_temp.id('src', p_n), p_ver, 'callback_tally', '1', public._compf2_input_hash(pg_temp.id('src', p_n), 'callback_tally', '1'),
           repeat(md5('t' || p_ver), 2), '{}', '[]', pg_temp.id('user', 1), 'approved', pg_temp.id('req-rvg', p_n, p_ver));
@@ -546,11 +548,12 @@ reset role;
 select pg_temp.chk('M2: a request made against generation 1 is COMP_WITHDRAWAL_REQUEST_STALE after the revoke', pg_temp.code(pg_temp.cos(2, 91)) = 'COMP_WITHDRAWAL_REQUEST_STALE', pg_temp.cos(2, 91)::text);
 reset role;
 select pg_temp.chk('Low-1: the reader flags the stale request', (select bool_or((x ->> 'stale')::boolean) from jsonb_array_elements(pg_temp.state_probe(pg_temp.id('fin', 9))) x where x ->> 'request_id' = pg_temp.id('rq', 91)::text));
--- M1: a newer, unapproved version that marks couple 4 advanced must not widen the roster
+-- M1: a newer, non-approved version that marks couple 4 advanced must not widen the roster. Chain-independent: F2's unique live index allows one calculated/approved version per round, so the newer version is 'stale' (non-live) and the older approved version is restored.
+select pg_temp.su(format($q$update public.event_competition_result_versions set status = 'approved' where id = %L$q$, pg_temp.id('rv', 9)));
 select pg_temp.su(format($q$insert into public.event_competition_result_versions (id, event_id, round_id, version, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, status, request_id)
-  values (%L, %L, %L, 2, 'callback_tally', '1', %L, %L, '{}', '[]', %L, 'calculated', %L)$q$, pg_temp.id('rvu', 9), pg_temp.id('evt', 1), pg_temp.id('src', 9), repeat('c', 64), repeat('d', 64), pg_temp.id('user', 1), pg_temp.id('req-rvu', 9)));
+  values (%L, %L, %L, 2, 'callback_tally', '1', %L, %L, '{}', '[]', %L, 'stale', %L)$q$, pg_temp.id('rvu', 9), pg_temp.id('evt', 1), pg_temp.id('src', 9), repeat('c', 64), repeat('d', 64), pg_temp.id('user', 1), pg_temp.id('req-rvu', 9)));
 select pg_temp.su(format($q$insert into public.event_competition_result_rows (event_id, result_version_id, entry_id, advanced, output) select %L, %L, pg_temp.id('ent', 9, k), k <= 4, '{}' from generate_series(1, 4) k$q$, pg_temp.id('evt', 1), pg_temp.id('rvu', 9)));
-select pg_temp.chk('M1: the roster is the latest APPROVED version (3 couples), not the newer calculated one', cardinality(public._cf1_a6_current_roster(pg_temp.id('fin', 9))) = 3, public._cf1_a6_current_roster(pg_temp.id('fin', 9))::text);
+select pg_temp.chk('M1: the roster is the latest APPROVED version (3 couples), not the newer stale one that marks 4 advanced', cardinality(public._cf1_a6_current_roster(pg_temp.id('fin', 9))) = 3, public._cf1_a6_current_roster(pg_temp.id('fin', 9))::text);
 select pg_temp.chk('Low-1: the stale request no longer blocks a new one (the request reaches the precheck: couple 3 is already withdrawn, so BELOW_MINIMUM, not REQUEST_PENDING)', pg_temp.code(pg_temp.req('withdraw', 9, 1, 1, 95)) = 'COMP_ADVANCEMENT_BELOW_MINIMUM', pg_temp.req('withdraw', 9, 1, 1, 95)::text);
 reset role;
 select pg_temp.chk('M1/OD-15 A: a second withdrawal is BELOW_MINIMUM (approved roster 3, one already withdrawn; the unapproved version would have allowed it)', pg_temp.code(pg_temp.req('withdraw', 9, 2, 1, 96)) = 'COMP_ADVANCEMENT_BELOW_MINIMUM', pg_temp.req('withdraw', 9, 2, 1, 96)::text);
