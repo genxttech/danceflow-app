@@ -74,3 +74,13 @@ Preflight refuses unless the installed text has the pre-A2 md5, the anchor occur
 
 ## Concurrency probe is deterministic (update)
 `run_cf1_a2_lock_vs_lifecycle.sh` no longer relies on sleeps. The writer takes the entry, then polls `pg_stat_activity` until the Lock-ballots backend is observed blocked (a 20 s barrier timeout fails loudly), and only then takes its second lock, so the cycle always forms. The victim is chosen by per-session `deadlock_timeout` (shorter runs the detector first): A1 writer victim, A2 lock victim; the victimised lock is retried once (reported). Earlier intermittent "no victim" came from the fixed 1 s / 3 s sleeps: when the lock session started late (docker exec latency) the writer had already finished its second update, so no cycle formed. No migration change was needed. Fixture ids carry a per-run prefix (`RUN`), so several runs share one database.
+
+## Gate coverage (A.9.5)
+| Gate | A2 check label(s) | Status |
+|---|---|---|
+| U38 (A2 half; A5's exclusion route is A5's) | suite: "U38: manager records an NS1 no-show … (real RPC)", "U38: after the real NS1 no-show the submitted ballots are stale and lock refuses COMP_BALLOTS_STALE FIRST", "U38 + U58: with corrected ballots (NS1 route) … the re-lock succeeds" | PASS |
+| U54 (A2 half; the CF1 function's own lock_timeout and 10D triggers are A0's) | suite: "U54 (A2 half): … no function-level lock_timeout", "U54 (A2 half): the caller's lock_timeout is unchanged (7s) after a refused lock call" | PASS (A2 half) |
+| U58 | "U58: …" labels (refusal, detail, reasons, re-lock) | PASS |
+| U61 lock probe | `concurrency/run_cf1_a2_lock_vs_lifecycle.sh` | PASS |
+| U68 | suite "U68: post-A2 pin …" (the same value HL1 suite l.254 asserts) + `concurrency/run_cf1_a2_rollback_chain.sh` (order A2 then HL1, pins 6e41… / a10f…, refusals) | PASS |
+| U69 | "U69: …" labels | PASS |

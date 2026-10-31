@@ -363,7 +363,7 @@ select pg_temp.chk('lock_competition_round_ballots keeps its grants (authenticat
   has_function_privilege('authenticated', 'public.lock_competition_round_ballots(uuid,uuid)', 'execute')
   and not has_function_privilege('anon', 'public.lock_competition_round_ballots(uuid,uuid)', 'execute')
   and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.lock_competition_round_ballots(uuid,uuid)'::regprocedure and a.grantee = 0));
-select pg_temp.chk('post-A2 pin: md5 of the installed text (CRs removed) equals the pinned value',
+select pg_temp.chk('U68: post-A2 pin: md5 of the installed text (CRs removed) equals the pinned value (the same value the HL1 suite l.254 asserts)',
   md5(replace(pg_get_functiondef('public.lock_competition_round_ballots(uuid,uuid)'::regprocedure), E'\r', '')) = 'c4ba327df7943d559ab52ccd07d20ea0');
 select pg_temp.chk('the A1 helper stays unreachable by API roles (lock reaches it only through the definer)',
   not has_function_privilege('authenticated', 'public._cf1_require_roster_eligible(uuid,text)', 'execute')
@@ -469,15 +469,17 @@ insert into t_probe values ('relock_refunded', pg_temp.lock_try(pg_temp.u('00600
 reset role;
 select pg_temp.chk('U58: re-lock while E103 is still refunded is refused again with the same code (stage lock)',
   (select v like 'P0001|COMP_ROSTER_ENTRY_UNAVAILABLE:%' and split_part(v, '|', 3)::jsonb ->> 'stage' = 'lock' from t_probe where k = 'relock_refunded'), (select v from t_probe where k = 'relock_refunded'));
--- the couple leaves the ranking set by a scratch on its heat entry (replica fixture shortcut): the existing stale-ballot error comes first
-set session_replication_role = replica;
-update public.event_competition_heat_entries set status = 'scratched' where heat_id = pg_temp.u('00d001') and entry_id = pg_temp.u('008003');
-set session_replication_role = origin;
+-- U38: the REAL NS1 no-show (manager) takes the refunded couple out of the ranking set; judges submitted before, so their ballots are stale and the
+-- existing stale-ballot error comes first (A2 runs after the readiness checks)
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('U38: manager records an NS1 no-show for the refunded couple E103 (real RPC)', format($q$select public.mark_competition_heat_no_show((select id from public.event_competition_heat_entries where heat_id = %L and entry_id = %L), 'refunded, did not attend', %L)$q$, pg_temp.u('00d001'), pg_temp.u('008003'), pg_temp.u('f7c00a')));
+reset role;
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
 insert into t_probe values ('stale', pg_temp.lock_try(pg_temp.u('006001'), pg_temp.u('f7c003')));
 reset role;
-select pg_temp.chk('NS1/E2 route: after the roster changed the existing stale-ballot error comes FIRST (A2 runs after the readiness checks)',
+select pg_temp.chk('U38: after the real NS1 no-show the submitted ballots are stale and lock refuses COMP_BALLOTS_STALE FIRST (A2 runs after the readiness checks)',
   (select v like 'P0001|COMP_BALLOTS_STALE:%' from t_probe where k = 'stale'), (select v from t_probe where k = 'stale'));
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000011'));
@@ -489,7 +491,7 @@ select public.submit_competition_ballot(pg_temp.u('006001'), pg_temp.u('00d001')
 select pg_temp.as_user(pg_temp.u('000001'));
 insert into t_probe values ('relock', pg_temp.lock_try(pg_temp.u('006001'), pg_temp.u('f7c004')));
 reset role;
-select pg_temp.chk('U58: with corrected ballots the refunded couple is out of the ranking set and the re-lock succeeds',
+select pg_temp.chk('U38 + U58: with corrected ballots (NS1 route) the refunded couple is out of the ranking set and the re-lock succeeds',
   (select v from t_probe where k = 'relock') = 'ok' and (select status from public.event_competition_rounds where id = pg_temp.u('006001')) = 'ballots_locked', (select v from t_probe where k = 'relock'));
 
 -- ============================================================================
@@ -525,6 +527,17 @@ select pg_temp.chk('OD-15 A: the refused callback Final stayed active', (select 
 select pg_temp.chk('OD-15 A: a Final-only division with ONE couple (not a callback Final) locks normally',
   (select v from t_probe where k = 'finalonly') = 'ok' and (select status from public.event_competition_rounds where id = pg_temp.u('006008')) = 'ballots_locked', (select v from t_probe where k = 'finalonly'));
 
+-- U54 (A2 half): the pinned function sets NO function-level lock_timeout and leaks no setting into the caller's session
+select pg_temp.chk('U54 (A2 half): lock_competition_round_ballots carries no function-level lock_timeout (proconfig is search_path only)',
+  (select not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c like 'lock_timeout%' or c like 'statement_timeout%') from pg_proc p where p.oid = 'public.lock_competition_round_ballots(uuid,uuid)'::regprocedure));
+set local lock_timeout = '7s';
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000001'));
+insert into t_probe values ('lt_refused', pg_temp.lock_try(pg_temp.u('006007'), pg_temp.u('f7e010')));
+reset role;
+select pg_temp.chk('U54 (A2 half): the caller''s lock_timeout is unchanged (7s) after a refused lock call (nothing leaks out of the function)',
+  current_setting('lock_timeout') = '7s' and (select v like 'P0001|COMP_ROSTER_BELOW_MINIMUM:%' from t_probe where k = 'lt_refused'));
+set local lock_timeout = default;
 -- ============================================================================
 -- 6. Access is unchanged: the role check still runs first; anon cannot execute
 -- ============================================================================
