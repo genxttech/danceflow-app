@@ -101,13 +101,13 @@ if [ "$(adv_count 2)" = "0" ] && grep -q "COMP_ADVANCEMENT_ENTRY_UNAVAILABLE" /t
 echo "update public.event_competition_entries set eligibility_status = 'eligible' where id = cf1c.id('ent', 2, 2);" | $PN >/dev/null
 
 # ---------------------------------------------------------------- R3 apply never waits on a version-row UPDATE (FOR KEY SHARE vs NO KEY UPDATE)
-(echo "begin; update public.event_competition_schedule_versions set name = 'V1 renamed' where id = cf1c.id('sv'); select pg_sleep(4); commit;" | $PN > /tmp/cf1c_r3a.out 2>&1) &
+(echo "begin; update public.event_competition_schedule_versions set name = 'V1 renamed' where id = cf1c.id('sv'); select pg_sleep(8); commit;" | $PN > /tmp/cf1c_r3a.out 2>&1) &
 sleep 1
 T0=$(date +%s)
 echo "$AS select public.apply_competition_round_advancement(cf1c.id('src',3), cf1c.id('rv',3), cf1c.id('req1',3));" | $PN > /tmp/cf1c_r3b.out 2>&1
 T1=$(date +%s)
 wait
-if [ "$(adv_count 3)" = "1" ] && [ $((T1 - T0)) -le 2 ]; then ok "R3 apply did not wait for a version-row update ($((T1 - T0))s)"; else bad "R3 ($(adv_count 3), $((T1 - T0))s): $(head -3 /tmp/cf1c_r3b.out)"; fi
+if [ "$(adv_count 3)" = "1" ] && [ $((T1 - T0)) -le 5 ]; then ok "R3 apply did not wait for a version-row update ($((T1 - T0))s)"; else bad "R3 ($(adv_count 3), $((T1 - T0))s): $(head -3 /tmp/cf1c_r3b.out)"; fi
 
 # ---------------------------------------------------------------- R4 start || a held Final heat (NOWAIT)
 echo "$AS select public.apply_competition_round_advancement(cf1c.id('src',4), cf1c.id('rv',4), cf1c.id('req1',4));" | $PN >/dev/null 2>&1

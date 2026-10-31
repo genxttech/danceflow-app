@@ -214,6 +214,10 @@ select pg_temp.mk(19);
 select pg_temp.mk(20, 2);
 select pg_temp.mk(21, 3);
 select pg_temp.mk(22, 4);
+--  24 start guard: definition changed after apply (M1) | 25 start guard: only dance cancelled (M2) | 26 start guard: dance key differs (M2)
+select pg_temp.mk(24);
+select pg_temp.mk(25);
+select pg_temp.mk(26);
 
 -- ============================================================================
 -- 1. Catalogue: grants, ENABLE ALWAYS, pins
@@ -222,6 +226,12 @@ select pg_temp.chk('U70-style: no CF1 core table has any grant for public/anon/a
   not exists (select 1 from information_schema.role_table_grants g where g.table_schema = 'public'
               and (g.table_name like 'event_competition_round_advancement%' or g.table_name in ('event_competition_final_withdrawals', 'event_competition_round_capacity_events'))
               and g.grantee in ('PUBLIC', 'anon', 'authenticated', 'service_role')));
+-- L1: every CF1 table, every role, every privilege
+select pg_temp.chk('L1: none of the six CF1 tables grants any privilege to anon, authenticated, service_role',
+  not exists (select 1 from unnest(array['event_competition_round_advancements', 'event_competition_round_advancement_entries', 'event_competition_round_advancement_heats',
+      'event_competition_round_advancement_revocations', 'event_competition_final_withdrawals', 'event_competition_round_capacity_events']) t(n)
+    cross join unnest(array['anon', 'authenticated', 'service_role']) r(role)
+    where has_table_privilege(r.role, ('public.' || t.n)::regclass, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')));
 select pg_temp.chk('all CF1 core tables have RLS on and no policies',
   (select count(*) from pg_class c where c.relnamespace = 'public'::regnamespace and (c.relname like 'event_competition_round_advancement%' or c.relname in ('event_competition_final_withdrawals', 'event_competition_round_capacity_events')) and c.relkind = 'r' and c.relrowsecurity) = 6
   and not exists (select 1 from pg_policies where tablename like 'event_competition_round_advancement%' or tablename in ('event_competition_final_withdrawals', 'event_competition_round_capacity_events')));
@@ -608,6 +618,46 @@ select pg_temp.chk('carried withdrawal: the advanced list keeps all three, one c
   and (select advanced_count = 3 and carried_count = 1 from public.event_competition_round_advancements where source_round_id = pg_temp.id('src', 7)));
 select pg_temp.expect_ok('carried withdrawal: the start passes (the carried couple is not part of the expected roster)', format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_rounds set status = 'active' where id = %L$q$, pg_temp.id('fin', 7))));
 
+-- Review M1 / M2 / L4: the start guard also covers a Final whose definition changed after apply and a Final whose only dance was cancelled or re-keyed.
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.chk('scenarios 24, 25, 26 apply', pg_temp.code(pg_temp.ap(24, 24)) = 'OK' and pg_temp.code(pg_temp.ap(25, 25)) = 'OK' and pg_temp.code(pg_temp.ap(26, 26)) = 'OK');
+reset role;
+select pg_temp.age();
+-- M1: sequence_number moved after apply: the Final is no longer the callback's Final, yet it holds an advancement
+select pg_temp.su(format($q$update public.event_competition_rounds set sequence_number = 9 where id = %L$q$, pg_temp.id('fin', 24)));
+select pg_temp.chk('M1: the Final is no longer a callback Final but still has an active advancement',
+  not public._cf1_is_callback_final(pg_temp.id('fin', 24)) and public._cf1_active_advancement(pg_temp.id('fin', 24)) is not null);
+select pg_temp.expect_msg('M1: such a Final cannot start (ROSTER_STALE)',
+  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_rounds set status = 'active' where id = %L$q$, pg_temp.id('fin', 24))), 'COMP_ADVANCEMENT_ROSTER_STALE');
+select pg_temp.chk('M1: the Final stayed scheduled', (select status = 'scheduled' from public.event_competition_rounds where id = pg_temp.id('fin', 24)));
+-- M2: a status / key change of the only dance of an advanced Final heat is refused outside apply and the correction path
+select pg_temp.expect_msg('M2: cancelling the only dance of an advanced Final heat is refused',
+  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_heat_dances set status = 'cancelled' where heat_id in (select id from public.event_competition_heats where round_id = %L)$q$, pg_temp.id('fin', 25))), 'COMP_ADVANCEMENT_FINAL_DANCE_WRITER');
+select pg_temp.expect_msg('M2: re-keying the dance of an advanced Final heat is refused',
+  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_heat_dances set dance_key = 'tango' where heat_id in (select id from public.event_competition_heats where round_id = %L)$q$, pg_temp.id('fin', 26))), 'COMP_ADVANCEMENT_FINAL_DANCE_WRITER');
+-- the start guard is the second line: bypass the writer guard (rolled back with the transaction) and show the Final still cannot start
+set constraints all immediate;
+alter table public.event_competition_heat_dances disable trigger cf1_guard_final_heat_dance;
+alter table public.event_competition_heat_dances disable trigger comp10d_guard_heat_dance;
+update public.event_competition_heat_dances set status = 'cancelled' where heat_id in (select id from public.event_competition_heats where round_id = pg_temp.id('fin', 25));
+update public.event_competition_heat_dances set dance_key = 'tango' where heat_id in (select id from public.event_competition_heats where round_id = pg_temp.id('fin', 26));
+alter table public.event_competition_heat_dances enable always trigger cf1_guard_final_heat_dance;
+alter table public.event_competition_heat_dances enable trigger comp10d_guard_heat_dance;
+set constraints all deferred;
+select pg_temp.expect_msg('M2: a Final whose only dance is cancelled cannot start (FINAL_DANCE)',
+  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_rounds set status = 'active' where id = %L$q$, pg_temp.id('fin', 25))), 'COMP_ADVANCEMENT_FINAL_DANCE');
+select pg_temp.expect_msg('M2: a Final whose dance differs from the callback round''s cannot start (FINAL_DANCE)',
+  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_rounds set status = 'active' where id = %L$q$, pg_temp.id('fin', 26))), 'COMP_ADVANCEMENT_FINAL_DANCE');
+select pg_temp.chk('M2: the dance guard is still ENABLE ALWAYS and fires on the new columns',
+  (select tgenabled = 'A' and pg_get_triggerdef(oid) like '%status%sequence_number%dance_key%' from pg_trigger where tgname = 'cf1_guard_final_heat_dance'));
+-- L4: the three CF1 RPCs are executable by authenticated only
+select pg_temp.chk('L4: apply, preview and the reasoned capacity RPC are not executable by service_role, anon or public',
+  not has_function_privilege('service_role', 'public.apply_competition_round_advancement(uuid,uuid,uuid)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.competition_round_advancement_preview(uuid)', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.set_competition_round_heat_capacity(uuid,integer,text,uuid)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.apply_competition_round_advancement(uuid,uuid,uuid)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.apply_competition_round_advancement(uuid,uuid,uuid)', 'EXECUTE'));
 -- ============================================================================
 -- 8. Correction trigger (scenarios 2, 3, 4, 12, 23)
 -- ============================================================================
@@ -653,6 +703,14 @@ select pg_temp.chk('revoke: the Final heat is cancelled (not deleted), the floor
   and exists (select 1 from public.event_competition_floor_heats f join public.event_competition_heats h on h.floor_heat_id = f.id where h.round_id = pg_temp.id('fin', 3))
   and public._cf1_active_advancement(pg_temp.id('fin', 3)) is null
   and (select count(*) = 1 from public.event_competition_result_events where round_id = pg_temp.id('src', 3) and kind = 'advancement_revoked'));
+-- L2: replaying the request id of a revoked advancement is not a plain success
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.chk('L2: replay of a revoked advancement''s request id is COMP_ADVANCEMENT_REVOKED', pg_temp.code(pg_temp.ap(3, 3)) = 'COMP_ADVANCEMENT_REVOKED', pg_temp.ap(3, 3)::text);
+-- L3: a request id already held by a result event (here the correction's) is COMP_REQUEST_REUSED, not a raw unique violation
+select pg_temp.chk('L3: apply with a request id that a result event already holds is COMP_REQUEST_REUSED',
+  pg_temp.code(pg_temp.try(format($q$select public.apply_competition_round_advancement(%L, %L, %L)$q$, pg_temp.id('src', 3), pg_temp.id('rv', 3), pg_temp.id('c', 31)))) = 'COMP_REQUEST_REUSED');
+reset role;
 -- generation 2: new approved version, round approved again
 select pg_temp.su(format($q$update public.event_competition_rounds set status = 'approved' where id = %L$q$, pg_temp.id('src', 3)));
 select pg_temp.su(format($q$insert into public.event_competition_result_versions (id, event_id, round_id, version, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, status, request_id)
