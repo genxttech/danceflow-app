@@ -153,8 +153,11 @@ select pg_temp.chk('locked: nothing changed',
 select pg_temp.expect_ok('locked: a no-op update of a frozen column is allowed', $q$update public.event_competition_rounds set scoring_method = scoring_method where id = pg_temp.u('006002')$q$);
 select pg_temp.expect_ok('locked: updated_at allowed (the status writers E2/O1/F2 are covered by their own suites)', $q$update public.event_competition_rounds set updated_at = now() where id = pg_temp.u('006002')$q$);
 select pg_temp.expect_ok('locked: callback target (W4/E2-governed) allowed', $q$update public.event_competition_rounds set target_advancement_count = 5 where id = pg_temp.u('006001')$q$);
-select pg_temp.expect_ok('locked: name and configuration (10D max_entries_per_heat) allowed',
-  $q$update public.event_competition_rounds set name = 'Final (renamed)', configuration = jsonb_set(configuration, '{max_entries_per_heat}', '8') where id = pg_temp.u('006002')$q$);
+select pg_temp.expect_ok('locked: name and other configuration keys allowed',
+  $q$update public.event_competition_rounds set name = 'Final (renamed)', configuration = jsonb_set(configuration, '{note}', '"x"') where id = pg_temp.u('006002')$q$);
+-- CF1 A0: max_entries_per_heat is no longer writable directly; it goes through the reasoned capacity RPC
+select pg_temp.expect_msg('locked: a direct max_entries_per_heat write is refused (CF1 A0 capacity RPC owns it)',
+  $q$update public.event_competition_rounds set configuration = jsonb_set(configuration, '{max_entries_per_heat}', '8') where id = pg_temp.u('006002')$q$, 'COMP_CAPACITY_DIRECT_WRITE');
 select pg_temp.expect_ok('locked: a late round can still be inserted (REG pins it on insert)',
   $q$insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, scoring_method)
      values (pg_temp.u('006009'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003002'), 'Final', 'final', 1, 'ordinal_majority')$q$);
