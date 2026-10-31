@@ -10,8 +10,8 @@
 #        R5 correction (revoke) || a held Final heat (55P03, correction not opened, advancement still active).
 set -u
 C="${CONTAINER:-cf1-a0-db}"
-P="docker exec -i $C psql -U postgres -h localhost -v ON_ERROR_STOP=1 -X -q -At"
-PN="docker exec -i $C psql -U postgres -h localhost -X -q -At"
+P="docker exec -i -e PGPASSWORD=postgres $C psql -U supabase_admin -d postgres -h localhost -v ON_ERROR_STOP=1 -X -q -At"
+PN="docker exec -i -e PGPASSWORD=postgres $C psql -U supabase_admin -d postgres -h localhost -X -q -At"
 E=00000000-0000-0000-0000-cf1c0e000001
 S=00000000-0000-0000-0000-cf1c0e00a001
 U=00000000-0000-0000-0000-cf1c0e000011
@@ -21,6 +21,9 @@ bad() { echo "FAIL $1"; FAIL=1; }
 
 cleanup() {
   $PN >/dev/null 2>&1 <<SQL
+set session_replication_role = replica;
+update public.event_competition_heats set lock_state = 'open' where event_id = '$E';
+set session_replication_role = origin;
 delete from public.events where id = '$E';
 drop schema if exists cf1c cascade;
 SQL
@@ -74,6 +77,8 @@ begin
   perform set_config('session_replication_role', 'origin', true);
 end $$;
 select cf1c.mk(n) from generate_series(1, 6) n;
+grant usage on schema cf1c to authenticated;
+grant execute on all functions in schema cf1c to authenticated;
 SQL
 
 # As the owner through the authenticated role (apply needs auth.uid()).
