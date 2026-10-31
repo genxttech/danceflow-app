@@ -12,7 +12,7 @@ cleanup() { docker rm -f -v $C >/dev/null 2>&1; rm -rf $L; }
 trap cleanup EXIT
 # --- heads
 cd $W && git fetch -q origin
-for b in a0-core a1-eligibility-helper a4a-target-guard a2-lock-check a3-results-integrity a5-exclusion-action a6-withdrawal a7-od13 b-app a4-minimum-rule; do
+for b in a0-core a1-eligibility-helper a4a-target-guard a2-lock-check a3-results-integrity a5-exclusion-action a6-withdrawal a7-od13 b-app b2-dayof-retry a4-minimum-rule; do
   git merge --no-edit -q origin/cf1/$b >/dev/null 2>&1 || { log "MERGE CONFLICT with origin/cf1/$b"; git merge --abort; exit 2; }
   log "head $b $(git rev-parse --short origin/cf1/$b)"
 done
@@ -36,9 +36,9 @@ if [ "$MODE" = full ]; then
   docker exec -i -e PGPASSWORD=postgres $C psql -U postgres -d postgres -q -v ON_ERROR_STOP=1 < C:/Dev/studioapp/backups/danceflow-production-pre-accounting-v1-2026-07-15.sql >/dev/null 2>&1 || { log FULLCHAIN dump FAIL; exit 4; }
   export CHAIN_CONTAINER=$C
   awk '{print} /20261010090000_launchsec2a/{exit}' $FC/order_pre.txt > $FC/ord_a.txt; awk 'f{print} /20261010090000_launchsec2a/{f=1}' $FC/order_pre.txt > $FC/ord_b.txt
-  node $FC/build.mjs --ref $REF --order $FC/ord_a.txt --stop --skip $SK --crlf $CR --log $BL >/dev/null 2>&1 || { log 'FULLCHAIN build stage A FAIL (see report)'; exit 4; }
+  node $(cygpath -m $FC)/build.mjs --ref $REF --order $(cygpath -m $FC)/ord_a.txt --stop --skip $SK --crlf $CR --log $(cygpath -m $BL) >/dev/null 2>&1 || { log 'FULLCHAIN build stage A FAIL (see report)'; exit 4; }
   docker exec -e PGPASSWORD=postgres $C psql -U postgres -d postgres -q -c 'alter table public.appointments enable trigger appointments_sync_membership_usage_for_private_lesson' || exit 4
-  node $FC/build.mjs --ref $REF --order $FC/ord_b.txt --stop --skip $SK --crlf $CR --log $BL >/dev/null 2>&1 || { log 'FULLCHAIN build stage B FAIL (see report)'; exit 4; }
+  node $(cygpath -m $FC)/build.mjs --ref $REF --order $(cygpath -m $FC)/ord_b.txt --stop --skip $SK --crlf $CR --log $(cygpath -m $BL) >/dev/null 2>&1 || { log 'FULLCHAIN build stage B FAIL (see report)'; exit 4; }
   log "CHAIN: full chain built (clean, uniformly postgres-owned): $(grep -c "^OK" $BL) applied, $(grep -c "^SKIP" $BL) skipped, $(grep -c "^FAIL" $BL) failed"
 else
   docker run -d --name $C -e POSTGRES_PASSWORD=postgres ns1-base:snap >/dev/null
@@ -68,12 +68,6 @@ for x in "hl1 test_T_competition_hl1_heat_guards.sql" "e2 test_T_competition_e2_
 # --- concurrency (commit fixtures; run after the suites; A2 once per database)
 cc() { n=$1; shift; r=$(timeout 400 "$@" 2>&1 | grep -E "^(PASS|FAIL)|CONCURRENCY (PASS|FAIL)|PASS \(|done:" | tail -4 | tr '\n' '|' | cut -c1-500); log "CONC $n: $r"; }
 cd $T
-cc A0 env CONTAINER=$C sh test_T_competition_cf1_concurrency.sh
-cc A6 env CONTAINER=$C sh test_T_competition_cf1_a6_concurrency.sh
-cc A2 bash concurrency/run_cf1_a2_lock_vs_lifecycle.sh $C
-cc A5 env CONTAINER=$C DBUSER=supabase_admin bash test_T_competition_cf1_a5_concurrency.sh
-cc A7 env CONTAINER=$C DBUSER=supabase_admin bash test_T_competition_cf1_a7_concurrency.sh
-cc A4 env CONTAINER=$C bash test_T_competition_cf1_a4_concurrency.sh
 # A3 lock probe: the stock script cannot CREATE DATABASE a3probe (pg_net/pg_cron workers respawn); the copy terminates and creates in ONE psql session.
 # The result is only VERIFIED when every expected probe value appears (a holder that never held its locks makes everything NOT_BLOCKED).
 sed 's#^  PS -d postgres -qAt -c "select pg_terminate_backend.*#  :#; s#^  PS -d postgres -qc "create database a3probe template postgres" 2>/dev/null \&\& break#  PS -d postgres -qAt -c "select pg_terminate_backend(pid) from pg_stat_activity where datname = '"'"'postgres'"'"' and pid <> pg_backend_pid()" -c "create database a3probe template postgres" >/dev/null 2>\&1 \&\& break#' concurrency/run_cf1_a3_locks.sh > concurrency/tmp_a3_retry.sh
@@ -83,4 +77,10 @@ R=$(cat $Q/a3_conc.out $Q/a3_conc_all.out 2>/dev/null | grep -o "RESULT [a-z0-9_
 okA3=1
 for e in "p1_entry_for_key_share=NOT_BLOCKED" "p1_entry_for_update_other_round=NOT_BLOCKED" "p1_entry_for_update_ranking_set=BLOCKED" "p1_round_for_update=BLOCKED" "p2_entry_for_key_share=NOT_BLOCKED" "p2_entry_for_update_ranking_set=BLOCKED" "p2_heat_for_update_certified=BLOCKED" "p2_round_for_update=BLOCKED" "p3_calc=ERROR P0001 COMP_ROSTER_ENTRY_UNAVAILABLE"; do echo "$R" | grep -q "RESULT $e" || { okA3=0; log "CONC A3 expected missing: $e"; }; done
 log "CONC A3: $([ $okA3 = 1 ] && echo PASS || echo 'NOT VERIFIED (see a3_conc.out / a3_conc_all.out)')"
+cc A0 env CONTAINER=$C sh test_T_competition_cf1_concurrency.sh
+cc A6 env CONTAINER=$C sh test_T_competition_cf1_a6_concurrency.sh
+cc A2 bash concurrency/run_cf1_a2_lock_vs_lifecycle.sh $C
+cc A5 env CONTAINER=$C DBUSER=supabase_admin bash test_T_competition_cf1_a5_concurrency.sh
+cc A7 env CONTAINER=$C DBUSER=supabase_admin bash test_T_competition_cf1_a7_concurrency.sh
+cc A4 env CONTAINER=$C bash test_T_competition_cf1_a4_concurrency.sh
 log "DONE $(date -u +%FT%TZ)"
