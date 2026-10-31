@@ -131,6 +131,14 @@ select pg_temp.id('cts', e), pg_temp.id('evt', e), pg_temp.id('prg', e), 'Contes
 insert into public.event_competition_contests (id, event_id, program_id, name, contest_type, entry_format, status)
 values (pg_temp.id('cts', 9), pg_temp.id('evt', 1), pg_temp.id('prg', 9), 'Plain contest', 'single_dance', 'pro_am', 'open');
 
+-- Event 5 (L5 owner decision: preserved publication freeze): its own live version, so rule B is reached in isolation after a revoke.
+insert into public.events (id, studio_id, name, slug, event_type, start_date, end_date, status, visibility, registration_required)
+values (pg_temp.id('evt', 5), pg_temp.id('studio', 1), 'CF1 A0 Comp 5', 't-cf1a0-e5', 'competition', current_date + 30, current_date + 30, 'published', 'public', true);
+insert into public.event_competition_programs (id, event_id, studio_id, name, discipline_family, competition_mode, scoring_method, status, advancement_method)
+values (pg_temp.id('prg', 5), pg_temp.id('evt', 5), pg_temp.id('studio', 1), 'Callback program 5', 'country', 'relative', 'skating', 'configured', 'promote_callback');
+insert into public.event_competition_contests (id, event_id, program_id, name, contest_type, entry_format, status)
+values (pg_temp.id('cts', 5), pg_temp.id('evt', 5), pg_temp.id('prg', 5), 'Contest 5', 'single_dance', 'pro_am', 'open');
+insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status, published_at) values (pg_temp.id('sv', 5), pg_temp.id('evt', 5), 1, 'V1', 'published', now());
 insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status) values (pg_temp.id('sv', 60), pg_temp.id('evt', 1), 60, 'draft60', 'draft');
 -- Live schedule versions: event 1 (floor mode, published), event 3 (published, no floor heats), event 4 (floor mode). Event 2 has none.
 insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status, published_at) values
@@ -746,6 +754,41 @@ select pg_temp.as_user(pg_temp.id('user', 1));
 select pg_temp.expect_msg('a published callback with an active advancement needs F3 (PUBLISHED_NEEDS_F3)',
   format($q$select public.open_competition_round_correction(%L, 'judge error found', %L)$q$, pg_temp.id('src', 23), pg_temp.id('c', 44)), 'COMP_ADVANCEMENT_PUBLISHED_NEEDS_F3');
 reset role;
+
+-- ============================================================================
+-- 8b. L5 (owner decision: publication freeze PRESERVED). No Final-heat copy at publish; the revoke / correction path is the only way out.
+-- ============================================================================
+select pg_temp.mk(27, 5);
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.chk('L5: scenario 27 (own event) applies', pg_temp.code(pg_temp.ap(27, 27)) = 'OK', pg_temp.ap(27, 27)::text);
+reset role;
+select pg_temp.su(format($q$insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status) values (%L, %L, 2, 'draft L5', 'draft')$q$, pg_temp.id('sv', 81), pg_temp.id('evt', 5)));
+select pg_temp.expect_msg('L5 (1): after apply a new draft schedule version cannot be published (stable COMP_ADVANCEMENT_PUBLISH_FROZEN)',
+  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_schedule_versions set status = 'published', published_at = now() where id = %L$q$, pg_temp.id('sv', 81))),
+  'COMP_ADVANCEMENT_PUBLISH_FROZEN', '23514');
+select pg_temp.chk('L5 (1): the refused publish left the draft a draft, the Final heat in its original version and the advancement active',
+  (select status = 'draft' from public.event_competition_schedule_versions where id = pg_temp.id('sv', 81))
+  and (select count(*) = 1 and bool_and(schedule_version_id = pg_temp.id('sv', 5) and status <> 'cancelled') from public.event_competition_heats where round_id = pg_temp.id('fin', 27))
+  and public._cf1_active_advancement(pg_temp.id('fin', 27)) is not null);
+-- the authorized correction path revokes the advancement (Final scheduled, heat open, no ballots)
+set role authenticated;
+select pg_temp.as_user(pg_temp.id('user', 1));
+select pg_temp.expect_ok('L5 (2): the correction path opens and revokes the advancement', format($q$select public.open_competition_round_correction(%L, 'judge error found in the callback', %L)$q$, pg_temp.id('src', 27), pg_temp.id('c', 51)));
+reset role;
+select pg_temp.expect_ok('L5 (2): after the revoke the other version publishes',
+  format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_schedule_versions set status = 'published', published_at = now() where id = %L$q$, pg_temp.id('sv', 81))));
+select pg_temp.chk('L5 (2): the revoked advancement''s audit history is intact (advancement row, revocation row with cause and reason, advancement_revoked event, cancelled Final heat kept)',
+  exists (select 1 from public.event_competition_round_advancements a where a.source_round_id = pg_temp.id('src', 27))
+  and (select count(*) = 1 and bool_and(r.cause = 'source_correction_opened' and r.reason = 'judge error found in the callback')
+       from public.event_competition_round_advancement_revocations r join public.event_competition_round_advancements a on a.id = r.advancement_id where a.source_round_id = pg_temp.id('src', 27))
+  and (select count(*) = 1 from public.event_competition_result_events where round_id = pg_temp.id('src', 27) and kind = 'advancement_revoked')
+  and (select count(*) = 1 and bool_and(status = 'cancelled') from public.event_competition_heats where round_id = pg_temp.id('fin', 27))
+  and public._cf1_active_advancement(pg_temp.id('fin', 27)) is null);
+select pg_temp.chk('L5 (3): no copy of the Final heat exists in the newly published version (the publish never copies Final heats)',
+  not exists (select 1 from public.event_competition_heats where round_id = pg_temp.id('fin', 27) and schedule_version_id = pg_temp.id('sv', 81))
+  and not exists (select 1 from public.event_competition_heats where schedule_version_id = pg_temp.id('sv', 81))
+  and (select count(*) from public.event_competition_heats where round_id = pg_temp.id('fin', 27)) = 1);
 
 -- ============================================================================
 -- 9. Approval gate 2.4 (scenario 13's round: a calculated callback version with an undecided row)
