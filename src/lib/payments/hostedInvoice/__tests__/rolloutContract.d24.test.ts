@@ -6,7 +6,7 @@ import { handleHostedInvoiceEvent } from "../handlers";
  * D24 M1 rollout contract: SQL migration -> deploy with defer -> drain -> on. The handler must call the database
  * functions with exactly the parameter names the migration defines, in both modes, and must never call anything else.
  */
-const SQL = readFileSync("src/lib/supabase/migrations/20270203090000_d24_hosted_invoice_facts.sql", "utf8");
+const SQL = readFileSync("src/lib/supabase/migrations/20270203110000_d24_hosted_invoice_facts.sql", "utf8");
 
 function paramsOf(fn: string): string[] {
   const m = new RegExp("create or replace function public\\." + fn + "\\(([^)]*)\\)", "s").exec(SQL);

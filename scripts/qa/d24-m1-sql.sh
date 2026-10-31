@@ -7,8 +7,8 @@ set -uo pipefail
 
 NAME=df-d24-m1-pg
 M_CLAIM="src/lib/supabase/migrations/20261116090000_paywh1_webhook_event_claims.sql"
-M_D24="src/lib/supabase/migrations/20270203090000_d24_hosted_invoice_facts.sql"
-M_RB="src/lib/supabase/migrations/rollback/20270203090000_d24_hosted_invoice_facts_rollback.sql"
+M_D24="src/lib/supabase/migrations/20270203110000_d24_hosted_invoice_facts.sql"
+M_RB="src/lib/supabase/migrations/rollback/20270203110000_d24_hosted_invoice_facts_rollback.sql"
 cd "$(dirname "$0")/../.."
 for f in "$M_CLAIM" "$M_D24" "$M_RB"; do [ -f "$f" ] || { echo "missing $f"; exit 2; }; done
 

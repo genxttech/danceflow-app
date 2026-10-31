@@ -1,4 +1,4 @@
--- 20270203090000_d24_hosted_invoice_facts.sql
+-- 20270203110000_d24_hosted_invoice_facts.sql
 -- D24 M1: durable, order-safe persistence and ownership foundation for Stripe-hosted invoice facts.
 --   * hosted_invoice_registry     trusted DanceFlow mapping: (Stripe account scope, invoice id) -> studio + business object. Metadata is never authoritative.
 --   * hosted_invoices             one row per (account scope, invoice id) observed. Unmatched invoices are preserved as unmatched facts, never attributed by guesswork.
@@ -21,7 +21,7 @@
 --     code, and must not be exposed to an endpoint until a verified-authorization operator workflow exists.
 --   * Two registrations of the same invoice id under two different account scopes (or a registration racing a drain over the same keys) can deadlock; PostgreSQL aborts one
 --     transaction with 40P01. Retrying is safe: every write is inside the aborted transaction, every key is idempotent, and no external effect is taken.
--- Requires 20261116090000_paywh1_webhook_event_claims.sql (_paywh1_require_event_claim). Rollback: rollback/20270203090000_d24_hosted_invoice_facts_rollback.sql
+-- Requires 20261116090000_paywh1_webhook_event_claims.sql (_paywh1_require_event_claim). Rollback: rollback/20270203110000_d24_hosted_invoice_facts_rollback.sql
 
 begin;
 

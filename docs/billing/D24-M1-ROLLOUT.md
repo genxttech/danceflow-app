@@ -3,7 +3,7 @@
 Status: **merge candidate only; nothing here is authorized to run against a hosted environment.** Every hosted step below needs its own owner authorization.
 
 ## Required release sequence
-1. Apply `20270203090000_d24_hosted_invoice_facts.sql` (rollback: `rollback/20270203090000_d24_hosted_invoice_facts_rollback.sql`, refuses while evidence rows exist).
+1. Apply `20270203110000_d24_hosted_invoice_facts.sql` (rollback: `rollback/20270203110000_d24_hosted_invoice_facts_rollback.sql`, refuses while evidence rows exist).
 2. Deploy the handler with `D24_HOSTED_INVOICE_EVENTS=defer`.
 3. Verify durable deferred capture (read-only):
    `select state, count(*) from public.hosted_invoice_deferred_events group by 1;` and that new D24 event types appear as `pending` rows.

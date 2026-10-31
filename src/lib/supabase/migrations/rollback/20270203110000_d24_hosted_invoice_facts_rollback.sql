@@ -1,4 +1,4 @@
--- Rollback of 20270203090000_d24_hosted_invoice_facts.sql. REFUSES while any D24 row exists (the rows are permanent evidence): export first.
+-- Rollback of 20270203110000_d24_hosted_invoice_facts.sql. REFUSES while any D24 row exists (the rows are permanent evidence): export first.
 -- Roll the app back first (clear D24_HOSTED_INVOICE_EVENTS), then run this.
 begin;
 set local lock_timeout = '5s';
