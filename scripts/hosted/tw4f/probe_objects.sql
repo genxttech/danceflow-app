@@ -14,7 +14,7 @@
 --   node scripts/hosted/tw4f/gen_manifest_data.mjs --sync-probes
 -- Objects from migrations that are not on main yet (1206, 1215, Wave 1: 1218..1223) appear as UNEXPECTED until the lists are regenerated.
 with
-  -- BEGIN GENERATED expected objects (gen_manifest_data.mjs --sync-probes; chain through 20261231100000)
+  -- BEGIN GENERATED expected objects (gen_manifest_data.mjs --sync-probes; chain through 20270204090000)
   exp_fn(name, since) as (values
     ('_sms_onb_access_enabled', '20261119090000'),
     ('_sms_onb_append_only', '20261119090000'),
@@ -427,7 +427,18 @@ with
     ('tw4_spend_authorize', '20261230090000'),
     ('_tw4psh_event_evidence_check', '20261231100000'),
     ('_tw4psh_exception_evidence_check', '20261231100000'),
-    ('_tw4psh_spend_authorize', '20261231100000')
+    ('_tw4psh_spend_authorize', '20261231100000'),
+    ('protected_subscriptions_guard', '20270201090000'),
+    ('protected_subscriptions_no_truncate', '20270201090000'),
+    ('apply_studio_subscription_state', '20270202100000'),
+    ('_tw4price_activation_guard', '20270204090000'),
+    ('_tw4price_admin_active', '20270204090000'),
+    ('_tw4price_kinds', '20270204090000'),
+    ('_tw4pricedual_guard', '20270204090000'),
+    ('tw4_price_approve', '20270204090000'),
+    ('tw4_price_propose', '20270204090000'),
+    ('tw4_price_reject', '20270204090000'),
+    ('tw4_price_requests_list', '20270204090000')
   ),
   exp_tbl(name, since) as (values
     ('studio_sms_onboarding', '20261119090000'),
@@ -504,7 +515,9 @@ with
     ('studio_sms_num_orphans', '20261214090000'),
     ('studio_sms_num_recon_attempts', '20261214090000'),
     ('studio_sms_provider_cover_evidence', '20261229090000'),
-    ('studio_sms_pilot_spend_evidence', '20261230090000')
+    ('studio_sms_pilot_spend_evidence', '20261230090000'),
+    ('protected_subscriptions', '20270201090000'),
+    ('studio_sms_price_change_requests', '20270204090000')
   ),
   -- END GENERATED expected objects
   roles(rolname) as (values ('anon'), ('authenticated'), ('service_role')),
