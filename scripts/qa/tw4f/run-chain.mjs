@@ -29,7 +29,7 @@
  *   --env KEY=VALUE          extra environment for every suite (repeatable; the token {db} becomes the suite database container name), e.g. --env TW4RFL_DB=postgres --env ISO_QA_MARKER=1
  *   --until <version>        drop every planned migration whose version is above <version> (e.g. 20261231100000: the hosted DEV pending list)
  *   --track-functions        start every SUITE database with track_functions=all and write coverage.json per suite (pg_stat_user_functions vs public functions)
- *   --marker                 create public.tw4_local_qa_only in the seed before the plan (what scripts/qa/iso-qa.mjs does with ISO_QA_MARKER=1; 11 localStack suites require it)
+ *   --marker                 create public.tw4_local_qa_only in the seed before the plan (plus the auth.users columns GoTrue adds, i.e. iso-qa.mjs parity: ISO_QA_MARKER=1 and its auth step; 11 localStack suites require them)
  *   --keep                   keep the chain image and worktrees
  *   --known <file>           known environment failures (default scripts/qa/tw4f/known-failures.json)
  *
@@ -391,6 +391,7 @@ async function suiteRun(plan, image, testsRef, outDir) {
   try {
     if (!dockerTry("image", "inspect", chainTag).ok) {
       await startDb(seed, image);
+      if (flags.marker) { const r0 = psql(seed, "alter table auth.users add column if not exists email_confirmed_at timestamptz, add column if not exists banned_until timestamptz, add column if not exists deleted_at timestamptz; do $q$ begin if to_regclass('public.outbound_deliveries') is not null then grant update, delete on public.outbound_deliveries to authenticated; end if; end $q$;", { user: "supabase_admin" }); if (r0.code !== 0) return { verdict: "INFRA", results, note: `auth columns: ${r0.out.slice(0, 200)}` }; }
       if (flags.marker) { const r = psql(seed, "create table if not exists public.tw4_local_qa_only (note text); revoke all on public.tw4_local_qa_only from public, anon, authenticated, service_role;"); if (r.code !== 0) return { verdict: "INFRA", results, note: `marker: ${r.out.slice(0, 200)}` }; }
       for (const m of plan) { const r = applySql(seed, m.file, m.sql); if (!r.ok) return { verdict: "INFRA", results, note: `${m.file}: ${r.error}` }; }
       const ident = psql(seed, `select set_config('request.jwt.claims', '{"sub":"11111111-2222-4333-8444-555555555555","role":"authenticated"}', false) is not null and auth.uid() = '11111111-2222-4333-8444-555555555555'::uuid;`, { tuples: true });
