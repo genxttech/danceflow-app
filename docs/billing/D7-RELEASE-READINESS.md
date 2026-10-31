@@ -2,7 +2,7 @@
 
 **Status: readiness analysis only. Nothing in this document is authorized.** No migration, environment change, deployment, promotion, Stripe change, registry insert or live smoke test is approved by it. Each step below needs its own explicit owner approval at the time.
 
-Prepared 2026-10-30. Source of truth for policy and decisions: `docs/billing/FOUNDER-PRICING-POLICY-GAP-REPORT.md` (PR #343, docs only). Release mechanics follow `docs/billing/PRICING-P1-RELEASE-RUNBOOK.md`.
+Prepared 2026-10-30; refreshed 2026-10-31 after the D7 entitlement code merged (sections 1, 2 and 10.4 to 10.7). Source of truth for policy and decisions: `docs/billing/FOUNDER-PRICING-POLICY-GAP-REPORT.md` (PR #343, docs only). Release mechanics follow `docs/billing/PRICING-P1-RELEASE-RUNBOOK.md`.
 
 ## 1. What is merged, and what is live
 
@@ -12,6 +12,14 @@ Prepared 2026-10-30. Source of truth for policy and decisions: `docs/billing/FOU
 | #346 D7-3a (managed / paused / incomplete fail-closed checkout) | merged to `main` as `bef70ee4` |
 | #351 D7-4 (protected-subscription registry migration + checkout guard) | merged to `main` as `512fd7d2` |
 | **Production** | **runs `release/pricing-p1` (`4bc938c6`), which contains none of the above.** `main` has not been promoted and must not be: it carries unrelated work (Twilio TW-4F, Competition OS, BILLING-QA tooling) |
+| #360 BILLING-QA-6 (order-safe subscription state RPC) | merged to `main` as `23ffbc43` |
+| #362 D7 database (entitlement integrity, audit events, expiry function, least-privilege grants) | merged to `main` as `36a507bd` (2026-10-31) |
+| #363 D7 application (shared reader, every organizer-event purchase path, dark expiry job) | merged to `main` as `daa7d592` (2026-10-31) |
+| #380 D7 in-person and Terminal sales gate | merged to `main` as `a0073b82` (2026-10-31) |
+| #381 D7 mark-paid redirect fix | merged to `main` as `3b4a1fa3` (2026-10-31) |
+| #382 D7 competition desk payment gate | merged to `main` as `f1015ce3` (2026-10-31) |
+| Entitlement migrations `20270203090000`, `20270203100000` | **on `main` in Git only; not applied to DEV, PROD or any hosted database** |
+| Organizer Suite expiry job | **merged dark: route returns 404 unless `ORGANIZER_SUITE_EXPIRY_ENABLED` is `true`; not in `vercel.json`; not scheduled** |
 | Registry migration `20270201090000` | **not applied to any hosted database** (validated only in disposable local databases) |
 | Registry record for the grandfathered $129 Pro | **does not exist** |
 | Grandfathered-subscription protection | **NOT ACTIVE anywhere** |
@@ -21,6 +29,8 @@ Prepared 2026-10-30. Source of truth for policy and decisions: `docs/billing/FOU
 The D7 stack is billing-only: the three squash commits cherry-pick **cleanly** onto `release/pricing-p1` (verified locally on 2026-10-30, nothing pushed): on that tree 193 billing tests passed, `tsc` was clean, eslint reported 0 errors, and only billing files and the new migration changed (17 files).
 
 Recommended: a new isolated release branch off `release/pricing-p1` containing exactly those three commits (and nothing from `main`), built as a staged, not-promoted production deployment, then promoted only after SQL, verification and approvals below. Do **not** push a branch merely to start a build without approval. Branch preview environments share the PROD Supabase project, so previews must not be exercised for authenticated flows.
+
+> **Update 2026-10-31.** The entitlement work is now five more squash commits on `main` (`36a507bd`, `daa7d592`, `a0073b82`, `3b4a1fa3`, `f1015ce3`), and unlike the first three D7 commits it is **not billing-only**: it changes the cart, student, shared payment step, private-lesson, competition, Terminal, sell-tickets, registrations and competition-desk code. Whether these five cherry-pick cleanly onto `release/pricing-p1`, and which of their dependencies production lacks, has **not been tested**. That check (and a full test run on the isolated branch) is a prerequisite before any release branch is approved.
 
 ## 3. Production prerequisites (all OPEN)
 
@@ -225,11 +235,46 @@ The pricing grandfather and the complimentary Suite entitlement **share an expir
 
 Neither item is treated as evidence that the Pro plan link is missing; the plan link was verified directly (10.1).
 
-### 10.4 Delivery status (draft PRs, unmerged, nothing applied or scheduled)
+### 10.4 Delivery status (merged to `main` 2026-10-31; nothing applied, scheduled or promoted)
 
-| PR | Head | CI (GitHub) |
-|---|---|---|
-| #362 database (migrations `20270203090000`, `20270203100000`, rollbacks, SQL tests, e2e fixture fix) | `c032d44f852e77a563d9da19d51efa3a78511953` | typecheck/build/lint/tests pass; both Vercel previews pass |
-| #363 application (shared reader honoring `period_end`, six readers, platform pages, private-lesson enforcement, dark expiry job) | `57104c78233a1b1ea5ddd792a330faffa95bced0` | typecheck/build/lint/tests pass; both Vercel previews pass |
+| PR | Merge commit | Scope | Evidence |
+|---|---|---|---|
+| #362 database | `36a507bd` | Migrations `20270203090000` (entitlement integrity, append-only audit events, `expire_due_usage_addon_entitlements()`, timezone-aware end-instant helpers) and `20270203100000` (least-privilege grants), rollbacks, local-only SQL test suite, e2e fixture teardown | GitHub typecheck/build/lint/tests pass; SQL suite 185/185 checks; independent review GO with fixes (the P2 was fixed before merge) |
+| #363 application | `daa7d592` | One shared reader for the entitlement boundary (status active, `period_start` inclusive, `period_end` exclusive at local midnight in the studio timezone, UTC fallback, SQL/TypeScript parity) used by billing capabilities, platform-fee tiers, platform pages and every organizer-event checkout; dark expiry job | GitHub typecheck/build/lint/tests pass; reviewed three times (security review GO; the free-registration and replay amendments were reviewed twice, with the P1/P2 findings fixed before merge) |
+| #380 in-person and Terminal sales | `a0073b82` | New in-person ticket sales for organizer events (card reader, cash, check, external card, comp, other), collecting a pending Terminal sale, and staff mark-paid of an unpaid registration need a current entitlement; Terminal fees unchanged | GitHub job pass (after retargeting to `main`); independent review GO-with-fixes on the first pass (mark-paid P2 fixed), GO on the second; 67 targeted tests, mutation-checked |
+| #381 mark-paid redirect fix | `3b4a1fa3` | Staff mark-paid no longer reports every outcome, success included, as `mark_paid_failed` | 6 new tests (4 fail on the old code); local typecheck clean, 66 registrations tests pass. GitHub ran previews only (the test job is path-filtered). No separate independent review |
+| #382 competition desk payment gate | `f1015ce3` | The registration-desk RPC can no longer complete an unpaid pending competition order after the entitlement lapsed | 9 new tests, mutation-checked; GitHub job pass. No separate independent review |
+
+Composed-state regression run before the last two merges (current `main` plus #362, #363 and #380): typecheck clean, 557 test files passed and 42 skipped, 9058 tests passed, 1028 skipped, 0 failed. The Playwright E2E suite has **not** run for any of these PRs (its environment is not configured, so GitHub skips it), and none of the Terminal, in-person or desk flows has a browser test.
 
 Regression coverage for the private-lesson route (13 tests, 5 fail against the old route): ordinary events unaffected; current grant allowed with the Pro fee; lapsed grant or none refused before the slot is held; lapsed grant plus a paid add-on allowed; organizer set on only the event or only the slot; Organizer plan keeps its fee; the 2027-07-09 boundary (allowed at 03:59:59Z, refused at 04:00:00Z); an already-booked slot keeps the existing answer. Bookings already paid or in flight are never re-checked.
+
+### 10.5 Owner decisions now implemented in code (2026-10-31)
+
+- **Ordinary studio purchases never require the Organizer Suite.** Only events with an organizer are gated.
+- **New organizer-event purchases after expiry are refused** on every path: cart, student checkout, shared payment step, private lessons, competition registration, new in-person and Terminal sales, mark-paid, and the competition registration desk.
+- **Free and discounted competition registrations need the entitlement too.** A brand-new registration is refused before anything is created ("This organizer is not accepting registrations for this event right now."). A replay of an existing request still gets its stored result.
+- **Unpaid pending orders cannot complete payment after expiry; there is no grace window.** For an open competition Checkout Session the session is expired first; if that fails the session is re-read, and nothing is released unless it is settled.
+- **A replay of an already paid student order still returns the completed result** after expiry, without charging or writing. Payment callbacks (webhooks) never consult the entitlement.
+- **Existing confirmed bookings and paid orders stay valid.** Nothing is cancelled or refunded automatically.
+- **Terminal fee behavior is unchanged.** No online Organizer Suite fee percentage is applied to Terminal transactions; that needs a separate owner-approved fee policy.
+- **DanceAbel's complimentary access** is valid through July 8, 2027 and ends at the approved instant 2027-07-09T04:00:00Z (boundary tested at 03:59:59Z allowed, 04:00:00Z refused, on every gated path).
+
+### 10.6 Known limits and tracked follow-ups (none blocks the merged work)
+
+- **Desk payments are gated in the application only.** A signed-in event manager could still call `record_competition_checkin_payment` directly through the API. A database-level guard would need a migration that depends on the unapplied #362 functions.
+- **Sibling actions with the same swallowed-redirect bug** (success reported as failure): cancel registration, mark attended, link to client, create lead, and confirm registration in `registrations/actions.ts`. Not changed.
+- **Existing mark-paid weaknesses, not introduced here:** no status guard (a refunded or cancelled registration can be re-marked paid), and a double submit can insert two payment rows. `confirmEventRegistrationAction` is ungated and has no role check.
+- **Other open P3s:** audit actor attribution in the entitlement audit trigger, UTC fallback on a studio-timezone read failure, per-row cost of the timezone helpers, unaudited `TRUNCATE`, and the expiry function skipping locked rows.
+- **Policy questions still open:** past-due handling of Stripe-sourced Suite rows, UTC-versus-deny on timezone read failure, what the studio may see after expiry, the add-on price, and whether to backfill baseline audit events.
+
+### 10.7 What still blocks a production release (all unchanged by the merges)
+
+1. A hosted catalog recheck immediately before any apply (the validation baseline skipped 22 migrations the harness cannot replay).
+2. An isolated release branch off `release/pricing-p1` (see the 2026-10-31 note in section 2: cherry-pick feasibility is untested), staged not promoted.
+3. The two entitlement migrations applied to DEV and then PROD in one controlled window, in order, **before** the application; rollback in reverse order, application first.
+4. A decision on, and approval of, expiry-job scheduling (it is merged dark and unscheduled).
+5. Setting `period_end = 2027-07-09` on DanceAbel's manual grant (`095f8801-7d18-4c73-8d0e-141bd93dcbca`): a separate entitlement change that needs authorization. Until it is set, the grant has no end date and never expires.
+6. The unbuilt transition work: the July 2027 regular-price mechanism and registry end date, the Organizer Suite add-on purchase flow with test-mode verification, and the advance-notice workflow.
+7. The two reconciliation items in 10.3 (subscription-id mismatch; empty price and period fields on DanceAbel's subscription row), kept separate.
+8. A browser-level (Playwright) run of the purchase, Terminal, in-person and desk flows, which has not happened.
