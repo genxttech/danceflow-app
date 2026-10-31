@@ -8,7 +8,7 @@
 --                                       requester, a 24 h expiry, the decision (pending / approved / rejected / expired / invalidated / applied), the decider, the written
 --                                       note, and the published price the request produced. No API-role privilege, RLS on, rows are never deleted, a decided row is final.
 --   * tw4_price_propose / tw4_price_approve / tw4_price_reject / tw4_price_requests_list   service-role functions. The actor is always a parameter the application derives
---                                       from the AAL2 session; the database checks it again (platform_role, not banned, not deleted).
+--                                       from the AAL2 session; the database checks it again (platform_role, not banned).
 --   * tw4_price_set                     KEEPS its signature and grants for compatibility but now refuses EVERY caller (TW042). There is no single-administrator path.
 --   * studio_sms_price_list trigger     (ENABLE ALWAYS, so it also fires when session_replication_role = replica) refuses to INSERT a price unless an APPROVED request for
 --                                       exactly those amounts, by two distinct administrators, is being applied in the same transaction; refuses to re-activate a retired price
@@ -87,14 +87,14 @@ alter table public.studio_sms_price_change_requests enable row level security;
 -- ---------------------------------------------------------------------------------------------------------------
 -- helpers (callable by nobody)
 -- ---------------------------------------------------------------------------------------------------------------
--- an ACTIVE platform administrator: holds the role, and the auth user is neither banned nor deleted
+-- an ACTIVE platform administrator: holds the role, and the auth user exists and is not banned (a deleted user takes the profile with it)
 create or replace function public._tw4price_admin_active(p_user uuid)
 returns boolean language sql stable security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
   select p_user is not null
     and public._tw4_r1_is_platform_admin(p_user)
-    and exists (select 1 from auth.users u where u.id = p_user and u.deleted_at is null and (u.banned_until is null or u.banned_until <= now()));
+    and exists (select 1 from auth.users u where u.id = p_user and (u.banned_until is null or u.banned_until <= now()));
 $$;
 
 -- the price kinds the price list accepts, read from its own check constraint (so a later kind is never refused or accepted here by a stale copy of the list)
