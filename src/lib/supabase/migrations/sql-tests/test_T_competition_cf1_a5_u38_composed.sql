@@ -230,10 +230,13 @@ do $$
 begin
   if to_regprocedure('public.request_round_exclusion(uuid,uuid,text,text,uuid)') is null
      or to_regprocedure('public._cf1_excluded_entries(uuid)') is null
-     or pg_get_functiondef('public._compe2_round_entries(uuid)'::regprocedure) !~ '_cf1_excluded_entries' then
+     or pg_get_functiondef('public._compe2_round_entries(uuid)'::regprocedure) !~ '_cf1_heat_entry_is_excluded' then
     raise exception 'U38 BLOCKED: needs A3 (readers) and A5 (exclusion action) applied';
   end if;
 end $$;
+
+create or replace function pg_temp.xid(p_request uuid) returns uuid language sql stable security definer as $$ select id from public.event_competition_round_exclusions where request_id = p_request $$;
+grant execute on function pg_temp.xid(uuid) to authenticated;
 
 -- ============================================================================
 -- U38 (A5): r5 h7 (e14 e15 e16), three judges submit, e16 is excluded through the audited action, ballots go stale
@@ -267,7 +270,7 @@ select pg_temp.chk('U38 A5: a pending request alone does not change the ranking 
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000017'));
 select pg_temp.expect_ok('U38 A5: the chair co-signs',
-  format($q$select public.cosign_round_exclusion((select id from public.event_competition_round_exclusions where request_id = %L), %L)$q$, pg_temp.u('f70010'), pg_temp.u('f70011')));
+  format($q$select public.cosign_round_exclusion(%L, %L)$q$, pg_temp.xid(pg_temp.u('f70010')), pg_temp.u('f70011')));
 reset role;
 select pg_temp.chk('U38 A5: after the co-sign all three submitted ballots are stale', pg_temp.stale('006005') = 3);
 select pg_temp.chk('U38 A5: the excluded couple is out of the heat ranking set', not (public._compe2_heat_entries(pg_temp.u('00d007')) @> array[pg_temp.u('008016')]::uuid[]));
