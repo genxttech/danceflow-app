@@ -145,7 +145,7 @@ begin
   perform set_config('session_replication_role', 'origin', true);
 end $$;
 create or replace function pg_temp.state_probe(p_round_id uuid) returns jsonb language sql security definer as $$
-  select coalesce(jsonb_agg(jsonb_build_object('request_id', q.request_id, 'stale', q.advancement_id is distinct from public._cf1_active_advancement(p_round_id))), '[]'::jsonb)
+  select coalesce(jsonb_agg(jsonb_build_object('request_id', q.request_id, 'stale', public._cf1_a6_is_stale(p_round_id, q.advancement_id, q.advancement_generation))), '[]'::jsonb)
   from public.event_competition_final_withdrawal_requests q where q.target_round_id = p_round_id and not exists (select 1 from public.event_competition_final_withdrawals w where w.request_id = q.request_id) $$;
 grant execute on all functions in schema pg_temp to authenticated, anon, service_role;
 
@@ -201,7 +201,7 @@ begin
   values (pg_temp.id('fin', p_n), v_event, pg_temp.id('prg', p_e), pg_temp.id('div', p_n), 'D' || p_n || ' Final', 'final', 2, p_fin, 'ordinal_majority');
   for v_k in 1..p_entries loop
     insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
-    values (pg_temp.id('ent', p_n, v_k), v_event, pg_temp.id('prg', p_e), pg_temp.id('div', p_n), 'e' || p_n || '-' || v_k, 'confirmed', 'eligible', (p_n * 10 + v_k)::text);
+    values (pg_temp.id('ent', p_n, v_k), v_event, pg_temp.id('prg', p_e), pg_temp.id('div', p_n), 'e' || p_n || '-' || v_k, 'confirmed', 'eligible', (p_n * 100 + v_k)::text);
   end loop;
   insert into public.event_competition_floor_heats (id, event_id, schedule_version_id, heat_number) values (pg_temp.id('cbf', p_n), v_event, v_ver, p_n);
   insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, status, lock_state, contest_id, schedule_version_id, floor_heat_id)
@@ -233,6 +233,8 @@ select pg_temp.mk(9);
 alter table public.event_competition_rounds disable trigger cf1_guard_callback_target_capacity;
 select pg_temp.mk(10, 1, 12, 12);
 alter table public.event_competition_rounds enable always trigger cf1_guard_callback_target_capacity;
+select pg_temp.mk(11);
+select pg_temp.mk(12);
 
 -- ============================================================================
 -- 1. Catalogue: grants, ENABLE ALWAYS, VOLATILE, search_path, RLS
@@ -247,7 +249,7 @@ select pg_temp.chk('U51: the guard function is VOLATILE, SECURITY DEFINER, searc
   (select p.provolatile = 'v' and p.prosecdef and p.proconfig @> array['search_path=public, pg_temp'] and position('when others' in lower(p.prosrc)) = 0
    from pg_proc p where p.proname = 'cf1_guard_withdrawn_heat_entry' and p.pronamespace = 'public'::regnamespace));
 select pg_temp.chk('every A6 function is SECURITY DEFINER with the fixed search_path',
-  (select count(*) = 13 and bool_and(p.prosecdef and p.proconfig @> array['search_path=public, pg_temp'])
+  (select count(*) = 14 and bool_and(p.prosecdef and p.proconfig @> array['search_path=public, pg_temp'])
    from pg_proc p where p.pronamespace = 'public'::regnamespace and (p.proname like '\_cf1\_a6\_%' or p.proname in ('cf1_guard_withdrawn_heat_entry', 'withdraw_advanced_entry_from_final',
         'reinstate_withdrawn_entry_to_final', 'cosign_final_withdrawal_request', 'competition_final_withdrawal_state'))));
 select pg_temp.chk('the four RPCs: execute for authenticated, none for anon / public / service_role',
@@ -560,6 +562,38 @@ reset role;
 select pg_temp.chk('Low-1 cap: ten live requests on a Final are accepted', current_setting('cf1a6.cap') = 'pending,pending,pending,pending,pending,pending,pending,pending,pending,pending', current_setting('cf1a6.cap'));
 select pg_temp.chk('Low-1 cap: the 11th is COMP_WITHDRAWAL_TOO_MANY_PENDING', pg_temp.code(pg_temp.req('withdraw', 10, 11, 1, 111)) = 'COMP_WITHDRAWAL_TOO_MANY_PENDING', pg_temp.req('withdraw', 10, 11, 1, 111)::text);
 reset role;
+
+-- P2-1 (re-review): the null binding must not suffer an ABA. Scenario 11: request while no advancement exists (generation 0), apply, then revoke: the active advancement is null again, the generation is not.
+select pg_temp.as_user(1);
+select pg_temp.chk('P2-1: a request before any apply is accepted (generation 0, no advancement)', (pg_temp.req('withdraw', 11, 1, 1, 111) ->> 'state') = 'pending');
+select pg_temp.chk('P2-1: it is not stale yet', not (select bool_or((x ->> 'stale')::boolean) from jsonb_array_elements(pg_temp.state_probe(pg_temp.id('fin', 11))) x));
+select pg_temp.chk('P2-1: generation 1 applies', pg_temp.code(pg_temp.ap(11, 111)) = 'OK');
+select pg_temp.expect_ok('P2-1: the correction revokes generation 1', format($q$select public.open_competition_round_correction(%L, 'judge error found in the callback', %L)$q$, pg_temp.id('src', 11), pg_temp.id('c', 111)));
+reset role;
+select pg_temp.chk('P2-1: the active advancement is null again, as when the request was made', public._cf1_active_advancement(pg_temp.id('fin', 11)) is null);
+select pg_temp.chk('P2-1: the request is still STALE at the co-sign (a newer generation exists)', pg_temp.code(pg_temp.cos(2, 111)) = 'COMP_WITHDRAWAL_REQUEST_STALE', pg_temp.cos(2, 111)::text);
+reset role;
+select pg_temp.chk('P2-1: the reader flags it stale', (select bool_or((x ->> 'stale')::boolean) from jsonb_array_elements(pg_temp.state_probe(pg_temp.id('fin', 11))) x));
+select pg_temp.chk('P3: a replay of the stale request reports state stale, not pending', (pg_temp.req('withdraw', 11, 1, 1, 111) ->> 'state') = 'stale', pg_temp.req('withdraw', 11, 1, 1, 111)::text);
+reset role;
+select pg_temp.chk('P2-1/Low-1: a stale request does not block or count: a new request for the same couple is accepted', (pg_temp.req('withdraw', 11, 1, 1, 112) ->> 'state') = 'pending', pg_temp.req('withdraw', 11, 1, 1, 112)::text);
+reset role;
+
+-- P2-2 (re-review): the fallback roster (a correction left no approved version). Scenario 12: withdraw a couple in that window, then the corrected version leaves that couple off the list.
+select pg_temp.as_user(1);
+select pg_temp.chk('P2-2: scenario 12 generation 1 applies', pg_temp.code(pg_temp.ap(12, 121)) = 'OK');
+select pg_temp.expect_ok('P2-2: the correction revokes generation 1', format($q$select public.open_competition_round_correction(%L, 'judge error found in the callback', %L)$q$, pg_temp.id('src', 12), pg_temp.id('c', 121)));
+reset role;
+select pg_temp.chk('P2-2: no approved callback version exists in the window', not exists (select 1 from public.event_competition_result_versions rv where rv.round_id = pg_temp.id('src', 12) and rv.status = 'approved'));
+select pg_temp.chk('P2-2: the fallback roster is the last applied list (3 couples)', cardinality(public._cf1_a6_current_roster(pg_temp.id('fin', 12))) = 3);
+select pg_temp.chk('P2-2: a withdrawal in the window is accepted (row only)', pg_temp.code(pg_temp.flow('withdraw', 12, 2, 121)) = 'OK', pg_temp.flow('withdraw', 12, 2, 121)::text);
+reset role;
+select pg_temp.regen(12, 2, array[1, 3, 4]);
+select pg_temp.chk('P2-2: the corrected list omits the withdrawn couple 2 and adds couple 4: generation 2 applies', pg_temp.code(pg_temp.ap(12, 122)) = 'OK', pg_temp.ap(12, 122)::text);
+reset role;
+select pg_temp.chk('P2-2: the withdrawn couple has no active heat entry, the others do',
+  pg_temp.hes(12, 2) = 'none' and pg_temp.hes(12, 1) <> 'none' and pg_temp.hes(12, 3) <> 'none' and pg_temp.hes(12, 4) <> 'none',
+  pg_temp.hes(12, 1) || ',' || pg_temp.hes(12, 2) || ',' || pg_temp.hes(12, 3) || ',' || pg_temp.hes(12, 4));
 
 -- ============================================================================
 -- 8. Scenario 2: the guard (U39) with every trigger, then in isolation; replica role (U52); evidence immutability

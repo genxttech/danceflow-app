@@ -56,6 +56,8 @@ create table public.event_competition_final_withdrawal_requests (
   requested_by uuid not null,
   -- the active advancement of the Final when the request was made (null: none); the co-sign refuses if it changed
   advancement_id uuid references public.event_competition_round_advancements(id),
+  -- the highest advancement generation of the Final when the request was made (0: none ever); it closes the ABA hole of the null binding above (apply then revoke returns to "null" with a higher generation)
+  advancement_generation integer not null default 0,
   request_id uuid not null unique,
   transaction_id bigint not null default txid_current(),
   at timestamptz not null default now(),
@@ -304,7 +306,19 @@ as $$
                       and ou.role in ('organizer_owner', 'organizer_admin', 'organizer_staff'))));
 $$;
 
--- The pending requests of a Final that can still be co-signed: not completed and bound to the Final's current active advancement.
+-- Is a request bound to something other than the Final's current state: another active advancement, or any new generation since it was made (apply then revoke included).
+create function public._cf1_a6_is_stale(p_round_id uuid, p_advancement_id uuid, p_generation integer)
+returns boolean
+language sql
+volatile
+security definer
+set search_path = public, pg_temp
+as $$
+  select p_advancement_id is distinct from public._cf1_active_advancement(p_round_id)
+      or p_generation is distinct from coalesce((select max(a.generation) from public.event_competition_round_advancements a where a.target_round_id = p_round_id), 0);
+$$;
+
+-- The pending requests of a Final that can still be co-signed: not completed and bound to the Final's current state (see _cf1_a6_is_stale).
 create function public._cf1_a6_live_requests(p_round_id uuid)
 returns setof public.event_competition_final_withdrawal_requests
 language sql
@@ -315,7 +329,7 @@ as $$
   select q.* from public.event_competition_final_withdrawal_requests q
   where q.target_round_id = p_round_id
     and not exists (select 1 from public.event_competition_final_withdrawals w where w.request_id = q.request_id)
-    and q.advancement_id is not distinct from public._cf1_active_advancement(p_round_id);
+    and not public._cf1_a6_is_stale(p_round_id, q.advancement_id, q.advancement_generation);
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -355,7 +369,9 @@ begin
     if found then
       if v_prev.target_round_id = p_round_id and v_prev.entry_id = p_entry_id and v_prev.kind = p_kind and v_prev.requested_by = v_uid then
         v_done := exists (select 1 from public.event_competition_final_withdrawals w where w.request_id = p_request_id);
-        return jsonb_build_object('replayed', true, 'state', case when v_done then 'completed' else 'pending' end, 'request_id', p_request_id, 'kind', p_kind);
+        return jsonb_build_object('replayed', true, 'state', case when v_done then 'completed'
+                                  when public._cf1_a6_is_stale(p_round_id, v_prev.advancement_id, v_prev.advancement_generation) then 'stale' else 'pending' end,
+                                  'request_id', p_request_id, 'kind', p_kind);
       end if;
       raise exception 'COMP_REQUEST_REUSED: request id was already used for a different request.' using errcode = 'P0001';
     end if;
@@ -375,8 +391,9 @@ begin
       raise exception 'COMP_WITHDRAWAL_TOO_MANY_PENDING: this Final already has 10 requests waiting for a co-signer.' using errcode = 'P0001';
     end if;
     v_adv := public._cf1_active_advancement(p_round_id);
-    insert into public.event_competition_final_withdrawal_requests (event_id, target_round_id, entry_id, kind, reason, requested_by, advancement_id, request_id)
-    values (v_round.event_id, p_round_id, p_entry_id, p_kind, v_reason, v_uid, v_adv, p_request_id);
+    insert into public.event_competition_final_withdrawal_requests (event_id, target_round_id, entry_id, kind, reason, requested_by, advancement_id, advancement_generation, request_id)
+    values (v_round.event_id, p_round_id, p_entry_id, p_kind, v_reason, v_uid, v_adv,
+            coalesce((select max(a.generation) from public.event_competition_round_advancements a where a.target_round_id = p_round_id), 0), p_request_id);
     return jsonb_build_object('replayed', false, 'state', 'pending', 'request_id', p_request_id, 'kind', p_kind);
   exception
     when lock_not_available or deadlock_detected then
@@ -465,7 +482,7 @@ begin
     if not public._cf1_a6_can_manage(v_req.requested_by, v_req.event_id) or public.verified_email_for_user(v_req.requested_by) is null then
       raise exception 'COMP_WITHDRAWAL_REQUESTER_INVALID: the requester is no longer a verified manager of this event; request again.' using errcode = '42501';
     end if;
-    if public._cf1_active_advancement(v_req.target_round_id) is distinct from v_req.advancement_id then
+    if public._cf1_a6_is_stale(v_req.target_round_id, v_req.advancement_id, v_req.advancement_generation) then
       raise exception 'COMP_WITHDRAWAL_REQUEST_STALE: the Final was advanced or corrected after this request was made; request again.' using errcode = 'P0001';
     end if;
 
@@ -544,7 +561,7 @@ begin
     'withdrawn', coalesce((select jsonb_agg(jsonb_build_object('entry_id', w.entry_id, 'withdrawal_id', w.withdrawal_id) order by w.entry_id)
                            from public._cf1_withdrawn_entries(p_round_id) w), '[]'::jsonb),
     'pending', coalesce((select jsonb_agg(jsonb_build_object('request_id', q.request_id, 'kind', q.kind, 'entry_id', q.entry_id, 'requested_by', q.requested_by,
-                                                              'reason', q.reason, 'at', q.at, 'stale', q.advancement_id is distinct from public._cf1_active_advancement(p_round_id)) order by q.at, q.id)
+                                                              'reason', q.reason, 'at', q.at, 'stale', public._cf1_a6_is_stale(p_round_id, q.advancement_id, q.advancement_generation)) order by q.at, q.id)
                          from public.event_competition_final_withdrawal_requests q
                          where q.target_round_id = p_round_id
                            and not exists (select 1 from public.event_competition_final_withdrawals w where w.request_id = q.request_id)), '[]'::jsonb));
@@ -556,7 +573,7 @@ $$;
 -- ---------------------------------------------------------------------------
 revoke all on function public._cf1_a6_pair_state(uuid, uuid), public._cf1_a6_current_roster(uuid), public._cf1_a6_on_roster(uuid, uuid),
   public._cf1_a6_active_heat(uuid), public._cf1_a6_precheck(text, uuid, uuid), public.cf1_guard_withdrawn_heat_entry(),
-  public._cf1_a6_request(text, uuid, uuid, text, uuid), public._cf1_a6_can_manage(uuid, uuid), public._cf1_a6_live_requests(uuid)
+  public._cf1_a6_request(text, uuid, uuid, text, uuid), public._cf1_a6_can_manage(uuid, uuid), public._cf1_a6_live_requests(uuid), public._cf1_a6_is_stale(uuid, uuid, integer)
   from public, anon, authenticated, service_role;
 
 -- The invoker 10D triggers never call these; the guard runs as its owner. Only the four RPCs are callable, by authenticated.
