@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { RESULT_EVENT_KINDS } from "../contract";
 
-const migrations = join(__dirname, "..", "..", "..", "..", "supabase", "migrations");
+const migrations = join(__dirname, "..", "..", "..", "supabase", "migrations");
 
 describe("CF1 A0 contract", () => {
   it("the result-events kind check of the A0 migration equals the TypeScript kinds it adds", () => {
