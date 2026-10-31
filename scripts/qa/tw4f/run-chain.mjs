@@ -171,6 +171,11 @@ async function startApi(base, dbName) {
   docker("run", "-d", "--name", n.rest, "--label", LABEL, "--network", NET, ...LIMITS.rest, "-e", `PGRST_DB_URI=postgres://authenticator:postgres@${dbName}:5432/postgres`, "-e", "PGRST_DB_SCHEMAS=public",
     "-e", "PGRST_DB_ANON_ROLE=anon", "-e", `PGRST_JWT_SECRET=${jwt}`, "-e", "PGRST_DB_USE_LEGACY_GUCS=false", REST_IMAGE);
   if (n.auth) {
+    // the baseline image pre-creates auth.jwt()/auth.uid() owned by supabase_admin and the auth tables by another role: GoTrue's own migrations need to own them (disposable database only)
+    const own = psql(dbName, "alter role supabase_auth_admin with password 'postgres';\ndo $q$ declare r record; begin\n  for r in select p.oid::regprocedure as sig from pg_proc p where p.pronamespace = 'auth'::regnamespace and p.proowner <> 'supabase_auth_admin'::regrole loop execute format('alter function %s owner to supabase_auth_admin', r.sig); end loop;\n  for r in select c.oid::regclass as rel, c.relkind from pg_class c where c.relnamespace = 'auth'::regnamespace and c.relkind in ('r','p','v','m','S') and c.relowner <> 'supabase_auth_admin'::regrole loop\n    execute format('alter %s %s owner to supabase_auth_admin', case r.relkind when 'S' then 'sequence' when 'v' then 'view' when 'm' then 'materialized view' else 'table' end, r.rel); end loop;\n  for r in select t.oid::regtype as ty from pg_type t where t.typnamespace = 'auth'::regnamespace and t.typtype = 'e' and t.typowner <> 'supabase_auth_admin'::regrole loop execute format('alter type %s owner to supabase_auth_admin', r.ty); end loop;\nend $q$;", { user: "supabase_admin" });
+    if (own.code !== 0) throw new Error(`could not hand the auth schema to supabase_auth_admin: ${own.out.slice(0, 200)}`);
+  }
+  if (n.auth) {
     const e = (k, v) => ["-e", `${k}=${v}`];
     docker("run", "-d", "--name", n.auth, "--label", LABEL, "--network", NET, "--memory", "256m", "--cpus", "0.5",
       ...e("GOTRUE_API_HOST", "0.0.0.0"), ...e("GOTRUE_API_PORT", "9999"), ...e("API_EXTERNAL_URL", `http://127.0.0.1:${port}`), ...e("GOTRUE_DB_DRIVER", "postgres"), ...e("GOTRUE_DB_NAMESPACE", "auth"),
