@@ -20,7 +20,17 @@
 --
 -- What it cannot close: a database OWNER / superuser can always disable or drop a trigger, or forge an 'approved' row with triggers disabled. That is the same limit as every
 -- other TW-4F guard and is not something a migration can remove.
--- Rollback: rollback/20270204090000_twilio_price_dual_control_rollback.sql (refuses once any request row exists).
+-- ROLLBACK LIMIT: rollback/20270204090000_twilio_price_dual_control_rollback.sql is valid ONLY BEFORE the first request row exists (it refuses with 55000 afterwards, the
+-- requests being audit evidence). After that the stance is forward-fix, or disable the three price actions at the application layer. A rolled-back state REOPENS the
+-- single-administrator tw4_price_set (the 20261122090000 body is restored byte for byte), so do not roll back in a live environment without that in mind.
+-- Operational notes: (1) lock order: approve / propose / reject share-lock the profile rows of the parties FIRST (id order), then take the per-kind advisory lock and the
+-- request row. Tooling that changes several platform roles in ONE statement or transaction should update profiles in id order, or it can deadlock with an approval (it
+-- fails safe: one side is rolled back, nothing is published). (2) Price kinds are read from the price list check constraint with a lowercase [a-z][a-z0-9_]* token rule:
+-- a future kind with a digit-first name, an uppercase letter or a hyphen would not be proposable; the UI list (PRICE_KIND_TEXT) must be extended with every new kind
+-- (a test compares it to the database). (3) tw4_price_requests_list returns the latest 100 requests only; older ones remain in the table. (4) Amounts are capped at
+-- 10,000,000 cents (the UI maximum); a provider cost above the customer price is allowed (negative-margin cases are modelled in the pilot docs, not forbidden).
+-- Residual risk (accepted pending owner decision, see docs/twilio/TW-4F_Price_Dual_Control.md): the actor is a parameter supplied by the service-role caller, so dual control
+-- is as strong as the service-role key. The request table triggers are ENABLE ALWAYS, so forging a decision needs visible DDL (disable trigger), not just a session setting.
 begin;
 
 set local lock_timeout = '5s';
@@ -47,8 +57,8 @@ end $$;
 create table public.studio_sms_price_change_requests (
   id uuid primary key default gen_random_uuid(),
   kind text not null check (char_length(kind) between 1 and 40),     -- the allowed kinds are the price list's own constraint (read by the functions; enforced again by the price insert)
-  customer_price_cents int not null check (customer_price_cents > 0),
-  provider_cost_cents int not null check (provider_cost_cents >= 0),
+  customer_price_cents int not null check (customer_price_cents > 0 and customer_price_cents <= 10000000),
+  provider_cost_cents int not null check (provider_cost_cents >= 0 and provider_cost_cents <= 10000000),
   description text not null check (char_length(btrim(description)) between 3 and 200),
   reason text not null check (char_length(btrim(reason)) between 10 and 500),
   base_price_id uuid null references public.studio_sms_price_list(id) on delete restrict,   -- the active price when the proposal was made (null: no price was active)
@@ -87,16 +97,24 @@ alter table public.studio_sms_price_change_requests enable row level security;
 -- ---------------------------------------------------------------------------------------------------------------
 -- helpers (callable by nobody)
 -- ---------------------------------------------------------------------------------------------------------------
--- an ACTIVE platform administrator: holds the role, and the auth user exists and is not banned (a deleted user takes the profile with it)
+-- an ACTIVE platform administrator: holds the role, and the auth user exists, is not banned and is not soft-deleted
 create or replace function public._tw4price_admin_active(p_user uuid)
 returns boolean language plpgsql stable security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
+declare v_ok boolean;
 begin
   -- plpgsql (not sql): the auth schema is resolved when the function runs, never when the migration is applied
-  return p_user is not null
-    and public._tw4_r1_is_platform_admin(p_user)
-    and exists (select 1 from auth.users u where u.id = p_user and (u.banned_until is null or u.banned_until <= now()));
+  if p_user is null or not public._tw4_r1_is_platform_admin(p_user) then
+    return false;
+  end if;
+  -- hosted auth.users has deleted_at (soft delete); a local stand-in without the column is judged on the ban alone
+  if exists (select 1 from pg_attribute where attrelid = 'auth.users'::regclass and attname = 'deleted_at' and not attisdropped) then
+    execute 'select exists (select 1 from auth.users u where u.id = $1 and u.deleted_at is null and (u.banned_until is null or u.banned_until <= now()))' into v_ok using p_user;
+  else
+    execute 'select exists (select 1 from auth.users u where u.id = $1 and (u.banned_until is null or u.banned_until <= now()))' into v_ok using p_user;
+  end if;
+  return coalesce(v_ok, false);
 end $$;
 
 -- the price kinds the price list accepts, read from its own check constraint (so a later kind is never refused or accepted here by a stale copy of the list)
@@ -170,6 +188,9 @@ end $$;
 create trigger studio_sms_price_change_requests_guard before insert or update or delete on public.studio_sms_price_change_requests for each row execute function public._tw4pricedual_guard();
 create trigger studio_sms_price_change_requests_truncate before truncate on public.studio_sms_price_change_requests for each statement execute function public._tw4c_truncate_guard();
 
+alter table public.studio_sms_price_change_requests enable always trigger studio_sms_price_change_requests_guard;
+alter table public.studio_sms_price_change_requests enable always trigger studio_sms_price_change_requests_truncate;
+
 -- ---------------------------------------------------------------------------------------------------------------
 -- guard on the price list: no price is published, re-activated or edited except through an approved request
 -- ---------------------------------------------------------------------------------------------------------------
@@ -220,9 +241,9 @@ begin
   if not public._tw4price_admin_active(p_actor) then
     raise exception 'actor must be an active platform admin' using errcode = '42501';
   end if;
-  if p_kind is null or p_customer_cents is null or p_customer_cents <= 0 or p_provider_cents is null or p_provider_cents < 0
+  if p_kind is null or p_customer_cents is null or p_customer_cents <= 0 or p_customer_cents > 10000000 or p_provider_cents is null or p_provider_cents < 0 or p_provider_cents > 10000000
      or p_description is null or char_length(btrim(p_description)) not between 3 and 200 or p_reason is null or char_length(btrim(p_reason)) not between 10 and 500 then
-    raise exception 'a price proposal needs a known kind, a positive customer price, a non-negative provider cost, a description (3 to 200) and a written reason (10 to 500)' using errcode = '22023';
+    raise exception 'a price proposal needs a known kind, a positive customer price and a non-negative provider cost (each at most 10,000,000 cents), a description (3 to 200) and a written reason (10 to 500)' using errcode = '22023';
   end if;
   if not (p_kind = any (public._tw4price_kinds())) then
     raise exception 'unknown price kind' using errcode = '22023';
@@ -407,7 +428,7 @@ begin
     raise exception 'price dual control postcondition failed: unexpected function privileges';
   end if;
   if not (select relrowsecurity from pg_class where oid = 'public.studio_sms_price_change_requests'::regclass)
-     or (select tgenabled from pg_trigger where tgname = 'studio_sms_price_list_00_activation') is distinct from 'A' then
+     or (select count(*) from pg_trigger where tgname in ('studio_sms_price_list_00_activation', 'studio_sms_price_change_requests_guard', 'studio_sms_price_change_requests_truncate') and tgenabled = 'A') <> 3 then
     raise exception 'price dual control postcondition failed: RLS or the always-on price trigger is missing';
   end if;
 end $$;

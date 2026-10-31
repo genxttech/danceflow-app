@@ -58,3 +58,20 @@ update public.studio_sms_price_list set active = true where ${whereSql};
 alter table public.studio_sms_price_list enable always trigger studio_sms_price_list_00_activation;
 commit;`);
 }
+
+/** Local-QA-only owner step: remove the fixture price-change requests (the request table is append-only evidence, and its guard is ENABLE ALWAYS, so a suite that cleans up
+ *  after itself must switch the guard off, visibly, for that one delete and switch it back on ALWAYS). Safe on a stack without the table. */
+export const deleteFixtureRequestsSql = (approver: string): string => `do $d41$ begin if to_regclass('public.studio_sms_price_change_requests') is not null then
+  alter table public.studio_sms_price_change_requests disable trigger studio_sms_price_change_requests_guard;
+  delete from public.studio_sms_price_change_requests where requested_by = '${PRICE_FIXTURE_REQUESTER}' or decided_by = '${approver}';
+  alter table public.studio_sms_price_change_requests enable always trigger studio_sms_price_change_requests_guard;
+end if; end $d41$;`;
+
+/** Local-QA-only owner step: make a request look older (to exercise expiry). Same explicit trigger switch as above. */
+export function ownerAgeRequest(psql: Psql, requestId: string, hours = 25): void {
+  psql(`begin;
+alter table public.studio_sms_price_change_requests disable trigger studio_sms_price_change_requests_guard;
+update public.studio_sms_price_change_requests set requested_at = requested_at - interval '${hours} hours', expires_at = expires_at - interval '${hours} hours' where id = '${requestId}';
+alter table public.studio_sms_price_change_requests enable always trigger studio_sms_price_change_requests_guard;
+commit;`);
+}
