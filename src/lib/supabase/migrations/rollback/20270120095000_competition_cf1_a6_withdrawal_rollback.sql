@@ -4,13 +4,15 @@
 
 begin;
 
+set local lock_timeout = '5s';
+
 lock table public.event_competition_final_withdrawals, public.event_competition_final_withdrawal_requests in access exclusive mode;
 
 do $$
 declare
   v_names constant text[] := array[
     'withdraw_advanced_entry_from_final', 'reinstate_withdrawn_entry_to_final', 'cosign_final_withdrawal_request', 'competition_final_withdrawal_state',
-    '_cf1_a6_request', '_cf1_a6_precheck', '_cf1_a6_pair_state', '_cf1_a6_current_roster', '_cf1_a6_on_roster', '_cf1_a6_active_heat',
+    '_cf1_a6_request', '_cf1_a6_can_manage', '_cf1_a6_live_requests', '_cf1_a6_precheck', '_cf1_a6_pair_state', '_cf1_a6_current_roster', '_cf1_a6_on_roster', '_cf1_a6_active_heat',
     'cf1_guard_withdrawn_heat_entry'];
   v_user text;
 begin
@@ -40,6 +42,8 @@ drop function public.reinstate_withdrawn_entry_to_final(uuid, uuid, text, uuid);
 drop function public.cosign_final_withdrawal_request(uuid);
 drop function public.competition_final_withdrawal_state(uuid);
 drop function public._cf1_a6_request(text, uuid, uuid, text, uuid);
+drop function public._cf1_a6_live_requests(uuid);
+drop function public._cf1_a6_can_manage(uuid, uuid);
 drop function public._cf1_a6_precheck(text, uuid, uuid);
 drop function public.cf1_guard_withdrawn_heat_entry();
 drop function public._cf1_a6_on_roster(uuid, uuid);
