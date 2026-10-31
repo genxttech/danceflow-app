@@ -14,6 +14,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { deleteFixtureRequestsSql, ownerReactivate, seedPrice } from "./priceFixture";
 import { spendEvidenceRpc, exceptionEvidenceRpc } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 600_000 });
@@ -102,6 +103,7 @@ delete from public.studio_sms_credit_reservations where legal_entity_id in (${EN
 delete from public.studio_sms_credit_disputes where topup_id in (select id from public.studio_sms_credit_topups where legal_entity_id in (${ENTITIES}));
 delete from public.studio_sms_credit_topups where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_credit_accounts where legal_entity_id in (${ENTITIES});
+${deleteFixtureRequestsSql(U.padmin)}
 delete from public.studio_sms_price_list where created_by = '${U.padmin}';
 delete from public.studio_sms_provisioning_steps where studio_id in (${STUDIOS});
 delete from public.studio_sms_registrations where studio_id in (${STUDIOS});
@@ -218,7 +220,7 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
     expect((await rpc("tw4_onboarding_decide_tier", { p_studio_id: SB1, p_actor: U.padmin, p_tier: "low_volume_standard", p_reason: "fixture: EIN business, low volume", p_eligibility: CHECKLIST })).error).toBeNull();
     aged(brandSql(OB1, SB1, ACC.B, BRAND.B1)); // the tier is frozen once a brand attempt exists, so business B's brand is recorded only after its tier decision
     for (const [kind, customer, provider] of [["campaign_vetting", PRICE.vetting, 1500], ["monthly", PRICE.monthly, 1000], ["monthly_low_volume", PRICE.monthlyLvs, 150]] as const) {
-      expect((await rpc("tw4_price_set", { p_kind: kind, p_customer_cents: customer, p_provider_cents: provider, p_description: `fixture ${kind}`, p_actor: U.padmin })).error).toBeNull();
+      seedPrice(psql, { kind: kind, customer: customer, provider: provider, description: `fixture ${kind}`, approver: U.padmin });
     }
     for (const s of [SA1, SA2, SB1, SC1, SD1]) await window(s);
     pilotUsable = psql(`select count(*) from public.studio_sms_pilot_exceptions`) === "0";
@@ -228,7 +230,7 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
     if (!enabled) return;
     try {
       psqlFile(CLEANUP);
-      aged(`update public.studio_sms_price_list set active = true where id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
+      ownerReactivate(psql, `id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
     } catch {
       /* best effort */
     }
@@ -329,7 +331,7 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       aged(`update public.studio_sms_price_list set active = false where kind = 'campaign_vetting' and created_by = '${U.padmin}'`);
       const a = hub.adapterFor(ACC.A);
       const result = await run(SA1, a);
-      aged(`update public.studio_sms_price_list set active = true where kind = 'campaign_vetting' and created_by = '${U.padmin}'`);
+      ownerReactivate(psql, `kind = 'campaign_vetting' and created_by = '${U.padmin}'`);
       expect(result.outcome).toBe("tier_unpriced");
       expect(a.count("createCampaign")).toBe(0);
       expect(reserved(EA)).toBe(0);
@@ -725,6 +727,7 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
         delete from public.studio_sms_onboarding_audit where action like 'rfl\\_%' and studio_id = any(array[${sqlList(FIXTURE_STUDIOS)}]::uuid[]);
       end $clear$;`;
   const clearFixtureEvidence = () => `set local session_replication_role = replica;
+      ${deleteFixtureRequestsSql(U.padmin)}
       ${psql("select to_regclass('public.studio_sms_prov_listings') is not null") === "t"
         ? `delete from public.studio_sms_prov_orphans where legal_entity_id in (${sqlList(FIXTURE_ENTITIES)}); delete from public.studio_sms_prov_dispositions where legal_entity_id in (${sqlList(FIXTURE_ENTITIES)}); delete from public.studio_sms_prov_listings where legal_entity_id in (${sqlList(FIXTURE_ENTITIES)});`
         : ""}

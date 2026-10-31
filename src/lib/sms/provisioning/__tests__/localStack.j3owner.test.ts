@@ -14,6 +14,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { execFileSync } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { seedPrice, seedPriceSql } from "../../twilioIsv/__tests__/priceFixture";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 300_000 });
 
@@ -134,10 +135,9 @@ insert into public.studio_sms_twilio_accounts (legal_entity_id, twilio_account_s
 insert into public.studio_sms_onboarding_access (studio_id, enabled, reason, updated_by) values ('${S1}', true, 'fixture', '${U.padmin}'), ('${S2}', true, 'fixture', '${U.padmin}');
 commit;
 begin;
+-- this suite's own number price, published through the two-administrator workflow (the approval retires an existing active one); it is removed again by CLEANUP
+${seedPriceSql({ kind: "number", customer: PRICE, provider: 100, description: "j3 fixture number price", approver: U.padmin })}
 set local session_replication_role = replica;
--- this suite's own number price: an existing active one is parked (restored by CLEANUP; replica mode: published prices are immutable to ordinary edits)
-update public.studio_sms_price_list set active = false, description = 'j3-parked:' || description where kind = 'number' and active;
-insert into public.studio_sms_price_list (kind, customer_price_cents, provider_cost_cents, description, active, created_by) values ('number', ${PRICE}, 100, 'j3 fixture number price', true, '${U.padmin}');
 insert into public.studio_sms_onboarding (id, studio_id, state, legal_name, entity_type, ein_last4, submission_seq, submitted_at, created_at) values
   ('${O1}', '${S1}', 'campaign_pending', 'J3 One LLC', 'llc', '8881', 1, now(), now() - interval '1 day'), ('${O2}', '${S2}', 'campaign_pending', 'J3 Two LLC', 'llc', '8882', 1, now(), now() - interval '1 day');
 ${r2a(1, O1, S1, E1)}
@@ -249,7 +249,7 @@ describe.skipIf(!enabled)("TW-4F J3: owner number offers, approval and withdrawa
       expect(selections(S1)).toBe("");
     } finally {
       // a published price is never edited: publish it again as a new row
-      psql(`insert into public.studio_sms_price_list (kind, customer_price_cents, provider_cost_cents, description, active, created_by) values ('number', ${PRICE}, 100, 'j3 fixture number price', true, '${U.padmin}')`);
+      seedPrice(psql, { kind: "number", customer: PRICE, provider: 100, description: "j3 fixture number price", approver: U.padmin });
     }
     // an acknowledged price other than the published one is refused too
     expect((await select(U.owner1, S1, OFFER[1], NUMS[1][0], PRICE - 1)).error?.code).toBe("TW008");
