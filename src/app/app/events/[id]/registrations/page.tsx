@@ -526,6 +526,13 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
+  if (search.error === "organizer_suite_required") {
+    return {
+      kind: "error" as const,
+      message: "This organizer is not accepting new ticket sales for this event right now, so this registration was not marked paid. Nothing was recorded.",
+    };
+  }
+
   if (search.error === "registration_not_found") {
     return {
       kind: "error" as const,

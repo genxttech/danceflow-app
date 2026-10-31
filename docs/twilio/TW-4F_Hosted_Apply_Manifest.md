@@ -1,6 +1,6 @@
 # TW-4F Hosted Apply Manifest and Release Package (H1)
 
-Status 2026-10-23. First written for main `960a9d02` (PR #271); refreshed through main `67bb64f2` (hash table verified at that commit; adds `1228`, `1229`, `1230`), where every TW-4F migration except the not-started `1220` (F2) is merged. **Documentation and read-only scripts only.** Nothing described here has been executed against DEV (`epdrtzcydvnoidwrepqz`) or PROD (`hvsujyfbftfffxpfmlpb`); no hosted project was linked, queried or opened while writing it. Every step of the runbooks in section 8 needs the owner's separate written authorization.
+Status 2026-10-23. First written for main `960a9d02` (PR #271); refreshed through main `67bb64f2` (hash table verified at that commit; adds `1228`, `1229`, `1230`), and extended 2026-10-29 through main `512fd7d2` with `1231` (#312) and `1231b` (= `20261231100000`, #330), where every TW-4F migration except the not-started `1220` (F2) is merged. **Documentation and read-only scripts only.** Nothing described here has been executed against DEV (`epdrtzcydvnoidwrepqz`) or PROD (`hvsujyfbftfffxpfmlpb`); no hosted project was linked, queried or opened while writing it. Every step of the runbooks in section 8 needs the owner's separate written authorization.
 
 Owner rules that bind this package (from the TW-4F completion tracker, `docs/twilio/TW-4F_Completion_Tracker.md` on main since #273):
 
@@ -47,9 +47,9 @@ The history below is kept for reference.
 
 | Environment | Recorded state | Source |
 |---|---|---|
-| PROD `hvsujyfbftfffxpfmlpb` | Twilio objects through `20261119092100` (TW-4A, 4A.1, R1, R1.1), all studio_sms onboarding tables with 0 rows. The app was `dpl_9JYuwjxf…` (main `2cc05d9e`) at that time; the live production app since 2026-10-23 is `dpl_87xgSBVM…` (a website-only build from `release/web-2a-website`), with `dpl_9JYuwjxf…` as its rollback target. | 2026-10-19 prod sync review; tracker section 2 |
+| PROD `hvsujyfbftfffxpfmlpb` | Twilio objects through `20261119092100` (set: `090000`, `091000`, `092000`, `092100`; TW-4A, 4A.1, R1, R1.1; re-confirmed read-only 2026-10-30: the PROD bodies of `tw4_runner_begin_step` and `_sms_onb_steps_guard` equal the `092100` bodies, md5 `22e13499` and `aa83c1cb`; `probe_objects.sql` alone cannot tell `092000` from `092100` because `092100` creates no object), all studio_sms onboarding tables with 0 rows. The app was `dpl_9JYuwjxf…` (main `2cc05d9e`) at that time; the live production app since 2026-10-23 is `dpl_87xgSBVM…` (a website-only build from `release/web-2a-website`), with `dpl_9JYuwjxf…` as its rollback target. | 2026-10-19 prod sync review; tracker section 2 |
 | DEV `epdrtzcydvnoidwrepqz` | PROD's state plus `20261120090000`, `20261121090000`, `20261122090000` (Phase A fingerprint `7d4442fa`). | tracker section 2 |
-| Both | Nothing newer than the rows above is recorded as applied: `20261123090000` through `20261230090000` (including the later-merged `1206`, `1215`, `1218`, `1219`, `1221`..`1230`) have been applied only to local or isolated QA databases, and are merged to main (`67bb64f2`) but not applied to any hosted project. `20261220090000` does not exist. | tracker sections 1-2; merge records through 2026-10-23 |
+| Both | Nothing newer than the rows above is recorded as applied: `20261123090000` through `20261231100000` (including the later-merged `1206`, `1215`, `1218`, `1219`, `1221`..`1230`, `1231`, `1231b`) have been applied only to local or isolated QA databases, and are merged to main (through `512fd7d2` for `1231`/`1231b`; `67bb64f2` for the rest) but not applied to any hosted project. `20261220090000` does not exist. | tracker sections 1-2; merge records through 2026-10-23 |
 
 **The `7d4442fa` fingerprint cannot be reproduced.** The query that produced it is not recorded in the repository. The rollups of `probe_fingerprint.sql` use a different, documented method and will not equal it. Take a fresh baseline with this package's probe and compare to that baseline only.
 
@@ -57,7 +57,7 @@ The history below is kept for reference.
 
 The 2026-10-19 sync review also found PROD = main `2cc05d9e` (`dpl_9JYuwjxf…`) with main since moved on and not promoted (the live app has since become the website-only `dpl_87xgSBVM…`, 2026-10-23, which also does not carry the TW-4F build); PROD's app must stay fail-closed on a database that lacks the objects a promoted build expects. Nothing in this package changes that.
 
-## 3. Migration hash table (main `67bb64f2`)
+## 3. Migration hash table (rows verified at main `512fd7d2`; rows through `1230` first verified at `67bb64f2`)
 
 `sha256` is of the **LF-normalized blob**: `git show main:<path> | tr -d '\r' | sha256sum` (equivalent to the task's `git show main:<path> | sha256sum` when the blob has no CR, which is true for every file in this range: no blob below contains a CR byte, and the last column would say so otherwise). Paths are under `src/lib/supabase/migrations/`; rollback files are under `rollback/` with the suffix `_rollback.sql`.
 
@@ -116,10 +116,12 @@ CRLF handling, because it corrupted function-body fingerprints before:
 | 20261228090000 | 20261228090000_twilio_ki1_cross_month_release.sql | 643b6c9e712c7813e68afdb88490a420fc4529f99306e878a94d18cb7d516514 | ad26215a88a8f8b71fd78a2acf5276033d2f59d725ea404d27d0864d35f5a10c | LF |
 | 20261229090000 | 20261229090000_twilio_rfl_pilot_evidence.sql | c9295ed40d54a6931fde47e75aede01b85fc382672bfbce9172f0fc1f3edd283 | 3d0fc8bc0364710d8be244033e2d14966f247681079bfa41c8813914dabb6922 | LF |
 | 20261230090000 | 20261230090000_twilio_rfl_pilot_spend_evidence.sql | e3275cd720bd044029e3caed553e60211a7c20949e84be06dce3049f2a5667e8 | 92e691e2bff80de1d1daae01259880ee30f65ea8594f251f45de90af77055d84 | LF |
+| 20261231090000 | 20261231090000_twilio_platform_admin_aal2.sql | 5bb6faceecad0fef65bf842d93b4eba677e4df3e6b65bf01634ebb14c69e5333 | 7fd5f9d4739eaf8daede267930d813cb7217e136875a285df3115820ec4c131d | LF |
+| 20261231100000 | 20261231100000_twilio_pilot_spend_hardening.sql | 7862e9b97c83be4e1972de03104ac8b7d0738c54ce30c03cb731aeabd1d0a837 | 5d15406a53c1068c8369314d5b1978ac49d7828c383c0eeb8b2598da3b463b69 | LF |
 
 ### 3.0 Notes on migrations merged after `960a9d02`
 
-The `verify_manifest_hashes.sh <ref>` refs quoted in these notes are the main commits at which each row was added; verify the whole chain against `67bb64f2` or any later main.
+The `verify_manifest_hashes.sh <ref>` refs quoted in these notes are the main commits at which each row was added; verify the whole chain against `512fd7d2` or any later main (48 rows through `1231b`; `67bb64f2` verified 46).
 
 `20261206090000` (#251, sender re-verification) merged to main `cdf342e2` (squash, approved head `9de9eb4c`); its row is in the table above with hashes from main. The forward file **changed during review**: the main blob is `7e766d02…`, not the earlier PR-head `d38de62c…` (the rollback hash is unchanged). It adds service_role functions `tw4_sender_reverify_run` and `tw4_sender_health`, redefines `tw4_sender_due_reverify`, `_tw4sr_judge` and `tw4_sender_reverify`, requires `20261205090000`, and its rollback refuses once a re-verify run or inconclusive audit row exists (55000). It is not applied to any hosted database. By merge order it sits after `1217` in the repository, but its only dependency is `1205`; a hosted apply runs it after `1207`..`1217` unless the owner orders otherwise, and #251's own runbook covers manual ordering. Record the position used, because it changes expected fingerprints.
 
@@ -159,7 +161,13 @@ Neither is applied to any hosted database. Verify with `verify_manifest_hashes.s
 
 **App compatibility:** `tw4_spend_authorize` and `tw4_pilot_exception_create` change signature (the old ones are dropped): an app build that calls the old signatures fails once `1230` is applied. Release the evidence-aware build with or before the SQL.
 
-None of these is applied to any hosted database. Verify with `verify_manifest_hashes.sh 67bb64f2`.
+`20261231090000` (platform-admin AAL2, #312, `twilio_platform_admin_aal2`, called `1231`) merged to main `2ff4beb7`. It requires `20261119090000` and `20261012090000` (a precondition raises `TW4F_AAL2_PRECONDITION`). It redefines `_sms_onb_is_platform_admin()` so that, besides `profiles.platform_role = 'platform_admin'`, the caller's verified JWT must carry `aal = aal2`, and it re-creates the three `studio_sms_registrations` policies (read, create, update; role `authenticated`) so that each requires aal2; a postcondition (`TW4F_AAL2_POSTCONDITION`) checks that exactly those three policies exist. The service-role `tw4_*` functions never see an end-user token and are unchanged. It creates no table, no function and no grant. **App compatibility:** every path where the platform admin's OWN token reaches the database (user-scoped client, PostgREST with the anon key) now needs an aal2 session; an aal1 admin session is refused. Release the AAL2 step-up build with or before the SQL. Its rollback restores the role-only check and declares no refusal condition; it is independent of `1230` and `1231b`.
+
+`20261231100000` (pilot spend hardening, Blocker 9, #330, `twilio_pilot_spend_hardening`, called `1231b`) merged to main `cacadd57`. SQL only; every public signature is unchanged. It requires `1230`: the md5 of the three `1230` bodies (`tw4_spend_authorize` `daee5a70`, `tw4_pilot_exception_create` `171b2d12`, `tw4_rfl_pilot_cover` `f5dffdaa`, CRLF-normalised) is checked before anything changes. `tw4_spend_authorize` becomes a thin wrapper that refuses the `pilot_period_cover` scope (`TW053`) and delegates to the new internal `_tw4psh_spend_authorize` (the `1230` body plus a current-or-next-billing-month rule for period covers, `TW052`, and one-document-one-approval, `TW019`); `tw4_rfl_pilot_cover` is redefined to call the internal function. Two `DEFERRABLE INITIALLY DEFERRED` constraint triggers (enabled ALWAYS) prove at COMMIT that every pilot-funded spend event and every pilot exception has its evidence. Two unique indexes on the evidence table enforce the document rule. The internal function and the trigger functions are revoked from public, anon, authenticated and service_role; `tw4_spend_authorize` keeps its `service_role`-only grant. **HOSTED APPLY GATE for `1231b`:** it refuses to apply if any pilot-funded spend event (any status) or any pilot exception lacks evidence, if any recorded period cover lacks its cover evidence, or if a document id / hash is already recorded twice. Apply it together with `1230`, before the first pilot approval; with no pilot rows on hosted DEV and PROD (probe 2026-10-24) the gate passes.
+
+**The probes cannot see the `1231` body change.** `1231` creates no object and only replaces `_sms_onb_is_platform_admin()` and re-creates three policies, so `probe_objects.sql` (existence by name, attributed to the migration that created it) reports the helper as attributed to `20261119090000` both before and after `1231`. `probe_fingerprint.sql` shows a changed body md5 for the helper, but it does not cover policy definitions (`40_policy` in the objects probe lists policy names and commands only, not their qualifiers), so the three re-created policies are not verifiable by either probe. The expected-object lists carry no per-version expectation, so neither probe can say "1231 applied" by itself. Verify `1231` on a hosted database by comparing the helper's body md5 (first 8 characters, CR stripped) with the value taken from the isolated QA database after the chain, or by the aal2 marker in `prosrc` (`position('aal2' in prosrc) > 0`); record the value beside the saved output.
+
+None of these is applied to any hosted database. Verify with `verify_manifest_hashes.sh 512fd7d2` (rows through `1231b`).
 
 ### 3.1 Reserved slot not on main
 
@@ -175,12 +183,62 @@ If `1220` (F2) ever gets a PR, a follow-up commit adds its row (hash, objects, g
 
 Numeric order, one file at a time:
 
-`1119_090 → 1119_091 → 1119_092 → 1119_092100 → 1120 → 1121 → 1122 → 1123 → 1124 → 1125 → 1126 → 1127 → 1128 → 1129 → 1130 → 1201 → 1202_090 → 1202_140 → 1202_150 → 1203 → 1204 → 1205 → 1207 → 1208 → 1209 → 1210 → 1211 → 1212 → 1213 → 1214 → [1215, merged] → 1216 → 1217 → 1206 → 1218 → 1219 → 1221 → 1222 → 1223 → 1224 → 1225 → 1226 → 1227 → 1228 → 1229 → 1230`
+`1119_090 → 1119_091 → 1119_092 → 1119_092100 → 1120 → 1121 → 1122 → 1123 → 1124 → 1125 → 1126 → 1127 → 1128 → 1129 → 1130 → 1201 → 1202_090 → 1202_140 → 1202_150 → 1203 → 1204 → 1205 → 1206 → 1207 → 1208 → 1209 → 1210 → 1211 → 1212 → 1213 → 1214 → [1215, merged] → 1216 → 1217 → 1218 → 1219 → 1221 → 1222 → 1223 → 1224 → 1225 → 1226 → 1227 → 1228 → 1229 → 1230 → 1231 → 1231b`
 
 - Each file wraps itself in a transaction and refuses to run out of order or twice (precondition `to_regprocedure` / fingerprint checks), so a wrong order aborts with `precondition failed` and changes nothing.
 - The Supabase CLI history table is **not authoritative** on these projects (2026-10-19 sync record), so the CLI's out-of-order refusal does not apply. If `supabase db push` were ever used, `1206` and `1215` would need `--include-all`; this runbook uses `supabase db query --linked -f <file>` from a scratch workdir instead.
-- `1206` is order-independent of the main files after it (tracker section 1) but sits after `1217` by merge order; this runbook applies it after `1217` and before `1218` (the order line above shows it there; it is not in its numeric slot).
+- `1206` takes its numeric slot, between `1205` and `1207`. Earlier revisions of this runbook placed it after `1217` (its merge order); that was not a dependency. `1206` requires only `1205` (section 5), no file between `1207` and `1217` touches its functions, and every audit-constraint widening reads the live constraint and extends it, so both placements are dependency-valid. The numeric slot is the order the 27-file Docker QA chain applied, rolled back and re-applied, and it makes the strict-reverse rollback order the exact reverse of the timestamps. Hosted DEV and PROD were not changed by this correction; no hosted apply has happened.
 - All application of these files is **forward-only schema**; no file seeds price rows and none registers `pg_cron`.
+
+### 4.1 DEV pending list at main `b0257594` (41 files, numeric order)
+
+DEV (`epdrtzcydvnoidwrepqz`) was read-only probed 2026-10-30 at `20261122090000` (the `1122` layer; whole-schema fingerprint equal to the recorded value). The 41 files below are everything after it, in the order D2 applies them. Hashes are in section 3 (unchanged; `verify_manifest_hashes.sh` checks them against main). "App pairing" restates section 5 and the app-release notes: `app first` means the SQL drops or re-creates a signature or changes behaviour that an older build would not survive, so the matching build must be live before the file; `confirm reader` means a read RPC changed shape.
+
+| # | File | App pairing |
+|---|---|---|
+| 1 | 20261123090000_twilio_tw4f3b_pay_stripe_credit_purchases.sql | app first |
+| 2 | 20261124090000_twilio_tw4f3b_ui_credit_reads.sql | confirm reader |
+| 3 | 20261125090000_twilio_pay_integrity_hardening.sql | - |
+| 4 | 20261126090000_twilio_recurring_authorization.sql | - |
+| 5 | 20261127090000_twilio_recurring_execution.sql | app first |
+| 6 | 20261128090000_twilio_monthly_spending_limits.sql | app first |
+| 7 | 20261129090000_twilio_tw4f_provider_integration.sql | - |
+| 8 | 20261130090000_twilio_tw4f_admin_panel.sql | - |
+| 9 | 20261201090000_twilio_sms_usage_financials.sql | - |
+| 10 | 20261202090000_twilio_tw4f_financial_integrity.sql | - |
+| 11 | 20261202140000_twilio_tw4ml_default_tz_perf.sql | - |
+| 12 | 20261202150000_twilio_tw4f_panel_monthly_limits.sql | confirm reader |
+| 13 | 20261203090000_twilio_inbound_usage_recording.sql | - |
+| 14 | 20261204090000_twilio_sender_readiness.sql | - |
+| 15 | 20261205090000_twilio_usage_reconciliation.sql | - |
+| 16 | 20261206090000_twilio_sender_reverification.sql | - |
+| 17 | 20261207090000_twilio_r2a_messaging_service_campaign.sql | - |
+| 18 | 20261208090000_twilio_r2b_number_activation.sql | - |
+| 19 | 20261209090000_twilio_recurring_fee_lifecycle.sql | - |
+| 20 | 20261210090000_twilio_r2c_owner_provisioning_read.sql | confirm reader |
+| 21 | 20261211090000_twilio_rfl_ops.sql | - |
+| 22 | 20261212090000_twilio_prov_fee_resolution_evidence.sql | - |
+| 23 | 20261213090000_twilio_r2b_p1_identity_evidence.sql | app first |
+| 24 | 20261214090000_twilio_r2b_p2_orphans_reconciliation.sql | app first |
+| 25 | 20261215090000_twilio_prov_evidence_targets.sql | confirm reader |
+| 26 | 20261216090000_twilio_prov_orphan_exposure.sql | confirm reader |
+| 27 | 20261217090000_twilio_r2b_rfl_lifecycle_integration.sql | - |
+| 28 | 20261218090000_twilio_usage_reconciler_readiness.sql | - |
+| 29 | 20261219090000_twilio_act_pilot_funding_lock_order.sql | - |
+| 30 | 20261221090000_twilio_admin_recovery_tooling.sql | - |
+| 31 | 20261222090000_twilio_owner_texting_status.sql | confirm reader |
+| 32 | 20261223090000_twilio_inventory_reconcile_run.sql | - |
+| 33 | 20261224090000_twilio_rfl_cancel_target.sql | confirm reader |
+| 34 | 20261225090000_twilio_rfl_d5_cover.sql | - |
+| 35 | 20261226090000_twilio_act_console_gates.sql | - |
+| 36 | 20261227090000_twilio_owner_number_offers.sql | - |
+| 37 | 20261228090000_twilio_ki1_cross_month_release.sql | - |
+| 38 | 20261229090000_twilio_rfl_pilot_evidence.sql | app first |
+| 39 | 20261230090000_twilio_rfl_pilot_spend_evidence.sql | app first |
+| 40 | 20261231090000_twilio_platform_admin_aal2.sql | app first |
+| 41 | 20261231100000_twilio_pilot_spend_hardening.sql | - |
+
+The 27-file Docker QA chain covers `1206` through `1231b` (26 of these files) plus the unrelated `20270201090000_billing_protected_subscriptions.sql`, which is not part of the DEV plan. The other 15 (`1123` through `1205`) are inside the chain's baseline image and were exercised forward only. This list is documentation; it authorizes nothing.
 
 ## 5. Dependencies, client-exposed grants, data changes, rollback gates
 
@@ -232,6 +290,8 @@ Requires are taken from each file's header or its precondition checks; the numer
 | 20261227090000 | owner number offers (J3 #294, merged after `960a9d02`) | `1208`, `1222` | `get_studio_sms_number_offers` (and redefines `get_studio_sms_texting_status`) | none | the status function is neither the `1227` nor the `1222` body; postcondition: `1222` body not restored | no row gate; **undo before `1222`** |
 | 20261228090000 | KI-1 cross-month release (#307, merged after `960a9d02`) | `1207`..`1221` (`tw4_prov_observe` as `1221` left it) | none | none | a `ki1_released` audit row exists; `tw4_prov_observe` is not the `1228` body | **yes**; **undo before `1221`** |
 | 20261229090000 | pilot approval evidence (U-4, #305, merged after `960a9d02`) | `1209`..`1226` (`1225` body fingerprint-checked) | none (new table fully revoked; `tw4_rfl_pilot_cover` stays `service_role` only) | none at apply; **refuses to apply while an evidence-free live `pilot_approval` cover exists** | any evidence row; an approval reference > 120 characters; widened check missing; the eleven-argument body redefined | **yes**; **undo first (before `1228`)** |
+| 20261231090000 | platform-admin AAL2 (#312, merged after `960a9d02`, called `1231`) | `20261119090000`, `20261012090000` (a precondition checks `_sms_onb_is_platform_admin` and `studio_sms_registrations` exist) | none (no table, no function, no grant; the three registrations policies are re-created with aal2) | none | none declared (no `raise exception` mentions rollback) | **no** (restores the role-only check; independent of `1230` and `1231b`) |
+| 20261231100000 | pilot spend hardening (Blocker 9, #330, merged after `960a9d02`, called `1231b`) | `1230` (md5 of the three `1230` bodies checked) | none (internal function and trigger functions revoked from every role including `service_role`; `tw4_spend_authorize` stays `service_role` only) | none at apply; **refuses to apply while any pilot-funded spend event or pilot exception lacks evidence, any period cover lacks cover evidence, or a document id / hash is recorded twice** | the migration is not applied; the internal function or `tw4_spend_authorize` or `tw4_rfl_pilot_cover` differs from its `1231b` definition; any pilot evidence row recorded after the apply | **yes**; **undo first, before `1230`** |
 | 20261230090000 | pilot spend evidence (U-4, #316, merged after `960a9d02`) | `1209`..`1229` (predecessor bodies md5-checked) | none (new table fully revoked; all three functions `service_role` only) | none at apply; **refuses to apply while any pilot exception exists or any live evidence-free pilot-funded approval exists** | any evidence row; an old signature already exists; any of `tw4_spend_authorize` (14 args), `tw4_pilot_exception_create` (10 args), `tw4_rfl_pilot_cover` redefined since | **yes**; **undo first, before `1229`** |
 | 20261225090000 | RFL D5 cover (#290, merged after `960a9d02`) | `1209`..`1217` | none | none | superseded cover evidence exists; a replaced function changed since (fingerprint) | **yes** + fingerprint; undo before `1217`/`1211` |
 | 20261216090000 | prov orphan exposure | `1212`, `1211` | none | none | no gate (drops two read functions) | no |
@@ -250,6 +310,7 @@ The client-exposed list matches tracker section 4: `sms_location_attest` (1121),
 6. **Newest layers first.** With `1228`, `1229` and `1230` merged, the reverse order for the tail of the chain is `1230`, `1229`, `1228`, `1227`, `1226`, `1225`, and so on. Roll `1230` back **first**: it also redefines `tw4_rfl_pilot_cover`, so `1229`'s rollback refuses (eleven-argument body redefined) until `1230` is gone, and `1230`'s rollback refuses once any spend evidence row exists. Then roll `1229` back: it restores the four-argument `tw4_rfl_pilot_cover` that `1219`, `1225` and the rest expect, and refuses once any cover evidence row exists (evidence is permanent, so after the first real pilot approval the SQL stays and only the app rolls back). Roll `1228` back before `1221` (it replaces `tw4_prov_observe` as `1221` left it); it refuses once a `ki1_released` audit row exists.
 7. **After `1229`, `1219` cannot be re-applied** unless `1229` is rolled back first: `1219`'s precondition expects the four-argument `tw4_rfl_pilot_cover`. Likewise a re-apply of `1225` expects the four-argument body. Never re-run an earlier file on a database that has `1229`. Likewise, after `1230` the four-argument `tw4_pilot_exception_create` and seven-argument `tw4_spend_authorize` no longer exist, so earlier files that reference those signatures cannot be re-applied until `1230` is rolled back.
 8. **`1229` and `1230` are application-visible signature changes** (`tw4_rfl_pilot_cover` 4 to 11 arguments; `tw4_spend_authorize` 7 to 14; `tw4_pilot_exception_create` 4 to 10): the application build and the SQL must be released together in the order the release plan sets, and a rollback of the SQL needs the application rolled back first (rule 1).
+9. **`1231b` is the newest layer and is rolled back before `1230`.** The reverse order for the tail is now `1231b`, `1231`, `1230`, `1229`, `1228`, and so on. `1230`'s rollback refuses while `1231b` is applied (it md5-checks the three `1230` bodies, which `1231b` replaced), and `1231b`'s own rollback restores those bodies byte for byte and refuses once any pilot evidence row was recorded after it was applied. `1231` (AAL2) is independent: it only replaces `_sms_onb_is_platform_admin()`, so it can be rolled back in its place in the reverse order without touching `1230`. Never skip a step of the reverse order (rule 2).
 
 ## 6. Per-migration appendix (generated)
 
@@ -846,6 +907,30 @@ Generated from the blobs by `gen_manifest_data.mjs`; regenerate, do not hand-edi
 - rollback: `rollback/20261230090000_twilio_rfl_pilot_spend_evidence_rollback.sql` sha256 `92e691e2bff80de1d1daae01259880ee30f65ea8594f251f45de90af77055d84`
   - refusal conditions: "pilot-spend-evidence rollback precondition failed: the migration is not applied"; "pilot-spend-evidence rollback precondition failed: an old signature already exists"; "pilot-spend-evidence rollback precondition failed: public.tw4_spend_authorize (fourteen arguments) differs from its 20261230 definition; roll back the later migration first"; "pilot-spend-evidence rollback precondition failed: public.tw4_pilot_exception_create (ten arguments) differs from its 20261230 definition; roll back the later migration first"; "pilot-spend-evidence rollback precondition failed: public.tw4_rfl_pilot_cover differs from its 20261230 definition; roll back the later migration first"; "pilot-spend-evidence rollback refused: approval evidence exists and is permanent"; "pilot-spend-evidence rollback failed: public.tw4_spend_authorize was not restored byte-exactly"; "pilot-spend-evidence rollback failed: public.tw4_pilot_exception_create was not restored byte-exactly"; "pilot-spend-evidence rollback failed: public.tw4_rfl_pilot_cover was not restored byte-exactly"
 
+#### 20261231090000_twilio_platform_admin_aal2.sql
+
+- sha256 (LF-normalized): `5bb6faceecad0fef65bf842d93b4eba677e4df3e6b65bf01634ebb14c69e5333`  (66 lines)
+- header: Paths where the platform admin's OWN token reaches the database (user-scoped client or PostgREST with the anon key) previously checked only
+- created: 0 tables, 0 functions, 0 views, 3 indexes/triggers/constraints
+- replaced (CREATE OR REPLACE / re-created): `_sms_onb_is_platform_admin`
+- client-exposed grants (anon/authenticated/PUBLIC): none
+- one-off data statements: none at top level
+- rollback: `rollback/20261231090000_twilio_platform_admin_aal2_rollback.sql` sha256 `7fd5f9d4739eaf8daede267930d813cb7217e136875a285df3115820ec4c131d`
+  - refusal conditions: none declared (no raise exception mentioning "rollback")
+
+#### 20261231100000_twilio_pilot_spend_hardening.sql
+
+- sha256 (LF-normalized): `7862e9b97c83be4e1972de03104ac8b7d0738c54ce30c03cb731aeabd1d0a837`  (486 lines)
+- header: TW-4F Blocker 9: pilot spend approval hardening (tracker 0.1; Git-only until separately authorized; dark; SQL only, the application needs no change: every public signature is unchanged).
+- header dependencies: requires 20261230 applied; md5 of the three 1230 bodies (tw4_spend_authorize daee5a70.., tw4_pilot_exception_create 171b2d12.., tw4_rfl_pilot_cover f5dffdaa..; CRLF / Requires 20261230
+- created: 0 tables, 3 functions, 0 views, 2 indexes/triggers/constraints
+  - new functions: `_tw4psh_spend_authorize`, `_tw4psh_event_evidence_check`, `_tw4psh_exception_evidence_check`
+- replaced (CREATE OR REPLACE / re-created): `tw4_spend_authorize`, `tw4_rfl_pilot_cover`
+- client-exposed grants (anon/authenticated/PUBLIC): none
+- one-off data statements: none at top level
+- rollback: `rollback/20261231100000_twilio_pilot_spend_hardening_rollback.sql` sha256 `5d15406a53c1068c8369314d5b1978ac49d7828c383c0eeb8b2598da3b463b69`
+  - refusal conditions: "pilot-spend-hardening rollback precondition failed: the migration is not applied"; "pilot-spend-hardening rollback precondition failed: the internal function differs from its 20261231100000 definition; roll back the later migration first"; "pilot-spend-hardening rollback precondition failed: public.tw4_spend_authorize differs from its 20261231100000 definition; roll back the later migration first"; "pilot-spend-hardening rollback precondition failed: public.tw4_rfl_pilot_cover differs from its 20261231100000 definition; roll back the later migration first"; "pilot-spend-hardening rollback precondition failed: public.tw4_pilot_exception_create differs from its 20261230 definition; roll back the later migration first"; "pilot-spend-hardening rollback precondition failed: a commit-time check function differs from its 20261231100000 definition; roll back the later migration first"; "pilot-spend-hardening rollback precondition failed: the apply-time marker is missing; refusing"; "pilot-spend-hardening rollback refused: pilot approval evidence recorded after this migration was applied is permanent"; "pilot-spend-hardening rollback failed: public.tw4_spend_authorize was not restored byte-exactly"; "pilot-spend-hardening rollback failed: public.tw4_rfl_pilot_cover was not restored byte-exactly"
+
 ## 7. Read-only probes
 
 Files: `scripts/hosted/tw4f/probe_objects.sql`, `probe_fingerprint.sql`. Each is one `SELECT` statement and carries a header repeating the conditions below.
@@ -954,7 +1039,7 @@ Environments: **L1** = `postgres:17` (17.9) container `tw4f-h1-probe-pg`, starte
 
 | # | Workflow | Env | Execution | Expected | Observed | Result |
 |---|---|---|---|---|---|---|
-| 1 | Every migration on main in `20261119090000..20261230090000` appears exactly once | Git | `verify_manifest_hashes.sh 67bb64f2` | 46 files, no duplicate, none missing | 46 forward files on main `67bb64f2`, 46 manifest rows, no duplicate, none missing: `MANIFEST HASHES OK` | PASS |
+| 1 | Every migration on main in `20261119090000..20261231100000` appears exactly once | Git | `verify_manifest_hashes.sh 512fd7d2` | 48 files, no duplicate, none missing | 46 forward files on main `67bb64f2`, 46 manifest rows, none missing: `MANIFEST HASHES OK`. Extended to 48 rows (`1231`, `1231b`) 2026-10-29: forward and rollback sha256 recomputed from `git show origin/main:` (see the verification note in the pull request), and `rehearse --dry-run` checks every forward and rollback hash against these rows | PASS (46); 1231/1231b see PR |
 | 2 | sha256 in section 3 equals `git show` (forward and rollback) | Git | same script | all match | 46 forward and 46 rollback sha256 values recomputed from `git show 67bb64f2:<path>` (CR stripped) equal the table | PASS |
 | 3 | Probes run without error on an empty database | L1 | `validate_local.sh` | every expected object `MISSING`, no error | rollup:ALL `(0 objects)`, objects probe 474 rows, no error | PASS |
 | 4 | Probes see objects, RLS, ACLs, row counts, triggers, unlisted objects | L1 | `validate_local.sh` fixture assertions | facts match the fixture | all assertions matched | PASS |
@@ -967,7 +1052,7 @@ Environments: **L1** = `postgres:17` (17.9) container `tw4f-h1-probe-pg`, starte
 | 11 | Probes against PROD | Hosted | executed 2026-10-24 by the owner-authorized probe session (#303), not by this slice | probe runs read-only | results recorded in section 2; not re-executed here | PASS (as recorded in section 2) |
 | 12 | DEV apply, reverse-rollback round trip, grants/RLS probe | Hosted | not executed | n/a | not executed: owner authorization required (section 8) | BLOCKED |
 | 13 | Rollback round trip with real files | L2 | not executed by this package | n/a | not executed (owner of the rollback suites is Q1/F-slices); the runbook specifies it for DEV only | BLOCKED |
-| 14 | Hashes of the Wave 1 and follow-up migrations (`1206`, `1215`, `1218`, `1219`, `1221`..`1230`) | Git | `git show` from main | rows hashed from main after each merge | all merged and hashed from main; each equals its last PR-head hash except `1206` and `1221`, whose forward files changed before merge (section 3.0) | PASS (Git only) |
+| 14 | Hashes of the Wave 1 and follow-up migrations (`1206`, `1215`, `1218`, `1219`, `1221`..`1231b`) | Git | `git show` from main | rows hashed from main after each merge | all merged and hashed from main; each equals its last PR-head hash except `1206` and `1221`, whose forward files changed before merge (section 3.0) | PASS (Git only) |
 
 Limits of this QA: the hash verifier's failure path (a deliberately corrupted hash) was not exercised, so a PASS in rows 1-2 shows agreement, not that the script detects every kind of drift; and L1 and L2 are local Postgres 17 containers, not Supabase-hosted databases (no managed-role differences, no PostgREST, no hosted-only extensions). The measured fingerprints in L2 are for a database built from the isolated QA base image, so they are not comparable with DEV/PROD fingerprints.
 

@@ -121,6 +121,27 @@ export function createOwnershipFakeSupabase(
         filters.push((row) => list.includes(row[column]));
         return builder;
       },
+      // PostgREST `or` with `column.eq.value`, `column.is.null` and `column.lte.value` terms (e.g. "a.eq.x,b.is.null").
+      or: (expression: string) => {
+        const terms = expression.split(",").map((term) => {
+          const [column, operator, ...rest] = term.split(".");
+          if (operator !== "eq" && operator !== "is" && operator !== "lte") {
+            throw new Error(`ownership fake: unsupported or() operator ${operator}`);
+          }
+          return { column, operator, value: rest.join(".") };
+        });
+        // A null/absent column never equals or compares to any value, as in PostgreSQL (`col.eq.` must not match NULL).
+        filters.push((row) =>
+          terms.some((term) => {
+            const cell = row[term.column];
+            if (term.operator === "is") return term.value === "null" && cell == null;
+            if (cell == null) return false;
+            if (term.operator === "lte") return new Date(String(cell)).getTime() <= new Date(term.value).getTime();
+            return String(cell) === term.value;
+          }),
+        );
+        return builder;
+      },
       is: (column: string, value: unknown) => {
         filters.push((row) => (row[column] ?? null) === value);
         return builder;
@@ -141,11 +162,114 @@ export function createOwnershipFakeSupabase(
     return builder;
   }
 
+  /** Mirror of public.apply_studio_subscription_state (BILLING-QA-6); the real function is tested in sql-tests against Postgres. */
+  function applyStudioSubscriptionState(params: Row) {
+    const studioId = String(params.p_studio_id);
+    const sub = (params.p_subscription ?? {}) as Row;
+    const snap = (params.p_snapshot ?? {}) as Row;
+    const addon = (params.p_addon ?? null) as { active?: boolean; item_ids?: string[] } | null;
+    const readAt = params.p_read_started_at ? new Date(String(params.p_read_started_at)).getTime() : null;
+    const studios = (tables.studios ??= []);
+    const studio = studios.find((row) => row.id === studioId);
+    if (!studio) return { data: null, error: { message: `apply_studio_subscription_state: studio ${studioId} not found` } };
+    const subs = (tables.studio_subscriptions ??= []);
+    const existing = subs.find((row) => row.studio_id === studioId);
+    const watermark = existing?.stripe_state_read_at ? new Date(String(existing.stripe_state_read_at)).getTime() : null;
+    const liveStatuses = ["trialing", "active", "past_due"];
+    if (
+      existing && existing.stripe_subscription_id && existing.stripe_subscription_id !== sub.stripe_subscription_id &&
+      liveStatuses.includes(String(existing.status)) && !liveStatuses.includes(String(sub.status))
+    ) {
+      return { data: "superseded", error: null };
+    }
+    if (existing && readAt != null && watermark != null && watermark > readAt) return { data: "stale", error: null };
+
+    // The real function is transactional: an add-on item owned by another studio raises BEFORE anything is kept.
+    for (const itemId of addon?.item_ids ?? []) {
+      const owner = (tables.usage_addon_entitlements ??= []).find((e) => e.stripe_subscription_item_id === itemId);
+      if (owner && owner.studio_id !== studioId) {
+        return { data: null, error: { message: `apply_studio_subscription_state: subscription item ${itemId} belongs to another studio` } };
+      }
+      if (owner && (owner.feature_key !== "organizer_suite" || owner.source !== "stripe_subscription_item")) {
+        return { data: null, error: { message: `apply_studio_subscription_state: subscription item ${itemId} is already used by another entitlement` } };
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    const subValues: Row = {
+      subscription_plan_id: sub.subscription_plan_id,
+      stripe_subscription_id: sub.stripe_subscription_id,
+      status: sub.status,
+      billing_interval: sub.billing_interval,
+      current_period_start: sub.current_period_start ?? null,
+      current_period_end: sub.current_period_end ?? null,
+      cancel_at_period_end: Boolean(sub.cancel_at_period_end),
+      cancelled_at: sub.cancelled_at ?? null,
+      ended_at: sub.ended_at ?? null,
+      updated_at: nowIso,
+      ...(readAt != null ? { stripe_state_read_at: new Date(readAt).toISOString() } : {}),
+    };
+    if (existing) {
+      Object.assign(existing, subValues);
+      mutations.push({ table: "studio_subscriptions", op: "update", values: subValues, ids: [String(existing.id)], client: "admin" });
+    } else {
+      const created: Row = { id: `studio_subscriptions-new-${subs.length + 1}`, studio_id: studioId, ...subValues, created_at: nowIso };
+      subs.push(created);
+      mutations.push({ table: "studio_subscriptions", op: "insert", values: { ...created }, ids: [String(created.id)], client: "admin" });
+    }
+
+    const snapshotValues: Row = {
+      stripe_customer_id: snap.stripe_customer_id,
+      stripe_subscription_id: snap.stripe_subscription_id,
+      subscription_status: snap.subscription_status,
+      trial_ends_at: snap.trial_ends_at ?? null,
+      updated_at: nowIso,
+    };
+    Object.assign(studio, snapshotValues);
+    mutations.push({ table: "studios", op: "update", values: snapshotValues, ids: [studioId], client: "admin" });
+    if (snap.billing_plan && !studio.billing_override_enabled) {
+      studio.billing_plan = snap.billing_plan;
+      mutations.push({ table: "studios", op: "update", values: { billing_plan: snap.billing_plan }, ids: [studioId], client: "admin" });
+    }
+
+    if (addon) {
+      const entitlements = (tables.usage_addon_entitlements ??= []);
+      const active = Boolean(addon.active);
+      const itemIds = addon.item_ids ?? [];
+      for (const itemId of itemIds) {
+        const values: Row = {
+          workspace_type: "studio", feature_key: "organizer_suite", source: "stripe_subscription_item",
+          quantity_included: 1, status: active ? "active" : "canceled", updated_at: nowIso,
+        };
+        const row = entitlements.find((e) => e.stripe_subscription_item_id === itemId);
+        if (row) {
+          Object.assign(row, values);
+          mutations.push({ table: "usage_addon_entitlements", op: "update", values, ids: [String(row.id)], client: "admin" });
+        } else {
+          const created: Row = { id: `usage_addon_entitlements-new-${entitlements.length + 1}`, studio_id: studioId, stripe_subscription_item_id: itemId, ...values };
+          entitlements.push(created);
+          mutations.push({ table: "usage_addon_entitlements", op: "insert", values: { ...created }, ids: [String(created.id)], client: "admin" });
+        }
+      }
+      for (const row of entitlements) {
+        const stale =
+          row.studio_id === studioId && row.feature_key === "organizer_suite" && row.source === "stripe_subscription_item" &&
+          row.status === "active" && (!row.stripe_subscription_item_id || !itemIds.includes(String(row.stripe_subscription_item_id)) || !active);
+        if (stale) {
+          Object.assign(row, { status: "canceled", updated_at: nowIso });
+          mutations.push({ table: "usage_addon_entitlements", op: "update", values: { status: "canceled" }, ids: [String(row.id)], client: "admin" });
+        }
+      }
+    }
+    return { data: "applied", error: null };
+  }
+
   const rpcCalls: Array<{ name: string; params: Row }> = [];
   async function rpc(name: string, params: Row) {
     rpcCalls.push({ name, params });
     const overridden = options.rpcOverride?.(name, params);
     if (overridden) return overridden;
+    if (name === "apply_studio_subscription_state") return applyStudioSubscriptionState(params);
     if (name === "_apply_payment_refund_and_reevaluate") {
       // REFUND-RECON-1: the repaired RPC contract applied to these in-memory tables.
       return applyRefundReconciliation(

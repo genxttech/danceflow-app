@@ -101,9 +101,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// Note: markEventRegistrationPaidAction's pre-existing bare `catch {}` swallows
-// every redirect (even success) into error=mark_paid_failed; out of PAY-DC-2D
-// scope, so these tests assert the persisted writes rather than the URL.
+// Note: markEventRegistrationPaidAction used to swallow every redirect (even success) into error=mark_paid_failed; that is
+// fixed (D7 follow-up, see markPaidRedirects.d7.test.ts). These tests still assert the persisted writes.
 describe("mark paid (logEventPayment)", () => {
   it("succeeds: the staff insert carries no Stripe identity, the service role copies the registration PI", async () => {
     seed();
@@ -133,7 +132,9 @@ describe("mark paid (logEventPayment)", () => {
     seed({ eventStudioId: "studio-other" });
     const url = await run(markEventRegistrationPaidAction);
 
-    expect(url).toContain("error=mark_paid_failed");
+    // The not-found redirect from validateEventAccess now reaches the user instead of a false mark_paid_failed.
+    expect(url).toContain("/app/events");
+    expect(url).not.toContain("mark_paid_failed");
     expect(adminMutations()).toHaveLength(0);
     expect(db.rows("event_payments")).toHaveLength(0);
   });
