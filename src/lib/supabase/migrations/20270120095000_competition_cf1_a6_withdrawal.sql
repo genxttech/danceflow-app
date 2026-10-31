@@ -129,8 +129,9 @@ volatile
 security definer
 set search_path = public, pg_temp
 as $$
-  select coalesce((select s.correction_open from public.event_competition_rounds s where s.id = public._cf1_callback_source(p_round_id)), false)
-      or (public._cf1_active_advancement(p_round_id) is null
+  -- Opening a correction revokes the active advancement and invalidates the approved result in the same transaction (F2 / A0), and only approving a corrected result
+  -- ends it, so "no active advancement and no approved callback result" is exactly "the callback is under correction (or was never approved)".
+  select (public._cf1_active_advancement(p_round_id) is null
           and not exists (select 1 from public.event_competition_result_versions rv
                           where rv.round_id = public._cf1_callback_source(p_round_id) and rv.status = 'approved' and rv.engine_key like '%callback_tally%'));
 $$;
