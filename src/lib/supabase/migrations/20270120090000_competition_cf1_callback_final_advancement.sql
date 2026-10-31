@@ -397,7 +397,8 @@ declare
 begin
   -- Arm 1: NEW is a callback preliminary round with T set and a successor Final.
   if new.round_type = 'preliminary' and new.target_advancement_count is not null
-     and (tg_op = 'INSERT' or new.target_advancement_count is distinct from old.target_advancement_count) then
+     and (tg_op = 'INSERT' or new.target_advancement_count is distinct from old.target_advancement_count
+       or (new.sequence_number, new.round_type) is distinct from (old.sequence_number, old.round_type)) then
     select f.configuration into v_other
     from public.event_competition_rounds f
     join public.event_competition_programs p on p.id = new.program_id and p.advancement_method = 'promote_callback'
@@ -412,7 +413,8 @@ begin
   end if;
   -- Arm 2/3: NEW is a Final whose capacity is written (insert, or the max_entries_per_heat key changes).
   if new.round_type = 'final'
-     and (tg_op = 'INSERT' or (new.configuration->'max_entries_per_heat') is distinct from (old.configuration->'max_entries_per_heat')) then
+     and (tg_op = 'INSERT' or (new.configuration->'max_entries_per_heat') is distinct from (old.configuration->'max_entries_per_heat')
+          or (new.sequence_number, new.round_type) is distinct from (old.sequence_number, old.round_type)) then
     select s.target_advancement_count into v_t
     from public.event_competition_rounds s
     join public.event_competition_programs p on p.id = s.program_id and p.advancement_method = 'promote_callback'
@@ -430,7 +432,7 @@ end;
 $$;
 revoke all on function public.cf1_guard_callback_target_capacity() from public, anon, authenticated, service_role;
 create trigger cf1_guard_callback_target_capacity
-  before insert or update of target_advancement_count, configuration on public.event_competition_rounds
+  before insert or update of target_advancement_count, configuration, sequence_number, round_type on public.event_competition_rounds
   for each row execute function public.cf1_guard_callback_target_capacity();
 alter table public.event_competition_rounds enable always trigger cf1_guard_callback_target_capacity;
 
@@ -1550,6 +1552,27 @@ begin
   end loop;
 end;
 $$;
+
+-- ---------------------------------------------------------------------------
+-- 9b. The pinned functions keep their original owner, which can differ from the role applying this migration (e.g. postgres vs
+-- supabase_admin). They call the _cf1_* readers/authorizers below, which are revoked from everyone: grant the owners explicitly.
+-- ---------------------------------------------------------------------------
+do $own$
+declare
+  v_owner name;
+begin
+  for v_owner in
+    select distinct pg_get_userbyid(p.proowner) from pg_proc p
+    where p.oid in ('public._comp10d_copy_floor_plan(uuid,uuid)'::regprocedure, 'public._comp10d_guard_floor_heat()'::regprocedure,
+                    'public._comp10d_guard_heat_child()'::regprocedure, 'public.validate_competition_heat_schedule_placement()'::regprocedure,
+                    'public.complete_competition_round(uuid,uuid)'::regprocedure, 'public.competition_audit_log(uuid,uuid,integer)'::regprocedure,
+                    'public.set_competition_round_heat_capacity(uuid,integer)'::regprocedure)
+  loop
+    if v_owner::text <> current_user then
+      execute format('grant execute on function public._cf1_callback_successor(uuid), public._cf1_callback_source(uuid), public._cf1_auth_apply(uuid), public._cf1_auth_apply_heat(uuid), public._cf1_auth_apply_floor_heat(uuid, uuid, integer) to %I', v_owner);
+    end if;
+  end loop;
+end $own$;
 
 -- ---------------------------------------------------------------------------
 -- 10. Postflight.

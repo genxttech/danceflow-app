@@ -45,8 +45,8 @@ begin
   if exists (select 1 from pg_constraint c
              where c.confrelid in ('public.event_competition_round_advancements'::regclass, 'public.event_competition_final_withdrawals'::regclass,
                                    'public.event_competition_round_capacity_events'::regclass)
-               and c.conrelid::regclass::text not like 'public.event_competition_round_advancement%'
-               and c.conrelid::regclass::text <> 'public.event_competition_final_withdrawals') then
+               and c.conrelid::regclass::text not like 'event_competition_round_advancement%'
+               and c.conrelid::regclass::text <> 'event_competition_final_withdrawals') then
     raise exception 'CF1-A0 rollback refused: another table references a CF1 core table.';
   end if;
 end $$;

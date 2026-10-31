@@ -58,7 +58,7 @@ begin
     values (cf1c.id('fin', n), e, cf1c.id('prg'), cf1c.id('div', n), 'fin' || n, 'final', 2, 'scheduled', 'ordinal_majority');
   for k in 1..4 loop
     insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
-      values (cf1c.id('ent', n, k), e, cf1c.id('prg'), cf1c.id('div', n), 'e' || n || '-' || k, 'confirmed', 'eligible', k::text);
+      values (cf1c.id('ent', n, k), e, cf1c.id('prg'), cf1c.id('div', n), 'e' || n || '-' || k, 'confirmed', 'eligible', (n * 10 + k)::text);
   end loop;
   insert into public.event_competition_floor_heats (id, event_id, schedule_version_id, heat_number) values (cf1c.id('cbf', n), e, cf1c.id('sv'), n);
   insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, status, lock_state, contest_id, schedule_version_id, floor_heat_id)
@@ -68,7 +68,7 @@ begin
     select e, cf1c.id('div', n), cf1c.id('cbh', n), cf1c.id('ent', n, k2), k2, 'danced' from generate_series(1, 4) k2;
   h := public._compf2_input_hash(cf1c.id('src', n), 'callback_tally', '1');
   insert into public.event_competition_result_versions (id, event_id, round_id, version, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, status, request_id)
-    values (cf1c.id('rv', n), e, cf1c.id('src', n), 1, 'callback_tally', '1', h, 't', '{}', '{}', '00000000-0000-0000-0000-cf1c0e000011', 'approved', cf1c.id('rq', n));
+    values (cf1c.id('rv', n), e, cf1c.id('src', n), 1, 'callback_tally', '1', h, repeat('a', 64), '{}', '[]', '00000000-0000-0000-0000-cf1c0e000011', 'approved', cf1c.id('rq', n));
   insert into public.event_competition_result_rows (event_id, result_version_id, entry_id, advanced, output)
     select e, cf1c.id('rv', n), cf1c.id('ent', n, k2), k2 <= 3, '{}' from generate_series(1, 4) k2;
   perform set_config('session_replication_role', 'origin', true);

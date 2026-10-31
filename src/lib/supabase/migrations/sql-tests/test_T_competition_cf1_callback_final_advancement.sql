@@ -152,13 +152,13 @@ begin
   insert into public.event_competition_divisions (id, event_id, program_id, contest_id, name, status)
   values (pg_temp.id('div', p_n), v_event, pg_temp.id('prg', p_e), pg_temp.id('cts', p_e), 'D' || p_n, 'open');
   insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method, target_advancement_count)
-  values (pg_temp.id('src', p_n), v_event, pg_temp.id('prg', p_e), pg_temp.id('div', p_n), 'D' || p_n || ' Callback', 'preliminary', 1, 'approved', 'callback_tally', p_adv);
+  values (pg_temp.id('src', p_n), v_event, pg_temp.id('prg', p_e), pg_temp.id('div', p_n), 'D' || p_n || ' Callback', 'preliminary', 1, 'approved', 'callback_tally', greatest(p_adv, 2));
   insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method)
   values (pg_temp.id('fin', p_n), v_event, pg_temp.id('prg', p_e), pg_temp.id('div', p_n), 'D' || p_n || ' Final', 'final', 2, p_fin, 'ordinal_majority');
   for v_k in 1..p_entries loop
     insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
     values (pg_temp.id('ent', p_n, v_k), v_event, pg_temp.id('prg', p_e), pg_temp.id('div', p_n), 'e' || p_n || '-' || v_k, 'confirmed', 'eligible',
-            case when p_numbers is null then v_k::text else p_numbers[v_k] end);
+            case when p_numbers is null then (p_n * 100 + v_k)::text else p_numbers[v_k] end);
   end loop;
   if p_e <> 2 then
     insert into public.event_competition_floor_heats (id, event_id, schedule_version_id, heat_number)
@@ -179,7 +179,7 @@ begin
   end if;
   select public._compf2_input_hash(pg_temp.id('src', p_n), 'callback_tally', '1') into v_hash;
   insert into public.event_competition_result_versions (id, event_id, round_id, version, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, status, request_id)
-  values (pg_temp.id('rv', p_n), v_event, pg_temp.id('src', p_n), 1, 'callback_tally', '1', v_hash, 'trace-' || p_n, '{}', '{}', pg_temp.id('user', 1), 'approved', pg_temp.id('req-rv', p_n));
+  values (pg_temp.id('rv', p_n), v_event, pg_temp.id('src', p_n), 1, 'callback_tally', '1', v_hash, repeat('a', 64), '{}', '[]', pg_temp.id('user', 1), 'approved', pg_temp.id('req-rv', p_n));
   insert into public.event_competition_result_rows (event_id, result_version_id, entry_id, advanced, output)
   select v_event, pg_temp.id('rv', p_n), pg_temp.id('ent', p_n, k), k <= p_adv, jsonb_build_object('tally', 10 - k) from generate_series(1, p_entries) k;
   perform set_config('session_replication_role', 'origin', true);
@@ -247,6 +247,10 @@ select pg_temp.chk('pinned redefinitions installed: complete_competition_round /
   and position('_cf1_auth_apply' in pg_get_functiondef('public.validate_competition_heat_schedule_placement()'::regprocedure)) > 0
   and position('event_competition_round_advancements' in pg_get_functiondef('public._comp10d_copy_floor_plan(uuid,uuid)'::regprocedure)) > 0
   and position('event_competition_round_capacity_events' in pg_get_functiondef('public.competition_audit_log(uuid,uuid,integer)'::regprocedure)) > 0);
+
+-- Test-only: the assertions below read the evidence tables while a role is set; the isolation checks above already ran. Rolled back with the transaction.
+grant select on public.event_competition_round_advancements, public.event_competition_round_advancement_entries, public.event_competition_round_advancement_heats,
+  public.event_competition_round_advancement_revocations, public.event_competition_final_withdrawals, public.event_competition_round_capacity_events to authenticated;
 
 -- ============================================================================
 -- 2. Capacity: legacy refusal, the reasoned RPC, B1-B7, F1, the direct-write trigger, the F2 setup guard
@@ -383,7 +387,7 @@ grant execute on function pg_temp.code(jsonb) to authenticated;
 set role authenticated;
 select pg_temp.as_user(pg_temp.id('user', 1));
 -- 12 stale hash
-select pg_temp.su(format($q$update public.event_competition_result_versions set input_hash = 'deadbeef' where id = %L$q$, pg_temp.id('rv', 12)));
+select pg_temp.su(format($q$update public.event_competition_result_versions set input_hash = repeat('b', 64) where id = %L$q$, pg_temp.id('rv', 12)));
 select pg_temp.chk('apply: a stale input hash is COMP_RESULT_STALE', pg_temp.code(pg_temp.ap(12, 12)) = 'COMP_RESULT_STALE', pg_temp.ap(12, 12)::text);
 -- 13 blocked
 select pg_temp.su(format($q$update public.event_competition_result_rows set advanced = null where result_version_id = %L$q$, pg_temp.id('rv', 13)));
@@ -421,7 +425,7 @@ reset role;
 select pg_temp.su(format($q$update public.event_competition_rounds set status = 'approved' where id = %L$q$, pg_temp.id('src', 9)));
 select pg_temp.su(format($q$update public.event_competition_rounds set status = 'scheduled' where id = %L$q$, pg_temp.id('fin', 9)));
 select pg_temp.su(format($q$insert into public.event_competition_result_versions (id, event_id, round_id, version, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, status, request_id)
-   values (%L, %L, %L, 1, 'callback_tally', '1', %L, 't', '{}', '{}', %L, 'approved', %L)$q$,
+   values (%L, %L, %L, 1, 'callback_tally', '1', %L, repeat('a', 64), '{}', '[]', %L, 'approved', %L)$q$,
    pg_temp.id('rv', 9), pg_temp.id('evt', 1), pg_temp.id('src', 9), public._compf2_input_hash(pg_temp.id('src', 9), 'callback_tally', '1'), pg_temp.id('user', 1), pg_temp.id('req-rv', 9)));
 select pg_temp.su(format($q$insert into public.event_competition_result_rows (event_id, result_version_id, entry_id, advanced, output)
    select %L, %L, pg_temp.id('ent', 9, k), k <= 3, '{}' from generate_series(1, 4) k$q$, pg_temp.id('evt', 1), pg_temp.id('rv', 9)));
@@ -633,7 +637,7 @@ select pg_temp.chk('revoke: the Final heat is cancelled (not deleted), the floor
 -- generation 2: new approved version, round approved again
 select pg_temp.su(format($q$update public.event_competition_rounds set status = 'approved' where id = %L$q$, pg_temp.id('src', 3)));
 select pg_temp.su(format($q$insert into public.event_competition_result_versions (id, event_id, round_id, version, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, status, request_id)
-  values (%L, %L, %L, 2, 'callback_tally', '1', %L, 't2', '{}', '{}', %L, 'approved', %L)$q$, pg_temp.id('rv2', 3), pg_temp.id('evt', 1), pg_temp.id('src', 3),
+  values (%L, %L, %L, 2, 'callback_tally', '1', %L, repeat('a', 64), '{}', '[]', %L, 'approved', %L)$q$, pg_temp.id('rv2', 3), pg_temp.id('evt', 1), pg_temp.id('src', 3),
   public._compf2_input_hash(pg_temp.id('src', 3), 'callback_tally', '1'), pg_temp.id('user', 1), pg_temp.id('req-rv2', 3)));
 select pg_temp.su(format($q$insert into public.event_competition_result_rows (event_id, result_version_id, entry_id, advanced, output) select %L, %L, pg_temp.id('ent', 3, k), k <= 2, '{}' from generate_series(1, 4) k$q$, pg_temp.id('evt', 1), pg_temp.id('rv2', 3)));
 set role authenticated;
@@ -667,7 +671,7 @@ reset role;
 -- 9. Approval gate 2.4 (scenario 13's round: a calculated callback version with an undecided row)
 -- ============================================================================
 select pg_temp.su(format($q$insert into public.event_competition_result_versions (id, event_id, round_id, version, engine_key, engine_version, input_hash, trace_hash, input, trace, calculated_by, status, request_id)
-  values (%L, %L, %L, 2, 'callback_tally', '1', 'h', 't', '{}', '{}', %L, 'calculated', %L)$q$, pg_temp.id('rv2', 13), pg_temp.id('evt', 1), pg_temp.id('src', 13), pg_temp.id('user', 1), pg_temp.id('req-rv2', 13)));
+  values (%L, %L, %L, 2, 'callback_tally', '1', repeat('c', 64), repeat('a', 64), '{}', '[]', %L, 'calculated', %L)$q$, pg_temp.id('rv2', 13), pg_temp.id('evt', 1), pg_temp.id('src', 13), pg_temp.id('user', 1), pg_temp.id('req-rv2', 13)));
 select pg_temp.su(format($q$insert into public.event_competition_result_rows (event_id, result_version_id, entry_id, advanced, output) select %L, %L, pg_temp.id('ent', 13, k), null, '{}' from generate_series(1, 4) k$q$, pg_temp.id('evt', 1), pg_temp.id('rv2', 13)));
 select pg_temp.expect_msg('2.4 gate: a calculated callback version with an undecided row cannot be approved',
   format($q$update public.event_competition_result_versions set status = 'approved' where id = %L$q$, pg_temp.id('rv2', 13)), 'COMP_ADVANCEMENT_BLOCKED');
