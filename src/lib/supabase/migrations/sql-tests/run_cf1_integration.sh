@@ -56,6 +56,13 @@ cc A2 bash concurrency/run_cf1_a2_lock_vs_lifecycle.sh $C
 cc A5 env CONTAINER=$C DBUSER=supabase_admin bash test_T_competition_cf1_a5_concurrency.sh
 cc A7 env CONTAINER=$C DBUSER=supabase_admin bash test_T_competition_cf1_a7_concurrency.sh
 cc A4 env CONTAINER=$C bash test_T_competition_cf1_a4_concurrency.sh
-sed 's#^  PS -d postgres -qAt -c "select pg_terminate_backend.*#  :#; s#^  PS -d postgres -qc "create database a3probe template postgres" 2>/dev/null \&\& break#  PS -d postgres -qAt -c "select pg_terminate_backend(pid) from pg_stat_activity where datname = '"'"'postgres'"'"' and pid <> pg_backend_pid()" -c "create database a3probe template postgres" >/dev/null 2>\&1#' concurrency/run_cf1_a3_locks.sh > concurrency/tmp_a3_retry.sh
-r=$(CONTAINER=$C timeout 400 bash concurrency/tmp_a3_retry.sh 2>&1 | grep -E "RESULT" | sort -u | tr '\n' ' ' | cut -c1-600); rm -f concurrency/tmp_a3_retry.sh; log "CONC A3 (retry-tolerant copy): $r"
+# A3 lock probe: the stock script cannot CREATE DATABASE a3probe (pg_net/pg_cron workers respawn); the copy terminates and creates in ONE psql session.
+# The result is only VERIFIED when every expected probe value appears (a holder that never held its locks makes everything NOT_BLOCKED).
+sed 's#^  PS -d postgres -qAt -c "select pg_terminate_backend.*#  :#; s#^  PS -d postgres -qc "create database a3probe template postgres" 2>/dev/null \&\& break#  PS -d postgres -qAt -c "select pg_terminate_backend(pid) from pg_stat_activity where datname = '"'"'postgres'"'"' and pid <> pg_backend_pid()" -c "create database a3probe template postgres" >/dev/null 2>\&1 \&\& break#' concurrency/run_cf1_a3_locks.sh > concurrency/tmp_a3_retry.sh
+CONTAINER=$C timeout 400 bash concurrency/tmp_a3_retry.sh > $Q/a3_conc.out 2>&1; rm -f concurrency/tmp_a3_retry.sh
+K=$(grep -o "outputs kept in .*" $Q/a3_conc.out | sed 's/outputs kept in //'); [ -n "$K" ] && cat $K/* > $Q/a3_conc_all.out 2>/dev/null
+R=$(cat $Q/a3_conc.out $Q/a3_conc_all.out 2>/dev/null | grep -o "RESULT [a-z0-9_]*=[A-Z_ 0-9a-zA-Z]*" | sort -u)
+okA3=1
+for e in "p1_entry_for_key_share=NOT_BLOCKED" "p1_entry_for_update_other_round=NOT_BLOCKED" "p1_entry_for_update_ranking_set=BLOCKED" "p1_round_for_update=BLOCKED" "p2_entry_for_key_share=NOT_BLOCKED" "p2_entry_for_update_ranking_set=BLOCKED" "p2_heat_for_update_certified=BLOCKED" "p2_round_for_update=BLOCKED" "p3_calc=ERROR P0001 COMP_ROSTER_ENTRY_UNAVAILABLE"; do echo "$R" | grep -q "RESULT $e" || { okA3=0; log "CONC A3 expected missing: $e"; }; done
+log "CONC A3: $([ $okA3 = 1 ] && echo PASS || echo 'NOT VERIFIED (see a3_conc.out / a3_conc_all.out)')"
 log "DONE $(date -u +%FT%TZ)"
