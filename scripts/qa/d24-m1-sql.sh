@@ -25,7 +25,7 @@ docker exec "$NAME" pg_isready -U postgres >/dev/null
 P="docker exec -i $NAME psql -U postgres -v ON_ERROR_STOP=1 -qAt"
 q() { $P -c "$1"; }
 # run as a role; prints "ERR <sqlstate>" on failure instead of aborting
-as() { docker exec -i "$NAME" psql -U postgres -qAt -c "set role $1; $2" 2>&1 | tr '
+as() { docker exec -i "$NAME" psql -U postgres -qAt -c "set role $1; $2" </dev/null 2>&1 | tr '
 ' ' ' | sed -E 's/^SET //; s/ERROR:  /ERR /' | sed -E 's/ +$//' | cut -c1-900; }
 
 $P <<'SQL'
@@ -376,11 +376,15 @@ check "a payment on a subscription-classified invoice is preserved, not discarde
 q "insert into public.studio_invoices (stripe_invoice_id, studio_id) values ('in_sub2','$SB')" >/dev/null
 claim evt_sub3 >/dev/null
 ap evt_sub3 invoice_payment invoice_payment.paid 23002 null "$(pj in_sub2 inpay_sub2 100)" >/dev/null
-check "the platform's own studio_invoices record classifies a payment-first invoice as subscription" "$(rowof '' in_sub2 "classification||'/'||reconciliation_state")" "subscription/out_of_scope"
-check "...without assigning the studio from that table" "$(rowof '' in_sub2 "studio_id is null")" "t"
-claim evt_sub4 >/dev/null
-ap evt_sub4 invoice_payment invoice_payment.paid 23003 acct_conn9 "$(pj in_sub2 inpay_sub4 100)" >/dev/null
-check "the studio_invoices mapping applies to platform scope only (a connected account's invoice stays unresolved)" "$(rowof acct_conn9 in_sub2 "classification||'/'||reconciliation_state")" "unresolved/unmatched"
+check "a tenant-writable studio_invoices row is NOT evidence: the invoice stays unresolved and in the queue" "$(rowof '' in_sub2 "classification||'/'||reconciliation_state")" "unresolved/unmatched"
+claim evt_sub3b >/dev/null
+ap evt_sub3b invoice invoice.voided 23002 null "$(inv in_sub2 void 100 0 100 100)" >/dev/null
+check "...even after a void (the void origin stays flagged in the queue)" "$(rowof '' in_sub2 "classification||'/'||reconciliation_state||'/'||(anomaly_codes @> array['unverified_void_origin'])")" "unresolved/unmatched/true"
+claim evt_sub5 >/dev/null
+ap evt_sub5 invoice invoice.voided 23010 null "$(echo "$SUBO" | sed 's/in_sub1/in_sub5/')" >/dev/null
+claim evt_sub5b >/dev/null
+ap evt_sub5b invoice_payment invoice_payment.paid 23011 null "$(pj in_sub5 inpay_sub5 900)" >/dev/null
+check "a subscription-classified invoice that gains a REAL anomaly (void with a payment) returns to the attention queue" "$(rowof '' in_sub5 "classification||'/'||reconciliation_state||'/'||(anomaly_codes @> array['void_invoice_has_payments'])")" "subscription/unmatched/true"
 claim evt_unres >/dev/null
 ap evt_unres invoice_payment invoice_payment.paid 23004 null "$(pj in_unres inpay_unres 5)" >/dev/null
 check "an invoice with no trusted evidence stays unresolved and in the queue" "$(rowof '' in_unres "classification||'/'||reconciliation_state")" "unresolved/unmatched"
@@ -409,6 +413,52 @@ check "an invoice cannot be attributed while its payments are not (parent/child 
 check "none of the rejected writes left a row behind" "$(q "select count(*) from public.hosted_invoice_payments where stripe_invoice_payment_id like 'inpay_evil%'")/$(q "select count(*) from public.hosted_credit_notes where stripe_credit_note_id='cn_evil'")/$(q "select count(*) from public.hosted_invoice_registry where stripe_invoice_id='in_unres'")" "0/0/0"
 check "every attributed child agrees with its invoice (whole-database audit)" "$(q "select count(*) from (select p.studio_id ps, i.studio_id is_ from public.hosted_invoice_payments p join public.hosted_invoices i on i.id=p.invoice_row_id union all select c.studio_id, i.studio_id from public.hosted_credit_notes c join public.hosted_invoices i on i.id=c.invoice_row_id) x where ps is distinct from is_")" "0"
 check "every attributed invoice agrees with its registry row (whole-database audit)" "$(q "select count(*) from public.hosted_invoices i join public.hosted_invoice_registry r on r.id=i.registry_id where r.studio_id is distinct from i.studio_id or r.account_key <> i.account_key or r.stripe_invoice_id <> i.stripe_invoice_id")" "0"
+
+# 14f. second-review fixes -------------------------------------------------------------------------------------------------
+# P2-1: malformed shapes are permanent validation errors at defer time; a poison event can never starve the queue
+claim evt_shape1 >/dev/null
+r=$(dfr evt_shape1 invoice_payment invoice_payment.paid 24000 null "{\"invoice_id\":\"in_shape\",\"object_id\":\"inpay_shape\",\"status\":\"paid\",\"amount_requested\":1,\"amount_paid\":1,\"currency\":\"USD\"}" 2>&1 | tr -d '\n' | cut -c1-120)
+check "uppercase currency is refused at defer time" "$(echo "$r" | grep -c 'malformed currency')" "1"
+claim evt_shape2 >/dev/null
+r=$(dfr evt_shape2 invoice_payment invoice_payment.paid 24000 null "{\"invoice_id\":\"in_shape\",\"object_id\":\"inpay_shape\",\"status\":\"paid\",\"amount_requested\":\"1\",\"amount_paid\":1,\"currency\":\"usd\"}" 2>&1 | tr -d '\n' | cut -c1-120)
+check "a string amount is refused at defer time" "$(echo "$r" | grep -c 'malformed payment amount')" "1"
+claim evt_shape3 >/dev/null
+r=$(dfr evt_shape3 credit_note credit_note.created 24000 null "{\"invoice_id\":\"in_shape\",\"object_id\":\"pay_1\",\"status\":\"issued\",\"amount\":1,\"currency\":\"usd\"}" 2>&1 | tr -d '\n' | cut -c1-120)
+check "a wrong object id prefix is refused at defer time" "$(echo "$r" | grep -c 'malformed credit note')" "1"
+check "none of the malformed events were stored" "$(q "select count(*) from public.hosted_invoice_deferred_events where provider_event_id in ('evt_shape1','evt_shape2','evt_shape3')")" "0"
+# a row that bypasses defer (privileged insert) with a bad shape is rejected by the drain, not retried forever
+as postgres "$W insert into public.hosted_invoice_deferred_events (provider_event_id, event_type, livemode, event_created, payload_hash, object_kind, object_snapshot) values ('evt_poison1','invoice_payment.paid',false,24001,'h','invoice_payment','{\"invoice_id\":\"in_p1\",\"object_id\":\"inpay_p1\",\"status\":\"paid\",\"amount_requested\":1,\"amount_paid\":1,\"currency\":\"USD\"}')" >/dev/null 2>&1
+claim evt_good1 >/dev/null
+dfr evt_good1 invoice_payment invoice_payment.paid 24002 null "$(pj in_good1 inpay_good1 5)" >/dev/null
+out=$(q "select public.d24_drain_deferred(10)::text")
+check "drain rejects the poison row (22023) and still applies the good one" "$(echo "$out" | grep -o '"applied": [0-9]*')/$(echo "$out" | grep -o '"rejected": [0-9]*')" '"applied": 1/"rejected": 1'
+check "the rejected event is kept with its error" "$(q "select state||'/'||(last_error is not null) from public.hosted_invoice_deferred_events where provider_event_id='evt_poison1'")" "rejected/true"
+# non-validation failures: capped at 5 attempts, ordered by attempts so they never starve newer events
+q "create function public.t_poison() returns trigger language plpgsql as \$\$ begin if new.amount_requested = 777 then raise exception 'poison' using errcode = 'XX000'; end if; return new; end \$\$" >/dev/null
+q "create trigger t_poison_trg before insert on public.hosted_invoice_payments for each row execute function public.t_poison()" >/dev/null
+claim evt_poison2 >/dev/null
+dfr evt_poison2 invoice_payment invoice_payment.paid 24003 null "$(pj in_p2 inpay_p2 777)" >/dev/null
+for i in 1 2 3; do claim "evt_later$i" >/dev/null; dfr "evt_later$i" invoice_payment invoice_payment.paid "$((24010 + i))" null "$(pj in_later$i inpay_later$i 9)" >/dev/null; done
+out1=$(q "select public.d24_drain_deferred(1)::text")
+check "first drain attempts the oldest event and records the failure" "$(echo "$out1" | grep -o '"failed": [0-9]*')" '"failed": 1'
+out2=$(q "select public.d24_drain_deferred(1)::text")
+check "the next drain moves on to a fresh event (attempts-first ordering) instead of starving behind the poison one" "$(echo "$out2" | grep -o '"applied": [0-9]*')" '"applied": 1'
+for i in 1 2 3 4 5 6; do q "select public.d24_drain_deferred(10)" >/dev/null; done
+check "the poison event is quarantined after 5 attempts and kept" "$(q "select state||'/'||attempts from public.hosted_invoice_deferred_events where provider_event_id='evt_poison2'")" "rejected/5"
+check "all later events were applied" "$(q "select count(*) from public.hosted_invoice_deferred_events where provider_event_id like 'evt_later%' and state='applied'")" "3"
+q "drop trigger t_poison_trg on public.hosted_invoice_payments" >/dev/null
+# P3-2: a conflicting duplicate defer leaves a durable marker
+claim evt_mm >/dev/null
+dfr evt_mm invoice_payment invoice_payment.paid 24020 null "$(pj in_mm inpay_mm 3)" >/dev/null
+dfr evt_mm invoice_payment invoice_payment.paid 24020 null "$(pj in_mm inpay_mm 3)" "$O1" other-hash >/dev/null
+check "a duplicate defer with a different payload sets a durable payload_mismatch marker" "$(q "select payload_mismatch from public.hosted_invoice_deferred_events where provider_event_id='evt_mm'")" "t"
+# P3-1: apply-then-register inside ONE privileged transaction no longer fails on a stale row version
+check "(setup) claim for the batch event" "$(claim evt_batch1)" "claimed"
+r=$(docker exec -i "$NAME" psql -U postgres -qAt -c "begin; select public.d24_apply_event('evt_batch1','$O1','invoice_payment.paid',25000,null,false,'$H','invoice_payment','$(pj in_batch inpay_batch 4)'::jsonb); select public.d24_register_invoice('$SA',null,'in_batch',false,'event_fee','bo-batch'); commit;" 2>&1 | tr '\n' ' ' | cut -c1-300)
+check "apply (unregistered) then register in one transaction commits and attributes the payment" "$(echo "$r" | grep -ci 'error')/$(q "select coalesce(studio_id::text,'NULL') from public.hosted_invoice_payments where stripe_invoice_payment_id='inpay_batch'")" "0/$SA"
+# P3-4: evidence rows are tied to their invoice's account scope and invoice id
+check "a source event cannot be attached to another account's invoice row (privileged insert)" "$(as postgres "$W insert into public.hosted_invoice_source_events (provider_event_id, event_type, stripe_account_id, livemode, event_created, payload_hash, object_kind, object_id, invoice_row_id, object_snapshot, stripe_invoice_id) values ('evt_evil_src','invoice.voided','acct_evil',false,1,'h','invoice','in_first','$FROW','{}','in_first')" 2>&1 | grep -c 'hosted_invoice_source_events_invoice_fk')" "1"
+check "an audit row cannot carry a studio that differs from its invoice (privileged insert)" "$(as postgres "$W insert into public.hosted_invoice_recon_audit (invoice_row_id, studio_id, trigger_kind, to_state) values ('$FROW','$SB','event','clear')" 2>&1 | grep -c 'audit studio does not match')" "1"
 
 # 15. rollback# 15. rollback -------------------------------------------------------------------------------------------------------------
 r=$(docker exec -i "$NAME" psql -U postgres -v ON_ERROR_STOP=1 -q < "$M_RB" 2>&1 | tr -d '\n' | cut -c1-120)

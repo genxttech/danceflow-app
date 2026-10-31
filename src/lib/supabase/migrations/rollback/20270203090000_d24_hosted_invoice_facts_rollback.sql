@@ -42,6 +42,7 @@ drop function if exists public._d24_derive_state(uuid, text, text[], text[]);
 drop function if exists public._d24_deferred_guard();
 drop function if exists public._d24_child_studio_check();
 drop function if exists public._d24_parent_studio_check();
+drop function if exists public._d24_audit_studio_check();
 drop function if exists public._d24_identity_guard();
 drop function if exists public._d24_append_only();
 drop function if exists public._d24_require_writer();
