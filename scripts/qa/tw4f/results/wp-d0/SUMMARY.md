@@ -20,3 +20,15 @@ PASS 31, KNOWN 4 (reproduced), FAIL 4 (unlisted), BLOCKED 2.
 - BLOCKED: isolatedQa.canary (5 skipped), r2b (refuses the merged chain by design: real recurring-fee lifecycle present)
 Harness gaps found and fixed in run-chain.mjs: 11 suites need public.tw4_local_qa_only and 3 need auth.users columns (iso-qa.mjs parity) -> `--marker`; suites use TW4RFL_DB / TW4F4_DB / TW4A9_DB / TW4A_RFL_DB_CONTAINER -> `--env ... {db}`.
 Host was 70-90% CPU for most of run 1 (other sessions); resource-exhaustion annotations in run1-all-suites.md. Reruns (run3) were on a 13-48% host.
+
+## 4. Triage of the newly discovered failures (stale test assumptions; no production SQL, no assertion weakened, known-failures.json untouched)
+Rerun on the DEV-equivalent chain (`--until 20261231100000 --marker`), one suite at a time; the host was 75-93% CPU the whole time (other sessions), so each result carries the runner's "SATURATED" annotation.
+| Suite | Before | After | Change |
+|---|---|---|---|
+| f3recon | 9/10 FAIL | 11/11 PASS | F3-09 (d): the rollback is refused on the composed chain because 20261226 `_tw4act_items(uuid)` calls `_tw4usage_reconciler_ready()` (a true dependency). Test now asserts the refusal, the exact caller set and unchanged fingerprints; the clean-rollback/re-apply leg (d2) runs in one rolled-back transaction with that single caller stubbed, with every original fingerprint and ACL assertion kept. |
+| j2owner | 11/12 FAIL | 12/12 PASS | checklist now has a 7th area `review` (from `pilot_ki1_redecided`, 20261227); expected area list updated, per-area `{area, ok}` key assertions unchanged. |
+| r2a | 28/30 (+1 skip) FAIL | 29/30 (+1 skip) runner verdict BLOCKED | rollback discovery: `20270202090000_..._read_watermark_rollback.sql` (#360) is a single idempotent `alter table ... drop column if exists` with no precondition guard by design; it is not unguarded in a harmful way (drops only a standalone ordering column). Discovery now classifies it by column existence. Also run on the full chain without `--until` (2027 layers applied): layers incl. 20270202090000 classified `applied`, layered rollback tests pass (29/30 + 1 skip). The one skip is the "R2a-only stack" test, skipped by design whenever later layers exist (it was already skipped in the failing baseline); the runner reports any skip as BLOCKED. |
+| j4activation | 9/10 FAIL | not touched | diagnosed by another agent |
+Not re-run (files and SQL untouched): tw4payhardening, tw4a, r2bp2.rfl, tw4f1b (KNOWN), isolatedQa.canary, r2b (BLOCKED).
+Effect on the classification: 31 PASS + f3recon + j2owner = 33 PASS; KNOWN 4; FAIL 1 (j4activation); BLOCKED 3 (isolatedQa.canary, r2b, r2a-by-design-skip).
+Uncovered mutating functions: see `uncovered-functions.md` (10 guard triggers the meter cannot see, 11 only in refused r2b, 8 with no database test).
