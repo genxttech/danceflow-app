@@ -13,6 +13,7 @@ import {
   type BillingFeature,
 } from "./plans";
 import type { AppRole } from "@/lib/auth/permissions";
+import { studioHasCurrentOrganizerSuiteEntitlement } from "./organizerSuiteEntitlement";
 
 type StudioSubscriptionAccessRow = {
   status: string;
@@ -99,21 +100,8 @@ async function studioHasActiveOrganizerSuiteAddOn(
 
   const supabase = client ?? (await createClient());
 
-  const { data, error } = await supabase
-    .from("usage_addon_entitlements")
-    .select("id")
-    .eq("studio_id", studioId)
-    .eq("feature_key", "organizer_suite")
-    .in("source", ["stripe_subscription_item", "manual_grant"])
-    .eq("status", "active")
-    .limit(1);
-
-  if (error) {
-    console.error("Failed to read Organizer Suite add-on entitlement", error);
-    return false;
-  }
-
-  return Boolean(data?.length);
+  // D7: shared reader applies the period_start/period_end boundary rule; fails closed on error.
+  return studioHasCurrentOrganizerSuiteEntitlement(supabase, studioId);
 }
 
 type EventFeatureAccessRow = {
