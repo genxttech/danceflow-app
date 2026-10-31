@@ -348,7 +348,12 @@ describe.skipIf(!enabled)("TW-4F F3 usage-reconciler readiness gate (real schema
     expect(switchOn()).toBe(false);
   });
 
-  it("F3-09 (d) rollback: refused while billed texting is on or another function calls the helper; otherwise restores the exact main fingerprints; re-apply is clean", () => {
+  const EXPECTED_LATER_CALLER = "public._tw4act_items(uuid)";
+  const externalCallers = () => psql(`select coalesce(string_agg(p.oid::regprocedure::text, ',' order by p.oid::regprocedure::text), '') from pg_proc p
+    where (p.prosrc like '%\_tw4usage\_reconciler\_ready%' or p.prosrc like '%\_tw4usage\_run\_proved%')
+      and p.oid not in ('public._tw4usage_reconciler_ready()'::regprocedure, '${BEGIN_SIG}'::regprocedure, '${SWITCH_SIG}'::regprocedure)`);
+
+  it("F3-09 (d) rollback: refused while billed texting is on or another function calls the helper (a true dependency of later migrations)", () => {
     const migration = readFileSync(MIGRATION, "utf8");
     const rollback = readFileSync(ROLLBACK, "utf8");
     expect([fp(BEGIN_SIG), fp(SWITCH_SIG), fp("public._tw4usage_reconciler_ready()")]).toEqual(["7e85d636", "8adf296c", "39b0ad11"]);
@@ -364,6 +369,22 @@ describe.skipIf(!enabled)("TW-4F F3 usage-reconciler readiness gate (real schema
       psqlFile("drop function public.tw4f3recon_probe()");
     }
     expect(fp("public._tw4usage_reconciler_ready()")).toBe("39b0ad11");
+    // The refusal is a TRUE dependency on a stack with later migrations: 20261219 and 20261226 replace public._tw4act_items(uuid), which calls the helper (dynamic SQL).
+    // On such a stack the real caller must be exactly that set, and the rollback must refuse because of it with nothing changed; the clean-rollback leg then cannot run
+    // (it is the next test, skipped with that reason; the later layers roll back first in the runner chain stage, which proves the whole stack comes off in order).
+    const callers = externalCallers();
+    expect(["", EXPECTED_LATER_CALLER]).toContain(callers);
+    if (callers !== "") {
+      expect(psqlError(rollback)).toContain("another function calls");
+      expect([fp(BEGIN_SIG), fp(SWITCH_SIG), fp("public._tw4usage_reconciler_ready()")]).toEqual(["7e85d636", "8adf296c", "39b0ad11"]);
+      expect(psql("select to_regprocedure('public._tw4usage_run_proved(jsonb)') is not null")).toBe("t");
+    }
+  });
+
+  it("F3-09 (d2) rollback on a stack without later callers: restores the exact main fingerprints; re-apply is clean", (ctx) => {
+    const migration = readFileSync(MIGRATION, "utf8");
+    const rollback = readFileSync(ROLLBACK, "utf8");
+    if (externalCallers() !== "") ctx.skip(`later migrations call the helper (${externalCallers()}): the rollback is refused by design on this stack (asserted in F3-09 d)`);
 
     const acl = () => psql(`select string_agg(p.proname || ':' || array_to_string(p.proacl, ','), ' ' order by p.proname) from pg_proc p where p.oid in ('${BEGIN_SIG}'::regprocedure, '${SWITCH_SIG}'::regprocedure)`);
     const aclBefore = acl();

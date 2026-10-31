@@ -4,7 +4,8 @@
 `run-chain.mjs baseline --image df-isoqa/base:20261119092100 --cutoff 20261119092100 --until 20261231100000`
 applied 44 files (1120, 1121, 1122 + the 41 files of manifest 4.1) to a fresh container.
 `probe_fingerprint.sql` (read only): `rollup:ALL | (1224 objects) | 3a38f6b6` = the hosted DEV value. No difference.
-Also recorded: FP_SQL of run-chain.mjs (6826 rows, md5 47bf97ea; informational, no hosted counterpart), 820 public functions, 590 volatile.
+Also recorded: FP_SQL of run-chain.mjs (6826 rows, md5 47bf97ea), 820 public functions, 590 volatile.
+**Two different fingerprint methods.** `run-chain.mjs` `FP_SQL` (its rollback/re-apply catalog comparisons) and `scripts/hosted/tw4f/probe_fingerprint.sql` use different methods, row sets and hashing; their values are NOT comparable. Only `probe_fingerprint.sql` (`rollup:ALL 3a38f6b6`, 1224 objects) is verified equal to hosted DEV. The FP_SQL value (47bf97ea) has no hosted counterpart and must not be quoted as DEV equivalence.
 
 ## 2. Function coverage (track_functions=all, one fresh DB per suite)
 Scope = functions listed by probe_fingerprint.sql (tw4_functions 413 + other_sms_functions 9, 421 names): 277 volatile.
