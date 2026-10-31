@@ -30,7 +30,7 @@ Predicate P (one definition, §4.6): `status <> 'confirmed'` **or** `eligibility
 
 ## Table `public.event_competition_round_exclusions` (insert-only)
 
-Columns: `id`, `event_id` (→ `events`, cascade), `round_id`, `entry_id`, `evidence_heat_entry_ids uuid[]`, `kind` (`exclude_requested`, `exclude_cosigned`, `reverse_requested`, `reverse_cosigned`), `reason_kind` (`ineligible`, `refunded`, `other`), `reason` (3–500 chars after trim), `actor`, `actor_role` (`chair`, `manager`), `at`, `request_id` (unique), `transaction_id`, `seq` (≥ 1, `unique (round_id, seq)`), `decision_id` and `reverses_id` (self FKs, `NO ACTION`).
+Columns: `id`, `event_id` (→ `events`, cascade), `round_id`, `entry_id`, `evidence_heat_entry_ids uuid[]`, `kind` (`exclude_requested`, `exclude_cosigned`, `reverse_requested`, `reverse_cosigned`), `reason_kind` (`ineligible`, `refunded`, `other`), `reason` (at least 3 visible characters, at most 500 after trim; ASCII whitespace, NBSP, U+200B–U+200D, U+FEFF, U+200E/F and the soft hyphen are not counted as visible), `actor`, `actor_role` (`chair`, `manager`), `at`, `request_id` (unique), `transaction_id`, `seq` (≥ 1, `unique (round_id, seq)`), `decision_id` and `reverses_id` (self FKs, `NO ACTION`).
 
 * Composite FKs `(round_id, event_id)` → rounds and `(entry_id, event_id)` → entries (`NO ACTION`). There is no FK to heats or heat entries (the snapshot is the `uuid[]`).
 * CHECKs: `decision_id` is null **iff** `kind` is a `*_requested`; `reverse_requested` requires `reverses_id`; `exclude_*` rows must have `reverses_id` null; `reverse_cosigned` may carry it; a row cannot reference itself.

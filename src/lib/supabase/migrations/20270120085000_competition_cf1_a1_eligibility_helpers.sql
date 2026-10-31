@@ -80,7 +80,9 @@ create table public.event_competition_round_exclusions (
   constraint event_competition_round_exclusions_reason_kind_check
     check (reason_kind in ('ineligible', 'refunded', 'other')),
   constraint event_competition_round_exclusions_reason_check
-    check (length(btrim(reason)) between 3 and 500),
+    -- at least 3 VISIBLE characters: ASCII whitespace, NBSP (U+00A0), U+200B-U+200D, U+FEFF, LRM/RLM (U+200E/F) and the soft hyphen (U+00AD)
+    -- are not counted, so a blank or invisible-only reason cannot become permanent audit text
+    check (length(regexp_replace(reason, '[[:space:]\u00A0\u200B-\u200D\uFEFF\u200E\u200F\u00AD]', '', 'g')) >= 3 and length(btrim(reason)) <= 500),
   constraint event_competition_round_exclusions_actor_role_check
     check (actor_role in ('chair', 'manager')),
   constraint event_competition_round_exclusions_seq_check check (seq >= 1),

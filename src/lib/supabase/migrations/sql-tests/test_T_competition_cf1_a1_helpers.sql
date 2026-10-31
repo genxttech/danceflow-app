@@ -59,6 +59,19 @@ end $$;
 -- The eleven functions A1 owns (later CF1 packages add more _cf1_* functions with their own grants).
 create or replace function pg_temp.a1_fns() returns text[] language sql immutable as $$ select array['_cf1_entry_unavailable_reason', '_cf1_entry_unavailable', '_cf1_round_roster_problems', '_cf1_is_callback_final', '_cf1_count_available_entries', '_cf1_eligible_roster_count', '_cf1_final_minimum_ok', '_cf1_heat_entry_is_excluded', '_cf1_excluded_entries', '_cf1_error_codes', '_cf1_require_roster_eligible'] $$;
 
+-- true when an exclusion row with this reason can be inserted (the insert is rolled back)
+create or replace function pg_temp.try_reason(p_reason text, p_seq integer, p_rid text) returns boolean
+language plpgsql as $$
+begin
+  begin
+    insert into public.event_competition_round_exclusions (event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq)
+    values (pg_temp.u('00e001'), pg_temp.u('006002'), pg_temp.u('008003'), 'exclude_requested', 'other', p_reason, pg_temp.u('000001'), 'manager', pg_temp.u(p_rid), 900 + p_seq);
+    raise exception 'rollback probe';
+  exception when others then
+    return sqlerrm = 'rollback probe';
+  end;
+end $$;
+
 create or replace function pg_temp.u(p_suffix text) returns uuid
 language sql immutable as $$ select ('00000000-0000-0000-0000-cf1a10' || p_suffix)::uuid $$;
 
@@ -544,6 +557,24 @@ select pg_temp.expect_msg('constraint: unknown reason_kind', format($q$insert in
 select pg_temp.expect_msg('constraint: reason shorter than 3 characters', format($q$insert into public.event_competition_round_exclusions
   (event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq) values (%L,%L,%L,'exclude_requested','other','ab ',%L,'manager',%L,23)$q$,
   pg_temp.u('00e001'), pg_temp.u('006002'), pg_temp.u('008003'), pg_temp.u('000001'), pg_temp.u('0f0023')), 'round_exclusions_reason_check', '23514');
+select pg_temp.expect_msg('constraint: whitespace-only reason (spaces, tab, newline, CR) refused', format($q$insert into public.event_competition_round_exclusions
+  (event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq) values (%L,%L,%L,'exclude_requested','other',chr(32)||chr(9)||chr(10)||chr(13)||chr(32),%L,'manager',%L,50)$q$,
+  pg_temp.u('00e001'), pg_temp.u('006002'), pg_temp.u('008003'), pg_temp.u('000001'), pg_temp.u('0f0050')), 'round_exclusions_reason_check', '23514');
+select pg_temp.expect_msg('constraint: NBSP-only reason refused', format($q$insert into public.event_competition_round_exclusions
+  (event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq) values (%L,%L,%L,'exclude_requested','other',chr(160)||chr(160)||chr(160)||chr(160),%L,'manager',%L,51)$q$,
+  pg_temp.u('00e001'), pg_temp.u('006002'), pg_temp.u('008003'), pg_temp.u('000001'), pg_temp.u('0f0051')), 'round_exclusions_reason_check', '23514');
+select pg_temp.expect_msg('constraint: zero-width / BOM / LRM / RLM / soft-hyphen-only reason refused', format($q$insert into public.event_competition_round_exclusions
+  (event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq) values (%L,%L,%L,'exclude_requested','other',chr(8203)||chr(8204)||chr(8205)||chr(65279)||chr(8206)||chr(8207)||chr(173),%L,'manager',%L,52)$q$,
+  pg_temp.u('00e001'), pg_temp.u('006002'), pg_temp.u('008003'), pg_temp.u('000001'), pg_temp.u('0f0052')), 'round_exclusions_reason_check', '23514');
+select pg_temp.expect_msg('constraint: one visible character among invisibles refused', format($q$insert into public.event_competition_round_exclusions
+  (event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq) values (%L,%L,%L,'exclude_requested','other',chr(160)||'a'||chr(8203)||chr(32)||chr(173),%L,'manager',%L,53)$q$,
+  pg_temp.u('00e001'), pg_temp.u('006002'), pg_temp.u('008003'), pg_temp.u('000001'), pg_temp.u('0f0053')), 'round_exclusions_reason_check', '23514');
+select pg_temp.expect_msg('constraint: two visible characters refused', format($q$insert into public.event_competition_round_exclusions
+  (event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq) values (%L,%L,%L,'exclude_requested','other',' a'||chr(160)||'b ',%L,'manager',%L,54)$q$,
+  pg_temp.u('00e001'), pg_temp.u('006002'), pg_temp.u('008003'), pg_temp.u('000001'), pg_temp.u('0f0054')), 'round_exclusions_reason_check', '23514');
+select pg_temp.chk('constraint: a valid reason with inner spaces and invisibles around it is accepted (3 visible characters)',
+  pg_temp.try_reason(chr(160)||'a b c'||chr(8203), 0, '0f0060'));
+select pg_temp.chk('constraint: a plain valid reason is accepted', pg_temp.try_reason('Refunded after dancing', 0, '0f0061'));
 select pg_temp.expect_msg('constraint: reason longer than 500 characters', format($q$insert into public.event_competition_round_exclusions
   (event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq) values (%L,%L,%L,'exclude_requested','other',repeat('x',501),%L,'manager',%L,24)$q$,
   pg_temp.u('00e001'), pg_temp.u('006002'), pg_temp.u('008003'), pg_temp.u('000001'), pg_temp.u('0f0024')), 'round_exclusions_reason_check', '23514');
