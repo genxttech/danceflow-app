@@ -47,6 +47,7 @@ export type CompetitionErrorCode =
   | "expired"
   | "not_payable"
   | "payment_not_ready"
+  | "organizer_suite_required"
   | "checkout_failed";
 
 export class CompetitionRegistrationError extends Error {
@@ -177,9 +178,44 @@ export type CompetitionUrls = {
 async function expireCheckoutQuietly(stripe: StripeClient, sessionId: string, accountId: string) {
   try {
     await stripe.checkout.sessions.expire(sessionId, {}, { stripeAccount: accountId });
+    return true;
   } catch {
     console.warn("comp10c_checkout_expire_failed");
+    return false;
   }
+}
+
+/** D7: customer-facing refusal when the organizer's Organizer Suite entitlement is not current. */
+export const ORGANIZER_NOT_ACCEPTING_MESSAGE = "This organizer is not accepting registrations for this event right now.";
+
+function organizerNotAccepting() {
+  return new CompetitionRegistrationError("organizer_suite_required", ORGANIZER_NOT_ACCEPTING_MESSAGE, 409);
+}
+
+/**
+ * D7: whether a NEW registration for this studio's organizer event may proceed. Events without an organizer never
+ * need the Organizer Suite. Access is decided exactly like the other event checkouts: a platform-fee tier above 0
+ * (organizer plan, or a current Suite entitlement under the shared reader); 0 means Organizer Suite required.
+ */
+async function organizerSuiteAllowsNewRegistration(admin: Db, studioId: string, organizerId: string | null): Promise<boolean> {
+  if (!organizerId) return true;
+  return (await getOrganizerPlatformFeePercent(admin, studioId)) > 0;
+}
+
+/**
+ * D7: refuse a new (unpaid, unconfirmed) registration when the organizer's Suite entitlement has lapsed, applying to
+ * paid, free and fully discounted orders alike. The pending order created for it is released through the existing
+ * release_competition_registration cleanup (reason "abandoned": order cancelled, its own pending entries withdrawn;
+ * a paid order, other orders and completed registrations are never touched by it).
+ */
+export async function refuseIfOrganizerSuiteLapsed(admin: Db, params: { orderId: string; studioId: string; organizerId: string | null }) {
+  if (await organizerSuiteAllowsNewRegistration(admin, params.studioId, params.organizerId)) return;
+  try {
+    await releaseCompetitionRegistration(admin, { orderId: params.orderId, reason: "abandoned" });
+  } catch {
+    console.warn("comp_d7_release_after_refusal_failed");
+  }
+  throw organizerNotAccepting();
 }
 
 async function prepare(admin: Db, orderId: string): Promise<PrepareResult> {
@@ -207,6 +243,13 @@ export async function beginCompetitionPayment(params: {
     throw error;
   }
   if (prepared.state === "finalized") return { kind: "status", url: urls.statusUrl };
+
+  // D7: every new (unpaid, unconfirmed) registration on an organizer event needs a current Organizer Suite
+  // entitlement, free and discounted ones included. A bound, open Checkout Session is handled in the resume branch.
+  if (!prepared.checkout_session_id) {
+    await refuseIfOrganizerSuiteLapsed(admin, { orderId, studioId: prepared.studio_id, organizerId: prepared.organizer_id });
+  }
+
   if (prepared.state === "free") {
     // Free order: finalize_competition_registration re-checks total = 0 and completed signing.
     const { error } = await admin.rpc("finalize_competition_registration", {
@@ -222,8 +265,22 @@ export async function beginCompetitionPayment(params: {
     const accountId = prepared.stripe_account_id ?? "";
     if (!ACCOUNT_ID_PATTERN.test(accountId)) throw new CompetitionRegistrationError("checkout_failed", "Competition checkout could not be resumed.", 500);
     const existing = await stripe.checkout.sessions.retrieve(prepared.checkout_session_id, {}, { stripeAccount: accountId });
-    if (existing.status === "open" && existing.url) return { kind: "redirect", url: existing.url };
     if (existing.status === "complete") return { kind: "status", url: urls.statusUrl };
+    if (existing.status === "open" && existing.url) {
+      // D7: payment of an unpaid pending order is refused once the entitlement has lapsed (no grace window). The open
+      // session is expired first so it cannot be paid afterwards; if it cannot be expired, nothing is released.
+      if (!(await organizerSuiteAllowsNewRegistration(admin, prepared.studio_id, prepared.organizer_id))) {
+        if (await expireCheckoutQuietly(stripe, prepared.checkout_session_id, accountId)) {
+          try {
+            await releaseCompetitionRegistration(admin, { orderId, reason: "abandoned", checkoutSessionId: prepared.checkout_session_id, stripeAccountId: accountId });
+          } catch {
+            console.warn("comp_d7_release_after_refusal_failed");
+          }
+        }
+        throw organizerNotAccepting();
+      }
+      return { kind: "redirect", url: existing.url };
+    }
     await releaseCompetitionRegistration(admin, { orderId, reason: "expired", checkoutSessionId: prepared.checkout_session_id, stripeAccountId: accountId });
     throw new CompetitionRegistrationError("expired", "This registration hold has expired. Start again to register.", 409);
   }

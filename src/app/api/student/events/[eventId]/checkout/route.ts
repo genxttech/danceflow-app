@@ -571,6 +571,32 @@ export async function POST(request: NextRequest, { params }: Params) {
     : 0;
 
   if (event.organizer_id && organizerPlatformFeePercent <= 0) {
+    // D7: a retry/replay of THIS student's already paid order (same clientRequestId, same event) is answered with its
+    // completed result even after the entitlement lapsed: nothing is charged, created or changed. Anything else is a
+    // new purchase (or an unpaid pending order) and needs a current Organizer Suite entitlement.
+    const { data: paidReplay } = await supabase
+      .from("event_orders")
+      .select("id, event_id, status, payment_status, metadata")
+      .eq("studio_id", event.studio_id)
+      .eq("client_request_id", clientRequestId)
+      .maybeSingle();
+    const replayOwner = (paidReplay?.metadata as { user_id?: unknown } | null)?.user_id;
+    if (
+      paidReplay &&
+      paidReplay.event_id === event.id &&
+      replayOwner === user.id &&
+      (paidReplay.payment_status === "paid" || paidReplay.status === "confirmed")
+    ) {
+      const { data: replayRegistrations } = await supabase
+        .from("event_registrations")
+        .select("id")
+        .eq("order_id", paidReplay.id);
+      return NextResponse.json({
+        completed: true,
+        orderId: paidReplay.id,
+        registrationIds: (replayRegistrations ?? []).map((row) => row.id as string),
+      });
+    }
     return jsonError("DanceFlow organizer checkout is not enabled for this listing.");
   }
 

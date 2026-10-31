@@ -9,10 +9,13 @@ vi.mock("server-only", () => ({}));
  * D7: competition registration checkout (route src/app/api/events/[slug]/competition/checkout/route.ts, payment step
  * beginCompetitionPayment in src/lib/competition/registrationCheckout.ts) vs the Organizer Suite entitlement.
  *
- * For a payable order on an organizer event the platform fee is read before the Checkout Session is created; a fee of
- * 0 means "Organizer Suite required" and the payment step refuses with code payment_not_ready (409, "DanceFlow organizer
- * checkout is not enabled for this listing.") with no Stripe call and no session attached. An order that already has
- * its bound Checkout Session (resume) or is finalized is not re-evaluated. Events with no organizer are unaffected.
+ * Owner decision P2-1: every NEW registration on an organizer event (paid, free and fully discounted alike) needs a current
+ * Organizer Suite entitlement. Otherwise the registration is refused with code organizer_suite_required (409, "This organizer
+ * is not accepting registrations for this event right now."), no Stripe session is created or attached, nothing is finalized,
+ * and the pending order just created is released through release_competition_registration (reason "abandoned").
+ * Owner decision P2-2: an unpaid pending order whose open Checkout Session is resumed after the lapse is refused too (the
+ * session is expired first); finalized orders, completed sessions and replays of confirmed orders are never re-evaluated.
+ * Events with no organizer are unaffected.
  */
 
 type RpcHandler = (args: Record<string, unknown>) => { data?: unknown; error?: { message: string } | null };
@@ -52,7 +55,7 @@ const ORDER = "11111111-2222-4333-8444-555555555555";
 const TOKEN = "99999999-2222-4333-8444-555555555555";
 const STUDIO_ID = "studio-1";
 const AMOUNT_CENTS = 10000;
-const REFUSAL = "DanceFlow organizer checkout is not enabled for this listing.";
+const REFUSAL = "This organizer is not accepting registrations for this event right now.";
 const STATUS_URL = `https://app.test/events/spring/competition/register/status?token=${TOKEN}`;
 
 type Setup = { organizerId?: string | null; planCode?: string; entitlements?: Row[]; timezone?: string };
@@ -132,13 +135,14 @@ function rpcNames() {
 
 async function expectRefused(response: Response) {
   expect(response.status).toBe(409);
-  expect(await response.json()).toMatchObject({ code: "payment_not_ready", error: REFUSAL });
+  expect(await response.json()).toMatchObject({ code: "organizer_suite_required", error: REFUSAL });
   expect(state.stripeCreate).not.toHaveBeenCalled();
   expect(rpcNames()).not.toContain("attach_competition_registration_checkout");
   expect(rpcNames()).not.toContain("finalize_competition_registration");
-  // NOTE (reported): the pending registration hold is created by start_competition_registration BEFORE the Suite
-  // check (which lives in the payment step) and is not released here; it lapses with its hold expiry.
-  expect(rpcNames()).toEqual(["quote_competition_registration", "start_competition_registration", "prepare_competition_registration_payment"]);
+  // The pending order created by start_competition_registration is released, once, for exactly that order.
+  const releases = state.rpcCalls.filter((call) => call.name === "release_competition_registration");
+  expect(releases).toHaveLength(1);
+  expect(releases[0].args).toMatchObject({ p_order_id: ORDER, p_reason: "abandoned" });
 }
 
 async function expectAllowed(response: Response, feeCents: number | null) {
@@ -210,20 +214,8 @@ describe("DanceAbel boundary: grant period_end 2027-07-09, America/New_York", ()
   });
 });
 
-describe("existing registrations are not re-evaluated (Suite lapsed in every case)", () => {
+describe("completed and finalized registrations are not re-evaluated (Suite lapsed in every case)", () => {
   const lapsed = () => [grant({ period_end: "2026-12-01" })];
-
-  it("resume of an order whose Checkout Session is already bound and open returns that session", async () => {
-    seed({ organizerId: "org-1", entitlements: lapsed() });
-    state.rpc.prepare_competition_registration_payment = () => ({
-      data: prepared({ organizer_id: "org-1", checkout_session_id: "cs_bound", stripe_account_id: "acct_studioA" }),
-    });
-    state.stripeRetrieve.mockResolvedValue({ id: "cs_bound", status: "open", url: "https://stripe.test/cs_bound" });
-    const response = await post();
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ url: "https://stripe.test/cs_bound" });
-    expect(state.stripeCreate).not.toHaveBeenCalled();
-  });
 
   it("resume of an order whose bound session already completed goes to the status page", async () => {
     seed({ organizerId: "org-1", entitlements: lapsed() });
@@ -254,18 +246,121 @@ describe("existing registrations are not re-evaluated (Suite lapsed in every cas
   });
 });
 
-describe("FINDING (reported, not changed): free competition registrations skip the Suite check", () => {
-  // registrationCheckout.ts finalizes a `free` order before the fee/Suite check, so a $0 competition registration on
-  // an organizer event completes without any Organizer Suite entitlement (the student ticket route refuses the same
-  // organizer listing regardless of total). No money moves and no fee is lost; this pins the current behaviour so a
-  // policy change is a deliberate edit here.
-  it("a $0 registration on an organizer event with no entitlement is finalized", async () => {
-    seed({ organizerId: "org-1", entitlements: [] });
+describe("P2-1: free and fully discounted registrations need the entitlement too", () => {
+  function freeOrder(organizerId: string | null) {
     state.rpc.quote_competition_registration = () => ({ data: { valid: true, errors: [], total_cents: 0, currency: "USD" } });
-    state.rpc.prepare_competition_registration_payment = () => ({ data: prepared({ organizer_id: "org-1", state: "free", amount_cents: 0 }) });
+    state.rpc.prepare_competition_registration_payment = () => ({ data: prepared({ organizer_id: organizerId, state: "free", amount_cents: 0 }) });
+  }
+
+  it.each([
+    { name: "no entitlement", entitlements: [] as Row[] },
+    { name: "an expired grant", entitlements: [grant({ period_end: "2026-12-01" })] },
+  ])("a $0 registration with $name is refused, nothing is finalized and the hold is released", async ({ entitlements }) => {
+    seed({ organizerId: "org-1", entitlements });
+    freeOrder("org-1");
+    await expectRefused(await post());
+  });
+
+  it("a $0 / 100%-discounted registration with a current grant is finalized without Stripe", async () => {
+    seed({ organizerId: "org-1", entitlements: [grant()] });
+    freeOrder("org-1");
     const response = await post();
     expect(await response.json()).toMatchObject({ url: STATUS_URL });
     expect(rpcNames()).toContain("finalize_competition_registration");
+    expect(rpcNames()).not.toContain("release_competition_registration");
     expect(state.stripeCreate).not.toHaveBeenCalled();
+  });
+
+  it("a $0 registration on an event with no organizer needs no entitlement", async () => {
+    seed({ organizerId: null, entitlements: [] });
+    freeOrder(null);
+    const response = await post();
+    expect(await response.json()).toMatchObject({ url: STATUS_URL });
+    expect(rpcNames()).toContain("finalize_competition_registration");
+  });
+
+  it("a partially discounted (still payable) registration is refused when lapsed", async () => {
+    seed({ organizerId: "org-1", entitlements: [grant({ period_end: "2026-12-01" })] });
+    state.rpc.prepare_competition_registration_payment = () => ({ data: prepared({ organizer_id: "org-1", amount_cents: 2500 }) });
+    await expectRefused(await post());
+  });
+
+  it("a partially discounted registration with a current grant is charged the discounted amount", async () => {
+    seed({ organizerId: "org-1", entitlements: [grant()] });
+    state.rpc.prepare_competition_registration_payment = () => ({ data: prepared({ organizer_id: "org-1", amount_cents: 2500 }) });
+    const response = await post();
+    expect(response.status).toBe(200);
+    const [params] = state.stripeCreate.mock.calls[0] as [{ line_items: Array<{ price_data: { unit_amount: number } }> }];
+    expect(params.line_items[0].price_data.unit_amount).toBe(2500);
+  });
+});
+
+describe("P2-1 / P2-2: hold cleanup is scoped and failures are safe", () => {
+  it("a refused registration that requires signing is refused BEFORE the signing checkpoint is created", async () => {
+    seed({ organizerId: "org-1", entitlements: [] });
+    state.rpc.start_competition_registration = () => ({ data: started({ requires_signing: true }) });
+    const response = await post();
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "organizer_suite_required" });
+    const { beginEventSigningCheckpoint } = await import("@/lib/documents/event-signing");
+    expect(beginEventSigningCheckpoint).not.toHaveBeenCalled();
+    expect(rpcNames()).not.toContain("prepare_competition_registration_payment");
+    expect(rpcNames().filter((name) => name === "release_competition_registration")).toHaveLength(1);
+  });
+
+  it("a release failure after the refusal does not change the customer-facing result", async () => {
+    seed({ organizerId: "org-1", entitlements: [] });
+    state.rpc.release_competition_registration = () => ({ error: { message: "boom" } });
+    const response = await post();
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "organizer_suite_required", error: REFUSAL });
+  });
+
+  it("an already paid order is not touched by the refusal path (database reports already_paid)", async () => {
+    seed({ organizerId: "org-1", entitlements: [] });
+    state.rpc.release_competition_registration = () => ({ data: { outcome: "already_paid" } });
+    const response = await post();
+    expect(response.status).toBe(409);
+    expect(state.stripeCreate).not.toHaveBeenCalled();
+    expect(rpcNames()).not.toContain("finalize_competition_registration");
+  });
+});
+
+describe("P2-2: resuming an unpaid pending order with an open Checkout Session after the lapse", () => {
+  function resumeOpen() {
+    state.rpc.prepare_competition_registration_payment = () => ({
+      data: prepared({ organizer_id: "org-1", checkout_session_id: "cs_bound", stripe_account_id: "acct_studioA" }),
+    });
+    state.stripeRetrieve.mockResolvedValue({ id: "cs_bound", status: "open", url: "https://stripe.test/cs_bound" });
+  }
+
+  it("is refused, the open session is expired first and the order is released against that session", async () => {
+    seed({ organizerId: "org-1", entitlements: [grant({ period_end: "2026-12-01" })] });
+    resumeOpen();
+    const response = await post();
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "organizer_suite_required", error: REFUSAL });
+    expect(state.stripeExpire).toHaveBeenCalledWith("cs_bound", {}, { stripeAccount: "acct_studioA" });
+    const releases = state.rpcCalls.filter((call) => call.name === "release_competition_registration");
+    expect(releases).toHaveLength(1);
+    expect(releases[0].args).toMatchObject({ p_order_id: ORDER, p_reason: "abandoned", p_checkout_session_id: "cs_bound", p_stripe_account_id: "acct_studioA" });
+    expect(state.stripeCreate).not.toHaveBeenCalled();
+  });
+
+  it("is refused without releasing when the open session cannot be expired (a payment could still complete)", async () => {
+    seed({ organizerId: "org-1", entitlements: [grant({ period_end: "2026-12-01" })] });
+    resumeOpen();
+    state.stripeExpire.mockRejectedValue(new Error("already paid"));
+    const response = await post();
+    expect(response.status).toBe(409);
+    expect(rpcNames()).not.toContain("release_competition_registration");
+  });
+
+  it("is still allowed with a current entitlement", async () => {
+    seed({ organizerId: "org-1", entitlements: [grant()] });
+    resumeOpen();
+    const response = await post();
+    expect(await response.json()).toMatchObject({ url: "https://stripe.test/cs_bound" });
+    expect(state.stripeExpire).not.toHaveBeenCalled();
   });
 });

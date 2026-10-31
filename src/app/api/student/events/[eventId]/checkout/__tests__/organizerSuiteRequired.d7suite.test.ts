@@ -280,7 +280,7 @@ describe("existing orders (same clientRequestId replay)", () => {
     buyer_email: "student@example.com",
     status: "confirmed",
     payment_status: "paid",
-    metadata: { requested_total_cents: 10000 },
+    metadata: { requested_total_cents: 10000, user_id: "user-1" },
   };
 
   it("a paid order replayed while the Suite is current returns completed without Stripe", async () => {
@@ -295,29 +295,69 @@ describe("existing orders (same clientRequestId replay)", () => {
     expect(sessionsCreate).not.toHaveBeenCalled();
   });
 
-  // KNOWN GAP (reported, not fixed): the Suite check runs before the clientRequestId replay branch, so a replay of an
-  // order that was PAID while the Suite was current gets the "not enabled" error once the grant lapses, instead of
-  // `completed`. No money moves either way (no Stripe call, the paid order is untouched). it.fails flips to a failure
-  // the moment the route answers the replay before re-checking the Suite; then convert it to a plain `it`.
-  it.fails("a paid order replayed after the grant lapsed still returns completed (currently refused)", async () => {
+  // P2-2 (owner decision): a replay of an already PAID order returns its completed result even after the grant lapsed.
+  it("a paid order replayed after the grant lapsed still returns completed, without Stripe or any write", async () => {
     seed({
       organizerId: "org-1",
       entitlements: [grant({ period_end: "2026-12-01" })],
       existingOrders: [paidOrder],
       existingRegistrations: [{ id: "reg-1", order_id: "order-paid" }],
     });
-    const response = await post("checkout", REPLAY_ID);
-    expect(await response.json()).toEqual({ completed: true, orderId: "order-paid", registrationIds: ["reg-1"] });
+    const before = JSON.parse(JSON.stringify(tables));
+    const first = await post("checkout", REPLAY_ID);
+    const second = await post("payment_sheet", REPLAY_ID);
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({ completed: true, orderId: "order-paid", registrationIds: ["reg-1"] });
+    expect(await second.json()).toEqual({ completed: true, orderId: "order-paid", registrationIds: ["reg-1"] });
+    expect(sessionsCreate).not.toHaveBeenCalled();
+    expect(paymentIntentsCreate).not.toHaveBeenCalled();
+    expect(JSON.parse(JSON.stringify(tables))).toEqual(before);
   });
 
-  it("a refused replay never touches the paid order", async () => {
+  it("a confirmed order replayed after the lapse is also returned as completed", async () => {
     seed({
       organizerId: "org-1",
-      entitlements: [grant({ period_end: "2026-12-01" })],
-      existingOrders: [paidOrder],
+      entitlements: [],
+      existingOrders: [{ ...paidOrder, payment_status: "pending" }],
+      existingRegistrations: [{ id: "reg-1", order_id: "order-paid" }],
+    });
+    expect(await (await post("checkout", REPLAY_ID)).json()).toMatchObject({ completed: true, orderId: "order-paid" });
+  });
+
+  it("another student's paid order is never revealed by reusing its clientRequestId", async () => {
+    seed({
+      organizerId: "org-1",
+      entitlements: [],
+      existingOrders: [{ ...paidOrder, metadata: { requested_total_cents: 10000, user_id: "someone-else" } }],
       existingRegistrations: [{ id: "reg-1", order_id: "order-paid" }],
     });
     await expectRefused(await post("checkout", REPLAY_ID), 1);
-    expect(tables.event_orders.rows[0]).toEqual(paidOrder);
+  });
+
+  it("a paid order for a DIFFERENT event is not returned for this event's checkout", async () => {
+    seed({
+      organizerId: "org-1",
+      entitlements: [],
+      existingOrders: [{ ...paidOrder, event_id: "other-event" }],
+      existingRegistrations: [{ id: "reg-1", order_id: "order-paid" }],
+    });
+    await expectRefused(await post("checkout", REPLAY_ID), 1);
+  });
+
+  it("an UNPAID pending order replayed after the lapse is refused (no grace window) and left untouched", async () => {
+    const pending = { ...paidOrder, id: "order-pending", status: "pending", payment_status: "pending" };
+    seed({ organizerId: "org-1", entitlements: [grant({ period_end: "2026-12-01" })], existingOrders: [pending] });
+    await expectRefused(await post("checkout", REPLAY_ID), 1);
+    expect(tables.event_orders.rows[0]).toEqual(pending);
+  });
+
+  it("an unpaid pending order replayed while the grant is current continues to payment", async () => {
+    const pending = { ...paidOrder, id: "order-pending", status: "pending", payment_status: "pending", expires_at: new Date(Date.now() + 600_000).toISOString() };
+    seed({ organizerId: "org-1", entitlements: [grant()], existingOrders: [{ ...pending, events: EMBEDDED_EVENT, studios: EMBEDDED_STUDIO, total_amount: 100, currency: "usd" }] });
+    const response = await post("checkout", REPLAY_ID);
+    const body = await response.json();
+    expect(response.status, JSON.stringify(body)).toBe(200);
+    expect(body.checkoutUrl).toBe("https://checkout.stripe.test/session");
+    expect(sessionsCreate).toHaveBeenCalledTimes(1);
   });
 });

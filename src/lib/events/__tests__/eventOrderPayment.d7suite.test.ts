@@ -227,3 +227,49 @@ describe("unpaid pending orders are evaluated at payment start (current behaviou
     expect(tables.event_order_payment_attempts.rows[0].status).toBe("open");
   });
 });
+
+describe("P2-2 / P2-1: policy decisions pinned (no grace window, no retroactive change)", () => {
+  const freeOrder = { total_amount: 0, metadata: { requested_total_cents: 0 } };
+
+  it("an unpaid pending $0 order on an organizer event is NOT confirmed once the grant has lapsed", async () => {
+    seed({ organizerId: "org-1", entitlements: [grant({ period_end: "2026-12-01" })], order: freeOrder });
+    const before = { ...order() };
+    await expect(start("checkout")).rejects.toThrow(REFUSAL);
+    expect(order()).toEqual(before);
+    expect(sessionsCreate).not.toHaveBeenCalled();
+  });
+
+  it("an unpaid pending $0 order is confirmed while the entitlement is current, and ordinary events are unaffected", async () => {
+    seed({ organizerId: "org-1", entitlements: [grant()], order: freeOrder });
+    expect(await start("checkout")).toMatchObject({ completed: true, orderId: "order-1" });
+    expect(order()).toMatchObject({ status: "confirmed", payment_status: "paid" });
+
+    seed({ organizerId: null, entitlements: [], order: freeOrder });
+    expect(await start("checkout")).toMatchObject({ completed: true, orderId: "order-1" });
+  });
+
+  it("no grace window: refused at the first instant after the boundary, even though the order was created before it", async () => {
+    vi.setSystemTime(new Date("2027-07-09T03:50:00Z"));
+    seed({ organizerId: "org-1", entitlements: [grant({ period_end: "2027-07-09" })], order: { expires_at: "2027-07-09T05:00:00Z" } });
+    vi.setSystemTime(new Date("2027-07-09T04:00:00Z"));
+    await expectRefused("checkout");
+  });
+
+  it.each(MODES)("replaying an already completed payment (%s) returns the same result every time and never charges, creates or changes anything", async (mode) => {
+    seed({ organizerId: "org-1", entitlements: [grant({ period_end: "2026-12-01" })], order: { status: "confirmed", payment_status: "paid" } });
+    const before = JSON.parse(JSON.stringify(tables));
+    const first = await start(mode);
+    const second = await start(mode);
+    expect(first).toEqual({ completed: true, orderId: "order-1", registrationIds: ["reg-1"] });
+    expect(second).toEqual(first);
+    expect(sessionsCreate).not.toHaveBeenCalled();
+    expect(paymentIntentsCreate).not.toHaveBeenCalled();
+    expect(JSON.parse(JSON.stringify(tables))).toEqual(before);
+  });
+
+  it("an order that is confirmed (status) but not marked paid is also returned as completed after the lapse", async () => {
+    seed({ organizerId: "org-1", entitlements: [], order: { status: "confirmed", payment_status: "pending" } });
+    expect(await start("checkout")).toMatchObject({ completed: true });
+    expect(sessionsCreate).not.toHaveBeenCalled();
+  });
+});
