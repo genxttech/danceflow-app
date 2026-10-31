@@ -112,7 +112,7 @@ delete from public.studio_sms_credit_reservations where legal_entity_id in (${EN
 delete from public.studio_sms_credit_disputes where topup_id in (select id from public.studio_sms_credit_topups where legal_entity_id in (${ENTITIES}));
 delete from public.studio_sms_credit_topups where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_credit_accounts where legal_entity_id in (${ENTITIES});
-delete from public.studio_sms_price_change_requests where requested_by = '${PRICE_FIXTURE_REQUESTER}' or decided_by = '${U.padmin}';
+do $d41$ begin if to_regclass('public.studio_sms_price_change_requests') is not null then delete from public.studio_sms_price_change_requests where requested_by = '${PRICE_FIXTURE_REQUESTER}' or decided_by = '${U.padmin}'; end if; end $d41$;
 delete from public.studio_sms_price_list where created_by = '${U.padmin}';
 delete from public.studio_sms_provisioning_steps where studio_id in (${STUDIOS});
 delete from public.studio_sms_registrations where studio_id in (${STUDIOS});

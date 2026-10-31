@@ -83,7 +83,7 @@ delete from public.studio_sms_credit_topups where legal_entity_id in ('${E1}', '
 delete from public.studio_sms_provider_charges where legal_entity_id in ('${E1}', '${E2}');
 delete from public.studio_sms_pilot_exceptions where legal_entity_id in ('${E1}', '${E2}');
 delete from public.studio_sms_credit_accounts where legal_entity_id in ('${E1}', '${E2}');
-delete from public.studio_sms_price_change_requests where requested_by = '${PRICE_FIXTURE_REQUESTER}' or decided_by = '${U.padmin}';
+do $d41$ begin if to_regclass('public.studio_sms_price_change_requests') is not null then delete from public.studio_sms_price_change_requests where requested_by = '${PRICE_FIXTURE_REQUESTER}' or decided_by = '${U.padmin}'; end if; end $d41$;
 delete from public.studio_sms_price_list where created_by = '${U.padmin}';
 delete from public.studio_sms_entity_studios where legal_entity_id in ('${E1}', '${E2}');
 delete from public.studio_sms_legal_entities where id in ('${E1}', '${E2}');
