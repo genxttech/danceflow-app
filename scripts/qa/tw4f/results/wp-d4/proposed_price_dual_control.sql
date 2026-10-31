@@ -1,3 +1,5 @@
+-- SUPERSEDED (D4-1): this WP-D4 draft is kept as evidence only. The reviewed, real migration is src/lib/supabase/migrations/20270204090000_twilio_price_dual_control.sql
+-- (adds the missing hardening: price list activation trigger, active-admin checks, reason, base snapshot, all 8 price kinds, no silent supersede, read model).
 -- PROPOSED CORRECTION (WP-D4, local only): SMS price changes become dual controlled.
 -- NOT a migration of the chain, NOT applied to any hosted database. Applied only inside the throwaway test database by localStack.wpd4dual.test.ts.
 --
