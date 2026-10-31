@@ -105,6 +105,12 @@ begin
   perform pg_temp.as_user(p_user);
   return pg_temp.try(format($q$select public.cosign_final_withdrawal_request(%L)$q$, pg_temp.id('rq', p_req)));
 end $$;
+create or replace function pg_temp.can(p_user int, p_req int, p_reason text default 'the couple changed their mind about leaving') returns jsonb
+language plpgsql as $$
+begin
+  perform pg_temp.as_user(p_user);
+  return pg_temp.try(format($q$select public.cancel_final_withdrawal_request(%L, %L)$q$, pg_temp.id('rq', p_req), p_reason));
+end $$;
 create or replace function pg_temp.flow(p_kind text, p_n int, p_k int, p_req int, p_req_user int default 1, p_cos_user int default 2) returns jsonb
 language plpgsql as $$
 declare
@@ -129,6 +135,25 @@ create or replace function pg_temp.hes(p_n int, p_k int) returns text language s
 create or replace function pg_temp.hedigest(p_n int) returns text language sql security definer as $$
   select coalesce(md5(string_agg(he.id::text || he.status || he.heat_id::text || he.entry_id::text || he.updated_at::text || he.floor_order::text, ',' order by he.id)), 'empty')
   from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id where h.round_id = pg_temp.id('fin', p_n) $$;
+-- The whole suite is ONE transaction, so every result event of a round has the same occurred_at (now()); A7's cause trigger picks "the latest" event of the round by
+-- occurred_at, which is a tie after a second correction of the same round. Move the earlier events of the round back in time (history triggers restored exactly).
+create or replace function pg_temp.backdate_events(p_n int) returns void
+language plpgsql security definer as $$
+declare
+  r record;
+  v_trg record;
+  v_saved jsonb := '[]'::jsonb;
+begin
+  for v_trg in select t.tgname, t.tgenabled from pg_trigger t where t.tgrelid = 'public.event_competition_result_events'::regclass and not t.tgisinternal loop
+    v_saved := v_saved || jsonb_build_object('n', v_trg.tgname, 'e', v_trg.tgenabled::text);
+    execute format('alter table public.event_competition_result_events disable trigger %I', v_trg.tgname);
+  end loop;
+  update public.event_competition_result_events set occurred_at = occurred_at - interval '1 hour' where round_id = pg_temp.id('src', p_n);
+  for r in select x ->> 'n' as n, x ->> 'e' as e from jsonb_array_elements(v_saved) x loop
+    execute format('alter table public.event_competition_result_events %s trigger %I', case r.e when 'A' then 'enable always' when 'R' then 'enable replica' when 'D' then 'disable' else 'enable' end, r.n);
+  end loop;
+end $$;
+grant execute on function pg_temp.backdate_events(int) to authenticated, anon, service_role;
 create or replace function pg_temp.regen(p_n int, p_ver int, p_adv int[]) returns void
 language plpgsql security definer as $$
 declare
@@ -147,7 +172,7 @@ begin
   perform set_config('session_replication_role', 'origin', true);
 end $$;
 create or replace function pg_temp.state_probe(p_round_id uuid) returns jsonb language sql security definer as $$
-  select coalesce(jsonb_agg(jsonb_build_object('request_id', q.request_id, 'stale', public._cf1_a6_is_stale(p_round_id, q.advancement_id, q.advancement_generation))), '[]'::jsonb)
+  select coalesce(jsonb_agg(jsonb_build_object('request_id', q.request_id, 'stale', public._cf1_a6_is_stale(p_round_id, q.advancement_id, q.advancement_generation, q.source_result_version_id))), '[]'::jsonb)
   from public.event_competition_final_withdrawal_requests q where q.target_round_id = p_round_id and not exists (select 1 from public.event_competition_final_withdrawals w where w.request_id = q.request_id) $$;
 grant execute on all functions in schema pg_temp to authenticated, anon, service_role;
 
@@ -236,7 +261,10 @@ alter table public.event_competition_rounds disable trigger cf1_guard_callback_t
 select pg_temp.mk(10, 1, 12, 12);
 alter table public.event_competition_rounds enable always trigger cf1_guard_callback_target_capacity;
 select pg_temp.mk(11);
-select pg_temp.mk(12);
+select pg_temp.mk(12, 1, 4, 4);
+select pg_temp.mk(13);
+select pg_temp.mk(14, 1, 4, 4);
+select pg_temp.mk(15);
 
 -- ============================================================================
 -- 1. Catalogue: grants, ENABLE ALWAYS, VOLATILE, search_path, RLS
@@ -251,13 +279,13 @@ select pg_temp.chk('U51: the guard function is VOLATILE, SECURITY DEFINER, searc
   (select p.provolatile = 'v' and p.prosecdef and p.proconfig @> array['search_path=public, pg_temp'] and position('when others' in lower(p.prosrc)) = 0
    from pg_proc p where p.proname = 'cf1_guard_withdrawn_heat_entry' and p.pronamespace = 'public'::regnamespace));
 select pg_temp.chk('every A6 function is SECURITY DEFINER with the fixed search_path',
-  (select count(*) = 14 and bool_and(p.prosecdef and p.proconfig @> array['search_path=public, pg_temp'])
+  (select count(*) = 17 and bool_and(p.prosecdef and p.proconfig @> array['search_path=public, pg_temp'])
    from pg_proc p where p.pronamespace = 'public'::regnamespace and (p.proname like '\_cf1\_a6\_%' or p.proname in ('cf1_guard_withdrawn_heat_entry', 'withdraw_advanced_entry_from_final',
-        'reinstate_withdrawn_entry_to_final', 'cosign_final_withdrawal_request', 'competition_final_withdrawal_state'))));
-select pg_temp.chk('the four RPCs: execute for authenticated, none for anon / public / service_role',
+        'reinstate_withdrawn_entry_to_final', 'cosign_final_withdrawal_request', 'competition_final_withdrawal_state', 'cancel_final_withdrawal_request'))));
+select pg_temp.chk('the five RPCs: execute for authenticated, none for anon / public / service_role',
   (select bool_and(has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('anon', f, 'execute') and not has_function_privilege('service_role', f, 'execute'))
    from unnest(array['public.withdraw_advanced_entry_from_final(uuid,uuid,text,uuid)'::regprocedure, 'public.reinstate_withdrawn_entry_to_final(uuid,uuid,text,uuid)'::regprocedure,
-                     'public.cosign_final_withdrawal_request(uuid)'::regprocedure, 'public.competition_final_withdrawal_state(uuid)'::regprocedure]) f));
+                     'public.cosign_final_withdrawal_request(uuid)'::regprocedure, 'public.competition_final_withdrawal_state(uuid)'::regprocedure, 'public.cancel_final_withdrawal_request(uuid,text)'::regprocedure]) f));
 select pg_temp.chk('helpers, request function and guard: no execute grant for anon / authenticated / service_role (U70 style)',
   not exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace and (p.proname like '\_cf1\_a6\_%' or p.proname = 'cf1_guard_withdrawn_heat_entry')
               and (has_function_privilege('authenticated', p.oid, 'execute') or has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('service_role', p.oid, 'execute'))));
@@ -434,6 +462,7 @@ select pg_temp.chk('U48(a): while generation 2''s Final heat is active the reins
   pg_temp.code(pg_temp.req('reinstate', 4, 1, 1, 42)) = 'COMP_ADVANCEMENT_REINSTATE_NO_HEAT_ENTRY', pg_temp.req('reinstate', 4, 1, 1, 42)::text);
 reset role;
 select pg_temp.chk('U48(a): nothing was written (no heat entry inserted, no row)', (select count(*) = 1 from public.event_competition_final_withdrawals where target_round_id = pg_temp.id('fin', 4)) and pg_temp.hes(4, 1) = 'none');
+select pg_temp.backdate_events(4);
 select pg_temp.as_user(1);
 select pg_temp.expect_ok('scenario 4: a second authorized correction revokes generation 2',
   format($q$select public.open_competition_round_correction(%L, 'second judge error found in the callback', %L)$q$, pg_temp.id('src', 4), pg_temp.id('c', 42)));
@@ -443,7 +472,10 @@ select pg_temp.chk('scenario 4: generation 2 is revoked', public._cf1_active_adv
 select set_config('cf1a6.digest4', pg_temp.hedigest(4), false);
 select set_config('cf1a6.he4', (select count(*)::text from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id where h.round_id = pg_temp.id('fin', 4)), false);
 select set_config('cf1a6.wd4', (select count(*)::text from public.event_competition_final_withdrawals where target_round_id = pg_temp.id('fin', 4)), false);
-select pg_temp.chk('U48(b)/U62: after the revoke the reinstatement is accepted (two-step)', pg_temp.code(pg_temp.flow('reinstate', 4, 1, 43)) = 'OK', pg_temp.flow('reinstate', 4, 1, 43)::text);
+select pg_temp.chk('D-A: a reinstatement request while the callback has no approved result is COMP_WITHDRAWAL_NO_APPROVED_RESULT', pg_temp.code(pg_temp.req('reinstate', 4, 1, 1, 430)) = 'COMP_WITHDRAWAL_NO_APPROVED_RESULT', pg_temp.req('reinstate', 4, 1, 1, 430)::text);
+reset role;
+select pg_temp.regen(4, 3, array[1, 2, 3]);
+select pg_temp.chk('U48(b)/U62: after the revoke and the corrected result being approved, the reinstatement is accepted (two-step)', pg_temp.code(pg_temp.flow('reinstate', 4, 1, 43)) = 'OK', pg_temp.flow('reinstate', 4, 1, 43)::text);
 reset role;
 select pg_temp.chk('U62: the reinstatement wrote exactly one row (the reinstatement row, no heat entry reference)',
   (select count(*) from public.event_competition_final_withdrawals where target_round_id = pg_temp.id('fin', 4))::text = (current_setting('cf1a6.wd4')::int + 1)::text
@@ -451,7 +483,6 @@ select pg_temp.chk('U62: the reinstatement wrote exactly one row (the reinstatem
 select pg_temp.chk('U62: no heat entry changed or was added anywhere in the Final (digest and count identical, the cancelled heat untouched)',
   pg_temp.hedigest(4) = current_setting('cf1a6.digest4')
   and (select count(*)::text from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id where h.round_id = pg_temp.id('fin', 4)) = current_setting('cf1a6.he4'));
-select pg_temp.regen(4, 3, array[1, 2, 3]);
 select set_config('cf1a6.r', pg_temp.ap(4, 43)::text, false);
 reset role;
 select pg_temp.chk('U48(b): generation 3 applies and includes the reinstated couple with its own heat entry (not carried)',
@@ -471,14 +502,16 @@ select pg_temp.chk('scenario 5: generation 1 applies', pg_temp.code(pg_temp.ap(5
 select pg_temp.expect_ok('scenario 5: correction revokes generation 1', format($q$select public.open_competition_round_correction(%L, 'judge error found in the callback', %L)$q$, pg_temp.id('src', 5), pg_temp.id('c', 51)));
 reset role;
 select set_config('cf1a6.digest5', pg_temp.hedigest(5), false);
-select pg_temp.chk('4.4: a withdrawal between the revoke and the next apply is accepted with no active advancement (row only)', pg_temp.code(pg_temp.flow('withdraw', 5, 2, 51)) = 'OK', pg_temp.flow('withdraw', 5, 2, 51)::text);
+select pg_temp.chk('D-A: a withdrawal while the callback has no approved result is COMP_WITHDRAWAL_NO_APPROVED_RESULT (not validated against the outdated last-applied roster)', pg_temp.code(pg_temp.req('withdraw', 5, 2, 1, 510)) = 'COMP_WITHDRAWAL_NO_APPROVED_RESULT', pg_temp.req('withdraw', 5, 2, 1, 510)::text);
+reset role;
+select pg_temp.regen(5, 2, array[1, 2, 3]);
+select pg_temp.chk('4.4: a withdrawal between the revoke and the next apply, once the corrected result is approved, is accepted with no active advancement (row only)', pg_temp.code(pg_temp.flow('withdraw', 5, 2, 51)) = 'OK', pg_temp.flow('withdraw', 5, 2, 51)::text);
 reset role;
 select pg_temp.chk('4.4: that row has no heat entry reference, prior status null, and the cancelled heat is untouched',
   (select w.heat_entry_id is null and w.prior_heat_entry_status is null from public.event_competition_final_withdrawals w where w.request_id = pg_temp.id('rq', 51)) and pg_temp.hedigest(5) = current_setting('cf1a6.digest5'));
 select pg_temp.chk('OD-15 A between revoke and apply: a second withdrawal would leave one couple and is refused', pg_temp.code(pg_temp.req('withdraw', 5, 3, 1, 52)) = 'COMP_ADVANCEMENT_BELOW_MINIMUM', pg_temp.req('withdraw', 5, 3, 1, 52)::text);
 reset role;
 select pg_temp.su(format($q$update public.event_competition_entries set eligibility_status = 'ineligible' where id = %L$q$, pg_temp.id('ent', 5, 2)));
-select pg_temp.regen(5, 2, array[1, 2, 3]);
 select pg_temp.chk('4.4 dead end gone: the ineligible, withdrawn couple does not block generation 2 (carried, not validated)', pg_temp.code(pg_temp.ap(5, 52)) = 'OK' and pg_temp.hes(5, 2) = 'none', pg_temp.ap(5, 52)::text);
 reset role;
 select pg_temp.su(format($q$update public.event_competition_entries set eligibility_status = 'eligible' where id = %L$q$, pg_temp.id('ent', 5, 2)));
@@ -565,38 +598,143 @@ reset role;
 select pg_temp.chk('Low-1 cap: ten live requests on a Final are accepted', current_setting('cf1a6.cap') = 'pending,pending,pending,pending,pending,pending,pending,pending,pending,pending', current_setting('cf1a6.cap'));
 select pg_temp.chk('Low-1 cap: the 11th is COMP_WITHDRAWAL_TOO_MANY_PENDING', pg_temp.code(pg_temp.req('withdraw', 10, 11, 1, 111)) = 'COMP_WITHDRAWAL_TOO_MANY_PENDING', pg_temp.req('withdraw', 10, 11, 1, 111)::text);
 reset role;
+select pg_temp.chk('D-B/Low-1 cap: cancelling one of the ten live requests frees the slot (the 11th is then accepted)', pg_temp.code(pg_temp.can(1, 101)) = 'OK' and (pg_temp.req('withdraw', 10, 11, 1, 111) ->> 'state') = 'pending', pg_temp.req('withdraw', 10, 11, 1, 111)::text);
 
 -- P2-1 (re-review): the null binding must not suffer an ABA. Scenario 11: request while no advancement exists (generation 0), apply, then revoke: the active advancement is null again, the generation is not.
 select pg_temp.as_user(1);
-select pg_temp.chk('P2-1: a request before any apply is accepted (generation 0, no advancement)', (pg_temp.req('withdraw', 11, 1, 1, 111) ->> 'state') = 'pending');
+select pg_temp.chk('P2-1: a request before any apply is accepted (generation 0, no advancement)', (pg_temp.req('withdraw', 11, 1, 1, 1110) ->> 'state') = 'pending');
 select pg_temp.chk('P2-1: it is not stale yet', not (select bool_or((x ->> 'stale')::boolean) from jsonb_array_elements(pg_temp.state_probe(pg_temp.id('fin', 11))) x));
 select pg_temp.chk('P2-1: generation 1 applies', pg_temp.code(pg_temp.ap(11, 111)) = 'OK');
 select pg_temp.expect_ok('P2-1: the correction revokes generation 1', format($q$select public.open_competition_round_correction(%L, 'judge error found in the callback', %L)$q$, pg_temp.id('src', 11), pg_temp.id('c', 111)));
 reset role;
 select pg_temp.chk('P2-1: the active advancement is null again, as when the request was made', public._cf1_active_advancement(pg_temp.id('fin', 11)) is null);
-select pg_temp.chk('P2-1: the request is still STALE at the co-sign (a newer generation exists)', pg_temp.code(pg_temp.cos(2, 111)) = 'COMP_WITHDRAWAL_REQUEST_STALE', pg_temp.cos(2, 111)::text);
+select pg_temp.chk('P2-1: the request is still STALE at the co-sign (a newer generation exists)', pg_temp.code(pg_temp.cos(2, 1110)) = 'COMP_WITHDRAWAL_REQUEST_STALE', pg_temp.cos(2, 1110)::text);
 reset role;
 select pg_temp.chk('P2-1: the reader flags it stale', (select bool_or((x ->> 'stale')::boolean) from jsonb_array_elements(pg_temp.state_probe(pg_temp.id('fin', 11))) x));
-select pg_temp.chk('P3: a replay of the stale request reports state stale, not pending', (pg_temp.req('withdraw', 11, 1, 1, 111) ->> 'state') = 'stale', pg_temp.req('withdraw', 11, 1, 1, 111)::text);
+select pg_temp.chk('P3: a replay of the stale request reports state stale, not pending', (pg_temp.req('withdraw', 11, 1, 1, 1110) ->> 'state') = 'stale', pg_temp.req('withdraw', 11, 1, 1, 1110)::text);
 reset role;
-select pg_temp.chk('P2-1/Low-1: a stale request does not block or count: a new request for the same couple is accepted', (pg_temp.req('withdraw', 11, 1, 1, 112) ->> 'state') = 'pending', pg_temp.req('withdraw', 11, 1, 1, 112)::text);
+select pg_temp.regen(11, 2, array[1, 2, 3]);
+select pg_temp.chk('P2-1/Low-1: a stale request does not block or count: once the corrected result is approved a new request for the same couple is accepted', (pg_temp.req('withdraw', 11, 1, 1, 1120) ->> 'state') = 'pending', pg_temp.req('withdraw', 11, 1, 1, 1120)::text);
 reset role;
 
--- P2-2 (re-review): the fallback roster (a correction left no approved version). Scenario 12: withdraw a couple in that window, then the corrected version leaves that couple off the list.
+-- D-A (owner): a NEW withdrawal / reinstatement is refused while the callback round has no newly approved result. Scenario 12: completed history survives, an open request cannot complete.
 select pg_temp.as_user(1);
-select pg_temp.chk('P2-2: scenario 12 generation 1 applies', pg_temp.code(pg_temp.ap(12, 121)) = 'OK');
-select pg_temp.expect_ok('P2-2: the correction revokes generation 1', format($q$select public.open_competition_round_correction(%L, 'judge error found in the callback', %L)$q$, pg_temp.id('src', 12), pg_temp.id('c', 121)));
+select pg_temp.chk('D-A: scenario 12 generation 1 applies', pg_temp.code(pg_temp.ap(12, 121)) = 'OK');
+select pg_temp.chk('D-A: a withdrawal completed before the correction (couple 2)', pg_temp.code(pg_temp.flow('withdraw', 12, 2, 120)) = 'OK', pg_temp.flow('withdraw', 12, 2, 120)::text);
+select pg_temp.chk('D-A: a request bound to generation 1 is open when the correction starts (couple 3)', (pg_temp.req('withdraw', 12, 3, 1, 122) ->> 'state') = 'pending');
 reset role;
-select pg_temp.chk('P2-2: no approved callback version exists in the window', not exists (select 1 from public.event_competition_result_versions rv where rv.round_id = pg_temp.id('src', 12) and rv.status = 'approved'));
-select pg_temp.chk('P2-2: the fallback roster is the last applied list (3 couples)', cardinality(public._cf1_a6_current_roster(pg_temp.id('fin', 12))) = 3);
-select pg_temp.chk('P2-2: a withdrawal in the window is accepted (row only)', pg_temp.code(pg_temp.flow('withdraw', 12, 2, 121)) = 'OK', pg_temp.flow('withdraw', 12, 2, 121)::text);
+select set_config('cf1a6.wd12', (select count(*)::text || ':' || md5(string_agg(w.id::text || w.seq || w.kind || w.reason, ',' order by w.seq)) from public.event_competition_final_withdrawals w where w.target_round_id = pg_temp.id('fin', 12)), false);
+select pg_temp.as_user(1);
+select pg_temp.expect_ok('D-A: the correction revokes generation 1 and invalidates the approved result', format($q$select public.open_competition_round_correction(%L, 'judge error found in the callback', %L)$q$, pg_temp.id('src', 12), pg_temp.id('c', 121)));
 reset role;
+select pg_temp.chk('D-A: no approved callback version exists in the window', not exists (select 1 from public.event_competition_result_versions rv where rv.round_id = pg_temp.id('src', 12) and rv.status = 'approved'));
+select pg_temp.chk('D-A: the roster is unknown in the window (empty, never the last-applied list)', cardinality(public._cf1_a6_current_roster(pg_temp.id('fin', 12))) = 0);
+select pg_temp.chk('D-A: a NEW withdrawal request is COMP_WITHDRAWAL_NO_APPROVED_RESULT', pg_temp.code(pg_temp.req('withdraw', 12, 1, 1, 123)) = 'COMP_WITHDRAWAL_NO_APPROVED_RESULT', pg_temp.req('withdraw', 12, 1, 1, 123)::text);
+reset role;
+select pg_temp.chk('D-A: a NEW reinstatement request is refused the same way', pg_temp.code(pg_temp.req('reinstate', 12, 2, 1, 124)) = 'COMP_WITHDRAWAL_NO_APPROVED_RESULT', pg_temp.req('reinstate', 12, 2, 1, 124)::text);
+reset role;
+select pg_temp.chk('D-A: the OPEN request (bound to the revoked advancement) cannot complete: COMP_WITHDRAWAL_REQUEST_STALE', pg_temp.code(pg_temp.cos(2, 122)) = 'COMP_WITHDRAWAL_REQUEST_STALE', pg_temp.cos(2, 122)::text);
+reset role;
+select pg_temp.chk('D-A: completed history is untouched (count and content digest identical)',
+  (select count(*)::text || ':' || md5(string_agg(w.id::text || w.seq || w.kind || w.reason, ',' order by w.seq)) from public.event_competition_final_withdrawals w where w.target_round_id = pg_temp.id('fin', 12)) = current_setting('cf1a6.wd12'));
 select pg_temp.regen(12, 2, array[1, 3, 4]);
-select pg_temp.chk('P2-2: the corrected list omits the withdrawn couple 2 and adds couple 4: generation 2 applies', pg_temp.code(pg_temp.ap(12, 122)) = 'OK', pg_temp.ap(12, 122)::text);
+select pg_temp.chk('D-A: once a corrected result is approved a new withdrawal request is accepted again', (pg_temp.req('withdraw', 12, 4, 1, 125) ->> 'state') = 'pending', pg_temp.req('withdraw', 12, 4, 1, 125)::text);
 reset role;
-select pg_temp.chk('P2-2: the withdrawn couple has no active heat entry, the others do',
-  pg_temp.hes(12, 2) = 'none' and pg_temp.hes(12, 1) <> 'none' and pg_temp.hes(12, 3) <> 'none' and pg_temp.hes(12, 4) <> 'none',
-  pg_temp.hes(12, 1) || ',' || pg_temp.hes(12, 2) || ',' || pg_temp.hes(12, 3) || ',' || pg_temp.hes(12, 4));
+select pg_temp.chk('D-A: generation 2 applies and carries the earlier withdrawal of couple 2 (not on the corrected list: no heat entry)', pg_temp.code(pg_temp.ap(12, 122)) = 'OK' and pg_temp.hes(12, 2) = 'none' and pg_temp.hes(12, 1) <> 'none', pg_temp.ap(12, 122)::text);
+reset role;
+
+-- D-A, an OPEN request bound to "no advancement" when the approved result is invalidated (a correction opens) (nothing stale-binds it): the co-sign precheck refuses it. Scenario 13 (never applied).
+select pg_temp.as_user(1);
+select pg_temp.chk('D-A: scenario 13 request before any apply (approved result, no advancement)', (pg_temp.req('withdraw', 13, 1, 1, 131) ->> 'state') = 'pending');
+reset role;
+select pg_temp.su(format($q$update public.event_competition_result_versions set status = 'stale' where round_id = %L$q$, pg_temp.id('src', 13)));
+select pg_temp.chk('D-A/P2-2: the request is flagged stale (it is bound to the invalidated result version, not only to "no advancement")', (select bool_or((x ->> 'stale')::boolean) from jsonb_array_elements(pg_temp.state_probe(pg_temp.id('fin', 13))) x));
+select pg_temp.chk('D-A: the co-sign during the window is COMP_WITHDRAWAL_REQUEST_STALE (never completes against an unknown roster)', pg_temp.code(pg_temp.cos(2, 131)) = 'COMP_WITHDRAWAL_REQUEST_STALE', pg_temp.cos(2, 131)::text);
+reset role;
+select pg_temp.regen(13, 2, array[2, 3, 4]);
+select pg_temp.chk('P2-2: after a corrected result with a DIFFERENT roster is approved the old request is still stale (the second person never co-signs a request made against another result)', pg_temp.code(pg_temp.cos(2, 131)) = 'COMP_WITHDRAWAL_REQUEST_STALE', pg_temp.cos(2, 131)::text);
+reset role;
+select pg_temp.chk('P2-2: a new request against the new result is accepted and completes (couple 2 is on the corrected roster; row only)', pg_temp.code(pg_temp.flow('withdraw', 13, 2, 132)) = 'OK', pg_temp.flow('withdraw', 13, 2, 132)::text);
+reset role;
+select pg_temp.chk('P2-2: couple 1 (only on the old roster) is NOT_ON_ROSTER for a new request now', pg_temp.code(pg_temp.req('withdraw', 13, 1, 1, 133)) = 'COMP_WITHDRAWAL_NOT_ON_ROSTER', pg_temp.req('withdraw', 13, 1, 1, 133)::text);
+reset role;
+reset role;
+
+-- D-B (owner): cancel a pending request. Scenario 14 (4 couples advanced).
+select pg_temp.as_user(1);
+select pg_temp.chk('D-B: scenario 14 applies', pg_temp.code(pg_temp.ap(14, 141)) = 'OK');
+select pg_temp.chk('D-B: user 1 requests couple 1', (pg_temp.req('withdraw', 14, 1, 1, 141) ->> 'state') = 'pending');
+reset role;
+select pg_temp.chk('D-B: a front desk user cannot cancel', pg_temp.code(pg_temp.can(3, 141)) = 'COMP_FORBIDDEN', pg_temp.can(3, 141)::text);
+select pg_temp.chk('D-B: a judge cannot cancel', pg_temp.code(pg_temp.can(7, 141)) = 'COMP_FORBIDDEN');
+select pg_temp.chk('D-B: another studio owner cannot cancel', pg_temp.code(pg_temp.can(5, 141)) = 'COMP_FORBIDDEN');
+select pg_temp.chk('D-B: a user without a verified email cannot cancel', pg_temp.code(pg_temp.can(6, 141)) = 'COMP_FORBIDDEN');
+select pg_temp.as_anon();
+select pg_temp.chk('D-B: anon cannot call the cancel function', pg_temp.try(format($q$select public.cancel_final_withdrawal_request(%L, 'the couple changed their mind about leaving')$q$, pg_temp.id('rq', 141))) ->> 'state' = '42501');
+reset role;
+select pg_temp.chk('D-B: a weak reason is COMP_WITHDRAWAL_REASON_WEAK and writes nothing', pg_temp.code(pg_temp.can(1, 141, 'no')) = 'COMP_WITHDRAWAL_REASON_WEAK'
+  and (select count(*) = 0 from public.event_competition_final_withdrawal_request_cancellations where request_id = pg_temp.id('rq', 141)));
+reset role;
+select pg_temp.chk('D-B: the requester cancels', (pg_temp.can(1, 141) ->> 'state') = 'cancelled');
+reset role;
+select pg_temp.chk('D-B: the first call wrote the evidence row', (select count(*) = 1 from public.event_competition_final_withdrawal_request_cancellations where request_id = pg_temp.id('rq', 141)));
+reset role;
+select pg_temp.chk('D-B: exactly one evidence row, recorded as by_requester',
+  (select count(*) = 1 and bool_and(by_requester) and bool_and(cancelled_role = 'manager') from public.event_competition_final_withdrawal_request_cancellations where request_id = pg_temp.id('rq', 141)));
+select pg_temp.chk('D-B: the replay returns the same cancellation id and replayed true', (pg_temp.can(1, 141) ->> 'cancellation_id')::uuid = (select id from public.event_competition_final_withdrawal_request_cancellations where request_id = pg_temp.id('rq', 141)) and (pg_temp.can(1, 141) ->> 'replayed') = 'true');
+reset role;
+select pg_temp.chk('D-B: another person cancelling the same request gets COMP_WITHDRAWAL_REQUEST_CANCELLED', pg_temp.code(pg_temp.can(2, 141)) = 'COMP_WITHDRAWAL_REQUEST_CANCELLED', pg_temp.can(2, 141)::text);
+select pg_temp.chk('D-B: the co-sign of a cancelled request is COMP_WITHDRAWAL_REQUEST_CANCELLED', pg_temp.code(pg_temp.cos(2, 141)) = 'COMP_WITHDRAWAL_REQUEST_CANCELLED', pg_temp.cos(2, 141)::text);
+select pg_temp.chk('D-B: the chair co-sign of a cancelled request is refused the same way', pg_temp.code(pg_temp.cos(4, 141)) = 'COMP_WITHDRAWAL_REQUEST_CANCELLED');
+reset role;
+select pg_temp.chk('D-B: a replay of the request itself reports state cancelled', (pg_temp.req('withdraw', 14, 1, 1, 141) ->> 'state') = 'cancelled', pg_temp.req('withdraw', 14, 1, 1, 141)::text);
+reset role;
+select pg_temp.chk('D-B: the couple is not withdrawn and the heat entry is untouched', pg_temp.hes(14, 1) = 'scheduled' and not exists (select 1 from public.event_competition_final_withdrawals where target_round_id = pg_temp.id('fin', 14)));
+select pg_temp.chk('D-B: a cancelled request drops out of live: a new request for the same couple and kind is accepted (not REQUEST_PENDING)', (pg_temp.req('withdraw', 14, 1, 1, 142) ->> 'state') = 'pending', pg_temp.req('withdraw', 14, 1, 1, 142)::text);
+reset role;
+select pg_temp.chk('D-B: another manager cancels it', (pg_temp.can(2, 142) ->> 'state') = 'cancelled');
+reset role;
+select pg_temp.chk('D-B: ... recorded as not by the requester', (select not by_requester from public.event_competition_final_withdrawal_request_cancellations where request_id = pg_temp.id('rq', 142)));
+select pg_temp.chk('D-B: the chair requests couple 2 as a manager first', (pg_temp.req('withdraw', 14, 2, 1, 144) ->> 'state') = 'pending');
+reset role;
+select pg_temp.chk('D-B: the chair can cancel a request too', (pg_temp.can(4, 144) ->> 'state') = 'cancelled');
+reset role;
+select pg_temp.chk('D-B: ... recorded with role chair', (select cancelled_role = 'chair' from public.event_competition_final_withdrawal_request_cancellations where request_id = pg_temp.id('rq', 144)));
+reset role;
+select pg_temp.chk('D-B: a completed withdrawal cannot be cancelled', pg_temp.code(pg_temp.flow('withdraw', 14, 3, 143)) = 'OK' and pg_temp.code(pg_temp.can(1, 143)) = 'COMP_WITHDRAWAL_REQUEST_COMPLETED', pg_temp.can(1, 143)::text);
+reset role;
+select pg_temp.chk('D-B: ... and the withdrawal stays', pg_temp.hes(14, 3) = 'scratched' and (select count(*) = 1 from public.event_competition_final_withdrawals where target_round_id = pg_temp.id('fin', 14)));
+select pg_temp.chk('D-B: cancelling an unknown request is COMP_WITHDRAWAL_REQUEST_NOT_FOUND', pg_temp.code(pg_temp.can(1, 999)) = 'COMP_WITHDRAWAL_REQUEST_NOT_FOUND');
+reset role;
+select pg_temp.as_user(1);
+select pg_temp.chk('D-B: the state reader lists the cancelled requests and no longer lists them as pending',
+  jsonb_array_length(public.competition_final_withdrawal_state(pg_temp.id('fin', 14)) -> 'cancelled') = 3
+  and jsonb_array_length(public.competition_final_withdrawal_state(pg_temp.id('fin', 14)) -> 'pending') = 0,
+  public.competition_final_withdrawal_state(pg_temp.id('fin', 14))::text);
+reset role;
+select pg_temp.expect_msg('D-B evidence: UPDATE of a cancellation row is refused', format($q$update public.event_competition_final_withdrawal_request_cancellations set reason = 'changed afterwards' where request_id = %L$q$, pg_temp.id('rq', 141)), 'append-only');
+select pg_temp.expect_msg('D-B evidence: DELETE of a cancellation row is refused', format($q$delete from public.event_competition_final_withdrawal_request_cancellations where request_id = %L$q$, pg_temp.id('rq', 141)), 'append-only');
+select pg_temp.expect_msg('D-B evidence: TRUNCATE of the cancellation table is refused', $q$truncate public.event_competition_final_withdrawal_request_cancellations$q$, 'append-only');
+select pg_temp.chk('D-B evidence: both history triggers are ENABLE ALWAYS and the table has RLS on with no grants',
+  (select count(*) = 2 and bool_and(t.tgenabled = 'A') from pg_trigger t where t.tgrelid = 'public.event_competition_final_withdrawal_request_cancellations'::regclass and t.tgname like 'protect_cf1_wdcxl%')
+  and (select c.relrowsecurity from pg_class c where c.oid = 'public.event_competition_final_withdrawal_request_cancellations'::regclass)
+  and not has_table_privilege('authenticated', 'public.event_competition_final_withdrawal_request_cancellations', 'select')
+  and not has_table_privilege('service_role', 'public.event_competition_final_withdrawal_request_cancellations', 'insert'));
+
+-- D-C (owner): OD-15 A stays: no chair override, no deferral to the Final start. Scenario 15.
+select pg_temp.as_user(1);
+select pg_temp.chk('D-C: scenario 15 applies', pg_temp.code(pg_temp.ap(15, 151)) = 'OK');
+select pg_temp.chk('D-C: user 1 requests couple 1 while all three are eligible', (pg_temp.req('withdraw', 15, 1, 1, 151) ->> 'state') = 'pending');
+reset role;
+select pg_temp.su(format($q$update public.event_competition_entries set eligibility_status = 'ineligible' where id = %L$q$, pg_temp.id('ent', 15, 3)));
+select pg_temp.chk('D-C: the chair co-sign is still COMP_ADVANCEMENT_BELOW_MINIMUM (no chair override)', pg_temp.code(pg_temp.cos(4, 151)) = 'COMP_ADVANCEMENT_BELOW_MINIMUM', pg_temp.cos(4, 151)::text);
+reset role;
+select pg_temp.chk('D-C: a new request is refused at the request too (no deferral to the Final start)', pg_temp.code(pg_temp.req('withdraw', 15, 2, 1, 152)) = 'COMP_ADVANCEMENT_BELOW_MINIMUM', pg_temp.req('withdraw', 15, 2, 1, 152)::text);
+reset role;
+select pg_temp.chk('D-C: nothing was written (no withdrawal row, no heat entry change)', not exists (select 1 from public.event_competition_final_withdrawals where target_round_id = pg_temp.id('fin', 15)) and pg_temp.hes(15, 1) = 'scheduled');
+reset role;
+select pg_temp.su(format($q$update public.event_competition_entries set eligibility_status = 'eligible' where id = %L$q$, pg_temp.id('ent', 15, 3)));
+
 
 -- ============================================================================
 -- 8. Scenario 2: the guard (U39) with every trigger, then in isolation; replica role (U52); evidence immutability
@@ -636,7 +774,7 @@ select pg_temp.expect_msg('evidence: DELETE of a withdrawal row is refused', for
 select pg_temp.expect_msg('evidence: TRUNCATE of the withdrawals table is refused (the FK from A0''s advancement entries / A6 requests blocks it first)', $q$truncate public.event_competition_final_withdrawals$q$, 'truncate');
 select pg_temp.expect_msg('evidence: UPDATE of a request row is refused', format($q$update public.event_competition_final_withdrawal_requests set reason = 'changed afterwards' where request_id = %L$q$, pg_temp.id('rq', 21)), 'append-only');
 select pg_temp.expect_msg('evidence: DELETE of a request row is refused', format($q$delete from public.event_competition_final_withdrawal_requests where request_id = %L$q$, pg_temp.id('rq', 21)), 'append-only');
-select pg_temp.expect_msg('evidence: TRUNCATE of the request table is refused', $q$truncate public.event_competition_final_withdrawal_requests$q$, 'append-only');
+select pg_temp.expect_msg('evidence: TRUNCATE of the request table is refused (the cancellations FK blocks it first)', $q$truncate public.event_competition_final_withdrawal_requests$q$, 'truncate');
 select pg_temp.expect_msg('U41 backstop: a duplicate (target round, seq) is refused by the unique key', format($q$insert into public.event_competition_final_withdrawals (event_id, target_round_id, entry_id, seq, kind, reason, requested_by, cosigned_by, cosigned_role, request_id)
   values (%L, %L, %L, 1, 'withdraw', 'duplicate seq probe', %L, %L, 'manager', %L)$q$, pg_temp.id('evt', 1), pg_temp.id('fin', 2), pg_temp.id('ent', 2, 3), pg_temp.id('user', 1), pg_temp.id('user', 2), pg_temp.id('rq', 800)), 'event_competition_final_withdrawals_seq_key');
 select pg_temp.expect_msg('U63 backstop: the table refuses requester = co-signer', format($q$insert into public.event_competition_final_withdrawals (event_id, target_round_id, entry_id, seq, kind, reason, requested_by, cosigned_by, cosigned_role, request_id)

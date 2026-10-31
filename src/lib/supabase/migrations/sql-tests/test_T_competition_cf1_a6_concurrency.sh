@@ -10,6 +10,7 @@
 #        R3 co-sign || apply (event lock + Final round lock serialize them: the final roster is the advanced list minus the withdrawal),
 #        R4 U51: a direct un-scratch waits on the co-sign's row lock and, once it commits, the VOLATILE guard re-fires on the newest row version and refuses,
 #        R5 U51 negative control: the same race with the guard declared STABLE lets the un-scratch through (why the guard must be VOLATILE).
+#        R6 cancel || co-sign of one request (event -> round lock: exactly one winner, both orders), R7 cancel || cancel by the same person (replay, one row).
 set -u
 C="${CONTAINER:-cf1-a6-db}"
 P="docker exec -i -e PGPASSWORD=postgres $C psql -U supabase_admin -d postgres -h localhost -v ON_ERROR_STOP=1 -X -q -At"
@@ -84,7 +85,7 @@ begin
     select e, cf6c.id('rv', n), cf6c.id('ent', n, k2), k2 <= 4, '{}' from generate_series(1, 5) k2;
   perform set_config('session_replication_role', 'origin', true);
 end $$;
-select cf6c.mk(n) from generate_series(1, 5) n;
+select cf6c.mk(n) from generate_series(1, 7) n;
 grant usage on schema cf6c to authenticated;
 grant execute on all functions in schema cf6c to authenticated;
 SQL
@@ -223,6 +224,74 @@ if ! grep -q 'COMP_WITHDRAWAL_GUARD' "$T/r5b.out" && [ "$(q "select he.status fr
   ok "R5 control: with the guard and its pair-state reader STABLE the same race lets the un-scratch through (a withdrawn couple un-scratched), which is why the guard is VOLATILE (restored to VOLATILE)"
 else bad "R5 control did not demonstrate the stale-snapshot bypass: $(cat "$T/r5b.out")"; fi
 [ "$(q "select provolatile from pg_proc where proname = 'cf1_guard_withdrawn_heat_entry'")" = "v" ] && ok "the guard is VOLATILE again" || bad "guard volatility not restored"
+
+
+# ---------------------------------------------------------------- R6: cancel || co-sign of the same request (event lock -> round lock: exactly one wins)
+CANCEL_REASON="the couple changed their mind about leaving"
+cancel() { echo "select (public.cancel_final_withdrawal_request(cf6c.id('rw', $1, $2), '$CANCEL_REASON'))->>'state';"; }
+[ "$(apply 6 6)" = "1" ] || { echo "BLOCKED: apply 6 failed"; cleanup; exit 3; }
+[ "$(request 6 1)" = "pending" ] || { echo "BLOCKED: request 6 failed"; cleanup; exit 3; }
+# R6a: the co-sign holds the locks, the cancel waits, then finds the request completed
+( $PN >"$T/r6a.out" 2>&1 <<SQL
+begin;
+$AS2
+select (public.cosign_final_withdrawal_request(cf6c.id('rw', 6, 1)))->>'seq';
+select pg_sleep(3);
+commit;
+SQL
+) &
+n=0; while [ "$n" -lt 40 ] && [ "$($P -c "select count(*) from pg_stat_activity where wait_event = 'PgSleep'")" = "0" ]; do sleep 0.5; n=$((n+1)); done
+$PN >"$T/r6b.out" 2>&1 <<SQL
+$AS1
+$(cancel 6 1)
+SQL
+wait
+if grep -q 'COMP_WITHDRAWAL_REQUEST_COMPLETED' "$T/r6b.out" \
+   && [ "$(q "select count(*) from public.event_competition_final_withdrawals where target_round_id = cf6c.id('fin', 6)")" = "1" ] \
+   && [ "$(q "select count(*) from public.event_competition_final_withdrawal_request_cancellations where target_round_id = cf6c.id('fin', 6)")" = "0" ]; then
+  ok "R6a: co-sign first, the concurrent cancel waited and then got COMP_WITHDRAWAL_REQUEST_COMPLETED (one withdrawal, no cancellation row)"
+else bad "R6a: $(cat "$T/r6b.out")"; fi
+# R6b: the cancel holds the locks, the co-sign waits, then finds the request cancelled
+[ "$(request 6 2)" = "pending" ] || { echo "BLOCKED: request 6/2 failed"; cleanup; exit 3; }
+( $PN >"$T/r6c.out" 2>&1 <<SQL
+begin;
+$AS1
+$(cancel 6 2)
+select pg_sleep(3);
+commit;
+SQL
+) &
+n=0; while [ "$n" -lt 40 ] && [ "$($P -c "select count(*) from pg_stat_activity where wait_event = 'PgSleep'")" = "0" ]; do sleep 0.5; n=$((n+1)); done
+$PN >"$T/r6d.out" 2>&1 <<SQL
+$AS2
+select (public.cosign_final_withdrawal_request(cf6c.id('rw', 6, 2)))->>'seq';
+SQL
+wait
+if grep -q 'COMP_WITHDRAWAL_REQUEST_CANCELLED' "$T/r6d.out" \
+   && [ "$(q "select count(*) from public.event_competition_final_withdrawals where target_round_id = cf6c.id('fin', 6)")" = "1" ] \
+   && [ "$(q "select count(*) from public.event_competition_final_withdrawal_request_cancellations where target_round_id = cf6c.id('fin', 6)")" = "1" ]; then
+  ok "R6b: cancel first, the concurrent co-sign waited and then got COMP_WITHDRAWAL_REQUEST_CANCELLED (exactly one winner)"
+else bad "R6b: $(cat "$T/r6d.out")"; fi
+
+# ---------------------------------------------------------------- R7: the same person cancels the same request twice at once (replay, one evidence row)
+[ "$(request 6 3)" = "pending" ] || { echo "BLOCKED: request 6/3 failed"; cleanup; exit 3; }
+( $PN >"$T/r7a.out" 2>&1 <<SQL
+begin;
+$AS1
+$(cancel 6 3)
+select pg_sleep(3);
+commit;
+SQL
+) &
+n=0; while [ "$n" -lt 40 ] && [ "$($P -c "select count(*) from pg_stat_activity where wait_event = 'PgSleep'")" = "0" ]; do sleep 0.5; n=$((n+1)); done
+$PN >"$T/r7b.out" 2>&1 <<SQL
+$AS1
+select (public.cancel_final_withdrawal_request(cf6c.id('rw', 6, 3), '$CANCEL_REASON'))->>'replayed';
+SQL
+wait
+if grep -q '^true$' "$T/r7b.out" && [ "$(q "select count(*) from public.event_competition_final_withdrawal_request_cancellations where request_id = cf6c.id('rw', 6, 3)")" = "1" ]; then
+  ok "R7: two concurrent cancels by the same person: the second waited and replayed; exactly one evidence row"
+else bad "R7: $(cat "$T/r7b.out")"; fi
 
 [ -n "${NOCLEAN:-}" ] || cleanup
 rm -rf "$T"

@@ -6,17 +6,17 @@ begin;
 
 set local lock_timeout = '5s';
 
-lock table public.event_competition_final_withdrawals, public.event_competition_final_withdrawal_requests in access exclusive mode;
+lock table public.event_competition_final_withdrawals, public.event_competition_final_withdrawal_requests, public.event_competition_final_withdrawal_request_cancellations in access exclusive mode;
 
 do $$
 declare
   v_names constant text[] := array[
     'withdraw_advanced_entry_from_final', 'reinstate_withdrawn_entry_to_final', 'cosign_final_withdrawal_request', 'competition_final_withdrawal_state',
-    '_cf1_a6_request', '_cf1_a6_can_manage', '_cf1_a6_live_requests', '_cf1_a6_is_stale', '_cf1_a6_precheck', '_cf1_a6_pair_state', '_cf1_a6_current_roster', '_cf1_a6_on_roster', '_cf1_a6_active_heat',
+    'cancel_final_withdrawal_request', '_cf1_a6_roster_blocked', '_cf1_a6_approved_version', '_cf1_a6_request', '_cf1_a6_can_manage', '_cf1_a6_live_requests', '_cf1_a6_is_stale', '_cf1_a6_precheck', '_cf1_a6_pair_state', '_cf1_a6_current_roster', '_cf1_a6_on_roster', '_cf1_a6_active_heat',
     'cf1_guard_withdrawn_heat_entry'];
   v_user text;
 begin
-  if exists (select 1 from public.event_competition_final_withdrawals) or exists (select 1 from public.event_competition_final_withdrawal_requests) then
+  if exists (select 1 from public.event_competition_final_withdrawals) or exists (select 1 from public.event_competition_final_withdrawal_requests) or exists (select 1 from public.event_competition_final_withdrawal_request_cancellations) then
     raise exception 'CF1-A6 rollback refused: Final-withdrawal / request rows exist (append-only evidence); roll forward.';
   end if;
   select string_agg(distinct p.oid::regprocedure::text, ', ') into v_user
@@ -24,13 +24,13 @@ begin
   join pg_namespace n on n.oid = p.pronamespace and n.nspname = 'public'
   where p.proname <> all (v_names)
     and (exists (select 1 from unnest(v_names) f where p.prosrc like '%' || f || '%')
-         or p.prosrc like '%event_competition_final_withdrawal_requests%');
+         or p.prosrc like '%event_competition_final_withdrawal_requests%' or p.prosrc like '%event_competition_final_withdrawal_request_cancellations%');
   if v_user is not null then
     raise exception 'CF1-A6 rollback refused: still referenced by % (roll back the dependent package first).', v_user;
   end if;
   if exists (select 1 from pg_constraint c
              where c.confrelid = 'public.event_competition_final_withdrawal_requests'::regclass
-               and c.conrelid <> 'public.event_competition_final_withdrawal_requests'::regclass) then
+               and c.conrelid not in ('public.event_competition_final_withdrawal_requests'::regclass, 'public.event_competition_final_withdrawal_request_cancellations'::regclass)) then
     raise exception 'CF1-A6 rollback refused: another table references the request table.';
   end if;
 end $$;
@@ -41,9 +41,12 @@ drop function public.withdraw_advanced_entry_from_final(uuid, uuid, text, uuid);
 drop function public.reinstate_withdrawn_entry_to_final(uuid, uuid, text, uuid);
 drop function public.cosign_final_withdrawal_request(uuid);
 drop function public.competition_final_withdrawal_state(uuid);
+drop function public.cancel_final_withdrawal_request(uuid, text);
+drop function public._cf1_a6_roster_blocked(uuid);
 drop function public._cf1_a6_request(text, uuid, uuid, text, uuid);
 drop function public._cf1_a6_live_requests(uuid);
-drop function public._cf1_a6_is_stale(uuid, uuid, integer);
+drop function public._cf1_a6_is_stale(uuid, uuid, integer, uuid);
+drop function public._cf1_a6_approved_version(uuid);
 drop function public._cf1_a6_can_manage(uuid, uuid);
 drop function public._cf1_a6_precheck(text, uuid, uuid);
 drop function public.cf1_guard_withdrawn_heat_entry();
@@ -52,6 +55,7 @@ drop function public._cf1_a6_current_roster(uuid);
 drop function public._cf1_a6_active_heat(uuid);
 drop function public._cf1_a6_pair_state(uuid, uuid);
 
+drop table public.event_competition_final_withdrawal_request_cancellations;
 drop table public.event_competition_final_withdrawal_requests;
 
 commit;
