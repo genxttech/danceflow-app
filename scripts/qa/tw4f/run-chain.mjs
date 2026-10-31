@@ -30,6 +30,7 @@
  *   --until <version>        drop every planned migration whose version is above <version> (e.g. 20261231100000: the hosted DEV pending list)
  *   --track-functions        start every SUITE database with track_functions=all and write coverage.json per suite (pg_stat_user_functions vs public functions)
  *   --marker                 create public.tw4_local_qa_only in the seed before the plan (plus the auth.users columns GoTrue adds, i.e. iso-qa.mjs parity: ISO_QA_MARKER=1 and its auth step; 11 localStack suites require them)
+ *   --auth                   also start a disposable local GoTrue (own container, TOTP MFA on, auto-confirm, no SMTP) behind Kong at /auth/v1 and export TW4_LOCAL_AUTH_URL (WP-D2 layer b)
  *   --keep                   keep the chain image and worktrees
  *   --known <file>           known environment failures (default scripts/qa/tw4f/known-failures.json)
  *
@@ -82,6 +83,7 @@ function parseArgs(argv) {
     const k = a.slice(2);
     if (k === "keep") { flags.keep = true; continue; }
     if (k === "marker") { flags.marker = true; continue; }
+    if (k === "auth") { flags.auth = true; continue; }
     if (k === "track-functions") { flags.trackFunctions = true; continue; }
     const v = argv[++i];
     if (v === undefined) die(`--${k} needs a value`);
@@ -154,19 +156,28 @@ async function freePort() {
   }
   throw new Error("no free port in 56800-56899");
 }
-const kongYml = (rest) => `_format_version: "2.1"\nservices:\n  - name: rest-v1\n    url: http://${rest}:3000/\n    routes:\n      - name: rest-v1\n        strip_path: true\n        paths: ["/rest/v1/"]\n`;
+const GOTRUE_IMAGE = process.env.ISO_QA_GOTRUE_IMAGE ?? "public.ecr.aws/supabase/gotrue:v2.188.1";
+const kongYml = (rest, auth) => `_format_version: "2.1"\nservices:\n  - name: rest-v1\n    url: http://${rest}:3000/\n    routes:\n      - name: rest-v1\n        strip_path: true\n        paths: ["/rest/v1/"]\n${auth ? `  - name: auth-v1\n    url: http://${auth}:9999/\n    routes:\n      - name: auth-v1\n        strip_path: true\n        paths: ["/auth/v1/"]\n` : ""}`;
 /** PostgREST + Kong in front of a started database; returns the env the suites need. */
 async function startApi(base, dbName) {
-  const n = { rest: `${base}-rest`, kong: `${base}-kong` };
-  removeAll(n.kong, n.rest);
+  const n = { rest: `${base}-rest`, kong: `${base}-kong`, ...(flags.auth ? { auth: `${base}-auth` } : {}) };
+  removeAll(...Object.values(n));
   const jwt = createHash("sha256").update(`${Date.now()}${Math.random()}`).digest("hex").slice(0, 48);
   const port = await freePort();
   const yml = path.join(QA_HOME, `kong-${base}.yml`);
-  writeFileSync(yml, kongYml(n.rest));
+  writeFileSync(yml, kongYml(n.rest, n.auth));
   const pw = psql(dbName, "alter role authenticator with password 'postgres';", { user: "supabase_admin" });
   if (pw.code !== 0) throw new Error(`could not set authenticator password: ${pw.out.slice(0, 200)}`);
   docker("run", "-d", "--name", n.rest, "--label", LABEL, "--network", NET, ...LIMITS.rest, "-e", `PGRST_DB_URI=postgres://authenticator:postgres@${dbName}:5432/postgres`, "-e", "PGRST_DB_SCHEMAS=public",
     "-e", "PGRST_DB_ANON_ROLE=anon", "-e", `PGRST_JWT_SECRET=${jwt}`, "-e", "PGRST_DB_USE_LEGACY_GUCS=false", REST_IMAGE);
+  if (n.auth) {
+    const e = (k, v) => ["-e", `${k}=${v}`];
+    docker("run", "-d", "--name", n.auth, "--label", LABEL, "--network", NET, "--memory", "256m", "--cpus", "0.5",
+      ...e("GOTRUE_API_HOST", "0.0.0.0"), ...e("GOTRUE_API_PORT", "9999"), ...e("API_EXTERNAL_URL", `http://127.0.0.1:${port}`), ...e("GOTRUE_DB_DRIVER", "postgres"), ...e("GOTRUE_DB_NAMESPACE", "auth"),
+      ...e("GOTRUE_DB_DATABASE_URL", `postgres://supabase_auth_admin:postgres@${dbName}:5432/postgres`), ...e("GOTRUE_SITE_URL", "http://127.0.0.1:3000"), ...e("GOTRUE_JWT_SECRET", jwt), ...e("GOTRUE_JWT_EXP", "3600"),
+      ...e("GOTRUE_JWT_AUD", "authenticated"), ...e("GOTRUE_JWT_DEFAULT_GROUP_NAME", "authenticated"), ...e("GOTRUE_DISABLE_SIGNUP", "false"), ...e("GOTRUE_EXTERNAL_EMAIL_ENABLED", "true"), ...e("GOTRUE_MAILER_AUTOCONFIRM", "true"),
+      ...e("GOTRUE_MFA_TOTP_ENROLL_ENABLED", "true"), ...e("GOTRUE_MFA_TOTP_VERIFY_ENABLED", "true"), ...e("GOTRUE_RATE_LIMIT_EMAIL_SENT", "1000"), ...e("GOTRUE_LOG_LEVEL", "info"), GOTRUE_IMAGE);
+  }
   docker("create", "--name", n.kong, "--label", LABEL, "--network", NET, ...LIMITS.kong, "-p", `127.0.0.1:${port}:8000`, "-e", "KONG_DATABASE=off", "-e", "KONG_NGINX_WORKER_PROCESSES=1",
     "-e", "KONG_NGINX_HTTP_KEEPALIVE_TIMEOUT=3600s", "-e", "KONG_NGINX_HTTP_KEEPALIVE_REQUESTS=100000", "-e", "KONG_DECLARATIVE_CONFIG=/home/kong/kong.yml", "-e", "KONG_PROXY_LISTEN=0.0.0.0:8000", "-e", "KONG_DNS_ORDER=LAST,A,CNAME", KONG_IMAGE);
   docker("cp", yml, `${n.kong}:/home/kong/kong.yml`);
@@ -178,7 +189,7 @@ async function startApi(base, dbName) {
     if (Date.now() - t0 > 180_000) throw Object.assign(new Error("the API did not come up"), { infra: true });
     await sleep(1500);
   }
-  return { names: n, env: { TW4A_LOCAL_URL: url, TW4A_LOCAL_DB_CONTAINER: dbName, TW4A_LOCAL_JWT_SECRET: jwt, TW4_ISO_QA: "1" } };
+  return { names: n, env: { TW4A_LOCAL_URL: url, TW4A_LOCAL_DB_CONTAINER: dbName, TW4A_LOCAL_JWT_SECRET: jwt, TW4_ISO_QA: "1", ...(n.auth ? { TW4_LOCAL_AUTH_URL: `${url}/auth/v1` } : {}) } };
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------------ migration plan
@@ -450,7 +461,7 @@ async function suiteRun(plan, image, testsRef, outDir) {
         rec.host.end = await hostSample();
         rec.hostSaturated = saturated(rec.host.start) || saturated(rec.host.end);
         if (rec.hostSaturated && ["FAIL", "INFRA"].includes(rec.status)) rec.note = `${rec.note} [resource exhaustion suspected: host saturated during this suite; rerun on an idle host before treating as a regression]`.trim();
-        removeAll(`${base}-kong`, `${base}-rest`, base);
+        removeAll(`${base}-kong`, `${base}-rest`, `${base}-auth`, base);
       }
       results.push(rec);
       log(`${rec.status.padEnd(7)} ${f} ${rec.counts ? `${rec.counts.passed}/${rec.counts.total}` : ""} ${rec.seconds}s ${rec.note ? "- " + rec.note.slice(0, 100) : ""}`);
