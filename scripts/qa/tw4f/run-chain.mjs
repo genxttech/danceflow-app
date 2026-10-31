@@ -29,6 +29,7 @@
  *   --env KEY=VALUE          extra environment for every suite (repeatable; the token {db} becomes the suite database container name), e.g. --env TW4RFL_DB=postgres --env ISO_QA_MARKER=1
  *   --until <version>        drop every planned migration whose version is above <version> (e.g. 20261231100000: the hosted DEV pending list)
  *   --track-functions        start every SUITE database with track_functions=all and write coverage.json per suite (pg_stat_user_functions vs public functions)
+ *   --marker                 create public.tw4_local_qa_only in the seed before the plan (what scripts/qa/iso-qa.mjs does with ISO_QA_MARKER=1; 11 localStack suites require it)
  *   --keep                   keep the chain image and worktrees
  *   --known <file>           known environment failures (default scripts/qa/tw4f/known-failures.json)
  *
@@ -80,6 +81,7 @@ function parseArgs(argv) {
     if (!a.startsWith("--")) { rest.push(a); continue; }
     const k = a.slice(2);
     if (k === "keep") { flags.keep = true; continue; }
+    if (k === "marker") { flags.marker = true; continue; }
     if (k === "track-functions") { flags.trackFunctions = true; continue; }
     const v = argv[++i];
     if (v === undefined) die(`--${k} needs a value`);
@@ -384,11 +386,12 @@ async function suiteRun(plan, image, testsRef, outDir) {
 
   // one database with the whole plan applied, stopped and committed: every suite starts from a pristine clone of it
   const seed = `df-q1-seed-${process.pid}`;
-  const chainTag = `df-q1/chain:${sha256(image + plan.map((p) => p.file + sha256(p.sql)).join("|")).slice(0, 12)}`;
+  const chainTag = `df-q1/chain:${sha256(image + plan.map((p) => p.file + sha256(p.sql)).join("|") + (flags.marker ? "|marker" : "")).slice(0, 12)}`;
   const results = [];
   try {
     if (!dockerTry("image", "inspect", chainTag).ok) {
       await startDb(seed, image);
+      if (flags.marker) { const r = psql(seed, "create table if not exists public.tw4_local_qa_only (note text); revoke all on public.tw4_local_qa_only from public, anon, authenticated, service_role;"); if (r.code !== 0) return { verdict: "INFRA", results, note: `marker: ${r.out.slice(0, 200)}` }; }
       for (const m of plan) { const r = applySql(seed, m.file, m.sql); if (!r.ok) return { verdict: "INFRA", results, note: `${m.file}: ${r.error}` }; }
       const ident = psql(seed, `select set_config('request.jwt.claims', '{"sub":"11111111-2222-4333-8444-555555555555","role":"authenticated"}', false) is not null and auth.uid() = '11111111-2222-4333-8444-555555555555'::uuid;`, { tuples: true });
       if (ident.out.trim().split("\n").pop() !== "t") return { verdict: "INFRA", results, note: "auth.uid() identity round trip failed" };
