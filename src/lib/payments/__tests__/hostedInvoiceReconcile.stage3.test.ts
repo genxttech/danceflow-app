@@ -27,12 +27,13 @@ const W1 = "in_1UWTQfEdWFD6rTYP7zYv91jZ";
 const W2 = "in_1UWTQhEdWFD6rTYP9lfGQ3z1";
 
 /** Status carried by the invoice snapshot of each recorded invoice event, derived from the lifecycle seen so far. */
-function timeline(invoiceId: string, amounts: { total: number; due: number; remaining: number }) {
+function timeline(invoiceId: string, amounts: { total: number; due: number; remaining: number; paid?: number }) {
   let status: HostedInvoiceStatus = "draft";
   const out: InvoiceObservation[] = [];
   for (const [, type, created, ref] of chronological) {
     if (ref !== `invoice:${invoiceId}`) continue;
     if (type === "invoice.finalized") status = "open";
+    if (type === "invoice.paid") status = "paid";
     if (type === "invoice.voided") status = "void";
     if (type === "invoice.marked_uncollectible") status = "uncollectible";
     out.push({
@@ -41,8 +42,8 @@ function timeline(invoiceId: string, amounts: { total: number; due: number; rema
       eventCreated: created,
       total: amounts.total,
       amountDue: status === "draft" ? 0 : amounts.due,
-      amountPaid: 0,
-      amountRemaining: status === "draft" ? 0 : amounts.remaining,
+      amountPaid: status === "paid" ? (amounts.paid ?? 0) : 0,
+      amountRemaining: status === "draft" || status === "paid" ? 0 : amounts.remaining,
     });
   }
   return out;
@@ -129,6 +130,40 @@ describe("WP4 invoice state converges under every delivery order", () => {
     expect(a.anomalies).toContain("paid_and_void_observed");
   });
 
+  it("a NEWER snapshot with a lower lifecycle rank never reopens a voided, uncollectible or paid invoice", () => {
+    const base = { invoiceId: "in_r", total: 10, amountDue: 10, amountPaid: 0, amountRemaining: 10 };
+    for (const terminal of ["void", "uncollectible", "paid"] as const) {
+      const done = fold([{ ...base, status: terminal, eventCreated: 100 }])!;
+      expect(applyInvoiceObservation(done, { ...base, status: "open", eventCreated: 500 }).status).toBe(terminal);
+    }
+  });
+
+  it("paid, open and void observed in any order give the same state and the same anomaly", () => {
+    const mk = (status: HostedInvoiceStatus, t: number): InvoiceObservation => ({ invoiceId: "in_p", status, eventCreated: t, total: 10, amountDue: 10, amountPaid: status === "paid" ? 10 : 0, amountRemaining: status === "paid" ? 0 : 10 });
+    const results = [...permutations([mk("paid", 5), mk("open", 7), mk("void", 9)])].map((o) => fold(o));
+    for (const r of results) {
+      expect(r).toEqual(results[0]);
+      expect(r?.anomalies).toEqual(["paid_and_void_observed"]);
+    }
+  });
+
+  it("observations that tie on rank, time and status but differ in amounts converge in every order", () => {
+    const mk = (remaining: number, paid: number): InvoiceObservation => ({ invoiceId: "in_t", status: "open", eventCreated: 1793419083, total: 187575, amountDue: remaining, amountPaid: paid, amountRemaining: remaining });
+    const results = [...permutations([mk(187575, 0), mk(180150, 0), mk(100, 187475), mk(100, 187475)])].map((o) => fold(o));
+    for (const r of results) expect(r).toEqual(results[0]);
+    expect(results[0]).toMatchObject({ amountRemaining: 100, amountPaid: 187475 });
+  });
+
+  it("a recorded PAID invoice (ACH invoice B) folds open to paid in every order", () => {
+    const obs = timeline("in_1UWPKVEdWFD6rTYP3tXWvy55", { total: 187575, due: 187575, remaining: 187575, paid: 187575 });
+    expect(obs.some((o) => o.status === "paid")).toBe(true);
+    const inOrder = fold(obs)!;
+    expect(inOrder).toMatchObject({ status: "paid", amountPaid: 187575, amountRemaining: 0 });
+    const distinct = [...new Map(obs.map((o) => [o.eventCreated + ":" + o.status, o])).values()];
+    expect(distinct.length).toBeLessThanOrEqual(8);
+    for (const order of permutations(distinct)) expect(fold(order)).toEqual(inOrder);
+  });
+
   it("refuses an observation for another invoice", () => {
     const s = fold(timeline(W1, { total: 4425, due: 4425, remaining: 4425 }))!;
     expect(() => applyInvoiceObservation(s, { ...s, invoiceId: "in_other" })).toThrow();
@@ -154,7 +189,7 @@ describe("WP3 duplicate invoice_payment.paid", () => {
     for (const [ref, ids] of dupes) {
       const inpay = ref.split(":")[1];
       for (const _id of ids) {
-        const r = recordInvoicePayment(ledger, { invoicePaymentId: inpay, invoiceId: "in_1", status: "paid", amountPaid: 187575 });
+        const r = recordInvoicePayment(ledger, { invoicePaymentId: inpay, invoiceId: "in_1", status: "paid", amountRequested: 187575, amountPaid: 187575 });
         ledger = r.ledger;
         if (!r.duplicate) firstSeen++;
       }
@@ -165,10 +200,10 @@ describe("WP3 duplicate invoice_payment.paid", () => {
   });
 
   it("a replayed event is a no-op, a conflicting amount is an anomaly, and an open snapshot never downgrades paid", () => {
-    const fact = { invoicePaymentId: "inpay_1", invoiceId: "in_1", status: "paid", amountPaid: 187575 } as const;
+    const fact = { invoicePaymentId: "inpay_1", invoiceId: "in_1", status: "paid", amountRequested: 187575, amountPaid: 187575 } as const;
     const once = recordInvoicePayment(emptyLedger(), fact).ledger;
     expect(recordInvoicePayment(once, fact)).toEqual({ ledger: once, duplicate: true });
-    expect(recordInvoicePayment(once, { ...fact, status: "open" }).ledger.payments.inpay_1.status).toBe("paid");
+    expect(recordInvoicePayment(once, { ...fact, status: "open", amountPaid: 0 }).ledger.payments.inpay_1.status).toBe("paid");
     const conflict = recordInvoicePayment(once, { ...fact, amountPaid: 100 });
     expect(conflict.duplicate).toBe(true);
     expect(conflict.ledger.payments.inpay_1.amountPaid).toBe(187575);
@@ -176,19 +211,28 @@ describe("WP3 duplicate invoice_payment.paid", () => {
   });
 
   it("order of an open event and a paid event for one payment does not matter", () => {
-    const open = { invoicePaymentId: "inpay_2", invoiceId: "in_2", status: "open", amountPaid: 500 } as const;
-    const paid = { ...open, status: "paid" } as const;
+    // Stripe reports amount_paid 0 or null until the payment is paid; the requested amount is present throughout
+    const open = { invoicePaymentId: "inpay_2", invoiceId: "in_2", status: "open", amountRequested: 500, amountPaid: 0 } as const;
+    const paid = { ...open, status: "paid", amountPaid: 500 } as const;
     const a = recordInvoicePayment(recordInvoicePayment(emptyLedger(), open).ledger, paid).ledger;
     const b = recordInvoicePayment(recordInvoicePayment(emptyLedger(), paid).ledger, open).ledger;
     expect(a).toEqual(b);
+    expect(a.payments.inpay_2).toMatchObject({ status: "paid", amountPaid: 500 });
+    expect(a.anomalies).toEqual([]);
+  });
+
+  it("a different requested amount for the same payment id is a conflict", () => {
+    const base = { invoicePaymentId: "inpay_3", invoiceId: "in_3", status: "paid", amountRequested: 500, amountPaid: 500 } as const;
+    const once = recordInvoicePayment(emptyLedger(), base).ledger;
+    expect(recordInvoicePayment(once, { ...base, amountRequested: 600 }).ledger.anomalies).toEqual(["invoice_payment_conflict:inpay_3"]);
   });
 });
 
 describe("WP5 reconciliation of payments, refunds, credits and invoice state (Stage 2 figures)", () => {
-  const paidState = (id: string, total: number): InvoiceState => ({ invoiceId: id, status: "paid", eventCreated: 1, total, amountDue: total, amountPaid: total, amountRemaining: 0, anomalies: [] });
+  const paidState = (id: string, total: number): InvoiceState => ({ invoiceId: id, status: "paid", eventCreated: 1, total, amountDue: total, amountPaid: total, amountRemaining: 0, seenStatuses: ["paid"], anomalies: [] });
 
   it("a fully refunded invoice stays paid but nets to zero (ACH invoice A: 187575 paid, 187575 refunded)", () => {
-    const ledger = recordInvoicePayment(emptyLedger(), { invoicePaymentId: "inpay_A", invoiceId: "in_A", status: "paid", amountPaid: 187575 }).ledger;
+    const ledger = recordInvoicePayment(emptyLedger(), { invoicePaymentId: "inpay_A", invoiceId: "in_A", status: "paid", amountRequested: 187575, amountPaid: 187575 }).ledger;
     let refunds: Record<string, RefundFact> = {};
     refunds = recordRefund(refunds, { refundId: "pyr_A", invoiceId: "in_A", amount: 187575, status: "pending" });
     let r = reconcileInvoice({ invoice: paidState("in_A", 187575), payments: ledger, refunds });
@@ -205,8 +249,18 @@ describe("WP5 reconciliation of payments, refunds, credits and invoice state (St
     expect(recordRefund(recordRefund({}, done), pending).pyr_1.status).toBe("succeeded");
   });
 
+  it("a refund that succeeds and then fails (bank return) ends as failed in either order and stops counting as money back", () => {
+    const ok: RefundFact = { refundId: "pyr_F", invoiceId: "in_F", amount: 50, status: "succeeded" };
+    const bad: RefundFact = { ...ok, status: "failed" };
+    const a = recordRefund(recordRefund({}, ok), bad);
+    expect(a).toEqual(recordRefund(recordRefund({}, bad), ok));
+    expect(a.pyr_F.status).toBe("failed");
+    const ledger = recordInvoicePayment(emptyLedger(), { invoicePaymentId: "inpay_F", invoiceId: "in_F", status: "paid", amountRequested: 100, amountPaid: 100 }).ledger;
+    expect(reconcileInvoice({ invoice: paidState("in_F", 100), payments: ledger, refunds: a })).toMatchObject({ refunded: 0, netReceived: 100 });
+  });
+
   it("a refund larger than the money collected is flagged", () => {
-    const ledger = recordInvoicePayment(emptyLedger(), { invoicePaymentId: "inpay_B", invoiceId: "in_B", status: "paid", amountPaid: 1000 }).ledger;
+    const ledger = recordInvoicePayment(emptyLedger(), { invoicePaymentId: "inpay_B", invoiceId: "in_B", status: "paid", amountRequested: 1000, amountPaid: 1000 }).ledger;
     const refunds = recordRefund({}, { refundId: "pyr_B", invoiceId: "in_B", amount: 1500, status: "succeeded" });
     expect(reconcileInvoice({ invoice: paidState("in_B", 1000), payments: ledger, refunds }).anomalies).toContain("refunded_exceeds_collected");
   });
@@ -226,8 +280,8 @@ describe("WP5 reconciliation of payments, refunds, credits and invoice state (St
   });
 
   it("a void invoice that has collected money is flagged rather than silently erased", () => {
-    const ledger = recordInvoicePayment(emptyLedger(), { invoicePaymentId: "inpay_V", invoiceId: "in_V", status: "paid", amountPaid: 900 }).ledger;
-    const voided: InvoiceState = { invoiceId: "in_V", status: "void", eventCreated: 1, total: 900, amountDue: 900, amountPaid: 0, amountRemaining: 900, anomalies: [] };
+    const ledger = recordInvoicePayment(emptyLedger(), { invoicePaymentId: "inpay_V", invoiceId: "in_V", status: "paid", amountRequested: 900, amountPaid: 900 }).ledger;
+    const voided: InvoiceState = { invoiceId: "in_V", status: "void", eventCreated: 1, total: 900, amountDue: 900, amountPaid: 0, amountRemaining: 900, seenStatuses: ["void"], anomalies: [] };
     const r = reconcileInvoice({ invoice: voided, payments: ledger, refunds: {} });
     expect(r.collected).toBe(900);
     expect(r.anomalies).toContain("void_invoice_has_payments");

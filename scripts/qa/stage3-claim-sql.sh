@@ -5,6 +5,8 @@
 # touches any other database. payment_provider_events was created outside the repo migrations, so a minimal compatible
 # base table is reconstructed here; the PAY-WH-1 migration itself is applied unmodified.
 #
+# LIMITATION: the base table is a reconstruction, so this cannot detect NOT NULL or default drift against the real table.
+#
 # Usage: bash scripts/qa/stage3-claim-sql.sh
 set -euo pipefail
 
@@ -43,10 +45,11 @@ create table public.payment_provider_events (
   created_at timestamptz not null default now(),
   unique (provider, provider_event_id)
 );
-create or replace function pg_temp.noop() returns void language sql as 'select 1';
 SQL
 docker exec -i "$NAME" psql -U postgres -v ON_ERROR_STOP=1 -q < "$MIGRATION" >/dev/null
 
+TMPD=$(mktemp -d)
+trap 'rm -rf "$TMPD"; cleanup' EXIT
 pass=0
 fail=0
 check() {
@@ -103,20 +106,20 @@ check "a second event id for the same invoice payment is claimable (needs busine
 
 # 7. real concurrency: session A holds the row lock inside a transaction while B and nine more race it
 EVT=evt_s3_race
-( $P -c "begin; select public.claim_payment_provider_event('stripe','$EVT','t','h','$A',120); select pg_sleep(3); commit;" >/tmp/s3_race_a.txt 2>&1 ) &
+( $P -c "begin; select public.claim_payment_provider_event('stripe','$EVT','t','h','$A',120); select pg_sleep(3); commit;" >$TMPD/s3_race_a.txt 2>&1 ) &
 sleep 1
 for i in 1 2 3 4 5 6 7 8 9; do
-  ( q "select (public.claim_payment_provider_event('stripe','$EVT','t','h','00000000-0000-0000-0000-0000000000c$i',120))->>'outcome'" >/tmp/s3_race_$i.txt 2>&1 ) &
+  ( q "select (public.claim_payment_provider_event('stripe','$EVT','t','h','00000000-0000-0000-0000-0000000000c$i',120))->>'outcome'" >$TMPD/s3_race_$i.txt 2>&1 ) &
 done
 wait
-claimed_by_losers=$(cat /tmp/s3_race_[1-9].txt | grep -c '^claimed$' || true)
-blocked=$(cat /tmp/s3_race_[1-9].txt | grep -c '^in_progress$' || true)
-check "10 simultaneous claims: the lock holder claimed" "$(grep -c '"outcome": "claimed"\|"outcome":"claimed"' /tmp/s3_race_a.txt || true)" "1"
+claimed_by_losers=$(cat $TMPD/s3_race_[1-9].txt | grep -c '^claimed$' || true)
+blocked=$(cat $TMPD/s3_race_[1-9].txt | grep -c '^in_progress$' || true)
+check "10 simultaneous claims: the lock holder claimed" "$(grep -c '"outcome": "claimed"\|"outcome":"claimed"' $TMPD/s3_race_a.txt || true)" "1"
 check "10 simultaneous claims: none of the 9 racers also claimed" "$claimed_by_losers" "0"
 check "10 simultaneous claims: the 9 racers were told in_progress" "$blocked" "9"
 check "exactly one attempt was counted" "$(row $EVT | cut -d/ -f2)" "1"
-[ "$blocked" = "9" ] || { echo "--- racer output sample:"; head -c 300 /tmp/s3_race_1.txt; echo "--- holder:"; head -c 300 /tmp/s3_race_a.txt; }
-rm -f /tmp/s3_race_*.txt
+[ "$blocked" = "9" ] || { echo "--- racer output sample:"; head -c 300 $TMPD/s3_race_1.txt; echo "--- holder:"; head -c 300 $TMPD/s3_race_a.txt; }
+rm -f $TMPD/s3_race_*.txt
 
 echo "SQL RESULT: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

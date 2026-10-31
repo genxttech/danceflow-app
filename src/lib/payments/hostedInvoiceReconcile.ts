@@ -3,9 +3,11 @@
  *
  * Not wired into the webhook route. They encode what the Stage 2 sandbox runs showed about Stripe-hosted invoices so
  * that delayed, duplicated and out-of-order deliveries converge on the same state:
- *   - invoice state is the observation with the greatest (event time, lifecycle rank); arrival order is irrelevant;
+ *   - invoice state is the maximum observation under a TOTAL order (lifecycle rank, event time, then the observed
+ *     amounts and status), so arrival order cannot change the result and a later lower-rank snapshot never reopens an
+ *     invoice;
  *   - an invoice payment is keyed by its invoice_payment id, so a second event for the same payment is a no-op;
- *   - refunds and credits are keyed by their own ids and only move forward (pending -> succeeded);
+ *   - refunds and credits are keyed by their own ids and only move forward (pending -> succeeded -> failed/canceled);
  *   - void and uncollectible stay distinct and neither refunds or erases a payment;
  *   - a refunded invoice stays "paid"; money is judged from the payment and refund facts, not the invoice status.
  * Amounts are integer cents. Nothing here performs I/O.
@@ -27,33 +29,46 @@ export type InvoiceObservation = {
   amountRemaining: number;
 };
 
-export type InvoiceState = InvoiceObservation & { anomalies: string[] };
+export type InvoiceState = InvoiceObservation & {
+  /** Every status ever observed for this invoice (sorted). Kept so anomalies do not depend on arrival order. */
+  seenStatuses: HostedInvoiceStatus[];
+  anomalies: string[];
+};
+
+function compareObservations(a: InvoiceObservation, b: InvoiceObservation): number {
+  const keys: Array<[number | string, number | string]> = [
+    [STATUS_RANK[a.status], STATUS_RANK[b.status]],
+    [a.eventCreated, b.eventCreated],
+    [a.amountPaid, b.amountPaid],
+    [-a.amountRemaining, -b.amountRemaining], // less remaining is later in a normal lifecycle
+    [-a.amountDue, -b.amountDue],
+    [a.total, b.total],
+    [a.status, b.status], // paid vs void at the same rank, time and amounts: deterministic (void sorts later)
+  ];
+  for (const [x, y] of keys) if (x !== y) return x < y ? -1 : 1;
+  return 0;
+}
+
+const anomaliesFor = (seen: HostedInvoiceStatus[]) => (seen.includes("paid") && seen.includes("void") ? ["paid_and_void_observed"] : []);
 
 export function applyInvoiceObservation(current: InvoiceState | null, observed: InvoiceObservation): InvoiceState {
-  if (!current) return { ...observed, anomalies: [] };
+  const seen = [...new Set([...(current?.seenStatuses ?? []), observed.status])].sort() as HostedInvoiceStatus[];
+  if (!current) return { ...observed, seenStatuses: seen, anomalies: anomaliesFor(seen) };
   if (current.invoiceId !== observed.invoiceId) throw new Error("observation is for a different invoice");
-  const anomalies = new Set(current.anomalies);
-  const a = [current.eventCreated, STATUS_RANK[current.status]] as const;
-  const b = [observed.eventCreated, STATUS_RANK[observed.status]] as const;
-  const newer = b[0] > a[0] || (b[0] === a[0] && b[1] > a[1]);
-  const sameKey = b[0] === a[0] && b[1] === a[1];
-  // paid and void share a rank; both on the same invoice is a data anomaly to surface, not to resolve silently.
-  if ((current.status === "paid" && observed.status === "void") || (current.status === "void" && observed.status === "paid")) {
-    anomalies.add("paid_and_void_observed");
-  }
-  if (sameKey && current.status !== observed.status) {
-    // deterministic choice so order cannot matter: the lexically greater status wins; the clash is recorded.
-    const winner = current.status > observed.status ? current : { ...observed };
-    return { ...winner, anomalies: [...anomalies].sort() };
-  }
-  const winner = newer ? { ...observed } : { ...current };
-  return { ...winner, anomalies: [...anomalies].sort() };
+  const winner = compareObservations(observed, current) > 0 ? observed : current;
+  const { seenStatuses: _s, anomalies: _a, ...snapshot } = winner as InvoiceState;
+  void _s;
+  void _a;
+  return { ...snapshot, seenStatuses: seen, anomalies: anomaliesFor(seen) };
 }
 
 export type InvoicePaymentFact = {
   invoicePaymentId: string; // inpay_...
   invoiceId: string;
   status: "paid" | "open" | "canceled";
+  /** What the payment was asked to collect (present in every status). */
+  amountRequested: number;
+  /** What was collected; Stripe reports 0 or null until the payment is paid. */
   amountPaid: number;
 };
 
@@ -61,31 +76,32 @@ export type PaymentLedger = { payments: Record<string, InvoicePaymentFact>; anom
 
 export const emptyLedger = (): PaymentLedger => ({ payments: {}, anomalies: [] });
 
+const PAYMENT_RANK = { open: 0, canceled: 1, paid: 2 } as const;
+
 /** Idempotent by invoice payment id: a repeated event for the same payment and state changes nothing. */
 export function recordInvoicePayment(ledger: PaymentLedger, fact: InvoicePaymentFact): { ledger: PaymentLedger; duplicate: boolean } {
   const existing = ledger.payments[fact.invoicePaymentId];
+  const conflict = (): { ledger: PaymentLedger; duplicate: boolean } => ({
+    ledger: { payments: ledger.payments, anomalies: [...new Set([...ledger.anomalies, "invoice_payment_conflict:" + fact.invoicePaymentId])].sort() },
+    duplicate: true,
+  });
   if (!existing) return { ledger: { payments: { ...ledger.payments, [fact.invoicePaymentId]: fact }, anomalies: ledger.anomalies }, duplicate: false };
-  if (existing.invoiceId !== fact.invoiceId || existing.amountPaid !== fact.amountPaid) {
-    const anomalies = [...new Set([...ledger.anomalies, "invoice_payment_conflict:" + fact.invoicePaymentId])].sort();
-    return { ledger: { payments: ledger.payments, anomalies }, duplicate: true };
-  }
-  const rank = { open: 0, canceled: 1, paid: 2 } as const;
-  if (rank[fact.status] > rank[existing.status]) {
-    return { ledger: { payments: { ...ledger.payments, [fact.invoicePaymentId]: fact }, anomalies: ledger.anomalies }, duplicate: false };
-  }
+  if (existing.invoiceId !== fact.invoiceId || existing.amountRequested !== fact.amountRequested) return conflict();
+  const rankDiff = PAYMENT_RANK[fact.status] - PAYMENT_RANK[existing.status];
+  if (rankDiff > 0) return { ledger: { payments: { ...ledger.payments, [fact.invoicePaymentId]: fact }, anomalies: ledger.anomalies }, duplicate: false };
+  if (rankDiff === 0 && existing.amountPaid !== fact.amountPaid) return conflict();
   return { ledger, duplicate: true };
 }
 
 export type RefundFact = { refundId: string; invoiceId: string; amount: number; status: "pending" | "succeeded" | "failed" | "canceled" };
-const REFUND_RANK = { pending: 0, succeeded: 1, failed: 1, canceled: 1 } as const;
+// a bank refund can fail after it succeeded, so failed and canceled outrank succeeded; failed vs canceled is decided lexically
+const REFUND_RANK = { pending: 0, succeeded: 1, canceled: 2, failed: 3 } as const;
 
 export function recordRefund(refunds: Record<string, RefundFact>, fact: RefundFact): Record<string, RefundFact> {
   const existing = refunds[fact.refundId];
   if (!existing || REFUND_RANK[fact.status] > REFUND_RANK[existing.status]) return { ...refunds, [fact.refundId]: fact };
   return refunds;
 }
-
-export type CreditFact = { balanceTransactionId: string; customerId: string; amount: number }; // negative = credit
 
 export type ReconcileInput = {
   invoice: InvoiceState;

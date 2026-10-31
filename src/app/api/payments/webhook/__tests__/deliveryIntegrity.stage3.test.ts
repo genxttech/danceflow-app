@@ -22,6 +22,7 @@ const rpcLog: Array<{ fn: string; args: Record<string, unknown> }> = [];
 const tableLog: string[] = [];
 let failTables = false;
 let onFrom: (() => void) | null = null;
+let onComplete: (() => void) | null = null;
 
 function claim(args: Record<string, unknown>) {
   const id = String(args.p_provider_event_id);
@@ -62,7 +63,10 @@ vi.mock("@supabase/supabase-js", () => ({
     rpc: async (fn: string, args: Record<string, unknown>) => {
       rpcLog.push({ fn, args });
       if (fn === "claim_payment_provider_event") return { data: claim(args), error: null };
-      if (fn === "complete_payment_provider_event") return { data: complete(args), error: null };
+      if (fn === "complete_payment_provider_event") {
+        onComplete?.();
+        return { data: complete(args), error: null };
+      }
       return { data: null, error: null };
     },
     from: (table: string) => {
@@ -116,6 +120,7 @@ beforeEach(() => {
   tableLog.length = 0;
   failTables = false;
   onFrom = null;
+  onComplete = null;
   now = 1_800_000_000_000;
   process.env.STRIPE_WEBHOOK_SECRET = PLATFORM_SECRET;
   process.env.STRIPE_CONNECT_WEBHOOK_SECRET = CONNECT_SECRET;
@@ -222,6 +227,8 @@ describe("WP2 replay and idempotency (event id)", () => {
     expect(store.get("evt_s3_replay")?.attempts).toBe(1);
   });
 
+  // NOTE: the fake claim is atomic and every request awaits the same chain, so both reach claim before either completes;
+  // the real concurrency proof is the SQL harness (scripts/qa/stage3-claim-sql.sh).
   it("two simultaneous deliveries: one claims, the other is told to retry (409); the retry then sees it processed", async () => {
     const body = quiet("evt_s3_race");
     const [a, b] = await Promise.all([sendSigned(body), sendSigned(body)]);
@@ -246,14 +253,15 @@ describe("WP2 replay and idempotency (event id)", () => {
     expect(store.get("evt_s3_lease")).toMatchObject({ status: "processed", attempts: 2 });
   });
 
-  it("a worker whose lease was taken over mid-processing cannot finalize, never reports success and leaves the new owner's claim intact", async () => {
-    const body = JSON.stringify(envelope("evt_s3_lost", "invoice.paid", { id: "in_oneoff", object: "invoice", customer: "cus_1", subscription: null, payment_intent: "pi_1" }));
-    onFrom = () => {
-      onFrom = null;
+  it("a worker whose lease is taken over just before it finalizes gets 'finalization failed', never success, and the new owner's claim is untouched", async () => {
+    // the handler succeeds (quiet event); another worker takes the lease inside the completion call, so complete returns false
+    onComplete = () => {
+      onComplete = null;
       store.set("evt_s3_lost", { status: "processing", owner: "worker-b", expires: now + 120_000, attempts: 2, error: null });
     };
-    expect((await sendSigned(body)).status).toBe(500);
+    expect(await sendSigned(quiet("evt_s3_lost"))).toEqual({ status: 500, text: "Webhook event finalization failed." });
     expect(store.get("evt_s3_lost")).toMatchObject({ status: "processing", owner: "worker-b", attempts: 2 });
+    expect(vi.mocked(console.error).mock.calls.flat().map(String).join(" ")).toContain("claim lease lost");
   });
 });
 
@@ -300,7 +308,7 @@ describe("WP6 failure handling, replay and recovery", () => {
   const paid = () =>
     JSON.stringify(envelope("evt_s3_fail", "invoice.paid", { id: "in_oneoff", object: "invoice", customer: "cus_1", subscription: null, payment_intent: "pi_1" }));
 
-  it("a handler failure is finalized as failed (retryable) with a bounded message, and the same event recovers on replay", async () => {
+  it("a handler failure is finalized as failed (retryable) with the error recorded, and the same event is re-claimed on replay", async () => {
     failTables = true;
     expect((await sendSigned(paid())).status).toBe(500);
     expect(store.get("evt_s3_fail")).toMatchObject({ status: "failed", attempts: 1 });
@@ -309,8 +317,10 @@ describe("WP6 failure handling, replay and recovery", () => {
     failTables = false;
     const second = await sendSigned(paid());
     expect(store.get("evt_s3_fail")?.attempts).toBe(2);
-    expect([200, 500]).toContain(second.status); // recovery path reached; outcome depends on handler data, not on dedupe
+    // recovery path reached: re-claimed (not 409, not already processed); the stored status agrees with the response
+    expect(second.status).not.toBe(409);
     expect(second.text).not.toBe("Already processed");
+    expect(store.get("evt_s3_fail")?.status).toBe(second.status === 200 ? "processed" : "failed");
   });
 
   it("a failed event is never reported as processed and keeps being retried (no dead-letter limit in the route: FINDING F-3)", async () => {
@@ -330,7 +340,9 @@ describe("WP6 failure handling, replay and recovery", () => {
 });
 
 describe("WP7 environment isolation", () => {
-  it("uses only synthetic local secrets and never touches the network", async () => {
+  // Isolation here comes from the mocks: getStripe exposes only webhooks (no API client) and the Supabase client is the
+  // in-memory fake. The fetch stub is a tripwire for stray fetch calls, not proof that node:http is unused.
+  it("uses only synthetic local secrets and the in-memory fakes; a stray fetch would fail", async () => {
     expect(PLATFORM_SECRET.startsWith("whsec_stage3_")).toBe(true);
     expect(CONNECT_SECRET.startsWith("whsec_stage3_")).toBe(true);
     await sendSigned(quiet("evt_s3_iso"));
