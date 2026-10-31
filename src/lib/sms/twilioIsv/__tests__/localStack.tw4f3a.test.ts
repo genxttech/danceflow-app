@@ -98,7 +98,7 @@ delete from public.studio_sms_credit_reservations where legal_entity_id in (sele
 delete from public.studio_sms_credit_topups where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
 delete from public.studio_sms_provider_charges where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
 delete from public.studio_sms_credit_accounts where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
-delete from public.studio_sms_price_change_requests where requested_by = '${PRICE_FIXTURE_REQUESTER}' or decided_by = '${U.padmin}';
+do $d41$ begin if to_regclass('public.studio_sms_price_change_requests') is not null then delete from public.studio_sms_price_change_requests where requested_by = '${PRICE_FIXTURE_REQUESTER}' or decided_by = '${U.padmin}'; end if; end $d41$;
 delete from public.studio_sms_price_list where created_by = '${U.padmin}';
 delete from public.studio_sms_subaccount_confirmations where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
 delete from public.studio_sms_twilio_accounts where legal_entity_id in (select id from public.studio_sms_legal_entities where created_by = '${U.padmin}');
