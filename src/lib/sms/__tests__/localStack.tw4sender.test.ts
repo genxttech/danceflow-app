@@ -11,6 +11,7 @@ import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { ownerReactivate, seedPrice } from "../twilioIsv/__tests__/priceFixture";
 
 vi.mock("server-only", () => ({}));
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 1_000_000 });
@@ -148,7 +149,7 @@ describe.skipIf(!enabled)("sender readiness and dispatch integrity (real schema,
     credits = new SupabaseCreditStore(admin);
     psqlFile(FIXTURES);
     snapshotActivePrices = psql("select id from public.studio_sms_price_list where active").split("\n").filter(Boolean);
-    expect((await rpc("tw4_price_set", { p_kind: "sms_usage", p_customer_cents: 3, p_provider_cents: 1, p_description: "fixture sms_usage price", p_actor: U.padmin })).error).toBeNull();
+    seedPrice(psql, { kind: "sms_usage", customer: 3, provider: 1, description: "fixture sms_usage price", approver: U.padmin });
     aged(reconcilerReadySql(`tw4sender:${RUN}`));
     expect((await rpc("tw4_usage_set_switch", { p_enabled: true, p_actor: U.padmin, p_reason: "fixture: billed texting on for tests" })).error).toBeNull();
     await fund(EA, PA1, 5_000);
@@ -158,7 +159,8 @@ describe.skipIf(!enabled)("sender readiness and dispatch integrity (real schema,
     try {
       psqlFile(CLEANUP);
       aged(reconcilerRunsCleanupSql(`tw4sender:${RUN}`));
-      aged(`delete from public.studio_sms_price_list where created_by = '${U.padmin}'; update public.studio_sms_price_list set active = true where id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
+      aged(`delete from public.studio_sms_price_list where created_by = '${U.padmin}'`);
+      ownerReactivate(psql, `id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
     } catch {
       /* best effort */
     }

@@ -4,6 +4,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
+import { seedPriceIfMissing } from "./priceFixture";
 
 export const PG = process.env.TW4A_LOCAL_DB_CONTAINER ?? "";
 export const DB = process.env.TW4RFL_DB ?? "";
@@ -94,7 +95,7 @@ function expectMarker() {
 /** Published prices the world needs (fixture rows only when none is active). */
 export function seedPrices() {
   for (const [kind, customer, provider] of [["number", 200, 115], ["monthly", 1000, 150]] as const) {
-    if (!psql(`select 1 from public.studio_sms_price_list where kind = '${kind}' and active`)) call("tw4_price_set", kind, customer, provider, `fixture ${kind} price`, A);
+    seedPriceIfMissing(psql, { kind, customer, provider, description: `fixture ${kind} price`, approver: A });
   }
   PRICE.number = num(`select customer_price_cents from public.studio_sms_price_list where kind = 'number' and active`);
   PRICE.monthly = num(`select customer_price_cents from public.studio_sms_price_list where kind = 'monthly' and active`);
