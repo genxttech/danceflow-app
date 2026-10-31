@@ -10,7 +10,11 @@
 --     owner postgres : unchanged (owner)
 --   Every app writer uses the service role (insert/upsert/update only; no app code deletes rows). User-session code only reads.
 --   RLS policies are not changed. No other table's grants are touched.
--- Rollback: rollback/20270203100000_usage_addon_entitlements_least_privilege_rollback.sql (restores the exact previous ACL).
+-- Rollback: rollback/20270203100000_usage_addon_entitlements_least_privilege_rollback.sql (restores the exact previous ACL, i.e. the
+--   WEAKER permissions: see the warning in that file).
+-- Release window: apply this file together with 20270203090000_organizer_suite_entitlement_integrity.sql in ONE controlled window, in
+--   that order. Between them, anon/authenticated could still TRUNCATE the table (TRUNCATE skips RLS and the row-level audit trigger).
+--   Rollback order is the reverse: 20270203100000 first, then 20270203090000 (which refuses once audit events exist).
 -- NOT APPLIED to any shared environment by this file's authoring.
 
 begin;
