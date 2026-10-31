@@ -139,6 +139,19 @@ create table if not exists public.studio_sms_price_limits (
 revoke all on public.studio_sms_price_limits from public, anon, authenticated, service_role;
 alter table public.studio_sms_price_limits enable row level security;
 
+-- PROPOSED limits (docs/twilio/TW-4F_Price_Limits_Proposal.md). approved = false: NOT enforced. The owner approves (or changes) values with an owner-level update; until then
+-- the only bound is the 10,000,000-cent CHECK on the request table. Data insert into THIS NEW table only (never into the price list).
+insert into public.studio_sms_price_limits (kind, max_customer_cents, max_provider_cents, max_provider_pct_of_customer, max_step_pct, approved) values
+  ('brand', 10000, 6000, 100, 50, false),
+  ('brand_low_volume', 2000, 1000, 100, 50, false),
+  ('campaign_vetting', 3500, 2500, 100, 50, false),
+  ('number', 500, 300, 100, 50, false),
+  ('monthly', 2500, 1500, 100, 50, false),
+  ('monthly_low_volume', 600, 400, 100, 50, false),
+  ('sms_usage', 6, 3, 100, 50, false),
+  ('sms_inbound', 4, 3, 100, 100, false)
+on conflict (kind) do nothing;
+
 create or replace function public._tw4price_registry_guard()
 returns trigger language plpgsql
 set search_path = pg_catalog, public, pg_temp
