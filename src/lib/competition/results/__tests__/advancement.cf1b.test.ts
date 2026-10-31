@@ -17,6 +17,7 @@ import {
   validateExclusionReason,
   withdrawalReasonLooksSubstantive,
   withRetryOnce,
+  withdrawalControlsBlocked,
   type RpcCall,
   type RpcResult,
 } from "../advancement";
@@ -231,12 +232,49 @@ describe("CF1 B: withdrawal model", () => {
     });
     expect(state.withdrawn).toEqual([{ entryId: "e1", withdrawalId: "w1" }]);
     expect(state.pending.map((p) => p.requestId)).toEqual(["q1"]);
-    expect(parseWithdrawalState(null)).toEqual({ withdrawn: [], pending: [] });
+    expect(parseWithdrawalState(null)).toEqual({ withdrawn: [], pending: [], cancelled: [] });
   });
 
   it("hints at the substantive-reason rule without being the authority", () => {
     expect(withdrawalReasonLooksSubstantive("sick")).toBe(false);
     expect(withdrawalReasonLooksSubstantive("a a a a a a a a a a a a")).toBe(false);
     expect(withdrawalReasonLooksSubstantive("Partner injured her ankle in warm up")).toBe(true);
+  });
+});
+
+describe("CF1 B: A6 D-A / D-B (cancel, stale, no approved result)", () => {
+  it("maps every new withdrawal code to plain copy, with the D-A wording", () => {
+    for (const code of [
+      "COMP_WITHDRAWAL_NO_APPROVED_RESULT", "COMP_WITHDRAWAL_REQUEST_CANCELLED", "COMP_WITHDRAWAL_REQUEST_COMPLETED", "COMP_WITHDRAWAL_REQUESTER_INVALID",
+      "COMP_WITHDRAWAL_REQUEST_STALE", "COMP_WITHDRAWAL_REQUEST_PENDING", "COMP_WITHDRAWAL_TOO_MANY_PENDING",
+    ]) {
+      expect(hasResultMessage(code), code).toBe(true);
+    }
+    expect(resultErrorMessage("COMP_WITHDRAWAL_NO_APPROVED_RESULT: x")).toBe("Withdrawals and reinstatements are unavailable until the corrected callback result is approved.");
+  });
+
+  it("reads the stale flag and the cancelled list from the state RPC", () => {
+    const raw = {
+      withdrawn: [],
+      pending: [
+        { request_id: "q1", kind: "withdraw", entry_id: "e1", requested_by: "u1", reason: "r", at: "t", stale: true },
+        { request_id: "q2", kind: "reinstate", entry_id: "e2", requested_by: "u1", reason: "r", at: "t" },
+      ],
+      cancelled: [
+        { request_id: "q3", kind: "withdraw", entry_id: "e3", requested_by: "u1", cancelled_by: "u2", by_requester: false, reason: "Requested by mistake", at: "t" },
+        { request_id: "bad", kind: "x", entry_id: "e4" },
+      ],
+    };
+    const state = parseWithdrawalState(raw);
+    expect(state.pending.map((p) => p.stale)).toEqual([true, false]);
+    expect(state.cancelled).toEqual([{ requestId: "q3", kind: "withdraw", entryId: "e3", cancelledBy: "u2", byRequester: false, reason: "Requested by mistake", at: "t" }]);
+  });
+
+  it("disables new withdraw / reinstate controls only with no active advancement and no approved callback result", () => {
+    expect(withdrawalControlsBlocked({ advancementState: "revoked", sourceStatus: "ballots_locked" })).toBe(true);
+    expect(withdrawalControlsBlocked({ advancementState: "ready", sourceStatus: "calculated" })).toBe(true);
+    expect(withdrawalControlsBlocked({ advancementState: "revoked", sourceStatus: "approved" })).toBe(false);
+    expect(withdrawalControlsBlocked({ advancementState: "applied", sourceStatus: "ballots_locked" })).toBe(false);
+    expect(withdrawalControlsBlocked({ advancementState: "ready", sourceStatus: null })).toBe(true);
   });
 });
