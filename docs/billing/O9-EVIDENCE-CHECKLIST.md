@@ -99,3 +99,11 @@ Implementation gaps that would stop the intended transition (price and Suite) ar
 ## 6. What to send back
 
 Paste the section 1 and 2 answers into the chat (IDs and dates are fine, no secrets). I will return the evidence findings and a proposed classification, with duration and renewal recorded as found or "not established". The first findings go to the owner for separate review before anything is drafted for the registry.
+
+## 7. Verified findings (read-only PROD, accepted 2026-10-31)
+
+- Identity **RESOLVED** through Stripe customer `cus_Ufmzcd50OuZzmh`; studio `dd6c35ce-0765-4247-afc2-9738817e991c`, `pro` / `active`, `America/New_York`.
+- Studio subscription row is `active`; `subscription_plan_id` `b64c268b-5c3f-41ff-9e3b-d7e9e8219cba` links to plan **Pro**. Plan-link check: PASS.
+- DanceAbel holds manual Organizer Suite grant `095f8801-7d18-4c73-8d0e-141bd93dcbca` (no `period_end` yet), valid through July 8, 2027. Approved expiry instant: **2027-07-09T04:00:00Z**.
+- Kept as separate OPEN reconciliation items, not evidence of a missing plan link: (1) the one-character difference at position 22 of the subscription id (reported `l`, stored `I`); (2) the empty `stripe_price_id` and period dates on the studio subscription row. Neither may be corrected in PROD without separate authorization.
+- Details and delivery status: `D7-RELEASE-READINESS.md` section 10.

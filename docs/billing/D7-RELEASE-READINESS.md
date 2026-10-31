@@ -185,7 +185,7 @@ The pricing grandfather and the complimentary Suite entitlement **share an expir
 | G7 | The "regular Pro rate" and the paid Suite add-on price at the time of notice are not fixed | Owner decision at notice time, recorded in the notice |
 | G8 | The gap report's D13 "permanent exclusion" text conflicts with the dated policy | A docs update to PR #343 with owner approval |
 | G9 | Original terms, billing periods and Suite provisioning are unverified | Owner-run Stripe and records checks (checklist); optional hosted row reads need their own approval |
-| G10 | The exact enforcement instant for July 9, 2027 is undefined | Owner decision (time zone, start or end of day, relation to the billing boundary) |
+| G10 | The exact enforcement instant for July 9, 2027 | **Closed for DanceAbel (owner, 2026-10-31): 2027-07-09T04:00:00Z** = local midnight in America/New_York; see section 10.2 |
 | G11 | What the studio may see or export after access ends is undefined (data is preserved) | Owner decision; a code slice if read-only history is wanted |
 | G12 | The paid add-on purchase path must be verified as the only way access continues after expiry | Test-mode verification of the add-on checkout for a protected studio; no live charge |
 
@@ -196,3 +196,40 @@ The pricing grandfather and the complimentary Suite entitlement **share an expir
 - **Correction to the earlier chain validation:** the earlier "full chain" used `main` migrations on an image that already contained 16 TW-4F migrations production lacks. The correct validation base is the `release/pricing-p1` migration set (`df-isoqa/base:20261119092100`: 200 applied, 22 known-unreplayable skipped) plus `20270201090000`. On that base the 40-check registry script gives 40 PASS, 0 FAIL.
 - **Read-only production catalog probe (catalog only, no row data):** the registry table and both functions are absent; `public.studios(id uuid)`, `studio_billing_customers`, `studio_subscriptions` and the `studios` billing columns exist; TW-4 is at `20261119092100` (6 `studio_sms_*` tables, 11 `tw4*` functions, nothing newer); there is no migration-history table. Production has 339 public tables and 522 functions versus 329 and 443 in the local image. The production-only objects come from the 22 migrations the harness cannot replay on its July dump base (Competition 10C/10D, LAUNCH-SEC, payroll 9A to 9C, GC-3.5.2, refund reconciliation). Five old payroll and client-lookup functions and one table (`payment_harness_runs`, defined by no release-branch migration) exist only in the image. **Production is not proven identical to the release-branch migration set.** The registry migration depends only on `studios(id)`, which matches, so the test result is valid for the migration's own behavior but is not a full schema rehearsal.
 - **New exposure findings (code review):** the paused/incomplete page gap is more serious than "advisory" (such a studio sees "Start Trial" and no portal button, so it cannot finish payment); checkout logs the raw error object; `GET /api/billing/checkout` creates a session from a cross-site link. Concurrent checkout and repeat trial remain open (specified fixes: open-session check, session `expires_at`, idempotency keys, a duplicate-subscription alert; omit the trial when a listed subscription already had one).
+
+## 10. Verified PROD findings for DanceAbel and delivery status (2026-10-31)
+
+**Status: read-only PROD verification accepted as PASS by the owner. These are verified facts from read-only queries against PROD `hvsujyfbftfffxpfmlpb` (identity and plan link), not changes. Nothing was written to PROD, Stripe or any entitlement.**
+
+### 10.1 Verified (read-only, PROD)
+
+| Item | Result |
+|---|---|
+| Identity | `RESOLVED` through Stripe customer `cus_Ufmzcd50OuZzmh`: `studios.stripe_customer_id` and `studio_billing_customers.stripe_customer_id` agree on one studio. The name "DanceAbel Ballroom Studio" is corroboration only, never the key. |
+| Studio | `dd6c35ce-0765-4247-afc2-9738817e991c`, `pro`, `active`, timezone `America/New_York`, created 2026-06-09. |
+| Studio subscription row | 1 row, status `active`, `billing_interval` month. |
+| Plan link | `subscription_plan_id` = `b64c268b-5c3f-41ff-9e3b-d7e9e8219cba`; the linked plan row exists: code `pro`, name "Pro". Studio billing plan/status: `pro` / `active`. **PASS.** |
+| Manual Organizer Suite grant | Entitlement `095f8801-7d18-4c73-8d0e-141bd93dcbca` (source `manual_grant`, `active`, no `period_start`/`period_end`, no Stripe item, created 2026-07-09 23:41:43Z) belongs to this studio. The other PROD manual grant (`b515dc91-5d28-4c19-90d8-4cd589ad57fe`) belongs to a different, unidentified studio. |
+| Effect on event checkouts | The fee check reads the plan through this link, so while the grant is current DanceAbel receives the Pro add-on tier (3%). Private-lesson entitlement enforcement in PR #363 does **not** introduce a DanceAbel plan-link regression. |
+
+### 10.2 Owner-approved policy points recorded here
+
+- Complimentary Organizer Suite access remains valid **through July 8, 2027**.
+- **Approved expiry instant: July 9, 2027, 04:00 UTC.** This is local midnight of 2027-07-09 in `America/New_York` (EDT), i.e. exactly what the implemented boundary rule produces for this studio with `period_end = 2027-07-09`. This closes G10 for DanceAbel. The rule remains timezone-based; a change to the studio's timezone would move the instant.
+- Continued access after the expiry instant requires a separately purchased paid add-on. No automatic purchase, charge or extension.
+
+### 10.3 Reconciliation items kept separate and OPEN (not evidence of a missing plan link)
+
+1. **One-character mismatch in the Stripe subscription id.** The id previously reported by the owner has a lowercase `l` (U+006C) at position 22 of 28; PROD stores a capital `I` (U+0049) in `studios.stripe_subscription_id` and the `studio_subscriptions` row. The existing evidence does not establish which is authoritative (the owner-supplied id is typed chat text; PROD's value is not proven machine-written). Settling it needs a read-only Stripe retrieval of both candidates or an owner copy from the Dashboard. No PROD record is to be modified to resolve it without separate authorization.
+2. **Missing `stripe_price_id` and period dates in the studio subscription row.** The row has an empty `stripe_price_id`, `trial_ends_at`, `current_period_start` and `current_period_end`. PROD therefore does not record the $129 legacy price on this subscription. This does not affect plan resolution or the Suite check; it is a record-completeness item for the pricing-protection registry work (G1, G9).
+
+Neither item is treated as evidence that the Pro plan link is missing; the plan link was verified directly (10.1).
+
+### 10.4 Delivery status (draft PRs, unmerged, nothing applied or scheduled)
+
+| PR | Head | CI (GitHub) |
+|---|---|---|
+| #362 database (migrations `20270203090000`, `20270203100000`, rollbacks, SQL tests, e2e fixture fix) | `c032d44f852e77a563d9da19d51efa3a78511953` | typecheck/build/lint/tests pass; both Vercel previews pass |
+| #363 application (shared reader honoring `period_end`, six readers, platform pages, private-lesson enforcement, dark expiry job) | `57104c78233a1b1ea5ddd792a330faffa95bced0` | typecheck/build/lint/tests pass; both Vercel previews pass |
+
+Regression coverage for the private-lesson route (13 tests, 5 fail against the old route): ordinary events unaffected; current grant allowed with the Pro fee; lapsed grant or none refused before the slot is held; lapsed grant plus a paid add-on allowed; organizer set on only the event or only the slot; Organizer plan keeps its fee; the 2027-07-09 boundary (allowed at 03:59:59Z, refused at 04:00:00Z); an already-booked slot keeps the existing answer. Bookings already paid or in flight are never re-checked.
