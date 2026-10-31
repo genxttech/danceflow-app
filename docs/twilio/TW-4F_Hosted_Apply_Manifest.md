@@ -118,6 +118,7 @@ CRLF handling, because it corrupted function-body fingerprints before:
 | 20261230090000 | 20261230090000_twilio_rfl_pilot_spend_evidence.sql | e3275cd720bd044029e3caed553e60211a7c20949e84be06dce3049f2a5667e8 | 92e691e2bff80de1d1daae01259880ee30f65ea8594f251f45de90af77055d84 | LF |
 | 20261231090000 | 20261231090000_twilio_platform_admin_aal2.sql | 5bb6faceecad0fef65bf842d93b4eba677e4df3e6b65bf01634ebb14c69e5333 | 7fd5f9d4739eaf8daede267930d813cb7217e136875a285df3115820ec4c131d | LF |
 | 20261231100000 | 20261231100000_twilio_pilot_spend_hardening.sql | 7862e9b97c83be4e1972de03104ac8b7d0738c54ce30c03cb731aeabd1d0a837 | 5d15406a53c1068c8369314d5b1978ac49d7828c383c0eeb8b2598da3b463b69 | LF |
+| 20270204090000 | 20270204090000_twilio_price_dual_control.sql | 254546c453621689b529a575f40e1e5b0dde185fdb0474bf64030cf410635be3 | d76d302563af1d354f073b9c0fe29b44974f9d713ff5b3ca84b9037f4d1ffaae | LF |
 
 ### 3.0 Notes on migrations merged after `960a9d02`
 
@@ -930,6 +931,20 @@ Generated from the blobs by `gen_manifest_data.mjs`; regenerate, do not hand-edi
 - one-off data statements: none at top level
 - rollback: `rollback/20261231100000_twilio_pilot_spend_hardening_rollback.sql` sha256 `5d15406a53c1068c8369314d5b1978ac49d7828c383c0eeb8b2598da3b463b69`
   - refusal conditions: "pilot-spend-hardening rollback precondition failed: the migration is not applied"; "pilot-spend-hardening rollback precondition failed: the internal function differs from its 20261231100000 definition; roll back the later migration first"; "pilot-spend-hardening rollback precondition failed: public.tw4_spend_authorize differs from its 20261231100000 definition; roll back the later migration first"; "pilot-spend-hardening rollback precondition failed: public.tw4_rfl_pilot_cover differs from its 20261231100000 definition; roll back the later migration first"; "pilot-spend-hardening rollback precondition failed: public.tw4_pilot_exception_create differs from its 20261230 definition; roll back the later migration first"; "pilot-spend-hardening rollback precondition failed: a commit-time check function differs from its 20261231100000 definition; roll back the later migration first"; "pilot-spend-hardening rollback precondition failed: the apply-time marker is missing; refusing"; "pilot-spend-hardening rollback refused: pilot approval evidence recorded after this migration was applied is permanent"; "pilot-spend-hardening rollback failed: public.tw4_spend_authorize was not restored byte-exactly"; "pilot-spend-hardening rollback failed: public.tw4_rfl_pilot_cover was not restored byte-exactly"
+
+
+#### 20270204090000_twilio_price_dual_control.sql
+
+- sha256 (LF-normalized): `254546c453621689b529a575f40e1e5b0dde185fdb0474bf64030cf410635be3`  (D4-1, dual-controlled SMS price changes; Git-only, not applied anywhere)
+- created: 1 table (`studio_sms_price_change_requests`), 8 functions, 5 indexes/triggers/constraints
+  - new functions: `_tw4price_admin_active`, `_tw4price_kinds`, `_tw4pricedual_guard`, `_tw4price_activation_guard`, `tw4_price_propose`, `tw4_price_approve`, `tw4_price_reject`, `tw4_price_requests_list`
+- replaced (CREATE OR REPLACE / re-created): **`tw4_price_set` (first defined by `20261122090000`; from `20270204090000` it refuses every caller with TW042)**. The probes list an object only at the stamp that FIRST creates it, so `tw4_price_set` stays attributed to `20261122090000` there: its body change is visible to `probe_fingerprint.sql` only through the migration check below, not by name.
+- also adds an `ENABLE ALWAYS` trigger `studio_sms_price_list_00_activation` to the existing `studio_sms_price_list` and two `ENABLE ALWAYS` triggers on the new table
+- client-exposed grants (anon/authenticated/PUBLIC): none
+- rollback: `rollback/20270204090000_twilio_price_dual_control_rollback.sql` sha256 `d76d302563af1d354f073b9c0fe29b44974f9d713ff5b3ca84b9037f4d1ffaae`; valid ONLY before the first request row exists (refuses with 55000 afterwards); a rolled-back state reopens the single-administrator `tw4_price_set`
+- forward precondition: `tw4_price_set` must still be the `20261122090000` body (md5 `36b3548cfa94cce34e7df10c2a74981f`, CR ignored)
+- hosted gate: the table must not exist, `tw4_price_set` must hash as above; after apply `tw4_price_set` must raise TW042 for any actor and `has_function_privilege(service_role, tw4_price_set)` stays true. Probes extended through this stamp (`--sync-probes`, 423 functions / 77 tables).
+- residual risk: see `docs/twilio/TW-4F_Price_Dual_Control.md` (service-role key; accepted pending owner decision).
 
 ## 7. Read-only probes
 
