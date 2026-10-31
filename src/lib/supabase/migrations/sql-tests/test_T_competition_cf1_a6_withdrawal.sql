@@ -172,7 +172,7 @@ begin
   perform set_config('session_replication_role', 'origin', true);
 end $$;
 create or replace function pg_temp.state_probe(p_round_id uuid) returns jsonb language sql security definer as $$
-  select coalesce(jsonb_agg(jsonb_build_object('request_id', q.request_id, 'stale', public._cf1_a6_is_stale(p_round_id, q.advancement_id, q.advancement_generation))), '[]'::jsonb)
+  select coalesce(jsonb_agg(jsonb_build_object('request_id', q.request_id, 'stale', public._cf1_a6_is_stale(p_round_id, q.advancement_id, q.advancement_generation, q.source_result_version_id))), '[]'::jsonb)
   from public.event_competition_final_withdrawal_requests q where q.target_round_id = p_round_id and not exists (select 1 from public.event_competition_final_withdrawals w where w.request_id = q.request_id) $$;
 grant execute on all functions in schema pg_temp to authenticated, anon, service_role;
 
@@ -279,7 +279,7 @@ select pg_temp.chk('U51: the guard function is VOLATILE, SECURITY DEFINER, searc
   (select p.provolatile = 'v' and p.prosecdef and p.proconfig @> array['search_path=public, pg_temp'] and position('when others' in lower(p.prosrc)) = 0
    from pg_proc p where p.proname = 'cf1_guard_withdrawn_heat_entry' and p.pronamespace = 'public'::regnamespace));
 select pg_temp.chk('every A6 function is SECURITY DEFINER with the fixed search_path',
-  (select count(*) = 16 and bool_and(p.prosecdef and p.proconfig @> array['search_path=public, pg_temp'])
+  (select count(*) = 17 and bool_and(p.prosecdef and p.proconfig @> array['search_path=public, pg_temp'])
    from pg_proc p where p.pronamespace = 'public'::regnamespace and (p.proname like '\_cf1\_a6\_%' or p.proname in ('cf1_guard_withdrawn_heat_entry', 'withdraw_advanced_entry_from_final',
         'reinstate_withdrawn_entry_to_final', 'cosign_final_withdrawal_request', 'competition_final_withdrawal_state', 'cancel_final_withdrawal_request'))));
 select pg_temp.chk('the five RPCs: execute for authenticated, none for anon / public / service_role',
@@ -648,8 +648,16 @@ select pg_temp.as_user(1);
 select pg_temp.chk('D-A: scenario 13 request before any apply (approved result, no advancement)', (pg_temp.req('withdraw', 13, 1, 1, 131) ->> 'state') = 'pending');
 reset role;
 select pg_temp.su(format($q$update public.event_competition_result_versions set status = 'stale' where round_id = %L$q$, pg_temp.id('src', 13)));
-select pg_temp.chk('D-A: the request is not stale (no advancement, generation 0) ...', not (select bool_or((x ->> 'stale')::boolean) from jsonb_array_elements(pg_temp.state_probe(pg_temp.id('fin', 13))) x));
-select pg_temp.chk('D-A: ... but the co-sign is COMP_WITHDRAWAL_NO_APPROVED_RESULT (the precheck; it never completes against an unknown roster)', pg_temp.code(pg_temp.cos(2, 131)) = 'COMP_WITHDRAWAL_NO_APPROVED_RESULT', pg_temp.cos(2, 131)::text);
+select pg_temp.chk('D-A/P2-2: the request is flagged stale (it is bound to the invalidated result version, not only to "no advancement")', (select bool_or((x ->> 'stale')::boolean) from jsonb_array_elements(pg_temp.state_probe(pg_temp.id('fin', 13))) x));
+select pg_temp.chk('D-A: the co-sign during the window is COMP_WITHDRAWAL_REQUEST_STALE (never completes against an unknown roster)', pg_temp.code(pg_temp.cos(2, 131)) = 'COMP_WITHDRAWAL_REQUEST_STALE', pg_temp.cos(2, 131)::text);
+reset role;
+select pg_temp.regen(13, 2, array[2, 3, 4]);
+select pg_temp.chk('P2-2: after a corrected result with a DIFFERENT roster is approved the old request is still stale (the second person never co-signs a request made against another result)', pg_temp.code(pg_temp.cos(2, 131)) = 'COMP_WITHDRAWAL_REQUEST_STALE', pg_temp.cos(2, 131)::text);
+reset role;
+select pg_temp.chk('P2-2: a new request against the new result is accepted and completes (couple 2 is on the corrected roster; row only)', pg_temp.code(pg_temp.flow('withdraw', 13, 2, 132)) = 'OK', pg_temp.flow('withdraw', 13, 2, 132)::text);
+reset role;
+select pg_temp.chk('P2-2: couple 1 (only on the old roster) is NOT_ON_ROSTER for a new request now', pg_temp.code(pg_temp.req('withdraw', 13, 1, 1, 133)) = 'COMP_WITHDRAWAL_NOT_ON_ROSTER', pg_temp.req('withdraw', 13, 1, 1, 133)::text);
+reset role;
 reset role;
 
 -- D-B (owner): cancel a pending request. Scenario 14 (4 couples advanced).

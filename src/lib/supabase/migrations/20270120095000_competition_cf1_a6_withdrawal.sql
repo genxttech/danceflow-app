@@ -59,9 +59,12 @@ create table public.event_competition_final_withdrawal_requests (
   advancement_id uuid references public.event_competition_round_advancements(id),
   -- the highest advancement generation of the Final when the request was made (0: none ever); it closes the ABA hole of the null binding above (apply then revoke returns to "null" with a higher generation)
   advancement_generation integer not null default 0,
+  -- the approved callback result version when the request was made (null: none); a request is stale once the Final is built from a different result (a correction and a re-approval with another roster)
+  source_result_version_id uuid references public.event_competition_result_versions(id),
   request_id uuid not null unique,
   transaction_id bigint not null default txid_current(),
   at timestamptz not null default now(),
+  constraint event_competition_final_withdrawal_requests_ref_uq unique (request_id, event_id, target_round_id, entry_id),
   constraint event_competition_final_withdrawal_requests_round_fk foreign key (target_round_id, event_id) references public.event_competition_rounds(id, event_id),
   constraint event_competition_final_withdrawal_requests_entry_fk foreign key (entry_id, event_id) references public.event_competition_entries(id, event_id)
 );
@@ -82,13 +85,14 @@ create table public.event_competition_final_withdrawal_request_cancellations (
   event_id uuid not null references public.events(id) on delete cascade,
   target_round_id uuid not null,
   entry_id uuid not null,
-  request_id uuid not null unique references public.event_competition_final_withdrawal_requests(request_id),
+  request_id uuid not null unique,
   reason text not null check (length(btrim(reason)) between 20 and 500),
   cancelled_by uuid not null,
   cancelled_role text not null check (cancelled_role in ('manager', 'chair')),
   by_requester boolean not null,
   transaction_id bigint not null default txid_current(),
   at timestamptz not null default now(),
+  constraint event_competition_final_withdrawal_cancellations_request_fk foreign key (request_id, event_id, target_round_id, entry_id) references public.event_competition_final_withdrawal_requests(request_id, event_id, target_round_id, entry_id),
   constraint event_competition_final_withdrawal_cancellations_round_fk foreign key (target_round_id, event_id) references public.event_competition_rounds(id, event_id)
 );
 create index event_competition_final_withdrawal_cancellations_round_idx on public.event_competition_final_withdrawal_request_cancellations (target_round_id);
@@ -120,6 +124,19 @@ as $$
   limit 1;
 $$;
 
+-- The latest APPROVED callback result version of the Final's callback round (the one apply would use), or null.
+create function public._cf1_a6_approved_version(p_round_id uuid)
+returns uuid
+language sql
+volatile
+security definer
+set search_path = public, pg_temp
+as $$
+  select rv.id from public.event_competition_result_versions rv
+  where rv.round_id = public._cf1_callback_source(p_round_id) and rv.status = 'approved' and rv.engine_key like '%callback_tally%'
+  order by rv.version desc limit 1;
+$$;
+
 -- D-A (owner): a NEW withdrawal / reinstatement is refused while the Final's callback round has an open correction, or while no approved callback result exists
 -- and no advancement is active (a correction revoked the advancement and invalidated the result): the roster is unknown until a corrected result is approved.
 create function public._cf1_a6_roster_blocked(p_round_id uuid)
@@ -131,9 +148,8 @@ set search_path = public, pg_temp
 as $$
   -- Opening a correction revokes the active advancement and invalidates the approved result in the same transaction (F2 / A0), and only approving a corrected result
   -- ends it, so "no active advancement and no approved callback result" is exactly "the callback is under correction (or was never approved)".
-  select (public._cf1_active_advancement(p_round_id) is null
-          and not exists (select 1 from public.event_competition_result_versions rv
-                          where rv.round_id = public._cf1_callback_source(p_round_id) and rv.status = 'approved' and rv.engine_key like '%callback_tally%'));
+  -- (A non-callback Final has no source and is reported blocked here; _cf1_a6_precheck refuses it earlier with COMP_WITHDRAWAL_NOT_CALLBACK_FINAL.)
+  select public._cf1_active_advancement(p_round_id) is null and public._cf1_a6_approved_version(p_round_id) is null;
 $$;
 
 -- The couples of the Final's current roster: the active advancement's list, else the latest APPROVED callback result's advanced rows (between a revoke and the next apply), else none.
@@ -156,8 +172,7 @@ begin
   end if;
   v_src := public._cf1_callback_source(p_round_id);
   -- the same version apply would use: the latest APPROVED callback version (a newer calculated / invalidated version never counts)
-  select rv.id into v_ver from public.event_competition_result_versions rv
-  where rv.round_id = v_src and rv.status = 'approved' and rv.engine_key like '%callback_tally%' order by rv.version desc limit 1;
+  v_ver := public._cf1_a6_approved_version(p_round_id);
   if v_ver is null then
     -- no approved version right now (a correction invalidated it): no roster. A new withdrawal is refused in that window (_cf1_a6_roster_blocked, owner D-A); never an outdated last-applied list.
     return '{}';
@@ -351,7 +366,7 @@ as $$
 $$;
 
 -- Is a request bound to something other than the Final's current state: another active advancement, or any new generation since it was made (apply then revoke included).
-create function public._cf1_a6_is_stale(p_round_id uuid, p_advancement_id uuid, p_generation integer)
+create function public._cf1_a6_is_stale(p_round_id uuid, p_advancement_id uuid, p_generation integer, p_version uuid)
 returns boolean
 language sql
 volatile
@@ -359,7 +374,8 @@ security definer
 set search_path = public, pg_temp
 as $$
   select p_advancement_id is distinct from public._cf1_active_advancement(p_round_id)
-      or p_generation is distinct from coalesce((select max(a.generation) from public.event_competition_round_advancements a where a.target_round_id = p_round_id), 0);
+      or p_generation is distinct from coalesce((select max(a.generation) from public.event_competition_round_advancements a where a.target_round_id = p_round_id), 0)
+      or p_version is distinct from public._cf1_a6_approved_version(p_round_id);
 $$;
 
 -- The pending requests of a Final that can still be co-signed: not completed and bound to the Final's current state (see _cf1_a6_is_stale).
@@ -374,7 +390,7 @@ as $$
   where q.target_round_id = p_round_id
     and not exists (select 1 from public.event_competition_final_withdrawals w where w.request_id = q.request_id)
     and not exists (select 1 from public.event_competition_final_withdrawal_request_cancellations c where c.request_id = q.request_id)
-    and not public._cf1_a6_is_stale(p_round_id, q.advancement_id, q.advancement_generation);
+    and not public._cf1_a6_is_stale(p_round_id, q.advancement_id, q.advancement_generation, q.source_result_version_id);
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -416,7 +432,7 @@ begin
         v_done := exists (select 1 from public.event_competition_final_withdrawals w where w.request_id = p_request_id);
         return jsonb_build_object('replayed', true, 'state', case when v_done then 'completed'
                                   when exists (select 1 from public.event_competition_final_withdrawal_request_cancellations c where c.request_id = p_request_id) then 'cancelled'
-                                  when public._cf1_a6_is_stale(p_round_id, v_prev.advancement_id, v_prev.advancement_generation) then 'stale' else 'pending' end,
+                                  when public._cf1_a6_is_stale(p_round_id, v_prev.advancement_id, v_prev.advancement_generation, v_prev.source_result_version_id) then 'stale' else 'pending' end,
                                   'request_id', p_request_id, 'kind', p_kind);
       end if;
       raise exception 'COMP_REQUEST_REUSED: request id was already used for a different request.' using errcode = 'P0001';
@@ -437,9 +453,9 @@ begin
       raise exception 'COMP_WITHDRAWAL_TOO_MANY_PENDING: this Final already has 10 requests waiting for a co-signer.' using errcode = 'P0001';
     end if;
     v_adv := public._cf1_active_advancement(p_round_id);
-    insert into public.event_competition_final_withdrawal_requests (event_id, target_round_id, entry_id, kind, reason, requested_by, advancement_id, advancement_generation, request_id)
+    insert into public.event_competition_final_withdrawal_requests (event_id, target_round_id, entry_id, kind, reason, requested_by, advancement_id, advancement_generation, source_result_version_id, request_id)
     values (v_round.event_id, p_round_id, p_entry_id, p_kind, v_reason, v_uid, v_adv,
-            coalesce((select max(a.generation) from public.event_competition_round_advancements a where a.target_round_id = p_round_id), 0), p_request_id);
+            coalesce((select max(a.generation) from public.event_competition_round_advancements a where a.target_round_id = p_round_id), 0), public._cf1_a6_approved_version(p_round_id), p_request_id);
     return jsonb_build_object('replayed', false, 'state', 'pending', 'request_id', p_request_id, 'kind', p_kind);
   exception
     when lock_not_available or deadlock_detected then
@@ -531,7 +547,7 @@ begin
     if not public._cf1_a6_can_manage(v_req.requested_by, v_req.event_id) or public.verified_email_for_user(v_req.requested_by) is null then
       raise exception 'COMP_WITHDRAWAL_REQUESTER_INVALID: the requester is no longer a verified manager of this event; request again.' using errcode = '42501';
     end if;
-    if public._cf1_a6_is_stale(v_req.target_round_id, v_req.advancement_id, v_req.advancement_generation) then
+    if public._cf1_a6_is_stale(v_req.target_round_id, v_req.advancement_id, v_req.advancement_generation, v_req.source_result_version_id) then
       raise exception 'COMP_WITHDRAWAL_REQUEST_STALE: the Final was advanced or corrected after this request was made; request again.' using errcode = 'P0001';
     end if;
 
@@ -672,7 +688,7 @@ begin
     'withdrawn', coalesce((select jsonb_agg(jsonb_build_object('entry_id', w.entry_id, 'withdrawal_id', w.withdrawal_id) order by w.entry_id)
                            from public._cf1_withdrawn_entries(p_round_id) w), '[]'::jsonb),
     'pending', coalesce((select jsonb_agg(jsonb_build_object('request_id', q.request_id, 'kind', q.kind, 'entry_id', q.entry_id, 'requested_by', q.requested_by,
-                                                              'reason', q.reason, 'at', q.at, 'stale', public._cf1_a6_is_stale(p_round_id, q.advancement_id, q.advancement_generation)) order by q.at, q.id)
+                                                              'reason', q.reason, 'at', q.at, 'stale', public._cf1_a6_is_stale(p_round_id, q.advancement_id, q.advancement_generation, q.source_result_version_id)) order by q.at, q.id)
                          from public.event_competition_final_withdrawal_requests q
                          where q.target_round_id = p_round_id
                            and not exists (select 1 from public.event_competition_final_withdrawals w where w.request_id = q.request_id)
@@ -690,7 +706,7 @@ $$;
 -- ---------------------------------------------------------------------------
 revoke all on function public._cf1_a6_pair_state(uuid, uuid), public._cf1_a6_current_roster(uuid), public._cf1_a6_on_roster(uuid, uuid),
   public._cf1_a6_active_heat(uuid), public._cf1_a6_roster_blocked(uuid), public._cf1_a6_precheck(text, uuid, uuid), public.cf1_guard_withdrawn_heat_entry(),
-  public._cf1_a6_request(text, uuid, uuid, text, uuid), public._cf1_a6_can_manage(uuid, uuid), public._cf1_a6_live_requests(uuid), public._cf1_a6_is_stale(uuid, uuid, integer)
+  public._cf1_a6_request(text, uuid, uuid, text, uuid), public._cf1_a6_can_manage(uuid, uuid), public._cf1_a6_live_requests(uuid), public._cf1_a6_is_stale(uuid, uuid, integer, uuid), public._cf1_a6_approved_version(uuid)
   from public, anon, authenticated, service_role;
 
 -- The invoker 10D triggers never call these; the guard runs as its owner. Only the five RPCs are callable, by authenticated.
