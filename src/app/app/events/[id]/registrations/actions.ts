@@ -2055,7 +2055,11 @@ export async function markEventRegistrationPaidAction(formData: FormData) {
 
     redirect(buildReturnUrl(eventId, "success=registration_paid"));
   } catch (error) {
-    // Only the Organizer Suite refusal is surfaced as its own error; every other path keeps its existing handling.
+    // redirect() works by throwing. The intentional redirects above (success, not found, order-backed lock, access
+    // and sign-in redirects) must pass through; only a real failure becomes mark_paid_failed. Without this rethrow every
+    // outcome, success included, was reported as mark_paid_failed.
+    if (isRedirectError(error)) throw error;
+    // The Organizer Suite refusal is surfaced as its own error.
     if (error instanceof OrganizerSuiteRefusal) redirect(buildReturnUrl(eventId, "error=organizer_suite_required"));
     redirect(buildReturnUrl(eventId, "error=mark_paid_failed"));
   }
