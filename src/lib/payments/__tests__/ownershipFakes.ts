@@ -266,6 +266,12 @@ export function createOwnershipFakeSupabase(
 
   const rpcCalls: Array<{ name: string; params: Row }> = [];
   async function rpc(name: string, params: Row) {
+    // CI-D R2 webhook routing: no competition orders unless a test overrides these (not recorded as
+    // package/payment RPCs).
+    if (name === "observe_competition_stripe_refund" || name === "is_competition_order_payment_intent") {
+      return options.rpcOverride?.(name, params)
+        ?? { data: name === "observe_competition_stripe_refund" ? { handled: false } : false, error: null };
+    }
     rpcCalls.push({ name, params });
     const overridden = options.rpcOverride?.(name, params);
     if (overridden) return overridden;
