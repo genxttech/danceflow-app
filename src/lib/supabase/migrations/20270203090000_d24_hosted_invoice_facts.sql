@@ -616,8 +616,12 @@ as $$
 declare k text;
 begin
   if p_provider_event_id is null or length(p_provider_event_id) = 0 or p_event_created is null or p_livemode is null
-     or p_payload_hash is null or p_object is null or (p_object->>'invoice_id') is null then
-    raise exception 'd24: event id, created, livemode, hash and invoice id are required' using errcode = '22023';
+     or p_payload_hash is null or p_object is null or (p_object->>'invoice_id') is null or p_kind is null or p_event_type is null then
+    raise exception 'd24: event id, type, kind, created, livemode, hash and invoice id are required' using errcode = '22023';
+  end if;
+  if length(p_provider_event_id) > 255 or length(p_payload_hash) > 255 or length(p_object->>'invoice_id') > 255 or length(coalesce(p_object->>'object_id', '')) > 255
+     or pg_column_size(p_object) > 4096 then
+    raise exception 'd24: identifier or snapshot too large' using errcode = '22023';
   end if;
   if p_account is not null and p_account !~ '^acct_[A-Za-z0-9]+$' then
     raise exception 'd24: malformed account id' using errcode = '22023';
@@ -868,6 +872,7 @@ set search_path = pg_catalog, public, pg_temp
 as $$
 declare
   v_existing public.hosted_invoice_deferred_events%rowtype;
+  v_src public.hosted_invoice_source_events%rowtype;
 begin
   if p_owner is null then
     raise exception 'd24_defer_event: owner is required' using errcode = '22023';
@@ -875,7 +880,12 @@ begin
   perform public._paywh1_require_event_claim(p_provider_event_id, p_owner);
   perform public._d24_validate_event(p_provider_event_id, p_event_type, p_event_created, p_account, p_livemode, p_payload_hash, p_kind, p_object);
   perform set_config('d24.writer', 'on', true);
-  if exists (select 1 from public.hosted_invoice_source_events where provider_event_id = p_provider_event_id) then
+  select * into v_src from public.hosted_invoice_source_events where provider_event_id = p_provider_event_id;
+  if found then
+    if v_src.payload_hash <> p_payload_hash then
+      perform public._d24_flag(v_src.invoice_row_id, 'replay_payload_mismatch', true);
+      perform public._d24_refresh_state(v_src.invoice_row_id, 'event', p_provider_event_id);
+    end if;
     return jsonb_build_object('outcome', 'already_applied');
   end if;
   insert into public.hosted_invoice_deferred_events
@@ -905,21 +915,30 @@ declare
   v_applied integer := 0;
   v_rejected integer := 0;
   v_failed integer := 0;
+  v_res jsonb;
 begin
   perform set_config('d24.writer', 'on', true);
   for r in select * from public.hosted_invoice_deferred_events where state = 'pending'
            order by attempts, event_created, provider_event_id limit least(greatest(coalesce(p_limit, 25), 1), 100) for update skip locked loop
     begin
-      perform public._d24_apply_core(r.provider_event_id, r.event_type, r.event_created, r.stripe_account_id, r.livemode, r.payload_hash, r.object_kind, r.object_snapshot);
+      v_res := public._d24_apply_core(r.provider_event_id, r.event_type, r.event_created, r.stripe_account_id, r.livemode, r.payload_hash, r.object_kind, r.object_snapshot);
+      if r.payload_mismatch and (v_res->>'invoice_row_id') is not null then
+        perform public._d24_flag((v_res->>'invoice_row_id')::uuid, 'replay_payload_mismatch', true);
+        perform public._d24_refresh_state((v_res->>'invoice_row_id')::uuid, 'event', r.provider_event_id);
+      end if;
       update public.hosted_invoice_deferred_events set state = 'applied', settled_at = now(), attempts = attempts + 1, last_error = null
       where provider_event_id = r.provider_event_id;
       v_applied := v_applied + 1;
     exception when others then
       perform set_config('d24.writer', 'on', true);
-      if sqlstate = '22023' or r.attempts + 1 >= 5 then
+      if sqlstate = '22023' or (r.attempts + 1 >= 5 and sqlstate not like '40%' and sqlstate not like '53%' and sqlstate not in ('55P03', '57014')) then
         update public.hosted_invoice_deferred_events set state = 'rejected', settled_at = now(), attempts = attempts + 1, last_error = left(sqlerrm, 500)
         where provider_event_id = r.provider_event_id;
         v_rejected := v_rejected + 1;
+      elsif sqlstate like '40%' or sqlstate like '53%' or sqlstate in ('55P03', '57014') then
+        -- transient (deadlock, serialization, lock timeout, resources, cancel): retry later and do NOT count it toward quarantine
+        update public.hosted_invoice_deferred_events set last_error = left(sqlerrm, 500) where provider_event_id = r.provider_event_id;
+        v_failed := v_failed + 1;
       else
         update public.hosted_invoice_deferred_events set attempts = attempts + 1, last_error = left(sqlerrm, 500) where provider_event_id = r.provider_event_id;
         v_failed := v_failed + 1;

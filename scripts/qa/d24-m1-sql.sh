@@ -460,6 +460,38 @@ check "apply (unregistered) then register in one transaction commits and attribu
 check "a source event cannot be attached to another account's invoice row (privileged insert)" "$(as postgres "$W insert into public.hosted_invoice_source_events (provider_event_id, event_type, stripe_account_id, livemode, event_created, payload_hash, object_kind, object_id, invoice_row_id, object_snapshot, stripe_invoice_id) values ('evt_evil_src','invoice.voided','acct_evil',false,1,'h','invoice','in_first','$FROW','{}','in_first')" 2>&1 | grep -c 'hosted_invoice_source_events_invoice_fk')" "1"
 check "an audit row cannot carry a studio that differs from its invoice (privileged insert)" "$(as postgres "$W insert into public.hosted_invoice_recon_audit (invoice_row_id, studio_id, trigger_kind, to_state) values ('$FROW','$SB','event','clear')" 2>&1 | grep -c 'audit studio does not match')" "1"
 
+# 14g. final-review nits ------------------------------------------------------------------------------------------------------
+# transient errors never count toward quarantine
+q "create function public.t_transient() returns trigger language plpgsql as \$\$ begin if new.amount_requested = 778 then raise exception 'lock timeout sim' using errcode = '55P03'; end if; return new; end \$\$" >/dev/null
+q "create trigger t_transient_trg before insert on public.hosted_invoice_payments for each row execute function public.t_transient()" >/dev/null
+claim evt_trans >/dev/null
+dfr evt_trans invoice_payment invoice_payment.paid 26000 null "$(pj in_trans inpay_trans 778)" >/dev/null
+for i in 1 2 3 4 5 6 7; do q "select public.d24_drain_deferred(5)" >/dev/null; done
+check "a transient (55P03) failure repeated 7 times is never quarantined and stays pending with attempts 0" "$(q "select state||'/'||attempts from public.hosted_invoice_deferred_events where provider_event_id='evt_trans'")" "pending/0"
+q "drop trigger t_transient_trg on public.hosted_invoice_payments" >/dev/null
+out=$(q "select public.d24_drain_deferred(5)::text")
+check "...and is applied as soon as the transient condition clears" "$(echo "$out" | grep -o '"applied": [0-9]*')/$(q "select state from public.hosted_invoice_deferred_events where provider_event_id='evt_trans'")" '"applied": 1/applied'
+# a payload mismatch on a duplicate deferred event reaches the invoice
+claim evt_mm2 >/dev/null
+dfr evt_mm2 invoice_payment invoice_payment.paid 26001 null "$(pj in_mm2 inpay_mm2 3)" >/dev/null
+dfr evt_mm2 invoice_payment invoice_payment.paid 26001 null "$(pj in_mm2 inpay_mm2 3)" "$O1" other-hash >/dev/null
+q "select public.d24_drain_deferred(5)" >/dev/null
+check "drain turns a deferred payload mismatch into a replay_payload_mismatch anomaly on the invoice" "$(rowof '' in_mm2 "anomaly_codes @> array['replay_payload_mismatch']")" "t"
+# ...and also when the event had already been applied
+claim evt_mm3 >/dev/null
+ap evt_mm3 invoice_payment invoice_payment.paid 26002 null "$(pj in_mm3 inpay_mm3 3)" >/dev/null
+dfr evt_mm3 invoice_payment invoice_payment.paid 26002 null "$(pj in_mm3 inpay_mm3 3)" "$O1" other-hash >/dev/null
+check "a defer of an already-applied event with a different payload flags the invoice" "$(rowof '' in_mm3 "anomaly_codes @> array['replay_payload_mismatch']")" "t"
+# validation gaps
+r=$(q "select public.d24_defer_event('evt_nullkind','$O1','invoice.voided',1,null,false,'$H',null,'$(pj in_nk inpay_nk 1)'::jsonb)" 2>&1 | tr -d '\n' | cut -c1-200)
+claim evt_nullkind >/dev/null
+r=$(q "select public.d24_defer_event('evt_nullkind','$O1','invoice.voided',1,null,false,'$H',null,'$(pj in_nk inpay_nk 1)'::jsonb)" 2>&1 | tr -d '\n' | cut -c1-200)
+check "a NULL kind is a permanent validation error (22023), not a constraint error later" "$(echo "$r" | grep -c 'type, kind, created')" "1"
+BIG=$(printf 'x%.0s' $(seq 1 300))
+claim evt_big >/dev/null
+r=$(q "select public.d24_defer_event('evt_big','$O1','invoice_payment.paid',1,null,false,'$H','invoice_payment','{\"invoice_id\":\"in_big\",\"object_id\":\"inpay_big\",\"status\":\"paid\",\"amount_requested\":1,\"amount_paid\":1,\"currency\":\"usd\",\"pad\":\"$BIG$BIG$BIG$BIG$BIG$BIG$BIG$BIG$BIG$BIG$BIG$BIG$BIG$BIG\"}'::jsonb)" 2>&1 | tr -d '\n' | cut -c1-200)
+check "an oversized snapshot is a permanent validation error (22023)" "$(echo "$r" | grep -c 'too large')" "1"
+
 # 15. rollback# 15. rollback -------------------------------------------------------------------------------------------------------------
 r=$(docker exec -i "$NAME" psql -U postgres -v ON_ERROR_STOP=1 -q < "$M_RB" 2>&1 | tr -d '\n' | cut -c1-120)
 check "rollback is refused while evidence rows exist" "$(echo "$r" | grep -c 'rollback refused')" "1"
