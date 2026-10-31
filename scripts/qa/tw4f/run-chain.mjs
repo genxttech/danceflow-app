@@ -31,6 +31,7 @@
  *   --track-functions        start every SUITE database with track_functions=all and write coverage.json per suite (pg_stat_user_functions vs public functions)
  *   --marker                 create public.tw4_local_qa_only in the seed before the plan (plus the auth.users columns GoTrue adds, i.e. iso-qa.mjs parity: ISO_QA_MARKER=1 and its auth step; 11 localStack suites require them)
  *   --auth                   also start a disposable local GoTrue (own container, TOTP MFA on, auto-confirm, no SMTP) behind Kong at /auth/v1 and export TW4_LOCAL_AUTH_URL (WP-D2 layer b)
+ *   --residue <regex>        (repeatable) catalog lines matching the regex are an ACCEPTED, DOCUMENTED residue of a fail-closed rollback: they are ignored (and listed) when a ROLLBACK stage is compared with the earlier catalog; re-apply stages are still compared exactly (D4-1)
  *   --keep                   keep the chain image and worktrees
  *   --known <file>           known environment failures (default scripts/qa/tw4f/known-failures.json)
  *
@@ -75,7 +76,7 @@ const CRASH_RE = /terminated by signal|was terminated by|exited with exit code [
 
 // ------------------------------------------------------------------------------------------------------------------------------------ args
 function parseArgs(argv) {
-  const flags = { extraBranch: [], extra: [], suite: [], env: {} };
+  const flags = { extraBranch: [], extra: [], suite: [], residue: [], env: {} };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -90,6 +91,7 @@ function parseArgs(argv) {
     if (k === "extra-branch") flags.extraBranch.push(v);
     else if (k === "extra") flags.extra.push(v);
     else if (k === "suite") flags.suite.push(v);
+    else if (k === "residue") flags.residue.push(new RegExp(v));
     else if (k === "env") { const i = v.indexOf("="); flags.env[v.slice(0, i)] = v.slice(i + 1); }
     else flags[k.replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = v;
   }
@@ -298,10 +300,16 @@ async function chainCheck(plan, image, outDir) {
       }
       return { ok: true, rows };
     };
-    const cmp = (stage, before, after, expectEqual = true) => {
-      const d = diffFp(before, after);
+    const cmp = (stage, before, after, expectEqual = true, residue = false) => {
+      let d = diffFp(before, after);
+      let ignored = [];
+      if (residue && flags.residue.length) {
+        const isRes = (l) => flags.residue.some((re) => re.test(l));
+        ignored = [...d.onlyBefore, ...d.onlyAfter].filter(isRes);
+        d = { onlyBefore: d.onlyBefore.filter((l) => !isRes(l)), onlyAfter: d.onlyAfter.filter((l) => !isRes(l)) };
+      }
       const same = d.onlyBefore.length === 0 && d.onlyAfter.length === 0;
-      rec(stage, same === expectEqual ? "PASS" : "FAIL", { equal: same, onlyBefore: d.onlyBefore.slice(0, 40), onlyAfter: d.onlyAfter.slice(0, 40), counts: [d.onlyBefore.length, d.onlyAfter.length] });
+      rec(stage, same === expectEqual ? "PASS" : "FAIL", { ...(ignored.length ? { note: `${ignored.length} accepted rollback-residue catalog line(s)`, residue: ignored.slice(0, 40) } : {}), equal: same, onlyBefore: d.onlyBefore.slice(0, 40), onlyAfter: d.onlyAfter.slice(0, 40), counts: [d.onlyBefore.length, d.onlyAfter.length] });
       return same;
     };
 
@@ -319,7 +327,7 @@ async function chainCheck(plan, image, outDir) {
       fpTop = fingerprint(name);
       const r2 = rollAll(extras, "rollback extras");
       if (!r2.ok) return finish("FAIL");
-      cmp("rollback extras == main-only catalog", fpMain, fingerprint(name));
+      cmp("rollback extras == main-only catalog", fpMain, fingerprint(name), true, true);
       const a3 = applyAll(extras, "re-apply extras");
       if (!a3.ok) return finish("FAIL");
       cmp("re-apply extras == first apply", fpTop, fingerprint(name));
@@ -328,7 +336,7 @@ async function chainCheck(plan, image, outDir) {
     const rAll = rollAll(plan, "rollback all (reverse order)");
     if (!rAll.ok) return finish("FAIL");
     rec("rollback all (reverse order)", "PASS", { note: `${plan.length} rollback(s) ran without error`, rows: rAll.rows });
-    cmp("rollback all == baseline catalog", fp0, fingerprint(name));
+    cmp("rollback all == baseline catalog", fp0, fingerprint(name), true, true);
     // 4. re-apply the full plan in plan order
     const a4 = applyAll(plan, "re-apply all");
     if (!a4.ok) return finish("FAIL");
