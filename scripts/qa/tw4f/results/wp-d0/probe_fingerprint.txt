@@ -1,0 +1,1234 @@
+rollup:ALL|(1224 objects)|3a38f6b6
+rollup:fn_body:other_sms_functions|(9 objects)|57ffc959
+rollup:fn_body:tw4_functions|(413 objects)|caea2510
+rollup:fn_meta:other_sms_functions|(9 objects)|296327df
+rollup:fn_meta:tw4_functions|(413 objects)|5d43a963
+rollup:tbl_columns|(76 objects)|9b8c9933
+rollup:tbl_constraints|(76 objects)|57a88f18
+rollup:tbl_indexes|(76 objects)|3b4c080a
+rollup:tbl_meta|(76 objects)|9093acd9
+rollup:tbl_triggers|(76 objects)|a88f2c4e
+fn_body:other_sms_functions|_sms_consent_clear_context()|e9e01789
+fn_body:other_sms_functions|_sms_consent_set_context(p_event_type text, p_actor_type text, p_actor_user_id uuid, p_actor_role text, p_actor_name text)|80e3121f
+fn_body:other_sms_functions|log_sms_consent_history()|73144272
+fn_body:other_sms_functions|prevent_sms_consent_history_change()|a9db09f2
+fn_body:other_sms_functions|record_sms_inbound_opt_event(p_studio_id uuid, p_phone_e164 text, p_event text)|153e0782
+fn_body:other_sms_functions|record_sms_public_opt_in(p_studio_id uuid, p_client_id uuid, p_phone_e164 text, p_source text, p_note text)|8323d29f
+fn_body:other_sms_functions|studio_sms_registrations_integrity()|5cd21ba6
+fn_body:other_sms_functions|touch_sms_updated_at()|9b1889f5
+fn_body:other_sms_functions|upsert_sms_contact_permission(p_studio_id uuid, p_organizer_id uuid, p_client_id uuid, p_organizer_contact_id uuid, p_phone_e164 text, p_consent_status text, p_consent_source text, p_consent_note text)|1005ca57
+fn_body:tw4_functions|_sms_onb_access_enabled(p_studio_id uuid)|30cbe38a
+fn_body:tw4_functions|_sms_onb_append_only()|5dff8346
+fn_body:tw4_functions|_sms_onb_audit(p_studio_id uuid, p_onboarding_id uuid, p_actor_type text, p_action text, p_from text, p_to text, p_note text)|7b711713
+fn_body:tw4_functions|_sms_onb_integrity()|b432e7bd
+fn_body:tw4_functions|_sms_onb_is_platform_admin()|ef9ad219
+fn_body:tw4_functions|_sms_onb_missing(o studio_sms_onboarding)|2b817bf5
+fn_body:tw4_functions|_sms_onb_refuse_truncate()|979e9e59
+fn_body:tw4_functions|_sms_onb_steps_guard()|2edc10be
+fn_body:tw4_functions|_sms_onb_studio_role(p_studio_id uuid)|c2229b38
+fn_body:tw4_functions|_sms_onb_transition_allowed(p_from text, p_to text)|dbf0c1c3
+fn_body:tw4_functions|_sms_webhook_receipts_guard()|ac48c821
+fn_body:tw4_functions|_tw4_r1_audit(p_o studio_sms_onboarding, p_actor uuid, p_action text, p_from text, p_to text, p_note text)|33bdba2b
+fn_body:tw4_functions|_tw4_r1_is_platform_admin(p_user uuid)|7c5daae3
+fn_body:tw4_functions|_tw4_r1_lease(p_onboarding_id uuid, p_lease_owner text)|17aca743
+fn_body:tw4_functions|_tw4_r1_step_ok(p_key text)|5cb52f0d
+fn_body:tw4_functions|_tw4act_funding(p_studio_id uuid)|f3840739
+fn_body:tw4_functions|_tw4act_items(p_studio_id uuid)|bdd8399d
+fn_body:tw4_functions|_tw4act_lock_funding(p_studio_id uuid)|fb97952a
+fn_body:tw4_functions|_tw4act_pilot_funding(p_studio_id uuid, p_entity uuid)|7d9ce80d
+fn_body:tw4_functions|_tw4act_require(p_studio_id uuid)|984dbba2
+fn_body:tw4_functions|_tw4c_admin(p_actor uuid)|73a8488a
+fn_body:tw4_functions|_tw4c_any_location(p_entity uuid)|93d1b000
+fn_body:tw4_functions|_tw4c_immutable_guard()|91a3cd07
+fn_body:tw4_functions|_tw4c_lock(p_entity uuid)|46b8aa25
+fn_body:tw4_functions|_tw4c_pilot_cap_guard()|6e8b7a8f
+fn_body:tw4_functions|_tw4c_post(p_entity uuid, p_studio uuid, p_kind text, p_bdelta bigint, p_rdelta bigint, p_key text, p_reservation uuid, p_ref text, p_actor uuid, p_note text)|114bdf8a
+fn_body:tw4_functions|_tw4c_require_funds(a studio_sms_credit_accounts, p_cents bigint)|d93e60de
+fn_body:tw4_functions|_tw4c_truncate_guard()|babf09d1
+fn_body:tw4_functions|_tw4f1b_confirmations_guard()|925aaf5f
+fn_body:tw4_functions|_tw4f1b_confirmations_truncate_guard()|3ddca60c
+fn_body:tw4_functions|_tw4f1b_submission_check(p_o studio_sms_onboarding, p_step_key text)|d977d906
+fn_body:tw4_functions|_tw4f3a_audit(p_studio uuid, p_actor uuid, p_action text, p_note text)|e3c74c38
+fn_body:tw4_functions|_tw4f3a_committed(p_entity uuid)|81297251
+fn_body:tw4_functions|_tw4f3a_evidence_guard()|c152f3ee
+fn_body:tw4_functions|_tw4f3a_name_key(p_name text)|9992eae3
+fn_body:tw4_functions|_tw4f3a_steps_account_guard()|b95e870e
+fn_body:tw4_functions|_tw4f4_retry(p_studio_id uuid, p_kind text)|099691fc
+fn_body:tw4_functions|_tw4f4_retry_target(p_studio_id uuid, p_kind text)|24aeee05
+fn_body:tw4_functions|_tw4f4_sender_status(p_studio_id uuid, p_phone_number_sid text)|79cfe6a1
+fn_body:tw4_functions|_tw4fi_append_only()|957540e1
+fn_body:tw4_functions|_tw4fi_ceiling_ref_trigger()|d43267d3
+fn_body:tw4_functions|_tw4fi_location_path_nolock(p_studio_id uuid)|056c15e7
+fn_body:tw4_functions|_tw4fi_open_path_commitments(p_studio_id uuid, p_kinds text[])|85c75ebd
+fn_body:tw4_functions|_tw4fi_pilot_ref_trigger()|d6acd4f6
+fn_body:tw4_functions|_tw4fi_ref_norm(p text)|977994a5
+fn_body:tw4_functions|_tw4fi_register(p_raw text, p_source text, p_entity uuid, p_studio uuid, p_spend uuid, p_kind text, p_cents integer, p_funding text, p_actor uuid)|8b0935e0
+fn_body:tw4_functions|_tw4fi_require_path_kind(p_studio_id uuid, p_kind text)|105b58bf
+fn_body:tw4_functions|_tw4fi_reservation_path_trigger()|95a86dda
+fn_body:tw4_functions|_tw4fi_spend_path_trigger()|0ec3a80b
+fn_body:tw4_functions|_tw4fi_spend_ref_trigger()|848e4a4e
+fn_body:tw4_functions|_tw4in_ceiling(p_entity uuid)|227a811d
+fn_body:tw4_functions|_tw4in_reconciliation_gaps()|7fde1179
+fn_body:tw4_functions|_tw4in_spend_without_inbound(p_entity uuid, p_key text)|01e33bd7
+fn_body:tw4_functions|_tw4ml_apply_limit(p_entity uuid, p_audit_studio uuid, p_actor uuid, p_role text, p_limit integer, p_effective text, p_reason text, p_require_recent_signin boolean)|a02829e1
+fn_body:tw4_functions|_tw4ml_apply_timezone(p_entity uuid, p_audit_studio uuid, p_actor uuid, p_role text, p_timezone text, p_reason text)|1396de61
+fn_body:tw4_functions|_tw4ml_ceiling_for(p_entity uuid)|5827e367
+fn_body:tw4_functions|_tw4ml_default_tz(p_entity uuid)|effe7307
+fn_body:tw4_functions|_tw4ml_effective_limit(p_entity uuid, p_key text)|78f1b8c3
+fn_body:tw4_functions|_tw4ml_ensure_tz(p_entity uuid)|7fb10b5d
+fn_body:tw4_functions|_tw4ml_guard()|c8de98be
+fn_body:tw4_functions|_tw4ml_key_add(p_key text, p_n integer)|55cd8198
+fn_body:tw4_functions|_tw4ml_limit_for(p_entity uuid, p_key text)|aadaac1d
+fn_body:tw4_functions|_tw4ml_month_key(p_entity uuid, p_ts timestamp with time zone)|e92f7922
+fn_body:tw4_functions|_tw4ml_month_parts(p_entity uuid, p_key text)|0dcc2d01
+fn_body:tw4_functions|_tw4ml_month_spend(p_entity uuid, p_key text)|4a30936c
+fn_body:tw4_functions|_tw4ml_month_start(p_entity uuid, p_key text)|15f41a8b
+fn_body:tw4_functions|_tw4ml_require_room(p_entity uuid, p_cents bigint, p_already_counted bigint)|9b8811df
+fn_body:tw4_functions|_tw4ml_tz_for(p_entity uuid, p_key text)|88ddbe2f
+fn_body:tw4_functions|_tw4ml_valid_tz(p_tz text)|19035f85
+fn_body:tw4_functions|_tw4num_absence_evidence(r studio_sms_num_operations)|07e9852c
+fn_body:tw4_functions|_tw4num_account(p_studio_id uuid)|ca653e19
+fn_body:tw4_functions|_tw4num_campaign(p_studio_id uuid)|636f039a
+fn_body:tw4_functions|_tw4num_credit_funded(p_entity uuid, p_auth uuid)|84a190fb
+fn_body:tw4_functions|_tw4num_free_selection(p_selection uuid, p_actor uuid, p_note text)|6fc5045a
+fn_body:tw4_functions|_tw4num_guard()|a7856814
+fn_body:tw4_functions|_tw4num_has_resources(p_entity uuid)|7446a265
+fn_body:tw4_functions|_tw4num_health(p_studio_id uuid)|7302cfd5
+fn_body:tw4_functions|_tw4num_health(p_studio_id uuid, p_detail boolean)|bf31e52e
+fn_body:tw4_functions|_tw4num_known(p_entity uuid)|c109630a
+fn_body:tw4_functions|_tw4num_ledger_active(p_studio_id uuid)|dfc122bb
+fn_body:tw4_functions|_tw4num_ledger_reservation(p_op uuid)|9baa908f
+fn_body:tw4_functions|_tw4num_on_number_cancelled(p_studio_id uuid, p_provider_sid text, p_op uuid, p_actor uuid)|0612d927
+fn_body:tw4_functions|_tw4num_price(p_kind text)|8cacfbe0
+fn_body:tw4_functions|_tw4num_register_owned(p_op uuid)|b127fd2c
+fn_body:tw4_functions|_tw4num_rent_basis_core(p_studio_id uuid)|38965395
+fn_body:tw4_functions|_tw4num_rent_hold(p_studio_id uuid, p_entity uuid)|0e309f06
+fn_body:tw4_functions|_tw4num_requirements(p_studio_id uuid)|6de197bf
+fn_body:tw4_functions|_tw4num_reserve(p_o studio_sms_onboarding, p_op uuid, p_expected_cents integer)|8f641f6f
+fn_body:tw4_functions|_tw4num_send_blocked(p_account text, p_sid text, p_e164 text)|42149fb1
+fn_body:tw4_functions|_tw4num_service(p_studio_id uuid)|d8110e0c
+fn_body:tw4_functions|_tw4num_settle_if_held(p_op uuid, p_outcome text, p_ref text)|b895d837
+fn_body:tw4_functions|_tw4num_taken(p_e164 text, p_studio_id uuid)|3237dbe6
+fn_body:tw4_functions|_tw4p1_guard()|9ad3d0b6
+fn_body:tw4_functions|_tw4p2_event(p_orphan uuid, p_event text, p_actor uuid, p_detail text)|93d0fb6a
+fn_body:tw4_functions|_tw4p2_guard()|e3ac57a9
+fn_body:tw4_functions|_tw4p2_no_recon_ops()|e94a4954
+fn_body:tw4_functions|_tw4p_append_only_guard()|c8de98be
+fn_body:tw4_functions|_tw4p_lvs_checklist_complete(p jsonb)|efc2c19d
+fn_body:tw4_functions|_tw4prov2_close_scan()|0d709a2f
+fn_body:tw4_functions|_tw4prov2_guard()|cb557eb5
+fn_body:tw4_functions|_tw4prov2_is_pilot(p_entity uuid)|0a276724
+fn_body:tw4_functions|_tw4prov2_is_pilot_op(p_op uuid, p_entity uuid)|efdf3f6f
+fn_body:tw4_functions|_tw4prov2_orphan_block()|560ca88d
+fn_body:tw4_functions|_tw4prov2_orphan_gone(p_orphan uuid)|1b3d1fef
+fn_body:tw4_functions|_tw4prov2_orphan_scan(p_op uuid)|9a8cb07d
+fn_body:tw4_functions|_tw4prov2_proof(p_op uuid)|49484528
+fn_body:tw4_functions|_tw4prov2_refusal_disposition()|f662caa5
+fn_body:tw4_functions|_tw4prov2_refusal_guard()|649de5b6
+fn_body:tw4_functions|_tw4prov2_reservation_disposition()|2b671cc5
+fn_body:tw4_functions|_tw4prov_brand(p_studio_id uuid)|c5efcac5
+fn_body:tw4_functions|_tw4prov_campaign_requirements(p_studio_id uuid)|bf8569a2
+fn_body:tw4_functions|_tw4prov_guard()|daadbbe9
+fn_body:tw4_functions|_tw4prov_ledger_reservation(p_op uuid)|70d3d5b8
+fn_body:tw4_functions|_tw4prov_register_verified(p_op uuid)|a0b5d273
+fn_body:tw4_functions|_tw4prov_reserve(p_o studio_sms_onboarding, p_kind text, p_op uuid)|87d06ce3
+fn_body:tw4_functions|_tw4prov_settle(p_op uuid, p_kind text, p_outcome text, p_ref text)|3b470f0e
+fn_body:tw4_functions|_tw4prov_use_case(p_path text)|c11b8708
+fn_body:tw4_functions|_tw4pse_guard()|6dddf08b
+fn_body:tw4_functions|_tw4psh_event_evidence_check()|82bb916b
+fn_body:tw4_functions|_tw4psh_exception_evidence_check()|5bb981e1
+fn_body:tw4_functions|_tw4psh_spend_authorize(p_entity_id uuid, p_kind text, p_amount_cents integer, p_approval_ref text, p_actor uuid, p_funding text, p_studio_id uuid, p_evidence_authorized_on date, p_evidence_role text, p_evidence_scope text, p_evidence_amount_cents integer, p_evidence_period_key text, p_evidence_document_ref text, p_evidence_sha256 text)|d6d35f42
+fn_body:tw4_functions|_tw4rc_guard()|4da6571f
+fn_body:tw4_functions|_tw4rc_reconciliation_gaps()|7877ea54
+fn_body:tw4_functions|_tw4rc_release_commitment(p_authorization_id uuid)|f1f2567f
+fn_body:tw4_functions|_tw4rc_run_guard()|435a72d7
+fn_body:tw4_functions|_tw4rc_service_issue(p_studio_id uuid)|993a9ad3
+fn_body:tw4_functions|_tw4rc_service_state(p_studio_id uuid)|1c8ee603
+fn_body:tw4_functions|_tw4rc_usd(p_cents bigint)|5aee222e
+fn_body:tw4_functions|_tw4rfl_alert(p_entity uuid, p_studio uuid, p_resource uuid, p_kind text, p_dedupe text, p_audience text, p_severity text, p_summary text)|25b2c9fd
+fn_body:tw4_functions|_tw4rfl_audit(p_studio uuid, p_actor uuid, p_action text, p_note text)|e3c74c38
+fn_body:tw4_functions|_tw4rfl_auth_guard()|5561d820
+fn_body:tw4_functions|_tw4rfl_charge_kinds(p_fee_kind text)|cadd86b0
+fn_body:tw4_functions|_tw4rfl_cover(r studio_sms_provider_resources, p_key text)|9d835e1e
+fn_body:tw4_functions|_tw4rfl_df_sending(p_studio uuid)|f477e78e
+fn_body:tw4_functions|_tw4rfl_due_from(r studio_sms_provider_resources, p_key text)|4745d20d
+fn_body:tw4_functions|_tw4rfl_evid_guard()|c752e85d
+fn_body:tw4_functions|_tw4rfl_gate_suspended(p_studio uuid)|0b0b53b7
+fn_body:tw4_functions|_tw4rfl_guard()|6052ce7b
+fn_body:tw4_functions|_tw4rfl_live_sender(r studio_sms_provider_resources)|503aa443
+fn_body:tw4_functions|_tw4rfl_lock(p_entity uuid)|b6cbb615
+fn_body:tw4_functions|_tw4rfl_mark_cancelled(r studio_sms_provider_resources, p_actor uuid, p_evidence text, p_op uuid, p_not_before timestamp with time zone)|666fd4c3
+fn_body:tw4_functions|_tw4rfl_oneoff_guard()|9ef5c0e0
+fn_body:tw4_functions|_tw4rfl_register_core(p_studio_id uuid, p_actor uuid, p_kind text, p_provider_sid text, p_account_sid text, p_e164 text, p_source text, p_source_operation uuid, p_initial_reservation uuid, p_system boolean)|7437d143
+fn_body:tw4_functions|_tw4rfl_replacement(r studio_sms_provider_resources, p_key text)|aa0b521a
+fn_body:tw4_functions|_tw4rfl_retired(p_entity uuid, p_studio uuid, p_kinds text[], p_key text)|8a273ff7
+fn_body:tw4_functions|_tw4rflops_consume(p_action text, r studio_sms_provider_resources, p_period text, p_ref text, p_reason text, p_decided_by text, p_actor uuid)|76a164c0
+fn_body:tw4_functions|_tw4rflops_demotion()|b75d3d12
+fn_body:tw4_functions|_tw4rflops_epoch()|9e6f70fb
+fn_body:tw4_functions|_tw4rflops_facts(p_action text, p_resource uuid, p_period text, p_ref_norm text, p_reason text, p_decided_by text)|8c8574b6
+fn_body:tw4_functions|_tw4rflops_guard()|70430dac
+fn_body:tw4_functions|_tw4rflops_lock_parties(p_action text, p_resource uuid, p_period text)|7d3177b5
+fn_body:tw4_functions|_tw4rflops_request_insert()|1de38430
+fn_body:tw4_functions|_tw4sr_append(p_from studio_sms_billed_senders, p_status text, p_actor uuid, p_reason text, p_verification uuid)|96432d24
+fn_body:tw4_functions|_tw4sr_apply(p_studio_id uuid, p_sender_id uuid, p_actor uuid, p_evidence jsonb, p_attested boolean, p_source text)|2c3fe3bf
+fn_body:tw4_functions|_tw4sr_audit(p_studio uuid, p_actor uuid, p_action text, p_note text)|e3c74c38
+fn_body:tw4_functions|_tw4sr_fake_allowed()|220c41a6
+fn_body:tw4_functions|_tw4sr_flag(p_studio_id uuid, p_code text, p_account_sid text, p_messaging_service_sid text, p_sender_e164 text)|b63cdea6
+fn_body:tw4_functions|_tw4sr_judge(s studio_sms_billed_senders, p_evidence jsonb, p_attested boolean)|98e50c9c
+fn_body:tw4_functions|_tw4sr_latest(p_studio_id uuid)|bbd9ee19
+fn_body:tw4_functions|_tw4sr_lock(p_studio_id uuid)|fbc328a1
+fn_body:tw4_functions|_tw4sr_ready(p_studio_id uuid)|4d76a192
+fn_body:tw4_functions|_tw4sr_ready_core(p_studio_id uuid)|e107df6b
+fn_body:tw4_functions|_tw4ur_account_of(p_entity uuid, p_account text)|d13c1131
+fn_body:tw4_functions|_tw4ur_attempt_event()|19008464
+fn_body:tw4_functions|_tw4ur_fence(p_run_id uuid, p_job text)|f7e7e1fd
+fn_body:tw4_functions|_tw4ur_guard()|7d0fc750
+fn_body:tw4_functions|_tw4ur_instant(p text)|e6c99bea
+fn_body:tw4_functions|_tw4us_append_only()|c8de98be
+fn_body:tw4_functions|_tw4us_attempt_guard()|4c2a32ed
+fn_body:tw4_functions|_tw4us_charge(a studio_sms_usage_attempts, p_segments integer, p_ref text)|fec36e86
+fn_body:tw4_functions|_tw4us_lock_attempt(p_attempt uuid)|d2d4cc38
+fn_body:tw4_functions|_tw4us_rank(p_status text)|1b1f9da8
+fn_body:tw4_functions|_tw4us_reconciliation_gaps()|8133a067
+fn_body:tw4_functions|_tw4us_release_reservation(a studio_sms_usage_attempts, p_ref text)|c1db6016
+fn_body:tw4_functions|_tw4us_segments(p_body text)|6e718787
+fn_body:tw4_functions|_tw4us_switch_on()|932675ca
+fn_body:tw4_functions|_tw4us_write()|058c3c7f
+fn_body:tw4_functions|_tw4usage_reconciler_ready()|39b0ad11
+fn_body:tw4_functions|_tw4usage_run_proved(p_summary jsonb)|98db0ae5
+fn_body:tw4_functions|cancel_sms_onboarding(p_studio_id uuid)|babb98b1
+fn_body:tw4_functions|get_sms_legal_context(p_studio_slug text)|0f75f01f
+fn_body:tw4_functions|get_sms_onboarding_draft(p_studio_id uuid)|4c838884
+fn_body:tw4_functions|get_studio_sms_number_offers(p_studio_id uuid)|24217211
+fn_body:tw4_functions|get_studio_sms_provisioning(p_studio_id uuid)|e254c5d4
+fn_body:tw4_functions|get_studio_sms_status(p_studio_id uuid)|8a934496
+fn_body:tw4_functions|get_studio_sms_texting_status(p_studio_id uuid)|972869a5
+fn_body:tw4_functions|list_sms_onboardings()|a7edd693
+fn_body:tw4_functions|purge_due_sms_onboarding_eins()|d7101668
+fn_body:tw4_functions|purge_sms_onboarding_ein(p_onboarding_id uuid, p_reason text)|fae8134a
+fn_body:tw4_functions|save_sms_onboarding_draft(p_studio_id uuid, p_fields jsonb)|22c8df3e
+fn_body:tw4_functions|set_sms_onboarding_access(p_studio_id uuid, p_enabled boolean, p_reason text)|a08d7cb2
+fn_body:tw4_functions|sms_credit_admin_overview()|d6066a66
+fn_body:tw4_functions|sms_credit_history(p_studio_id uuid, p_limit integer, p_before_seq bigint)|4db0436a
+fn_body:tw4_functions|sms_credit_overview(p_studio_id uuid)|9c24016b
+fn_body:tw4_functions|sms_credit_purchases(p_studio_id uuid, p_limit integer)|f4259338
+fn_body:tw4_functions|sms_inbound_admin_overview(p_actor uuid)|e02cb2ff
+fn_body:tw4_functions|sms_location_attest(p_studio_id uuid, p_claimed_legal_name text, p_claimed_ein_last4 text, p_attestation_version text)|0ad97555
+fn_body:tw4_functions|sms_location_fee_kinds(p_studio_id uuid)|cf6618ae
+fn_body:tw4_functions|sms_monthly_limit_overview(p_studio_id uuid)|9ebe8a05
+fn_body:tw4_functions|sms_price_list()|ed9f57d9
+fn_body:tw4_functions|sms_recurring_admin_overview()|ff9c3399
+fn_body:tw4_functions|sms_recurring_overview(p_studio_id uuid)|aef6af54
+fn_body:tw4_functions|sms_rfl_owner_overview(p_studio_id uuid)|8df840fd
+fn_body:tw4_functions|sms_usage_admin_overview(p_actor uuid)|96c27db0
+fn_body:tw4_functions|sms_webhook_receipt_record(p_kind text, p_event_key text, p_account_sid text)|135f7b83
+fn_body:tw4_functions|sms_webhook_receipt_seen(p_kind text, p_event_key text)|4953ae5f
+fn_body:tw4_functions|store_sms_onboarding_ein(p_studio_id uuid, p_actor uuid, p_ciphertext text, p_key_id text, p_last4 text)|e21c6544
+fn_body:tw4_functions|submit_sms_onboarding(p_studio_id uuid, p_attestation jsonb)|d90599c4
+fn_body:tw4_functions|tw4_act_activate(p_studio_id uuid, p_actor uuid, p_note text)|9f85a51f
+fn_body:tw4_functions|tw4_act_attest(p_studio_id uuid, p_actor uuid, p_checklist jsonb, p_evidence_ref text)|4bf31547
+fn_body:tw4_functions|tw4_act_check(p_studio_id uuid, p_actor uuid)|161eab23
+fn_body:tw4_functions|tw4_act_compliance_record(p_studio_id uuid, p_actor uuid, p_facts jsonb, p_expected_inbound text, p_source text, p_digest text)|37e30f52
+fn_body:tw4_functions|tw4_act_exposure(p_actor uuid)|86f81f72
+fn_body:tw4_functions|tw4_act_mark_ready(p_studio_id uuid, p_actor uuid, p_note text)|22c579d1
+fn_body:tw4_functions|tw4_act_suspend(p_studio_id uuid, p_actor uuid, p_reason text)|348d6061
+fn_body:tw4_functions|tw4_act_verify_sender(p_studio_id uuid, p_sender_id uuid, p_actor uuid, p_evidence jsonb, p_source text)|ecf84a2f
+fn_body:tw4_functions|tw4_admin_deferred_retire(p_studio_id uuid, p_phone_number_sid text, p_actor uuid, p_note text)|dbd9306c
+fn_body:tw4_functions|tw4_admin_deferred_retirements(p_actor uuid)|5f424af1
+fn_body:tw4_functions|tw4_admin_exposure(p_actor uuid, p_legal_entity_id uuid)|1dcc1755
+fn_body:tw4_functions|tw4_admin_prov_proof(p_studio_id uuid, p_actor uuid)|fa8abff6
+fn_body:tw4_functions|tw4_admin_registration_gaps(p_actor uuid)|2f83c705
+fn_body:tw4_functions|tw4_admin_registration_retry(p_studio_id uuid, p_actor uuid, p_kind text, p_note text)|f671f4fa
+fn_body:tw4_functions|tw4_approval_ref_trace(p_approval_ref text, p_actor uuid)|108b3e15
+fn_body:tw4_functions|tw4_credit_adjust(p_entity_id uuid, p_amount_cents bigint, p_key text, p_note text, p_actor uuid)|87d5c89f
+fn_body:tw4_functions|tw4_credit_apply_dispute(p_payment_ref text, p_dispute_id text, p_amount_cents integer, p_action text, p_event_id text)|e3541ee9
+fn_body:tw4_functions|tw4_credit_apply_refund(p_payment_ref text, p_cumulative_refunded_cents integer, p_event_id text, p_reason text)|f8b977e6
+fn_body:tw4_functions|tw4_credit_checkout_context(p_studio_id uuid, p_user_id uuid)|bacea94e
+fn_body:tw4_functions|tw4_credit_debit_usage(p_entity_id uuid, p_studio_id uuid, p_cents integer, p_key text, p_ref text)|943549c4
+fn_body:tw4_functions|tw4_credit_open_reservations(p_entity_id uuid, p_actor uuid)|64835b55
+fn_body:tw4_functions|tw4_credit_record_provider_charge(p_entity_id uuid, p_studio_id uuid, p_kind text, p_provider_ref text, p_provider_cost_cents integer, p_actor uuid)|97ee97db
+fn_body:tw4_functions|tw4_credit_refund_usage(p_entity_id uuid, p_cents integer, p_key text, p_original_key text)|b58d8be3
+fn_body:tw4_functions|tw4_credit_resolve_reservation(p_reservation_id uuid, p_outcome text, p_actor uuid, p_note text)|13ae21e6
+fn_body:tw4_functions|tw4_credit_set_hold(p_entity_id uuid, p_hold boolean, p_reason text, p_actor uuid)|07787632
+fn_body:tw4_functions|tw4_credit_set_threshold(p_entity_id uuid, p_cents integer, p_actor uuid)|300c84ea
+fn_body:tw4_functions|tw4_credit_settle_topup(p_entity_id uuid, p_paid_by_studio_id uuid, p_provider_ref text, p_amount_cents integer, p_event_id text, p_payment_intent text, p_require_pending boolean)|be147ba4
+fn_body:tw4_functions|tw4_credit_topup_failed(p_provider_ref text, p_event_id text)|d0f6ce07
+fn_body:tw4_functions|tw4_credit_topup_lookup(p_payment_ref text)|54e25e07
+fn_body:tw4_functions|tw4_credit_topup_pending(p_entity_id uuid, p_paid_by_studio_id uuid, p_provider_ref text, p_amount_cents integer, p_expires_at timestamp with time zone)|2c7f609f
+fn_body:tw4_functions|tw4_credit_verify(p_entity_id uuid)|61da0813
+fn_body:tw4_functions|tw4_entity_create_for_studio(p_studio_id uuid, p_actor uuid, p_verification_note text)|7c03534e
+fn_body:tw4_functions|tw4_entity_decide_link(p_request_id uuid, p_entity_id uuid, p_actor uuid, p_approve boolean, p_note text)|b6ea0317
+fn_body:tw4_functions|tw4_entity_for_studio(p_studio_id uuid, p_actor uuid)|754ea050
+fn_body:tw4_functions|tw4_entity_set_spend_cap(p_entity_id uuid, p_cents integer, p_actor uuid)|206b3d8a
+fn_body:tw4_functions|tw4_entity_timezone_set(p_studio_id uuid, p_user_id uuid, p_timezone text, p_reason text)|17d09579
+fn_body:tw4_functions|tw4_entity_timezone_set_admin(p_entity_id uuid, p_actor uuid, p_timezone text, p_reason text)|47f0dfbc
+fn_body:tw4_functions|tw4_inbound_exposure_set(p_entity_id uuid, p_actor uuid, p_cents integer, p_reason text)|5c22c111
+fn_body:tw4_functions|tw4_inbound_note_unresolved(p_run_id uuid, p_account_sid text, p_provider_sid text, p_code text)|2fd5dac4
+fn_body:tw4_functions|tw4_inbound_record(p_studio_id uuid, p_signer_account text, p_provider_sid text, p_segments integer, p_media integer, p_classification text, p_reply_body text, p_received_at timestamp with time zone, p_source text)|8d24953b
+fn_body:tw4_functions|tw4_inbound_recover(p_run_id uuid, p_account_sid text, p_evidence jsonb)|3d905835
+fn_body:tw4_functions|tw4_inbound_reply_allowed(p_account_sid text, p_sender_hash text, p_kind text, p_limit integer)|2f5776c3
+fn_body:tw4_functions|tw4_inbound_route_pin_set(p_actor uuid, p_origin text, p_reason text)|9a05f8ad
+fn_body:tw4_functions|tw4_inbound_scan_advance(p_run_id uuid, p_account_sid text, p_through timestamp with time zone)|529e6416
+fn_body:tw4_functions|tw4_inbound_scan_targets(p_limit integer)|a6ee09b3
+fn_body:tw4_functions|tw4_inbound_studio_for(p_account_sid text, p_messaging_service_sid text, p_to_e164 text)|33faf1c4
+fn_body:tw4_functions|tw4_inbound_unrecorded(p_account_sid text, p_sids text[])|c0846161
+fn_body:tw4_functions|tw4_limit_ceiling_approve_entity(p_entity_id uuid, p_actor uuid, p_cents integer, p_approval_ref text)|e25786b9
+fn_body:tw4_functions|tw4_limit_ceiling_set_platform(p_actor uuid, p_cents integer, p_approval_ref text)|f33360ae
+fn_body:tw4_functions|tw4_location_fee_kinds(p_studio_id uuid)|5fc4b747
+fn_body:tw4_functions|tw4_monthly_limit_set(p_studio_id uuid, p_user_id uuid, p_limit_cents integer, p_effective_month text, p_confirmed boolean, p_reason text)|08395dae
+fn_body:tw4_functions|tw4_monthly_limit_set_admin(p_entity_id uuid, p_actor uuid, p_limit_cents integer, p_effective_month text, p_reason text)|a9871368
+fn_body:tw4_functions|tw4_num_begin(p_onboarding_id uuid, p_lease_owner text, p_op_kind text, p_friendly_name text, p_request_digest text, p_params jsonb, p_actor uuid)|9dfd7fd0
+fn_body:tw4_functions|tw4_num_claim(p_studio_id uuid, p_actor uuid, p_lease_owner text, p_lease_seconds integer, p_mode text)|dd5c7024
+fn_body:tw4_functions|tw4_num_context(p_onboarding_id uuid, p_lease_owner text)|c5b1ee11
+fn_body:tw4_functions|tw4_num_finish(p_onboarding_id uuid, p_lease_owner text, p_operation_id uuid, p_status text, p_provider_sid text, p_error_code text, p_error_detail text)|6bd04987
+fn_body:tw4_functions|tw4_num_history_observe(p_onboarding_id uuid, p_lease_owner text, p_facts jsonb, p_source text, p_digest text)|3d5c4214
+fn_body:tw4_functions|tw4_num_identity_observe(p_onboarding_id uuid, p_lease_owner text, p_facts jsonb, p_source text, p_digest text)|0b5d4303
+fn_body:tw4_functions|tw4_num_inventory_ack(p_studio_id uuid, p_actor uuid, p_phone_number_sid text, p_note text)|7d36c4d1
+fn_body:tw4_functions|tw4_num_inventory_observe(p_onboarding_id uuid, p_lease_owner text, p_numbers jsonb, p_source text, p_listed_at timestamp with time zone)|6b399205
+fn_body:tw4_functions|tw4_num_inventory_status(p_studio_id uuid, p_actor uuid)|82794a51
+fn_body:tw4_functions|tw4_num_observe(p_onboarding_id uuid, p_lease_owner text, p_operation_id uuid, p_facts jsonb, p_source text, p_digest text)|8bfb620c
+fn_body:tw4_functions|tw4_num_offer_record(p_studio_id uuid, p_actor uuid, p_account_sid text, p_search jsonb, p_candidates jsonb, p_source text, p_digest text)|e8b00ea1
+fn_body:tw4_functions|tw4_num_orphan_escalate(p_limit integer)|f128649b
+fn_body:tw4_functions|tw4_num_orphan_exposure(p_actor uuid)|589a52a9
+fn_body:tw4_functions|tw4_num_orphan_resolve(p_orphan_id uuid, p_actor uuid, p_resolution text, p_note text)|5d67a8c2
+fn_body:tw4_functions|tw4_num_recon_claim(p_studio_id uuid, p_lease_owner text, p_lease_seconds integer)|87c5a2d2
+fn_body:tw4_functions|tw4_num_recon_manual(p_actor uuid)|c370c09d
+fn_body:tw4_functions|tw4_num_recon_mark(p_entity uuid)|d8647513
+fn_body:tw4_functions|tw4_num_recon_targets(p_limit integer, p_max_age_seconds integer)|f1a0d25b
+fn_body:tw4_functions|tw4_num_record_sender(p_studio_id uuid, p_actor uuid)|e892fee4
+fn_body:tw4_functions|tw4_num_registration_facts(p_studio_id uuid)|dafc3c8e
+fn_body:tw4_functions|tw4_num_registration_gaps(p_actor uuid)|8d1a872f
+fn_body:tw4_functions|tw4_num_registration_retry(p_studio_id uuid, p_actor uuid)|6df6afb9
+fn_body:tw4_functions|tw4_num_rent_basis(p_studio_id uuid)|1177d4cc
+fn_body:tw4_functions|tw4_num_reopen(p_studio_id uuid, p_actor uuid, p_reason text)|61c61296
+fn_body:tw4_functions|tw4_num_resolve(p_operation_id uuid, p_actor uuid, p_resolution text, p_provider_sid text, p_note text)|e7e587b3
+fn_body:tw4_functions|tw4_num_retire(p_studio_id uuid, p_actor uuid, p_note text)|2302f8a6
+fn_body:tw4_functions|tw4_num_select(p_studio_id uuid, p_actor uuid, p_offer_id uuid, p_e164 text, p_ack_price_cents integer, p_approval_ref text)|613d163c
+fn_body:tw4_functions|tw4_num_select_as_owner(p_studio_id uuid, p_offer_id uuid, p_e164 text, p_ack_price_cents integer)|0f888c22
+fn_body:tw4_functions|tw4_num_settle_admin(p_operation_id uuid, p_actor uuid, p_outcome text, p_note text)|3ebdaaec
+fn_body:tw4_functions|tw4_num_status(p_studio_id uuid, p_actor uuid)|59236647
+fn_body:tw4_functions|tw4_num_withdraw(p_studio_id uuid, p_actor uuid, p_selection_id uuid, p_note text)|ca05649f
+fn_body:tw4_functions|tw4_num_withdraw_as_owner(p_studio_id uuid, p_selection_id uuid, p_note text)|3400d2a8
+fn_body:tw4_functions|tw4_onboarding_decide_tier(p_studio_id uuid, p_actor uuid, p_tier text, p_reason text, p_eligibility jsonb)|0e38a5c5
+fn_body:tw4_functions|tw4_onboarding_set_tier(p_studio_id uuid, p_actor uuid, p_tier text, p_reason text)|03010e50
+fn_body:tw4_functions|tw4_panel_monthly_limits(p_actor uuid)|818e28c3
+fn_body:tw4_functions|tw4_panel_overview(p_actor uuid)|e92d6145
+fn_body:tw4_functions|tw4_panel_subaccount_confirm(p_request_key uuid, p_studio_id uuid, p_actor uuid)|d854e2b7
+fn_body:tw4_functions|tw4_pilot_exception_create(p_entity_id uuid, p_ceiling_cents integer, p_approval_ref text, p_actor uuid, p_evidence_authorized_on date, p_evidence_role text, p_evidence_scope text, p_evidence_amount_cents integer, p_evidence_document_ref text, p_evidence_sha256 text)|171b2d12
+fn_body:tw4_functions|tw4_price_set(p_kind text, p_customer_cents integer, p_provider_cents integer, p_description text, p_actor uuid)|36b3548c
+fn_body:tw4_functions|tw4_prov_begin(p_onboarding_id uuid, p_lease_owner text, p_op_kind text, p_friendly_name text, p_request_digest text, p_params jsonb, p_actor uuid)|6d2c0161
+fn_body:tw4_functions|tw4_prov_claim(p_studio_id uuid, p_actor uuid, p_lease_owner text, p_lease_seconds integer, p_mode text)|c61be077
+fn_body:tw4_functions|tw4_prov_context(p_onboarding_id uuid, p_lease_owner text)|091eb788
+fn_body:tw4_functions|tw4_prov_evidence(p_studio_id uuid, p_actor uuid)|ffc5d9ca
+fn_body:tw4_functions|tw4_prov_evidence_claim(p_studio_id uuid, p_actor uuid, p_lease_owner text, p_lease_seconds integer)|5520ab4b
+fn_body:tw4_functions|tw4_prov_evidence_targets(p_onboarding_id uuid, p_lease_owner text)|51dbd81e
+fn_body:tw4_functions|tw4_prov_finish(p_onboarding_id uuid, p_lease_owner text, p_operation_id uuid, p_status text, p_provider_sid text, p_error_code text, p_error_detail text)|e8a2ed52
+fn_body:tw4_functions|tw4_prov_listing_record(p_onboarding_id uuid, p_lease_owner text, p_operation_id uuid, p_facts jsonb, p_source text, p_digest text)|4ca64853
+fn_body:tw4_functions|tw4_prov_observe(p_onboarding_id uuid, p_lease_owner text, p_operation_id uuid, p_facts jsonb, p_expected_inbound text, p_source text, p_digest text)|65125c6c
+fn_body:tw4_functions|tw4_prov_orphan_alert_status(p_actor uuid, p_legal_entity_id uuid)|737c4421
+fn_body:tw4_functions|tw4_prov_orphan_close(p_orphan_id uuid, p_actor uuid, p_note text)|9ecf142e
+fn_body:tw4_functions|tw4_prov_orphan_exposure(p_actor uuid, p_legal_entity_id uuid, p_include_closed boolean)|52fef8e4
+fn_body:tw4_functions|tw4_prov_orphan_register(p_orphan_id uuid, p_actor uuid)|72dae26e
+fn_body:tw4_functions|tw4_prov_reopen(p_studio_id uuid, p_actor uuid, p_reason text)|e996e0a1
+fn_body:tw4_functions|tw4_prov_resolve(p_operation_id uuid, p_actor uuid, p_resolution text, p_provider_sid text, p_note text)|08dac2df
+fn_body:tw4_functions|tw4_prov_settle_admin(p_operation_id uuid, p_actor uuid, p_kind text, p_outcome text, p_note text)|33b42299
+fn_body:tw4_functions|tw4_prov_status(p_studio_id uuid, p_actor uuid)|4d15c495
+fn_body:tw4_functions|tw4_reconcile_run_alive(p_run_id uuid, p_job text)|9392552f
+fn_body:tw4_functions|tw4_reconcile_run_begin(p_job text, p_runner text, p_lease_seconds integer)|3b8edf3e
+fn_body:tw4_functions|tw4_reconcile_run_finish(p_run_id uuid, p_status text, p_summary jsonb, p_error text)|420f40b2
+fn_body:tw4_functions|tw4_recurring_authorize(p_studio_id uuid, p_user_id uuid, p_kind text, p_acknowledged_price_cents integer, p_term_months integer, p_total_limit_cents integer)|6ef73a16
+fn_body:tw4_functions|tw4_recurring_charge(p_authorization_id uuid, p_period_key text, p_run_id uuid)|519be56d
+fn_body:tw4_functions|tw4_recurring_due_list()|ee2fb8df
+fn_body:tw4_functions|tw4_recurring_release_ended()|c9d4ae32
+fn_body:tw4_functions|tw4_recurring_revoke(p_authorization_id uuid, p_user_id uuid)|48121bea
+fn_body:tw4_functions|tw4_recurring_run_begin(p_runner text, p_lease_seconds integer)|73bef050
+fn_body:tw4_functions|tw4_recurring_run_finish(p_run_id uuid, p_status text, p_summary jsonb, p_error text)|e4d8d56b
+fn_body:tw4_functions|tw4_recurring_service_state(p_studio_id uuid)|e55f516c
+fn_body:tw4_functions|tw4_recurring_set_switch(p_enabled boolean, p_actor uuid, p_reason text)|b4af55d1
+fn_body:tw4_functions|tw4_rfl_admin_overview(p_actor uuid)|5e9b89b9
+fn_body:tw4_functions|tw4_rfl_alert_delivery_record(p_alert_id uuid, p_claim_token uuid, p_recipient_ref text, p_recipient_kind text, p_outcome text)|11ee5387
+fn_body:tw4_functions|tw4_rfl_alert_finish(p_alert_id uuid, p_claim_token uuid, p_delivered boolean, p_error text)|8ce76ca4
+fn_body:tw4_functions|tw4_rfl_alert_recipients(p_alert_id uuid)|5f4ce625
+fn_body:tw4_functions|tw4_rfl_alert_release(p_alert_id uuid, p_claim_token uuid)|be032c8d
+fn_body:tw4_functions|tw4_rfl_alerts_claim(p_limit integer)|57a31605
+fn_body:tw4_functions|tw4_rfl_cancel_authorize(p_resource_id uuid, p_actor uuid, p_approval_ref text, p_decided_by text, p_reason text, p_irreversible_ack boolean)|d8f9aa92
+fn_body:tw4_functions|tw4_rfl_cancel_begin(p_operation_id uuid, p_actor uuid)|0c991c30
+fn_body:tw4_functions|tw4_rfl_cancel_finish(p_operation_id uuid, p_actor uuid, p_outcome text, p_evidence_digest text, p_error_code text)|c1a29dd6
+fn_body:tw4_functions|tw4_rfl_cancel_resolve(p_operation_id uuid, p_actor uuid, p_resolution text, p_evidence_digest text, p_note text)|2b6ca1b1
+fn_body:tw4_functions|tw4_rfl_cancel_target(p_operation_id uuid, p_actor uuid)|10d804bb
+fn_body:tw4_functions|tw4_rfl_cancel_withdraw(p_operation_id uuid, p_actor uuid, p_note text)|36107c8b
+fn_body:tw4_functions|tw4_rfl_dual_approve(p_request_id uuid, p_actor uuid, p_note text)|74dde2dc
+fn_body:tw4_functions|tw4_rfl_dual_list(p_actor uuid)|22a2725a
+fn_body:tw4_functions|tw4_rfl_dual_reject(p_request_id uuid, p_actor uuid, p_note text)|972eca56
+fn_body:tw4_functions|tw4_rfl_dual_request(p_actor uuid, p_action text, p_resource_id uuid, p_period_key text, p_reason text, p_approval_ref text, p_decided_by text)|8e430b1c
+fn_body:tw4_functions|tw4_rfl_escalate_delivery()|df991022
+fn_body:tw4_functions|tw4_rfl_exposure_dispose(p_resource_id uuid, p_period_key text, p_actor uuid, p_disposition text, p_note text)|825a1fa9
+fn_body:tw4_functions|tw4_rfl_exposure_report(p_actor uuid)|28210454
+fn_body:tw4_functions|tw4_rfl_health(p_actor uuid)|eb5aaef9
+fn_body:tw4_functions|tw4_rfl_inventory_gaps()|d1b62976
+fn_body:tw4_functions|tw4_rfl_observe_provider_bill(p_resource_id uuid, p_period_key text, p_provider_ref text, p_cost_cents integer, p_actor uuid)|f3bd585d
+fn_body:tw4_functions|tw4_rfl_pilot_cover(p_resource_id uuid, p_period_key text, p_approval_ref text, p_actor uuid, p_authorized_on date, p_authorized_by_role text, p_scope text, p_amount_cents integer, p_evidence_period_key text, p_document_ref text, p_document_sha256 text)|6998d1d6
+fn_body:tw4_functions|tw4_rfl_register(p_studio_id uuid, p_actor uuid, p_kind text, p_provider_sid text, p_account_sid text, p_e164 text, p_source text, p_source_operation uuid, p_initial_reservation uuid)|75128df7
+fn_body:tw4_functions|tw4_rfl_scan_begin(p_runner text, p_lease_seconds integer)|d722067b
+fn_body:tw4_functions|tw4_rfl_scan_entities()|73881d7c
+fn_body:tw4_functions|tw4_rfl_scan_entity(p_entity_id uuid)|5b8ab1c1
+fn_body:tw4_functions|tw4_rfl_scan_finish(p_run_id uuid, p_status text, p_summary jsonb, p_error text)|a466ee0e
+fn_body:tw4_functions|tw4_rfl_set_switch(p_switch text, p_enabled boolean, p_actor uuid, p_reason text)|9e61fea7
+fn_body:tw4_functions|tw4_rfl_studio_ready(p_studio_id uuid)|170d60bb
+fn_body:tw4_functions|tw4_rfl_suspend_df(p_studio_id uuid, p_actor uuid, p_reason text, p_hold boolean)|9d1dcb31
+fn_body:tw4_functions|tw4_rfl_switch_enabled(p_switch text)|5cd2f5b6
+fn_body:tw4_functions|tw4_rfl_variance_ack(p_charge_id uuid, p_actor uuid, p_note text)|6a204640
+fn_body:tw4_functions|tw4_rfl_variance_report(p_actor uuid)|b0044336
+fn_body:tw4_functions|tw4_runner_account(p_onboarding_id uuid, p_lease_owner text)|effc0930
+fn_body:tw4_functions|tw4_runner_begin_step(p_onboarding_id uuid, p_lease_owner text, p_step_key text, p_friendly_name text, p_fee_bearing boolean, p_fee_confirmed_by uuid, p_mock boolean)|e79e8fe4
+fn_body:tw4_functions|tw4_runner_brand_approved(p_onboarding_id uuid, p_lease_owner text)|1ab95ffb
+fn_body:tw4_functions|tw4_runner_claim(p_studio_id uuid, p_actor uuid, p_lease_owner text, p_lease_seconds integer, p_mode text)|d48bec08
+fn_body:tw4_functions|tw4_runner_confirm_submission(p_onboarding_id uuid, p_lease_owner text, p_step_key text, p_actor uuid)|3c0f4d1c
+fn_body:tw4_functions|tw4_runner_fee_kinds(p_onboarding_id uuid, p_lease_owner text)|ce2bcd53
+fn_body:tw4_functions|tw4_runner_finish_step(p_onboarding_id uuid, p_lease_owner text, p_step_key text, p_status text, p_provider_sid text, p_error_code text, p_error_detail text)|c0590bb9
+fn_body:tw4_functions|tw4_runner_get_ein(p_onboarding_id uuid, p_lease_owner text, p_actor uuid)|3e0c259e
+fn_body:tw4_functions|tw4_runner_get_inputs(p_onboarding_id uuid, p_lease_owner text)|29776690
+fn_body:tw4_functions|tw4_runner_record_brand(p_onboarding_id uuid, p_lease_owner text, p_brand_sid text, p_brand_status text)|1cb1da84
+fn_body:tw4_functions|tw4_runner_record_evaluation(p_onboarding_id uuid, p_lease_owner text, p_step_key text, p_verdict text, p_context text)|a1907a1d
+fn_body:tw4_functions|tw4_runner_release(p_onboarding_id uuid, p_lease_owner text)|78065657
+fn_body:tw4_functions|tw4_runner_set_window(p_studio_id uuid, p_actor uuid, p_hours integer, p_reason text)|beeedfac
+fn_body:tw4_functions|tw4_runner_status(p_studio_id uuid, p_actor uuid)|5891a725
+fn_body:tw4_functions|tw4_runner_tier(p_onboarding_id uuid, p_lease_owner text)|fe6eba6a
+fn_body:tw4_functions|tw4_runner_transition(p_onboarding_id uuid, p_lease_owner text, p_to_state text, p_step text, p_error_code text, p_error_field text)|3dccded5
+fn_body:tw4_functions|tw4_sender_due_reverify(p_limit integer)|653cab5b
+fn_body:tw4_functions|tw4_sender_health(p_actor uuid)|879571e4
+fn_body:tw4_functions|tw4_sender_overview(p_actor uuid)|9c021b6e
+fn_body:tw4_functions|tw4_sender_record(p_studio_id uuid, p_actor uuid, p_messaging_service_sid text, p_campaign_sid text, p_phone_number_sid text, p_sender_e164 text, p_reason text)|62e44ca2
+fn_body:tw4_functions|tw4_sender_reverify(p_studio_id uuid, p_sender_id uuid, p_evidence jsonb, p_source text)|36c0e882
+fn_body:tw4_functions|tw4_sender_reverify_run(p_run_id uuid, p_studio_id uuid, p_sender_id uuid, p_evidence jsonb, p_source text)|7e3d0494
+fn_body:tw4_functions|tw4_sender_revoke(p_studio_id uuid, p_actor uuid, p_reason text, p_release boolean)|90b82dee
+fn_body:tw4_functions|tw4_sender_verify(p_studio_id uuid, p_sender_id uuid, p_actor uuid, p_evidence jsonb, p_attested_opt_out boolean, p_source text)|ac3621eb
+fn_body:tw4_functions|tw4_spend_authorize(p_entity_id uuid, p_kind text, p_amount_cents integer, p_approval_ref text, p_actor uuid, p_funding text, p_studio_id uuid, p_evidence_authorized_on date, p_evidence_role text, p_evidence_scope text, p_evidence_amount_cents integer, p_evidence_period_key text, p_evidence_document_ref text, p_evidence_sha256 text)|a3860042
+fn_body:tw4_functions|tw4_spend_reserve(p_onboarding_id uuid, p_lease_owner text, p_kind text)|c928e0f0
+fn_body:tw4_functions|tw4_spend_settle(p_onboarding_id uuid, p_lease_owner text, p_kind text, p_outcome text, p_ref text)|eb09517c
+fn_body:tw4_functions|tw4_spend_withdraw(p_spend_event_id uuid, p_actor uuid, p_note text)|88dc94e1
+fn_body:tw4_functions|tw4_subaccount_begin(p_entity_id uuid, p_actor uuid, p_friendly_name text, p_environment text)|e592d91c
+fn_body:tw4_functions|tw4_subaccount_confirm(p_entity_id uuid, p_actor uuid)|0ee3153b
+fn_body:tw4_functions|tw4_subaccount_finish(p_entity_id uuid, p_actor uuid, p_status text, p_account_sid text)|32019297
+fn_body:tw4_functions|tw4_usage_begin(p_source_kind text, p_source_id uuid, p_studio_id uuid, p_client_id uuid, p_phone_e164 text, p_body text, p_message_type text, p_related_table text, p_related_id uuid, p_sent_by uuid)|7e85d636
+fn_body:tw4_functions|tw4_usage_billed_sender_set(p_studio_id uuid, p_actor uuid, p_messaging_service_sid text, p_sender_e164 text, p_status text, p_reason text)|9ee0fcc1
+fn_body:tw4_functions|tw4_usage_dispatching(p_attempt_id uuid)|af6fcaa0
+fn_body:tw4_functions|tw4_usage_due(p_limit integer)|ba6e1052
+fn_body:tw4_functions|tw4_usage_escalate(p_run_id uuid, p_limit integer)|3d3f3b78
+fn_body:tw4_functions|tw4_usage_evidence_failed(p_attempt_id uuid, p_code text, p_definite boolean)|907503ed
+fn_body:tw4_functions|tw4_usage_reconcile_overview(p_actor uuid, p_limit integer)|2dfbb432
+fn_body:tw4_functions|tw4_usage_record_callback(p_attempt_id uuid, p_provider_sid text, p_signer_account text, p_status text, p_error_code text)|4689f967
+fn_body:tw4_functions|tw4_usage_rejected(p_attempt_id uuid, p_error_code text)|40d5ec6d
+fn_body:tw4_functions|tw4_usage_release_stale(p_run_id uuid, p_limit integer)|d53fae93
+fn_body:tw4_functions|tw4_usage_release_unprepared(p_attempt_id uuid, p_code text)|aaea7044
+fn_body:tw4_functions|tw4_usage_release_unsent()|2922cfad
+fn_body:tw4_functions|tw4_usage_resolve(p_attempt_id uuid, p_actor uuid, p_outcome text, p_segments integer, p_reason text)|a31d91c7
+fn_body:tw4_functions|tw4_usage_set_switch(p_enabled boolean, p_actor uuid, p_reason text)|8adf296c
+fn_body:tw4_functions|tw4_usage_settle(p_attempt_id uuid, p_evidence jsonb)|b4e0f70a
+fn_body:tw4_functions|tw4_usage_studio_mode(p_studio_id uuid)|c417d40a
+fn_body:tw4_functions|tw4_usage_submitted(p_attempt_id uuid, p_provider_sid text)|6fb81068
+fn_body:tw4_functions|tw4_usage_touch(p_attempt_id uuid)|6bdd6856
+fn_body:tw4_functions|tw4_usage_uncertain(p_attempt_id uuid, p_error_code text)|e88af236
+fn_body:tw4_functions|tw4_webhook_account(p_account_sid text)|318095f8
+fn_meta:other_sms_functions|_sms_consent_clear_context()|1ec4d82e
+fn_meta:other_sms_functions|_sms_consent_set_context(p_event_type text, p_actor_type text, p_actor_user_id uuid, p_actor_role text, p_actor_name text)|1ec4d82e
+fn_meta:other_sms_functions|log_sms_consent_history()|4e1e6aff
+fn_meta:other_sms_functions|prevent_sms_consent_history_change()|1ec4d82e
+fn_meta:other_sms_functions|record_sms_inbound_opt_event(p_studio_id uuid, p_phone_e164 text, p_event text)|fe2071da
+fn_meta:other_sms_functions|record_sms_public_opt_in(p_studio_id uuid, p_client_id uuid, p_phone_e164 text, p_source text, p_note text)|fe2071da
+fn_meta:other_sms_functions|studio_sms_registrations_integrity()|a854fc94
+fn_meta:other_sms_functions|touch_sms_updated_at()|1f0fbab1
+fn_meta:other_sms_functions|upsert_sms_contact_permission(p_studio_id uuid, p_organizer_id uuid, p_client_id uuid, p_organizer_contact_id uuid, p_phone_e164 text, p_consent_status text, p_consent_source text, p_consent_note text)|e35d3ae0
+fn_meta:tw4_functions|_sms_onb_access_enabled(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_sms_onb_append_only()|09c93c2d
+fn_meta:tw4_functions|_sms_onb_audit(p_studio_id uuid, p_onboarding_id uuid, p_actor_type text, p_action text, p_from text, p_to text, p_note text)|377c1eee
+fn_meta:tw4_functions|_sms_onb_integrity()|09c93c2d
+fn_meta:tw4_functions|_sms_onb_is_platform_admin()|377c1eee
+fn_meta:tw4_functions|_sms_onb_missing(o studio_sms_onboarding)|09c93c2d
+fn_meta:tw4_functions|_sms_onb_refuse_truncate()|09c93c2d
+fn_meta:tw4_functions|_sms_onb_steps_guard()|09c93c2d
+fn_meta:tw4_functions|_sms_onb_studio_role(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_sms_onb_transition_allowed(p_from text, p_to text)|09c93c2d
+fn_meta:tw4_functions|_sms_webhook_receipts_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4_r1_audit(p_o studio_sms_onboarding, p_actor uuid, p_action text, p_from text, p_to text, p_note text)|377c1eee
+fn_meta:tw4_functions|_tw4_r1_is_platform_admin(p_user uuid)|377c1eee
+fn_meta:tw4_functions|_tw4_r1_lease(p_onboarding_id uuid, p_lease_owner text)|377c1eee
+fn_meta:tw4_functions|_tw4_r1_step_ok(p_key text)|09c93c2d
+fn_meta:tw4_functions|_tw4act_funding(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4act_items(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4act_lock_funding(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4act_pilot_funding(p_studio_id uuid, p_entity uuid)|377c1eee
+fn_meta:tw4_functions|_tw4act_require(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4c_admin(p_actor uuid)|377c1eee
+fn_meta:tw4_functions|_tw4c_any_location(p_entity uuid)|377c1eee
+fn_meta:tw4_functions|_tw4c_immutable_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4c_lock(p_entity uuid)|377c1eee
+fn_meta:tw4_functions|_tw4c_pilot_cap_guard()|377c1eee
+fn_meta:tw4_functions|_tw4c_post(p_entity uuid, p_studio uuid, p_kind text, p_bdelta bigint, p_rdelta bigint, p_key text, p_reservation uuid, p_ref text, p_actor uuid, p_note text)|377c1eee
+fn_meta:tw4_functions|_tw4c_require_funds(a studio_sms_credit_accounts, p_cents bigint)|09c93c2d
+fn_meta:tw4_functions|_tw4c_truncate_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4f1b_confirmations_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4f1b_confirmations_truncate_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4f1b_submission_check(p_o studio_sms_onboarding, p_step_key text)|377c1eee
+fn_meta:tw4_functions|_tw4f3a_audit(p_studio uuid, p_actor uuid, p_action text, p_note text)|6babafad
+fn_meta:tw4_functions|_tw4f3a_committed(p_entity uuid)|6babafad
+fn_meta:tw4_functions|_tw4f3a_evidence_guard()|8ec17f7b
+fn_meta:tw4_functions|_tw4f3a_name_key(p_name text)|f35dfcd0
+fn_meta:tw4_functions|_tw4f3a_steps_account_guard()|6babafad
+fn_meta:tw4_functions|_tw4f4_retry(p_studio_id uuid, p_kind text)|377c1eee
+fn_meta:tw4_functions|_tw4f4_retry_target(p_studio_id uuid, p_kind text)|377c1eee
+fn_meta:tw4_functions|_tw4f4_sender_status(p_studio_id uuid, p_phone_number_sid text)|377c1eee
+fn_meta:tw4_functions|_tw4fi_append_only()|09c93c2d
+fn_meta:tw4_functions|_tw4fi_ceiling_ref_trigger()|377c1eee
+fn_meta:tw4_functions|_tw4fi_location_path_nolock(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4fi_open_path_commitments(p_studio_id uuid, p_kinds text[])|377c1eee
+fn_meta:tw4_functions|_tw4fi_pilot_ref_trigger()|377c1eee
+fn_meta:tw4_functions|_tw4fi_ref_norm(p text)|09c93c2d
+fn_meta:tw4_functions|_tw4fi_register(p_raw text, p_source text, p_entity uuid, p_studio uuid, p_spend uuid, p_kind text, p_cents integer, p_funding text, p_actor uuid)|377c1eee
+fn_meta:tw4_functions|_tw4fi_require_path_kind(p_studio_id uuid, p_kind text)|377c1eee
+fn_meta:tw4_functions|_tw4fi_reservation_path_trigger()|377c1eee
+fn_meta:tw4_functions|_tw4fi_spend_path_trigger()|377c1eee
+fn_meta:tw4_functions|_tw4fi_spend_ref_trigger()|377c1eee
+fn_meta:tw4_functions|_tw4in_ceiling(p_entity uuid)|377c1eee
+fn_meta:tw4_functions|_tw4in_reconciliation_gaps()|377c1eee
+fn_meta:tw4_functions|_tw4in_spend_without_inbound(p_entity uuid, p_key text)|377c1eee
+fn_meta:tw4_functions|_tw4ml_apply_limit(p_entity uuid, p_audit_studio uuid, p_actor uuid, p_role text, p_limit integer, p_effective text, p_reason text, p_require_recent_signin boolean)|377c1eee
+fn_meta:tw4_functions|_tw4ml_apply_timezone(p_entity uuid, p_audit_studio uuid, p_actor uuid, p_role text, p_timezone text, p_reason text)|377c1eee
+fn_meta:tw4_functions|_tw4ml_ceiling_for(p_entity uuid)|377c1eee
+fn_meta:tw4_functions|_tw4ml_default_tz(p_entity uuid)|377c1eee
+fn_meta:tw4_functions|_tw4ml_effective_limit(p_entity uuid, p_key text)|377c1eee
+fn_meta:tw4_functions|_tw4ml_ensure_tz(p_entity uuid)|377c1eee
+fn_meta:tw4_functions|_tw4ml_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4ml_key_add(p_key text, p_n integer)|09c93c2d
+fn_meta:tw4_functions|_tw4ml_limit_for(p_entity uuid, p_key text)|377c1eee
+fn_meta:tw4_functions|_tw4ml_month_key(p_entity uuid, p_ts timestamp with time zone)|377c1eee
+fn_meta:tw4_functions|_tw4ml_month_parts(p_entity uuid, p_key text)|377c1eee
+fn_meta:tw4_functions|_tw4ml_month_spend(p_entity uuid, p_key text)|377c1eee
+fn_meta:tw4_functions|_tw4ml_month_start(p_entity uuid, p_key text)|377c1eee
+fn_meta:tw4_functions|_tw4ml_require_room(p_entity uuid, p_cents bigint, p_already_counted bigint)|377c1eee
+fn_meta:tw4_functions|_tw4ml_tz_for(p_entity uuid, p_key text)|377c1eee
+fn_meta:tw4_functions|_tw4ml_valid_tz(p_tz text)|09c93c2d
+fn_meta:tw4_functions|_tw4num_absence_evidence(r studio_sms_num_operations)|377c1eee
+fn_meta:tw4_functions|_tw4num_account(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4num_campaign(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4num_credit_funded(p_entity uuid, p_auth uuid)|377c1eee
+fn_meta:tw4_functions|_tw4num_free_selection(p_selection uuid, p_actor uuid, p_note text)|377c1eee
+fn_meta:tw4_functions|_tw4num_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4num_has_resources(p_entity uuid)|377c1eee
+fn_meta:tw4_functions|_tw4num_health(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4num_health(p_studio_id uuid, p_detail boolean)|377c1eee
+fn_meta:tw4_functions|_tw4num_known(p_entity uuid)|377c1eee
+fn_meta:tw4_functions|_tw4num_ledger_active(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4num_ledger_reservation(p_op uuid)|377c1eee
+fn_meta:tw4_functions|_tw4num_on_number_cancelled(p_studio_id uuid, p_provider_sid text, p_op uuid, p_actor uuid)|377c1eee
+fn_meta:tw4_functions|_tw4num_price(p_kind text)|377c1eee
+fn_meta:tw4_functions|_tw4num_register_owned(p_op uuid)|377c1eee
+fn_meta:tw4_functions|_tw4num_rent_basis_core(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4num_rent_hold(p_studio_id uuid, p_entity uuid)|377c1eee
+fn_meta:tw4_functions|_tw4num_requirements(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4num_reserve(p_o studio_sms_onboarding, p_op uuid, p_expected_cents integer)|377c1eee
+fn_meta:tw4_functions|_tw4num_send_blocked(p_account text, p_sid text, p_e164 text)|377c1eee
+fn_meta:tw4_functions|_tw4num_service(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4num_settle_if_held(p_op uuid, p_outcome text, p_ref text)|377c1eee
+fn_meta:tw4_functions|_tw4num_taken(p_e164 text, p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4p1_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4p2_event(p_orphan uuid, p_event text, p_actor uuid, p_detail text)|377c1eee
+fn_meta:tw4_functions|_tw4p2_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4p2_no_recon_ops()|09c93c2d
+fn_meta:tw4_functions|_tw4p_append_only_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4p_lvs_checklist_complete(p jsonb)|09c93c2d
+fn_meta:tw4_functions|_tw4prov2_close_scan()|377c1eee
+fn_meta:tw4_functions|_tw4prov2_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4prov2_is_pilot(p_entity uuid)|377c1eee
+fn_meta:tw4_functions|_tw4prov2_is_pilot_op(p_op uuid, p_entity uuid)|377c1eee
+fn_meta:tw4_functions|_tw4prov2_orphan_block()|377c1eee
+fn_meta:tw4_functions|_tw4prov2_orphan_gone(p_orphan uuid)|377c1eee
+fn_meta:tw4_functions|_tw4prov2_orphan_scan(p_op uuid)|377c1eee
+fn_meta:tw4_functions|_tw4prov2_proof(p_op uuid)|377c1eee
+fn_meta:tw4_functions|_tw4prov2_refusal_disposition()|377c1eee
+fn_meta:tw4_functions|_tw4prov2_refusal_guard()|377c1eee
+fn_meta:tw4_functions|_tw4prov2_reservation_disposition()|377c1eee
+fn_meta:tw4_functions|_tw4prov_brand(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4prov_campaign_requirements(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4prov_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4prov_ledger_reservation(p_op uuid)|377c1eee
+fn_meta:tw4_functions|_tw4prov_register_verified(p_op uuid)|377c1eee
+fn_meta:tw4_functions|_tw4prov_reserve(p_o studio_sms_onboarding, p_kind text, p_op uuid)|377c1eee
+fn_meta:tw4_functions|_tw4prov_settle(p_op uuid, p_kind text, p_outcome text, p_ref text)|377c1eee
+fn_meta:tw4_functions|_tw4prov_use_case(p_path text)|09c93c2d
+fn_meta:tw4_functions|_tw4pse_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4psh_event_evidence_check()|377c1eee
+fn_meta:tw4_functions|_tw4psh_exception_evidence_check()|377c1eee
+fn_meta:tw4_functions|_tw4psh_spend_authorize(p_entity_id uuid, p_kind text, p_amount_cents integer, p_approval_ref text, p_actor uuid, p_funding text, p_studio_id uuid, p_evidence_authorized_on date, p_evidence_role text, p_evidence_scope text, p_evidence_amount_cents integer, p_evidence_period_key text, p_evidence_document_ref text, p_evidence_sha256 text)|377c1eee
+fn_meta:tw4_functions|_tw4rc_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4rc_reconciliation_gaps()|377c1eee
+fn_meta:tw4_functions|_tw4rc_release_commitment(p_authorization_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4rc_run_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4rc_service_issue(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4rc_service_state(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4rc_usd(p_cents bigint)|09c93c2d
+fn_meta:tw4_functions|_tw4rfl_alert(p_entity uuid, p_studio uuid, p_resource uuid, p_kind text, p_dedupe text, p_audience text, p_severity text, p_summary text)|377c1eee
+fn_meta:tw4_functions|_tw4rfl_audit(p_studio uuid, p_actor uuid, p_action text, p_note text)|377c1eee
+fn_meta:tw4_functions|_tw4rfl_auth_guard()|377c1eee
+fn_meta:tw4_functions|_tw4rfl_charge_kinds(p_fee_kind text)|09c93c2d
+fn_meta:tw4_functions|_tw4rfl_cover(r studio_sms_provider_resources, p_key text)|377c1eee
+fn_meta:tw4_functions|_tw4rfl_df_sending(p_studio uuid)|377c1eee
+fn_meta:tw4_functions|_tw4rfl_due_from(r studio_sms_provider_resources, p_key text)|377c1eee
+fn_meta:tw4_functions|_tw4rfl_evid_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4rfl_gate_suspended(p_studio uuid)|377c1eee
+fn_meta:tw4_functions|_tw4rfl_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4rfl_live_sender(r studio_sms_provider_resources)|377c1eee
+fn_meta:tw4_functions|_tw4rfl_lock(p_entity uuid)|377c1eee
+fn_meta:tw4_functions|_tw4rfl_mark_cancelled(r studio_sms_provider_resources, p_actor uuid, p_evidence text, p_op uuid, p_not_before timestamp with time zone)|377c1eee
+fn_meta:tw4_functions|_tw4rfl_oneoff_guard()|377c1eee
+fn_meta:tw4_functions|_tw4rfl_register_core(p_studio_id uuid, p_actor uuid, p_kind text, p_provider_sid text, p_account_sid text, p_e164 text, p_source text, p_source_operation uuid, p_initial_reservation uuid, p_system boolean)|377c1eee
+fn_meta:tw4_functions|_tw4rfl_replacement(r studio_sms_provider_resources, p_key text)|377c1eee
+fn_meta:tw4_functions|_tw4rfl_retired(p_entity uuid, p_studio uuid, p_kinds text[], p_key text)|377c1eee
+fn_meta:tw4_functions|_tw4rflops_consume(p_action text, r studio_sms_provider_resources, p_period text, p_ref text, p_reason text, p_decided_by text, p_actor uuid)|377c1eee
+fn_meta:tw4_functions|_tw4rflops_demotion()|377c1eee
+fn_meta:tw4_functions|_tw4rflops_epoch()|377c1eee
+fn_meta:tw4_functions|_tw4rflops_facts(p_action text, p_resource uuid, p_period text, p_ref_norm text, p_reason text, p_decided_by text)|377c1eee
+fn_meta:tw4_functions|_tw4rflops_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4rflops_lock_parties(p_action text, p_resource uuid, p_period text)|377c1eee
+fn_meta:tw4_functions|_tw4rflops_request_insert()|09c93c2d
+fn_meta:tw4_functions|_tw4sr_append(p_from studio_sms_billed_senders, p_status text, p_actor uuid, p_reason text, p_verification uuid)|377c1eee
+fn_meta:tw4_functions|_tw4sr_apply(p_studio_id uuid, p_sender_id uuid, p_actor uuid, p_evidence jsonb, p_attested boolean, p_source text)|377c1eee
+fn_meta:tw4_functions|_tw4sr_audit(p_studio uuid, p_actor uuid, p_action text, p_note text)|377c1eee
+fn_meta:tw4_functions|_tw4sr_fake_allowed()|09c93c2d
+fn_meta:tw4_functions|_tw4sr_flag(p_studio_id uuid, p_code text, p_account_sid text, p_messaging_service_sid text, p_sender_e164 text)|377c1eee
+fn_meta:tw4_functions|_tw4sr_judge(s studio_sms_billed_senders, p_evidence jsonb, p_attested boolean)|377c1eee
+fn_meta:tw4_functions|_tw4sr_latest(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4sr_lock(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4sr_ready(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4sr_ready_core(p_studio_id uuid)|377c1eee
+fn_meta:tw4_functions|_tw4ur_account_of(p_entity uuid, p_account text)|377c1eee
+fn_meta:tw4_functions|_tw4ur_attempt_event()|377c1eee
+fn_meta:tw4_functions|_tw4ur_fence(p_run_id uuid, p_job text)|377c1eee
+fn_meta:tw4_functions|_tw4ur_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4ur_instant(p text)|09c93c2d
+fn_meta:tw4_functions|_tw4us_append_only()|09c93c2d
+fn_meta:tw4_functions|_tw4us_attempt_guard()|09c93c2d
+fn_meta:tw4_functions|_tw4us_charge(a studio_sms_usage_attempts, p_segments integer, p_ref text)|377c1eee
+fn_meta:tw4_functions|_tw4us_lock_attempt(p_attempt uuid)|377c1eee
+fn_meta:tw4_functions|_tw4us_rank(p_status text)|09c93c2d
+fn_meta:tw4_functions|_tw4us_reconciliation_gaps()|377c1eee
+fn_meta:tw4_functions|_tw4us_release_reservation(a studio_sms_usage_attempts, p_ref text)|377c1eee
+fn_meta:tw4_functions|_tw4us_segments(p_body text)|09c93c2d
+fn_meta:tw4_functions|_tw4us_switch_on()|377c1eee
+fn_meta:tw4_functions|_tw4us_write()|09c93c2d
+fn_meta:tw4_functions|_tw4usage_reconciler_ready()|6babafad
+fn_meta:tw4_functions|_tw4usage_run_proved(p_summary jsonb)|09c93c2d
+fn_meta:tw4_functions|cancel_sms_onboarding(p_studio_id uuid)|7394603a
+fn_meta:tw4_functions|get_sms_legal_context(p_studio_slug text)|6babafad
+fn_meta:tw4_functions|get_sms_onboarding_draft(p_studio_id uuid)|7394603a
+fn_meta:tw4_functions|get_studio_sms_number_offers(p_studio_id uuid)|7394603a
+fn_meta:tw4_functions|get_studio_sms_provisioning(p_studio_id uuid)|7394603a
+fn_meta:tw4_functions|get_studio_sms_status(p_studio_id uuid)|7394603a
+fn_meta:tw4_functions|get_studio_sms_texting_status(p_studio_id uuid)|7394603a
+fn_meta:tw4_functions|list_sms_onboardings()|7394603a
+fn_meta:tw4_functions|purge_due_sms_onboarding_eins()|6babafad
+fn_meta:tw4_functions|purge_sms_onboarding_ein(p_onboarding_id uuid, p_reason text)|6babafad
+fn_meta:tw4_functions|save_sms_onboarding_draft(p_studio_id uuid, p_fields jsonb)|7394603a
+fn_meta:tw4_functions|set_sms_onboarding_access(p_studio_id uuid, p_enabled boolean, p_reason text)|7394603a
+fn_meta:tw4_functions|sms_credit_admin_overview()|11866ce5
+fn_meta:tw4_functions|sms_credit_history(p_studio_id uuid, p_limit integer, p_before_seq bigint)|11866ce5
+fn_meta:tw4_functions|sms_credit_overview(p_studio_id uuid)|11866ce5
+fn_meta:tw4_functions|sms_credit_purchases(p_studio_id uuid, p_limit integer)|11866ce5
+fn_meta:tw4_functions|sms_inbound_admin_overview(p_actor uuid)|6babafad
+fn_meta:tw4_functions|sms_location_attest(p_studio_id uuid, p_claimed_legal_name text, p_claimed_ein_last4 text, p_attestation_version text)|11866ce5
+fn_meta:tw4_functions|sms_location_fee_kinds(p_studio_id uuid)|7394603a
+fn_meta:tw4_functions|sms_monthly_limit_overview(p_studio_id uuid)|11866ce5
+fn_meta:tw4_functions|sms_price_list()|11866ce5
+fn_meta:tw4_functions|sms_recurring_admin_overview()|11866ce5
+fn_meta:tw4_functions|sms_recurring_overview(p_studio_id uuid)|11866ce5
+fn_meta:tw4_functions|sms_rfl_owner_overview(p_studio_id uuid)|11866ce5
+fn_meta:tw4_functions|sms_usage_admin_overview(p_actor uuid)|6babafad
+fn_meta:tw4_functions|sms_webhook_receipt_record(p_kind text, p_event_key text, p_account_sid text)|6babafad
+fn_meta:tw4_functions|sms_webhook_receipt_seen(p_kind text, p_event_key text)|6babafad
+fn_meta:tw4_functions|store_sms_onboarding_ein(p_studio_id uuid, p_actor uuid, p_ciphertext text, p_key_id text, p_last4 text)|6babafad
+fn_meta:tw4_functions|submit_sms_onboarding(p_studio_id uuid, p_attestation jsonb)|7394603a
+fn_meta:tw4_functions|tw4_act_activate(p_studio_id uuid, p_actor uuid, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_act_attest(p_studio_id uuid, p_actor uuid, p_checklist jsonb, p_evidence_ref text)|6babafad
+fn_meta:tw4_functions|tw4_act_check(p_studio_id uuid, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_act_compliance_record(p_studio_id uuid, p_actor uuid, p_facts jsonb, p_expected_inbound text, p_source text, p_digest text)|6babafad
+fn_meta:tw4_functions|tw4_act_exposure(p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_act_mark_ready(p_studio_id uuid, p_actor uuid, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_act_suspend(p_studio_id uuid, p_actor uuid, p_reason text)|6babafad
+fn_meta:tw4_functions|tw4_act_verify_sender(p_studio_id uuid, p_sender_id uuid, p_actor uuid, p_evidence jsonb, p_source text)|6babafad
+fn_meta:tw4_functions|tw4_admin_deferred_retire(p_studio_id uuid, p_phone_number_sid text, p_actor uuid, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_admin_deferred_retirements(p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_admin_exposure(p_actor uuid, p_legal_entity_id uuid)|6babafad
+fn_meta:tw4_functions|tw4_admin_prov_proof(p_studio_id uuid, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_admin_registration_gaps(p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_admin_registration_retry(p_studio_id uuid, p_actor uuid, p_kind text, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_approval_ref_trace(p_approval_ref text, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_credit_adjust(p_entity_id uuid, p_amount_cents bigint, p_key text, p_note text, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_credit_apply_dispute(p_payment_ref text, p_dispute_id text, p_amount_cents integer, p_action text, p_event_id text)|6babafad
+fn_meta:tw4_functions|tw4_credit_apply_refund(p_payment_ref text, p_cumulative_refunded_cents integer, p_event_id text, p_reason text)|6babafad
+fn_meta:tw4_functions|tw4_credit_checkout_context(p_studio_id uuid, p_user_id uuid)|6babafad
+fn_meta:tw4_functions|tw4_credit_debit_usage(p_entity_id uuid, p_studio_id uuid, p_cents integer, p_key text, p_ref text)|6babafad
+fn_meta:tw4_functions|tw4_credit_open_reservations(p_entity_id uuid, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_credit_record_provider_charge(p_entity_id uuid, p_studio_id uuid, p_kind text, p_provider_ref text, p_provider_cost_cents integer, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_credit_refund_usage(p_entity_id uuid, p_cents integer, p_key text, p_original_key text)|6babafad
+fn_meta:tw4_functions|tw4_credit_resolve_reservation(p_reservation_id uuid, p_outcome text, p_actor uuid, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_credit_set_hold(p_entity_id uuid, p_hold boolean, p_reason text, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_credit_set_threshold(p_entity_id uuid, p_cents integer, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_credit_settle_topup(p_entity_id uuid, p_paid_by_studio_id uuid, p_provider_ref text, p_amount_cents integer, p_event_id text, p_payment_intent text, p_require_pending boolean)|6babafad
+fn_meta:tw4_functions|tw4_credit_topup_failed(p_provider_ref text, p_event_id text)|6babafad
+fn_meta:tw4_functions|tw4_credit_topup_lookup(p_payment_ref text)|6babafad
+fn_meta:tw4_functions|tw4_credit_topup_pending(p_entity_id uuid, p_paid_by_studio_id uuid, p_provider_ref text, p_amount_cents integer, p_expires_at timestamp with time zone)|6babafad
+fn_meta:tw4_functions|tw4_credit_verify(p_entity_id uuid)|6babafad
+fn_meta:tw4_functions|tw4_entity_create_for_studio(p_studio_id uuid, p_actor uuid, p_verification_note text)|6babafad
+fn_meta:tw4_functions|tw4_entity_decide_link(p_request_id uuid, p_entity_id uuid, p_actor uuid, p_approve boolean, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_entity_for_studio(p_studio_id uuid, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_entity_set_spend_cap(p_entity_id uuid, p_cents integer, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_entity_timezone_set(p_studio_id uuid, p_user_id uuid, p_timezone text, p_reason text)|6babafad
+fn_meta:tw4_functions|tw4_entity_timezone_set_admin(p_entity_id uuid, p_actor uuid, p_timezone text, p_reason text)|6babafad
+fn_meta:tw4_functions|tw4_inbound_exposure_set(p_entity_id uuid, p_actor uuid, p_cents integer, p_reason text)|6babafad
+fn_meta:tw4_functions|tw4_inbound_note_unresolved(p_run_id uuid, p_account_sid text, p_provider_sid text, p_code text)|6babafad
+fn_meta:tw4_functions|tw4_inbound_record(p_studio_id uuid, p_signer_account text, p_provider_sid text, p_segments integer, p_media integer, p_classification text, p_reply_body text, p_received_at timestamp with time zone, p_source text)|b6686624
+fn_meta:tw4_functions|tw4_inbound_recover(p_run_id uuid, p_account_sid text, p_evidence jsonb)|6babafad
+fn_meta:tw4_functions|tw4_inbound_reply_allowed(p_account_sid text, p_sender_hash text, p_kind text, p_limit integer)|6babafad
+fn_meta:tw4_functions|tw4_inbound_route_pin_set(p_actor uuid, p_origin text, p_reason text)|6babafad
+fn_meta:tw4_functions|tw4_inbound_scan_advance(p_run_id uuid, p_account_sid text, p_through timestamp with time zone)|6babafad
+fn_meta:tw4_functions|tw4_inbound_scan_targets(p_limit integer)|6babafad
+fn_meta:tw4_functions|tw4_inbound_studio_for(p_account_sid text, p_messaging_service_sid text, p_to_e164 text)|6babafad
+fn_meta:tw4_functions|tw4_inbound_unrecorded(p_account_sid text, p_sids text[])|6babafad
+fn_meta:tw4_functions|tw4_limit_ceiling_approve_entity(p_entity_id uuid, p_actor uuid, p_cents integer, p_approval_ref text)|6babafad
+fn_meta:tw4_functions|tw4_limit_ceiling_set_platform(p_actor uuid, p_cents integer, p_approval_ref text)|6babafad
+fn_meta:tw4_functions|tw4_location_fee_kinds(p_studio_id uuid)|6babafad
+fn_meta:tw4_functions|tw4_monthly_limit_set(p_studio_id uuid, p_user_id uuid, p_limit_cents integer, p_effective_month text, p_confirmed boolean, p_reason text)|6babafad
+fn_meta:tw4_functions|tw4_monthly_limit_set_admin(p_entity_id uuid, p_actor uuid, p_limit_cents integer, p_effective_month text, p_reason text)|6babafad
+fn_meta:tw4_functions|tw4_num_begin(p_onboarding_id uuid, p_lease_owner text, p_op_kind text, p_friendly_name text, p_request_digest text, p_params jsonb, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_num_claim(p_studio_id uuid, p_actor uuid, p_lease_owner text, p_lease_seconds integer, p_mode text)|6babafad
+fn_meta:tw4_functions|tw4_num_context(p_onboarding_id uuid, p_lease_owner text)|6babafad
+fn_meta:tw4_functions|tw4_num_finish(p_onboarding_id uuid, p_lease_owner text, p_operation_id uuid, p_status text, p_provider_sid text, p_error_code text, p_error_detail text)|6babafad
+fn_meta:tw4_functions|tw4_num_history_observe(p_onboarding_id uuid, p_lease_owner text, p_facts jsonb, p_source text, p_digest text)|6babafad
+fn_meta:tw4_functions|tw4_num_identity_observe(p_onboarding_id uuid, p_lease_owner text, p_facts jsonb, p_source text, p_digest text)|6babafad
+fn_meta:tw4_functions|tw4_num_inventory_ack(p_studio_id uuid, p_actor uuid, p_phone_number_sid text, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_num_inventory_observe(p_onboarding_id uuid, p_lease_owner text, p_numbers jsonb, p_source text, p_listed_at timestamp with time zone)|6babafad
+fn_meta:tw4_functions|tw4_num_inventory_status(p_studio_id uuid, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_num_observe(p_onboarding_id uuid, p_lease_owner text, p_operation_id uuid, p_facts jsonb, p_source text, p_digest text)|6babafad
+fn_meta:tw4_functions|tw4_num_offer_record(p_studio_id uuid, p_actor uuid, p_account_sid text, p_search jsonb, p_candidates jsonb, p_source text, p_digest text)|6babafad
+fn_meta:tw4_functions|tw4_num_orphan_escalate(p_limit integer)|6babafad
+fn_meta:tw4_functions|tw4_num_orphan_exposure(p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_num_orphan_resolve(p_orphan_id uuid, p_actor uuid, p_resolution text, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_num_recon_claim(p_studio_id uuid, p_lease_owner text, p_lease_seconds integer)|6babafad
+fn_meta:tw4_functions|tw4_num_recon_manual(p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_num_recon_mark(p_entity uuid)|6babafad
+fn_meta:tw4_functions|tw4_num_recon_targets(p_limit integer, p_max_age_seconds integer)|6babafad
+fn_meta:tw4_functions|tw4_num_record_sender(p_studio_id uuid, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_num_registration_facts(p_studio_id uuid)|6babafad
+fn_meta:tw4_functions|tw4_num_registration_gaps(p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_num_registration_retry(p_studio_id uuid, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_num_rent_basis(p_studio_id uuid)|6babafad
+fn_meta:tw4_functions|tw4_num_reopen(p_studio_id uuid, p_actor uuid, p_reason text)|6babafad
+fn_meta:tw4_functions|tw4_num_resolve(p_operation_id uuid, p_actor uuid, p_resolution text, p_provider_sid text, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_num_retire(p_studio_id uuid, p_actor uuid, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_num_select(p_studio_id uuid, p_actor uuid, p_offer_id uuid, p_e164 text, p_ack_price_cents integer, p_approval_ref text)|6babafad
+fn_meta:tw4_functions|tw4_num_select_as_owner(p_studio_id uuid, p_offer_id uuid, p_e164 text, p_ack_price_cents integer)|7394603a
+fn_meta:tw4_functions|tw4_num_settle_admin(p_operation_id uuid, p_actor uuid, p_outcome text, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_num_status(p_studio_id uuid, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_num_withdraw(p_studio_id uuid, p_actor uuid, p_selection_id uuid, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_num_withdraw_as_owner(p_studio_id uuid, p_selection_id uuid, p_note text)|7394603a
+fn_meta:tw4_functions|tw4_onboarding_decide_tier(p_studio_id uuid, p_actor uuid, p_tier text, p_reason text, p_eligibility jsonb)|6babafad
+fn_meta:tw4_functions|tw4_onboarding_set_tier(p_studio_id uuid, p_actor uuid, p_tier text, p_reason text)|6babafad
+fn_meta:tw4_functions|tw4_panel_monthly_limits(p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_panel_overview(p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_panel_subaccount_confirm(p_request_key uuid, p_studio_id uuid, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_pilot_exception_create(p_entity_id uuid, p_ceiling_cents integer, p_approval_ref text, p_actor uuid, p_evidence_authorized_on date, p_evidence_role text, p_evidence_scope text, p_evidence_amount_cents integer, p_evidence_document_ref text, p_evidence_sha256 text)|6babafad
+fn_meta:tw4_functions|tw4_price_set(p_kind text, p_customer_cents integer, p_provider_cents integer, p_description text, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_prov_begin(p_onboarding_id uuid, p_lease_owner text, p_op_kind text, p_friendly_name text, p_request_digest text, p_params jsonb, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_prov_claim(p_studio_id uuid, p_actor uuid, p_lease_owner text, p_lease_seconds integer, p_mode text)|6babafad
+fn_meta:tw4_functions|tw4_prov_context(p_onboarding_id uuid, p_lease_owner text)|6babafad
+fn_meta:tw4_functions|tw4_prov_evidence(p_studio_id uuid, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_prov_evidence_claim(p_studio_id uuid, p_actor uuid, p_lease_owner text, p_lease_seconds integer)|6babafad
+fn_meta:tw4_functions|tw4_prov_evidence_targets(p_onboarding_id uuid, p_lease_owner text)|6babafad
+fn_meta:tw4_functions|tw4_prov_finish(p_onboarding_id uuid, p_lease_owner text, p_operation_id uuid, p_status text, p_provider_sid text, p_error_code text, p_error_detail text)|6babafad
+fn_meta:tw4_functions|tw4_prov_listing_record(p_onboarding_id uuid, p_lease_owner text, p_operation_id uuid, p_facts jsonb, p_source text, p_digest text)|6babafad
+fn_meta:tw4_functions|tw4_prov_observe(p_onboarding_id uuid, p_lease_owner text, p_operation_id uuid, p_facts jsonb, p_expected_inbound text, p_source text, p_digest text)|6babafad
+fn_meta:tw4_functions|tw4_prov_orphan_alert_status(p_actor uuid, p_legal_entity_id uuid)|6babafad
+fn_meta:tw4_functions|tw4_prov_orphan_close(p_orphan_id uuid, p_actor uuid, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_prov_orphan_exposure(p_actor uuid, p_legal_entity_id uuid, p_include_closed boolean)|6babafad
+fn_meta:tw4_functions|tw4_prov_orphan_register(p_orphan_id uuid, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_prov_reopen(p_studio_id uuid, p_actor uuid, p_reason text)|6babafad
+fn_meta:tw4_functions|tw4_prov_resolve(p_operation_id uuid, p_actor uuid, p_resolution text, p_provider_sid text, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_prov_settle_admin(p_operation_id uuid, p_actor uuid, p_kind text, p_outcome text, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_prov_status(p_studio_id uuid, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_reconcile_run_alive(p_run_id uuid, p_job text)|6babafad
+fn_meta:tw4_functions|tw4_reconcile_run_begin(p_job text, p_runner text, p_lease_seconds integer)|6babafad
+fn_meta:tw4_functions|tw4_reconcile_run_finish(p_run_id uuid, p_status text, p_summary jsonb, p_error text)|6babafad
+fn_meta:tw4_functions|tw4_recurring_authorize(p_studio_id uuid, p_user_id uuid, p_kind text, p_acknowledged_price_cents integer, p_term_months integer, p_total_limit_cents integer)|6babafad
+fn_meta:tw4_functions|tw4_recurring_charge(p_authorization_id uuid, p_period_key text, p_run_id uuid)|6babafad
+fn_meta:tw4_functions|tw4_recurring_due_list()|6babafad
+fn_meta:tw4_functions|tw4_recurring_release_ended()|6babafad
+fn_meta:tw4_functions|tw4_recurring_revoke(p_authorization_id uuid, p_user_id uuid)|6babafad
+fn_meta:tw4_functions|tw4_recurring_run_begin(p_runner text, p_lease_seconds integer)|6babafad
+fn_meta:tw4_functions|tw4_recurring_run_finish(p_run_id uuid, p_status text, p_summary jsonb, p_error text)|6babafad
+fn_meta:tw4_functions|tw4_recurring_service_state(p_studio_id uuid)|6babafad
+fn_meta:tw4_functions|tw4_recurring_set_switch(p_enabled boolean, p_actor uuid, p_reason text)|6babafad
+fn_meta:tw4_functions|tw4_rfl_admin_overview(p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_rfl_alert_delivery_record(p_alert_id uuid, p_claim_token uuid, p_recipient_ref text, p_recipient_kind text, p_outcome text)|6babafad
+fn_meta:tw4_functions|tw4_rfl_alert_finish(p_alert_id uuid, p_claim_token uuid, p_delivered boolean, p_error text)|6babafad
+fn_meta:tw4_functions|tw4_rfl_alert_recipients(p_alert_id uuid)|6babafad
+fn_meta:tw4_functions|tw4_rfl_alert_release(p_alert_id uuid, p_claim_token uuid)|6babafad
+fn_meta:tw4_functions|tw4_rfl_alerts_claim(p_limit integer)|6babafad
+fn_meta:tw4_functions|tw4_rfl_cancel_authorize(p_resource_id uuid, p_actor uuid, p_approval_ref text, p_decided_by text, p_reason text, p_irreversible_ack boolean)|6babafad
+fn_meta:tw4_functions|tw4_rfl_cancel_begin(p_operation_id uuid, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_rfl_cancel_finish(p_operation_id uuid, p_actor uuid, p_outcome text, p_evidence_digest text, p_error_code text)|6babafad
+fn_meta:tw4_functions|tw4_rfl_cancel_resolve(p_operation_id uuid, p_actor uuid, p_resolution text, p_evidence_digest text, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_rfl_cancel_target(p_operation_id uuid, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_rfl_cancel_withdraw(p_operation_id uuid, p_actor uuid, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_rfl_dual_approve(p_request_id uuid, p_actor uuid, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_rfl_dual_list(p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_rfl_dual_reject(p_request_id uuid, p_actor uuid, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_rfl_dual_request(p_actor uuid, p_action text, p_resource_id uuid, p_period_key text, p_reason text, p_approval_ref text, p_decided_by text)|6babafad
+fn_meta:tw4_functions|tw4_rfl_escalate_delivery()|6babafad
+fn_meta:tw4_functions|tw4_rfl_exposure_dispose(p_resource_id uuid, p_period_key text, p_actor uuid, p_disposition text, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_rfl_exposure_report(p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_rfl_health(p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_rfl_inventory_gaps()|6babafad
+fn_meta:tw4_functions|tw4_rfl_observe_provider_bill(p_resource_id uuid, p_period_key text, p_provider_ref text, p_cost_cents integer, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_rfl_pilot_cover(p_resource_id uuid, p_period_key text, p_approval_ref text, p_actor uuid, p_authorized_on date, p_authorized_by_role text, p_scope text, p_amount_cents integer, p_evidence_period_key text, p_document_ref text, p_document_sha256 text)|6babafad
+fn_meta:tw4_functions|tw4_rfl_register(p_studio_id uuid, p_actor uuid, p_kind text, p_provider_sid text, p_account_sid text, p_e164 text, p_source text, p_source_operation uuid, p_initial_reservation uuid)|6babafad
+fn_meta:tw4_functions|tw4_rfl_scan_begin(p_runner text, p_lease_seconds integer)|6babafad
+fn_meta:tw4_functions|tw4_rfl_scan_entities()|6babafad
+fn_meta:tw4_functions|tw4_rfl_scan_entity(p_entity_id uuid)|6babafad
+fn_meta:tw4_functions|tw4_rfl_scan_finish(p_run_id uuid, p_status text, p_summary jsonb, p_error text)|6babafad
+fn_meta:tw4_functions|tw4_rfl_set_switch(p_switch text, p_enabled boolean, p_actor uuid, p_reason text)|6babafad
+fn_meta:tw4_functions|tw4_rfl_studio_ready(p_studio_id uuid)|6babafad
+fn_meta:tw4_functions|tw4_rfl_suspend_df(p_studio_id uuid, p_actor uuid, p_reason text, p_hold boolean)|6babafad
+fn_meta:tw4_functions|tw4_rfl_switch_enabled(p_switch text)|6babafad
+fn_meta:tw4_functions|tw4_rfl_variance_ack(p_charge_id uuid, p_actor uuid, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_rfl_variance_report(p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_runner_account(p_onboarding_id uuid, p_lease_owner text)|6babafad
+fn_meta:tw4_functions|tw4_runner_begin_step(p_onboarding_id uuid, p_lease_owner text, p_step_key text, p_friendly_name text, p_fee_bearing boolean, p_fee_confirmed_by uuid, p_mock boolean)|6babafad
+fn_meta:tw4_functions|tw4_runner_brand_approved(p_onboarding_id uuid, p_lease_owner text)|6babafad
+fn_meta:tw4_functions|tw4_runner_claim(p_studio_id uuid, p_actor uuid, p_lease_owner text, p_lease_seconds integer, p_mode text)|6babafad
+fn_meta:tw4_functions|tw4_runner_confirm_submission(p_onboarding_id uuid, p_lease_owner text, p_step_key text, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_runner_fee_kinds(p_onboarding_id uuid, p_lease_owner text)|6babafad
+fn_meta:tw4_functions|tw4_runner_finish_step(p_onboarding_id uuid, p_lease_owner text, p_step_key text, p_status text, p_provider_sid text, p_error_code text, p_error_detail text)|6babafad
+fn_meta:tw4_functions|tw4_runner_get_ein(p_onboarding_id uuid, p_lease_owner text, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_runner_get_inputs(p_onboarding_id uuid, p_lease_owner text)|6babafad
+fn_meta:tw4_functions|tw4_runner_record_brand(p_onboarding_id uuid, p_lease_owner text, p_brand_sid text, p_brand_status text)|6babafad
+fn_meta:tw4_functions|tw4_runner_record_evaluation(p_onboarding_id uuid, p_lease_owner text, p_step_key text, p_verdict text, p_context text)|6babafad
+fn_meta:tw4_functions|tw4_runner_release(p_onboarding_id uuid, p_lease_owner text)|6babafad
+fn_meta:tw4_functions|tw4_runner_set_window(p_studio_id uuid, p_actor uuid, p_hours integer, p_reason text)|6babafad
+fn_meta:tw4_functions|tw4_runner_status(p_studio_id uuid, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_runner_tier(p_onboarding_id uuid, p_lease_owner text)|6babafad
+fn_meta:tw4_functions|tw4_runner_transition(p_onboarding_id uuid, p_lease_owner text, p_to_state text, p_step text, p_error_code text, p_error_field text)|6babafad
+fn_meta:tw4_functions|tw4_sender_due_reverify(p_limit integer)|6babafad
+fn_meta:tw4_functions|tw4_sender_health(p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_sender_overview(p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_sender_record(p_studio_id uuid, p_actor uuid, p_messaging_service_sid text, p_campaign_sid text, p_phone_number_sid text, p_sender_e164 text, p_reason text)|6babafad
+fn_meta:tw4_functions|tw4_sender_reverify(p_studio_id uuid, p_sender_id uuid, p_evidence jsonb, p_source text)|6babafad
+fn_meta:tw4_functions|tw4_sender_reverify_run(p_run_id uuid, p_studio_id uuid, p_sender_id uuid, p_evidence jsonb, p_source text)|6babafad
+fn_meta:tw4_functions|tw4_sender_revoke(p_studio_id uuid, p_actor uuid, p_reason text, p_release boolean)|6babafad
+fn_meta:tw4_functions|tw4_sender_verify(p_studio_id uuid, p_sender_id uuid, p_actor uuid, p_evidence jsonb, p_attested_opt_out boolean, p_source text)|6babafad
+fn_meta:tw4_functions|tw4_spend_authorize(p_entity_id uuid, p_kind text, p_amount_cents integer, p_approval_ref text, p_actor uuid, p_funding text, p_studio_id uuid, p_evidence_authorized_on date, p_evidence_role text, p_evidence_scope text, p_evidence_amount_cents integer, p_evidence_period_key text, p_evidence_document_ref text, p_evidence_sha256 text)|6babafad
+fn_meta:tw4_functions|tw4_spend_reserve(p_onboarding_id uuid, p_lease_owner text, p_kind text)|6babafad
+fn_meta:tw4_functions|tw4_spend_settle(p_onboarding_id uuid, p_lease_owner text, p_kind text, p_outcome text, p_ref text)|6babafad
+fn_meta:tw4_functions|tw4_spend_withdraw(p_spend_event_id uuid, p_actor uuid, p_note text)|6babafad
+fn_meta:tw4_functions|tw4_subaccount_begin(p_entity_id uuid, p_actor uuid, p_friendly_name text, p_environment text)|6babafad
+fn_meta:tw4_functions|tw4_subaccount_confirm(p_entity_id uuid, p_actor uuid)|6babafad
+fn_meta:tw4_functions|tw4_subaccount_finish(p_entity_id uuid, p_actor uuid, p_status text, p_account_sid text)|6babafad
+fn_meta:tw4_functions|tw4_usage_begin(p_source_kind text, p_source_id uuid, p_studio_id uuid, p_client_id uuid, p_phone_e164 text, p_body text, p_message_type text, p_related_table text, p_related_id uuid, p_sent_by uuid)|6babafad
+fn_meta:tw4_functions|tw4_usage_billed_sender_set(p_studio_id uuid, p_actor uuid, p_messaging_service_sid text, p_sender_e164 text, p_status text, p_reason text)|377c1eee
+fn_meta:tw4_functions|tw4_usage_dispatching(p_attempt_id uuid)|6babafad
+fn_meta:tw4_functions|tw4_usage_due(p_limit integer)|6babafad
+fn_meta:tw4_functions|tw4_usage_escalate(p_run_id uuid, p_limit integer)|6babafad
+fn_meta:tw4_functions|tw4_usage_evidence_failed(p_attempt_id uuid, p_code text, p_definite boolean)|6babafad
+fn_meta:tw4_functions|tw4_usage_reconcile_overview(p_actor uuid, p_limit integer)|6babafad
+fn_meta:tw4_functions|tw4_usage_record_callback(p_attempt_id uuid, p_provider_sid text, p_signer_account text, p_status text, p_error_code text)|6babafad
+fn_meta:tw4_functions|tw4_usage_rejected(p_attempt_id uuid, p_error_code text)|6babafad
+fn_meta:tw4_functions|tw4_usage_release_stale(p_run_id uuid, p_limit integer)|6babafad
+fn_meta:tw4_functions|tw4_usage_release_unprepared(p_attempt_id uuid, p_code text)|6babafad
+fn_meta:tw4_functions|tw4_usage_release_unsent()|6babafad
+fn_meta:tw4_functions|tw4_usage_resolve(p_attempt_id uuid, p_actor uuid, p_outcome text, p_segments integer, p_reason text)|6babafad
+fn_meta:tw4_functions|tw4_usage_set_switch(p_enabled boolean, p_actor uuid, p_reason text)|6babafad
+fn_meta:tw4_functions|tw4_usage_settle(p_attempt_id uuid, p_evidence jsonb)|6babafad
+fn_meta:tw4_functions|tw4_usage_studio_mode(p_studio_id uuid)|6babafad
+fn_meta:tw4_functions|tw4_usage_submitted(p_attempt_id uuid, p_provider_sid text)|6babafad
+fn_meta:tw4_functions|tw4_usage_touch(p_attempt_id uuid)|6babafad
+fn_meta:tw4_functions|tw4_usage_uncertain(p_attempt_id uuid, p_error_code text)|6babafad
+fn_meta:tw4_functions|tw4_webhook_account(p_account_sid text)|6babafad
+tbl_columns|sms_inbound_reply_counters|ae837082
+tbl_columns|sms_webhook_receipts|51547ca5
+tbl_columns|studio_sms_approval_refs|705c2679
+tbl_columns|studio_sms_billed_senders|4c10348f
+tbl_columns|studio_sms_compliance_checks|e4fe695d
+tbl_columns|studio_sms_credit_accounts|d674965b
+tbl_columns|studio_sms_credit_disputes|7df74dbc
+tbl_columns|studio_sms_credit_ledger|02561e51
+tbl_columns|studio_sms_credit_reservations|726648f1
+tbl_columns|studio_sms_credit_topups|74ed1ec8
+tbl_columns|studio_sms_entity_studios|1c82dd5b
+tbl_columns|studio_sms_entity_timezones|006cc1a7
+tbl_columns|studio_sms_inbound_exposure_ceilings|7c07d71c
+tbl_columns|studio_sms_inbound_recoveries|b6f705f4
+tbl_columns|studio_sms_inbound_route_pins|c286139c
+tbl_columns|studio_sms_inbound_scan_cursors|32a36b5a
+tbl_columns|studio_sms_inbound_unresolved|b15769f5
+tbl_columns|studio_sms_inbound_usage|43eb812a
+tbl_columns|studio_sms_legal_entities|9db490b6
+tbl_columns|studio_sms_limit_ceilings|7cc4458f
+tbl_columns|studio_sms_location_requests|689ffea3
+tbl_columns|studio_sms_monthly_limits|6dc2803e
+tbl_columns|studio_sms_num_history_reads|f6bb5c9b
+tbl_columns|studio_sms_num_identity_reads|485eac82
+tbl_columns|studio_sms_num_inventory_acks|394c600c
+tbl_columns|studio_sms_num_inventory_checks|8b9a2df3
+tbl_columns|studio_sms_num_operations|67b1818c
+tbl_columns|studio_sms_num_orphan_events|b434300d
+tbl_columns|studio_sms_num_orphans|c60d3997
+tbl_columns|studio_sms_num_recon_attempts|8af9d8f7
+tbl_columns|studio_sms_num_resources|c8fdb7c6
+tbl_columns|studio_sms_number_offers|ac58babd
+tbl_columns|studio_sms_number_selections|539855eb
+tbl_columns|studio_sms_onboarding|caba8c25
+tbl_columns|studio_sms_onboarding_access|9228296e
+tbl_columns|studio_sms_onboarding_audit|a434baf8
+tbl_columns|studio_sms_optout_attestations|b6d90c71
+tbl_columns|studio_sms_panel_requests|1bb0adf2
+tbl_columns|studio_sms_pilot_exceptions|0e296219
+tbl_columns|studio_sms_pilot_spend_evidence|9fcf209f
+tbl_columns|studio_sms_price_list|c2d94a53
+tbl_columns|studio_sms_prov_dispositions|ad756e65
+tbl_columns|studio_sms_prov_listings|046f12b1
+tbl_columns|studio_sms_prov_operations|9143a241
+tbl_columns|studio_sms_prov_orphans|53415dd1
+tbl_columns|studio_sms_prov_resources|353b8f86
+tbl_columns|studio_sms_provider_alerts|49ecb0ec
+tbl_columns|studio_sms_provider_cancel_ops|2911928b
+tbl_columns|studio_sms_provider_charges|4eebd4a9
+tbl_columns|studio_sms_provider_cover|d849667c
+tbl_columns|studio_sms_provider_cover_evidence|8f966ed9
+tbl_columns|studio_sms_provider_exposure|4b686956
+tbl_columns|studio_sms_provider_resources|0bccd16f
+tbl_columns|studio_sms_provider_variance_acks|905b95c2
+tbl_columns|studio_sms_provisioning_steps|9260682d
+tbl_columns|studio_sms_reconcile_runs|37534d84
+tbl_columns|studio_sms_recurring_authorizations|6b94aadb
+tbl_columns|studio_sms_recurring_charges|46787dae
+tbl_columns|studio_sms_recurring_runs|64ef93f8
+tbl_columns|studio_sms_recurring_switch_log|296cf4de
+tbl_columns|studio_sms_registrations|e4bdd2f1
+tbl_columns|studio_sms_rfl_alert_deliveries|5128b4de
+tbl_columns|studio_sms_rfl_dual_requests|61c9b4c1
+tbl_columns|studio_sms_rfl_fact_epochs|28f778e2
+tbl_columns|studio_sms_rfl_runs|64ef93f8
+tbl_columns|studio_sms_rfl_switch_log|361bae2d
+tbl_columns|studio_sms_runner_windows|75d2d6a0
+tbl_columns|studio_sms_sender_verifications|5304f7a4
+tbl_columns|studio_sms_spend_events|09df6c95
+tbl_columns|studio_sms_subaccount_confirmations|5daca9c4
+tbl_columns|studio_sms_submission_confirmations|3fe365fb
+tbl_columns|studio_sms_tier_decisions|15d92fd9
+tbl_columns|studio_sms_twilio_accounts|aadfc1e8
+tbl_columns|studio_sms_usage_attempt_events|49d94557
+tbl_columns|studio_sms_usage_attempts|dcdd3168
+tbl_columns|studio_sms_usage_switch_log|a544840f
+tbl_constraints|sms_inbound_reply_counters|a936b161
+tbl_constraints|sms_webhook_receipts|2b0a1a74
+tbl_constraints|studio_sms_approval_refs|34a7f78c
+tbl_constraints|studio_sms_billed_senders|b45ac09b
+tbl_constraints|studio_sms_compliance_checks|cc80b09c
+tbl_constraints|studio_sms_credit_accounts|2912f44c
+tbl_constraints|studio_sms_credit_disputes|2e5b619d
+tbl_constraints|studio_sms_credit_ledger|dc599c64
+tbl_constraints|studio_sms_credit_reservations|18f48c9c
+tbl_constraints|studio_sms_credit_topups|38ab6bf9
+tbl_constraints|studio_sms_entity_studios|cd38bda4
+tbl_constraints|studio_sms_entity_timezones|490d6b70
+tbl_constraints|studio_sms_inbound_exposure_ceilings|9e5eb83f
+tbl_constraints|studio_sms_inbound_recoveries|b22854dd
+tbl_constraints|studio_sms_inbound_route_pins|84356a91
+tbl_constraints|studio_sms_inbound_scan_cursors|70d608c8
+tbl_constraints|studio_sms_inbound_unresolved|db3065cf
+tbl_constraints|studio_sms_inbound_usage|ae770891
+tbl_constraints|studio_sms_legal_entities|e99c66f6
+tbl_constraints|studio_sms_limit_ceilings|05ebadb3
+tbl_constraints|studio_sms_location_requests|95f747e0
+tbl_constraints|studio_sms_monthly_limits|75a7eb21
+tbl_constraints|studio_sms_num_history_reads|4aa9e0c1
+tbl_constraints|studio_sms_num_identity_reads|60092398
+tbl_constraints|studio_sms_num_inventory_acks|9ffdac44
+tbl_constraints|studio_sms_num_inventory_checks|a67723e5
+tbl_constraints|studio_sms_num_operations|d025621c
+tbl_constraints|studio_sms_num_orphan_events|b533ce0b
+tbl_constraints|studio_sms_num_orphans|7543f7c1
+tbl_constraints|studio_sms_num_recon_attempts|39a0a495
+tbl_constraints|studio_sms_num_resources|0509681d
+tbl_constraints|studio_sms_number_offers|2c18ddc1
+tbl_constraints|studio_sms_number_selections|6b378088
+tbl_constraints|studio_sms_onboarding|eeeae2b0
+tbl_constraints|studio_sms_onboarding_access|05d8e99b
+tbl_constraints|studio_sms_onboarding_audit|b60f3f43
+tbl_constraints|studio_sms_optout_attestations|58c1351d
+tbl_constraints|studio_sms_panel_requests|e802c904
+tbl_constraints|studio_sms_pilot_exceptions|8d6f163d
+tbl_constraints|studio_sms_pilot_spend_evidence|8ba2fba8
+tbl_constraints|studio_sms_price_list|618472c5
+tbl_constraints|studio_sms_prov_dispositions|a02c86af
+tbl_constraints|studio_sms_prov_listings|57329564
+tbl_constraints|studio_sms_prov_operations|64ff3d1c
+tbl_constraints|studio_sms_prov_orphans|950f9586
+tbl_constraints|studio_sms_prov_resources|5317f6a4
+tbl_constraints|studio_sms_provider_alerts|2b219aa8
+tbl_constraints|studio_sms_provider_cancel_ops|50b7a782
+tbl_constraints|studio_sms_provider_charges|36bb3d9e
+tbl_constraints|studio_sms_provider_cover|deae0cff
+tbl_constraints|studio_sms_provider_cover_evidence|a2f9bf9e
+tbl_constraints|studio_sms_provider_exposure|ce9d4910
+tbl_constraints|studio_sms_provider_resources|a61745dc
+tbl_constraints|studio_sms_provider_variance_acks|7f08e522
+tbl_constraints|studio_sms_provisioning_steps|89258089
+tbl_constraints|studio_sms_reconcile_runs|190f9cb1
+tbl_constraints|studio_sms_recurring_authorizations|f4043a62
+tbl_constraints|studio_sms_recurring_charges|e064d722
+tbl_constraints|studio_sms_recurring_runs|2616c915
+tbl_constraints|studio_sms_recurring_switch_log|2d6e75fb
+tbl_constraints|studio_sms_registrations|ec4a482d
+tbl_constraints|studio_sms_rfl_alert_deliveries|18032376
+tbl_constraints|studio_sms_rfl_dual_requests|c48ac1bf
+tbl_constraints|studio_sms_rfl_fact_epochs|51b8b32a
+tbl_constraints|studio_sms_rfl_runs|6c7bcd3b
+tbl_constraints|studio_sms_rfl_switch_log|8b2cd154
+tbl_constraints|studio_sms_runner_windows|33e7ee95
+tbl_constraints|studio_sms_sender_verifications|1e3d8405
+tbl_constraints|studio_sms_spend_events|c98d38ab
+tbl_constraints|studio_sms_subaccount_confirmations|45d1d375
+tbl_constraints|studio_sms_submission_confirmations|4e8c1c9c
+tbl_constraints|studio_sms_tier_decisions|645e29b5
+tbl_constraints|studio_sms_twilio_accounts|52aefae3
+tbl_constraints|studio_sms_usage_attempt_events|6e492721
+tbl_constraints|studio_sms_usage_attempts|eaa2e837
+tbl_constraints|studio_sms_usage_switch_log|721d2555
+tbl_indexes|sms_inbound_reply_counters|21587b5a
+tbl_indexes|sms_webhook_receipts|de5c19e7
+tbl_indexes|studio_sms_approval_refs|e31aca8a
+tbl_indexes|studio_sms_billed_senders|695a1614
+tbl_indexes|studio_sms_compliance_checks|3617ab61
+tbl_indexes|studio_sms_credit_accounts|d22e9bbe
+tbl_indexes|studio_sms_credit_disputes|7f6d0d7b
+tbl_indexes|studio_sms_credit_ledger|abf8dcdd
+tbl_indexes|studio_sms_credit_reservations|fc060939
+tbl_indexes|studio_sms_credit_topups|51c2642d
+tbl_indexes|studio_sms_entity_studios|44fc4c52
+tbl_indexes|studio_sms_entity_timezones|87e62cc8
+tbl_indexes|studio_sms_inbound_exposure_ceilings|cd30f62c
+tbl_indexes|studio_sms_inbound_recoveries|c54994a1
+tbl_indexes|studio_sms_inbound_route_pins|cf8bb01c
+tbl_indexes|studio_sms_inbound_scan_cursors|9c520ce8
+tbl_indexes|studio_sms_inbound_unresolved|94560041
+tbl_indexes|studio_sms_inbound_usage|be14f3bd
+tbl_indexes|studio_sms_legal_entities|70af47ba
+tbl_indexes|studio_sms_limit_ceilings|5847d056
+tbl_indexes|studio_sms_location_requests|8dd83b1d
+tbl_indexes|studio_sms_monthly_limits|85aca4d5
+tbl_indexes|studio_sms_num_history_reads|22578226
+tbl_indexes|studio_sms_num_identity_reads|7360584f
+tbl_indexes|studio_sms_num_inventory_acks|e4c39fea
+tbl_indexes|studio_sms_num_inventory_checks|2568e9fc
+tbl_indexes|studio_sms_num_operations|5cd71bf4
+tbl_indexes|studio_sms_num_orphan_events|a9d5aef2
+tbl_indexes|studio_sms_num_orphans|fb604e1a
+tbl_indexes|studio_sms_num_recon_attempts|54be2648
+tbl_indexes|studio_sms_num_resources|96722a25
+tbl_indexes|studio_sms_number_offers|7f9791ad
+tbl_indexes|studio_sms_number_selections|5a8bba5a
+tbl_indexes|studio_sms_onboarding|b2374e25
+tbl_indexes|studio_sms_onboarding_access|1e723fc6
+tbl_indexes|studio_sms_onboarding_audit|4ec08c2f
+tbl_indexes|studio_sms_optout_attestations|ded7ca07
+tbl_indexes|studio_sms_panel_requests|19eb3891
+tbl_indexes|studio_sms_pilot_exceptions|eb9c3ede
+tbl_indexes|studio_sms_pilot_spend_evidence|745bdcb4
+tbl_indexes|studio_sms_price_list|e419bec9
+tbl_indexes|studio_sms_prov_dispositions|183ac540
+tbl_indexes|studio_sms_prov_listings|3138a457
+tbl_indexes|studio_sms_prov_operations|8ef208a3
+tbl_indexes|studio_sms_prov_orphans|66df13e1
+tbl_indexes|studio_sms_prov_resources|db5d3385
+tbl_indexes|studio_sms_provider_alerts|835985aa
+tbl_indexes|studio_sms_provider_cancel_ops|8c36a67e
+tbl_indexes|studio_sms_provider_charges|82826810
+tbl_indexes|studio_sms_provider_cover|227ee83f
+tbl_indexes|studio_sms_provider_cover_evidence|1c9c3dc1
+tbl_indexes|studio_sms_provider_exposure|67e1c1cd
+tbl_indexes|studio_sms_provider_resources|ecdc9904
+tbl_indexes|studio_sms_provider_variance_acks|9871e618
+tbl_indexes|studio_sms_provisioning_steps|296638fc
+tbl_indexes|studio_sms_reconcile_runs|d3d78bf7
+tbl_indexes|studio_sms_recurring_authorizations|776432c0
+tbl_indexes|studio_sms_recurring_charges|2524e283
+tbl_indexes|studio_sms_recurring_runs|9019db45
+tbl_indexes|studio_sms_recurring_switch_log|ce02f224
+tbl_indexes|studio_sms_registrations|8f4c6118
+tbl_indexes|studio_sms_rfl_alert_deliveries|4d6376fa
+tbl_indexes|studio_sms_rfl_dual_requests|fe517a5d
+tbl_indexes|studio_sms_rfl_fact_epochs|b9a01b7c
+tbl_indexes|studio_sms_rfl_runs|1fa5906f
+tbl_indexes|studio_sms_rfl_switch_log|73643f79
+tbl_indexes|studio_sms_runner_windows|8ce6343c
+tbl_indexes|studio_sms_sender_verifications|cabdfe44
+tbl_indexes|studio_sms_spend_events|5c38e96f
+tbl_indexes|studio_sms_subaccount_confirmations|0ab370d1
+tbl_indexes|studio_sms_submission_confirmations|ccd91b2a
+tbl_indexes|studio_sms_tier_decisions|0af59389
+tbl_indexes|studio_sms_twilio_accounts|721a0a50
+tbl_indexes|studio_sms_usage_attempt_events|57ab0ce7
+tbl_indexes|studio_sms_usage_attempts|1d560d6c
+tbl_indexes|studio_sms_usage_switch_log|058bd78a
+tbl_meta|sms_inbound_reply_counters|5c716102
+tbl_meta|sms_webhook_receipts|5c716102
+tbl_meta|studio_sms_approval_refs|5c716102
+tbl_meta|studio_sms_billed_senders|5c716102
+tbl_meta|studio_sms_compliance_checks|5c716102
+tbl_meta|studio_sms_credit_accounts|5c716102
+tbl_meta|studio_sms_credit_disputes|5c716102
+tbl_meta|studio_sms_credit_ledger|5c716102
+tbl_meta|studio_sms_credit_reservations|5c716102
+tbl_meta|studio_sms_credit_topups|5c716102
+tbl_meta|studio_sms_entity_studios|5c716102
+tbl_meta|studio_sms_entity_timezones|5c716102
+tbl_meta|studio_sms_inbound_exposure_ceilings|5c716102
+tbl_meta|studio_sms_inbound_recoveries|5c716102
+tbl_meta|studio_sms_inbound_route_pins|5c716102
+tbl_meta|studio_sms_inbound_scan_cursors|5c716102
+tbl_meta|studio_sms_inbound_unresolved|5c716102
+tbl_meta|studio_sms_inbound_usage|5c716102
+tbl_meta|studio_sms_legal_entities|5c716102
+tbl_meta|studio_sms_limit_ceilings|5c716102
+tbl_meta|studio_sms_location_requests|5c716102
+tbl_meta|studio_sms_monthly_limits|5c716102
+tbl_meta|studio_sms_num_history_reads|5c716102
+tbl_meta|studio_sms_num_identity_reads|5c716102
+tbl_meta|studio_sms_num_inventory_acks|5c716102
+tbl_meta|studio_sms_num_inventory_checks|5c716102
+tbl_meta|studio_sms_num_operations|5c716102
+tbl_meta|studio_sms_num_orphan_events|5c716102
+tbl_meta|studio_sms_num_orphans|5c716102
+tbl_meta|studio_sms_num_recon_attempts|5c716102
+tbl_meta|studio_sms_num_resources|5c716102
+tbl_meta|studio_sms_number_offers|5c716102
+tbl_meta|studio_sms_number_selections|5c716102
+tbl_meta|studio_sms_onboarding|5c716102
+tbl_meta|studio_sms_onboarding_access|5c716102
+tbl_meta|studio_sms_onboarding_audit|5c716102
+tbl_meta|studio_sms_optout_attestations|5c716102
+tbl_meta|studio_sms_panel_requests|5c716102
+tbl_meta|studio_sms_pilot_exceptions|5c716102
+tbl_meta|studio_sms_pilot_spend_evidence|5c716102
+tbl_meta|studio_sms_price_list|5c716102
+tbl_meta|studio_sms_prov_dispositions|5c716102
+tbl_meta|studio_sms_prov_listings|5c716102
+tbl_meta|studio_sms_prov_operations|5c716102
+tbl_meta|studio_sms_prov_orphans|5c716102
+tbl_meta|studio_sms_prov_resources|5c716102
+tbl_meta|studio_sms_provider_alerts|5c716102
+tbl_meta|studio_sms_provider_cancel_ops|5c716102
+tbl_meta|studio_sms_provider_charges|5c716102
+tbl_meta|studio_sms_provider_cover|5c716102
+tbl_meta|studio_sms_provider_cover_evidence|5c716102
+tbl_meta|studio_sms_provider_exposure|5c716102
+tbl_meta|studio_sms_provider_resources|5c716102
+tbl_meta|studio_sms_provider_variance_acks|5c716102
+tbl_meta|studio_sms_provisioning_steps|5c716102
+tbl_meta|studio_sms_reconcile_runs|5c716102
+tbl_meta|studio_sms_recurring_authorizations|5c716102
+tbl_meta|studio_sms_recurring_charges|5c716102
+tbl_meta|studio_sms_recurring_runs|5c716102
+tbl_meta|studio_sms_recurring_switch_log|5c716102
+tbl_meta|studio_sms_registrations|7fe2cbb9
+tbl_meta|studio_sms_rfl_alert_deliveries|5c716102
+tbl_meta|studio_sms_rfl_dual_requests|5c716102
+tbl_meta|studio_sms_rfl_fact_epochs|5c716102
+tbl_meta|studio_sms_rfl_runs|5c716102
+tbl_meta|studio_sms_rfl_switch_log|5c716102
+tbl_meta|studio_sms_runner_windows|5c716102
+tbl_meta|studio_sms_sender_verifications|5c716102
+tbl_meta|studio_sms_spend_events|5c716102
+tbl_meta|studio_sms_subaccount_confirmations|5c716102
+tbl_meta|studio_sms_submission_confirmations|5c716102
+tbl_meta|studio_sms_tier_decisions|5c716102
+tbl_meta|studio_sms_twilio_accounts|5c716102
+tbl_meta|studio_sms_usage_attempt_events|5c716102
+tbl_meta|studio_sms_usage_attempts|5c716102
+tbl_meta|studio_sms_usage_switch_log|5c716102
+tbl_triggers|sms_inbound_reply_counters|d41d8cd9
+tbl_triggers|sms_webhook_receipts|ccbbdfcc
+tbl_triggers|studio_sms_approval_refs|1ac5f5ad
+tbl_triggers|studio_sms_billed_senders|17f26ac6
+tbl_triggers|studio_sms_compliance_checks|5a81d736
+tbl_triggers|studio_sms_credit_accounts|e0293be1
+tbl_triggers|studio_sms_credit_disputes|d41d8cd9
+tbl_triggers|studio_sms_credit_ledger|597073b4
+tbl_triggers|studio_sms_credit_reservations|61a40e18
+tbl_triggers|studio_sms_credit_topups|1a1f2f35
+tbl_triggers|studio_sms_entity_studios|6bf88a58
+tbl_triggers|studio_sms_entity_timezones|987b2316
+tbl_triggers|studio_sms_inbound_exposure_ceilings|bbc3d336
+tbl_triggers|studio_sms_inbound_recoveries|512d4b63
+tbl_triggers|studio_sms_inbound_route_pins|178f2295
+tbl_triggers|studio_sms_inbound_scan_cursors|075ac0c0
+tbl_triggers|studio_sms_inbound_unresolved|d84d3e64
+tbl_triggers|studio_sms_inbound_usage|62a71e9e
+tbl_triggers|studio_sms_legal_entities|f036d5fd
+tbl_triggers|studio_sms_limit_ceilings|10080772
+tbl_triggers|studio_sms_location_requests|d41d8cd9
+tbl_triggers|studio_sms_monthly_limits|cbb9f42a
+tbl_triggers|studio_sms_num_history_reads|2eb983ba
+tbl_triggers|studio_sms_num_identity_reads|6d916593
+tbl_triggers|studio_sms_num_inventory_acks|e87f0000
+tbl_triggers|studio_sms_num_inventory_checks|342055ff
+tbl_triggers|studio_sms_num_operations|ff9bfd16
+tbl_triggers|studio_sms_num_orphan_events|024de963
+tbl_triggers|studio_sms_num_orphans|aad88693
+tbl_triggers|studio_sms_num_recon_attempts|d41d8cd9
+tbl_triggers|studio_sms_num_resources|62fa7865
+tbl_triggers|studio_sms_number_offers|a716dd60
+tbl_triggers|studio_sms_number_selections|74f611cd
+tbl_triggers|studio_sms_onboarding|e01a6426
+tbl_triggers|studio_sms_onboarding_access|79911b34
+tbl_triggers|studio_sms_onboarding_audit|c54f08cf
+tbl_triggers|studio_sms_optout_attestations|331b5053
+tbl_triggers|studio_sms_panel_requests|1bd17012
+tbl_triggers|studio_sms_pilot_exceptions|11d63082
+tbl_triggers|studio_sms_pilot_spend_evidence|8636f661
+tbl_triggers|studio_sms_price_list|d1cd50f7
+tbl_triggers|studio_sms_prov_dispositions|02a1f9df
+tbl_triggers|studio_sms_prov_listings|d3027dc9
+tbl_triggers|studio_sms_prov_operations|fe983ecc
+tbl_triggers|studio_sms_prov_orphans|b2f57fb7
+tbl_triggers|studio_sms_prov_resources|45f53877
+tbl_triggers|studio_sms_provider_alerts|b3237c58
+tbl_triggers|studio_sms_provider_cancel_ops|72f6c8ec
+tbl_triggers|studio_sms_provider_charges|ae0809f4
+tbl_triggers|studio_sms_provider_cover|00d52098
+tbl_triggers|studio_sms_provider_cover_evidence|65d56752
+tbl_triggers|studio_sms_provider_exposure|e99bd95f
+tbl_triggers|studio_sms_provider_resources|284546e5
+tbl_triggers|studio_sms_provider_variance_acks|a963c82c
+tbl_triggers|studio_sms_provisioning_steps|814a1573
+tbl_triggers|studio_sms_reconcile_runs|b9c0e5f2
+tbl_triggers|studio_sms_recurring_authorizations|dc58d32f
+tbl_triggers|studio_sms_recurring_charges|70c6f3b6
+tbl_triggers|studio_sms_recurring_runs|fd9c8f0a
+tbl_triggers|studio_sms_recurring_switch_log|289d1b0f
+tbl_triggers|studio_sms_registrations|3410b73b
+tbl_triggers|studio_sms_rfl_alert_deliveries|5071e87e
+tbl_triggers|studio_sms_rfl_dual_requests|59ca180e
+tbl_triggers|studio_sms_rfl_fact_epochs|e2c27d55
+tbl_triggers|studio_sms_rfl_runs|2d487fed
+tbl_triggers|studio_sms_rfl_switch_log|f293e499
+tbl_triggers|studio_sms_runner_windows|d41d8cd9
+tbl_triggers|studio_sms_sender_verifications|d44f639e
+tbl_triggers|studio_sms_spend_events|fff8cd16
+tbl_triggers|studio_sms_subaccount_confirmations|73e1396c
+tbl_triggers|studio_sms_submission_confirmations|ca4f9fd1
+tbl_triggers|studio_sms_tier_decisions|2c372c14
+tbl_triggers|studio_sms_twilio_accounts|f42de1e7
+tbl_triggers|studio_sms_usage_attempt_events|ffdc74ac
+tbl_triggers|studio_sms_usage_attempts|ca6cbfd7
+tbl_triggers|studio_sms_usage_switch_log|d25a7053
