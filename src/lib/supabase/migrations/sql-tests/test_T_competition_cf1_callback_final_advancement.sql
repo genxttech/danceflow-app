@@ -81,7 +81,7 @@ begin
   return r;
 end $$;
 create or replace function pg_temp.detail_has(p_sql text, p_frag text) returns boolean
-language plpgsql as $
+language plpgsql as $$
 declare v_detail text;
 begin
   begin
@@ -91,7 +91,7 @@ begin
     return position(p_frag in coalesce(v_detail, '')) > 0;
   end;
   return false;
-end $;
+end $$;
 -- Superuser helper run under a role: executes SQL as the session owner (fixture mutations in the middle of a role-based section).
 create or replace function pg_temp.su(p_sql text) returns void
 language plpgsql security definer as $$
