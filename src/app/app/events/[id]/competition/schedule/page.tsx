@@ -231,6 +231,10 @@ export default async function SchedulePage({
                             Max entries per heat for this division
                             <input name="capacity" type="number" min={1} max={100} defaultValue={scoringHeatCapacity(round)} className={`${selectClass} mt-1 w-24`} />
                           </label>
+                          <label className="text-xs font-medium text-slate-600">
+                            Reason (required, kept in the audit history)
+                            <input name="reason" required minLength={20} maxLength={500} className={`${selectClass} mt-1 w-64`} />
+                          </label>
                           <button className={secondaryButton}>Save</button>
                         </form>
                       ) : null}
