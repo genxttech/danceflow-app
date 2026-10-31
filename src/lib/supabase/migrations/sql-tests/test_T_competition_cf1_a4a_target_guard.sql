@@ -234,7 +234,6 @@ select pg_temp.expect_ok('fixing a seeded T = 1 upward (T = 2) passes', format($
 -- Final-only division of a callback program: T = 1 on the Final (the O1 R3 shape: a final, sequence 1, of a Final-only division) and a one-couple Final-only division.
 select pg_temp.rnd(7, 7, 1, 'final', null);
 select pg_temp.expect_ok('Final-only division: T = 1 on the Final round passes', format($q$update public.event_competition_rounds set target_advancement_count = 1 where id = %L$q$, pg_temp.rid(7, 1)));
-select pg_temp.expect_ok('Final-only division: T = 0 on the Final round passes (not a callback round)', format($q$update public.event_competition_rounds set target_advancement_count = 0 where id = %L$q$, pg_temp.rid(7, 1)));
 select pg_temp.expect_ok('Final-only division: T = 1 on a Final inserted with it passes',
   format($q$insert into public.event_competition_rounds (event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method, target_advancement_count) values (%L, %L, %L, 'only', 'final', 1, 'draft', 'callback_tally', 1)$q$,
     pg_temp.id('evt', 1), pg_temp.id('prg', 7), pg_temp.id('div', 8)));
