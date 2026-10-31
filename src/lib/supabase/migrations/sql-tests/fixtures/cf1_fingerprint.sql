@@ -1,0 +1,6 @@
+select 'F '||p.oid::regprocedure::text||' '||md5(replace(pg_get_functiondef(p.oid),E'\r',''))||' '||pg_get_userbyid(p.proowner)||' '||coalesce(p.proacl::text,'') from pg_proc p where p.pronamespace='public'::regnamespace order by 1;
+select 'T '||c.relname||' '||t.tgname||' '||t.tgenabled::text||' '||md5(pg_get_triggerdef(t.oid)) from pg_trigger t join pg_class c on c.oid=t.tgrelid where not t.tgisinternal and c.relnamespace='public'::regnamespace order by 1;
+select 'R '||c.relname||' '||c.relkind::text||' '||md5((select coalesce(string_agg(attname||format_type(atttypid,atttypmod)||attnotnull::text,',' order by attnum),'') from pg_attribute where attrelid=c.oid and attnum>0 and not attisdropped)) from pg_class c where c.relnamespace='public'::regnamespace and c.relkind in ('r','v','m') order by 1;
+select 'C '||conrelid::regclass||' '||conname||' '||md5(pg_get_constraintdef(oid)) from pg_constraint where connamespace='public'::regnamespace order by 1;
+select 'P '||tablename||' '||policyname||' '||md5(coalesce(qual,'')||coalesce(with_check,'')) from pg_policies where schemaname='public' order by 1;
+select 'I '||indexname||' '||md5(indexdef) from pg_indexes where schemaname='public' order by 1;
