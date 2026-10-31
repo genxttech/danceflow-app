@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
+import { parseAdvancementPreview, parseExclusionRows, parseWithdrawalState, withdrawalControlsBlocked } from "@/lib/competition/results/advancement";
+import { parseReviewExcluded } from "@/lib/competition/results/reviewTypes";
 import { approveRoundResultAction, calculateRoundResultAction, completeRoundAction, openRoundCorrectionAction } from "../actions";
+import { AdvancementSection, ExcludedSection, ExclusionPanel, WithdrawalPanel, type Candidate } from "./CallbackPanels";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -60,7 +63,12 @@ export default async function CompetitionRoundResultsPage({
   const { supabase } = await requireCompetitionWorkspace(id);
 
   // The round must belong to this event: the RPC alone is not told which event the URL named.
-  const { data: round } = await supabase.from("event_competition_rounds").select("id").eq("id", roundId).eq("event_id", id).maybeSingle();
+  const { data: round } = await supabase
+    .from("event_competition_rounds")
+    .select("id, round_type, scoring_method, division_id, sequence_number")
+    .eq("id", roundId)
+    .eq("event_id", id)
+    .maybeSingle();
   if (!round) notFound();
   const { data, error } = await supabase.rpc("competition_round_results_review", { p_round_id: roundId });
   if (error || !data) notFound();
@@ -69,6 +77,41 @@ export default async function CompetitionRoundResultsPage({
   const isManager = review.viewer_role === "manager";
   const status = review.round.status;
   const latest = review.versions[0];
+  const excluded = parseReviewExcluded(review);
+
+  // CF1 (manager only; every read below is also refused by the database for anyone else, and an unreadable answer shows nothing).
+  const isCallbackPreliminary = round.scoring_method === "callback_tally" && round.round_type !== "final";
+  let isCallbackFinal = false;
+  let sourceRound: { id: string; status: string } | null = null;
+  if (isManager && round.round_type === "final") {
+    const { data: previous } = await supabase
+      .from("event_competition_rounds")
+      .select("id, scoring_method, status")
+      .eq("event_id", id)
+      .eq("division_id", round.division_id)
+      .eq("sequence_number", round.sequence_number - 1)
+      .maybeSingle();
+    isCallbackFinal = previous?.scoring_method === "callback_tally";
+    if (isCallbackFinal && previous) sourceRound = { id: previous.id as string, status: previous.status as string };
+  }
+  const [previewResult, exclusionResult, withdrawalResult, boardResult] = isManager
+    ? await Promise.all([
+        isCallbackPreliminary ? supabase.rpc("competition_round_advancement_preview", { p_round_id: roundId }) : Promise.resolve({ data: null }),
+        supabase.rpc("competition_round_exclusions", { p_round_id: roundId }),
+        isCallbackFinal ? supabase.rpc("competition_final_withdrawal_state", { p_round_id: roundId }) : Promise.resolve({ data: null }),
+        supabase.rpc("competition_round_ballot_status", { p_round_id: roundId }),
+      ])
+    : [{ data: null }, { data: null }, { data: null }, { data: null }];
+  const preview = parseAdvancementPreview(previewResult.data);
+  const sourcePreview = sourceRound ? parseAdvancementPreview((await supabase.rpc("competition_round_advancement_preview", { p_round_id: sourceRound.id })).data) : null;
+  const withdrawalBlocked = sourceRound && sourcePreview ? withdrawalControlsBlocked({ advancementState: sourcePreview.state, sourceStatus: sourceRound.status }) : false;
+  const exclusionRows = parseExclusionRows(exclusionResult.data);
+  const withdrawalState = parseWithdrawalState(withdrawalResult.data);
+  const candidates: Candidate[] = [];
+  for (const heat of (boardResult.data as { heats?: Array<{ entries?: Candidate[] }> } | null)?.heats ?? []) {
+    for (const entry of heat.entries ?? []) if (!candidates.some((c) => c.entry_id === entry.entry_id)) candidates.push(entry);
+  }
+  const approvedVersion = review.versions.find((version) => version.status === "approved") ?? null;
 
   return (
     <div className="space-y-4">
@@ -173,6 +216,20 @@ export default async function CompetitionRoundResultsPage({
           );
         })
       )}
+
+      <ExcludedSection excluded={excluded} />
+
+      {isManager && isCallbackPreliminary ? (
+        <AdvancementSection preview={preview} roundId={roundId} roundStatus={status} versionId={approvedVersion?.id ?? null} returnTo={returnTo} />
+      ) : null}
+
+      {isManager ? (
+        <ExclusionPanel rows={exclusionRows} candidates={candidates} roundId={roundId} roundStatus={status} viewerId={review.viewer_id} returnTo={returnTo} />
+      ) : null}
+
+      {isManager && isCallbackFinal ? (
+        <WithdrawalPanel state={withdrawalState} candidates={candidates} roundId={roundId} viewerId={review.viewer_id} returnTo={returnTo} controlsBlocked={withdrawalBlocked} />
+      ) : null}
 
       {isManager && ["calculated", "approved", "published"].includes(status) ? (
         <form action={openRoundCorrectionAction} className="space-y-2 rounded border border-slate-200 bg-white p-4">
