@@ -7,6 +7,8 @@ import {
   beginCompetitionPayment,
   CompetitionRegistrationError,
   isUuid,
+  assertOrganizerSuiteForNewRegistration,
+  competitionRegistrationRequestExists,
   quoteCompetitionRegistration,
   refuseIfOrganizerSuiteLapsed,
   startCompetitionRegistration,
@@ -80,6 +82,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (!studio?.stripe_connected_account_id || !studio.stripe_connect_onboarding_complete || !studio.stripe_connect_charges_enabled || !studio.stripe_connect_payouts_enabled) {
         return NextResponse.json({ error: "Online payments are not enabled for this event.", code: "payment_not_ready" }, { status: 409 });
       }
+    }
+
+    // D7: a brand-new registration on an organizer event needs a current Organizer Suite entitlement BEFORE anything is
+    // created (start_competition_registration confirms $0 orders with no documents by itself). A replay of an existing
+    // request skips this and gets its stored result.
+    if (event.organizer_id && !(await competitionRegistrationRequestExists(admin, { eventId: event.id, clientRequestId: body.clientRequestId }))) {
+      await assertOrganizerSuiteForNewRegistration(admin, { studioId: event.studio_id, organizerId: event.organizer_id });
     }
 
     const started = await startCompetitionRegistration(admin, {

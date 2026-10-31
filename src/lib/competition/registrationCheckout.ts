@@ -203,6 +203,28 @@ async function organizerSuiteAllowsNewRegistration(admin: Db, studioId: string, 
 }
 
 /**
+ * D7: refuse a brand-new registration BEFORE start_competition_registration runs, so nothing is created. This matters
+ * because that function confirms $0 / fully discounted orders with no required documents on its own. Replays of an
+ * existing registration request must skip this and go through start (which replays the stored result).
+ */
+export async function assertOrganizerSuiteForNewRegistration(admin: Db, params: { studioId: string; organizerId: string | null }) {
+  if (await organizerSuiteAllowsNewRegistration(admin, params.studioId, params.organizerId)) return;
+  throw organizerNotAccepting();
+}
+
+/** True when this (event, clientRequestId) already has a registration cart, i.e. the request is a replay. */
+export async function competitionRegistrationRequestExists(admin: Db, params: { eventId: string; clientRequestId: string }) {
+  const { data, error } = await admin
+    .from("event_competition_registration_carts")
+    .select("id")
+    .eq("event_id", params.eventId)
+    .eq("client_request_id", params.clientRequestId)
+    .maybeSingle();
+  if (error) throw new CompetitionRegistrationError("checkout_failed", "Competition checkout could not be started.", 500);
+  return Boolean(data);
+}
+
+/**
  * D7: refuse a new (unpaid, unconfirmed) registration when the organizer's Suite entitlement has lapsed, applying to
  * paid, free and fully discounted orders alike. The pending order created for it is released through the existing
  * release_competition_registration cleanup (reason "abandoned": order cancelled, its own pending entries withdrawn;
@@ -210,6 +232,14 @@ async function organizerSuiteAllowsNewRegistration(admin: Db, studioId: string, 
  */
 export async function refuseIfOrganizerSuiteLapsed(admin: Db, params: { orderId: string; studioId: string; organizerId: string | null }) {
   if (await organizerSuiteAllowsNewRegistration(admin, params.studioId, params.organizerId)) return;
+  const { data: order } = await admin
+    .from("event_orders")
+    .select("status, payment_status, stripe_checkout_session_id")
+    .eq("id", params.orderId)
+    .maybeSingle();
+  // A paid order, or one with a bound Checkout Session (possibly open or mid-payment), is handled by the resume path
+  // in beginCompetitionPayment (retrieve, expire, release against that session) and by the payment callbacks.
+  if (!order || order.payment_status === "paid" || order.status === "confirmed" || order.stripe_checkout_session_id) return;
   try {
     await releaseCompetitionRegistration(admin, { orderId: params.orderId, reason: "abandoned" });
   } catch {
@@ -270,7 +300,14 @@ export async function beginCompetitionPayment(params: {
       // D7: payment of an unpaid pending order is refused once the entitlement has lapsed (no grace window). The open
       // session is expired first so it cannot be paid afterwards; if it cannot be expired, nothing is released.
       if (!(await organizerSuiteAllowsNewRegistration(admin, prepared.studio_id, prepared.organizer_id))) {
-        if (await expireCheckoutQuietly(stripe, prepared.checkout_session_id, accountId)) {
+        let settled = await expireCheckoutQuietly(stripe, prepared.checkout_session_id, accountId);
+        if (!settled) {
+          // Expiry failed: the session may have been paid or may already have expired. Re-read it before deciding.
+          const latest = await stripe.checkout.sessions.retrieve(prepared.checkout_session_id, {}, { stripeAccount: accountId });
+          if (latest.status === "complete") return { kind: "status", url: urls.statusUrl };
+          settled = latest.status === "expired";
+        }
+        if (settled) {
           try {
             await releaseCompetitionRegistration(admin, { orderId, reason: "abandoned", checkoutSessionId: prepared.checkout_session_id, stripeAccountId: accountId });
           } catch {
