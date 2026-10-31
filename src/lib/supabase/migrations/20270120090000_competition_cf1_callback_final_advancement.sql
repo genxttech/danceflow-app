@@ -630,7 +630,7 @@ begin
   return jsonb_build_object('replayed', false, 'round_id', p_round_id, 'old_capacity', v_old, 'new_capacity', p_capacity, 'exemption', v_exempt);
 end;
 $$;
-revoke all on function public.set_competition_round_heat_capacity(uuid, integer, text, uuid) from public, anon;
+revoke all on function public.set_competition_round_heat_capacity(uuid, integer, text, uuid) from public, anon, service_role;
 grant execute on function public.set_competition_round_heat_capacity(uuid, integer, text, uuid) to authenticated;
 
 -- ---------------------------------------------------------------------------
@@ -761,6 +761,15 @@ declare
   v_round uuid;
 begin
   if tg_op = 'UPDATE' and old.heat_id = new.heat_id and old.dance_id is not distinct from new.dance_id then
+    if (old.status, old.sequence_number, old.dance_key) is not distinct from (new.status, new.sequence_number, new.dance_key) then
+      return new;
+    end if;
+    -- status / order / key of a dance slot of an advanced Final heat: apply, the correction path or a round cancel only
+    select h.round_id into v_round from public.event_competition_heats h where h.id = v_heat;
+    if v_round is not null and public._cf1_has_advancement(v_round)
+       and not (public._cf1_auth_apply(v_round) or public._cf1_auth_revoke(v_round) or public._cf1_auth_cancel(v_round)) then
+      raise exception 'COMP_ADVANCEMENT_FINAL_DANCE_WRITER: the dances of an advanced Final heat are changed only by apply_competition_round_advancement or the correction path.' using errcode = '42501';
+    end if;
     return new;
   end if;
   if tg_op = 'DELETE' and (not exists (select 1 from public.events e where e.id = old.event_id)
@@ -889,11 +898,22 @@ declare
   v_dup integer;
   v_heats integer;
   v_bad jsonb;
+  v_dance_n integer;
+  v_dance_key text;
+  v_src_n integer;
+  v_src_key text;
 begin
-  if not (old.status = 'scheduled' and new.status = 'active') or not public._cf1_is_callback_final(new.id) then
+  if not (old.status = 'scheduled' and new.status = 'active') then
     return new;
   end if;
   v_adv := public._cf1_active_advancement(new.id);
+  if not public._cf1_is_callback_final(new.id) then
+    -- An advanced Final whose callback definition changed afterwards (sequence, type, advancement method) must not start unchecked.
+    if v_adv is not null then
+      raise exception 'COMP_ADVANCEMENT_ROSTER_STALE: this Final has an advancement but is no longer the Final of a callback round; correct the setup or revoke the advancement.' using errcode = 'P0001';
+    end if;
+    return new;
+  end if;
   if v_adv is null then
     raise exception 'COMP_ADVANCEMENT_NOT_APPLIED: this Final is built from the callback result; advance the callback first.' using errcode = 'P0001';
   end if;
@@ -938,6 +958,20 @@ begin
   end if;
   if public._cf1_count_available_entries(v_roster) < 2 then
     raise exception 'COMP_ADVANCEMENT_BELOW_MINIMUM: a callback Final needs at least two eligible couples to start.' using errcode = 'P0001';
+  end if;
+  -- Exactly one non-cancelled dance on the single live Final heat, and it is the callback round's dance.
+  select count(*), min(hd.dance_key) into v_dance_n, v_dance_key
+  from public.event_competition_heat_dances hd
+  join public.event_competition_heats h on h.id = hd.heat_id
+  where h.round_id = new.id and h.status <> 'cancelled' and h.schedule_version_id is not distinct from public._compo1_live_version(new.event_id)
+    and hd.status <> 'cancelled';
+  select count(distinct hd.dance_key), min(hd.dance_key) into v_src_n, v_src_key
+  from public.event_competition_heat_dances hd
+  join public.event_competition_heats h on h.id = hd.heat_id
+  where h.round_id = public._cf1_callback_source(new.id) and h.status <> 'cancelled' and hd.status <> 'cancelled';
+  if v_dance_n <> 1 or v_src_n <> 1 or v_dance_key is distinct from v_src_key then
+    raise exception 'COMP_ADVANCEMENT_FINAL_DANCE: the Final heat must hold exactly one dance, the callback round''s dance.'
+      using errcode = 'P0001', detail = jsonb_build_object('final_dances', v_dance_n, 'source_dances', v_src_n)::text;
   end if;
   return new;
 end;
@@ -1182,7 +1216,7 @@ begin
                             from public._cf1_withdrawn_entries(v_tgt.id) w));
 end;
 $$;
-revoke all on function public.competition_round_advancement_preview(uuid) from public, anon;
+revoke all on function public.competition_round_advancement_preview(uuid) from public, anon, service_role;
 grant execute on function public.competition_round_advancement_preview(uuid) to authenticated;
 
 create function public.apply_competition_round_advancement(p_round_id uuid, p_result_version_id uuid, p_request_id uuid)
@@ -1241,11 +1275,17 @@ begin
     select * into v_prev from public.event_competition_round_advancements a where a.request_id = p_request_id;
     if found then
       if v_prev.source_round_id = p_round_id and v_prev.applied_by = v_uid and v_prev.source_result_version_id = p_result_version_id then
+        if exists (select 1 from public.event_competition_round_advancement_revocations rv where rv.advancement_id = v_prev.id) then
+          raise exception 'COMP_ADVANCEMENT_REVOKED: this request was applied and has since been revoked; use a new request id to advance again.' using errcode = 'P0001';
+        end if;
         return jsonb_build_object('replayed', true, 'advancement_id', v_prev.id, 'generation', v_prev.generation,
           'heat_id', (select l.heat_id from public.event_competition_round_advancement_heats l where l.advancement_id = v_prev.id limit 1),
           'floor_heat_id', (select l.floor_heat_id from public.event_competition_round_advancement_heats l where l.advancement_id = v_prev.id limit 1),
           'entry_count', v_prev.advanced_count - v_prev.carried_count, 'carried', v_prev.carried_count);
       end if;
+      raise exception 'COMP_REQUEST_REUSED: request id was already used for a different request.' using errcode = 'P0001';
+    end if;
+    if exists (select 1 from public.event_competition_result_events e where e.request_id = p_request_id) then
       raise exception 'COMP_REQUEST_REUSED: request id was already used for a different request.' using errcode = 'P0001';
     end if;
 
@@ -1385,7 +1425,7 @@ begin
   end;
 end;
 $$;
-revoke all on function public.apply_competition_round_advancement(uuid, uuid, uuid) from public, anon;
+revoke all on function public.apply_competition_round_advancement(uuid, uuid, uuid) from public, anon, service_role;
 grant execute on function public.apply_competition_round_advancement(uuid, uuid, uuid) to authenticated;
 
 -- ---------------------------------------------------------------------------
@@ -1406,7 +1446,7 @@ create trigger cf1_guard_final_heat_identity
   for each row execute function public.cf1_guard_final_heat_identity();
 create trigger cf1_guard_final_heat_entry before insert or update of heat_id, entry_id on public.event_competition_heat_entries
   for each row execute function public.cf1_guard_final_heat_entry();
-create trigger cf1_guard_final_heat_dance before insert or update of heat_id, dance_id or delete on public.event_competition_heat_dances
+create trigger cf1_guard_final_heat_dance before insert or update of heat_id, dance_id, status, sequence_number, dance_key or delete on public.event_competition_heat_dances
   for each row execute function public.cf1_guard_final_heat_dance();
 create constraint trigger cf1_check_final_single_live_heat after insert or update of status, schedule_version_id, round_id on public.event_competition_heats
   deferrable initially deferred for each row execute function public.cf1_check_final_single_live_heat();
@@ -1591,11 +1631,26 @@ begin
       raise exception 'CF1-A0 postflight: trigger % is missing or not ENABLE ALWAYS.', v_t;
     end if;
   end loop;
-  if exists (select 1 from information_schema.role_table_grants g
-             where g.table_schema = 'public' and g.table_name like 'event_competition_round_advancement%'
-               and g.grantee in ('anon', 'authenticated', 'service_role', 'PUBLIC')) then
-    raise exception 'CF1-A0 postflight: an advancement table has a grant.';
-  end if;
+  foreach v_t in array array[
+    'event_competition_round_advancements', 'event_competition_round_advancement_entries', 'event_competition_round_advancement_heats',
+    'event_competition_round_advancement_revocations', 'event_competition_final_withdrawals', 'event_competition_round_capacity_events']
+  loop
+    if exists (select 1 from information_schema.role_table_grants g
+               where g.table_schema = 'public' and g.table_name = v_t and g.grantee in ('anon', 'authenticated', 'service_role', 'PUBLIC'))
+       or has_table_privilege('anon', ('public.' || v_t)::regclass, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+       or has_table_privilege('authenticated', ('public.' || v_t)::regclass, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+       or has_table_privilege('service_role', ('public.' || v_t)::regclass, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE') then
+      raise exception 'CF1-A0 postflight: table % has a grant.', v_t;
+    end if;
+  end loop;
+  foreach v_t in array array[
+    'public.apply_competition_round_advancement(uuid,uuid,uuid)', 'public.competition_round_advancement_preview(uuid)',
+    'public.set_competition_round_heat_capacity(uuid,integer,text,uuid)']
+  loop
+    if has_function_privilege('anon', v_t, 'EXECUTE') or has_function_privilege('service_role', v_t, 'EXECUTE') or not has_function_privilege('authenticated', v_t, 'EXECUTE') then
+      raise exception 'CF1-A0 postflight: % must be executable by authenticated only.', v_t;
+    end if;
+  end loop;
 end $$;
 
 commit;
