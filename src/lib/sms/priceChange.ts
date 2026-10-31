@@ -3,10 +3,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
  * D4-1: dual-controlled SMS price changes, application side. A thin, typed, SERVER-ONLY wrapper over `tw4_price_propose` / `tw4_price_approve` / `tw4_price_reject` /
- * `tw4_price_requests_list` (migration 20270204090000). It adds no authorization of its own: the CALLER (a server action or page that already ran `requirePlatformAdmin`
- * and, for a write, `requirePlatformStepUp`) passes the actor it derived from the session, and the database checks the platform-admin actor, the separation of duties
- * (the approver is never the requester) and every state rule again. Reads never throw (a missing function reads as "not available"). Writes throw `PriceChangeError`
- * carrying the SQLSTATE only, never the database message. Nothing here calls Twilio or Stripe, moves money or publishes a price by itself: only an approval does, in the database.
+ * `tw4_price_requests_list` (migration 20270204090000). These functions are executable by the authenticated role only and take the identity from the CALLER'S OWN verified
+ * session (auth.uid(), aal2, a recent authenticator code): there is no actor argument and the service-role key is never used on this path. The client passed in must
+ * therefore be the USER-scoped client of the signed-in administrator, never the admin client. The caller (a server action or page) has already run requirePlatformAdmin and,
+ * for a write, requirePlatformStepUp; the database checks the session, the protected approver registry, the separation of duties and every state rule again. Reads never
+ * throw (a missing function reads as "not available"). Writes throw `PriceChangeError` carrying the SQLSTATE only, never the database message. Nothing here calls Twilio or
+ * Stripe, moves money or publishes a price by itself: only an approval does, in the database.
  */
 
 type Client = Pick<SupabaseClient, "rpc">;
@@ -104,9 +106,9 @@ function parseRequests(v: unknown): PriceChangeRequest[] {
 }
 
 /** The active prices and the latest requests, or `null` = "not available" (not installed, caller not an administrator, any error). Never throws. */
-export async function loadPriceChanges(admin: Client, actorId: string): Promise<PriceChangeOverview | null> {
+export async function loadPriceChanges(client: Client): Promise<PriceChangeOverview | null> {
   try {
-    const res = await admin.rpc("tw4_price_requests_list", { p_actor: actorId });
+    const res = await client.rpc("tw4_price_requests_list");
     if (res.error) return null;
     const o = obj(res.data);
     if (!o) return null;
@@ -117,12 +119,12 @@ export async function loadPriceChanges(admin: Client, actorId: string): Promise<
 }
 
 export class PriceChangeStore {
-  constructor(private readonly admin: Client) {}
+  constructor(private readonly client: Client) {}
 
   private async call(fn: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
     let res: { data: unknown; error: { code?: string } | null };
     try {
-      res = (await this.admin.rpc(fn, args)) as typeof res;
+      res = (await this.client.rpc(fn, args)) as typeof res;
     } catch {
       throw new PriceChangeError("unknown");
     }
@@ -130,20 +132,20 @@ export class PriceChangeStore {
     return obj(res.data) ?? {};
   }
 
-  async propose(args: { kind: string; customerCents: number; providerCents: number; description: string; reason: string }, actorId: string): Promise<{ requestId: string | null; replayed: boolean }> {
+  async propose(args: { kind: string; customerCents: number; providerCents: number; description: string; reason: string }): Promise<{ requestId: string | null; replayed: boolean }> {
     const row = await this.call("tw4_price_propose", {
-      p_kind: args.kind, p_customer_cents: args.customerCents, p_provider_cents: args.providerCents, p_description: args.description, p_reason: args.reason, p_actor: actorId,
+      p_kind: args.kind, p_customer_cents: args.customerCents, p_provider_cents: args.providerCents, p_description: args.description, p_reason: args.reason,
     });
     return { requestId: uuid(row.request_id), replayed: row.replayed === true };
   }
 
-  async approve(requestId: string, note: string, actorId: string): Promise<{ status: string | null; replayed: boolean }> {
-    const row = await this.call("tw4_price_approve", { p_request_id: requestId, p_actor: actorId, p_note: note });
+  async approve(requestId: string, note: string): Promise<{ status: string | null; replayed: boolean }> {
+    const row = await this.call("tw4_price_approve", { p_request_id: requestId, p_note: note });
     return { status: str(row.status), replayed: row.replayed === true };
   }
 
-  async reject(requestId: string, note: string, actorId: string): Promise<{ status: string | null; withdrawn: boolean }> {
-    const row = await this.call("tw4_price_reject", { p_request_id: requestId, p_actor: actorId, p_note: note });
+  async reject(requestId: string, note: string): Promise<{ status: string | null; withdrawn: boolean }> {
+    const row = await this.call("tw4_price_reject", { p_request_id: requestId, p_note: note });
     return { status: str(row.status), withdrawn: row.withdrawn === true };
   }
 }

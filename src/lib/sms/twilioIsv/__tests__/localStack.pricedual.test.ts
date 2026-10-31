@@ -5,13 +5,13 @@
  *
  * LOCAL QA DATABASE ONLY: TW4A_LOCAL_DB_CONTAINER + TW4RFL_DB and the tw4_local_qa_only marker. Nothing reaches Twilio, Stripe or any message channel.
  */
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { A, B, C, D, E, F, G, DB, NOTE, PG, call, callErr, codeOf, enabled, mkUser, money, num, psql, psqlError, rows, seedCast, seedPrices, setRole, world } from "./wpd4Helpers";
 import { PRICE_KINDS } from "@/lib/sms/priceChange";
-import { ownerAgeRequest, ownerReactivate } from "./priceFixture";
+import { ownerAgeRequest, ownerReactivate, registerApproverSql } from "./priceFixture";
 
 vi.mock("server-only", () => ({}));
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 300_000 });
@@ -20,13 +20,13 @@ const active = (kind: string) => rows<{ id: string; customer_price_cents: number
   `select id, customer_price_cents, provider_cost_cents, created_by from public.studio_sms_price_list where kind = '${kind}' and active`);
 const priceRows = (kind: string, cents: number) => num(`select count(*) from public.studio_sms_price_list where kind = '${kind}' and customer_price_cents = ${cents}`);
 const propose = (kind: string, cents: number, actor: string, provider = 150, description = "dual-control price change under test", reason = "a written reason for the price change under test") =>
-  call<{ request_id: string; status: string; replayed: boolean }>("tw4_price_propose", kind, cents, provider, description, reason, actor);
+  call<{ request_id: string; status: string; replayed: boolean }>("_tw4price_do_propose", kind, cents, provider, description, reason, actor);
 const proposeErr = (kind: string, cents: number, actor: string, provider = 150, description = "dual-control price change under test", reason = "a written reason for the price change under test") =>
-  callErr("tw4_price_propose", kind, cents, provider, description, reason, actor);
-const approve = (id: string, actor: string, note = NOTE) => call<{ status: string; replayed?: boolean; price_id?: string }>("tw4_price_approve", id, actor, note);
-const approveErr = (id: string, actor: string, note = NOTE) => callErr("tw4_price_approve", id, actor, note);
-const reject = (id: string, actor: string, note = "rejected after review of the proposal") => call<{ status: string; replayed?: boolean; withdrawn?: boolean }>("tw4_price_reject", id, actor, note);
-const rejectErr = (id: string, actor: string, note = "rejected after review of the proposal") => callErr("tw4_price_reject", id, actor, note);
+  callErr("_tw4price_do_propose", kind, cents, provider, description, reason, actor);
+const approve = (id: string, actor: string, note = NOTE) => call<{ status: string; replayed?: boolean; price_id?: string }>("_tw4price_do_approve", id, actor, note);
+const approveErr = (id: string, actor: string, note = NOTE) => callErr("_tw4price_do_approve", id, actor, note);
+const reject = (id: string, actor: string, note = "rejected after review of the proposal") => call<{ status: string; replayed?: boolean; withdrawn?: boolean }>("_tw4price_do_reject", id, actor, note);
+const rejectErr = (id: string, actor: string, note = "rejected after review of the proposal") => callErr("_tw4price_do_reject", id, actor, note);
 const preq = (id: string) => rows<{ status: string; requested_by: string; decided_by: string | null; applied_price_id: string | null; decision_note: string | null; base_price_id: string | null }>(
   `select status, requested_by, decided_by, applied_price_id, decision_note, base_price_id from public.studio_sms_price_change_requests where id = '${id}'`)[0];
 const ageRequest = (id: string) => ownerAgeRequest(psql, id);
@@ -44,12 +44,20 @@ const sessionPsql = (sql: string): Promise<{ out: string; code: number | null }>
     p.on("close", (code) => resolve({ out, code }));
     p.stdin.end(sql);
   });
+/** a platform administrator who is also in the protected approver registry (owner-level insert) */
+const mkAdmin = (label: string): string => {
+  const u = mkUser({ admin: true, label });
+  psql(registerApproverSql(u));
+  return u;
+};
 const rollbackSql = () => readFileSync(join(__dirname, "..", "..", "..", "supabase", "migrations", "rollback", "20270204090000_twilio_price_dual_control_rollback.sql"), "utf8");
 
 describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic administrators)", () => {
   beforeAll(() => {
     expect(psql(`select to_regclass('public.studio_sms_price_change_requests') is not null`)).toBe("t");
     seedCast();
+    // the cast is in the protected registry (C never held the role and E lost it, which the role check must still catch)
+    for (const u of [A, B, C, D, E, F, G]) psql(registerApproverSql(u));
     seedPrices();
     expect(new Set([A, B, C, D, E, F, G]).size).toBe(7);
   });
@@ -171,31 +179,31 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
     }
     reject(p.request_id, A, "withdrawn to start the next scenario clean");
     // requester demoted after proposing
-    const x = mkUser({ admin: true, label: "price-requester" });
+    const x = mkAdmin("price-requester");
     const q = propose("monthly", 1236, x);
     setRole(x, false);
     expect(approve(q.request_id, B)).toMatchObject({ status: "invalidated" });
     expect(preq(q.request_id)).toMatchObject({ status: "invalidated", decided_by: null });
     expect(preq(q.request_id).decision_note).toMatch(/no longer an active platform administrator/);
     // requester banned after proposing (the role is kept)
-    const y = mkUser({ admin: true, label: "price-requester-banned" });
+    const y = mkAdmin("price-requester-banned");
     const r = propose("monthly", 1237, y);
     psql(`update auth.users set banned_until = now() + interval '10 years' where id = '${y}';`);
     expect(approve(r.request_id, B)).toMatchObject({ status: "invalidated" });
     // requester soft-deleted after proposing (deleted_at set, role kept)
-    const w = mkUser({ admin: true, label: "price-requester-deleted" });
+    const w = mkAdmin("price-requester-deleted");
     const dq = propose("monthly", 1239, w);
     psql(`update auth.users set deleted_at = now() where id = '${w}';`);
     expect(approve(dq.request_id, B)).toMatchObject({ status: "invalidated" });
-    const w2 = mkUser({ admin: true, label: "price-approver-deleted" });
+    const w2 = mkAdmin("price-approver-deleted");
     psql(`update auth.users set deleted_at = now() where id = '${w2}';`);
     expect(codeOf(proposeErr("monthly", 1240, w2))).toBe("42501");
     // approver demoted / banned
     const s = propose("monthly", 1238, A);
-    const z = mkUser({ admin: true, label: "price-approver" });
+    const z = mkAdmin("price-approver");
     setRole(z, false);
     expect(codeOf(approveErr(s.request_id, z))).toBe("42501");
-    const z2 = mkUser({ admin: true, label: "price-approver-banned" });
+    const z2 = mkAdmin("price-approver-banned");
     psql(`update auth.users set banned_until = now() + interval '10 years' where id = '${z2}';`);
     expect(codeOf(approveErr(s.request_id, z2))).toBe("42501");
     expect(preq(s.request_id).status).toBe("pending");
@@ -210,7 +218,7 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
     expect(codeOf(proposeErr("MONTHLY", 1234, A))).toBe("22023");
     expect(codeOf(proposeErr("monthly", 0, A))).toBe("22023");
     expect(codeOf(proposeErr("monthly", -5, A))).toBe("22023");
-    expect(codeOf(callErr("tw4_price_propose", "monthly", null, 150, "dual-control price change under test", "a written reason for the price change", A))).toBe("22023");
+    expect(codeOf(callErr("_tw4price_do_propose", "monthly", null, 150, "dual-control price change under test", "a written reason for the price change", A))).toBe("22023");
     expect(codeOf(proposeErr("monthly", 1234, A, -1))).toBe("22023");
     expect(codeOf(proposeErr("monthly", 1234, A, 150, "ab"))).toBe("22023");
     expect(codeOf(proposeErr("monthly", 1234, A, 150, "dual-control price change under test", "short"))).toBe("22023");
@@ -335,9 +343,9 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
       clearOpen("number");
       const p = propose("number", 314, A);
       expect(codeOf(approveErr(p.request_id, "22222222-2222-4222-8222-222222222222"))).toBe("42501");
-      expect(codeOf(callErr("tw4_price_approve", p.request_id, null, NOTE))).toBe("42501");
+      expect(codeOf(callErr("_tw4price_do_approve", p.request_id, null, NOTE))).toBe("42501");
       expect(codeOf(proposeErr("number", 3141, "22222222-2222-4222-8222-222222222222"))).toBe("42501");
-      expect(codeOf(callErr("tw4_price_approve", "33333333-3333-4333-8333-333333333333", B, NOTE))).toBe("22023"); // unknown request
+      expect(codeOf(callErr("_tw4price_do_approve", "33333333-3333-4333-8333-333333333333", B, NOTE))).toBe("22023"); // unknown request
       expect(codeOf(approveErr(p.request_id, B, "short"))).toBe("22023"); // a written note is mandatory
       expect(preq(p.request_id).status).toBe("pending");
       reject(p.request_id, A, "withdrawn to start the next scenario clean");
@@ -377,7 +385,7 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
       await until(`exists (select 1 from pg_stat_activity where datname = '${DB}' and wait_event_type = 'Lock')`);
       return Promise.all([s1, s2]);
     }
-    const appr = (id: string, who: string) => `select public.tw4_price_approve('${id}', '${who}', '${NOTE}')::text;`;
+    const appr = (id: string, who: string) => `select public._tw4price_do_approve('${id}', '${who}', '${NOTE}')::text;`;
 
     it("PD-16 two administrators approve the SAME request at the same moment: exactly one publishes, the other is refused TW041, one active price, one price row, the request is decided by the winner", async () => {
       clearOpen("number");
@@ -401,14 +409,14 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
       expect(priceRows("number", 317)).toBe(1);
       // approval holds, rejection arrives second: the rejection loses
       const q = propose("number", 3171, A);
-      const [ap, rj] = await race(appr(q.request_id, B), `select public.tw4_price_reject('${q.request_id}', '${F}', 'rejected while the approval was in flight')::text;`);
+      const [ap, rj] = await race(appr(q.request_id, B), `select public._tw4price_do_reject('${q.request_id}', '${F}', 'rejected while the approval was in flight')::text;`);
       expect(ap.out).toContain('"status": "applied"');
       expect(codeOf(rj.out)).toBe("TW041");
       expect(preq(q.request_id).status).toBe("applied");
       expect(priceRows("number", 3171)).toBe(1);
       // rejection holds, approval arrives second: the approval loses
       const s = propose("number", 3172, A);
-      const [rj2, ap2] = await race(`select public.tw4_price_reject('${s.request_id}', '${F}', 'rejected before the approval arrived')::text;`, appr(s.request_id, B));
+      const [rj2, ap2] = await race(`select public._tw4price_do_reject('${s.request_id}', '${F}', 'rejected before the approval arrived')::text;`, appr(s.request_id, B));
       expect(rj2.out).toContain('"status": "rejected"');
       expect(codeOf(ap2.out)).toBe("TW041");
       expect(priceRows("number", 3172)).toBe(0);
@@ -416,13 +424,13 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
 
     it("PD-18 two proposals for the same kind race: one pending request, the other TW041; an approver demoted while their approval waits for the lock is refused 42501 and nothing is published", async () => {
       clearOpen("number");
-      const prop = (cents: number, who: string) => `select public.tw4_price_propose('number', ${cents}, 150, 'dual-control price change under test', 'a written reason for the race', '${who}')::text;`;
+      const prop = (cents: number, who: string) => `select public._tw4price_do_propose('number', ${cents}, 150, 'dual-control price change under test', 'a written reason for the race', '${who}')::text;`;
       const [a, b] = await race(prop(3181, A), prop(3182, B));
       expect(a.out).toContain('"status": "pending"');
       expect(codeOf(b.out)).toBe("TW041");
       expect(num(`select count(*) from public.studio_sms_price_change_requests where kind = 'number' and status in ('pending', 'approved')`)).toBe(1);
       const open = rows<{ id: string }>(`select id from public.studio_sms_price_change_requests where kind = 'number' and status = 'pending'`)[0].id;
-      const ap = mkUser({ admin: true, label: "price-approver-race" });
+      const ap = mkAdmin("price-approver-race");
       const [demote, approval] = await race(`update public.profiles set platform_role = null where id = '${ap}';`, appr(open, ap));
       expect(demote.code).toBe(0);
       expect(codeOf(approval.out)).toBe("42501");
@@ -432,33 +440,286 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
     });
   });
 
+  describe("F1: published prices are undeletable, untruncatable and unrepeatable, also under session_replication_role = replica", () => {
+    const superuser = (sql: string): string => {
+      try {
+        return execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "supabase_admin", "-d", DB, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { input: `\\set VERBOSITY verbose\n${sql}`, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }) && "";
+      } catch (error) {
+        return String((error as { stderr?: Buffer | string }).stderr ?? error);
+      }
+    };
+    const ins = `insert into public.studio_sms_price_list (kind, customer_price_cents, provider_cost_cents, description, created_by) values ('number', 999, 100, 'bypass attempt', '${A}');`;
+    it("PD-02b the owner (postgres) in replica mode cannot DELETE, TRUNCATE (direct or CASCADE) or retire-then-insert a published price", () => {
+      const before = [num(`select count(*) from public.studio_sms_price_list`), active("number")];
+      expect(psqlError(`begin; set local session_replication_role = replica; delete from public.studio_sms_price_list where active; rollback;`)).toMatch(/never deleted/);
+      expect(psqlError(`begin; set local session_replication_role = replica; delete from public.studio_sms_price_list; rollback;`)).toMatch(/never deleted/);
+      expect(psqlError(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_list; rollback;`)).toMatch(/never truncated/);
+      expect(psqlError(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_list cascade; rollback;`)).toMatch(/never truncated/);
+      expect(psqlError(`begin; truncate public.studio_sms_price_list cascade; rollback;`)).toMatch(/never truncated/);
+      expect(psqlError(`begin; set local session_replication_role = replica; update public.studio_sms_price_list set active = false where kind = 'number' and active; ${ins} rollback;`)).toMatch(/approved dual-control price change/);
+      expect([num(`select count(*) from public.studio_sms_price_list`), active("number")]).toEqual(before);
+    });
+    it("PD-02c the same as a superuser (supabase_admin) when the harness has that role: delete, truncate and insert are refused in replica mode", () => {
+      if (psql(`select count(*) from pg_roles where rolname = 'supabase_admin' and rolsuper`) !== "1") return;
+      expect(superuser(`begin; set local session_replication_role = replica; delete from public.studio_sms_price_list; rollback;`)).toMatch(/never deleted/);
+      expect(superuser(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_list cascade; rollback;`)).toMatch(/never truncated/);
+      expect(superuser(`begin; set local session_replication_role = replica; ${ins} rollback;`)).toMatch(/approved dual-control price change/);
+    });
+  });
+
+  describe("protected approver registry and session-bound entry points", () => {
+    const claims = (sub: string, over: Record<string, unknown> = {}) => ({ sub, role: "authenticated", aal: "aal2", exp: Math.floor(Date.now() / 1000) + 3600, amr: [{ method: "totp", timestamp: Math.floor(Date.now() / 1000) - 60 }], ...over });
+    const asAuth = (c: Record<string, unknown> | null, sql: string, role = "authenticated") =>
+      `begin; set local role ${role}; select set_config('request.jwt.claims', '${JSON.stringify(c ?? {})}', true); ${sql} commit;`;
+    const authErr = (c: Record<string, unknown> | null, sql: string, role = "authenticated") => psqlError(asAuth(c, sql, role));
+    const authOut = (c: Record<string, unknown> | null, sql: string) => JSON.parse(psql(asAuth(c, sql)).split("\n").pop()!) as Record<string, unknown>;
+    const wrapPropose = (cents: number) => `select public.tw4_price_propose('number', ${cents}, 115, 'session bound proposal', 'a written reason for the session test')::text;`;
+    const wrapApprove = (id: string) => `select public.tw4_price_approve('${id}', '${NOTE}')::text;`;
+
+    it("PD-24 the registry: a platform administrator who is NOT registered (or whose registration was revoked) can neither propose, approve, reject nor list; the registry cannot be changed by API roles, revived or deleted; profile forgery alone gains nothing", () => {
+      clearOpen("number");
+      const u = mkUser({ admin: true, label: "unregistered-admin" });
+      expect(codeOf(proposeErr("number", 401, u))).toBe("42501");
+      const p = propose("number", 402, A);
+      expect(codeOf(approveErr(p.request_id, u))).toBe("42501");
+      expect(codeOf(rejectErr(p.request_id, u))).toBe("42501");
+      expect(codeOf(callErr("_tw4price_do_list", u))).toBe("42501");
+      // role forged on the profile (what a service-role holder can do) still does not make a registered approver
+      for (const role of ["anon", "authenticated", "service_role"]) {
+        expect(psqlError(`set role ${role}; insert into public.studio_sms_price_approvers (user_id, added_note) values ('${u}', 'a forged registration attempt');`), role).toMatch(/permission denied/);
+        expect(psqlError(`set role ${role}; select count(*) from public.studio_sms_price_approvers;`), role).toMatch(/permission denied/);
+      }
+      // registered, then revoked
+      const v = mkAdmin("revoked-admin");
+      psql(`update public.studio_sms_price_approvers set revoked_at = now(), revoked_note = 'revoked in the registry test' where user_id = '${v}';`);
+      expect(codeOf(approveErr(p.request_id, v))).toBe("42501");
+      expect(codeOf(proposeErr("monthly", 1999, v))).toBe("42501");
+      expect(psqlError(`update public.studio_sms_price_approvers set revoked_at = null, revoked_note = null where user_id = '${v}';`)).toMatch(/can only be revoked, once/);
+      expect(psqlError(`delete from public.studio_sms_price_approvers where user_id = '${v}';`)).toMatch(/never deleted/);
+      expect(psqlError(`begin; set local session_replication_role = replica; delete from public.studio_sms_price_approvers where user_id = '${v}'; rollback;`)).toMatch(/never deleted/);
+      expect(psqlError(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_approvers; rollback;`)).toMatch(/never truncated/);
+      expect(preq(p.request_id).status).toBe("pending");
+      reject(p.request_id, A, "withdrawn to start the next scenario clean");
+    });
+
+    it("PD-25 the public entry points take the identity from the caller's own JWT: aal1, a stale or absent TOTP, a service-role or anon token, and a swapped claim set are refused; a fresh aal2 registered administrator is accepted; there is no actor argument", () => {
+      clearOpen("number");
+      const base = active("number")[0];
+      const before = active("number");
+      const bad: Array<[string, Record<string, unknown> | null]> = [
+        ["aal1", claims(A, { aal: "aal1", amr: [{ method: "password", timestamp: Math.floor(Date.now() / 1000) }] })],
+        ["stale totp", claims(A, { amr: [{ method: "totp", timestamp: Math.floor(Date.now() / 1000) - 1000 }] })],
+        ["no totp", claims(A, { amr: [{ method: "password", timestamp: Math.floor(Date.now() / 1000) }] })],
+        ["totp without a timestamp (string amr)", claims(A, { amr: ["totp"] })],
+        ["service_role claim", claims(A, { role: "service_role" })],
+        ["anon claim", { role: "anon" }],
+        ["no claims", null],
+      ];
+      for (const [label, c] of bad) {
+        expect(codeOf(authErr(c, wrapPropose(501))), `propose ${label}`).toBe("42501");
+      }
+      expect(num(`select count(*) from public.studio_sms_price_change_requests where kind = 'number' and status = 'pending'`)).toBe(0);
+      // fresh aal2 + recent TOTP, registered: accepted; the requester recorded is the JWT subject
+      const r = authOut(claims(A), wrapPropose(502)) as { request_id: string };
+      expect(preq(r.request_id)).toMatchObject({ status: "pending", requested_by: A });
+      // a stale-TOTP / aal1 approver is refused; the requester cannot approve their own; an unregistered subject cannot
+      expect(codeOf(authErr(claims(B, { amr: [{ method: "totp", timestamp: Math.floor(Date.now() / 1000) - 1000 }] }), wrapApprove(r.request_id)))).toBe("42501");
+      expect(codeOf(authErr(claims(B, { aal: "aal1" }), wrapApprove(r.request_id)))).toBe("42501");
+      expect(codeOf(authErr(claims(A), wrapApprove(r.request_id)))).toBe("42501"); // the requester
+      expect(codeOf(authErr(claims(C), wrapApprove(r.request_id)))).toBe("42501"); // not an administrator
+      expect(active("number")).toEqual(before);
+      // reject needs aal2 with a TOTP, not recency
+      expect(codeOf(authErr(claims(F, { aal: "aal1" }), `select public.tw4_price_reject('${r.request_id}', 'rejected with an aal1 session attempt')::text;`))).toBe("42501");
+      // the approval by B (fresh aal2) publishes exactly this request's price
+      const out = authOut(claims(B), wrapApprove(r.request_id));
+      expect(out).toMatchObject({ status: "applied" });
+      expect(preq(r.request_id)).toMatchObject({ status: "applied", requested_by: A, decided_by: B });
+      expect(active("number")[0].id).not.toBe(base.id);
+      // list: aal2 registered only
+      expect(codeOf(authErr(claims(A, { aal: "aal1" }), `select public.tw4_price_requests_list()::text;`))).toBe("42501");
+      expect(Array.isArray((authOut(claims(A, { amr: [{ method: "totp", timestamp: 1 }] }), `select public.tw4_price_requests_list()::text;`) as { requests: unknown[] }).requests)).toBe(true);
+      // the old actor-taking shape does not exist any more on the public names
+      expect(psqlError(`select public.tw4_price_approve('${r.request_id}'::uuid, '${B}'::uuid, '${NOTE}');`)).toMatch(/does not exist|function public\.tw4_price_approve/);
+      expect(psqlError(`select public.tw4_price_propose('number', 1, 1, 'a description', 'a written reason text', '${A}'::uuid);`)).toMatch(/does not exist|function public\.tw4_price_propose/);
+    });
+
+    it("PD-26 service_role cannot reach any price entry point: no EXECUTE on the public functions, the internal functions or the helpers; the only function it keeps is the refusing tw4_price_set and the read-only verifier", () => {
+      for (const f of ["tw4_price_propose(text,int,int,text,text)", "tw4_price_approve(uuid,text)", "tw4_price_reject(uuid,text)", "tw4_price_requests_list()", "_tw4price_do_propose(text,int,int,text,text,uuid)",
+        "_tw4price_do_approve(uuid,uuid,text)", "_tw4price_do_reject(uuid,uuid,text)", "_tw4price_do_list(uuid)", "_tw4price_session_actor(text)", "_tw4price_admin_active(uuid)"]) {
+        expect(psql(`select has_function_privilege('service_role', 'public.${f}', 'execute')`), `service_role ${f}`).toBe("f");
+      }
+      for (const f of ["tw4_price_propose(text,int,int,text,text)", "tw4_price_approve(uuid,text)", "tw4_price_reject(uuid,text)", "tw4_price_requests_list()"]) {
+        expect(psql(`select has_function_privilege('authenticated', 'public.${f}', 'execute')`), `authenticated ${f}`).toBe("t");
+        expect(psql(`select has_function_privilege('anon', 'public.${f}', 'execute')`), `anon ${f}`).toBe("f");
+        expect(psql(`select has_function_privilege('public', 'public.${f}', 'execute')`), `public ${f}`).toBe("f");
+      }
+      expect(psql(`select has_function_privilege('authenticated', 'public.tw4_price_verify(timestamptz)', 'execute') or has_function_privilege('anon', 'public.tw4_price_verify(timestamptz)', 'execute')`)).toBe("f");
+      expect(psql(`select has_function_privilege('service_role', 'public.tw4_price_verify(timestamptz)', 'execute')`)).toBe("t");
+      // the end to end impersonation attempt: a service-role session proposes as A and approves as B in two calls
+      const e1 = psqlError(`set role service_role; select public._tw4price_do_propose('number', 777, 115, 'impersonation attempt', 'service role impersonation test', '${A}'::uuid);`);
+      expect(e1).toMatch(/permission denied/);
+      const e2 = psqlError(`set role service_role; select public.tw4_price_propose('number', 777, 115, 'impersonation attempt', 'service role impersonation test');`);
+      expect(e2).toMatch(/permission denied/);
+      expect(num(`select count(*) from public.studio_sms_price_change_requests where description = 'impersonation attempt'`)).toBe(0);
+    });
+  });
+
+  describe("verifier", () => {
+    it("PD-27 tw4_price_verify: clean on this database (every published price is attested by two distinct registered administrators); flags a forged price row, a forged applied request and an unregistered approver (owner-level forgeries, rolled back)", () => {
+      const clean = JSON.parse(psql(`select public.tw4_price_verify()::text`)) as { ok: boolean; anomalies: unknown[] };
+      expect(clean.anomalies).toEqual([]);
+      expect(clean.ok).toBe(true);
+      // forged price: the owner switches the guard off and inserts a retired row nobody approved
+      const forged = psql(`begin; alter table public.studio_sms_price_list disable trigger studio_sms_price_list_00_activation;
+        insert into public.studio_sms_price_list (kind, customer_price_cents, provider_cost_cents, description, active, created_by) values ('number', 5, 1, 'forged price row', false, '${A}');
+        select public.tw4_price_verify()::text; rollback;`).split("\n").filter((l) => l.startsWith("{")).pop()!;
+      const f = JSON.parse(forged) as { ok: boolean; anomalies: { code: string; kind: string }[] };
+      expect(f.ok).toBe(false);
+      expect(f.anomalies).toEqual(expect.arrayContaining([expect.objectContaining({ code: "price_unattested", kind: "number" })]));
+      // forged decision: requester == decider on an applied request
+      const forged2 = psql(`begin; alter table public.studio_sms_price_change_requests disable trigger studio_sms_price_change_requests_guard;
+        update public.studio_sms_price_change_requests set decided_by = requested_by where id = (select id from public.studio_sms_price_change_requests where status = 'applied' limit 1);
+        select public.tw4_price_verify()::text; rollback;`).split("\n").filter((l) => l.startsWith("{")).pop()!;
+      expect((JSON.parse(forged2) as { anomalies: { code: string }[] }).anomalies.map((a) => a.code)).toEqual(expect.arrayContaining(["request_anomaly", "price_unattested"]));
+      // an approver who was not registered when he approved
+      const forged3 = psql(`begin; alter table public.studio_sms_price_approvers disable trigger studio_sms_price_approvers_guard;
+        update public.studio_sms_price_approvers set added_at = now() + interval '1 day' where user_id = '${B}';
+        select public.tw4_price_verify()::text; rollback;`).split("\n").filter((l) => l.startsWith("{")).pop()!;
+      expect((JSON.parse(forged3) as { ok: boolean }).ok).toBe(false);
+      // p_since narrows the look to newer prices
+      expect((JSON.parse(psql(`select public.tw4_price_verify(now() + interval '1 hour')::text`)) as { ok: boolean }).ok).toBe(true);
+    });
+  });
+
+  describe("limits as data (F2): shipped values are proposals and enforce nothing until the owner approves", () => {
+    it("PD-28 an unapproved limit row enforces nothing; an owner-approved row bounds the customer price, the provider cost, the provider/customer ratio and the step change; removing it lifts the bound", () => {
+      clearOpen("brand_low_volume");
+      const base = active("brand_low_volume")[0];
+      expect(base).toBeTruthy();
+      const lim = (approved: boolean) => `insert into public.studio_sms_price_limits (kind, max_customer_cents, max_provider_cents, max_provider_pct_of_customer, max_step_pct, approved, approved_by_note, approved_at)
+        values ('brand_low_volume', 2000, 1000, 80, 20, ${approved}, ${approved ? "'owner approved in the limits test'" : "null"}, ${approved ? "now()" : "null"})`;
+      psql(`${lim(false)};`);
+      const free = propose("brand_low_volume", 9000, A, 8000);
+      expect(free.status).toBe("pending"); // not enforced
+      reject(free.request_id, A, "withdrawn: the unapproved limit enforced nothing");
+      psql(`delete from public.studio_sms_price_limits where kind = 'brand_low_volume';`);
+      psql(`${lim(true)};`);
+      expect(codeOf(proposeErr("brand_low_volume", 2100, A, 400))).toBe("22023"); // customer ceiling
+      expect(codeOf(proposeErr("brand_low_volume", 1600, A, 1100))).toBe("22023"); // provider ceiling
+      expect(codeOf(proposeErr("brand_low_volume", 1600, A, 1400))).toBe("22023"); // provider above 80 percent of the customer price
+      expect(codeOf(proposeErr("brand_low_volume", 1900, A, 400))).toBe("22023"); // step change above 20 percent (1500 -> 1900 is 26.7 percent)
+      const ok = propose("brand_low_volume", 1700, A, 450); // 13.3 percent step, ratio 26 percent
+      expect(ok.status).toBe("pending");
+      reject(ok.request_id, A, "withdrawn: the approved limit accepted a value inside it");
+      expect(psqlError(`insert into public.studio_sms_price_limits (kind, max_customer_cents, max_provider_cents, approved) values ('x', 1, 1, true);`)).toMatch(/check constraint/); // approval needs a note and a time
+      psql(`delete from public.studio_sms_price_limits where kind = 'brand_low_volume';`);
+      const lifted = propose("brand_low_volume", 9000, A, 8000);
+      expect(lifted.status).toBe("pending");
+      reject(lifted.request_id, A, "withdrawn: the removed limit lifted the bound");
+      for (const role of ["anon", "authenticated", "service_role"]) expect(psqlError(`set role ${role}; insert into public.studio_sms_price_limits (kind, max_customer_cents, max_provider_cents) values ('number', 1, 1);`), role).toMatch(/permission denied/);
+    });
+  });
+
+  describe("fail-closed rollback and recovery (executed inside transactions that are rolled back)", () => {
+    const strip = (s: string) => s.replace(/^begin;\s*$/m, "").replace(/^commit;\s*$/m, "");
+    const forwardSql = () => readFileSync(join(__dirname, "..", "..", "..", "supabase", "migrations", "20270204090000_twilio_price_dual_control.sql"), "utf8");
+    const noSingleAdmin = `
+      if has_function_privilege('service_role', 'public.tw4_price_set(text,integer,integer,text,uuid)', 'execute') then raise exception 'RB: service_role can still execute tw4_price_set'; end if;
+      begin perform public.tw4_price_set('number', 1, 1, 'single admin attempt', '${A}'); raise exception 'RB: tw4_price_set published'; exception when sqlstate 'TW042' then null; end;
+      begin insert into public.studio_sms_price_list (kind, customer_price_cents, provider_cost_cents, description, created_by) values ('number', 1, 1, 'direct insert after rollback', '${A}'); raise exception 'RB: a direct insert was accepted'; exception when sqlstate '42501' then null; end;
+      begin delete from public.studio_sms_price_list; raise exception 'RB: a delete was accepted'; exception when sqlstate '42501' then null; end;
+      if to_regprocedure('public.tw4_price_approve(uuid,text)') is not null or to_regprocedure('public._tw4price_do_approve(uuid,uuid,text)') is not null then raise exception 'RB: approve functions remain'; end if;
+      if (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.tw4_price_set(text,integer,integer,text,uuid)'::regprocedure) = '36b3548cfa94cce34e7df10c2a74981f' then raise exception 'RB: the old executable body was restored'; end if;`;
+    const reapplied = (kindsExpected: number) => `
+      if to_regprocedure('public.tw4_price_approve(uuid,text)') is null or to_regprocedure('public._tw4price_do_approve(uuid,uuid,text)') is null then raise exception 'RA: functions missing after re-apply'; end if;
+      if has_function_privilege('service_role', 'public.tw4_price_approve(uuid,text)', 'execute') or not has_function_privilege('authenticated', 'public.tw4_price_approve(uuid,text)', 'execute') then raise exception 'RA: grants wrong after re-apply'; end if;
+      if not has_function_privilege('service_role', 'public.tw4_price_set(text,integer,integer,text,uuid)', 'execute') then raise exception 'RA: tw4_price_set grant not restored'; end if;
+      if (select count(*) from pg_trigger where tgname in ('studio_sms_price_list_00_activation', 'studio_sms_price_list_00_truncate', 'studio_sms_price_change_requests_guard', 'studio_sms_price_change_requests_truncate', 'studio_sms_price_approvers_guard', 'studio_sms_price_approvers_truncate') and tgenabled = 'A') <> 6 then raise exception 'RA: triggers not always-on'; end if;
+      if ${kindsExpected} >= 0 and (select count(*) from public.studio_sms_price_change_requests) <> ${kindsExpected} then raise exception 'RA: request rows not retained'; end if;`;
+
+    it("PD-23 rollback WITH evidence: the tables and every request row are retained, no function can publish, the single-admin path stays closed (tw4_price_set refuses, EXECUTE revoked, direct insert/delete refused), then the forward migration re-applies over the retained tables with the rows intact", () => {
+      expect(num(`select count(*) from public.studio_sms_price_change_requests`)).toBeGreaterThan(0);
+      const n = num(`select count(*) from public.studio_sms_price_change_requests`);
+      const err = psqlError(`begin; ${strip(rollbackSql())}
+        do $t$ begin
+          if to_regclass('public.studio_sms_price_change_requests') is null or to_regclass('public.studio_sms_price_approvers') is null or to_regclass('public.studio_sms_price_limits') is null then raise exception 'RB: evidence tables dropped'; end if;
+          if (select count(*) from public.studio_sms_price_change_requests) <> ${n} then raise exception 'RB: request rows changed'; end if;
+          ${noSingleAdmin}
+        end $t$;
+        ${strip(forwardSql())}
+        do $t$ begin ${reapplied(n)}
+          -- the workflow works again after recovery
+          perform public._tw4price_do_reject((public._tw4price_do_propose('monthly', 1777, 150, 'recovery check price', 'a written reason for the recovery check', '${A}')->>'request_id')::uuid, '${A}', 'withdrawn after the recovery check');
+        end $t$;
+        rollback;`);
+      expect(err).toBe("");
+      expect(num(`select count(*) from public.studio_sms_price_change_requests`)).toBe(n);
+      expect(codeOf(callErr("tw4_price_set", "number", 1, 1, "still closed", A))).toBe("TW042");
+    });
+
+    it("PD-23b rollback with NO evidence: the three tables are dropped, nothing can publish a price (tw4_price_set refuses and has no EXECUTE for anyone, the price-list insert guard refuses every insert), and the forward migration re-applies cleanly and works", () => {
+      const err = psqlError(`begin;
+        alter table public.studio_sms_price_change_requests disable trigger studio_sms_price_change_requests_guard;
+        delete from public.studio_sms_price_change_requests;
+        alter table public.studio_sms_price_change_requests enable always trigger studio_sms_price_change_requests_guard;
+        alter table public.studio_sms_price_approvers disable trigger studio_sms_price_approvers_guard;
+        delete from public.studio_sms_price_approvers;
+        alter table public.studio_sms_price_approvers enable always trigger studio_sms_price_approvers_guard;
+        ${strip(rollbackSql())}
+        do $t$ begin
+          if to_regclass('public.studio_sms_price_change_requests') is not null or to_regclass('public.studio_sms_price_approvers') is not null or to_regclass('public.studio_sms_price_limits') is not null then raise exception 'RB: tables remain'; end if;
+          ${noSingleAdmin}
+        end $t$;
+        ${strip(forwardSql())}
+        do $t$ begin ${reapplied(0)}
+          insert into public.studio_sms_price_approvers (user_id, added_note) values ('${A}', 'registered after the recovery'), ('${B}', 'registered after the recovery');
+          perform public._tw4price_do_approve((public._tw4price_do_propose('monthly', 1778, 150, 'recovery check price', 'a written reason for the recovery check', '${A}')->>'request_id')::uuid, '${B}', '${NOTE}');
+          if (select customer_price_cents from public.studio_sms_price_list where kind = 'monthly' and active) <> 1778 then raise exception 'RA: the workflow did not publish'; end if;
+        end $t$;
+        rollback;`);
+      expect(err).toBe("");
+      expect(psql(`select to_regclass('public.studio_sms_price_change_requests') is not null`)).toBe("t");
+    });
+
+    it("PD-23c the rollback refuses (55000) when a later slice replaced tw4_price_set or a guarded function, and changes nothing", () => {
+      const err = psqlError(`begin; create or replace function public.tw4_price_set(p_kind text, p_customer_cents int, p_provider_cents int, p_description text, p_actor uuid)
+        returns jsonb language plpgsql security definer set search_path = pg_catalog, public, pg_temp as $f$ begin return null; end $f$;
+        ${strip(rollbackSql())} rollback;`);
+      expect(codeOf(err)).toBe("55000");
+      expect(psql(`select to_regclass('public.studio_sms_price_change_requests') is not null and to_regprocedure('public._tw4price_do_approve(uuid,uuid,text)') is not null`)).toBe("t");
+    });
+  });
+
   describe("privileges, read model, rollback and money", () => {
-    it("PD-19 service-role only: every new function is security definer with a pinned search_path and is executable by the service role alone; helpers by nobody; the table has no API-role privilege, no policy and RLS on; tw4_price_set keeps its grants", () => {
-      const api = ["tw4_price_propose(text,int,int,text,text,uuid)", "tw4_price_approve(uuid,uuid,text)", "tw4_price_reject(uuid,uuid,text)", "tw4_price_requests_list(uuid)", "tw4_price_set(text,int,int,text,uuid)"];
-      for (const f of api) {
-        for (const role of ["anon", "authenticated", "public"]) expect(psql(`select has_function_privilege('${role}', 'public.${f}', 'execute')`), `${role} ${f}`).toBe("f");
-        expect(psql(`select has_function_privilege('service_role', 'public.${f}', 'execute')`), `service_role ${f}`).toBe("t");
+    it("PD-19 grants and shape: the public functions are security definer with a pinned search_path and executable by authenticated only; tw4_price_set keeps its service-role grant; internal functions and helpers by nobody; no API-role privilege, no policy and RLS on for the three tables", () => {
+      for (const f of ["tw4_price_propose(text,int,int,text,text)", "tw4_price_approve(uuid,text)", "tw4_price_reject(uuid,text)", "tw4_price_requests_list()", "tw4_price_verify(timestamptz)", "tw4_price_set(text,int,int,text,uuid)",
+        "_tw4price_do_propose(text,int,int,text,text,uuid)", "_tw4price_do_approve(uuid,uuid,text)", "_tw4price_do_reject(uuid,uuid,text)", "_tw4price_do_list(uuid)"]) {
         expect(psql(`select p.prosecdef::text || ':' || coalesce(array_to_string(p.proconfig, ','), '') from pg_proc p where p.oid = 'public.${f}'::regprocedure`), f).toBe("true:search_path=pg_catalog, public, pg_temp");
       }
-      for (const f of ["_tw4price_admin_active(uuid)", "_tw4price_kinds()", "_tw4pricedual_guard()", "_tw4price_activation_guard()"]) {
+      for (const f of ["_tw4price_admin_active(uuid)", "_tw4price_registered_at(uuid,timestamptz)", "_tw4price_session_actor(text)", "_tw4price_kinds()", "_tw4pricedual_guard()", "_tw4price_activation_guard()", "_tw4price_truncate_guard()", "_tw4price_registry_guard()",
+        "_tw4price_do_propose(text,int,int,text,text,uuid)", "_tw4price_do_approve(uuid,uuid,text)", "_tw4price_do_reject(uuid,uuid,text)", "_tw4price_do_list(uuid)"]) {
         for (const role of ["anon", "authenticated", "service_role", "public"]) expect(psql(`select has_function_privilege('${role}', 'public.${f}', 'execute')`), `${role} ${f}`).toBe("f");
       }
-      for (const role of ["anon", "authenticated", "service_role"]) {
-        expect(psql(`select count(*) from information_schema.role_table_grants where table_schema = 'public' and table_name = 'studio_sms_price_change_requests' and grantee = '${role}'`), role).toBe("0");
-        expect(psqlError(`set role ${role}; select count(*) from public.studio_sms_price_change_requests;`), role).toMatch(/permission denied/);
+      for (const table of ["studio_sms_price_change_requests", "studio_sms_price_approvers", "studio_sms_price_limits"]) {
+        for (const role of ["anon", "authenticated", "service_role"]) {
+          expect(psql(`select count(*) from information_schema.role_table_grants where table_schema = 'public' and table_name = '${table}' and grantee = '${role}'`), `${role} ${table}`).toBe("0");
+          expect(psqlError(`set role ${role}; select count(*) from public.${table};`), `${role} ${table}`).toMatch(/permission denied/);
+        }
+        expect(psql(`select relrowsecurity::text from pg_class where oid = 'public.${table}'::regclass`)).toBe("true");
+        expect(psql(`select count(*) from pg_policies where tablename = '${table}'`)).toBe("0");
       }
-      expect(psql(`select relrowsecurity::text from pg_class where oid = 'public.studio_sms_price_change_requests'::regclass`)).toBe("true");
-      expect(psql(`select count(*) from pg_policies where tablename = 'studio_sms_price_change_requests'`)).toBe("0");
-      expect(psql(`select count(*) from pg_trigger where tgrelid = 'public.studio_sms_price_change_requests'::regclass and not tgisinternal`)).toBe("2");
+      expect(psql(`select count(*) from pg_trigger where tgrelid = 'public.studio_sms_price_change_requests'::regclass and not tgisinternal and tgenabled = 'A'`)).toBe("2");
+      expect(psql(`select count(*) from pg_trigger where tgrelid = 'public.studio_sms_price_approvers'::regclass and not tgisinternal and tgenabled = 'A'`)).toBe("2");
+      expect(psql(`select count(*) from pg_trigger where tgrelid = 'public.studio_sms_price_list'::regclass and tgname like 'studio_sms_price_list_00_%' and tgenabled = 'A'`)).toBe("2");
     });
 
     it("PD-20 the list is administrator-only and read-only: it returns the active prices and the latest requests, shows an overdue pending request as expired WITHOUT writing, and a non-administrator gets 42501", () => {
       clearOpen("number");
       const p = propose("number", 320, A);
       ageRequest(p.request_id);
-      expect(codeOf(callErr("tw4_price_requests_list", C))).toBe("42501");
-      expect(codeOf(callErr("tw4_price_requests_list", E))).toBe("42501");
-      const list = call<{ active: { kind: string }[]; requests: { request_id: string; status: string; base_changed: boolean }[] }>("tw4_price_requests_list", B);
+      expect(codeOf(callErr("_tw4price_do_list", C))).toBe("42501");
+      expect(codeOf(callErr("_tw4price_do_list", E))).toBe("42501");
+      const list = call<{ active: { kind: string }[]; requests: { request_id: string; status: string; base_changed: boolean }[] }>("_tw4price_do_list", B);
       expect(list.active.map((a) => a.kind)).toEqual(expect.arrayContaining(["number", "monthly"]));
       expect(list.requests.find((r) => r.request_id === p.request_id)).toMatchObject({ status: "expired", base_changed: false });
       expect(preq(p.request_id).status).toBe("pending"); // reading did not write
@@ -487,14 +748,6 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
       reject(q.request_id, B);
       expect(money(w)).toBe(before);
       expect(psql(`select count(*) from public.studio_sms_credit_ledger`)).toBe(ledger);
-    });
-
-    it("PD-23 the rollback refuses (55000) while any request exists, and changes nothing (the audit rows are never destroyed); the forward objects are intact afterwards", () => {
-      expect(num(`select count(*) from public.studio_sms_price_change_requests`)).toBeGreaterThan(0);
-      const err = psqlError(rollbackSql());
-      expect(codeOf(err)).toBe("55000");
-      expect(psql(`select to_regclass('public.studio_sms_price_change_requests') is not null and to_regprocedure('public.tw4_price_approve(uuid,uuid,text)') is not null`)).toBe("t");
-      expect(codeOf(callErr("tw4_price_set", "number", 1, 1, "still closed", A))).toBe("TW042");
     });
   });
 });

@@ -12,7 +12,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { execFileSync } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { deleteFixtureRequestsSql, ownerReactivate, seedPrice } from "./priceFixture";
+import { deleteFixtureRequestsSql, deletePricesSql, ownerReactivate, seedPrice } from "./priceFixture";
 import { spendEvidenceRpc, exceptionEvidenceRpc } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 600_000 });
@@ -106,7 +106,7 @@ delete from public.studio_sms_credit_ledger where legal_entity_id in (${ENTITIES
 delete from public.studio_sms_credit_reservations where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_credit_accounts where legal_entity_id in (${ENTITIES});
 ${deleteFixtureRequestsSql(U.padmin)}
-delete from public.studio_sms_price_list where created_by = '${U.padmin}';
+${deletePricesSql(`created_by = '${U.padmin}'`)}
 delete from public.studio_sms_provisioning_steps where studio_id in (${STUDIOS});
 delete from public.studio_sms_registrations where studio_id in (${STUDIOS});
 delete from public.studio_sms_runner_windows where studio_id in (${STUDIOS});

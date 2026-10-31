@@ -14,7 +14,7 @@ import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { deleteFixtureRequestsSql, ownerReactivate, seedPrice } from "./priceFixture";
+import { deleteFixtureRequestsSql, deletePricesSql, ownerReactivate, seedPrice } from "./priceFixture";
 import { spendEvidenceRpc, exceptionEvidenceRpc } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 600_000 });
@@ -113,7 +113,7 @@ delete from public.studio_sms_credit_disputes where topup_id in (select id from 
 delete from public.studio_sms_credit_topups where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_credit_accounts where legal_entity_id in (${ENTITIES});
 ${deleteFixtureRequestsSql(U.padmin)}
-delete from public.studio_sms_price_list where created_by = '${U.padmin}';
+${deletePricesSql(`created_by = '${U.padmin}'`)}
 delete from public.studio_sms_provisioning_steps where studio_id in (${STUDIOS});
 delete from public.studio_sms_registrations where studio_id in (${STUDIOS});
 delete from public.studio_sms_tier_decisions where studio_id in (${STUDIOS});

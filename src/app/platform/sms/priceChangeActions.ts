@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 import { requirePlatformStepUp, type AssuranceTier } from "@/lib/auth/platform-assurance";
 import { PRICE_FLASH_COOKIE, PRICE_KINDS, PriceChangeStore } from "@/lib/sms/priceChange";
 import { encodePanelFlash } from "@/lib/sms/twilioIsv/panelFlash";
@@ -11,8 +11,8 @@ import { usdToCents } from "@/lib/sms/pilotApprovalEvidence";
 
 /**
  * D4-1: SMS price changes need TWO different platform administrators. Every action runs `requirePlatformStepUp()` FIRST (which runs `requirePlatformAdmin()` and then
- * demands the verified AAL2 session, plus a fresh authenticator code for a proposal or an approval), takes the ACTOR from the session (never from the form), validates its
- * inputs, and only then builds a service-role client. The database checks the actor again, refuses a requester approving their own proposal, and re-checks both
+ * demands the verified AAL2 session, plus a fresh authenticator code for a proposal or an approval), validates its inputs, and only then calls the database WITH THE
+ * ADMINISTRATOR'S OWN SESSION (the user-scoped client: no service-role key, no actor argument, the identity is auth.uid()). The database checks that session again (aal2, a recent TOTP), the protected approver registry, refuses a requester approving their own proposal, and re-checks both
  * administrators, the expiry and the active price under locks. Database error text is never shown: SQLSTATEs map to fixed sentences. Nothing here calls Twilio or Stripe,
  * and a proposal changes no price; only the second administrator's approval publishes one.
  */
@@ -74,7 +74,7 @@ async function guarded(tier: AssuranceTier, work: (admin: { id: string }) => Pro
   return finish(result);
 }
 
-const store = () => new PriceChangeStore(createAdminClient());
+const store = async () => new PriceChangeStore(await createClient());
 
 export async function pricePropose(formData: FormData) {
   await guarded("recent", async (admin) => {
@@ -86,7 +86,7 @@ export async function pricePropose(formData: FormData) {
     if (!PRICE_KINDS.includes(kind) || customer === null || customer <= 0 || provider === null || !description || !reason) {
       return fail("Choose a price kind, give the customer price (above zero) and DanceFlow's provider cost in dollars, a description (3 to 200 characters) and a written reason (10 to 500). Nothing changed.");
     }
-    const out = await store().propose({ kind, customerCents: customer, providerCents: provider, description, reason }, admin.id);
+    const out = await (await store()).propose({ kind, customerCents: customer, providerCents: provider, description, reason });
     return done(out.replayed
       ? "This identical proposal is already waiting for a second administrator. Nothing changed."
       : "Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed.");
@@ -98,7 +98,7 @@ export async function priceApprove(formData: FormData) {
     const requestId = id(formData, "requestId");
     const note = text(formData, "note", 10, 500);
     if (!requestId || !note) return fail("Give an approval note of 10 to 500 characters. Nothing changed.");
-    const out = await store().approve(requestId, note, admin.id);
+    const out = await (await store()).approve(requestId, note);
     if (out.status === "applied") return done(out.replayed ? "This proposal was already approved by you and is in effect." : "Approved. The new price is now the published price. Existing money movements are not changed.");
     if (out.status === "expired") return fail("The proposal had expired. No price changed.");
     if (out.status === "invalidated") return fail("The active price (or the proposer's standing) changed since the proposal, so it was invalidated. No price changed; make a new proposal.");
@@ -111,7 +111,7 @@ export async function priceReject(formData: FormData) {
     const requestId = id(formData, "requestId");
     const note = text(formData, "note", 10, 500);
     if (!requestId || !note) return fail("Give a note of 10 to 500 characters. Nothing changed.");
-    const out = await store().reject(requestId, note, admin.id);
+    const out = await (await store()).reject(requestId, note);
     return done(out.withdrawn ? "Your proposal was withdrawn. No price changed." : "The proposal was rejected. No price changed.");
   });
 }

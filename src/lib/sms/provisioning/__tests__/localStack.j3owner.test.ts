@@ -14,7 +14,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { execFileSync } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { seedPrice, seedPriceSql } from "../../twilioIsv/__tests__/priceFixture";
+import { deletePricesSql, seedPrice, seedPriceSql } from "../../twilioIsv/__tests__/priceFixture";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 300_000 });
 
@@ -100,9 +100,8 @@ delete from public.user_studio_roles where studio_id in (${STUDIOS});
 delete from public.studios where id in (${STUDIOS});
 delete from public.profiles where id in (${USERS});
 delete from auth.users where email like '%@tw4j3-e2e.test';
-delete from public.studio_sms_price_list where description = 'j3 fixture number price';
-update public.studio_sms_price_list set active = true where description like 'j3-parked:%' and not exists (select 1 from public.studio_sms_price_list x where x.kind = 'number' and x.active);
-update public.studio_sms_price_list set description = substr(description, 11) where description like 'j3-parked:%';
+${deletePricesSql("description = 'j3 fixture number price'")}
+-- (no parked prices exist any more: the fixture price is published through the workflow and an earlier active one is retired by the approval)
 commit;`;
 
 // R2a's provider-confirmed Messaging Service and campaign on the active subaccount (what _tw4num_campaign accepts)

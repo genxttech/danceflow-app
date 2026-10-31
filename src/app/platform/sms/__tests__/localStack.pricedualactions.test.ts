@@ -31,6 +31,16 @@ vi.mock("@/lib/supabase/server", async () => {
   const h = await import("../../../../lib/sms/twilioIsv/__tests__/wpd4Helpers");
   return {
     createClient: async () => ({
+      // the administrator's OWN session: the RPC runs as the authenticated role with that session's verified claims (what PostgREST does with the user's token)
+      rpc: async (fn: string, args: Record<string, unknown> = {}) => {
+        S.rpc.push({ fn, args });
+        const named = Object.entries(args).map(([k, v]) => `${k} => ${h.lit(v)}`).join(", ");
+        const claims = JSON.stringify(S.claims ?? {}).replace(/'/g, "''");
+        const sql = `begin; set local role authenticated; select set_config('request.jwt.claims', '${claims}', true); select to_jsonb(public.${fn}(${named}))::text; commit;`;
+        const err = h.psqlError(sql);
+        if (err) return { data: null, error: { code: h.codeOf(err) || "unknown", message: "db refusal" } };
+        return { data: JSON.parse(h.psql(sql).split(String.fromCharCode(10)).pop() || "null"), error: null };
+      },
       auth: {
         getUser: async () => ({ data: { user: S.user ? { id: S.user } : null }, error: null }),
         getClaims: async () => (S.claimsError ? { data: null, error: { message: "unavailable" } } : { data: { claims: S.claims }, error: null }),
@@ -49,27 +59,18 @@ vi.mock("@/lib/supabase/server", async () => {
     }),
   };
 });
-vi.mock("@/lib/supabase/admin", async () => {
-  const h = await import("../../../../lib/sms/twilioIsv/__tests__/wpd4Helpers");
-  return {
-    createAdminClient: () => ({
-      rpc: async (fn: string, args: Record<string, unknown>) => {
-        S.rpc.push({ fn, args });
-        const named = Object.entries(args).map(([k, v]) => `${k} => ${h.lit(v)}`).join(", ");
-        const err = h.psqlError(`select to_jsonb(public.${fn}(${named}))::text;`);
-        if (err) return { data: null, error: { code: h.codeOf(err) || "unknown", message: "db refusal" } };
-        return { data: JSON.parse(h.psql(`select to_jsonb(public.${fn}(${named}))::text;`) || "null"), error: null };
-      },
-    }),
-  };
-});
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => {
+    throw new Error("the service-role client must never be used on the price path");
+  },
+}));
 
 import { A, B, C, D, E, F, call, enabled, num, psql, rows, seedCast, seedPrices } from "../../../../lib/sms/twilioIsv/__tests__/wpd4Helpers";
-import { ownerReactivate } from "../../../../lib/sms/twilioIsv/__tests__/priceFixture";
+import { ownerReactivate, registerApproverSql } from "../../../../lib/sms/twilioIsv/__tests__/priceFixture";
 import { priceApprove, pricePropose, priceReject } from "../priceChangeActions";
 
 const nowS = () => Math.floor(Date.now() / 1000);
-const claimsFor = (sub: string, over: Record<string, unknown> = {}) => ({ sub, exp: nowS() + 3600, aal: "aal2", amr: [{ method: "totp", timestamp: nowS() - 60 }], ...over });
+const claimsFor = (sub: string, over: Record<string, unknown> = {}) => ({ sub, role: "authenticated", exp: nowS() + 3600, aal: "aal2", amr: [{ method: "totp", timestamp: nowS() - 60 }], ...over });
 const aal1 = (sub: string) => claimsFor(sub, { aal: "aal1", amr: [{ method: "password", timestamp: nowS() - 30 }] });
 const session = (user: string, claims: Record<string, unknown> | null) => {
   S.user = user;
@@ -98,15 +99,16 @@ describe.skipIf(!enabled)("D4-1 application layer: AAL / role gates in front of 
   let seq = 0;
   beforeAll(() => {
     seedCast();
+    for (const u of [A, B, C, D, E, F]) psql(registerApproverSql(u));
     seedPrices();
   });
   beforeEach(() => {
     S.redirects.length = 0;
     S.cookieWrites.length = 0;
     S.rpc.length = 0;
-    for (const r of openFor("number")) call("tw4_price_reject", r.id, r.requested_by, "withdrawn to start the next scenario clean");
+    for (const r of openFor("number")) call("_tw4price_do_reject", r.id, r.requested_by, "withdrawn to start the next scenario clean");
     // a fresh proposal by administrator A, made straight in the database
-    reqId = call<{ request_id: string }>("tw4_price_propose", "number", 300 + (seq += 1), 115, "app layer proposal", "a proposal made straight in the database for the app test", A).request_id;
+    reqId = call<{ request_id: string }>("_tw4price_do_propose", "number", 300 + (seq += 1), 115, "app layer proposal", "a proposal made straight in the database for the app test", A).request_id;
   });
 
   it("APP-P01 aal1 second administrator D: approve is redirected to the MFA challenge (reason=aal1), NO database call is made, the request stays pending and no price changes", async () => {
@@ -133,7 +135,8 @@ describe.skipIf(!enabled)("D4-1 application layer: AAL / role gates in front of 
     expect(r.url).toMatch(/price=1/);
     expect(r.flash).toMatchObject({ ok: true });
     expect(S.rpc).toHaveLength(1);
-    expect(S.rpc[0]).toMatchObject({ fn: "tw4_price_approve", args: { p_request_id: reqId, p_actor: B } });
+    expect(S.rpc[0]).toMatchObject({ fn: "tw4_price_approve", args: { p_request_id: reqId } });
+    expect("p_actor" in S.rpc[0].args).toBe(false);
     const row = preq(reqId);
     expect(row).toMatchObject({ status: "applied", requested_by: A, decided_by: B });
     expect(active("number")).toEqual([expect.objectContaining({ id: row.applied_price_id })]);
@@ -199,20 +202,20 @@ describe.skipIf(!enabled)("D4-1 application layer: AAL / role gates in front of 
     session(B, claimsFor(B));
     const r = await run(priceApprove, { requestId: reqId, note: NOTE, actor: A, actorId: A, p_actor: A, decidedBy: A, requestedBy: A });
     expect(r.flash).toMatchObject({ ok: true });
-    expect(S.rpc[0].args.p_actor).toBe(B);
+    expect("p_actor" in S.rpc[0].args).toBe(false); // the identity is the session's (checked below through the recorded decider)
     expect(preq(reqId).decided_by).toBe(B);
     S.rpc.length = 0;
     session(F, claimsFor(F));
     const p = await run(pricePropose, { ...PROPOSAL, kind: "monthly", customerUsd: "13.37", actor: A, actorId: A, p_actor: A, requestedBy: A });
     expect(p.flash).toMatchObject({ ok: true });
-    expect(S.rpc[0].args.p_actor).toBe(F);
+    expect("p_actor" in S.rpc[0].args).toBe(false);
     const row = rows<{ requested_by: string; customer_price_cents: number; status: string }>(`select requested_by, customer_price_cents, status from public.studio_sms_price_change_requests where kind = 'monthly' and customer_price_cents = 1337`)[0];
     expect(row).toMatchObject({ requested_by: F, status: "pending" });
-    call("tw4_price_reject", rows<{ id: string }>(`select id from public.studio_sms_price_change_requests where kind = 'monthly' and status = 'pending'`)[0].id, F, "withdrawn: the forged-actor scenario is over");
+    call("_tw4price_do_reject", rows<{ id: string }>(`select id from public.studio_sms_price_change_requests where kind = 'monthly' and status = 'pending'`)[0].id, F, "withdrawn: the forged-actor scenario is over");
   });
 
   it("APP-P09 propose through the real action: dollars become cents, the request is pending for the session administrator, NO price changes; invalid forms never reach the database", async () => {
-    for (const r of openFor("number")) call("tw4_price_reject", r.id, r.requested_by, "withdrawn to start the next scenario clean");
+    for (const r of openFor("number")) call("_tw4price_do_reject", r.id, r.requested_by, "withdrawn to start the next scenario clean");
     const before = active("number");
     session(A, claimsFor(A));
     const ok = await run(pricePropose, { ...PROPOSAL, customerUsd: "2.51" });
