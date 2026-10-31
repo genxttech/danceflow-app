@@ -226,6 +226,12 @@ select pg_temp.chk('U70-style: no CF1 core table has any grant for public/anon/a
   not exists (select 1 from information_schema.role_table_grants g where g.table_schema = 'public'
               and (g.table_name like 'event_competition_round_advancement%' or g.table_name in ('event_competition_final_withdrawals', 'event_competition_round_capacity_events'))
               and g.grantee in ('PUBLIC', 'anon', 'authenticated', 'service_role')));
+-- L1: every CF1 table, every role, every privilege
+select pg_temp.chk('L1: none of the six CF1 tables grants any privilege to anon, authenticated, service_role',
+  not exists (select 1 from unnest(array['event_competition_round_advancements', 'event_competition_round_advancement_entries', 'event_competition_round_advancement_heats',
+      'event_competition_round_advancement_revocations', 'event_competition_final_withdrawals', 'event_competition_round_capacity_events']) t(n)
+    cross join unnest(array['anon', 'authenticated', 'service_role']) r(role)
+    where has_table_privilege(r.role, ('public.' || t.n)::regclass, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')));
 select pg_temp.chk('all CF1 core tables have RLS on and no policies',
   (select count(*) from pg_class c where c.relnamespace = 'public'::regnamespace and (c.relname like 'event_competition_round_advancement%' or c.relname in ('event_competition_final_withdrawals', 'event_competition_round_capacity_events')) and c.relkind = 'r' and c.relrowsecurity) = 6
   and not exists (select 1 from pg_policies where tablename like 'event_competition_round_advancement%' or tablename in ('event_competition_final_withdrawals', 'event_competition_round_capacity_events')));
@@ -617,6 +623,7 @@ set role authenticated;
 select pg_temp.as_user(pg_temp.id('user', 1));
 select pg_temp.chk('scenarios 24, 25, 26 apply', pg_temp.code(pg_temp.ap(24, 24)) = 'OK' and pg_temp.code(pg_temp.ap(25, 25)) = 'OK' and pg_temp.code(pg_temp.ap(26, 26)) = 'OK');
 reset role;
+select pg_temp.age();
 -- M1: sequence_number moved after apply: the Final is no longer the callback's Final, yet it holds an advancement
 select pg_temp.su(format($q$update public.event_competition_rounds set sequence_number = 9 where id = %L$q$, pg_temp.id('fin', 24)));
 select pg_temp.chk('M1: the Final is no longer a callback Final but still has an active advancement',
@@ -630,10 +637,12 @@ select pg_temp.expect_msg('M2: cancelling the only dance of an advanced Final he
 select pg_temp.expect_msg('M2: re-keying the dance of an advanced Final heat is refused',
   format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_heat_dances set dance_key = 'tango' where heat_id in (select id from public.event_competition_heats where round_id = %L)$q$, pg_temp.id('fin', 26))), 'COMP_ADVANCEMENT_FINAL_DANCE_WRITER');
 -- the start guard is the second line: bypass the writer guard (rolled back with the transaction) and show the Final still cannot start
+set constraints all immediate;
 alter table public.event_competition_heat_dances disable trigger cf1_guard_final_heat_dance;
 update public.event_competition_heat_dances set status = 'cancelled' where heat_id in (select id from public.event_competition_heats where round_id = pg_temp.id('fin', 25));
 update public.event_competition_heat_dances set dance_key = 'tango' where heat_id in (select id from public.event_competition_heats where round_id = pg_temp.id('fin', 26));
 alter table public.event_competition_heat_dances enable always trigger cf1_guard_final_heat_dance;
+set constraints all deferred;
 select pg_temp.expect_msg('M2: a Final whose only dance is cancelled cannot start (FINAL_DANCE)',
   format($q$select pg_temp.su(%L)$q$, format($q$update public.event_competition_rounds set status = 'active' where id = %L$q$, pg_temp.id('fin', 25))), 'COMP_ADVANCEMENT_FINAL_DANCE');
 select pg_temp.expect_msg('M2: a Final whose dance differs from the callback round''s cannot start (FINAL_DANCE)',
@@ -647,13 +656,6 @@ select pg_temp.chk('L4: apply, preview and the reasoned capacity RPC are not exe
   and not has_function_privilege('service_role', 'public.set_competition_round_heat_capacity(uuid,integer,text,uuid)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.apply_competition_round_advancement(uuid,uuid,uuid)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.apply_competition_round_advancement(uuid,uuid,uuid)', 'EXECUTE'));
--- L1: every CF1 table, every role, every privilege
-select pg_temp.chk('L1: none of the six CF1 tables grants any privilege to anon, authenticated, service_role',
-  not exists (select 1 from unnest(array['event_competition_round_advancements', 'event_competition_round_advancement_entries', 'event_competition_round_advancement_heats',
-      'event_competition_round_advancement_revocations', 'event_competition_final_withdrawals', 'event_competition_round_capacity_events']) t(n)
-    cross join unnest(array['anon', 'authenticated', 'service_role']) r(role)
-    where has_table_privilege(r.role, ('public.' || t.n)::regclass, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE')));
-
 -- ============================================================================
 -- 8. Correction trigger (scenarios 2, 3, 4, 12, 23)
 -- ============================================================================
