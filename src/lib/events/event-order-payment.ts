@@ -308,6 +308,10 @@ export async function startEventOrderPayment(params: {
     if (typeof authoritativeCents === "number" && authoritativeCents > 0) {
       throw new Error("This event checkout is still being prepared. Please try again in a moment.");
     }
+    // D7: confirming an unpaid pending $0 order on an organizer event is a new Organizer Suite purchase.
+    if (order.organizer_id && (await getOrganizerPlatformFeePercent(admin, order.studio_id)) <= 0) {
+      throw new Error("DanceFlow organizer checkout is not enabled for this listing.");
+    }
     const now = new Date().toISOString();
     await admin.from("event_orders").update({ status: "confirmed", payment_status: "paid", paid_at: now, updated_at: now }).eq("id", order.id).eq("status", "pending");
     if (registrationIds.length) {
