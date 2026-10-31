@@ -304,7 +304,8 @@ as $$
     ('COMP_ADVANCEMENT_BELOW_MINIMUM', 'P0001', false, 'A0 (apply), A6 (withdrawal)', 'Apply or a withdrawal would leave a callback Final with fewer than two eligible couples'),
     ('COMP_ADVANCEMENT_ROSTER_STALE', 'P0001', false, 'A0 (Final start guard)', 'A non-scratched roster entry is unavailable by predicate P at the first start'),
     ('COMP_ADVANCEMENT_ROSTER_INCOMPLETE', 'P0001', false, 'A0 (Final start guard)', 'The Final heat roster differs from the advancement entries minus effective withdrawals'),
-    ('COMP_EXCLUSION_NOT_DANCED', 'P0001', false, 'A5 (exclusion action)', 'The couple has no heat entry in a danced heat of the round (HL1 rule); use a scratch, a withdrawal or an NS1 no-show')
+    ('COMP_EXCLUSION_NOT_DANCED', 'P0001', false, 'A5 (exclusion action)', 'The couple has no heat entry in a danced heat of the round (HL1 rule); use a scratch, a withdrawal or an NS1 no-show'),
+    ('COMP_CALLBACK_TARGET_BELOW_MINIMUM', 'P0001', false, 'A4a (F2 setup guard)', 'A callback round of a callback-plus-Final program has target_advancement_count below 2 (OD-21)')
   ) as t(code, sqlstate_code, retryable, raised_by, meaning);
 $$;
 revoke all on function public._cf1_error_codes() from public, anon, authenticated, service_role;

@@ -56,6 +56,9 @@ begin
   end if;
 end $$;
 
+-- The eleven functions A1 owns (later CF1 packages add more _cf1_* functions with their own grants).
+create or replace function pg_temp.a1_fns() returns text[] language sql immutable as $$ select array['_cf1_entry_unavailable_reason', '_cf1_entry_unavailable', '_cf1_round_roster_problems', '_cf1_is_callback_final', '_cf1_count_available_entries', '_cf1_eligible_roster_count', '_cf1_final_minimum_ok', '_cf1_heat_entry_is_excluded', '_cf1_excluded_entries', '_cf1_error_codes', '_cf1_require_roster_eligible'] $$;
+
 create or replace function pg_temp.u(p_suffix text) returns uuid
 language sql immutable as $$ select ('00000000-0000-0000-0000-cf1a10' || p_suffix)::uuid $$;
 
@@ -84,6 +87,20 @@ grant execute on all functions in schema pg_temp to authenticated, anon, service
 -- ============================================================================
 -- Fixtures (superuser, replica mode for placements)
 -- ============================================================================
+-- A0 compatibility: once A0 (20270120090000) is applied its ENABLE ALWAYS guards refuse the hand-built Final heat rows below (the suite
+-- places heats and heat entries directly, like the E2/HL1 suites). Inside this rolled-back transaction the CF1 guards on the four fixture
+-- tables are switched off so the A1 predicate and readers are tested on the same fixtures with or without A0. A1's own triggers are untouched.
+do $$
+declare r record;
+begin
+  for r in select t.tgname, t.tgrelid::regclass as rel from pg_trigger t
+           where not t.tgisinternal and t.tgname like 'cf1_%'
+             and t.tgrelid in ('public.event_competition_heats'::regclass, 'public.event_competition_heat_entries'::regclass,
+                               'public.event_competition_rounds'::regclass, 'public.event_competition_entries'::regclass) loop
+    execute format('alter table %s disable trigger %I', r.rel, r.tgname);
+  end loop;
+end $$;
+
 insert into auth.users (id, email) values
   (pg_temp.u('000001'), 't-cf1a1-actor@example.test'), (pg_temp.u('000002'), 't-cf1a1-cosign@example.test');
 insert into public.profiles (id, email, full_name)
@@ -409,11 +426,11 @@ select pg_temp.expect_ok('raiser: a Final-only division with ONE eligible couple
   format($q$select public._cf1_require_roster_eligible(%L, 'approve'); select public._cf1_require_roster_eligible(%L, 'lock')$q$, pg_temp.u('006014'), pg_temp.u('006003')));
 select pg_temp.expect_ok('raiser: a round with no ranking set passes (preliminary D4 qualifying)', format($q$select public._cf1_require_roster_eligible(%L, 'lock')$q$, pg_temp.u('006006')));
 
-select pg_temp.chk('catalogue: the six A1 codes, all P0001, none retryable',
-  (select count(*) from public._cf1_error_codes()) = 6 and (select bool_and(sqlstate_code = 'P0001' and not retryable) from public._cf1_error_codes())
+select pg_temp.chk('catalogue: the seven codes (six A1 codes + COMP_CALLBACK_TARGET_BELOW_MINIMUM from A4a), all P0001, none retryable',
+  (select count(*) from public._cf1_error_codes()) = 7 and (select bool_and(sqlstate_code = 'P0001' and not retryable) from public._cf1_error_codes())
   and (select array_agg(code order by code) from public._cf1_error_codes()) = array[
     'COMP_ADVANCEMENT_BELOW_MINIMUM', 'COMP_ADVANCEMENT_ROSTER_INCOMPLETE', 'COMP_ADVANCEMENT_ROSTER_STALE',
-    'COMP_EXCLUSION_NOT_DANCED', 'COMP_ROSTER_BELOW_MINIMUM', 'COMP_ROSTER_ENTRY_UNAVAILABLE']);
+    'COMP_CALLBACK_TARGET_BELOW_MINIMUM', 'COMP_EXCLUSION_NOT_DANCED', 'COMP_ROSTER_BELOW_MINIMUM', 'COMP_ROSTER_ENTRY_UNAVAILABLE']);
 
 -- ============================================================================
 -- 5. U70: helper privileges. No grants to PUBLIC, anon, authenticated or service_role; definer, pinned search_path.
@@ -421,18 +438,18 @@ select pg_temp.chk('catalogue: the six A1 codes, all P0001, none retryable',
 select pg_temp.chk('U70: no role among public/anon/authenticated/service_role may execute any A1 function',
   not exists (
     select 1 from pg_proc p, unnest(array['anon', 'authenticated', 'service_role']) r
-    where p.pronamespace = 'public'::regnamespace and p.proname like '\_cf1\_%'
+    where p.pronamespace = 'public'::regnamespace and p.proname = any (pg_temp.a1_fns())
       and has_function_privilege(r, p.oid, 'execute'))
   and not exists (
     select 1 from pg_proc p, lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
-    where p.pronamespace = 'public'::regnamespace and p.proname like '\_cf1\_%' and a.grantee = 0));
+    where p.pronamespace = 'public'::regnamespace and p.proname = any (pg_temp.a1_fns()) and a.grantee = 0));
 select pg_temp.chk('U70: every A1 function is SECURITY DEFINER with search_path = public, pg_temp',
   (select bool_and(p.prosecdef and p.proconfig @> array['search_path=public, pg_temp']) from pg_proc p
-   where p.pronamespace = 'public'::regnamespace and p.proname like '\_cf1\_%'));
+   where p.pronamespace = 'public'::regnamespace and p.proname = any (pg_temp.a1_fns())));
 select pg_temp.chk('U70: volatility: the raiser is VOLATILE, readers are STABLE, the catalogue is IMMUTABLE',
   (select provolatile from pg_proc where oid = 'public._cf1_require_roster_eligible(uuid,text)'::regprocedure) = 'v'
   and (select provolatile from pg_proc where oid = 'public._cf1_error_codes()'::regprocedure) = 'i'
-  and (select bool_and(provolatile = 's') from pg_proc where pronamespace = 'public'::regnamespace and proname like '\_cf1\_%'
+  and (select bool_and(provolatile = 's') from pg_proc where pronamespace = 'public'::regnamespace and proname = any (pg_temp.a1_fns())
          and proname not in ('_cf1_require_roster_eligible', '_cf1_error_codes')));
 set role authenticated;
 select pg_temp.expect_msg('U70: authenticated cannot call _cf1_entry_unavailable', format($q$select public._cf1_entry_unavailable(%L)$q$, pg_temp.u('008001')), 'permission denied', '42501');
