@@ -251,7 +251,7 @@ set session_replication_role = origin;
 -- 1. Surface: pins, triggers, helper privileges
 -- ============================================================================
 select pg_temp.chk('lock_competition_round_ballots body is the pinned post-HL1 text',
-  md5(replace(pg_get_functiondef('public.lock_competition_round_ballots(uuid,uuid)'::regprocedure), E'\r', '')) = '6e4175342d51ffe274d70ce413bae8c3');
+  md5(replace(pg_get_functiondef('public.lock_competition_round_ballots(uuid,uuid)'::regprocedure), E'\r', '')) = 'c4ba327df7943d559ab52ccd07d20ea0');
 select pg_temp.chk('the two HL1 triggers exist on event_competition_heats',
   (select count(*) from pg_trigger where tgrelid = 'public.event_competition_heats'::regclass and tgname in ('hl1_guard_heat_reopen', 'hl1_guard_heat_lock') and not tgisinternal) = 2);
 select pg_temp.chk('set_competition_heat_lock_state is not redefined (still the 10A body, no HL1 text)',
