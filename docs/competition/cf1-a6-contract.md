@@ -109,7 +109,7 @@ Accepted and recorded (P2/P3): requester authority is not re-checked at co-sign 
 * **ABA on the NULL binding (P2).** A request made while no advancement is active (NULL) and still NULL after an apply + revoke is not flagged stale; the co-sign `_cf1_a6_precheck` still revalidates the roster under the locks, so only semantic staleness remains. Candidate follow-up: bind to the latest advancement id regardless of revocation.
 * **Withdrawals during the no-approved-version window (P2).** Rows are keyed by (round, entry), not by advancement; apply carries the withdrawn set (`_cf1_withdrawn_entries`). Owner question alongside Low-2: refuse requests in that window or keep OD-18 row-only behavior (current).
 * **No cancel path (P2).** There is no TTL and no cancel; one manager can hold up to 10 live slots. Policy item raised with the coordinator (TTL / cancel RPC).
-* **P3.** A6 must roll back before A0 (FK `advancement_id`); a replayed request reports `pending` even when stale (the state reader flags `stale`); `_cf1_a6_live_requests` is volatile on purpose-free (could be stable).
+* **P3.** A6 must roll back before A0 (FK `advancement_id`); a replayed request reports `pending` even when stale (the state reader flags `stale`); `_cf1_a6_live_requests` is declared volatile (read-only; it calls the volatile `_cf1_active_advancement`).
 
 ## Re-review corrections (owner-authorized) and open owner decisions
 
@@ -129,11 +129,16 @@ Accepted and recorded (P2/P3): requester authority is not re-checked at co-sign 
 * Consequences: (1) cannot withdraw a couple who drops out during a correction, so the director must wait for the corrected result — blocks an urgent real-world withdrawal; (2) needs an A0 apply change and a new column. Depends on: nothing in P2-1; related to D-C.
 
 **D-B. Stuck pending requests: TTL and/or a cancel call** (P2-3).
-* Scenario: a manager files 10 requests (the per-round cap) that no one co-signs, or files one for a couple and leaves; another manager cannot file for that couple and kind until a *different* manager co-signs it, or a revoke/apply makes it stale.
+* Scenario: a manager files 10 requests (the per-round cap) that no one co-signs, or files one for a couple and leaves; another manager cannot file for that couple and kind until a *different* manager (never the requester) co-signs it, or a revoke/apply makes it stale.
 * Proposed default: add `cancel_final_withdrawal_request(request_id)` callable by the requester or any manager/chair (evidence row `event_competition_final_withdrawal_request_cancellations`, insert-only, reason required), no TTL. Cancelled requests drop out of "live".
 * Alternatives: a TTL (e.g. 24 h) after which a request is treated as stale; both; or leave as is (operational: any other manager can co-sign and then reinstate).
 * Consequences: cancel adds a table, an RPC and tests; TTL adds a clock dependency and surprising expiries during a live event; leaving it as is keeps the griefing window for a verified manager (not an outside attacker). Depends on: P2-1 (stale already frees slots after a re-advance; cancel/TTL covers the no-advance case).
 
 **D-C. Withdrawal refused when the Final is already below two because of an ineligible couple** (Low-2; unchanged).
-* Scenario: three advanced, one becomes ineligible (so two eligible remain... or one), a manager withdraws another: BELOW_MINIMUM. The director cannot reach a valid state without an ineligibility change.
+* Scenario: three couples advanced, one becomes ineligible, a manager withdraws another: one eligible couple would remain, below two, so BELOW_MINIMUM. The director cannot reach a valid state without an ineligibility change.
 * Proposed default: keep the refusal (OD-15 A). Alternatives: let a chair override with a recorded reason; allow it and let the start guard refuse the Final. Consequences: override needs a new authority path and evidence; allow-and-refuse-at-start moves the failure to the day of the event. Depends on: none.
+
+### Re-review of the P2 corrections (no P0/P1) — residuals
+
+* **Generation scope (P2).** `advancement_generation` is the `max(generation)` over the advancements of the target round. Generation is unique per (source round, generation); the Final has exactly one callback source (`_cf1_callback_source`), so the max is monotonic per Final. If a later package ever allows two sources for one Final, switch the current-state value to `count(*)` of the target's advancements (advancements are history-protected, never deleted).
+* **P3.** The insert computes the generation inline (same expression as the helper); the column default 0 lets a direct insert omit it (the table has no direct grants). Untested edges: completed-and-stale replay reports `completed`; a stale request freeing a cap slot; request → apply → revoke → re-apply.
