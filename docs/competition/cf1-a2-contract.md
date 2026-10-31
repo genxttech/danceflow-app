@@ -71,3 +71,6 @@ Preflight refuses unless the installed text has the pre-A2 md5, the anchor occur
 * **Callers should set a statement timeout (P3):** no `lock_timeout` is set, so a long open entry-updating transaction makes the lock RPC wait.
 * **Rollback round-trip** (apply, rollback, apply, rollback, apply, with the HL1 rollback in between) was run on the QA chain; see the PR matrix.
 * The concurrency script must run on a fresh database and its `pg_locks` check is instance-global (run it alone).
+
+## Concurrency probe is deterministic (update)
+`run_cf1_a2_lock_vs_lifecycle.sh` no longer relies on sleeps. The writer takes the entry, then polls `pg_stat_activity` until the Lock-ballots backend is observed blocked (a 20 s barrier timeout fails loudly), and only then takes its second lock, so the cycle always forms. The victim is chosen by per-session `deadlock_timeout` (shorter runs the detector first): A1 writer victim, A2 lock victim; the victimised lock is retried once (reported). Earlier intermittent "no victim" came from the fixed 1 s / 3 s sleeps: when the lock session started late (docker exec latency) the writer had already finished its second update, so no cycle formed. No migration change was needed. Fixture ids carry a per-run prefix (`RUN`), so several runs share one database.
