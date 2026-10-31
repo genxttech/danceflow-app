@@ -91,7 +91,7 @@ as $$
   limit 1;
 $$;
 
--- The couples of the Final's current roster: the active advancement's list, else the latest callback result's advanced rows (between a revoke and the next apply).
+-- The couples of the Final's current roster: the active advancement's list, else the latest APPROVED callback result's advanced rows (between a revoke and the next apply), else (a correction left no approved version) the last applied advancement's list.
 create function public._cf1_a6_current_roster(p_round_id uuid)
 returns uuid[]
 language plpgsql
@@ -113,6 +113,12 @@ begin
   -- the same version apply would use: the latest APPROVED callback version (a newer calculated / invalidated version never counts)
   select rv.id into v_ver from public.event_competition_result_versions rv
   where rv.round_id = v_src and rv.status = 'approved' and rv.engine_key like '%callback_tally%' order by rv.version desc limit 1;
+  if v_ver is null then
+    -- no approved version right now (a correction invalidated it): the last APPLIED roster (the latest, revoked advancement) is the only roster known; an unapproved version is never read
+    select coalesce(array_agg(distinct ae.entry_id), '{}') into v_ids from public.event_competition_round_advancement_entries ae
+    where ae.advancement_id = (select a.id from public.event_competition_round_advancements a where a.target_round_id = p_round_id order by a.generation desc limit 1);
+    return v_ids;
+  end if;
   select coalesce(array_agg(distinct rr.entry_id), '{}') into v_ids from public.event_competition_result_rows rr where rr.result_version_id = v_ver and rr.advanced is true;
   return v_ids;
 end;

@@ -229,7 +229,10 @@ select pg_temp.mk(6);
 select pg_temp.mk(7);
 select pg_temp.mk(8, 4, 4, 4);
 select pg_temp.mk(9);
+-- fixture only: a 12-couple Final exceeds the default capacity guard, so the guard is off for this one insert
+alter table public.event_competition_rounds disable trigger cf1_guard_callback_target_capacity;
 select pg_temp.mk(10, 1, 12, 12);
+alter table public.event_competition_rounds enable always trigger cf1_guard_callback_target_capacity;
 
 -- ============================================================================
 -- 1. Catalogue: grants, ENABLE ALWAYS, VOLATILE, search_path, RLS
@@ -546,9 +549,9 @@ select pg_temp.su(format($q$insert into public.event_competition_result_versions
   values (%L, %L, %L, 2, 'callback_tally', '1', %L, %L, '{}', '[]', %L, 'calculated', %L)$q$, pg_temp.id('rvu', 9), pg_temp.id('evt', 1), pg_temp.id('src', 9), repeat('c', 64), repeat('d', 64), pg_temp.id('user', 1), pg_temp.id('req-rvu', 9)));
 select pg_temp.su(format($q$insert into public.event_competition_result_rows (event_id, result_version_id, entry_id, advanced, output) select %L, %L, pg_temp.id('ent', 9, k), k <= 4, '{}' from generate_series(1, 4) k$q$, pg_temp.id('evt', 1), pg_temp.id('rvu', 9)));
 select pg_temp.chk('M1: the roster is the latest APPROVED version (3 couples), not the newer calculated one', cardinality(public._cf1_a6_current_roster(pg_temp.id('fin', 9))) = 3, public._cf1_a6_current_roster(pg_temp.id('fin', 9))::text);
-select pg_temp.chk('Low-1/M1: a new request for couple 1 is accepted after the stale one (bound to no advancement) and completes row-only', pg_temp.code(pg_temp.flow('withdraw', 9, 1, 95)) = 'OK', pg_temp.flow('withdraw', 9, 1, 95)::text);
+select pg_temp.chk('Low-1: the stale request no longer blocks a new one (the request reaches the precheck: couple 3 is already withdrawn, so BELOW_MINIMUM, not REQUEST_PENDING)', pg_temp.code(pg_temp.req('withdraw', 9, 1, 1, 95)) = 'COMP_ADVANCEMENT_BELOW_MINIMUM', pg_temp.req('withdraw', 9, 1, 1, 95)::text);
 reset role;
-select pg_temp.chk('M1/OD-15 A: a second withdrawal is BELOW_MINIMUM (approved roster 3 -> 1; the unapproved version would have allowed it)', pg_temp.code(pg_temp.req('withdraw', 9, 2, 1, 96)) = 'COMP_ADVANCEMENT_BELOW_MINIMUM', pg_temp.req('withdraw', 9, 2, 1, 96)::text);
+select pg_temp.chk('M1/OD-15 A: a second withdrawal is BELOW_MINIMUM (approved roster 3, one already withdrawn; the unapproved version would have allowed it)', pg_temp.code(pg_temp.req('withdraw', 9, 2, 1, 96)) = 'COMP_ADVANCEMENT_BELOW_MINIMUM', pg_temp.req('withdraw', 9, 2, 1, 96)::text);
 select pg_temp.chk('M1: a couple advanced only by the unapproved version is NOT_ON_ROSTER', pg_temp.code(pg_temp.req('withdraw', 9, 4, 1, 97)) = 'COMP_WITHDRAWAL_NOT_ON_ROSTER', pg_temp.req('withdraw', 9, 4, 1, 97)::text);
 reset role;
 -- Low-1 cap: 10 live requests per round, the 11th is refused
