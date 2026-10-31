@@ -103,3 +103,10 @@ Accepted and recorded (P2/P3): requester authority is not re-checked at co-sign 
 * **Low-1.** A request is *live* when it has no withdrawal row and is bound to the current active advancement. A new request for the same (round, couple, kind) while a live one exists is `COMP_WITHDRAWAL_REQUEST_PENDING`; **cap: 10 live requests per round** (`COMP_WITHDRAWAL_TOO_MANY_PENDING`). Stale or completed requests do not block or count. `competition_final_withdrawal_state` flags `stale` per pending request.
 * **Low-3.** The rollback sets `lock_timeout = '5s'` before locking tables and dropping the trigger.
 * **Low-2 (owner question, unchanged):** the minimum-two refusal (`COMP_ADVANCEMENT_BELOW_MINIMUM`) also refuses withdrawing an already-ineligible couple when the Final is already below two eligible couples (for example 2 couples, one of them ineligible): there is then no supported withdrawal and the way out is reverting the eligibility or a correction. Left as designed (design 4.6 b: "a withdrawal that would leave fewer than two is refused").
+
+## Re-review of the review-fix round (no P0/P1) — recorded residuals
+
+* **ABA on the NULL binding (P2).** A request made while no advancement is active (NULL) and still NULL after an apply + revoke is not flagged stale; the co-sign `_cf1_a6_precheck` still revalidates the roster under the locks, so only semantic staleness remains. Candidate follow-up: bind to the latest advancement id regardless of revocation.
+* **Withdrawals during the no-approved-version window (P2).** Rows are keyed by (round, entry), not by advancement; apply carries the withdrawn set (`_cf1_withdrawn_entries`). Owner question alongside Low-2: refuse requests in that window or keep OD-18 row-only behavior (current).
+* **No cancel path (P2).** There is no TTL and no cancel; one manager can hold up to 10 live slots. Policy item raised with the coordinator (TTL / cancel RPC).
+* **P3.** A6 must roll back before A0 (FK `advancement_id`); a replayed request reports `pending` even when stale (the state reader flags `stale`); `_cf1_a6_live_requests` is volatile on purpose-free (could be stable).
