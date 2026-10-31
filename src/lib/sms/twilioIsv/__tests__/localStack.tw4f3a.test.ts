@@ -12,6 +12,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { seedPrice } from "./priceFixture";
 import { pilotExceptionEvidenceFor, pilotSpendEvidenceFor, spendEvidenceApplied } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
@@ -284,8 +285,8 @@ describe.skipIf(!enabled)("TW-4F-3a subaccounts, legal entities and spend agains
   it("spend: no cap, no authorization; the cap bounds everything authorized and reserved; a cap cannot drop below what is committed", async () => {
     // TW-4F-3b-0: an authorization is always for the PUBLISHED price
     expect(await code(entities.authorizeSpend(entityOne, "brand", 1000, "owner email 2026-10-18", U.padmin))).toBe("TW008"); // no published price yet
-    await credits.setPrice("brand", 1000, 400, "Brand registration", U.padmin);
-    await credits.setPrice("number", 14_500, 100, "Phone number (test price at the cap)", U.padmin);
+    seedPrice(psql, { kind: "brand", customer: 1000, provider: 400, description: "Brand registration", approver: U.padmin });
+    seedPrice(psql, { kind: "number", customer: 14_500, provider: 100, description: "Phone number (test price at the cap)", approver: U.padmin });
     expect(await code(entities.authorizeSpend(entityOne, "brand", 1000, "owner email 2026-10-18", U.padmin))).toBe("TW004"); // cap is 0
     expect(await code(entities.setSpendCap(entityOne, 15_000, U.owner_a))).toBe("42501");
     await entities.setSpendCap(entityOne, 15_000, U.padmin);
@@ -503,7 +504,7 @@ describe.skipIf(!enabled)("TW-4F-3a subaccounts, legal entities and spend agains
     await credits.withdrawAuthorization(creditOnly, "the owner chose the pilot ceiling instead of prepaid credit", U.padmin);
     expect(await credits.verify(entityTwo)).toMatchObject({ ok: true, pilot_used_cents: 1_000 });
     // cumulative: 1000 captured + 1500 requested > 2000 ceiling, however many concurrent attempts
-    await credits.setPrice("campaign_vetting", 1_500, 1_500, "Campaign vetting (test)", U.padmin);
+    seedPrice(psql, { kind: "campaign_vetting", customer: 1_500, provider: 1_500, description: "Campaign vetting (test)", approver: U.padmin });
     await entities.authorizeSpend(entityTwo, "campaign_vetting", 1_500, "owner approved campaign vetting in writing", U.padmin, "pilot", C, pilotSpendEvidenceFor("campaign_vetting", entityTwo, C, 1_500));
     const claim = await store.claim(C, U.padmin, "f3b-pilot", 120, "run");
     try {

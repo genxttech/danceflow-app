@@ -2,16 +2,13 @@
  * WP-D4: dual-control simulation matrix with synthetic administrators, on a throwaway DEV-equivalent database.
  * Surfaces (every database-enforced two-person control in the TW-4F SMS chain): the dual request table (studio_sms_rfl_dual_requests) with its two consumers,
  *   ABS = tw4_rfl_exposure_dispose (absorb a provider-fee exposure)   CAN = tw4_rfl_cancel_authorize (release a phone number), read back by tw4_rfl_cancel_target
- * and SMS PRICING (tw4_price_set) which is NOT dual controlled in the shipped chain (a documented single-admin action, decision B-6 / U-2). The pricing block first
- * characterises that, then applies the PROPOSED correction (scripts/qa/tw4f/results/wp-d4/proposed_price_dual_control.sql, local only) and asserts the required rule.
+ * (SMS PRICING dual control was proved here in WP-D4 against a proposed correction; D4-1 made it a real migration and its matrix lives in localStack.pricedual.test.ts.)
  *
  * Cast (all synthetic, distinct ids): A, B platform administrators (aal2 sessions); C not an administrator; D administrator whose session is aal1 (see localStack.wpd4actions);
  * E deactivated administrator; F a third administrator; G administrator whose auth user is banned.
  *
  * LOCAL QA DATABASE ONLY: TW4A_LOCAL_DB_CONTAINER + TW4RFL_DB, and the tw4_local_qa_only marker. Nothing reaches Twilio, Stripe or any message channel.
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   A, B, C, CR, D, E, F, G, NOTE, PG, DB, REASON, RUN, absorbRequest, absorbRequestErr, approve, approveErr, audit, auditActors, authorizeNum, bumpEpoch, call, callErr, cancelRequest,
@@ -326,158 +323,7 @@ describe.skipIf(!enabled)("WP-D4 dual-control matrix (real schema, synthetic adm
     });
   });
 
-  describe("SMS PRICING (tw4_price_set): required rule = an unapproved price change never takes effect", () => {
-    const active = (kind: string) => rows<{ id: string; customer_price_cents: number; provider_cost_cents: number }>(`select id, customer_price_cents, provider_cost_cents from public.studio_sms_price_list where kind = '${kind}' and active`);
-    let priorPrice: { id: string; customer_price_cents: number };
-
-    it("PRICE-00 DEFECT CONFIRMED (characterisation of the shipped chain): ONE administrator changes the active price immediately with no second person and no approval record", () => {
-      priorPrice = active("monthly")[0];
-      const out = call<{ price_id: string }>("tw4_price_set", "monthly", priorPrice.customer_price_cents + 111, 150, "single administrator change (defect probe)", A);
-      const now = active("monthly");
-      expect(now).toHaveLength(1);
-      expect(now[0].id).toBe(out.price_id);
-      expect(now[0].customer_price_cents).toBe(priorPrice.customer_price_cents + 111);
-      // there is no request / approval object of any kind for a price change in the shipped schema
-      expect(psql(`select count(*) from pg_tables where schemaname = 'public' and tablename ~ 'price.*(request|approval|change)'`)).toBe("0");
-      expect(psql(`select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname ~ '^tw4_price_(propose|approve|reject|request)'`)).toBe("0");
-    });
-
-    it("PRICE-01 shipped chain: non-administrator C and deactivated administrator E are refused (42501), nothing changes", () => {
-      const before = active("monthly");
-      for (const who of [C, E]) expect(codeOf(callErr("tw4_price_set", "monthly", 4242, 150, "should never be published", who)), who).toBe("42501");
-      expect(active("monthly")).toEqual(before);
-    });
-
-    describe("with the PROPOSED correction applied (local file; NOT part of any migration chain)", () => {
-      beforeAll(() => {
-        const sql = readFileSync(join(__dirname, "..", "..", "..", "..", "..", "scripts", "qa", "tw4f", "results", "wp-d4", "proposed_price_dual_control.sql"), "utf8");
-        psql(sql);
-      });
-      const propose = (kind: string, cents: number, actor: string, provider = 150) => call<{ request_id: string; status: string }>("tw4_price_propose", kind, cents, provider, "dual-control price change under test", actor);
-      const proposeErr = (kind: string, cents: number, actor: string) => callErr("tw4_price_propose", kind, cents, 150, "dual-control price change under test", actor);
-      const priceApprove = (id: string, actor: string) => call<{ status: string; replayed?: boolean; price_id?: string }>("tw4_price_approve", id, actor, NOTE);
-      const priceApproveErr = (id: string, actor: string) => callErr("tw4_price_approve", id, actor, NOTE);
-      const preq = (id: string) => rows<{ status: string; requested_by: string; decided_by: string | null; applied_price_id: string | null }>(`select status, requested_by, decided_by, applied_price_id from public.studio_sms_price_change_requests where id = '${id}'`)[0];
-      const priceSetErr = (cents: number, actor: string) => callErr("tw4_price_set", "number", cents, 115, "direct single-admin attempt", actor);
-
-      it("PRICE-02 tw4_price_set no longer takes effect for ANY single caller, administrator or not (TW042 / 42501): no single-admin bypass remains", () => {
-        const before = active("number");
-        expect(codeOf(priceSetErr(777, A))).toBe("TW042");
-        expect(codeOf(priceSetErr(777, B))).toBe("TW042");
-        expect(codeOf(priceSetErr(777, C))).toBe("42501");
-        expect(codeOf(priceSetErr(777, E))).toBe("42501");
-        expect(active("number")).toEqual(before);
-      });
-
-      it("PRICE-03 a proposal alone changes nothing; requester == approver is refused 42501; the active price is unchanged until a DIFFERENT administrator approves", () => {
-        const before = active("number");
-        const r = propose("number", 301, A);
-        expect(r.status).toBe("pending");
-        expect(active("number")).toEqual(before);
-        expect(codeOf(priceApproveErr(r.request_id, A))).toBe("42501");
-        expect(preq(r.request_id)).toMatchObject({ status: "pending", decided_by: null });
-        expect(active("number")).toEqual(before);
-        expect(codeOf(priceApproveErr(r.request_id, C))).toBe("42501");
-        expect(codeOf(priceApproveErr(r.request_id, E))).toBe("42501");
-        expect(active("number")).toEqual(before);
-        // withdraw so the next scenario starts clean
-        call("tw4_price_reject", r.request_id, A, "withdrawn by the requester without any approval");
-      });
-
-      it("PRICE-04 B approves: the new price takes effect exactly once (old one retired, one active row), decided_by = B, applied_price_id recorded; replay by B is idempotent, a third administrator gets TW041", () => {
-        const r = propose("number", 302, A);
-        const out = priceApprove(r.request_id, B);
-        expect(out.status).toBe("applied");
-        const now = active("number");
-        expect(now).toHaveLength(1);
-        expect(now[0]).toMatchObject({ customer_price_cents: 302, id: out.price_id });
-        expect(preq(r.request_id)).toMatchObject({ status: "applied", requested_by: A, decided_by: B, applied_price_id: out.price_id });
-        expect(priceApprove(r.request_id, B)).toMatchObject({ status: "applied", replayed: true });
-        expect(codeOf(priceApproveErr(r.request_id, F))).toBe("TW041");
-        expect(num(`select count(*) from public.studio_sms_price_list where kind = 'number' and customer_price_cents = 302`)).toBe(1); // single use: no second price row
-      });
-
-      it("PRICE-05 facts changed (the active price moved since the request): approval returns invalidated, persisted, and the stale proposal never takes effect", () => {
-        const stale = propose("number", 303, A);
-        const mid = propose("number", 304, F); // supersedes the stale one (one open proposal per kind)
-        expect(preq(stale.request_id).status).toBe("invalidated");
-        priceApprove(mid.request_id, B);
-        expect(active("number")[0].customer_price_cents).toBe(304);
-        expect(priceApprove(stale.request_id, B)).toMatchObject({ status: "invalidated", replayed: true });
-        // a proposal whose base price moved underneath it
-        const p = propose("number", 305, A);
-        replica(`update public.studio_sms_price_change_requests set base_price_id = '${crypto.randomUUID()}' where id = '${p.request_id}';`);
-        expect(priceApprove(p.request_id, B)).toMatchObject({ status: "invalidated" });
-        expect(preq(p.request_id).status).toBe("invalidated");
-        expect(active("number")[0].customer_price_cents).toBe(304);
-      });
-
-      it("PRICE-06 expiry (24 h): an unapproved proposal comes back expired and never applies; an expired one cannot be approved later", () => {
-        const before = active("number");
-        const p = propose("number", 306, A);
-        replica(`update public.studio_sms_price_change_requests set requested_at = requested_at - interval '25 hours', expires_at = expires_at - interval '25 hours' where id = '${p.request_id}';`);
-        expect(priceApprove(p.request_id, B)).toMatchObject({ status: "expired" });
-        expect(preq(p.request_id).status).toBe("expired");
-        expect(priceApprove(p.request_id, B)).toMatchObject({ status: "expired", replayed: true });
-        expect(active("number")).toEqual(before);
-      });
-
-      it("PRICE-07 rejection: B rejects, the proposal is dead (approve TW041), the price is unchanged", () => {
-        const before = active("number");
-        const p = propose("number", 307, A);
-        expect(call("tw4_price_reject", p.request_id, B, "rejected: the price is not approved by the owner")).toMatchObject({ status: "rejected" });
-        expect(codeOf(priceApproveErr(p.request_id, F))).toBe("TW041");
-        expect(active("number")).toEqual(before);
-      });
-
-      it("PRICE-08 third party and deactivated: C and E cannot propose, approve or reject (42501); a deactivated requester or approver voids the proposal; unknown kind is refused 22023", () => {
-        const before = active("monthly");
-        expect(codeOf(proposeErr("monthly", 1234, C))).toBe("42501");
-        expect(codeOf(proposeErr("monthly", 1234, E))).toBe("42501");
-        expect(codeOf(proposeErr("bogus", 1234, A))).toBe("22023");
-        const p = propose("monthly", 1235, A);
-        expect(codeOf(priceApproveErr(p.request_id, C))).toBe("42501");
-        expect(codeOf(priceApproveErr(p.request_id, E))).toBe("42501");
-        expect(codeOf(callErr("tw4_price_reject", p.request_id, C, NOTE))).toBe("42501");
-        const x = mkUser({ admin: true, label: "price-requester" });
-        const q = propose("monthly", 1236, x); // supersedes A's
-        setRole(x, false);
-        expect(codeOf(priceApproveErr(q.request_id, B))).toBe(""); // approve call itself does not raise ...
-        expect(preq(q.request_id).status).toBe("invalidated"); // ... but the deactivated requester's proposal never applies
-        expect(active("monthly")).toEqual(before);
-      });
-
-      it("PRICE-09 aal1 / privileges: the new functions are service-role only, security definer with a pinned search_path (an aal1 JWT cannot reach them); the table has no API-role privilege", () => {
-        for (const f of ["tw4_price_propose(text,int,int,text,uuid)", "tw4_price_approve(uuid,uuid,text)", "tw4_price_reject(uuid,uuid,text)"]) {
-          for (const role of ["anon", "authenticated", "public"]) expect(psql(`select has_function_privilege('${role}', 'public.${f}', 'execute')`), `${role} ${f}`).toBe("f");
-          expect(psql(`select has_function_privilege('service_role', 'public.${f}', 'execute')`)).toBe("t");
-          expect(psql(`select p.prosecdef::text || ':' || array_to_string(p.proconfig, ',') from pg_proc p where p.oid = 'public.${f}'::regprocedure`)).toBe("true:search_path=pg_catalog, public, pg_temp");
-        }
-        for (const role of ["anon", "authenticated", "service_role"]) expect(psql(`select count(*) from information_schema.role_table_grants where table_schema = 'public' and table_name = 'studio_sms_price_change_requests' and grantee = '${role}'`)).toBe("0");
-      });
-
-      it("PRICE-10 the request table is the audit trail and is append-only evidence: requester, decider, note and applied price are recorded; rows cannot be edited outside the functions or deleted; an applied row cannot name its requester as decider", () => {
-        const p = propose("number", 310, A);
-        const out = priceApprove(p.request_id, B);
-        const row = rows<{ requested_by: string; decided_by: string; decision_note: string; decided_at: string; applied_price_id: string }>(
-          `select requested_by, decided_by, decision_note, decided_at, applied_price_id from public.studio_sms_price_change_requests where id = '${p.request_id}'`)[0];
-        expect(row).toMatchObject({ requested_by: A, decided_by: B, decision_note: NOTE, applied_price_id: out.price_id });
-        expect(row.decided_at).toBeTruthy();
-        expect(psqlError(`update public.studio_sms_price_change_requests set status = 'pending' where id = '${p.request_id}';`)).toMatch(/only through the dual-control functions|not a legal transition|final/);
-        expect(psqlError(`delete from public.studio_sms_price_change_requests where id = '${p.request_id}';`)).toMatch(/never deleted/);
-        const q = propose("number", 311, A);
-        expect(psqlError(`begin; select set_config('tw4.pricedual_write', 'on', true); update public.studio_sms_price_change_requests set status = 'applied', decided_by = requested_by, applied_price_id = '${out.price_id}' where id = '${q.request_id}'; commit;`)).toMatch(/studio_sms_price_change_requests_distinct/);
-      });
-
-      it("PRICE-11 a price change moves no money and touches no credit ledger", () => {
-        const w = world();
-        const before = money(w);
-        const p = propose("number", 312, A);
-        priceApprove(p.request_id, B);
-        expect(money(w)).toBe(before);
-      });
-    });
-  });
+  // SMS pricing dual control (tw4_price_propose / approve / reject, tw4_price_set closed) moved to localStack.pricedual.test.ts when it became a real migration (D4-1).
 
   it("DB-LEVEL aal1 NOTE: the dual-control RPCs take p_actor from the service-role caller and check the profile role only; AAL is enforced by requirePlatformStepUp in the server action (see localStack.wpd4actions)", () => {
     expect(hasCode(callErr("tw4_rfl_dual_list", D), "42501")).toBe(false); // D (an administrator whose session is aal1) is accepted by the DATABASE; the action layer is what refuses D

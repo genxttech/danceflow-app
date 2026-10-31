@@ -16,6 +16,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { seedPrice, seedPriceSql } from "./priceFixture";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 300_000 });
 
@@ -172,8 +173,8 @@ describe.skipIf(!enabled)("TW-4F financial integrity: permanent approval referen
       expect((await rpc("tw4_onboarding_decide_tier", { p_studio_id: studio, p_actor: U.padmin, p_tier: "low_volume_standard", p_reason: "fixture: EIN business, low volume", p_eligibility: CHECKLIST })).error).toBeNull();
     }
     // synthetic, LOCAL-ONLY prices for the two low-volume kinds (DRAFT in reality: nothing is published by the migration)
-    expect((await rpc("tw4_price_set", { p_kind: "brand_low_volume", p_customer_cents: LVS_BRAND, p_provider_cents: 450, p_description: "fixture LVS brand", p_actor: U.padmin })).error).toBeNull();
-    expect((await rpc("tw4_price_set", { p_kind: "monthly_low_volume", p_customer_cents: LVS_MONTHLY, p_provider_cents: 150, p_description: "fixture LVM campaign", p_actor: U.padmin })).error).toBeNull();
+    seedPrice(psql, { kind: "brand_low_volume", customer: LVS_BRAND, provider: 450, description: "fixture LVS brand", approver: U.padmin });
+    seedPrice(psql, { kind: "monthly_low_volume", customer: LVS_MONTHLY, provider: 150, description: "fixture LVM campaign", approver: U.padmin });
     await fund(EA, LA1, 10_000);
     await fund(EB, LB1, 10_000);
   });
@@ -472,8 +473,7 @@ describe.skipIf(!enabled)("TW-4F financial integrity: permanent approval referen
     it("a business-wide Standard brand approval cannot be reserved by a Low-Volume Standard location's run", async () => {
       // the Standard price exists only inside this rolled-back transaction, so no other suite ever sees it
       const out = psqlError(`begin;
-        insert into public.studio_sms_price_list (kind, customer_price_cents, provider_cost_cents, description, created_by)
-          select 'brand', 4600, 4600, 'fixture standard brand (rolled back)', '${U.padmin}' where not exists (select 1 from public.studio_sms_price_list where kind = 'brand' and active);
+        ${seedPriceSql({ kind: "brand", customer: 4600, provider: 4600, description: "fixture standard brand (rolled back)", approver: U.padmin, ifMissing: true })}
         select public.tw4_spend_authorize('${EA}', 'brand', (select customer_price_cents from public.studio_sms_price_list where kind = 'brand' and active), $q$${ref("std-wide")}$q$, '${U.padmin}', 'credit', null);
         set local session_replication_role = replica;
         update public.studio_sms_onboarding set lease_owner = 'fi-wide', lease_expires_at = now() + interval '5 minutes' where id = '${OA1}';

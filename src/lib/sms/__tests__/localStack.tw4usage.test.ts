@@ -12,6 +12,7 @@ import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { ownerReactivate, seedPrice } from "../twilioIsv/__tests__/priceFixture";
 
 vi.mock("server-only", () => ({}));
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 1_000_000 });
@@ -214,7 +215,7 @@ describe.skipIf(!enabled)("SMS usage billing: reservations, provider answers, ca
     psqlFile(LOCAL_QA_MARKER);
     snapshotActivePrices = psql("select id from public.studio_sms_price_list where active").split("\n").filter(Boolean);
     for (const [kind, cents] of [["sms_usage", 3], ["monthly", 1500]] as const) {
-      expect((await rpc("tw4_price_set", { p_kind: kind, p_customer_cents: cents, p_provider_cents: 1, p_description: `fixture ${kind} price`, p_actor: U.padmin })).error).toBeNull();
+      seedPrice(psql, { kind: kind, customer: cents, provider: 1, description: `fixture ${kind} price`, approver: U.padmin });
     }
     expect((await setSender(PA1, MG_A1)).error).toBeNull();
     expect((await setSender(PA2, MG_A2)).error).toBeNull();
@@ -224,7 +225,8 @@ describe.skipIf(!enabled)("SMS usage billing: reservations, provider answers, ca
     try {
       psqlFile(CLEANUP);
       aged(reconcilerRunsCleanupSql(`tw4usage:${RUN}`));
-      aged(`delete from public.studio_sms_price_list where created_by = '${U.padmin}'; update public.studio_sms_price_list set active = true where id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
+      aged(`delete from public.studio_sms_price_list where created_by = '${U.padmin}'`);
+      ownerReactivate(psql, `id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
     } catch {
       /* best effort */
     }
@@ -304,7 +306,7 @@ describe.skipIf(!enabled)("SMS usage billing: reservations, provider answers, ca
       const active = psql("select id from public.studio_sms_price_list where kind = 'sms_usage' and active");
       aged(`update public.studio_sms_price_list set active = false where id = '${active}'`);
       expect((await begin(PA1)).error?.code).toBe("TW008");
-      aged(`update public.studio_sms_price_list set active = true where id = '${active}'`);
+      ownerReactivate(psql, `id = '${active}'`);
       expect(reserved(EA)).toBe(0); // nothing was reserved by any refusal
       expect(psql(`select count(*) from public.sms_message_logs where studio_id in ('${PA1}', '${PA2}')`)).toBe("0");
     });
@@ -423,7 +425,7 @@ describe.skipIf(!enabled)("SMS usage billing: reservations, provider answers, ca
       const m = await submitted(PA1, "a".repeat(200));
       const before = balance(EA);
       const frozen = price();
-      expect((await rpc("tw4_price_set", { p_kind: "sms_usage", p_customer_cents: 9, p_provider_cents: 1, p_description: "fixture: a new price", p_actor: U.padmin })).error).toBeNull();
+      seedPrice(psql, { kind: "sms_usage", customer: 9, provider: 1, description: "fixture: a new price", approver: U.padmin });
       const s = await settle(m.attempt_id, evidence(ACC_A, m.sid, { num_segments: "3" })); // more than estimated (2), within +2
       expect(s.data).toMatchObject({ outcome: "settled", charged_cents: 3 * frozen, replayed: false });
       expect(balance(EA)).toBe(before - 3 * frozen);
@@ -436,7 +438,7 @@ describe.skipIf(!enabled)("SMS usage billing: reservations, provider answers, ca
       expect(balance(EA)).toBe(before - 3 * frozen);
       expect(gaps()).toBe("0");
       expect((await credits.verify(EA)).ok).toBe(true);
-      await rpc("tw4_price_set", { p_kind: "sms_usage", p_customer_cents: 3, p_provider_cents: 1, p_description: "fixture sms_usage price", p_actor: U.padmin });
+      seedPrice(psql, { kind: "sms_usage", customer: 3, provider: 1, description: "fixture sms_usage price", approver: U.padmin });
     });
 
     it("the status table: failed and canceled release without charge; undelivered and read charge; sent waits 72 hours; queued waits; odd evidence goes to review", async () => {

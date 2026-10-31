@@ -15,6 +15,7 @@ import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { seedPrice } from "./priceFixture";
 import { spendEvidenceApplied } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
@@ -337,7 +338,7 @@ describe.skipIf(!enabled)("TW-4F-3b-0 prepaid credit: one balance per legal busi
 
   it("reconciliation records the actual Twilio charge idempotently and flags a variance without re-debiting the business", async () => {
     expect(await code(credits.recordProviderCharge(E1, X1, "sms_usage", "BN_ref_1", 400, U.owner_x))).toBe("42501");
-    await credits.setPrice("sms_usage", 1_000, 400, "Messaging (test price)", U.padmin);
+    seedPrice(psql, { kind: "sms_usage", customer: 1_000, provider: 400, description: "Messaging (test price)", approver: U.padmin });
     const before = account(E1);
     expect(await credits.recordProviderCharge(E1, X1, "sms_usage", "BN_ref_1", 400, U.padmin)).toEqual({ status: "matched", replayed: false });
     expect(await credits.recordProviderCharge(E1, X1, "sms_usage", "BN_ref_1", 400, U.padmin)).toEqual({ status: "matched", replayed: true });
@@ -349,12 +350,12 @@ describe.skipIf(!enabled)("TW-4F-3b-0 prepaid credit: one balance per legal busi
   });
 
   it("prices are published once and never edited; a change retires the old price", async () => {
-    await credits.setPrice("sms_usage", 1_200, 500, "Messaging (new test price)", U.padmin);
+    seedPrice(psql, { kind: "sms_usage", customer: 1_200, provider: 500, description: "Messaging (new test price)", approver: U.padmin });
     expect(count(`select count(*) from public.studio_sms_price_list where kind = 'sms_usage' and active`)).toBe(1);
     expect(psql(`select customer_price_cents from public.studio_sms_price_list where kind = 'sms_usage' and active`)).toBe("1200");
     expect(psqlError(`update public.studio_sms_price_list set customer_price_cents = 1 where kind = 'sms_usage' and active`)).toContain("never edited");
     expect(psqlError(`update public.studio_sms_price_list set active = true where kind = 'sms_usage' and not active`)).toContain("never edited");
-    expect(await code(credits.setPrice("sms_usage", 1_200, 500, "x", U.padmin))).not.toBe("ok");
+    expect(() => seedPrice(psql, { kind: "sms_usage", customer: 1_200, provider: 500, description: "x", approver: U.padmin })).toThrow(); // a one-letter description is refused
   });
 
   it("an owner sees their legal business balance and per-location attribution; another business, front desk and strangers are refused; no provider cost leaks", async () => {

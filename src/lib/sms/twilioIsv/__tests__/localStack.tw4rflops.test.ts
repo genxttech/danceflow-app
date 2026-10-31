@@ -18,6 +18,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { seedPriceIfMissing } from "./priceFixture";
 import { evidenceApplied, pilotCoverArgs, pilotExceptionArgs, spendEvidenceApplied } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 300_000 });
@@ -231,7 +232,7 @@ insert into public.profiles (id, platform_role) values ('${id}', 'platform_admin
 commit;`);
     }
     for (const [kind, customer, provider] of [["number", 200, 115], ["monthly", 1000, 150]] as const) {
-      if (!psql(`select 1 from public.studio_sms_price_list where kind = '${kind}' and active`)) call("tw4_price_set", kind, customer, provider, `fixture ${kind} price`, P);
+      seedPriceIfMissing(psql, { kind, customer, provider, description: `fixture ${kind} price`, approver: P });
     }
     PRICE.number = num(`select customer_price_cents from public.studio_sms_price_list where kind = 'number' and active`);
     PRICE.monthly = num(`select customer_price_cents from public.studio_sms_price_list where kind = 'monthly' and active`);
