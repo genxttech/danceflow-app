@@ -12,7 +12,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   A, B, C, CR, D, E, F, G, NOTE, PG, DB, REASON, RUN, absorbRequest, absorbRequestErr, approve, approveErr, audit, auditActors, authorizeNum, bumpEpoch, call, callErr, cancelRequest,
-  cancelRequestErr, codeOf, dispose, enabled, exposed, exposureOf, expire, hasCode, mkUser, money, num, psql, psqlError, ref, register, rejectErr, reqRow, reqStatus, replica, rows,
+  cancelRequestErr, codeOf, dispose, enabled, exposed, exposureOf, expire, hasCode, mkUser, money, num, psql, psqlError, ref, register, rejectErr, reqRow, reqStatus, replica,
   seedCast, seedPrices, setRole, world,
 } from "./wpd4Helpers";
 

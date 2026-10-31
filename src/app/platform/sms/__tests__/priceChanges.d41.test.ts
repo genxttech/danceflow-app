@@ -96,7 +96,8 @@ describe("PriceChanges section", () => {
     const html = render(await overview([raw({ reason: "<script>alert(1)</script>", description: "<img src=x onerror=alert(1)>" })]), { notice: "Proposal recorded.", error: "Refused." });
     expect(html).toContain('role="status"');
     expect(html).toContain('role="alert"');
-    expect(html).not.toContain("<script>");
+    expect(html).not.toContain("<script>alert(1)");
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
     expect(html).not.toContain("<img src=x");
   });
 
