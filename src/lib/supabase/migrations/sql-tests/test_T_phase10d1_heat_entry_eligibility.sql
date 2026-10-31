@@ -203,7 +203,7 @@ select pg_temp.expect_ok('day-of status updates on placements stay allowed',
 reset role;
 select pg_temp.chk('the rule lives in the existing 10D integrity function (no second validator)',
   position('COMP10D_ENTRY_NOT_SCHEDULABLE' in pg_get_functiondef('public._comp10d_check_floor_heat_integrity()'::regprocedure)) > 0
-  and (select count(*) from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and not tgisinternal) = 4);
+  and (select count(*) from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and not tgisinternal and tgname <> 'cf1_guard_final_heat_entry') = 4);
 select pg_temp.chk('the integrity function is not callable by API roles',
   not has_function_privilege('authenticated', 'public._comp10d_check_floor_heat_integrity()', 'EXECUTE')
   and not has_function_privilege('anon', 'public._comp10d_check_floor_heat_integrity()', 'EXECUTE'));
