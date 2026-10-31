@@ -78,6 +78,7 @@ const REGISTRY: Record<string, Record<string, Tier>> = {
     panelCreateSubaccountAction: "recent",
     panelDecideTierAction: "aal2",
   },
+  "priceChangeActions.ts": { pricePropose: "recent", priceApprove: "recent", priceReject: "aal2" },   // D4-1: dual-controlled SMS price changes
   "provisioningActions.ts": {
     resolveProvisioningOperationAction: "recent",
     recordProviderListingAction: "aal2",
@@ -145,7 +146,7 @@ describe("completeness and source order", () => {
         const tier = actions[name];
         it(`${name} runs the ${tier} guard before any other work`, () => {
           const inner = body.slice(body.indexOf("{", body.indexOf(")")) + 1);
-          if (file === "recurringFeeActions.ts") {
+          if (file === "recurringFeeActions.ts" || file === "priceChangeActions.ts") {
             expect(inner.trimStart().startsWith(`await guarded("${tier}", `)).toBe(true);
           } else {
             expect(inner.trimStart().startsWith(`const admin = await requirePlatformStepUp("${tier}");`) || inner.trimStart().startsWith(`await requirePlatformStepUp("${tier}");`)).toBe(true);
@@ -162,6 +163,13 @@ describe("completeness and source order", () => {
     expect(helper.indexOf("requirePlatformStepUp(tier)")).toBeLessThan(helper.indexOf("await work(admin)"));
   });
 
+  it("the price-change helper passes its tier to the guard before running the work", () => {
+    const src = source("priceChangeActions.ts");
+    const helper = src.slice(src.indexOf("async function guarded("), src.indexOf("const store = "));
+    expect(helper).toContain("await requirePlatformStepUp(tier);");
+    expect(helper.indexOf("requirePlatformStepUp(tier)")).toBeLessThan(helper.indexOf("await work(admin)"));
+  });
+
   it("the sensitive set is what the design doc says: no recent-tier action is downgraded", () => {
     const recent = Object.values(REGISTRY).flatMap((a) => Object.entries(a).filter(([, t]) => t === "recent").map(([n]) => n));
     expect(recent.sort()).toEqual(
@@ -170,7 +178,7 @@ describe("completeness and source order", () => {
         "panelCreatePilotExceptionAction", "panelCreateSubaccountAction", "resolveProvisioningOperationAction", "reopenProvisioningAction",
         "runProvisioningStepAction", "runNumberStepAction", "retryRegistrationAction", "rflSetSwitchAction", "rflDualRequestAction", "rflDualApproveAction",
         "rflDisposeExposureAction", "rflPilotCoverAction", "rflCancelAuthorizeAction", "rflCancelBeginAction", "rflCancelFinishAction",
-        "rflCancelResolveAction", "rflCancelReleaseAction", "resolveUsageAttemptAction",
+        "rflCancelResolveAction", "rflCancelReleaseAction", "resolveUsageAttemptAction", "pricePropose", "priceApprove",
       ].sort(),
     );
   });
