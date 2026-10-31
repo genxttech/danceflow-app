@@ -8,6 +8,20 @@
 
 begin;
 
+-- A0 compatibility: once A0 (20270120090000) is applied its ENABLE ALWAYS guards refuse the hand-built heats, heat entries and entry/round
+-- writes below (the suite places rows directly, like the E2/HL1 suites). Inside this rolled-back transaction the CF1 guards on the four
+-- fixture tables are switched off so the A2 check is tested on the same fixtures with or without A0.
+do $$
+declare r record;
+begin
+  for r in select t.tgname, t.tgrelid::regclass as rel from pg_trigger t
+           where not t.tgisinternal and t.tgname like 'cf1_%'
+             and t.tgrelid in ('public.event_competition_heats'::regclass, 'public.event_competition_heat_entries'::regclass,
+                               'public.event_competition_rounds'::regclass, 'public.event_competition_entries'::regclass) loop
+    execute format('alter table %s disable trigger %I', r.rel, r.tgname);
+  end loop;
+end $$;
+
 
 -- HL1: Lock ballots now requires every ballot heat to be danced; suite heats that are locked are marked complete first (superuser, trigger bypass).
 create or replace function pg_temp.hl1_danced(p_heat uuid) returns void language plpgsql security definer as $$
