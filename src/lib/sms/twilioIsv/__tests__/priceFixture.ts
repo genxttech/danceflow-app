@@ -49,10 +49,11 @@ export function seedPriceIfMissing(psql: Psql, p: SeedPrice): void {
 }
 
 /** Owner-level re-activation of a retired price (a fixture reset a suite did with plain UPDATEs). The production trigger refuses it for everyone, so a suite that must
- *  restore a snapshot switches the trigger off for that one statement, as the database owner, and switches it back on ALWAYS. */
+ *  restore a snapshot switches both guards off for that one statement, as the database owner, and switches the new one back on ALWAYS. */
 export function ownerReactivate(psql: Psql, whereSql: string): void {
   psql(`begin;
 alter table public.studio_sms_price_list disable trigger studio_sms_price_list_00_activation;
+set local session_replication_role = replica;   -- the older ordinary guard (a published price is never edited) is off too, exactly as the suites' own resets always did
 update public.studio_sms_price_list set active = true where ${whereSql};
 alter table public.studio_sms_price_list enable always trigger studio_sms_price_list_00_activation;
 commit;`);
