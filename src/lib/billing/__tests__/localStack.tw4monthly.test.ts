@@ -602,7 +602,7 @@ describe.skipIf(!enabled)("monthly spending limits: months in the business's tim
       expect(Number(psql(`select public._tw4f3a_committed('${EA}')`))).toBe(5_000);
       expect(spend(EA)).toBe(1_500); // and the setup fee is not a routine cost of the month
       await rpc("tw4_spend_withdraw", { p_spend_event_id: (event.data as { spend_event_id: string }).spend_event_id, p_actor: U.padmin, p_note: "fixture: withdraw the setup authorization" });
-      aged(`delete from public.studio_sms_approval_refs where legal_entity_id = '${EA}'; delete from public.studio_sms_spend_events where legal_entity_id = '${EA}'`);
+      aged(`delete from public.studio_sms_approval_refs where legal_entity_id = '${EA}'; delete from public.studio_sms_spend_events where legal_entity_id = '${EA}';`);
       psql(deletePricesSql(`kind = 'brand' and created_by = '${U.padmin}'`));
       await resetMoney(EA);
       clearAuths();
