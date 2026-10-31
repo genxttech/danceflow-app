@@ -325,7 +325,11 @@ select pg_temp.chk('internal _a5_cf1_* helpers carry no grants (authenticated / 
                    and not has_function_privilege('service_role', p.oid, 'execute'))
    from pg_proc p join pg_namespace n on n.oid = p.pronamespace and n.nspname = 'public' where p.proname like '_a5_cf1_%'));
 select pg_temp.chk('U52: the history triggers on the exclusion table are ENABLE ALWAYS (tgenabled = A)',
-  (select count(*) = 2 and bool_and(t.tgenabled = 'A') from pg_trigger t where t.tgrelid = 'public.event_competition_round_exclusions'::regclass and not t.tgisinternal));
+  (select count(*) = 2 and bool_and(t.tgenabled = 'A') from pg_trigger t where t.tgrelid = 'public.event_competition_round_exclusions'::regclass and not t.tgisinternal
+     and t.tgname in ('protect_event_competition_round_exclusions_history', 'protect_event_competition_round_exclusions_history_truncate')),
+  'later packages may add triggers (A7: cf1_a7_guard_exclusion_during_correction); the two named history triggers must exist and be ENABLE ALWAYS');
+select pg_temp.chk('U52: any other trigger on the exclusion table is ENABLE ALWAYS too (A7 guard allowed by name)',
+  not exists (select 1 from pg_trigger t where t.tgrelid = 'public.event_competition_round_exclusions'::regclass and not t.tgisinternal and t.tgenabled <> 'A'));
 select pg_temp.ex_role('anon cannot call request_round_exclusion', 'anon', pg_temp.q_req(1, 1, 'ineligible', 'anon probe', 9001), 'permission denied');
 select pg_temp.ex_role('service_role cannot call cosign_round_exclusion', 'service_role',
   format('select public.cosign_round_exclusion(%L,%L)', pg_temp.u('e0ffff'), pg_temp.rq(9002)), 'permission denied');
