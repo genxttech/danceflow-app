@@ -1,6 +1,7 @@
 -- Rollback of 20270204090000 (D4-1: dual-controlled SMS price changes). Restores tw4_price_set to its 20261122090000 body BYTE FOR BYTE and drops every object this migration created.
 -- REFUSES (SQLSTATE 55000) once any request row exists: a price-change request is audit evidence of who proposed and who approved a published price and is never destroyed;
--- from then on the stance is forward-fix only. Roll the application back first. Published prices themselves are untouched.
+-- from then on the stance is forward-fix only (or disable the three price actions at the application layer). This rollback is valid ONLY BEFORE the first request row exists.
+-- A rolled-back state REOPENS the single-administrator tw4_price_set (restored below byte for byte). Roll the application back first. Published prices themselves are untouched.
 begin;
 
 set local lock_timeout = '5s';

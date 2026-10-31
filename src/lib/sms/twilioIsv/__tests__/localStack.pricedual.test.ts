@@ -9,9 +9,11 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { A, B, C, D, E, F, G, DB, NOTE, PG, call, callErr, codeOf, enabled, mkUser, money, num, psql, psqlError, replica, rows, seedCast, seedPrices, setRole, world } from "./wpd4Helpers";
-import { ownerReactivate } from "./priceFixture";
+import { A, B, C, D, E, F, G, DB, NOTE, PG, call, callErr, codeOf, enabled, mkUser, money, num, psql, psqlError, rows, seedCast, seedPrices, setRole, world } from "./wpd4Helpers";
+import { PRICE_KINDS } from "@/lib/sms/priceChange";
+import { ownerAgeRequest, ownerReactivate } from "./priceFixture";
 
+vi.mock("server-only", () => ({}));
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 300_000 });
 
 const active = (kind: string) => rows<{ id: string; customer_price_cents: number; provider_cost_cents: number; created_by: string }>(
@@ -27,7 +29,7 @@ const reject = (id: string, actor: string, note = "rejected after review of the 
 const rejectErr = (id: string, actor: string, note = "rejected after review of the proposal") => callErr("tw4_price_reject", id, actor, note);
 const preq = (id: string) => rows<{ status: string; requested_by: string; decided_by: string | null; applied_price_id: string | null; decision_note: string | null; base_price_id: string | null }>(
   `select status, requested_by, decided_by, applied_price_id, decision_note, base_price_id from public.studio_sms_price_change_requests where id = '${id}'`)[0];
-const ageRequest = (id: string) => replica(`update public.studio_sms_price_change_requests set requested_at = requested_at - interval '25 hours', expires_at = expires_at - interval '25 hours' where id = '${id}';`);
+const ageRequest = (id: string) => ownerAgeRequest(psql, id);
 /** Withdraw whatever is open for a kind so the next scenario starts clean. */
 const clearOpen = (kind: string) => {
   for (const r of rows<{ id: string; requested_by: string }>(`select id, requested_by from public.studio_sms_price_change_requests where kind = '${kind}' and status in ('pending', 'approved')`)) reject(r.id, r.requested_by, "withdrawn to start the next scenario clean");
@@ -180,6 +182,14 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
     const r = propose("monthly", 1237, y);
     psql(`update auth.users set banned_until = now() + interval '10 years' where id = '${y}';`);
     expect(approve(r.request_id, B)).toMatchObject({ status: "invalidated" });
+    // requester soft-deleted after proposing (deleted_at set, role kept)
+    const w = mkUser({ admin: true, label: "price-requester-deleted" });
+    const dq = propose("monthly", 1239, w);
+    psql(`update auth.users set deleted_at = now() where id = '${w}';`);
+    expect(approve(dq.request_id, B)).toMatchObject({ status: "invalidated" });
+    const w2 = mkUser({ admin: true, label: "price-approver-deleted" });
+    psql(`update auth.users set deleted_at = now() where id = '${w2}';`);
+    expect(codeOf(proposeErr("monthly", 1240, w2))).toBe("42501");
     // approver demoted / banned
     const s = propose("monthly", 1238, A);
     const z = mkUser({ admin: true, label: "price-approver" });
@@ -219,6 +229,24 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
     expect(psql(`select array_to_string(public._tw4price_kinds(), ',')`)).toBe('brand,brand_low_volume,campaign_vetting,monthly,monthly_low_volume,number,sms_inbound,sms_usage');
   });
 
+  it("PD-09c the UI list of price kinds (PRICE_KIND_TEXT) equals the database list: a new price kind must be added to both", () => {
+    expect([...PRICE_KINDS].sort().join(",")).toBe(psql(`select array_to_string(public._tw4price_kinds(), ',')`));
+  });
+
+  it("PD-09b amount ceilings: a customer price or provider cost above 10,000,000 cents (the UI maximum) is refused 22023 by the function and by the table; the ceiling itself is accepted; a provider cost above the customer price is allowed (negative-margin cases are modelled, not forbidden)", () => {
+    clearOpen("monthly");
+    expect(codeOf(proposeErr("monthly", 10_000_001, A))).toBe("22023");
+    expect(codeOf(proposeErr("monthly", 2147483647, A))).toBe("22023");
+    expect(codeOf(proposeErr("monthly", 1245, A, 10_000_001))).toBe("22023");
+    expect(psqlError(`begin; select set_config('tw4.pricedual_write', 'on', true); insert into public.studio_sms_price_change_requests (kind, customer_price_cents, provider_cost_cents, description, reason, requested_by, expires_at) values ('sms_usage', 10000001, 1, 'too big', 'a ceiling test row', '${A}', now() + interval '1 hour'); commit;`)).toMatch(/check constraint/);
+    const hi = propose("monthly", 10_000_000, A, 10_000_000);
+    expect(hi.status).toBe("pending");
+    reject(hi.request_id, A, "withdrawn to start the next scenario clean");
+    const neg = propose("monthly", 1246, A, 5000);
+    expect(neg.status).toBe("pending");
+    reject(neg.request_id, A, "withdrawn to start the next scenario clean");
+  });
+
   it("PD-10 first publication: a kind with no active price (base null) is published through the same two-administrator workflow, created_by = the approver", () => {
     clearOpen("brand_low_volume");
     expect(active("brand_low_volume")).toHaveLength(0);
@@ -255,6 +283,18 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
       }
       expect(psqlError(`begin; select set_config('tw4.pricedual_write', 'on', true); update public.studio_sms_price_change_requests set decision_note = 'a rewritten decision note' where id = '${p.request_id}'; commit;`)).toMatch(/not a legal transition/);
       expect(preq(p.request_id)).toMatchObject({ status: "applied", decided_by: B, applied_price_id: out.price_id });
+    });
+
+    it("PD-11b forging under session_replication_role = replica no longer works: the request guards are ENABLE ALWAYS, so inserting a pre-approved request, updating a decided one, deleting and truncating are all refused; only visible DDL (disable trigger) could change that", () => {
+      const forged = `insert into public.studio_sms_price_change_requests (kind, customer_price_cents, provider_cost_cents, description, reason, requested_by, expires_at, status, decided_by, decided_at, decision_note)
+        values ('sms_usage', 7, 1, 'forged price row', 'forged reason text', '${A}', now() + interval '1 hour', 'approved', '${B}', now(), 'forged note text');`;
+      const price = `insert into public.studio_sms_price_list (kind, customer_price_cents, provider_cost_cents, description, created_by) values ('sms_usage', 7, 1, 'forged price row', '${B}');`;
+      expect(psqlError(`begin; set local session_replication_role = replica; ${forged} ${price} rollback;`)).toMatch(/created only by tw4_price_propose/);
+      const done = rows<{ id: string }>(`select id from public.studio_sms_price_change_requests where status = 'applied' limit 1`)[0];
+      expect(psqlError(`begin; set local session_replication_role = replica; update public.studio_sms_price_change_requests set decision_note = 'rewritten decision note' where id = '${done.id}'; rollback;`)).toMatch(/binding of a proposal is fixed|not a legal transition|only through/);
+      expect(psqlError(`begin; set local session_replication_role = replica; delete from public.studio_sms_price_change_requests where id = '${done.id}'; rollback;`)).toMatch(/never deleted/);
+      expect(psqlError(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_change_requests; rollback;`)).toMatch(/never truncated/);
+      expect(psql(`select count(*) from pg_trigger where tgrelid = 'public.studio_sms_price_change_requests'::regclass and not tgisinternal and tgenabled = 'A'`)).toBe("2");
     });
 
     it("PD-12 a request row cannot be inserted: not directly, not pre-decided, not for another requester; the function is the only creator", () => {
