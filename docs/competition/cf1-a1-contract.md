@@ -38,7 +38,7 @@ Columns: `id`, `event_id` (→ `events`, cascade), `round_id`, `entry_id`, `evid
 * History protection: `BEFORE UPDATE OR DELETE` (row) and `BEFORE TRUNCATE` (statement) triggers calling `protect_competition_history_evidence()`, **`ENABLE ALWAYS`** (fire under `session_replication_role = replica`). The only removal is the cascade of deleting the event.
 * Index `(round_id, entry_id, seq desc) where kind in (cosigned kinds)` backs the readers.
 
-## Error codes (all `P0001`, permanent; lock timeout / deadlock stay the retryable `55P03` / `40P01`)
+## Error codes (seven, all `P0001`, permanent; lock timeout / deadlock stay the retryable `55P03` / `40P01`)
 
 | Code | Raised by | Detail |
 |---|---|---|
@@ -48,6 +48,7 @@ Columns: `id`, `event_id` (→ `events`, cascade), `round_id`, `entry_id`, `evid
 | `COMP_ADVANCEMENT_ROSTER_STALE` | A0 Final-start guard | A0 raises (use `_cf1_entry_unavailable`) |
 | `COMP_ADVANCEMENT_ROSTER_INCOMPLETE` | A0 Final-start guard | A0 raises |
 | `COMP_EXCLUSION_NOT_DANCED` | A5 | A5 raises |
+| `COMP_CALLBACK_TARGET_BELOW_MINIMUM` | A4a (F2 setup guard) | A4a raises; listed in `_cf1_error_codes()` so B reads one catalogue |
 
 Only the first two are raised by A1 code. The messages start `CODE: …` like the other competition errors.
 
