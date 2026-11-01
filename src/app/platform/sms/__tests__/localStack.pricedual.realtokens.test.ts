@@ -93,10 +93,25 @@ async function passwordLogin(email: string, password: string): Promise<string> {
   expect(r.status, `password grant: ${r.text.slice(0, 200)}`).toBe(200);
   return String((r.json as { access_token: string }).access_token);
 }
+let lastFactor: { id: string; secret: string } | null = null;
+const factors = new Map<string, { id: string; secret: string }>();
+/** a new SESSION of a user who already has a verified factor: password login, then the existing factor's code (a new factor cannot be enrolled at aal1) */
+async function stepUpExisting(aal1: string, f: { id: string; secret: string }): Promise<string> {
+  let last = "";
+  for (const delta of [0, -30000, 30000]) {
+    const ch = await http("POST", `${AUTH}/factors/${f.id}/challenge`, aal1, {});
+    expect(ch.status, `challenge: ${ch.text.slice(0, 200)}`).toBe(200);
+    const v = await http("POST", `${AUTH}/factors/${f.id}/verify`, aal1, { challenge_id: String((ch.json as { id: string }).id), code: totp(f.secret, Date.now() + delta) });
+    if (v.status === 200) return String((v.json as { access_token: string }).access_token);
+    last = v.text.slice(0, 200);
+  }
+  throw new Error(`TOTP verify failed: ${last}`);
+}
 async function stepUp(aal1: string): Promise<string> {
   const enrol = await http("POST", `${AUTH}/factors`, aal1, { factor_type: "totp", friendly_name: `wpd2-${RUN}-${randomBytes(2).toString("hex")}`, issuer: "wpd2.example.test" });
   expect(enrol.status, `enrol: ${enrol.text.slice(0, 200)}`).toBe(200);
   const f = enrol.json as { id: string; totp: { secret: string } };
+  lastFactor = { id: f.id, secret: f.totp.secret };
   expect(f.totp.secret.length).toBeGreaterThan(10);
   // tolerate a small container/host clock offset: current step first, then the neighbours; each attempt opens its own challenge
   let last = "";
@@ -145,7 +160,9 @@ describe.skipIf(!enabled)("D4-1: price dual control with REAL GoTrue tokens thro
       psql(`insert into public.profiles (id, platform_role) values ('${u.id}', ${admin ? "'platform_admin'" : "null"}) on conflict (id) do update set platform_role = excluded.platform_role;
         ${registered ? `insert into public.studio_sms_price_approvers (user_id, added_note) values ('${u.id}', 'real token test approver') on conflict (user_id) do nothing;` : ""}`);
       const a1 = await passwordLogin(u.email, u.password);
-      return { ...u, aal1: a1, aal2: await stepUp(a1) };
+      const aal2 = await stepUp(a1);
+      if (lastFactor) factors.set(u.id, lastFactor);
+      return { ...u, aal1: a1, aal2 };
     };
     A = await mk("price-a", true, true);
     B = await mk("price-b", true, true);
@@ -309,7 +326,7 @@ describe.skipIf(!enabled)("D4-1: price dual control with REAL GoTrue tokens thro
       expect(refused(await rpcCall("tw4_price_authz_begin", service, { p_request_id: id }))).toBe(true);
       // a NEW real session of the same user (password login + TOTP): a different session_id
       const a1 = await passwordLogin(A.email, A.password);
-      const second = await stepUp(a1);
+      const second = await stepUpExisting(a1, factors.get(A.id)!);
       expect(decode(second).session_id).toBeTruthy();
       expect(decode(second).session_id).not.toBe(decode(A.aal2).session_id);
       const b = await rpcCall("tw4_price_authz_begin", second, { p_request_id: id });
