@@ -1,5 +1,5 @@
 import type { createClient } from "@/lib/supabase/server";
-import { studioScoringReadiness, type EffectiveRow, type ScoringReadiness } from "./studioReadiness";
+import { callbackTargetMinimumReadiness, studioScoringReadiness, type CallbackTargetMinimumFinding, type EffectiveRow, type ScoringReadiness } from "./studioReadiness";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -51,4 +51,20 @@ export async function loadStudioScoringReadiness(supabase: Supabase, eventId: st
     heatsByRound,
     effective,
   });
+}
+
+/** CF1 OD-21: existing callback targets below two on guarded rounds (read-only; the page shows them as a readiness refusal). */
+export async function loadCallbackTargetMinimumFindings(supabase: Supabase, eventId: string): Promise<CallbackTargetMinimumFinding[]> {
+  const [programs, divisions, rounds] = await Promise.all([
+    supabase.from("event_competition_programs").select("id, advancement_method").eq("event_id", eventId),
+    supabase.from("event_competition_divisions").select("id, program_id").eq("event_id", eventId),
+    supabase.from("event_competition_rounds").select("id, division_id, name, round_type, sequence_number, target_advancement_count").eq("event_id", eventId).neq("status", "cancelled"),
+  ]);
+  const error = programs.error || divisions.error || rounds.error;
+  if (error) throw new Error(`Could not check callback targets: ${error.message}`);
+  const programByDivision = new Map((divisions.data ?? []).map((d) => [d.id as string, d.program_id as string | null]));
+  const configured = (rounds.data ?? [])
+    .filter((r) => programByDivision.get(r.division_id as string))
+    .map((r) => ({ ...r, program_id: programByDivision.get(r.division_id as string) as string }));
+  return callbackTargetMinimumReadiness({ rounds: configured, programs: programs.data ?? [] });
 }

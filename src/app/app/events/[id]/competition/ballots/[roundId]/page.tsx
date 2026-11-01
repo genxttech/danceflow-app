@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { shouldNotFound } from "@/lib/competition/pageLoadError";
 import { notFound } from "next/navigation";
 import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
 import type { BallotBoard } from "@/lib/competition/ballots/status";
@@ -23,7 +24,7 @@ export default async function CompetitionRoundBallotsPage({
   const { data: round } = await supabase.from("event_competition_rounds").select("id").eq("id", roundId).eq("event_id", id).maybeSingle();
   if (!round) notFound();
   const { data, error } = await supabase.rpc("competition_round_ballot_status", { p_round_id: roundId });
-  if (error || !data) notFound();
+  if (shouldNotFound(error, data)) notFound();
   const board = data as BallotBoard;
   // HL1: floor status per heat (the board carries only lock_state); read fresh on every render, never cached.
   const heatIds = board.heats.map((heat) => heat.heat_id);
