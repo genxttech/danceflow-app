@@ -37,6 +37,7 @@ import {
   startRound,
   submitCallbackBallot,
   cosignCorrectionViaRpc,
+  clickUntil,
   submitOrdinalBallot,
   couple,
   coupleName,
@@ -107,7 +108,7 @@ test.describe("CF1 callback -> Final advancement acceptance (CF1-C)", () => {
   });
 
   /** Common set-up of one callback competition up to a running Callback round with its heat on the floor and N couples paid. */
-  async function buildCallbackEvent(browser: import("@playwright/test").Browser, key: "P" | "Q" | "R", date: string, capacity: number | null) {
+  async function buildCallbackEvent(browser: import("@playwright/test").Browser, key: "P" | "Q" | "R" | "C", date: string, capacity: number | null) {
     const page = await signedIn(browser, fixture.owner);
     const event = await createDraftEvent(j, page, `E2E CF1 ${key} ${fixture.runId}`, date);
     await applyScoring(page, event.id, "Callbacks + Final");
@@ -317,9 +318,12 @@ test.describe("CF1 callback -> Final advancement acceptance (CF1-C)", () => {
   test("SCN-11.5c-cancelled correction with the Final round cancelled (no advancement) is refused COMP_ADVANCEMENT_FINAL_CANCELLED (OD-10, U84)", async ({ browser }, testInfo) => {
     const required = missing(cap, ["a0", "a1", "b"]);
     if (required.length) blockedBy(testInfo, required, "Correction arm of the cancelled Final.");
-    test.skip(!state.Q.calculated, "BLOCKED: SCN-11.4b did not produce the calculated callback round");
-    const s = events.Q!;
     const shot = stepShots(testInfo);
+    // Own event (the Day-of console already offers Cancel round for an unstarted Final), so this no longer depends on SCN-11.4b's capacity-4 event.
+    const s = await buildCallbackEvent(browser, "C", "2027-07-13", null);
+    const approvedOwner = await ballotsLockedCalculatedApproved(browser, s, testInfo);
+    expect(approvedOwner).not.toBeNull();
+    await approvedOwner!.context().close();
     const owner = await signedIn(browser, fixture.owner);
     // Cancel the Final round through the day-of console (O1 cancel_competition_round). If there is no such control the scenario is BLOCKED.
     await owner.goto(`/app/events/${s.event.id}/competition/day-of`);
@@ -330,6 +334,7 @@ test.describe("CF1 callback -> Final advancement acceptance (CF1-C)", () => {
       testInfo.skip(true, "BLOCKED: no cancel-round control");
     }
     owner.on("dialog", (d) => { void d.accept(); });
+    await finalRound.getByLabel("Cancel reason").fill("CF1-C: cancelling the unstarted Final to prove the callback result is no longer correctable");
     await cancel.click();
     await expect.poll(async () => (await readHeatEvidence(config, s.event.id)).rounds.find((r) => r.id === s.finalRoundId)?.status, { timeout: 30_000 }).toBe("cancelled");
     await owner.goto(`/app/events/${s.event.id}/competition/results/${s.callbackRoundId}`);
@@ -431,6 +436,10 @@ test.describe("CF1 callback -> Final advancement acceptance (CF1-C)", () => {
     const s = events.R!;
     const owner = await signedIn(browser, fixture.owner);
     await buildPanel(owner, s.event.id, "Final");
+    // The Final is Draft after advancement and the desk offers an early Lock heat only for a scheduled round: schedule it through the Day-of console (Schedule round, no Start).
+    await owner.goto(`/app/events/${s.event.id}/competition/day-of`);
+    const finalRoundRow = owner.getByRole("region", { name: "Rounds" }).locator("li").filter({ hasText: "Final" }).first();
+    await clickUntil(finalRoundRow.getByRole("button", { name: "Schedule round" }), finalRoundRow.getByRole("button", { name: "Start round" }));
     await owner.goto(`/app/events/${s.event.id}/competition/ballots/${s.finalRoundId}`);
     owner.on("dialog", (d) => { void d.accept(); });
     const heats = owner.getByRole("region", { name: "Heats" });

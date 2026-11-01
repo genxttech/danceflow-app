@@ -140,15 +140,20 @@ test.describe("CF1 cross-discipline regression and OD-17 scope (CF1-C)", () => {
   }
 
   /** Cancels a registration through the application's registrations page. Returns false when no such control exists. */
+  /**
+   * Makes one couple unavailable (predicate P clause ii: eligibility_status = ineligible) through the registrations page, the supported
+   * manager control (updateCompetitionEntryEligibilityAction). A cancelled or refunded registration (clauses iii) has no UI until R2 refunds
+   * (#292); those variants stay BLOCKED. Returns false when the control is absent.
+   */
   async function cancelRegistrationViaUi(browser: Browser, s: ScoredEvent, entryIndex: number): Promise<boolean> {
     const page = await signedIn(browser, fixture.owner);
     await page.goto(`/app/events/${s.event.id}/competition/registrations`);
-    const row = page.locator("li, tr").filter({ hasText: coupleName(entryIndex) }).first();
-    const button = row.getByRole("button", { name: /cancel (registration|entry)|refund/i });
-    if (!(await button.count())) { await page.context().close(); return false; }
-    page.on("dialog", (d) => { void d.accept(); });
-    await button.first().click();
-    await page.waitForLoadState("networkidle");
+    const card = page.locator("div.grid").filter({ hasText: coupleName(entryIndex) }).filter({ has: page.locator('select[name="eligibilityStatus"]') }).last();
+    const select = card.locator('select[name="eligibilityStatus"]');
+    if (!(await select.count())) { await page.context().close(); return false; }
+    await select.selectOption("ineligible");
+    await card.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(card.locator('select[name="eligibilityStatus"]')).toHaveValue("ineligible", { timeout: 30_000 });
     await page.context().close();
     return true;
   }
@@ -200,7 +205,7 @@ test.describe("CF1 cross-discipline regression and OD-17 scope (CF1-C)", () => {
     await page.goto(`/app/events/${probeEvent.id}/competition/advanced`);
     const options = await page.getByLabel("Scoring setup").locator("option").allInnerTexts();
     await page.context().close();
-    const setups = options.map((o) => o.trim()).filter((o) => o && !/^(choose|select)/i.test(o));
+    const setups = [...new Set(options.map((o) => o.trim()).filter((o) => o && !/^(choose|select)/i.test(o)))]; // the select lists each setup per discipline group: de-duplicate (a repeat would create a same-named event)
     evidence({ scenario: "SCN-R81", setupsOffered: setups });
     expect(setups.length, "the UI offers at least one scoring setup").toBeGreaterThan(0);
     const ordinalOnly = setups.filter((o) => o === FINAL_ONLY);
@@ -253,9 +258,12 @@ test.describe("CF1 cross-discipline regression and OD-17 scope (CF1-C)", () => {
     }
     const owner = await signedIn(browser, fixture.owner);
     await owner.goto(`/app/events/${s.event.id}/competition/results/${s.finalRoundId}`);
-    await owner.getByRole("button", { name: CF1_UI.excludeButton }).first().click();
-    await owner.getByLabel(/reason/i).last().fill("Registration cancelled and refunded before the round was judged");
-    await owner.getByRole("button", { name: /Request exclusion|Submit/i }).click();
+    // The panel is open while the round is active. Pick the couple made ineligible (entry index 3), give a reason, request.
+    const panel = owner.getByRole("region", { name: "Exclude a couple" });
+    const optionValue = await panel.locator('select[name="entryId"]').locator("option").filter({ hasText: coupleName(3) }).first().getAttribute("value");
+    await panel.locator('select[name="entryId"]').selectOption(optionValue!);
+    await panel.getByLabel(/^Reason/).fill("The couple became ineligible after the round was danced");
+    await panel.getByRole("button", { name: CF1_UI.excludeButton }).click();
     await expect(owner.getByRole("status")).toBeVisible({ timeout: 30_000 });
     const requested = readExclusions(s.finalRoundId);
     expect(requested.map((r) => r.kind)).toEqual(["exclude_requested"]);
@@ -274,11 +282,14 @@ test.describe("CF1 cross-discipline regression and OD-17 scope (CF1-C)", () => {
     expect(readExclusions(s.finalRoundId).map((r) => r.kind)).toEqual(["exclude_requested", "exclude_cosigned"]);
     await shot(second, "cosigned");
     await second.context().close();
+    // The excluded couple leaves every judge's sheet: the existing ballots no longer match the round, so each judge re-ranks the remaining couples.
+    for (let judge = 0; judge < 3; judge += 1) await submitOrdinalBallot(j, browser, judge, s);
     // Lock, calculate: the couple is outside the ranking set and shown as Excluded in the review.
     await lockCalcApprove(browser, s, testInfo);
     const review = await signedIn(browser, fixture.owner);
     await review.goto(`/app/events/${s.event.id}/competition/results/${s.finalRoundId}`);
-    await expect(review.getByText(/Excluded/)).toBeVisible();
+    await expect(review.getByRole("heading", { name: "Excluded from the ranking" })).toBeVisible();
+    await expect(review.getByText(coupleName(3)).first()).toBeVisible();
     await expect(review.getByText(/No-show/i)).toHaveCount(0);
     await review.context().close();
   });

@@ -33,7 +33,7 @@ export const CF1_UI = {
   tieOverCapacity: /Advancement is blocked/,
   correctionReasonLabel: /Open a ballot correction/,
   openCorrectionButton: "Open correction",
-  excludeButton: /Exclude/i,
+  excludeButton: /Request exclusion/i,
   withdrawButton: /Withdraw/i,
 } as const;
 
@@ -397,9 +397,17 @@ export async function lockBallots(page: Page, eventId: string, roundId: string):
   const lock = page.getByRole("button", { name: "Lock ballots" });
   if (await lock.isEnabled({ timeout: 15_000 }).catch(() => false)) {
     await lock.click();
-    await expect(page.getByRole("region", { name: "Round status" })).toContainText(/Ballots locked|refused|COMP_/, { timeout: 30_000 });
-    const text = (await page.getByRole("region", { name: "Round status" }).innerText()).replace(/\s+/g, " ");
-    return /Ballots locked/.test(text) ? { locked: true } : { locked: false, refusal: text };
+    // The outcome is either the Round status region saying Ballots locked, or a refusal banner (main role=alert) anywhere on the desk page.
+    const status = page.getByRole("region", { name: "Round status" });
+    const banner = page.locator('main [role="alert"]');
+    await expect(async () => {
+      const locked = /Ballots locked/.test(await status.innerText());
+      expect(locked || (await banner.count()) > 0).toBe(true);
+    }).toPass({ timeout: 30_000 });
+    const text = (await status.innerText()).replace(/[ \t\r\n]+/g, " ");
+    if (/Ballots locked/.test(text)) return { locked: true };
+    const alerts = (await banner.allInnerTexts()).join(" ").replace(/[ \t\r\n]+/g, " ");
+    return { locked: false, refusal: `${alerts} | ${text}` };
   }
   return { locked: false, refusal: (await page.getByRole("region", { name: "Lock and reopen" }).innerText()).replace(/\s+/g, " ") };
 }
@@ -437,6 +445,8 @@ export async function submitOrdinalBallot(j: Journey, browser: Browser, judgeInd
   const marks = page.locator('select[name^="mark:"]');
   const count = await marks.count();
   for (let i = 0; i < count; i += 1) await marks.nth(i).selectOption({ index: (order ? order[i] : i) + 1 });
+  const why = page.getByLabel("Why are you correcting this ballot?");
+  if (await why.count()) await why.first().fill("CF1-C: re-rank after a couple was excluded");
   await page.getByRole("button", { name: /Submit ballot|Submit correction/ }).click();
   await page.waitForURL(/[?&](saved|error)=/, { timeout: 60_000 });
   await page.context().close();
