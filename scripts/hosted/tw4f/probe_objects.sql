@@ -514,7 +514,11 @@ with
     ('tw4_price_cred_enroll', '20270204100000'),
     ('tw4_price_cred_pending', '20270204100000'),
     ('tw4_price_cred_revoke', '20270204100000'),
+    ('tw4_price_emit_failures', '20270204100000'),
+    ('tw4_price_emit_replay', '20270204100000'),
     ('tw4_price_freeze', '20270204100000'),
+    ('tw4_price_recovery_enroll', '20270204100000'),
+    ('tw4_price_recovery_freeze', '20270204100000'),
     ('tw4_price_report_compromise', '20270204100000'),
     ('tw4_price_revise', '20270204100000'),
     ('tw4_price_thaw', '20270204100000')
@@ -612,7 +616,8 @@ with
     ('studio_sms_price_auth_challenges', '20270204100000'),
     ('studio_sms_price_auth_config', '20270204100000'),
     ('studio_sms_price_credential_changes', '20270204100000'),
-    ('studio_sms_price_credentials', '20270204100000')
+    ('studio_sms_price_credentials', '20270204100000'),
+    ('studio_sms_price_emit_acks', '20270204100000')
   ),
   -- END GENERATED expected objects
   roles(rolname) as (values ('anon'), ('authenticated'), ('service_role')),
