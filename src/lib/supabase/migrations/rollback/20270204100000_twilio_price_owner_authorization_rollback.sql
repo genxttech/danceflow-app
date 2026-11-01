@@ -11,18 +11,18 @@ begin
     raise exception 'price owner authorization rollback: not applied';
   end if;
   for r in select * from (values
-      ('public.tw4_price_authz_finish(uuid,text,text,text,text,text)', 'a02039f8f231bdb8a7a5fadabc44a1cb'),
+      ('public.tw4_price_authz_finish(uuid,text,text,text,text,text)', '7fe6d2bfe4f3945ae25e3805eb5693f9'),
       ('public._tw4price_do_propose_mode(text,integer,integer,text,text,uuid,text,text,uuid)', 'bdba14fc6537e6286d52cb7b90511c86'),
-      ('public._tw4price_do_approve(uuid,uuid,text)', '96915a0ef035ac2199d60829b01f7cc0'),
+      ('public._tw4price_do_approve(uuid,uuid,text)', 'cfd0f8cad9935436b12298f4c89f0006'),
       ('public._tw4pricedual_guard()', '9e2e81171fa5eab1d608727997ab9f48'),
       ('public._tw4price_activation_guard()', '3363832968848945cddb300f7e87fadd')) as x(sig, h) loop
     if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure(r.sig)) is distinct from r.h then
       raise exception 'price owner authorization rollback refused: % is no longer the body installed by 20270204100000', r.sig using errcode = '55000';
     end if;
   end loop;
-  lock table public.studio_sms_price_change_requests, public.studio_sms_price_credentials, public.studio_sms_price_auth_challenges, public.studio_sms_price_audit in access exclusive mode;
+  lock table public.studio_sms_price_change_requests, public.studio_sms_price_credentials, public.studio_sms_price_auth_challenges, public.studio_sms_price_audit, public.studio_sms_price_credential_changes in access exclusive mode;
   if exists (select 1 from public.studio_sms_price_change_requests where approval_mode = 'owner') or exists (select 1 from public.studio_sms_price_credentials)
-     or exists (select 1 from public.studio_sms_price_auth_challenges) or exists (select 1 from public.studio_sms_price_audit) then
+     or exists (select 1 from public.studio_sms_price_auth_challenges) or exists (select 1 from public.studio_sms_price_audit) or exists (select 1 from public.studio_sms_price_credential_changes) then
     raise exception 'price owner authorization rollback refused: owner-mode requests, credentials, challenges or audit rows exist (evidence)' using errcode = '55000';
   end if;
 end $$;
@@ -37,6 +37,12 @@ drop function public.tw4_price_freeze(text);
 drop function public.tw4_price_thaw(text, text, text, text, text);
 drop function public.tw4_price_audit_feed(bigint, int);
 drop function public.tw4_price_report_compromise(text);
+drop function public.tw4_price_cred_apply(uuid);
+drop function public.tw4_price_cred_cancel(uuid);
+drop function public.tw4_price_cred_pending();
+drop function public._tw4price_limits_check(text, int, int, int);
+drop function public._tw4price_challenge_ok(bytea, uuid, text);
+drop function public._tw4price_monitor_suspend_seq();
 drop trigger studio_sms_price_approvers_emit on public.studio_sms_price_approvers;
 drop function public._tw4price_registry_emit();
 drop function public._tw4price_suspended();
@@ -315,6 +321,7 @@ alter table public.studio_sms_price_change_requests
 alter table public.studio_sms_price_change_requests add constraint studio_sms_price_change_requests_window check (expires_at > requested_at and expires_at <= requested_at + interval '48 hours');
 alter table public.studio_sms_price_change_requests add constraint studio_sms_price_change_requests_distinct check (decided_by is null or decided_by <> requested_by or status = 'rejected');
 
+drop table public.studio_sms_price_credential_changes;
 drop table public.studio_sms_price_audit;
 drop table public.studio_sms_price_auth_challenges;
 drop table public.studio_sms_price_credentials;

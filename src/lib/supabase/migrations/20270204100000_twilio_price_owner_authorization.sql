@@ -37,6 +37,10 @@ create table public.studio_sms_price_auth_config (
   challenge_ttl_seconds int not null default 300 check (challenge_ttl_seconds between 60 and 900),
   rp_id text null check (rp_id is null or char_length(rp_id) between 3 and 253),
   rp_origins text[] null,
+  credential_delay_hours int not null default 24 check (credential_delay_hours between 24 and 168),
+  allow_backup_eligible boolean not null default false,   -- a synced / backup-eligible passkey (flag BE) is refused unless the owner's migration says otherwise
+  monitoring_expected boolean not null default false,     -- once true, a missing monitoring events table makes every emit FAIL LOUDLY
+  monitor_seq_lifted bigint not null default 0,           -- monitoring suspensions up to this event sequence have been lifted by a hardware-key thaw
   frozen boolean not null default false,
   frozen_at timestamptz null,
   freeze_reason text null,
@@ -61,6 +65,7 @@ create table public.studio_sms_price_credentials (
   revoked_note text null,
   constraint studio_sms_price_credentials_revoked check ((status = 'revoked') = (revoked_at is not null))
 );
+create unique index studio_sms_price_credentials_key on public.studio_sms_price_credentials (pub_x, pub_y);   -- one record per key: no aliasing under a second credential id
 create unique index studio_sms_price_credentials_one_primary on public.studio_sms_price_credentials (role) where status = 'active' and role = 'primary';
 revoke all on public.studio_sms_price_credentials from public, anon, authenticated, service_role;
 alter table public.studio_sms_price_credentials enable row level security;
@@ -80,11 +85,36 @@ create table public.studio_sms_price_auth_challenges (
 revoke all on public.studio_sms_price_auth_challenges from public, anon, authenticated, service_role;
 alter table public.studio_sms_price_auth_challenges enable row level security;
 
+-- a credential change is only ever PENDING when it is authorized: it applies after a mandatory delay, is visible, alerting and cancellable, and never while prices are suspended
+create table public.studio_sms_price_credential_changes (
+  id uuid primary key default gen_random_uuid(),
+  kind text not null check (kind in ('enroll', 'revoke')),
+  target_credential_id bytea not null check (octet_length(target_credential_id) between 16 and 1023),
+  pub_x bytea null check (pub_x is null or octet_length(pub_x) = 32),
+  pub_y bytea null check (pub_y is null or octet_length(pub_y) = 32),
+  role text null check (role is null or role in ('primary', 'spare')),
+  label text null,
+  authorized_by_credential_id bytea not null,
+  requested_by uuid not null,
+  requested_at timestamptz not null default clock_timestamp(),
+  effective_at timestamptz not null,
+  status text not null default 'pending' check (status in ('pending', 'applied', 'cancelled')),
+  applied_at timestamptz null,
+  cancelled_at timestamptz null,
+  cancelled_by uuid null,
+  constraint studio_sms_price_credential_changes_delay check (effective_at >= requested_at + interval '24 hours'),
+  constraint studio_sms_price_credential_changes_shape check ((kind = 'enroll') = (pub_x is not null and pub_y is not null and role is not null and label is not null)
+    and (status = 'applied') = (applied_at is not null) and (status = 'cancelled') = (cancelled_at is not null and cancelled_by is not null))
+);
+revoke all on public.studio_sms_price_credential_changes from public, anon, authenticated, service_role;
+alter table public.studio_sms_price_credential_changes enable row level security;
+
 create table public.studio_sms_price_audit (
   id bigint generated always as identity primary key,
   at timestamptz not null default clock_timestamp(),
   event text not null check (event in ('proposed', 'revised', 'challenge_issued', 'assertion_rejected', 'authorized', 'published', 'team_approved', 'rejected', 'invalidated',
-    'credential_bootstrapped', 'credential_enrolled', 'credential_revoked', 'freeze_set', 'freeze_lifted', 'integrity_failure')),
+    'credential_bootstrapped', 'credential_enrolled', 'credential_revoked', 'credential_change_pending', 'credential_change_applied', 'credential_change_cancelled', 'gate_refused',
+    'freeze_set', 'freeze_lifted', 'integrity_failure')),
   actor uuid null,
   session_id text null,
   request_id uuid null,
@@ -110,11 +140,16 @@ begin
     -- mode, cooling-off, windows: never through a function. rp_id / rp_origins: set once, by the bootstrap. frozen: only by the freeze functions.
     if new.singleton is distinct from old.singleton or new.mode is distinct from old.mode or new.cooling_off_hours is distinct from old.cooling_off_hours
        or new.authz_window_hours is distinct from old.authz_window_hours or new.challenge_ttl_seconds is distinct from old.challenge_ttl_seconds
+       or new.credential_delay_hours is distinct from old.credential_delay_hours or new.allow_backup_eligible is distinct from old.allow_backup_eligible
+       or new.monitoring_expected is distinct from old.monitoring_expected
        or ((new.rp_id is distinct from old.rp_id or new.rp_origins is distinct from old.rp_origins) and (old.rp_id is not null or not w)) then
       raise exception 'the price authorization configuration changes only by an owner-level migration' using errcode = '42501';
     end if;
-    if (new.frozen is distinct from old.frozen or new.frozen_at is distinct from old.frozen_at or new.freeze_reason is distinct from old.freeze_reason) and not w then
+    if (new.frozen is distinct from old.frozen or new.frozen_at is distinct from old.frozen_at or new.freeze_reason is distinct from old.freeze_reason or new.monitor_seq_lifted is distinct from old.monitor_seq_lifted) and not w then
       raise exception 'the freeze flag moves only through the freeze functions' using errcode = '42501';
+    end if;
+    if new.monitor_seq_lifted < old.monitor_seq_lifted then
+      raise exception 'a lifted suspension is never un-lifted' using errcode = '42501';
     end if;
     return new;
   end if;
@@ -127,6 +162,13 @@ begin
          or new.role is distinct from old.role or new.label is distinct from old.label or new.enrolled_at is distinct from old.enrolled_at or new.enrolled_via is distinct from old.enrolled_via
          or new.sign_count < old.sign_count or (old.status = 'revoked' and new.status is distinct from old.status) or old.status = 'revoked' and new is distinct from old then
         raise exception 'a credential record only gains a higher sign counter or is revoked, once' using errcode = '42501';
+      end if;
+    elsif tg_table_name = 'studio_sms_price_credential_changes' then
+      if new.id is distinct from old.id or new.kind is distinct from old.kind or new.target_credential_id is distinct from old.target_credential_id or new.pub_x is distinct from old.pub_x
+         or new.pub_y is distinct from old.pub_y or new.role is distinct from old.role or new.label is distinct from old.label or new.authorized_by_credential_id is distinct from old.authorized_by_credential_id
+         or new.requested_by is distinct from old.requested_by or new.requested_at is distinct from old.requested_at or new.effective_at is distinct from old.effective_at
+         or old.status <> 'pending' or new.status = 'pending' then
+        raise exception 'a credential change is applied or cancelled once and never changes otherwise' using errcode = '42501';
       end if;
     elsif tg_table_name = 'studio_sms_price_auth_challenges' then
       if new.nonce is distinct from old.nonce or new.purpose is distinct from old.purpose or new.bound_hash is distinct from old.bound_hash or new.request_id is distinct from old.request_id
@@ -144,6 +186,10 @@ end $$;
 create trigger studio_sms_price_auth_config_guard before insert or update or delete on public.studio_sms_price_auth_config for each row execute function public._tw4priceauth_guard();
 create trigger studio_sms_price_credentials_guard before insert or update or delete on public.studio_sms_price_credentials for each row execute function public._tw4priceauth_guard();
 create trigger studio_sms_price_auth_challenges_guard before insert or update or delete on public.studio_sms_price_auth_challenges for each row execute function public._tw4priceauth_guard();
+create trigger studio_sms_price_credential_changes_guard before insert or update or delete on public.studio_sms_price_credential_changes for each row execute function public._tw4priceauth_guard();
+create trigger studio_sms_price_credential_changes_truncate before truncate on public.studio_sms_price_credential_changes for each statement execute function public._tw4c_truncate_guard();
+alter table public.studio_sms_price_credential_changes enable always trigger studio_sms_price_credential_changes_guard;
+alter table public.studio_sms_price_credential_changes enable always trigger studio_sms_price_credential_changes_truncate;
 create trigger studio_sms_price_audit_guard before insert or update or delete on public.studio_sms_price_audit for each row execute function public._tw4priceauth_guard();
 create trigger studio_sms_price_auth_config_truncate before truncate on public.studio_sms_price_auth_config for each statement execute function public._tw4c_truncate_guard();
 create trigger studio_sms_price_credentials_truncate before truncate on public.studio_sms_price_credentials for each statement execute function public._tw4c_truncate_guard();
@@ -406,6 +452,8 @@ begin
   if cd ->> 'origin' is null or not (cd ->> 'origin' = any (cfg.rp_origins)) or coalesce(cd ->> 'crossOrigin', 'false') <> 'false' then return 'origin not allowed'; end if;
   if p_auth is null or octet_length(p_auth) < 37 or substring(p_auth from 1 for 32) <> sha256(convert_to(cfg.rp_id, 'UTF8')) then return 'relying party hash mismatch'; end if;
   if (get_byte(p_auth, 32) & 1) = 0 or (get_byte(p_auth, 32) & 4) = 0 then return 'user presence and user verification are required'; end if;
+  -- backup-eligible / backed-up (synced passkey) credentials are not device-bound: refused unless the owner's migration allows them. (There is no attestation, so this flag is the strongest evidence an assertion carries.)
+  if (get_byte(p_auth, 32) & 24) <> 0 and not cfg.allow_backup_eligible then return 'a backup-eligible (synced) credential is not accepted'; end if;
   v_count := get_byte(p_auth, 33)::bigint * 16777216 + get_byte(p_auth, 34) * 65536 + get_byte(p_auth, 35) * 256 + get_byte(p_auth, 36);
   if v_count <= cr.sign_count and not (v_count = 0 and cr.sign_count = 0) then return 'sign counter did not increase (cloned authenticator?)'; end if;
   select * into v_rs from public._tw4price_der_rs(p_sig);
@@ -413,12 +461,12 @@ begin
   if not public._tw4price_p256_verify(public._tw4price_bytes2num(sha256(p_auth || sha256(p_client))), v_rs.r, v_rs.s, public._tw4price_bytes2num(cr.pub_x), public._tw4price_bytes2num(cr.pub_y)) then
     return 'signature does not verify';
   end if;
+  perform set_config('tw4.priceauth_write', 'on', true);
   if p_consume then
-    perform set_config('tw4.priceauth_write', 'on', true);
     update public.studio_sms_price_auth_challenges set used_at = clock_timestamp() where nonce = p_nonce;
-    update public.studio_sms_price_credentials set sign_count = greatest(sign_count, v_count) where id = cr.id;
-    perform set_config('tw4.priceauth_write', 'off', true);
   end if;
+  update public.studio_sms_price_credentials set sign_count = greatest(sign_count, v_count) where id = cr.id;
+  perform set_config('tw4.priceauth_write', 'off', true);
   return null;
 end $$;
 
@@ -485,6 +533,27 @@ begin
   return q;
 end $$;
 
+-- approved limits (data) re-checked at EVERY decision: an older proposal can never publish outside limits the owner approved later
+create or replace function public._tw4price_limits_check(p_kind text, p_customer int, p_provider int, p_base_customer int)
+returns void language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare lim public.studio_sms_price_limits;
+begin
+  select * into lim from public.studio_sms_price_limits l where l.kind = p_kind and l.approved;
+  if lim.kind is not null and (p_customer > lim.max_customer_cents or p_provider > lim.max_provider_cents
+       or (lim.max_provider_pct_of_customer is not null and p_provider::bigint * 100 > p_customer::bigint * lim.max_provider_pct_of_customer)
+       or (lim.max_step_pct is not null and p_base_customer is not null and abs(p_customer::bigint - p_base_customer) * 100 > p_base_customer::bigint * lim.max_step_pct)) then
+    raise exception 'the proposed prices exceed the owner-approved limits for this kind' using errcode = '22023';
+  end if;
+end $$;
+
+-- does this challenge belong to this user and this session? (every purpose, not only authorize)
+create or replace function public._tw4price_challenge_ok(p_nonce bytea, p_actor uuid, p_sid text)
+returns boolean language sql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$ select exists (select 1 from public.studio_sms_price_auth_challenges c where c.nonce = p_nonce and c.issued_to = p_actor and c.session_id is not distinct from p_sid); $$;
+
 create or replace function public.tw4_price_authz_begin(p_request_id uuid)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
@@ -498,7 +567,14 @@ declare
   v_nonce bytea;
   v_creds jsonb;
 begin
-  q := public._tw4price_owner_gate(p_request_id, v_actor, v_sid);
+  -- a refusal by a registered administrator's session is RECORDED (committed) and returned, not raised: the audit is the detector, independent of any other table
+  begin
+    q := public._tw4price_owner_gate(p_request_id, v_actor, v_sid);
+    perform public._tw4price_limits_check(q.kind, q.customer_price_cents, q.provider_cost_cents, q.base_customer_price_cents);
+  exception when others then
+    perform public._tw4price_audit('gate_refused', v_actor, v_sid, p_request_id, null, jsonb_build_object('step', 'begin', 'code', sqlstate, 'reason', left(sqlerrm, 200)));
+    return jsonb_build_object('status', 'refused', 'code', sqlstate, 'reason', sqlerrm);
+  end;
   select * into cfg from public.studio_sms_price_auth_config;
   v_hash := public._tw4price_request_hash(q);
   v_nonce := public._tw4price_new_nonce();
@@ -507,7 +583,11 @@ begin
   values (v_nonce, 'authorize', v_hash, q.id, v_actor, v_sid, clock_timestamp() + make_interval(secs => cfg.challenge_ttl_seconds));
   perform set_config('tw4.priceauth_write', 'off', true);
   select coalesce(jsonb_agg(public._tw4price_b64u(c.credential_id)), '[]'::jsonb) into v_creds from public.studio_sms_price_credentials c where c.status = 'active';
-  perform public._tw4price_audit('challenge_issued', v_actor, v_sid, q.id, null, jsonb_build_object('purpose', 'authorize'));
+  perform public._tw4price_audit('challenge_issued', v_actor, v_sid, q.id, null, jsonb_build_object('purpose', 'authorize', 'kind', q.kind, 'new_customer_cents', q.customer_price_cents,
+    'new_provider_cents', q.provider_cost_cents, 'fingerprint', left(encode(v_hash, 'hex'), 16)));
+  -- the SECOND CHANNEL: the monitoring feed carries the same fingerprint and values, so an alert can show them to the owner on a path that does not run through the page that signs
+  perform public._tw4price_emit('price_authorization_started', v_actor, jsonb_build_object('request_id', q.id, 'kind', q.kind, 'new_customer_cents', q.customer_price_cents,
+    'new_provider_cents', q.provider_cost_cents, 'fingerprint', left(encode(v_hash, 'hex'), 16)));
   return jsonb_build_object('nonce', public._tw4price_b64u(v_nonce), 'challenge', public._tw4price_b64u(sha256(v_hash || v_nonce)), 'rp_id', cfg.rp_id, 'allow_credentials', v_creds,
     'expires_in_seconds', cfg.challenge_ttl_seconds, 'summary', jsonb_build_object('scope', 'studio_sms_price_list', 'kind', q.kind, 'old_customer_cents', q.base_customer_price_cents,
       'old_provider_cents', q.base_provider_cost_cents, 'new_customer_cents', q.customer_price_cents, 'new_provider_cents', q.provider_cost_cents, 'description', q.description,
@@ -526,24 +606,32 @@ declare
   v_cred bytea;
   v_reason text;
   v_new uuid;
-  ch public.studio_sms_price_auth_challenges;
 begin
-  q := public._tw4price_owner_gate(p_request_id, v_actor, v_sid);
+  begin
+    q := public._tw4price_owner_gate(p_request_id, v_actor, v_sid);
+    perform public._tw4price_limits_check(q.kind, q.customer_price_cents, q.provider_cost_cents, q.base_customer_price_cents);
+  exception when others then
+    perform public._tw4price_audit('gate_refused', v_actor, v_sid, p_request_id, null, jsonb_build_object('step', 'finish', 'code', sqlstate, 'reason', left(sqlerrm, 200)));
+    return jsonb_build_object('status', 'refused', 'code', sqlstate, 'reason', sqlerrm);
+  end;
   begin
     v_nonce := public._tw4price_unb64u(p_nonce);
     v_cred := public._tw4price_unb64u(p_credential_id);
-    v_reason := public._tw4price_check_assertion('authorize', v_nonce, public._tw4price_request_hash(q), v_cred, public._tw4price_unb64u(p_auth_data), public._tw4price_unb64u(p_client_data),
-      public._tw4price_unb64u(p_signature), true);
+    if not public._tw4price_challenge_ok(v_nonce, v_actor, v_sid) or not exists (select 1 from public.studio_sms_price_auth_challenges c where c.nonce = v_nonce and c.request_id = q.id) then
+      v_reason := 'the challenge was issued to another session or request';
+    else
+      v_reason := public._tw4price_check_assertion('authorize', v_nonce, public._tw4price_request_hash(q), v_cred, public._tw4price_unb64u(p_auth_data), public._tw4price_unb64u(p_client_data),
+        public._tw4price_unb64u(p_signature), true);
+    end if;
   exception when others then
     v_reason := 'malformed input';
   end;
-  select * into ch from public.studio_sms_price_auth_challenges c where c.nonce = v_nonce;
-  if v_reason is null and (ch.request_id is distinct from q.id or ch.session_id is distinct from v_sid or ch.issued_to is distinct from v_actor) then
-    raise exception 'the challenge was issued to another session or request' using errcode = '42501';
-  end if;
   if v_reason is not null then
-    -- recorded and committed: nothing else changes
-    perform public._tw4price_audit('assertion_rejected', v_actor, v_sid, q.id, v_cred, jsonb_build_object('reason', v_reason));
+    -- recorded and committed: nothing else changes. A sign counter that did not increase is an integrity failure (a cloned authenticator?), recorded as such.
+    perform public._tw4price_audit(case when v_reason like 'sign counter%' then 'integrity_failure' else 'assertion_rejected' end, v_actor, v_sid, q.id, v_cred, jsonb_build_object('reason', v_reason, 'step', 'finish'));
+    if v_reason like 'sign counter%' then
+      perform public._tw4price_emit('price_integrity_failure', v_actor, jsonb_build_object('reason', 'sign counter did not increase', 'request_id', q.id));
+    end if;
     return jsonb_build_object('status', 'rejected', 'reason', v_reason);
   end if;
   perform set_config('tw4.pricedual_write', 'on', true);
@@ -588,7 +676,7 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
--- credentials: bootstrap (owner-level only), enrol / revoke (each needs an assertion from an EXISTING credential)
+-- credentials: bootstrap (owner-level only), enrol / revoke (each needs an assertion from an EXISTING credential and is only PENDING for a mandatory delay)
 -- ---------------------------------------------------------------------------------------------------------------
 create or replace function public._tw4price_bootstrap(p_rp_id text, p_origins text[], p_cred_id bytea, p_x bytea, p_y bytea, p_label text)
 returns void language plpgsql security definer
@@ -613,12 +701,16 @@ returns bytea language sql immutable
 set search_path = pg_catalog, public, pg_temp
 as $$ select sha256(convert_to(concat_ws('|', 'tw4price/v1', p_purpose, public._tw4price_b64u(p_cred_id), coalesce(public._tw4price_b64u(p_x), '-'), coalesce(public._tw4price_b64u(p_y), '-'), coalesce(p_role, '-'), coalesce(p_label, '-')), 'UTF8')); $$;
 
+-- the freeze can be lifted only by a credential that PREDATES it; the hash binds the exact suspension being lifted (the local freeze and/or the unlifted monitoring suspension)
 create or replace function public._tw4price_thaw_hash()
-returns bytea language sql stable
+returns bytea language plpgsql stable
 set search_path = pg_catalog, public, pg_temp
-as $$ select sha256(convert_to('tw4price/v1|thaw|' || coalesce((extract(epoch from frozen_at) * 1000000)::bigint::text, 'not-frozen'), 'UTF8')) from public.studio_sms_price_auth_config; $$;
+as $$
+begin
+  return (select sha256(convert_to('tw4price/v1|thaw|' || coalesce((extract(epoch from c.frozen_at) * 1000000)::bigint::text, 'none') || '|' || public._tw4price_monitor_suspend_seq()::text, 'UTF8')) from public.studio_sms_price_auth_config c);
+end $$;
 
--- begin a credential ceremony. purpose: enroll (new credential public key, role, label), revoke (target credential id), thaw (lift the freeze)
+-- begin a credential ceremony. purpose: enroll (new credential public key, role, label), revoke (target credential id), thaw (lift the suspension)
 create or replace function public.tw4_price_cred_begin(p_purpose text, p_cred_id text, p_x text, p_y text, p_role text, p_label text)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
@@ -649,8 +741,8 @@ begin
     end if;
     v_hash := public._tw4price_cred_hash('revoke', v_target, null, null, null, null);
   elsif p_purpose = 'thaw' then
-    if not cfg.frozen then
-      raise exception 'prices are not frozen' using errcode = 'TW041';
+    if not public._tw4price_suspended() then
+      raise exception 'prices are not suspended' using errcode = 'TW041';
     end if;
     v_hash := public._tw4price_thaw_hash();
   else
@@ -661,11 +753,13 @@ begin
   insert into public.studio_sms_price_auth_challenges (nonce, purpose, bound_hash, issued_to, session_id, expires_at) values (v_nonce, p_purpose, v_hash, v_actor, v_sid, clock_timestamp() + make_interval(secs => cfg.challenge_ttl_seconds));
   perform set_config('tw4.priceauth_write', 'off', true);
   select coalesce(jsonb_agg(public._tw4price_b64u(c.credential_id)), '[]'::jsonb) into v_creds from public.studio_sms_price_credentials c
-   where c.status = 'active' and (p_purpose <> 'revoke' or c.credential_id <> v_target);
+   where c.status = 'active' and (p_purpose <> 'revoke' or c.credential_id <> v_target)
+     and (p_purpose <> 'thaw' or c.enrolled_at < coalesce(cfg.frozen_at, 'infinity'::timestamptz));
   perform public._tw4price_audit('challenge_issued', v_actor, v_sid, null, v_target, jsonb_build_object('purpose', p_purpose));
   return jsonb_build_object('nonce', public._tw4price_b64u(v_nonce), 'challenge', public._tw4price_b64u(sha256(v_hash || v_nonce)), 'rp_id', cfg.rp_id, 'allow_credentials', v_creds, 'hash', encode(v_hash, 'hex'));
 end $$;
 
+-- REQUEST a credential enrolment. It does NOT take effect: it becomes a visible, alerting, cancellable PENDING change that applies only after the mandatory delay
 create or replace function public.tw4_price_cred_enroll(p_nonce text, p_new_cred_id text, p_x text, p_y text, p_role text, p_label text,
   p_by_cred text, p_by_auth text, p_by_client text, p_by_sig text, p_new_auth text, p_new_client text, p_new_sig text)
 returns jsonb language plpgsql security definer
@@ -674,6 +768,7 @@ as $$
 declare
   v_actor uuid := public._tw4price_session_actor('aal2');
   v_sid text := public._tw4price_session_id();
+  cfg public.studio_sms_price_auth_config;
   v_nonce bytea;
   v_new bytea;
   v_x bytea;
@@ -681,27 +776,34 @@ declare
   v_hash bytea;
   v_reason text;
   v_by bytea;
+  v_change uuid;
 begin
   if not public._tw4price_admin_active(v_actor) then
     raise exception 'actor must be an active registered platform admin' using errcode = '42501';
   end if;
+  select * into cfg from public.studio_sms_price_auth_config;
+  perform pg_advisory_xact_lock(hashtext('tw4price:cred'));
   begin
     v_nonce := public._tw4price_unb64u(p_nonce); v_new := public._tw4price_unb64u(p_new_cred_id); v_x := public._tw4price_unb64u(p_x); v_y := public._tw4price_unb64u(p_y);
     v_by := public._tw4price_unb64u(p_by_cred);
     v_hash := public._tw4price_cred_hash('enroll', v_new, v_x, v_y, p_role, btrim(p_label));
-    -- 1. an EXISTING credential signs this exact enrolment (the new key, role and label are in the hash)
-    v_reason := public._tw4price_check_assertion('enroll', v_nonce, v_hash, v_by, public._tw4price_unb64u(p_by_auth), public._tw4price_unb64u(p_by_client), public._tw4price_unb64u(p_by_sig), false);
+    if not public._tw4price_challenge_ok(v_nonce, v_actor, v_sid) then
+      v_reason := 'the challenge was issued to another session';
+    else
+      -- 1. an EXISTING credential signs this exact enrolment (the new key, role and label are in the hash)
+      v_reason := public._tw4price_check_assertion('enroll', v_nonce, v_hash, v_by, public._tw4price_unb64u(p_by_auth), public._tw4price_unb64u(p_by_client), public._tw4price_unb64u(p_by_sig), false);
+    end if;
     if v_reason is null and v_by = v_new then v_reason := 'the new credential cannot authorize its own enrolment'; end if;
     if v_reason is null and (select count(*) from public.studio_sms_price_credentials c where c.status = 'active') >= 3 then v_reason := 'too many active credentials'; end if;
     if v_reason is null then
-      -- 2. the NEW credential proves possession of its private key over the same challenge; a failure rolls the tentative insert back
+      -- 2. the NEW credential proves possession of its private key over the same challenge. The tentative row is always rolled back (the change is only PENDING); a duplicate key or id fails here
       begin
         perform set_config('tw4.priceauth_write', 'on', true);
         insert into public.studio_sms_price_credentials (credential_id, pub_x, pub_y, role, label, enrolled_via) values (v_new, v_x, v_y, p_role, btrim(p_label), 'assertion');
-        v_reason := public._tw4price_check_assertion('enroll', v_nonce, v_hash, v_new, public._tw4price_unb64u(p_new_auth), public._tw4price_unb64u(p_new_client), public._tw4price_unb64u(p_new_sig), true);
-        if v_reason is not null then raise exception 'ROLLBACK_NEW_CREDENTIAL'; end if;
+        v_reason := public._tw4price_check_assertion('enroll', v_nonce, v_hash, v_new, public._tw4price_unb64u(p_new_auth), public._tw4price_unb64u(p_new_client), public._tw4price_unb64u(p_new_sig), false);
+        raise exception 'ROLLBACK_TENTATIVE_CREDENTIAL';
       exception when others then
-        v_reason := coalesce(v_reason, 'the new credential could not be enrolled');
+        if sqlerrm <> 'ROLLBACK_TENTATIVE_CREDENTIAL' then v_reason := coalesce(v_reason, 'the new credential could not be enrolled (duplicate key or id?)'); end if;
       end;
       perform set_config('tw4.priceauth_write', 'off', true);
     end if;
@@ -712,11 +814,17 @@ begin
     perform public._tw4price_audit('assertion_rejected', v_actor, v_sid, null, v_by, jsonb_build_object('purpose', 'enroll', 'reason', v_reason));
     return jsonb_build_object('status', 'rejected', 'reason', v_reason);
   end if;
-  perform public._tw4price_audit('credential_enrolled', v_actor, v_sid, null, v_new, jsonb_build_object('role', p_role, 'label', btrim(p_label), 'authorized_by', encode(v_by, 'hex')));
-  perform public._tw4price_emit('credential_replaced', v_actor, jsonb_build_object('change', 'enrolled', 'role', p_role));
-  return jsonb_build_object('status', 'enrolled');
+  perform set_config('tw4.priceauth_write', 'on', true);
+  update public.studio_sms_price_auth_challenges set used_at = clock_timestamp() where nonce = v_nonce;
+  insert into public.studio_sms_price_credential_changes (kind, target_credential_id, pub_x, pub_y, role, label, authorized_by_credential_id, requested_by, effective_at)
+  values ('enroll', v_new, v_x, v_y, p_role, btrim(p_label), v_by, v_actor, clock_timestamp() + make_interval(hours => cfg.credential_delay_hours)) returning id into v_change;
+  perform set_config('tw4.priceauth_write', 'off', true);
+  perform public._tw4price_audit('credential_change_pending', v_actor, v_sid, null, v_new, jsonb_build_object('change', 'enroll', 'change_id', v_change, 'role', p_role, 'label', btrim(p_label), 'authorized_by', encode(v_by, 'hex')));
+  perform public._tw4price_emit('credential_change_pending', v_actor, jsonb_build_object('change', 'enroll', 'change_id', v_change, 'role', p_role, 'effective_in_hours', cfg.credential_delay_hours));
+  return jsonb_build_object('status', 'pending', 'change_id', v_change, 'effective_in_hours', cfg.credential_delay_hours);
 end $$;
 
+-- REQUEST a revocation: pending, visible, alerting, cancellable, applied only after the delay
 create or replace function public.tw4_price_cred_revoke(p_nonce text, p_target text, p_by_cred text, p_by_auth text, p_by_client text, p_by_sig text)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
@@ -724,17 +832,22 @@ as $$
 declare
   v_actor uuid := public._tw4price_session_actor('aal2');
   v_sid text := public._tw4price_session_id();
+  cfg public.studio_sms_price_auth_config;
   v_nonce bytea;
   v_target bytea;
   v_by bytea;
   v_reason text;
+  v_change uuid;
 begin
   if not public._tw4price_admin_active(v_actor) then
     raise exception 'actor must be an active registered platform admin' using errcode = '42501';
   end if;
+  select * into cfg from public.studio_sms_price_auth_config;
+  perform pg_advisory_xact_lock(hashtext('tw4price:cred'));
   begin
     v_nonce := public._tw4price_unb64u(p_nonce); v_target := public._tw4price_unb64u(p_target); v_by := public._tw4price_unb64u(p_by_cred);
-    if v_by = v_target then v_reason := 'a credential cannot authorize its own revocation';
+    if not public._tw4price_challenge_ok(v_nonce, v_actor, v_sid) then v_reason := 'the challenge was issued to another session';
+    elsif v_by = v_target then v_reason := 'a credential cannot authorize its own revocation';
     elsif (select count(*) from public.studio_sms_price_credentials c where c.status = 'active') < 2 or not exists (select 1 from public.studio_sms_price_credentials c where c.credential_id = v_target and c.status = 'active') then
       v_reason := 'the last active credential cannot be revoked';
     else
@@ -749,11 +862,139 @@ begin
     return jsonb_build_object('status', 'rejected', 'reason', v_reason);
   end if;
   perform set_config('tw4.priceauth_write', 'on', true);
-  update public.studio_sms_price_credentials set status = 'revoked', revoked_at = clock_timestamp(), revoked_note = 'revoked with a hardware-backed approval' where credential_id = v_target;
+  insert into public.studio_sms_price_credential_changes (kind, target_credential_id, authorized_by_credential_id, requested_by, effective_at)
+  values ('revoke', v_target, v_by, v_actor, clock_timestamp() + make_interval(hours => cfg.credential_delay_hours)) returning id into v_change;
   perform set_config('tw4.priceauth_write', 'off', true);
-  perform public._tw4price_audit('credential_revoked', v_actor, v_sid, null, v_target, jsonb_build_object('authorized_by', encode(v_by, 'hex')));
-  perform public._tw4price_emit('credential_replaced', v_actor, jsonb_build_object('change', 'revoked'));
-  return jsonb_build_object('status', 'revoked');
+  perform public._tw4price_audit('credential_change_pending', v_actor, v_sid, null, v_target, jsonb_build_object('change', 'revoke', 'change_id', v_change, 'authorized_by', encode(v_by, 'hex')));
+  perform public._tw4price_emit('credential_change_pending', v_actor, jsonb_build_object('change', 'revoke', 'change_id', v_change, 'effective_in_hours', cfg.credential_delay_hours));
+  return jsonb_build_object('status', 'pending', 'change_id', v_change, 'effective_in_hours', cfg.credential_delay_hours);
+end $$;
+
+-- apply a pending change once its delay has passed. Nothing new is authorized here (the change was signed when it was requested); it is refused while publication is suspended
+create or replace function public.tw4_price_cred_apply(p_change_id uuid)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  v_actor uuid := public._tw4price_session_actor('aal2');
+  v_sid text := public._tw4price_session_id();
+  ch public.studio_sms_price_credential_changes;
+begin
+  if not public._tw4price_admin_active(v_actor) then
+    raise exception 'actor must be an active registered platform admin' using errcode = '42501';
+  end if;
+  perform pg_advisory_xact_lock(hashtext('tw4price:cred'));
+  select * into ch from public.studio_sms_price_credential_changes c where c.id = p_change_id for update;
+  if ch.id is null then raise exception 'unknown credential change' using errcode = '22023'; end if;
+  if ch.status <> 'pending' then raise exception 'this credential change is already %', ch.status using errcode = 'TW041'; end if;
+  if ch.effective_at > clock_timestamp() then raise exception 'the mandatory delay of this credential change has not ended (until %)', ch.effective_at using errcode = 'TW045'; end if;
+  if public._tw4price_suspended() then raise exception 'credential changes are not applied while prices are suspended' using errcode = '42501'; end if;
+  perform set_config('tw4.priceauth_write', 'on', true);
+  if ch.kind = 'enroll' then
+    if (select count(*) from public.studio_sms_price_credentials c where c.status = 'active') >= 3 then raise exception 'too many active credentials' using errcode = '22023'; end if;
+    insert into public.studio_sms_price_credentials (credential_id, pub_x, pub_y, role, label, enrolled_via) values (ch.target_credential_id, ch.pub_x, ch.pub_y, ch.role, ch.label, 'assertion');
+  else
+    update public.studio_sms_price_credentials set status = 'revoked', revoked_at = clock_timestamp(), revoked_note = 'revoked with a hardware-backed approval after the delay' where credential_id = ch.target_credential_id and status = 'active';
+    -- re-checked AFTER the update, under the credential lock: the registry never drops to zero active credentials
+    if (select count(*) from public.studio_sms_price_credentials c where c.status = 'active') < 1 then
+      raise exception 'the last active credential cannot be revoked' using errcode = '42501';
+    end if;
+  end if;
+  update public.studio_sms_price_credential_changes set status = 'applied', applied_at = clock_timestamp() where id = ch.id;
+  perform set_config('tw4.priceauth_write', 'off', true);
+  perform public._tw4price_audit('credential_change_applied', v_actor, v_sid, null, ch.target_credential_id, jsonb_build_object('change', ch.kind, 'change_id', ch.id));
+  perform public._tw4price_emit('credential_replaced', v_actor, jsonb_build_object('change', ch.kind, 'role', ch.role));
+  return jsonb_build_object('status', 'applied', 'change', ch.kind);
+end $$;
+
+-- cancel a pending change: the SAFE direction, so a registered administrator session is enough (the owner's second session can always interrupt a hostile change; a hostile session can only delay a legitimate one)
+create or replace function public.tw4_price_cred_cancel(p_change_id uuid)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  v_actor uuid := public._tw4price_session_actor('aal2');
+  ch public.studio_sms_price_credential_changes;
+begin
+  if not public._tw4price_admin_active(v_actor) then
+    raise exception 'actor must be an active registered platform admin' using errcode = '42501';
+  end if;
+  perform pg_advisory_xact_lock(hashtext('tw4price:cred'));
+  select * into ch from public.studio_sms_price_credential_changes c where c.id = p_change_id for update;
+  if ch.id is null then raise exception 'unknown credential change' using errcode = '22023'; end if;
+  if ch.status <> 'pending' then raise exception 'this credential change is already %', ch.status using errcode = 'TW041'; end if;
+  perform set_config('tw4.priceauth_write', 'on', true);
+  update public.studio_sms_price_credential_changes set status = 'cancelled', cancelled_at = clock_timestamp(), cancelled_by = v_actor where id = ch.id;
+  perform set_config('tw4.priceauth_write', 'off', true);
+  perform public._tw4price_audit('credential_change_cancelled', v_actor, public._tw4price_session_id(), null, ch.target_credential_id, jsonb_build_object('change', ch.kind, 'change_id', ch.id));
+  perform public._tw4price_emit('credential_change_pending', v_actor, jsonb_build_object('change', ch.kind, 'change_id', ch.id, 'status', 'cancelled'));
+  return jsonb_build_object('status', 'cancelled');
+end $$;
+
+create or replace function public.tw4_price_cred_pending()
+returns jsonb language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare v_actor uuid := public._tw4price_session_actor('aal2');
+begin
+  if not public._tw4price_admin_active(v_actor) then
+    raise exception 'actor must be an active registered platform admin' using errcode = '42501';
+  end if;
+  return jsonb_build_object('pending', coalesce((select jsonb_agg(jsonb_build_object('change_id', c.id, 'kind', c.kind, 'role', c.role, 'label', c.label, 'requested_at', c.requested_at, 'effective_at', c.effective_at) order by c.requested_at)
+            from public.studio_sms_price_credential_changes c where c.status = 'pending'), '[]'::jsonb),
+    'credentials', coalesce((select jsonb_agg(jsonb_build_object('role', k.role, 'label', k.label, 'enrolled_at', k.enrolled_at, 'id', public._tw4price_b64u(k.credential_id)) order by k.enrolled_at)
+            from public.studio_sms_price_credentials k where k.status = 'active'), '[]'::jsonb));
+end $$;
+
+create or replace function public.tw4_price_thaw(p_nonce text, p_cred text, p_auth text, p_client text, p_sig text)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  v_actor uuid := public._tw4price_session_actor('aal2');
+  v_sid text := public._tw4price_session_id();
+  cfg public.studio_sms_price_auth_config;
+  v_reason text;
+  v_cred bytea;
+  v_nonce bytea;
+  v_ref timestamptz;
+  v_mon timestamptz;
+  v_maxseq bigint := 0;
+begin
+  if not public._tw4price_admin_active(v_actor) then
+    raise exception 'actor must be an active registered platform admin' using errcode = '42501';
+  end if;
+  select * into cfg from public.studio_sms_price_auth_config;
+  if not public._tw4price_suspended() then
+    return jsonb_build_object('status', 'not_frozen');
+  end if;
+  v_ref := cfg.frozen_at;
+  if public._tw4price_monitor_suspend_seq() > 0 then
+    execute 'select min(recorded_at), max(seq) from public.studio_sms_price_security_events where kind = ''pricing_suspended'' and seq > $1' into v_mon, v_maxseq using cfg.monitor_seq_lifted;
+    v_ref := least(coalesce(v_ref, v_mon), coalesce(v_mon, v_ref));
+  end if;
+  begin
+    v_nonce := public._tw4price_unb64u(p_nonce);
+    v_cred := public._tw4price_unb64u(p_cred);
+    if not public._tw4price_challenge_ok(v_nonce, v_actor, v_sid) then v_reason := 'the challenge was issued to another session';
+    elsif not exists (select 1 from public.studio_sms_price_credentials k where k.credential_id = v_cred and k.status = 'active' and k.enrolled_at < v_ref) then
+      v_reason := 'only a credential enrolled BEFORE the suspension can lift it';
+    else
+      v_reason := public._tw4price_check_assertion('thaw', v_nonce, public._tw4price_thaw_hash(), v_cred, public._tw4price_unb64u(p_auth), public._tw4price_unb64u(p_client), public._tw4price_unb64u(p_sig), true);
+    end if;
+  exception when others then
+    v_reason := coalesce(v_reason, 'malformed input');
+  end;
+  if v_reason is not null then
+    perform public._tw4price_audit('assertion_rejected', v_actor, v_sid, null, v_cred, jsonb_build_object('purpose', 'thaw', 'reason', v_reason));
+    return jsonb_build_object('status', 'rejected', 'reason', v_reason);
+  end if;
+  perform set_config('tw4.priceauth_write', 'on', true);
+  update public.studio_sms_price_auth_config set frozen = false, frozen_at = null, freeze_reason = null, monitor_seq_lifted = greatest(monitor_seq_lifted, coalesce(v_maxseq, 0));
+  perform set_config('tw4.priceauth_write', 'off', true);
+  perform public._tw4price_audit('freeze_lifted', v_actor, v_sid, null, v_cred, jsonb_build_object('lifted_monitor_seq', v_maxseq));
+  perform public._tw4price_emit('pricing_resumed', v_actor, jsonb_build_object('lifted_by', 'hardware_key_thaw'));
+  return jsonb_build_object('status', 'thawed');
 end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -782,40 +1023,6 @@ begin
   return jsonb_build_object('status', 'frozen', 'replayed', false);
 end $$;
 
-create or replace function public.tw4_price_thaw(p_nonce text, p_cred text, p_auth text, p_client text, p_sig text)
-returns jsonb language plpgsql security definer
-set search_path = pg_catalog, public, pg_temp
-as $$
-declare
-  v_actor uuid := public._tw4price_session_actor('aal2');
-  v_sid text := public._tw4price_session_id();
-  v_reason text;
-  v_cred bytea;
-begin
-  if not public._tw4price_admin_active(v_actor) then
-    raise exception 'actor must be an active registered platform admin' using errcode = '42501';
-  end if;
-  if not (select frozen from public.studio_sms_price_auth_config) then
-    return jsonb_build_object('status', 'not_frozen');
-  end if;
-  begin
-    v_cred := public._tw4price_unb64u(p_cred);
-    v_reason := public._tw4price_check_assertion('thaw', public._tw4price_unb64u(p_nonce), public._tw4price_thaw_hash(), v_cred, public._tw4price_unb64u(p_auth), public._tw4price_unb64u(p_client), public._tw4price_unb64u(p_sig), true);
-  exception when others then
-    v_reason := 'malformed input';
-  end;
-  if v_reason is not null then
-    perform public._tw4price_audit('assertion_rejected', v_actor, v_sid, null, v_cred, jsonb_build_object('purpose', 'thaw', 'reason', v_reason));
-    return jsonb_build_object('status', 'rejected', 'reason', v_reason);
-  end if;
-  perform set_config('tw4.priceauth_write', 'on', true);
-  update public.studio_sms_price_auth_config set frozen = false, frozen_at = null, freeze_reason = null;
-  perform set_config('tw4.priceauth_write', 'off', true);
-  perform public._tw4price_audit('freeze_lifted', v_actor, v_sid, null, v_cred, '{}'::jsonb);
-  perform public._tw4price_emit('pricing_resumed', v_actor, '{}'::jsonb);
-  return jsonb_build_object('status', 'thawed');
-end $$;
-
 -- monitoring interface (stable): audit events after an id, oldest first. Read only; service_role and owner.
 create or replace function public.tw4_price_audit_feed(p_after bigint default 0, p_limit int default 200)
 returns jsonb language sql stable security definer
@@ -837,23 +1044,33 @@ as $$
 begin
   if to_regclass('public.studio_sms_price_security_events') is not null then
     execute 'insert into public.studio_sms_price_security_events (kind, subject_user_id, detail) values ($1, $2, $3)' using p_kind, p_subject, coalesce(p_detail, '{}'::jsonb);
+  elsif (select monitoring_expected from public.studio_sms_price_auth_config) then
+    -- once the owner declares monitoring expected, a missing events table is a LOUD failure, not a silent no-op
+    raise exception 'the monitoring events table is expected but missing: security event % was not delivered', p_kind using errcode = 'TW046';
   end if;
 end $$;
 
--- is price publication suspended? Either the local freeze flag, or the LATEST suspension event of the monitoring feed is pricing_suspended (a pricing_resumed after it lifts it)
+-- the unlifted MONITORING suspension: the highest pricing_suspended event of the monitoring feed above the sequence a hardware-key thaw has lifted (0 when none). pricing_resumed rows in
+-- that table are IGNORED: only this schema's own hardware-key thaw lifts a suspension, so the monitoring table cannot lift one (and cannot wedge pricing beyond what a thaw undoes).
+create or replace function public._tw4price_monitor_suspend_seq()
+returns bigint language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare v bigint := 0;
+begin
+  if to_regclass('public.studio_sms_price_security_events') is not null then
+    execute 'select coalesce(max(seq), 0) from public.studio_sms_price_security_events where kind = ''pricing_suspended'' and seq > $1' into v using (select monitor_seq_lifted from public.studio_sms_price_auth_config);
+  end if;
+  return coalesce(v, 0);
+end $$;
+
+-- is price publication suspended? The local freeze flag, or an unlifted monitoring suspension (lifted ONLY by the hardware-key thaw)
 create or replace function public._tw4price_suspended()
 returns boolean language plpgsql stable security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
-declare v_kind text;
 begin
-  if (select frozen from public.studio_sms_price_auth_config) then
-    return true;
-  end if;
-  if to_regclass('public.studio_sms_price_security_events') is not null then
-    execute 'select kind from public.studio_sms_price_security_events where kind in (''pricing_suspended'', ''pricing_resumed'') order by seq desc limit 1' into v_kind;
-  end if;
-  return coalesce(v_kind = 'pricing_suspended', false);
+  return (select frozen from public.studio_sms_price_auth_config) or public._tw4price_monitor_suspend_seq() > 0;
 end $$;
 
 -- the approver registry is written by the owner only; every registration or revocation is an event
@@ -1139,6 +1356,7 @@ begin
   if public._tw4price_suspended() then
     raise exception 'price publication is suspended' using errcode = '42501';
   end if;
+  perform public._tw4price_limits_check(q.kind, q.customer_price_cents, q.provider_cost_cents, q.base_customer_price_cents);
   perform set_config('tw4.pricedual_write', 'on', true);
   update public.studio_sms_price_change_requests set status = 'approved', decided_by = p_actor, decided_at = clock_timestamp(), decision_note = btrim(p_note) where id = q.id;
   update public.studio_sms_price_list set active = false where kind = q.kind and active;
@@ -1223,17 +1441,17 @@ revoke all on function public._tw4price_bytes2num(bytea), public._tw4price_powmo
   public._tw4price_jadd(numeric, numeric, numeric, numeric, numeric, numeric), public._tw4price_p256_oncurve(numeric, numeric), public._tw4price_p256_verify(numeric, numeric, numeric, numeric, numeric),
   public._tw4price_der_rs(bytea), public._tw4price_b64u(bytea), public._tw4price_unb64u(text), public._tw4price_request_hash(public.studio_sms_price_change_requests),
   public._tw4price_check_assertion(text, bytea, bytea, bytea, bytea, bytea, bytea, boolean), public._tw4priceauth_guard(), public._tw4price_audit(text, uuid, text, uuid, bytea, jsonb),
-  public._tw4price_new_nonce(), public._tw4price_session_id(), public._tw4price_emit(text, uuid, jsonb), public._tw4price_suspended(), public._tw4price_registry_emit(), public._tw4price_owner_gate(uuid, uuid, text), public._tw4price_bootstrap(text, text[], bytea, bytea, bytea, text),
+  public._tw4price_new_nonce(), public._tw4price_session_id(), public._tw4price_limits_check(text, int, int, int), public._tw4price_challenge_ok(bytea, uuid, text), public._tw4price_monitor_suspend_seq(), public._tw4price_emit(text, uuid, jsonb), public._tw4price_suspended(), public._tw4price_registry_emit(), public._tw4price_owner_gate(uuid, uuid, text), public._tw4price_bootstrap(text, text[], bytea, bytea, bytea, text),
   public._tw4price_cred_hash(text, bytea, bytea, bytea, text, text), public._tw4price_thaw_hash(),
   public._tw4price_do_propose_mode(text, int, int, text, text, uuid, text, text, uuid), public._tw4price_do_propose(text, int, int, text, text, uuid) from public, anon, authenticated, service_role;
 revoke all on function public.tw4_price_authz_begin(uuid), public.tw4_price_authz_finish(uuid, text, text, text, text, text), public.tw4_price_revise(uuid, int, int, text, text),
   public.tw4_price_cred_begin(text, text, text, text, text, text), public.tw4_price_cred_enroll(text, text, text, text, text, text, text, text, text, text, text, text, text),
-  public.tw4_price_cred_revoke(text, text, text, text, text, text), public.tw4_price_freeze(text), public.tw4_price_thaw(text, text, text, text, text), public.tw4_price_report_compromise(text),
+  public.tw4_price_cred_revoke(text, text, text, text, text, text), public.tw4_price_freeze(text), public.tw4_price_thaw(text, text, text, text, text), public.tw4_price_report_compromise(text), public.tw4_price_cred_apply(uuid), public.tw4_price_cred_cancel(uuid), public.tw4_price_cred_pending(),
   public.tw4_price_audit_feed(bigint, int) from public, anon, authenticated, service_role;
 revoke all on function public.tw4_price_propose(text, int, int, text, text) from public, anon, authenticated, service_role;
 grant execute on function public.tw4_price_propose(text, int, int, text, text), public.tw4_price_authz_begin(uuid), public.tw4_price_authz_finish(uuid, text, text, text, text, text), public.tw4_price_revise(uuid, int, int, text, text),
   public.tw4_price_cred_begin(text, text, text, text, text, text), public.tw4_price_cred_enroll(text, text, text, text, text, text, text, text, text, text, text, text, text),
-  public.tw4_price_cred_revoke(text, text, text, text, text, text), public.tw4_price_freeze(text), public.tw4_price_thaw(text, text, text, text, text), public.tw4_price_report_compromise(text) to authenticated;
+  public.tw4_price_cred_revoke(text, text, text, text, text, text), public.tw4_price_freeze(text), public.tw4_price_thaw(text, text, text, text, text), public.tw4_price_report_compromise(text), public.tw4_price_cred_apply(uuid), public.tw4_price_cred_cancel(uuid), public.tw4_price_cred_pending() to authenticated;
 grant execute on function public.tw4_price_audit_feed(bigint, int) to service_role;
 
 do $$
@@ -1246,7 +1464,7 @@ begin
     raise exception 'price owner authorization postcondition failed: unexpected function privileges';
   end if;
   if (select count(*) from pg_trigger where tgname like 'studio_sms_price_%' and tgrelid in ('public.studio_sms_price_auth_config'::regclass, 'public.studio_sms_price_credentials'::regclass,
-       'public.studio_sms_price_auth_challenges'::regclass, 'public.studio_sms_price_audit'::regclass) and not tgisinternal and tgenabled = 'A') <> 8 then
+       'public.studio_sms_price_auth_challenges'::regclass, 'public.studio_sms_price_audit'::regclass, 'public.studio_sms_price_credential_changes'::regclass) and not tgisinternal and tgenabled = 'A') <> 10 then
     raise exception 'price owner authorization postcondition failed: an always-on trigger is missing';
   end if;
 end $$;
