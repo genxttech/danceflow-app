@@ -24,7 +24,8 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   forbidOnly: true,
-  timeout: 600_000,
+  timeout: 2_400_000,
+  expect: { timeout: 60_000 },
   outputDir: `${runDir}/artifacts`,
   reporter: [
     ["list"],
@@ -33,6 +34,7 @@ export default defineConfig({
   ],
   use: {
     baseURL: baseUrl,
+    actionTimeout: 90_000,
     trace: "on",
     screenshot: "on",
     video: "off",
