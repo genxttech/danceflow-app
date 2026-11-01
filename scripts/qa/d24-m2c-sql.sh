@@ -236,16 +236,16 @@ check "health shows the last run and requeue counters" "$(q "select (public.d24_
 check "health raises rejected_present" "$(q "select public.d24_drain_health()->'alarms' ? 'rejected_present'")" "t"
 check "no payload, event id, invoice id or error message appears in health output" "$(echo "$HEALTH" | grep -cE 'inpay_|"in_|evt_|qa poison|object_snapshot|"payload"')" "0"
 dfr evt_old in_old inpay_old 1 80000 >/dev/null
-check "pending_stale fires when the oldest pending event is past the threshold" "$(q "select public.d24_drain_health(0, 1800)->'alarms' ? 'pending_stale'")" "t"
+check "pending_stale fires when the oldest pending event is past the threshold" "$(q "select public.d24_drain_health(-1, 1800)->'alarms' ? 'pending_stale'")" "t"
 check "...and is quiet below it" "$(q "select public.d24_drain_health(900, 1800)->'alarms' ? 'pending_stale'")" "f"
-check "drain_not_running fires when pending exists and no recent completed run" "$(q "select public.d24_drain_health(900, 0)->'alarms' ? 'drain_not_running'")" "t"
+check "drain_not_running fires when pending exists and no recent completed run" "$(q "select public.d24_drain_health(900, -1)->'alarms' ? 'drain_not_running'")" "t"
 check "oldest pending age and counts are reported" "$(q "select (public.d24_drain_health()->'by_state'->'pending'->>'count')||'/'||((public.d24_drain_health()->'by_state'->'pending'->>'oldest_age_seconds')::bigint >= 0)")" "1/true"
 check "record_drain_failure rejects free text / long codes" "$(try "select public.d24_record_drain_failure('manual','bad code with spaces')" | grep -c 'error code')" "1"
 check "record_drain_failure writes an error run row" "$(q "select public.d24_record_drain_failure('scheduled','57014')->>'outcome'")/$(q "select outcome||'/'||error_code from public.hosted_invoice_drain_runs order by id desc limit 1")" "recorded/error/57014"
 check "health raises drain_errors after a failed run" "$(q "select public.d24_drain_health()->'alarms' ? 'drain_errors'")" "t"
 check "health is read-only (stable) and callable by service_role" "$(as service_role "select public.d24_drain_health()->>'alarms'" | grep -c '\[')" "1"
 rd 25 >/dev/null
-check "a drain that settles the queue clears pending_stale" "$(q "select public.d24_drain_health(0, 1800)->'alarms' ? 'pending_stale'")" "f"
+check "a drain that settles the queue clears pending_stale" "$(q "select public.d24_drain_health(-1, 1800)->'alarms' ? 'pending_stale'")" "f"
 
 # 7b. live route vs a drain-held key lock: bounded wait, nothing written, claim kept, retry succeeds exactly once ---------------------------------------
 LKP=$(pj in_lk inpay_lk 77)
