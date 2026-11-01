@@ -105,3 +105,13 @@ update public.studio_sms_price_change_requests set requested_at = requested_at -
 alter table public.studio_sms_price_change_requests enable always trigger studio_sms_price_change_requests_guard;
 commit;`);
 }
+
+/** Local-QA-only owner step: set the protected price authorization mode (production: owner-level migration only). The team-mode suites run in 'team'; the single-owner suites in 'single_owner'. */
+export function setPriceMode(psql: Psql, mode: "team" | "single_owner"): void {
+  psql(`begin;
+do $d41$ begin ${MARKER} end $d41$;
+alter table public.studio_sms_price_auth_config disable trigger studio_sms_price_auth_config_guard;
+update public.studio_sms_price_auth_config set mode = '${mode}';
+alter table public.studio_sms_price_auth_config enable always trigger studio_sms_price_auth_config_guard;
+commit;`);
+}

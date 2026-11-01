@@ -12,10 +12,10 @@ begin
   end if;
   for r in select * from (values
       ('public.tw4_price_authz_finish(uuid,text,text,text,text,text)', 'a02039f8f231bdb8a7a5fadabc44a1cb'),
-      ('public._tw4price_do_propose_mode(text,integer,integer,text,text,uuid,text,text,uuid)', 'c3fa23e5f0c3c0f3518ff5bd77e9da2c'),
-      ('public._tw4price_do_approve(uuid,uuid,text)', 'cefd0a499beaa2199c7ad7fe99a916e2'),
+      ('public._tw4price_do_propose_mode(text,integer,integer,text,text,uuid,text,text,uuid)', 'bdba14fc6537e6286d52cb7b90511c86'),
+      ('public._tw4price_do_approve(uuid,uuid,text)', '96915a0ef035ac2199d60829b01f7cc0'),
       ('public._tw4pricedual_guard()', '9e2e81171fa5eab1d608727997ab9f48'),
-      ('public._tw4price_activation_guard()', '699ab93e749775f259d43160133642ac')) as x(sig, h) loop
+      ('public._tw4price_activation_guard()', '3363832968848945cddb300f7e87fadd')) as x(sig, h) loop
     if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure(r.sig)) is distinct from r.h then
       raise exception 'price owner authorization rollback refused: % is no longer the body installed by 20270204100000', r.sig using errcode = '55000';
     end if;
@@ -36,6 +36,11 @@ drop function public.tw4_price_cred_revoke(text, text, text, text, text, text);
 drop function public.tw4_price_freeze(text);
 drop function public.tw4_price_thaw(text, text, text, text, text);
 drop function public.tw4_price_audit_feed(bigint, int);
+drop function public.tw4_price_report_compromise(text);
+drop trigger studio_sms_price_approvers_emit on public.studio_sms_price_approvers;
+drop function public._tw4price_registry_emit();
+drop function public._tw4price_suspended();
+drop function public._tw4price_emit(text, uuid, jsonb);
 drop function public._tw4price_owner_gate(uuid, uuid, text);
 drop function public._tw4price_bootstrap(text, text[], bytea, bytea, bytea, text);
 drop function public._tw4price_do_propose_mode(text, int, int, text, text, uuid, text, text, uuid);

@@ -475,9 +475,8 @@ begin
   if q.cooling_until > clock_timestamp() then
     raise exception 'the cooling-off period has not ended (until %)', q.cooling_until using errcode = 'TW045';
   end if;
-  select * into cfg from public.studio_sms_price_auth_config;
-  if cfg.frozen then
-    raise exception 'price publication is suspended (freeze): lifting it needs the hardware-key ceremony' using errcode = '42501';
+  if public._tw4price_suspended() then
+    raise exception 'price publication is suspended (freeze or a monitoring suspension): lifting it needs the hardware-key ceremony' using errcode = '42501';
   end if;
   select x.id into v_cur from public.studio_sms_price_list x where x.kind = q.kind and x.active for update;
   if v_cur is distinct from q.base_price_id then
@@ -714,6 +713,7 @@ begin
     return jsonb_build_object('status', 'rejected', 'reason', v_reason);
   end if;
   perform public._tw4price_audit('credential_enrolled', v_actor, v_sid, null, v_new, jsonb_build_object('role', p_role, 'label', btrim(p_label), 'authorized_by', encode(v_by, 'hex')));
+  perform public._tw4price_emit('credential_replaced', v_actor, jsonb_build_object('change', 'enrolled', 'role', p_role));
   return jsonb_build_object('status', 'enrolled');
 end $$;
 
@@ -752,6 +752,7 @@ begin
   update public.studio_sms_price_credentials set status = 'revoked', revoked_at = clock_timestamp(), revoked_note = 'revoked with a hardware-backed approval' where credential_id = v_target;
   perform set_config('tw4.priceauth_write', 'off', true);
   perform public._tw4price_audit('credential_revoked', v_actor, v_sid, null, v_target, jsonb_build_object('authorized_by', encode(v_by, 'hex')));
+  perform public._tw4price_emit('credential_replaced', v_actor, jsonb_build_object('change', 'revoked'));
   return jsonb_build_object('status', 'revoked');
 end $$;
 
@@ -777,6 +778,7 @@ begin
   update public.studio_sms_price_auth_config set frozen = true, frozen_at = clock_timestamp(), freeze_reason = btrim(p_reason);
   perform set_config('tw4.priceauth_write', 'off', true);
   perform public._tw4price_audit('freeze_set', v_actor, public._tw4price_session_id(), null, null, jsonb_build_object('reason', btrim(p_reason)));
+  perform public._tw4price_emit('pricing_suspended', v_actor, jsonb_build_object('reason', btrim(p_reason)));
   return jsonb_build_object('status', 'frozen', 'replayed', false);
 end $$;
 
@@ -810,6 +812,7 @@ begin
   update public.studio_sms_price_auth_config set frozen = false, frozen_at = null, freeze_reason = null;
   perform set_config('tw4.priceauth_write', 'off', true);
   perform public._tw4price_audit('freeze_lifted', v_actor, v_sid, null, v_cred, '{}'::jsonb);
+  perform public._tw4price_emit('pricing_resumed', v_actor, '{}'::jsonb);
   return jsonb_build_object('status', 'thawed');
 end $$;
 
@@ -822,6 +825,79 @@ as $$
     'credential_id', case when a.credential_id is null then null else public._tw4price_b64u(a.credential_id) end, 'detail', a.detail) order by a.id), '[]'::jsonb)
   from (select * from public.studio_sms_price_audit x where x.id > coalesce(p_after, 0) order by x.id limit least(greatest(coalesce(p_limit, 200), 1), 1000)) a;
 $$;
+-- ---------------------------------------------------------------------------------------------------------------
+-- monitoring interface (workstream #391): security events are emitted into studio_sms_price_security_events WHEN that table exists (migration 20270205090000 creates it; the order on
+-- the chain is 20270204090000, 20270204100000, then 20270205090000, so every emit is conditional and a missing table is simply a no-op). The same events are always in the
+-- local immutable audit (studio_sms_price_audit). No secrets in any detail: roles, labels, reasons, counts, never keys, challenges, tokens or credential ids.
+-- ---------------------------------------------------------------------------------------------------------------
+create or replace function public._tw4price_emit(p_kind text, p_subject uuid, p_detail jsonb)
+returns void language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  if to_regclass('public.studio_sms_price_security_events') is not null then
+    execute 'insert into public.studio_sms_price_security_events (kind, subject_user_id, detail) values ($1, $2, $3)' using p_kind, p_subject, coalesce(p_detail, '{}'::jsonb);
+  end if;
+end $$;
+
+-- is price publication suspended? Either the local freeze flag, or the LATEST suspension event of the monitoring feed is pricing_suspended (a pricing_resumed after it lifts it)
+create or replace function public._tw4price_suspended()
+returns boolean language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare v_kind text;
+begin
+  if (select frozen from public.studio_sms_price_auth_config) then
+    return true;
+  end if;
+  if to_regclass('public.studio_sms_price_security_events') is not null then
+    execute 'select kind from public.studio_sms_price_security_events where kind in (''pricing_suspended'', ''pricing_resumed'') order by seq desc limit 1' into v_kind;
+  end if;
+  return coalesce(v_kind = 'pricing_suspended', false);
+end $$;
+
+-- the approver registry is written by the owner only; every registration or revocation is an event
+create or replace function public._tw4price_registry_emit()
+returns trigger language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  if tg_op = 'INSERT' then
+    perform public._tw4price_emit('approver_added', new.user_id, jsonb_build_object('note_length', char_length(new.added_note)));
+    perform public._tw4price_emit('approver_registry_changed', new.user_id, jsonb_build_object('change', 'added'));
+  elsif new.revoked_at is not null and old.revoked_at is null then
+    perform public._tw4price_emit('approver_removed', new.user_id, '{}'::jsonb);
+    perform public._tw4price_emit('approver_registry_changed', new.user_id, jsonb_build_object('change', 'revoked'));
+  end if;
+  return null;
+end $$;
+drop trigger if exists studio_sms_price_approvers_emit on public.studio_sms_price_approvers;
+create trigger studio_sms_price_approvers_emit after insert or update on public.studio_sms_price_approvers for each row execute function public._tw4price_registry_emit();
+alter table public.studio_sms_price_approvers enable always trigger studio_sms_price_approvers_emit;
+
+-- a registered administrator reports a suspected credential compromise: this SUSPENDS publication (never publishes anything) and raises the event
+create or replace function public.tw4_price_report_compromise(p_note text)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare v_actor uuid := public._tw4price_session_actor('aal2');
+begin
+  if not public._tw4price_admin_active(v_actor) then
+    raise exception 'actor must be an active registered platform admin' using errcode = '42501';
+  end if;
+  if p_note is null or char_length(btrim(p_note)) not between 10 and 300 then
+    raise exception 'a compromise report needs a written note of 10 to 300 characters' using errcode = '22023';
+  end if;
+  if not (select frozen from public.studio_sms_price_auth_config) then
+    perform set_config('tw4.priceauth_write', 'on', true);
+    update public.studio_sms_price_auth_config set frozen = true, frozen_at = clock_timestamp(), freeze_reason = 'compromise reported: ' || left(btrim(p_note), 240);
+    perform set_config('tw4.priceauth_write', 'off', true);
+    perform public._tw4price_audit('freeze_set', v_actor, public._tw4price_session_id(), null, null, jsonb_build_object('reason', 'compromise reported'));
+    perform public._tw4price_emit('pricing_suspended', v_actor, jsonb_build_object('reason', 'compromise reported'));
+  end if;
+  perform public._tw4price_emit('credential_compromise_reported', v_actor, jsonb_build_object('note_length', char_length(btrim(p_note))));
+  return jsonb_build_object('status', 'frozen');
+end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- replaced functions (20270204090000 bodies are restored byte for byte by the rollback)
@@ -889,7 +965,7 @@ begin
      where x.status = 'approved' and x.kind = new.kind and x.customer_price_cents = new.customer_price_cents and x.provider_cost_cents = new.provider_cost_cents
        and x.description = new.description and x.decided_by = new.created_by and x.applied_price_id is null;
     if q.id is null or not new.active or not public._tw4price_admin_active(q.decided_by) or not public._tw4price_admin_active(q.requested_by)
-       or (select frozen from public.studio_sms_price_auth_config)
+       or public._tw4price_suspended()
        or not ((q.approval_mode = 'team' and q.decided_by <> q.requested_by)
                or (q.approval_mode = 'owner' and q.auth_credential_id is not null and q.auth_nonce is not null and q.cooling_until <= clock_timestamp())) then
       raise exception 'a price is published only by an approved price change (team: two different registered administrators; owner: after the cooling-off, with the hardware-key approval of the exact proposal): none is being applied for these amounts' using errcode = '42501';
@@ -941,6 +1017,9 @@ begin
     raise exception 'unknown approval mode' using errcode = '22023';
   end if;
   select * into cfg from public.studio_sms_price_auth_config;
+  if public._tw4price_suspended() then
+    raise exception 'price changes are suspended (freeze or a monitoring suspension)' using errcode = '42501';
+  end if;
   if p_mode = 'owner' and (p_session is null or p_session = '') then
     raise exception 'an owner-mode proposal needs the session id of the proposing session' using errcode = '42501';
   end if;
@@ -1057,8 +1136,8 @@ begin
     perform set_config('tw4.pricedual_write', 'off', true);
     return jsonb_build_object('status', 'invalidated', 'replayed', false);
   end if;
-  if (select frozen from public.studio_sms_price_auth_config) then
-    raise exception 'price publication is suspended (freeze)' using errcode = '42501';
+  if public._tw4price_suspended() then
+    raise exception 'price publication is suspended' using errcode = '42501';
   end if;
   perform set_config('tw4.pricedual_write', 'on', true);
   update public.studio_sms_price_change_requests set status = 'approved', decided_by = p_actor, decided_at = clock_timestamp(), decision_note = btrim(p_note) where id = q.id;
@@ -1144,17 +1223,17 @@ revoke all on function public._tw4price_bytes2num(bytea), public._tw4price_powmo
   public._tw4price_jadd(numeric, numeric, numeric, numeric, numeric, numeric), public._tw4price_p256_oncurve(numeric, numeric), public._tw4price_p256_verify(numeric, numeric, numeric, numeric, numeric),
   public._tw4price_der_rs(bytea), public._tw4price_b64u(bytea), public._tw4price_unb64u(text), public._tw4price_request_hash(public.studio_sms_price_change_requests),
   public._tw4price_check_assertion(text, bytea, bytea, bytea, bytea, bytea, bytea, boolean), public._tw4priceauth_guard(), public._tw4price_audit(text, uuid, text, uuid, bytea, jsonb),
-  public._tw4price_new_nonce(), public._tw4price_session_id(), public._tw4price_owner_gate(uuid, uuid, text), public._tw4price_bootstrap(text, text[], bytea, bytea, bytea, text),
+  public._tw4price_new_nonce(), public._tw4price_session_id(), public._tw4price_emit(text, uuid, jsonb), public._tw4price_suspended(), public._tw4price_registry_emit(), public._tw4price_owner_gate(uuid, uuid, text), public._tw4price_bootstrap(text, text[], bytea, bytea, bytea, text),
   public._tw4price_cred_hash(text, bytea, bytea, bytea, text, text), public._tw4price_thaw_hash(),
   public._tw4price_do_propose_mode(text, int, int, text, text, uuid, text, text, uuid), public._tw4price_do_propose(text, int, int, text, text, uuid) from public, anon, authenticated, service_role;
 revoke all on function public.tw4_price_authz_begin(uuid), public.tw4_price_authz_finish(uuid, text, text, text, text, text), public.tw4_price_revise(uuid, int, int, text, text),
   public.tw4_price_cred_begin(text, text, text, text, text, text), public.tw4_price_cred_enroll(text, text, text, text, text, text, text, text, text, text, text, text, text),
-  public.tw4_price_cred_revoke(text, text, text, text, text, text), public.tw4_price_freeze(text), public.tw4_price_thaw(text, text, text, text, text),
+  public.tw4_price_cred_revoke(text, text, text, text, text, text), public.tw4_price_freeze(text), public.tw4_price_thaw(text, text, text, text, text), public.tw4_price_report_compromise(text),
   public.tw4_price_audit_feed(bigint, int) from public, anon, authenticated, service_role;
 revoke all on function public.tw4_price_propose(text, int, int, text, text) from public, anon, authenticated, service_role;
 grant execute on function public.tw4_price_propose(text, int, int, text, text), public.tw4_price_authz_begin(uuid), public.tw4_price_authz_finish(uuid, text, text, text, text, text), public.tw4_price_revise(uuid, int, int, text, text),
   public.tw4_price_cred_begin(text, text, text, text, text, text), public.tw4_price_cred_enroll(text, text, text, text, text, text, text, text, text, text, text, text, text),
-  public.tw4_price_cred_revoke(text, text, text, text, text, text), public.tw4_price_freeze(text), public.tw4_price_thaw(text, text, text, text, text) to authenticated;
+  public.tw4_price_cred_revoke(text, text, text, text, text, text), public.tw4_price_freeze(text), public.tw4_price_thaw(text, text, text, text, text), public.tw4_price_report_compromise(text) to authenticated;
 grant execute on function public.tw4_price_audit_feed(bigint, int) to service_role;
 
 do $$
