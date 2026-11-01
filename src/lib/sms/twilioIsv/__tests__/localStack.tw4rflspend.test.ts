@@ -16,6 +16,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { seedPriceIfMissing } from "./priceFixture";
 import { evidenceDay, pilotCoverArgs, pilotExceptionArgs, pilotExceptionEvidenceFor, pilotSpendArgs, pilotSpendEvidenceFor } from "./rflEvidenceHelper";
 import type { PilotEvidence } from "@/lib/sms/pilotApprovalEvidence";
 
@@ -176,7 +177,7 @@ insert into auth.users (id, instance_id, aud, role, email, created_at, updated_a
 insert into public.profiles (id, platform_role) values ('${P}', 'platform_admin'), ('${P2}', 'platform_admin') on conflict (id) do update set platform_role = 'platform_admin';
 commit;`);
     for (const [kind, customer, provider] of [["number", 200, 115], ["monthly", 1000, 150], ["brand", 1000, 700], ["campaign_vetting", 1500, 1000]] as const) {
-      if (!psql(`select 1 from public.studio_sms_price_list where kind = '${kind}' and active`)) call("tw4_price_set", kind, customer, provider, `fixture ${kind} price`, P);
+      seedPriceIfMissing(psql, { kind, customer, provider, description: `fixture ${kind} price`, approver: P });
     }
     PRICE.number = priceOf("number");
     Object.assign(PRICES, { brand: priceOf("brand"), campaign_vetting: priceOf("campaign_vetting"), number: priceOf("number"), monthly: priceOf("monthly") });

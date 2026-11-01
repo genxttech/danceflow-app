@@ -12,6 +12,7 @@ import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { deletePricesSql, ownerReactivate, seedPrice } from "../twilioIsv/__tests__/priceFixture";
 
 vi.mock("server-only", () => ({}));
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 1_000_000 });
@@ -143,7 +144,7 @@ describe.skipIf(!enabled)("TW-4F F3 usage-reconciler readiness gate (real schema
     // readiness reads EVERY usage_reconcile run: anything not ours means this is not a dedicated database
     expect(psql("select count(*) from public.studio_sms_reconcile_runs where job = 'usage_reconcile' and runner not like 'tw4f3recon:%'"), "needs a dedicated database").toBe("0");
     snapshotActivePrices = psql("select id from public.studio_sms_price_list where active").split("\n").filter(Boolean);
-    expect((await rpc("tw4_price_set", { p_kind: "sms_usage", p_customer_cents: 3, p_provider_cents: 1, p_description: "fixture sms_usage price", p_actor: U.padmin })).error).toBeNull();
+    seedPrice(psql, { kind: "sms_usage", customer: 3, provider: 1, description: "fixture sms_usage price", approver: U.padmin });
     await readySender(rpc, (sql) => aged(sql), { studio: SA, account: ACC_A, actor: U.padmin, ids: newSenderIds(NUM_A) });
     n += 1;
     await credits.topupPending(EA, SA, `cs_f3r_${RUN}_${n}`, 5_000, new Date(Date.now() + 20 * 60_000).toISOString());
@@ -153,7 +154,8 @@ describe.skipIf(!enabled)("TW-4F F3 usage-reconciler readiness gate (real schema
   afterAll(() => {
     try {
       psqlFile(CLEANUP);
-      aged(`delete from public.studio_sms_price_list where created_by = '${U.padmin}'; update public.studio_sms_price_list set active = true where id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
+      psql(deletePricesSql(`created_by = '${U.padmin}'`));
+      ownerReactivate(psql, `id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
     } catch {
       /* best effort */
     }
