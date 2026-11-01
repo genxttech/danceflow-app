@@ -19,6 +19,7 @@ import { queueOutboundDelivery } from "@/lib/notifications/outbound";
 import { buildEventConfirmedEmailTemplate } from "@/lib/notifications/templates";
 import { resolveEventEmailBranding } from "@/lib/notifications/event-email-branding";
 import { resolveEventMerchantLine } from "@/lib/notifications/merchantIdentity";
+import { terminalSaleNeedsOrganizerSuite } from "@/lib/events/terminalOrganizerSuite";
 
 type RegistrationRow = {
   id: string;
@@ -69,10 +70,14 @@ type RegistrationAttendeeCheckInRow = {
   checked_in_at: string | null;
 };
 
+/** D7: thrown inside markEventRegistrationPaidAction's try so the refusal is not swallowed into mark_paid_failed. */
+class OrganizerSuiteRefusal extends Error {}
+
 type EventAccessRow = {
   id: string;
   event_type: string | null;
   studio_id: string;
+  organizer_id: string | null;
   studios:
     | { stripe_connected_account_id: string | null }
     | { stripe_connected_account_id: string | null }[]
@@ -197,7 +202,7 @@ async function validateEventAccess(
   const { data: event, error } = await supabase
     .from("events")
     .select(
-      "id, event_type, studio_id, studios:studio_id(stripe_connected_account_id)",
+      "id, event_type, studio_id, organizer_id, studios:studio_id(stripe_connected_account_id)",
     )
     .eq("id", eventId)
     .eq("studio_id", studioId)
@@ -1096,6 +1101,58 @@ async function markRegistrationPaymentStatus(params: {
   }
 }
 
+const UNMARKABLE_PAYMENT_STATUSES = new Set(["refunded"]);
+const UNMARKABLE_REGISTRATION_STATUSES = new Set(["cancelled", "canceled", "refunded"]);
+
+function isRegistrationUnmarkable(registration: { status?: string | null; payment_status?: string | null }) {
+  return (
+    UNMARKABLE_PAYMENT_STATUSES.has((registration.payment_status ?? "").trim().toLowerCase()) ||
+    UNMARKABLE_REGISTRATION_STATUSES.has((registration.status ?? "").trim().toLowerCase())
+  );
+}
+
+/** Conditional unpaid -> paid update. Returns true only for the request that actually changed the row. */
+async function claimRegistrationPaid(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  eventId: string;
+  registrationId: string;
+  confirmPending: boolean;
+}) {
+  const payload: Record<string, string> = { payment_status: "paid" };
+  if (params.confirmPending) payload.status = "confirmed";
+
+  const { data, error } = await params.supabase
+    .from("event_registrations")
+    .update(payload)
+    .eq("id", params.registrationId)
+    .eq("event_id", params.eventId)
+    .or("payment_status.is.null,payment_status.neq.paid")
+    .select("id");
+
+  if (error) throw new Error(error.message);
+  return (data ?? []).length > 0;
+}
+
+/** Undo claimRegistrationPaid when recording the payment failed; only touches a row this request marked paid. */
+async function releaseRegistrationPaidClaim(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  eventId: string;
+  registrationId: string;
+  previousPaymentStatus: string;
+  previousRegistrationStatus: string | null | undefined;
+  confirmedByClaim: boolean;
+}) {
+  const payload: Record<string, string> = { payment_status: params.previousPaymentStatus };
+  if (params.confirmedByClaim && params.previousRegistrationStatus) payload.status = params.previousRegistrationStatus;
+
+  await params.supabase
+    .from("event_registrations")
+    .update(payload)
+    .eq("id", params.registrationId)
+    .eq("event_id", params.eventId)
+    .eq("payment_status", "paid");
+}
+
 async function findLatestPaymentForRegistration(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   registrationId: string;
@@ -1992,7 +2049,7 @@ export async function markEventRegistrationPaidAction(formData: FormData) {
       isPlatformAdmin,
       eventId,
     );
-    await validateEventAccess(supabase, eventId, studioId);
+    const event = await validateEventAccess(supabase, eventId, studioId);
 
     const registration = await getRegistrationForEvent({
       supabase,
@@ -2010,36 +2067,71 @@ export async function markEventRegistrationPaidAction(formData: FormData) {
       redirect(buildReturnUrl(eventId, "error=order_backed_registration_payment_locked"));
     }
 
+    // D7 release hardening: a cancelled or refunded registration is never re-marked paid (it would re-open a settled sale).
+    if (isRegistrationUnmarkable(registration)) {
+      redirect(buildReturnUrl(eventId, "error=registration_not_markable"));
+    }
+
+    // D7 P2-3: marking an UNPAID registration paid completes an in-person sale (it confirms the ticket), so for an
+    // organizer event it needs a current Organizer Suite entitlement. Re-marking an already paid registration is not
+    // a new sale and is not gated. Refused before any write.
+    if (
+      (registration.payment_status ?? "").trim().toLowerCase() !== "paid" &&
+      (await terminalSaleNeedsOrganizerSuite(createAdminClient(), { studioId, organizerId: event.organizer_id }))
+    ) {
+      throw new OrganizerSuiteRefusal();
+    }
+
     const amount = Number(
       registration.total_amount ?? registration.total_price ?? 0,
     );
     const currency = registration.currency ?? "USD";
 
-    await markRegistrationPaymentStatus({
+    // D7 release hardening: claim the unpaid -> paid transition ATOMICALLY (a conditional update that reports whether
+    // THIS request won). Only the winner records the payment, so a double submit or two staff members clicking at once
+    // can never insert two payment rows. Re-marking an already paid registration stays a harmless no-op.
+    const claimed = await claimRegistrationPaid({
       supabase,
       eventId,
       registrationId,
-      paymentStatus: "paid",
-      registrationStatus:
-        registration.status === "pending" ? "confirmed" : undefined,
+      confirmPending: registration.status === "pending",
     });
 
-    if (amount > 0) {
-      await logEventPayment({
-        supabase,
-        registration,
-        studioId,
-        amount,
-        currency,
-        paymentMethod: "other",
-        status: "paid",
-        source: "manual_admin_mark_paid",
-        stripePaymentIntentId: registration.stripe_payment_intent_id,
-      });
+    if (claimed && amount > 0) {
+      try {
+        await logEventPayment({
+          supabase,
+          registration,
+          studioId,
+          amount,
+          currency,
+          paymentMethod: "other",
+          status: "paid",
+          source: "manual_admin_mark_paid",
+          stripePaymentIntentId: registration.stripe_payment_intent_id,
+        });
+      } catch (paymentError) {
+        // The claim must not leave a paid registration without its payment row: put the registration back as it was.
+        await releaseRegistrationPaidClaim({
+          supabase,
+          eventId,
+          registrationId,
+          previousPaymentStatus: registration.payment_status ?? "unpaid",
+          previousRegistrationStatus: registration.status,
+          confirmedByClaim: registration.status === "pending",
+        });
+        throw paymentError;
+      }
     }
 
     redirect(buildReturnUrl(eventId, "success=registration_paid"));
-  } catch {
+  } catch (error) {
+    // redirect() works by throwing. The intentional redirects above (success, not found, order-backed lock, access
+    // and sign-in redirects) must pass through; only a real failure becomes mark_paid_failed. Without this rethrow every
+    // outcome, success included, was reported as mark_paid_failed.
+    if (isRedirectError(error)) throw error;
+    // The Organizer Suite refusal is surfaced as its own error.
+    if (error instanceof OrganizerSuiteRefusal) redirect(buildReturnUrl(eventId, "error=organizer_suite_required"));
     redirect(buildReturnUrl(eventId, "error=mark_paid_failed"));
   }
 }
