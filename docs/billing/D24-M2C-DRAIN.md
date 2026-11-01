@@ -12,15 +12,13 @@ Migration `src/lib/supabase/migrations/20270206090000_d24_m2c_drain_recovery.sql
 | `d24_run_drain(p_batch_size, p_trigger)` | **The controlled entry point.** One bounded batch (cap 100), singleton, audited. Service role. |
 | `d24_record_drain_failure(p_trigger, p_error_code)` | Audit row for a run that failed before it could audit itself (code only). |
 | `d24_drain_health(p_stale_pending_seconds, p_run_gap_seconds)` | Read-only monitoring JSON: counts, ages, attempts, error **codes**, alarms. |
-| `d24_requeue_deferred_event(p_provider_event_id, p_actor, p_reason)` | Audited manual requeue of a *rejected* event. Service role only. |
 | `hosted_invoice_drain_runs` | Append-only: one row per completed run, plus error rows. |
-| `hosted_invoice_deferred_requeues` | Append-only: one row per requeue (actor, reason, prior error). |
 
 All new tables: RLS on, no policies, `service_role` SELECT only, no grants to `anon`/`authenticated`; writes only through the functions (writer-flag trigger, update/delete/truncate refused).
 
 ## Automatic recovery (the drain) vs manual recovery (requeue)
 
-They never call each other.
+They never call each other. **Requeue is owned by D24 M2-B** (`d24_op_requeue_deferred`: platform-admin verified, reason required, capped, append-only `hosted_invoice_deferred_requeues`). M2-C ships no requeue function and no requeue table (an earlier draft did; it collided with M2-B and was removed). Apply order: M1, M2-B (20270205), M2-C (20270206); roll back M2-C first.
 
 **Drain, per event (own savepoint, so one poison event never blocks or rolls back the others):**
 
@@ -35,12 +33,10 @@ Ordering: fewest recent attempts first, then never-attempted / least-recently-at
 
 **Recovery classes** (reported by `d24_drain_health().recovery`): `pending_fresh`, `pending_retrying` (has an error code), `pending_requeued`, `rejected_validation` (`22023`), `rejected_exhausted` (anything else), `applied_after_requeue`.
 
-**Requeue** (`rejected` → `pending`, nothing else):
-- reason (1–500 chars) and actor are required; the event must be `rejected`; max **5 requeues** per event.
-- `attempts` is preserved (never decreases); `attempt_base` is set to it, so the event gets a **fresh budget of 5 counted attempts**. A forged flag cannot reset attempts (guard trigger enforces exactly +1 `requeue_count`, same `attempts`).
-- the evidence (snapshot, hash, `received_at`) is immutable; the prior error and attempt count are copied into `hosted_invoice_deferred_requeues` before the live error columns are cleared; no row is ever deleted.
-- A `22023` poison requeued without a fix is rejected again after one attempt. Requeue is for after a code/validator fix or after an infrastructure cause is cleared; the cap stops endless loops.
-- **`p_actor` is NOT verified in SQL.** The function is service-role only and called by no application code. **M2-B owns the authorization wrapper** and must pass a verified identity (and tenant/admin check) as `p_actor`; do not expose this function to any endpoint before that wrapper exists. (Same limitation as `d24_acknowledge_anomalies` in M1.)
+**What M2-C adds to a requeue** (the `rejected` → `pending` UPDATE done by M2-B's function under the `d24.requeue` flag):
+- the guard (M2-C replaces `_d24_deferred_guard` with a superset of M2-B's) requires `attempts` unchanged and `settled_at` empty, then itself sets `attempt_base := attempts`, `requeue_count + 1` and clears `last_error_code`. The requeued event therefore gets a **fresh budget of 5 counted attempts**, and the requeue function needs no knowledge of the bookkeeping. Nobody else can change `attempt_base`/`requeue_count`.
+- evidence (snapshot, hash, `received_at`) is immutable; nothing is deleted. M2-B's cap (3 requeues) and its append-only log are the audit trail; `requeues_total` in health is the sum of `requeue_count`.
+- A `22023` poison requeued without a fix is rejected again after one attempt; requeue helps after a code/validator fix or after an infrastructure cause is cleared.
 
 ## Controlled invocation
 
@@ -62,7 +58,7 @@ Known residual: a deadlock (`40P01`) between a drain and a registration is abort
 | `rejected_present` | one or more rejected events | triage: `22023` → fix validator/data then requeue; others → investigate cause, then requeue |
 | `payload_mismatch_present` | a deferred event was replayed with a different payload hash | review the affected invoice (`replay_payload_mismatch` anomaly) |
 
-Raw detail for an operator (service role, SQL): `hosted_invoice_deferred_events` (`last_error` is the truncated database message; it can contain data fragments, so treat query output as sensitive and never forward it to dashboards/logs), `hosted_invoice_drain_runs`, `hosted_invoice_deferred_requeues`.
+Raw detail for an operator (service role, SQL): `hosted_invoice_deferred_events` (`last_error` is the truncated database message; it can contain data fragments, so treat query output as sensitive and never forward it to dashboards/logs), `hosted_invoice_drain_runs`, and M2-B's `hosted_invoice_deferred_requeues`.
 
 ## Scheduling and activation plan (NOT executed)
 
@@ -79,7 +75,7 @@ Activation checklist (each item requires explicit owner authorization where it t
 4. Triage any `rejected` event before enabling the scheduler.
 5. Register the scheduler (separate authorization), watch alarms for a full cycle.
 6. Only then consider `D24_HOSTED_INVOICE_EVENTS=on`.
-Rollback: stop the scheduler; app rollback first; `rollback/20270206090000_d24_m2c_drain_recovery_rollback.sql` (refuses while audit evidence exists — export it first). The M1 `d24_drain_deferred` is restored verbatim.
+Rollback: stop the scheduler; app rollback first; `rollback/20270206090000_d24_m2c_drain_recovery_rollback.sql` (refuses while audit evidence exists — export it first). The M1 `d24_drain_deferred` is restored verbatim and the guard is restored to the M2-B-compatible form (M1 behaviour plus the inert requeue branch), so rolling back M2-C never breaks M2-B.
 
 ## Events processed while D24 was OFF need a Stripe resend
 
@@ -89,7 +85,7 @@ Events the route acknowledged with outcome `d24_not_enabled` stored **nothing** 
 
 ## Verification
 
-`bash scripts/qa/d24-m2c-sql.sh` — disposable Docker Postgres 17 (no ports, no volumes, removed on exit); applies the PAY-WH-1 claim migration, M1, M2-C, then runs the checks, including: privileges/RLS, duplicates, out-of-order, batch cap, 4 concurrent bare drains and 4 concurrent controlled runs, singleton `busy`, live-route vs drain, partial failure rollback, validation and XX001 poison, transient retry without quarantine, anti-starvation, requeue (guards, fresh budget, cap, append-only), health output without leakage, rollback and re-apply. Plus `npx vitest run src/lib/payments/hostedInvoice` for the app loop and the parameter-name contract.
+`bash scripts/qa/d24-m2c-sql.sh` — disposable Docker Postgres 17 (no ports, no volumes, removed on exit); applies the PAY-WH-1 claim migration, M1, M2-C, then runs the checks, including: privileges/RLS, duplicates, out-of-order, batch cap, 4 concurrent bare drains and 4 concurrent controlled runs, singleton `busy`, live-route vs drain, partial failure rollback, validation and XX001 poison, transient retry without quarantine, anti-starvation, requeue guard contract (a stand-in UPDATE mimics M2-B; forged flags, fresh budget), health output without leakage, rollback and re-apply. Plus `npx vitest run src/lib/payments/hostedInvoice` for the app loop and the parameter-name contract.
 
 ## Independent review (static) and disposition
 Findings from the independent security review and what was done: (1) one blocked key could stack 5 s lock waits and roll the whole batch back → lock_timeout 1 s + 20 s loop budget; (2) failure-audit result ignored, `drained` hid a stuck backlog → `failureAudited`, `pending_remaining`; (3) health full scan → index-bounded; (4) bare drain callable by service_role bypassing the singleton → grant revoked; (5) any service-role caller can write error-code audit rows (accepted: service role is the trust boundary; alarm thresholds assume honest callers); (6) rollback drops `last_error_code`/`last_attempt_at` columns (accepted; `last_error` text remains; the evidence tables refuse rollback); (7) `last_error` is overwritten per attempt (accepted; the requeue log keeps the error at each requeue, drain runs keep counts).

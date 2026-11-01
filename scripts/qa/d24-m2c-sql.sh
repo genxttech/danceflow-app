@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # D24 M2-C: run the real M1 + M2-C migrations (and the M2-C rollback) against a DISPOSABLE Postgres container.
 # Container df-d24-m2c-pg: no published ports, no volumes, removed on exit. It never touches any other database.
-# Exercises: bounded drain, duplicates, out-of-order, concurrent drains, retries, partial failure, poison events, audited requeue, monitoring, rollback.
+# Exercises: bounded drain, duplicates, out-of-order, concurrent drains, retries, partial failure, poison events, requeue guard contract, monitoring, rollback.
 # Usage: bash scripts/qa/d24-m2c-sql.sh
 set -uo pipefail
 
@@ -70,6 +70,13 @@ begin
   return new;
 end $$;
 create trigger qa_fault_trg before insert on public.hosted_invoice_payments for each row execute function public.qa_fault();
+create function public.qa_requeue(p text) returns void language plpgsql as $$
+begin
+  perform set_config('d24.writer', 'on', true);
+  perform set_config('d24.requeue', 'on', true);
+  update public.hosted_invoice_deferred_events set state = 'pending', settled_at = null where provider_event_id = p;
+  perform set_config('d24.requeue', 'off', true);
+end $$;
 SQL
 
 # helpers ---------------------------------------------------------------------------------------------------------------------
@@ -83,16 +90,15 @@ st() { q "select state||'/'||attempts||'/'||coalesce(last_error_code,'-')||'/'||
 cnt() { q "select count(*) from public.$1"; }
 
 # 1. shape and privileges ----------------------------------------------------------------------------------------------------
-check "2 new audit tables exist" "$(q "select count(*) from information_schema.tables where table_schema='public' and table_name in ('hosted_invoice_drain_runs','hosted_invoice_deferred_requeues')")" "2"
-check "RLS enabled on the new tables, no policies" "$(q "select count(*) from pg_class c where c.relnamespace='public'::regnamespace and c.relname in ('hosted_invoice_drain_runs','hosted_invoice_deferred_requeues') and c.relrowsecurity")/$(q "select count(*) from pg_policies where tablename in ('hosted_invoice_drain_runs','hosted_invoice_deferred_requeues')")" "2/0"
-check "service_role holds SELECT only on the new tables" "$(q "select string_agg(distinct privilege_type, ',') from information_schema.role_table_grants where grantee='service_role' and table_name in ('hosted_invoice_drain_runs','hosted_invoice_deferred_requeues')")" "SELECT"
-check "anon/authenticated/public hold nothing on the new tables" "$(q "select count(*) from information_schema.role_table_grants where grantee in ('anon','authenticated','public') and table_name in ('hosted_invoice_drain_runs','hosted_invoice_deferred_requeues')")" "0"
-for sig in "d24_run_drain(integer,text)" "d24_record_drain_failure(text,text)" "d24_drain_health(integer,integer)" "d24_requeue_deferred_event(text,uuid,text)"; do
+check "the drain-run audit table exists" "$(q "select count(*) from information_schema.tables where table_schema='public' and table_name in ('hosted_invoice_drain_runs')")" "1"
+check "RLS enabled on the new tables, no policies" "$(q "select count(*) from pg_class c where c.relnamespace='public'::regnamespace and c.relname in ('hosted_invoice_drain_runs') and c.relrowsecurity")/$(q "select count(*) from pg_policies where tablename in ('hosted_invoice_drain_runs')")" "1/0"
+check "service_role holds SELECT only on the new tables" "$(q "select string_agg(distinct privilege_type, ',') from information_schema.role_table_grants where grantee='service_role' and table_name in ('hosted_invoice_drain_runs')")" "SELECT"
+check "anon/authenticated/public hold nothing on the new tables" "$(q "select count(*) from information_schema.role_table_grants where grantee in ('anon','authenticated','public') and table_name in ('hosted_invoice_drain_runs')")" "0"
+for sig in "d24_run_drain(integer,text)" "d24_record_drain_failure(text,text)" "d24_drain_health(integer,integer)"; do
   check "service_role executes / anon + authenticated do not: $sig" "$(q "select has_function_privilege('service_role','public.$sig','execute')::text||has_function_privilege('anon','public.$sig','execute')::text||has_function_privilege('authenticated','public.$sig','execute')::text")" "truefalsefalse"
 done
 check "the bare batch function is internal: service_role cannot call it any more" "$(q "select has_function_privilege('service_role','public.d24_drain_deferred(integer)','execute')::text||has_function_privilege('anon','public.d24_drain_deferred(integer)','execute')::text")" "falsefalse"
 check "anon cannot run the drain (permission denied)" "$(as anon "select public.d24_run_drain(1,'manual')" | grep -c 'permission denied')" "1"
-check "authenticated cannot requeue (permission denied)" "$(as authenticated "select public.d24_requeue_deferred_event('x','$ACT','r')" | grep -c 'permission denied')" "1"
 check "service_role cannot write the new tables directly" "$(as service_role "insert into public.hosted_invoice_drain_runs (trigger_kind, outcome, error_code) values ('manual','error','X')" | grep -c 'permission denied')" "1"
 check "even the owner role cannot insert a drain run without the writer flag" "$(try "insert into public.hosted_invoice_drain_runs (trigger_kind, outcome, error_code) values ('manual','error','X')" | grep -c 'only allowed through the d24 functions')" "1"
 check "static: M2-C never reads or writes payment_provider_events (no resend, no claim mutation)" "$(grep -vE '^\s*--' "$M_C" | grep -c 'payment_provider_events')" "0"
@@ -199,34 +205,24 @@ check "7 more transient failures never quarantine it" "$(st evt_t1)" "pending/0/
 q "delete from public.qa_flags where k='transient'" >/dev/null
 check "once the condition clears, both transient events apply" "$(rd 25)/$(st evt_t1)/$(st evt_t2)" "2/2/0/0/0/completed/applied/1/-/0/applied/1/-/0"
 
-# 6. audited requeue ------------------------------------------------------------------------------------------------------------------
+# 6. requeue contract with the guard (the authorized requeue function is M2-B's; qa_requeue below only mimics its UPDATE) ------------------------------------------------------------------------------------------------------------------
 SNAP_PZ=$(q "select payload_hash||object_snapshot::text||received_at::text from public.hosted_invoice_deferred_events where provider_event_id='evt_pz'")
-check "requeue without a reason is refused" "$(try "select public.d24_requeue_deferred_event('evt_pz','$ACT','  ')" | grep -c 'reason')" "1"
-check "requeue without an actor is refused" "$(try "select public.d24_requeue_deferred_event('evt_pz',null,'fixed the trigger')" | grep -c 'actor')" "1"
-check "requeue of an unknown event is refused" "$(try "select public.d24_requeue_deferred_event('evt_nope','$ACT','x')" | grep -c 'd24_deferred_event_not_found')" "1"
-check "requeue of an applied event is refused" "$(try "select public.d24_requeue_deferred_event('evt_g1','$ACT','x')" | grep -c 'd24_requeue_requires_rejected_event')" "1"
-check "requeue of a pending event is refused" "$( dfr evt_pend in_pend inpay_pend 1 70000 >/dev/null; try "select public.d24_requeue_deferred_event('evt_pend','$ACT','x')" | grep -c 'd24_requeue_requires_rejected_event')" "1"
-check "a refused requeue changed nothing and logged nothing" "$(st evt_pz)/$(cnt hosted_invoice_deferred_requeues)" "rejected/5/XX001/0/0"
 check "direct UPDATE rejected -> pending is refused (owner role, writer flag set, no requeue flag)" "$(try "select set_config('d24.writer','on',false); update public.hosted_invoice_deferred_events set state='pending', settled_at=null where provider_event_id='evt_pz'" | grep -c 'cannot change state')" "1"
 check "a forged requeue flag cannot reset attempts" "$(try "select set_config('d24.writer','on',false), set_config('d24.requeue','on',false); update public.hosted_invoice_deferred_events set state='pending', settled_at=null, attempts=0, attempt_base=0, requeue_count=1 where provider_event_id='evt_pz'" | grep -c 'must keep attempts')" "1"
 check "DELETE of a deferred event is refused" "$(try "select set_config('d24.writer','on',false); delete from public.hosted_invoice_deferred_events where provider_event_id='evt_pz'" | grep -c 'permanent evidence')" "1"
-check "requeue with the poison still in place succeeds" "$(q "select (public.d24_requeue_deferred_event('evt_pz','$ACT','retry after plan'))->>'outcome'")" "requeued"
+q "select public.qa_requeue('evt_pz')" >/dev/null
 check "...state pending, attempts preserved, error cleared, requeue_count 1" "$(st evt_pz)" "pending/5/-/1"
-check "requeue evidence is complete" "$(q "select (actor_user_id::text = '$ACT')::text||'/'||reason||'/'||requeue_number||'/'||prior_attempts||'/'||prior_error_code from public.hosted_invoice_deferred_requeues where provider_event_id='evt_pz'")" "true/retry after plan/1/5/XX001"
 check "...and the original event evidence is untouched" "$(q "select payload_hash||object_snapshot::text||received_at::text from public.hosted_invoice_deferred_events where provider_event_id='evt_pz'")" "$SNAP_PZ"
-check "a requeued event gets a FRESH attempt budget (not rejected on the first failure)" "$(rd 25)/$(st evt_pz)" "2/1/0/1/1/completed/pending/6/XX001/1"
+check "a requeued event gets a FRESH attempt budget (not rejected on the first failure)" "$(rd 25)/$(st evt_pz)" "1/0/0/1/1/completed/pending/6/XX001/1"
 q "delete from public.qa_flags where k='poison'" >/dev/null
 check "after the fix the requeued event applies" "$(rd 25)/$(st evt_pz)" "1/1/0/0/0/completed/applied/7/-/1"
 check "...and the invoice payment exists exactly once" "$(q "select count(*) from public.hosted_invoice_payments where stripe_invoice_payment_id='inpay_poison'")" "1"
-check "requeue log is append-only (update and delete refused)" "$(try "select set_config('d24.writer','on',false); update public.hosted_invoice_deferred_requeues set reason='x'" | grep -c append-only)/$(try "delete from public.hosted_invoice_deferred_requeues" | grep -c append-only)" "1/1"
 check "drain-run log is append-only" "$(try "update public.hosted_invoice_drain_runs set picked=0" | grep -c append-only)/$(try "truncate public.hosted_invoice_drain_runs" | grep -c append-only)" "1/1"
 # a validation-poison requeue loops back to rejected after one attempt; the 5-requeue cap stops it being endless
 for i in 1 2 3 4 5; do
-  q "select public.d24_requeue_deferred_event('evt_bad22','$ACT','try $i')" >/dev/null; rd 25 >/dev/null
+  q "select public.qa_requeue('evt_bad22')" >/dev/null; rd 25 >/dev/null
 done
 check "validation poison: five requeues each end in rejected again (attempt budget irrelevant for 22023)" "$(st evt_bad22)" "rejected/6/22023/5"
-check "the sixth requeue is refused (cap)" "$(try "select public.d24_requeue_deferred_event('evt_bad22','$ACT','one more')" | grep -c 'd24_requeue_limit_reached')" "1"
-check "requeue log holds every request" "$(q "select count(*) from public.hosted_invoice_deferred_requeues where provider_event_id='evt_bad22'")" "5"
 
 # 7. monitoring: counts and codes only, no payload leakage ----------------------------------------------------------------------------------
 HEALTH=$(q "select public.d24_drain_health()::text")
@@ -256,7 +252,7 @@ check "attempt_base / requeue_count cannot be edited outside a requeue" "$(try "
 # 9. rollback ----------------------------------------------------------------------------------------------------------------------------------
 r=$(docker exec -i "$NAME" psql -U postgres -v ON_ERROR_STOP=1 -q < "$M_RBC" 2>&1 | tr -d '\n' | cut -c1-120)
 check "M2-C rollback is refused while audit evidence exists" "$(echo "$r" | grep -c 'rollback refused')" "1"
-check "...and left the schema intact" "$(q "select count(*) from information_schema.tables where table_schema='public' and table_name in ('hosted_invoice_drain_runs','hosted_invoice_deferred_requeues')")" "2"
+check "...and left the schema intact" "$(q "select count(*) from information_schema.tables where table_schema='public' and table_name in ('hosted_invoice_drain_runs')")" "1"
 
 docker exec "$NAME" psql -U postgres -qAt -c "create database d24fresh" >/dev/null
 F="docker exec -i $NAME psql -U postgres -d d24fresh -v ON_ERROR_STOP=1 -qAt"
@@ -273,12 +269,12 @@ $F < "$M_D24" >/dev/null 2>&1
 $F < "$M_C" >/dev/null 2>&1
 check "fresh DB: M1 + M2-C apply" "$($F -c "select count(*) from information_schema.columns where table_name='hosted_invoice_deferred_events' and column_name in ('last_error_code','last_attempt_at','attempt_base','requeue_count')")" "4"
 $F < "$M_RBC" >/dev/null 2>&1
-check "fresh DB: rollback of an empty M2-C install restores the M1 shape" "$($F -c "select (select count(*) from information_schema.columns where table_name='hosted_invoice_deferred_events' and column_name in ('last_error_code','last_attempt_at','attempt_base','requeue_count'))||'/'||(select count(*) from pg_proc where proname in ('d24_run_drain','d24_drain_health','d24_requeue_deferred_event','d24_record_drain_failure'))||'/'||(select count(*) from information_schema.tables where table_name in ('hosted_invoice_drain_runs','hosted_invoice_deferred_requeues'))")" "0/0/0"
+check "fresh DB: rollback of an empty M2-C install restores the M1 shape" "$($F -c "select (select count(*) from information_schema.columns where table_name='hosted_invoice_deferred_events' and column_name in ('last_error_code','last_attempt_at','attempt_base','requeue_count'))||'/'||(select count(*) from pg_proc where proname in ('d24_run_drain','d24_drain_health','d24_record_drain_failure'))||'/'||(select count(*) from information_schema.tables where table_name in ('hosted_invoice_drain_runs'))")" "0/0/0"
 check "fresh DB: the restored M1 drain returns the M1 result keys" "$($F -c "select string_agg(k, ',' order by k) from jsonb_object_keys(public.d24_drain_deferred(1)) k")" "applied,failed,rejected"
 check "fresh DB: rollback restores the M1 service_role grant on the bare drain" "$($F -c "select has_function_privilege('service_role','public.d24_drain_deferred(integer)','execute')")" "t"
-check "fresh DB: the M1 guard is restored (no requeue path)" "$($F -c "select prosrc like '%d24.requeue%' from pg_proc where proname='_d24_deferred_guard'")" "f"
+check "fresh DB: the guard no longer knows the M2-C bookkeeping" "$($F -c "select prosrc like '%attempt_base%' from pg_proc where proname='_d24_deferred_guard'")" "f"
 $F < "$M_C" >/dev/null 2>&1
-check "fresh DB: M2-C re-applies after rollback" "$($F -c "select count(*) from pg_proc where proname in ('d24_run_drain','d24_drain_health','d24_requeue_deferred_event','d24_record_drain_failure')")" "4"
+check "fresh DB: M2-C re-applies after rollback" "$($F -c "select count(*) from pg_proc where proname in ('d24_run_drain','d24_drain_health','d24_record_drain_failure')")" "3"
 
 echo "SQL RESULT: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
