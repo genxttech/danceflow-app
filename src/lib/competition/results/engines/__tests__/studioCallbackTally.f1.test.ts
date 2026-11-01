@@ -49,13 +49,70 @@ describe("studio_callback_tally@1 golden fixtures (engine-spec-callback-tally.md
     expect(advancedIds(run(callbackInput(F02, ENTRIES, 4, 5)))).toHaveLength(5);
   });
 
-  it("F-CT-02 cap < 5: advancement blocked (tie_over_capacity), entries 13, 14, 15 listed, no rows, no manager pick", () => {
+  it("F-CT-02 cap < 5: unresolved result, every row advanced null, tie_status per row, trace blocked_tie_over_capacity", () => {
     for (const cap of [4, 1]) {
-      const f = expectFail(run(callbackInput(F02, ENTRIES, 4, cap)));
-      expect([f.code, f.reason, f.offendingIds]).toEqual(["COMP_ENGINE_UNSPECIFIED_CASE", "tie_over_capacity", [13, 14, 15].map(e)]);
-      expect("rows" in f).toBe(false);
-      expect(f.trace[f.trace.length - 1].step).toBe("failure");
+      const result = expectOk(run(callbackInput(F02, ENTRIES, 4, cap)));
+      expect(result.rows.every((r) => r.advanced === null)).toBe(true);
+      expect(result.rows.some((r) => r.advanced === true)).toBe(false);
+      const status = Object.fromEntries(result.rows.map((r) => [r.entryId, r.output?.tie_status]));
+      expect(status).toEqual({
+        [e(11)]: "above_cut",
+        [e(12)]: "above_cut",
+        [e(13)]: "tied_at_cut",
+        [e(14)]: "tied_at_cut",
+        [e(15)]: "tied_at_cut",
+        [e(16)]: "below_cut",
+        [e(17)]: "below_cut",
+        [e(18)]: "below_cut",
+      });
+      const cut = result.trace.find((t) => (t as { step: string }).step === "cut") as { data: Record<string, unknown> };
+      expect(cut.data).toMatchObject({
+        outcome: "blocked_tie_over_capacity",
+        cutTally: 2,
+        target: 4,
+        finalCapacity: cap,
+        advancingIfAllTied: 5,
+        tiedAtCut: [13, 14, 15].map(e),
+        aboveCut: [11, 12].map(e),
+        unresolved: true,
+      });
+      expect(result.warnings).toContain("advancement_unresolved_tie_over_capacity");
     }
+  });
+
+  it("unresolved: strictly-above couples are not advanced, no tie-break invented, scores preserved", () => {
+    const result = expectOk(run(callbackInput(F02, ENTRIES, 4, 4)));
+    const by = Object.fromEntries(result.rows.map((r) => [r.entryId, r]));
+    for (const n of [11, 12]) expect(by[e(n)].advanced).toBeNull();
+    const tied = [13, 14, 15].map((n) => by[e(n)]);
+    expect(new Set(tied.map((r) => r.output?.tally)).size).toBe(1);
+    expect(new Set(tied.map((r) => r.output?.callback_rank)).size).toBe(1);
+    for (const r of result.rows) {
+      expect(r.placement).toBeUndefined();
+      expect(r.tieGroup).toBeUndefined();
+      expect(Object.keys(r.output ?? {}).sort()).toEqual(r.output?.label ? ["callback_rank", "label", "tally", "tie_status"] : ["callback_rank", "tally", "tie_status"]);
+    }
+    expect(by[e(11)].output?.tally).toBe(3);
+    expect(by[e(16)].output?.label).toBe("Semi-final");
+    expect(by[e(13)].output).not.toHaveProperty("label");
+  });
+
+  it("unresolved: capacity null is treated like over capacity; capacity equal to the tie count resolves normally", () => {
+    const missing = expectOk(run(callbackInput(F02, ENTRIES, 4, null)));
+    expect(missing.rows.every((r) => r.advanced === null)).toBe(true);
+    const cut = missing.trace.find((t) => (t as { step: string }).step === "cut") as { data: Record<string, unknown> };
+    expect(cut.data).toMatchObject({ outcome: "blocked_tie_over_capacity", finalCapacity: null, capacityMissing: true, unresolved: true });
+    expect(expectOk(run(callbackInput(F02, ENTRIES, 4, 0))).rows.every((r) => r.advanced === null)).toBe(true);
+    const exact = expectOk(run(callbackInput(F02, ENTRIES, 4, 5)));
+    expect(exact.rows.filter((r) => r.advanced === true)).toHaveLength(5);
+    expect(exact.rows.some((r) => r.advanced === null)).toBe(false);
+  });
+
+  it("unresolved: deterministic across runs and shuffled input order (output, trace, hash)", () => {
+    const input = callbackInput(F02, ENTRIES, 4, 4);
+    const base = canonicalJson(expectOk(run(input)));
+    expect(canonicalJson(expectOk(run(input)))).toBe(base);
+    for (let seed = 1; seed <= 20; seed++) expect(canonicalJson(expectOk(run(shuffleInput(input, mulberry32(seed)))))).toBe(base);
   });
 
   it("F-CT-03 target not set: COMP_ENGINE_UNSPECIFIED_CASE", () => {
@@ -205,12 +262,12 @@ describe("studio_callback_tally@1 golden fixtures (engine-spec-callback-tally.md
       expect(result.rows).toHaveLength(7);
       expect(result.warnings).toEqual([`excluded_entries:${e(13)}`]);
     });
-    it("h: cap not supplied is fine without a tie and fails closed when a tie needs it", () => {
+    it("h: cap not supplied is fine without a tie and is unresolved (advanced null) when a tie needs it", () => {
       expect(advancedIds(run(callbackInput(F01, ENTRIES, 4, null)))).toHaveLength(4);
       for (const cap of [null, undefined, 0, 2.5]) {
         const input = callbackInput(F02, ENTRIES, 4, null);
-        const f = expectFail(run({ ...input, context: { ...input.context, finalCapacity: cap as never } }));
-        expect([f.code, f.reason]).toEqual(["COMP_ENGINE_UNSPECIFIED_CASE", "tie_over_capacity"]);
+        const result = expectOk(run({ ...input, context: { ...input.context, finalCapacity: cap as never } }));
+        expect(result.rows.every((row) => row.advanced === null)).toBe(true);
       }
     });
   });
@@ -314,7 +371,7 @@ describe("studio_callback_tally@1 properties", () => {
     }
   });
 
-  it("advancing set is exactly the entries at or above the T-th tally, or the run is blocked", () => {
+  it("advancing set is exactly the entries at or above the T-th tally, or the run is unresolved (all advanced null)", () => {
     const rand = mulberry32(31337);
     let advanced = 0;
     let blocked = 0;
@@ -327,9 +384,12 @@ describe("studio_callback_tally@1 properties", () => {
       const above = c.entries.filter((n) => tally.get(n)! >= cutTally);
       if (above.length > c.T && above.length > c.cap) {
         blocked++;
-        const f = expectFail(result);
-        expect(f.reason).toBe("tie_over_capacity");
-        expect(f.offendingIds).toEqual(c.entries.filter((n) => tally.get(n) === cutTally).map(e).sort());
+        const ok = expectOk(result);
+        expect(ok.rows.every((row) => row.advanced === null)).toBe(true);
+        expect(ok.rows).toHaveLength(c.entries.length);
+        expect(ok.rows.filter((row) => row.output?.tie_status === "tied_at_cut").map((row) => row.entryId).sort()).toEqual(
+          c.entries.filter((n) => tally.get(n) === cutTally).map(e).sort(),
+        );
       } else {
         advanced++;
         expect(advancedIds(result)).toEqual(above.map(e));

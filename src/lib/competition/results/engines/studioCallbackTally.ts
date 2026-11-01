@@ -4,8 +4,10 @@
  *
  * Yes-only marks; every judge gives exactly T eligible callbacks across the whole round; tally = count of yes;
  * the T-th highest tally is the cutoff and every entry at or above it advances when the count fits the final's
- * configured heat capacity. Over capacity: advancement is blocked (`tie_over_capacity`), with no manager pick and no
- * runoff (that process is not specified). T >= eligible: everyone advances and the round is not danced.
+ * configured heat capacity. Over capacity (or capacity unknown): the result is UNRESOLVED. The calculation completes and
+ * keeps scores and tie evidence, every row has advanced = null with tie_status above_cut/tied_at_cut/below_cut, and the
+ * engine neither advances extra couples nor breaks the tie. Resolution is outside the engine (an authorized, auditable
+ * workflow); no manager pick and no runoff here. T >= eligible: everyone advances and the round is not danced.
  * Entries not called back get the label "Semi-final" and no placement. Nothing carries into the Final.
  *
  * Ballot format: callback_yes@1 (round scope, one boolean `true` per selected entry).
@@ -181,9 +183,44 @@ function body(input: StudioEngineInput, trace: TraceRecord[], v: ValidationLog):
   if (above.length > T) {
     const capOk = typeof cap === "number" && Number.isInteger(cap) && cap >= 1;
     if (!capOk || above.length > cap) {
-      trace.push({ step: "cut", rule: `${rule} §6`, data: { ...cutData, outcome: "blocked_tie_over_capacity", tiedAtCut } });
-      // D-CT-4: no manager pick; blocked until a separately approved, auditable tie-break process exists. V15.
-      v.fail("V15", "tie at the cutoff fits the final capacity", UC, "tie_over_capacity", tiedAtCut, { capacityMissing: !capOk, advancing: above.length, finalCapacity: cap ?? null });
+      // D-CT-4 / owner policy: a tie at the cutoff that the Final cannot absorb (or an unknown capacity) is UNRESOLVED.
+      // The calculation completes and keeps every score and the tie evidence, but sets advanced = null on EVERY row:
+      // no extra couple advances, no tie-break is invented, nothing is committed. Resolution happens outside the engine
+      // through an authorized, auditable workflow; the database refuses approval/apply while any row is null.
+      const aboveCut = sorted.filter((e) => tally.get(e)! > cutTally);
+      trace.push({
+        step: "cut",
+        rule: `${rule} §6`,
+        data: {
+          ...cutData,
+          outcome: "blocked_tie_over_capacity",
+          cutTally,
+          target: T,
+          finalCapacity: capOk ? cap : null,
+          capacityMissing: !capOk,
+          advancingIfAllTied: above.length,
+          tiedAtCut,
+          aboveCut,
+          unresolved: true,
+        },
+      });
+      const unresolvedRows: EngineResultRow[] = calculated.map((entryId) => {
+        const t = tally.get(entryId)!;
+        const tieStatus = t > cutTally ? "above_cut" : t === cutTally ? "tied_at_cut" : "below_cut";
+        return {
+          entryId,
+          advanced: null,
+          output: {
+            tally: t,
+            callback_rank: position.get(entryId),
+            tie_status: tieStatus,
+            ...(tieStatus === "below_cut" ? { label: NOT_CALLED_BACK_LABEL } : {}),
+          },
+        };
+      });
+      trace.push({ step: "result", rule: `${rule} §4`, data: { advanced: [], notAdvanced: [], unresolved: true, unresolvedEntries: calculated } });
+      warnings.push("advancement_unresolved_tie_over_capacity");
+      return { rows: unresolvedRows, warnings };
     }
   }
   trace.push({ step: "cut", rule: `${rule} §6`, data: { ...cutData, outcome: above.length === T ? "exact_cut" : "advance_all_tied" } });
