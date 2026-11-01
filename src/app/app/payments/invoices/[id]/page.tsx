@@ -32,6 +32,11 @@ export default async function ClientInvoiceDetailPage({ params, searchParams }: 
     .order("position");
   const { data: clientRows } = await supabase.from("clients").select("id, first_name, last_name").eq("studio_id", viewer.studioId).order("first_name").limit(1000);
   const clients = (clientRows ?? []).map((c) => ({ id: c.id as string, name: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim() || "Unnamed client" }));
+  if (!clients.some((c) => c.id === inv.client_id)) {
+    // the list is capped; the invoice's own client must always be selectable or a save would silently re-point the invoice
+    const { data: own } = await supabase.from("clients").select("id, first_name, last_name").eq("id", inv.client_id as string).eq("studio_id", viewer.studioId).maybeSingle();
+    clients.unshift({ id: inv.client_id as string, name: `${own?.first_name ?? ""} ${own?.last_name ?? ""}`.trim() || "Current client" });
+  }
 
   const status = (inv.status as ClientInvoiceStatus) in CLIENT_INVOICE_STATUS_LABEL ? (inv.status as ClientInvoiceStatus) : "draft";
   const label = CLIENT_INVOICE_STATUS_LABEL[status];

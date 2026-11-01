@@ -60,10 +60,11 @@ export async function requestClientInvoiceProviderDraftAction(_prev: ClientInvoi
   }
   const actor = await authorizeClientInvoiceActor("draft");
   if (!actor) return { error: clientInvoiceErrorMessage("client_invoice_forbidden") };
-  const raw = formData.get("invoiceId");
+  const rawId = formData.get("invoiceId");
   const requestKey = formData.get("requestKey");
-  if (!isUuid(raw) || typeof requestKey !== "string" || !isUuid(requestKey)) return { error: clientInvoiceErrorMessage("client_invoice_not_found") };
+  if (!isUuid(rawId) || typeof requestKey !== "string" || !isUuid(requestKey)) return { error: clientInvoiceErrorMessage("client_invoice_not_found") };
 
+  const raw = rawId.toLowerCase();   // the SQL ownership function matches lowercase uuids only
   const port = getClientInvoiceCreationPort();
   if (!port) return { error: "Creating the invoice at Stripe is not available yet." };
   const result = await port.createProviderDraft({ actor, invoiceId: raw, requestKey });

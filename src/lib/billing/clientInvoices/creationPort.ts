@@ -10,7 +10,8 @@ import type { VerifiedClientInvoiceActor } from "./authorize";
  * Contract for the future implementation:
  *  - map the verified actor straight onto the orchestrator's AuthorizedBillingActor (same fields);
  *  - businessObjectType = "studio_client_invoice", businessObjectId = invoiceId, requestKey as given (it derives the Stripe idempotency key);
- *  - only on result.state === "registered": call studio_client_invoice_link_registration(invoice, studio, intent) with the SERVICE-ROLE client;
+ *  - read studio_client_invoice_creation_spec FIRST and keep its `version`; only on result.state === "registered" call
+ *    studio_client_invoice_link_registration(invoice, studio, intent, expectedVersion = that version) with the SERVICE-ROLE client (an edit in between is refused);
  *  - never finalize / send / pay; never return a payment URL.
  */
 export type ClientInvoiceCreationPort = {
