@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { classifyEvents } from "../classify";
 import { listUndelivered, redeliverUndelivered } from "../ops";
 import { runPriceMonitor, runPriceWatchdog } from "../monitor";
-import { FakeTransport, TransportError, type MonitorConfig } from "../transport";
+import { FakeTransport, TransportError, renderAlertText, type MonitorConfig } from "../transport";
 import { ackToken, confirmDeliveryVerification, startDeliveryVerification } from "../verifyDelivery";
 import { MONITOR_RPCS } from "../types";
 import { FakeDb } from "./fakeDb";
@@ -24,6 +24,23 @@ describe("D4-2 audit: event kinds from the authorization workstream", () => {
     expect(ev("credential_revocation_accepted")).toMatchObject({ code: "credential_revocation_accepted", severity: "warning" });
     expect(ev("event_emit_failed")).toMatchObject({ code: "event_emit_failed", severity: "critical" });
     expect(ev("credential_compromise_reported").severity).toBe("critical");
+    expect(ev("price_integrity_failure")).toMatchObject({ code: "price_integrity_failure", severity: "critical" });
+    expect(ev("price_authorization_started")).toMatchObject({ code: "price_authorization_started", severity: "info" });
+  });
+
+  it("price_authorization_started shows a valid 16-hex fingerprint in the alert text, and ignores a malformed one", async () => {
+    const s = setup();
+    s.db.eventRows = [
+      { seq: 1, kind: "price_authorization_started", occurred_at: "2026-11-01T11:00:00Z", subject_user_id: null, detail: { fingerprint: "0123456789abcdef" } },
+      { seq: 2, kind: "price_authorization_started", occurred_at: "2026-11-01T11:01:00Z", subject_user_id: null, detail: { fingerprint: "not-hex" } },
+    ];
+    const out = await runPriceMonitor(s.deps);
+    expect(out.findings.map((f) => f.code)).toEqual(["price_authorization_started", "price_authorization_started"]);
+    expect(out.findings[0].message).toContain("fingerprint 0123456789abcdef");
+    expect(out.findings[1].message).not.toContain("fingerprint");
+    const text = renderAlertText(s.transports[0].sent[0]);
+    expect(text).toContain("0123456789abcdef");
+    expect(s.transports[0].sent[0].severity).toBe("info");
   });
 });
 
