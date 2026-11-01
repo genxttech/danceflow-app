@@ -239,7 +239,7 @@ describe("review fixes: refused answers and credential ceremonies", () => {
   it("credential actions: aal2 guard first, shapes validated before any client, no actor sent, answers passed through", async () => {
     const calls: [() => Promise<unknown>][] = [
       [() => priceCredBegin({ purpose: "thaw" })], [() => priceCredEnroll({} as never)], [() => priceCredRevoke({} as never)],
-      [() => priceThaw({} as never)], [() => priceCredApply(REQ)], [() => priceCredCancel(REQ)], [() => priceCredPending()],
+      [() => priceThaw({} as never)], [() => priceCredApply(REQ)], [() => priceCredCancel({} as never)], [() => priceCredPending()],
     ];
     const built = clientsBuilt;
     for (const [c] of calls) {
@@ -257,10 +257,16 @@ describe("review fixes: refused answers and credential ceremonies", () => {
     expect(await priceCredEnroll({ nonce: ID } as never)).toMatchObject({ ok: false });
     expect(await priceThaw({ nonce: ID, credentialId: ID, authData: ID, clientData: ID, signature: "" })).toMatchObject({ ok: false });
     expect(await priceCredApply("nope")).toMatchObject({ ok: false });
-    expect(await priceCredCancel("nope")).toMatchObject({ ok: false });
+    expect(await priceCredCancel({ changeId: REQ, nonce: ID, credentialId: ID, authData: ID, clientData: ID, signature: "" })).toMatchObject({ ok: false });
+    expect(await priceCredBegin({ purpose: "cancel", changeId: "nope" })).toMatchObject({ ok: false });
     expect(rpc.length).toBe(n);
     replies.tw4_price_cred_begin = { data: { nonce: ID, challenge: ID, rp_id: "admin.example.test", allow_credentials: [ID] } };
     expect(await priceCredBegin({ purpose: "thaw" })).toMatchObject({ ok: true, data: { rpId: "admin.example.test", allowCredentials: [ID] } });
+    replies.tw4_price_cred_begin = { data: { nonce: ID, challenge: ID, rp_id: "admin.example.test", allow_credentials: [ID] } };
+    expect(await priceCredBegin({ purpose: "cancel", changeId: REQ })).toMatchObject({ ok: true });
+    expect(rpc.at(-1)).toEqual({ fn: "tw4_price_cred_begin", args: { p_purpose: "cancel", p_cred_id: null, p_x: null, p_y: null, p_role: null, p_label: REQ } });
+    replies.tw4_price_cred_cancel = { data: { status: "rejected", reason: "nope" } };
+    expect(await priceCredCancel({ changeId: REQ, nonce: ID, credentialId: ID, authData: ID, clientData: ID, signature: ID })).toMatchObject({ ok: true, data: { status: "rejected", reason: "nope" } });
     replies.tw4_price_thaw = { data: { status: "refused", reason: "stale" } };
     expect(await priceThaw({ nonce: ID, credentialId: ID, authData: ID, clientData: ID, signature: ID })).toMatchObject({ ok: true, data: { status: "refused", reason: "stale" } });
     replies.tw4_price_cred_pending = { data: { pending: [{ change_id: REQ, kind: "enroll", label: "spare", role: "spare", effective_at: "2026-11-02T00:00:00Z" }, { kind: "bogus" }], credentials: [{ id: ID, role: "primary", label: "main" }, { id: "!!" }] } };

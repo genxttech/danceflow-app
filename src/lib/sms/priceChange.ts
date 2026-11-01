@@ -215,8 +215,9 @@ export class PriceChangeStore {
   }
 
   // ---- credential ceremonies (enrol / revoke / thaw are PENDING requests or hardware-key lifts; nothing here takes effect without the database's checks)
-  async credBegin(args: { purpose: "enroll" | "revoke" | "thaw"; credentialId?: string | null; x?: string | null; y?: string | null; role?: string | null; label?: string | null }): Promise<CredChallenge> {
-    const row = await this.call("tw4_price_cred_begin", { p_purpose: args.purpose, p_cred_id: args.credentialId ?? null, p_x: args.x ?? null, p_y: args.y ?? null, p_role: args.role ?? null, p_label: args.label ?? null });
+  async credBegin(args: { purpose: "enroll" | "revoke" | "thaw" | "cancel"; credentialId?: string | null; x?: string | null; y?: string | null; role?: string | null; label?: string | null; changeId?: string | null }): Promise<CredChallenge> {
+    // a cancel ceremony names the pending change (the database carries its id in the label slot)
+    const row = await this.call("tw4_price_cred_begin", { p_purpose: args.purpose, p_cred_id: args.credentialId ?? null, p_x: args.x ?? null, p_y: args.y ?? null, p_role: args.role ?? null, p_label: args.purpose === "cancel" ? (args.changeId ?? null) : (args.label ?? null) });
     const ids = Array.isArray(row.allow_credentials) ? row.allow_credentials.filter(isB64u) : [];
     const rpId = str(row.rp_id);
     if (!isB64u(row.nonce) || !isB64u(row.challenge) || !rpId || ids.length === 0) throw new PriceChangeError("unknown");
@@ -245,8 +246,9 @@ export class PriceChangeStore {
     return { status: str((await this.call("tw4_price_cred_apply", { p_change_id: changeId })).status) };
   }
 
-  async credCancel(changeId: string): Promise<{ status: string | null }> {
-    return { status: str((await this.call("tw4_price_cred_cancel", { p_change_id: changeId })).status) };
+  async credCancel(a: Record<"changeId" | "nonce" | "credentialId" | "authData" | "clientData" | "signature", string>): Promise<{ status: string | null; reason: string | null }> {
+    const row = await this.call("tw4_price_cred_cancel", { p_change_id: a.changeId, p_nonce: a.nonce, p_cred: a.credentialId, p_auth: a.authData, p_client: a.clientData, p_sig: a.signature });
+    return { status: str(row.status), reason: str(row.reason) };
   }
 
   async credState(): Promise<CredentialState> {

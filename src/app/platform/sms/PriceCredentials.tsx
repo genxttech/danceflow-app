@@ -127,10 +127,21 @@ export default function PriceCredentials() {
       return r.data.status === "thawed" ? "Publication resumed." : `The database refused: ${r.data.reason ?? "unknown reason"}. Nothing changed.`;
     });
 
-  const act = (fn: (id: string) => ReturnType<typeof priceCredApply>, id: string) =>
+  const apply = (id: string) =>
     run(async () => {
-      const r = await fn(id);
+      const r = await priceCredApply(id);
       return r.ok ? `Done: ${r.data.status ?? "ok"}.` : r.message;
+    });
+
+  // cancelling a pending change is a hardware-key act: a session alone cannot do it
+  const cancel = (id: string) =>
+    run(async () => {
+      const b = await priceCredBegin({ purpose: "cancel", changeId: id });
+      if (!b.ok) return b.message;
+      const s = await sign(b.data);
+      const r = await priceCredCancel({ changeId: id, nonce: b.data.nonce, credentialId: s.credentialId, authData: s.auth, clientData: s.client, signature: s.sig });
+      if (!r.ok) return r.message;
+      return r.data.status === "cancelled" ? "Cancelled." : `The database refused: ${r.data.reason ?? "unknown reason"}. Nothing changed.`;
     });
 
   return (
@@ -148,8 +159,8 @@ export default function PriceCredentials() {
           <li key={p.changeId} className="flex items-center justify-between gap-2 text-amber-900">
             <span>Pending {p.kind}{p.label ? `: ${p.label}` : ""}, effective {p.effectiveAt ?? "later"}</span>
             <span className="flex gap-1">
-              <button type="button" disabled={busy} onClick={() => act(priceCredApply, p.changeId)} className="rounded border border-slate-300 px-2 py-0.5 disabled:opacity-60">Apply</button>
-              <button type="button" disabled={busy} onClick={() => act(priceCredCancel, p.changeId)} className="rounded border border-slate-300 px-2 py-0.5 disabled:opacity-60">Cancel</button>
+              <button type="button" disabled={busy} onClick={() => apply(p.changeId)} className="rounded border border-slate-300 px-2 py-0.5 disabled:opacity-60">Apply</button>
+              <button type="button" disabled={busy} onClick={() => cancel(p.changeId)} className="rounded border border-slate-300 px-2 py-0.5 disabled:opacity-60">Cancel with key</button>
             </span>
           </li>
         ))}
