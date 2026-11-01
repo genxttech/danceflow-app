@@ -33,10 +33,27 @@ Ballot submits wait for the `?saved=`/`?error=` redirect; alerts target `main [r
 |---|---|---|---|
 | U80 non-callback regression | A3 DB checks PASS | SCN-R80 PASS (r35) | met |
 | U81 each discipline family and scoring method | A3 DB checks PASS (5 labelled) | R81 PASS for "Final only (ordinal majority)" (r35); SCN-R81-callback PASS (r38): a callback round refuses to lock ballots (COMP_ROSTER_ENTRY_UNAVAILABLE) while a ranked couple is ineligible and locks after eligibility is restored. Owner decision 2026-11-01: browser proof required. Both setups the wizard offers are now covered in the browser. | met (cancelled/refunded variants need R2 refunds #292) |
-| U82 comped/manual entries | A1, A3 PASS (9 labelled) | none: no UI creates an entry without a registration or order (entries come only from registration checkout). | **DEFERRED by owner decision 2026-11-01.** Browser proof required and not producible today; no comped-registration substitute and no new entry screen authorized. RB1(b) stays open until U82 has a creation path and browser proof, or the owner changes the acceptance contract. |
+| U82 comped/manual entries | A1, A3 PASS (9 labelled) | N/A: no UI creates an entry without a registration or order (entries come only from registration checkout). The original contract requires browser testing only if a manual-entry screen exists. | **SQL PASS / Browser N/A, ACCEPTED by owner 2026-11-01** for the initial CF1 release (supersedes the earlier deferral). Browser N/A is not PASS; a comped registration is not substitute evidence; no manual-entry UI is built for U82; if a manual-entry workflow is built later it needs its own browser acceptance before activation. Not a waiver of the financial-integrity rules. |
 | U83 byte-identical evidence | A3 PASS (2 labelled) | SCN-R83 PASS (r35) | met |
-| U85 existing suites | 13 suites PASS on composed chain; A1 suite PASS 132 checks / 5 blocked on the A1-only chain and on the A1+A0..A7 chain (an earlier "no verdict" came from a stale suite copy lacking commit ff115943; the runner logs an empty verdict silently, fix recommended, not applied) | n/a (SQL gate by definition) | met on SQL |
+| U85 existing suites | 13 suites PASS on the composed chain at 17250a4e (full chain, earlier report). Re-run 2026-11-01 on a disposable PARTIAL chain with A0 at 21cedfe1 via run_c2.sh: hl1 42, e2 211, e2p1 10, f2 198, o1 95, ss1adv 13, ss1lock 36, ns1 152, cx1 15, k1 23, reg 80, p10d 79, p10d1 22 checks, all PASS; A1 132 checks / 5 blocked PASS; A0 198/5, A2 32, A3 113/4, A4a 63/2, A5 187/4, A6 230/3, A7 74/1, A4 55/3 PASS; compose, reverse-rollback and re-apply fingerprints 0 diff; runner SUITE SUMMARY 0 no verdict, 0 failed. (Partial and full counts are not merged.) | n/a (SQL gate) | met on SQL |
 OD-17 protections remain disabled for live events; RB1(b) is not closed by any of this.
 
 ## Local gateway 502 (kept separate from the harness)
 Kong (local QA stack) returns 502 to occasional RPC POSTs ("upstream prematurely closed connection", keepalive race). Effects seen: a 404 on the results page (before B 2e4de6e1 stopped mapping 5xx to 404) and a panel status of "Unknown". The harness now reloads and retries the panel status; that masks, not fixes, the stack fault. Not fixed: Kong upstream keepalive on the QA stack (not production; production has no Kong in the path).
+
+## RB1(b) closeout (2026-11-01)
+RB1(b) requires the cross-discipline regression suite to pass: U80, U81, U82, U83, U85. Final matrix:
+| Gate | Result | Evidence |
+|---|---|---|
+| U80 | Browser PASS (+ SQL PASS) | SCN-R80 r35 |
+| U81 | Browser PASS for Callback and Final-only (+ SQL PASS) | SCN-R81 r35 (Final only), SCN-R81-callback r38 (Callbacks + Final) |
+| U82 | SQL PASS / Browser N/A, accepted by owner | see U82 row |
+| U83 | Browser PASS (+ SQL PASS) | SCN-R83 r35 |
+| U85 | SQL PASS | partial-chain re-run above, current heads |
+**RB1(b): CLOSED**, under these conditions that the closeout does not hide: (1) the browser evidence ran on a local composed tree (cf1/integration 17250a4e + F1 4c9cefc6 + B 3b7aa59c + A0 21cedfe1 function loaded into the local QA database) with a QA-only registration of the F1 engines that is not in any PR (the integration branch competition-int-f1f2-registration carries the equivalent registration and must be rebuilt with the final heads before merge); (2) payments are fixture-seeded; (3) U85 on the final heads is a partial-chain result, the full-chain result is from 17250a4e. RB1 as a whole is NOT closed here: part (a) (every recovery path, including RB2) is a separate gate. RB2, RB3, RB4 are untouched. OD-17 stays disabled for live events; this closeout authorizes no release.
+
+## Runner fix (run_c2.sh and run_c.sh in C:Devcf1c-qa-run, outside the repository; backups *.bak-20261101)
+run() now logs "NO VERDICT" when a suite prints neither SUITE PASS nor SUITE FAIL, counts it, counts FAILs, logs "SUITE SUMMARY: n suite(s) with NO VERDICT, m FAILED" and the script exits 6 when either is non-zero. Verified: stubbed-docker test (PASS, FAIL, abort and empty outputs gave PASS, FAIL, NO VERDICT, NO VERDICT; counters 2 and 1) and a real partial-chain run (summary 0/0, exit 0). The end-of-script exit 6 path was verified by syntax only.
+
+## Still not verified
+A3 lock-probe script ("cannot create a3probe"; U61 lock-probe part), owner A3/A4 harness, unchanged from earlier reports. Kong 502 fault on the QA stack is tracked separately and is not fixed.
