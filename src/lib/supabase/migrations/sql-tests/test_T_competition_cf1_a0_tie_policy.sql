@@ -13,7 +13,7 @@
 -- Coverage map (assertion -> section):
 --   (a) calculate stores the blocked version, evidence intact, no authorization rows ........ section 2
 --   (b) approve refused COMP_ADVANCEMENT_BLOCKED, nothing changes ............................ section 3
---   (c) preview state 'blocked' (the BLOCKED code itself is reachable only on an approved version) ... section 4
+--   (c) preview state 'blocked' naming COMP_ADVANCEMENT_BLOCKED / tie_over_capacity (calculated, stale and approved-replica arms) ... section 4, 8
 --   (d) apply refused, nothing written ............................................................ section 5
 --   (e) no override path (history guards, grants, direct writes) ............................. section 6
 --   (f) capacity raise / lowering / F1 raise-to-T refused ........................................ section 7
@@ -383,13 +383,16 @@ create temp table t_pv1 on commit drop as select pg_temp.preview(1) as r;
 grant all on t_pv1 to authenticated, anon, service_role;
 select pg_temp.chk('11.4b(c) preview of the calculated blocked-tie round is state blocked, never ready, and lists no advanced entries',
   (select r ->> 'state' = 'blocked' and jsonb_array_length(r -> 'blockers') >= 1 and r -> 'advanced_entries' = '[]'::jsonb from t_pv1), (select r::text from t_pv1));
--- FINDING (documented, not changed): the preview reads the latest APPROVED version only, so for a calculated blocked version its blockers are the
--- SOURCE_STATE arms (round not approved / no approved version); COMP_ADVANCEMENT_BLOCKED appears only for an approved version with NULL rows, which
--- the approval trigger makes unreachable through the lifecycle. The tie is therefore not named in the preview of an unapproved blocked version.
-select pg_temp.chk('11.4b(c) actual blocker codes for the calculated blocked version are the SOURCE_STATE arms (round not approved, no approved version)',
-  (select bool_and(b ->> 'code' = 'COMP_ADVANCEMENT_SOURCE_STATE') from t_pv1, jsonb_array_elements(r -> 'blockers') b), (select (r -> 'blockers')::text from t_pv1));
-select pg_temp.blocked('11.4b(c) preview of a calculated blocked-tie version carries the code COMP_ADVANCEMENT_BLOCKED',
-  'NOT MET by the SQL: the preview selects only the latest approved version, so the tie code is not surfaced until a version is approved (and an approved version can never hold NULL rows). Report to owner; a SQL change needs separate approval.');
+-- Owner tie policy: advancement stays UNRESOLVED and the preview names the tie. The preview evaluates the round's newest version whatever its status.
+select pg_temp.chk('11.4b(c) actual blocker codes for the calculated blocked version: the two SOURCE_STATE arms (round not approved, no approved version) plus COMP_ADVANCEMENT_BLOCKED',
+  (select count(*) filter (where b ->> 'code' = 'COMP_ADVANCEMENT_SOURCE_STATE') = 2 and count(*) filter (where b ->> 'code' = 'COMP_ADVANCEMENT_BLOCKED') = 1
+          and bool_and(b ->> 'code' in ('COMP_ADVANCEMENT_SOURCE_STATE', 'COMP_ADVANCEMENT_BLOCKED')) from t_pv1, jsonb_array_elements(r -> 'blockers') b), (select (r -> 'blockers')::text from t_pv1));
+select pg_temp.chk('11.4b(c) preview of a calculated blocked-tie version carries COMP_ADVANCEMENT_BLOCKED with detail.reason = tie_over_capacity, the version number and its status (calculated)',
+  (select exists (select 1 from jsonb_array_elements(r -> 'blockers') b
+                  where b ->> 'code' = 'COMP_ADVANCEMENT_BLOCKED' and b #>> '{detail,reason}' = 'tie_over_capacity'
+                    and (b #>> '{detail,version}')::int = 1 and b #>> '{detail,version_status}' = 'calculated') from t_pv1), (select (r -> 'blockers')::text from t_pv1));
+select pg_temp.chk('11.4b(c) the tie preview is read-only and keeps its other keys (state blocked, no advanced entries, no result_version_id)',
+  (select r ->> 'state' = 'blocked' and r -> 'advanced_entries' = '[]'::jsonb and r -> 'result_version_id' = 'null'::jsonb from t_pv1));
 -- The defensive arm: an APPROVED version that holds NULL rows. The lifecycle cannot produce one (the approval trigger refuses it, section 3); a hand-edited
 -- or pre-guard database could. Built as a replica fixture (as the A0 suite's scenario 13) so the preview and apply BLOCKED arms are exercised.
 select pg_temp.mk(4, 3);
@@ -404,7 +407,7 @@ create temp table t_pv4 on commit drop as select pg_temp.preview(4) as r;
 create temp table t_apv4 on commit drop as select pg_temp.apply_adv(4, 1) as r;
 grant all on t_s4_pre, t_pv4, t_apv4 to authenticated, anon, service_role;
 select pg_temp.chk('11.4b(c) defensive arm: preview of an approved version with NULL rows is state blocked and names COMP_ADVANCEMENT_BLOCKED',
-  (select r ->> 'state' = 'blocked' and exists (select 1 from jsonb_array_elements(r -> 'blockers') b where b ->> 'code' = 'COMP_ADVANCEMENT_BLOCKED') and r -> 'advanced_entries' = '[]'::jsonb from t_pv4), (select r::text from t_pv4));
+  (select r ->> 'state' = 'blocked' and (select count(*) = 1 from jsonb_array_elements(r -> 'blockers') b where b ->> 'code' = 'COMP_ADVANCEMENT_BLOCKED' and b -> 'detail' is null) and r -> 'advanced_entries' = '[]'::jsonb from t_pv4), (select r::text from t_pv4));
 select pg_temp.chk('11.4b(d) defensive arm: apply of an approved version with NULL rows is refused COMP_ADVANCEMENT_BLOCKED and nothing is written',
   (select r ->> 'error' like 'COMP_ADVANCEMENT_BLOCKED%' from t_apv4) and pg_temp.snap(4) = (select s from t_s4_pre), (select r::text from t_apv4));
 
@@ -585,6 +588,10 @@ create temp table t_apv1c on commit drop as select pg_temp.apply_adv(1, 1) as r;
 grant all on t_pv1c, t_ap1c, t_apv1c to authenticated, anon, service_role;
 select pg_temp.chk('11.4b(h) the stale blocked version cannot be approved or applied during the correction (nothing advances)',
   (select r ->> 'error' is not null from t_ap1c) and (select r ->> 'error' is not null from t_apv1c) and (select r ->> 'state' = 'blocked' from t_pv1c));
+select pg_temp.chk('11.4b(c) preview while the blocked version is stale (correction open): still names the tie, version 1, version_status stale',
+  (select exists (select 1 from jsonb_array_elements(r -> 'blockers') b
+                  where b ->> 'code' = 'COMP_ADVANCEMENT_BLOCKED' and b #>> '{detail,reason}' = 'tie_over_capacity'
+                    and (b #>> '{detail,version}')::int = 1 and b #>> '{detail,version_status}' = 'stale') from t_pv1c), (select (r -> 'blockers')::text from t_pv1c));
 select pg_temp.chk('11.4b(g) a replacement ballot is refused before the co-sign (COMP_CORRECTION_COSIGN_REQUIRED): a judge alone cannot change the tie',
   pg_temp.code(pg_temp.file(1, 13, array[1, 2, 3], 'entry error')) = 'COMP_CORRECTION_COSIGN_REQUIRED');
 select pg_temp.chk('11.4b(g) the opener cannot co-sign their own correction (COMP_CORRECTION_COSIGN_SAME_PERSON)', pg_temp.code(pg_temp.cosign(1, 1)) = 'COMP_CORRECTION_COSIGN_SAME_PERSON');
@@ -606,6 +613,11 @@ select pg_temp.chk('11.4b(g) the tie dissolved from the ballots alone: v2 rows a
 select pg_temp.chk('11.4b(h) the earlier blocked version and its evidence remain intact after the recalculation (rows still NULL, same content)',
   (select jsonb_agg(jsonb_build_array(entry_id, advanced, output) order by entry_id) = (select rows_json from t_ev1_pre) from public.event_competition_result_rows where result_version_id = pg_temp.vid(1, 1))
   and (select input::text || trace::text || input_hash || trace_hash = (select evidence from t_ev1_pre) from public.event_competition_result_versions where id = pg_temp.vid(1, 1)));
+create temp table t_pv1b on commit drop as select pg_temp.preview(1) as r;
+grant all on t_pv1b to authenticated, anon, service_role;
+select pg_temp.chk('11.4b(c) control: preview of a calculated NON-tie version (v2, no NULL rows; v1 superseded) does NOT carry COMP_ADVANCEMENT_BLOCKED (only the SOURCE_STATE arms)',
+  (select not exists (select 1 from jsonb_array_elements(r -> 'blockers') b where b ->> 'code' = 'COMP_ADVANCEMENT_BLOCKED')
+          and exists (select 1 from jsonb_array_elements(r -> 'blockers') b where b ->> 'code' = 'COMP_ADVANCEMENT_SOURCE_STATE') from t_pv1b), (select (r -> 'blockers')::text from t_pv1b));
 create temp table t_ap1d on commit drop as select pg_temp.approve(1, 1, 2) as r;
 create temp table t_ap1e on commit drop as select pg_temp.approve(1, 2, 2) as r;
 grant all on t_ap1d, t_ap1e to authenticated, anon, service_role;
@@ -645,6 +657,10 @@ create temp table t_ap7 on commit drop as select pg_temp.approve(7, 2, 2) as r;
 create temp table t_apv7 on commit drop as select pg_temp.apply_adv(7, 2) as r;
 create temp table t_pv7 on commit drop as select pg_temp.preview(7) as r;
 grant all on t_ap7, t_apv7, t_pv7 to authenticated, anon, service_role;
+select pg_temp.chk('11.4b(c) preview of the re-blocked live v2 names the tie for version 2 (calculated), not the superseded v1',
+  (select exists (select 1 from jsonb_array_elements(r -> 'blockers') b
+                  where b ->> 'code' = 'COMP_ADVANCEMENT_BLOCKED' and b #>> '{detail,reason}' = 'tie_over_capacity'
+                    and (b #>> '{detail,version}')::int = 2 and b #>> '{detail,version_status}' = 'calculated') from t_pv7), (select (r -> 'blockers')::text from t_pv7));
 select pg_temp.chk('11.4b(g) the still-blocked v2: approve refused COMP_ADVANCEMENT_BLOCKED, apply refused, preview blocked, nothing advanced',
   (select r ->> 'error' like 'COMP_ADVANCEMENT_BLOCKED%' from t_ap7) and (select r ->> 'error' is not null from t_apv7) and (select r ->> 'state' = 'blocked' from t_pv7)
   and (select (s::jsonb ->> 'adv')::int = 0 and (s::jsonb ->> 'final_heats')::int = 0 and (s::jsonb ->> 'approvals')::int = 0 from (select pg_temp.snap(7) s) x), (select r::text from t_ap7) || (select r::text from t_apv7));
