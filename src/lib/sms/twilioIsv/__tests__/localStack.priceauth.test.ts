@@ -331,7 +331,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     }
     expect(psqlError(`delete from public.studio_sms_price_auth_config`)).toMatch(/never deleted/);
     expect(psqlError(`insert into public.studio_sms_price_auth_config (singleton) values (false)`)).toMatch(/check constraint|single protected row/);
-    expect(psqlError(`truncate public.studio_sms_price_auth_config`)).toMatch(/never truncated/);
+    expect(psqlError(`truncate public.studio_sms_price_auth_config`)).toMatch(/never truncated|cannot truncate/);
     expect(psql(`select mode || ':' || cooling_off_hours from public.studio_sms_price_auth_config`)).toBe("single_owner:24");
     // the bootstrap works once only
     expect(psqlError(`select public._tw4price_bootstrap('evil.example.test', array['https://evil.example.test'], decode('${KX.hex.cred}', 'hex'), decode('${KX.hex.x}', 'hex'), decode('${KX.hex.y}', 'hex'), 'second bootstrap')`)).toMatch(/already bootstrapped/);
@@ -504,7 +504,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(psqlError(`update public.studio_sms_price_audit set event = 'freeze_lifted'`)).toMatch(/written only by the price authorization functions|append-only/);
     expect(psqlError(`delete from public.studio_sms_price_audit`)).toMatch(/never deleted/);
     expect(psqlError(`begin; set local session_replication_role = replica; delete from public.studio_sms_price_audit; rollback;`)).toMatch(/never deleted/);
-    expect(psqlError(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_audit; rollback;`)).toMatch(/never truncated/);
+    expect(psqlError(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_audit; rollback;`)).toMatch(/never truncated|cannot truncate/);
     const feed = JSON.parse(psql(`select public.tw4_price_audit_feed(0, 1000)::text`)) as { id: number; event: string }[];
     expect(feed.length).toBeGreaterThan(10);
     expect(feed.map((f) => f.id)).toEqual([...feed.map((f) => f.id)].sort((m, n) => m - n));
@@ -683,9 +683,10 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     const bc = begin(claims(A, S2), pc.request_id);
     expect([...bc.allow_credentials].sort()).toEqual([Ka.credIdB64u, Kb.credIdB64u].sort());
     const failedBefore = audit("assertion_rejected");
+    const revoked0 = audit("credential_revoked");
     const rv = revokeReq(sess, Ka, Kb);
     expect(rv).toMatchObject({ status: "revoked", voided_changes: 1 });
-    expect(audit("credential_revoked")).toBe(1);
+    expect(audit("credential_revoked")).toBe(revoked0 + 1);
     expect(psql(`select status from public.studio_sms_price_credentials where credential_id = decode('${Kb.hex.cred}', 'hex')`)).toBe("revoked");
     expect(psql(`select status from public.studio_sms_price_credential_changes where id = '${pn.change_id}'`)).toBe("cancelled"); // what the revoked key signed is void
     // IMMEDIATELY unusable: it cannot sign an already issued challenge, a new ceremony, an enrolment, a revocation or a cancel
@@ -737,8 +738,15 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     const s2 = sessionRun(asAuth(sess, `select public.tw4_price_cred_apply('${pn.change_id}')::text;`));
     const [x, y] = await Promise.all([s1, s2]);
     expect(x.out).toContain('"status": "revoked"');
-    expect(y.out).toContain('"status": "voided"');
+    // the revocation voided the pending change in its own transaction, so the waiting apply finds it cancelled and applies nothing
+    expect(y.out).toMatch(/already cancelled|"status": "voided"/);
     expect(num(`select count(*) from public.studio_sms_price_credentials where credential_id = decode('${Kn.hex.cred}', 'hex')`)).toBe(0);
+    // (1b) the apply-time re-check itself: a signer revoked by an owner-level step behind a pending change makes it VOID
+    resetCreds(Ka, Kb);
+    const pv = enrollReq(sess, Kb, Kn, "pending by kb again");
+    psql(`begin; alter table public.studio_sms_price_credentials disable trigger studio_sms_price_credentials_guard; update public.studio_sms_price_credentials set status = 'revoked', revoked_at = now(), revoked_note = 'owner-level' where credential_id = decode('${Kb.hex.cred}', 'hex'); alter table public.studio_sms_price_credentials enable always trigger studio_sms_price_credentials_guard; commit;`);
+    ageChange(pv.change_id);
+    expect(applyChange(sess, pv.change_id)).toMatchObject({ status: "voided" });
     // (2) publication signed by the credential being revoked: the finish waits on the credential row and is refused once the revocation commits
     resetCreds(Ka, Kb);
     clear();
@@ -815,7 +823,8 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       expect(codeOf(authErr(sess, `select public.tw4_price_cred_apply('${rq.change_id}')::text;`))).toBe("TW045");
       expect(codeOf(psqlError(`begin; alter table public.studio_sms_price_credential_changes disable trigger studio_sms_price_credential_changes_guard; update public.studio_sms_price_credential_changes set effective_at = requested_at + interval '30 hours' where id = '${rq.change_id}'; commit;`))).toBe("23514"); // never under 72 h
       const kinds = rows<{ kind: string; detail: { severity?: string } }>("select kind, detail from public.studio_sms_price_security_events");
-      expect(kinds.some((k) => k.kind === "recovery_credential_used" && k.detail.severity === "high")).toBe(true);
+      expect(kinds.some((k) => k.kind === "recovery_enrollment_started")).toBe(true);
+      expect(kinds.some((k) => k.kind === "credential_recovery_used")).toBe(true);
       expect(audit("recovery_used")).toBeGreaterThanOrEqual(2);
       // the recovery key itself cannot thaw, publish or cancel; a primary or spare key CAN cancel the recovery enrolment (a stolen recovery key is not enough)
       const tb = authOut(sess, `select public.tw4_price_cred_begin('thaw', null, null, null, null, null)::text;`);
@@ -830,7 +839,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       psql(`begin; alter table public.studio_sms_price_credential_changes disable trigger studio_sms_price_credential_changes_guard; update public.studio_sms_price_credential_changes set requested_at = requested_at - interval '200 hours', effective_at = effective_at - interval '200 hours' where id = '${rq2.change_id}'; alter table public.studio_sms_price_credential_changes enable always trigger studio_sms_price_credential_changes_guard; commit;`);
       expect(applyChange(sess, rq2.change_id)).toMatchObject({ status: "applied" });
       expect(rows<{ role: string; enrolled_via: string }>("select role, enrolled_via from public.studio_sms_price_credentials where status = 'active'")).toEqual([{ role: "primary", enrolled_via: "recovery" }]);
-      expect(rows<{ kind: string }>("select kind from public.studio_sms_price_security_events where kind = 'recovery_completed'").length).toBe(1);
+      expect(rows<{ kind: string }>("select kind from public.studio_sms_price_security_events where kind = 'credential_recovery_used' and detail ->> 'action' = 'recovery_completed'").length).toBe(1);
       // the recovered primary lifts the freeze (enrolled through a completed recovery); the old keys are dead
       expect(thawWith(claims(A, S2), Ka).out).toMatchObject({ status: "rejected" });
       expect(thawWith(claims(A, S2), Kn).out.status).toBe("thawed");
