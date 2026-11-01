@@ -1,33 +1,48 @@
 -- Rollback of 20270208090000_d24_m3a_intent_ledger.sql. REFUSES (unless `set d24.m3a_rollback_exported = 'yes';` was run in the same session AFTER exporting
--- hosted_invoice_creation_intents and hosted_invoice_creation_intent_events) while any intent or audit row exists: export first.
--- Stop the creation flow first (nothing may create invoices while the ledger is gone). Restores the M1 d24_register_invoice VERBATIM
+-- hosted_invoice_creation_intents, hosted_invoice_creation_intent_events and hosted_invoice_creation_attempts) while any intent, event or attempt row exists: export first.
+-- Stop the creation flow and the operator functions first (nothing may create invoices while the ledger is gone). Restores the M1 d24_register_invoice VERBATIM
 -- (caller-supplied account, per-account lock only): after this rollback the M2-A blockers are open again, so the creation integration must not run.
--- Registry rows created through the ledger stay (they are M1 evidence).
+-- Registry rows created through the ledger stay (they are M1 evidence). Registered business-object types and the safe-retry window config are dropped with their tables.
 begin;
 set local lock_timeout = '5s';
-lock table public.hosted_invoice_creation_intents, public.hosted_invoice_creation_intent_events, public.hosted_invoice_business_object_types in access exclusive mode;
+lock table public.hosted_invoice_creation_intents, public.hosted_invoice_creation_intent_events, public.hosted_invoice_creation_attempts,
+  public.hosted_invoice_business_object_types, public.hosted_invoice_creation_config in access exclusive mode;
 do $$
 begin
-  if (exists (select 1 from public.hosted_invoice_creation_intents) or exists (select 1 from public.hosted_invoice_creation_intent_events))
+  if (exists (select 1 from public.hosted_invoice_creation_intents) or exists (select 1 from public.hosted_invoice_creation_intent_events)
+      or exists (select 1 from public.hosted_invoice_creation_attempts))
      and coalesce(current_setting('d24.m3a_rollback_exported', true), '') <> 'yes' then
     raise exception 'd24 m3a rollback refused: intent evidence exists; export it first';
   end if;
 end $$;
+drop function if exists public.d24_op_list_creation_reviews(integer);
+drop function if exists public.d24_op_abandon_creation(uuid, text);
+drop function if exists public.d24_op_attach_creation_invoice(uuid, text, boolean, text, text);
+drop function if exists public.d24_op_flag_creation_review(uuid, text);
+drop function if exists public._d24_intent_to_review(public.hosted_invoice_creation_intents, text, uuid, text);
 drop function if exists public._d24_intent_json(public.hosted_invoice_creation_intents);
 drop function if exists public._d24_intent_lock(uuid, uuid);
 drop function if exists public.d24_intent_list_recoverable(integer, integer, uuid);
-drop function if exists public.d24_intent_abandon(uuid, uuid, text, integer);
+drop function if exists public.d24_intent_flag_review(uuid, uuid, text);
+drop function if exists public.d24_intent_claim_recovery(uuid, uuid, text, integer);
+drop function if exists public.d24_intent_record_outcome(uuid, uuid, text, boolean);
 drop function if exists public.d24_intent_fail(uuid, uuid, text, boolean);
 drop function if exists public.d24_intent_register(uuid, uuid);
 drop function if exists public.d24_intent_mark_provider_created(uuid, uuid, text, boolean, boolean, text);
-drop function if exists public.d24_intent_begin(uuid, text, text, text, uuid);
+drop function if exists public.d24_intent_begin(uuid, text, text, text, text, uuid);
 drop index if exists public.hosted_invoice_registry_invoice_idx;
+drop table public.hosted_invoice_creation_attempts;
 drop table public.hosted_invoice_creation_intent_events;
 drop table public.hosted_invoice_creation_intents;
+drop table public.hosted_invoice_creation_config;
 drop table public.hosted_invoice_business_object_types;
+drop function if exists public.d24_intent_set_window(integer);
 drop function if exists public.d24_register_business_object_type(text, regprocedure);
+drop function if exists public._d24_attempt(uuid, uuid, text, text, boolean);
+drop function if exists public._d24_safe_window();
+drop function if exists public._d24_creation_config_guard();
+drop function if exists public._d24_intent_event(uuid, uuid, text, text, text, text, uuid, text);
 drop function if exists public._d24_clean_code(text);
-drop function if exists public._d24_intent_event(uuid, uuid, text, text, text, text);
 drop function if exists public._d24_check_owner(uuid, text, text);
 drop function if exists public._d24_studio_account(uuid);
 drop function if exists public._d24_bot_guard();
