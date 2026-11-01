@@ -106,3 +106,102 @@ describe.skipIf(!enabled)("D4-2 migration security audit", () => {
     expect(tryPsql("begin; set local role authenticated; select public.tw4_price_monitor_status(60);").ok).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+// R3-3: the digest must check an EXPECTED list of guard triggers (name, table, function, ENABLE ALWAYS) for this migration, D4-1 (dual control) and the D4-2 authorization migration
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+const EXPECTED: { grp: "own" | "dual" | "authz"; tbl: string; trg: string; fn: string }[] = [
+  ["own", "studio_sms_price_monitor_evidence", "studio_sms_price_monitor_evidence_immutable", "_tw4pricemon_immutable"],
+  ["own", "studio_sms_price_monitor_evidence", "studio_sms_price_monitor_evidence_truncate", "_tw4pricemon_immutable"],
+  ["own", "studio_sms_price_security_events", "studio_sms_price_security_events_immutable", "_tw4pricemon_immutable"],
+  ["own", "studio_sms_price_security_events", "studio_sms_price_security_events_truncate", "_tw4pricemon_immutable"],
+  ["own", "studio_sms_price_security_events", "studio_sms_price_security_events_00_fill", "_tw4pricemon_event_fill"],
+  ["dual", "studio_sms_price_list", "studio_sms_price_list_00_activation", "_tw4price_activation_guard"],
+  ["dual", "studio_sms_price_list", "studio_sms_price_list_00_truncate", "_tw4price_truncate_guard"],
+  ["dual", "studio_sms_price_change_requests", "studio_sms_price_change_requests_guard", "_tw4pricedual_guard"],
+  ["dual", "studio_sms_price_change_requests", "studio_sms_price_change_requests_truncate", "_tw4c_truncate_guard"],
+  ["dual", "studio_sms_price_approvers", "studio_sms_price_approvers_guard", "_tw4price_registry_guard"],
+  ["dual", "studio_sms_price_approvers", "studio_sms_price_approvers_truncate", "_tw4c_truncate_guard"],
+  ...["auth_config", "credentials", "auth_challenges", "credential_changes", "audit", "emit_acks"].flatMap((n) => [
+    ["authz", `studio_sms_price_${n}`, `studio_sms_price_${n}_guard`, "_tw4priceauth_guard"],
+    ["authz", `studio_sms_price_${n}`, `studio_sms_price_${n}_truncate`, "_tw4c_truncate_guard"],
+  ]),
+  ["authz", "studio_sms_price_approvers", "studio_sms_price_approvers_emit", "_tw4price_registry_emit"],
+].map(([grp, tbl, trg, fn]) => ({ grp, tbl, trg, fn })) as never;
+
+const digestIn = (sql: string): Record<string, unknown> => JSON.parse(psql(`begin; ${sql} set local role service_role; select public.tw4_price_monitor_digest()::text; rollback;`).split("\n").filter((l) => l.startsWith("{")).pop()!);
+const AUTHZ_TABLES = ["auth_config", "credentials", "auth_challenges", "credential_changes", "audit", "emit_acks"].map((n) => `studio_sms_price_${n}`);
+const DROP_AUTHZ = `drop table if exists ${AUTHZ_TABLES.map((x) => `public.${x}`).join(", ")} cascade;`;
+const DROP_ALL = `${DROP_AUTHZ} drop table if exists public.studio_sms_price_change_requests, public.studio_sms_price_approvers, public.studio_sms_price_limits cascade;`;
+const exists = (tbl: string) => psql(`select to_regclass('public.${tbl}') is not null`) === "t";
+
+/** Inside a transaction (rolled back): make the D4-1 / authorization tables, trigger functions and triggers exist as stubs where the chain lacks them, so every class can be exercised on any chain. */
+function stubSql(groups: string[]): string {
+  const rows = EXPECTED.filter((e) => groups.includes(e.grp));
+  const tables = [...new Set(rows.map((r) => r.tbl))].filter((t2) => t2 !== "studio_sms_price_list");
+  const extra = groups.includes("dual") ? ["studio_sms_price_limits"] : [];
+  const fns = [...new Set(rows.map((r) => r.fn))];
+  return [
+    ...[...tables, ...extra].map((tb) => `create table if not exists public.${tb} (id int);`),
+    ...fns.map((f) => `create or replace function public.${f}() returns trigger language plpgsql as $s$ begin return null; end $s$;`),
+    ...rows.map((r) => `drop trigger if exists ${r.trg} on public.${r.tbl}; create trigger ${r.trg} ${r.trg.endsWith("_truncate") ? "before truncate" : r.trg.endsWith("_emit") ? "after insert or update" : "before insert or update or delete"} on public.${r.tbl} for each ${r.trg.endsWith("_truncate") ? "statement" : "row"} execute function public.${r.fn}(); alter table public.${r.tbl} enable always trigger ${r.trg};`),
+  ].join("\n");
+}
+
+describe.skipIf(!enabled)("D4-2 digest guard inventory (R3-3)", () => {
+  it("standalone chain: only this migration's guards are expected, none absent, guards_ok true", () => {
+    if (exists("studio_sms_price_change_requests")) return; // covered by the full-chain test below
+    const d = digestIn("");
+    expect(d).toMatchObject({ guards_ok: true, guards_missing: [], guards_disabled: [], expected_but_absent: [], groups_active: ["own"] });
+  });
+
+  it("with the D4-1 and authorization guards present (stubs where the chain lacks them) the inventory is complete and ok", () => {
+    const d = digestIn(stubSql(["dual", "authz"]));
+    expect(d.groups_active).toEqual(["authz", "dual", "own"]);
+    expect(d).toMatchObject({ guards_ok: true, guards_missing: [], guards_disabled: [], guards_wrong_function: [], expected_but_absent: [] });
+    expect(Object.keys(d.guards as object).length).toBe(EXPECTED.length);
+  });
+
+  it("every expected guard class: DROPPED is reported missing and guards_ok false (price-list activation, truncate, request, registry, authorization tables, emit, evidence, events)", () => {
+    for (const e of EXPECTED) {
+      const d = digestIn(`${stubSql(["dual", "authz"])} drop trigger ${e.trg} on public.${e.tbl};`);
+      expect(d.guards_ok, e.trg).toBe(false);
+      expect(d.guards_missing, e.trg).toEqual([e.trg]);
+    }
+  });
+
+  it("every expected guard class: DISABLED or merely ENABLED (not ALWAYS) is reported and guards_ok false", () => {
+    for (const e of EXPECTED) {
+      for (const mode of ["disable trigger", "enable trigger", "enable replica trigger"]) {
+        const d = digestIn(`${stubSql(["dual", "authz"])} alter table public.${e.tbl} ${mode} ${e.trg};`);
+        expect(d.guards_ok, `${e.trg} ${mode}`).toBe(false);
+        expect(d.guards_disabled, `${e.trg} ${mode}`).toEqual([e.trg]);
+      }
+    }
+  });
+
+  it("a guard re-created with a different (no-op) function is reported as wrong_function", () => {
+    const e = EXPECTED.find((x) => x.trg === "studio_sms_price_list_00_activation")!;
+    const d = digestIn(`${stubSql(["dual", "authz"])} create or replace function public.d42_noop() returns trigger language plpgsql as $s$ begin return null; end $s$;
+      drop trigger ${e.trg} on public.${e.tbl}; create trigger ${e.trg} before insert or update or delete on public.${e.tbl} for each row execute function public.d42_noop(); alter table public.${e.tbl} enable always trigger ${e.trg};`);
+    expect(d.guards_ok).toBe(false);
+    expect(d.guards_wrong_function).toEqual([e.trg]);
+  });
+
+  it("partial pricing migrations: some tables of an active group missing is reported as expected_but_absent, loudly", () => {
+    // authorization group present with one table only
+    const d = digestIn(`${DROP_ALL} ${stubSql(["dual"])} create table if not exists public.studio_sms_price_audit (id int);`);
+    expect(d.guards_ok).toBe(false);
+    expect(d.expected_but_absent).toEqual(expect.arrayContaining(["studio_sms_price_auth_config", "studio_sms_price_credentials", "studio_sms_price_emit_acks"]));
+    // D4-1 group with the registry only
+    const d2 = digestIn(`${DROP_ALL} create table public.studio_sms_price_approvers (id int);`);
+    expect(d2.guards_ok).toBe(false);
+    expect(d2.expected_but_absent).toEqual(expect.arrayContaining(["studio_sms_price_change_requests", "studio_sms_price_limits"]));
+  });
+
+  it("D4-1 alone (no authorization migration) is ok and does not report the authorization tables as absent", () => {
+    const d = digestIn(`${DROP_AUTHZ} ${stubSql(["dual"])}`);
+    expect(d).toMatchObject({ guards_ok: true, expected_but_absent: [] });
+    expect(d.groups_active).toEqual(["dual", "own"]);
+  });
+});

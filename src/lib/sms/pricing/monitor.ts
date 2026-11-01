@@ -230,8 +230,13 @@ export async function runPriceMonitor(deps: MonitorDeps): Promise<RunOutcome> {
     else {
       digest = d.digest;
       guardNames = d.guardNames;
-      if (d.guardsBad.length) findings.push({ code: "guard_disabled", severity: "critical", message: "an append-only or price guard trigger is not ENABLE ALWAYS", refs: d.guardsBad.map((g) => `guard:${g}`) });
-      const gone = prevGuards.filter((g) => !d.guardNames.includes(g));
+      // the database checks an EXPECTED list (name, table, function, ENABLE ALWAYS) for this migration, D4-1 and the authorization migration: findings are immediate, not 'seen before'
+      if (!d.guardsReported) findings.push({ code: "digest_unavailable", severity: "critical", message: "the digest carries no guard inventory", refs: ["guards_unreported"] });
+      if (d.guardsMissing.length) findings.push({ code: "guard_missing", severity: "critical", message: `${d.guardsMissing.length} expected guard trigger(s) do not exist`, refs: d.guardsMissing.map((g) => `guard:${g}`) });
+      const off = [...new Set([...d.guardsDisabled, ...d.guardsWrongFn])];
+      if (off.length) findings.push({ code: "guard_disabled", severity: "critical", message: "an expected guard trigger is not ENABLE ALWAYS or runs the wrong function", refs: off.map((g) => `guard:${g}`) });
+      if (d.expectedButAbsent.length) findings.push({ code: "pricing_tables_partial", severity: "critical", message: "a pricing migration is partially present: expected tables are absent", refs: d.expectedButAbsent.map((x) => `table:${x}`) });
+      const gone = prevGuards.filter((g) => !d.guardNames.includes(g) && !d.guardsMissing.includes(g));
       if (gone.length) findings.push({ code: "guard_missing", severity: "critical", message: "a guard trigger seen on an earlier run no longer exists", refs: gone.map((g) => `guard:${g}`) });
       if (prevDigest && prevDigest !== d.digest) findings.push({ code: "price_changed", severity: "info", message: `the price list changed since the previous run (${d.rows} rows, ${d.activeRows} active); confirm it was an approved change`, refs: [`digest:${d.digest.slice(0, 12)}`] });
     }

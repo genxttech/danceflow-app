@@ -20,6 +20,7 @@ export type FindingCode =
   | "price_integrity_failure" // security event: the pricing side detected an integrity failure (critical)
   | "event_emit_failed" // security event: the pricing side could not emit / deliver an event (critical)
   | "guard_disabled" // an append-only / price guard trigger is not ENABLE ALWAYS
+  | "pricing_tables_partial" // some tables of a pricing migration exist while others are absent (expected_but_absent)
   | "guard_missing" // a guard trigger seen on an earlier run is gone
   | "approver_registry_changed"
   | "pricing_suspended" // emergency suspension is in force (state, re-alerted on the repeat interval)
