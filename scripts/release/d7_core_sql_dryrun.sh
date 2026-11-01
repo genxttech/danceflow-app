@@ -74,4 +74,13 @@ echo "PASS reverse-order rollback restores the exact pre-state"
 P t2 -f $M1 >/dev/null; P t2 -f $M2 >/dev/null
 [ "$(flight_overall t2 d7_core_postflight.sql)" = "t" ] || { echo "FAIL: postflight after re-apply"; exit 1; }
 echo "PASS re-apply after rollback"
+echo "=== 9. production webhook upsert target: ON CONFLICT (studio_id, feature_key) has no matching unique constraint (latent PROD defect); the item id target works"
+P t2 -c "insert into public.studios(id) values ('00000000-0000-0000-0000-0000000000a9')" >/dev/null
+OUT=$(P t2 -At -c "insert into public.usage_addon_entitlements(studio_id, workspace_type, feature_key, source, stripe_subscription_item_id) values ('00000000-0000-0000-0000-0000000000a9','studio','organizer_suite','stripe_subscription_item','si_x') on conflict (studio_id, feature_key) do update set status='active'" 2>&1 || true)
+echo "$OUT" | grep -q "no unique or exclusion constraint matching" || { echo "FAIL: expected 42P10 for the studio_id,feature_key target, got: $OUT"; exit 1; }
+echo "PASS the (studio_id, feature_key) conflict target is rejected by Postgres (as it is against the PROD table shape)"
+P t2 -c "insert into public.usage_addon_entitlements(studio_id, workspace_type, feature_key, source, stripe_subscription_item_id) values ('00000000-0000-0000-0000-0000000000a9','studio','organizer_suite','stripe_subscription_item','si_x') on conflict (stripe_subscription_item_id) do update set status='active'" >/dev/null
+P t2 -c "insert into public.usage_addon_entitlements(studio_id, workspace_type, feature_key, source, stripe_subscription_item_id) values ('00000000-0000-0000-0000-0000000000a9','studio','organizer_suite','stripe_subscription_item','si_x') on conflict (stripe_subscription_item_id) do update set status='canceled'" >/dev/null
+[ "$(P t2 -At -c "select count(*)||'/'||min(status) from public.usage_addon_entitlements where stripe_subscription_item_id='si_x'")" = "1/canceled" ] || { echo "FAIL: item-id upsert did not update in place"; exit 1; }
+echo "PASS the stripe_subscription_item_id target upserts in place, coexisting with the manual grant rows (post-migration indexes present)"
 echo "ALL D7 CORE SQL REHEARSAL CHECKS PASSED"
