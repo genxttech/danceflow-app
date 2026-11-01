@@ -121,11 +121,11 @@ export function createOwnershipFakeSupabase(
         filters.push((row) => list.includes(row[column]));
         return builder;
       },
-      // PostgREST `or` with `column.eq.value`, `column.is.null` and `column.lte.value` terms (e.g. "a.eq.x,b.is.null").
+      // PostgREST `or` with `column.eq.value`, `column.neq.value`, `column.is.null` and `column.lte.value` terms (e.g. "a.eq.x,b.is.null").
       or: (expression: string) => {
         const terms = expression.split(",").map((term) => {
           const [column, operator, ...rest] = term.split(".");
-          if (operator !== "eq" && operator !== "is" && operator !== "lte") {
+          if (operator !== "eq" && operator !== "is" && operator !== "lte" && operator !== "neq") {
             throw new Error(`ownership fake: unsupported or() operator ${operator}`);
           }
           return { column, operator, value: rest.join(".") };
@@ -137,6 +137,7 @@ export function createOwnershipFakeSupabase(
             if (term.operator === "is") return term.value === "null" && cell == null;
             if (cell == null) return false;
             if (term.operator === "lte") return new Date(String(cell)).getTime() <= new Date(term.value).getTime();
+            if (term.operator === "neq") return String(cell) !== term.value;
             return String(cell) === term.value;
           }),
         );
