@@ -51,6 +51,7 @@ drop trigger studio_sms_price_approvers_emit on public.studio_sms_price_approver
 drop function public._tw4price_registry_emit();
 drop function public._tw4price_suspended();
 drop function public._tw4price_emit_safe(text, uuid, jsonb);
+drop function public._tw4price_recovery_active();
 drop function public._tw4price_prune(interval);
 drop function public._tw4price_emit(text, uuid, jsonb);
 drop function public._tw4price_owner_gate(uuid, uuid, text);

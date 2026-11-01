@@ -827,10 +827,12 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       expect(kinds.some((k) => k.kind === "credential_recovery_used")).toBe(true);
       expect(audit("recovery_used")).toBeGreaterThanOrEqual(2);
       // the recovery key itself cannot thaw, publish or cancel; a primary or spare key CAN cancel the recovery enrolment (a stolen recovery key is not enough)
-      const tb = authOut(sess, `select public.tw4_price_cred_begin('thaw', null, null, null, null, null)::text;`);
-      expect(tb.allow_credentials).not.toContain(Kr.credIdB64u);
-      expect(cancelWith(sess, rq.change_id, Kr)).toMatchObject({ status: "rejected" });
-      expect(cancelWith(sess, rq.change_id, Kb)).toMatchObject({ status: "cancelled" });
+      // ordinary keys cannot end a recovery: no thaw ceremony is even offered while it is in progress
+      expect(codeOf(authErr(sess, `select public.tw4_price_cred_begin('thaw', null, null, null, null, null)::text;`))).toBe("42501");
+      // only the RECOVERY key cancels a recovery enrolment (a primary or spare key cannot)
+      expect(cancelWith(sess, rq.change_id, Kb)).toMatchObject({ status: "rejected", reason: expect.stringMatching(/only the recovery credential/) });
+      expect(cancelWith(sess, rq.change_id, Ka)).toMatchObject({ status: "rejected" });
+      expect(cancelWith(sess, rq.change_id, Kr)).toMatchObject({ status: "cancelled" });
       // start again and let it complete under the freeze
       const rb3 = authOut(sess, `select public.tw4_price_cred_begin('recover_enroll', '${Kn.credIdB64u}', '${b64u(Kn.x)}', '${b64u(Kn.y)}', null, 'recovered primary key')::text;`);
       const rq2 = recSql(Kr, Kn, rb3);
@@ -1009,6 +1011,126 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       expect(psql("select public._tw4price_suspended()")).toBe("f");
     } finally {
       psql("drop table if exists public.studio_sms_price_security_events");
+    }
+  });
+
+  it("PA-26 (R3-1) only the recovery credential can retire the recovery credential: an ordinary key cannot revoke it, cannot enrol a second recovery key while one is active, and cannot touch it by any other ceremony", () => {
+    clear();
+    const Ka = new SoftAuthenticator();
+    const Kb = new SoftAuthenticator();
+    const Kr = new SoftAuthenticator();
+    resetCreds(Ka, Kb, [Kr, "recovery"]);
+    const sess = claims(A, S2);
+    // the begin names the recovery key as the only signer; an ordinary key's assertion is refused and nothing is revoked
+    const rb = authOut(sess, `select public.tw4_price_cred_begin('revoke', '${Kr.credIdB64u}', null, null, null, null)::text;`);
+    expect(rb.allow_credentials).toEqual([Kr.credIdB64u]);
+    expect(revokeReq(sess, Ka, Kr)).toMatchObject({ status: "rejected", reason: expect.stringMatching(/only the recovery credential/) });
+    expect(revokeReq(sess, Kb, Kr)).toMatchObject({ status: "rejected" });
+    expect(psql(`select status from public.studio_sms_price_credentials where credential_id = decode('${Kr.hex.cred}', 'hex')`)).toBe("active");
+    // a second recovery key cannot be enrolled while one is active (begin refuses; the request path refuses too)
+    const Kx = new SoftAuthenticator();
+    expect(codeOf(authErr(sess, `select public.tw4_price_cred_begin('enroll', '${Kx.credIdB64u}', '${b64u(Kx.x)}', '${b64u(Kx.y)}', 'recovery', 'second recovery key')::text;`))).toBe("22023");
+    // the recovery key can retire ITSELF (rotation), after which an ordinary key may enrol a new one (delayed)
+    expect(revokeReq(sess, Kr, Kr)).toMatchObject({ status: "revoked" });
+    expect(psql(`select count(*) from public.studio_sms_price_credentials where status = 'active' and role = 'recovery'`)).toBe("0");
+    expect(enrollReq(sess, Ka, Kx, "new recovery key", "recovery").status).toBe("pending");
+  });
+
+  it("PA-27 (R3-2) recovery beats a stolen ordinary key: after a recovery freeze or while a recovery enrolment is pending, ordinary keys cannot thaw, enrol, revoke or cancel the recovery; publication stays suspended; only the recovery key cancels; completion semantics are unchanged", () => {
+    clear();
+    const Ka = new SoftAuthenticator();
+    const Kb = new SoftAuthenticator();
+    const Kr = new SoftAuthenticator();
+    const Kn = new SoftAuthenticator();
+    resetCreds(Ka, Kb, [Kr, "recovery"]);
+    const sess = claims(A, S2);
+    const recFreeze = () => {
+      const fb = authOut(sess, `select public.tw4_price_cred_begin('recover_freeze', null, null, null, null, null)::text;`);
+      const g = Kr.assert(fb.challenge);
+      return authOut(sess, `select public.tw4_price_recovery_freeze('${fb.nonce}', '${g.credId}', '${g.auth}', '${g.client}', '${g.sig}')::text;`);
+    };
+    const recEnroll = () => {
+      const rb = authOut(sess, `select public.tw4_price_cred_begin('recover_enroll', '${Kn.credIdB64u}', '${b64u(Kn.x)}', '${b64u(Kn.y)}', null, 'recovered primary key')::text;`);
+      const a = Kr.assert(rb.challenge);
+      const m = Kn.assert(rb.challenge);
+      return authOut(sess, `select public.tw4_price_recovery_enroll('${rb.nonce}', '${Kn.credIdB64u}', '${b64u(Kn.x)}', '${b64u(Kn.y)}', 'recovered primary key', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}', '${m.auth}', '${m.client}', '${m.sig}')::text;`);
+    };
+    // the owner's recovery freeze sets a HOLD that ordinary keys cannot clear
+    expect(recFreeze()).toMatchObject({ status: "frozen" });
+    expect(psql("select recovery_hold from public.studio_sms_price_auth_config")).toBe("t");
+    expect(codeOf(authErr(sess, `select public.tw4_price_cred_begin('thaw', null, null, null, null, null)::text;`))).toBe("42501"); // the attacker's thaw with a stolen ordinary key
+    expect(authOut(sess, `select public.tw4_price_thaw('AAAA', 'AAAA', 'AAAA', 'AAAA', 'AAAA')::text;`)).toMatchObject({ status: "rejected", reason: expect.stringMatching(/recovery is in progress/) });
+    const Kz = new SoftAuthenticator();
+    expect(codeOf(authErr(sess, `select public.tw4_price_cred_begin('enroll', '${Kz.credIdB64u}', '${b64u(Kz.x)}', '${b64u(Kz.y)}', 'spare', 'attacker spare')::text;`))).toBe("42501");
+    expect(codeOf(authErr(sess, `select public.tw4_price_cred_begin('revoke', '${Kb.credIdB64u}', null, null, null, null)::text;`))).toBe("42501");
+    // the owner starts the recovery enrolment: publication is suspended by it and ordinary keys cannot cancel it
+    const rq = recEnroll();
+    expect(rq.status).toBe("pending");
+    expect(psql("select public._tw4price_suspended()")).toBe("t");
+    expect(cancelWith(sess, rq.change_id, Ka)).toMatchObject({ status: "rejected", reason: expect.stringMatching(/only the recovery credential/) });
+    expect(cancelWith(sess, rq.change_id, Kb)).toMatchObject({ status: "rejected" });
+    expect(psql(`select status from public.studio_sms_price_credential_changes where id = '${rq.change_id}'`)).toBe("pending");
+    // the recovery key ends it: the hold is cleared, the freeze stays until an ordinary key thaws
+    expect(cancelWith(sess, rq.change_id, Kr)).toMatchObject({ status: "cancelled" });
+    expect(psql("select recovery_hold || ':' || frozen from public.studio_sms_price_auth_config")).toBe("false:true");
+    expect(thawWith(sess, Ka).out.status).toBe("thawed");
+    resetCreds(Ka, [Kr, "recovery"]); // room for an ordinary pending enrolment (three credentials are the cap)
+    // a pending recovery enrolment on its own (no freeze) suspends publication and blocks ordinary enrol / revoke / apply / thaw
+    const p = propose(claims(A, S1), 491);
+    ready(p.request_id);
+    const pe = enrollReq(sess, Ka, Kz, "ordinary pending spare", "spare");
+    expect(pe.status).toBe("pending");
+    const rq2 = recEnroll();
+    expect(rq2.status).toBe("pending");
+    expect(psql("select frozen from public.studio_sms_price_auth_config")).toBe("f");
+    expect(psql("select public._tw4price_suspended()")).toBe("t");
+    expect(beginErr(sess, p.request_id)).toMatch(/42501/);
+    expect(codeOf(authErr(sess, `select public.tw4_price_cred_begin('thaw', null, null, null, null, null)::text;`))).toBe("42501");
+    ageChange(pe.change_id);
+    expect(codeOf(authErr(sess, `select public.tw4_price_cred_apply('${pe.change_id}')::text;`))).toBe("42501"); // ordinary apply refused during a recovery
+    // completion: unchanged semantics (everything revoked, one new primary), the recovered key may lift the freeze
+    psql(`begin; alter table public.studio_sms_price_credential_changes disable trigger studio_sms_price_credential_changes_guard; update public.studio_sms_price_credential_changes set requested_at = requested_at - interval '200 hours', effective_at = effective_at - interval '200 hours' where id = '${rq2.change_id}'; alter table public.studio_sms_price_credential_changes enable always trigger studio_sms_price_credential_changes_guard; commit;`);
+    expect(applyChange(sess, rq2.change_id)).toMatchObject({ status: "applied" });
+    expect(rows<{ role: string; enrolled_via: string }>("select role, enrolled_via from public.studio_sms_price_credentials where status = 'active'")).toEqual([{ role: "primary", enrolled_via: "recovery" }]);
+    expect(psql("select public._tw4price_suspended()")).toBe("f");
+  });
+
+  it("PA-28 (R3-4, R3-5) a replayed suspension that no longer holds never re-suspends pricing (it is replayed as stale information), and tw4_price_propose emits a proposed event and fails closed when monitoring is expected but its table is missing", () => {
+    clear();
+    const Ka = new SoftAuthenticator();
+    resetCreds(Ka);
+    psql("drop table if exists public.studio_sms_price_security_events");
+    const mk = () => psql("create table public.studio_sms_price_security_events (seq bigint generated always as identity primary key, kind text not null, occurred_at timestamptz not null default clock_timestamp(), subject_user_id uuid null, detail jsonb not null default '{}'::jsonb, recorded_at timestamptz not null default clock_timestamp())");
+    const asRole = (role: string, sql: string) => psql(`begin; set local role ${role}; ${sql} commit;`).split(NL).pop()!;
+    setConfig("monitoring_expected = true");
+    try {
+      // R3-5: the proposal is refused while the monitoring table is missing, and leaves no request
+      const rq0 = num("select count(*) from public.studio_sms_price_change_requests");
+      expect(codeOf(authErr(claims(A, S1), `select public.tw4_price_propose('number', 492, 115, 'outage proposal', 'a written reason during the outage')::text;`))).toBe("TW046");
+      expect(num("select count(*) from public.studio_sms_price_change_requests")).toBe(rq0);
+      // R3-4: freeze and thaw during the outage, so both events fail to emit
+      expect(authOut(claims(B, "d42-b28"), `select public.tw4_price_freeze('a freeze during the outage, lifted again before the replay')::text;`)).toMatchObject({ status: "frozen" });
+      expect(thawWith(claims(A, S2), Ka).out.status).toBe("thawed");
+    } finally {
+      setConfig("monitoring_expected = false");
+    }
+    mk();
+    try {
+      expect(psql("select public._tw4price_suspended()")).toBe("f");
+      const rp = JSON.parse(asRole("service_role", "select public.tw4_price_emit_replay(50)::text;")) as { replayed: number; remaining: number };
+      expect(rp.replayed).toBeGreaterThanOrEqual(2);
+      expect(rp.remaining).toBe(0);
+      // the stale suspension did NOT come back as a suspension
+      expect(num("select count(*) from public.studio_sms_price_security_events where kind = 'pricing_suspended'")).toBe(0);
+      expect(rows<{ detail: { stale?: boolean; failed_kind?: string } }>("select detail from public.studio_sms_price_security_events where kind = 'event_emit_failed'").some((e) => e.detail.stale === true && e.detail.failed_kind === "pricing_suspended")).toBe(true);
+      expect(psql("select public._tw4price_suspended()")).toBe("f");
+      // R3-5: with the table back the proposal succeeds and emits price_proposed
+      const pr = propose(claims(A, S1), 493);
+      expect(pr.request_id).toBeTruthy();
+      expect(num("select count(*) from public.studio_sms_price_security_events where kind = 'price_proposed'")).toBe(1);
+    } finally {
+      psql("drop table if exists public.studio_sms_price_security_events");
+      clear();
     }
   });
 });
