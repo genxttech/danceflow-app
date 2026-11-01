@@ -71,3 +71,20 @@ Accepted / documented residuals (follow-ups, not blockers for a dark migration):
 - A NULL `p_stripe_account_id` is treated as "no assertion" (account still comes from the studio); platform scope is no longer registrable.
 - `studios.stripe_connected_account_id` uniqueness across studios is not enforced here (unverified); two studios sharing an account would share a scope.
 - `settled_at` means "terminal", never payment-settled. Ownership functions are checked for signature/volatility at registration only, not on later `CREATE OR REPLACE`. Rollback drops registered business-object types (only intents/events are export-gated).
+
+## 7. Crash recovery works from a PENDING intent alone (owner integrity rule)
+Never assume `provider_created` was persisted: the process may die after Stripe succeeded and before any DB update. Recovery therefore needs only the `pending` row and the stable idempotency key:
+1. `d24_intent_begin(..., same key)` → `existing`, same `intent_id`, `stripe_account_id` (bumps `attempt_count`).
+2. Call Stripe again with the **same idempotency key and same `Stripe-Account`** → Stripe returns the same invoice.
+3. `d24_intent_mark_provider_created` (from `pending`) → `provider_created`; then `d24_intent_register` → `registered`. Every step is idempotent (`already_recorded`, `already_registered`); a replay that returns a *different* invoice id is refused (`23505 d24_intent_invoice_conflict`), never a second invoice.
+Limit: this relies on Stripe still remembering the key. After 23h `begin` returns `stale_key` and `abandon` is blocked until 25h, so a human reconciles with Stripe instead of risking a duplicate. QA: `d24-m3a-sql.sh` section 6 "crash point (owner rule)".
+
+## 8. Registering a new business-object type (for M3-C and later packages) — no M3-A function is edited
+In the package's own migration (slot after `20270208`), after its table exists, define the ownership function and register it with one call, run as the migration owner (the registrar is not executable by any API role):
+```sql
+create function public.d24_owns_<type>(p_studio_id uuid, p_business_object_id text)
+returns boolean language sql stable set search_path = pg_catalog, public
+as $$ select exists (select 1 from public.<table> where id::text = p_business_object_id and studio_id = p_studio_id) $$;
+select public.d24_register_business_object_type('<type>', 'public.d24_owns_<type>(uuid,text)'::regprocedure);
+```
+Rules enforced by `_d24_bot_guard`: function in schema `public`, exactly `(uuid, text) returns boolean`, `STABLE` or `IMMUTABLE`, not a set-returning function; type name `^[a-z][a-z0-9_]{0,62}$` and must not contain `subscription`. It must return `true` only when the object exists **and belongs to that studio**. `d24_intent_begin` and `d24_intent_register` both call it (register re-checks, so a deleted/moved object blocks registration). The package's rollback should `delete from public.hosted_invoice_business_object_types where business_object_type = '<type>'` (then begin fails closed) before dropping its table/function. Business object ids must match `[A-Za-z0-9_.:-]{1,128}` (uuid text is fine).

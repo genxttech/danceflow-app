@@ -150,7 +150,7 @@ q "update public.studios set stripe_connected_account_id='acct_aaa' where id='$S
 
 # 3. ownership registry ------------------------------------------------------------------------------------------------------
 q "create table public.qa_objects (id text primary key, studio_id uuid not null)" >/dev/null
-q "insert into public.qa_objects values ('o-a1','$SA'),('o-a2','$SA'),('o-a3','$SA'),('o-a4','$SA'),('o-a5','$SA'),('o-a6','$SA'),('o-a7','$SA'),('o-a8','$SA'),('o-a9','$SA'),('o-b1','$SB'),('o-b2','$SB')" >/dev/null
+q "insert into public.qa_objects values ('o-a1','$SA'),('o-a2','$SA'),('o-a3','$SA'),('o-a4','$SA'),('o-a5','$SA'),('o-a6','$SA'),('o-a7','$SA'),('o-a8','$SA'),('o-a9','$SA'),('o-a10','$SA'),('o-a11','$SA'),('o-b1','$SB'),('o-b2','$SB')" >/dev/null
 $P <<'SQL'
 create function public.d24_owns_qa_event_fee(p_studio uuid, p_obj text) returns boolean language sql stable
   set search_path = pg_catalog, public as $$ select exists (select 1 from public.qa_objects where id = p_obj and studio_id = p_studio) $$;
@@ -253,6 +253,32 @@ check "an event AFTER registration matches the registry" "$(q "select count(*) f
 has "register cannot be called by another studio" "$(st "public.d24_intent_register('$I1','$SB')")" "STATE 42501 d24_intent_not_found"
 has "a pending intent cannot be registered" "$(st "public.d24_intent_register('$I2','$SA')")" "STATE 55000 d24_intent_state"
 check "crash after begin: retry begin reuses the pending intent" "$(q "select (public.d24_intent_begin('$SA','event_fee','o-a4','idem-a4-0000001'))->>'intent_id'")" "$I2"
+# crash point (owner rule): Stripe succeeded but the process died before ANY DB update. Recovery must work from the PENDING intent alone.
+I11=$(q "select (public.d24_intent_begin('$SA','event_fee','o-a10','idem-a10-000001','$ACT'))->>'intent_id'")
+check "crash point: the intent is pending and holds no provider data" "$(q "select status||'/'||coalesce(stripe_invoice_id,'-') from public.hosted_invoice_creation_intents where id='$I11'")" "pending/-"
+R1=$(q "select (public.d24_intent_begin('$SA','event_fee','o-a10','idem-a10-000001','$ACT'))->>'outcome'")
+check "retry: begin resumes the SAME pending intent" "$R1/$(q "select (public.d24_intent_begin('$SA','event_fee','o-a10','idem-a10-000001','$ACT'))->>'intent_id'")" "existing/$I11"
+check "retry: replaying the same key makes Stripe return the same invoice; pending -> provider_created" "$(mk $I11 $SA in_m10 false false "'acct_aaa'")" "provider_created"
+check "...-> registered" "$(q "select (public.d24_intent_register('$I11','$SA'))->>'outcome'")" "registered"
+check "...a SECOND full replay of the whole sequence is idempotent and converges" "$(q "select (public.d24_intent_begin('$SA','event_fee','o-a10','idem-a10-000001','$ACT'))->>'outcome'")/$(mk $I11 $SA in_m10)/$(q "select (public.d24_intent_register('$I11','$SA'))->>'outcome'")" "existing_terminal/already_recorded/already_registered"
+check "...exactly one registry row, one intent, no second invoice" "$(q "select (select count(*) from public.hosted_invoice_registry where stripe_invoice_id='in_m10')||'/'||(select count(*) from public.hosted_invoice_creation_intents where business_object_id='o-a10')")" "1/1"
+# the same crash with a replay that returns a DIFFERENT invoice id must not converge silently
+I12=$(q "select (public.d24_intent_begin('$SA','event_fee','o-a11','idem-a11-000001'))->>'intent_id'")
+mk $I12 $SA in_m11 >/dev/null
+has "a replay that yields a different invoice id is refused, never a second invoice" "$(st "public.d24_intent_mark_provider_created('$I12','$SA','in_m12',false,false)")" "STATE 23505 d24_intent_invoice_conflict"
+# a later business-object package registers its ownership function with ONE call and no edit to any M3-A function
+$P <<'SQL'
+create table public.qa_client_invoices (id text primary key, studio_id uuid not null);
+insert into public.qa_client_invoices values ('ci-1', '00000000-0000-0000-0000-00000000005a');
+create function public.d24_owns_studio_client_invoice(p_studio uuid, p_obj text) returns boolean language sql stable
+  set search_path = pg_catalog, public as $$ select exists (select 1 from public.qa_client_invoices where id = p_obj and studio_id = p_studio) $$;
+SQL
+has "before registration the new type fails closed" "$(st "public.d24_intent_begin('$SA','studio_client_invoice','ci-1','idem-ci1-000001')")" "STATE 22023 d24_business_object_type_unsupported"
+q "select public.d24_register_business_object_type('studio_client_invoice','public.d24_owns_studio_client_invoice(uuid,text)'::regprocedure)" >/dev/null
+check "after the single registration call begin works for the new type" "$(q "select (public.d24_intent_begin('$SA','studio_client_invoice','ci-1','idem-ci1-000001'))->>'outcome'")" "created"
+has "...and still refuses another studio's object of that type" "$(st "public.d24_intent_begin('$SB','studio_client_invoice','ci-1','idem-ci1-000002')")" "STATE 42501 d24_business_object_not_owned"
+q "delete from public.hosted_invoice_business_object_types where business_object_type='studio_client_invoice'" >/dev/null
+has "removing the registry row (the new package's rollback) fails closed again" "$(st "public.d24_intent_begin('$SA','studio_client_invoice','ci-1','idem-ci1-000003')")" "STATE 22023 d24_business_object_type_unsupported"
 # concurrent registers on one intent
 I5=$(q "select (public.d24_intent_begin('$SA','event_fee','o-a5','idem-a5-0000001'))->>'intent_id'")
 mk $I5 $SA in_m5 >/dev/null
