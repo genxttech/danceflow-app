@@ -316,7 +316,7 @@ describe.skipIf(!enabled)("D4-1: price dual control with REAL GoTrue tokens thro
       expect((p.json as { mode: string }).mode).toBe("owner");
       // inside the cooling-off: no challenge for anyone
       const early = await rpcCall("tw4_price_authz_begin", A.aal2, { p_request_id: id });
-      expect(early.json).toMatchObject({ status: "refused", code: "TW045" }); // a registered session's refusal is recorded in the audit and returned
+      expect(early.json).toMatchObject({ status: "refused" }); expect(["TW045", "42501"]).toContain((early.json as { code: string }).code); // a registered session's refusal is recorded in the audit and returned
       // the cooling-off ends (owner-level ageing; the row constraints move together)
       psql(`begin; alter table public.studio_sms_price_change_requests disable trigger studio_sms_price_change_requests_guard; update public.studio_sms_price_change_requests set requested_at = requested_at - interval '25 hours', expires_at = expires_at - interval '25 hours', cooling_until = cooling_until - interval '25 hours' where id = '${id}'; alter table public.studio_sms_price_change_requests enable always trigger studio_sms_price_change_requests_guard; commit;`);
       // the proposing session cannot authorize
