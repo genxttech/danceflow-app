@@ -27,6 +27,8 @@ const asUser = (uid: string | null, aal: string, sql: string, expIn = 3600) => {
   const claims = uid ? `{"sub":"${uid}","role":"authenticated","aal":"${aal}","exp":${exp}}` : "{}";
   return runSql(`select set_config('request.jwt.claims','${claims}',false) is not null; ${sql}`, "authenticated").then((r) => (r.error ? `ERR ${r.error.code} ${r.error.message}` : r.out.replace(/^t\n?/, "")));
 };
+// M2-B ships with its operator functions switched OFF in the database (d24_op_set_enabled is the only control). Idempotent.
+const enableOperator = () => asUser(PLAT, "aal2", `select (public.d24_op_set_enabled(true, 'enable operator actions for QA'))->>'outcome'`);
 const claim = (id: string) => q(`select (public.claim_payment_provider_event('stripe','${id}','x','h','${OWNER}'))->>'outcome'`);
 const invObj = (inv: string, status = "void") => ({ invoice_id: inv, status, total: 100, amount_due: 100, amount_paid: 0, amount_remaining: 100, currency: "usd" });
 const payObj = (inv: string, pay: string, n: number) => ({ invoice_id: inv, object_id: pay, status: "paid", amount_requested: n, amount_paid: n, currency: "usd" });
@@ -56,6 +58,20 @@ B("M2B. operator authorization (M2-B)", () => {
     await q(`insert into public.studios (id,name) values ('${SA}','A'),('${SB}','B') on conflict do nothing;
              insert into public.profiles (id, platform_role) values ('${PLAT}','platform_admin'),('${NOT_PLAT}',null) on conflict do nothing;
              insert into public.user_studio_roles (user_id, studio_id, role, active) values ('${OWA}','${SA}','studio_owner',true),('${OWB}','${SB}','studio_owner',true),('${FDA}','${SA}','front_desk',true);`);
+  });
+  it("M2B0 shipped OFF: every operator function fails closed for every role (platform admin included) until a platform admin at aal2 enables it with a reason; the switch is audited", async () => {
+    const a = await anomalous(SA);
+    expect(await asUser(PLAT, "aal2", `select public.d24_op_acknowledge_anomalies('${a.id}','{unverified_void_origin}','reviewed by operator')`)).toMatch(/d24_op_disabled/);
+    expect(await asUser(PLAT, "aal2", `select public.d24_op_list_invoices()`)).toMatch(/d24_op_disabled/);
+    expect(await asUser(PLAT, "aal2", `select public.d24_op_requeue_deferred('evt_none','reason long enough')`)).toMatch(/d24_op_disabled/);
+    expect(await asUser(OWA, "aal2", `select public.d24_op_set_enabled(true, 'studio owner tries to enable')`)).toMatch(/d24_op_platform_admin_required/);
+    expect(await asUser(PLAT, "aal1", `select public.d24_op_set_enabled(true, 'aal1 tries to enable')`)).toMatch(/d24_op_aal2_required/);
+    expect(await asUser(PLAT, "aal2", `select public.d24_op_set_enabled(true, 'short')`)).toMatch(/d24_op_reason_required/);
+    expect(await q("select enabled from public.hosted_invoice_operator_config")).toBe("f");
+    expect(await enableOperator()).toBe("changed");
+    expect(await enableOperator()).toBe("unchanged");
+    expect(await q("select enabled::text||'/'||count(*) from public.hosted_invoice_operator_config, public.hosted_invoice_operator_config_audit group by enabled")).toBe("true/1");
+    expect(await as("service_role", "update public.hosted_invoice_operator_config set enabled=false")).toMatch(/permission denied/);
   });
   const ack = (uid: string | null, aal: string, id: string, code = "unverified_void_origin", reason = "reviewed by operator") =>
     asUser(uid, aal, `select public.d24_op_acknowledge_anomalies('${id}','{${code}}','${reason}')::text`);
@@ -141,7 +157,10 @@ const C = describe.skipIf(!has("m2c"));
 C(`M2C. drain job (M2-C${has("m2b") ? ", full stack, requeue through the M2-B wrapper" : ", direct requeue"})`, () => {
   beforeAll(async () => {
     await q(`insert into public.studios (id,name) values ('${SA}','A'),('${SB}','B') on conflict do nothing`);
-    if (has("m2b")) await q(`insert into public.profiles (id, platform_role) values ('${PLAT}','platform_admin') on conflict do nothing`);
+    if (has("m2b")) {
+      await q(`insert into public.profiles (id, platform_role) values ('${PLAT}','platform_admin') on conflict do nothing`);
+      await enableOperator();
+    }
   });
   it("M2C1 service_role may run d24_run_drain but not the unbounded d24_drain_deferred; anon/authenticated may run neither", async () => {
     expect(await as("service_role", "select (public.d24_run_drain(5,'manual'))->>'outcome'")).toBe("completed");
@@ -215,6 +234,7 @@ C(`M2C. drain job (M2-C${has("m2b") ? ", full stack, requeue through the M2-B wr
 describe("M2X. layers together", () => {
   if (!(has("m2b") && has("m2c"))) it.skip("BLOCKED: M2-B and M2-C are not loaded together on one database (see D24-M2D-ACCEPTANCE.md findings)", () => undefined);
   else it("M2X1 M2-B requeue wrapper and M2-C drain coexist: a poison event is rejected, only a platform admin at aal2 can requeue it, and the next drain applies it once", async () => {
+    await enableOperator();
     await q(`insert into public.studios (id,name) values ('${SA}','A') on conflict do nothing;
              insert into public.profiles (id, platform_role) values ('${PLAT}','platform_admin'),('${NOT_PLAT}',null) on conflict do nothing;
              insert into public.user_studio_roles (user_id, studio_id, role, active) values ('${OWA}','${SA}','studio_owner',true)`);

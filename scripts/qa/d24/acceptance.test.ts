@@ -627,6 +627,53 @@ suite("I. identity replay, scope, livemode and ordering edge cases (review gaps)
   });
 });
 
+suite("K. composed: a drain holding a key lock versus a live webhook apply (needs M2-C lock_timeout)", () => {
+  const T = (name: string, fn: () => Promise<void>) => (has("m2c") ? it(name, fn) : it.skip(`BLOCKED(m2c not loaded) ${name}`, () => undefined));
+  T("K1 live apply blocked behind a drain's key lock returns 500 within ~3s with nothing written and the claim failed; redelivery then applies exactly once", async () => {
+    const invoice = `in_${nextId()}`;
+    await register(SA, invoice);
+    // 1. a deferred event for the invoice, and a trigger that makes its apply hold the invoice's key lock for ~8s
+    MODE("defer");
+    const held = await deliver("invoice_payment.paid", payObj(`inpay_${nextId()}`, invoice, 111));
+    expect(await claimRow(held.id)).toBe("processed/d24_deferred");
+    await q(`create or replace function public._m2d_hold() returns trigger language plpgsql as $$ begin if new.provider_event_id = '${held.id}' then perform pg_sleep(8); end if; return new; end $$;
+             create trigger m2d_hold before insert on public.hosted_invoice_source_events for each row execute function public._m2d_hold();`);
+    try {
+      // 2. the drain starts (not awaited) and takes the key lock inside d24_apply_core
+      const drainP = rpc("d24_run_drain", { p_batch_size: 10, p_trigger: "manual" });
+      for (let i = 0; i < 40; i++) {
+        if (Number(await q("select count(*) from pg_stat_activity where state='active' and query like '%d24_run_drain%' and pid<>pg_backend_pid()")) > 0) break;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+      // 3. a live delivery for the same invoice arrives while the lock is held
+      MODE("on");
+      const pay = `inpay_${nextId()}`;
+      const live = envelope("invoice_payment.paid", payObj(pay, invoice, 222));
+      const t0 = Date.now();
+      const res = await post(live.body);
+      const elapsed = Date.now() - t0;
+      expect(res.status).toBe(500);
+      expect(elapsed).toBeLessThan(6500);
+      expect((await claimRow(live.id)).startsWith("failed")).toBe(true);
+      expect(await q(`select count(*) from public.hosted_invoice_payments where stripe_invoice_payment_id='${pay}'`)).toBe("0");
+      expect(await q(`select count(*) from public.hosted_invoice_source_events where provider_event_id='${live.id}'`)).toBe("0");
+      const dr = await drainP;
+      expect(dr.error).toBeNull();
+      // 4. Stripe-style redelivery of the same event after the lock is gone applies exactly once
+      const again = await post(live.body);
+      expect(again.status).toBe(200);
+      expect(await claimRow(live.id)).toBe("processed/d24_applied_matched");
+      expect(await q(`select count(*)||'/'||max(amount_paid) from public.hosted_invoice_payments where stripe_invoice_payment_id='${pay}'`)).toBe("1/222");
+      expect(await q(`select count(*) from public.hosted_invoice_source_events where provider_event_id='${live.id}'`)).toBe("1");
+      expect((await post(live.body)).text).toBe("Already processed");
+      expect(await q(`select state from public.hosted_invoice_deferred_events where provider_event_id='${held.id}'`)).toBe("applied");
+    } finally {
+      await q("drop trigger if exists m2d_hold on public.hosted_invoice_source_events; drop function if exists public._m2d_hold();");
+    }
+  });
+});
+
 // ----------------------------------------------------------------------------------------------------------------------------
 // M2-A (registration) is a code-only layer: it adds a server wrapper over d24_register_invoice and no migration. Its own PG test
 // (register.d24.pg.test.ts in PR 387) covers the wrapper; here we pin the database contract the wrapper depends on, and keep the
