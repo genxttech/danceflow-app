@@ -11,7 +11,7 @@ begin
     raise exception 'price owner authorization rollback: not applied';
   end if;
   for r in select * from (values
-      ('public.tw4_price_authz_finish(uuid,text,text,text,text,text)', '7fe6d2bfe4f3945ae25e3805eb5693f9'),
+      ('public.tw4_price_authz_finish(uuid,text,text,text,text,text)', '98ec8b7adbe51643a666a88e61b26fe7'),
       ('public._tw4price_do_propose_mode(text,integer,integer,text,text,uuid,text,text,uuid)', 'bdba14fc6537e6286d52cb7b90511c86'),
       ('public._tw4price_do_approve(uuid,uuid,text)', 'cfd0f8cad9935436b12298f4c89f0006'),
       ('public._tw4pricedual_guard()', '9e2e81171fa5eab1d608727997ab9f48'),
