@@ -1,11 +1,11 @@
-# CF1-C browser acceptance, runs 10-32 (2026-10-31 / 2026-11-01)
+# CF1-C browser acceptance, runs 10-35 (2026-10-31 / 2026-11-01)
 
-**System under test (SUT):** local `cf1/integration` 17250a4e + CF1 B commits 0da55ea3 (co-sign panel, Final heat-size control), 2e4de6e1 (results/ballots pages 404 only on authz/not-found) and 14408619 (co-sign line is plain text), plus the local QA-only engine registration patch in `src/lib/competition/results/engineAdapter.ts` (registers the F1 studio engines; not part of any PR). Production build (`next start -p 3100`) against the local Supabase stack `cf1c-qa`.
+**System under test (SUT):** local `cf1/integration` 17250a4e + F1 engine 4c9cefc6 (PR #337, over-capacity tie returns an unresolved result) + CF1 B commits 3b7aa59c (unresolved-tie panel), 0da55ea3 (co-sign panel, Final heat-size control), 2e4de6e1 (results/ballots pages 404 only on authz/not-found) and 14408619 (co-sign line is plain text), plus the local QA-only engine registration patch in `src/lib/competition/results/engineAdapter.ts` (registers the F1 studio engines; not part of any PR). Production build (`next start -p 3100`) against the local Supabase stack `cf1c-qa`.
 Runs 10-26 used 17250a4e + the engine patch only (no B commits); runs 27-32 used the SUT above.
 Nothing hosted was touched. No Stripe calls. **Payment records are fixture-seeded**, not real Stripe settlement evidence.
 Run artifacts (outside the repository): `C:\Dev\cf1c-qa-run\runs\r10`..`r32`.
 
-## Scenario results (final runs on the SUT above: r31 advancement, r32 regression)
+## Scenario results (final runs: r34 advancement, r35 regression)
 
 | Scenario | Result | Notes |
 |---|---|---|
@@ -20,7 +20,7 @@ Run artifacts (outside the repository): `C:\Dev\cf1c-qa-run\runs\r10`..`r32`.
 | SCN-X1 | PASS | request exclusion, different manager co-signs, judges re-rank, lock/calculate/approve, review shows "Excluded from the ranking" |
 | SCN-R82 | BLOCKED (not exercised) | no UI creates an entry without a registration; SQL gate U82 PASS |
 | SCN-X2 | BLOCKED (not exercised) | stub; the reversal needs the cause cleared, which the eligibility control can now do; not yet written |
-| SCN-11.4b, SCN-11.4b-cap | **FAIL as authored: discrepancy** | the Final capacity is now settable before the Final has a heat (B Final heat size section) and the callback event builds with capacity 4. With a tie over capacity the F1 callback-tally engine fails closed (COMP_ENGINE_UNSPECIFIED_CASE, reason tie_over_capacity, no rows) and the desk shows "no result was produced". The scenario (and the capacity RPC's "blocked-tie version" model, rows with advanced = null) expects a completed calculation with no advanced flags. Needs an owner decision (F1 engine vs A0/A3/B model); contract not changed here. |
+| SCN-11.4b, SCN-11.4b-cap, SCN-11.4b-resolve | PASS (r34) | owner policy 2026-11-01 (see cf1-tie-over-capacity-decisions-2026-11-01.md): the F1 engine now completes with every row advanced = null and per-row tie_status; the desk shows an "Advancement unresolved" panel (scores, couples above the cut, couples tied at the cut, why nothing advanced); no Approve or Advance control is offered; nothing is written; a capacity raise to fit the tie is refused; a co-signed judge-entry correction dissolves the tie, version 1 stays unresolved on record and version 2 advances four. Approve refusal itself is proven in SQL (the control is absent in the browser). No tie-breaker or director override was built (rules decisions RD-1..RD-6 open). |
 
 ## Intermittent second-manager 404: resolved as infrastructure + a product error-handling defect
 Runs 15 and 17 showed a 404 on the results page for the second manager. Independent investigation: the local Kong gateway returned a 502 ("upstream prematurely closed connection", keepalive race) on the POST to `/rest/v1/rpc/competition_round_results_review`, and the page did `if (error || !data) notFound()`, so a transport error rendered as a 404. Session, role, workspace and round resolution were fine in the failing requests; Postgres logged no error. Not an authorization or data-consistency fault. Product fix: B 2e4de6e1 (only authz/not-found errors 404; others throw). Confidence about 90% (the join is by timing and endpoint). Harness fix still open: Kong upstream keepalive on the QA stack.
