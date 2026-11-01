@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { shouldNotFound } from "@/lib/competition/pageLoadError";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
@@ -72,7 +73,7 @@ export default async function CompetitionRoundResultsPage({
     .maybeSingle();
   if (!round) notFound();
   const { data, error } = await supabase.rpc("competition_round_results_review", { p_round_id: roundId });
-  if (error || !data) notFound();
+  if (shouldNotFound(error, data)) notFound();
   const review = data as Review;
   const returnTo = `/app/events/${id}/competition/results/${roundId}`;
   const isManager = review.viewer_role === "manager";
