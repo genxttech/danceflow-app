@@ -15,7 +15,7 @@ const U = "00000000-0000-0000-0000-0000000000a1";
 const actor = (studioId: string): AuthorizedBillingActor => ({ verified: true, studioId, userId: U, canManageBilling: true });
 const req = (studioId: string, id: string, requestKey = "req-key-pg-0001") => ({ actor: actor(studioId), businessObjectType: "event_fee", businessObjectId: id, requestKey });
 
-type Res = { out: string; code: string | null };
+type Res = { out: string; code: string | null; msg?: string };
 function psql(sql: string, vars: Record<string, string> = {}): Promise<Res> {
   return new Promise((resolve, reject) => {
     const args = ["exec", "-i", CONTAINER!, "psql", "-U", "postgres", "-qAt", "-v", "VERBOSITY=verbose"];
@@ -26,7 +26,7 @@ function psql(sql: string, vars: Record<string, string> = {}): Promise<Res> {
     p.stdout.on("data", (d) => (out += d));
     p.stderr.on("data", (d) => (err += d));
     p.on("error", reject);
-    p.on("close", () => resolve({ out: out.trim(), code: /ERROR:\s+(\w{5}):/.exec(err)?.[1] ?? null }));
+    p.on("close", () => resolve({ out: out.trim(), code: /ERROR:\s+(\w{5}):/.exec(err)?.[1] ?? null, msg: /ERROR:\s+\w{5}:\s*(.*)/.exec(err)?.[1] ?? "" }));
     p.stdin.end(sql);
   });
 }
@@ -47,7 +47,7 @@ const supabase = {
       return `${k} => :'v${i}'`;
     });
     const r = await psql(`select coalesce(public.${name}(${parts.join(", ")})::text, 'null');`, vars);
-    if (r.code) return { data: null, error: { code: r.code, message: "redacted" } };
+    if (r.code) return { data: null, error: { code: r.code, message: r.msg ?? "" } };
     return { data: JSON.parse(r.out), error: null };
   },
   from(table: string) {
@@ -83,7 +83,7 @@ describe.skipIf(!CONTAINER)("orchestrator against real Postgres (M1 + M2-C + M3-
   it("setup fixtures", async () => {
     const r = await psql(`
       insert into public.studios (id, name, stripe_connected_account_id) values ('${A}','A','acct_studioA'),('${B}','B','acct_studioB'),('${NOACCT}','C',null);
-      insert into public.qa_business_objects values ${Array.from({ length: 12 }, (_, i) => `('bo-a${i + 1}','${A}')`).join(",")},('bo-b1','${B}'),('bo-n1','${NOACCT}');
+      insert into public.qa_business_objects values ${Array.from({ length: 20 }, (_, i) => `('bo-a${i + 1}','${A}')`).join(",")},('bo-b1','${B}'),('bo-n1','${NOACCT}');
       select 'ok';`);
     expect(r.out).toBe("ok");
   });
@@ -137,17 +137,17 @@ describe.skipIf(!CONTAINER)("orchestrator against real Postgres (M1 + M2-C + M3-
     expect(await num("select count(*) from public.hosted_invoice_creation_intents where business_object_id = 'bo-n1';")).toBe(0);
   });
 
-  it("livemode forgery: a live response in a test deployment is refused; the intent is failed and nothing registered", async () => {
+  it("livemode forgery: a live response in a test deployment is refused; the intent goes to needs_review and nothing is registered", async () => {
     const { stripe, deps: d } = deps();
     stripe.livemode = true;
     expect(await createHostedInvoice(req(A, "bo-a4"), d)).toMatchObject({ ok: false, code: "livemode_mismatch" });
-    expect(await num("select count(*) from public.hosted_invoice_creation_intents where business_object_id = 'bo-a4' and status = 'failed';")).toBe(1);
+    expect(await num("select count(*) from public.hosted_invoice_creation_intents where business_object_id = 'bo-a4' and status = 'needs_review';")).toBe(1);
     expect(await num("select count(*) from public.hosted_invoice_registry r join public.hosted_invoice_creation_intents i on i.stripe_invoice_id = r.stripe_invoice_id where i.business_object_id = 'bo-a4';")).toBe(0);
   });
 
   it("the SQL key-mode check also refuses a forged client claim (store level)", async () => {
     const { deps: d } = deps();
-    const b = await d.store.begin({ studioId: A, createdBy: U, idempotencyKey: "d24inv_pg_forged_key_0001", businessObjectType: "event_fee", businessObjectId: "bo-a5" });
+    const b = await d.store.begin({ studioId: A, createdBy: U, idempotencyKey: "d24inv_pg_forged_key_0001", requestFingerprint: "a".repeat(64), businessObjectType: "event_fee", businessObjectId: "bo-a5" });
     if (!b.ok) throw new Error("begin failed");
     expect(await d.store.markProviderCreated({ intentId: b.intent.id, studioId: A, stripeInvoiceId: "in_forged1", livemode: true, keyLivemode: false, stripeAccountId: "acct_studioA" })).toBe(false);
     expect(await d.store.markProviderCreated({ intentId: b.intent.id, studioId: A, stripeInvoiceId: "in_forged1", livemode: false, keyLivemode: false, stripeAccountId: "acct_studioB" })).toBe(false);
@@ -172,7 +172,7 @@ describe.skipIf(!CONTAINER)("orchestrator against real Postgres (M1 + M2-C + M3-
     const { stripe, deps: d } = deps();
     stripe.failNext = Object.assign(new Error("net"), { type: "StripeConnectionError" });
     const r1 = await createHostedInvoice(req(A, "bo-a7"), d);
-    expect(r1).toMatchObject({ ok: false, code: "stripe_unavailable" });
+    expect(r1).toMatchObject({ ok: false, code: "outcome_unknown" });
     if (r1.ok || !r1.intentId) throw new Error("expected intent id");
     expect(await resumeIntent(r1.intentId, actor(B), d)).toMatchObject({ ok: false, code: "intent_not_found" });
     expect(stripe.createCount).toBe(0);
@@ -204,5 +204,87 @@ describe.skipIf(!CONTAINER)("orchestrator against real Postgres (M1 + M2-C + M3-
     await psql("select public.d24_apply_event('evt_m3b_2','00000000-0000-0000-0000-0000000000c1','invoice_payment.paid',30000,'acct_studioB',false,'h2','invoice_payment',:'p'::jsonb)::text;", { p: payload });
     expect((await registryRow(r.stripeInvoiceId)).out).toBe(`${A}/acct_studioA`);
     expect(await num("select count(*) from public.hosted_invoices where stripe_invoice_id = :'i' and studio_id = :'b'::uuid;", { i: r.stripeInvoiceId, b: B }).catch(() => 0)).toBe(0);
+  });
+
+  const age = (id: string, interval: string) => psql("alter table public.hosted_invoice_creation_intents disable trigger hosted_invoice_intents_guard_trg; update public.hosted_invoice_creation_intents set created_at = now() - interval '" + interval + "' where id = :'i'::uuid; alter table public.hosted_invoice_creation_intents enable trigger hosted_invoice_intents_guard_trg;", { i: id });
+  const status = async (id: string) => (await psql("select status || '/' || outcome_unknown::text from public.hosted_invoice_creation_intents where id = :'i'::uuid;", { i: id })).out;
+  const lost = () => Object.assign(new Error("timeout"), { type: "StripeConnectionError" });
+
+  it("4. same key, changed parameters: the ledger refuses (fingerprint mismatch); no new intent, no Stripe call", async () => {
+    const { stripe, deps: d } = deps();
+    await createHostedInvoice(req(A, "bo-a10", "req-key-pg-0010"), d);
+    const calls = stripe.calls.length;
+    const changed = deps({ resolvers: { event_fee: async ({ studioId, businessObjectId }) => (businessObjectId === "bo-a10" && studioId === A ? { ...SPEC, description: "changed" } : null) } });
+    expect(await createHostedInvoice(req(A, "bo-a10", "req-key-pg-0010"), changed.deps)).toMatchObject({ ok: false, code: "request_fingerprint_mismatch" });
+    expect(changed.stripe.calls).toEqual([]);
+    expect(stripe.calls.length).toBe(calls);
+    expect(await num("select count(*) from public.hosted_invoice_creation_intents where business_object_id = 'bo-a10';")).toBe(1);
+  });
+
+  it("6. timeout with unknown result: outcome_unknown is recorded, retries do not call Stripe, DB claim replays the ORIGINAL key once", async () => {
+    const { stripe, deps: d } = deps();
+    stripe.loseResponseAfterCreate = lost();
+    const r1 = await createHostedInvoice(req(A, "bo-a11", "req-key-pg-0011"), d);
+    expect(r1).toMatchObject({ ok: false, code: "outcome_unknown" });
+    if (r1.ok || !r1.intentId) throw new Error("intent");
+    expect(await status(r1.intentId)).toBe("pending/true");
+    const calls = stripe.calls.length;
+    expect(await createHostedInvoice(req(A, "bo-a11", "req-key-pg-0011"), d)).toMatchObject({ ok: false, code: "outcome_unknown" });
+    expect(stripe.calls.length).toBe(calls);
+    expect(await resumeIntent(r1.intentId, { system: "d24_recovery" }, d)).toMatchObject({ ok: true });
+    expect(stripe.createCount).toBe(1);
+    expect(await status(r1.intentId)).toBe("registered/false");
+  });
+
+  it("5. concurrent workers recovering one intent: one lease holder replays, the rest are told to wait; one provider invoice", async () => {
+    const { stripe, deps: d } = deps();
+    stripe.failNext = lost();
+    const r1 = await createHostedInvoice(req(A, "bo-a12", "req-key-pg-0012"), d);
+    if (r1.ok || !r1.intentId) throw new Error("intent");
+    const rs = await Promise.all(Array.from({ length: 6 }, () => resumeIntent(r1.intentId!, { system: "d24_recovery" }, d)));
+    expect(rs.filter((x) => x.ok).length).toBeGreaterThanOrEqual(1);
+    expect(rs.filter((x) => !x.ok && x.code === "recovery_in_progress").length + rs.filter((x) => x.ok).length).toBe(6);
+    expect(stripe.createCount).toBe(1);
+  });
+
+  it("7. recovery after the safe window: needs_review, NO replay, nothing sent to Stripe", async () => {
+    const { stripe, deps: d } = deps();
+    stripe.loseResponseAfterCreate = lost();
+    const r1 = await createHostedInvoice(req(A, "bo-a13", "req-key-pg-0013"), d);
+    if (r1.ok || !r1.intentId) throw new Error("intent");
+    await age(r1.intentId, "13 hours");
+    const calls = stripe.calls.length;
+    expect(await resumeIntent(r1.intentId, { system: "d24_recovery" }, d)).toMatchObject({ ok: false, code: "needs_review" });
+    expect(stripe.calls.length).toBe(calls);
+    expect((await status(r1.intentId)).startsWith("needs_review")).toBe(true);
+    expect(await createHostedInvoice(req(A, "bo-a13", "req-key-pg-0013"), d)).toMatchObject({ ok: false, code: "needs_review" });
+    expect(stripe.calls.length).toBe(calls);
+    expect(await num("select count(*) from public.hosted_invoice_registry where stripe_invoice_id = :'i';", { i: [...stripe.invoices.keys()][0] })).toBe(0);
+  });
+
+  it("9. the studio's account changed after begin: recovery is denied by the DB (needs_review), nothing sent", async () => {
+    const { stripe, deps: d } = deps();
+    stripe.failNext = lost();
+    const r1 = await createHostedInvoice(req(A, "bo-a14", "req-key-pg-0014"), d);
+    if (r1.ok || !r1.intentId) throw new Error("intent");
+    await psql("update public.studios set stripe_connected_account_id = 'acct_studioA2' where id = :'s'::uuid;", { s: A });
+    try {
+      expect(await resumeIntent(r1.intentId, { system: "d24_recovery" }, d)).toMatchObject({ ok: false });
+      expect(stripe.createCount).toBe(0);
+    } finally {
+      await psql("update public.studios set stripe_connected_account_id = 'acct_studioA' where id = :'s'::uuid;", { s: A });
+    }
+  });
+
+  it("10. operator/review path: a flagged intent is never resumed or replayed, and is not listed as recoverable", async () => {
+    const { stripe, deps: d } = deps();
+    stripe.failNext = lost();
+    const r1 = await createHostedInvoice(req(A, "bo-a15", "req-key-pg-0015"), d);
+    if (r1.ok || !r1.intentId) throw new Error("intent");
+    await d.store.flagReview({ intentId: r1.intentId, studioId: A, reasonCode: "operator_review" });
+    expect((await status(r1.intentId)).startsWith("needs_review")).toBe(true);
+    expect(await resumeIntent(r1.intentId, { system: "d24_recovery" }, d)).toMatchObject({ ok: false, code: "needs_review" });
+    expect((await d.store.listRecoverable({ limit: 50, olderThanMinutes: 1 })).some((x) => x.id === r1.intentId)).toBe(false);
+    expect(stripe.createCount).toBe(0);
   });
 });

@@ -10,8 +10,10 @@ cd "$(dirname "$0")/../.."
 M_CLAIM="$MIG/20261116090000_paywh1_webhook_event_claims.sql"
 M_D24="$MIG/20270203110000_d24_hosted_invoice_facts.sql"
 M_C="$MIG/20270206090000_d24_m2c_drain_recovery.sql"
+M_B="$MIG/20270207090000_d24_operator_actions.sql"
+STUB="scripts/qa/d24/stubs/auth-roles.sql"
 M_A="${D24_M3A_MIGRATION:-$MIG/20270208090000_d24_m3a_intent_ledger.sql}"
-for f in "$M_CLAIM" "$M_D24" "$M_C" "$M_A"; do [ -f "$f" ] || { echo "missing $f (set D24_M3A_MIGRATION)"; exit 2; }; done
+for f in "$M_CLAIM" "$M_D24" "$M_C" "$M_B" "$M_A" "$STUB"; do [ -f "$f" ] || { echo "missing $f (set D24_M3A_MIGRATION)"; exit 2; }; done
 cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 cleanup
@@ -30,7 +32,8 @@ create table public.payment_provider_events (
   created_at timestamptz not null default now(), unique (provider, provider_event_id));
 create table public.qa_business_objects (id text primary key, studio_id uuid not null);
 SQL
-for f in "$M_CLAIM" "$M_D24" "$M_C" "$M_A"; do $P < "$f" >/dev/null || { echo "migration failed: $f"; exit 2; }; done
+$P < "$STUB" >/dev/null || { echo "stub failed"; exit 2; }
+for f in "$M_CLAIM" "$M_D24" "$M_C" "$M_B" "$M_A"; do $P < "$f" >/dev/null || { echo "migration failed: $f"; exit 2; }; done
 $P <<'SQL'
 create function public.d24_owns_qa_event_fee(p_studio uuid, p_obj text) returns boolean language sql stable
   set search_path = pg_catalog, public as $$ select exists (select 1 from public.qa_business_objects where id = p_obj and studio_id = p_studio) $$;

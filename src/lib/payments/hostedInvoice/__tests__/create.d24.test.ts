@@ -1,10 +1,10 @@
 import Stripe from "stripe";
 import { describe, expect, it, vi } from "vitest";
 import {
-  PRODUCTION_INVOICE_SPEC_RESOLVERS, STRIPE_IDEMPOTENCY_SAFE_WINDOW_MS, createHostedInvoice, deriveIdempotencyKey, isHostedInvoiceCreationEnabled,
+  PRODUCTION_INVOICE_SPEC_RESOLVERS, createHostedInvoice, deriveIdempotencyKey, deriveRequestFingerprint, isHostedInvoiceCreationEnabled,
   livemodeFromSecretKey, resumeIntent, sweepRecoverableIntents, type AuthorizedBillingActor, type CreateDeps,
 } from "../create";
-import { ACCT_A, ACCT_B, FakeStore, FakeStripe, SPEC, STUDIO_A, STUDIO_B, USER_A, fakeSupabase, ownedResolver } from "./createFakes";
+import { ACCT_A, ACCT_B, Clock, FakeStore, FakeStripe, HOUR, SPEC, STUDIO_A, STUDIO_B, USER_A, fakeSupabase, ownedResolver } from "./createFakes";
 
 vi.mock("server-only", () => ({}));
 
@@ -14,17 +14,20 @@ const ON = { D24_HOSTED_INVOICE_CREATION: "on" };
 const SYS = { system: "d24_recovery" } as const;
 const req = (actor = actorA, id = "bo-1", requestKey = "req-key-0001") => ({ actor, businessObjectType: "event_fee", businessObjectId: id, requestKey });
 const netErr = () => Object.assign(new Error("net"), { type: "StripeConnectionError" });
+const permErr = () => Object.assign(new Error("x"), { type: "StripeInvalidRequestError", statusCode: 400 });
 
 function setup(over: Partial<CreateDeps> = {}) {
-  const stripe = new FakeStripe();
-  const store = new FakeStore();
+  const clock = new Clock();
+  const stripe = new FakeStripe(clock);
+  const store = new FakeStore(clock);
   const deps: CreateDeps = {
-    supabase: fakeSupabase(), stripe, store, expectedLivemode: false, env: ON, now: () => 1_000_000,
+    supabase: fakeSupabase(), stripe, store, expectedLivemode: false, env: ON,
     resolvers: { event_fee: ownedResolver({ "bo-1": STUDIO_A, "bo-2": STUDIO_A, "bo-3": STUDIO_A, "bo-b": STUDIO_B }) }, ...over,
   };
-  return { stripe, store, deps };
+  return { clock, stripe, store, deps };
 }
 const firstId = (s: FakeStore) => [...s.rows.keys()][0];
+const first = (s: FakeStore) => [...s.rows.values()][0];
 
 describe("flag and key mode", () => {
   it("is OFF unless exactly 'on'", async () => {
@@ -112,50 +115,203 @@ describe("happy path", () => {
     const c = stripe.calls[0];
     expect(c.account).toBe(ACCT_A);
     expect(c.params).toMatchObject({ collection_method: "send_invoice", auto_advance: false, customer: SPEC.stripeCustomerId });
-    expect(c.key).toBe(deriveIdempotencyKey(STUDIO_A, "event_fee", "bo-1", "req-key-0001", SPEC));
+    expect(c.key).toBe(deriveIdempotencyKey(STUDIO_A, "event_fee", "bo-1", "req-key-0001"));
     expect(stripe.calls.map((x) => x.op)).toEqual(["create", "lines"]);
     expect(store.log).toEqual(["begin", "mark", "register"]);
   });
-  it("different studios never share an idempotency key", () => {
-    expect(deriveIdempotencyKey(STUDIO_A, "t", "o", "k", SPEC)).not.toBe(deriveIdempotencyKey(STUDIO_B, "t", "o", "k", SPEC));
+  it("different studios never share an idempotency key; the fingerprint is 64 lowercase hex and content-sensitive", () => {
+    expect(deriveIdempotencyKey(STUDIO_A, "t", "o", "k")).not.toBe(deriveIdempotencyKey(STUDIO_B, "t", "o", "k"));
+    const f = deriveRequestFingerprint(STUDIO_A, "t", "o", SPEC);
+    expect(f).toMatch(/^[0-9a-f]{64}$/);
+    expect(deriveRequestFingerprint(STUDIO_A, "t", "o", { ...SPEC, description: "x" })).not.toBe(f);
+    expect(deriveRequestFingerprint(STUDIO_B, "t", "o", SPEC)).not.toBe(f);
   });
 });
 
-describe("livemode and response forgery", () => {
-  it("refuses a live invoice from a test deployment and the reverse; nothing is marked or registered", async () => {
+describe("livemode and response forgery -> needs_review, never registered", () => {
+  it("a live response in a test deployment (and the reverse) is flagged for review; nothing marked or registered", async () => {
     for (const [dep, resp] of [[false, true], [true, false]] as const) {
       const { stripe, store, deps } = setup({ expectedLivemode: dep });
       stripe.livemode = resp;
       expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, code: "livemode_mismatch", retryable: false });
-      expect(store.log).toEqual(["begin", "fail:livemode_mismatch"]);
-      expect([...store.rows.values()][0].state).toBe("failed");
+      expect(store.log).toEqual(["begin", "review:livemode_mismatch"]);
+      expect(first(store).state).toBe("needs_review");
     }
   });
-  it("refuses a malformed / non-draft / wrong-customer / subscription / wrong-total response", async () => {
+  it("a malformed / non-draft / wrong-customer / subscription / hosted-url / auto_advance response is flagged, not registered", async () => {
     const mutate: Array<(s: Record<string, unknown>) => void> = [
       (s) => (s.id = "sub_1"), (s) => (s.status = "open"), (s) => (s.collection_method = "charge_automatically"), (s) => (s.customer = "cus_other"),
       (s) => (s.subscription = "sub_9"), (s) => (s.parent = { subscription_details: { subscription: "sub_9" } }), (s) => (s.livemode = "false"),
+      (s) => (s.auto_advance = true), (s) => (s.hosted_invoice_url = "https://invoice.stripe.com/i/x"),
     ];
     for (const m of mutate) {
       const { stripe, store, deps } = setup();
       const orig = stripe.createDraftInvoice.bind(stripe);
       stripe.createDraftInvoice = async (a) => { const s = (await orig(a)) as unknown as Record<string, unknown>; m(s); return s as never; };
-      expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, code: "stripe_response_invalid" });
+      const r = await createHostedInvoice(req(), deps);
+      expect(r).toMatchObject({ ok: false, code: "stripe_response_invalid" });
+      expect(JSON.stringify(r)).not.toMatch(/https?:/);
       expect(store.log).not.toContain("register");
-      expect([...store.rows.values()][0].state).toBe("failed");
+      expect(first(store).state).toBe("needs_review");
     }
     const { stripe, store, deps } = setup();
     const orig = stripe.addInvoiceLines.bind(stripe);
     stripe.addInvoiceLines = async (a) => ({ ...(await orig(a)), total: 1 });
     expect(await createHostedInvoice(req(), deps)).toMatchObject({ code: "stripe_response_invalid" });
     expect(store.log).not.toContain("register");
+    expect(first(store).state).toBe("needs_review");
+    expect(first(store).stripeInvoiceId).toBe("in_fake1"); // the orphan draft id is kept for the reviewer
   });
   it("does not trust metadata or any echoed studio / account values in the response", async () => {
     const { stripe, store, deps } = setup();
     const orig = stripe.createDraftInvoice.bind(stripe);
     stripe.createDraftInvoice = async (a) => ({ ...(await orig(a)), metadata: { studio_id: STUDIO_B, account: ACCT_B } }) as never;
     expect((await createHostedInvoice(req(), deps)).ok).toBe(true);
-    expect([...store.rows.values()][0].studioId).toBe(STUDIO_A);
+    expect(first(store).studioId).toBe(STUDIO_A);
+  });
+});
+
+describe("the ten recovery scenarios", () => {
+  it("1. crash before the Stripe request (no record at all): recovery claim replays with the ORIGINAL key and creates exactly one invoice", async () => {
+    const { stripe, store, deps } = setup();
+    // simulate a process death after begin: ledger row exists, Stripe never contacted
+    const begun = await store.begin({ studioId: STUDIO_A, createdBy: USER_A, idempotencyKey: deriveIdempotencyKey(STUDIO_A, "event_fee", "bo-1", "req-key-0001"), requestFingerprint: deriveRequestFingerprint(STUDIO_A, "event_fee", "bo-1", SPEC), businessObjectType: "event_fee", businessObjectId: "bo-1" });
+    if (!begun.ok) throw new Error("begin");
+    expect(stripe.calls).toEqual([]);
+    expect(await resumeIntent(begun.intent.id, SYS, deps)).toMatchObject({ ok: true, stripeInvoiceId: "in_fake1" });
+    expect(stripe.createCount).toBe(1);
+    expect(stripe.calls[0].key).toBe(begun.intent.idempotencyKey);
+  });
+  it("2. crash after Stripe success before the invoice id is recorded: still pending; recovery replays the SAME key and gets the SAME invoice", async () => {
+    const { stripe, store, deps } = setup();
+    store.markFail = true;
+    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, retryable: true });
+    expect(first(store).state).toBe("pending");
+    store.markFail = false;
+    const key = first(store).idempotencyKey;
+    expect(await resumeIntent(firstId(store), SYS, deps)).toMatchObject({ ok: true, stripeInvoiceId: "in_fake1" });
+    expect(stripe.calls.filter((c) => c.op === "create").map((c) => c.key)).toEqual([key, key]);
+    expect(stripe.createCount).toBe(1);
+  });
+  it("3. retry with the same key while the failure is retryable (rate limit / key in use): same key, one invoice", async () => {
+    const { stripe, store, deps } = setup();
+    stripe.failNext = Object.assign(new Error("rl"), { type: "StripeRateLimitError", statusCode: 429 });
+    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, code: "stripe_unavailable", retryable: true });
+    expect(first(store).outcomeUnknown).toBe(false);
+    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: true });
+    expect(new Set(stripe.calls.filter((c) => c.op === "create").map((c) => c.key)).size).toBe(1);
+    expect(stripe.createCount).toBe(1);
+  });
+  it("4. same key + changed parameters is refused: no new intent, no Stripe call", async () => {
+    const { stripe, store, deps } = setup();
+    await createHostedInvoice(req(), deps);
+    const calls = stripe.calls.length;
+    const changed = { ...SPEC, lines: [{ description: "Entry", amountCents: 9999 }] };
+    const r = await createHostedInvoice(req(), { ...deps, resolvers: { event_fee: ownedResolver({ "bo-1": STUDIO_A }, changed) } });
+    expect(r).toMatchObject({ ok: false, code: "request_fingerprint_mismatch", retryable: false });
+    expect(stripe.calls.length).toBe(calls);
+    expect(store.rows.size).toBe(1);
+  });
+  it("5. concurrent workers recovering one intent: exactly one holds the lease and replays; one provider invoice", async () => {
+    const { stripe, store, deps } = setup();
+    stripe.failNext = netErr();
+    await createHostedInvoice(req(), deps);
+    const id = firstId(store);
+    const rs = await Promise.all(Array.from({ length: 6 }, () => resumeIntent(id, SYS, deps)));
+    expect(rs.filter((r) => r.ok).length).toBe(1);
+    expect(rs.filter((r) => !r.ok && r.code === "recovery_in_progress" && r.retryable).length).toBe(5);
+    expect(store.claims.granted).toBe(1);
+    expect(stripe.createCount).toBe(1);
+  });
+  it("6. timeout with unknown result: outcome_unknown recorded, nothing else is called, retry/create refuses; only the DB claim can replay", async () => {
+    const { stripe, store, deps } = setup();
+    stripe.loseResponseAfterCreate = Object.assign(new Error("timeout"), { type: "StripeConnectionError" });
+    const r1 = await createHostedInvoice(req(), deps);
+    expect(r1).toMatchObject({ ok: false, code: "outcome_unknown", retryable: false });
+    expect(first(store).outcomeUnknown).toBe(true);
+    expect(stripe.createCount).toBe(1); // the invoice DID get created on Stripe's side
+    const calls = stripe.calls.length;
+    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, code: "outcome_unknown" }); // user retry: no blind replay
+    expect(stripe.calls.length).toBe(calls);
+    expect(await resumeIntent(firstId(store), SYS, deps)).toMatchObject({ ok: true, stripeInvoiceId: "in_fake1" });
+    expect(stripe.createCount).toBe(1); // replay with the original key returned the same invoice
+    expect(first(store).outcomeUnknown).toBe(false);
+  });
+  it("7. recovery after the safe window => needs_review and NO replay (Stripe retention is modeled: a replay past it WOULD duplicate)", async () => {
+    // control: prove the hazard exists in the fake
+    const hazard = setup();
+    hazard.stripe.loseResponseAfterCreate = netErr();
+    await createHostedInvoice(req(), hazard.deps);
+    hazard.clock.advance(25 * HOUR);
+    const key = first(hazard.store).idempotencyKey;
+    await hazard.stripe.createDraftInvoice({ stripeAccount: ACCT_A, idempotencyKey: key, params: hazard.stripe.calls[0].params as never });
+    expect(hazard.stripe.createCount).toBe(2); // pruned key => duplicate invoice
+
+    const { clock, stripe, store, deps } = setup();
+    stripe.loseResponseAfterCreate = netErr();
+    await createHostedInvoice(req(), deps);
+    clock.advance(13 * HOUR); // > 12h window, < 24h retention
+    const calls = stripe.calls.length;
+    expect(await resumeIntent(firstId(store), SYS, deps)).toMatchObject({ ok: false, code: "needs_review", retryable: false });
+    expect(stripe.calls.length).toBe(calls);
+    expect(stripe.createCount).toBe(1);
+    expect(first(store).state).toBe("needs_review");
+    // and a user retry of the same request can't replay either
+    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, code: "needs_review" });
+    expect(stripe.calls.length).toBe(calls);
+    // sweep never touches needs_review
+    expect(await sweepRecoverableIntents(deps)).toMatchObject({ examined: 0 });
+  });
+  it("8. provider invoice found but registration fails: transient stays provider_created and recovers with NO Stripe call; a ledger needs_review outcome is surfaced", async () => {
+    const { stripe, store, deps } = setup();
+    store.registerFail = { code: "registration_failed", retryable: true };
+    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, retryable: true });
+    expect(first(store).state).toBe("provider_created");
+    const calls = stripe.calls.length;
+    store.registerFail = null;
+    expect((await resumeIntent(firstId(store), SYS, deps)).ok).toBe(true);
+    expect(stripe.calls.length).toBe(calls);
+    const b = setup();
+    b.store.needsReviewOnRegister = true;
+    expect(await createHostedInvoice(req(), b.deps)).toMatchObject({ ok: false, code: "needs_review" });
+    const c = setup();
+    c.store.registerFail = { code: "registration_failed", retryable: false };
+    expect(await createHostedInvoice(req(), c.deps)).toMatchObject({ ok: false, code: "registration_failed", retryable: false });
+    expect(first(c.store).state).toBe("needs_review");
+  });
+  it("9. provider invoice account / ownership mismatch => needs_review, never registered", async () => {
+    // ledger account differs from the studio record: nothing sent
+    const a = setup();
+    a.store.accounts[STUDIO_A] = ACCT_B;
+    expect(await createHostedInvoice(req(), a.deps)).toMatchObject({ ok: false, code: "stripe_account_unavailable" });
+    expect(a.stripe.calls).toEqual([]);
+    // the studio reconnected a different account between begin and recovery
+    const b = setup();
+    b.stripe.failNext = netErr();
+    await createHostedInvoice(req(), b.deps);
+    b.store.accounts[STUDIO_A] = "acct_NEW999";
+    const r = await resumeIntent(firstId(b.store), SYS, { ...b.deps, supabase: fakeSupabase({ [STUDIO_A]: { acct: "acct_NEW999" } }) });
+    expect(r).toMatchObject({ ok: false, code: "stripe_account_unavailable" });
+    expect(b.stripe.createCount).toBe(0);
+    // customer on the returned invoice is not the trusted customer
+    const c = setup();
+    const orig = c.stripe.createDraftInvoice.bind(c.stripe);
+    c.stripe.createDraftInvoice = async (x) => ({ ...(await orig(x)), customer: "cus_someone_else" }) as never;
+    expect(await createHostedInvoice(req(), c.deps)).toMatchObject({ code: "stripe_response_invalid" });
+    expect(first(c.store).state).toBe("needs_review");
+    expect(c.store.log).not.toContain("register");
+  });
+  it("10. operator path: a flagged-for-review intent is never resumed, replayed or swept", async () => {
+    const { stripe, store, deps } = setup();
+    stripe.failNext = netErr();
+    await createHostedInvoice(req(), deps);
+    await store.flagReview({ intentId: firstId(store), studioId: STUDIO_A, reasonCode: "operator_review" });
+    expect(first(store).state).toBe("needs_review");
+    const calls = stripe.calls.length;
+    expect(await resumeIntent(firstId(store), SYS, deps)).toMatchObject({ ok: false, code: "needs_review" });
+    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, code: "needs_review" });
+    expect(await sweepRecoverableIntents(deps)).toMatchObject({ examined: 0 });
+    expect(stripe.calls.length).toBe(calls);
   });
 });
 
@@ -174,17 +330,12 @@ describe("idempotency and concurrency", () => {
     expect(new Set(rs.map((r) => r.ok && r.stripeInvoiceId)).size).toBe(1);
     expect(stripe.createCount).toBe(1);
   });
-  it("a second invoice for the same object is refused while one is live; a changed spec cannot slip in under the same requestKey", async () => {
-    const { stripe, store, deps } = setup();
+  it("a second invoice for the same object under a new requestKey is refused while one is live", async () => {
+    const { stripe, deps } = setup();
     await createHostedInvoice(req(), deps);
     expect(await createHostedInvoice(req(actorA, "bo-1", "req-key-0002"), deps)).toMatchObject({ ok: false, code: "intent_payload_conflict" });
     await createHostedInvoice(req(actorA, "bo-2", "req-key-0002"), deps);
     expect(stripe.createCount).toBe(2);
-    const changed = { ...SPEC, lines: [{ description: "Entry", amountCents: 9999 }] };
-    const r = await createHostedInvoice(req(), { ...deps, resolvers: { event_fee: ownedResolver({ "bo-1": STUDIO_A }, changed) } });
-    expect(r).toMatchObject({ ok: false, code: "intent_payload_conflict" });
-    expect(stripe.createCount).toBe(2);
-    expect(store.rows.size).toBe(2);
   });
   it("fake stripe itself rejects same key with a different payload", async () => {
     const s = new FakeStripe();
@@ -194,108 +345,99 @@ describe("idempotency and concurrency", () => {
   });
 });
 
-describe("crash and failure recovery", () => {
-  it("DB success then crash before the Stripe call: resume creates exactly one invoice", async () => {
+describe("failure classification", () => {
+  it("permanent rejection fails the intent; later resume / retry are refused without another call", async () => {
     const { stripe, store, deps } = setup();
-    stripe.failNext = netErr();
-    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, code: "stripe_unavailable", retryable: true });
-    expect(stripe.createCount).toBe(0);
-    expect([...store.rows.values()][0].state).toBe("pending");
-    expect(await resumeIntent(firstId(store), SYS, deps)).toMatchObject({ ok: true, stripeInvoiceId: "in_fake1" });
-    expect(stripe.createCount).toBe(1);
-  });
-  it("Stripe create succeeded but crash before lines/mark: resume reuses the same invoice via the same key", async () => {
-    const { stripe, store, deps } = setup();
-    stripe.failAfterCreate = netErr();
-    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, retryable: true });
-    expect(stripe.createCount).toBe(1);
-    expect(await resumeIntent(firstId(store), SYS, deps)).toMatchObject({ ok: true, stripeInvoiceId: "in_fake1" });
-    expect(stripe.createCount).toBe(1);
-  });
-  it("Stripe success then DB mark failure: retryable; resume does not create a second invoice", async () => {
-    const { stripe, store, deps } = setup();
-    store.markFail = true;
-    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, code: "registration_unavailable", retryable: true });
-    store.markFail = false;
-    expect((await resumeIntent(firstId(store), SYS, deps)).ok).toBe(true);
-    expect(stripe.createCount).toBe(1);
-  });
-  it("crash after provider_created before registration: resume registers with NO Stripe call", async () => {
-    const { stripe, store, deps } = setup();
-    store.registerFail = { code: "registration_failed", retryable: true };
-    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, retryable: true });
-    expect([...store.rows.values()][0].state).toBe("provider_created");
-    const before = stripe.calls.length;
-    store.registerFail = null;
-    expect((await resumeIntent(firstId(store), SYS, deps)).ok).toBe(true);
-    expect(stripe.calls.length).toBe(before);
-  });
-  it("permanent Stripe rejection fails the intent; later resume / retry are refused without another call", async () => {
-    const { stripe, store, deps } = setup();
-    stripe.failNext = Object.assign(new Error("x"), { type: "StripeInvalidRequestError", statusCode: 400 });
+    stripe.failNext = permErr();
     expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, code: "stripe_rejected", retryable: false });
+    expect(first(store).state).toBe("failed");
     const n = stripe.calls.length;
     expect(await resumeIntent(firstId(store), SYS, deps)).toMatchObject({ code: "intent_failed" });
     expect(await createHostedInvoice(req(), deps)).toMatchObject({ code: "intent_failed" });
     expect(stripe.calls.length).toBe(n);
+  });
+  it("a permanent failure after the draft exists keeps the invoice id and escalates instead of freeing the object", async () => {
+    const { stripe, store, deps } = setup();
+    stripe.failAfterCreate = permErr();
+    expect(await createHostedInvoice(req(), deps)).toMatchObject({ code: "stripe_rejected", retryable: false });
+    expect(first(store).stripeInvoiceId).toBe("in_fake1");
   });
   it("never returns provider or database text", async () => {
     const { stripe, deps } = setup();
     stripe.failNext = Object.assign(new Error("SECRET-PROVIDER-TEXT sk_live_abc"), { type: "StripeAPIError", statusCode: 500 });
     expect(JSON.stringify(await createHostedInvoice(req(), deps))).not.toMatch(/SECRET|sk_live/);
   });
-  it("resume of a begun intent refuses once Stripe's idempotency window may have lapsed (no second invoice)", async () => {
-    const { stripe, store, deps } = setup();
-    stripe.failNext = netErr();
-    await createHostedInvoice(req(), deps);
-    const r = await resumeIntent(firstId(store), SYS, { ...deps, now: () => 1_000_000 + STRIPE_IDEMPOTENCY_SAFE_WINDOW_MS + 1 });
-    expect(r).toMatchObject({ ok: false, code: "idempotency_window_expired", retryable: false });
-    expect(stripe.createCount).toBe(0);
-  });
-  it("resume refuses when the trusted spec changed since begin", async () => {
-    const { stripe, store, deps } = setup();
-    stripe.failNext = netErr();
-    await createHostedInvoice(req(), deps);
-    const changed = { ...SPEC, description: "other" };
-    const r = await resumeIntent(firstId(store), SYS, { ...deps, resolvers: { event_fee: ownedResolver({ "bo-1": STUDIO_A }, changed) } });
-    expect(r).toMatchObject({ code: "payload_changed" });
-    expect(stripe.createCount).toBe(0);
-  });
-  it("resume re-checks livemode of a stored provider_created intent against the deployment", async () => {
+  it("resume of a provider_created intent re-checks livemode against the deployment (review, not register)", async () => {
     const { stripe, store, deps } = setup();
     store.registerFail = { code: "registration_failed", retryable: true };
     await createHostedInvoice(req(), deps);
     store.registerFail = null;
     expect(await resumeIntent(firstId(store), SYS, { ...deps, expectedLivemode: true })).toMatchObject({ code: "livemode_mismatch" });
+    expect(first(store).state).toBe("needs_review");
     expect(stripe.createCount).toBe(1);
   });
-});
-
-describe("ledger account binding", () => {
-  it("if the ledger resolved a different account than the studio record, nothing is sent to Stripe", async () => {
-    const { stripe, store, deps } = setup();
-    store.accounts[STUDIO_A] = ACCT_B;
-    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, code: "stripe_account_unavailable" });
-    expect(stripe.calls).toEqual([]);
-  });
-  it("resume of a pending intent refuses when the studio's account changed since begin", async () => {
-    const { stripe, store, deps } = setup();
+  it("a permanent failure on an intent with an unknown outcome escalates to review instead of failing it", async () => {
+    const { store, deps, stripe } = setup();
     stripe.failNext = netErr();
-    await createHostedInvoice(req(), deps);
-    const r = await resumeIntent(firstId(store), SYS, { ...deps, supabase: fakeSupabase({ [STUDIO_A]: { acct: "acct_NEW999" } }) });
-    expect(r).toMatchObject({ ok: false, code: "stripe_account_unavailable" });
-    expect(stripe.createCount).toBe(0);
+    await createHostedInvoice(req(), deps); // unknown recorded
+    stripe.failNext = permErr();
+    // recovery replay gets a permanent rejection
+    expect(await resumeIntent(firstId(store), SYS, deps)).toMatchObject({ ok: false, code: "stripe_rejected" });
+    expect(first(store).state).toBe("needs_review");
   });
-  it("mark passes the deployment key mode and the account used; the call uses the intent's idempotency key verbatim", async () => {
-    const { stripe, store, deps } = setup();
-    const spy = vi.spyOn(store, "markProviderCreated");
+  it("a permanent registration refusal escalates", async () => {
+    const { store, deps } = setup();
+    store.registerFail = { code: "registration_failed", retryable: false };
     await createHostedInvoice(req(), deps);
-    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ keyLivemode: false, stripeAccountId: ACCT_A, studioId: STUDIO_A }));
-    expect(stripe.calls[0].key).toBe([...store.rows.values()][0].idempotencyKey);
+    expect(first(store).state).toBe("needs_review");
   });
 });
 
-describe("resume authorization", () => {
+describe("M3 decisions: draft-only, customer", () => {
+  const profileSpec = { ...SPEC, stripeCustomerId: undefined, customerProfile: { clientRef: "client-1", name: "Pat Dancer", email: "pat@example.com" } };
+  const profDeps = () => setup({ resolvers: { event_fee: ownedResolver({ "bo-1": STUDIO_A }, profileSpec as never) } });
+  it("creates the Stripe customer in the connected account under the intent key, then the draft for that customer", async () => {
+    const { stripe, deps } = profDeps();
+    expect((await createHostedInvoice(req(), deps)).ok).toBe(true);
+    expect(stripe.calls.map((c) => c.op)).toEqual(["customer", "create", "lines"]);
+    expect(stripe.calls[0].account).toBe(ACCT_A);
+    expect(stripe.calls[0].key.endsWith(":customer")).toBe(true);
+    expect((stripe.calls[1].params as { customer: string }).customer).toBe([...stripe.customers.values()][0].id);
+  });
+  it("customer creation is idempotent across a crash: recovery yields one customer and one invoice", async () => {
+    const { stripe, store, deps } = profDeps();
+    stripe.failAfterCreate = netErr(); // crash after customer+invoice exist, before lines
+    await createHostedInvoice(req(), deps);
+    expect(stripe.customers.size).toBe(1);
+    expect(await resumeIntent(firstId(store), SYS, deps)).toMatchObject({ ok: true });
+    expect(stripe.customers.size).toBe(1);
+    expect(stripe.createCount).toBe(1);
+  });
+  it("customer failures: ambiguous => outcome_unknown (no retry); livemode-forged customer => review", async () => {
+    let c = profDeps();
+    c.stripe.failCustomer = netErr();
+    expect(await createHostedInvoice(req(), c.deps)).toMatchObject({ ok: false, code: "outcome_unknown" });
+    expect(c.stripe.createCount).toBe(0);
+    c = profDeps();
+    c.stripe.livemode = true;
+    expect(await createHostedInvoice(req(), c.deps)).toMatchObject({ ok: false, code: "stripe_response_invalid" });
+    expect(c.stripe.createCount).toBe(0);
+    expect(first(c.store).state).toBe("needs_review");
+  });
+  it("spec must have exactly one of stripeCustomerId / customerProfile, and a valid profile", async () => {
+    for (const bad of [{ ...SPEC, customerProfile: { clientRef: "c1", name: "x" } }, { ...profileSpec, customerProfile: { clientRef: "bad ref", name: "x" } }, { ...profileSpec, customerProfile: { clientRef: "c1", name: " " } }, { ...profileSpec, customerProfile: { clientRef: "c1", name: "x", email: "no-at" } }, { ...SPEC, stripeCustomerId: undefined }]) {
+      const { stripe, deps } = setup({ resolvers: { event_fee: ownedResolver({ "bo-1": STUDIO_A }, bad as never) } });
+      expect(await createHostedInvoice(req(), deps)).toMatchObject({ code: "invalid_invoice_spec" });
+      expect(stripe.calls).toEqual([]);
+    }
+  });
+  it("success results never carry a payment link", async () => {
+    const { deps } = setup();
+    expect(JSON.stringify(await createHostedInvoice(req(), deps))).not.toMatch(/url|https?:/i);
+  });
+});
+
+describe("resume authorization and sweep", () => {
   it("another studio's actor sees the intent as not found; forged system actors are rejected", async () => {
     const { store, deps } = setup();
     await createHostedInvoice(req(), deps);
@@ -307,10 +449,7 @@ describe("resume authorization", () => {
     expect(await resumeIntent("bad", actorA, deps)).toMatchObject({ code: "invalid_input" });
     expect(await resumeIntent(id, actorA, deps)).toMatchObject({ ok: true });
   });
-});
-
-describe("sweep", () => {
-  it("is bounded and resumes only recoverable intents", async () => {
+  it("sweep is bounded and resumes only recoverable intents through the DB claim", async () => {
     const { stripe, store, deps } = setup();
     for (let i = 0; i < 3; i++) {
       stripe.failNext = netErr();
@@ -318,6 +457,7 @@ describe("sweep", () => {
     }
     expect(store.rows.size).toBe(3);
     expect(await sweepRecoverableIntents(deps, { limit: 2 })).toMatchObject({ examined: 2, registered: 2, disabled: false });
+    expect(store.claims.granted).toBe(2);
     expect(stripe.createCount).toBe(2);
     expect((await sweepRecoverableIntents(deps, { limit: 1000 })).examined).toBe(1);
   });
@@ -337,114 +477,7 @@ describe("webhook before registration (offline signed fixture)", () => {
     expect(offline.webhooks.constructEvent(payload, header, secret).type).toBe("invoice.paid");
     expect(() => offline.webhooks.constructEvent(payload, header, "whsec_wrong")).toThrow();
     expect(Object.keys(r)).not.toContain("paid");
-    expect([...store.rows.values()][0].studioId).toBe(STUDIO_A);
+    expect(first(store).studioId).toBe(STUDIO_A);
     expect(stripe.createCount).toBe(1);
-  });
-});
-
-describe("review follow-ups", () => {
-  it("refuses a response whose auto_advance is not false (would auto-finalize and email)", async () => {
-    const { stripe, store, deps } = setup();
-    const orig = stripe.createDraftInvoice.bind(stripe);
-    stripe.createDraftInvoice = async (a) => ({ ...(await orig(a)), auto_advance: true }) as never;
-    expect(await createHostedInvoice(req(), deps)).toMatchObject({ code: "stripe_response_invalid" });
-    expect(store.log).not.toContain("register");
-  });
-  it("a permanent failure after the draft exists still records the invoice id on the intent", async () => {
-    const { stripe, store, deps } = setup();
-    stripe.failAfterCreate = Object.assign(new Error("x"), { type: "StripeInvalidRequestError", statusCode: 400 });
-    expect(await createHostedInvoice(req(), deps)).toMatchObject({ code: "stripe_rejected", retryable: false });
-    const row = [...store.rows.values()][0];
-    expect(row.state).toBe("failed");
-    expect(row.stripeInvoiceId).toBe("in_fake1");
-  });
-  it("an expired pending intent is refused but NOT failed (object stays blocked)", async () => {
-    const { stripe, store, deps } = setup();
-    stripe.failNext = netErr();
-    await createHostedInvoice(req(), deps);
-    await resumeIntent(firstId(store), SYS, { ...deps, now: () => 1_000_000 + STRIPE_IDEMPOTENCY_SAFE_WINDOW_MS + 1 });
-    expect([...store.rows.values()][0].state).toBe("pending");
-  });
-  it("a permanent registration refusal terminates the intent", async () => {
-    const { store, deps } = setup();
-    store.registerFail = { code: "registration_failed", retryable: false };
-    await createHostedInvoice(req(), deps);
-    expect([...store.rows.values()][0].state).toBe("failed");
-  });
-});
-
-describe("M3-A final contract", () => {
-  it("a stale_key begin outcome never reaches Stripe", async () => {
-    const { stripe, store, deps } = setup();
-    const orig = store.begin.bind(store);
-    store.begin = async (i) => { const r = await orig(i); return r.ok ? { ok: true as const, intent: { ...r.intent, stale: true } } : r; };
-    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, code: "idempotency_window_expired" });
-    expect(stripe.calls).toEqual([]);
-  });
-});
-
-describe("M3 decisions: draft-only, customer, crash rule", () => {
-  const profileSpec = { ...SPEC, stripeCustomerId: undefined, customerProfile: { clientRef: "client-1", name: "Pat Dancer", email: "pat@example.com" } };
-  const profDeps = () => setup({ resolvers: { event_fee: ownedResolver({ "bo-1": STUDIO_A }, profileSpec as never) } });
-
-  it("crash after the Stripe invoice exists but before mark_provider_created: intent is still pending; resume reuses the SAME key and gets the SAME invoice", async () => {
-    const { stripe, store, deps } = setup();
-    store.markFail = true;
-    const r1 = await createHostedInvoice(req(), deps);
-    expect(r1).toMatchObject({ ok: false, retryable: true });
-    expect([...store.rows.values()][0].state).toBe("pending");
-    const key = [...store.rows.values()][0].idempotencyKey;
-    store.markFail = false;
-    const r2 = await resumeIntent(firstId(store), SYS, deps);
-    expect(r2).toMatchObject({ ok: true, stripeInvoiceId: "in_fake1" });
-    expect(stripe.calls.filter((c) => c.op === "create").map((c) => c.key)).toEqual([key, key]);
-    expect(stripe.createCount).toBe(1);
-  });
-  it("creates the Stripe customer in the connected account under the intent key, then the draft for that customer", async () => {
-    const { stripe, deps } = profDeps();
-    const r = await createHostedInvoice(req(), deps);
-    expect(r.ok).toBe(true);
-    const ops = stripe.calls.map((c) => c.op);
-    expect(ops).toEqual(["customer", "create", "lines"]);
-    expect(stripe.calls[0].account).toBe(ACCT_A);
-    expect(stripe.calls[0].key.endsWith(":customer")).toBe(true);
-    expect((stripe.calls[1].params as { customer: string }).customer).toBe([...stripe.customers.values()][0].id);
-  });
-  it("customer creation is idempotent across a crash: resume yields one customer and one invoice", async () => {
-    const { stripe, store, deps } = profDeps();
-    stripe.failAfterCreate = netErr(); // crash after customer+invoice exist, before lines
-    await createHostedInvoice(req(), deps);
-    expect(stripe.customers.size).toBe(1);
-    expect(await resumeIntent(firstId(store), SYS, deps)).toMatchObject({ ok: true });
-    expect(stripe.customers.size).toBe(1);
-    expect(stripe.createCount).toBe(1);
-  });
-  it("customer failures: transient retryable and leaves pending; livemode-forged or malformed customer is refused", async () => {
-    let c = profDeps();
-    c.stripe.failCustomer = netErr();
-    expect(await createHostedInvoice(req(), c.deps)).toMatchObject({ ok: false, code: "stripe_unavailable", retryable: true });
-    expect(c.stripe.createCount).toBe(0);
-    c = profDeps();
-    c.stripe.livemode = true;
-    expect(await createHostedInvoice(req(), c.deps)).toMatchObject({ ok: false, code: "stripe_response_invalid" });
-    expect(c.stripe.createCount).toBe(0);
-  });
-  it("spec must have exactly one of stripeCustomerId / customerProfile, and a valid profile", async () => {
-    for (const bad of [{ ...SPEC, customerProfile: { clientRef: "c1", name: "x" } }, { ...profileSpec, customerProfile: { clientRef: "bad ref", name: "x" } }, { ...profileSpec, customerProfile: { clientRef: "c1", name: " " } }, { ...profileSpec, customerProfile: { clientRef: "c1", name: "x", email: "no-at" } }, { ...SPEC, stripeCustomerId: undefined }]) {
-      const { stripe, deps } = setup({ resolvers: { event_fee: ownedResolver({ "bo-1": STUDIO_A }, bad as never) } });
-      expect(await createHostedInvoice(req(), deps)).toMatchObject({ code: "invalid_invoice_spec" });
-      expect(stripe.calls).toEqual([]);
-    }
-  });
-  it("a draft response carrying hosted_invoice_url is unexpected: refused, never reported as a payment link", async () => {
-    const { stripe, store, deps } = setup();
-    const orig = stripe.createDraftInvoice.bind(stripe);
-    stripe.createDraftInvoice = async (a) => ({ ...(await orig(a)), hosted_invoice_url: "https://invoice.stripe.com/i/x" }) as never;
-    const r = await createHostedInvoice(req(), deps);
-    expect(r).toMatchObject({ ok: false, code: "stripe_response_invalid" });
-    expect(JSON.stringify(r)).not.toMatch(/https?:/);
-    expect(store.log).not.toContain("register");
-    const ok = setup();
-    expect(JSON.stringify(await createHostedInvoice(req(), ok.deps))).not.toMatch(/url|https?:/i);
   });
 });
