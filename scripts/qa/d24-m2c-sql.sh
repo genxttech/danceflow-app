@@ -247,6 +247,39 @@ check "health is read-only (stable) and callable by service_role" "$(as service_
 rd 25 >/dev/null
 check "a drain that settles the queue clears pending_stale" "$(q "select public.d24_drain_health(0, 1800)->'alarms' ? 'pending_stale'")" "f"
 
+# 7b. live route vs a drain-held key lock: bounded wait, nothing written, claim kept, retry succeeds exactly once ---------------------------------------
+LKP=$(pj in_lk inpay_lk 77)
+claim evt_lk >/dev/null
+( docker exec -i "$NAME" psql -U postgres -qAt -c "begin; select pg_advisory_xact_lock(hashtextextended('d24::in_lk',0)); select pg_sleep(9); commit;" </dev/null >"$TMPD/lk_hold.txt" 2>&1 ) &
+sleep 2
+T0=$(date +%s)
+LKR=$(try "select public.d24_apply_event('evt_lk','$O1','invoice_payment.paid',90000,null,false,'$H','invoice_payment','$LKP'::jsonb)")
+T1=$(date +%s)
+check "live apply waiting on a held key lock fails with a lock timeout (55P03), not an unbounded wait" "$(echo "$LKR" | grep -c 'lock timeout')" "1"
+check "...within the bound (<= 6 s, held lock lasts 9 s)" "$([ $((T1 - T0)) -le 6 ] && echo ok)" "ok"
+check "...and wrote nothing (no evidence, no invoice row, no payment)" "$(q "select (select count(*) from public.hosted_invoice_source_events where provider_event_id='evt_lk')||'/'||(select count(*) from public.hosted_invoices where stripe_invoice_id='in_lk')||'/'||(select count(*) from public.hosted_invoice_payments where stripe_invoice_payment_id='inpay_lk')")" "0/0/0"
+check "...and the PAY-WH-1 claim is still owned by the same worker (so the retry can proceed)" "$(q "select count(*) from public.payment_provider_events where provider_event_id='evt_lk' and status='processing'")" "1"
+wait
+RT=$(try "select (public.d24_apply_event('evt_lk','$O1','invoice_payment.paid',90000,null,false,'$H','invoice_payment','$LKP'::jsonb))->>'outcome'" | tr -d " ")
+check "the retry after the lock is released applies" "$RT" "applied"
+RT2=$(try "select (public.d24_apply_event('evt_lk','$O1','invoice_payment.paid',90000,null,false,'$H','invoice_payment','$LKP'::jsonb))->>'outcome'" | tr -d " ")
+check "a further retry is a replay: exactly one payment and one evidence row" "$RT2/$(q "select (select count(*) from public.hosted_invoice_payments where stripe_invoice_payment_id='inpay_lk')||'/'||(select count(*) from public.hosted_invoice_source_events where provider_event_id='evt_lk')")" "replayed/1/1"
+check "the key-lock timeout is transaction-local (a fresh session still has none)" "$(q "show lock_timeout")" "0"
+# a drain that is itself blocked on a held key gives up quickly (1 s) and keeps the event pending, uncounted
+dfr evt_lk2 in_lk2 inpay_lk2 5 90100 >/dev/null
+( docker exec -i "$NAME" psql -U postgres -qAt -c "begin; select pg_advisory_xact_lock(hashtextextended('d24::in_lk2',0)); select pg_sleep(5); commit;" </dev/null >"$TMPD/lk_hold2.txt" 2>&1 ) &
+sleep 2
+check "drain blocked on a held key: event stays pending, transient code, not counted" "$(rd 25)/$(st evt_lk2)" "1/0/0/1/1/completed/pending/0/55P03/0"
+wait
+check "once the key is free the same event drains" "$(rd 25)/$(st evt_lk2)" "1/1/0/0/0/completed/applied/1/-/0"
+# duplicates and out-of-order across live and drain for one invoice
+dfr evt_oo2 in_oo inpay_oo2 4 91002 >/dev/null
+dfr evt_oo1 in_oo inpay_oo1 3 91001 >/dev/null
+claim evt_oo3 >/dev/null
+q "select public.d24_apply_event('evt_oo3','$O1','invoice_payment.paid',91003,null,false,'$H','invoice_payment','$(pj in_oo inpay_oo3 2)'::jsonb)" >/dev/null
+rd 25 >/dev/null; rd 25 >/dev/null
+check "live + deferred events for one invoice, any order: three payments, three evidence rows, once each" "$(q "select (select count(*) from public.hosted_invoice_payments where stripe_invoice_id='in_oo')||'/'||(select count(*) from public.hosted_invoice_source_events where stripe_invoice_id='in_oo')")" "3/3"
+
 # 8. M1 behaviors still hold -------------------------------------------------------------------------------------------------------------------
 check "d24_drain_deferred keeps its M1 result keys (plus picked)" "$(q "select string_agg(k, ',' order by k) from jsonb_object_keys(public.d24_drain_deferred(1)) k")" "applied,failed,picked,rejected"
 check "an applied deferred event still cannot change state" "$(try "select set_config('d24.writer','on',false); update public.hosted_invoice_deferred_events set state='pending', settled_at=null where provider_event_id='evt_g1'" | grep -c 'cannot change state')" "1"

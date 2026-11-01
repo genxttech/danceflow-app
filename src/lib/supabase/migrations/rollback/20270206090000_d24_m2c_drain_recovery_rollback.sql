@@ -92,6 +92,10 @@ begin
   end loop;
   return jsonb_build_object('applied', v_applied, 'rejected', v_rejected, 'failed', v_failed);
 end $$;
+create or replace function public._d24_key_lock(p_account text, p_invoice_id text)
+returns void language sql
+set search_path = pg_catalog, public, pg_temp
+as $$ select pg_advisory_xact_lock(hashtextextended('d24:' || coalesce(p_account, '') || ':' || p_invoice_id, 0)) $$;
 alter table public.hosted_invoice_deferred_events
   drop column last_error_code, drop column last_attempt_at, drop column attempt_base, drop column requeue_count;
 revoke all on function public.d24_drain_deferred(integer) from public, anon, authenticated;

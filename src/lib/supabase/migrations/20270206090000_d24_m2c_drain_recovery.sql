@@ -13,6 +13,7 @@
 --                                      p_actor is NOT verified here: the authorization wrapper belongs to D24 M2-B, which must pass a verified identity.
 -- Automatic recovery (transient retry, bounded quarantine) is the drain; manual recovery (requeue) is a separate, audited function. They never call each other.
 -- Dark: nothing calls these functions until an operator or a scheduler is authorized. NOT APPLIED to any shared environment by this file. No cron job is registered here.
+--   * _d24_key_lock(text,text)         REPLACED (same signature): lock wait bounded to 3 s (see below) so the live route cannot wait unboundedly on drain-held locks.
 -- Requires 20270203110000_d24_hosted_invoice_facts.sql. Rollback: rollback/20270206090000_d24_m2c_drain_recovery_rollback.sql
 
 begin;
@@ -355,6 +356,26 @@ begin
   where provider_event_id = r.provider_event_id;
   perform set_config('d24.requeue', 'off', true);
   return jsonb_build_object('outcome', 'requeued', 'provider_event_id', r.provider_event_id, 'requeue_count', r.requeue_count + 1);
+end $$;
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- Bounded wait on the per-invoice key lock (live webhook path, registration, drain). M1 waited on it without limit, so a long drain batch (key locks are held to
+-- commit) could stall the live d24_apply_event. Every caller of the key lock now gets, for the rest of its transaction, a lock_timeout of at most 3 s (a tighter
+-- setting, such as the drain's 1 s, is kept). A timeout is SQLSTATE 55P03: the transaction aborts with nothing written, the route turns it into a failed event
+-- (the PAY-WH-1 claim stays owned) and Stripe retries; every write is idempotent. Same signature, same lock key, same grants as M1.
+-- ---------------------------------------------------------------------------------------------------------------------
+
+create or replace function public._d24_key_lock(p_account text, p_invoice_id text)
+returns void language plpgsql
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare v_ms bigint;
+begin
+  select setting::bigint into v_ms from pg_settings where name = 'lock_timeout';
+  if v_ms = 0 or v_ms > 3000 then
+    perform set_config('lock_timeout', '3000ms', true);
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended('d24:' || coalesce(p_account, '') || ':' || p_invoice_id, 0));
 end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------------
