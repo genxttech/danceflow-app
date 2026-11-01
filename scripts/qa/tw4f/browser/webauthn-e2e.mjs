@@ -176,9 +176,28 @@ try {
   const fs = await H.sign(fb.data.challenge, fb.data.allow_credentials);
   check("freeze with the RECOVERY key", (await H.rpc(A, S2, "tw4_price_recovery_freeze", [fb.data.nonce, fs.credId, fs.auth, fs.client, fs.sig])).data?.status === "frozen");
   const tb2 = await H.rpc(A, S2, "tw4_price_cred_begin", ["thaw", null, null, null, null, null]);
-  check("the recovery key is not offered for the thaw", !tb2.data.allow_credentials.includes(recovery.nk.id));
-  const ts2 = await H.sign(tb2.data.challenge, [primary.id]);
-  check("thaw again with the primary", (await H.rpc(A, S2, "tw4_price_thaw", [tb2.data.nonce, ts2.credId, ts2.auth, ts2.client, ts2.sig])).data?.status === "thawed");
+  check("ordinary thaw is REFUSED during a recovery freeze (no ceremony is offered)", !!tb2.error && tb2.error.includes("42501"), tb2.error);
+  const rvb = await H.rpc(A, S2, "tw4_price_cred_begin", ["revoke", recovery.nk.id, null, null, null, null]);
+  const rvs = await H.sign(rvb.data.challenge, [primary.id]);
+  const rvr = await H.rpc(A, S2, "tw4_price_cred_revoke", [rvb.data.nonce, recovery.nk.id, rvs.credId, rvs.auth, rvs.client, rvs.sig]);
+  check("an ordinary key CANNOT revoke the recovery key", rvr.data?.status === "rejected" && (await q("select status from public.studio_sms_price_credentials where credential_id=decode('" + hex(recovery.nk.id) + "','hex')")) === "active", rvr.data?.reason);
+  // a recovery enrolment is pending: only the recovery key may cancel it; the cancel by the recovery key ends the hold, then an ordinary key thaws
+  const nk0 = await H.create("recovery attempt key");
+  const rb0 = await H.rpc(A, S2, "tw4_price_cred_begin", ["recover_enroll", nk0.id, nk0.x, nk0.y, null, "recovery attempt"]);
+  const rs0 = await H.sign(rb0.data.challenge, [recovery.nk.id]);
+  const rm0 = await H.sign(rb0.data.challenge, [nk0.id]);
+  const rr0 = await H.rpc(A, S2, "tw4_price_recovery_enroll", [rb0.data.nonce, nk0.id, nk0.x, nk0.y, "recovery attempt", rs0.credId, rs0.auth, rs0.client, rs0.sig, rm0.auth, rm0.client, rm0.sig]);
+  check("recovery enrolment pending (publication stays suspended)", rr0.data?.status === "pending" && (await q("select public._tw4price_suspended()")) === "t");
+  const cb0 = await H.rpc(A, S2, "tw4_price_cred_begin", ["cancel", null, null, null, null, rr0.data.change_id]);
+  check("only the recovery key is offered the cancel of a recovery enrolment", JSON.stringify(cb0.data.allow_credentials) === JSON.stringify([recovery.nk.id]));
+  const cs0 = await H.sign(cb0.data.challenge, [primary.id]).catch(() => null);
+  const cr0 = cs0 && (await H.rpc(A, S2, "tw4_price_cred_cancel", [rr0.data.change_id, cb0.data.nonce, cs0.credId, cs0.auth, cs0.client, cs0.sig]));
+  check("a primary key CANNOT cancel the recovery enrolment", cr0?.data?.status === "rejected", cr0?.data?.reason);
+  const cs1 = await H.sign(cb0.data.challenge, [recovery.nk.id]);
+  check("the recovery key cancels it", (await H.rpc(A, S2, "tw4_price_cred_cancel", [rr0.data.change_id, cb0.data.nonce, cs1.credId, cs1.auth, cs1.client, cs1.sig])).data?.status === "cancelled");
+  const tb3 = await H.rpc(A, S2, "tw4_price_cred_begin", ["thaw", null, null, null, null, null]);
+  const ts3 = await H.sign(tb3.data.challenge, [primary.id]);
+  check("thaw with the primary after the recovery key ended the hold", (await H.rpc(A, S2, "tw4_price_thaw", [tb3.data.nonce, ts3.credId, ts3.auth, ts3.client, ts3.sig])).data?.status === "thawed");
 
   // 5. IMMEDIATE revocation of the spare by the primary; the spare's real assertion is dead at once
   const rb = await H.rpc(A, S2, "tw4_price_cred_begin", ["revoke", spare.nk.id, null, null, null, null]);
@@ -202,8 +221,8 @@ try {
   check("recovery enrolment is pending for the long delay", rre.data?.status === "pending" && rre.data.effective_in_hours >= 72, JSON.stringify(rre.data ?? rre.error));
   check("apply before the recovery delay is refused", (await H.rpc(A, S2, "tw4_price_cred_apply", [rre.data.change_id])).error?.includes("TW045"));
   const cb = await H.rpc(A, S2, "tw4_price_cred_begin", ["cancel", null, null, null, null, rre.data.change_id]);
-  const cs = await H.sign(cb.data.challenge, cb.data.allow_credentials);
-  check("the primary cancels the recovery enrolment (the recovery key alone is not enough)", (await H.rpc(A, S2, "tw4_price_cred_cancel", [rre.data.change_id, cb.data.nonce, cs.credId, cs.auth, cs.client, cs.sig])).data?.status === "cancelled");
+  const cs = await H.sign(cb.data.challenge, [recovery.nk.id]);
+  check("the RECOVERY key cancels the recovery enrolment (a primary key cannot)", (await H.rpc(A, S2, "tw4_price_cred_cancel", [rre.data.change_id, cb.data.nonce, cs.credId, cs.auth, cs.client, cs.sig])).data?.status === "cancelled");
   const rcb2 = await H.rpc(A, S2, "tw4_price_cred_begin", ["recover_enroll", nk.id, nk.x, nk.y, null, "recovered primary"]);
   const rcs2 = await H.sign(rcb2.data.challenge, [recovery.nk.id]);
   const rcm2 = await H.sign(rcb2.data.challenge, [nk.id]);
