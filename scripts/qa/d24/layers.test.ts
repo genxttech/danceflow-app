@@ -23,7 +23,7 @@ const NOT_PLAT = "00000000-0000-0000-0000-0000000d25f0";
 
 const asUser = (uid: string | null, aal: string, sql: string) => {
   const claims = uid ? `{"sub":"${uid}","role":"authenticated","aal":"${aal}"}` : "{}";
-  return runSql(`select set_config('request.jwt.claims','${claims}',false) is not null; ${sql}`, "authenticated").then((r) => (r.error ? `ERR ${r.error.code} ${r.error.message}` : r.out));
+  return runSql(`select set_config('request.jwt.claims','${claims}',false) is not null; ${sql}`, "authenticated").then((r) => (r.error ? `ERR ${r.error.code} ${r.error.message}` : r.out.replace(/^t\n?/, "")));
 };
 const claim = (id: string) => q(`select (public.claim_payment_provider_event('stripe','${id}','x','h','${OWNER}'))->>'outcome'`);
 const invObj = (inv: string, status = "void") => ({ invoice_id: inv, status, total: 100, amount_due: 100, amount_paid: 0, amount_remaining: 100, currency: "usd" });
@@ -121,10 +121,17 @@ B("M2B. operator authorization (M2-B)", () => {
   });
 });
 
-const C = describe.skipIf(!has("m2c") || has("m2b"));
-C("M2C. drain job (M2-C, without M2-B)", () => {
+// With M2-B loaded the direct requeue function is closed to service_role, so requeue goes THROUGH M2-B's wrapper as a platform admin at aal2
+// (the owner-approved policy); without M2-B it uses M2-C's direct function. Either way the checks run, they are never skipped.
+const requeue = async (event: string, reason: string): Promise<string> =>
+  has("m2b")
+    ? asUser(PLAT, "aal2", `select (public.d24_op_requeue_deferred('${event}','${reason}'))->>'outcome'`)
+    : as("service_role", `select (public.d24_requeue_deferred_event('${event}','${PLAT}','${reason}'))->>'outcome'`);
+const C = describe.skipIf(!has("m2c"));
+C(`M2C. drain job (M2-C${has("m2b") ? ", full stack, requeue through the M2-B wrapper" : ", direct requeue"})`, () => {
   beforeAll(async () => {
     await q(`insert into public.studios (id,name) values ('${SA}','A'),('${SB}','B') on conflict do nothing`);
+    if (has("m2b")) await q(`insert into public.profiles (id, platform_role) values ('${PLAT}','platform_admin') on conflict do nothing`);
   });
   it("M2C1 service_role may run d24_run_drain but not the unbounded d24_drain_deferred; anon/authenticated may run neither", async () => {
     expect(await as("service_role", "select (public.d24_run_drain(5,'manual'))->>'outcome'")).toBe("completed");
@@ -172,8 +179,8 @@ C("M2C. drain job (M2-C, without M2-B)", () => {
     } finally {
       await q("drop trigger if exists m2d_boom on public.hosted_invoice_source_events; drop function if exists public._m2d_boom();");
     }
-    expect(await as("service_role", `select public.d24_requeue_deferred_event('${poison}','${PLAT}','')`)).toMatch(/ERR/);
-    expect(await as("service_role", `select (public.d24_requeue_deferred_event('${poison}','${PLAT}','poison fixed'))->>'outcome'`)).toBe("requeued");
+    expect(await requeue(poison, "")).toMatch(/ERR/);
+    expect(await requeue(poison, "poison fixed, replaying")).toBe("requeued");
     await rpc("d24_run_drain", { p_batch_size: 10, p_trigger: "manual" });
     expect(await q(`select state from public.hosted_invoice_deferred_events where provider_event_id='${poison}'`)).toBe("applied");
     expect(await q(`select count(*) from public.hosted_invoice_source_events where provider_event_id='${poison}'`)).toBe("1");
@@ -182,7 +189,10 @@ C("M2C. drain job (M2-C, without M2-B)", () => {
   it("M2C4 only a rejected event can be requeued; evidence of a deferred event stays immutable", async () => {
     const e = `evt_${nid()}`;
     await defer(e, "invoice_payment.paid", 1_800_800_000, "invoice_payment", payObj(`in_${nid()}`, `inpay_${nid()}`, 9));
-    expect(await as("service_role", `select public.d24_requeue_deferred_event('${e}','${PLAT}','not rejected')`)).toMatch(/d24_requeue_requires_rejected_event/);
+    // M2-C's function refuses a non-rejected event; M2-B's wrapper answers an idempotent already_pending for a pending one. Either way nothing changes.
+    expect(await requeue(e, "not rejected, must refuse")).toMatch(/d24_requeue_requires_rejected_event|d24_op_not_recoverable|already_pending/);
+    expect(await q(`select state||'/'||requeue_count from public.hosted_invoice_deferred_events where provider_event_id='${e}'`)).toBe("pending/0");
+    expect(await q(`select count(*) from public.hosted_invoice_deferred_requeues where provider_event_id='${e}'`)).toBe("0");
     expect(await as("postgres", `select set_config('d24.writer','on',false); update public.hosted_invoice_deferred_events set payload_hash='x' where provider_event_id='${e}'`)).toMatch(/immutable/);
   });
   it("M2C5 drain health reports counts and codes only", async () => {

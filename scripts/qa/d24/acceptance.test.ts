@@ -579,6 +579,54 @@ suite("H. evidence integrity and scope", () => {
   });
 });
 
+suite("I. identity replay, scope, livemode and ordering edge cases (review gaps)", () => {
+  beforeEach(() => MODE("on"));
+  it("I1 an invoice-payment id replayed under a DIFFERENT invoice/studio stays with its first invoice and flags the second invoice", async () => {
+    const a = `in_${nextId()}`, b = `in_${nextId()}`, pay = `inpay_${nextId()}`;
+    await register(SA, a); await register(SB, b);
+    expect((await deliver("invoice_payment.paid", payObj(pay, a, 10))).status).toBe(200);
+    expect((await deliver("invoice_payment.paid", payObj(pay, b, 10))).status).toBe(200);
+    expect(await q(`select i.stripe_invoice_id||'/'||p.studio_id from public.hosted_invoice_payments p join public.hosted_invoices i on i.id=p.invoice_row_id where p.stripe_invoice_payment_id='${pay}'`)).toBe(`${a}/${SA}`);
+    expect(await q(`select count(*) from public.hosted_invoice_payments where stripe_invoice_payment_id='${pay}'`)).toBe("1");
+    expect(await inv(b, "anomaly_codes @> array['invoice_payment_conflict']")).toBe("t");
+    expect(await inv(a, "anomaly_codes @> array['invoice_payment_conflict']")).toBe("f");
+  });
+  it("I2 a credit-note id replayed under a DIFFERENT invoice/studio stays with its first invoice and flags the second invoice", async () => {
+    const a = `in_${nextId()}`, b = `in_${nextId()}`, cn = `cn_${nextId()}`;
+    await register(SA, a); await register(SB, b);
+    await deliver("credit_note.created", noteObj(cn, a));
+    await deliver("credit_note.created", noteObj(cn, b));
+    expect(await q(`select i.stripe_invoice_id||'/'||c.studio_id from public.hosted_credit_notes c join public.hosted_invoices i on i.id=c.invoice_row_id where c.stripe_credit_note_id='${cn}'`)).toBe(`${a}/${SA}`);
+    expect(await inv(b, "anomaly_codes @> array['credit_note_conflict']")).toBe("t");
+  });
+  it("I3 an event under Stripe account X, then registration under account Y: the account-X row stays unattributed and is flagged", async () => {
+    const invoice = `in_${nextId()}`;
+    await deliver("invoice.voided", invoiceObj(invoice, "void"), { account: "acct_m2dx" });
+    await register(SA, invoice, "acct_m2dy");
+    expect(await inv(invoice, "coalesce(studio_id::text,'NULL')||'/'||(anomaly_codes @> array['account_scope_mismatch'])::text", "acct_m2dx")).toBe("NULL/true");
+  });
+  it("I4 a registry/event livemode mismatch still attributes by registry but flags livemode_mismatch and needs review", async () => {
+    const invoice = `in_${nextId()}`;
+    expect((await rpc("d24_register_invoice", { p_studio_id: SA, p_stripe_account_id: null, p_stripe_invoice_id: invoice, p_livemode: true, p_business_object_type: "event_fee", p_business_object_id: `bo-${invoice}` })).error).toBeNull();
+    await deliver("invoice.voided", invoiceObj(invoice, "void"));
+    expect(await inv(invoice, "(anomaly_codes @> array['livemode_mismatch'])::text||'/'||reconciliation_state")).toBe("true/anomalous");
+  });
+  it("I5 void and uncollectible converge to void in either arrival order, whatever the event timestamps", async () => {
+    const a = `in_${nextId()}`, b = `in_${nextId()}`;
+    await deliver("invoice.voided", invoiceObj(a, "void"), { created: 1_801_000_010 });
+    await deliver("invoice.marked_uncollectible", invoiceObj(a, "uncollectible"), { created: 1_801_000_020 });
+    await deliver("invoice.marked_uncollectible", invoiceObj(b, "uncollectible"), { created: 1_801_000_020 });
+    await deliver("invoice.voided", invoiceObj(b, "void"), { created: 1_801_000_010 });
+    expect([await inv(a, "status"), await inv(b, "status")]).toEqual(["void", "void"]);
+  });
+  it("I6 service_role cannot enable the d24.writer flag to write facts: direct DML stays permission-denied and nothing is written", async () => {
+    const before = await factTotals();
+    expect(await as("service_role", `select set_config('d24.writer','on',false); insert into public.hosted_invoice_registry (studio_id,stripe_invoice_id,livemode,business_object_type,business_object_id) values ('${SA}','in_${nextId()}',false,'a','b')`)).toMatch(/permission denied/);
+    expect(await as("service_role", `select set_config('d24.writer','on',false); update public.hosted_invoices set status=status`)).toMatch(/permission denied/);
+    expect(await factTotals()).toBe(before);
+  });
+});
+
 // ----------------------------------------------------------------------------------------------------------------------------
 // M2-A (registration) is a code-only layer: it adds a server wrapper over d24_register_invoice and no migration. Its own PG test
 // (register.d24.pg.test.ts in PR 387) covers the wrapper; here we pin the database contract the wrapper depends on, and keep the
