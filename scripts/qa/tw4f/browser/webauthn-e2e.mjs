@@ -211,6 +211,7 @@ try {
   await H.owner("ageChange", { id: rre2.data.change_id, hours: 200 });
   check("recovery completes after the delay and replaces the whole set", (await H.rpc(A, S2, "tw4_price_cred_apply", [rre2.data.change_id])).data?.status === "applied" && (await q("select string_agg(role || ':' || enrolled_via, ',') from public.studio_sms_price_credentials where status='active'")) === "primary:recovery");
   // the recovered primary authorizes a price in a fresh pair of sessions
+  await q(`select public._tw4price_do_reject(id, requested_by, 'withdrawn before the post-recovery proposal') from public.studio_sms_price_change_requests where status = 'pending'`);
   const p4 = await H.rpc(A, S1, "tw4_price_propose", ["number", 411, 115, "after recovery", "a written reason after the recovery"]);
   await H.owner("ageRequest", { id: p4.data.request_id, hours: 25 });
   const b4 = await H.rpc(A, S2, "tw4_price_authz_begin", [p4.data.request_id]);
