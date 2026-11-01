@@ -107,8 +107,48 @@ claim evt_d1; q "select public.d24_defer_event('evt_d1','$O1','invoice.voided',1
 q "select set_config('d24.writer','on',false); update public.hosted_invoice_deferred_events set state='rejected', settled_at=now(), attempts=5, last_error='boom' where provider_event_id='evt_d1'" >/dev/null
 claim evt_d2; q "select public.d24_defer_event('evt_d2','$O1','invoice.voided',1301,null,false,'$H','invoice','$(inv in_d2 void 100 0 100 100)'::jsonb)" >/dev/null
 
+# 0. database activation switch: OFF by default, closed for every role; only an audited platform-admin AAL2 call changes it ----------------
+R="a long enough reason"
+check "switch is OFF after the migration" "$(q "select enabled from public.hosted_invoice_operator_config")" "f"
+check "exactly one config row" "$(q "select count(*) from public.hosted_invoice_operator_config")" "1"
+for who in "$PLAT:platform admin aal2" "$OWA:studio owner aal2" "$ADA:studio admin aal2" "$NOB:no role aal2"; do
+  uid=${who%%:*}; label=${who#*:}
+  for c in "d24_op_list_invoices()" "d24_op_get_invoice('$RA')" "d24_op_list_deferred()" "d24_op_dismiss_unmatched('$U1','$R')" "d24_op_requeue_deferred('evt_d1','$R')" "d24_op_acknowledge_anomalies('$RA',array['unverified_void_origin'],'$R')"; do
+    has "switch OFF: $label cannot call ${c%%(*}" "$(asu $uid aal2 "select public.$c")" "d24_op_disabled"
+  done
+done
+has "switch OFF: aal1 platform admin is refused too" "$(asu $PLAT aal1 "select public.d24_op_list_invoices()")" "d24_op_disabled"
+has "switch OFF: no-JWT call is refused" "$(asu $PLAT none "select public.d24_op_list_invoices()")" "d24_op_disabled"
+check "switch OFF: nothing was written" "$(q "select count(*) from public.hosted_invoice_dismissals")/$(q "select count(*) from public.hosted_invoice_deferred_requeues")/$(q "select count(*) from public.hosted_invoice_recon_audit where trigger_kind in ('acknowledgement','dismissal')")" "0/0/0"
+# set_enabled authority
+has "studio owner cannot switch it on" "$(asu $OWA aal2 "select public.d24_op_set_enabled(true,'$R')")" "d24_op_platform_admin_required"
+has "no-role user cannot switch it on" "$(asu $NOB aal2 "select public.d24_op_set_enabled(true,'$R')")" "d24_op_platform_admin_required"
+has "platform admin on aal1 cannot switch it on" "$(asu $PLAT aal1 "select public.d24_op_set_enabled(true,'$R')")" "d24_op_aal2_required"
+has "expired platform admin cannot switch it on" "$(asu $PLAT expired "select public.d24_op_set_enabled(true,'$R')")" "d24_op_session_expired"
+has "no-JWT call cannot switch it on" "$(asu $PLAT none "select public.d24_op_set_enabled(true,'$R')")" "d24_op_authentication_required"
+has "switching needs a reason" "$(asu $PLAT aal2 "select public.d24_op_set_enabled(true,'no')")" "d24_op_reason_required"
+has "switching needs a boolean" "$(asu $PLAT aal2 "select public.d24_op_set_enabled(null,'$R')")" "enabled is required"
+check "...still OFF, no audit rows" "$(q "select enabled from public.hosted_invoice_operator_config")/$(q "select count(*) from public.hosted_invoice_operator_config_audit")" "f/0"
+has "service_role cannot call set_enabled" "$(asr service_role "select public.d24_op_set_enabled(true,'$R')")" "permission denied"
+has "authenticated cannot update the switch directly" "$(asu $PLAT aal2 "update public.hosted_invoice_operator_config set enabled=true")" "permission denied"
+has "service_role cannot update the switch directly" "$(asr service_role "update public.hosted_invoice_operator_config set enabled=true")" "permission denied"
+has "even the table owner cannot flip it outside the function" "$(q "update public.hosted_invoice_operator_config set enabled=true" 2>&1 | tr '\n' ' ')" "only be changed through d24_op_set_enabled"
+has "the config row cannot be deleted" "$(q "select set_config('d24.writer','on',false); delete from public.hosted_invoice_operator_config" 2>&1 | tr '\n' ' ')" "only be changed through"
+has "the config audit cannot be inserted directly" "$(q "insert into public.hosted_invoice_operator_config_audit (actor_user_id,from_enabled,to_enabled,reason) values ('$PLAT',false,true,'a long enough reason')" 2>&1 | tr '\n' ' ')" "only allowed through"
+has "platform admin on aal2 switches it ON (audited)" "$(asu $PLAT aal2 "select public.d24_op_set_enabled(true,'enable operator actions for the 10-31 acceptance run')")" '"outcome": "changed"'
+has "switching ON again is an idempotent no-op" "$(asu $PLAT aal2 "select public.d24_op_set_enabled(true,'enable operator actions for the 10-31 acceptance run')")" '"outcome": "unchanged"'
+check "switch ON, one audit row with the verified actor" "$(q "select enabled from public.hosted_invoice_operator_config")/$(q "select count(*)||'|'||min(actor_user_id::text)||'|'||bool_and(from_enabled=false and to_enabled=true) from public.hosted_invoice_operator_config_audit")" "t/1|$PLAT|true"
+check "updated_by records the actor" "$(q "select updated_by from public.hosted_invoice_operator_config")" "$PLAT"
+has "config audit rows cannot be edited" "$(q "select set_config('d24.writer','on',false); update public.hosted_invoice_operator_config_audit set reason='tampered tampered'" 2>&1 | tr '\n' ' ')" "append-only"
+has "config audit rows cannot be deleted" "$(q "select set_config('d24.writer','on',false); delete from public.hosted_invoice_operator_config_audit" 2>&1 | tr '\n' ' ')" "append-only"
+has "switch ON: platform list works again" "$(asu $PLAT aal2 "select (public.d24_op_list_invoices(null,null,true))->>'total' ~ '^[0-9]+$'")" "t"
+has "switch back OFF closes everything again" "$(asu $PLAT aal2 "select public.d24_op_set_enabled(false,'closing the window after the check')")" '"outcome": "changed"'
+has "...platform admin is refused while OFF" "$(asu $PLAT aal2 "select public.d24_op_list_invoices()")" "d24_op_disabled"
+has "...set_enabled still works while OFF (it is the control)" "$(asu $PLAT aal2 "select public.d24_op_set_enabled(true,'enable operator actions for the rest of the run')")" '"outcome": "changed"'
+check "three audit rows after the OFF/ON cycle" "$(q "select count(*) from public.hosted_invoice_operator_config_audit")" "3"
+
 # 1. grants ---------------------------------------------------------------------------------------------------------------
-OPF="d24_op_acknowledge_anomalies(uuid,text[],text) d24_op_dismiss_unmatched(uuid,text) d24_op_requeue_deferred(text,text) d24_op_list_invoices(text,uuid,boolean,integer,integer) d24_op_get_invoice(uuid) d24_op_list_deferred(text,integer,integer)"
+OPF="d24_op_set_enabled(boolean,text) d24_op_acknowledge_anomalies(uuid,text[],text) d24_op_dismiss_unmatched(uuid,text) d24_op_requeue_deferred(text,text) d24_op_list_invoices(text,uuid,boolean,integer,integer) d24_op_get_invoice(uuid) d24_op_list_deferred(text,integer,integer)"
 for f in $OPF; do
   check "authenticated can execute $f" "$(q "select has_function_privilege('authenticated','public.$f','execute')")" "t"
   check "anon cannot execute $f" "$(q "select has_function_privilege('anon','public.$f','execute')")" "f"
@@ -117,11 +157,11 @@ done
 for r in anon authenticated service_role; do
   check "$r cannot execute the p_actor ack function" "$(q "select has_function_privilege('$r','public.d24_acknowledge_anomalies(uuid,text[],uuid,text)','execute')")" "f"
 done
-for f in "_d24_op_caller()" "_d24_op_is_platform_admin(uuid)" "_d24_op_is_studio_operator(uuid,uuid)" "_d24_op_reason(text)" "_d24_op_studio_ackable(text)"; do
+for f in "_d24_op_caller()" "_d24_op_identity()" "_d24_op_config_guard()" "_d24_op_is_platform_admin(uuid)" "_d24_op_is_studio_operator(uuid,uuid)" "_d24_op_reason(text)" "_d24_op_studio_ackable(text)"; do
   check "no API role can call internal $f" "$(q "select has_function_privilege('authenticated','public.$f','execute') or has_function_privilege('service_role','public.$f','execute') or has_function_privilege('anon','public.$f','execute')")" "f"
 done
 check "no function has an actor parameter" "$(q "select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and p.proname like 'd24\\_op\\_%' and (pg_get_function_arguments(p.oid) ilike '%actor%' or pg_get_function_arguments(p.oid) ilike '%user%')")" "0"
-check "every operator function is SECURITY DEFINER with a pinned search_path" "$(q "select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and p.proname like 'd24\\_op\\_%' and p.proname not like '\\_%' and p.prosecdef and p.proconfig::text like '%search_path%'")" "6"
+check "every operator function is SECURITY DEFINER with a pinned search_path" "$(q "select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and p.proname like 'd24\\_op\\_%' and p.proname not like '\\_%' and p.prosecdef and p.proconfig::text like '%search_path%'")" "7"
 check "new evidence tables: RLS on, no policies" "$(q "select count(*) from pg_class c where c.relnamespace='public'::regnamespace and c.relname in ('hosted_invoice_dismissals','hosted_invoice_deferred_requeues') and c.relrowsecurity")" "2"
 check "authenticated has no table privilege on the new tables" "$(q "select count(*) from information_schema.role_table_grants where grantee in ('anon','authenticated','public') and table_name in ('hosted_invoice_dismissals','hosted_invoice_deferred_requeues')")" "0"
 has "authenticated cannot read dismissals directly" "$(asu $PLAT aal2 'select count(*) from public.hosted_invoice_dismissals')" "permission denied"

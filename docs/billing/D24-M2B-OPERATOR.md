@@ -57,3 +57,30 @@ Apply order: **M1 `20270203110000` → M2-C `20270206090000` → M2-B `202702070
 
 ## Independent review #2 (fresh reviewer, diff only) — findings
 P0: none. P1: none exploitable. P2 fixed: SQL reason validation now trims tabs/newlines (not just spaces), requeue reason cap (500) checked before locks and aligned in the app, misleading comment corrected. P2 accepted/open: (1) `D24_OPERATOR_ACTIONS` is app-only — once the migration is applied the `d24_op_*` functions are callable by AAL2 platform admins directly through PostgREST, so treat applying the migration as enabling them (the SQL authority checks still hold); (2) rollback is blocked permanently after the first dismissal (append-only evidence) — plan app-only rollback; rollback also re-grants the two p_actor functions to service_role (pre-M2-B state); (3) JWT-claims-only identity: a revoked/banned session stays valid until `exp`; (4) a second admin's identical dismissal is not recorded; (5) list/get use `to_jsonb` on source-event/audit rows for platform admins; (6) `d24_op_list_invoices` correlated count will need an index/denormalisation at scale.
+
+## Owner decisions applied (2026-10-31, supersede anything above)
+
+### 1. Who may acknowledge which code (resolved; former P2-1 / D-1 / D-2 closed)
+Platform administrators (verified identity + AAL2 + tenant/account context + mandatory reason + immutable audit) may acknowledge **any code present on a studio-attributed invoice**. Studio owners/admins may acknowledge **only** the two studio-eligible codes, **only** on their own studio's invoices. Acknowledging never attributes an invoice, never erases a code, creates no settlement/credit/refund, and a new occurrence of a code re-opens it.
+
+| Code | Studio-eligible? | Why |
+|---|---|---|
+| `unverified_void_origin` | **yes** | Stripe reported a void that DanceFlow has not verified. The studio is the party that knows whether it voided the invoice; acknowledging records a review, not a verification (`origin_state` stays `unverified`). |
+| `unverified_uncollectible_origin` | **yes** | Same reasoning for uncollectible. |
+| `void_invoice_has_payments` | no | A payment exists on a voided invoice: a money-vs-state contradiction that needs platform-side investigation, and the studio is the interested party. |
+| `paid_and_void_observed` | no | Same contradiction seen from the event side. |
+| `payments_exceed_invoice_total` | no | Potential over-collection; financial integrity, platform decision. |
+| `invoice_payment_conflict`, `credit_note_conflict` | no | Stripe facts disagree for one object id; resolving needs Stripe-side evidence. |
+| `replay_payload_mismatch` | no | The same event id arrived with a different payload: a delivery/integrity signal about the pipeline, not about the studio. |
+| `metadata_mismatch` | no | Invoice metadata points at a different studio/registry id than the trusted registry: a possible cross-tenant or forgery signal; a studio must not be able to hide it. |
+| `account_scope_mismatch`, `livemode_mismatch`, `livemode_conflict` | no | Account/livemode integrity: cross-account or test-vs-live confusion; platform concern. |
+| `subscription_registry_conflict` | no | An invoice both registered to a studio and carrying subscription markers: classification integrity, platform concern. |
+A code outside this list is platform-only by default (`_d24_op_studio_ackable` is an explicit allow-list).
+
+### 2. `D24_OPERATOR_ACTIONS` is an app switch, **not** a security boundary
+PostgREST exposes every `GRANT`ed function as soon as the migration is applied. Therefore the database has its own activation control:
+- `hosted_invoice_operator_config` (single row, **default OFF**) + append-only `hosted_invoice_operator_config_audit`.
+- Every `d24_op_*` function except `d24_op_set_enabled` starts with `_d24_op_caller()`, which raises `d24_op_disabled` (SQLSTATE 55000) while the switch is off — **for every role, platform admins at AAL2 included, before the identity checks**.
+- The switch changes only through `d24_op_set_enabled(p_enabled, p_reason)`: verified platform admin + AAL2 + unexpired session + reason (10–1000), row-locked, idempotent (`unchanged` writes nothing), one audit row per change. It works while the switch is off (it is the control). `service_role` has SELECT only; a direct UPDATE/DELETE is refused by a guard trigger even for the table owner; the migration itself is the only other path.
+- Turning on in an environment is therefore two separate, audited, owner-authorized steps: apply the migration (functions exist but are closed), then a platform admin at AAL2 calls `d24_op_set_enabled(true, reason)` (and, for the UI/server actions, `D24_OPERATOR_ACTIONS=enabled`).
+- Rollback is blocked once any config-audit or dismissal row exists (append-only evidence); close the switch (`d24_op_set_enabled(false, …)`) and the app flag instead.

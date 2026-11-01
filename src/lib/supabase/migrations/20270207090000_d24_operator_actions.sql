@@ -56,6 +56,57 @@ begin
 end $$;
 revoke all on sequence public.hosted_invoice_dismissals_id_seq from public, anon, authenticated, service_role;
 
+-- Database-side activation control. The operator functions fail closed unless this single row says enabled. Default OFF. The row can be changed only by
+-- d24_op_set_enabled (verified platform admin + AAL2 + reason, audited) or by a migration; service_role has SELECT only. D24_OPERATOR_ACTIONS is an APP switch
+-- and is NOT a security boundary: PostgREST exposes the functions as soon as the migration is applied, and this flag is what keeps them closed.
+create table public.hosted_invoice_operator_config (
+  singleton boolean primary key default true check (singleton),
+  enabled boolean not null default false,
+  updated_at timestamptz not null default now(),
+  updated_by uuid
+);
+insert into public.hosted_invoice_operator_config (singleton, enabled) values (true, false);
+
+create table public.hosted_invoice_operator_config_audit (
+  id bigint generated always as identity primary key,
+  changed_at timestamptz not null default now(),
+  actor_user_id uuid not null,
+  from_enabled boolean not null,
+  to_enabled boolean not null,
+  reason text not null,
+  constraint hosted_invoice_operator_config_audit_reason_chk check (length(btrim(reason)) between 10 and 1000),
+  constraint hosted_invoice_operator_config_audit_change_chk check (from_enabled <> to_enabled)
+);
+
+create or replace function public._d24_op_config_guard()
+returns trigger language plpgsql
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  if tg_op in ('DELETE', 'TRUNCATE') or coalesce(current_setting('d24.writer', true), '') <> 'on' then
+    raise exception 'd24: the operator config can only be changed through d24_op_set_enabled' using errcode = '42501';
+  end if;
+  return new;
+end $$;
+create trigger hosted_invoice_operator_config_guard_trg before insert or update or delete on public.hosted_invoice_operator_config
+  for each row execute function public._d24_op_config_guard();
+create trigger hosted_invoice_operator_config_trunc_trg before truncate on public.hosted_invoice_operator_config
+  for each statement execute function public._d24_op_config_guard();
+
+do $$
+declare t text;
+begin
+  foreach t in array array['hosted_invoice_operator_config', 'hosted_invoice_operator_config_audit'] loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('revoke all on public.%I from public, anon, authenticated, service_role', t);
+    execute format('grant select on public.%I to service_role', t);
+  end loop;
+  execute 'create trigger hosted_invoice_operator_config_audit_writer_trg before insert on public.hosted_invoice_operator_config_audit for each row execute function public._d24_require_writer()';
+  execute 'create trigger hosted_invoice_operator_config_audit_append_trg before update or delete on public.hosted_invoice_operator_config_audit for each row execute function public._d24_append_only()';
+  execute 'create trigger hosted_invoice_operator_config_audit_trunc_trg before truncate on public.hosted_invoice_operator_config_audit for each statement execute function public._d24_append_only()';
+end $$;
+revoke all on sequence public.hosted_invoice_operator_config_audit_id_seq from public, anon, authenticated, service_role;
+
 -- The audit log learns one more trigger kind (a dismissal changes no state, it records a decision); every manual kind needs an actor and a reason.
 alter table public.hosted_invoice_recon_audit drop constraint hosted_invoice_recon_audit_trigger_chk;
 alter table public.hosted_invoice_recon_audit drop constraint hosted_invoice_recon_audit_ack_chk;
@@ -69,7 +120,7 @@ alter table public.hosted_invoice_recon_audit add constraint hosted_invoice_reco
 -- ---------------------------------------------------------------------------------------------------------------------
 
 -- The verified end user, or an error. Service-role / anon calls have no auth.uid() and are refused; an aal1 session is refused.
-create or replace function public._d24_op_caller()
+create or replace function public._d24_op_identity()
 returns uuid language plpgsql stable
 set search_path = pg_catalog, public, pg_temp
 as $$
@@ -85,6 +136,44 @@ begin
     raise exception 'd24_op_aal2_required' using errcode = '42501';
   end if;
   return v_uid;
+end $$;
+
+-- Every operator function starts here: the DB-side switch first (fail closed for EVERY role, platform admins included), then the verified identity.
+create or replace function public._d24_op_caller()
+returns uuid language plpgsql stable
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  if not coalesce((select c.enabled from public.hosted_invoice_operator_config c where c.singleton), false) then
+    raise exception 'd24_op_disabled: the operator actions are switched off in the database' using errcode = '55000';
+  end if;
+  return public._d24_op_identity();
+end $$;
+
+-- The only way to change the switch: verified platform admin + AAL2 + reason, row-locked, idempotent, audited. It works while the switch is off (it is the control).
+create or replace function public.d24_op_set_enabled(p_enabled boolean, p_reason text)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  v_uid uuid := public._d24_op_identity();
+  v_reason text := public._d24_op_reason(p_reason);
+  v_old boolean;
+begin
+  if not public._d24_op_is_platform_admin(v_uid) then
+    raise exception 'd24_op_platform_admin_required' using errcode = '42501';
+  end if;
+  if p_enabled is null then
+    raise exception 'd24_op_set_enabled: enabled is required' using errcode = '22023';
+  end if;
+  perform set_config('d24.writer', 'on', true);
+  select enabled into v_old from public.hosted_invoice_operator_config where singleton for update;
+  if v_old = p_enabled then
+    return jsonb_build_object('outcome', 'unchanged', 'enabled', v_old);
+  end if;
+  update public.hosted_invoice_operator_config set enabled = p_enabled, updated_at = now(), updated_by = v_uid where singleton;
+  insert into public.hosted_invoice_operator_config_audit (actor_user_id, from_enabled, to_enabled, reason) values (v_uid, v_old, p_enabled, v_reason);
+  return jsonb_build_object('outcome', 'changed', 'enabled', p_enabled);
 end $$;
 
 create or replace function public._d24_op_is_platform_admin(p_uid uuid)
@@ -364,6 +453,10 @@ end $$;
 -- ---------------------------------------------------------------------------------------------------------------------
 
 revoke all on function public._d24_op_caller() from public, anon, authenticated, service_role;
+revoke all on function public._d24_op_identity() from public, anon, authenticated, service_role;
+revoke all on function public._d24_op_config_guard() from public, anon, authenticated, service_role;
+revoke all on function public.d24_op_set_enabled(boolean, text) from public, anon, authenticated, service_role;
+grant execute on function public.d24_op_set_enabled(boolean, text) to authenticated;
 revoke all on function public._d24_op_is_platform_admin(uuid) from public, anon, authenticated, service_role;
 revoke all on function public._d24_op_is_studio_operator(uuid, uuid) from public, anon, authenticated, service_role;
 revoke all on function public._d24_op_reason(text) from public, anon, authenticated, service_role;

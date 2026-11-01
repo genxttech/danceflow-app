@@ -55,6 +55,7 @@ describe("input validation and the allow-listed RPC call", () => {
     ["list_invoices", { limit: 5000 }],
     ["list_deferred", { state: "weird" }],
     ["get_invoice", {}],
+    ["set_enabled", { enabled: "yes", reason: REASON }],
   ] as const)("rejects invalid %s input without a database call", async (action, input) => {
     const { d, rpc } = deps();
     expect(await runOperatorAction(d, action, input as never)).toEqual({ ok: false, code: "invalid_input" });
@@ -94,6 +95,7 @@ describe("database errors map to stable codes and never leak text", () => {
   it.each([
     [{ code: "P0001", message: "d24_op_aal2_required" }, "mfa_required"],
     [{ code: "42501", message: "d24_op_session_expired" }, "mfa_required"],
+    [{ code: "55000", message: "d24_op_disabled: the operator actions are switched off in the database" }, "disabled"],
     [{ code: "42501", message: "d24_op_authentication_required" }, "unauthenticated"],
     [{ code: "42501", message: "d24_op_platform_admin_required" }, "forbidden"],
     [{ code: "42501", message: "d24_op_code_requires_platform_admin" }, "forbidden"],
@@ -125,6 +127,7 @@ describe("migration contract (the SQL the app depends on)", () => {
       ["dismiss", { invoiceRowId: INV, reason: REASON }],
       ["requeue", { providerEventId: "evt_1", reason: REASON }],
       ["get_invoice", { invoiceRowId: INV }],
+      ["set_enabled", { enabled: true, reason: REASON }],
       ["list_invoices", {}],
       ["list_deferred", {}],
     ] as const) {
@@ -133,13 +136,13 @@ describe("migration contract (the SQL the app depends on)", () => {
     }
   });
   it("no operator function takes an actor or user argument", () => {
-    for (const fn of ["d24_op_acknowledge_anomalies", "d24_op_dismiss_unmatched", "d24_op_requeue_deferred", "d24_op_list_invoices", "d24_op_get_invoice", "d24_op_list_deferred"]) {
+    for (const fn of ["d24_op_set_enabled", "d24_op_acknowledge_anomalies", "d24_op_dismiss_unmatched", "d24_op_requeue_deferred", "d24_op_list_invoices", "d24_op_get_invoice", "d24_op_list_deferred"]) {
       expect((paramsOf(fn) ?? []).filter((p) => /actor|user/i.test(p)), fn).toEqual([]);
     }
   });
   it("grants: operator functions to authenticated only; the p_actor function is closed to every API role", () => {
     const grants = [...SQL.matchAll(/grant execute on function public\.(d24_[a-z_]+)\([^)]*\) to ([a-z_, ]+);/g)];
-    expect(grants.map((g) => g[1]).sort()).toEqual(["d24_op_acknowledge_anomalies", "d24_op_dismiss_unmatched", "d24_op_get_invoice", "d24_op_list_deferred", "d24_op_list_invoices", "d24_op_requeue_deferred"]);
+    expect(grants.map((g) => g[1]).sort()).toEqual(["d24_op_acknowledge_anomalies", "d24_op_dismiss_unmatched", "d24_op_get_invoice", "d24_op_list_deferred", "d24_op_list_invoices", "d24_op_requeue_deferred", "d24_op_set_enabled"]);
     for (const g of grants) expect(g[2].trim()).toBe("authenticated");
     expect(SQL).toMatch(/revoke all on function public\.d24_acknowledge_anomalies\(uuid, text\[\], uuid, text\) from public, anon, authenticated, service_role;/);
     expect(SQL).not.toMatch(/grant execute[^;]*(anon|public|service_role);/);
@@ -148,12 +151,28 @@ describe("migration contract (the SQL the app depends on)", () => {
     expect(SQL).toMatch(/auth\.jwt\(\) ->> 'aal', ''\) <> 'aal2'/);
     expect(SQL).toMatch(/auth\.uid\(\)/);
     const definers = SQL.split(/create or replace function/).slice(1).filter((b) => /security definer/.test(b.split("as $$")[0]));
-    expect(definers.length).toBeGreaterThanOrEqual(6);
+    expect(definers.length).toBeGreaterThanOrEqual(7);
     for (const b of definers) expect(b.split("as $$")[0]).toMatch(/set search_path = pg_catalog, public, pg_temp/);
   });
   it("the server actions use the user-scoped client, never the admin client", () => {
     const src = readFileSync("src/lib/payments/hostedInvoice/operatorActions.ts", "utf8");
     expect(src).not.toMatch(/createAdminClient|service_role|SERVICE_ROLE/);
     expect(src).toMatch(/createClient\(\)/);
+  });
+});
+
+describe("database activation switch (contract)", () => {
+  it("every operator function starts at _d24_op_caller (flag, then identity); only set_enabled uses the identity helper directly", () => {
+    const blocks = SQL.split(/create or replace function public\./).slice(1).filter((b) => /^d24_op_/.test(b));
+    expect(blocks.length).toBe(7);
+    for (const b of blocks) {
+      const name = b.match(/^(d24_op_[a-z_]+)/)![1];
+      expect(b, name).toMatch(name === "d24_op_set_enabled" ? /v_uid uuid := public\._d24_op_identity\(\)/ : /v_uid uuid := public\._d24_op_caller\(\)/);
+    }
+    expect(SQL).toMatch(/insert into public\.hosted_invoice_operator_config \(singleton, enabled\) values \(true, false\)/);
+  });
+  it("set_enabled and its audit table are the only writers of the switch", () => {
+    expect(SQL).toMatch(/revoke all on public\.%I from public, anon, authenticated, service_role/);
+    expect(SQL).not.toMatch(/grant (insert|update|delete)[^;]*hosted_invoice_operator_config/i);
   });
 });

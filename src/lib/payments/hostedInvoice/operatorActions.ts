@@ -49,3 +49,7 @@ export async function d24GetInvoiceAction(input: { invoiceRowId: string }) {
 export async function d24ListDeferredAction(input: { state?: string; limit?: number; offset?: number } = {}) {
   return run("list_deferred", { state: input?.state, limit: input?.limit, offset: input?.offset });
 }
+/** The database-side activation switch (platform admin + AAL2 + reason, audited). The app flag D24_OPERATOR_ACTIONS only gates these server actions; this switch gates the database functions. */
+export async function d24SetOperatorEnabledAction(input: { enabled: boolean; reason: string }) {
+  return run("set_enabled", { enabled: input?.enabled, reason: input?.reason });
+}

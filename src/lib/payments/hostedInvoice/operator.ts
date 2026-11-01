@@ -12,7 +12,7 @@ import { evaluateAssurance, type AssuranceRefusal } from "@/lib/auth/platform-as
  * It must be called with the CALLER's user-scoped Supabase client, never the service-role client (the service role has no auth.uid() and the functions refuse it).
  */
 
-export type OperatorAction = "acknowledge" | "dismiss" | "requeue" | "list_invoices" | "get_invoice" | "list_deferred";
+export type OperatorAction = "set_enabled" | "acknowledge" | "dismiss" | "requeue" | "list_invoices" | "get_invoice" | "list_deferred";
 
 export type OperatorResult =
   | { ok: true; data: unknown }
@@ -59,6 +59,11 @@ function intOf(v: unknown, fallback: number, min: number, max: number): number |
 /** Build the allow-listed RPC call, or null when the input is invalid. */
 export function buildOperatorCall(action: OperatorAction, input: Record<string, unknown>): { fn: string; args: Record<string, unknown> } | null {
   switch (action) {
+    case "set_enabled": {
+      const reason = reasonOf(input.reason);
+      if (!reason || typeof input.enabled !== "boolean") return null;
+      return { fn: "d24_op_set_enabled", args: { p_enabled: input.enabled, p_reason: reason } };
+    }
     case "acknowledge": {
       const reason = reasonOf(input.reason);
       const codes = input.codes;
@@ -102,6 +107,7 @@ export function buildOperatorCall(action: OperatorAction, input: Record<string, 
 /** Database error -> stable code. Unknown errors are "unavailable"; no message text is ever returned. */
 function mapError(err: { code?: string; message?: string }): OperatorResult {
   const msg = err.message ?? "";
+  if (msg.includes("d24_op_disabled")) return fail("disabled");
   if (msg.includes("d24_op_aal2_required") || msg.includes("d24_op_session_expired")) return fail("mfa_required");
   if (msg.includes("d24_op_authentication_required")) return fail("unauthenticated");
   if (err.code === "42501") return fail("forbidden");
