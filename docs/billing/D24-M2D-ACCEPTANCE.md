@@ -17,7 +17,7 @@ Not covered by design: signature verification is Stripe's SDK on synthetic secre
 
 ## QA matrix and results
 
-Counts come from real runs of the final test files (vitest JSON report summarised by `scripts/qa/d24/summarize.mjs`, which also fails a crashed or empty run). Heads under test (fetched immediately before the final run; unchanged since): **M2-A `f1cbd1e9`** (PR 387, `origin/d24-m2a-registration`), **M2-C `84ba3d11`** (PR 386), **M2-B `5deac032`** (PR 385), base `27d0db87` (M1, main). Apply order: M1 → M2-A (no SQL) → M2-C `20270206` → M2-B `20270207`.
+Counts come from real runs of the final test files (vitest JSON report summarised by `scripts/qa/d24/summarize.mjs`, which also fails a crashed or empty run). Heads under test for the full-stack run (fetched immediately before and re-checked after; unchanged): **M2-A `007f4fb9`** (PR 387, `origin/d24-m2a-registration`), **M2-C `35e28914`** (PR 386), **M2-B `cdea702a`** (PR 385), base `27d0db87` (M1, main). The two single-layer columns (M1 only, M1+M2-C) were last run at the earlier heads M2-C `84ba3d11` and have not been re-run at `35e28914`; the full stack is the acceptance configuration. Apply order: M1 → M2-A (no SQL) → M2-C `20270206` → M2-B `20270207`.
 
 | Section | Scenario | Cases | M1 only | M1+M2-C | Full stack |
 |---|---|---|---|---|---|
@@ -33,11 +33,13 @@ Counts come from real runs of the final test files (vitest JSON report summarise
 | M2A | SQL contract M2-A's wrapper relies on (code-only layer): concurrent double-submit = one row; 23505/22023 mapping; registration racing events | 3 | BLOCKED 3 (layer not loaded) | BLOCKED 3 (layer not loaded) | PASS 3 |
 | M2A | app issues an invoice → registry row atomically with the business object; end-to-end studio-ownership refusal | 2 | BLOCKED 2 | BLOCKED 2 | BLOCKED 2 |
 | M2C | `d24_run_drain` privileges; concurrent runs apply once and are audited; poison event rejected without starving newer events, then requeued; non-rejected event not requeued; health exposes no payload. Requeue goes **through M2-B's wrapper as platform admin at aal2** on the full stack, through M2-C's direct function otherwise | 5 | BLOCKED 5 (layer not loaded) | PASS 5 | PASS 5 |
-| M2B | service_role/aal1/no-subject refused; studio operator acks own studio with audit; no cross-studio read/ack/existence oracle (positive control with own-studio rows); front_desk and non-roles refused; unmatched cannot be acked, dismiss is platform-only; platform-only code needs platform admin; operator tables private | 8 | BLOCKED 8 (layer not loaded) | BLOCKED 8 (layer not loaded) | PASS 8 |
+| M2B | (9 cases) service_role/aal1/no-subject/expired-or-missing-exp refused; studio operator acks own studio with audit; no cross-studio ack, studio operators have no read access (list/get are platform-admin only, platform list is the positive control); front_desk and non-roles refused; unmatched cannot be acked, dismiss is platform-only; platform-only code needs platform admin; operator tables private | 8 | BLOCKED 9 (layer not loaded) | BLOCKED 9 (layer not loaded) | PASS 9 |
 | M2X | M2-B wrapper + M2-C drain on one database: poison rejected; direct service_role requeue refused; studio owner and aal1 refused; platform admin at aal2 requeues with audit; drain applies once | 1 | BLOCKED 1 | BLOCKED 1 | PASS 1 |
 | Z | stack availability marker | 1 | PASS 1 | PASS 1 | PASS 1 |
 
-**Totals: full stack (M2-A, M2-C, M2-B on M1) PASS 81 / FAIL 0 / BLOCKED 2. M1+M2-C PASS 69 / FAIL 0 / BLOCKED 14 (re-run on the final test files). M1 only PASS 64 / FAIL 0 / BLOCKED 19.** The configurations with fewer layers are BLOCKED only because the layer is not loaded; the full stack is the acceptance configuration. `tsc --noEmit` is clean on the final tree.
+**Totals: full stack (M2-A, M2-C, M2-B on M1) PASS 82 / FAIL 0 / BLOCKED 2. M1+M2-C (earlier head) PASS 69 / FAIL 0 / BLOCKED 14. M1 only PASS 64 / FAIL 0 / BLOCKED 19.** The configurations with fewer layers are BLOCKED only because the layer is not loaded; the full stack is the acceptance configuration. `tsc --noEmit` is clean on the final tree.
+
+A first full-stack run at M2-B `cdea702a` showed 9 FAILs: M2-B had meanwhile adopted the owner-approved policy (JWT must carry a future `exp`; list/get are platform-admin only), so my tests, written against `5deac032`, expected the old behaviour. The tests were updated to the policy (and an expired-session case added) and the run repeated: 0 FAIL.
 
 Behaviour worth knowing, observed rather than assumed: M2-B's wrapper answers an idempotent `already_pending` (no state change, no requeue row) when asked to requeue a pending event, whereas M2-C's direct function refuses with `d24_requeue_requires_rejected_event`. M2C4 asserts nothing changed in both cases. Void always wins over uncollectible regardless of event timestamps (I5).
 

@@ -21,8 +21,10 @@ const FDA = "00000000-0000-0000-0000-0000000d25a3";
 const OWNER = "00000000-0000-0000-0000-0000000d25e1";
 const NOT_PLAT = "00000000-0000-0000-0000-0000000d25f0";
 
-const asUser = (uid: string | null, aal: string, sql: string) => {
-  const claims = uid ? `{"sub":"${uid}","role":"authenticated","aal":"${aal}"}` : "{}";
+// exp: seconds from now (default 1h). M2-B refuses a JWT without a numeric future exp (expired auth fails closed).
+const asUser = (uid: string | null, aal: string, sql: string, expIn = 3600) => {
+  const exp = Math.floor(Date.now() / 1000) + expIn;
+  const claims = uid ? `{"sub":"${uid}","role":"authenticated","aal":"${aal}","exp":${exp}}` : "{}";
   return runSql(`select set_config('request.jwt.claims','${claims}',false) is not null; ${sql}`, "authenticated").then((r) => (r.error ? `ERR ${r.error.code} ${r.error.message}` : r.out.replace(/^t\n?/, "")));
 };
 const claim = (id: string) => q(`select (public.claim_payment_provider_event('stripe','${id}','x','h','${OWNER}'))->>'outcome'`);
@@ -80,12 +82,20 @@ B("M2B. operator authorization (M2-B)", () => {
     const foreign = await ack(OWB, "aal2", a.id);
     expect(foreign).toMatch(/d24_invoice_not_found/);
     expect(missing).toMatch(/d24_invoice_not_found/);
-    expect(await asUser(OWB, "aal2", `select public.d24_op_get_invoice('${a.id}')::text`)).toMatch(/d24_invoice_not_found/);
+    // owner-approved policy: studio operators may ONLY acknowledge their own studio's invoices; reads are platform-admin only
+    expect(await asUser(OWB, "aal2", `select public.d24_op_get_invoice('${a.id}')::text`)).toMatch(/d24_invoice_not_found|d24_op_platform_admin_required/);
     const own = await anomalous(SB);
-    const list = await asUser(OWB, "aal2", `select string_agg(distinct r->>'studio_id', ',') from jsonb_array_elements((public.d24_op_list_invoices(null,null,false,200,0))->'rows') r`);
-    expect(list).toContain(SB);
-    expect(list).not.toContain(SA);
-    expect(own.id).toBeTruthy();
+    expect(await asUser(OWB, "aal2", `select public.d24_op_list_invoices(null,null,false,200,0)::text`)).toMatch(/d24_op_platform_admin_required/);
+    expect(await asUser(OWB, "aal2", `select public.d24_op_get_invoice('${own.id}')::text`)).toMatch(/d24_op_platform_admin_required|d24_invoice_not_found/);
+    const platList = await asUser(PLAT, "aal2", `select string_agg(distinct r->>'studio_id', ',') from jsonb_array_elements((public.d24_op_list_invoices(null,null,false,200,0))->'rows') r`);
+    expect(platList).toContain(SA);
+    expect(platList).toContain(SB);
+    expect(await q(`select reconciliation_state from public.hosted_invoices where id='${a.id}'`)).toBe("anomalous");
+  });
+  it("M2B2b an expired session (exp in the past) and a missing exp fail closed, even for a platform admin at aal2", async () => {
+    const a = await anomalous(SA);
+    expect(await asUser(PLAT, "aal2", `select public.d24_op_acknowledge_anomalies('${a.id}','{unverified_void_origin}','reviewed by operator')`, -60)).toMatch(/d24_op_session_expired/);
+    expect(await runSql(`select set_config('request.jwt.claims','{"sub":"${PLAT}","role":"authenticated","aal":"aal2"}',false) is not null; select public.d24_op_acknowledge_anomalies('${a.id}','{unverified_void_origin}','reviewed by operator')`, "authenticated").then((r) => r.error?.message ?? "ok")).toMatch(/d24_op_session_expired/);
     expect(await q(`select reconciliation_state from public.hosted_invoices where id='${a.id}'`)).toBe("anomalous");
   });
   it("M2B5 front_desk and non-roles are refused; a reason under 10 characters is refused", async () => {
