@@ -232,3 +232,13 @@ describe("executePriceTransition: metadata Stripe does not copy into the schedul
     }
   });
 });
+
+describe("executePriceTransition: one-time invoice items", () => {
+  it("refuses and releases when the current phase has add_invoice_items", async () => {
+    const { stripe, calls } = statefulStripe({ withAddInvoiceItems: true });
+    const result = await executePriceTransition(stripe, plan(), { keyMode: "test" });
+    expect(result).toMatchObject({ status: "failed", released: true });
+    expect((result as { reason: string }).reason).toMatch(/add_invoice_items/);
+    expect(calls).toEqual(["create", "release"]);
+  });
+});

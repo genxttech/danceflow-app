@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { assertOperationAllowed, recordProofEntry, type ProofLogEntry } from "@/lib/billing/priceTransitionProofGuard";
+import { assertOperationAllowed, recordProofEntry, scrubAccountEvidence, type ProofLogEntry } from "@/lib/billing/priceTransitionProofGuard";
 
 export function loadKey(envFile: string): string {
   const text = readFileSync(envFile, "utf8");
@@ -14,7 +14,7 @@ export async function op<T>(operation: string, request: unknown, fn: () => Promi
   assertOperationAllowed(operation);
   try {
     const response = await fn();
-    recordProofEntry(log, operation, request, response);
+    recordProofEntry(log, operation, request, operation === "accounts.retrieve" ? scrubAccountEvidence(response) : response);
     return response;
   } catch (error) {
     const e = error as { type?: string; code?: string; statusCode?: number; message?: string; requestId?: string };

@@ -16,6 +16,7 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import { runPriceTransition, type RunnerDeps } from "@/lib/billing/priceTransitionRunner";
+import { mapStripePrice, mapStripeSubscription } from "@/lib/billing/priceTransitionStripeRead";
 import { resolvePlanCodeFromEnvPriceId } from "@/lib/billing/subscriptionPlanResolution";
 
 function flag(name: string): string | undefined {
@@ -53,8 +54,7 @@ async function main() {
   const supabaseUrl = env("NEXT_PUBLIC_SUPABASE_URL");
   const db = createClient(supabaseUrl, env("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
   const owners = new Set((process.env.D7_TRANSITION_OWNER_IDS ?? "").split(",").map((s) => s.trim()).filter(Boolean));
-  const unix = (n: number) => new Date(n * 1000);
-
+  
   const deps: RunnerDeps = {
     now: () => new Date(),
     keyMode,
@@ -88,51 +88,15 @@ async function main() {
         : null;
     },
     async hasOpenTransition(id) {
-      const { count, error } = await db.from("price_transitions").select("id", { count: "exact", head: true }).eq("protected_subscription_id", id).in("status", ["approved", "scheduled"]);
+      const { count, error } = await db.from("price_transitions").select("id", { count: "exact", head: true }).eq("protected_subscription_id", id).in("status", ["approved", "scheduled", "needs_review"]);
       if (error || count === null) throw new Error(`open-transition read failed: ${error?.message ?? "no count"}`);
       return count > 0;
     },
     async readSubscription(id) {
-      const sub = (await stripe.subscriptions.retrieve(id)) as Stripe.Subscription;
-      const item = sub.items.data[0];
-      const periodStart = (sub as unknown as { current_period_start?: number }).current_period_start ?? (item as unknown as { current_period_start: number }).current_period_start;
-      const periodEnd = (sub as unknown as { current_period_end?: number }).current_period_end ?? (item as unknown as { current_period_end: number }).current_period_end;
-      const loose = sub as unknown as Record<string, unknown>;
-      const unsupportedSettings: string[] = [];
-      if (sub.trial_end) unsupportedSettings.push("trial");
-      if (sub.pause_collection) unsupportedSettings.push("pause_collection");
-      if (sub.pending_update) unsupportedSettings.push("pending_update");
-      if (sub.cancel_at) unsupportedSettings.push("cancel_at");
-      if (sub.collection_method !== "charge_automatically") unsupportedSettings.push("collection_method");
-      if (Array.isArray(loose.discounts) && loose.discounts.length > 0) unsupportedSettings.push("discounts");
-      if (loose.discount) unsupportedSettings.push("discount");
-      return {
-        id: sub.id,
-        customerId: typeof sub.customer === "string" ? sub.customer : sub.customer.id,
-        status: sub.status,
-        currentPeriodStart: unix(periodStart),
-        currentPeriodEnd: unix(periodEnd),
-        cancelAtPeriodEnd: sub.cancel_at_period_end,
-        scheduleId: typeof sub.schedule === "string" ? sub.schedule : sub.schedule?.id ?? null,
-        items: sub.items.data.map((i) => ({ priceId: i.price.id, quantity: i.quantity ?? 1, metadata: { ...(i.metadata ?? {}) } })),
-        metadata: { ...(sub.metadata ?? {}) },
-        unsupportedSettings,
-      };
+      return mapStripeSubscription(await stripe.subscriptions.retrieve(id));
     },
     async readPrice(id) {
-      const price = await stripe.prices.retrieve(id);
-      return {
-        id: price.id,
-        active: price.active,
-        unitAmountCents: price.unit_amount,
-        currency: price.currency,
-        interval: price.recurring?.interval ?? null,
-        intervalCount: price.recurring?.interval_count ?? null,
-        type: price.type,
-        billingScheme: price.billing_scheme,
-        usageType: price.recurring?.usage_type ?? null,
-        hasTransformQuantity: price.transform_quantity != null,
-      };
+      return mapStripePrice(await stripe.prices.retrieve(id));
     },
     async insertAudit(row) {
       const { data, error } = await db

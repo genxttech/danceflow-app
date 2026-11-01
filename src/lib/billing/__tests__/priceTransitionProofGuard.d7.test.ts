@@ -4,6 +4,7 @@ import {
   assertOperationAllowed,
   checkSandboxIdentity,
   recordProofEntry,
+  scrubAccountEvidence,
   redactSecrets,
   validateProofKey,
   type ProofLogEntry,
@@ -39,5 +40,13 @@ describe("proof guard", () => {
     recordProofEntry(log, "subscriptionSchedules.create", { from_subscription: "sub_X", key: "rk_test_zzz999" }, { id: "sub_sched_1" });
     expect(JSON.stringify(log)).not.toContain("zzz999");
     expect(() => recordProofEntry(log, "charges.create", {}, {})).toThrow();
+  });
+
+  it("keeps owner contact details out of the evidence", () => {
+    const account = { id: "acct_X", object: "account", email: "owner@example.com", support_phone: "555", business_profile: { url: "https://x.test" }, country: "US" };
+    const scrubbed = scrubAccountEvidence(account);
+    expect(JSON.stringify(scrubbed)).not.toMatch(/owner@|555|x.test/);
+    expect(scrubbed).toMatchObject({ id: "acct_X", country: "US" });
+    expect(JSON.stringify(redactSecrets({ note: "mail owner@example.com now" }))).not.toContain("owner@");
   });
 });

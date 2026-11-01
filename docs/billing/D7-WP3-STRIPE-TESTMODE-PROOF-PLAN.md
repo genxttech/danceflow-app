@@ -73,7 +73,7 @@ The test-mode proof is **conditionally authorized**. It does not start until ALL
 
 Cases: T1-T14 above plus failed schedule creation, failed release, lost create response, audit-update recovery and post-boundary reconciliation (transition boundary, schedule activation, actual price change, atomic registry release), including advancing the test clock and inspecting the resulting subscription and invoices. If no suitable sandbox/key exists or one would need new credential provisioning, STOP and request the owner setup.
 
-Status 2026-11-01: **prerequisites met and the proof RUN.** Sandbox `DanceFlow-D7-Price-Transition` (`acct_1UWz98RESPl6zEVj`), restricted `rk_test_` key (Accounts Read added by the owner after the first preflight reported the missing permission), Stripe API version `2026-03-25.dahlia` (installed SDK). Result: **28 of 28 cases pass** (`scripts/billing/price-transition-proof.ts run`); redacted evidence in `docs/billing/evidence/d7-wp3-testmode/` (run-results.json, run-log.json, preflight-log.json). 16 disposable test clocks (with their customers and subscriptions) were created and deleted; the shared test product and 3 prices from the runs remain in the sandbox (no delete operation is allowlisted).
+Status 2026-11-01: **prerequisites met and the proof RUN.** Sandbox `DanceFlow-D7-Price-Transition` (`acct_1UWz98RESPl6zEVj`), restricted `rk_test_` key (Accounts Read added by the owner after the first preflight reported the missing permission), Stripe API version `2026-03-25.dahlia` (installed SDK). Result: **28 of 28 cases pass** (`scripts/billing/price-transition-proof.ts run`); redacted evidence in `docs/billing/evidence/d7-wp3-testmode/` (run-results.json, run-log.json, preflight-log.json). 16 disposable test clocks (with their customers and subscriptions) were created and deleted; the shared test product, 3 prices and 1 coupon from each run remain in the sandbox (no delete operation is allowlisted).
 
 Defects found by the proof and fixed in this PR (each now has a unit regression):
 1. Echoing the schedule phase back verbatim is rejected by Stripe (`automatic_tax.disabled_reason`, null/empty fields, `currency`): carried fields are now pruned and sanitized, and the read-back compares as a subset.
@@ -82,3 +82,15 @@ Defects found by the proof and fixed in this PR (each now has a unit regression)
 4. Harness-only: Stripe retains idempotency keys, so audit ids must be unique (production audit ids are UUIDs).
 
 Behavior confirmed against the real API: a final phase sent without an end date is accepted; Stripe stores one implicit billing cycle for it and releases the schedule afterwards (verified by advancing a second cycle: schedule `released`, subscription still active on the regular price, two renewal invoices of exactly the regular amount, no proration lines). Not exercised against Stripe: a genuinely failing renewal payment (past_due) on the new price — covered by unit tests only.
+
+### 10.1 Final review (2026-11-01) and what the proof does NOT establish
+Evidence hygiene: account contact details are never written to the evidence (`scrubAccountEvidence`; e-mail addresses are redacted everywhere); the evidence was regenerated after the final code and re-verified clean. The proof harness and the production script now share one Stripe reader (`priceTransitionStripeRead.ts`), so the proof exercises the production mapping.
+
+Simulated, not real Stripe failures (the recovery code is real, the trigger is injected): T7a update failure, T7b read-back corruption, F2 release failure, F3 lost create response. The database is an in-memory stand-in in the harness (SQL proven separately on disposable Postgres; the atomic registry release is not exercised against Stripe).
+
+Not proven; required before any production use (each is a gate, not an assumption):
+1. A rehearsal with a test-mode subscription shaped like the real Checkout-created one (subscription-level default payment method, payment settings, description, quantity > 1) and one past_due renewal on the new price.
+2. Tax: subscriptions with automatic tax are refused (`automatic_tax`) until a tax-enabled rehearsal proves the disclosed amount; price `tax_behavior` is not compared with the notice.
+3. Reconciliation window: evidence requires the subscription period to start exactly at the boundary, so reconciliation must run within the first regular billing period (webhook hook or the due sweep). A later first run fails closed to needs_review and needs owner remediation.
+4. Owner decision to confirm: a past_due or unpaid subscription on the approved price still counts as "price changed" and releases the registry row (payment collection is deliberately not a condition).
+5. Real-time rehearsal of webhook ordering, and the written live authorization (`--allow-live` plus a reference) for the real run.

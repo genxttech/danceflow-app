@@ -60,7 +60,9 @@ export function assertOperationAllowed(operation: string): asserts operation is 
   }
 }
 
-const SECRET_PATTERNS = [/\b(?:sk|rk|pk)_(?:test|live)_[A-Za-z0-9]+/g, /\bwhsec_[A-Za-z0-9]+/g, /\bBearer\s+[A-Za-z0-9._-]+/gi];
+const SECRET_PATTERNS = [
+  /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,
+  /\b(?:sk|rk|pk)_(?:test|live)_[A-Za-z0-9]+/g, /\bwhsec_[A-Za-z0-9]+/g, /\bBearer\s+[A-Za-z0-9._-]+/gi];
 
 /** Redacts credentials from any text or JSON destined for the evidence log. */
 export function redactSecrets<T>(value: T): T {
@@ -75,4 +77,10 @@ export type ProofLogEntry = { operation: string; at: string; request: unknown; r
 export function recordProofEntry(log: ProofLogEntry[], operation: string, request: unknown, response: unknown, now: Date = new Date()): void {
   assertOperationAllowed(operation);
   log.push({ operation, at: now.toISOString(), request: redactSecrets(request), response: redactSecrets(response) });
+}
+
+/** The identity check needs only these facts about the account; owner e-mail, phone, URLs and business profile never enter the evidence. */
+export function scrubAccountEvidence(account: unknown): Record<string, unknown> {
+  const a = (account ?? {}) as Record<string, unknown>;
+  return { id: a.id, object: a.object, type: a.type, country: a.country, charges_enabled: a.charges_enabled, details_submitted: a.details_submitted };
 }

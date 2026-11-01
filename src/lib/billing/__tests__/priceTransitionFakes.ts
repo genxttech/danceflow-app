@@ -28,7 +28,7 @@ function rejectInvalidInput(value: unknown, path = "phases"): void {
 type Phase = Record<string, unknown> & { start_date: number; end_date: number | null; items: Array<Record<string, unknown> & { price: string; quantity: number }> };
 
 /** A stateful fake of the Stripe schedule API: create yields one phase carrying CARRY, update replaces phases as given. */
-export function statefulStripe(options: { dropCarryOnUpdate?: boolean; failUpdate?: boolean; loseCreateResponse?: boolean; failRelease?: boolean } = {}) {
+export function statefulStripe(options: { dropCarryOnUpdate?: boolean; failUpdate?: boolean; loseCreateResponse?: boolean; failRelease?: boolean; withAddInvoiceItems?: boolean } = {}) {
   const calls: string[] = [];
   let phases: Phase[] = [];
   let attached: string | null = null;
@@ -37,7 +37,7 @@ export function statefulStripe(options: { dropCarryOnUpdate?: boolean; failUpdat
       create: vi.fn(async () => {
         calls.push("create");
         attached = "sub_sched_1";
-        phases = [{ ...STRIPE_UNSET, ...CARRY, start_date: u(PERIOD_START), end_date: u(BOUNDARY), items: [{ price: "price_legacy129", plan: "price_legacy129", quantity: 1, metadata: { k: "v" }, billing_thresholds: null, discounts: [], tax_rates: [] }] }];
+        phases = [{ ...STRIPE_UNSET, ...(options.withAddInvoiceItems ? { add_invoice_items: [{ price: "price_setup_fee" }] } : {}), ...CARRY, start_date: u(PERIOD_START), end_date: u(BOUNDARY), items: [{ price: "price_legacy129", plan: "price_legacy129", quantity: 1, metadata: { k: "v" }, billing_thresholds: null, discounts: [], tax_rates: [] }] }];
         if (options.loseCreateResponse) throw new Error("connection reset");
         return { id: "sub_sched_1" };
       }),

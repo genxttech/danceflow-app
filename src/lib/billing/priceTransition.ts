@@ -352,6 +352,11 @@ export async function executePriceTransition(
       throw new Error("current phase items differ from the approved plan");
     }
 
+    // One-time invoice items on the current phase would be billed again if copied to the next phase: unsupported.
+    if (Array.isArray(phase0.add_invoice_items) && phase0.add_invoice_items.length > 0) {
+      throw new Error("current phase has add_invoice_items (one-time items would repeat at the boundary); unsupported");
+    }
+
     const carry = carryFields(phase0);
     if (change.subscriptionMetadata) carry.metadata = { ...(carry.metadata as Record<string, string> | undefined), ...change.subscriptionMetadata };
     await stripe.subscriptionSchedules.update(

@@ -10,6 +10,7 @@ import { runPriceTransition, type RunnerArgs, type RunnerDeps, type RegistryRow 
 import { PROTECTED_PRICE_BOUNDARY, reconcilePriceTransition, type ReconcileDeps, type ReconcileTransition } from "@/lib/billing/priceTransitionReconcile";
 import type { TransitionNotice } from "@/lib/billing/priceTransition";
 import { op } from "./price-transition-proof-lib";
+import { mapStripePrice, mapStripeSubscription } from "@/lib/billing/priceTransitionStripeRead";
 
 export type CaseResult = { id: string; title: string; pass: boolean; detail: string };
 
@@ -67,38 +68,11 @@ function scheduleApi(ctx: Ctx): ScheduleStripe {
 }
 
 async function readSubscription(ctx: Ctx, id: string): Promise<any | null> {
-  const sub: any = await op("subscriptions.retrieve", { id }, () => ctx.stripe.subscriptions.retrieve(id));
-  const item = sub.items.data[0];
-  const periodStart = sub.current_period_start ?? item?.current_period_start;
-  const periodEnd = sub.current_period_end ?? item?.current_period_end;
-  const unsupportedSettings: string[] = [];
-  if (sub.trial_end) unsupportedSettings.push("trial");
-  if (sub.pause_collection) unsupportedSettings.push("pause_collection");
-  if (sub.pending_update) unsupportedSettings.push("pending_update");
-  if (sub.cancel_at) unsupportedSettings.push("cancel_at");
-  if (sub.collection_method !== "charge_automatically") unsupportedSettings.push("collection_method");
-  if (Array.isArray(sub.discounts) && sub.discounts.length > 0) unsupportedSettings.push("discounts");
-  return {
-    id: sub.id,
-    customerId: typeof sub.customer === "string" ? sub.customer : sub.customer.id,
-    status: sub.status,
-    currentPeriodStart: new Date(periodStart * 1000),
-    currentPeriodEnd: new Date(periodEnd * 1000),
-    cancelAtPeriodEnd: sub.cancel_at_period_end,
-    scheduleId: typeof sub.schedule === "string" ? sub.schedule : sub.schedule?.id ?? null,
-    items: sub.items.data.map((i: any) => ({ priceId: i.price.id, quantity: i.quantity ?? 1, metadata: { ...(i.metadata ?? {}) } })),
-    metadata: { ...(sub.metadata ?? {}) },
-    unsupportedSettings,
-  };
+  return mapStripeSubscription(await op("subscriptions.retrieve", { id }, () => ctx.stripe.subscriptions.retrieve(id)));
 }
 
 async function readPrice(ctx: Ctx, id: string) {
-  const price: any = await op("prices.retrieve", { id }, () => ctx.stripe.prices.retrieve(id));
-  return {
-    id: price.id, active: price.active, unitAmountCents: price.unit_amount, currency: price.currency,
-    interval: price.recurring?.interval ?? null, intervalCount: price.recurring?.interval_count ?? null, type: price.type,
-    billingScheme: price.billing_scheme, usageType: price.recurring?.usage_type ?? null, hasTransformQuantity: price.transform_quantity != null,
-  };
+  return mapStripePrice(await op("prices.retrieve", { id }, () => ctx.stripe.prices.retrieve(id)));
 }
 
 type Mem = {
@@ -166,7 +140,7 @@ function memReconcileDeps(ctx: Ctx, mem: Mem): ReconcileDeps {
     },
     readPrice: async (id) => {
       const p = await readPrice(ctx, id);
-      return { id: p.id, unitAmountCents: p.unitAmountCents, currency: p.currency, active: p.active, type: p.type, interval: p.interval, intervalCount: p.intervalCount };
+      return { id: p.id, unitAmountCents: p.unitAmountCents, currency: p.currency, active: p.active, type: p.type ?? null, interval: p.interval, intervalCount: p.intervalCount ?? null };
     },
     recordMilestones: async (_id, patch) => {
       const a = mem.audits[mem.audits.length - 1];
@@ -373,7 +347,7 @@ export async function runScenarios(stripe: Stripe): Promise<{ results: CaseResul
       const report = await runPriceTransition(executeArgs(f.args, hash), memRunnerDeps(ctx, f.mem));
       ctx.hooks = {};
       const sched = await currentSchedule(ctx, f.subscriptionId);
-      record(ctx, "T7a", "failed schedule update: the created schedule is released, the subscription is unchanged, the audit row is failed", !report.ok && (report as any).status === "failed" && (report as any).released === true && sched === null && f.mem.audits[0].status === "failed", `report=${(report as any).status} released=${(report as any).released} schedule=${sched} audit=${f.mem.audits[0].status}`);
+      record(ctx, "T7a", "SIMULATED failed schedule update (thrown before reaching Stripe); real release: the created schedule is released, the subscription is unchanged, the audit row is failed", !report.ok && (report as any).status === "failed" && (report as any).released === true && sched === null && f.mem.audits[0].status === "failed", `report=${(report as any).status} released=${(report as any).released} schedule=${sched} audit=${f.mem.audits[0].status}`);
     }
     {
       const f = await fixture(ctx, "t7b");
@@ -382,7 +356,7 @@ export async function runScenarios(stripe: Stripe): Promise<{ results: CaseResul
       const report = await runPriceTransition(executeArgs(f.args, hash), memRunnerDeps(ctx, f.mem));
       ctx.hooks = {};
       const sched = await currentSchedule(ctx, f.subscriptionId);
-      record(ctx, "T7b", "read-back mismatch: the schedule is released and the subscription is unchanged", !report.ok && (report as any).released === true && sched === null && f.mem.audits[0].status === "failed", `reason=${(report as any).reason} schedule=${sched}`);
+      record(ctx, "T7b", "SIMULATED read-back mismatch (corrupted in memory); real release: the schedule is released and the subscription is unchanged", !report.ok && (report as any).released === true && sched === null && f.mem.audits[0].status === "failed", `reason=${(report as any).reason} schedule=${sched}`);
     }
     {
       const f = await fixture(ctx, "f1");
@@ -401,7 +375,7 @@ export async function runScenarios(stripe: Stripe): Promise<{ results: CaseResul
       ctx.hooks = {};
       const sched = await currentSchedule(ctx, f.subscriptionId);
       const loud = (report as any).released === false && report.blockers.includes("schedule_may_still_be_attached") && Boolean((report as any).scheduleId) && sched === (report as any).scheduleId;
-      record(ctx, "F2", "failed release: reported loudly with the live schedule id, audit row failed", !report.ok && loud, `released=${(report as any).released} blockers=${report.blockers.join(",")} liveSchedule=${sched}`);
+      record(ctx, "F2", "SIMULATED failed release (hook throws; the schedule really stays attached): reported loudly with the live schedule id, audit row failed", !report.ok && loud, `released=${(report as any).released} blockers=${report.blockers.join(",")} liveSchedule=${sched}`);
       await cleanup(ctx, f.subscriptionId);
       record(ctx, "F2b", "operator cleanup releases it and leaves the subscription clean", (await currentSchedule(ctx, f.subscriptionId)) === null, "released by hand");
     }
@@ -412,7 +386,7 @@ export async function runScenarios(stripe: Stripe): Promise<{ results: CaseResul
       const report = await runPriceTransition(executeArgs(f.args, hash), memRunnerDeps(ctx, f.mem));
       ctx.hooks = {};
       const sched = await currentSchedule(ctx, f.subscriptionId);
-      record(ctx, "F3", "lost create response: the orphan schedule is found and released", !report.ok && (report as any).released === true && Boolean((report as any).scheduleId) && sched === null, `scheduleId=${(report as any).scheduleId} released=${(report as any).released} schedule=${sched}`);
+      record(ctx, "F3", "SIMULATED lost create response (Stripe really created it): the orphan schedule is found and released", !report.ok && (report as any).released === true && Boolean((report as any).scheduleId) && sched === null, `scheduleId=${(report as any).scheduleId} released=${(report as any).released} schedule=${sched}`);
     }
     {
       const f = await fixture(ctx, "f4");
@@ -484,7 +458,7 @@ export async function runScenarios(stripe: Stripe): Promise<{ results: CaseResul
       }
     }
     summary.testClocksCreated = ctx.clocks.length;
-    summary.stripeWrites = ctx.writes;
+    summary.executorAttempts = ctx.writes;
   }
   return { results: ctx.results, summary };
 }
