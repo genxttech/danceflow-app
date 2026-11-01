@@ -26,3 +26,10 @@ Evidence (result version rows and trace) and the authorization to advance (round
 | RD-5 | Are the couples strictly above the cut advanced provisionally while the tied couples are unresolved? | current model: no (all rows null, per design F-3, so nothing partial commits). Partial advance would need a state model change |
 | RD-6 | Who may resolve and how many signatures | would follow the A7/OD-19 pattern (chair or another manager, separate from the opener, reason, audit) once RD-1 names the mechanism |
 Any workflow built from these must store the decision, rule citation, reason, actors and the evidence it relied on as a new, immutable, auditable row, never as an edit of the result version.
+
+## Decision record: RD-1 (owner, 2026-11-01)
+**RD-1 = option (c): no rule-based tie resolution. An over-capacity tie stays UNRESOLVED.**
+Consequences:
+- No director, runoff, advance-all or drop-all workflow is built. RD-2, RD-3 and RD-4 are not pursued; RD-5 stays as implemented (nothing advances provisionally); RD-6 is moot until a mechanism exists.
+- The only exits from an unresolved tie are the ones that need no tie-break rule: a co-signed judge-entry correction followed by recalculation (implemented and accepted, SCN-11.4b-resolve), or a Final that is larger or rescheduled before ballots exist (capacity is frozen once the callback has ballots, by design).
+- Reopening this needs a rule source (a stated studio/organizer rule or a per-event published rule) and a new owner decision; no code change is needed today.
