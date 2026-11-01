@@ -257,6 +257,9 @@ check "attempt_base / requeue_count cannot be edited outside a requeue" "$(try "
 r=$(docker exec -i "$NAME" psql -U postgres -v ON_ERROR_STOP=1 -q < "$M_RBC" 2>&1 | tr -d '\n' | cut -c1-120)
 check "M2-C rollback is refused while audit evidence exists" "$(echo "$r" | grep -c 'rollback refused')" "1"
 check "...and left the schema intact" "$(q "select count(*) from information_schema.tables where table_schema='public' and table_name in ('hosted_invoice_drain_runs','hosted_invoice_deferred_requeues')")" "2"
+(echo "set d24.m2c_rollback_exported = 'yes';"; cat "$M_RBC") | docker exec -i "$NAME" psql -U postgres -v ON_ERROR_STOP=1 -q >/dev/null 2>&1
+check "after an explicit export acknowledgement the rollback proceeds and removes the M2-C objects" "$(q "select (select count(*) from information_schema.tables where table_name in ('hosted_invoice_drain_runs','hosted_invoice_deferred_requeues'))||'/'||(select count(*) from pg_proc where proname in ('d24_run_drain','d24_drain_health','d24_record_drain_failure','d24_requeue_deferred_event'))")" "0/0"
+check "...the original deferred events (evidence) survive the rollback" "$(q "select count(*) > 100 from public.hosted_invoice_deferred_events")" "t"
 
 docker exec "$NAME" psql -U postgres -qAt -c "create database d24fresh" >/dev/null
 F="docker exec -i $NAME psql -U postgres -d d24fresh -v ON_ERROR_STOP=1 -qAt"

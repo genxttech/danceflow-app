@@ -1,13 +1,13 @@
--- Rollback of 20270206090000_d24_m2c_drain_recovery.sql. REFUSES while drain-run or requeue evidence exists, or while any event has been requeued: export first.
+-- Rollback of 20270206090000_d24_m2c_drain_recovery.sql. REFUSES (unless `set d24.m2c_rollback_exported = 'yes';` was run in the same session AFTER exporting hosted_invoice_drain_runs, hosted_invoice_deferred_requeues and the deferred-event recovery columns) while drain-run or requeue evidence exists, or while any event has been requeued: export first.
 -- Stop the scheduler / operator first, then run this. Restores the M1 guard and M1 d24_drain_deferred verbatim.
 begin;
 set local lock_timeout = '5s';
 lock table public.hosted_invoice_deferred_events, public.hosted_invoice_drain_runs, public.hosted_invoice_deferred_requeues in access exclusive mode;
 do $$
 begin
-  if exists (select 1 from public.hosted_invoice_drain_runs)
+  if (exists (select 1 from public.hosted_invoice_drain_runs)
      or exists (select 1 from public.hosted_invoice_deferred_requeues)
-     or exists (select 1 from public.hosted_invoice_deferred_events where requeue_count > 0) then
+     or exists (select 1 from public.hosted_invoice_deferred_events where requeue_count > 0) ) and coalesce(current_setting('d24.m2c_rollback_exported', true), '') <> 'yes' then
     raise exception 'd24 m2c rollback refused: audit evidence exists; export it first';
   end if;
 end $$;

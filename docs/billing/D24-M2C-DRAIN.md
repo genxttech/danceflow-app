@@ -8,7 +8,7 @@ Migration `src/lib/supabase/migrations/20270206090000_d24_m2c_drain_recovery.sql
 
 | Object | Purpose |
 |---|---|
-| `d24_drain_deferred(p_limit)` (replaced, same signature) | Internal batch worker, per-event savepoint, 20 s loop budget. Adds `last_error_code`, `last_attempt_at`, `picked`. **M2-C revokes its M1 `service_role` grant**: callers use `d24_run_drain` (M1 rollout step 4 now reads `select public.d24_run_drain(25,'manual');`). Rollback restores the grant. |
+| `d24_drain_deferred(p_limit)` (replaced, same signature) | Internal batch worker, per-event savepoint, 5 s loop budget. Adds `last_error_code`, `last_attempt_at`, `picked`. **M2-C revokes its M1 `service_role` grant**: callers use `d24_run_drain` (M1 rollout step 4 now reads `select public.d24_run_drain(25,'manual');`). Rollback restores the grant. |
 | `d24_run_drain(p_batch_size, p_trigger)` | **The controlled entry point.** One bounded batch (cap 100), singleton, audited. Service role. |
 | `d24_record_drain_failure(p_trigger, p_error_code)` | Audit row for a run that failed before it could audit itself (code only). |
 | `d24_drain_health(p_stale_pending_seconds, p_run_gap_seconds)` | Read-only monitoring JSON: counts, ages, attempts, error **codes**, alarms. |
@@ -44,7 +44,7 @@ Ordering: fewest recent attempts first, then never-attempted / least-recently-at
 
 ## Controlled invocation
 
-`d24_run_drain` runs **one** batch in **one** transaction: advisory lock `d24:drain-run` (`pg_try_advisory_xact_lock`; a second concurrent caller gets `{"outcome":"busy"}` and writes nothing), `lock_timeout = 1s` and a 20 s per-batch loop budget (so a blocked key cannot stack lock waits until the caller's statement timeout rolls the whole batch back) (a lock wait becomes a transient `55P03` for that event), batch capped at 100, then the audit row in the same transaction. Locks are held until commit, so batches stay small; the loop lives in the app.
+`d24_run_drain` runs **one** batch in **one** transaction: advisory lock `d24:drain-run` (`pg_try_advisory_xact_lock`; a second concurrent caller gets `{"outcome":"busy"}` and writes nothing), `lock_timeout = 1s` and a 5 s per-batch loop budget (so a blocked key cannot stack lock waits until the caller's statement timeout rolls the whole batch back) (a lock wait becomes a transient `55P03` for that event), batch capped at 100, then the audit row in the same transaction. Locks are held until commit, so batches stay small; the loop lives in the app.
 
 `runBoundedDrain({ supabase /* service role */, trigger, batchSize=25, maxBatches=10, maxMs=20000 })` loops that RPC and stops on: queue drained (`drained`, or `pending_remaining` when a batch ends with stuck events still pending), `busy`, `maxBatches`, wall-clock budget, two consecutive batches that settle nothing, or a database error (recorded by code via `d24_record_drain_failure`; the summary says `failureAudited`; never retried in-process). Safe to call from several workers: events are claimed `for update skip locked` and every apply is idempotent (event-id evidence, payment/credit-note keys, per-invoice advisory lock), so overlapping runs and the live route (`D24_HOSTED_INVOICE_EVENTS=on`) cannot double-record anything. The live route settles a pending deferred copy when it applies the same event.
 
@@ -79,7 +79,7 @@ Activation checklist (each item requires explicit owner authorization where it t
 4. Triage any `rejected` event before enabling the scheduler.
 5. Register the scheduler (separate authorization), watch alarms for a full cycle.
 6. Only then consider `D24_HOSTED_INVOICE_EVENTS=on`.
-Rollback: stop the scheduler; app rollback first; `rollback/20270206090000_d24_m2c_drain_recovery_rollback.sql` (refuses while audit evidence exists — export it first). The M1 `d24_drain_deferred` is restored verbatim.
+Rollback: stop the scheduler; app rollback first; `rollback/20270206090000_d24_m2c_drain_recovery_rollback.sql` (refuses while audit evidence exists; after exporting `hosted_invoice_drain_runs`, `hosted_invoice_deferred_requeues` and the recovery columns, run `set d24.m2c_rollback_exported = 'yes';` in the same session to let it proceed; deferred events themselves are never dropped). The M1 `d24_drain_deferred` is restored verbatim.
 
 ## Events processed while D24 was OFF need a Stripe resend
 
@@ -96,3 +96,6 @@ Findings from the independent security review and what was done: (1) one blocked
 
 ## Ownership and apply order (agreed with M2-B)
 M2-C **owns** `hosted_invoice_deferred_requeues`, `d24_requeue_deferred_event(text,uuid,text)`, the deferred-event guard and the `attempt_base`/`requeue_count` bookkeeping. M2-B (renumbered 20270207) only wraps: its `d24_op_requeue_deferred` verifies the caller (platform admin) and calls `d24_requeue_deferred_event` with the verified identity as `p_actor`. Apply order: M1, M2-C (20270206), M2-B (20270207); roll back in reverse.
+
+## Second review (fresh reviewer, head 84ba3d11) and disposition
+P0: none. P1: (a) key locks taken by a batch are held to commit and the live `d24_apply_event` route has no lock timeout, so a long drain batch could delay webhooks → loop budget cut to 5 s (delay bounded by ~5 s + one event; keep scheduled batches at 25), route-side timeout remains a follow-up for the handler; (b) rollback unusable once any audit row exists → export-acknowledged rollback added (tested). P2 (accepted, documented): ORDER BY expression has no index (fine at expected backlog, revisit if defer mode builds >10k pending); transient classes never quarantine (alarm on `pending_stale`); statement-timeout rolls a whole batch back (keep caller timeout > ~10 s); any service-role caller can write error audit rows (trust boundary); drain-run retention; M1-era rejected rows have a NULL code (reported as `unknown`); rejected events already applied live stay `rejected_present` until requeued (a requeue replays as `replayed`, creating nothing); identity sequences have no explicit REVOKE (same as M1, not PostgREST-reachable).

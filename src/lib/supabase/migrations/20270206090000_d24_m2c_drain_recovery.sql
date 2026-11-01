@@ -165,8 +165,9 @@ begin
   for r in select * from public.hosted_invoice_deferred_events where state = 'pending'
            order by attempts - attempt_base, coalesce(last_attempt_at, '-infinity'::timestamptz), event_created, provider_event_id
            limit least(greatest(coalesce(p_limit, 25), 1), 100) for update skip locked loop
-    -- run-level budget: a blocked key must not stack one lock wait per event until the caller's statement timeout rolls the whole batch back
-    exit when v_picked > 0 and clock_timestamp() - v_started > interval '20 seconds';
+    -- run-level budget: a blocked key must not stack one lock wait per event until the caller's statement timeout rolls the whole batch back, and the key locks taken so far
+    -- (held to commit) can delay the live route for at most this long plus one event
+    exit when v_picked > 0 and clock_timestamp() - v_started > interval '5 seconds';
     v_picked := v_picked + 1;
     begin
       v_res := public._d24_apply_core(r.provider_event_id, r.event_type, r.event_created, r.stripe_account_id, r.livemode, r.payload_hash, r.object_kind, r.object_snapshot);
