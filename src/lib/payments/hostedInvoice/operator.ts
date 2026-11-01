@@ -44,10 +44,10 @@ export const OPERATOR_REASON_MAX = 1000;
 
 const fail = (code: Exclude<OperatorResult, { ok: true }>["code"], assurance?: AssuranceRefusal): OperatorResult => ({ ok: false, code, ...(assurance ? { assurance } : {}) });
 
-function reasonOf(v: unknown): string | null {
+function reasonOf(v: unknown, max = OPERATOR_REASON_MAX): string | null {
   if (typeof v !== "string") return null;
   const t = v.trim();
-  return t.length >= OPERATOR_REASON_MIN && t.length <= OPERATOR_REASON_MAX ? t : null;
+  return t.length >= OPERATOR_REASON_MIN && t.length <= max ? t : null;
 }
 
 function intOf(v: unknown, fallback: number, min: number, max: number): number | null {
@@ -72,7 +72,7 @@ export function buildOperatorCall(action: OperatorAction, input: Record<string, 
       return { fn: "d24_op_dismiss_unmatched", args: { p_invoice_row_id: input.invoiceRowId, p_reason: reason } };
     }
     case "requeue": {
-      const reason = reasonOf(input.reason);
+      const reason = reasonOf(input.reason, 500);
       if (!reason || typeof input.providerEventId !== "string" || !EVENT_ID.test(input.providerEventId)) return null;
       return { fn: "d24_op_requeue_deferred", args: { p_provider_event_id: input.providerEventId, p_reason: reason } };
     }

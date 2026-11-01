@@ -50,6 +50,7 @@ describe("input validation and the allow-listed RPC call", () => {
     ["dismiss", { invoiceRowId: INV, reason: "x".repeat(1001) }],
     ["requeue", { providerEventId: "in_1", reason: REASON }],
     ["requeue", { providerEventId: "evt_1", reason: 42 }],
+    ["requeue", { providerEventId: "evt_1", reason: "x".repeat(501) }],
     ["list_invoices", { state: "bogus" }],
     ["list_invoices", { limit: 5000 }],
     ["list_deferred", { state: "weird" }],

@@ -159,6 +159,7 @@ check "...and nothing was acknowledged" "$(q "select coalesce(array_to_string(ac
 has "reason is mandatory (empty)" "$(asu $OWA aal2 "select public.d24_op_acknowledge_anomalies('$RA',array['unverified_void_origin'],'')")" "d24_op_reason_required"
 has "reason is mandatory (whitespace)" "$(asu $OWA aal2 "select public.d24_op_acknowledge_anomalies('$RA',array['unverified_void_origin'],'            ')")" "d24_op_reason_required"
 has "reason is mandatory (too short)" "$(asu $OWA aal2 "select public.d24_op_acknowledge_anomalies('$RA',array['unverified_void_origin'],'ok')")" "d24_op_reason_required"
+has "reason is mandatory (ten newlines/tabs)" "$(asu $OWA aal2 "select public.d24_op_acknowledge_anomalies('$RA',array['unverified_void_origin'],repeat(chr(10),5)||repeat(chr(9),5))")" "d24_op_reason_required"
 has "reason is mandatory (null)" "$(asu $OWA aal2 "select public.d24_op_acknowledge_anomalies('$RA',array['unverified_void_origin'],null)")" "d24_op_reason_required"
 has "unknown code refused" "$(asu $OWA aal2 "select public.d24_op_acknowledge_anomalies('$RA',array['not_a_code'],'$R')")" "d24_unknown_anomaly_code"
 has "empty code list refused" "$(asu $OWA aal2 "select public.d24_op_acknowledge_anomalies('$RA','{}','$R')")" "codes are required"

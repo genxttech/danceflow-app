@@ -105,7 +105,7 @@ create or replace function public._d24_op_reason(p_reason text)
 returns text language plpgsql immutable
 set search_path = pg_catalog, public, pg_temp
 as $$
-declare v text := btrim(coalesce(p_reason, ''));
+declare v text := btrim(coalesce(p_reason, ''), ' ' || chr(9) || chr(10) || chr(13));
 begin
   if length(v) < 10 or length(v) > 1000 then
     raise exception 'd24_op_reason_required: a reason of 10 to 1000 characters is mandatory' using errcode = '22023';
@@ -144,7 +144,7 @@ begin
   end if;
   select array_agg(distinct c order by c) into v_codes from unnest(p_codes) c;
   perform set_config('d24.writer', 'on', true);
-  -- authorize BEFORE taking the row lock (an unauthorized caller must neither block on nor stall the webhook path), then lock and re-check
+  -- authorize BEFORE taking the row lock (an unauthorized caller must neither block on nor stall the webhook path); studio_id is immutable once set, so the authorization cannot go stale across the lock
   select * into v from public.hosted_invoices where id = p_invoice_row_id;
   -- not found and not authorized look the same to a studio operator: no existence oracle across tenants
   if not found or not (v_platform or public._d24_op_is_studio_operator(v_uid, v.studio_id)) then
@@ -228,6 +228,7 @@ begin
   if p_provider_event_id is null or length(btrim(p_provider_event_id)) = 0 then
     raise exception 'd24_op_requeue_deferred: event id is required' using errcode = '22023';
   end if;
+  if length(v_reason) > 500 then raise exception 'd24_op_reason_required: a requeue reason is at most 500 characters' using errcode = '22023'; end if;
   perform set_config('d24.writer', 'on', true);
   select * into r from public.hosted_invoice_deferred_events where provider_event_id = p_provider_event_id for update;
   if not found then raise exception 'd24_deferred_event_not_found' using errcode = 'P0002'; end if;
@@ -237,7 +238,6 @@ begin
   if r.state <> 'rejected' then
     raise exception 'd24_op_not_recoverable: only a rejected deferred event can be requeued (state %)', r.state using errcode = '55000';
   end if;
-  if length(v_reason) > 500 then raise exception 'd24_op_reason_required: a requeue reason is at most 500 characters' using errcode = '22023'; end if;
   -- M2-C owns the requeue mechanics (evidence row, attempt budget, cap, guard flag); this wrapper supplies the VERIFIED actor. The event row lock is held across the call.
   v_res := public.d24_requeue_deferred_event(r.provider_event_id, v_uid, v_reason);
   return v_res;
