@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requirePlatformStepUp, type AssuranceTier } from "@/lib/auth/platform-assurance";
-import { PRICE_FLASH_COOKIE, PRICE_KINDS, PriceChangeError, PriceChangeStore, isB64u, type AuthzChallenge } from "@/lib/sms/priceChange";
+import { PRICE_FLASH_COOKIE, PRICE_KINDS, PriceChangeError, PriceChangeStore, isB64u, type AuthzChallenge, type CredChallenge, type CredentialState } from "@/lib/sms/priceChange";
 import { encodePanelFlash } from "@/lib/sms/twilioIsv/panelFlash";
 import { usdToCents } from "@/lib/sms/pilotApprovalEvidence";
 
@@ -183,4 +183,69 @@ export async function priceReportCompromise(formData: FormData) {
     await (await store()).reportCompromise(note);
     return done("Reported. Price publication is suspended and the security event is raised.");
   });
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// credential ceremonies: enrol / revoke are PENDING requests (a mandatory delay applies), apply and cancel act on a pending change, thaw lifts a suspension with the hardware key
+// ---------------------------------------------------------------------------------------------------------------
+const bad = (...v: unknown[]) => {
+  if (v.some((x) => !isB64u(x))) throw new PriceChangeError("22023");
+};
+
+export async function priceCredBegin(input: { purpose: string; credentialId?: string; x?: string; y?: string; role?: string; label?: string }): Promise<Data<CredChallenge>> {
+  return await guardedData("aal2", async () => {
+    const purpose = input?.purpose;
+    if (purpose !== "enroll" && purpose !== "revoke" && purpose !== "thaw") throw new PriceChangeError("22023");
+    if (purpose === "enroll") bad(input.credentialId, input.x, input.y);
+    if (purpose === "revoke") bad(input.credentialId);
+    if (purpose === "enroll" && (typeof input.role !== "string" || !["primary", "spare"].includes(input.role) || typeof input.label !== "string" || input.label.trim().length < 3 || input.label.length > 60)) throw new PriceChangeError("22023");
+    return (await store()).credBegin({ purpose, credentialId: input.credentialId ?? null, x: input.x ?? null, y: input.y ?? null, role: input.role ?? null, label: input.label ?? null });
+  });
+}
+
+type CredEnrollInput = Record<"nonce" | "newCredentialId" | "x" | "y" | "role" | "label" | "byCredentialId" | "byAuth" | "byClient" | "bySig" | "newAuth" | "newClient" | "newSig", string>;
+export async function priceCredEnroll(input: CredEnrollInput): Promise<Data<Record<"status" | "reason" | "changeId", string | null>>> {
+  return await guardedData("aal2", async () => {
+    const i = input as Record<string, unknown>;
+    bad(i?.nonce, i?.newCredentialId, i?.x, i?.y, i?.byCredentialId, i?.byAuth, i?.byClient, i?.bySig, i?.newAuth, i?.newClient, i?.newSig);
+    if (i.role !== "primary" && i.role !== "spare") throw new PriceChangeError("22023");
+    if (typeof i.label !== "string" || i.label.trim().length < 3 || i.label.length > 60) throw new PriceChangeError("22023");
+    return (await store()).credEnroll(input);
+  });
+}
+
+type CredRevokeInput = Record<"nonce" | "target" | "byCredentialId" | "byAuth" | "byClient" | "bySig", string>;
+export async function priceCredRevoke(input: CredRevokeInput): Promise<Data<Record<"status" | "reason" | "changeId", string | null>>> {
+  return await guardedData("aal2", async () => {
+    const i = input as Record<string, unknown>;
+    bad(i?.nonce, i?.target, i?.byCredentialId, i?.byAuth, i?.byClient, i?.bySig);
+    return (await store()).credRevoke(input);
+  });
+}
+
+type ThawInput = Record<"nonce" | "credentialId" | "authData" | "clientData" | "signature", string>;
+export async function priceThaw(input: ThawInput): Promise<Data<Record<"status" | "reason", string | null>>> {
+  return await guardedData("aal2", async () => {
+    const i = input as Record<string, unknown>;
+    bad(i?.nonce, i?.credentialId, i?.authData, i?.clientData, i?.signature);
+    return (await store()).thaw(input);
+  });
+}
+
+export async function priceCredApply(changeId: string): Promise<Data<Record<"status", string | null>>> {
+  return await guardedData("aal2", async () => {
+    if (typeof changeId !== "string" || !UUID.test(changeId)) throw new PriceChangeError("22023");
+    return (await store()).credApply(changeId);
+  });
+}
+
+export async function priceCredCancel(changeId: string): Promise<Data<Record<"status", string | null>>> {
+  return await guardedData("aal2", async () => {
+    if (typeof changeId !== "string" || !UUID.test(changeId)) throw new PriceChangeError("22023");
+    return (await store()).credCancel(changeId);
+  });
+}
+
+export async function priceCredPending(): Promise<Data<CredentialState>> {
+  return await guardedData("aal2", async () => (await store()).credState());
 }

@@ -34,10 +34,30 @@ const KX = new SoftAuthenticator(); // the attacker's key: never enrolled
 const propose = (c: Record<string, unknown>, cents: number, prov = 115, kind = "number") =>
   authOut(c, `select public.tw4_price_propose('${kind}', ${cents}, ${prov}, 'owner mode price', 'a written reason for the owner mode test')::text;`);
 const begin = (c: Record<string, unknown>, id: string) => authOut(c, `select public.tw4_price_authz_begin('${id}')::text;`);
-const beginErr = (c: Record<string, unknown> | null, id: string) => authErr(c, `select public.tw4_price_authz_begin('${id}')::text;`);
+/** run one statement as a session; a registered administrator's REFUSAL comes back as a recorded {status: 'refused'} answer and is rendered like an error text so that codeOf() reads its SQLSTATE */
+function tryAuth(c: Record<string, unknown> | null, sql: string): { err: string; out: Record<string, never> | null } {
+  try {
+    return { err: "", out: JSON.parse(psql(asAuth(c, sql)).split(NL).pop()!) as Record<string, never> };
+  } catch (e) {
+    return { err: String((e as Error).message ?? e), out: null };
+  }
+}
+const refusalText = (r: { err: string; out: Record<string, never> | null }): string => ((r.out as Record<string, unknown> | null)?.status === "refused" ? `ERROR:  ${String((r.out as Record<string, unknown>).code)}: ${String((r.out as Record<string, unknown>).reason)}` : r.err);
+const beginErr = (c: Record<string, unknown> | null, id: string) => refusalText(tryAuth(c, `select public.tw4_price_authz_begin('${id}')::text;`));
 const finishSql = (id: string, nonce: string, a: Assertion) => `select public.tw4_price_authz_finish('${id}', '${nonce}', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}')::text;`;
 const finish = (c: Record<string, unknown>, id: string, nonce: string, a: Assertion) => authOut(c, finishSql(id, nonce, a));
-const finishErr = (c: Record<string, unknown> | null, id: string, nonce: string, a: Assertion) => authErr(c, finishSql(id, nonce, a));
+const finishErr = (c: Record<string, unknown> | null, id: string, nonce: string, a: Assertion) => refusalText(tryAuth(c, finishSql(id, nonce, a)));
+/** owner-level, visible: a pending credential change whose delay has passed */
+const ageChange = (id: string) => psql(`begin; alter table public.studio_sms_price_credential_changes disable trigger studio_sms_price_credential_changes_guard; update public.studio_sms_price_credential_changes set requested_at = requested_at - interval '25 hours', effective_at = effective_at - interval '25 hours' where id = '${id}'; alter table public.studio_sms_price_credential_changes enable always trigger studio_sms_price_credential_changes_guard; commit;`);
+const sessionRun = (sql: string): Promise<{ out: string; code: number | null }> =>
+  new Promise((resolve) => {
+    const pr = spawn("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-d", DB, "-q", "-At", "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose"], { stdio: ["pipe", "pipe", "pipe"] });
+    let out = "";
+    pr.stdout.on("data", (d) => (out += d));
+    pr.stderr.on("data", (d) => (out += d));
+    pr.on("close", (code) => resolve({ out, code }));
+    pr.stdin.end(sql);
+  });
 const req = (id: string) => rows<{ status: string; approval_mode: string; decided_by: string | null; auth_credential_id: string | null; proposal_version: number; cooling_until: string | null; expires_at: string }>(
   `select status, approval_mode, decided_by, auth_credential_id::text, proposal_version, cooling_until::text, expires_at::text from public.studio_sms_price_change_requests where id = '${id}'`)[0];
 const active = (kind = "number") => rows<{ id: string; customer_price_cents: number; created_by: string }>(`select id, customer_price_cents, created_by from public.studio_sms_price_list where kind = '${kind}' and active`);
@@ -155,6 +175,8 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       ["unknown credential", KX.assert(b.challenge)],
       ["cross origin", K1.assert(b.challenge, { crossOrigin: true })],
       ["counter went backwards", K1.assert(b.challenge, { counter: 1 })],
+      ["backup-eligible (synced) credential", K1.assert(b.challenge, { flags: 0x0d })],
+      ["backed-up credential", K1.assert(b.challenge, { flags: 0x1d })],
       ["garbage signature", { ...K1.assert(b.challenge), sig: b64u(Buffer.from("not a signature")) }],
       ["garbage everything", { credId: "!!", auth: "!!", client: "!!", sig: "!!" }],
     ];
@@ -165,7 +187,8 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     }
     expect(req(p.request_id).status).toBe("pending");
     expect(active()).toEqual(before);
-    expect(audit("assertion_rejected")).toBeGreaterThanOrEqual(bad.length);
+    expect(audit("assertion_rejected") + audit("integrity_failure")).toBeGreaterThanOrEqual(bad.length);
+    expect(audit("integrity_failure")).toBeGreaterThanOrEqual(1);
     // the challenge survived the failures; the genuine assertion publishes
     const ok = finish(claims(A, S2), p.request_id, b.nonce, K1.assert(b.challenge));
     expect(ok.status).toBe("applied");
@@ -278,7 +301,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(psqlError(`select public._tw4price_bootstrap('evil.example.test', array['https://evil.example.test'], decode('${KX.hex.cred}', 'hex'), decode('${KX.hex.x}', 'hex'), decode('${KX.hex.y}', 'hex'), 'second bootstrap')`)).toMatch(/already bootstrapped/);
   });
 
-  it("PA-09 credential replacement attacks: an attacker with a perfect session cannot add, replace or revoke a credential; the legitimate ceremony (existing credential signs, the new one proves possession) works; revocation cannot remove the last credential or be self-authorized", () => {
+  it("PA-09 credential changes are PENDING for a mandatory delay (visible, audited, cancellable) and never instant: an attacker with a perfect session cannot add, replace or revoke a credential; the legitimate ceremony works after the delay; aliasing, backup-eligible keys, foreign challenges and the last-credential rule are enforced", () => {
     const enrollBegin = (c: Record<string, unknown>, k: SoftAuthenticator, role: string, label: string) =>
       authOut(c, `select public.tw4_price_cred_begin('enroll', '${k.credIdB64u}', '${b64u(k.x)}', '${b64u(k.y)}', '${role}', '${label}')::text;`);
     const enroll = (c: Record<string, unknown>, k: SoftAuthenticator, role: string, label: string, nonce: string, by: Assertion, mine: Assertion) =>
@@ -296,19 +319,51 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(enroll(sess, KX, "spare", "second test key", b.nonce, byK1, KX.assert(b.challenge)).status).toBe("rejected");
     expect(enroll(sess, K2, "primary", "second test key", b.nonce, byK1, K2.assert(b.challenge)).status).toBe("rejected");
     expect(enroll(sess, K2, "spare", "renamed key x", b.nonce, byK1, K2.assert(b.challenge)).status).toBe("rejected");
+    // a challenge issued to ANOTHER session cannot be used (enrol, revoke and thaw check the issuing user and session, not only authorize)
+    expect(enroll(claims(A, "d42-other-session"), K2, "spare", "second test key", b.nonce, byK1, K2.assert(b.challenge)).status).toBe("rejected");
+    // a backup-eligible (synced) credential is not accepted as the existing signer nor as the new key
+    expect(enroll(sess, K2, "spare", "second test key", b.nonce, K1.assert(b.challenge, { flags: 0x0d }), K2.assert(b.challenge)).status).toBe("rejected");
+    expect(enroll(sess, K2, "spare", "second test key", b.nonce, byK1, K2.assert(b.challenge, { flags: 0x1d })).status).toBe("rejected");
     expect(num(`select count(*) from public.studio_sms_price_credentials`)).toBe(1);
     // direct writes
     expect(psqlError(`insert into public.studio_sms_price_credentials (credential_id, pub_x, pub_y, role, label, enrolled_via) values (decode('${KX.hex.cred}', 'hex'), decode('${KX.hex.x}', 'hex'), decode('${KX.hex.y}', 'hex'), 'spare', 'direct insert', 'assertion')`))
       .toMatch(/written only by the price authorization functions/);
     expect(psqlError(`begin; set local session_replication_role = replica; insert into public.studio_sms_price_credentials (credential_id, pub_x, pub_y, role, label, enrolled_via) values (decode('${KX.hex.cred}', 'hex'), decode('${KX.hex.x}', 'hex'), decode('${KX.hex.y}', 'hex'), 'spare', 'direct insert', 'assertion'); rollback;`))
       .toMatch(/written only by the price authorization functions/);
-    // the legitimate ceremony
-    expect(enroll(sess, K2, "spare", "second test key", b.nonce, byK1, K2.assert(b.challenge)).status).toBe("enrolled");
+    // the legitimate request: PENDING, not active
+    const req2 = enroll(sess, K2, "spare", "second test key", b.nonce, byK1, K2.assert(b.challenge));
+    expect(req2).toMatchObject({ status: "pending", effective_in_hours: 24 });
+    expect(num(`select count(*) from public.studio_sms_price_credentials`)).toBe(1);
+    expect(audit("credential_change_pending")).toBe(1);
+    // the pending change is visible; it cannot be applied early; replaying the same challenge does nothing
+    const pend = authOut(sess, `select public.tw4_price_cred_pending()::text;`) as unknown as { pending: { change_id: string; kind: string }[] };
+    expect(pend.pending.map((p) => p.kind)).toEqual(["enroll"]);
+    expect(codeOf(authErr(sess, `select public.tw4_price_cred_apply('${req2.change_id}')::text;`))).toBe("TW045");
+    expect(enroll(sess, K2, "spare", "second test key", b.nonce, K1.assert(b.challenge), K2.assert(b.challenge)).status).toBe("rejected");
+    // the pending enrolment of a key that is ALREADY registered under another id (aliasing) is refused at the possession proof
+    const alias = new SoftAuthenticator(K1);
+    const ab = enrollBegin(sess, alias, "spare", "alias of the primary");
+    expect(enroll(sess, alias, "spare", "alias of the primary", ab.nonce, K1.assert(ab.challenge), alias.assert(ab.challenge)).status).toBe("rejected");
+    // a cancelled change never applies
+    const cb = enrollBegin(sess, K3, "primary", "new primary key");
+    const cp = enroll(sess, K3, "primary", "new primary key", cb.nonce, K1.assert(cb.challenge), K3.assert(cb.challenge));
+    expect(cp.status).toBe("pending");
+    expect(authOut(claims(B, "d42-b-cancel"), `select public.tw4_price_cred_cancel('${cp.change_id}')::text;`)).toMatchObject({ status: "cancelled" });
+    ageChange(cp.change_id);
+    expect(codeOf(authErr(sess, `select public.tw4_price_cred_apply('${cp.change_id}')::text;`))).toBe("TW041");
+    expect(audit("credential_change_cancelled")).toBe(1);
+    // the delay passes: the change applies (and only then the spare can sign)
+    clear();
+    const p0 = propose(claims(A, S1), 309);
+    ready(p0.request_id);
+    const b0 = begin(claims(A, S2), p0.request_id);
+    expect(finish(claims(A, S2), p0.request_id, b0.nonce, K2.assert(b0.challenge)).status).toBe("rejected"); // K2 is only pending
+    ageChange(req2.change_id);
+    expect(authOut(sess, `select public.tw4_price_cred_apply('${req2.change_id}')::text;`)).toMatchObject({ status: "applied" });
     expect(psql(`select count(*) filter (where status = 'active') || ':' || count(*) filter (where role = 'spare') from public.studio_sms_price_credentials`)).toBe("2:1");
-    expect(audit("credential_enrolled")).toBe(1);
-    // the spare authorizes a price
+    expect(audit("credential_change_applied")).toBe(1);
     expect(authorize(310, K2).out.status).toBe("applied");
-    // revocation: a credential cannot revoke itself, the last one cannot be revoked, an outsider key cannot revoke
+    // revocation: a credential cannot revoke itself, an outsider key cannot revoke, the last one is protected, and a revocation is PENDING too
     const rv = (c: Record<string, unknown>, target: SoftAuthenticator, by: SoftAuthenticator, tamper = false) => {
       const bb = authOut(c, `select public.tw4_price_cred_begin('revoke', '${target.credIdB64u}', null, null, null, null)::text;`);
       const a = by.assert(bb.challenge);
@@ -317,44 +372,64 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(rv(sess, K1, K1).status).toBe("rejected");
     expect(rv(sess, K1, KX).status).toBe("rejected");
     expect(rv(sess, K1, K2, true).status).toBe("rejected"); // signed for K1's revocation, submitted for K2's
-    expect(rv(sess, K1, K2).status).toBe("revoked"); // the spare revokes the primary
-    expect(audit("credential_revoked")).toBe(1);
-    expect(authErr(sess, `select public.tw4_price_cred_begin('revoke', '${K2.credIdB64u}', null, null, null, null)::text;`)).toMatch(/at least one other active credential/);
-    // the revoked primary can no longer sign anything
+    const rr = rv(sess, K1, K2);
+    expect(rr.status).toBe("pending");
+    expect(psql(`select count(*) from public.studio_sms_price_credentials where status = 'active'`)).toBe("2"); // K1 still works until the delay passes
     clear();
-    const p = propose(claims(A, S1), 311);
-    ready(p.request_id);
-    const b3 = begin(claims(A, S2), p.request_id);
-    expect(b3.allow_credentials).toEqual([K2.credIdB64u]);
-    expect(finish(claims(A, S2), p.request_id, b3.nonce, K1.assert(b3.challenge)).status).toBe("rejected");
-    expect(finish(claims(A, S2), p.request_id, b3.nonce, K2.assert(b3.challenge)).status).toBe("applied");
-    // a replacement primary after the old one is gone: enrolled by the spare
+    const pk = propose(claims(A, S1), 311);
+    ready(pk.request_id);
+    const bk = begin(claims(A, S2), pk.request_id);
+    expect([...bk.allow_credentials].sort()).toEqual([K1.credIdB64u, K2.credIdB64u].sort());
+    ageChange(rr.change_id);
+    expect(authOut(sess, `select public.tw4_price_cred_apply('${rr.change_id}')::text;`)).toMatchObject({ status: "applied" });
+    expect(audit("credential_change_applied")).toBe(2);
+    expect(authErr(sess, `select public.tw4_price_cred_begin('revoke', '${K2.credIdB64u}', null, null, null, null)::text;`)).toMatch(/at least one other active credential/);
+    // the revoked primary can no longer sign anything (its pending-era challenge is useless)
+    expect(finish(claims(A, S2), pk.request_id, bk.nonce, K1.assert(bk.challenge)).status).toBe("rejected");
+    expect(finish(claims(A, S2), pk.request_id, bk.nonce, K2.assert(bk.challenge)).status).toBe("applied");
+    // a replacement primary after the old one is gone: signed by the spare, pending, then applied
     const eb = enrollBegin(sess, K3, "primary", "new primary key");
-    expect(enroll(sess, K3, "primary", "new primary key", eb.nonce, K2.assert(eb.challenge), K3.assert(eb.challenge)).status).toBe("enrolled");
+    const ep = enroll(sess, K3, "primary", "new primary key", eb.nonce, K2.assert(eb.challenge), K3.assert(eb.challenge));
+    expect(ep.status).toBe("pending");
+    ageChange(ep.change_id);
+    expect(authOut(sess, `select public.tw4_price_cred_apply('${ep.change_id}')::text;`)).toMatchObject({ status: "applied" });
     expect(num(`select count(*) from public.studio_sms_price_credentials where status = 'active'`)).toBe(2);
+    // one record per key
+    expect(psqlError(`begin; set local tw4.priceauth_write = 'on'; insert into public.studio_sms_price_credentials (credential_id, pub_x, pub_y, role, label, enrolled_via) values (decode('${alias.hex.cred}', 'hex'), decode('${alias.hex.x}', 'hex'), decode('${alias.hex.y}', 'hex'), 'spare', 'alias insert', 'assertion'); rollback;`)).toMatch(/studio_sms_price_credentials_key|duplicate key/);
   });
 
-  it("PA-10 emergency freeze: any registered administrator session can only SUSPEND publication; with it frozen nothing can be published by any path; lifting it needs the hardware-key ceremony", () => {
+  it("PA-10 emergency freeze: any registered administrator session can only SUSPEND publication; with it frozen nothing can be published by any path and credential changes do not apply; lifting it needs the hardware key of a credential that PREDATES the freeze", () => {
     clear();
     const p = propose(claims(A, S1), 320);
     ready(p.request_id);
     const b = begin(claims(A, S2), p.request_id);
-    // an unregistered/unauthenticated caller cannot freeze; a registered aal2 session can (suspension is the safe direction)
+    // an unauthenticated-grade caller cannot freeze; a registered aal2 session can (suspension is the safe direction)
     expect(codeOf(authErr(claims(A, S2, { aal: "aal1" }), `select public.tw4_price_freeze('a written freeze reason for the test')::text;`))).toBe("42501");
     expect(authOut(claims(B, "d42-b"), `select public.tw4_price_freeze('a written freeze reason for the test')::text;`)).toMatchObject({ status: "frozen" });
     expect(audit("freeze_set")).toBe(1);
     const before = active();
-    // frozen: the valid assertion, the team path and a direct price insert all fail
+    // frozen: the valid assertion, a new challenge and a direct price insert all fail
     expect(codeOf(finishErr(claims(A, S2), p.request_id, b.nonce, K2.assert(b.challenge)))).toBe("42501");
     expect(codeOf(beginErr(claims(A, S2), p.request_id))).toBe("42501");
     expect(active()).toEqual(before);
-    // the freeze is not a publication path: it cannot set a price, only suspend
     expect(psql(`select count(*) from public.studio_sms_price_list where created_by = '${B}' and customer_price_cents = 320`)).toBe("0");
-    // lifting: garbage or a wrong key does nothing; the hardware key does
+    // the freeze survives credential changes: a change can be requested but is NOT applied while frozen
+    const eb = authOut(claims(A, S2), `select public.tw4_price_cred_begin('enroll', '${KX.credIdB64u}', '${b64u(KX.x)}', '${b64u(KX.y)}', 'spare', 'a key added during the freeze')::text;`);
+    const ea = K2.assert(eb.challenge);
+    const ma = KX.assert(eb.challenge);
+    const er = authOut(claims(A, S2), `select public.tw4_price_cred_enroll('${eb.nonce}', '${KX.credIdB64u}', '${b64u(KX.x)}', '${b64u(KX.y)}', 'spare', 'a key added during the freeze', '${ea.credId}', '${ea.auth}', '${ea.client}', '${ea.sig}', '${ma.auth}', '${ma.client}', '${ma.sig}')::text;`);
+    expect(er.status).toBe("pending");
+    ageChange(er.change_id);
+    expect(codeOf(authErr(claims(A, S2), `select public.tw4_price_cred_apply('${er.change_id}')::text;`))).toBe("42501");
+    authOut(claims(A, S2), `select public.tw4_price_cred_cancel('${er.change_id}')::text;`);
+    // lifting: garbage or a wrong key does nothing; a credential enrolled AFTER the freeze cannot lift it; a predating one does
     const tb = authOut(claims(A, S2), `select public.tw4_price_cred_begin('thaw', null, null, null, null, null)::text;`);
     const thaw = (a: Assertion) => authOut(claims(A, S2), `select public.tw4_price_thaw('${tb.nonce}', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}')::text;`);
     expect(thaw(KX.assert(tb.challenge)).status).toBe("rejected");
     expect(psql(`select frozen from public.studio_sms_price_auth_config`)).toBe("t");
+    psql(`begin; alter table public.studio_sms_price_credentials disable trigger studio_sms_price_credentials_guard; update public.studio_sms_price_credentials set enrolled_at = now() + interval '1 second' where credential_id = decode('${K3.hex.cred}', 'hex'); alter table public.studio_sms_price_credentials enable always trigger studio_sms_price_credentials_guard; commit;`);
+    expect(thaw(K3.assert(tb.challenge))).toMatchObject({ status: "rejected", reason: expect.stringMatching(/BEFORE the suspension/) });
+    psql(`begin; alter table public.studio_sms_price_credentials disable trigger studio_sms_price_credentials_guard; update public.studio_sms_price_credentials set enrolled_at = now() - interval '30 hours' where credential_id = decode('${K3.hex.cred}', 'hex'); alter table public.studio_sms_price_credentials enable always trigger studio_sms_price_credentials_guard; commit;`);
     expect(thaw(K2.assert(tb.challenge)).status).toBe("thawed");
     expect(psql(`select frozen from public.studio_sms_price_auth_config`)).toBe("f");
     expect(audit("freeze_lifted")).toBe(1);
@@ -443,6 +518,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     const clearEvidence = `
       alter table public.studio_sms_price_audit disable trigger studio_sms_price_audit_guard; delete from public.studio_sms_price_audit;
       alter table public.studio_sms_price_auth_challenges disable trigger studio_sms_price_auth_challenges_guard; delete from public.studio_sms_price_auth_challenges;
+      alter table public.studio_sms_price_credential_changes disable trigger studio_sms_price_credential_changes_guard; delete from public.studio_sms_price_credential_changes;
       alter table public.studio_sms_price_credentials disable trigger studio_sms_price_credentials_guard; delete from public.studio_sms_price_credentials;
       alter table public.studio_sms_price_change_requests disable trigger studio_sms_price_change_requests_guard; delete from public.studio_sms_price_change_requests where approval_mode = 'owner';`;
     const err = psqlError(`begin; ${clearEvidence} ${rb}
@@ -463,10 +539,10 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(psql(`select to_regclass('public.studio_sms_price_auth_config') is not null`)).toBe("t");
   });
 
-  it("PA-16 monitoring interface: security events are emitted into studio_sms_price_security_events when that table exists (no secrets), and a LATEST pricing_suspended event suspends propose, approve and authorize until a pricing_resumed", () => {
+  it("PA-16 monitoring interface: security events are emitted into studio_sms_price_security_events when that table exists (no secrets); a monitoring suspension is lifted ONLY by this schema's hardware-key thaw (a pricing_resumed row in the events table lifts nothing); the second channel carries the fingerprint; emit fails loudly once monitoring is expected", () => {
     clear();
     // the table belongs to the monitoring migration (20270205090000); a minimal stand-in with the same columns proves the conditional emit
-    psql(`create table public.studio_sms_price_security_events (seq bigint generated always as identity primary key, kind text not null, occurred_at timestamptz not null default clock_timestamp(), subject_user_id uuid null, detail jsonb not null default '{}'::jsonb)`);
+    psql(`create table public.studio_sms_price_security_events (seq bigint generated always as identity primary key, kind text not null, occurred_at timestamptz not null default clock_timestamp(), subject_user_id uuid null, detail jsonb not null default '{}'::jsonb, recorded_at timestamptz not null default clock_timestamp())`);
     try {
       const kinds = () => rows<{ kind: string }>("select kind from public.studio_sms_price_security_events order by seq").map((r) => r.kind);
       // registry changes
@@ -474,37 +550,138 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       psql(registerApproverSql(u, "registered in the monitoring interface test"));
       psql(`update public.studio_sms_price_approvers set revoked_at = now(), revoked_note = 'revoked in the monitoring interface test' where user_id = '${u}'`);
       expect(kinds()).toEqual(["approver_added", "approver_registry_changed", "approver_removed", "approver_registry_changed"]);
-      // freeze, compromise report, thaw (hardware key), credential changes
+      // compromise report -> suspension; thaw with a credential that predates it
       expect(authOut(claims(B, "d42-b3"), `select public.tw4_price_report_compromise('a suspected compromise reported in the test')::text;`)).toMatchObject({ status: "frozen" });
       expect(kinds().slice(4)).toEqual(["pricing_suspended", "credential_compromise_reported"]);
-      const tb = authOut(claims(A, S2), `select public.tw4_price_cred_begin('thaw', null, null, null, null, null)::text;`);
-      const a = K2.assert(tb.challenge);
-      expect(authOut(claims(A, S2), `select public.tw4_price_thaw('${tb.nonce}', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}')::text;`).status).toBe("thawed");
+      const thawNow = (k: SoftAuthenticator) => {
+        const tb = authOut(claims(A, S2), `select public.tw4_price_cred_begin('thaw', null, null, null, null, null)::text;`);
+        const a = k.assert(tb.challenge);
+        return { out: authOut(claims(A, S2), `select public.tw4_price_thaw('${tb.nonce}', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}')::text;`), tb };
+      };
+      const t1 = thawNow(K2);
+      expect(t1.out.status).toBe("thawed");
       expect(kinds().slice(-1)).toEqual(["pricing_resumed"]);
       // no secrets: details carry no credential ids, keys, challenges or tokens
       const text = JSON.stringify(rows("select detail from public.studio_sms_price_security_events"));
-      for (const secret of [K1.credIdB64u, K2.credIdB64u, b64u(K2.x), tb.nonce, tb.challenge]) expect(text.includes(secret)).toBe(false);
-      // a monitoring-side suspension (the latest event) suspends every publication path, whatever the local freeze flag says
+      for (const secret of [K1.credIdB64u, K2.credIdB64u, b64u(K2.x), t1.tb.nonce, t1.tb.challenge]) expect(text.includes(secret)).toBe(false);
+      // a monitoring-side suspension suspends every publication path although the local freeze flag is off
       psql("insert into public.studio_sms_price_security_events (kind, detail) values ('pricing_suspended', '{\"by\": \"monitor\"}')");
       expect(psql("select frozen from public.studio_sms_price_auth_config")).toBe("f");
       expect(codeOf(authErr(claims(A, S1), `select public.tw4_price_propose('number', 411, 115, 'suspended proposal', 'a written reason while suspended')::text;`))).toBe("42501");
       expect(codeOf(psqlError("select public._tw4price_do_propose('number', 412, 115, 'suspended proposal', 'a written reason while suspended', '" + A + "')"))).toBe("42501");
-      setConfig("mode = 'single_owner'");
-      // an already open proposal cannot be authorized either
+      // a pricing_resumed row in the monitoring table (written by anyone with insert there) lifts NOTHING
       psql("insert into public.studio_sms_price_security_events (kind) values ('pricing_resumed')");
-      const p = propose(claims(A, S1), 413);
-      ready(p.request_id);
-      const b = begin(claims(A, S2), p.request_id);
+      expect(codeOf(authErr(claims(A, S1), `select public.tw4_price_propose('number', 411, 115, 'suspended proposal', 'a written reason while suspended')::text;`))).toBe("42501");
+      // the defined lift path: the hardware-key thaw (it works for a monitoring suspension too)
+      expect(thawNow(K3).out.status).toBe("thawed");
+      const pr = propose(claims(A, S1), 413);
+      ready(pr.request_id);
+      const b = begin(claims(A, S2), pr.request_id);
+      // the second channel: the monitoring feed carries the fingerprint and values of what is about to be signed
+      const started = rows<{ detail: { fingerprint: string; new_customer_cents: number; kind: string } }>("select detail from public.studio_sms_price_security_events where kind = 'price_authorization_started' order by seq desc limit 1")[0];
+      expect(started.detail).toMatchObject({ fingerprint: String((b.summary as Record<string, unknown>).hash).slice(0, 16), new_customer_cents: 413, kind: "number" });
+      // a suspension that arrives after the challenge blocks the finish
       psql("insert into public.studio_sms_price_security_events (kind) values ('pricing_suspended')");
-      expect(codeOf(finishErr(claims(A, S2), p.request_id, b.nonce, K3.assert(b.challenge)))).toBe("42501");
-      expect(codeOf(beginErr(claims(A, S2), p.request_id))).toBe("42501");
-      psql("insert into public.studio_sms_price_security_events (kind) values ('pricing_resumed')");
-      expect(finish(claims(A, S2), p.request_id, b.nonce, K3.assert(b.challenge)).status).toBe("applied");
+      expect(codeOf(finishErr(claims(A, S2), pr.request_id, b.nonce, K3.assert(b.challenge)))).toBe("42501");
+      expect(thawNow(K3).out.status).toBe("thawed");
+      expect(finish(claims(A, S2), pr.request_id, b.nonce, K3.assert(b.challenge)).status).toBe("applied");
       // the verifier interface is unchanged
       const v = JSON.parse(psql("select public.tw4_price_verify()::text")) as { ok: boolean; anomalies: unknown[]; checked_at: string };
       expect(Object.keys(v).sort()).toEqual(["anomalies", "checked_at", "ok"]);
-    } finally {
+      // once monitoring is expected, a MISSING events table is a loud failure (no silent no-op)
       psql("drop table public.studio_sms_price_security_events");
+      setConfig("monitoring_expected = true");
+      try {
+        expect(codeOf(authErr(claims(B, "d42-b4"), `select public.tw4_price_freeze('a freeze while the monitoring table is missing')::text;`))).toBe("TW046");
+        expect(psql("select frozen from public.studio_sms_price_auth_config")).toBe("f");
+      } finally {
+        setConfig("monitoring_expected = false");
+      }
+    } finally {
+      psql("drop table if exists public.studio_sms_price_security_events");
     }
+  });
+
+  it("PA-17 refusals are AUDITED independent of any other table: a refused gate (cooling-off, same session, wrong owner, frozen) and a rejected assertion are committed to the immutable audit; a sign counter that did not increase is an integrity failure", () => {
+    clear();
+    const gates = () => audit("gate_refused");
+    const g0 = gates();
+    const p = propose(claims(A, S1), 420);
+    expect(codeOf(beginErr(claims(A, S2), p.request_id))).toBe("TW045"); // cooling-off
+    ready(p.request_id);
+    expect(codeOf(beginErr(claims(A, S1), p.request_id))).toBe("42501"); // the proposing session
+    expect(codeOf(beginErr(claims(B, S2), p.request_id))).toBe("42501"); // not the owner who proposed
+    expect(gates() - g0).toBe(3);
+    const last = rows<{ detail: { code: string; step: string } }>("select detail from public.studio_sms_price_audit where event = 'gate_refused' order by id desc limit 1")[0];
+    expect(last.detail).toMatchObject({ code: "42501", step: "begin" });
+    const b = begin(claims(A, S2), p.request_id);
+    const bad = finish(claims(A, S2), p.request_id, b.nonce, KX.assert(b.challenge));
+    expect(bad.status).toBe("rejected");
+    const rej = audit("assertion_rejected");
+    const dbCounter = num(`select sign_count from public.studio_sms_price_credentials where credential_id = decode('${K3.hex.cred}', 'hex')`);
+    const replay = finish(claims(A, S2), p.request_id, b.nonce, K3.assert(b.challenge, { counter: Math.max(1, dbCounter) }));
+    expect(replay.status).toBe("rejected");
+    expect(audit("integrity_failure")).toBeGreaterThanOrEqual(1);
+    expect(audit("assertion_rejected")).toBe(rej);
+    // all of it is readable through the monitoring feed
+    const feed = JSON.parse(psql(`select public.tw4_price_audit_feed(0, 1000)::text`)) as { event: string }[];
+    for (const e of ["gate_refused", "assertion_rejected", "integrity_failure", "challenge_issued"]) expect(feed.some((f) => f.event === e), e).toBe(true);
+    clear();
+  });
+
+  it("PA-18 the credential lock: two concurrent revocations of the last two credentials (applied at the same moment) can never leave zero active credentials, even with authenticators that report a sign counter of 0", async () => {
+    clear();
+    // two active credentials: K2 (spare) and K3 (primary). Each requests the revocation of the OTHER (counters are strictly increasing, as the fixture signs)
+    const sess = claims(A, S2);
+    const req = (target: SoftAuthenticator, by: SoftAuthenticator) => {
+      const bb = authOut(sess, `select public.tw4_price_cred_begin('revoke', '${target.credIdB64u}', null, null, null, null)::text;`);
+      const a = by.assert(bb.challenge);
+      return authOut(sess, `select public.tw4_price_cred_revoke('${bb.nonce}', '${target.credIdB64u}', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}')::text;`);
+    };
+    const r1 = req(K3, K2);
+    const r2 = req(K2, K3);
+    expect(r1.status).toBe("pending");
+    expect(r2.status).toBe("pending");
+    ageChange(r1.change_id);
+    ageChange(r2.change_id);
+    const s1 = sessionRun(asAuth(sess, `select public.tw4_price_cred_apply('${r1.change_id}')::text;`).replace("commit;", "select pg_sleep(3.41); commit;"));
+    for (let i = 0; i < 80 && psql(`select count(*) from pg_stat_activity where datname = '${DB}' and query like '%pg_sleep(3.41)%' and wait_event = 'PgSleep'`) !== "1"; i++) await new Promise((r) => setTimeout(r, 150));
+    const s2 = sessionRun(asAuth(sess, `select public.tw4_price_cred_apply('${r2.change_id}')::text;`));
+    const [x, y] = await Promise.all([s1, s2]);
+    expect(x.out).toContain('"status": "applied"');
+    expect(y.code).not.toBe(0);
+    expect(y.out).toMatch(/last active credential/);
+    expect(num(`select count(*) from public.studio_sms_price_credentials where status = 'active'`)).toBe(1);
+    // restore a second credential for the remaining cells: enrol K1 again is impossible (same key), so enrol a new spare through the ceremony
+    const K4 = new SoftAuthenticator();
+    const survivor = rows<{ credential_id: string }>("select encode(credential_id, 'hex') as credential_id from public.studio_sms_price_credentials where status = 'active'")[0].credential_id;
+    const by = survivor === K2.hex.cred ? K2 : K3;
+    const eb = authOut(sess, `select public.tw4_price_cred_begin('enroll', '${K4.credIdB64u}', '${b64u(K4.x)}', '${b64u(K4.y)}', 'spare', 'replacement spare key')::text;`);
+    const ea = by.assert(eb.challenge);
+    const ma = K4.assert(eb.challenge);
+    const ep = authOut(sess, `select public.tw4_price_cred_enroll('${eb.nonce}', '${K4.credIdB64u}', '${b64u(K4.x)}', '${b64u(K4.y)}', 'spare', 'replacement spare key', '${ea.credId}', '${ea.auth}', '${ea.client}', '${ea.sig}', '${ma.auth}', '${ma.client}', '${ma.sig}')::text;`);
+    expect(ep.status).toBe("pending");
+    ageChange(ep.change_id);
+    expect(authOut(sess, `select public.tw4_price_cred_apply('${ep.change_id}')::text;`)).toMatchObject({ status: "applied" });
+    expect(num(`select count(*) from public.studio_sms_price_credentials where status = 'active'`)).toBe(2);
+  });
+
+  it("PA-19 limits are re-checked at the decision: a limit the owner approves AFTER a proposal was made refuses its challenge and its signature; the shipped (unapproved) rows enforce nothing", () => {
+    clear();
+    const p = propose(claims(A, S1), 430);
+    ready(p.request_id);
+    const orig = psql(`select approved || ':' || max_customer_cents from public.studio_sms_price_limits where kind = 'number'`);
+    expect(orig.startsWith("false")).toBe(true);
+    expect(begin(claims(A, S2), p.request_id).nonce).toBeTruthy(); // unapproved rows enforce nothing
+    psql(`update public.studio_sms_price_limits set max_customer_cents = 300, approved = true, approved_by_note = 'approved in the limits recheck test', approved_at = now() where kind = 'number'`);
+    try {
+      expect(codeOf(beginErr(claims(A, S2), p.request_id))).toBe("22023");
+      const b = { nonce: "AAAA", challenge: "AAAA" };
+      expect(codeOf(finishErr(claims(A, S2), p.request_id, b.nonce, K2.assert(b.challenge)))).toBe("22023");
+      expect(num(`select count(*) from public.studio_sms_price_list where kind = 'number' and customer_price_cents = 430`)).toBe(0);
+    } finally {
+      psql(`update public.studio_sms_price_limits set approved = false, approved_by_note = null, approved_at = null, max_customer_cents = 500 where kind = 'number'`);
+    }
+    clear();
   });
 });

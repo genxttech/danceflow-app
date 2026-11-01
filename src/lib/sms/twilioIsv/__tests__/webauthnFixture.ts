@@ -24,7 +24,14 @@ export class SoftAuthenticator {
   private readonly privateKey: KeyObject;
   counter = 0;
 
-  constructor() {
+  /** `share`: a second credential id for the SAME key (to test aliasing) */
+  constructor(share?: SoftAuthenticator) {
+    if (share) {
+      this.privateKey = share.privateKey;
+      this.x = share.x;
+      this.y = share.y;
+      return;
+    }
     const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
     const jwk = publicKey.export({ format: "jwk" });
     this.privateKey = privateKey;
