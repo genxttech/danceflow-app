@@ -1,0 +1,45 @@
+# D24 M2-A — trusted hosted-invoice registration
+
+Status: **merge candidate (draft PR). Nothing here is authorized against a hosted environment.** No migration is added in M2-A.
+
+## Inventory result: no invoice-creation workflow exists
+Searched `src/` for `invoices.create`, `finalizeInvoice`, `sendInvoice`, `invoiceItems`, `collection_method`, `send_invoice`.
+- `src/lib/payments/subscriptions.ts` and `src/app/app/memberships/actions.ts` only create / pay **subscription** invoices with `collection_method: "charge_automatically"`. These are explicitly **not** hosted invoices and must never be registered (the wrapper refuses them).
+- `studio_invoices` is DanceFlow-to-studio platform billing and is tenant-writable; it is not evidence of a hosted invoice.
+- Nothing creates a Stripe-hosted (`send_invoice`) invoice for a studio client, and no business-object type exists that would own one.
+
+So M2-A does **not** invent a creation workflow. It delivers the server-only registration wrapper that such a workflow must call, and records what that future package needs.
+
+## What shipped
+`src/lib/payments/hostedInvoice/register.ts` — `registerHostedInvoice()` around `public.d24_register_invoice` (service role only):
+- **Studio** comes from the caller's server-side authorization; **Stripe account** is read from `studios.stripe_connected_account_id` inside the wrapper (never an input). A studio with no/malformed connected account is refused (`stripe_account_unavailable`); platform-account invoices are not studio invoices.
+- **Business object ownership**: a closed allow-list of resolvers (`PRODUCTION_BUSINESS_OBJECT_RESOLVERS`, intentionally **empty**). Each resolver must confirm the object exists and belongs to this studio. With no resolvers, every production call fails closed (`business_object_type_unsupported`) without touching the database. No SQL ownership helper is added because there is no real table to validate against.
+- **Subscriptions refused** by type pattern and by `subscriptionEvidence`. The database also reclassifies on Stripe subscription markers.
+- **Metadata is never an input**; attribution comes only from the registry. Metadata mismatches on later events are flagged by M1, not trusted.
+- **Idempotent**: identical re-registration → `already_registered`. A different owner/object/livemode → SQLSTATE 23505 → `registration_conflict` (safe fixed code, no database text). Registry rows are never overwritten.
+- **Out of order**: events recorded before registration are adopted inside `d24_register_invoice` (`adoptedExistingFacts`). Events after registration match the registry.
+- **Retry**: 40P01 / 40001 / 55P03 are retried up to 3 times (the aborted transaction wrote nothing; see the M1 rollout note on cross-account deadlock). Everything else maps to `registration_failed` / `registration_unavailable` with `retryable: true`.
+
+## Requirements for the future invoice-creation package (not built)
+1. Authorization: the action must authenticate a studio staff member with a billing permission, derive `studioId` server-side, and pass `createdBy` from the session. (Depends on M2-B operator auth for any operator-initiated flow.)
+2. Create the invoice (`collection_method: send_invoice`) in the studio's connected account, then call `registerHostedInvoice` **immediately** with the Stripe response's `id` and `livemode`. Registration failure after creation must be retried (idempotent) and surfaced; do not email/finalize the invoice to the customer until registration succeeded.
+3. Add a resolver for the new business-object type to `PRODUCTION_BUSINESS_OBJECT_RESOLVERS`, with a test that a cross-studio object id is refused. The type name must not contain `subscription`.
+4. Keep Stripe metadata informational only.
+5. Decide the invoice-before-registration window: Stripe may deliver `invoice.*` events before the registration call returns; M1 adopts these, so no ordering guarantee is required.
+
+## Evidence
+- Unit: `src/lib/payments/hostedInvoice/__tests__/register.d24.test.ts`.
+- Real Postgres (disposable container, no ports/volumes): `bash scripts/qa/d24-m2a-wrapper.sh` runs the real wrapper against the real function: idempotency, cross-studio takeover, cross-studio object, out-of-order adopt/match with forged metadata, 12-way identical concurrency, two-studio race.
+
+## Residual risk found by the real-Postgres run: registry is keyed per account scope
+`hosted_invoice_registry` is unique on `(account scope, invoice id)`, not on the invoice id. Because the wrapper derives the account from the studio, studio B registering an invoice id that studio A already registered would otherwise create a second row under B's own account (it never touches A's scope, and A's events never match B's). Stripe ids are globally unique and the id comes from the studio's own creation response, so this should not occur, but M2-A adds a best-effort cross-scope pre-check (read of the registry; refuses with `registration_conflict`). It is not a lock: two simultaneous registrations by different studios can both pass it, leaving B a row under B's own scope only (asserted in the PG race test).
+**Follow-up (not done, changes M1 semantics and its section 14h cross-scope deadlock test):** make `d24_register_invoice` take an invoice-id-only advisory lock and refuse an invoice id already registered under a different scope.
+
+## Independent review follow-ups (no P0/P1 found)
+- **P2 (SQL follow-up with the invoice-id lock above):** `d24_register_invoice` trusts its caller for the account and the studio-to-account binding, and accepts a NULL (platform) account. The wrapper is the only guard, and it reads the account moments before the rpc (a reconnect in between would register under the old account). Fix in SQL: look the account up inside the function, refuse NULL / mismatch, drop the account argument. Until then, no other caller may use the rpc (contract test).
+- **P3:** `subscriptionEvidence` is caller-supplied and the type check is a name heuristic; the future resolver must itself confirm the object is not a subscription, and M1 flags `subscription_registry_conflict` afterwards. Studio connected-account uniqueness was not verified in this package.
+- Fixed in M2-A: integrity violations (23xxx other than 23505) are non-retryable; business object ids are charset-restricted.
+
+## Not done / open
+- No call site exists, so the wrapper is unreferenced by app code by design (a contract test pins this).
+- `retryable` results must be handled by the future caller; there is no queue for failed registrations.
