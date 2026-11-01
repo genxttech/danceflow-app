@@ -20,7 +20,6 @@ const asAuth = (c: Record<string, unknown>, sql: string) => `begin; set local ro
 const authOut = (c: Record<string, unknown>, sql: string) => JSON.parse(psql(asAuth(c, sql)).split(NL).pop()!) as Record<string, never>;
 const authErr = (c: Record<string, unknown>, sql: string) => psqlError(asAuth(c, sql));
 const asRole = (role: string, sql: string) => psql(`begin; set local role ${role}; ${sql} commit;`).split(NL).pop()!;
-const setConfig = (setSql: string) => psql(`begin; alter table public.studio_sms_price_auth_config disable trigger studio_sms_price_auth_config_guard; update public.studio_sms_price_auth_config set ${setSql}; alter table public.studio_sms_price_auth_config enable always trigger studio_sms_price_auth_config_guard; commit;`);
 const resetCreds = (...items: (SoftAuthenticator | [SoftAuthenticator, string])[]) => {
   const ks = items.map((x) => (Array.isArray(x) ? x : ([x, null] as [SoftAuthenticator, string | null])));
   psql(`begin; alter table public.studio_sms_price_credential_changes disable trigger studio_sms_price_credential_changes_guard; alter table public.studio_sms_price_credentials disable trigger studio_sms_price_credentials_guard;
