@@ -51,7 +51,7 @@ vi.mock("@/lib/supabase/server", () => ({
   },
 }));
 
-import { priceApprove, priceAuthzBegin, priceAuthzFinish, priceFreeze, pricePropose, priceReject, priceReportCompromise, priceRevise } from "../priceChangeActions";
+import { priceApprove, priceCredApply, priceCredBegin, priceCredCancel, priceCredEnroll, priceCredPending, priceCredRevoke, priceThaw, priceAuthzBegin, priceAuthzFinish, priceFreeze, pricePropose, priceReject, priceReportCompromise, priceRevise } from "../priceChangeActions";
 
 const REQ = "d4100000-0000-4000-8000-0000000000aa";
 const NOTE = "A written note that is long enough.";
@@ -224,5 +224,48 @@ describe("single-owner ceremony actions", () => {
     const cool = await priceAuthzBegin(REQ);
     expect(cool).toMatchObject({ ok: false, message: expect.stringMatching(/cooling-off/) });
     expect(JSON.stringify(cool)).not.toContain("SECRET");
+  });
+});
+
+describe("review fixes: refused answers and credential ceremonies", () => {
+  const ID = "Y3JlZA";
+  it("a recorded refusal from begin reads as the same fixed sentence as the error path, never the database text", async () => {
+    replies.tw4_price_authz_begin = { data: { status: "refused", code: "TW045", reason: "SECRET detail" } };
+    const r = await priceAuthzBegin(REQ);
+    expect(r).toMatchObject({ ok: false, message: expect.stringMatching(/cooling-off/) });
+    expect(JSON.stringify(r)).not.toContain("SECRET");
+  });
+
+  it("credential actions: aal2 guard first, shapes validated before any client, no actor sent, answers passed through", async () => {
+    const calls: [() => Promise<unknown>][] = [
+      [() => priceCredBegin({ purpose: "thaw" })], [() => priceCredEnroll({} as never)], [() => priceCredRevoke({} as never)],
+      [() => priceThaw({} as never)], [() => priceCredApply(REQ)], [() => priceCredCancel(REQ)], [() => priceCredPending()],
+    ];
+    const built = clientsBuilt;
+    for (const [c] of calls) {
+      state.tiers.length = 0;
+      state.refuse = "STEPUP_REFUSED";
+      await expect(c()).rejects.toThrow("STEPUP_REFUSED");
+      expect(state.tiers).toEqual(["aal2"]);
+    }
+    state.refuse = null;
+    expect(clientsBuilt).toBe(built);
+    // malformed input never reaches the database
+    const n = rpc.length;
+    expect(await priceCredBegin({ purpose: "enroll", credentialId: "a b", x: "x", y: "y", role: "spare", label: "spare key" })).toMatchObject({ ok: false });
+    expect(await priceCredBegin({ purpose: "bogus" })).toMatchObject({ ok: false });
+    expect(await priceCredEnroll({ nonce: ID } as never)).toMatchObject({ ok: false });
+    expect(await priceThaw({ nonce: ID, credentialId: ID, authData: ID, clientData: ID, signature: "" })).toMatchObject({ ok: false });
+    expect(await priceCredApply("nope")).toMatchObject({ ok: false });
+    expect(await priceCredCancel("nope")).toMatchObject({ ok: false });
+    expect(rpc.length).toBe(n);
+    replies.tw4_price_cred_begin = { data: { nonce: ID, challenge: ID, rp_id: "admin.example.test", allow_credentials: [ID] } };
+    expect(await priceCredBegin({ purpose: "thaw" })).toMatchObject({ ok: true, data: { rpId: "admin.example.test", allowCredentials: [ID] } });
+    replies.tw4_price_thaw = { data: { status: "refused", reason: "stale" } };
+    expect(await priceThaw({ nonce: ID, credentialId: ID, authData: ID, clientData: ID, signature: ID })).toMatchObject({ ok: true, data: { status: "refused", reason: "stale" } });
+    replies.tw4_price_cred_pending = { data: { pending: [{ change_id: REQ, kind: "enroll", label: "spare", role: "spare", effective_at: "2026-11-02T00:00:00Z" }, { kind: "bogus" }], credentials: [{ id: ID, role: "primary", label: "main" }, { id: "!!" }] } };
+    const s = await priceCredPending();
+    expect(s).toMatchObject({ ok: true, data: { pending: [{ changeId: REQ, kind: "enroll" }], credentials: [{ id: ID }] } });
+    expect(rpc.every((c) => !("p_actor" in c.args))).toBe(true);
   });
 });
