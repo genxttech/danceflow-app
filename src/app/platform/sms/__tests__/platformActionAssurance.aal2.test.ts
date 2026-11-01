@@ -78,7 +78,10 @@ const REGISTRY: Record<string, Record<string, Tier>> = {
     panelCreateSubaccountAction: "recent",
     panelDecideTierAction: "aal2",
   },
-  "priceChangeActions.ts": { pricePropose: "recent", priceApprove: "recent", priceReject: "aal2" },   // D4-1: dual-controlled SMS price changes
+  "priceChangeActions.ts": {
+    pricePropose: "recent", priceApprove: "recent", priceReject: "aal2", priceRevise: "recent", priceFreeze: "aal2", priceReportCompromise: "aal2", priceAuthzBegin: "aal2", priceAuthzFinish: "aal2",
+    priceCredBegin: "aal2", priceCredEnroll: "aal2", priceCredRevoke: "aal2", priceThaw: "aal2", priceCredApply: "aal2", priceCredCancel: "aal2", priceCredPending: "aal2", priceRecoveryEnroll: "aal2", priceRecoveryFreeze: "aal2",
+  },   // D4-1: dual-controlled SMS price changes
   "provisioningActions.ts": {
     resolveProvisioningOperationAction: "recent",
     recordProviderListingAction: "aal2",
@@ -147,7 +150,7 @@ describe("completeness and source order", () => {
         it(`${name} runs the ${tier} guard before any other work`, () => {
           const inner = body.slice(body.indexOf("{", body.indexOf(")")) + 1);
           if (file === "recurringFeeActions.ts" || file === "priceChangeActions.ts") {
-            expect(inner.trimStart().startsWith(`await guarded("${tier}", `)).toBe(true);
+            expect(inner.trimStart().startsWith(`await guarded("${tier}", `) || inner.trimStart().startsWith(`return await guardedData("${tier}", `)).toBe(true);
           } else {
             expect(inner.trimStart().startsWith(`const admin = await requirePlatformStepUp("${tier}");`) || inner.trimStart().startsWith(`await requirePlatformStepUp("${tier}");`)).toBe(true);
           }
@@ -178,7 +181,7 @@ describe("completeness and source order", () => {
         "panelCreatePilotExceptionAction", "panelCreateSubaccountAction", "resolveProvisioningOperationAction", "reopenProvisioningAction",
         "runProvisioningStepAction", "runNumberStepAction", "retryRegistrationAction", "rflSetSwitchAction", "rflDualRequestAction", "rflDualApproveAction",
         "rflDisposeExposureAction", "rflPilotCoverAction", "rflCancelAuthorizeAction", "rflCancelBeginAction", "rflCancelFinishAction",
-        "rflCancelResolveAction", "rflCancelReleaseAction", "resolveUsageAttemptAction", "pricePropose", "priceApprove",
+        "rflCancelResolveAction", "rflCancelReleaseAction", "resolveUsageAttemptAction", "pricePropose", "priceApprove", "priceRevise",
       ].sort(),
     );
   });

@@ -1,5 +1,7 @@
 import { PRICE_KIND_TEXT, type PriceChangeOverview, type PriceChangeRequest } from "@/lib/sms/priceChange";
-import { priceApprove, pricePropose, priceReject } from "./priceChangeActions";
+import { priceApprove, priceFreeze, pricePropose, priceReject, priceReportCompromise, priceRevise } from "./priceChangeActions";
+import PriceAuthorize from "./PriceAuthorize";
+import PriceCredentials from "./PriceCredentials";
 import { buttonClass, dangerButtonClass, dollars, Disclosure, inputClass, labelClass, shortId, stamp } from "./RecurringFeesDisclosure";
 
 /**
@@ -55,11 +57,12 @@ export default function PriceChanges({ overview, adminId, notice = null, error =
     <section id="price-changes" aria-labelledby="price-changes-title" className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
       <h2 id="price-changes-title" className="text-base font-semibold text-slate-900">SMS price changes</h2>
       <p className="text-sm text-slate-700">
-        Two different platform administrators are required for every price change: one proposes, the other approves. You can never approve your own proposal. A proposal changes no price
+        In single-owner mode the owner proposes, waits a mandatory 24 hours, and then authorizes from a separate sign-in with a hardware key that signs the exact change; in team mode two different registered administrators are required and you can never approve your own proposal. A proposal changes no price
         until it is approved, expires after 24 hours, and is voided if the active price changes first. Changing a price moves no money and does not alter any past charge.
       </p>
       {notice ? <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{notice}</p> : null}
       {error ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">{error}</p> : null}
+      {overview?.frozen ? <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">Price publication is SUSPENDED. Nothing can be published until the suspension is lifted with the hardware key.</p> : null}
       {!overview ? <p className="text-sm text-slate-600">Not available: price change control is not installed in this environment, so prices cannot be changed.</p> : null}
       {overview ? (
         <>
@@ -87,8 +90,25 @@ export default function PriceChanges({ overview, adminId, notice = null, error =
                     <p className="text-xs text-slate-700">Reason: {r.reason}</p>
                     <p className="text-xs text-slate-600">Proposed {stamp(r.requestedAt)} by {mine ? "you" : `administrator ${shortId(r.requestedBy)}`} · expires {stamp(r.expiresAt)}</p>
                     {r.baseChanged ? <p className="text-xs font-semibold text-amber-900">The active price changed after this proposal was made. An approval will void it; propose again.</p> : null}
+                    {r.approvalMode === "owner" ? (
+                      <div className="space-y-2">
+                        <p className="text-xs text-slate-700">Single-owner proposal, version {r.proposalVersion}. Mandatory cooling-off until {stamp(r.coolingUntil)}; it never publishes by itself. After that, authorize from a SEPARATE sign-in with your hardware key.</p>
+                        {mine ? <PriceAuthorize requestId={r.requestId} /> : <p className="text-xs font-semibold text-amber-900">Only the owner who proposed this change can authorize it.</p>}
+                        {mine ? (
+                          <form action={priceRevise} className="space-y-2">
+                            <input type="hidden" name="requestId" value={r.requestId} />
+                            <p className="text-xs text-slate-700">Changing the proposal voids this one and every signature over it, and restarts the 24-hour cooling-off.</p>
+                            <label className={labelClass}>New customer price in dollars<input name="customerUsd" required inputMode="decimal" pattern="[0-9]{1,5}(\.[0-9]{1,2})?" className={inputClass} /></label>
+                            <label className={labelClass}>New provider cost in dollars<input name="providerUsd" required inputMode="decimal" pattern="[0-9]{1,5}(\.[0-9]{1,2})?" className={inputClass} /></label>
+                            <label className={labelClass}>Description<input name="description" required minLength={3} maxLength={200} className={inputClass} /></label>
+                            <label className={labelClass}>Reason<textarea name="reason" required minLength={10} maxLength={500} rows={2} className={inputClass} /></label>
+                            <button type="submit" className={buttonClass}>Revise and restart the cooling-off</button>
+                          </form>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div className="space-y-2">
-                      {mine ? (
+                      {r.approvalMode === "owner" ? null : mine ? (
                         <p className="text-xs font-semibold text-amber-900">You proposed this change, so a different administrator must approve it. You can withdraw it.</p>
                       ) : (
                         <form action={priceApprove} className="space-y-2">
@@ -142,6 +162,22 @@ export default function PriceChanges({ overview, adminId, notice = null, error =
               </label>
               <button type="submit" className={buttonClass}>Propose price change</button>
             </form>
+          </Disclosure>
+
+          <Disclosure title="Suspend price publication" summary="can only suspend">
+            <p className="text-xs text-slate-700">A suspension can never publish or change a price. Lifting it needs the hardware key.</p>
+            <form action={priceFreeze} className="space-y-2">
+              <label className={labelClass}>Reason (10 to 300 characters)<textarea name="reason" required minLength={10} maxLength={300} rows={2} className={inputClass} /></label>
+              <button type="submit" className={dangerButtonClass}>Suspend price publication</button>
+            </form>
+            <form action={priceReportCompromise} className="space-y-2">
+              <label className={labelClass}>I suspect my sign-in or hardware key is compromised (10 to 300 characters)<textarea name="note" required minLength={10} maxLength={300} rows={2} className={inputClass} /></label>
+              <button type="submit" className={dangerButtonClass}>Report a compromise (suspends publication)</button>
+            </form>
+          </Disclosure>
+
+          <Disclosure title="Hardware keys" summary="enrol, remove, lift suspension">
+            <PriceCredentials />
           </Disclosure>
 
           <Disclosure title="Decided proposals" summary={`${decided.length} recorded`}>

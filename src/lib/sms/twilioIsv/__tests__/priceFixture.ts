@@ -88,6 +88,12 @@ export const deleteFixtureRequestsSql = (approver: string): string => `do $d41$ 
     delete from public.studio_sms_price_change_requests where requested_by = '${PRICE_FIXTURE_REQUESTER}' or decided_by = '${approver}';
     alter table public.studio_sms_price_change_requests enable always trigger studio_sms_price_change_requests_guard;
   end if;
+  if to_regclass('public.studio_sms_price_audit') is not null then
+    -- the audit rows of the fixture proposals (immutable evidence in production; a local suite removes its own, visibly)
+    alter table public.studio_sms_price_audit disable trigger studio_sms_price_audit_guard;
+    delete from public.studio_sms_price_audit;
+    alter table public.studio_sms_price_audit enable always trigger studio_sms_price_audit_guard;
+  end if;
 end $d41$;`;
 
 /** Local-QA-only owner step: make a request look older (to exercise expiry). */
@@ -95,7 +101,17 @@ export function ownerAgeRequest(psql: Psql, requestId: string, hours = 25): void
   psql(`begin;
 do $d41$ begin ${MARKER} end $d41$;
 alter table public.studio_sms_price_change_requests disable trigger studio_sms_price_change_requests_guard;
-update public.studio_sms_price_change_requests set requested_at = requested_at - interval '${hours} hours', expires_at = expires_at - interval '${hours} hours' where id = '${requestId}';
+update public.studio_sms_price_change_requests set requested_at = requested_at - interval '${hours} hours', expires_at = expires_at - interval '${hours} hours', cooling_until = cooling_until - interval '${hours} hours' where id = '${requestId}';
 alter table public.studio_sms_price_change_requests enable always trigger studio_sms_price_change_requests_guard;
+commit;`);
+}
+
+/** Local-QA-only owner step: set the protected price authorization mode (production: owner-level migration only). The team-mode suites run in 'team'; the single-owner suites in 'single_owner'. */
+export function setPriceMode(psql: Psql, mode: "team" | "single_owner"): void {
+  psql(`begin;
+do $d41$ begin ${MARKER} end $d41$;
+alter table public.studio_sms_price_auth_config disable trigger studio_sms_price_auth_config_guard;
+update public.studio_sms_price_auth_config set mode = '${mode}';
+alter table public.studio_sms_price_auth_config enable always trigger studio_sms_price_auth_config_guard;
 commit;`);
 }

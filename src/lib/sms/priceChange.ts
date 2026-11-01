@@ -45,8 +45,29 @@ export type PriceChangeRequest = {
   decisionNote: string | null;
   appliedPriceId: string | null;
   baseChanged: boolean;
+  /** single-owner mode: one owner, a 24 h cooling-off and a hardware-key authorization; team mode: a second registered administrator */
+  approvalMode: "owner" | "team";
+  coolingUntil: string | null;
+  proposalVersion: number;
 };
-export type PriceChangeOverview = { active: ActivePrice[]; requests: PriceChangeRequest[] };
+export type PriceChangeOverview = { active: ActivePrice[]; requests: PriceChangeRequest[]; mode: "single_owner" | "team"; frozen: boolean };
+
+/** What the owner must read before signing: produced by the DATABASE (never by the page that starts the ceremony). */
+export type CredChallenge = { nonce: string; challenge: string; rpId: string; allowCredentials: string[] };
+export type CredentialState = {
+  pending: { changeId: string; kind: "enroll" | "revoke"; role: string | null; label: string | null; requestedAt: string | null; effectiveAt: string | null }[];
+  credentials: { id: string; role: string; label: string; enrolledAt: string | null }[];
+};
+export type AuthzChallenge = {
+  nonce: string;
+  challenge: string;
+  rpId: string;
+  allowCredentials: string[];
+  expiresInSeconds: number;
+  summary: { kind: string; scope: string; oldCustomerCents: number | null; oldProviderCents: number | null; newCustomerCents: number; newProviderCents: number; description: string; proposalVersion: number; requestId: string; hash: string };
+};
+const B64U = /^[A-Za-z0-9_-]{1,4096}$/;
+export const isB64u = (v: unknown): v is string => typeof v === "string" && B64U.test(v);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const obj = (v: unknown): Record<string, unknown> | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
@@ -100,6 +121,7 @@ function parseRequests(v: unknown): PriceChangeRequest[] {
       requestId, kind, customerPriceCents: customer, providerCostCents: provider, description: str(o.description) ?? "", reason: str(o.reason) ?? "",
       baseCustomerPriceCents: int(o.base_customer_price_cents), baseProviderCostCents: int(o.base_provider_cost_cents), status, requestedBy, requestedAt, expiresAt,
       decidedBy: uuid(o.decided_by), decidedAt: str(o.decided_at), decisionNote: str(o.decision_note), appliedPriceId: uuid(o.applied_price_id), baseChanged: o.base_changed === true,
+      approvalMode: o.approval_mode === "owner" ? "owner" : "team", coolingUntil: str(o.cooling_until), proposalVersion: int(o.proposal_version) ?? 1,
     });
   }
   return out;
@@ -112,7 +134,7 @@ export async function loadPriceChanges(client: Client): Promise<PriceChangeOverv
     if (res.error) return null;
     const o = obj(res.data);
     if (!o) return null;
-    return { active: parseActive(o.active), requests: parseRequests(o.requests) };
+    return { active: parseActive(o.active), requests: parseRequests(o.requests), mode: o.mode === "team" ? "team" : "single_owner", frozen: o.frozen === true };
   } catch {
     return null;
   }
@@ -147,5 +169,118 @@ export class PriceChangeStore {
   async reject(requestId: string, note: string): Promise<{ status: string | null; withdrawn: boolean }> {
     const row = await this.call("tw4_price_reject", { p_request_id: requestId, p_note: note });
     return { status: str(row.status), withdrawn: row.withdrawn === true };
+  }
+
+  /** step 1 of the ceremony: the database issues the challenge (and the summary the owner reads) for ONE proposal, to this session */
+  async authzBegin(requestId: string): Promise<AuthzChallenge> {
+    const row = await this.call("tw4_price_authz_begin", { p_request_id: requestId });
+    // a registered session's refusal (cooling-off, same session, suspension, limits) is recorded by the database and returned as an answer: surface its SQLSTATE
+    if (row.status === "refused") throw new PriceChangeError(str(row.code) ?? "unknown");
+    const s = obj(row.summary) ?? {};
+    const nonce = row.nonce;
+    const challenge = row.challenge;
+    const rpId = str(row.rp_id);
+    const ids = Array.isArray(row.allow_credentials) ? row.allow_credentials.filter(isB64u) : [];
+    const newC = int(s.new_customer_cents);
+    const newP = int(s.new_provider_cents);
+    if (!isB64u(nonce) || !isB64u(challenge) || !rpId || ids.length === 0 || newC === null || newP === null) throw new PriceChangeError("unknown");
+    return {
+      nonce, challenge, rpId, allowCredentials: ids, expiresInSeconds: int(row.expires_in_seconds) ?? 300,
+      summary: { kind: str(s.kind) ?? "", scope: str(s.scope) ?? "", oldCustomerCents: int(s.old_customer_cents), oldProviderCents: int(s.old_provider_cents), newCustomerCents: newC, newProviderCents: newP,
+        description: str(s.description) ?? "", proposalVersion: int(s.proposal_version) ?? 1, requestId: str(s.request_id) ?? requestId, hash: str(s.hash) ?? "" },
+    };
+  }
+
+  /** step 2: the signed assertion goes to the database, which verifies it and publishes (or answers 'rejected' with the reason) */
+  async authzFinish(a: { requestId: string; nonce: string; credentialId: string; authData: string; clientData: string; signature: string }): Promise<{ status: string | null; reason: string | null }> {
+    const row = await this.call("tw4_price_authz_finish", {
+      p_request_id: a.requestId, p_nonce: a.nonce, p_credential_id: a.credentialId, p_auth_data: a.authData, p_client_data: a.clientData, p_signature: a.signature,
+    });
+    return { status: str(row.status), reason: str(row.reason) };
+  }
+
+  async revise(requestId: string, args: { customerCents: number; providerCents: number; description: string; reason: string }): Promise<{ requestId: string | null; version: number }> {
+    const row = await this.call("tw4_price_revise", { p_request_id: requestId, p_customer_cents: args.customerCents, p_provider_cents: args.providerCents, p_description: args.description, p_reason: args.reason });
+    return { requestId: uuid(row.request_id), version: int(row.version) ?? 1 };
+  }
+
+  /** suspends publication; it can never publish anything */
+  async freeze(reason: string): Promise<{ replayed: boolean }> {
+    const row = await this.call("tw4_price_freeze", { p_reason: reason });
+    return { replayed: row.replayed === true };
+  }
+
+  async reportCompromise(note: string): Promise<void> {
+    await this.call("tw4_price_report_compromise", { p_note: note });
+  }
+
+  // ---- credential ceremonies (enrol / revoke / thaw are PENDING requests or hardware-key lifts; nothing here takes effect without the database's checks)
+  async credBegin(args: { purpose: "enroll" | "revoke" | "thaw" | "cancel" | "recover_enroll" | "recover_freeze"; credentialId?: string | null; x?: string | null; y?: string | null; role?: string | null; label?: string | null; changeId?: string | null }): Promise<CredChallenge> {
+    // a cancel ceremony names the pending change (the database carries its id in the label slot)
+    const row = await this.call("tw4_price_cred_begin", { p_purpose: args.purpose, p_cred_id: args.credentialId ?? null, p_x: args.x ?? null, p_y: args.y ?? null, p_role: args.role ?? null, p_label: args.purpose === "cancel" ? (args.changeId ?? null) : (args.label ?? null) });
+    const ids = Array.isArray(row.allow_credentials) ? row.allow_credentials.filter(isB64u) : [];
+    const rpId = str(row.rp_id);
+    if (!isB64u(row.nonce) || !isB64u(row.challenge) || !rpId || ids.length === 0) throw new PriceChangeError("unknown");
+    return { nonce: row.nonce, challenge: row.challenge, rpId, allowCredentials: ids };
+  }
+
+  async credEnroll(a: Record<"nonce" | "newCredentialId" | "x" | "y" | "role" | "label" | "byCredentialId" | "byAuth" | "byClient" | "bySig" | "newAuth" | "newClient" | "newSig", string>): Promise<{ status: string | null; reason: string | null; changeId: string | null }> {
+    const row = await this.call("tw4_price_cred_enroll", {
+      p_nonce: a.nonce, p_new_cred_id: a.newCredentialId, p_x: a.x, p_y: a.y, p_role: a.role, p_label: a.label, p_by_cred: a.byCredentialId, p_by_auth: a.byAuth, p_by_client: a.byClient, p_by_sig: a.bySig,
+      p_new_auth: a.newAuth, p_new_client: a.newClient, p_new_sig: a.newSig,
+    });
+    return { status: str(row.status), reason: str(row.reason), changeId: uuid(row.change_id) };
+  }
+
+  async credRevoke(a: Record<"nonce" | "target" | "byCredentialId" | "byAuth" | "byClient" | "bySig", string>): Promise<{ status: string | null; reason: string | null; changeId: string | null }> {
+    const row = await this.call("tw4_price_cred_revoke", { p_nonce: a.nonce, p_target: a.target, p_by_cred: a.byCredentialId, p_by_auth: a.byAuth, p_by_client: a.byClient, p_by_sig: a.bySig });
+    return { status: str(row.status), reason: str(row.reason), changeId: uuid(row.change_id) };
+  }
+
+  async thaw(a: Record<"nonce" | "credentialId" | "authData" | "clientData" | "signature", string>): Promise<{ status: string | null; reason: string | null }> {
+    const row = await this.call("tw4_price_thaw", { p_nonce: a.nonce, p_cred: a.credentialId, p_auth: a.authData, p_client: a.clientData, p_sig: a.signature });
+    return { status: str(row.status), reason: str(row.reason) };
+  }
+
+  // ---- offline recovery credential: freeze, and a delayed re-enrolment of a new primary (never publishes, never touches configuration)
+  async recoveryEnroll(a: Record<"nonce" | "newCredentialId" | "x" | "y" | "label" | "recCredentialId" | "recAuth" | "recClient" | "recSig" | "newAuth" | "newClient" | "newSig", string>): Promise<{ status: string | null; reason: string | null; changeId: string | null }> {
+    const row = await this.call("tw4_price_recovery_enroll", {
+      p_nonce: a.nonce, p_new_cred_id: a.newCredentialId, p_x: a.x, p_y: a.y, p_label: a.label, p_rec_cred: a.recCredentialId, p_rec_auth: a.recAuth, p_rec_client: a.recClient, p_rec_sig: a.recSig,
+      p_new_auth: a.newAuth, p_new_client: a.newClient, p_new_sig: a.newSig,
+    });
+    return { status: str(row.status), reason: str(row.reason), changeId: uuid(row.change_id) };
+  }
+
+  async recoveryFreeze(a: Record<"nonce" | "credentialId" | "authData" | "clientData" | "signature", string>): Promise<{ status: string | null; reason: string | null }> {
+    const row = await this.call("tw4_price_recovery_freeze", { p_nonce: a.nonce, p_cred: a.credentialId, p_auth: a.authData, p_client: a.clientData, p_sig: a.signature });
+    return { status: str(row.status), reason: str(row.reason) };
+  }
+
+  async credApply(changeId: string): Promise<{ status: string | null }> {
+    return { status: str((await this.call("tw4_price_cred_apply", { p_change_id: changeId })).status) };
+  }
+
+  async credCancel(a: Record<"changeId" | "nonce" | "credentialId" | "authData" | "clientData" | "signature", string>): Promise<{ status: string | null; reason: string | null }> {
+    const row = await this.call("tw4_price_cred_cancel", { p_change_id: a.changeId, p_nonce: a.nonce, p_cred: a.credentialId, p_auth: a.authData, p_client: a.clientData, p_sig: a.signature });
+    return { status: str(row.status), reason: str(row.reason) };
+  }
+
+  async credState(): Promise<CredentialState> {
+    const row = await this.call("tw4_price_cred_pending", {});
+    const pending: CredentialState["pending"] = [];
+    for (const e of Array.isArray(row.pending) ? row.pending : []) {
+      const o = obj(e);
+      const changeId = uuid(o?.change_id);
+      if (!o || !changeId || (o.kind !== "enroll" && o.kind !== "revoke")) continue;
+      pending.push({ changeId, kind: o.kind, role: str(o.role), label: str(o.label), requestedAt: str(o.requested_at), effectiveAt: str(o.effective_at) });
+    }
+    const credentials: CredentialState["credentials"] = [];
+    for (const e of Array.isArray(row.credentials) ? row.credentials : []) {
+      const o = obj(e);
+      const cid = o?.id;
+      if (!o || !isB64u(cid)) continue;
+      credentials.push({ id: cid, role: str(o.role) ?? "", label: str(o.label) ?? "", enrolledAt: str(o.enrolled_at) });
+    }
+    return { pending, credentials };
   }
 }

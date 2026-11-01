@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { A, B, C, D, E, F, G, DB, NOTE, PG, call, callErr, codeOf, enabled, mkUser, money, num, psql, psqlError, rows, seedCast, seedPrices, setRole, world } from "./wpd4Helpers";
 import { PRICE_KINDS } from "@/lib/sms/priceChange";
-import { ownerAgeRequest, ownerReactivate, registerApproverSql } from "./priceFixture";
+import { ownerAgeRequest, ownerReactivate, registerApproverSql, setPriceMode } from "./priceFixture";
 
 vi.mock("server-only", () => ({}));
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 300_000 });
@@ -50,7 +50,13 @@ const mkAdmin = (label: string): string => {
   psql(registerApproverSql(u));
   return u;
 };
-const rollbackSql = () => readFileSync(join(__dirname, "..", "..", "..", "supabase", "migrations", "rollback", "20270204090000_twilio_price_dual_control_rollback.sql"), "utf8");
+const mig = (name: string) => readFileSync(join(__dirname, "..", "..", "..", "supabase", "migrations", name), "utf8");
+const noTx = (s: string) => s.replace(/^begin;\s*$/gm, "").replace(/^commit;\s*$/gm, "");
+/** the audit rows and owner-mode evidence of 20270204100000 are immutable in production; this suite is a throwaway database and clears them visibly before it exercises the rollbacks */
+const clearAuthEvidence = `
+  alter table public.studio_sms_price_audit disable trigger studio_sms_price_audit_guard; delete from public.studio_sms_price_audit; alter table public.studio_sms_price_audit enable always trigger studio_sms_price_audit_guard;
+  alter table public.studio_sms_price_auth_challenges disable trigger studio_sms_price_auth_challenges_guard; delete from public.studio_sms_price_auth_challenges; alter table public.studio_sms_price_auth_challenges enable always trigger studio_sms_price_auth_challenges_guard;`;
+const rollbackSql = () => clearAuthEvidence + noTx(mig("rollback/20270204100000_twilio_price_owner_authorization_rollback.sql")) + noTx(mig("rollback/20270204090000_twilio_price_dual_control_rollback.sql"));
 
 describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic administrators)", () => {
   beforeAll(() => {
@@ -58,6 +64,7 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
     seedCast();
     // the cast is in the protected registry (C never held the role and E lost it, which the role check must still catch)
     for (const u of [A, B, C, D, E, F, G]) psql(registerApproverSql(u));
+    setPriceMode(psql, "team"); // this suite proves the TEAM-mode workflow (two distinct registered administrators); the single-owner mode is localStack.priceauth
     seedPrices();
     expect(new Set([A, B, C, D, E, F, G]).size).toBe(7);
   });
@@ -74,9 +81,9 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
   it("PD-02 no other writer can activate, re-activate or edit a price: INSERT (even as the owner, even with ordinary triggers off), reactivation and in-place edits are refused; retiring still works", () => {
     const cur = active("number")[0];
     const ins = (active_: boolean, by = A) => `insert into public.studio_sms_price_list (kind, customer_price_cents, provider_cost_cents, description, active, created_by) values ('number', 999, 100, 'bypass attempt', ${active_}, '${by}');`;
-    expect(psqlError(ins(true))).toMatch(/approved dual-control price change/);
-    expect(psqlError(ins(false))).toMatch(/approved dual-control price change/);
-    expect(psqlError(`begin; set local session_replication_role = replica; ${ins(true)} commit;`)).toMatch(/approved dual-control price change/); // the trigger is ENABLE ALWAYS
+    expect(psqlError(ins(true))).toMatch(/approved price change/);
+    expect(psqlError(ins(false))).toMatch(/approved price change/);
+    expect(psqlError(`begin; set local session_replication_role = replica; ${ins(true)} commit;`)).toMatch(/approved price change/); // the trigger is ENABLE ALWAYS
     expect(psqlError(`begin; set local session_replication_role = replica; update public.studio_sms_price_list set customer_price_cents = 1 where id = '${cur.id}'; commit;`)).toMatch(/never edited/);
     expect(psqlError(`begin; set local session_replication_role = replica; update public.studio_sms_price_list set description = 'edited' where id = '${cur.id}'; commit;`)).toMatch(/never edited/);
     expect(psqlError(`begin; update public.studio_sms_price_list set active = false where id = '${cur.id}'; update public.studio_sms_price_list set active = true where id = '${cur.id}'; commit;`)).toMatch(/never re-activated/);
@@ -282,7 +289,7 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
       expect(psqlError(`begin; select set_config('tw4.pricedual_write', 'on', true); update public.studio_sms_price_change_requests set status = 'applied', decided_by = '${B}', decided_at = now(), decision_note = '${NOTE}', applied_price_id = '${active("number")[0].id}', applied_at = now() where id = '${p.request_id}'; commit;`)).toMatch(/not a legal transition/);
       expect(psqlError(`begin; select set_config('tw4.pricedual_write', 'on', true); update public.studio_sms_price_change_requests set status = 'approved', decided_by = '${B}', decided_at = now() where id = '${p.request_id}'; commit;`)).toMatch(/studio_sms_price_change_requests_shape/);
       expect(psqlError(`delete from public.studio_sms_price_change_requests where id = '${p.request_id}';`)).toMatch(/never deleted/);
-      expect(psqlError(`truncate public.studio_sms_price_change_requests;`)).toMatch(/never truncated/);
+      expect(psqlError(`truncate public.studio_sms_price_change_requests;`)).toMatch(/never truncated|cannot truncate a table referenced in a foreign key/);
       expect(num(`select count(*) from public.studio_sms_price_change_requests`)).toBeGreaterThan(0);
       // decided rows are final: approve, then every attempt to move it again fails, even with the write flag
       const out = approve(p.request_id, B);
@@ -301,7 +308,7 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
       const done = rows<{ id: string }>(`select id from public.studio_sms_price_change_requests where status = 'applied' limit 1`)[0];
       expect(psqlError(`begin; set local session_replication_role = replica; update public.studio_sms_price_change_requests set decision_note = 'rewritten decision note' where id = '${done.id}'; rollback;`)).toMatch(/binding of a proposal is fixed|not a legal transition|only through/);
       expect(psqlError(`begin; set local session_replication_role = replica; delete from public.studio_sms_price_change_requests where id = '${done.id}'; rollback;`)).toMatch(/never deleted/);
-      expect(psqlError(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_change_requests; rollback;`)).toMatch(/never truncated/);
+      expect(psqlError(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_change_requests; rollback;`)).toMatch(/never truncated|cannot truncate a table referenced in a foreign key/);
       expect(psql(`select count(*) from pg_trigger where tgrelid = 'public.studio_sms_price_change_requests'::regclass and not tgisinternal and tgenabled = 'A'`)).toBe("2");
     });
 
@@ -325,18 +332,18 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
       const ins = (kind: string, cents: number, provider: number, desc: string, by: string) =>
         `insert into public.studio_sms_price_list (kind, customer_price_cents, provider_cost_cents, description, created_by) values ('${kind}', ${cents}, ${provider}, '${desc}', '${by}');`;
       const d = "dual-control price change under test";
-      expect(psqlError(`${pre} ${ins("number", 314, 150, d, B)} rollback;`)).toMatch(/approved dual-control price change/); // other amount
-      expect(psqlError(`${pre} ${ins("number", 313, 151, d, B)} rollback;`)).toMatch(/approved dual-control price change/); // other provider cost
-      expect(psqlError(`${pre} ${ins("number", 313, 150, "another description", B)} rollback;`)).toMatch(/approved dual-control price change/);
-      expect(psqlError(`${pre} ${ins("monthly", 313, 150, d, B)} rollback;`)).toMatch(/approved dual-control price change/); // other kind
-      expect(psqlError(`${pre} ${ins("number", 313, 150, d, A)} rollback;`)).toMatch(/approved dual-control price change/); // created_by is the requester, not the decider
+      expect(psqlError(`${pre} ${ins("number", 314, 150, d, B)} rollback;`)).toMatch(/approved price change/); // other amount
+      expect(psqlError(`${pre} ${ins("number", 313, 151, d, B)} rollback;`)).toMatch(/approved price change/); // other provider cost
+      expect(psqlError(`${pre} ${ins("number", 313, 150, "another description", B)} rollback;`)).toMatch(/approved price change/);
+      expect(psqlError(`${pre} ${ins("monthly", 313, 150, d, B)} rollback;`)).toMatch(/approved price change/); // other kind
+      expect(psqlError(`${pre} ${ins("number", 313, 150, d, A)} rollback;`)).toMatch(/approved price change/); // created_by is the requester, not the decider
       expect(psqlError(`${pre} ${ins("number", 313, 150, d, B)} rollback;`)).toBe(""); // exactly the approved row (nothing is kept: rolled back)
       // a request that is only PENDING (or rejected, expired, applied already) authorizes no insert
-      expect(psqlError(`begin; update public.studio_sms_price_list set active = false where kind = 'number' and active; ${ins("number", 313, 150, d, B)} rollback;`)).toMatch(/approved dual-control price change/);
+      expect(psqlError(`begin; update public.studio_sms_price_list set active = false where kind = 'number' and active; ${ins("number", 313, 150, d, B)} rollback;`)).toMatch(/approved price change/);
       expect(preq(p.request_id).status).toBe("pending");
       expect(priceRows("number", 313)).toBe(0);
       reject(p.request_id, A, "withdrawn to start the next scenario clean");
-      expect(psqlError(`begin; select set_config('tw4.pricedual_write', 'on', true); ${ins("number", 313, 150, d, B)} rollback;`)).toMatch(/approved dual-control price change/);
+      expect(psqlError(`begin; select set_config('tw4.pricedual_write', 'on', true); ${ins("number", 313, 150, d, B)} rollback;`)).toMatch(/approved price change/);
     });
 
     it("PD-14 forged actor: the actor is a parameter the caller owns, but a forged requester id gets no further than the database checks (a non-administrator, a banned one or the requester themselves is refused; a fabricated unknown id is refused)", () => {
@@ -454,16 +461,16 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
       expect(psqlError(`begin; set local session_replication_role = replica; delete from public.studio_sms_price_list where active; rollback;`)).toMatch(/never deleted/);
       expect(psqlError(`begin; set local session_replication_role = replica; delete from public.studio_sms_price_list; rollback;`)).toMatch(/never deleted/);
       expect(psqlError(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_list; rollback;`)).toMatch(/never truncated|cannot truncate a table referenced in a foreign key/);
-      expect(psqlError(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_list cascade; rollback;`)).toMatch(/never truncated/);
-      expect(psqlError(`begin; truncate public.studio_sms_price_list cascade; rollback;`)).toMatch(/never truncated/);
-      expect(psqlError(`begin; set local session_replication_role = replica; update public.studio_sms_price_list set active = false where kind = 'number' and active; ${ins} rollback;`)).toMatch(/approved dual-control price change/);
+      expect(psqlError(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_list cascade; rollback;`)).toMatch(/never truncated|cannot truncate a table referenced in a foreign key/);
+      expect(psqlError(`begin; truncate public.studio_sms_price_list cascade; rollback;`)).toMatch(/never truncated|cannot truncate a table referenced in a foreign key/);
+      expect(psqlError(`begin; set local session_replication_role = replica; update public.studio_sms_price_list set active = false where kind = 'number' and active; ${ins} rollback;`)).toMatch(/approved price change/);
       expect([num(`select count(*) from public.studio_sms_price_list`), active("number")]).toEqual(before);
     });
     it("PD-02c the same as a superuser (supabase_admin) when the harness has that role: delete, truncate and insert are refused in replica mode", () => {
       if (psql(`select count(*) from pg_roles where rolname = 'supabase_admin' and rolsuper`) !== "1") return;
       expect(superuser(`begin; set local session_replication_role = replica; delete from public.studio_sms_price_list; rollback;`)).toMatch(/never deleted/);
-      expect(superuser(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_list cascade; rollback;`)).toMatch(/never truncated/);
-      expect(superuser(`begin; set local session_replication_role = replica; ${ins} rollback;`)).toMatch(/approved dual-control price change/);
+      expect(superuser(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_list cascade; rollback;`)).toMatch(/never truncated|cannot truncate a table referenced in a foreign key/);
+      expect(superuser(`begin; set local session_replication_role = replica; ${ins} rollback;`)).toMatch(/approved price change/);
     });
   });
 
@@ -497,7 +504,7 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
       expect(psqlError(`update public.studio_sms_price_approvers set revoked_at = null, revoked_note = null where user_id = '${v}';`)).toMatch(/can only be revoked, once/);
       expect(psqlError(`delete from public.studio_sms_price_approvers where user_id = '${v}';`)).toMatch(/never deleted/);
       expect(psqlError(`begin; set local session_replication_role = replica; delete from public.studio_sms_price_approvers where user_id = '${v}'; rollback;`)).toMatch(/never deleted/);
-      expect(psqlError(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_approvers; rollback;`)).toMatch(/never truncated/);
+      expect(psqlError(`begin; set local session_replication_role = replica; truncate public.studio_sms_price_approvers; rollback;`)).toMatch(/never truncated|cannot truncate a table referenced in a foreign key/);
       expect(preq(p.request_id).status).toBe("pending");
       reject(p.request_id, A, "withdrawn to start the next scenario clean");
     });
@@ -626,7 +633,7 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
 
   describe("fail-closed rollback and recovery (executed inside transactions that are rolled back)", () => {
     const strip = (s: string) => s.replace(/^begin;\s*$/m, "").replace(/^commit;\s*$/m, "");
-    const forwardSql = () => readFileSync(join(__dirname, "..", "..", "..", "supabase", "migrations", "20270204090000_twilio_price_dual_control.sql"), "utf8");
+    const forwardSql = () => noTx(mig("20270204090000_twilio_price_dual_control.sql")) + noTx(mig("20270204100000_twilio_price_owner_authorization.sql"));
     const noSingleAdmin = `
       if has_function_privilege('service_role', 'public.tw4_price_set(text,integer,integer,text,uuid)', 'execute') then raise exception 'RB: service_role can still execute tw4_price_set'; end if;
       begin perform public.tw4_price_set('number', 1, 1, 'single admin attempt', '${A}'); raise exception 'RB: tw4_price_set published'; exception when sqlstate 'TW042' then null; end;
@@ -713,7 +720,7 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
         expect(psql(`select count(*) from pg_policies where tablename = '${table}'`)).toBe("0");
       }
       expect(psql(`select count(*) from pg_trigger where tgrelid = 'public.studio_sms_price_change_requests'::regclass and not tgisinternal and tgenabled = 'A'`)).toBe("2");
-      expect(psql(`select count(*) from pg_trigger where tgrelid = 'public.studio_sms_price_approvers'::regclass and not tgisinternal and tgenabled = 'A'`)).toBe("2");
+      expect(psql(`select count(*) from pg_trigger where tgrelid = 'public.studio_sms_price_approvers'::regclass and not tgisinternal and tgenabled = 'A'`)).toBe("3");
       expect(psql(`select count(*) from pg_trigger where tgrelid = 'public.studio_sms_price_list'::regclass and tgname like 'studio_sms_price_list_00_%' and tgenabled = 'A'`)).toBe("2");
     });
 

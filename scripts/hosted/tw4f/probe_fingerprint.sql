@@ -18,7 +18,7 @@
 -- NOTE: the "Phase A fingerprint 7d4442fa" recorded in the 2026-10-19 sync review was produced by a different, unrecorded query. This probe's rollups are NOT
 -- comparable with it; take a fresh baseline with this probe before the first apply and compare against that.
 with
-  -- BEGIN GENERATED expected objects (gen_manifest_data.mjs --sync-probes; chain through 20270204090000)
+  -- BEGIN GENERATED expected objects (gen_manifest_data.mjs --sync-probes; chain through 20270204100000)
   exp_fn(name, since) as (values
     ('_sms_onb_access_enabled', '20261119090000'),
     ('_sms_onb_append_only', '20261119090000'),
@@ -479,7 +479,53 @@ with
     ('tw4_price_propose', '20270204090000'),
     ('tw4_price_reject', '20270204090000'),
     ('tw4_price_requests_list', '20270204090000'),
-    ('tw4_price_verify', '20270204090000')
+    ('tw4_price_verify', '20270204090000'),
+    ('_tw4price_audit', '20270204100000'),
+    ('_tw4price_b64u', '20270204100000'),
+    ('_tw4price_bootstrap', '20270204100000'),
+    ('_tw4price_bytes2num', '20270204100000'),
+    ('_tw4price_challenge_ok', '20270204100000'),
+    ('_tw4price_check_assertion', '20270204100000'),
+    ('_tw4price_cred_hash', '20270204100000'),
+    ('_tw4price_der_rs', '20270204100000'),
+    ('_tw4price_do_propose_mode', '20270204100000'),
+    ('_tw4price_emit', '20270204100000'),
+    ('_tw4price_emit_safe', '20270204100000'),
+    ('_tw4price_jadd', '20270204100000'),
+    ('_tw4price_jdbl', '20270204100000'),
+    ('_tw4price_limits_check', '20270204100000'),
+    ('_tw4price_monitor_suspend_seq', '20270204100000'),
+    ('_tw4price_new_nonce', '20270204100000'),
+    ('_tw4price_num2bits', '20270204100000'),
+    ('_tw4price_owner_gate', '20270204100000'),
+    ('_tw4price_p256_oncurve', '20270204100000'),
+    ('_tw4price_p256_verify', '20270204100000'),
+    ('_tw4price_powmod', '20270204100000'),
+    ('_tw4price_prune', '20270204100000'),
+    ('_tw4price_registry_emit', '20270204100000'),
+    ('_tw4price_request_hash', '20270204100000'),
+    ('_tw4price_session_id', '20270204100000'),
+    ('_tw4price_suspended', '20270204100000'),
+    ('_tw4price_thaw_hash', '20270204100000'),
+    ('_tw4price_unb64u', '20270204100000'),
+    ('_tw4priceauth_guard', '20270204100000'),
+    ('tw4_price_audit_feed', '20270204100000'),
+    ('tw4_price_authz_begin', '20270204100000'),
+    ('tw4_price_authz_finish', '20270204100000'),
+    ('tw4_price_cred_apply', '20270204100000'),
+    ('tw4_price_cred_begin', '20270204100000'),
+    ('tw4_price_cred_cancel', '20270204100000'),
+    ('tw4_price_cred_enroll', '20270204100000'),
+    ('tw4_price_cred_pending', '20270204100000'),
+    ('tw4_price_cred_revoke', '20270204100000'),
+    ('tw4_price_emit_failures', '20270204100000'),
+    ('tw4_price_emit_replay', '20270204100000'),
+    ('tw4_price_freeze', '20270204100000'),
+    ('tw4_price_recovery_enroll', '20270204100000'),
+    ('tw4_price_recovery_freeze', '20270204100000'),
+    ('tw4_price_report_compromise', '20270204100000'),
+    ('tw4_price_revise', '20270204100000'),
+    ('tw4_price_thaw', '20270204100000')
   ),
   exp_tbl(name, since) as (values
     ('studio_sms_onboarding', '20261119090000'),
@@ -569,7 +615,13 @@ with
     ('hosted_invoices', '20270203110000'),
     ('studio_sms_price_approvers', '20270204090000'),
     ('studio_sms_price_change_requests', '20270204090000'),
-    ('studio_sms_price_limits', '20270204090000')
+    ('studio_sms_price_limits', '20270204090000'),
+    ('studio_sms_price_audit', '20270204100000'),
+    ('studio_sms_price_auth_challenges', '20270204100000'),
+    ('studio_sms_price_auth_config', '20270204100000'),
+    ('studio_sms_price_credential_changes', '20270204100000'),
+    ('studio_sms_price_credentials', '20270204100000'),
+    ('studio_sms_price_emit_acks', '20270204100000')
   ),
   -- END GENERATED expected objects
   fn as (

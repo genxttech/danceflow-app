@@ -2,6 +2,9 @@
 
 Status 2026-10-31. Git only: migration `20270204090000_twilio_price_dual_control.sql` is not applied to any hosted database. **The pricing release gate stays BLOCKED** until the owner has decided the OPEN OWNER DECISION below and an independent security review of the final tree is complete. Two independent reviews of earlier heads found no P0 or P1 CODE defect; that is not a statement that the design is accepted.
 
+
+**Monitoring and alerting** for this surface (scheduled verification, evidence chain, security-event feed) is built by the monitoring workstream: see `docs/twilio/TW-4F_Price_Monitoring_Runbook.md` (PR 391). The authorization design, trust boundary and threat model are in `docs/twilio/TW-4F_Price_Authorization_Threat_Model.md` (D4-2).
+
 ## Rule
 A published SMS price changes only when one REGISTERED platform administrator proposes and a DIFFERENT registered administrator approves, each through their OWN authenticated session: the public functions `tw4_price_propose / approve / reject / requests_list` are executable by `authenticated` only, take the identity from `auth.uid()` (no actor parameter) and require aal2 plus a TOTP authentication (within 15 minutes for propose and approve). `tw4_price_set` refuses every caller. A price row can be inserted only while an approved request for exactly those amounts is being applied; retired prices are never re-activated; published prices are never edited, deleted or truncated. These guards are `ENABLE ALWAYS` (they also fire under `session_replication_role = replica`), as are the request-table and registry guards, so forging a decision needs visible DDL.
 

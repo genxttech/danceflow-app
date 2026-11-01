@@ -2,6 +2,11 @@
 
 Status 2026-10-31. Git only; nothing is applied to any hosted database. **The remaining impersonation risk below is an OPEN OWNER DECISION. Nothing in this document, the migration or the PR accepts a residual risk; only the owner can.** Pricing release stays BLOCKED until the owner has decided and an independent security review of the final tree is complete.
 
+
+**Monitoring and alerting** for this surface (scheduled verification, evidence chain, security-event feed) is built by the monitoring workstream: see `docs/twilio/TW-4F_Price_Monitoring_Runbook.md` (PR 391). The authorization design, trust boundary and threat model are in `docs/twilio/TW-4F_Price_Authorization_Threat_Model.md` (D4-2).
+
+**Update (D4-2):** the remaining paths in section 4 are re-analysed, per attacker class and with PREVENTED / DETECTED-ONLY / NOT COVERED marks, in the threat model; the single-owner mode adds a hardware-backed WebAuthn approval verified inside Postgres, which removes GoTrue-admin and JWT-secret compromise as ways to PUBLISH a price (they can still propose). Nothing is accepted.
+
 ## 1. The vulnerability the owner named
 Before this change, `tw4_price_propose(.., p_actor)` and `tw4_price_approve(.., p_actor, ..)` were executable by `service_role`. A holder of the service-role key (or compromised server code) could, without any session, AAL2 step-up or TOTP, read the administrators (service_role can read `profiles`), call `propose(actor = A)` and `approve(actor = B)` and publish a price in two calls (reproduced by reviewer 2). `service_role` can also write `profiles` and, with the GoTrue admin API, create a user, so even "knowing two real administrator ids" was no barrier.
 

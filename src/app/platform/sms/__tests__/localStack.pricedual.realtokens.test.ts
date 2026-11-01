@@ -6,6 +6,7 @@
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { beforeAll, describe, expect, it } from "vitest";
+import { RP_ID, ORIGIN, SoftAuthenticator } from "../../../../lib/sms/twilioIsv/__tests__/webauthnFixture";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -92,10 +93,25 @@ async function passwordLogin(email: string, password: string): Promise<string> {
   expect(r.status, `password grant: ${r.text.slice(0, 200)}`).toBe(200);
   return String((r.json as { access_token: string }).access_token);
 }
+let lastFactor: { id: string; secret: string } | null = null;
+const factors = new Map<string, { id: string; secret: string }>();
+/** a new SESSION of a user who already has a verified factor: password login, then the existing factor's code (a new factor cannot be enrolled at aal1) */
+async function stepUpExisting(aal1: string, f: { id: string; secret: string }): Promise<string> {
+  let last = "";
+  for (const delta of [0, -30000, 30000]) {
+    const ch = await http("POST", `${AUTH}/factors/${f.id}/challenge`, aal1, {});
+    expect(ch.status, `challenge: ${ch.text.slice(0, 200)}`).toBe(200);
+    const v = await http("POST", `${AUTH}/factors/${f.id}/verify`, aal1, { challenge_id: String((ch.json as { id: string }).id), code: totp(f.secret, Date.now() + delta) });
+    if (v.status === 200) return String((v.json as { access_token: string }).access_token);
+    last = v.text.slice(0, 200);
+  }
+  throw new Error(`TOTP verify failed: ${last}`);
+}
 async function stepUp(aal1: string): Promise<string> {
   const enrol = await http("POST", `${AUTH}/factors`, aal1, { factor_type: "totp", friendly_name: `wpd2-${RUN}-${randomBytes(2).toString("hex")}`, issuer: "wpd2.example.test" });
   expect(enrol.status, `enrol: ${enrol.text.slice(0, 200)}`).toBe(200);
   const f = enrol.json as { id: string; totp: { secret: string } };
+  lastFactor = { id: f.id, secret: f.totp.secret };
   expect(f.totp.secret.length).toBeGreaterThan(10);
   // tolerate a small container/host clock offset: current step first, then the neighbours; each attempt opens its own challenge
   let last = "";
@@ -117,6 +133,7 @@ const rpcCall = (fn: string, token: string, body: Record<string, unknown>) => re
 const sqlOne = (q: string) => psql(q);
 const priceRows = (kind: string, cents: number) => Number(sqlOne(`select count(*) from public.studio_sms_price_list where kind = '${kind}' and customer_price_cents = ${cents}`));
 
+const setMode = (mode: string) => psql(`begin; alter table public.studio_sms_price_auth_config disable trigger studio_sms_price_auth_config_guard; update public.studio_sms_price_auth_config set mode = '${mode}'; alter table public.studio_sms_price_auth_config enable always trigger studio_sms_price_auth_config_guard; commit;`);
 let A: Session;
 let B: Session;
 let plainUser: Session;
@@ -136,13 +153,16 @@ describe.skipIf(!enabled)("D4-1: price dual control with REAL GoTrue tokens thro
       await new Promise((r) => setTimeout(r, 2000));
     }
     expect(psql("select to_regprocedure('public.tw4_price_approve(uuid,text)') is not null")).toBe("t");
+    setMode("team"); // RT-01..08 are the team-mode flow; RT-09 is the single-owner ceremony with a software authenticator
     const service = signHs256({ role: "service_role", aud: "authenticated", iss: "d41-local", exp: Math.floor(Date.now() / 1000) + 3600 });
     const mk = async (label: string, admin: boolean, registered: boolean): Promise<Session> => {
       const u = await makeUser(label, service);
       psql(`insert into public.profiles (id, platform_role) values ('${u.id}', ${admin ? "'platform_admin'" : "null"}) on conflict (id) do update set platform_role = excluded.platform_role;
         ${registered ? `insert into public.studio_sms_price_approvers (user_id, added_note) values ('${u.id}', 'real token test approver') on conflict (user_id) do nothing;` : ""}`);
       const a1 = await passwordLogin(u.email, u.password);
-      return { ...u, aal1: a1, aal2: await stepUp(a1) };
+      const aal2 = await stepUp(a1);
+      if (lastFactor) factors.set(u.id, lastFactor);
+      return { ...u, aal1: a1, aal2 };
     };
     A = await mk("price-a", true, true);
     B = await mk("price-b", true, true);
@@ -282,5 +302,51 @@ describe.skipIf(!enabled)("D4-1: price dual control with REAL GoTrue tokens thro
     expect(Array.isArray((ok.json as { requests: unknown[] }).requests)).toBe(true);
     expect(refused(await rpcCall("tw4_price_requests_list", unreg.aal2, {}))).toBe(true);
     expect(refused(await rpcCall("tw4_price_requests_list", plainUser.aal2, {}))).toBe(true);
+  });
+
+  it("RT-09 single-owner ceremony with REAL GoTrue sessions: propose in one session, cooling-off, then a SEPARATE real session (a different session_id) plus a hardware-style assertion publishes; the proposing session and a service-role token cannot", async () => {
+    clear();
+    setMode("single_owner");
+    try {
+      const K = new SoftAuthenticator();
+      psql(`select public._tw4price_bootstrap('${RP_ID}', array['${ORIGIN}'], decode('${K.hex.cred}', 'hex'), decode('${K.hex.x}', 'hex'), decode('${K.hex.y}', 'hex'), 'real token test key')`);
+      const p = await propose(A.aal2, 401);
+      expect(p.status, p.text).toBe(200);
+      const id = String((p.json as { request_id: string }).request_id);
+      expect((p.json as { mode: string }).mode).toBe("owner");
+      // inside the cooling-off: no challenge for anyone
+      const early = await rpcCall("tw4_price_authz_begin", A.aal2, { p_request_id: id });
+      expect(early.json).toMatchObject({ status: "refused" }); expect(["TW045", "42501"]).toContain((early.json as { code: string }).code); // a registered session's refusal is recorded in the audit and returned
+      // the cooling-off ends (owner-level ageing; the row constraints move together)
+      psql(`begin; alter table public.studio_sms_price_change_requests disable trigger studio_sms_price_change_requests_guard; update public.studio_sms_price_change_requests set requested_at = requested_at - interval '25 hours', expires_at = expires_at - interval '25 hours', cooling_until = cooling_until - interval '25 hours' where id = '${id}'; alter table public.studio_sms_price_change_requests enable always trigger studio_sms_price_change_requests_guard; commit;`);
+      // the proposing session cannot authorize
+      expect((await rpcCall("tw4_price_authz_begin", A.aal2, { p_request_id: id })).json).toMatchObject({ status: "refused", code: "42501" });
+      // a service-role token cannot
+      const service = signHs256({ role: "service_role", aud: "authenticated", iss: "d41-local", exp: Math.floor(Date.now() / 1000) + 3600 });
+      expect(refused(await rpcCall("tw4_price_authz_begin", service, { p_request_id: id }))).toBe(true);
+      // a NEW real session of the same user (password login + TOTP): a different session_id
+      const a1 = await passwordLogin(A.email, A.password);
+      const second = await stepUpExisting(a1, factors.get(A.id)!);
+      expect(decode(second).session_id).toBeTruthy();
+      expect(decode(second).session_id).not.toBe(decode(A.aal2).session_id);
+      const b = await rpcCall("tw4_price_authz_begin", second, { p_request_id: id });
+      expect(b.status, b.text).toBe(200);
+      const ch = b.json as { nonce: string; challenge: string };
+      // a wrong key's assertion is rejected; the right key's publishes
+      const bad = new SoftAuthenticator().assert(ch.challenge);
+      const fin = (a: { credId: string; auth: string; client: string; sig: string }, token = second) =>
+        rpcCall("tw4_price_authz_finish", token, { p_request_id: id, p_nonce: ch.nonce, p_credential_id: a.credId, p_auth_data: a.auth, p_client_data: a.client, p_signature: a.sig });
+      expect((await fin(bad)).json).toMatchObject({ status: "rejected" });
+      expect(priceRows("number", 401)).toBe(0);
+      // the proposing session with the right assertion is still refused
+      expect((await fin(K.assert(ch.challenge), A.aal2)).json).toMatchObject({ status: "refused" });
+      const ok = await fin(K.assert(ch.challenge));
+      expect(ok.status, ok.text).toBe(200);
+      expect((ok.json as { status: string }).status).toBe("applied");
+      expect(priceRows("number", 401)).toBe(1);
+      expect(sqlOne(`select decided_by from public.studio_sms_price_change_requests where id = '${id}'`)).toBe(A.id);
+    } finally {
+      setMode("team");
+    }
   });
 });
