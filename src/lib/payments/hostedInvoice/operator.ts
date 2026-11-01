@@ -3,7 +3,7 @@ import { evaluateAssurance, type AssuranceRefusal } from "@/lib/auth/platform-as
 /**
  * D24 M2-B: framework-free core of the operator workflow (acknowledge anomalies, dismiss unmatched invoices, requeue rejected deferred events, review).
  *
- * Authority is decided in the database (migration 20270205090000): the actor is auth.uid() of the caller's own JWT, the role and tenant are checked in SQL,
+ * Authority is decided in the database (migration 20270207090000): the actor is auth.uid() of the caller's own JWT, the role and tenant are checked in SQL,
  * and SQL requires aal2 itself. This module is the defence-in-depth layer in front of it:
  *   - dark unless D24_OPERATOR_ACTIONS is exactly "enabled";
  *   - the VERIFIED session claims (auth.getClaims) must be aal2 with a TOTP method, belong to the signed-in user, and not be expired;
@@ -106,7 +106,7 @@ function mapError(err: { code?: string; message?: string }): OperatorResult {
   if (msg.includes("d24_op_authentication_required")) return fail("unauthenticated");
   if (err.code === "42501") return fail("forbidden");
   if (err.code === "P0002") return fail("not_found");
-  if (msg.includes("d24_op_requeue_limit_reached")) return fail("limit_reached");
+  if (msg.includes("d24_requeue_limit_reached") || msg.includes("d24_op_requeue_limit_reached")) return fail("limit_reached");
   if (err.code === "55000") return fail("not_allowed_state");
   if (err.code === "22023") return fail("invalid_input");
   return fail("unavailable");

@@ -8,13 +8,16 @@ set -uo pipefail
 NAME=df-d24-m2b-pg
 M_CLAIM="src/lib/supabase/migrations/20261116090000_paywh1_webhook_event_claims.sql"
 M_D24="src/lib/supabase/migrations/20270203110000_d24_hosted_invoice_facts.sql"
-M_OP="src/lib/supabase/migrations/20270205090000_d24_operator_actions.sql"
-M_RB="src/lib/supabase/migrations/rollback/20270205090000_d24_operator_actions_rollback.sql"
+M_OP="src/lib/supabase/migrations/20270207090000_d24_operator_actions.sql"
+M_RB="src/lib/supabase/migrations/rollback/20270207090000_d24_operator_actions_rollback.sql"
 cd "$(dirname "$0")/../.."
-for f in "$M_CLAIM" "$M_D24" "$M_OP" "$M_RB"; do [ -f "$f" ] || { echo "missing $f"; exit 2; }; done
+M_C2C="src/lib/supabase/migrations/20270206090000_d24_m2c_drain_recovery.sql"
+TMPD=$(mktemp -d)
+# M2-C owns the requeue table, guard and drain; until its PR (#386) is merged, take it from its branch
+[ -f "$M_C2C" ] || { git show origin/claude/d24-m2c-drain-59d43a:"$M_C2C" > "$TMPD/m2c.sql" 2>/dev/null && M_C2C="$TMPD/m2c.sql"; }
+for f in "$M_CLAIM" "$M_D24" "$M_C2C" "$M_OP" "$M_RB"; do [ -f "$f" ] || { echo "missing $f"; exit 2; }; done
 
 cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; }
-TMPD=$(mktemp -d)
 trap 'rm -rf "$TMPD"; cleanup' EXIT
 cleanup
 
@@ -53,6 +56,7 @@ SQL
 docker exec -i "$NAME" psql -U postgres -v ON_ERROR_STOP=1 -q < "$M_CLAIM" >/dev/null
 docker exec -i "$NAME" psql -U postgres -v ON_ERROR_STOP=1 -q < "$M_D24" >/dev/null
 # precondition failure test: applying M2-B must have worked on the real base
+docker exec -i "$NAME" psql -U postgres -v ON_ERROR_STOP=1 -q < "$M_C2C" >/dev/null || { echo "FAIL M2-C migration did not apply"; exit 1; }
 docker exec -i "$NAME" psql -U postgres -v ON_ERROR_STOP=1 -q < "$M_OP" >/dev/null || { echo "FAIL M2-B migration did not apply"; exit 1; }
 
 pass=0; fail=0
@@ -188,7 +192,7 @@ has "a pending event reports already_pending and is not audited" "$(asu $PLAT aa
 check "...no requeue row for the pending event" "$(q "select count(*) from public.hosted_invoice_deferred_requeues where provider_event_id='evt_d2'")" "0"
 out=$(asu $PLAT aal2 "select public.d24_op_requeue_deferred('evt_d1','transient lock failure fixed in the 10-31 hotfix')")
 has "rejected event is requeued" "$out" '"outcome": "requeued"'
-check "state back to pending, settled_at cleared, attempts and error kept" "$(q "select state||'/'||(settled_at is null)||'/'||attempts||'/'||last_error from public.hosted_invoice_deferred_events where provider_event_id='evt_d1'")" "pending/true/5/boom"
+check "state back to pending, settled_at cleared, attempts and error kept" "$(q "select state||'/'||(settled_at is null)||'/'||attempts||'/'||coalesce(last_error,'') from public.hosted_invoice_deferred_events where provider_event_id='evt_d1'")" "pending/true/5/"
 check "requeue evidence row has actor, reason, prior state" "$(q "select actor_user_id||'|'||prior_attempts||'|'||prior_error from public.hosted_invoice_deferred_requeues where provider_event_id='evt_d1'")" "$PLAT|5|boom"
 has "replay of the requeue is a no-op" "$(asu $PLAT aal2 "select public.d24_op_requeue_deferred('evt_d1','transient lock failure fixed in the 10-31 hotfix')")" '"outcome": "already_pending"'
 check "...still one requeue row" "$(q "select count(*) from public.hosted_invoice_deferred_requeues where provider_event_id='evt_d1'")" "1"
@@ -199,18 +203,18 @@ has "an applied event is not recoverable" "$(asu $PLAT aal2 "select public.d24_o
 # requeue cap
 claim evt_d3; q "select public.d24_defer_event('evt_d3','$O1','invoice.voided',1302,null,false,'$H','invoice','$(inv in_d3 void 100 0 100 100)'::jsonb)" >/dev/null
 rej() { q "select set_config('d24.writer','on',false); update public.hosted_invoice_deferred_events set state='rejected', settled_at=now() where provider_event_id='$1'" >/dev/null; }
-for n in 1 2 3; do rej evt_d3; asu $PLAT aal2 "select public.d24_op_requeue_deferred('evt_d3','requeue number $n of the same event')" >/dev/null; done
-check "three requeues recorded" "$(q "select count(*) from public.hosted_invoice_deferred_requeues where provider_event_id='evt_d3'")" "3"
+for n in 1 2 3 4 5; do rej evt_d3; asu $PLAT aal2 "select public.d24_op_requeue_deferred('evt_d3','requeue number $n of the same event')" >/dev/null; done
+check "five requeues recorded" "$(q "select count(*) from public.hosted_invoice_deferred_requeues where provider_event_id='evt_d3'")" "5"
 rej evt_d3
-has "the fourth requeue is refused" "$(asu $PLAT aal2 "select public.d24_op_requeue_deferred('evt_d3','requeue number 4 of the same event')")" "d24_op_requeue_limit_reached"
+has "the sixth requeue is refused" "$(asu $PLAT aal2 "select public.d24_op_requeue_deferred('evt_d3','requeue number 6 of the same event')")" "d24_requeue_limit_reached"
 
 # 6. guards cannot be bypassed ---------------------------------------------------------------------------------------------
-has "direct rejected->pending without the requeue flag is refused" "$(q "select set_config('d24.writer','on',false); update public.hosted_invoice_deferred_events set state='pending', settled_at=null where provider_event_id='evt_d3'" 2>&1 | tr '\n' ' ')" "only be requeued through"
+has "direct rejected->pending without the requeue flag is refused" "$(q "select set_config('d24.writer','on',false); update public.hosted_invoice_deferred_events set state='pending', settled_at=null where provider_event_id='evt_d3'" 2>&1 | tr '\n' ' ')" "cannot change state"
 has "applied->pending is refused even with the requeue flag" "$(q "select set_config('d24.writer','on',false), set_config('d24.requeue','on',false); update public.hosted_invoice_deferred_events set state='pending', settled_at=null where provider_event_id='evt_d1'" 2>&1 | tr '\n' ' ')" "cannot change state"
 has "dismissal rows cannot be updated" "$(q "select set_config('d24.writer','on',false); update public.hosted_invoice_dismissals set reason='tampered tampered' where invoice_row_id='$U1'" 2>&1 | tr '\n' ' ')" "append-only"
 has "dismissal rows cannot be deleted" "$(q "select set_config('d24.writer','on',false); delete from public.hosted_invoice_dismissals" 2>&1 | tr '\n' ' ')" "append-only"
 has "requeue rows cannot be deleted" "$(q "select set_config('d24.writer','on',false); delete from public.hosted_invoice_deferred_requeues" 2>&1 | tr '\n' ' ')" "append-only"
-has "requeue rows cannot be inserted outside the functions" "$(q "insert into public.hosted_invoice_deferred_requeues (provider_event_id,actor_user_id,reason,prior_attempts) values ('evt_d3','$PLAT','a long enough reason',0)" 2>&1 | tr '\n' ' ')" "only allowed through"
+has "requeue rows cannot be inserted outside the functions" "$(q "insert into public.hosted_invoice_deferred_requeues (provider_event_id,actor_user_id,reason,requeue_number,prior_attempts) values ('evt_d3','$PLAT','a long enough reason',99,0)" 2>&1 | tr '\n' ' ')" "only allowed through"
 has "dismissal rows cannot be inserted outside the functions" "$(q "insert into public.hosted_invoice_dismissals (invoice_row_id,actor_user_id,reason,events_seen) values ('$RB','$PLAT','a long enough reason',9)" 2>&1 | tr '\n' ' ')" "only allowed through"
 has "deferred events still cannot be deleted" "$(q "delete from public.hosted_invoice_deferred_events" 2>&1 | tr '\n' ' ')" "permanent evidence\|only allowed"
 has "audit trigger kind is constrained" "$(q "select set_config('d24.writer','on',false); insert into public.hosted_invoice_recon_audit (invoice_row_id,trigger_kind,to_state) values ('$RB','bogus','clear')" 2>&1 | tr '\n' ' ')" "trigger_chk"
@@ -235,7 +239,7 @@ has "studio view hides source-event snapshots" "$(asu $OWA aal2 "select (public.
 has "platform view includes source-event snapshots" "$(asu $PLAT aal2 "select (public.d24_op_get_invoice('$RA'))->'source_events'->0 ? 'object_snapshot'")" "t"
 has "audit trail visible with the actor and reason" "$(asu $OWA aal2 "select jsonb_array_length((public.d24_op_get_invoice('$RA'))->'audit')")" "[3-9]"
 has "list_deferred: studio owner refused" "$(asu $OWA aal2 "select public.d24_op_list_deferred()")" "d24_op_platform_admin_required"
-has "list_deferred: counts and requeue count" "$(asu $PLAT aal2 "select ((public.d24_op_list_deferred('rejected'))->'counts'->>'rejected')||'/'||(select (r->>'requeue_count') from jsonb_array_elements((public.d24_op_list_deferred('rejected'))->'rows') r where r->>'provider_event_id'='evt_d3')")" "1/3"
+has "list_deferred: counts and requeue count" "$(asu $PLAT aal2 "select ((public.d24_op_list_deferred('rejected'))->'counts'->>'rejected')||'/'||(select (r->>'requeue_count') from jsonb_array_elements((public.d24_op_list_deferred('rejected'))->'rows') r where r->>'provider_event_id'='evt_d3')")" "1/5"
 has "list_deferred: bad state refused" "$(asu $PLAT aal2 "select public.d24_op_list_deferred('bogus')")" "unknown state"
 
 # 8. concurrency ----------------------------------------------------------------------------------------------------------

@@ -1,22 +1,22 @@
--- 20270205090000_d24_operator_actions.sql
+-- 20270207090000_d24_operator_actions.sql
 -- D24 M2-B: verified-authorization operator workflow for hosted-invoice reconciliation. NOT APPLIED to any shared environment by this file.
 --   * The acting user is ALWAYS auth.uid() read inside the database; no function here accepts an actor argument.
 --   * Every operator function requires an authenticated end-user JWT with aal = 'aal2' (the claim PostgREST verified), checked in SQL (_d24_op_caller).
 --   * Authority is checked in SQL against profiles.platform_role (platform_admin) and user_studio_roles (active studio_owner / studio_admin of the invoice's studio).
 --   * Evidence is never deleted or edited: acknowledgements go to hosted_invoice_recon_audit, dismissals to hosted_invoice_dismissals (+ an audit row),
---     requeues to hosted_invoice_deferred_requeues. All three are append-only and written only through these functions.
+--     requeues (owned by M2-C: hosted_invoice_deferred_requeues + d24_requeue_deferred_event) are reached only through the authorization wrapper below.
 --   * Platform admin only: dismiss an unmatched invoice, requeue a rejected deferred event, list/inspect deferred events, acknowledge any code.
 --     Studio owner/admin: review and acknowledge ONLY the unverified-origin codes on their own studio's registered invoices.
 --   * Old d24_acknowledge_anomalies(uuid, text[], uuid, text) (trusts p_actor) is closed to every API role, service_role included.
--- Requires 20270203110000_d24_hosted_invoice_facts.sql, profiles(platform_role) and user_studio_roles. Rollback: rollback/20270205090000_d24_operator_actions_rollback.sql
+-- Requires 20270203110000_d24_hosted_invoice_facts.sql, profiles(platform_role) and user_studio_roles. Rollback: rollback/20270207090000_d24_operator_actions_rollback.sql
 begin;
 
 set local lock_timeout = '5s';
 
 do $$
 begin
-  if to_regprocedure('public.d24_acknowledge_anomalies(uuid,text[],uuid,text)') is null then
-    raise exception 'd24 m2b precondition failed: 20270203110000_d24_hosted_invoice_facts.sql must be applied first';
+  if to_regprocedure('public.d24_acknowledge_anomalies(uuid,text[],uuid,text)') is null or to_regprocedure('public.d24_requeue_deferred_event(text,uuid,text)') is null then
+    raise exception 'd24 m2b precondition failed: 20270203110000 (M1) and 20270206090000 (M2-C drain recovery) must be applied first';
   end if;
   if to_regclass('public.profiles') is null or to_regclass('public.user_studio_roles') is null then
     raise exception 'd24 m2b precondition failed: profiles and user_studio_roles are required';
@@ -42,22 +42,10 @@ create table public.hosted_invoice_dismissals (
   constraint hosted_invoice_dismissals_once unique (invoice_row_id, events_seen)
 );
 
-create table public.hosted_invoice_deferred_requeues (
-  id bigint generated always as identity primary key,
-  provider_event_id text not null references public.hosted_invoice_deferred_events(provider_event_id) on delete restrict,
-  actor_user_id uuid not null,
-  reason text not null,
-  prior_attempts integer not null,
-  prior_error text,
-  requeued_at timestamptz not null default now(),
-  constraint hosted_invoice_deferred_requeues_reason_chk check (length(btrim(reason)) between 10 and 1000)
-);
-create index hosted_invoice_deferred_requeues_event_idx on public.hosted_invoice_deferred_requeues (provider_event_id);
-
 do $$
 declare t text;
 begin
-  foreach t in array array['hosted_invoice_dismissals', 'hosted_invoice_deferred_requeues'] loop
+  foreach t in array array['hosted_invoice_dismissals'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on public.%I from public, anon, authenticated, service_role', t);
     execute format('grant select on public.%I to service_role', t);
@@ -66,7 +54,7 @@ begin
     execute format('create trigger %I before truncate on public.%I for each statement execute function public._d24_append_only()', t || '_trunc_trg', t);
   end loop;
 end $$;
-revoke all on sequence public.hosted_invoice_dismissals_id_seq, public.hosted_invoice_deferred_requeues_id_seq from public, anon, authenticated, service_role;
+revoke all on sequence public.hosted_invoice_dismissals_id_seq from public, anon, authenticated, service_role;
 
 -- The audit log learns one more trigger kind (a dismissal changes no state, it records a decision); every manual kind needs an actor and a reason.
 alter table public.hosted_invoice_recon_audit drop constraint hosted_invoice_recon_audit_trigger_chk;
@@ -75,47 +63,6 @@ alter table public.hosted_invoice_recon_audit add constraint hosted_invoice_reco
   check (trigger_kind in ('event', 'registration', 'acknowledgement', 'dismissal'));
 alter table public.hosted_invoice_recon_audit add constraint hosted_invoice_recon_audit_ack_chk
   check (trigger_kind not in ('acknowledgement', 'dismissal') or (actor_user_id is not null and reason is not null and length(btrim(reason)) > 0));
-
--- A rejected deferred event may go back to 'pending' exactly once per requeue, and only inside d24_op_requeue_deferred (it sets d24.requeue). Everything else is
--- the M1 guard unchanged: evidence columns immutable, applied/rejected otherwise terminal, attempts never decrease, no delete.
-create or replace function public._d24_deferred_guard()
-returns trigger language plpgsql
-set search_path = pg_catalog, public, pg_temp
-as $$
-begin
-  if tg_op = 'DELETE' then
-    raise exception 'd24: deferred events are permanent evidence' using errcode = '42501';
-  end if;
-  if tg_op = 'INSERT' then
-    if coalesce(current_setting('d24.writer', true), '') <> 'on' then
-      raise exception 'd24: INSERT on % is only allowed through the d24 functions', tg_table_name using errcode = '42501';
-    end if;
-    return new;
-  end if;
-  if coalesce(current_setting('d24.writer', true), '') <> 'on' then
-    raise exception 'd24: UPDATE on % is only allowed through the d24 functions', tg_table_name using errcode = '42501';
-  end if;
-  if new.provider_event_id is distinct from old.provider_event_id or new.event_type is distinct from old.event_type
-     or new.stripe_account_id is distinct from old.stripe_account_id or new.livemode is distinct from old.livemode
-     or new.event_created is distinct from old.event_created or new.payload_hash is distinct from old.payload_hash
-     or new.object_kind is distinct from old.object_kind or new.object_snapshot is distinct from old.object_snapshot
-     or new.received_at is distinct from old.received_at then
-    raise exception 'd24: deferred event evidence is immutable' using errcode = '42501';
-  end if;
-  if old.state = 'rejected' and new.state = 'pending' then
-    if coalesce(current_setting('d24.requeue', true), '') <> 'on' or new.settled_at is not null or new.attempts is distinct from old.attempts then
-      raise exception 'd24: a rejected deferred event can only be requeued through d24_op_requeue_deferred' using errcode = '42501';
-    end if;
-    return new;
-  end if;
-  if old.state <> 'pending' and (new.state is distinct from old.state or new.settled_at is distinct from old.settled_at) then
-    raise exception 'd24: a settled deferred event cannot change state' using errcode = '42501';
-  end if;
-  if new.attempts < old.attempts then
-    raise exception 'd24: attempts cannot decrease' using errcode = '42501';
-  end if;
-  return new;
-end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------------
 -- Caller verification (internal; no API role may call these)
@@ -260,8 +207,8 @@ begin
 end $$;
 
 -- Put a REJECTED deferred event back to pending so the next drain re-applies it. Platform admin only. The snapshot is immutable evidence, so this helps only events
--- that were rejected for a reason outside the event (transient failure, ordering, a since-fixed defect); a malformed event is simply rejected again. Capped at 3 requeues
--- per event (open decision D-4). Idempotent: an already pending event is reported, not re-audited.
+-- that were rejected for a reason outside the event (transient failure, ordering, a since-fixed defect); a malformed event is simply rejected again. Capped (5) by M2-C's mechanics
+-- per event. Idempotent: an already pending event is reported, not re-audited.
 create or replace function public.d24_op_requeue_deferred(p_provider_event_id text, p_reason text)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
@@ -270,6 +217,7 @@ declare
   v_uid uuid := public._d24_op_caller();
   v_reason text := public._d24_op_reason(p_reason);
   r public.hosted_invoice_deferred_events%rowtype;
+  v_res jsonb;
 begin
   if not public._d24_op_is_platform_admin(v_uid) then
     raise exception 'd24_op_platform_admin_required' using errcode = '42501';
@@ -286,15 +234,10 @@ begin
   if r.state <> 'rejected' then
     raise exception 'd24_op_not_recoverable: only a rejected deferred event can be requeued (state %)', r.state using errcode = '55000';
   end if;
-  if (select count(*) from public.hosted_invoice_deferred_requeues where provider_event_id = r.provider_event_id) >= 3 then
-    raise exception 'd24_op_requeue_limit_reached' using errcode = '55000';
-  end if;
-  insert into public.hosted_invoice_deferred_requeues (provider_event_id, actor_user_id, reason, prior_attempts, prior_error)
-  values (r.provider_event_id, v_uid, v_reason, r.attempts, r.last_error);
-  perform set_config('d24.requeue', 'on', true);
-  update public.hosted_invoice_deferred_events set state = 'pending', settled_at = null where provider_event_id = r.provider_event_id;
-  perform set_config('d24.requeue', 'off', true);
-  return jsonb_build_object('outcome', 'requeued', 'prior_attempts', r.attempts);
+  if length(v_reason) > 500 then raise exception 'd24_op_reason_required: a requeue reason is at most 500 characters' using errcode = '22023'; end if;
+  -- M2-C owns the requeue mechanics (evidence row, attempt budget, cap, guard flag); this wrapper supplies the VERIFIED actor. The event row lock is held across the call.
+  v_res := public.d24_requeue_deferred_event(r.provider_event_id, v_uid, v_reason);
+  return v_res;
 end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------------
@@ -404,8 +347,8 @@ begin
       'rejected', (select count(*) from public.hosted_invoice_deferred_events where state = 'rejected')),
     'rows', coalesce((select jsonb_agg(to_jsonb(x) order by x.received_at desc, x.provider_event_id) from (
       select e.provider_event_id, e.event_type, e.stripe_account_id, e.livemode, e.event_created, e.object_kind, e.state, e.attempts, e.last_error,
-             e.payload_mismatch, e.received_at, e.settled_at, e.object_snapshot,
-             (select count(*) from public.hosted_invoice_deferred_requeues q where q.provider_event_id = e.provider_event_id) as requeue_count
+             e.payload_mismatch, e.received_at, e.settled_at, e.object_snapshot, e.last_error_code, e.attempt_base,
+             e.requeue_count
       from public.hosted_invoice_deferred_events e where p_state is null or e.state = p_state
       order by e.received_at desc, e.provider_event_id limit v_limit offset v_offset) x), '[]'::jsonb));
 end $$;
@@ -433,6 +376,7 @@ grant execute on function public.d24_op_get_invoice(uuid) to authenticated;
 grant execute on function public.d24_op_list_deferred(text, integer, integer) to authenticated;
 
 -- The M1 function trusts its p_actor argument: nobody may call it directly any more (no application code ever did).
+revoke all on function public.d24_requeue_deferred_event(text, uuid, text) from public, anon, authenticated, service_role;  -- M2-C's p_actor function: only the verified wrapper above may reach it
 revoke all on function public.d24_acknowledge_anomalies(uuid, text[], uuid, text) from public, anon, authenticated, service_role;
 
 commit;

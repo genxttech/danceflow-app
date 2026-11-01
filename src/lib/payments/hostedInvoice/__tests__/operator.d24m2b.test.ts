@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { runOperatorAction, buildOperatorCall, type OperatorDeps } from "../operator";
 
-const SQL = readFileSync("src/lib/supabase/migrations/20270205090000_d24_operator_actions.sql", "utf8");
+const SQL = readFileSync("src/lib/supabase/migrations/20270207090000_d24_operator_actions.sql", "utf8");
 const USER = "00000000-0000-0000-0000-0000000000c1";
 const INV = "00000000-0000-0000-0000-0000000000d1";
 const NOW = 1_800_000_000;
@@ -97,7 +97,7 @@ describe("database errors map to stable codes and never leak text", () => {
     [{ code: "42501", message: "d24_op_code_requires_platform_admin" }, "forbidden"],
     [{ code: "P0002", message: "d24_invoice_not_found" }, "not_found"],
     [{ code: "55000", message: "d24_op_not_dismissable: secret detail" }, "not_allowed_state"],
-    [{ code: "55000", message: "d24_op_requeue_limit_reached" }, "limit_reached"],
+    [{ code: "55000", message: "d24_requeue_limit_reached" }, "limit_reached"],
     [{ code: "22023", message: "d24_unknown_anomaly_code" }, "invalid_input"],
     [{ code: "XX000", message: "connection to 10.0.0.5 refused" }, "unavailable"],
   ])("%j -> %s", async (error, code) => {
