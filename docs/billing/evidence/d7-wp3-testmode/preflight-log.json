@@ -1,0 +1,32 @@
+{
+  "apiVersion": "2026-03-25.dahlia",
+  "account": "acct_1UWz98RESPl6zEVj",
+  "log": [
+    {
+      "operation": "accounts.retrieve",
+      "at": "2026-11-01T14:59:31.110Z",
+      "request": {},
+      "response": {
+        "id": "acct_1UWz98RESPl6zEVj",
+        "object": "account",
+        "type": "standard",
+        "country": "US",
+        "charges_enabled": true,
+        "details_submitted": true
+      }
+    },
+    {
+      "operation": "invoices.list",
+      "at": "2026-11-01T14:59:31.344Z",
+      "request": {
+        "limit": 1
+      },
+      "response": {
+        "object": "list",
+        "data": [],
+        "has_more": false,
+        "url": "/v1/invoices"
+      }
+    }
+  ]
+}
