@@ -1130,6 +1130,7 @@ declare
   v_bad jsonb;
   v_state text;
   v_dances integer;
+  v_latest public.event_competition_result_versions;
 begin
   if v_uid is null or public._compe2_round_role(p_round_id) is distinct from 'manager' or public.verified_email_for_user(v_uid) is null then
     raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
@@ -1164,6 +1165,15 @@ begin
     if exists (select 1 from public.event_competition_result_rows rr where rr.result_version_id = v_ver.id and rr.advanced is null) then
       v_blockers := v_blockers || jsonb_build_object('code', 'COMP_ADVANCEMENT_BLOCKED');
     end if;
+  end if;
+  -- Owner tie policy: a blocked tie (a callback_tally version holding an undecided row, which the approval trigger refuses to approve) leaves
+  -- advancement UNRESOLVED and the preview names it. Looks at the newest version of the round whatever its status; the approved-version arm above is unchanged.
+  select * into v_latest from public.event_competition_result_versions lv where lv.round_id = p_round_id order by lv.version desc limit 1;
+  if v_latest.id is not null and v_latest.id is distinct from v_ver.id
+     and v_latest.engine_key like '%callback_tally%'
+     and exists (select 1 from public.event_competition_result_rows rr where rr.result_version_id = v_latest.id and rr.advanced is null) then
+    v_blockers := v_blockers || jsonb_build_object('code', 'COMP_ADVANCEMENT_BLOCKED',
+      'detail', jsonb_build_object('reason', 'tie_over_capacity', 'version', v_latest.version, 'version_status', v_latest.status));
   end if;
   if v_tgt.id is null or v_tgt.status not in ('draft', 'scheduled') then
     v_blockers := v_blockers || jsonb_build_object('code', 'COMP_ADVANCEMENT_TARGET_ROUND_STATE', 'detail', jsonb_build_object('status', v_tgt.status));
