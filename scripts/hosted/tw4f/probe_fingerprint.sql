@@ -432,11 +432,14 @@ with
     ('_tw4psh_event_evidence_check', '20261231100000'),
     ('_tw4psh_exception_evidence_check', '20261231100000'),
     ('_tw4psh_spend_authorize', '20261231100000'),
+    ('_tw4pricemon_emit_event', '20270205090000'),
+    ('_tw4pricemon_event_fill', '20270205090000'),
     ('_tw4pricemon_immutable', '20270205090000'),
     ('tw4_price_monitor_digest', '20270205090000'),
     ('tw4_price_monitor_events', '20270205090000'),
     ('tw4_price_monitor_evidence_append', '20270205090000'),
-    ('tw4_price_monitor_evidence_list', '20270205090000')
+    ('tw4_price_monitor_evidence_list', '20270205090000'),
+    ('tw4_price_monitor_status', '20270205090000')
   ),
   exp_tbl(name, since) as (values
     ('studio_sms_onboarding', '20261119090000'),

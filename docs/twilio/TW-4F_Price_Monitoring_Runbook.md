@@ -129,3 +129,57 @@ Apply `20270205090000` to the target database (after `20270204090000`); create t
 
 - Unit tests: `src/lib/sms/pricing/__tests__/monitor.d42.test.ts` (fake DB and fake transports, no network).
 - Docker DB tests: `src/lib/sms/pricing/__tests__/localStack.d42monitor.test.ts` through `scripts/qa/tw4f/run-chain.mjs` (chain with D4-1 and D4-2 migrations, apply / rollback / re-apply fingerprints; monitor running as `service_role`).
+
+## 12. Security audit of migration 20270205090000 (D4-2 follow-up)
+
+Findings, each with a failing-first test in `localStack.d42audit.test.ts` (it failed 8 of 9 against the first version of the migration) and fixed in the migration:
+
+| # | Hole | Fix |
+|---|---|---|
+| 1 | Writers chose `seq` / `occurred_at` / `recorded_at` of a security event (backdating, choosing a position). | `_tw4pricemon_event_fill` BEFORE INSERT trigger (ENABLE ALWAYS, also under replica mode) forces all three from the database clock and sequence. |
+| 2 | An identity sequence is not commit ordered: a late commit with a lower `seq` would be skipped by the monitor's cursor. | `seq` = max + 1 assigned under an advisory lock held to commit (gapless, commit ordered; a rolled-back emit leaves no gap). |
+| 3 | No defined writer for events, so every emitter would insert directly. | `_tw4pricemon_emit_event(kind, subject, detail)`: owner-level SECURITY DEFINER, executable by no API role, validates the kind. `service_role` and `authenticated` can neither insert, update, delete nor call it (permission denied, tested). |
+| 4 | `recorded_at` of an evidence row was writer supplied; a forged future time kept the watchdog quiet. | The append function refuses a time more than 10 minutes from the database clock (`recorded_at_out_of_range`), and the watchdog and status function use the database's own `inserted_at`. |
+| 5 | Guard triggers could be disabled silently; the runbook claimed this was detected. | `tw4_price_monitor_digest()` returns `guards`, `guards_bad`, `guards_ok` (evidence and event guards plus the D4-1 price guards when present); the monitor raises `guard_disabled` and, for a guard seen on an earlier run that vanished, `guard_missing`. |
+| 6 | No pricing-side way to see whether monitoring is expected or down. | `tw4_price_monitor_status(max_age)` (section 14). |
+
+Verified without change (tested): table ACLs hold no entry for anon / authenticated / service_role / PUBLIC; each function has an explicit grant list (service_role only for the six readers and the appender; the three helpers are owner-only); every function pins `search_path = pg_catalog, public, pg_temp`; UPDATE / DELETE / TRUNCATE are refused for the owner and in replica mode; the monitor's code uses five allow-listed RPCs and the test records every call across scenarios.
+
+Residual risks (documented, not closable inside the database):
+- `service_role` can append evidence rows (that is the monitor's one write). It could append a forged `delivery` row marking a real alert delivered. Mitigations: set `PRICE_MONITOR_CHAIN_KEY` (a holder of only the database role cannot forge a valid row), and compare the head in alerts with the database head.
+- `service_role` could flood the evidence table with valid appends (storage / noise); detect via row growth.
+- The database owner can drop or replace everything; the owner is the root of trust (D4-1 impersonation design).
+
+### Column definitions, `studio_sms_price_security_events`
+
+| Column | Meaning | Trust |
+|---|---|---|
+| `seq` | gapless, commit-ordered position | ordering only |
+| `kind` | snake_case event kind | the authorization workstream and the monitor read it |
+| `subject_user_id` | the user the event is about, nullable | informational |
+| `detail` | JSON object, at most 8 kB, no secrets | read it |
+| `occurred_at`, `recorded_at` | database clock at insert, forced by the trigger | NEVER a decision input; informational |
+
+The authorization workstream reads only `seq`, `kind`, `subject_user_id` and `detail`. Emit only through `_tw4pricemon_emit_event`. Event kinds consumed: see `EVENT_KINDS` in `types.ts` (adds `credential_revocation_accepted` warning, `credential_recovery_used` critical, `recovery_enrollment_started` critical, `event_emit_failed` critical).
+
+## 13. Undelivered alerts
+
+`npm run qa:price-monitor -- list-undelivered` lists run / watchdog rows that required an alert and have no delivery accepted by a destination (read only). `-- redeliver` re-sends all of them and appends one `delivery` row per attempt; no earlier row is altered. The cron route re-sends the newest five automatically. A pricing-side event-emit failure should be recorded as the event kind `event_emit_failed` (critical alert) so it is visible here as well.
+
+## 14. Monitoring-outage contract with the pricing side
+
+- A monitoring outage must NEVER authorize a financial change, and the emergency freeze must NOT depend on the monitor. The pricing functions decide on their own; the monitor can only tell people.
+- `tw4_price_monitor_status(p_max_age_seconds default 2700)` returns `state` = `never` (monitor not activated yet: monitoring not expected), `ok` (a run was recorded within the allowed age by the database clock) or `stale` (down), plus `monitoring_expected`, `last_run_inserted_at`, `age_seconds` and `informational_only: true`. Executable by `service_role` only; pricing SECURITY DEFINER functions (owner) can call it directly. It may be used to REFUSE or warn (for example "do not publish a price while the monitor is stale"), never to allow something that the pricing rules refuse, and never as a reason to lift a freeze.
+- Nothing in this directory writes a price table; a test records every database call across all scenarios.
+
+## 15. Alert delivery verification before production
+
+Local proof (no external network): `e2e.d42.test.ts` runs the monitor against a real local HTTP receiver: signature check, wrong-secret rejection, retries (503 then success), outage and re-delivery, heartbeat pings and the dead-man model, and the verification ack.
+
+Owner procedure for the real destinations (needs the owner's authorization, the production-scope environment values and a database that may receive evidence):
+
+1. `npm run qa:price-monitor -- send` sends a SIGNED TEST message (not an alert) to every destination. The webhook receiver must answer `{"ack": hex(hmac_sha256(secret, "ack:" + nonce))[0:32]}`; the command verifies it. The email contains a confirmation token; the heartbeat URL is pinged.
+2. Exit 0 = confirmed, 3 = pending out-of-band confirmation, 1 = failed.
+3. For email and the dead-man page: read the token from the mailbox, then `npm run qa:price-monitor -- confirm --nonce <nonce> --token <token>` (valid 24 hours, once).
+4. Each step is recorded in the evidence chain (`delivery` rows, `source: "verification"`; only a hash of the nonce is stored; they never mark a real alert delivered).
+5. Do not activate the cron until step 1-3 passed for every destination, the dead-man service has seen the ping, and a deliberate non-production forged-row test produced an alert.
