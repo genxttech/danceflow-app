@@ -38,6 +38,19 @@ const thawWith = (k: SoftAuthenticator) => {
   const a = k.assert(tb.challenge);
   return authOut(claims(A, S2), `select public.tw4_price_thaw('${tb.nonce}', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}')::text;`);
 };
+/** a recovery freeze sets a hold that ordinary keys cannot clear: the recovery key starts a recovery enrolment and cancels it (ending the hold), then an ordinary key thaws */
+const endHold = (kr: SoftAuthenticator, ordinary: SoftAuthenticator) => {
+  const c = claims(A, S2);
+  const kn = new SoftAuthenticator();
+  const rb = authOut(c, `select public.tw4_price_cred_begin('recover_enroll', '${kn.credIdB64u}', '${b64u(kn.x)}', '${b64u(kn.y)}', null, 'hold ending attempt')::text;`);
+  const a = kr.assert(rb.challenge);
+  const m = kn.assert(rb.challenge);
+  const rq = authOut(c, `select public.tw4_price_recovery_enroll('${rb.nonce}', '${kn.credIdB64u}', '${b64u(kn.x)}', '${b64u(kn.y)}', 'hold ending attempt', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}', '${m.auth}', '${m.client}', '${m.sig}')::text;`);
+  const cb = authOut(c, `select public.tw4_price_cred_begin('cancel', null, null, null, null, '${rq.change_id}')::text;`);
+  const a2 = kr.assert(cb.challenge);
+  authOut(c, `select public.tw4_price_cred_cancel('${rq.change_id}', '${cb.nonce}', '${a2.credId}', '${a2.auth}', '${a2.client}', '${a2.sig}')::text;`);
+  return thawWith(ordinary);
+};
 const enrollReq = (by: SoftAuthenticator, nw: SoftAuthenticator, label: string, role = "spare") => {
   const c = claims(A, S2);
   const eb = authOut(c, `select public.tw4_price_cred_begin('enroll', '${nw.credIdB64u}', '${b64u(nw.x)}', '${b64u(nw.y)}', '${role}', '${label}')::text;`);
@@ -80,7 +93,7 @@ describe.skipIf(!hasMonitor)("D4-2 owner authorization on the combined chain wit
     const fb = authOut(claims(A, S2), `select public.tw4_price_cred_begin('recover_freeze', null, null, null, null, null)::text;`);
     const g = KR.assert(fb.challenge);
     expect(authOut(claims(A, S2), `select public.tw4_price_recovery_freeze('${fb.nonce}', '${g.credId}', '${g.auth}', '${g.client}', '${g.sig}')::text;`)).toMatchObject({ status: "frozen" });
-    expect(thawWith(K1)).toMatchObject({ status: "thawed" });
+    expect(endHold(KR, K1)).toMatchObject({ status: "thawed" });
     const got = events(h0);
     const kinds = got.map((e) => e.kind);
     for (const k of ["price_authorization_started", "price_integrity_failure", "credential_replaced", "pricing_suspended", "credential_recovery_used", "pricing_resumed"]) expect(kinds, k).toContain(k);
