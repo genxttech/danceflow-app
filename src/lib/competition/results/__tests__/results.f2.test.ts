@@ -92,9 +92,9 @@ describe("canonical evidence hashing", () => {
 });
 
 describe("engine registry", () => {
-  it("ships no engine until F1 registers one (the stub is test-only)", () => {
-    expect(REGISTERED_ENGINES).toHaveLength(0);
-    expect(lookupRegisteredEngine("studio_ordinal_majority", "1")).toBeUndefined();
+  it("integration branch: F1's two Studio engines are registered (the stub is test-only)", () => {
+    expect(REGISTERED_ENGINES.map((e) => `${e.key}@${e.version}`).sort()).toEqual(["studio_callback_tally@1", "studio_ordinal_majority@1"]);
+    expect(lookupRegisteredEngine("studio_ordinal_majority", "1")).toBeDefined();
   });
   it("application code never imports the stub", () => {
     const root = join(__dirname, "..", "..", "..", "..");
@@ -146,7 +146,7 @@ describe("calculateRound orchestration", () => {
 
   it("fails closed when no engine is registered", async () => {
     const { rpc, calls } = fakeRpc({});
-    const out = await calculateRound({ rpc, engineFor: lookupRegisteredEngine }, R, "req");
+    const out = await calculateRound({ rpc, engineFor: () => undefined }, R, "req");
     expect(out).toMatchObject({ ok: false, code: "COMP_ENGINE_NOT_AVAILABLE" });
     expect(calls).toHaveLength(1);
   });
