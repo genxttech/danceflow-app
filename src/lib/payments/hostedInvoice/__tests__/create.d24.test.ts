@@ -382,3 +382,69 @@ describe("M3-A final contract", () => {
     expect(stripe.calls).toEqual([]);
   });
 });
+
+describe("M3 decisions: draft-only, customer, crash rule", () => {
+  const profileSpec = { ...SPEC, stripeCustomerId: undefined, customerProfile: { clientRef: "client-1", name: "Pat Dancer", email: "pat@example.com" } };
+  const profDeps = () => setup({ resolvers: { event_fee: ownedResolver({ "bo-1": STUDIO_A }, profileSpec as never) } });
+
+  it("crash after the Stripe invoice exists but before mark_provider_created: intent is still pending; resume reuses the SAME key and gets the SAME invoice", async () => {
+    const { stripe, store, deps } = setup();
+    store.markFail = true;
+    const r1 = await createHostedInvoice(req(), deps);
+    expect(r1).toMatchObject({ ok: false, retryable: true });
+    expect([...store.rows.values()][0].state).toBe("pending");
+    const key = [...store.rows.values()][0].idempotencyKey;
+    store.markFail = false;
+    const r2 = await resumeIntent(firstId(store), SYS, deps);
+    expect(r2).toMatchObject({ ok: true, stripeInvoiceId: "in_fake1" });
+    expect(stripe.calls.filter((c) => c.op === "create").map((c) => c.key)).toEqual([key, key]);
+    expect(stripe.createCount).toBe(1);
+  });
+  it("creates the Stripe customer in the connected account under the intent key, then the draft for that customer", async () => {
+    const { stripe, deps } = profDeps();
+    const r = await createHostedInvoice(req(), deps);
+    expect(r.ok).toBe(true);
+    const ops = stripe.calls.map((c) => c.op);
+    expect(ops).toEqual(["customer", "create", "lines"]);
+    expect(stripe.calls[0].account).toBe(ACCT_A);
+    expect(stripe.calls[0].key.endsWith(":customer")).toBe(true);
+    expect((stripe.calls[1].params as { customer: string }).customer).toBe([...stripe.customers.values()][0].id);
+  });
+  it("customer creation is idempotent across a crash: resume yields one customer and one invoice", async () => {
+    const { stripe, store, deps } = profDeps();
+    stripe.failAfterCreate = netErr(); // crash after customer+invoice exist, before lines
+    await createHostedInvoice(req(), deps);
+    expect(stripe.customers.size).toBe(1);
+    expect(await resumeIntent(firstId(store), SYS, deps)).toMatchObject({ ok: true });
+    expect(stripe.customers.size).toBe(1);
+    expect(stripe.createCount).toBe(1);
+  });
+  it("customer failures: transient retryable and leaves pending; livemode-forged or malformed customer is refused", async () => {
+    let c = profDeps();
+    c.stripe.failCustomer = netErr();
+    expect(await createHostedInvoice(req(), c.deps)).toMatchObject({ ok: false, code: "stripe_unavailable", retryable: true });
+    expect(c.stripe.createCount).toBe(0);
+    c = profDeps();
+    c.stripe.livemode = true;
+    expect(await createHostedInvoice(req(), c.deps)).toMatchObject({ ok: false, code: "stripe_response_invalid" });
+    expect(c.stripe.createCount).toBe(0);
+  });
+  it("spec must have exactly one of stripeCustomerId / customerProfile, and a valid profile", async () => {
+    for (const bad of [{ ...SPEC, customerProfile: { clientRef: "c1", name: "x" } }, { ...profileSpec, customerProfile: { clientRef: "bad ref", name: "x" } }, { ...profileSpec, customerProfile: { clientRef: "c1", name: " " } }, { ...profileSpec, customerProfile: { clientRef: "c1", name: "x", email: "no-at" } }, { ...SPEC, stripeCustomerId: undefined }]) {
+      const { stripe, deps } = setup({ resolvers: { event_fee: ownedResolver({ "bo-1": STUDIO_A }, bad as never) } });
+      expect(await createHostedInvoice(req(), deps)).toMatchObject({ code: "invalid_invoice_spec" });
+      expect(stripe.calls).toEqual([]);
+    }
+  });
+  it("a draft response carrying hosted_invoice_url is unexpected: refused, never reported as a payment link", async () => {
+    const { stripe, store, deps } = setup();
+    const orig = stripe.createDraftInvoice.bind(stripe);
+    stripe.createDraftInvoice = async (a) => ({ ...(await orig(a)), hosted_invoice_url: "https://invoice.stripe.com/i/x" }) as never;
+    const r = await createHostedInvoice(req(), deps);
+    expect(r).toMatchObject({ ok: false, code: "stripe_response_invalid" });
+    expect(JSON.stringify(r)).not.toMatch(/https?:/);
+    expect(store.log).not.toContain("register");
+    const ok = setup();
+    expect(JSON.stringify(await createHostedInvoice(req(), ok.deps))).not.toMatch(/url|https?:/i);
+  });
+});

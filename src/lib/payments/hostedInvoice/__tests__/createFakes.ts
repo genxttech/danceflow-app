@@ -26,6 +26,22 @@ export class FakeStripe implements HostedInvoiceStripeClient {
   seq = 0;
   prefix = "";
   forbidden = ["finalize", "send", "pay", "auto_advance_true"];
+  customers = new Map<string, { id: string; livemode: boolean; hash: string }>();
+  failCustomer: unknown = null;
+  async ensureCustomer(a: Parameters<HostedInvoiceStripeClient["ensureCustomer"]>[0]) {
+    this.calls.push({ op: "customer", account: a.stripeAccount, key: a.idempotencyKey, params: a.params });
+    if (this.failCustomer) { const e = this.failCustomer; this.failCustomer = null; throw e; }
+    const hash = JSON.stringify(a.params);
+    const k = `${a.stripeAccount}|${a.idempotencyKey}`;
+    const prior = this.customers.get(k);
+    if (prior) {
+      if (prior.hash !== hash) throw Object.assign(new Error("idem"), { type: "StripeIdempotencyError", statusCode: 400 });
+      return { id: prior.id, livemode: prior.livemode };
+    }
+    const c = { id: `cus_fake${this.prefix}${this.customers.size + 1}`, livemode: this.livemode, hash };
+    this.customers.set(k, c);
+    return { id: c.id, livemode: c.livemode };
+  }
   async createDraftInvoice(a: Parameters<HostedInvoiceStripeClient["createDraftInvoice"]>[0]) {
     this.calls.push({ op: "create", account: a.stripeAccount, key: a.idempotencyKey, params: a.params });
     if (this.failNext) { const e = this.failNext; this.failNext = null; throw e; }

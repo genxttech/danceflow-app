@@ -33,4 +33,12 @@ describe("D24 M3-B creation contract", { timeout: 300_000 }, () => {
     expect(code).not.toMatch(/from\s+["']stripe["']|require\(["']stripe|new\s+Stripe|getStripe|payments\/stripe["']|STRIPE_SECRET_KEY|process\.env\.STRIPE/);
     expect(code).not.toMatch(/finalizeInvoice|sendInvoice|\.pay\(|voidInvoice|markUncollectible|auto_advance:\s*true|payment_intent|charge_automatically/);
   });
+
+  it("the injected Stripe interface has exactly ensureCustomer / createDraftInvoice / addInvoiceLines (no finalize, send, pay, void)", () => {
+    const text = readFileSync(join(process.cwd(), "src/lib/payments/hostedInvoice/create.ts"), "utf8");
+    const start = text.indexOf("export interface HostedInvoiceStripeClient");
+    const body = text.slice(start, text.indexOf("\n}\n", start));
+    const methods = [...body.matchAll(/^ {2}([A-Za-z]+)\(/gm)].map((m) => m[1]).sort();
+    expect(methods).toEqual(["addInvoiceLines", "createDraftInvoice", "ensureCustomer"]);
+  });
 });

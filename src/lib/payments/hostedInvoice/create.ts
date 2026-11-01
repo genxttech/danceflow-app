@@ -54,7 +54,13 @@ export type AuthorizedBillingActor = {
 
 export type InvoiceSpec = {
   /** Stripe customer id in the studio's connected account, from trusted records. The resolver must prove it belongs to the studio. */
-  stripeCustomerId: string;
+  stripeCustomerId?: string;
+  /**
+   * Alternative to stripeCustomerId: the studio client to materialize as a Stripe customer in the connected account
+   * (ensureCustomer, same idempotency discipline). Exactly one of the two must be present. Comes from the DanceFlow client record
+   * resolved by the trusted resolver, never from the request. clientRef is the DanceFlow client id (informational + fingerprint).
+   */
+  customerProfile?: { clientRef: string; name: string; email?: string | null };
   currency: string;
   daysUntilDue: number;
   description?: string;
@@ -76,6 +82,8 @@ export type StripeInvoiceSnapshot = {
   livemode: boolean;
   status: string | null;
   collection_method: string | null;
+  /** A draft has no hosted URL; any non-null value is unexpected and refused (never reported as a payment link). */
+  hosted_invoice_url?: unknown;
   auto_advance?: boolean | null;
   customer: string | null;
   currency: string | null;
@@ -89,6 +97,12 @@ export type StripeInvoiceSnapshot = {
  * injected; this module never builds one.
  */
 export interface HostedInvoiceStripeClient {
+  /** Creates the Stripe customer for a studio client in the connected account. Idempotent per key; Stripe sends nothing to the customer. */
+  ensureCustomer(args: {
+    stripeAccount: string;
+    idempotencyKey: string;
+    params: { name: string; email?: string; metadata: Record<string, string> };
+  }): Promise<{ id: string; livemode: boolean; deleted?: boolean | null }>;
   createDraftInvoice(args: {
     stripeAccount: string;
     idempotencyKey: string;
@@ -198,6 +212,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const INVOICE_ID = /^in_[A-Za-z0-9]{1,250}$/;
 const ACCOUNT_ID = /^acct_[A-Za-z0-9]+$/;
 const CUSTOMER_ID = /^cus_[A-Za-z0-9]+$/;
+const CLIENT_REF = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+const EMAIL = /^[^\s@<>]{1,64}@[^\s@<>]{1,190}$/;
 const OBJECT_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,254}$/;
 const REQUEST_KEY = /^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$/;
 const TYPE = /^[a-z][a-z0-9_]{0,63}$/;
@@ -215,7 +231,15 @@ const fail = (code: CreateCode, retryable = false, intentId?: string): CreateRes
 
 function validateSpec(spec: InvoiceSpec | null): spec is InvoiceSpec {
   if (!spec || typeof spec !== "object") return false;
-  if (typeof spec.stripeCustomerId !== "string" || !CUSTOMER_ID.test(spec.stripeCustomerId)) return false;
+  const hasId = spec.stripeCustomerId !== undefined;
+  const p = spec.customerProfile;
+  if (hasId === (p !== undefined)) return false; // exactly one
+  if (hasId && (typeof spec.stripeCustomerId !== "string" || !CUSTOMER_ID.test(spec.stripeCustomerId))) return false;
+  if (p !== undefined) {
+    if (!p || typeof p.clientRef !== "string" || !CLIENT_REF.test(p.clientRef)) return false;
+    if (typeof p.name !== "string" || p.name.trim().length < 1 || p.name.length > 200) return false;
+    if (p.email != null && (typeof p.email !== "string" || !EMAIL.test(p.email))) return false;
+  }
   if (typeof spec.currency !== "string" || !CURRENCY.test(spec.currency)) return false;
   if (!Number.isInteger(spec.daysUntilDue) || spec.daysUntilDue < 1 || spec.daysUntilDue > 90) return false;
   if (spec.description != null && (typeof spec.description !== "string" || spec.description.length > 500)) return false;
@@ -250,7 +274,7 @@ export function deriveIdempotencyKey(studioId: string, businessObjectType: strin
 
 export function deriveSpecFingerprint(businessObjectType: string, businessObjectId: string, spec: InvoiceSpec): string {
   return createHash("sha256")
-    .update(JSON.stringify({ t: businessObjectType, o: businessObjectId, c: spec.stripeCustomerId, cur: spec.currency, d: spec.daysUntilDue, desc: spec.description ?? null, l: spec.lines.map((l) => [l.description, l.amountCents]) }))
+    .update(JSON.stringify({ t: businessObjectType, o: businessObjectId, c: spec.stripeCustomerId ?? null, p: spec.customerProfile ? [spec.customerProfile.clientRef, spec.customerProfile.name, spec.customerProfile.email ?? null] : null, cur: spec.currency, d: spec.daysUntilDue, desc: spec.description ?? null, l: spec.lines.map((l) => [l.description, l.amountCents]) }))
     .digest("hex")
     .slice(0, 16);
 }
@@ -298,11 +322,22 @@ async function runFrom(intent: IntentRow, spec: InvoiceSpec | null, account: str
     let snap: StripeInvoiceSnapshot;
     let createdSnap: StripeInvoiceSnapshot | null = null;
     try {
+      let customerId = spec.stripeCustomerId;
+      if (customerId === undefined) {
+        const p = spec.customerProfile!;
+        const cust = await deps.stripe.ensureCustomer({
+          stripeAccount: account,
+          idempotencyKey: intent.idempotencyKey + ":customer",
+          params: { name: p.name.trim(), ...(p.email ? { email: p.email } : {}), metadata: { d24_intent_id: intent.id, d24_client_ref: p.clientRef } },
+        });
+        if (!cust || typeof cust.id !== "string" || !CUSTOMER_ID.test(cust.id) || cust.livemode !== deps.expectedLivemode || cust.deleted === true) throw new SnapshotError();
+        customerId = cust.id;
+      }
       const created = await deps.stripe.createDraftInvoice({
         stripeAccount: account,
         idempotencyKey: intent.idempotencyKey,
         params: {
-          customer: spec.stripeCustomerId,
+          customer: customerId,
           collection_method: "send_invoice",
           days_until_due: spec.daysUntilDue,
           currency: spec.currency,
@@ -312,14 +347,14 @@ async function runFrom(intent: IntentRow, spec: InvoiceSpec | null, account: str
         },
       });
       createdSnap = created;
-      validateSnapshot(created, spec);
+      validateSnapshot(created, customerId, spec);
       snap = await deps.stripe.addInvoiceLines({
         stripeAccount: account,
         idempotencyKey: intent.idempotencyKey + ":lines",
         invoiceId: created.id,
         lines: spec.lines.map((l) => ({ description: l.description, amount: l.amountCents })),
       });
-      validateSnapshot(snap, spec);
+      validateSnapshot(snap, customerId, spec);
       if (snap.id !== created.id || snap.livemode !== created.livemode) throw new SnapshotError();
       if (typeof snap.total !== "number" || snap.total !== specTotal(spec)) throw new SnapshotError();
     } catch (e) {
@@ -367,11 +402,11 @@ async function runFrom(intent: IntentRow, spec: InvoiceSpec | null, account: str
 
 class SnapshotError extends Error {}
 
-function validateSnapshot(s: StripeInvoiceSnapshot, spec: InvoiceSpec) {
+function validateSnapshot(s: StripeInvoiceSnapshot, customerId: string, spec: InvoiceSpec) {
   if (
     !s || typeof s.id !== "string" || !INVOICE_ID.test(s.id) || typeof s.livemode !== "boolean" ||
     s.status !== "draft" || s.collection_method !== "send_invoice" || s.auto_advance !== false ||
-    s.customer !== spec.stripeCustomerId || s.currency !== spec.currency ||
+    s.customer !== customerId || (s.hosted_invoice_url != null && s.hosted_invoice_url !== "") || s.currency !== spec.currency ||
     (s.subscription != null && s.subscription !== false) ||
     (s.parent != null && typeof s.parent === "object" && (s.parent as { subscription_details?: unknown }).subscription_details != null)
   ) {
