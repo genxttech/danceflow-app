@@ -43,8 +43,9 @@ create table if not exists public.price_transition_notices (
   constraint price_transition_notices_wording_check check (length(btrim(wording_reference)) > 0),
   constraint price_transition_notices_status_check check (delivery_status in ('pending', 'delivered', 'bounced', 'failed')),
   constraint price_transition_notices_delivered_evidence check (
-    delivery_status <> 'delivered' or (sent_at is not null and recipient is not null and message_id is not null)
+    delivery_status <> 'delivered' or (sent_at is not null and recipient is not null and message_id is not null and approved_at is not null and approved_at <= sent_at and sent_at <= effective_at)
   ),
+  constraint price_transition_notices_id_subscription_unique unique (id, protected_subscription_id),
   constraint price_transition_notices_approved_pair check ((approved_by is null) = (approved_at is null))
 );
 
@@ -54,7 +55,7 @@ create index if not exists price_transition_notices_subscription_idx
 create table if not exists public.price_transitions (
   id uuid primary key default gen_random_uuid(),
   protected_subscription_id uuid not null references public.protected_subscriptions(id) on delete restrict,
-  notice_id uuid not null references public.price_transition_notices(id) on delete restrict,
+  notice_id uuid not null,
   stripe_subscription_id text not null,
   target_stripe_price_id text not null,
   boundary_at timestamptz not null,
@@ -68,7 +69,8 @@ create table if not exists public.price_transitions (
   updated_at timestamptz not null default now(),
   constraint price_transitions_status_check check (status in ('approved', 'scheduled', 'applied', 'failed', 'canceled')),
   constraint price_transitions_sub_id_format check (stripe_subscription_id ~ '^sub_[A-Za-z0-9]+$'),
-  constraint price_transitions_scheduled_has_schedule check (status not in ('scheduled', 'applied') or stripe_schedule_id is not null)
+  constraint price_transitions_scheduled_has_schedule check (status not in ('scheduled', 'applied') or stripe_schedule_id is not null),
+  constraint price_transitions_notice_same_subscription foreign key (notice_id, protected_subscription_id) references public.price_transition_notices(id, protected_subscription_id) on delete restrict
 );
 
 -- At most one open transition per protected subscription.
@@ -102,6 +104,13 @@ begin
      or new.created_at is distinct from old.created_at then
     raise exception 'the disclosed terms of a price transition notice are immutable; create a new notice' using errcode = '42501';
   end if;
+  -- delivery evidence is write-once: once delivered it cannot be backdated, rewritten or withdrawn
+  if old.delivery_status = 'delivered' and (new.delivery_status is distinct from old.delivery_status or new.sent_at is distinct from old.sent_at or new.recipient is distinct from old.recipient or new.message_id is distinct from old.message_id) then
+    raise exception 'delivered notice evidence is immutable' using errcode = '42501';
+  end if;
+  if new.sent_at is distinct from old.sent_at and new.sent_at > now() then
+    raise exception 'sent_at cannot be in the future' using errcode = '42501';
+  end if;
   if old.approved_at is not null and (new.approved_by is distinct from old.approved_by or new.approved_at is distinct from old.approved_at) then
     raise exception 'notice approval is immutable' using errcode = '42501';
   end if;
@@ -131,6 +140,12 @@ begin
      or new.approved_at is distinct from old.approved_at
      or new.dry_run is distinct from old.dry_run then
     raise exception 'an approved price transition is immutable except for status, schedule id and result' using errcode = '42501';
+  end if;
+  if old.stripe_schedule_id is not null and new.stripe_schedule_id is distinct from old.stripe_schedule_id then
+    raise exception 'the recorded Stripe schedule id is immutable' using errcode = '42501';
+  end if;
+  if old.status = 'scheduled' and new.status = 'approved' then
+    raise exception 'a scheduled price transition cannot return to approved' using errcode = '42501';
   end if;
   if old.status in ('applied', 'failed', 'canceled') and new.status is distinct from old.status then
     raise exception 'a finished price transition cannot change status' using errcode = '42501';

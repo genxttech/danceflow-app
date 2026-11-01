@@ -37,6 +37,9 @@ select pg_temp.expect_error($$update public.price_transition_notices set wording
 update public.price_transition_notices set approved_by = '00000000-0000-0000-0000-0000000000d1', approved_at = now(),
   sent_at = now(), recipient = 'owner@example.test', message_id = 'm1', delivery_status = 'delivered' where id = '00000000-0000-0000-0000-0000000000c1';
 insert into _r values ('delivery evidence can be recorded', true);
+select pg_temp.expect_error($$update public.price_transition_notices set sent_at = now() - interval '40 days' where id = '00000000-0000-0000-0000-0000000000c1'$$, '42501', 'delivered sent_at cannot be backdated');
+select pg_temp.expect_error($$update public.price_transition_notices set delivery_status = 'pending' where id = '00000000-0000-0000-0000-0000000000c1'$$, '42501', 'delivered cannot be withdrawn');
+select pg_temp.expect_error($$update public.price_transition_notices set message_id = 'other' where id = '00000000-0000-0000-0000-0000000000c1'$$, '42501', 'delivered message id immutable');
 select pg_temp.expect_error($$update public.price_transition_notices set approved_at = now() + interval '1 day' where id = '00000000-0000-0000-0000-0000000000c1'$$, '42501', 'approval immutable once set');
 select pg_temp.expect_error($$delete from public.price_transition_notices where id = '00000000-0000-0000-0000-0000000000c1'$$, '42501', 'notice delete refused');
 select pg_temp.expect_error($$truncate public.price_transition_notices$$, '0A000', 'notice truncate refused (referenced by a foreign key; the trigger covers the unreferenced case)');
@@ -51,6 +54,8 @@ select pg_temp.expect_error($$update public.price_transitions set boundary_at = 
 select pg_temp.expect_error($$update public.price_transitions set dry_run = '{"x":1}' where id = '00000000-0000-0000-0000-0000000000e1'$$, '42501', 'dry run snapshot immutable');
 update public.price_transitions set status = 'scheduled', stripe_schedule_id = 'sub_sched_1', result = '{"ok":true}' where id = '00000000-0000-0000-0000-0000000000e1';
 insert into _r values ('status, schedule id and result can be finalized', true);
+select pg_temp.expect_error($$update public.price_transitions set stripe_schedule_id = 'sub_sched_other' where id = '00000000-0000-0000-0000-0000000000e1'$$, '42501', 'recorded schedule id immutable');
+select pg_temp.expect_error($$update public.price_transitions set status = 'approved' where id = '00000000-0000-0000-0000-0000000000e1'$$, '42501', 'scheduled cannot return to approved');
 update public.price_transitions set status = 'failed' where id = '00000000-0000-0000-0000-0000000000e1';
 select pg_temp.expect_error($$update public.price_transitions set status = 'approved' where id = '00000000-0000-0000-0000-0000000000e1'$$, '42501', 'finished transition cannot reopen');
 select pg_temp.expect_error($$delete from public.price_transitions where id = '00000000-0000-0000-0000-0000000000e1'$$, '42501', 'transition delete refused');
@@ -59,6 +64,13 @@ select pg_temp.expect_error($$truncate public.price_transitions$$, '42501', 'tra
 insert into public.price_transitions(protected_subscription_id, notice_id, stripe_subscription_id, target_stripe_price_id, boundary_at, approved_by, dry_run)
   values ('00000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-0000000000c1', 'sub_TEST1', 'price_regular', '2027-07-09T04:00:00Z', '00000000-0000-0000-0000-0000000000d1', '{}');
 insert into _r values ('retry allowed after a failed transition', true);
+
+-- a transition cannot cite a notice that belongs to another protected subscription
+select pg_temp.expect_error($$insert into public.price_transitions(protected_subscription_id, notice_id, stripe_subscription_id, target_stripe_price_id, boundary_at, approved_by, dry_run) values ('00000000-0000-0000-0000-0000000000b2','00000000-0000-0000-0000-0000000000c1','sub_TEST2','price_regular','2027-07-09T04:00:00Z','00000000-0000-0000-0000-0000000000d1','{}')$$, '23503', 'notice must belong to the same protected subscription');
+-- delivery cannot be recorded without a prior approval
+insert into public.price_transition_notices(id, protected_subscription_id, studio_id, effective_at, new_stripe_price_id, new_unit_amount_cents, wording_reference)
+  values ('00000000-0000-0000-0000-0000000000c9', '00000000-0000-0000-0000-0000000000b2', '00000000-0000-0000-0000-0000000000a1', '2027-07-09T04:00:00Z', 'price_regular', 15900, 'w');
+select pg_temp.expect_error($$update public.price_transition_notices set sent_at = now(), recipient = 'a', message_id = 'm', delivery_status = 'delivered' where id = '00000000-0000-0000-0000-0000000000c9'$$, '23514', 'delivery needs a prior approval');
 
 -- registry row cannot be deleted while referenced (restrict) and registry guard still applies
 select pg_temp.expect_error($$delete from public.protected_subscriptions where id = '00000000-0000-0000-0000-0000000000b1'$$, '42501', 'registry delete still refused');

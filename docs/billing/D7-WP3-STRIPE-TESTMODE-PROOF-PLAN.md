@@ -44,3 +44,19 @@ Independent review verdict recorded; PR CI green; owner authorization for the te
 
 ## 8. Explicit non-goals
 No live Stripe call; no change to DanceAbel's subscription; no registry insert on any hosted database; no customer notice; no assumption that today's regular Pro price will be the July 2027 price; the paid Organizer Suite add-on and its price are a separate work package.
+
+## 9. Additions after independent review (2026-10-31)
+Extra test-mode cases, to be run in the same authorized proof:
+| # | Case | Expected |
+|---|---|---|
+| T10 | Subscription with metadata, a default tax rate and item metadata | Both phases of the schedule carry them after scheduling, and they are still on the subscription after the clock advance |
+| T11 | Subscription with a coupon/discount, a trial, `pause_collection` or `cancel_at` | Refused by the planner (unsupported setting); nothing written |
+| T12 | Whether Stripe accepts the final phase with no `end_date`/`iterations`, and the exact first-phase `start_date` Stripe returns | Confirmed against the real API; if rejected the executor must be adjusted before any live use |
+| T13 | Create with a Stripe idempotency key replayed | One schedule only |
+| T14 | `D7_TRANSITION_OWNER_IDS` unset or not containing the approver | Refused before any write |
+
+Known follow-ups deliberately NOT in this PR (owner decisions or later work packages):
+- After the boundary passes, a reconcile step must mark the transition `applied` and the registry row must be updated/released (new `stripe_price_id`, audited release); otherwise the open transition and the registry keep treating the studio as protected. Needs an owner decision on when protection ends.
+- Confirm the new regular Pro Price id is recognised by the subscription webhook plan mapping before July 2027.
+- Pin the Stripe API version in the script once the proof fixes the version used.
+- The 60-day notice minimum and the 24-hour minimum lead time are provisional parameters.

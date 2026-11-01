@@ -4,14 +4,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   executePriceTransition,
   planPriceTransition,
-  type ScheduleStripe,
+
   type TransitionNotice,
   type TransitionSubscription,
   type TransitionTargetPrice,
 } from "../priceTransition";
+import { BOUNDARY, CARRY, PERIOD_START, statefulStripe, u } from "./priceTransitionFakes";
 
-const PERIOD_START = new Date("2027-06-09T04:00:00Z");
-const BOUNDARY = new Date("2027-07-09T04:00:00Z");
 const NOW = new Date("2027-04-01T00:00:00Z");
 const PROTECTED_ID = "prot-1";
 
@@ -46,6 +45,11 @@ const target = (over: Partial<TransitionTargetPrice> = {}): TransitionTargetPric
   unitAmountCents: 15900,
   currency: "usd",
   interval: "month",
+  intervalCount: 1,
+  type: "recurring",
+  billingScheme: "per_unit",
+  usageType: "licensed",
+  hasTransformQuantity: false,
   ...over,
 });
 
@@ -95,83 +99,99 @@ describe("planPriceTransition", () => {
   });
 });
 
-function fakeStripe(
-  overrides: {
-    retrieve?: ScheduleStripe["subscriptionSchedules"]["retrieve"];
-    update?: ScheduleStripe["subscriptionSchedules"]["update"];
-  } = {},
-) {
-  const calls: string[] = [];
-  const stripe: ScheduleStripe = {
-    subscriptionSchedules: {
-      create: vi.fn(async () => {
-        calls.push("create");
-        return { id: "sub_sched_1" };
-      }),
-      update: overrides.update ?? vi.fn(async () => void calls.push("update")),
-      retrieve:
-        overrides.retrieve ??
-        vi.fn(async () => ({
-          id: "sub_sched_1",
-          status: "not_started",
-          subscription: "sub_ABC123",
-          phases: [
-            { start_date: PERIOD_START.getTime() / 1000, end_date: BOUNDARY.getTime() / 1000, items: [{ price: "price_legacy129", quantity: 1 }] },
-            { start_date: BOUNDARY.getTime() / 1000, end_date: null, items: [{ price: "price_regular", quantity: 1 }] },
-          ],
-        })),
-      release: vi.fn(async () => void calls.push("release")),
-    },
-  };
-  return { stripe, calls };
-}
+describe("planPriceTransition: review hardening", () => {
+  it.each([
+    ["trial on the subscription", { subscription: subscription({ unsupportedSettings: ["trial"] }) }, "subscription_unsupported_settings"],
+    ["pause_collection", { subscription: subscription({ unsupportedSettings: ["pause_collection"] }) }, "subscription_unsupported_settings"],
+    ["discounts", { subscription: subscription({ unsupportedSettings: ["discounts"] }) }, "subscription_unsupported_settings"],
+    ["two-month interval target", { target: target({ intervalCount: 2 }) }, "target_price_shape_unsupported"],
+    ["metered target", { target: target({ usageType: "metered" }) }, "target_price_shape_unsupported"],
+    ["tiered target", { target: target({ billingScheme: "tiered" }) }, "target_price_shape_unsupported"],
+    ["transform_quantity target", { target: target({ hasTransformQuantity: true }) }, "target_price_shape_unsupported"],
+    ["target shape unknown", { target: target({ intervalCount: undefined }) }, "target_price_shape_unsupported"],
+    ["too close to the boundary", { now: new Date("2027-07-08T12:00:00Z") }, "boundary_too_soon"],
+  ] as const)("refuses: %s", (_name, over, blocker) => {
+    const result = plan(over as never);
+    expect(result.ok).toBe(false);
+    expect(result.blockers).toContain(blocker);
+  });
+});
 
 describe("executePriceTransition", () => {
   it("never touches Stripe for a blocked plan", async () => {
-    const { stripe } = fakeStripe();
+    const { stripe } = statefulStripe();
     const result = await executePriceTransition(stripe, plan({ notice: null }), { keyMode: "test" });
     expect(result.status).toBe("failed");
     expect(stripe.subscriptionSchedules.create).not.toHaveBeenCalled();
   });
 
   it("refuses a live key unless allowLive is explicit", async () => {
-    const { stripe } = fakeStripe();
+    const { stripe } = statefulStripe();
     const result = await executePriceTransition(stripe, plan(), { keyMode: "live" });
     expect(result).toMatchObject({ status: "failed" });
     expect(stripe.subscriptionSchedules.create).not.toHaveBeenCalled();
   });
 
-  it("creates, updates and verifies the schedule in test mode", async () => {
-    const { stripe, calls } = fakeStripe();
-    const result = await executePriceTransition(stripe, plan(), { keyMode: "test" });
+  it("builds both phases from the created schedule and carries metadata, tax and item settings into each", async () => {
+    const { stripe, calls, state } = statefulStripe();
+    const onScheduleCreated = vi.fn(async () => undefined);
+    const result = await executePriceTransition(stripe, plan(), { keyMode: "test", onScheduleCreated, idempotencyPrefix: "d7wp3-audit1" });
     expect(result).toEqual({ status: "scheduled", scheduleId: "sub_sched_1" });
     expect(calls).toEqual(["create", "update"]);
-    const update = vi.mocked(stripe.subscriptionSchedules.update).mock.calls[0][1];
-    expect(update.proration_behavior).toBe("none");
-    expect(update.end_behavior).toBe("release");
+    expect(onScheduleCreated).toHaveBeenCalledWith("sub_sched_1");
+    const update = vi.mocked(stripe.subscriptionSchedules.update).mock;
+    expect(update.calls[0][1].proration_behavior).toBe("none");
+    expect(update.calls[0][1].end_behavior).toBe("release");
+    expect(update.calls[0][2]).toEqual({ idempotencyKey: "d7wp3-audit1-update" });
+    expect(vi.mocked(stripe.subscriptionSchedules.create).mock.calls[0][1]).toEqual({ idempotencyKey: "d7wp3-audit1-create" });
+    for (const phase of state().phases) {
+      expect(phase.metadata).toEqual(CARRY.metadata);
+      expect(phase.default_tax_rates).toEqual(CARRY.default_tax_rates);
+      expect(phase.collection_method).toBe("charge_automatically");
+    }
+    expect(state().phases[0].items[0]).toMatchObject({ price: "price_legacy129", quantity: 1, metadata: { k: "v" } });
+    expect(state().phases[1].items[0]).toMatchObject({ price: "price_regular", quantity: 1, metadata: { k: "v" } });
   });
 
-  it("releases the schedule so the subscription is unchanged when the read-back differs", async () => {
-    const retrieve = vi.fn(async () => ({
-      id: "sub_sched_1",
-      status: "not_started",
-      subscription: "sub_ABC123",
-      phases: [
-        { start_date: PERIOD_START.getTime() / 1000, end_date: BOUNDARY.getTime() / 1000, items: [{ price: "price_legacy129", quantity: 1 }] },
-        { start_date: BOUNDARY.getTime() / 1000, end_date: null, items: [{ price: "price_wrong", quantity: 1 }] },
-      ],
-    }));
-    const { stripe, calls } = fakeStripe({ retrieve });
+  it("releases and reports failure when a carried setting is lost on the read-back", async () => {
+    const { stripe, calls } = statefulStripe({ dropCarryOnUpdate: true });
     const result = await executePriceTransition(stripe, plan(), { keyMode: "test" });
     expect(result).toMatchObject({ status: "failed", released: true });
+    expect((result as { reason: string }).reason).toMatch(/lost metadata/);
     expect(calls).toContain("release");
   });
 
   it("releases the schedule when the update call throws", async () => {
-    const { stripe, calls } = fakeStripe({ update: vi.fn(async () => { throw new Error("stripe down"); }) });
+    const { stripe, calls } = statefulStripe({ failUpdate: true });
     const result = await executePriceTransition(stripe, plan(), { keyMode: "test" });
     expect(result).toMatchObject({ status: "failed", reason: "stripe down", released: true });
+    expect(calls).toEqual(["create", "update", "release"]);
+  });
+
+  it("finds and releases an orphan schedule when the create response is lost", async () => {
+    const { stripe, calls, state } = statefulStripe({ loseCreateResponse: true });
+    const result = await executePriceTransition(stripe, plan(), { keyMode: "test" });
+    expect(result).toMatchObject({ status: "failed", scheduleId: "sub_sched_1", released: true });
     expect(calls).toEqual(["create", "release"]);
+    expect(state().attached).toBeNull();
+  });
+
+  it("reports released:false loudly when the release itself fails", async () => {
+    const { stripe } = statefulStripe({ failUpdate: true, failRelease: true });
+    const result = await executePriceTransition(stripe, plan(), { keyMode: "test" });
+    expect(result).toMatchObject({ status: "failed", scheduleId: "sub_sched_1", released: false });
+  });
+
+  it("refuses when the schedule Stripe created does not match the approved period start", async () => {
+    const { stripe } = statefulStripe();
+    const retrieve = stripe.subscriptionSchedules.retrieve;
+    vi.mocked(retrieve).mockImplementationOnce(async () => ({
+      id: "sub_sched_1", status: "not_started", subscription: "sub_ABC123",
+      phases: [{ start_date: u(PERIOD_START) + 5, end_date: u(BOUNDARY), items: [{ price: "price_legacy129", quantity: 1 }] }],
+    }));
+    const result = await executePriceTransition(stripe, plan(), { keyMode: "test" });
+    expect(result).toMatchObject({ status: "failed", released: true });
+    expect(stripe.subscriptionSchedules.update).not.toHaveBeenCalled();
   });
 });
 
