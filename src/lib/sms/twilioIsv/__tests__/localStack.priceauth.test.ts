@@ -771,27 +771,26 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
 
   it("PA-21 no one-window takeover chain: a key that is pending revocation signs nothing new, a key that signed a pending change is not revoked behind it, and a change whose signer was revoked is VOID at apply", () => {
     clear();
-    const K1x = new SoftAuthenticator();
     const K2x = new SoftAuthenticator();
     const K3x = new SoftAuthenticator();
     const Katt = new SoftAuthenticator();
-    resetCreds(K1x, K2x, K3x);
+    resetCreds(K2x, K3x);
     const sess = claims(A, S2);
     // the reviewed chain: enrol Katt (by K2), revoke K2 (by K3), revoke K3 (by K2)
     const pe = enrollReq(sess, K2x, Katt, "attacker key katt");
     expect(pe.status).toBe("pending");
     expect(revokeReq(sess, K3x, K2x)).toMatchObject({ status: "rejected", reason: expect.stringMatching(/signed a pending change/) });
-    cancelWith(sess, pe.change_id, K1x);
+    expect(cancelWith(sess, pe.change_id, K3x)).toMatchObject({ status: "cancelled" });
     // the other order: revoke K3 (by K2) is queued; then the crossing revoke of K2 (by K3) and an enrolment by K3 are refused
     const r1 = revokeReq(sess, K2x, K3x);
     expect(r1.status).toBe("pending");
     expect(revokeReq(sess, K3x, K2x)).toMatchObject({ status: "rejected", reason: expect.stringMatching(/pending revocation/) });
     expect(enrollReq(sess, K3x, Katt, "attacker key katt")).toMatchObject({ status: "rejected", reason: expect.stringMatching(/pending revocation/) });
-    expect(revokeReq(sess, K1x, K3x)).toMatchObject({ status: "rejected", reason: expect.stringMatching(/already pending revocation/) });
+    expect(revokeReq(sess, K2x, K3x)).toMatchObject({ status: "rejected", reason: expect.stringMatching(/already pending revocation/) });
     // apply: K3 is revoked; after that K3 cannot be the signer of anything
     ageChange(r1.change_id);
     expect(applyChange(sess, r1.change_id)).toMatchObject({ status: "applied" });
-    expect(num("select count(*) from public.studio_sms_price_credentials where status = 'active'")).toBe(2);
+    expect(num("select count(*) from public.studio_sms_price_credentials where status = 'active'")).toBe(1);
     // a change whose signer is revoked by ANY path is void at apply: enrol Katt by K2, then K2 is revoked behind it by an owner-level step
     const pe2 = enrollReq(sess, K2x, Katt, "attacker key katt");
     expect(pe2.status).toBe("pending");
@@ -820,7 +819,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       // the target of the revocation cannot cancel it; an unregistered key cannot; a challenge for another change cannot be reused
       expect(cancelWith(sess, r1.change_id, Ka)).toMatchObject({ status: "rejected", reason: expect.stringMatching(/cannot cancel its own revocation/) });
       expect(cancelWith(sess, r1.change_id, KX)).toMatchObject({ status: "rejected" });
-      const other = revokeReq(sess, Kc, Kb);
+      const other = revokeReq(sess, Kb, Kc);
       expect(other.status).toBe("pending");
       const cbOther = cancelBegin(sess, other.change_id);
       expect(cancelSubmit(sess, r1.change_id, cbOther.nonce, Kc.assert(cbOther.challenge))).toMatchObject({ status: "rejected" });
@@ -882,6 +881,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     const Ka = new SoftAuthenticator();
     const Kb = new SoftAuthenticator();
     resetCreds(Ka, Kb);
+    setConfig("monitor_seq_lifted = 0"); // the stand-in table below restarts its sequence
     psql("create table public.studio_sms_price_security_events (seq bigint generated always as identity primary key, kind text not null, occurred_at timestamptz not null default clock_timestamp(), subject_user_id uuid null, detail jsonb not null default '{}'::jsonb, recorded_at timestamptz not null default clock_timestamp())");
     try {
       for (const stamp of ["1970-01-01", "2999-01-01"]) {
