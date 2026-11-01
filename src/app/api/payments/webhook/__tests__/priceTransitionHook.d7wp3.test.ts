@@ -20,7 +20,9 @@ const rpcLog: Array<{ fn: string; args: Record<string, unknown> }> = [];
 const tableLog: Array<{ table: string; op: string }> = [];
 const stripeCalls: string[] = [];
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const reconcile = vi.fn(async (..._args: unknown[]) => ({ state: "awaiting_stripe", reasons: [] as string[] }));
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const findOpen = vi.fn(async (..._args: unknown[]): Promise<string | null> => "transition-1");
 
 vi.mock("next/headers", () => ({
