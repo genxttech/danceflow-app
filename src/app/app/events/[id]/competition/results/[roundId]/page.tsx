@@ -249,7 +249,7 @@ export default async function CompetitionRoundResultsPage({
               </button>
             </form>
           ) : (
-            <p role="status" className="text-sm text-slate-700">{correctionPanel.text}</p>
+            <p className="text-sm text-slate-700">{correctionPanel.text}</p>
           )}
         </section>
       ) : null}
