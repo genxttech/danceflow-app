@@ -121,10 +121,12 @@ describe("happy path", () => {
   });
   it("different studios never share an idempotency key; the fingerprint is 64 lowercase hex and content-sensitive", () => {
     expect(deriveIdempotencyKey(STUDIO_A, "t", "o", "k")).not.toBe(deriveIdempotencyKey(STUDIO_B, "t", "o", "k"));
-    const f = deriveRequestFingerprint(STUDIO_A, "t", "o", SPEC);
+    const f = deriveRequestFingerprint(STUDIO_A, "t", "o", SPEC, ACCT_A, false);
     expect(f).toMatch(/^[0-9a-f]{64}$/);
-    expect(deriveRequestFingerprint(STUDIO_A, "t", "o", { ...SPEC, description: "x" })).not.toBe(f);
-    expect(deriveRequestFingerprint(STUDIO_B, "t", "o", SPEC)).not.toBe(f);
+    expect(deriveRequestFingerprint(STUDIO_A, "t", "o", { ...SPEC, description: "x" }, ACCT_A, false)).not.toBe(f);
+    expect(deriveRequestFingerprint(STUDIO_B, "t", "o", SPEC, ACCT_A, false)).not.toBe(f);
+    expect(deriveRequestFingerprint(STUDIO_A, "t", "o", SPEC, ACCT_B, false)).not.toBe(f); // account is covered
+    expect(deriveRequestFingerprint(STUDIO_A, "t", "o", SPEC, ACCT_A, true)).not.toBe(f); // key mode is covered
   });
 });
 
@@ -175,7 +177,7 @@ describe("the ten recovery scenarios", () => {
   it("1. crash before the Stripe request (no record at all): recovery claim replays with the ORIGINAL key and creates exactly one invoice", async () => {
     const { stripe, store, deps } = setup();
     // simulate a process death after begin: ledger row exists, Stripe never contacted
-    const begun = await store.begin({ studioId: STUDIO_A, createdBy: USER_A, idempotencyKey: deriveIdempotencyKey(STUDIO_A, "event_fee", "bo-1", "req-key-0001"), requestFingerprint: deriveRequestFingerprint(STUDIO_A, "event_fee", "bo-1", SPEC), businessObjectType: "event_fee", businessObjectId: "bo-1" });
+    const begun = await store.begin({ studioId: STUDIO_A, createdBy: USER_A, idempotencyKey: deriveIdempotencyKey(STUDIO_A, "event_fee", "bo-1", "req-key-0001"), requestFingerprint: deriveRequestFingerprint(STUDIO_A, "event_fee", "bo-1", SPEC, ACCT_A, false), businessObjectType: "event_fee", businessObjectId: "bo-1" });
     if (!begun.ok) throw new Error("begin");
     expect(stripe.calls).toEqual([]);
     expect(await resumeIntent(begun.intent.id, SYS, deps)).toMatchObject({ ok: true, stripeInvoiceId: "in_fake1" });
@@ -184,10 +186,10 @@ describe("the ten recovery scenarios", () => {
   });
   it("2. crash after Stripe success before the invoice id is recorded: still pending; recovery replays the SAME key and gets the SAME invoice", async () => {
     const { stripe, store, deps } = setup();
-    store.markFail = true;
-    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, retryable: true });
+    store.markCrash = true; // the process dies between Stripe's response and the ledger write
+    await expect(createHostedInvoice(req(), deps)).rejects.toThrow();
     expect(first(store).state).toBe("pending");
-    store.markFail = false;
+    store.markCrash = false;
     const key = first(store).idempotencyKey;
     expect(await resumeIntent(firstId(store), SYS, deps)).toMatchObject({ ok: true, stripeInvoiceId: "in_fake1" });
     expect(stripe.calls.filter((c) => c.op === "create").map((c) => c.key)).toEqual([key, key]);
@@ -361,6 +363,7 @@ describe("failure classification", () => {
     stripe.failAfterCreate = permErr();
     expect(await createHostedInvoice(req(), deps)).toMatchObject({ code: "stripe_rejected", retryable: false });
     expect(first(store).stripeInvoiceId).toBe("in_fake1");
+    expect(first(store).state).toBe("needs_review");
   });
   it("never returns provider or database text", async () => {
     const { stripe, deps } = setup();
@@ -406,7 +409,7 @@ describe("M3 decisions: draft-only, customer", () => {
   });
   it("customer creation is idempotent across a crash: recovery yields one customer and one invoice", async () => {
     const { stripe, store, deps } = profDeps();
-    stripe.failAfterCreate = netErr(); // crash after customer+invoice exist, before lines
+    stripe.failNext = netErr(); // crash after the customer exists, before the invoice request
     await createHostedInvoice(req(), deps);
     expect(stripe.customers.size).toBe(1);
     expect(await resumeIntent(firstId(store), SYS, deps)).toMatchObject({ ok: true });
@@ -479,5 +482,85 @@ describe("webhook before registration (offline signed fixture)", () => {
     expect(Object.keys(r)).not.toContain("paid");
     expect(first(store).studioId).toBe(STUDIO_A);
     expect(stripe.createCount).toBe(1);
+  });
+});
+
+describe("second review (P1/P2) regressions", () => {
+  it("P1-1: review is flagged BEFORE the id is recorded; if the flag cannot be confirmed the invoice is never made registerable", async () => {
+    const { stripe, store, deps } = setup();
+    store.flagFail = true;
+    const orig = stripe.createDraftInvoice.bind(stripe);
+    stripe.createDraftInvoice = async (a) => ({ ...(await orig(a)), customer: "cus_other" }) as never;
+    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, code: "stripe_response_invalid" });
+    expect(first(store).state).toBe("pending"); // not provider_created, so a later sweep can never register the mismatched invoice
+    expect(store.log).not.toContain("mark");
+    expect(store.log).not.toContain("register");
+  });
+  it("P1-2: an ambiguous or retryable end AFTER the draft id is known keeps the id on a needs_review intent", async () => {
+    for (const err of [netErr(), Object.assign(new Error("rl"), { type: "StripeRateLimitError", statusCode: 429 })]) {
+      const { stripe, store, deps } = setup();
+      stripe.failAfterCreate = err;
+      const r = await createHostedInvoice(req(), deps);
+      expect(r.ok).toBe(false);
+      expect(first(store).state).toBe("needs_review");
+      expect(first(store).stripeInvoiceId).toBe("in_fake1");
+      expect(store.log).not.toContain("register");
+    }
+  });
+  it("P1-2: if the ledger refuses to record the id on the success path the intent is held for review with the id", async () => {
+    const { store, deps } = setup();
+    store.markFail = true;
+    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, code: "registration_unavailable" });
+    expect(first(store).state).toBe("needs_review");
+  });
+  it("P1-3: a 'permanent' answer on a REPLAY never frees the object; idempotency-key reuse always goes to review", async () => {
+    const forbidden = Object.assign(new Error("403"), { type: "StripePermissionError", statusCode: 403 });
+    const { stripe, store, deps } = setup();
+    stripe.failNext = netErr();
+    await createHostedInvoice(req(), deps); // unknown recorded
+    stripe.failNext = forbidden;
+    expect(await resumeIntent(firstId(store), SYS, deps)).toMatchObject({ ok: false, code: "stripe_rejected" });
+    expect(first(store).state).toBe("needs_review");
+    const b = setup();
+    b.stripe.failNext = Object.assign(new Error("idem"), { type: "StripeIdempotencyError", statusCode: 400 });
+    await createHostedInvoice(req(), b.deps);
+    expect(first(b.store).state).toBe("needs_review");
+    expect(b.store.log.some((l) => l.startsWith("fail:"))).toBe(false);
+    // replay through begin 'existing' is also a replay
+    const c = setup();
+    c.stripe.failNext = Object.assign(new Error("rl"), { type: "StripeRateLimitError", statusCode: 429 });
+    await createHostedInvoice(req(), c.deps);
+    c.stripe.failNext = forbidden;
+    await createHostedInvoice(req(), c.deps);
+    expect(first(c.store).state).toBe("needs_review");
+  });
+  it("P2-1: begin's register_only outcome finishes registration without any Stripe call", async () => {
+    const { stripe, store, deps } = setup();
+    store.registerFail = { code: "registration_failed", retryable: true };
+    await createHostedInvoice(req(), deps);
+    store.registerFail = null;
+    const calls = stripe.calls.length;
+    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: true });
+    expect(stripe.calls.length).toBe(calls);
+  });
+  it("P2-2: if outcome_unknown cannot be recorded the intent is held for review", async () => {
+    const { stripe, store, deps } = setup();
+    store.recordFail = true;
+    stripe.failNext = netErr();
+    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, code: "outcome_unknown" });
+    expect(first(store).state).toBe("needs_review");
+  });
+  it("P2-4: recovery dead ends (account changed, object gone, resolver missing) go to the review queue", async () => {
+    const mk = async () => { const x = setup(); x.stripe.failNext = netErr(); await createHostedInvoice(req(), x.deps); return x; };
+    let x = await mk();
+    await resumeIntent(firstId(x.store), SYS, { ...x.deps, supabase: fakeSupabase({ [STUDIO_A]: { acct: "acct_NEW999" } }) });
+    expect(first(x.store).state).toBe("needs_review");
+    x = await mk();
+    await resumeIntent(firstId(x.store), SYS, { ...x.deps, resolvers: { event_fee: ownedResolver({}) } });
+    expect(first(x.store).state).toBe("needs_review");
+    x = await mk();
+    await resumeIntent(firstId(x.store), SYS, { ...x.deps, resolvers: {} });
+    expect(first(x.store).state).toBe("needs_review");
+    expect(x.stripe.createCount).toBe(0);
   });
 });

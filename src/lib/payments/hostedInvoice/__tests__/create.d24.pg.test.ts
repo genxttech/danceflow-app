@@ -149,9 +149,9 @@ describe.skipIf(!CONTAINER)("orchestrator against real Postgres (M1 + M2-C + M3-
     const { deps: d } = deps();
     const b = await d.store.begin({ studioId: A, createdBy: U, idempotencyKey: "d24inv_pg_forged_key_0001", requestFingerprint: "a".repeat(64), businessObjectType: "event_fee", businessObjectId: "bo-a5" });
     if (!b.ok) throw new Error("begin failed");
-    expect(await d.store.markProviderCreated({ intentId: b.intent.id, studioId: A, stripeInvoiceId: "in_forged1", livemode: true, keyLivemode: false, stripeAccountId: "acct_studioA" })).toBe(false);
-    expect(await d.store.markProviderCreated({ intentId: b.intent.id, studioId: A, stripeInvoiceId: "in_forged1", livemode: false, keyLivemode: false, stripeAccountId: "acct_studioB" })).toBe(false);
-    expect(await d.store.markProviderCreated({ intentId: b.intent.id, studioId: B, stripeInvoiceId: "in_forged1", livemode: false, keyLivemode: false, stripeAccountId: "acct_studioA" })).toBe(false);
+    expect(await d.store.markProviderCreated({ intentId: b.intent.id, studioId: A, stripeInvoiceId: "in_forged1", livemode: true, keyLivemode: false, stripeAccountId: "acct_studioA" })).toBe("error");
+    expect(await d.store.markProviderCreated({ intentId: b.intent.id, studioId: A, stripeInvoiceId: "in_forged1", livemode: false, keyLivemode: false, stripeAccountId: "acct_studioB" })).toBe("error");
+    expect(await d.store.markProviderCreated({ intentId: b.intent.id, studioId: B, stripeInvoiceId: "in_forged1", livemode: false, keyLivemode: false, stripeAccountId: "acct_studioA" })).toBe("error");
     expect((await d.store.get(b.intent.id))?.state).toBe("pending");
   });
 

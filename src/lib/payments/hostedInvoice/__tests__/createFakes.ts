@@ -108,6 +108,7 @@ export class FakeStore implements IntentStore {
       if (r.studioId === i.studioId && r.idempotencyKey === i.idempotencyKey) {
         if (r.requestFingerprint !== i.requestFingerprint) return { ok: false as const, code: "request_fingerprint_mismatch" as const, retryable: false };
         if (r.state === "registered" || r.state === "failed" || r.state === "abandoned") return { ok: true as const, outcome: "existing_terminal" as const, intent: { ...r } };
+        if (r.state === "provider_created") return { ok: true as const, outcome: "register_only" as const, intent: { ...r } };
         if (r.state === "needs_review") return { ok: true as const, outcome: "needs_review" as const, intent: { ...r } };
         if (r.state === "pending" && this.now - r.createdAtMs > this.windowMs) { r.state = "needs_review"; r.reviewReason = "window_expired"; return { ok: true as const, outcome: "needs_review" as const, intent: { ...r } }; }
         return { ok: true as const, outcome: "existing" as const, intent: { ...r } };
@@ -124,14 +125,17 @@ export class FakeStore implements IntentStore {
     return { ok: true as const, outcome: "created" as const, intent: { ...row } };
   }
   async get(id: string) { const r = this.rows.get(id); return r ? { ...r } : null; }
-  async markProviderCreated(i: Parameters<IntentStore["markProviderCreated"]>[0]) {
+  async markProviderCreated(i: Parameters<IntentStore["markProviderCreated"]>[0]): Promise<"recorded" | "review" | "error"> {
     this.log.push("mark");
-    if (this.markFail) return false;
+    if (this.markCrash) throw new Error("process died");
+    if (this.markFail) return "error";
     const r = this.rows.get(i.intentId)!;
-    if (i.livemode !== i.keyLivemode || i.stripeAccountId !== r.stripeAccountId || i.studioId !== r.studioId) return false;
+    if (i.livemode !== i.keyLivemode || i.stripeAccountId !== r.stripeAccountId || i.studioId !== r.studioId) return "error";
+    if (r.state === "needs_review") { r.stripeInvoiceId = r.stripeInvoiceId ?? i.stripeInvoiceId; r.livemode = r.livemode ?? i.livemode; return "review"; }
     if (r.state === "pending") { r.state = "provider_created"; r.stripeInvoiceId = i.stripeInvoiceId; r.livemode = i.livemode; r.outcomeUnknown = false; r.leaseUntil = undefined; }
-    return r.stripeInvoiceId === i.stripeInvoiceId;
+    return r.stripeInvoiceId === i.stripeInvoiceId ? "recorded" : "error";
   }
+  markCrash = false;
   needsReviewOnRegister = false;
   async register(i: { intentId: string; studioId: string }) {
     this.log.push("register");
@@ -156,8 +160,12 @@ export class FakeStore implements IntentStore {
   async recordOutcome(i: { intentId: string; code: string; unknown: boolean }) {
     this.log.push(`outcome:${i.code}:${i.unknown}`);
     const r = this.rows.get(i.intentId);
+    if (this.recordFail) return false;
     if (r && i.unknown) { r.outcomeUnknown = true; r.leaseUntil = undefined; }
+    return true;
   }
+  recordFail = false;
+  flagFail = false;
   async claimRecovery(i: { intentId: string; studioId: string; requestFingerprint: string }) {
     this.log.push("claim");
     const r = this.rows.get(i.intentId);
@@ -176,8 +184,10 @@ export class FakeStore implements IntentStore {
   }
   async flagReview(i: { intentId: string; reasonCode: string }) {
     this.log.push(`review:${i.reasonCode}`);
+    if (this.flagFail) return false;
     const r = this.rows.get(i.intentId);
     if (r && r.state !== "registered" && r.state !== "failed" && r.state !== "abandoned") { r.state = "needs_review"; r.reviewReason = i.reasonCode; }
+    return r?.state === "needs_review";
   }
   async listRecoverable(i: { limit: number }) { return [...this.rows.values()].filter((r) => r.state === "pending" || r.state === "provider_created").slice(0, i.limit).map((r) => ({ ...r })); }
 }

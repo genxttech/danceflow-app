@@ -139,7 +139,7 @@ export type IntentRow = {
   createdAtMs: number;
 };
 
-export type BeginOutcome = "created" | "existing" | "existing_terminal" | "needs_review";
+export type BeginOutcome = "created" | "existing" | "existing_terminal" | "needs_review" | "register_only";
 export type ClaimOutcome = "replay_permitted" | "lease_held" | "register_only" | "needs_review" | "terminal";
 
 /** Port over the M3-A SQL functions. The Supabase implementation below is the only place their signatures appear. */
@@ -157,17 +157,19 @@ export interface IntentStore {
   >;
   /** Direct service-role read of the ledger row; null when missing. Studio scoping is enforced by the caller. */
   get(intentId: string): Promise<IntentRow | null>;
-  markProviderCreated(input: { intentId: string; studioId: string; stripeInvoiceId: string; livemode: boolean; keyLivemode: boolean; stripeAccountId: string }): Promise<boolean>;
+  /** "recorded" = provider_created (or already); "review" = ledger recorded the id but the intent is/became needs_review; "error" = nothing recorded. */
+  markProviderCreated(input: { intentId: string; studioId: string; stripeInvoiceId: string; livemode: boolean; keyLivemode: boolean; stripeAccountId: string }): Promise<"recorded" | "review" | "error">;
   register(input: { intentId: string; studioId: string }): Promise<
     { ok: true; registryId: string; adoptedExistingFacts: boolean } | { ok: false; code: string; retryable: boolean }
   >;
   /** Permanent or recorded failure. Returns false when the ledger refused it (e.g. outcome unknown, or already registered). */
   fail(input: { intentId: string; studioId: string; code: string; permanent: boolean }): Promise<boolean>;
   /** Records an ambiguous provider end (sticky outcome_unknown). After this nothing may call Stripe except a granted recovery claim. */
-  recordOutcome(input: { intentId: string; studioId: string; code: string; unknown: boolean }): Promise<void>;
+  recordOutcome(input: { intentId: string; studioId: string; code: string; unknown: boolean }): Promise<boolean>;
   /** The ONLY gate for replaying a creation after a crash/ambiguity: the DB decides window, fingerprint match, account and lease. */
   claimRecovery(input: { intentId: string; studioId: string; requestFingerprint: string }): Promise<{ ok: true; outcome: ClaimOutcome; intent: IntentRow } | { ok: false }>;
-  flagReview(input: { intentId: string; studioId: string; reasonCode: string }): Promise<void>;
+  /** True only when the ledger confirmed the intent is (now) needs_review. */
+  flagReview(input: { intentId: string; studioId: string; reasonCode: string }): Promise<boolean>;
   listRecoverable(input: { limit: number; olderThanMinutes: number }): Promise<IntentRow[]>;
 }
 
@@ -287,9 +289,9 @@ export function deriveIdempotencyKey(studioId: string, businessObjectType: strin
 }
 
 /** Canonical sha256 (64 lowercase hex) of everything that determines the Stripe request; computed before the first provider call. */
-export function deriveRequestFingerprint(studioId: string, businessObjectType: string, businessObjectId: string, spec: InvoiceSpec): string {
+export function deriveRequestFingerprint(studioId: string, businessObjectType: string, businessObjectId: string, spec: InvoiceSpec, account: string, livemode: boolean): string {
   return createHash("sha256")
-    .update(JSON.stringify({ s: studioId, t: businessObjectType, o: businessObjectId, c: spec.stripeCustomerId ?? null, p: spec.customerProfile ? [spec.customerProfile.clientRef, spec.customerProfile.name, spec.customerProfile.email ?? null] : null, cur: spec.currency, d: spec.daysUntilDue, desc: spec.description ?? null, l: spec.lines.map((l) => [l.description, l.amountCents]) }))
+    .update(JSON.stringify({ s: studioId, a: account, m: livemode, t: businessObjectType, o: businessObjectId, c: spec.stripeCustomerId ?? null, p: spec.customerProfile ? [spec.customerProfile.clientRef, spec.customerProfile.name.trim(), spec.customerProfile.email || null] : null, cur: spec.currency, d: spec.daysUntilDue, desc: spec.description || null, l: spec.lines.map((l) => [l.description, l.amountCents]) }))
     .digest("hex");
 }
 
@@ -311,6 +313,7 @@ async function resolveAccount(supabase: Pick<SupabaseClient, "from">, studioId: 
 
 type Classified =
   | { kind: "unknown" } // ambiguous: the invoice may exist. Record outcome_unknown and STOP.
+  | { kind: "review" } // the key was already used: an earlier request reached Stripe and may have created an invoice
   | { kind: "retry"; code: "stripe_unavailable" } // definitively not processed (rate limit / key currently in use)
   | { kind: "permanent"; code: "stripe_rejected" };
 
@@ -319,7 +322,7 @@ function classifyStripeError(e: unknown): Classified {
   const type = String(err?.type ?? "");
   const status = Number(err?.statusCode ?? 0);
   if (err?.code === "idempotency_key_in_use") return { kind: "retry", code: "stripe_unavailable" };
-  if (type === "StripeIdempotencyError") return { kind: "permanent", code: "stripe_rejected" };
+  if (type === "StripeIdempotencyError") return { kind: "review" };
   if (type === "StripeRateLimitError" || status === 429) return { kind: "retry", code: "stripe_unavailable" };
   if (status >= 400 && status < 500 && type !== "StripeConnectionError" && type !== "StripeAPIError") return { kind: "permanent", code: "stripe_rejected" };
   return { kind: "unknown" };
@@ -327,18 +330,26 @@ function classifyStripeError(e: unknown): Classified {
 
 // ---------- core ----------
 
-async function review(store: IntentStore, intent: IntentRow, reason: string, code: CreateCode): Promise<CreateResult> {
-  await store.flagReview({ intentId: intent.id, studioId: intent.studioId, reasonCode: reason });
+/**
+ * Flag the intent for human review FIRST (so it can never be registered), then keep any provider invoice id on it (the ledger stores
+ * the id on a needs_review intent without allowing register). If the flag cannot be confirmed the id is NOT recorded: recording would
+ * move the intent to provider_created and make it registerable.
+ */
+async function escalate(store: IntentStore, intent: IntentRow, reason: string, code: CreateCode, keep?: { id: string; livemode: boolean; account: string; keyLivemode: boolean }): Promise<CreateResult> {
+  const flagged = await store.flagReview({ intentId: intent.id, studioId: intent.studioId, reasonCode: reason });
+  if (flagged && keep) {
+    await store.markProviderCreated({ intentId: intent.id, studioId: intent.studioId, stripeInvoiceId: keep.id, livemode: keep.livemode, keyLivemode: keep.keyLivemode, stripeAccountId: keep.account });
+  }
   return fail(code, false, intent.id);
 }
 
-/** Terminal failure for a definitively-not-created intent; if the ledger refuses (outcome unknown), escalate to review instead. */
+/** Terminal failure for a definitively-not-created intent; if the ledger refuses (outcome unknown / invoice recorded), escalate to review instead. */
 async function terminate(store: IntentStore, intent: IntentRow, code: string): Promise<void> {
   const ok = await store.fail({ intentId: intent.id, studioId: intent.studioId, code, permanent: true });
   if (!ok) await store.flagReview({ intentId: intent.id, studioId: intent.studioId, reasonCode: code });
 }
 
-async function runFrom(intent: IntentRow, spec: InvoiceSpec | null, account: string | null, deps: CreateDeps): Promise<CreateResult> {
+async function runFrom(intent: IntentRow, spec: InvoiceSpec | null, account: string | null, deps: CreateDeps, isReplay: boolean): Promise<CreateResult> {
   const { store } = deps;
   let invoiceId = intent.stripeInvoiceId;
   let livemode = intent.livemode;
@@ -385,25 +396,26 @@ async function runFrom(intent: IntentRow, spec: InvoiceSpec | null, account: str
       if (snap.id !== created.id || snap.livemode !== created.livemode) throw new SnapshotError();
       if (typeof snap.total !== "number" || snap.total !== specTotal(spec)) throw new SnapshotError();
     } catch (e) {
-      // Once a draft exists its id is recorded BEFORE it is escalated, so the orphan stays tracked (never silently lost).
-      const keepId = async () => {
-        if (createdSnap && typeof createdSnap.id === "string" && INVOICE_ID.test(createdSnap.id) && createdSnap.livemode === deps.expectedLivemode) {
-          await store.markProviderCreated({ intentId: intent.id, studioId: intent.studioId, stripeInvoiceId: createdSnap.id, livemode: createdSnap.livemode, keyLivemode: deps.expectedLivemode as boolean, stripeAccountId: account });
-        }
-      };
+      // A valid in-mode draft id that we hold must never be dropped: any run that does not complete escalates to review WITH the id.
+      const keep = createdSnap && typeof createdSnap.id === "string" && INVOICE_ID.test(createdSnap.id) && createdSnap.livemode === deps.expectedLivemode
+        ? { id: createdSnap.id, livemode: createdSnap.livemode, account, keyLivemode: deps.expectedLivemode as boolean }
+        : undefined;
       if (e instanceof SnapshotError) {
         // The provider returned something that does not match the trusted record: never register it, a human reconciles.
-        await keepId();
-        return review(store, intent, "stripe_response_invalid", "stripe_response_invalid");
+        return escalate(store, intent, "stripe_response_invalid", "stripe_response_invalid", keep);
       }
       const c = classifyStripeError(e);
       if (c.kind === "unknown") {
         // Ambiguous end (timeout / connection / 5xx): the invoice may exist. Record it and stop; no blind retry, no new key.
-        await store.recordOutcome({ intentId: intent.id, studioId: intent.studioId, code: "provider_outcome_unknown", unknown: true });
+        const recorded = await store.recordOutcome({ intentId: intent.id, studioId: intent.studioId, code: "provider_outcome_unknown", unknown: true });
+        if (keep || !recorded) return escalate(store, intent, "provider_outcome_unknown", "outcome_unknown", keep);
         return fail("outcome_unknown", false, intent.id);
       }
+      if (c.kind === "review") return escalate(store, intent, "idempotency_key_reused", "stripe_rejected", keep);
+      if (keep) return escalate(store, intent, c.kind === "retry" ? "provider_incomplete" : "provider_rejected_after_create", c.kind === "retry" ? "stripe_unavailable" : "stripe_rejected", keep);
       if (c.kind === "permanent") {
-        await keepId();
+        // A replay's "permanent" answer (401/403/400 ...) is not proof that the ORIGINAL request created nothing: never free the object on a replay.
+        if (isReplay) return escalate(store, intent, "replay_rejected", "stripe_rejected");
         await terminate(store, intent, c.code);
         return fail(c.code, false, intent.id);
       }
@@ -411,15 +423,18 @@ async function runFrom(intent: IntentRow, spec: InvoiceSpec | null, account: str
     }
 
     // The Stripe response is the only source of the id and livemode. A mismatch with the deployment key mode is refused.
-    if (snap.livemode !== deps.expectedLivemode) return review(store, intent, "livemode_mismatch", "livemode_mismatch");
+    if (snap.livemode !== deps.expectedLivemode) return escalate(store, intent, "livemode_mismatch", "livemode_mismatch");
+    const keepAll = { id: snap.id, livemode: snap.livemode, account, keyLivemode: deps.expectedLivemode };
     const marked = await store.markProviderCreated({ intentId: intent.id, studioId: intent.studioId, stripeInvoiceId: snap.id, livemode: snap.livemode, keyLivemode: deps.expectedLivemode, stripeAccountId: account });
-    if (!marked) return fail("registration_unavailable", true, intent.id);
+    if (marked === "review") return fail("needs_review", false, intent.id);
+    // The id is in hand but the ledger did not take it: hold the intent for review WITH the id rather than losing it.
+    if (marked === "error") return escalate(store, intent, "provider_id_not_recorded", "registration_unavailable", keepAll);
     invoiceId = snap.id;
     livemode = snap.livemode;
   }
 
   if ((intent.state === "provider_created" || intent.state === "registered") && livemode !== deps.expectedLivemode) {
-    if (intent.state === "provider_created") return review(store, intent, "livemode_mismatch", "livemode_mismatch");
+    if (intent.state === "provider_created") return escalate(store, intent, "livemode_mismatch", "livemode_mismatch");
     return fail("livemode_mismatch", false, intent.id);
   }
   if (!invoiceId || livemode == null || !INVOICE_ID.test(invoiceId)) return fail("registration_failed", false, intent.id);
@@ -427,7 +442,7 @@ async function runFrom(intent: IntentRow, spec: InvoiceSpec | null, account: str
   const reg = await store.register({ intentId: intent.id, studioId: intent.studioId });
   if (!reg.ok) {
     if (reg.code === "needs_review") return fail("needs_review", false, intent.id);
-    if (!reg.retryable) return review(store, intent, "registration_failed", "registration_failed");
+    if (!reg.retryable) return escalate(store, intent, "registration_failed", "registration_failed");
     return fail(reg.code === "registration_unavailable" ? "registration_unavailable" : "registration_failed", true, intent.id);
   }
   return { ok: true, state: "registered", intentId: intent.id, stripeInvoiceId: invoiceId, livemode, registryId: reg.registryId, adoptedExistingFacts: reg.adoptedExistingFacts };
@@ -480,7 +495,7 @@ export async function createHostedInvoice(request: CreateInvoiceRequest, deps: C
     studioId: actor.studioId,
     createdBy: actor.userId,
     idempotencyKey: deriveIdempotencyKey(actor.studioId, type, objectId, request.requestKey),
-    requestFingerprint: deriveRequestFingerprint(actor.studioId, type, objectId, spec),
+    requestFingerprint: deriveRequestFingerprint(actor.studioId, type, objectId, spec, account, deps.expectedLivemode),
     businessObjectType: type,
     businessObjectId: objectId,
   });
@@ -489,12 +504,15 @@ export async function createHostedInvoice(request: CreateInvoiceRequest, deps: C
   // Defense in depth: the ledger row must be this studio's.
   if (intent.studioId !== actor.studioId) return fail("intent_unavailable", false);
   if (outcome === "needs_review" || intent.state === "needs_review") return fail("needs_review", false, intent.id);
+  // provider_created: the invoice already exists and was recorded; finish registration without any Stripe call.
+  if (outcome === "register_only" || intent.state === "provider_created") return runFrom(intent, null, null, deps, false);
   // The ledger resolved the account itself; it must agree with ours or nothing is sent to Stripe.
   if (intent.stripeAccountId !== account) return fail("stripe_account_unavailable", false, intent.id);
   if (intent.state === "failed" || intent.state === "abandoned") return fail("intent_failed", false, intent.id);
   // An ambiguous earlier attempt is never retried from here; only resumeIntent (DB recovery claim) may replay it.
   if (intent.state === "pending" && intent.outcomeUnknown) return fail("outcome_unknown", false, intent.id);
-  return runFrom(intent, spec, account, deps);
+  // begin 'existing' on a pending intent is a replay of a possibly-sent request (inside the ledger's window, same key and account).
+  return runFrom(intent, spec, account, deps, outcome === "existing");
 }
 
 export type ResumeActor = AuthorizedBillingActor | { system: "d24_recovery" };
@@ -518,44 +536,44 @@ export async function resumeIntent(intentId: string, actor: ResumeActor, deps: C
   if (intent.state === "failed" || intent.state === "abandoned") return fail("intent_failed", false, intent.id);
   if (intent.state === "needs_review") return fail("needs_review", false, intent.id);
 
-  if (intent.state !== "pending") return runFrom(intent, null, null, deps);
+  if (intent.state !== "pending") return runFrom(intent, null, null, deps, false);
 
   const resolvers = deps.resolvers ?? PRODUCTION_INVOICE_SPEC_RESOLVERS;
   const resolver = Object.prototype.hasOwnProperty.call(resolvers, intent.businessObjectType) ? resolvers[intent.businessObjectType] : undefined;
-  if (!resolver) return fail("business_object_type_unsupported", false, intent.id);
+  if (!resolver) return escalate(deps.store, intent, "resolver_unavailable", "business_object_type_unsupported");
   const account = await resolveAccount(deps.supabase, intent.studioId);
-  if (!account || account !== intent.stripeAccountId) return fail("stripe_account_unavailable", false, intent.id);
+  if (!account || account !== intent.stripeAccountId) return escalate(deps.store, intent, "account_unavailable_or_changed", "stripe_account_unavailable");
   let spec: InvoiceSpec | null;
   try {
     spec = await resolver({ supabase: deps.supabase, studioId: intent.studioId, businessObjectId: intent.businessObjectId });
   } catch {
     return fail("spec_unavailable", true, intent.id);
   }
-  if (spec === null) return fail("business_object_not_owned", false, intent.id);
-  if (!validateSpec(spec)) return fail("invalid_invoice_spec", false, intent.id);
+  if (spec === null) return escalate(deps.store, intent, "object_not_owned", "business_object_not_owned");
+  if (!validateSpec(spec)) return escalate(deps.store, intent, "spec_invalid", "invalid_invoice_spec");
 
   const claim = await deps.store.claimRecovery({
     intentId: intent.id,
     studioId: intent.studioId,
-    requestFingerprint: deriveRequestFingerprint(intent.studioId, intent.businessObjectType, intent.businessObjectId, spec),
+    requestFingerprint: deriveRequestFingerprint(intent.studioId, intent.businessObjectType, intent.businessObjectId, spec, account, deps.expectedLivemode),
   });
   if (!claim.ok) return fail("intent_unavailable", true, intent.id);
   switch (claim.outcome) {
     case "replay_permitted":
       // Replay with the ORIGINAL key / account from the ledger row the DB just granted; anything else is a ledger/trust mismatch.
       if (claim.intent.id !== intent.id || claim.intent.stripeAccountId !== account || claim.intent.idempotencyKey !== intent.idempotencyKey || claim.intent.state !== "pending") {
-        return review(deps.store, intent, "claim_mismatch", "needs_review");
+        return escalate(deps.store, intent, "claim_mismatch", "needs_review");
       }
-      return runFrom(claim.intent, spec, account, deps);
+      return runFrom(claim.intent, spec, account, deps, true);
     case "register_only":
-      return runFrom(claim.intent, null, null, deps);
+      return runFrom(claim.intent, null, null, deps, false);
     case "lease_held":
       return fail("recovery_in_progress", true, intent.id);
     case "needs_review":
       return fail("needs_review", false, intent.id);
     default: {
       const again = await deps.store.get(intent.id);
-      if (again?.state === "registered") return runFrom(again, null, null, deps);
+      if (again?.state === "registered") return runFrom(again, null, null, deps, false);
       return fail("intent_failed", false, intent.id);
     }
   }
@@ -627,7 +645,7 @@ export function createSupabaseIntentStore(supabase: Pick<SupabaseClient, "rpc" |
       }
       const intent = toIntent(data);
       const outcome = (data as { outcome?: unknown } | null)?.outcome;
-      if (!intent || (outcome !== "created" && outcome !== "existing" && outcome !== "existing_terminal" && outcome !== "needs_review")) {
+      if (!intent || (outcome !== "created" && outcome !== "existing" && outcome !== "existing_terminal" && outcome !== "needs_review" && outcome !== "register_only")) {
         return { ok: false, code: "intent_unavailable", retryable: true };
       }
       return { ok: true, outcome, intent };
@@ -641,11 +659,14 @@ export function createSupabaseIntentStore(supabase: Pick<SupabaseClient, "rpc" |
       return error ? null : toIntent(data);
     },
     async markProviderCreated(i) {
-      const { error } = await supabase.rpc("d24_intent_mark_provider_created", {
+      const { data, error } = await supabase.rpc("d24_intent_mark_provider_created", {
         p_intent_id: i.intentId, p_studio_id: i.studioId, p_stripe_invoice_id: i.stripeInvoiceId, p_livemode: i.livemode,
         p_key_livemode: i.keyLivemode, p_stripe_account_id: i.stripeAccountId,
       });
-      return !error;
+      if (error) return "error";
+      const o = (data as { outcome?: unknown; status?: unknown } | null);
+      if (o?.status === "needs_review" || o?.outcome === "recorded_in_review" || o?.outcome === "needs_review") return "review";
+      return o?.outcome === "provider_created" || o?.outcome === "already_recorded" ? "recorded" : "error";
     },
     async register(i) {
       const { data, error } = await supabase.rpc("d24_intent_register", { p_intent_id: i.intentId, p_studio_id: i.studioId });
@@ -665,7 +686,8 @@ export function createSupabaseIntentStore(supabase: Pick<SupabaseClient, "rpc" |
       return !error;
     },
     async recordOutcome(i) {
-      await supabase.rpc("d24_intent_record_outcome", { p_intent_id: i.intentId, p_studio_id: i.studioId, p_outcome_code: i.code, p_outcome_unknown: i.unknown });
+      const { error } = await supabase.rpc("d24_intent_record_outcome", { p_intent_id: i.intentId, p_studio_id: i.studioId, p_outcome_code: i.code, p_outcome_unknown: i.unknown });
+      return !error;
     },
     async claimRecovery(i) {
       const { data, error } = await supabase.rpc("d24_intent_claim_recovery", {
@@ -679,7 +701,8 @@ export function createSupabaseIntentStore(supabase: Pick<SupabaseClient, "rpc" |
       return { ok: true, outcome, intent };
     },
     async flagReview(i) {
-      await supabase.rpc("d24_intent_flag_review", { p_intent_id: i.intentId, p_studio_id: i.studioId, p_reason_code: i.reasonCode });
+      const { data, error } = await supabase.rpc("d24_intent_flag_review", { p_intent_id: i.intentId, p_studio_id: i.studioId, p_reason_code: i.reasonCode });
+      return !error && (data as { status?: unknown } | null)?.status === "needs_review";
     },
     async listRecoverable(i) {
       const { data, error } = await supabase.rpc("d24_intent_list_recoverable", { p_older_than_minutes: i.olderThanMinutes, p_limit: i.limit });
