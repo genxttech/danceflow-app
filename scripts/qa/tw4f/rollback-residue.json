@@ -1,8 +1,8 @@
 {
   "_comment": "Catalog lines that a FAIL-CLOSED rollback leaves on purpose (D4-1, migration 20270204090000). The runner ignores exactly these lines, and only when it compares a ROLLBACK stage with the earlier catalog; re-apply stages are always compared exactly. After the rollback of 20270204090000 tw4_price_set stays a refusing stub with EXECUTE revoked from every role and the price-list triggers stay with an insert guard that refuses every insert; 20270204100000 (D4-2) restores 20270204090000 exactly and leaves nothing of its own. Add nothing here without a security review.",
   "patterns": [
-    "^fn (public\.)?tw4_price_set\(",
-    "^fn (public\.)?_tw4price_(activation|truncate)_guard\(",
-    "^trg (public\.)?studio_sms_price_list studio_sms_price_list_00_"
+    "^fn (public\\.)?tw4_price_set\\(",
+    "^fn (public\\.)?_tw4price_(activation|truncate)_guard\\(",
+    "^trg (public\\.)?studio_sms_price_list studio_sms_price_list_00_"
   ]
 }
