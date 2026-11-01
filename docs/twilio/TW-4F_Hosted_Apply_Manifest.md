@@ -119,6 +119,7 @@ CRLF handling, because it corrupted function-body fingerprints before:
 | 20261231090000 | 20261231090000_twilio_platform_admin_aal2.sql | 5bb6faceecad0fef65bf842d93b4eba677e4df3e6b65bf01634ebb14c69e5333 | 7fd5f9d4739eaf8daede267930d813cb7217e136875a285df3115820ec4c131d | LF |
 | 20261231100000 | 20261231100000_twilio_pilot_spend_hardening.sql | 7862e9b97c83be4e1972de03104ac8b7d0738c54ce30c03cb731aeabd1d0a837 | 5d15406a53c1068c8369314d5b1978ac49d7828c383c0eeb8b2598da3b463b69 | LF |
 | 20270204090000 | 20270204090000_twilio_price_dual_control.sql | 2921f5e417a573110d35fe19774fecef518dd5a1e6a2cc88dd4c7a8e1a098ae4 | 7242e724f8fde31b726a2aaf9f43453ffa012517ca17fb8606cac5e15fa6fca0 | LF |
+| 20270204100000 | 20270204100000_twilio_price_owner_authorization.sql | c494fc2bab8d2df8dda79dff367512f1fa113eda1f8be8ddd354d8fbd2582eac | 0bb23b88f763f6e90bc2619f62168f17de59aff8517a0b91a4f2f97045351c16 | LF |
 
 ### 3.0 Notes on migrations merged after `960a9d02`
 
@@ -944,6 +945,16 @@ Generated from the blobs by `gen_manifest_data.mjs`; regenerate, do not hand-edi
 - forward precondition: `tw4_price_set` must be the `20261122090000` body (md5 `36b3548cfa94cce34e7df10c2a74981f`, CR ignored) or the refusing body this migration installs
 - hosted gate: tables must not exist (or exist as retained by this migration's rollback); after apply `tw4_price_set` must raise TW042 for any actor, the approver registry must be EMPTY until the owner registers approvers (runbook in `TW-4F_Price_Dual_Control.md`), the 8 limit rows must be `approved = false`, the six triggers must be `tgenabled = 'A'`, `service_role` must have no EXECUTE on any price function except `tw4_price_set` and `tw4_price_verify`. Probes extended through this stamp (`--sync-probes`, 432 functions / 79 tables).
 - **OPEN OWNER DECISION**: residual impersonation risk (GoTrue admin API / session minting, owner DDL): `TW-4F_Price_Dual_Control_Impersonation_Design.md`. Nothing is accepted.
+
+#### 20270204100000_twilio_price_owner_authorization.sql
+
+- sha256 (LF-normalized): `c494fc2bab8d2df8dda79dff367512f1fa113eda1f8be8ddd354d8fbd2582eac`  (D4-2, single-owner hardware-key price authorization on top of 20270204090000; Git-only, not applied anywhere)
+- created: 4 tables (`studio_sms_price_auth_config`, `studio_sms_price_credentials`, `studio_sms_price_auth_challenges`, `studio_sms_price_audit`), the plpgsql ECDSA P-256 / WebAuthn verifier (`_tw4price_p256_*`, `_tw4price_check_assertion`, request hash, base64url helpers), the public entry points `tw4_price_authz_begin`, `tw4_price_authz_finish`, `tw4_price_revise`, `tw4_price_cred_begin`, `tw4_price_cred_enroll`, `tw4_price_cred_revoke`, `tw4_price_freeze`, `tw4_price_thaw`, `tw4_price_report_compromise` (**EXECUTE granted to `authenticated` ONLY**; each refuses anything but role authenticated, aal2 + TOTP and then needs the hardware-key signature where it matters), `tw4_price_audit_feed` (service_role), the owner-only `_tw4price_bootstrap` and the monitoring-interface helpers `_tw4price_emit` / `_tw4price_suspended` (conditional on the monitoring table `studio_sms_price_security_events`, migration 20270205090000, which sorts after this one).
+- replaced (CREATE OR REPLACE): `_tw4pricedual_guard`, `_tw4price_activation_guard`, `_tw4price_do_propose` (now a wrapper), `_tw4price_do_approve`, `_tw4price_do_list`, `tw4_price_verify` (interface unchanged: ok, anomalies, checked_at; codes price_unattested, request_anomaly, several_active_prices), `tw4_price_propose` (mode from the protected configuration). Adds columns and constraints to `studio_sms_price_change_requests` (mode, cooling_until with a CHECK of at least 24 hours, proposer session, proposal version, hardware-key evidence).
+- also adds `ENABLE ALWAYS` guards on the four new tables and an `ENABLE ALWAYS` emit trigger on the approver registry.
+- rollback: `rollback/20270204100000_twilio_price_owner_authorization_rollback.sql` sha256 `0bb23b88f763f6e90bc2619f62168f17de59aff8517a0b91a4f2f97045351c16`: refuses (55000) while owner-mode requests, credentials, challenges or audit rows exist, or when a guarded function was replaced by a later slice; otherwise returns the schema to EXACTLY 20270204090000 (no catalog residue).
+- hosted gate: configuration row present with mode `single_owner`, cooling-off 24, rp_id NULL until the owner-level bootstrap; no credential until bootstrapped; the 8 limit rows (D4-1) still unapproved; `service_role` has no EXECUTE on any price function except `tw4_price_set`, `tw4_price_verify`, `tw4_price_audit_feed`; the eight new triggers are `tgenabled = 'A'`. Probes extended through this stamp (`--sync-probes`, 494 functions / 92 tables on the merged main).
+- **OPEN OWNER DECISIONS**: threat model residuals (`TW-4F_Price_Authorization_Threat_Model.md`), lost-authenticator recovery, owner credential custody. Nothing is accepted.
 
 ## 7. Read-only probes
 
