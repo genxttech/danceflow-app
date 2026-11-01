@@ -1,18 +1,21 @@
--- Rollback of 20270206090000_d24_m2c_drain_recovery.sql. REFUSES while drain-run evidence exists or any event has been requeued: export first.
--- Stop the scheduler / operator first, then run this. Restores the M2-B-compatible guard (M1 behaviour plus the inert requeue branch) and M1 d24_drain_deferred verbatim.
+-- Rollback of 20270206090000_d24_m2c_drain_recovery.sql. REFUSES while drain-run or requeue evidence exists, or while any event has been requeued: export first.
+-- Stop the scheduler / operator first, then run this. Restores the M1 guard and M1 d24_drain_deferred verbatim.
 begin;
 set local lock_timeout = '5s';
-lock table public.hosted_invoice_deferred_events, public.hosted_invoice_drain_runs in access exclusive mode;
+lock table public.hosted_invoice_deferred_events, public.hosted_invoice_drain_runs, public.hosted_invoice_deferred_requeues in access exclusive mode;
 do $$
 begin
   if exists (select 1 from public.hosted_invoice_drain_runs)
+     or exists (select 1 from public.hosted_invoice_deferred_requeues)
      or exists (select 1 from public.hosted_invoice_deferred_events where requeue_count > 0) then
     raise exception 'd24 m2c rollback refused: audit evidence exists; export it first';
   end if;
 end $$;
+drop function if exists public.d24_requeue_deferred_event(text, uuid, text);
 drop function if exists public.d24_drain_health(integer, integer);
 drop function if exists public.d24_record_drain_failure(text, text);
 drop function if exists public.d24_run_drain(integer, text);
+drop table public.hosted_invoice_deferred_requeues;
 drop table public.hosted_invoice_drain_runs;
 alter table public.hosted_invoice_deferred_events
   drop constraint hosted_invoice_deferred_base_chk, drop constraint hosted_invoice_deferred_requeue_chk, drop constraint hosted_invoice_deferred_code_chk;
@@ -39,13 +42,6 @@ begin
      or new.object_kind is distinct from old.object_kind or new.object_snapshot is distinct from old.object_snapshot
      or new.received_at is distinct from old.received_at then
     raise exception 'd24: deferred event evidence is immutable' using errcode = '42501';
-  end if;
-  -- the M2-B requeue branch (identical to 20270205090000): inert unless a function sets d24.requeue, so it is M1-equivalent when M2-B is not installed
-  if old.state = 'rejected' and new.state = 'pending' then
-    if coalesce(current_setting('d24.requeue', true), '') <> 'on' or new.settled_at is not null or new.attempts is distinct from old.attempts then
-      raise exception 'd24: a rejected deferred event can only be requeued through d24_op_requeue_deferred' using errcode = '42501';
-    end if;
-    return new;
   end if;
   if old.state <> 'pending' and (new.state is distinct from old.state or new.settled_at is distinct from old.settled_at) then
     raise exception 'd24: a settled deferred event cannot change state' using errcode = '42501';

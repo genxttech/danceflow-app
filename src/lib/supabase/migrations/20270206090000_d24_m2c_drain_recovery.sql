@@ -2,16 +2,16 @@
 -- D24 M2-C: controlled deferred drain, poison-event isolation, monitoring evidence and audited dead-letter requeue.
 --   * hosted_invoice_deferred_events   + last_error_code, last_attempt_at, attempt_base, requeue_count (additive; evidence columns stay immutable).
 --   * hosted_invoice_drain_runs        append-only audit row per controlled drain run (and per failed run reported by the caller).
+--   * hosted_invoice_deferred_requeues append-only audit row per operator-initiated requeue of a rejected event. Nothing is ever deleted.
 --   * d24_drain_deferred(integer)      REPLACED (same signature): records the error code, orders retried events behind fresh ones (a stuck event cannot starve newer
 --                                      ones), and counts quarantine attempts from attempt_base so a requeued event gets a full, fresh attempt budget.
 --   * d24_run_drain(batch, trigger)    service-role entry point for ONE bounded batch: singleton advisory lock (second runner returns outcome 'busy'), lock_timeout,
 --                                      batch capped at 100, writes the drain-run audit row in the same transaction. The caller loops (bounded) in the application.
 --   * d24_record_drain_failure(...)    audit row for a run that failed before it could audit itself (error code only, never a message or payload).
 --   * d24_drain_health(...)            read-only monitoring: counts by state and recovery class, oldest pending age, attempts, error CODES, alarms. No payload, no messages.
---   REQUEUE is owned by D24 M2-B (d24_op_requeue_deferred, platform-admin verified, append-only hosted_invoice_deferred_requeues). M2-C does NOT create a requeue
---   function or table: it only teaches the deferred-event guard to give a requeued event a fresh attempt budget (attempt_base := attempts, requeue_count + 1) when
---   the rejected -> pending transition happens under the d24.requeue flag. Apply order: M2-B (20270205) then M2-C (20270206); roll back M2-C first.
--- Automatic recovery (transient retry, bounded quarantine) is the drain; manual recovery (requeue) is M2-B's audited, authorized function.
+--   * d24_requeue_deferred_event(...)  rejected -> pending, reason and actor required, append-only evidence, max 5 requeues per event. SERVICE ROLE ONLY.
+--                                      p_actor is NOT verified here: the authorization wrapper belongs to D24 M2-B, which must pass a verified identity.
+-- Automatic recovery (transient retry, bounded quarantine) is the drain; manual recovery (requeue) is a separate, audited function. They never call each other.
 -- Dark: nothing calls these functions until an operator or a scheduler is authorized. NOT APPLIED to any shared environment by this file. No cron job is registered here.
 -- Requires 20270203110000_d24_hosted_invoice_facts.sql. Rollback: rollback/20270206090000_d24_m2c_drain_recovery_rollback.sql
 
@@ -42,8 +42,7 @@ alter table public.hosted_invoice_deferred_events
   add constraint hosted_invoice_deferred_requeue_chk check (requeue_count >= 0),
   add constraint hosted_invoice_deferred_code_chk check (last_error_code is null or last_error_code ~ '^[0-9A-Z]{5}$');
 
--- A settled event can only leave 'rejected' through a requeue function that sets d24.requeue (M2-B d24_op_requeue_deferred), with attempts untouched and settled_at null.
--- The guard itself advances the bookkeeping (attempt_base := attempts, requeue_count + 1, error code cleared), so the requeue function needs no knowledge of it.
+-- A settled event can only leave 'rejected' through d24_requeue_deferred_event (flag d24.requeue), exactly once per requeue, with attempts untouched.
 create or replace function public._d24_deferred_guard()
 returns trigger language plpgsql
 set search_path = pg_catalog, public, pg_temp
@@ -71,12 +70,10 @@ begin
   end if;
   v_requeue := old.state = 'rejected' and new.state = 'pending' and coalesce(current_setting('d24.requeue', true), '') = 'on';
   if v_requeue then
-    if new.settled_at is not null or new.attempts is distinct from old.attempts then
-      raise exception 'd24: a requeue must keep attempts and leave settled_at empty' using errcode = '42501';
+    if new.settled_at is not null or new.attempts is distinct from old.attempts or new.attempt_base is distinct from old.attempts
+       or new.requeue_count is distinct from old.requeue_count + 1 then
+      raise exception 'd24: a requeue must keep attempts and advance requeue_count by exactly one' using errcode = '42501';
     end if;
-    new.attempt_base := old.attempts;
-    new.requeue_count := old.requeue_count + 1;
-    new.last_error_code := null;
     return new;
   end if;
   if old.state <> 'pending' and (new.state is distinct from old.state or new.settled_at is distinct from old.settled_at) then
@@ -116,10 +113,24 @@ create table public.hosted_invoice_drain_runs (
 );
 create index hosted_invoice_drain_runs_started_idx on public.hosted_invoice_drain_runs (started_at desc);
 
+create table public.hosted_invoice_deferred_requeues (
+  id bigint generated always as identity primary key,
+  provider_event_id text not null references public.hosted_invoice_deferred_events(provider_event_id) on delete restrict,
+  requeued_at timestamptz not null default now(),
+  actor_user_id uuid not null,
+  reason text not null,
+  requeue_number integer not null,
+  prior_attempts integer not null,
+  prior_error_code text,
+  prior_error text,
+  constraint hosted_invoice_deferred_requeues_reason_chk check (length(btrim(reason)) between 1 and 500),
+  constraint hosted_invoice_deferred_requeues_unique unique (provider_event_id, requeue_number)
+);
+
 do $$
 declare t text;
 begin
-  foreach t in array array['hosted_invoice_drain_runs'] loop
+  foreach t in array array['hosted_invoice_drain_runs', 'hosted_invoice_deferred_requeues'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on public.%I from public, anon, authenticated, service_role', t);
     execute format('grant select on public.%I to service_role', t);
@@ -261,6 +272,7 @@ declare
   v_err_1h bigint;
   v_last_outcome text;
   v_requeues bigint;
+  v_requeues_24h bigint;
   v_alarms text[] := '{}';
 begin
   select count(*) filter (where state = 'pending'),
@@ -296,7 +308,7 @@ begin
   select outcome into v_last_outcome from public.hosted_invoice_drain_runs order by id desc limit 1;
   select finished_at into v_last_ok from public.hosted_invoice_drain_runs where outcome = 'completed' order by id desc limit 1;
   select count(*) into v_err_1h from public.hosted_invoice_drain_runs where outcome = 'error' and started_at > now() - interval '1 hour';
-  select coalesce(sum(requeue_count), 0) into v_requeues from public.hosted_invoice_deferred_events;
+  select count(*), count(*) filter (where requeued_at > now() - interval '24 hours') into v_requeues, v_requeues_24h from public.hosted_invoice_deferred_requeues;
 
   if v_pending > 0 and v_oldest > p_stale_pending_seconds then v_alarms := array_append(v_alarms, 'pending_stale'); end if;
   if v_rejected > 0 then v_alarms := array_append(v_alarms, 'rejected_present'); end if;
@@ -306,8 +318,42 @@ begin
 
   return jsonb_build_object('generated_at', now(), 'by_state', v_by_state, 'recovery', v_recovery, 'error_codes', v_codes,
                             'payload_mismatch_count', v_mismatch, 'last_run', coalesce(v_last, 'null'::jsonb),
-                            'runs_with_errors_last_hour', v_err_1h, 'requeues_total', v_requeues,
+                            'runs_with_errors_last_hour', v_err_1h, 'requeues_total', v_requeues, 'requeues_last_24h', v_requeues_24h,
                             'alarms', to_jsonb(v_alarms));
+end $$;
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- Operator-initiated requeue (manual recovery). Service role only. p_actor is NOT verified here: M2-B's authorization wrapper must pass a verified identity.
+-- Never deletes or edits evidence: the snapshot, hash and received_at are immutable; the only change is rejected -> pending with a fresh attempt budget,
+-- and the prior error is copied into the append-only requeue log before it is cleared.
+-- ---------------------------------------------------------------------------------------------------------------------
+
+create or replace function public.d24_requeue_deferred_event(p_provider_event_id text, p_actor uuid, p_reason text)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare r public.hosted_invoice_deferred_events%rowtype;
+begin
+  if p_provider_event_id is null or length(p_provider_event_id) = 0 or p_actor is null or p_reason is null or length(btrim(p_reason)) = 0 or length(p_reason) > 500 then
+    raise exception 'd24_requeue_deferred_event: event, actor and a reason (1-500 chars) are required' using errcode = '22023';
+  end if;
+  perform set_config('d24.writer', 'on', true);
+  select * into r from public.hosted_invoice_deferred_events where provider_event_id = p_provider_event_id for update;
+  if not found then raise exception 'd24_deferred_event_not_found' using errcode = 'P0002'; end if;
+  if r.state <> 'rejected' then
+    raise exception 'd24_requeue_requires_rejected_event' using errcode = '55000';
+  end if;
+  if r.requeue_count >= 5 then
+    raise exception 'd24_requeue_limit_reached' using errcode = '55000';
+  end if;
+  insert into public.hosted_invoice_deferred_requeues (provider_event_id, actor_user_id, reason, requeue_number, prior_attempts, prior_error_code, prior_error)
+  values (r.provider_event_id, p_actor, p_reason, r.requeue_count + 1, r.attempts, r.last_error_code, r.last_error);
+  perform set_config('d24.requeue', 'on', true);
+  update public.hosted_invoice_deferred_events
+  set state = 'pending', settled_at = null, attempt_base = attempts, requeue_count = requeue_count + 1, last_error = null, last_error_code = null
+  where provider_event_id = r.provider_event_id;
+  perform set_config('d24.requeue', 'off', true);
+  return jsonb_build_object('outcome', 'requeued', 'provider_event_id', r.provider_event_id, 'requeue_count', r.requeue_count + 1);
 end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------------
@@ -318,11 +364,13 @@ revoke all on function public.d24_drain_deferred(integer) from public, anon, aut
 revoke all on function public.d24_run_drain(integer, text) from public, anon, authenticated;
 revoke all on function public.d24_record_drain_failure(text, text) from public, anon, authenticated;
 revoke all on function public.d24_drain_health(integer, integer) from public, anon, authenticated;
+revoke all on function public.d24_requeue_deferred_event(text, uuid, text) from public, anon, authenticated;
 -- the bare batch function is internal: callers use d24_run_drain (singleton, lock_timeout, audit). M1 granted it to service_role; revoke that grant.
 revoke execute on function public.d24_drain_deferred(integer) from service_role;
 grant execute on function public.d24_run_drain(integer, text) to service_role;
 grant execute on function public.d24_record_drain_failure(text, text) to service_role;
 grant execute on function public.d24_drain_health(integer, integer) to service_role;
+grant execute on function public.d24_requeue_deferred_event(text, uuid, text) to service_role;
 
 notify pgrst, 'reload schema';
 
