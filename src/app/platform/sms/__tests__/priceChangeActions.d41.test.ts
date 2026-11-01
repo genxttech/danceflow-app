@@ -51,7 +51,7 @@ vi.mock("@/lib/supabase/server", () => ({
   },
 }));
 
-import { priceApprove, pricePropose, priceReject } from "../priceChangeActions";
+import { priceApprove, priceAuthzBegin, priceAuthzFinish, priceFreeze, pricePropose, priceReject, priceReportCompromise, priceRevise } from "../priceChangeActions";
 
 const REQ = "d4100000-0000-4000-8000-0000000000aa";
 const NOTE = "A written note that is long enough.";
@@ -172,5 +172,57 @@ describe("approve and reject", () => {
     replies.tw4_price_reject = { data: { status: "rejected", replayed: false, withdrawn: false } };
     expect((await run(priceReject, { requestId: REQ, note: NOTE })).message).toMatch(/rejected/);
     expect(rpc.every((c) => c.fn === "tw4_price_reject" && !("p_actor" in c.args))).toBe(true);
+  });
+});
+
+describe("single-owner ceremony actions", () => {
+  const CH = { nonce: "bm9uY2U", challenge: "Y2hhbGxlbmdl", rp_id: "admin.example.test", allow_credentials: ["Y3JlZA"], expires_in_seconds: 300,
+    summary: { kind: "number", scope: "studio_sms_price_list", old_customer_cents: 200, old_provider_cents: 115, new_customer_cents: 250, new_provider_cents: 115, description: "d", proposal_version: 1, request_id: REQ, hash: "ab" } };
+  const FIN = { requestId: REQ, nonce: "bm9uY2U", credentialId: "Y3JlZA", authData: "YXV0aA", clientData: "Y2xpZW50", signature: "c2ln" };
+
+  it("begin and finish run the aal2 guard first, send NO actor, validate shapes before any client is built, and pass the database's answer through", async () => {
+    for (const [action, arg] of [[priceAuthzBegin, REQ], [priceAuthzFinish, FIN]] as const) {
+      state.tiers.length = 0;
+      state.refuse = "STEPUP_REFUSED";
+      await expect((action as (a: never) => Promise<unknown>)(arg as never)).rejects.toThrow("STEPUP_REFUSED");
+      expect(state.tiers).toEqual(["aal2"]);
+    }
+    expect(clientsBuilt).toBe(0);
+    state.refuse = null;
+    replies.tw4_price_authz_begin = { data: CH };
+    const b = await priceAuthzBegin(REQ);
+    expect(b).toMatchObject({ ok: true, data: { nonce: "bm9uY2U", rpId: "admin.example.test", allowCredentials: ["Y3JlZA"], summary: { newCustomerCents: 250, oldCustomerCents: 200, kind: "number" } } });
+    expect(rpc[0]).toEqual({ fn: "tw4_price_authz_begin", args: { p_request_id: REQ } });
+    expect(await priceAuthzBegin("not-a-uuid")).toMatchObject({ ok: false });
+    // a malformed database answer is not shown as a challenge
+    replies.tw4_price_authz_begin = { data: { ...CH, allow_credentials: [] } };
+    expect(await priceAuthzBegin(REQ)).toMatchObject({ ok: false });
+    replies.tw4_price_authz_finish = { data: { status: "rejected", reason: "signature does not verify" } };
+    expect(await priceAuthzFinish(FIN)).toMatchObject({ ok: true, data: { status: "rejected", reason: "signature does not verify" } });
+    expect(rpc.at(-1)).toEqual({ fn: "tw4_price_authz_finish", args: { p_request_id: REQ, p_nonce: "bm9uY2U", p_credential_id: "Y3JlZA", p_auth_data: "YXV0aA", p_client_data: "Y2xpZW50", p_signature: "c2ln" } });
+    const calls = rpc.length;
+    for (const bad of [{ ...FIN, requestId: "x" }, { ...FIN, nonce: "!!" }, { ...FIN, signature: "" }, { ...FIN, credentialId: "a b" }, { ...FIN, authData: "x".repeat(5000) }]) expect(await priceAuthzFinish(bad)).toMatchObject({ ok: false });
+    expect(rpc.length).toBe(calls);
+  });
+
+  it("revise, freeze and the compromise report: guard tiers, validation before any call, no actor, fixed sentences", async () => {
+    replies.tw4_price_revise = { data: { request_id: REQ, version: 2 } };
+    const r = await run(priceRevise, { requestId: REQ, customerUsd: "3.00", providerUsd: "1.15", description: "revised price", reason: "a revised written reason" });
+    expect(r.ok).toBe(true);
+    expect(r.message).toMatch(/cooling-off starts again/);
+    expect(rpc.at(-1)).toEqual({ fn: "tw4_price_revise", args: { p_request_id: REQ, p_customer_cents: 300, p_provider_cents: 115, p_description: "revised price", p_reason: "a revised written reason" } });
+    const n = rpc.length;
+    expect((await run(priceRevise, { requestId: "x", customerUsd: "3.00", providerUsd: "1", description: "abc", reason: "a revised written reason" })).ok).toBe(false);
+    expect((await run(priceFreeze, { reason: "short" })).ok).toBe(false);
+    expect((await run(priceReportCompromise, { note: "x" })).ok).toBe(false);
+    expect(rpc.length).toBe(n);
+    replies.tw4_price_freeze = { data: { status: "frozen", replayed: false } };
+    expect(await run(priceFreeze, { reason: "a written reason for the suspension" })).toMatchObject({ ok: true });
+    replies.tw4_price_report_compromise = { data: { status: "frozen" } };
+    expect(await run(priceReportCompromise, { note: "I suspect my key is compromised" })).toMatchObject({ ok: true });
+    replies.tw4_price_authz_begin = { error: { code: "TW045", message: "SECRET detail" } };
+    const cool = await priceAuthzBegin(REQ);
+    expect(cool).toMatchObject({ ok: false, message: expect.stringMatching(/cooling-off/) });
+    expect(JSON.stringify(cool)).not.toContain("SECRET");
   });
 });

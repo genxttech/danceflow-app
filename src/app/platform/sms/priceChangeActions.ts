@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requirePlatformStepUp, type AssuranceTier } from "@/lib/auth/platform-assurance";
-import { PRICE_FLASH_COOKIE, PRICE_KINDS, PriceChangeStore } from "@/lib/sms/priceChange";
+import { PRICE_FLASH_COOKIE, PRICE_KINDS, PriceChangeError, PriceChangeStore, isB64u, type AuthzChallenge } from "@/lib/sms/priceChange";
 import { encodePanelFlash } from "@/lib/sms/twilioIsv/panelFlash";
 import { usdToCents } from "@/lib/sms/pilotApprovalEvidence";
 
@@ -27,8 +27,9 @@ const fail = (message: string): Flash => ({ ok: false, message });
 const done = (message: string): Flash => ({ ok: true, message });
 
 const ERRORS: Record<string, string> = {
-  "42501": "Not allowed. Only an active platform administrator can do this, and a price change can never be approved by the administrator who proposed it. Nothing changed.",
+  "42501": "Not allowed. Price changes need a registered administrator in a second-factor session; publication also needs a different session and the hardware key, and is refused while prices are suspended. Only an active platform administrator can do this, and a price change can never be approved by the administrator who proposed it. Nothing changed.",
   "22023": "The database refused the input (check the kind, the amounts, the lengths, and that the proposal differs from the active price). Nothing changed.",
+  TW045: "The 24-hour cooling-off of this proposal has not ended yet. Nothing changed.",
   TW041: "This is not allowed in the proposal's current state (another proposal for this price is still open, or this one is already decided). Nothing changed.",
   TW042: "Prices can only be changed by a proposal and a second administrator's approval. Nothing changed.",
   "23514": "The database refused the amounts. Nothing changed.",
@@ -77,7 +78,7 @@ async function guarded(tier: AssuranceTier, work: (admin: { id: string }) => Pro
 const store = async () => new PriceChangeStore(await createClient());
 
 export async function pricePropose(formData: FormData) {
-  await guarded("recent", async (admin) => {
+  await guarded("recent", async () => {
     const kind = field(formData, "kind");
     const customer = usdToCents(field(formData, "customerUsd"));
     const provider = usdToCents(field(formData, "providerUsd"));
@@ -94,7 +95,7 @@ export async function pricePropose(formData: FormData) {
 }
 
 export async function priceApprove(formData: FormData) {
-  await guarded("recent", async (admin) => {
+  await guarded("recent", async () => {
     const requestId = id(formData, "requestId");
     const note = text(formData, "note", 10, 500);
     if (!requestId || !note) return fail("Give an approval note of 10 to 500 characters. Nothing changed.");
@@ -107,11 +108,79 @@ export async function priceApprove(formData: FormData) {
 }
 
 export async function priceReject(formData: FormData) {
-  await guarded("aal2", async (admin) => {
+  await guarded("aal2", async () => {
     const requestId = id(formData, "requestId");
     const note = text(formData, "note", 10, 500);
     if (!requestId || !note) return fail("Give a note of 10 to 500 characters. Nothing changed.");
     const out = await (await store()).reject(requestId, note);
     return done(out.withdrawn ? "Your proposal was withdrawn. No price changed." : "The proposal was rejected. No price changed.");
+  });
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// single-owner mode: revise, the two-step hardware-key authorization, suspension
+// ---------------------------------------------------------------------------------------------------------------
+type Data<T> = { ok: true; data: T } | { ok: false; message: string };
+
+/** Like `guarded` but returns data to the calling component (the WebAuthn ceremony needs the challenge back in the browser). The step-up guard still runs FIRST. */
+async function guardedData<T>(tier: AssuranceTier, work: () => Promise<T>): Promise<Data<T>> {
+  await requirePlatformStepUp(tier);
+  try {
+    return { ok: true, data: await work() };
+  } catch (e) {
+    return { ok: false, message: describeError(e) };
+  }
+}
+
+/** Step 1: the DATABASE issues the challenge for one proposal to this session. The owner reads the summary it returns, which comes from the database row. */
+export async function priceAuthzBegin(requestId: string): Promise<Data<AuthzChallenge>> {
+  return await guardedData("aal2", async () => {
+    if (typeof requestId !== "string" || !UUID.test(requestId)) throw new PriceChangeError("22023");
+    return (await store()).authzBegin(requestId);
+  });
+}
+
+/** Step 2: the signed assertion goes to the database, which verifies it (inside Postgres) and publishes. A rejected assertion is reported with its reason; nothing is published. */
+type AuthzFinishInput = Record<"requestId" | "nonce" | "credentialId" | "authData" | "clientData" | "signature", string>;
+type AuthzFinishOut = Data<Record<"status" | "reason", string | null>>;
+export async function priceAuthzFinish(input: AuthzFinishInput): Promise<AuthzFinishOut> {
+  return await guardedData("aal2", async () => {
+    const i = input as Record<string, unknown>;
+    if (typeof i?.requestId !== "string" || !UUID.test(i.requestId) || !isB64u(i.nonce) || !isB64u(i.credentialId) || !isB64u(i.authData) || !isB64u(i.clientData) || !isB64u(i.signature)) {
+      throw new PriceChangeError("22023");
+    }
+    return (await store()).authzFinish({ requestId: i.requestId, nonce: i.nonce, credentialId: i.credentialId, authData: i.authData, clientData: i.clientData, signature: i.signature });
+  });
+}
+
+export async function priceRevise(formData: FormData) {
+  await guarded("recent", async () => {
+    const requestId = id(formData, "requestId");
+    const customer = usdToCents(field(formData, "customerUsd"));
+    const provider = usdToCents(field(formData, "providerUsd"));
+    const description = text(formData, "description", 3, 200);
+    const reason = text(formData, "reason", 10, 500);
+    if (!requestId || customer === null || customer <= 0 || provider === null || !description || !reason) return fail("Give the new customer price, provider cost, a description and a written reason. Nothing changed.");
+    const out = await (await store()).revise(requestId, { customerCents: customer, providerCents: provider, description, reason });
+    return done(`Revised (version ${out.version}). The earlier proposal and any signature over it are void and the 24-hour cooling-off starts again.`);
+  });
+}
+
+/** Suspends price publication. It can only suspend; lifting it needs the hardware key. */
+export async function priceFreeze(formData: FormData) {
+  await guarded("aal2", async () => {
+    const reason = text(formData, "reason", 10, 300);
+    if (!reason) return fail("Give a written reason of 10 to 300 characters. Nothing changed.");
+    await (await store()).freeze(reason);
+    return done("Price publication is suspended. It publishes nothing; lifting the suspension needs the hardware key.");
+  });
+}
+
+export async function priceReportCompromise(formData: FormData) {
+  await guarded("aal2", async () => {
+    const note = text(formData, "note", 10, 300);
+    if (!note) return fail("Describe what you suspect in 10 to 300 characters. Nothing changed.");
+    await (await store()).reportCompromise(note);
+    return done("Reported. Price publication is suspended and the security event is raised.");
   });
 }
