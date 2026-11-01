@@ -309,7 +309,7 @@ describe.skipIf(!enabled)("TW-4F J2: get_studio_sms_texting_status (real schema,
     scenario(purchase(1, "succeeded", "owned") + verification(1, v, "verified") + sender(1, "approved", v) + compliance(1, "passed") + attestation(1), "ready_for_activation");
     const r = await read();
     expect(r.activation?.ready).toBe(false);
-    expect(r.activation!.checklist.map((i) => i.area)).toEqual(["provider", "number", "sender", "compliance", "billing", "monitoring"]);
+    expect(r.activation!.checklist.map((i) => i.area)).toEqual(["provider", "number", "sender", "compliance", "billing", "monitoring", "review"]);
     expect(r.activation!.checklist.find((i) => i.area === "number")?.ok, "owned but not attached").toBe(false);
     for (const i of r.activation!.checklist) expect(Object.keys(i).sort()).toEqual(["area", "ok"]);
     expect(r.activation!.checklist.find((i) => i.area === "billing")?.ok).toBe(false);
