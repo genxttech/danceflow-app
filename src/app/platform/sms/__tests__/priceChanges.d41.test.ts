@@ -48,8 +48,8 @@ describe("PriceChanges section", () => {
 
   it("another administrator's pending proposal: current vs proposed are shown, the approve control is offered, and the separation-of-duties wording is on the page", async () => {
     const html = render(await overview([raw()]));
-    expect(html).toContain("Two different platform administrators are required for every price change");
-    expect(html).toContain("You can never approve your own proposal");
+    expect(html).toContain("in team mode two different registered administrators are required");
+    expect(html).toContain("you can never approve your own proposal");
     expect(html).toContain("Active when proposed");
     expect(html).toContain("$2.00");
     expect(html).toContain("Proposed");
@@ -104,5 +104,23 @@ describe("PriceChanges section", () => {
   it("drops malformed rows instead of rendering them (defensive parsing)", async () => {
     const o = await overview([raw({ request_id: "not-a-uuid" }), raw({ status: "weird" }), raw({ customer_price_cents: "3.25" }), raw({ request_id: REQ2 })]);
     expect(o.requests.map((r) => r.requestId)).toEqual([REQ2]);
+  });
+
+  it("single-owner proposal: no team approve control for anyone; the owner sees the cooling-off, the hardware-key authorization and the revise form; another administrator sees only the notice; a freeze banner shows", async () => {
+    const owner = raw({ requested_by: ME, approval_mode: "owner", cooling_until: "2026-11-01T10:00:00Z", proposal_version: 2 });
+    const mine = render(await overview([owner]));
+    expect(mine).not.toContain("Approve and publish this price");
+    expect(mine).toContain("Single-owner proposal, version 2");
+    expect(mine).toContain("Mandatory cooling-off until 2026-11-01 10:00Z");
+    expect(mine).toContain("Authorize with my hardware key");
+    expect(mine).toContain("Revise and restart the cooling-off");
+    expect(mine).toContain("Withdraw proposal");
+    const other = render(await overview([raw({ requested_by: OTHER, approval_mode: "owner", cooling_until: "2026-11-01T10:00:00Z" })]));
+    expect(other).not.toContain("Approve and publish this price");
+    expect(other).not.toContain("Authorize with my hardware key");
+    expect(other).toContain("Only the owner who proposed this change can authorize it");
+    const o = await loadPriceChanges(client({ active: [], requests: [], mode: "single_owner", frozen: true }));
+    expect(render(o)).toContain("Price publication is SUSPENDED");
+    expect(render(o)).toContain("Report a compromise");
   });
 });

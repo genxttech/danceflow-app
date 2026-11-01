@@ -45,8 +45,24 @@ export type PriceChangeRequest = {
   decisionNote: string | null;
   appliedPriceId: string | null;
   baseChanged: boolean;
+  /** single-owner mode: one owner, a 24 h cooling-off and a hardware-key authorization; team mode: a second registered administrator */
+  approvalMode: "owner" | "team";
+  coolingUntil: string | null;
+  proposalVersion: number;
 };
-export type PriceChangeOverview = { active: ActivePrice[]; requests: PriceChangeRequest[] };
+export type PriceChangeOverview = { active: ActivePrice[]; requests: PriceChangeRequest[]; mode: "single_owner" | "team"; frozen: boolean };
+
+/** What the owner must read before signing: produced by the DATABASE (never by the page that starts the ceremony). */
+export type AuthzChallenge = {
+  nonce: string;
+  challenge: string;
+  rpId: string;
+  allowCredentials: string[];
+  expiresInSeconds: number;
+  summary: { kind: string; scope: string; oldCustomerCents: number | null; oldProviderCents: number | null; newCustomerCents: number; newProviderCents: number; description: string; proposalVersion: number; requestId: string; hash: string };
+};
+const B64U = /^[A-Za-z0-9_-]{1,4096}$/;
+export const isB64u = (v: unknown): v is string => typeof v === "string" && B64U.test(v);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const obj = (v: unknown): Record<string, unknown> | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
@@ -100,6 +116,7 @@ function parseRequests(v: unknown): PriceChangeRequest[] {
       requestId, kind, customerPriceCents: customer, providerCostCents: provider, description: str(o.description) ?? "", reason: str(o.reason) ?? "",
       baseCustomerPriceCents: int(o.base_customer_price_cents), baseProviderCostCents: int(o.base_provider_cost_cents), status, requestedBy, requestedAt, expiresAt,
       decidedBy: uuid(o.decided_by), decidedAt: str(o.decided_at), decisionNote: str(o.decision_note), appliedPriceId: uuid(o.applied_price_id), baseChanged: o.base_changed === true,
+      approvalMode: o.approval_mode === "owner" ? "owner" : "team", coolingUntil: str(o.cooling_until), proposalVersion: int(o.proposal_version) ?? 1,
     });
   }
   return out;
@@ -112,7 +129,7 @@ export async function loadPriceChanges(client: Client): Promise<PriceChangeOverv
     if (res.error) return null;
     const o = obj(res.data);
     if (!o) return null;
-    return { active: parseActive(o.active), requests: parseRequests(o.requests) };
+    return { active: parseActive(o.active), requests: parseRequests(o.requests), mode: o.mode === "team" ? "team" : "single_owner", frozen: o.frozen === true };
   } catch {
     return null;
   }
@@ -147,5 +164,46 @@ export class PriceChangeStore {
   async reject(requestId: string, note: string): Promise<{ status: string | null; withdrawn: boolean }> {
     const row = await this.call("tw4_price_reject", { p_request_id: requestId, p_note: note });
     return { status: str(row.status), withdrawn: row.withdrawn === true };
+  }
+
+  /** step 1 of the ceremony: the database issues the challenge (and the summary the owner reads) for ONE proposal, to this session */
+  async authzBegin(requestId: string): Promise<AuthzChallenge> {
+    const row = await this.call("tw4_price_authz_begin", { p_request_id: requestId });
+    const s = obj(row.summary) ?? {};
+    const nonce = row.nonce;
+    const challenge = row.challenge;
+    const rpId = str(row.rp_id);
+    const ids = Array.isArray(row.allow_credentials) ? row.allow_credentials.filter(isB64u) : [];
+    const newC = int(s.new_customer_cents);
+    const newP = int(s.new_provider_cents);
+    if (!isB64u(nonce) || !isB64u(challenge) || !rpId || ids.length === 0 || newC === null || newP === null) throw new PriceChangeError("unknown");
+    return {
+      nonce, challenge, rpId, allowCredentials: ids, expiresInSeconds: int(row.expires_in_seconds) ?? 300,
+      summary: { kind: str(s.kind) ?? "", scope: str(s.scope) ?? "", oldCustomerCents: int(s.old_customer_cents), oldProviderCents: int(s.old_provider_cents), newCustomerCents: newC, newProviderCents: newP,
+        description: str(s.description) ?? "", proposalVersion: int(s.proposal_version) ?? 1, requestId: str(s.request_id) ?? requestId, hash: str(s.hash) ?? "" },
+    };
+  }
+
+  /** step 2: the signed assertion goes to the database, which verifies it and publishes (or answers 'rejected' with the reason) */
+  async authzFinish(a: { requestId: string; nonce: string; credentialId: string; authData: string; clientData: string; signature: string }): Promise<{ status: string | null; reason: string | null }> {
+    const row = await this.call("tw4_price_authz_finish", {
+      p_request_id: a.requestId, p_nonce: a.nonce, p_credential_id: a.credentialId, p_auth_data: a.authData, p_client_data: a.clientData, p_signature: a.signature,
+    });
+    return { status: str(row.status), reason: str(row.reason) };
+  }
+
+  async revise(requestId: string, args: { customerCents: number; providerCents: number; description: string; reason: string }): Promise<{ requestId: string | null; version: number }> {
+    const row = await this.call("tw4_price_revise", { p_request_id: requestId, p_customer_cents: args.customerCents, p_provider_cents: args.providerCents, p_description: args.description, p_reason: args.reason });
+    return { requestId: uuid(row.request_id), version: int(row.version) ?? 1 };
+  }
+
+  /** suspends publication; it can never publish anything */
+  async freeze(reason: string): Promise<{ replayed: boolean }> {
+    const row = await this.call("tw4_price_freeze", { p_reason: reason });
+    return { replayed: row.replayed === true };
+  }
+
+  async reportCompromise(note: string): Promise<void> {
+    await this.call("tw4_price_report_compromise", { p_note: note });
   }
 }
