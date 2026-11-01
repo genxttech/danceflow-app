@@ -67,7 +67,9 @@ export function classifyEvents(events: SecurityEvent[], suspended: { seq: number
   for (const e of events) {
     const m = EVENT_KINDS[e.kind];
     const ref = `event:${e.seq}:${e.kind}`;
-    if (m) out.push({ code: m.code, severity: m.severity, message: `security event ${e.kind} at ${e.occurred_at}`, refs: [ref] });
+    // the second-channel fingerprint (16 hex of the signed hash) is shown in the alert text so the owner can compare it with the other channel
+    const fp = typeof e.detail.fingerprint === "string" && /^[0-9a-f]{16}$/.test(e.detail.fingerprint) ? e.detail.fingerprint : null;
+    if (m) out.push({ code: m.code, severity: m.severity, message: `security event ${e.kind} at ${e.occurred_at}${fp ? ` (fingerprint ${fp})` : ""}`, refs: fp ? [ref, `fingerprint:${fp}`] : [ref] });
     else out.push({ code: "unknown_security_event", severity: "warning", message: `unrecognized security event kind ${e.kind.slice(0, 60)} at ${e.occurred_at}`, refs: [ref] });
   }
   if (suspended && suspended.kind === "pricing_suspended") {
