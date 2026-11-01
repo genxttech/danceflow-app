@@ -119,7 +119,7 @@ check "authenticated holds SELECT only (3 tables), nothing on limits" "$(q "sele
 check "service_role holds SELECT only" "$(q "select string_agg(distinct privilege_type, ',') from information_schema.role_table_grants where grantee='service_role' and table_name like 'studio_client_invoice%'")" "SELECT"
 check "anon/public hold nothing" "$(q "select count(*) from information_schema.role_table_grants where grantee in ('anon','public') and table_name like 'studio_client_invoice%'")" "0"
 check "save_draft: authenticated only" "$(q "select has_function_privilege('authenticated','public.studio_client_invoice_save_draft(uuid,uuid,uuid,integer,uuid,text,uuid,text,jsonb)','execute')::text||has_function_privilege('anon','public.studio_client_invoice_save_draft(uuid,uuid,uuid,integer,uuid,text,uuid,text,jsonb)','execute')::text||has_function_privilege('service_role','public.studio_client_invoice_save_draft(uuid,uuid,uuid,integer,uuid,text,uuid,text,jsonb)','execute')::text")" "truefalsefalse"
-for fn in "studio_client_invoice_creation_spec(uuid,uuid)" "studio_client_invoice_link_registration(uuid,uuid,uuid,text)"; do
+for fn in "studio_client_invoice_creation_spec(uuid,uuid)" "studio_client_invoice_link_registration(uuid,uuid,uuid,integer,text)"; do
   check "service_role only: $fn" "$(q "select has_function_privilege('service_role','public.$fn','execute')::text||has_function_privilege('authenticated','public.$fn','execute')::text||has_function_privilege('anon','public.$fn','execute')::text")" "truefalsefalse"
 done
 for fn in "_sci_authorize(uuid,text)" "_sci_parse_lines(jsonb)" "_sci_actor_role(uuid)" "d24_owns_studio_client_invoice(uuid,text)"; do
@@ -201,7 +201,7 @@ check "total exactly at the ceiling is accepted" "$(jf "$R" total_cents)" "50000
 R=$(au $UO "select $(sv $UO $SA $(NEWKEY) null null $CA1 '[{"description":"a","quantity":3,"unit_price_cents":1999},{"description":"b","quantity":10,"unit_price_cents":333}]')")
 check "multi-line arithmetic: 3*1999 + 10*333 = 9327" "$(jf "$R" total_cents)/$(jf "$R" line_count)" "9327/2"
 check "stored lines agree with the stored total (DB-computed, line positions 1..n)" "$(q "select sum(line_total_cents)||'/'||string_agg(position::text, ',' order by position) from public.studio_client_invoice_lines where invoice_id='$(jf "$R" invoice_id)'")" "9327/1,2"
-has "reference note with control characters is refused" "$(aust $UO "$(sv $UO $SA $(NEWKEY) null null $CA1 "$LINE" other null 'bad\x07note')")" "STATE"
+has "reference note with a control character is refused" "$(aust $UO "$(sv $UO $SA $(NEWKEY) null null $CA1 "$LINE" other null "$(printf 'bad\007note')")")" "STATE 22023 client_invoice_input_invalid"
 
 # 5. cross-tenant: client / reference / ids -------------------------------------------------------------------------------------
 has "A's owner cannot invoice B's client" "$(aust $UO "$(sv $UO $SA $(NEWKEY) null null $CB1 "$LINE")")" "STATE 42501 client_invoice_client_not_in_studio"
@@ -302,40 +302,45 @@ own() { q "select public.d24_owns_studio_client_invoice('$1','$2')"; }
 check "ownership: own invoice true" "$(own $SA $INV1)" "t"
 check "ownership: other studio false" "$(own $SB $INV1)" "f"
 check "ownership: unknown uuid false" "$(own $SA 00000000-0000-0000-0000-00000000beef)" "f"
-check "ownership: malformed id false (no cast error)" "$(own $SA "not-a-uuid';drop")" "f"
+check "ownership: malformed id false (no cast error)" "$(own $SA not-a-uuid)" "f"
 check "ownership: NULL studio false" "$(q "select public.d24_owns_studio_client_invoice(null,'$INV1')")" "f"
-check "ownership: NULL object false" "$(q "select coalesce(public.d24_owns_studio_client_invoice('$SA',null)::text,'null')")" "null"
+check "ownership: NULL object is not owned (false)" "$(q "select coalesce(public.d24_owns_studio_client_invoice('$SA',null)::text,'null')")" "false"
 KEY1=ci-intent-0000001
 has "begin on a foreign invoice id is refused by SQL ownership" "$(st "public.d24_intent_begin('$SB','studio_client_invoice','$INV1','ci-intent-forged01')")" "STATE 42501 d24_business_object_not_owned"
 has "begin on a studio with no connected account is refused" "$(st "public.d24_intent_begin('$SC','studio_client_invoice','$INV1','ci-intent-noacct01')")" "STATE 42501"
 B1=$(q "select public.d24_intent_begin('$SA','studio_client_invoice','$INV1','$KEY1','$UO')")
 I1=$(echo "$B1" | grep -o '"intent_id": "[^"]*"' | sed -E 's/.*: "//; s/"//')
 check "M3-A begin accepts the client invoice type" "$(jf "$B1" outcome)/$(jf "$B1" status)" "created/pending"
-has "link before the intent is registered is refused" "$(st "public.studio_client_invoice_link_registration('$INV1','$SA','$I1')")" "STATE 55000 client_invoice_intent_not_registered"
-SPEC=$(q "select public.studio_client_invoice_creation_spec('$INV1','$SA')")
+has "link before the intent is registered is refused" "$(st "public.studio_client_invoice_link_registration('$INV1','$SA','$I1',2)")" "STATE 55000 client_invoice_intent_not_registered"
+SPEC=$(try "set role service_role; select public.studio_client_invoice_creation_spec('$INV1','$SA')")
 check "creation spec: trusted lines + totals for a draft inside the limits" "$(echo "$SPEC" | grep -o '"total_cents": [0-9]*')/$(echo "$SPEC" | grep -o '"line_total_cents"' | wc -l | tr -d ' ')" '"total_cents": 13000/2'
 check "creation spec: other studio's view is NULL" "$(q "select coalesce(public.studio_client_invoice_creation_spec('$INV1','$SB')::text,'null')")" "null"
 q "update public.studio_client_invoice_limits set max_total_cents = 12000" >/dev/null
 check "creation spec: NULL when the stored total exceeds the (lowered) ceiling" "$(q "select coalesce(public.studio_client_invoice_creation_spec('$INV1','$SA')::text,'null')")" "null"
 q "update public.studio_client_invoice_limits set max_total_cents = 500000" >/dev/null
 q "select public.d24_intent_mark_provider_created('$I1','$SA','in_ci1',false,false)" >/dev/null
-has "link while provider_created (not registered) is refused" "$(st "public.studio_client_invoice_link_registration('$INV1','$SA','$I1')")" "STATE 55000 client_invoice_intent_not_registered"
+has "link while provider_created (not registered) is refused" "$(st "public.studio_client_invoice_link_registration('$INV1','$SA','$I1',2)")" "STATE 55000 client_invoice_intent_not_registered"
 RG=$(q "select public.d24_intent_register('$I1','$SA')")
 check "M3-A register succeeds for the client invoice" "$(jf "$RG" outcome)" "registered"
 # the intent exists, but intent for a different object / studio must not link
 q "select public.d24_intent_begin('$SA','studio_client_invoice','$INV2','ci-intent-0000002','$UO')" >/dev/null
 I2=$(q "select id from public.hosted_invoice_creation_intents where idempotency_key='ci-intent-0000002'")
-has "link with an intent for a DIFFERENT invoice is refused" "$(st "public.studio_client_invoice_link_registration('$INV1','$SA','$I2')")" "STATE 42501 client_invoice_intent_mismatch"
-has "link with another studio's id is refused" "$(st "public.studio_client_invoice_link_registration('$INV1','$SB','$I1')")" "STATE 42501 client_invoice_not_found"
-has "link with a forged customer id format is refused" "$(st "public.studio_client_invoice_link_registration('$INV1','$SA','$I1','cus_x;drop')")" "STATE 22023"
-has "link with an unknown intent is refused" "$(st "public.studio_client_invoice_link_registration('$INV1','$SA','00000000-0000-0000-0000-00000000dead')")" "STATE 42501 client_invoice_intent_mismatch"
-has "authenticated cannot call link" "$(au $UO "select public.studio_client_invoice_link_registration('$INV1','$SA','$I1')")" "permission denied"
+has "link with an intent for a DIFFERENT invoice is refused" "$(st "public.studio_client_invoice_link_registration('$INV1','$SA','$I2',2)")" "STATE 42501 client_invoice_intent_mismatch"
+has "link with another studio's id is refused" "$(st "public.studio_client_invoice_link_registration('$INV1','$SB','$I1',2)")" "STATE 42501 client_invoice_not_found"
+has "link with a forged customer id format is refused" "$(st "public.studio_client_invoice_link_registration('$INV1','$SA','$I1',2,'cus_x;drop')")" "STATE 22023"
+has "link with an unknown intent is refused" "$(st "public.studio_client_invoice_link_registration('$INV1','$SA','00000000-0000-0000-0000-00000000dead',2)")" "STATE 42501 client_invoice_intent_mismatch"
+has "authenticated cannot call link" "$(au $UO "select public.studio_client_invoice_link_registration('$INV1','$SA','$I1',2)")" "permission denied"
 has "authenticated cannot call the creation spec" "$(au $UO "select public.studio_client_invoice_creation_spec('$INV1','$SA')")" "permission denied"
-LK=$(q "select public.studio_client_invoice_link_registration('$INV1','$SA','$I1','cus_ABC123')")
+VI2=$(q "select version from public.studio_client_invoices where id='$INV2'")
+has "REVIEW P1: an invoice with a live creation intent cannot be edited (begin, then edit, is refused)" "$(aust $UO "$(sv $UO $SA $(NEWKEY) $INV2 $VI2 $CA2 "$LINE")")" "STATE 55000 client_invoice_not_editable"
+has "REVIEW P1: link with a stale content version is refused (40001) and changes nothing" "$(st "public.studio_client_invoice_link_registration('$INV1','$SA','$I1',1)")" "STATE 40001 client_invoice_version_conflict"
+check "...invoice still a draft" "$(q "select status from public.studio_client_invoices where id='$INV1'")" "draft"
+has "link without an expected version is refused" "$(st "public.studio_client_invoice_link_registration('$INV1','$SA','$I1',null::integer)")" "STATE 22023"
+LK=$(try "set role service_role; select public.studio_client_invoice_link_registration('$INV1','$SA','$I1',2,'cus_ABC123')")
 check "link: provider_draft_created, version advanced" "$(jf "$LK" outcome)/$(jf "$LK" status)/$(jf "$LK" version)" "linked/provider_draft_created/3"
 check "link: registration copied from the ledger, not the caller" "$(q "select stripe_account_id||'/'||stripe_invoice_id||'/'||livemode||'/'||stripe_customer_id||'/'||(registry_id = (select id from public.hosted_invoice_registry where stripe_invoice_id='in_ci1'))::text||'/'||(intent_id='$I1')::text from public.studio_client_invoices where id='$INV1'")" "acct_aaa/in_ci1/false/cus_ABC123/true/true"
-check "link is idempotent" "$(q "select (public.studio_client_invoice_link_registration('$INV1','$SA','$I1','cus_ABC123'))->>'outcome'")" "already_linked"
-has "link with a different customer id after linking is refused" "$(st "public.studio_client_invoice_link_registration('$INV1','$SA','$I1','cus_OTHER')")" "STATE 55000 client_invoice_already_linked"
+check "link is idempotent" "$(q "select (public.studio_client_invoice_link_registration('$INV1','$SA','$I1',2,'cus_ABC123'))->>'outcome'")" "already_linked"
+has "link with a different customer id after linking is refused" "$(st "public.studio_client_invoice_link_registration('$INV1','$SA','$I1',2,'cus_OTHER')")" "STATE 55000 client_invoice_already_linked"
 check "link audit row has no human actor and carries the intent" "$(q "select actor_user_id is null, intent_id='$I1' from public.studio_client_invoice_audit where invoice_id='$INV1' and action='link_registration'")" "t|t"
 has "EDIT AFTER REGISTRATION refused (staff)" "$(aust $UO "$(sv $UO $SA $(NEWKEY) $INV1 3 $CA1 "$LINE")")" "STATE 55000 client_invoice_not_editable"
 has "...refused for the admin too" "$(aust $UA "$(sv $UA $SA $(NEWKEY) $INV1 3 $CA1 "$LINE")")" "STATE 55000 client_invoice_not_editable"
@@ -355,7 +360,7 @@ has "rollback refused while creation intents for the type exist" "$r" "creation 
 check "refused rollback left the schema intact" "$(q "select count(*) from information_schema.tables where table_schema='public' and table_name like 'studio_client_invoice%'")" "4"
 F="docker exec -i $NAME psql -U postgres -d d24m3fresh -v ON_ERROR_STOP=1 -qAt"
 bootstrap d24m3fresh || { echo "fresh bootstrap failed"; exit 2; }
-$F < "$M_3C" >/dev/null 2>&1
+$F < "$M_3C" >/dev/null 2>"$TMPD/fresh.err" || head -c 400 "$TMPD/fresh.err"
 check "fresh DB: migration applies and registers the type" "$($F -c "select count(*) from information_schema.tables where table_schema='public' and table_name like 'studio_client_invoice%'")/$($F -c "select count(*) from public.hosted_invoice_business_object_types where business_object_type='studio_client_invoice'")" "4/1"
 $F < "$M_RB" >/dev/null 2>&1
 check "fresh DB: rollback removes every M3-C object and the registered type" "$($F -c "select (select count(*) from information_schema.tables where table_schema='public' and table_name like 'studio_client_invoice%')||'/'||(select count(*) from pg_proc where pronamespace='public'::regnamespace and (proname like '%sci%' or proname like 'studio_client_invoice%' or proname='studio_billing_permission' or proname='d24_owns_studio_client_invoice'))||'/'||(select count(*) from public.hosted_invoice_business_object_types where business_object_type='studio_client_invoice')")" "0/0/0"

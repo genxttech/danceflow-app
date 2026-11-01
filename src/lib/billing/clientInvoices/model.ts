@@ -70,7 +70,6 @@ export type ParsedDraftForm = {
   lines: DraftLine[];
 };
 
-// eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u001F\u007F-\u009F​-‍﻿]/g;
 const clean = (v: FormDataEntryValue | null, max: number) => (typeof v === "string" ? v.replace(CONTROL, "").trim().slice(0, max) : "");
 

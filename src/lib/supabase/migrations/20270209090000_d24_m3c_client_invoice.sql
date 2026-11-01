@@ -76,6 +76,7 @@ create table public.studio_client_invoices (
   stripe_invoice_id text,
   livemode boolean,
   provider_draft_created_at timestamptz,
+  constraint sci_intent_fk foreign key (intent_id, studio_id) references public.hosted_invoice_creation_intents (id, studio_id) on delete restrict,
   constraint sci_status_chk check (status in ('draft', 'provider_draft_created')),
   constraint sci_currency_chk check (currency = 'usd'),
   constraint sci_total_chk check (total_cents between 1 and 99999999),
@@ -110,7 +111,7 @@ create table public.studio_client_invoice_lines (
   line_total_cents bigint not null,
   constraint sci_lines_invoice_fk foreign key (invoice_id, studio_id) references public.studio_client_invoices (id, studio_id) on delete restrict,
   constraint sci_line_pos_chk check (position between 1 and 100),
-  constraint sci_line_desc_chk check (length(btrim(description)) between 1 and 200 and description !~ '[[:cntrl:]]'),
+  constraint sci_line_desc_chk check (length(btrim(description)) between 1 and 200 and description !~ '[[:cntrl:]]' and description !~ '[​-‏‪-‮⁠-⁤﻿]'),
   constraint sci_line_qty_chk check (quantity between 1 and 100000),
   constraint sci_line_unit_chk check (unit_price_cents between 1 and 99999999),
   constraint sci_line_total_chk check (line_total_cents = quantity::bigint * unit_price_cents and line_total_cents between 1 and 99999999)
@@ -306,7 +307,7 @@ end $$;
 
 -- Stored total and line count must equal the lines at COMMIT (deferred): the database, not the caller, owns the arithmetic.
 create or replace function public._sci_check_totals()
-returns trigger language plpgsql
+returns trigger language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
 declare
@@ -317,7 +318,9 @@ begin
   elsif tg_op = 'DELETE' then v_id := old.invoice_id;
   else v_id := new.invoice_id; end if;
   select total_cents, line_count into v_total, v_count from public.studio_client_invoices where id = v_id;
-  if not found then return null; end if;
+  if not found then
+    raise exception 'client_invoice_total_mismatch: invoice row not visible to the totals check' using errcode = '23514';
+  end if;
   select coalesce(sum(line_total_cents), 0), count(*) into v_sum, v_n from public.studio_client_invoice_lines where invoice_id = v_id;
   if v_sum <> v_total or v_n <> v_count then
     raise exception 'client_invoice_total_mismatch: stored total/line count disagree with the lines' using errcode = '23514';
@@ -399,7 +402,7 @@ begin
     v_desc := btrim(e ->> 'description');
     v_qty := (e ->> 'quantity')::numeric;
     v_unit := (e ->> 'unit_price_cents')::numeric;
-    if length(v_desc) < 1 or length(v_desc) > 200 or v_desc ~ '[[:cntrl:]]' then raise exception 'client_invoice_description_invalid' using errcode = '22023'; end if;
+    if length(v_desc) < 1 or length(v_desc) > 200 or v_desc ~ '[[:cntrl:]]' or v_desc ~ '[​-‏‪-‮⁠-⁤﻿]' then raise exception 'client_invoice_description_invalid' using errcode = '22023'; end if;
     if v_qty <> trunc(v_qty) or v_qty < 1 or v_qty > v_lim.max_quantity then raise exception 'client_invoice_quantity_invalid' using errcode = '22023'; end if;
     if v_unit <> trunc(v_unit) or v_unit < 1 or v_unit > v_lim.max_total_cents then raise exception 'client_invoice_amount_invalid' using errcode = '22023'; end if;
     if v_qty * v_unit > v_lim.max_total_cents then raise exception 'client_invoice_amount_invalid' using errcode = '22023'; end if;
@@ -452,7 +455,7 @@ begin
   if p_client_id is null or p_request_key is null then
     raise exception 'client_invoice_input_invalid' using errcode = '22023';
   end if;
-  if v_note is not null and (length(v_note) > 200 or v_note ~ '[[:cntrl:]]') then
+  if v_note is not null and (length(v_note) > 200 or v_note ~ '[[:cntrl:]]' or v_note ~ '[​-‏‪-‮⁠-⁤﻿]') then
     raise exception 'client_invoice_input_invalid' using errcode = '22023';
   end if;
   if p_reference_type is not null and p_reference_type not in ('appointment', 'event', 'payment', 'other') then
@@ -485,8 +488,9 @@ begin
     if not found then
       raise exception 'client_invoice_not_found' using errcode = '42501';   -- another studio's invoice looks exactly like a missing one
     end if;
-    if v_inv.status <> 'draft' then
-      raise exception 'client_invoice_not_editable' using errcode = '55000';
+    if v_inv.status <> 'draft' or exists (select 1 from public.hosted_invoice_creation_intents n where n.studio_id = v_inv.studio_id
+         and n.business_object_type = 'studio_client_invoice' and n.business_object_id = v_inv.id::text and n.status in ('pending', 'provider_created', 'registered')) then
+      raise exception 'client_invoice_not_editable' using errcode = '55000';     -- registered, or being created at the provider right now
     end if;
     if p_expected_version is distinct from v_inv.version then
       raise exception 'client_invoice_version_conflict' using errcode = '40001';
@@ -520,8 +524,8 @@ create or replace function public.d24_owns_studio_client_invoice(p_studio_id uui
 returns boolean language sql stable security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
-  select p_studio_id is not null and p_object_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-    and exists (select 1 from public.studio_client_invoices i where i.id = p_object_id::uuid and i.studio_id = p_studio_id)
+  select coalesce(case when p_studio_id is not null and p_object_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    then exists (select 1 from public.studio_client_invoices i where i.id = p_object_id::uuid and i.studio_id = p_studio_id) end, false)
 $$;
 
 -- Trusted content for the creation orchestrator. A draft that is complete, consistent and inside the limits, else NULL ("not creatable").
@@ -550,7 +554,7 @@ end $$;
 
 -- Records the provider registration on the invoice. Trusts ONLY the M3-A ledger: the intent must be 'registered', for this studio, for this exact object,
 -- its registry row must match. Nothing client- or caller-supplied except the Stripe customer id (format-checked, set once).
-create or replace function public.studio_client_invoice_link_registration(p_invoice_id uuid, p_studio_id uuid, p_intent_id uuid, p_stripe_customer_id text default null)
+create or replace function public.studio_client_invoice_link_registration(p_invoice_id uuid, p_studio_id uuid, p_intent_id uuid, p_expected_version integer, p_stripe_customer_id text default null)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
@@ -560,7 +564,7 @@ declare
   r public.hosted_invoice_registry;
   v_hash text;
 begin
-  if p_invoice_id is null or p_studio_id is null or p_intent_id is null then
+  if p_invoice_id is null or p_studio_id is null or p_intent_id is null or p_expected_version is null then
     raise exception 'client_invoice_input_invalid' using errcode = '22023';
   end if;
   if p_stripe_customer_id is not null and p_stripe_customer_id !~ '^cus_[A-Za-z0-9]+$' then
@@ -578,6 +582,10 @@ begin
       return public._sci_json(i, 'already_linked');
     end if;
     raise exception 'client_invoice_already_linked' using errcode = '55000';
+  end if;
+  -- the content the provider invoice was built from (creation_spec.version) must be the content being frozen
+  if i.version <> p_expected_version then
+    raise exception 'client_invoice_version_conflict' using errcode = '40001';
   end if;
   if t.status <> 'registered' or t.registry_id is null or t.stripe_invoice_id is null or t.livemode is null then
     raise exception 'client_invoice_intent_not_registered' using errcode = '55000';
@@ -617,12 +625,12 @@ revoke all on function public._sci_json(public.studio_client_invoices, text) fro
 revoke all on function public.studio_client_invoice_save_draft(uuid, uuid, uuid, integer, uuid, text, uuid, text, jsonb) from public, anon, authenticated, service_role;
 revoke all on function public.d24_owns_studio_client_invoice(uuid, text) from public, anon, authenticated, service_role;
 revoke all on function public.studio_client_invoice_creation_spec(uuid, uuid) from public, anon, authenticated, service_role;
-revoke all on function public.studio_client_invoice_link_registration(uuid, uuid, uuid, text) from public, anon, authenticated, service_role;
+revoke all on function public.studio_client_invoice_link_registration(uuid, uuid, uuid, integer, text) from public, anon, authenticated, service_role;
 -- the RLS policies call the helper as the querying role: authenticated needs EXECUTE (it returns false for anyone else's identity; it takes no user id)
 grant execute on function public.studio_billing_permission(uuid, text) to authenticated;
 grant execute on function public.studio_client_invoice_save_draft(uuid, uuid, uuid, integer, uuid, text, uuid, text, jsonb) to authenticated;
 grant execute on function public.studio_client_invoice_creation_spec(uuid, uuid) to service_role;
-grant execute on function public.studio_client_invoice_link_registration(uuid, uuid, uuid, text) to service_role;
+grant execute on function public.studio_client_invoice_link_registration(uuid, uuid, uuid, integer, text) to service_role;
 
 -- Register the ownership function with the M3-A registry (owner-only registrar; the type name contains no 'subscription').
 select public.d24_register_business_object_type('studio_client_invoice', 'public.d24_owns_studio_client_invoice(uuid,text)'::regprocedure);
