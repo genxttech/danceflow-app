@@ -13,6 +13,19 @@ Missing integration points (all belong to a future, separately authorized, bound
 
 Authorization dependencies for that package: studio-staff authentication with an explicit billing permission and derived `studioId`/`createdBy` (M2-B operator auth covers operator flows only); owner approval to create real Stripe invoices; hosted DB migrations applied (M1 and any hardening) before the app; `D24_HOSTED_INVOICE_EVENTS` set to `defer`/`on` per the M1 rollout; and no Stripe calls or hosted changes are authorized by M2-A.
 
+## Caller rules
+Any code that calls `registerHostedInvoice` must obey all of these; the wrapper cannot verify them itself:
+- **Never** pass an unverified Stripe invoice id. The id must be the `id` of the Stripe response of an invoice DanceFlow created moments earlier in the same server flow, never a request field, form value, URL parameter, metadata value or webhook payload.
+- **Never** pass studio or account values from a client, request or Stripe metadata. `studioId` comes from the server-side authorization decision; the Stripe account is resolved by the wrapper from the studio and is not an input.
+- **Never** pass an unverified `livemode`. It must come from that same Stripe response (and agree with the deployment's key mode, see below), not from a request or configuration guess.
+- Register immediately after creation and before finalizing or sending the invoice; handle `retryable` results by retrying, and surface permanent ones.
+- Keep `PRODUCTION_BUSINESS_OBJECT_RESOLVERS` empty until the package that adds a creation workflow adds its own resolver and tests.
+
+## Mandatory requirements for the future invoice-creation integration (release blockers)
+Neither item below is implemented in M2-A. The creation integration must not ship, and no call site may be added, until both are done and tested:
+1. **Account-ownership / invoice-id uniqueness guard at SQL level.** `hosted_invoice_registry` is unique per (account scope, invoice id). A SQL change to `d24_register_invoice` must take an advisory lock on the invoice id alone and refuse (23505) an invoice id already registered under any other scope, so studio B can never register studio A's invoice id (and cause `account_scope_mismatch` flagging on A's facts). The same change should resolve the account inside the function from `studios.stripe_connected_account_id` (refusing NULL or mismatch) and drop the caller-supplied account argument. M1 section 14h (cross-scope deadlock test) must be updated for the new semantics. Until then the wrapper's registry pre-check is a best-effort read, not a guard.
+2. **Caller-originated `livemode` check.** `livemode` is currently caller-supplied and unchecked. The integration must derive it from the Stripe invoice response and verify it against the environment (live secret key => `true`, test key => `false`), refusing a mismatch, so test-mode invoices can never be registered by a live deployment or the reverse.
+
 ## Inventory result: no invoice-creation workflow exists
 Searched `src/` for `invoices.create`, `finalizeInvoice`, `sendInvoice`, `invoiceItems`, `collection_method`, `send_invoice`.
 - `src/lib/payments/subscriptions.ts` and `src/app/app/memberships/actions.ts` only create / pay **subscription** invoices with `collection_method: "charge_automatically"`. These are explicitly **not** hosted invoices and must never be registered (the wrapper refuses them).
