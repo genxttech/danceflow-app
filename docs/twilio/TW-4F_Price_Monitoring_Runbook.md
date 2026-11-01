@@ -183,3 +183,9 @@ Owner procedure for the real destinations (needs the owner's authorization, the 
 3. For email and the dead-man page: read the token from the mailbox, then `npm run qa:price-monitor -- confirm --nonce <nonce> --token <token>` (valid 24 hours, once).
 4. Each step is recorded in the evidence chain (`delivery` rows, `source: "verification"`; only a hash of the nonce is stored; they never mark a real alert delivered).
 5. Do not activate the cron until step 1-3 passed for every destination, the dead-man service has seen the ping, and a deliberate non-production forged-row test produced an alert.
+
+## 16. Guard inventory (R3-3)
+
+`tw4_price_monitor_digest()` checks an EXPECTED list of guard triggers, each by table, trigger name, function and mode (`tgenabled = 'A'`, ENABLE ALWAYS): this migration's five; D4-1's price-list (activation, truncate), change-request and approver-registry guards; and the authorization migration's per-table guard and truncate triggers for config, credentials, challenges, credential changes, audit and emit acks, plus the approver `_emit` trigger. Result keys: `guards`, `guards_missing`, `guards_disabled`, `guards_wrong_function`, `expected_but_absent`, `groups_active`, `guards_ok` (false for any of them), and `guards_bad` (disabled or wrong function).
+
+A group is expected when any of its tables exists (`own` always). A group with only some of its tables present is `expected_but_absent`, never silently skipped. The monitor reports immediately, with no earlier run needed: `guard_missing`, `guard_disabled` (disabled, merely enabled / replica-only, or a different function), `pricing_tables_partial` (all critical), and a digest without any guard inventory as `digest_unavailable` (critical). When a new pricing guard is added by a later migration, add it to the `exp` list in the digest function, in the same migration.
