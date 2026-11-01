@@ -345,8 +345,8 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     const ab = enrollBegin(sess, alias, "spare", "alias of the primary");
     expect(enroll(sess, alias, "spare", "alias of the primary", ab.nonce, K1.assert(ab.challenge), alias.assert(ab.challenge)).status).toBe("rejected");
     // a cancelled change never applies
-    const cb = enrollBegin(sess, K3, "primary", "new primary key");
-    const cp = enroll(sess, K3, "primary", "new primary key", cb.nonce, K1.assert(cb.challenge), K3.assert(cb.challenge));
+    const cb = enrollBegin(sess, K3, "spare", "new cancelled key");
+    const cp = enroll(sess, K3, "spare", "new cancelled key", cb.nonce, K1.assert(cb.challenge), K3.assert(cb.challenge));
     expect(cp.status).toBe("pending");
     expect(authOut(claims(B, "d42-b-cancel"), `select public.tw4_price_cred_cancel('${cp.change_id}')::text;`)).toMatchObject({ status: "cancelled" });
     ageChange(cp.change_id);
@@ -473,7 +473,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(feed.length).toBeGreaterThan(10);
     expect(feed.map((f) => f.id)).toEqual([...feed.map((f) => f.id)].sort((m, n) => m - n));
     const seen = new Set(feed.map((f) => f.event));
-    for (const e of ["proposed", "challenge_issued", "assertion_rejected", "authorized", "published", "revised", "credential_enrolled", "credential_revoked", "freeze_set", "freeze_lifted"]) expect(seen.has(e), e).toBe(true);
+    for (const e of ["proposed", "challenge_issued", "assertion_rejected", "authorized", "published", "revised", "credential_change_pending", "credential_change_applied", "freeze_set", "freeze_lifted"]) expect(seen.has(e), e).toBe(true);
     expect(JSON.parse(psql(`select public.tw4_price_audit_feed(${feed[feed.length - 1].id}, 10)::text`))).toEqual([]);
     for (const role of ["anon", "authenticated"]) expect(psql(`select has_function_privilege('${role}', 'public.tw4_price_audit_feed(bigint,integer)', 'execute')`)).toBe("f");
     expect(psql(`select has_function_privilege('service_role', 'public.tw4_price_audit_feed(bigint,integer)', 'execute')`)).toBe("t");
