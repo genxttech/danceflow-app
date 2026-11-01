@@ -195,11 +195,12 @@ const bad = (...v: unknown[]) => {
 export async function priceCredBegin(input: { purpose: string; credentialId?: string; x?: string; y?: string; role?: string; label?: string; changeId?: string }): Promise<Data<CredChallenge>> {
   return await guardedData("aal2", async () => {
     const purpose = input?.purpose;
-    if (purpose !== "enroll" && purpose !== "revoke" && purpose !== "thaw" && purpose !== "cancel") throw new PriceChangeError("22023");
+    if (purpose !== "enroll" && purpose !== "revoke" && purpose !== "thaw" && purpose !== "cancel" && purpose !== "recover_enroll" && purpose !== "recover_freeze") throw new PriceChangeError("22023");
     if (purpose === "cancel" && (typeof input.changeId !== "string" || !UUID.test(input.changeId))) throw new PriceChangeError("22023");
-    if (purpose === "enroll") bad(input.credentialId, input.x, input.y);
+    if (purpose === "enroll" || purpose === "recover_enroll") bad(input.credentialId, input.x, input.y);
+    if (purpose === "recover_enroll" && (typeof input.label !== "string" || input.label.trim().length < 3 || input.label.length > 60)) throw new PriceChangeError("22023");
     if (purpose === "revoke") bad(input.credentialId);
-    if (purpose === "enroll" && (typeof input.role !== "string" || !["primary", "spare"].includes(input.role) || typeof input.label !== "string" || input.label.trim().length < 3 || input.label.length > 60)) throw new PriceChangeError("22023");
+    if (purpose === "enroll" && (typeof input.role !== "string" || !["primary", "spare", "recovery"].includes(input.role) || typeof input.label !== "string" || input.label.trim().length < 3 || input.label.length > 60)) throw new PriceChangeError("22023");
     return (await store()).credBegin({ purpose, credentialId: input.credentialId ?? null, x: input.x ?? null, y: input.y ?? null, role: input.role ?? null, label: input.label ?? null, changeId: input.changeId ?? null });
   });
 }
@@ -209,7 +210,7 @@ export async function priceCredEnroll(input: CredEnrollInput): Promise<Data<Reco
   return await guardedData("aal2", async () => {
     const i = input as Record<string, unknown>;
     bad(i?.nonce, i?.newCredentialId, i?.x, i?.y, i?.byCredentialId, i?.byAuth, i?.byClient, i?.bySig, i?.newAuth, i?.newClient, i?.newSig);
-    if (i.role !== "primary" && i.role !== "spare") throw new PriceChangeError("22023");
+    if (i.role !== "primary" && i.role !== "spare" && i.role !== "recovery") throw new PriceChangeError("22023");
     if (typeof i.label !== "string" || i.label.trim().length < 3 || i.label.length > 60) throw new PriceChangeError("22023");
     return (await store()).credEnroll(input);
   });
@@ -252,4 +253,22 @@ export async function priceCredCancel(input: CancelInput): Promise<Data<Record<"
 
 export async function priceCredPending(): Promise<Data<CredentialState>> {
   return await guardedData("aal2", async () => (await store()).credState());
+}
+
+type RecoveryEnrollInput = Record<"nonce" | "newCredentialId" | "x" | "y" | "label" | "recCredentialId" | "recAuth" | "recClient" | "recSig" | "newAuth" | "newClient" | "newSig", string>;
+export async function priceRecoveryEnroll(input: RecoveryEnrollInput): Promise<Data<Record<"status" | "reason" | "changeId", string | null>>> {
+  return await guardedData("aal2", async () => {
+    const i = input as Record<string, unknown>;
+    bad(i?.nonce, i?.newCredentialId, i?.x, i?.y, i?.recCredentialId, i?.recAuth, i?.recClient, i?.recSig, i?.newAuth, i?.newClient, i?.newSig);
+    if (typeof i.label !== "string" || i.label.trim().length < 3 || i.label.length > 60) throw new PriceChangeError("22023");
+    return (await store()).recoveryEnroll(input);
+  });
+}
+
+export async function priceRecoveryFreeze(input: ThawInput): Promise<Data<Record<"status" | "reason", string | null>>> {
+  return await guardedData("aal2", async () => {
+    const i = input as Record<string, unknown>;
+    bad(i?.nonce, i?.credentialId, i?.authData, i?.clientData, i?.signature);
+    return (await store()).recoveryFreeze(input);
+  });
 }

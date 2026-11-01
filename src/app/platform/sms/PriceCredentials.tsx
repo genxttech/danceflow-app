@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { priceCredApply, priceCredBegin, priceCredCancel, priceCredEnroll, priceCredPending, priceCredRevoke, priceThaw } from "./priceChangeActions";
+import { priceCredApply, priceCredBegin, priceCredCancel, priceCredEnroll, priceCredPending, priceCredRevoke, priceRecoveryEnroll, priceRecoveryFreeze, priceThaw } from "./priceChangeActions";
 import type { CredChallenge, CredentialState } from "@/lib/sms/priceChange";
 
 /**
@@ -45,7 +45,7 @@ export default function PriceCredentials() {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [label, setLabel] = useState("");
-  const [role, setRole] = useState<"primary" | "spare">("spare");
+  const [role, setRole] = useState<"primary" | "spare" | "recovery">("spare");
 
   async function load() {
     const r = await priceCredPending();
@@ -114,7 +114,46 @@ export default function PriceCredentials() {
       const by = await sign(b.data);
       const r = await priceCredRevoke({ nonce: b.data.nonce, target, byCredentialId: by.credentialId, byAuth: by.auth, byClient: by.client, bySig: by.sig });
       if (!r.ok) return r.message;
-      return r.data.status === "pending" ? "Revocation requested. It takes effect after the delay and can be cancelled until then." : `The database refused: ${r.data.reason ?? "unknown reason"}. Nothing changed.`;
+      return r.data.status === "revoked" ? "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key." : `The database refused: ${r.data.reason ?? "unknown reason"}. Nothing changed.`;
+    });
+
+  // the OFFLINE recovery key: freeze, or start the delayed re-enrolment of a new primary (loud, cancellable by a primary or spare key, never publishes)
+  const recoveryFreeze = () =>
+    run(async () => {
+      const b = await priceCredBegin({ purpose: "recover_freeze" });
+      if (!b.ok) return b.message;
+      const s = await sign(b.data);
+      const r = await priceRecoveryFreeze({ nonce: b.data.nonce, credentialId: s.credentialId, authData: s.auth, clientData: s.client, signature: s.sig });
+      if (!r.ok) return r.message;
+      return r.data.status === "frozen" ? "Publication is suspended." : `The database refused: ${r.data.reason ?? "unknown reason"}. Nothing changed.`;
+    });
+
+  const recoveryEnroll = () =>
+    run(async () => {
+      const created = (await navigator.credentials.create({
+        publicKey: {
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+          rp: { name: "DanceFlow" },
+          user: { id: crypto.getRandomValues(new Uint8Array(16)), name: label || "recovered primary", displayName: label || "recovered primary" },
+          pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+          authenticatorSelection: { userVerification: "required", residentKey: "discouraged" },
+          attestation: "none",
+        },
+      })) as PublicKeyCredential | null;
+      const resp = created?.response as AuthenticatorAttestationResponse | undefined;
+      const spki = resp?.getPublicKey?.();
+      if (!created || !spki) throw new Error("no key");
+      const raw = new Uint8Array(spki).slice(-65);
+      const x = bufToB64u(raw.slice(1, 33));
+      const y = bufToB64u(raw.slice(33, 65));
+      const newId = bufToB64u(created.rawId);
+      const b = await priceCredBegin({ purpose: "recover_enroll", credentialId: newId, x, y, label });
+      if (!b.ok) return b.message;
+      const rec = await sign(b.data);
+      const mine = await sign(b.data, [newId]);
+      const r = await priceRecoveryEnroll({ nonce: b.data.nonce, newCredentialId: newId, x, y, label, recCredentialId: rec.credentialId, recAuth: rec.auth, recClient: rec.client, recSig: rec.sig, newAuth: mine.auth, newClient: mine.client, newSig: mine.sig });
+      if (!r.ok) return r.message;
+      return r.data.status === "pending" ? "Recovery requested. It completes only after the long delay, raises high-severity alerts, and a primary or spare key can cancel it." : `The database refused: ${r.data.reason ?? "unknown reason"}. Nothing changed.`;
     });
 
   const thaw = () =>
@@ -147,12 +186,12 @@ export default function PriceCredentials() {
   return (
     <section className="space-y-3 rounded-xl border border-violet-200 bg-white px-3 py-3 text-sm text-slate-900" aria-label="Hardware keys for price authorization">
       <h3 className="font-semibold">Hardware keys</h3>
-      <p className="text-xs">Adding or removing a key is a request. It takes effect only after the delay set in the database and can be cancelled until then. Synced passkeys are refused.</p>
+      <p className="text-xs">Adding a key is a request: it takes effect only after the delay set in the database and can be cancelled with a key until then. Removing a key is immediate and final. Synced passkeys are refused. Keep three hardware keys: primary, spare and an offline recovery key.</p>
       <ul className="space-y-1 text-xs">
         {state?.credentials.map((c) => (
           <li key={c.id} className="flex items-center justify-between gap-2">
             <span>{c.label} ({c.role})</span>
-            <button type="button" disabled={busy} onClick={() => revoke(c.id)} className="rounded border border-slate-300 px-2 py-0.5 disabled:opacity-60">Request removal</button>
+            <button type="button" disabled={busy} onClick={() => revoke(c.id)} className="rounded border border-slate-300 px-2 py-0.5 disabled:opacity-60">Revoke now (final)</button>
           </li>
         ))}
         {state?.pending.map((p) => (
@@ -168,13 +207,16 @@ export default function PriceCredentials() {
       <div className="flex flex-wrap items-end gap-2 text-xs">
         <label className="flex flex-col gap-1">Label<input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={60} className="rounded border border-slate-300 px-2 py-1" /></label>
         <label className="flex flex-col gap-1">Role
-          <select value={role} onChange={(e) => setRole(e.target.value === "primary" ? "primary" : "spare")} className="rounded border border-slate-300 px-2 py-1">
+          <select value={role} onChange={(e) => setRole(e.target.value === "primary" ? "primary" : e.target.value === "recovery" ? "recovery" : "spare")} className="rounded border border-slate-300 px-2 py-1">
             <option value="spare">spare</option>
             <option value="primary">primary</option>
+            <option value="recovery">recovery (keep offline)</option>
           </select>
         </label>
         <button type="button" disabled={busy || label.trim().length < 3} onClick={enroll} className="rounded-lg bg-violet-700 px-3 py-1.5 font-semibold text-white disabled:opacity-60">Request a new key</button>
         <button type="button" disabled={busy} onClick={thaw} className="rounded-lg border border-violet-700 px-3 py-1.5 font-semibold text-violet-800 disabled:opacity-60">Lift suspension</button>
+        <button type="button" disabled={busy} onClick={recoveryFreeze} className="rounded-lg border border-slate-400 px-3 py-1.5 font-semibold text-slate-800 disabled:opacity-60">Freeze with recovery key</button>
+        <button type="button" disabled={busy || label.trim().length < 3} onClick={recoveryEnroll} className="rounded-lg border border-slate-400 px-3 py-1.5 font-semibold text-slate-800 disabled:opacity-60">Start recovery (new primary)</button>
       </div>
       {message ? <p role="status" className="text-xs">{message}</p> : null}
     </section>

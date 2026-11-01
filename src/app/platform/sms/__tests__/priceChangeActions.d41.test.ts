@@ -51,7 +51,7 @@ vi.mock("@/lib/supabase/server", () => ({
   },
 }));
 
-import { priceApprove, priceCredApply, priceCredBegin, priceCredCancel, priceCredEnroll, priceCredPending, priceCredRevoke, priceThaw, priceAuthzBegin, priceAuthzFinish, priceFreeze, pricePropose, priceReject, priceReportCompromise, priceRevise } from "../priceChangeActions";
+import { priceRecoveryEnroll, priceRecoveryFreeze, priceApprove, priceCredApply, priceCredBegin, priceCredCancel, priceCredEnroll, priceCredPending, priceCredRevoke, priceThaw, priceAuthzBegin, priceAuthzFinish, priceFreeze, pricePropose, priceReject, priceReportCompromise, priceRevise } from "../priceChangeActions";
 
 const REQ = "d4100000-0000-4000-8000-0000000000aa";
 const NOTE = "A written note that is long enough.";
@@ -269,6 +269,16 @@ describe("review fixes: refused answers and credential ceremonies", () => {
     expect(await priceCredCancel({ changeId: REQ, nonce: ID, credentialId: ID, authData: ID, clientData: ID, signature: ID })).toMatchObject({ ok: true, data: { status: "rejected", reason: "nope" } });
     replies.tw4_price_thaw = { data: { status: "refused", reason: "stale" } };
     expect(await priceThaw({ nonce: ID, credentialId: ID, authData: ID, clientData: ID, signature: ID })).toMatchObject({ ok: true, data: { status: "refused", reason: "stale" } });
+    replies.tw4_price_cred_begin = { data: { nonce: ID, challenge: ID, rp_id: "admin.example.test", allow_credentials: [ID] } };
+    expect(await priceCredBegin({ purpose: "recover_freeze" })).toMatchObject({ ok: true });
+    expect(await priceCredBegin({ purpose: "recover_enroll", credentialId: ID, x: ID, y: ID, label: "ab" })).toMatchObject({ ok: false });
+    replies.tw4_price_recovery_freeze = { data: { status: "frozen" } };
+    expect(await priceRecoveryFreeze({ nonce: ID, credentialId: ID, authData: ID, clientData: ID, signature: ID })).toMatchObject({ ok: true, data: { status: "frozen" } });
+    expect(await priceRecoveryFreeze({ nonce: ID, credentialId: ID, authData: ID, clientData: ID, signature: "" })).toMatchObject({ ok: false });
+    replies.tw4_price_recovery_enroll = { data: { status: "pending", change_id: REQ } };
+    const re = { nonce: ID, newCredentialId: ID, x: ID, y: ID, label: "recovered key", recCredentialId: ID, recAuth: ID, recClient: ID, recSig: ID, newAuth: ID, newClient: ID, newSig: ID };
+    expect(await priceRecoveryEnroll(re)).toMatchObject({ ok: true, data: { status: "pending", changeId: REQ } });
+    expect(await priceRecoveryEnroll({ ...re, label: "x" })).toMatchObject({ ok: false });
     replies.tw4_price_cred_pending = { data: { pending: [{ change_id: REQ, kind: "enroll", label: "spare", role: "spare", effective_at: "2026-11-02T00:00:00Z" }, { kind: "bogus" }], credentials: [{ id: ID, role: "primary", label: "main" }, { id: "!!" }] } };
     const s = await priceCredPending();
     expect(s).toMatchObject({ ok: true, data: { pending: [{ changeId: REQ, kind: "enroll" }], credentials: [{ id: ID }] } });
