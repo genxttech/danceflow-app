@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import type { AlertMessage, AlertTransport, HeartbeatMessage } from "./types";
+import type { AlertMessage, AlertTransport, HeartbeatMessage, TestMessage, TestResult } from "./types";
 
 /**
  * Alert transports for the price monitor.
@@ -14,7 +14,7 @@ import type { AlertMessage, AlertTransport, HeartbeatMessage } from "./types";
  *   PRICE_MONITOR_RESEND_API_KEY / PRICE_MONITOR_EMAIL_FROM / PRICE_MONITOR_EMAIL_TO    a dedicated Resend key (NOT the application's), a sender and the owner's own mailbox
  *   PRICE_MONITOR_CHAIN_KEY              optional HMAC key for the evidence chain (separate secret)
  */
-export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number }>;
+export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; text?: () => Promise<string> }>;
 
 const TIMEOUT_MS = 8000;
 
@@ -25,12 +25,13 @@ export class TransportError extends Error {
   }
 }
 
-async function call(name: string, fetchImpl: FetchLike, url: string, init: { method: string; headers: Record<string, string>; body?: string }) {
+async function call(name: string, fetchImpl: FetchLike, url: string, init: { method: string; headers: Record<string, string>; body?: string }): Promise<string> {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
   try {
     const res = await fetchImpl(url, { ...init, signal: ctl.signal });
     if (!res.ok) throw new TransportError(name, `http_${res.status}`);
+    return res.text ? (await res.text()).slice(0, 2000) : "";
   } catch (e) {
     if (e instanceof TransportError) throw e;
     throw new TransportError(name, "network"); // never carries the URL, a header or a secret
@@ -39,11 +40,15 @@ async function call(name: string, fetchImpl: FetchLike, url: string, init: { met
   }
 }
 
-const httpsUrl = (v: string | undefined): string | null => {
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
+/** https only. http is accepted solely for a loopback host AND only when PRICE_MONITOR_ALLOW_LOOPBACK_HTTP=1 (local end-to-end tests); a remote http URL is never accepted. */
+const httpsUrl = (v: string | undefined, allowLoopback = false): string | null => {
   const s = (v ?? "").trim();
   try {
     const u = new URL(s);
-    return u.protocol === "https:" && !u.username && !u.password ? s : null;
+    if (u.username || u.password) return null;
+    if (u.protocol === "https:") return s;
+    return allowLoopback && u.protocol === "http:" && LOOPBACK.has(u.hostname) ? s : null;
   } catch {
     return null;
   }
@@ -63,7 +68,7 @@ export function renderAlertText(m: AlertMessage): string {
 }
 
 export function webhookTransport(url: string, hmacSecret: string | null, fetchImpl: FetchLike = fetch as unknown as FetchLike): AlertTransport {
-  const post = (kind: string, payload: unknown) => {
+  const post = (kind: string, payload: unknown): Promise<string> => {
     const body = JSON.stringify({ kind, ...(payload as object) });
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (hmacSecret) headers["x-df-signature"] = createHmac("sha256", hmacSecret).update(body).digest("hex");
@@ -71,8 +76,13 @@ export function webhookTransport(url: string, hmacSecret: string | null, fetchIm
   };
   return {
     name: "webhook", canAlert: true, canHeartbeat: true,
-    send: (m) => post("price_monitor_alert", { ...m, text: renderAlertText(m) }),
-    heartbeat: (m) => post("price_monitor_heartbeat", m),
+    send: async (m) => { await post("price_monitor_alert", { ...m, text: renderAlertText(m) }); },
+    sendTest: async (m: TestMessage): Promise<TestResult> => {
+      // the receiver proves it read the SIGNED request by answering {"ack": hmac(secret, "ack:" + nonce)}; the token is NOT sent
+      const body = await post("price_monitor_test", { nonce: m.nonce, generatedAt: m.generatedAt, chainHeadHash: m.chainHeadHash, chainHeadSeq: m.chainHeadSeq });
+      try { const j = JSON.parse(body) as { ack?: unknown }; return typeof j.ack === "string" ? { ack: j.ack } : {}; } catch { return {}; }
+    },
+    heartbeat: async (m) => { await post("price_monitor_heartbeat", m); },
   };
 }
 
@@ -80,18 +90,27 @@ export function heartbeatUrlTransport(url: string, fetchImpl: FetchLike = fetch 
   return {
     name: "heartbeat_url", canAlert: false, canHeartbeat: true,
     send: async () => undefined, // pings only
-    heartbeat: (m) => call("heartbeat_url", fetchImpl, url, { method: "POST", headers: { "content-type": "text/plain" }, body: `seq=${m.chainHeadSeq} head=${m.chainHeadHash}` }),
+    sendTest: async () => ({}),
+    heartbeat: async (m) => { await call("heartbeat_url", fetchImpl, url, { method: "POST", headers: { "content-type": "text/plain" }, body: `seq=${m.chainHeadSeq} head=${m.chainHeadHash}` }); },
   };
 }
 
 export function resendTransport(apiKey: string, from: string, to: string, fetchImpl: FetchLike = fetch as unknown as FetchLike): AlertTransport {
   return {
     name: "resend_email", canAlert: true, canHeartbeat: false,
-    send: (m) => call("resend_email", fetchImpl, "https://api.resend.com/emails", {
+    send: async (m) => { await call("resend_email", fetchImpl, "https://api.resend.com/emails", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({ from, to: [to], subject: `[DanceFlow pricing ${m.severity.toUpperCase()}] ${m.subject}`.slice(0, 200), text: renderAlertText(m) }),
-    }),
+    }); },
+    sendTest: async (m: TestMessage): Promise<TestResult> => {
+      await call("resend_email", fetchImpl, "https://api.resend.com/emails", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ from, to: [to], subject: "[DanceFlow pricing TEST] delivery verification", text: `Delivery verification (not an alert).\nNonce: ${m.nonce}\nConfirmation token: ${m.token}\nChain head: seq ${m.chainHeadSeq} ${m.chainHeadHash}\nRun: npm run qa:price-monitor -- confirm --nonce <nonce> --token <token>` }),
+      });
+      return {};
+    },
     heartbeat: async () => undefined, // email is not a dead-man channel
   };
 }
@@ -109,6 +128,14 @@ export class FakeTransport implements AlertTransport {
     if (this.failSends > 0) { this.failSends -= 1; throw new TransportError(this.name, "network"); }
     this.sent.push(m);
   }
+  testAck: ((m: TestMessage) => string | undefined) | null = null;
+  readonly tests: TestMessage[] = [];
+  async sendTest(m: TestMessage): Promise<TestResult> {
+    if (this.failSends > 0) { this.failSends -= 1; throw new TransportError(this.name, "network"); }
+    this.tests.push(m);
+    const ack = this.testAck?.(m);
+    return ack ? { ack } : {};
+  }
   async heartbeat(m: HeartbeatMessage) {
     if (this.failHeartbeats) throw new TransportError(this.name, "network");
     this.heartbeats.push(m);
@@ -120,9 +147,10 @@ export type MonitorConfig = { transports: AlertTransport[]; chainKey: string | n
 /** Environment only. Returns no transport when no destination is configured: the monitor then fails closed (it cannot report), see monitor.ts. */
 export function loadMonitorConfig(env: Record<string, string | undefined>, fetchImpl?: FetchLike): MonitorConfig {
   const transports: AlertTransport[] = [];
-  const hook = httpsUrl(env.PRICE_MONITOR_WEBHOOK_URL);
+  const loop = env.PRICE_MONITOR_ALLOW_LOOPBACK_HTTP === "1";
+  const hook = httpsUrl(env.PRICE_MONITOR_WEBHOOK_URL, loop);
   if (hook) transports.push(webhookTransport(hook, env.PRICE_MONITOR_WEBHOOK_HMAC_SECRET?.trim() || null, fetchImpl));
-  const hb = httpsUrl(env.PRICE_MONITOR_HEARTBEAT_URL);
+  const hb = httpsUrl(env.PRICE_MONITOR_HEARTBEAT_URL, loop);
   if (hb) transports.push(heartbeatUrlTransport(hb, fetchImpl));
   const key = env.PRICE_MONITOR_RESEND_API_KEY?.trim(), from = env.PRICE_MONITOR_EMAIL_FROM?.trim(), to = env.PRICE_MONITOR_EMAIL_TO?.trim();
   if (key && from && to && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) transports.push(resendTransport(key, from, to, fetchImpl));

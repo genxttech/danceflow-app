@@ -13,6 +13,12 @@ export type FindingCode =
   | "verification_failure" // the verifier failed, returned something unintelligible, was stale or contradicted itself
   | "credential_compromise" // security event: a credential compromise was reported
   | "credential_replaced" // security event: a credential / MFA factor / approver was replaced
+  | "credential_revocation_accepted" // security event: a credential revocation was accepted
+  | "credential_recovery_used" // security event: a recovery path was USED (critical)
+  | "recovery_enrollment_started" // security event: enrolment of a recovery path started (critical)
+  | "event_emit_failed" // security event: the pricing side could not emit / deliver an event (critical)
+  | "guard_disabled" // an append-only / price guard trigger is not ENABLE ALWAYS
+  | "guard_missing" // a guard trigger seen on an earlier run is gone
   | "approver_registry_changed"
   | "pricing_suspended" // emergency suspension is in force (state, re-alerted on the repeat interval)
   | "pricing_resumed"
@@ -37,7 +43,7 @@ export const MONITOR_RPCS = [
 export type MonitorRpc = (typeof MONITOR_RPCS)[number];
 
 export type EvidenceKind = "run" | "delivery" | "watchdog";
-export type EvidenceRow = { seq: number; run_id: string; kind: EvidenceKind; recorded_at: string; payload: string; prev_hash: string; entry_hash: string };
+export type EvidenceRow = { inserted_at?: string; seq: number; run_id: string; kind: EvidenceKind; recorded_at: string; payload: string; prev_hash: string; entry_hash: string };
 
 export interface PriceMonitorDb {
   verify(since: string | null): Promise<unknown>;
@@ -62,6 +68,10 @@ export const EVENT_KINDS: Record<string, { code: FindingCode; severity: Severity
   approver_removed: { code: "approver_registry_changed", severity: "warning" },
   pricing_suspended: { code: "pricing_suspended", severity: "critical" },
   pricing_resumed: { code: "pricing_resumed", severity: "warning" },
+  credential_revocation_accepted: { code: "credential_revocation_accepted", severity: "warning" },
+  credential_recovery_used: { code: "credential_recovery_used", severity: "critical" },
+  recovery_enrollment_started: { code: "recovery_enrollment_started", severity: "critical" },
+  event_emit_failed: { code: "event_emit_failed", severity: "critical" },
 };
 
 export type SecurityEvent = { seq: number; kind: string; occurred_at: string; subject_user_id: string | null; detail: Record<string, unknown> };
@@ -82,7 +92,13 @@ export type AlertMessage = {
 export type HeartbeatMessage = { runId: string; chainHeadHash: string; chainHeadSeq: number; generatedAt: string };
 
 /** A destination the app's admins and service_role cannot edit: configured from environment only (see transport.ts). */
+export type TestMessage = { nonce: string; token: string; generatedAt: string; chainHeadHash: string; chainHeadSeq: number };
+/** What a test send learned: `ack` is the receiver's synchronous answer (webhooks); email returns none (the token is read from the mailbox and confirmed out of band). */
+export type TestResult = { ack?: string };
+
 export interface AlertTransport {
+  /** Signed test message for delivery verification (never a real alert). */
+  sendTest?(message: TestMessage): Promise<TestResult>;
   readonly name: string;
   /** true when send() really delivers alerts; false for ping-only channels (a no-op send must never count as a delivery). */
   readonly canAlert: boolean;

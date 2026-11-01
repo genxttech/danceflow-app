@@ -37,13 +37,16 @@ export function classifyVerify(raw: unknown, now: Date): Finding[] {
   return out;
 }
 
-export type DigestState = { digest: string; rows: number; activeRows: number };
+export type DigestState = { digest: string; rows: number; activeRows: number; guardsBad: string[]; guardNames: string[] };
 
 export function parseDigest(raw: unknown): DigestState | null {
   if (!isObj(raw) || typeof raw.digest !== "string" || !/^[0-9a-f]{64}$/.test(raw.digest)) return null;
   const rows = Number(raw.rows), active = Number(raw.active_rows);
   if (!Number.isFinite(rows) || !Number.isFinite(active)) return null;
-  return { digest: raw.digest, rows, activeRows: active };
+  const bad = Array.isArray(raw.guards_bad) ? raw.guards_bad.filter((x): x is string => typeof x === "string") : [];
+  const names = isObj(raw.guards) ? Object.keys(raw.guards).sort() : [];
+  // a digest without guard information (older function) reads as "guards unknown": reported by the monitor as digest_unavailable only when guards are absent AND previously present
+  return { digest: raw.digest, rows, activeRows: active, guardsBad: bad, guardNames: names };
 }
 
 export function parseEvents(raw: unknown): { headSeq: number; events: SecurityEvent[]; suspended: { seq: number; kind: string } | null } | null {

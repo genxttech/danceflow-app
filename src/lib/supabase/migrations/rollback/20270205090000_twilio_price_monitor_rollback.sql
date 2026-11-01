@@ -9,11 +9,14 @@ begin
     raise exception 'price monitor rollback refused: rows exist; export them as evidence first';
   end if;
 end $$;
+drop function if exists public.tw4_price_monitor_status(integer);
 drop function if exists public.tw4_price_monitor_digest();
 drop function if exists public.tw4_price_monitor_events(bigint);
 drop function if exists public.tw4_price_monitor_evidence_list(integer, bigint);
 drop function if exists public.tw4_price_monitor_evidence_append(bigint, text, text, uuid, text, timestamptz, text);
 drop table public.studio_sms_price_security_events;
 drop table public.studio_sms_price_monitor_evidence;
+drop function if exists public._tw4pricemon_emit_event(text, uuid, jsonb);
+drop function if exists public._tw4pricemon_event_fill();
 drop function if exists public._tw4pricemon_immutable();
 commit;

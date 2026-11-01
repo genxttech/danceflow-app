@@ -43,8 +43,8 @@ export function verifyChain(rows: EvidenceRow[], opts: { chainKey?: string | nul
       if (r.seq !== p.seq + 1) return bad(r.seq, "gap");
       if (r.prev_hash !== p.entry_hash) return bad(r.seq, "link");
     } else if (r.seq === 1 && r.prev_hash !== GENESIS_HASH) return bad(r.seq, "genesis");
-    const { entry_hash: _unused, ...rest } = r;
-    void _unused;
+    const { entry_hash: _unused, inserted_at: _ins, ...rest } = r;
+    void _unused; void _ins;
     if (entryHash(rest, opts.chainKey) !== r.entry_hash) return bad(r.seq, "hash");
   }
   const head = rows[rows.length - 1];
@@ -66,7 +66,7 @@ export function parseEvidenceList(raw: unknown): { headSeq: number; rows: Eviden
     const x = r as Partial<EvidenceRow> | null;
     if (!x || typeof x.seq !== "number" || typeof x.run_id !== "string" || typeof x.payload !== "string" || typeof x.prev_hash !== "string" || typeof x.entry_hash !== "string"
       || typeof x.recorded_at !== "string" || (x.kind !== "run" && x.kind !== "delivery" && x.kind !== "watchdog")) return null;
-    rows.push({ seq: x.seq, run_id: x.run_id, kind: x.kind, recorded_at: x.recorded_at, payload: x.payload, prev_hash: x.prev_hash, entry_hash: x.entry_hash });
+    rows.push({ ...(typeof x.inserted_at === "string" ? { inserted_at: x.inserted_at } : {}), seq: x.seq, run_id: x.run_id, kind: x.kind, recorded_at: x.recorded_at, payload: x.payload, prev_hash: x.prev_hash, entry_hash: x.entry_hash });
   }
   return { headSeq: o.head_seq, rows };
 }

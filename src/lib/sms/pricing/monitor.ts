@@ -44,11 +44,12 @@ const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 const worst = (f: Finding[]): Severity => (f.some((x) => x.severity === "critical") ? "critical" : f.some((x) => x.severity === "warning") ? "warning" : "info");
 export const findingKeys = (f: Finding[]) => f.map((x) => `${x.code}:${[...x.refs].sort().join(",")}`).sort();
 export const fingerprintOf = (f: Finding[]) => sha(findingKeys(f).join("|"));
-const parse = (p: string): Record<string, unknown> => { try { const v = JSON.parse(p); return v && typeof v === "object" ? (v as Record<string, unknown>) : {}; } catch { return {}; } };
+export const parse = (p: string): Record<string, unknown> => { try { const v = JSON.parse(p); return v && typeof v === "object" ? (v as Record<string, unknown>) : {}; } catch { return {}; } };
 
-type Delivery = { ok: boolean; results: { transport: string; ok: boolean; code?: string; attempts: number }[] };
+export type Head = { seq: number; hash: string };
+export type Delivery = { ok: boolean; results: { transport: string; ok: boolean; code?: string; attempts: number }[] };
 
-async function deliver(transports: AlertTransport[], msg: AlertMessage, sleep: (ms: number) => Promise<void>): Promise<Delivery> {
+export async function deliver(transports: AlertTransport[], msg: AlertMessage, sleep: (ms: number) => Promise<void>): Promise<Delivery> {
   const results: Delivery["results"] = [];
   for (const t of transports.filter((x) => x.canAlert)) {
     let code = "unknown", attempts = 0, ok = false;
@@ -72,10 +73,8 @@ async function pingHeartbeat(transports: AlertTransport[], m: { runId: string; c
   return out;
 }
 
-type Head = { seq: number; hash: string };
-
 /** Loads the evidence window and verifies it. Never throws. */
-async function loadChain(db: PriceMonitorDb, cfg: MonitorConfig): Promise<{ rows: EvidenceRow[]; check: ChainCheck | null; head: Head | null; finding: Finding | null }> {
+export async function loadChain(db: PriceMonitorDb, cfg: MonitorConfig): Promise<{ rows: EvidenceRow[]; check: ChainCheck | null; head: Head | null; finding: Finding | null }> {
   try {
     const parsed = parseEvidenceList(await db.evidenceList(WINDOW));
     if (!parsed) return { rows: [], check: null, head: null, finding: { code: "evidence_unavailable", severity: "critical", message: "the evidence list is unintelligible", refs: [] } };
@@ -92,7 +91,7 @@ async function loadChain(db: PriceMonitorDb, cfg: MonitorConfig): Promise<{ rows
 }
 
 /** Appends with one re-link when another writer moved the head. */
-async function append(db: PriceMonitorDb, head: Head, entry: { runId: string; kind: "run" | "delivery" | "watchdog"; payload: unknown; now: Date }, cfg: MonitorConfig): Promise<{ ok: boolean; head: Head }> {
+export async function append(db: PriceMonitorDb, head: Head, entry: { runId: string; kind: "run" | "delivery" | "watchdog"; payload: unknown; now: Date }, cfg: MonitorConfig): Promise<{ ok: boolean; head: Head }> {
   let r = await appendEvidence(db, head, entry, cfg.chainKey);
   if (!r.appended && r.reason === "chain_mismatch") {
     try {
@@ -104,9 +103,9 @@ async function append(db: PriceMonitorDb, head: Head, entry: { runId: string; ki
   return r.appended ? { ok: true, head: { seq: r.seq, hash: r.hash } } : { ok: false, head };
 }
 
-type AlertState = { lastKeys: Set<string>; lastAt: number | null; pending: EvidenceRow[] };
+export type AlertState = { lastKeys: Set<string>; lastAt: number | null; pending: EvidenceRow[] };
 
-function alertState(rows: EvidenceRow[], source: "run" | "watchdog"): AlertState {
+export function alertState(rows: EvidenceRow[], source: "run" | "watchdog"): AlertState {
   const okRuns = new Set<number>();
   let lastKeys = new Set<string>(), lastAt: number | null = null;
   for (const r of rows) {
@@ -215,6 +214,8 @@ export async function runPriceMonitor(deps: MonitorDeps): Promise<RunOutcome> {
   const prev = lastRun ? parse(lastRun.payload) : {};
   const prevCursor = typeof prev.events_cursor === "number" ? prev.events_cursor : 0;
   const prevDigest = typeof prev.digest === "string" ? prev.digest : null;
+  const prevGuards = Array.isArray(prev.guards) ? prev.guards.filter((g): g is string => typeof g === "string") : [];
+  let guardNames: string[] = prevGuards;
 
   // verifier (fail closed)
   try { findings.push(...classifyVerify(await db.verify(config.since), now)); } catch {
@@ -228,6 +229,10 @@ export async function runPriceMonitor(deps: MonitorDeps): Promise<RunOutcome> {
     if (!d) findings.push({ code: "digest_unavailable", severity: "warning", message: "the price list digest was unintelligible", refs: [] });
     else {
       digest = d.digest;
+      guardNames = d.guardNames;
+      if (d.guardsBad.length) findings.push({ code: "guard_disabled", severity: "critical", message: "an append-only or price guard trigger is not ENABLE ALWAYS", refs: d.guardsBad.map((g) => `guard:${g}`) });
+      const gone = prevGuards.filter((g) => !d.guardNames.includes(g));
+      if (gone.length) findings.push({ code: "guard_missing", severity: "critical", message: "a guard trigger seen on an earlier run no longer exists", refs: gone.map((g) => `guard:${g}`) });
       if (prevDigest && prevDigest !== d.digest) findings.push({ code: "price_changed", severity: "info", message: `the price list changed since the previous run (${d.rows} rows, ${d.activeRows} active); confirm it was an approved change`, refs: [`digest:${d.digest.slice(0, 12)}`] });
     }
   } catch { findings.push({ code: "digest_unavailable", severity: "warning", message: "the price list digest could not be read", refs: [] }); }
@@ -243,7 +248,7 @@ export async function runPriceMonitor(deps: MonitorDeps): Promise<RunOutcome> {
     }
   } catch { findings.push({ code: "verification_failure", severity: "critical", message: "the security event feed could not be read", refs: ["events"] }); }
 
-  return reportFlow({ deps, source: "run", runId, now, findings, chain, errors, extraPayload: { events_cursor: cursor, digest } });
+  return reportFlow({ deps, source: "run", runId, now, findings, chain, errors, extraPayload: { events_cursor: cursor, digest, guards: guardNames } });
 }
 
 /**
@@ -257,7 +262,8 @@ export async function runPriceWatchdog(deps: MonitorDeps): Promise<RunOutcome> {
   const findings: Finding[] = [];
   if (chain.head) {
     const lastRun = [...chain.rows].reverse().find((r) => r.kind === "run");
-    const age = lastRun ? now.getTime() - Date.parse(lastRun.recorded_at) : null;
+    // the DATABASE's own insert time wins over the (writer-supplied) recorded time
+    const age = lastRun ? now.getTime() - Date.parse(lastRun.inserted_at ?? lastRun.recorded_at) : null;
     if (!lastRun) findings.push({ code: "monitor_stale", severity: "critical", message: "no monitor run has ever been recorded", refs: ["never_ran"] });
     else if (age !== null && age > deps.config.maxAgeMs) findings.push({ code: "monitor_stale", severity: "critical", message: `the last monitor run was ${Math.round(age / 60000)} minutes ago (allowed ${Math.round(deps.config.maxAgeMs / 60000)})`, refs: [`last_run:${lastRun.seq}`] });
   }
