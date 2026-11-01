@@ -78,6 +78,7 @@ const MESSAGES: Record<string, string> = {
   COMP_EXCLUSION_DECISION_COMPLETED: "That request has already been co-signed.",
   COMP_EXCLUSION_REQUEST_STALE: "That request is out of date: a later decision for this couple is already in effect.",
   COMP_EXCLUSION_COSIGN_SAME_PERSON: "A different person than the requester must co-sign.",
+  COMP_EXCLUSION_REASON_MISMATCH: "The reason you chose does not match why this couple is unavailable. Pick the matching reason (ineligible or refunded), or Other.",
   COMP_EXCLUSION_COSIGNER_FILED_BALLOT: "You filed a corrected ballot in this round, so you cannot co-sign an exclusion for it.",
   COMP_EXCLUSION_COSIGNER_CONFLICT: "You co-signed an exclusion in this round, so you cannot file a corrected ballot for it.",
 
