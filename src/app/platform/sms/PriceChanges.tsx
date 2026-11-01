@@ -1,6 +1,7 @@
 import { PRICE_KIND_TEXT, type PriceChangeOverview, type PriceChangeRequest } from "@/lib/sms/priceChange";
 import { priceApprove, priceFreeze, pricePropose, priceReject, priceReportCompromise, priceRevise } from "./priceChangeActions";
 import PriceAuthorize from "./PriceAuthorize";
+import PriceCredentials from "./PriceCredentials";
 import { buttonClass, dangerButtonClass, dollars, Disclosure, inputClass, labelClass, shortId, stamp } from "./RecurringFeesDisclosure";
 
 /**
@@ -173,6 +174,10 @@ export default function PriceChanges({ overview, adminId, notice = null, error =
               <label className={labelClass}>I suspect my sign-in or hardware key is compromised (10 to 300 characters)<textarea name="note" required minLength={10} maxLength={300} rows={2} className={inputClass} /></label>
               <button type="submit" className={dangerButtonClass}>Report a compromise (suspends publication)</button>
             </form>
+          </Disclosure>
+
+          <Disclosure title="Hardware keys" summary="enrol, remove, lift suspension">
+            <PriceCredentials />
           </Disclosure>
 
           <Disclosure title="Decided proposals" summary={`${decided.length} recorded`}>
