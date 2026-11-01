@@ -7,7 +7,7 @@ import {
   type ReconcileInputs,
   type ReconcileOutcome,
 } from "../priceTransitionReconcile";
-import { isPriceTransitionReconcileEnabled, maybeReconcilePriceTransition } from "../priceTransitionWebhook";
+import { isPriceTransitionReconcileEnabled, maybeReconcilePriceTransition, subscriptionIdFromSchedule } from "../priceTransitionWebhook";
 
 const BOUNDARY = PROTECTED_PRICE_BOUNDARY;
 const AFTER = new Date(BOUNDARY.getTime() + 2 * 3_600_000);
@@ -17,7 +17,7 @@ const inputs = (over: Partial<ReconcileInputs> = {}): ReconcileInputs => ({
   now: AFTER,
   transition: {
     id: "t1", status: "scheduled", protectedSubscriptionId: "prot-1", stripeSubscriptionId: "sub_ABC123", stripeScheduleId: "sub_sched_1",
-    targetPriceId: "price_regular", boundaryAt: BOUNDARY, activatedAt: null, priceChangedAt: null, noticeAmountCents: 15900, noticeCurrency: "usd",
+    targetPriceId: "price_regular", boundaryAt: BOUNDARY, activatedAt: null, priceChangedAt: null, noticeAmountCents: 15900, noticeCurrency: "usd", noticeInterval: "month", plannedQuantity: 1,
   },
   registry: { id: "prot-1", studioId: "st", stripeCustomerId: "cus_1", stripeSubscriptionId: "sub_ABC123", releasedAt: null, protectionKind: "grandfathered_founder_legacy" },
   studioCustomerId: "cus_1",
@@ -26,9 +26,11 @@ const inputs = (over: Partial<ReconcileInputs> = {}): ReconcileInputs => ({
     items: [{ priceId: "price_regular", quantity: 1 }],
   },
   schedule: { id: "sub_sched_1", status: "active", subscriptionId: "sub_ABC123", currentPhaseStart: BOUNDARY },
-  price: { id: "price_regular", unitAmountCents: 15900, currency: "usd" },
+  price: PRICE,
   ...over,
 });
+
+const PRICE = { id: "price_regular", unitAmountCents: 15900, currency: "usd", active: true, type: "recurring", interval: "month", intervalCount: 1 };
 
 const reasons = (o: ReconcileOutcome) => (o.state === "needs_review" ? o.reasons : []);
 
@@ -81,7 +83,7 @@ describe("evaluateReconciliation", () => {
   it.each([
     ["target price outside the boundary period (Stripe boundary conflicts with July 9)", (i: ReconcileInputs) => ({ subscription: { ...i.subscription!, currentPeriodStart: new Date(BOUNDARY.getTime() + 86_400_000) } }), "boundary_conflict_target_price_outside_boundary_period"],
     ["a third, unexpected price", (i: ReconcileInputs) => ({ subscription: { ...i.subscription!, items: [{ priceId: "price_other", quantity: 1 }] } }), "unexpected_price_after_boundary"],
-    ["price amount differs from the disclosed notice", () => ({ price: { id: "price_regular", unitAmountCents: 24900, currency: "usd" } }), "target_price_amount_differs_from_notice"],
+    ["price amount differs from the disclosed notice", () => ({ price: { ...PRICE, unitAmountCents: 24900 } }), "target_price_amount_differs_from_notice"],
     ["customer differs from the registry", (i: ReconcileInputs) => ({ subscription: { ...i.subscription!, customerId: "cus_2" } }), "customer_mismatch"],
     ["studio's billing customer differs", () => ({ studioCustomerId: "cus_other" }), "studio_customer_mismatch"],
     ["registry customer unbound", (i: ReconcileInputs) => ({ registry: { ...i.registry!, stripeCustomerId: null } }), "customer_unbound"],
@@ -92,6 +94,12 @@ describe("evaluateReconciliation", () => {
     ["boundary is not the policy date", (i: ReconcileInputs) => ({ transition: { ...i.transition, boundaryAt: new Date("2027-08-09T04:00:00Z") }, now: new Date("2027-08-10T04:00:00Z") }), "boundary_not_policy_date"],
     ["schedule belongs to another subscription", (i: ReconcileInputs) => ({ schedule: { ...i.schedule!, subscriptionId: "sub_OTHER" } }), "schedule_identity_mismatch"],
     ["target price unreadable", () => ({ price: null }), "target_price_unreadable"],
+    ["quantity changed from the approved plan", (i: ReconcileInputs) => ({ subscription: { ...i.subscription!, items: [{ priceId: "price_regular", quantity: 3 }] } }), "quantity_changed"],
+    ["a yearly price when the notice disclosed monthly", () => ({ price: { ...PRICE, interval: "year" } }), "target_price_shape_differs_from_notice"],
+    ["a multi-month interval", () => ({ price: { ...PRICE, intervalCount: 2 } }), "target_price_shape_differs_from_notice"],
+    ["an inactive target price", () => ({ price: { ...PRICE, active: false } }), "target_price_shape_differs_from_notice"],
+    ["unreadable Stripe period dates", (i: ReconcileInputs) => ({ subscription: { ...i.subscription!, currentPeriodStart: new Date(Number.NaN) } }), "subscription_period_unreadable"],
+    ["a subscription with no items", (i: ReconcileInputs) => ({ subscription: { ...i.subscription!, items: [] } }), "subscription_period_unreadable"],
   ] as const)("fails closed: %s", (_name, mutate, reason) => {
     const base = inputs();
     const outcome = evaluateReconciliation({ ...base, ...(mutate as (i: ReconcileInputs) => Partial<ReconcileInputs>)(base) });
@@ -185,12 +193,12 @@ describe("reconcilePriceTransition", () => {
   });
 
   it("flags needs_review once, preserving evidence, and never completes", async () => {
-    const deps = makeDeps({}, { price: { id: "price_regular", unitAmountCents: 24900, currency: "usd" } });
+    const deps = makeDeps({}, { price: { ...PRICE, unitAmountCents: 24900 } });
     const report = await reconcilePriceTransition("t1", deps, { apply: true });
     expect(report).toMatchObject({ state: "needs_review", reasons: ["target_price_amount_differs_from_notice"] });
     expect(deps.flagReview).toHaveBeenCalledWith("t1", ["target_price_amount_differs_from_notice"], expect.objectContaining({ observed_amount_cents: 24900 }));
     expect(deps.complete).not.toHaveBeenCalled();
-    const again = makeDeps({}, { price: { id: "price_regular", unitAmountCents: 24900, currency: "usd" }, transition: { ...inputs().transition, status: "needs_review" } });
+    const again = makeDeps({}, { price: { ...PRICE, unitAmountCents: 24900 }, transition: { ...inputs().transition, status: "needs_review" } });
     await reconcilePriceTransition("t1", again, { apply: true });
     expect(again.flagReview).not.toHaveBeenCalled();
   });
@@ -230,5 +238,14 @@ describe("price transition webhook hook", () => {
     const from = vi.fn();
     await maybeReconcilePriceTransition({ db: { from } as never, stripe: {} as never, stripeSubscriptionId: null, env: { PRICE_TRANSITION_RECONCILE_ENABLED: "true" } });
     expect(from).not.toHaveBeenCalled();
+  });
+});
+
+describe("subscriptionIdFromSchedule", () => {
+  it("reads the subscription, falling back to released_subscription for released or completed schedules", () => {
+    expect(subscriptionIdFromSchedule({ subscription: "sub_A" } as never)).toBe("sub_A");
+    expect(subscriptionIdFromSchedule({ subscription: { id: "sub_B" } } as never)).toBe("sub_B");
+    expect(subscriptionIdFromSchedule({ subscription: null, released_subscription: "sub_C" } as never)).toBe("sub_C");
+    expect(subscriptionIdFromSchedule({ subscription: null } as never)).toBeNull();
   });
 });

@@ -61,14 +61,14 @@ grep -q 'duplicate key' /tmp/d7wp3_b.txt && echo "PASS exactly one open transiti
 echo "=== concurrency: two simultaneous reconciliations of one transition"
 P t <<'SQL'
 insert into public.protected_subscriptions(id, studio_id, stripe_subscription_id, stripe_customer_id, protection_kind, terms_reference)
-  values ('00000000-0000-0000-0000-0000000000b5', '00000000-0000-0000-0000-0000000000a1', 'sub_TEST5', 'cus_TEST5', 'grandfathered_founder_legacy', 'test');
-insert into public.price_transition_notices(id, protected_subscription_id, studio_id, effective_at, new_stripe_price_id, new_unit_amount_cents, wording_reference)
-  values ('00000000-0000-0000-0000-0000000000c5', '00000000-0000-0000-0000-0000000000b5', '00000000-0000-0000-0000-0000000000a1', '2027-07-09T04:00:00Z', 'price_regular', 15900, 'w');
+  values ('00000000-0000-0000-0000-0000000000b5', '00000000-0000-0000-0000-0000000000a1', 'sub_TEST5', 'cus_TEST5', 'contractual_exception', 'test');
+insert into public.price_transition_notices(id, protected_subscription_id, studio_id, effective_at, new_stripe_price_id, new_unit_amount_cents, wording_reference, approved_by, approved_at, sent_at, recipient, message_id, delivery_status)
+  values ('00000000-0000-0000-0000-0000000000c5', '00000000-0000-0000-0000-0000000000b5', '00000000-0000-0000-0000-0000000000a1', '2027-07-09T04:00:00Z', 'price_regular', 15900, 'w', '00000000-0000-0000-0000-0000000000d1', now() - interval '2 days', now() - interval '1 day', 'o@example.test', 'm', 'delivered');
 insert into public.price_transitions(id, protected_subscription_id, notice_id, stripe_subscription_id, target_stripe_price_id, boundary_at, approved_by, dry_run)
-  values ('00000000-0000-0000-0000-0000000000e5', '00000000-0000-0000-0000-0000000000b5', '00000000-0000-0000-0000-0000000000c5', 'sub_TEST5', 'price_regular', '2027-07-09T04:00:00Z', '00000000-0000-0000-0000-0000000000d1', '{}');
+  values ('00000000-0000-0000-0000-0000000000e5', '00000000-0000-0000-0000-0000000000b5', '00000000-0000-0000-0000-0000000000c5', 'sub_TEST5', 'price_regular', '2026-07-09T04:00:00Z', '00000000-0000-0000-0000-0000000000d1', '{}');
 update public.price_transitions set status='scheduled', stripe_schedule_id='sub_sched_5' where id='00000000-0000-0000-0000-0000000000e5';
 SQL
-EV="'{\"subscription_id\":\"sub_TEST5\",\"price_id\":\"price_regular\",\"schedule_id\":\"sub_sched_5\",\"boundary_at\":\"2027-07-09T04:00:00Z\",\"period_start\":\"2027-07-09T04:00:00Z\",\"customer_matches\":\"true\",\"studio_matches\":\"true\",\"phase_entered\":\"true\",\"price_changed\":\"true\",\"amount_matches_notice\":\"true\"}'::jsonb"
+EV="'{\"subscription_id\":\"sub_TEST5\",\"price_id\":\"price_regular\",\"schedule_id\":\"sub_sched_5\",\"boundary_at\":\"2026-07-09T04:00:00Z\",\"period_start\":\"2026-07-09T04:00:00Z\",\"observed_at\":\"2026-07-10T04:00:00Z\",\"observed_amount_cents\":15900,\"customer_matches\":\"true\",\"studio_matches\":\"true\",\"phase_entered\":\"true\",\"price_changed\":\"true\",\"amount_matches_notice\":\"true\"}'::jsonb"
 CALLR="set role service_role; select public.complete_price_transition_reconciliation('00000000-0000-0000-0000-0000000000e5', $EV);"
 ( P t -Atc "begin; $CALLR select pg_sleep(3); commit;" > /tmp/d7wp3_ra.txt 2>&1 ) &
 RA=$!

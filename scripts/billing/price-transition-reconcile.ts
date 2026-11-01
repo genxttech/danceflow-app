@@ -39,6 +39,10 @@ async function main() {
   const db = createClient(supabaseUrl, env("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
   const deps = createReconcileDeps(db, new Stripe(secret));
   const apply = process.argv.includes("--apply");
+  if (keyMode === "live" && !process.argv.includes("--allow-live")) {
+    console.error("a live Stripe key was supplied; pass --allow-live only with separate written authorization");
+    process.exit(2);
+  }
 
   const ids = process.argv.includes("--all-due") ? await listDueTransitionIds(db, new Date()) : [flag("transition") ?? ""].filter(Boolean);
   if (ids.length === 0) {

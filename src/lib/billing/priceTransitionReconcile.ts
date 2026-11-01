@@ -31,6 +31,9 @@ export type ReconcileTransition = {
   priceChangedAt: Date | null;
   noticeAmountCents: number;
   noticeCurrency: string;
+  noticeInterval: string;
+  /** Quantity the approved plan carried into the new phase. */
+  plannedQuantity: number;
 };
 
 export type ReconcileRegistry = {
@@ -59,7 +62,15 @@ export type ReconcileSchedule = {
   currentPhaseStart: Date | null;
 };
 
-export type ReconcilePrice = { id: string; unitAmountCents: number | null; currency: string };
+export type ReconcilePrice = {
+  id: string;
+  unitAmountCents: number | null;
+  currency: string;
+  active: boolean;
+  type: string | null;
+  interval: string | null;
+  intervalCount: number | null;
+};
 
 export type ReconcileInputs = {
   now: Date;
@@ -84,6 +95,9 @@ export type ReconcileOutcome =
 
 export type Milestones = { phaseEntered: boolean; priceChanged: boolean };
 
+/** ISO string, or null for a missing or invalid date (an unreadable Stripe value must become a review reason, not a crash). */
+const iso = (d: Date | undefined): string | null => (d && !Number.isNaN(d.getTime()) ? d.toISOString() : null);
+
 const ENDED_STATUSES = new Set(["canceled", "incomplete_expired"]);
 
 export function evaluateReconciliation(input: ReconcileInputs): ReconcileOutcome {
@@ -101,8 +115,8 @@ export function evaluateReconciliation(input: ReconcileInputs): ReconcileOutcome
     boundary_at: transition.boundaryAt.toISOString(),
     observed_at: now.toISOString(),
     subscription_status: subscription?.status ?? null,
-    observed_period_start: subscription?.currentPeriodStart.toISOString() ?? null,
-    observed_period_end: subscription?.currentPeriodEnd.toISOString() ?? null,
+    observed_period_start: iso(subscription?.currentPeriodStart),
+    observed_period_end: iso(subscription?.currentPeriodEnd),
     observed_price_ids: subscription ? subscription.items.map((i) => i.priceId).join(",") : null,
     observed_amount_cents: price?.unitAmountCents ?? null,
   };
@@ -131,10 +145,17 @@ export function evaluateReconciliation(input: ReconcileInputs): ReconcileOutcome
   );
   if (!price) reasons.push("target_price_unreadable");
   else if (!amountMatches) reasons.push("target_price_amount_differs_from_notice");
+  if (price && (!price.active || price.type !== "recurring" || price.interval !== transition.noticeInterval || price.intervalCount !== 1)) {
+    reasons.push("target_price_shape_differs_from_notice");
+  }
+  if (subscription && (Number.isNaN(subscription.currentPeriodStart.getTime()) || Number.isNaN(subscription.currentPeriodEnd.getTime()) || subscription.items.length === 0)) {
+    reasons.push("subscription_period_unreadable");
+  }
 
   // ---- milestones from Stripe truth ----
   const boundaryMs = transition.boundaryAt.getTime();
   const onTarget = Boolean(subscription && subscription.items.length === 1 && subscription.items[0].priceId === transition.targetPriceId);
+  if (onTarget && subscription!.items[0].quantity !== transition.plannedQuantity) reasons.push("quantity_changed");
   const periodStartsAtBoundary = Boolean(subscription && subscription.currentPeriodStart.getTime() === boundaryMs);
   const priceChanged = onTarget && periodStartsAtBoundary;
   const scheduleDone = Boolean(schedule && ["completed", "released"].includes(schedule.status));
@@ -158,7 +179,7 @@ export function evaluateReconciliation(input: ReconcileInputs): ReconcileOutcome
     phase_entered: phaseEntered,
     price_changed: priceChanged,
     amount_matches_notice: amountMatches,
-    period_start: subscription?.currentPeriodStart.toISOString() ?? null,
+    period_start: iso(subscription?.currentPeriodStart),
     schedule_status: schedule?.status ?? null,
   });
 

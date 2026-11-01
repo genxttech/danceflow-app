@@ -91,18 +91,21 @@ reset role;
 
 -- ===== post-boundary reconciliation (complete_price_transition_reconciliation) =====
 insert into public.protected_subscriptions(id, studio_id, stripe_subscription_id, stripe_customer_id, protection_kind, terms_reference)
-  values ('00000000-0000-0000-0000-0000000000b3', '00000000-0000-0000-0000-0000000000a1', 'sub_TEST3', 'cus_TEST3', 'grandfathered_founder_legacy', 'test'),
-         ('00000000-0000-0000-0000-0000000000b4', '00000000-0000-0000-0000-0000000000a1', 'sub_TEST4', 'cus_TEST4', 'grandfathered_founder_legacy', 'test');
+  values ('00000000-0000-0000-0000-0000000000b3', '00000000-0000-0000-0000-0000000000a1', 'sub_TEST3', 'cus_TEST3', 'contractual_exception', 'test'),
+         ('00000000-0000-0000-0000-0000000000b4', '00000000-0000-0000-0000-0000000000a1', 'sub_TEST4', 'cus_TEST4', 'contractual_exception', 'test');
 insert into public.price_transition_notices(id, protected_subscription_id, studio_id, effective_at, new_stripe_price_id, new_unit_amount_cents, wording_reference)
   values ('00000000-0000-0000-0000-0000000000c3', '00000000-0000-0000-0000-0000000000b3', '00000000-0000-0000-0000-0000000000a1', '2027-07-09T04:00:00Z', 'price_regular', 15900, 'w'),
          ('00000000-0000-0000-0000-0000000000c4', '00000000-0000-0000-0000-0000000000b4', '00000000-0000-0000-0000-0000000000a1', '2027-07-09T04:00:00Z', 'price_regular', 15900, 'w');
 insert into public.price_transitions(id, protected_subscription_id, notice_id, stripe_subscription_id, target_stripe_price_id, boundary_at, approved_by, dry_run)
-  values ('00000000-0000-0000-0000-0000000000e3', '00000000-0000-0000-0000-0000000000b3', '00000000-0000-0000-0000-0000000000c3', 'sub_TEST3', 'price_regular', '2027-07-09T04:00:00Z', '00000000-0000-0000-0000-0000000000d1', '{}'),
-         ('00000000-0000-0000-0000-0000000000e4', '00000000-0000-0000-0000-0000000000b4', '00000000-0000-0000-0000-0000000000c4', 'sub_TEST4', 'price_regular', '2027-07-09T04:00:00Z', '00000000-0000-0000-0000-0000000000d1', '{}');
+  values ('00000000-0000-0000-0000-0000000000e3', '00000000-0000-0000-0000-0000000000b3', '00000000-0000-0000-0000-0000000000c3', 'sub_TEST3', 'price_regular', '2026-07-09T04:00:00Z', '00000000-0000-0000-0000-0000000000d1', '{}'),
+         ('00000000-0000-0000-0000-0000000000e4', '00000000-0000-0000-0000-0000000000b4', '00000000-0000-0000-0000-0000000000c4', 'sub_TEST4', 'price_regular', '2026-07-09T04:00:00Z', '00000000-0000-0000-0000-0000000000d1', '{}');
+
+update public.price_transition_notices set approved_by = '00000000-0000-0000-0000-0000000000d1', approved_at = now() - interval '1 day', sent_at = now(), recipient = 'o@example.test', message_id = 'm', delivery_status = 'delivered'
+  where id in ('00000000-0000-0000-0000-0000000000c3', '00000000-0000-0000-0000-0000000000c4');
 
 create or replace function pg_temp.evidence(p_sub text, p_price text, p_sched text, p_over jsonb default '{}') returns jsonb language sql as $f$
   select jsonb_build_object('subscription_id', p_sub, 'price_id', p_price, 'schedule_id', p_sched,
-    'boundary_at', '2027-07-09T04:00:00Z', 'period_start', '2027-07-09T04:00:00Z',
+    'boundary_at', '2026-07-09T04:00:00Z', 'period_start', '2026-07-09T04:00:00Z', 'observed_at', '2026-07-10T04:00:00Z', 'observed_amount_cents', 15900,
     'customer_matches', 'true', 'studio_matches', 'true', 'phase_entered', 'true', 'price_changed', 'true', 'amount_matches_notice', 'true') || p_over
 $f$;
 grant execute on function pg_temp.evidence(text, text, text, jsonb) to public;
@@ -118,7 +121,7 @@ update public.price_transitions set status = 'scheduled', stripe_schedule_id = '
 set role service_role;
 select pg_temp.expect_error($q$select public.complete_price_transition_reconciliation('00000000-0000-0000-0000-0000000000e3', pg_temp.evidence('sub_TEST3','price_regular','sub_sched_3','{"price_id":"price_other"}'))$q$, '22023', 'wrong price evidence refused');
 select pg_temp.expect_error($q$select public.complete_price_transition_reconciliation('00000000-0000-0000-0000-0000000000e3', pg_temp.evidence('sub_OTHER','price_regular','sub_sched_3'))$q$, '22023', 'wrong subscription evidence refused');
-select pg_temp.expect_error($q$select public.complete_price_transition_reconciliation('00000000-0000-0000-0000-0000000000e3', pg_temp.evidence('sub_TEST3','price_regular','sub_sched_3','{"period_start":"2027-07-10T04:00:00Z"}'))$q$, '22023', 'period start off the boundary refused');
+select pg_temp.expect_error($q$select public.complete_price_transition_reconciliation('00000000-0000-0000-0000-0000000000e3', pg_temp.evidence('sub_TEST3','price_regular','sub_sched_3','{"period_start":"2026-07-10T04:00:00Z"}'))$q$, '22023', 'period start off the boundary refused');
 select pg_temp.expect_error($q$select public.complete_price_transition_reconciliation('00000000-0000-0000-0000-0000000000e3', pg_temp.evidence('sub_TEST3','price_regular','sub_sched_3','{"phase_entered":"false"}'))$q$, '22023', 'schedule not activated refused');
 select pg_temp.expect_error($q$select public.complete_price_transition_reconciliation('00000000-0000-0000-0000-0000000000e3', pg_temp.evidence('sub_TEST3','price_regular','sub_sched_3','{"price_changed":"false"}'))$q$, '22023', 'price not changed refused');
 select pg_temp.expect_error($q$select public.complete_price_transition_reconciliation('00000000-0000-0000-0000-0000000000e3', pg_temp.evidence('sub_TEST3','price_regular','sub_sched_3','{"customer_matches":"false"}'))$q$, '22023', 'customer mismatch refused');
@@ -127,6 +130,31 @@ select pg_temp.expect_error($q$select public.complete_price_transition_reconcili
 reset role;
 insert into _r select 'failed attempts changed nothing', (select released_at is null from public.protected_subscriptions where id = '00000000-0000-0000-0000-0000000000b3')
   and (select status = 'scheduled' from public.price_transitions where id = '00000000-0000-0000-0000-0000000000e3');
+
+-- forged or premature calls cannot release protection (the database re-checks time, notice, registry and policy date)
+insert into public.protected_subscriptions(id, studio_id, stripe_subscription_id, stripe_customer_id, protection_kind, terms_reference)
+  values ('00000000-0000-0000-0000-0000000000b6', '00000000-0000-0000-0000-0000000000a1', 'sub_TEST6', 'cus_TEST6', 'contractual_exception', 'test'),
+         ('00000000-0000-0000-0000-0000000000b7', '00000000-0000-0000-0000-0000000000a1', 'sub_TEST7', 'cus_TEST7', 'grandfathered_founder_legacy', 'test'),
+         ('00000000-0000-0000-0000-0000000000b8', '00000000-0000-0000-0000-0000000000a1', 'sub_OTHER8', 'cus_TEST8', 'contractual_exception', 'test');
+insert into public.price_transition_notices(id, protected_subscription_id, studio_id, effective_at, new_stripe_price_id, new_unit_amount_cents, wording_reference, approved_by, approved_at, sent_at, recipient, message_id, delivery_status)
+  values ('00000000-0000-0000-0000-0000000000c6', '00000000-0000-0000-0000-0000000000b6', '00000000-0000-0000-0000-0000000000a1', '2099-07-09T04:00:00Z', 'price_regular', 15900, 'w', '00000000-0000-0000-0000-0000000000d1', now() - interval '2 days', now() - interval '1 day', 'o@example.test', 'm', 'delivered'),
+         ('00000000-0000-0000-0000-0000000000c7', '00000000-0000-0000-0000-0000000000b7', '00000000-0000-0000-0000-0000000000a1', '2027-07-09T04:00:00Z', 'price_regular', 15900, 'w', '00000000-0000-0000-0000-0000000000d1', now() - interval '2 days', now() - interval '1 day', 'o@example.test', 'm', 'delivered'),
+         ('00000000-0000-0000-0000-0000000000c8', '00000000-0000-0000-0000-0000000000b8', '00000000-0000-0000-0000-0000000000a1', '2026-07-09T04:00:00Z', 'price_regular', 15900, 'w', null, null, null, null, null, 'pending');
+insert into public.price_transitions(id, protected_subscription_id, notice_id, stripe_subscription_id, target_stripe_price_id, boundary_at, approved_by, dry_run)
+  values ('00000000-0000-0000-0000-0000000000e6', '00000000-0000-0000-0000-0000000000b6', '00000000-0000-0000-0000-0000000000c6', 'sub_TEST6', 'price_regular', '2099-07-09T04:00:00Z', '00000000-0000-0000-0000-0000000000d1', '{}'),
+         ('00000000-0000-0000-0000-0000000000e7', '00000000-0000-0000-0000-0000000000b7', '00000000-0000-0000-0000-0000000000c7', 'sub_TEST7', 'price_regular', '2026-07-09T04:00:00Z', '00000000-0000-0000-0000-0000000000d1', '{}'),
+         ('00000000-0000-0000-0000-0000000000e8', '00000000-0000-0000-0000-0000000000b8', '00000000-0000-0000-0000-0000000000c8', 'sub_TEST8', 'price_regular', '2026-07-09T04:00:00Z', '00000000-0000-0000-0000-0000000000d1', '{}');
+update public.price_transitions set status = 'scheduled', stripe_schedule_id = 'sub_sched_6' where id = '00000000-0000-0000-0000-0000000000e6';
+update public.price_transitions set status = 'scheduled', stripe_schedule_id = 'sub_sched_7' where id = '00000000-0000-0000-0000-0000000000e7';
+update public.price_transitions set status = 'scheduled', stripe_schedule_id = 'sub_sched_8' where id = '00000000-0000-0000-0000-0000000000e8';
+set role service_role;
+select pg_temp.expect_error($q$select public.complete_price_transition_reconciliation('00000000-0000-0000-0000-0000000000e6', pg_temp.evidence('sub_TEST6','price_regular','sub_sched_6','{"boundary_at":"2099-07-09T04:00:00Z","period_start":"2099-07-09T04:00:00Z","observed_at":"2099-07-10T04:00:00Z"}'))$q$, '22023', 'pre-boundary release refused even with all-true evidence');
+select pg_temp.expect_error($q$select public.complete_price_transition_reconciliation('00000000-0000-0000-0000-0000000000e7', pg_temp.evidence('sub_TEST7','price_regular','sub_sched_7'))$q$, '22023', 'grandfathered registry row needs the July 9 2027 policy boundary');
+select pg_temp.expect_error($q$select public.complete_price_transition_reconciliation('00000000-0000-0000-0000-0000000000e8', pg_temp.evidence('sub_TEST8','price_regular','sub_sched_8'))$q$, '22023', 'undelivered notice refused');
+select pg_temp.expect_error($q$select public.complete_price_transition_reconciliation('00000000-0000-0000-0000-0000000000e3', pg_temp.evidence('sub_TEST3','price_regular','sub_sched_3','{"observed_at":"2026-06-01T00:00:00Z"}'))$q$, '22023', 'evidence observed before the boundary refused');
+select pg_temp.expect_error($q$select public.complete_price_transition_reconciliation('00000000-0000-0000-0000-0000000000e3', pg_temp.evidence('sub_TEST3','price_regular','sub_sched_3','{"observed_amount_cents":24900}'))$q$, '22023', 'observed amount differing from the notice refused');
+reset role;
+insert into _r select 'forged attempts released nothing', not exists (select 1 from public.protected_subscriptions where id in ('00000000-0000-0000-0000-0000000000b6','00000000-0000-0000-0000-0000000000b7','00000000-0000-0000-0000-0000000000b8') and released_at is not null);
 
 set role service_role;
 do $d$

@@ -32,5 +32,7 @@ export async function maybeReconcilePriceTransition(input: { db: Db; stripe: Str
 
 /** The subscription id carried by a subscription_schedule.* event object. */
 export function subscriptionIdFromSchedule(schedule: Stripe.SubscriptionSchedule): string | null {
-  return typeof schedule.subscription === "string" ? schedule.subscription : schedule.subscription?.id ?? null;
+  // A released or completed schedule has no `subscription`; Stripe keeps the id in `released_subscription`.
+  const direct = typeof schedule.subscription === "string" ? schedule.subscription : schedule.subscription?.id ?? null;
+  return direct ?? (schedule as unknown as { released_subscription?: string | null }).released_subscription ?? null;
 }

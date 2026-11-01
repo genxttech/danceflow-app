@@ -17,10 +17,11 @@ export function createReconcileDeps(db: Db, stripe: Stripe): ReconcileDeps {
     now: () => new Date(),
 
     async loadTransition(id) {
-      const { data, error } = await db.from("price_transitions").select("*, price_transition_notices!inner(new_unit_amount_cents, currency)").eq("id", id).maybeSingle();
+      const { data, error } = await db.from("price_transitions").select("*, price_transition_notices!inner(new_unit_amount_cents, currency, billing_interval)").eq("id", id).maybeSingle();
       if (error) fail("transition read failed", error);
       if (!data) return null;
-      const notice = data.price_transition_notices as { new_unit_amount_cents: number; currency: string };
+      const notice = data.price_transition_notices as { new_unit_amount_cents: number; currency: string; billing_interval: string };
+      const plannedQuantity = (data.dry_run as { change?: { phases?: Array<{ items?: Array<{ quantity?: number }> }> } } | null)?.change?.phases?.[1]?.items?.[0]?.quantity ?? 1;
       return {
         id: data.id,
         status: data.status,
@@ -33,6 +34,8 @@ export function createReconcileDeps(db: Db, stripe: Stripe): ReconcileDeps {
         priceChangedAt: data.price_changed_at ? new Date(data.price_changed_at) : null,
         noticeAmountCents: notice.new_unit_amount_cents,
         noticeCurrency: notice.currency,
+        noticeInterval: notice.billing_interval,
+        plannedQuantity,
       };
     },
 
@@ -63,13 +66,13 @@ export function createReconcileDeps(db: Db, stripe: Stripe): ReconcileDeps {
       }
       const item = sub.items.data[0];
       const loose = sub as unknown as { current_period_start?: number; current_period_end?: number };
-      const itemLoose = item as unknown as { current_period_start: number; current_period_end: number };
+      const itemLoose = (item ?? {}) as unknown as { current_period_start?: number; current_period_end?: number };
       return {
         id: sub.id,
         customerId: typeof sub.customer === "string" ? sub.customer : sub.customer.id,
         status: sub.status,
-        currentPeriodStart: new Date((loose.current_period_start ?? itemLoose.current_period_start) * 1000),
-        currentPeriodEnd: new Date((loose.current_period_end ?? itemLoose.current_period_end) * 1000),
+        currentPeriodStart: new Date((loose.current_period_start ?? itemLoose.current_period_start ?? Number.NaN) * 1000),
+        currentPeriodEnd: new Date((loose.current_period_end ?? itemLoose.current_period_end ?? Number.NaN) * 1000),
         scheduleId: typeof sub.schedule === "string" ? sub.schedule : sub.schedule?.id ?? null,
         items: sub.items.data.map((i) => ({ priceId: i.price.id, quantity: i.quantity ?? 1 })),
       };
@@ -93,7 +96,15 @@ export function createReconcileDeps(db: Db, stripe: Stripe): ReconcileDeps {
     async readPrice(id) {
       try {
         const price = await stripe.prices.retrieve(id);
-        return { id: price.id, unitAmountCents: price.unit_amount, currency: price.currency };
+        return {
+          id: price.id,
+          unitAmountCents: price.unit_amount,
+          currency: price.currency,
+          active: price.active,
+          type: price.type,
+          interval: price.recurring?.interval ?? null,
+          intervalCount: price.recurring?.interval_count ?? null,
+        };
       } catch (error) {
         if ((error as { code?: string }).code === "resource_missing") return null;
         throw error;

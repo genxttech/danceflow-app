@@ -212,6 +212,8 @@ as $$
 declare
   t public.price_transitions%rowtype;
   r public.protected_subscriptions%rowtype;
+  n public.price_transition_notices%rowtype;
+  v_observed timestamptz;
   v_release_reason text;
 begin
   select * into t from public.price_transitions where id = p_transition_id for update;
@@ -238,8 +240,29 @@ begin
     raise exception 'reconciliation evidence does not match the approved transition' using errcode = '22023';
   end if;
 
+  -- time and plan checks the database can make itself, so a forged or premature call cannot release protection
+  if now() < t.boundary_at then
+    raise exception 'the transition boundary has not passed' using errcode = '22023';
+  end if;
+  v_observed := (p_evidence->>'observed_at')::timestamptz;
+  if v_observed is null or v_observed < t.boundary_at or v_observed > now() + interval '5 minutes' then
+    raise exception 'reconciliation evidence was not observed after the boundary' using errcode = '22023';
+  end if;
+  select * into n from public.price_transition_notices where id = t.notice_id;
+  if n.delivery_status is distinct from 'delivered'
+     or n.new_stripe_price_id is distinct from t.target_stripe_price_id
+     or p_evidence->>'observed_amount_cents' is distinct from n.new_unit_amount_cents::text then
+    raise exception 'observed amount does not match a delivered notice for the target price' using errcode = '22023';
+  end if;
+
   select * into r from public.protected_subscriptions where id = t.protected_subscription_id for update;
   v_release_reason := 'price_transition_reconciled:' || t.id::text;
+  if r.stripe_subscription_id is distinct from t.stripe_subscription_id then
+    raise exception 'registry row belongs to another subscription' using errcode = '22023';
+  end if;
+  if r.protection_kind = 'grandfathered_founder_legacy' and t.boundary_at is distinct from '2027-07-09T04:00:00Z'::timestamptz then
+    raise exception 'boundary is not the approved policy date' using errcode = '22023';
+  end if;
   if r.released_at is not null and r.released_reason is distinct from v_release_reason then
     raise exception 'protected subscription was already released for another reason' using errcode = '55000';
   end if;
