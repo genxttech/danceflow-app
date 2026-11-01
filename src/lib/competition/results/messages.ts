@@ -81,6 +81,15 @@ const MESSAGES: Record<string, string> = {
   COMP_EXCLUSION_COSIGNER_FILED_BALLOT: "You filed a corrected ballot in this round, so you cannot co-sign an exclusion for it.",
   COMP_EXCLUSION_COSIGNER_CONFLICT: "You co-signed an exclusion in this round, so you cannot file a corrected ballot for it.",
 
+  // CF1 A7: judge-entry correction co-sign.
+  COMP_CORRECTION_COSIGN_REQUIRED: "A different manager or the chair must co-sign this correction before a replacement ballot is accepted.",
+  COMP_CORRECTION_COSIGN_SAME_PERSON: "The manager who opened this correction cannot co-sign it. A different manager or the chair must.",
+  COMP_CORRECTION_COSIGN_NOT_REQUIRED: "This correction does not need a co-sign.",
+  COMP_CORRECTION_ALREADY_COSIGNED: "This correction has already been co-signed.",
+  COMP_CORRECTION_NOT_OPEN: "This correction is no longer open.",
+  COMP_CORRECTION_COSIGNER_FILED_BALLOT: "You filed a replacement ballot under this correction, so you cannot co-sign it.",
+  COMP_CORRECTION_COSIGNER_CONFLICT: "You co-signed this correction, so you cannot file a replacement ballot under it.",
+
   // CF1: callback target (A4a).
   COMP_CALLBACK_TARGET_BELOW_MINIMUM: "The callback target must be a whole number of 2 or more: a Final needs at least two couples.",
   COMP_CALLBACK_TARGET_EXCEEDS_CAPACITY: "The callback target is more than the Final's heat holds. Lower the target or raise the Final's heat size.",

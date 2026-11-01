@@ -94,6 +94,22 @@ export async function openRoundCorrectionAction(formData: FormData): Promise<voi
   back(returnTo, { saved: "Correction opened. Judges can submit corrected ballots; recalculate when they are done." });
 }
 
+/**
+ * CF1 A7 / OD-13: the chair or a different manager co-signs a judge-entry correction (`causeId` from competition_round_correction).
+ * Until this is recorded the database refuses any replacement judge ballot (COMP_CORRECTION_COSIGN_REQUIRED).
+ */
+export async function cosignCorrectionAction(formData: FormData): Promise<void> {
+  const causeId = uuid(formData, "causeId");
+  const requestId = uuid(formData, "requestId");
+  const { rpc, returnTo } = await session(formData);
+  if (!causeId || !requestId) back(returnTo, { error: resultErrorMessage("COMP_REQUEST_ID_REQUIRED") });
+  const { data, error } = await rpc("cosign_competition_correction", { p_cause_id: causeId, p_request_id: requestId });
+  revalidatePath(returnTo);
+  if (error) back(returnTo, { error: errorText(error) });
+  const replayed = (data as { replayed?: boolean } | null)?.replayed === true;
+  back(returnTo, { saved: replayed ? "That co-sign was already recorded." : "Correction co-signed. Judges can now file replacement ballots." });
+}
+
 /** published -> complete. Refused until publication exists (F3). */
 export async function completeRoundAction(formData: FormData): Promise<void> {
   const roundId = uuid(formData, "roundId");

@@ -4,7 +4,8 @@ import { notFound } from "next/navigation";
 import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
 import { parseAdvancementPreview, parseExclusionRows, parseWithdrawalState, withdrawalControlsBlocked } from "@/lib/competition/results/advancement";
 import { parseReviewExcluded } from "@/lib/competition/results/reviewTypes";
-import { approveRoundResultAction, calculateRoundResultAction, completeRoundAction, openRoundCorrectionAction } from "../actions";
+import { correctionCosignPanel, parseCorrectionState } from "@/lib/competition/results/correction";
+import { approveRoundResultAction, cosignCorrectionAction, calculateRoundResultAction, completeRoundAction, openRoundCorrectionAction } from "../actions";
 import { AdvancementSection, ExcludedSection, ExclusionPanel, WithdrawalPanel, type Candidate } from "./CallbackPanels";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -94,14 +95,16 @@ export default async function CompetitionRoundResultsPage({
     isCallbackFinal = previous?.scoring_method === "callback_tally";
     if (isCallbackFinal && previous) sourceRound = { id: previous.id as string, status: previous.status as string };
   }
-  const [previewResult, exclusionResult, withdrawalResult, boardResult] = isManager
+  const [previewResult, exclusionResult, withdrawalResult, boardResult, correctionResult] = isManager
     ? await Promise.all([
         isCallbackPreliminary ? supabase.rpc("competition_round_advancement_preview", { p_round_id: roundId }) : Promise.resolve({ data: null }),
         supabase.rpc("competition_round_exclusions", { p_round_id: roundId }),
         isCallbackFinal ? supabase.rpc("competition_final_withdrawal_state", { p_round_id: roundId }) : Promise.resolve({ data: null }),
         supabase.rpc("competition_round_ballot_status", { p_round_id: roundId }),
+        review.round.correction_open ? supabase.rpc("competition_round_correction", { p_round_id: roundId }) : Promise.resolve({ data: null }),
       ])
-    : [{ data: null }, { data: null }, { data: null }, { data: null }];
+    : [{ data: null }, { data: null }, { data: null }, { data: null }, { data: null }];
+  const correctionPanel = correctionCosignPanel(parseCorrectionState(correctionResult.data), review.viewer_id);
   const preview = parseAdvancementPreview(previewResult.data);
   const sourcePreview = sourceRound ? parseAdvancementPreview((await supabase.rpc("competition_round_advancement_preview", { p_round_id: sourceRound.id })).data) : null;
   const withdrawalBlocked = sourceRound && sourcePreview ? withdrawalControlsBlocked({ advancementState: sourcePreview.state, sourceStatus: sourceRound.status }) : false;
@@ -229,6 +232,25 @@ export default async function CompetitionRoundResultsPage({
 
       {isManager && isCallbackFinal ? (
         <WithdrawalPanel state={withdrawalState} candidates={candidates} roundId={roundId} viewerId={review.viewer_id} returnTo={returnTo} controlsBlocked={withdrawalBlocked} />
+      ) : null}
+
+      {isManager && correctionPanel.kind !== "hidden" ? (
+        <section aria-label="Correction co-sign" className="space-y-2 rounded border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-semibold text-slate-950">Correction co-sign</h3>
+          {correctionPanel.kind === "can_cosign" ? (
+            <form action={cosignCorrectionAction} className="space-y-2">
+              <input type="hidden" name="causeId" value={correctionPanel.causeId} />
+              <input type="hidden" name="requestId" value={randomUUID()} />
+              <input type="hidden" name="returnTo" value={returnTo} />
+              <p className="text-sm text-slate-700">A judge-entry correction needs a co-sign by the chair or a different manager before a replacement ballot is accepted.</p>
+              <button type="submit" className="rounded border border-slate-400 px-3 py-2 text-sm font-semibold text-slate-950">
+                Co-sign correction
+              </button>
+            </form>
+          ) : (
+            <p role="status" className="text-sm text-slate-700">{correctionPanel.text}</p>
+          )}
+        </section>
       ) : null}
 
       {isManager && ["calculated", "approved", "published"].includes(status) ? (
