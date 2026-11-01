@@ -64,6 +64,8 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(psql(`select to_regclass('public.studio_sms_price_auth_config') is not null`)).toBe("t");
     seedCast();
     for (const u of [A, B, C]) psql(registerApproverSql(u));
+    // the aged requests of this suite pre-date the registrations: move the registrations back so the verifier's 'registered at the time' check sees them
+    psql(`begin; alter table public.studio_sms_price_approvers disable trigger studio_sms_price_approvers_guard; update public.studio_sms_price_approvers set added_at = added_at - interval '400 hours'; alter table public.studio_sms_price_approvers enable always trigger studio_sms_price_approvers_guard; commit;`);
     seedPrices(); // team-mode fixtures through the internal functions
     // the owner-level bootstrap (a runbook step; no application path exists): relying party + the primary credential
     psql(`select public._tw4price_bootstrap('${RP_ID}', array['${ORIGIN}'], decode('${K1.hex.cred}', 'hex'), decode('${K1.hex.x}', 'hex'), decode('${K1.hex.y}', 'hex'), 'primary test key')`);
@@ -263,7 +265,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
   });
 
   it("PA-08 mode and configuration protection: no function, no API role and no plain owner statement changes the mode, the cooling-off or the relying party; the freeze flag moves only through its functions", () => {
-    for (const set of ["mode = 'team'", "cooling_off_hours = 24", "authz_window_hours = 72", "challenge_ttl_seconds = 900", "rp_id = 'evil.example.test'", "rp_origins = array['https://evil.example.test']", "frozen = true, frozen_at = now()"]) {
+    for (const set of ["mode = 'team'", "cooling_off_hours = 48", "authz_window_hours = 72", "challenge_ttl_seconds = 900", "rp_id = 'evil.example.test'", "rp_origins = array['https://evil.example.test']", "frozen = true, frozen_at = now()"]) {
       expect(psqlError(`update public.studio_sms_price_auth_config set ${set}`), set).toMatch(/owner-level migration|freeze functions/);
       expect(psqlError(`begin; set local session_replication_role = replica; update public.studio_sms_price_auth_config set ${set}; rollback;`), set).toMatch(/owner-level migration|freeze functions/);
       for (const role of ["anon", "authenticated", "service_role"]) expect(psqlError(`set role ${role}; update public.studio_sms_price_auth_config set ${set};`), `${role} ${set}`).toMatch(/permission denied/);
@@ -459,5 +461,50 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       rollback;`);
     expect(err).toBe("");
     expect(psql(`select to_regclass('public.studio_sms_price_auth_config') is not null`)).toBe("t");
+  });
+
+  it("PA-16 monitoring interface: security events are emitted into studio_sms_price_security_events when that table exists (no secrets), and a LATEST pricing_suspended event suspends propose, approve and authorize until a pricing_resumed", () => {
+    clear();
+    // the table belongs to the monitoring migration (20270205090000); a minimal stand-in with the same columns proves the conditional emit
+    psql(`create table public.studio_sms_price_security_events (seq bigint generated always as identity primary key, kind text not null, occurred_at timestamptz not null default clock_timestamp(), subject_user_id uuid null, detail jsonb not null default '{}'::jsonb)`);
+    try {
+      const kinds = () => rows<{ kind: string }>("select kind from public.studio_sms_price_security_events order by seq").map((r) => r.kind);
+      // registry changes
+      const u = psql("select gen_random_uuid()");
+      psql(registerApproverSql(u, "registered in the monitoring interface test"));
+      psql(`update public.studio_sms_price_approvers set revoked_at = now(), revoked_note = 'revoked in the monitoring interface test' where user_id = '${u}'`);
+      expect(kinds()).toEqual(["approver_added", "approver_registry_changed", "approver_removed", "approver_registry_changed"]);
+      // freeze, compromise report, thaw (hardware key), credential changes
+      expect(authOut(claims(B, "d42-b3"), `select public.tw4_price_report_compromise('a suspected compromise reported in the test')::text;`)).toMatchObject({ status: "frozen" });
+      expect(kinds().slice(4)).toEqual(["pricing_suspended", "credential_compromise_reported"]);
+      const tb = authOut(claims(A, S2), `select public.tw4_price_cred_begin('thaw', null, null, null, null, null)::text;`);
+      const a = K2.assert(tb.challenge);
+      expect(authOut(claims(A, S2), `select public.tw4_price_thaw('${tb.nonce}', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}')::text;`).status).toBe("thawed");
+      expect(kinds().slice(-1)).toEqual(["pricing_resumed"]);
+      // no secrets: details carry no credential ids, keys, challenges or tokens
+      const text = JSON.stringify(rows("select detail from public.studio_sms_price_security_events"));
+      for (const secret of [K1.credIdB64u, K2.credIdB64u, b64u(K2.x), tb.nonce, tb.challenge]) expect(text.includes(secret)).toBe(false);
+      // a monitoring-side suspension (the latest event) suspends every publication path, whatever the local freeze flag says
+      psql("insert into public.studio_sms_price_security_events (kind, detail) values ('pricing_suspended', '{\"by\": \"monitor\"}')");
+      expect(psql("select frozen from public.studio_sms_price_auth_config")).toBe("f");
+      expect(codeOf(authErr(claims(A, S1), `select public.tw4_price_propose('number', 411, 115, 'suspended proposal', 'a written reason while suspended')::text;`))).toBe("42501");
+      expect(codeOf(psqlError("select public._tw4price_do_propose('number', 412, 115, 'suspended proposal', 'a written reason while suspended', '" + A + "')"))).toBe("42501");
+      setConfig("mode = 'single_owner'");
+      // an already open proposal cannot be authorized either
+      psql("insert into public.studio_sms_price_security_events (kind) values ('pricing_resumed')");
+      const p = propose(claims(A, S1), 413);
+      ready(p.request_id);
+      const b = begin(claims(A, S2), p.request_id);
+      psql("insert into public.studio_sms_price_security_events (kind) values ('pricing_suspended')");
+      expect(codeOf(finishErr(claims(A, S2), p.request_id, b.nonce, K3.assert(b.challenge)))).toBe("42501");
+      expect(codeOf(beginErr(claims(A, S2), p.request_id))).toBe("42501");
+      psql("insert into public.studio_sms_price_security_events (kind) values ('pricing_resumed')");
+      expect(finish(claims(A, S2), p.request_id, b.nonce, K3.assert(b.challenge)).status).toBe("applied");
+      // the verifier interface is unchanged
+      const v = JSON.parse(psql("select public.tw4_price_verify()::text")) as { ok: boolean; anomalies: unknown[]; checked_at: string };
+      expect(Object.keys(v).sort()).toEqual(["anomalies", "checked_at", "ok"]);
+    } finally {
+      psql("drop table public.studio_sms_price_security_events");
+    }
   });
 });

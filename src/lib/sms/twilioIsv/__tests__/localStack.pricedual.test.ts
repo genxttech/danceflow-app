@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { A, B, C, D, E, F, G, DB, NOTE, PG, call, callErr, codeOf, enabled, mkUser, money, num, psql, psqlError, rows, seedCast, seedPrices, setRole, world } from "./wpd4Helpers";
 import { PRICE_KINDS } from "@/lib/sms/priceChange";
-import { ownerAgeRequest, ownerReactivate, registerApproverSql } from "./priceFixture";
+import { ownerAgeRequest, ownerReactivate, registerApproverSql, setPriceMode } from "./priceFixture";
 
 vi.mock("server-only", () => ({}));
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 300_000 });
@@ -50,7 +50,13 @@ const mkAdmin = (label: string): string => {
   psql(registerApproverSql(u));
   return u;
 };
-const rollbackSql = () => readFileSync(join(__dirname, "..", "..", "..", "supabase", "migrations", "rollback", "20270204090000_twilio_price_dual_control_rollback.sql"), "utf8");
+const mig = (name: string) => readFileSync(join(__dirname, "..", "..", "..", "supabase", "migrations", name), "utf8");
+const noTx = (s: string) => s.replace(/^begin;\s*$/gm, "").replace(/^commit;\s*$/gm, "");
+/** the audit rows and owner-mode evidence of 20270204100000 are immutable in production; this suite is a throwaway database and clears them visibly before it exercises the rollbacks */
+const clearAuthEvidence = `
+  alter table public.studio_sms_price_audit disable trigger studio_sms_price_audit_guard; delete from public.studio_sms_price_audit; alter table public.studio_sms_price_audit enable always trigger studio_sms_price_audit_guard;
+  alter table public.studio_sms_price_auth_challenges disable trigger studio_sms_price_auth_challenges_guard; delete from public.studio_sms_price_auth_challenges; alter table public.studio_sms_price_auth_challenges enable always trigger studio_sms_price_auth_challenges_guard;`;
+const rollbackSql = () => clearAuthEvidence + noTx(mig("rollback/20270204100000_twilio_price_owner_authorization_rollback.sql")) + noTx(mig("rollback/20270204090000_twilio_price_dual_control_rollback.sql"));
 
 describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic administrators)", () => {
   beforeAll(() => {
@@ -58,6 +64,7 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
     seedCast();
     // the cast is in the protected registry (C never held the role and E lost it, which the role check must still catch)
     for (const u of [A, B, C, D, E, F, G]) psql(registerApproverSql(u));
+    setPriceMode(psql, "team"); // this suite proves the TEAM-mode workflow (two distinct registered administrators); the single-owner mode is localStack.priceauth
     seedPrices();
     expect(new Set([A, B, C, D, E, F, G]).size).toBe(7);
   });
@@ -626,7 +633,7 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
 
   describe("fail-closed rollback and recovery (executed inside transactions that are rolled back)", () => {
     const strip = (s: string) => s.replace(/^begin;\s*$/m, "").replace(/^commit;\s*$/m, "");
-    const forwardSql = () => readFileSync(join(__dirname, "..", "..", "..", "supabase", "migrations", "20270204090000_twilio_price_dual_control.sql"), "utf8");
+    const forwardSql = () => noTx(mig("20270204090000_twilio_price_dual_control.sql")) + noTx(mig("20270204100000_twilio_price_owner_authorization.sql"));
     const noSingleAdmin = `
       if has_function_privilege('service_role', 'public.tw4_price_set(text,integer,integer,text,uuid)', 'execute') then raise exception 'RB: service_role can still execute tw4_price_set'; end if;
       begin perform public.tw4_price_set('number', 1, 1, 'single admin attempt', '${A}'); raise exception 'RB: tw4_price_set published'; exception when sqlstate 'TW042' then null; end;

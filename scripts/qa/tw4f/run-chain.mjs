@@ -32,6 +32,7 @@
  *   --marker                 create public.tw4_local_qa_only in the seed before the plan (plus the auth.users columns GoTrue adds, i.e. iso-qa.mjs parity: ISO_QA_MARKER=1 and its auth step; 11 localStack suites require them)
  *   --auth                   also start a disposable local GoTrue (own container, TOTP MFA on, auto-confirm, no SMTP) behind Kong at /auth/v1 and export TW4_LOCAL_AUTH_URL (WP-D2 layer b)
  *   --residue <regex>        (repeatable) catalog lines matching the regex are an ACCEPTED, DOCUMENTED residue of a fail-closed rollback: they are ignored (and listed) when a ROLLBACK stage is compared with the earlier catalog; re-apply stages are still compared exactly (D4-1)
+ *   (default residue) scripts/qa/tw4f/rollback-residue.json is loaded automatically; --no-residue-file ignores it
  *   --keep                   keep the chain image and worktrees
  *   --known <file>           known environment failures (default scripts/qa/tw4f/known-failures.json)
  *
@@ -83,6 +84,7 @@ function parseArgs(argv) {
     if (!a.startsWith("--")) { rest.push(a); continue; }
     const k = a.slice(2);
     if (k === "keep") { flags.keep = true; continue; }
+    if (k === "no-residue-file") { continue; }
     if (k === "marker") { flags.marker = true; continue; }
     if (k === "auth") { flags.auth = true; continue; }
     if (k === "track-functions") { flags.trackFunctions = true; continue; }
@@ -98,6 +100,11 @@ function parseArgs(argv) {
   return { flags, rest };
 }
 const { flags, rest } = parseArgs(process.argv.slice(2));
+// the default rollback residue list (a fail-closed rollback leaves documented catalog lines); --residue adds to it, --no-residue-file ignores it
+{
+  const f = path.join(path.dirname(fileURLToPath(import.meta.url)), "rollback-residue.json");
+  if (!process.argv.includes("--no-residue-file") && existsSync(f)) for (const pat of JSON.parse(readFileSync(f, "utf8")).patterns ?? []) flags.residue.push(new RegExp(pat));
+}
 const cmd = rest[0];
 if (!["chain", "suites", "all", "baseline", "down"].includes(cmd ?? "")) die("usage: run-chain.mjs chain|suites|all|down [options] (see the header of this file)");
 
