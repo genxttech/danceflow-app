@@ -667,9 +667,14 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
         const col = text.match(/if not exists \(select 1 from pg_attribute a where a\.attrelid = 'public\.([a-z0-9_]+)'::regclass and a\.attname = '([a-z0-9_]+)'/i);
         // a layer that replaces a body and fingerprints it: "to_regprocedure('public.f(args)') is null or left(md5(...body...), 8) <> '<hash>' -> not applied or changed"
         const fp = text.match(/to_regprocedure\('public\.([a-z0-9_]+\([^)]*\))'\) is null or left\(md5\(replace\(\(select p\.prosrc from pg_proc p where p\.oid = '[^']+'::regprocedure\), chr\(13\), ''\)\), 8\) <> '([0-9a-f]{8})'/i);
+        // 20270202090000 (studio_subscriptions read watermark, #360) is an unrelated Stripe-billing layer: its rollback has NO precondition guard by design, because it is a single
+        // idempotent "alter table ... drop column if exists" (it drops only a standalone ordering column, so nothing can be lost that a guard would protect and a second run is a no-op).
+        // It is applied exactly when the column exists; it is classified by that, never skipped.
+        const dropcol = text.match(/alter table public.([a-z0-9_]+) drop column if exists ([a-z0-9_]+)/i);
         const probe = guard ? `to_regclass('public.${guard[1]}') is not null`
           : fn ? `to_regprocedure('public.${fn[1]}(${fn[2]})') is not null`
           : pre ? `to_regprocedure('public.${pre[1]}') is not null`
+          : dropcol ? `exists (select 1 from pg_attribute a where a.attrelid = 'public.${dropcol[1]}'::regclass and a.attname = '${dropcol[2]}' and not a.attisdropped)`
           : col ? `exists (select 1 from pg_attribute a where a.attrelid = 'public.${col[1]}'::regclass and a.attname = '${col[2]}' and not a.attisdropped)`
           : fp ? `coalesce((select left(md5(replace(p.prosrc, chr(13), '')), 8) = '${fp[2]}' from pg_proc p where p.oid = to_regprocedure('public.${fp[1]}')), false)`
           // 20261231090000 (platform-admin AAL2) only REPLACES _sms_onb_is_platform_admin() and re-creates policies; its rollback has no "not applied" guard and drops nothing.

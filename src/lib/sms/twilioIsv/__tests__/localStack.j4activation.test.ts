@@ -264,6 +264,9 @@ const unmetOf = (message: string | undefined) => {
   return ITEM_IDS.filter((id) => list.startsWith(`${id}:`) || list.includes(`,${id}:`)).sort();
 };
 
+/** The instant after which a standing authorization still covers the NEXT billing month for tw4_rfl_studio_ready: 28 days past the start of the next month (business timezone). */
+const nextPeriodExemptionFrom = (l: Loc) => `(public._tw4ml_month_start('${l.entity}'::uuid, public._tw4ml_key_add(public._tw4ml_month_key('${l.entity}'::uuid, now()), 1)) + interval '28 days')`;
+
 /**
  * One rolled-back transaction: puts the location in `ready_for_activation`, applies `breakSql` (as replica), then evaluates the checklist and tries
  * tw4_act_activate; then puts it in `campaign_pending` and tries tw4_act_mark_ready. Failed tries are caught in a subtransaction, so the state after each try shows
@@ -383,8 +386,11 @@ commit;`);
       // lifecycle's next-period cover (rfl_ready reads the same authorization)
       { id: "funding_continuity", detail: "credit_on_hold",
         sql: (l) => `select public.tw4_credit_set_hold('${l.entity}'::uuid, true, 'fixture: hold inside a rolled-back transaction', '${P}'::uuid);` },
+      // The expiry must fail BOTH readers of the same fact: funding wants more than 35 days, and the lifecycle's next-period cover exemption wants more than 28 days past the
+      // start of the next billing month (tw4_rfl_studio_ready). 'now + 30 days' only fails the second while that start is at least 2 days away, i.e. not on the last two days of a
+      // billing month, so the expiry is capped just below the exemption threshold (the cap is a no-op on every other day).
       { id: "funding_continuity", detail: "number_authorization_short_or_missing", also: ["rfl_ready"],
-        sql: (l) => `update public.studio_sms_recurring_authorizations set expires_at = now() + interval '30 days' where studio_id = '${l.studio}' and kind = 'number' and status = 'active';` },
+        sql: (l) => `update public.studio_sms_recurring_authorizations set expires_at = least(now() + interval '30 days', ${nextPeriodExemptionFrom(l)} - interval '1 minute') where studio_id = '${l.studio}' and kind = 'number' and status = 'active';` },
       // the business becomes the (one) pilot business inside the rolled-back transaction; the pilot path then also refuses its standing authorizations
       { id: "pilot_ki1_redecided", detail: KI1, also: ["funding_continuity", "rfl_ready"],
         sql: (l) => `delete from public.studio_sms_pilot_exceptions; insert into public.studio_sms_pilot_exceptions (legal_entity_id, ceiling_cents, approval_ref, approved_by) values ('${l.entity}', 15000, 'Founder written pilot approval (rolled back)', '${P}');` },
@@ -416,6 +422,20 @@ commit;`);
       expect(state(L)).toBe(committed);
       expect(audits(L, "activation_ready", "activation_done", "state_changed")).toBe(auditBefore);
       expect(psql(`select count(*) from public.studio_sms_inbound_route_pins`)).not.toBe("0");
+    });
+
+    it("2b. the lifecycle's next-period exemption has a date-independent boundary: an authorization expiring 28 days past the next month start fails rfl_ready and funding together, one minute later it fails only funding; a cancelled campaign still fails rfl_ready alone", () => {
+      const set = (expr: string) => `update public.studio_sms_recurring_authorizations set expires_at = ${expr} where studio_id = '${L.studio}' and kind = 'number' and status = 'active';`;
+      const below = probe(L, set(`${nextPeriodExemptionFrom(L)} - interval '1 minute'`));
+      expect(below.failing).toEqual(["funding_continuity", "rfl_ready"]);
+      expect(below.items.find((i) => i.id === "rfl_ready")?.detail).toBe('rfl_blockers:["number_next_period_uncovered"]');
+      const above = probe(L, set(`${nextPeriodExemptionFrom(L)} + interval '1 minute'`));
+      expect(above.failing).toEqual(["funding_continuity"]);
+      expect(above.items.find((i) => i.id === "rfl_ready")?.detail).toBe("ok");
+      expect(above.activate).toMatch(/^TW042: activation checklist unmet: funding_continuity:/);
+      const cancelled = probe(L, `update public.studio_sms_provider_resources set provider_state = 'cancelled', cancelled_at = now(), cancel_evidence_digest = '${digest()}' where studio_id = '${L.studio}' and resource_kind = 'campaign';`);
+      expect(cancelled.failing).toEqual(["rfl_ready"]);
+      expect(cancelled.activate).toMatch(/^TW042: activation checklist unmet: rfl_ready:rfl_blockers:.*campaign_not_in_inventory/);
     });
 
     it("5. suspend: state suspended, step A3, sender revoked; reactivation needs the full checklist again", async () => {
