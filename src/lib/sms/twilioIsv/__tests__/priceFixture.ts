@@ -101,7 +101,7 @@ export function ownerAgeRequest(psql: Psql, requestId: string, hours = 25): void
   psql(`begin;
 do $d41$ begin ${MARKER} end $d41$;
 alter table public.studio_sms_price_change_requests disable trigger studio_sms_price_change_requests_guard;
-update public.studio_sms_price_change_requests set requested_at = requested_at - interval '${hours} hours', expires_at = expires_at - interval '${hours} hours' where id = '${requestId}';
+update public.studio_sms_price_change_requests set requested_at = requested_at - interval '${hours} hours', expires_at = expires_at - interval '${hours} hours', cooling_until = cooling_until - interval '${hours} hours' where id = '${requestId}';
 alter table public.studio_sms_price_change_requests enable always trigger studio_sms_price_change_requests_guard;
 commit;`);
 }
