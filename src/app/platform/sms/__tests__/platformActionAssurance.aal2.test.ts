@@ -80,7 +80,7 @@ const REGISTRY: Record<string, Record<string, Tier>> = {
   },
   "priceChangeActions.ts": {
     pricePropose: "recent", priceApprove: "recent", priceReject: "aal2", priceRevise: "recent", priceFreeze: "aal2", priceReportCompromise: "aal2", priceAuthzBegin: "aal2", priceAuthzFinish: "aal2",
-    priceCredBegin: "aal2", priceCredEnroll: "aal2", priceCredRevoke: "aal2", priceThaw: "aal2", priceCredApply: "aal2", priceCredCancel: "aal2", priceCredPending: "aal2",
+    priceCredBegin: "aal2", priceCredEnroll: "aal2", priceCredRevoke: "aal2", priceThaw: "aal2", priceCredApply: "aal2", priceCredCancel: "aal2", priceCredPending: "aal2", priceRecoveryEnroll: "aal2", priceRecoveryFreeze: "aal2",
   },   // D4-1: dual-controlled SMS price changes
   "provisioningActions.ts": {
     resolveProvisioningOperationAction: "recent",

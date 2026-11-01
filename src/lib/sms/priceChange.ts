@@ -215,7 +215,7 @@ export class PriceChangeStore {
   }
 
   // ---- credential ceremonies (enrol / revoke / thaw are PENDING requests or hardware-key lifts; nothing here takes effect without the database's checks)
-  async credBegin(args: { purpose: "enroll" | "revoke" | "thaw" | "cancel"; credentialId?: string | null; x?: string | null; y?: string | null; role?: string | null; label?: string | null; changeId?: string | null }): Promise<CredChallenge> {
+  async credBegin(args: { purpose: "enroll" | "revoke" | "thaw" | "cancel" | "recover_enroll" | "recover_freeze"; credentialId?: string | null; x?: string | null; y?: string | null; role?: string | null; label?: string | null; changeId?: string | null }): Promise<CredChallenge> {
     // a cancel ceremony names the pending change (the database carries its id in the label slot)
     const row = await this.call("tw4_price_cred_begin", { p_purpose: args.purpose, p_cred_id: args.credentialId ?? null, p_x: args.x ?? null, p_y: args.y ?? null, p_role: args.role ?? null, p_label: args.purpose === "cancel" ? (args.changeId ?? null) : (args.label ?? null) });
     const ids = Array.isArray(row.allow_credentials) ? row.allow_credentials.filter(isB64u) : [];
@@ -239,6 +239,20 @@ export class PriceChangeStore {
 
   async thaw(a: Record<"nonce" | "credentialId" | "authData" | "clientData" | "signature", string>): Promise<{ status: string | null; reason: string | null }> {
     const row = await this.call("tw4_price_thaw", { p_nonce: a.nonce, p_cred: a.credentialId, p_auth: a.authData, p_client: a.clientData, p_sig: a.signature });
+    return { status: str(row.status), reason: str(row.reason) };
+  }
+
+  // ---- offline recovery credential: freeze, and a delayed re-enrolment of a new primary (never publishes, never touches configuration)
+  async recoveryEnroll(a: Record<"nonce" | "newCredentialId" | "x" | "y" | "label" | "recCredentialId" | "recAuth" | "recClient" | "recSig" | "newAuth" | "newClient" | "newSig", string>): Promise<{ status: string | null; reason: string | null; changeId: string | null }> {
+    const row = await this.call("tw4_price_recovery_enroll", {
+      p_nonce: a.nonce, p_new_cred_id: a.newCredentialId, p_x: a.x, p_y: a.y, p_label: a.label, p_rec_cred: a.recCredentialId, p_rec_auth: a.recAuth, p_rec_client: a.recClient, p_rec_sig: a.recSig,
+      p_new_auth: a.newAuth, p_new_client: a.newClient, p_new_sig: a.newSig,
+    });
+    return { status: str(row.status), reason: str(row.reason), changeId: uuid(row.change_id) };
+  }
+
+  async recoveryFreeze(a: Record<"nonce" | "credentialId" | "authData" | "clientData" | "signature", string>): Promise<{ status: string | null; reason: string | null }> {
+    const row = await this.call("tw4_price_recovery_freeze", { p_nonce: a.nonce, p_cred: a.credentialId, p_auth: a.authData, p_client: a.clientData, p_sig: a.signature });
     return { status: str(row.status), reason: str(row.reason) };
   }
 
