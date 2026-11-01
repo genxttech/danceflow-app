@@ -78,6 +78,9 @@ begin
   if v_uid is null or coalesce(auth.jwt() ->> 'role', '') <> 'authenticated' then
     raise exception 'd24_op_authentication_required' using errcode = '42501';
   end if;
+  if coalesce(auth.jwt() ->> 'exp', '') !~ '^[0-9]{1,12}$' or (auth.jwt() ->> 'exp')::bigint <= extract(epoch from now())::bigint then
+    raise exception 'd24_op_session_expired' using errcode = '42501';
+  end if;
   if coalesce(auth.jwt() ->> 'aal', '') <> 'aal2' then
     raise exception 'd24_op_aal2_required' using errcode = '42501';
   end if;
@@ -260,15 +263,15 @@ begin
   if p_state is not null and p_state not in ('unmatched', 'anomalous', 'resolved', 'clear', 'out_of_scope') then
     raise exception 'd24_op_list_invoices: unknown state' using errcode = '22023';
   end if;
-  if not v_platform and not exists (select 1 from public.user_studio_roles r where r.user_id = v_uid and r.active = true and r.role::text in ('studio_owner', 'studio_admin')) then
-    raise exception 'd24_op_forbidden' using errcode = '42501';
+  if not v_platform then
+    raise exception 'd24_op_platform_admin_required' using errcode = '42501';
   end if;
   with scoped as (
     select i.*, (select count(*) from public.hosted_invoice_source_events e where e.invoice_row_id = i.id) as events_seen
     from public.hosted_invoices i
     where (p_state is null or i.reconciliation_state = p_state)
       and (p_studio_id is null or i.studio_id = p_studio_id)
-      and (v_platform or (i.studio_id is not null and public._d24_op_is_studio_operator(v_uid, i.studio_id)))
+
   ), flagged as (
     select s.*, exists (select 1 from public.hosted_invoice_dismissals d where d.invoice_row_id = s.id and d.events_seen = s.events_seen) as dismissed from scoped s
   ), shown as (
@@ -284,7 +287,7 @@ begin
   return jsonb_build_object('total', v_total, 'rows', v_rows);
 end $$;
 
--- One invoice with its facts and history. Platform admins also see the sanitized source-event snapshots; studio operators do not.
+-- One invoice with its facts and history (platform admin only; studio operators have no read access under the owner-approved policy).
 create or replace function public.d24_op_get_invoice(p_invoice_row_id uuid)
 returns jsonb language plpgsql security definer stable
 set search_path = pg_catalog, public, pg_temp
@@ -295,7 +298,10 @@ declare
   v public.hosted_invoices%rowtype;
 begin
   select * into v from public.hosted_invoices where id = p_invoice_row_id;
-  if not found or not (v_platform or public._d24_op_is_studio_operator(v_uid, v.studio_id)) then
+  if not v_platform then
+    raise exception 'd24_op_platform_admin_required' using errcode = '42501';
+  end if;
+  if not found then
     raise exception 'd24_invoice_not_found' using errcode = 'P0002';
   end if;
   -- explicit column lists (a column added later is not exposed by accident); studio operators get no actor ids, reasons or internal refs

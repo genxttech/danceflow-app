@@ -30,7 +30,14 @@ q() { $P -c "$1"; }
 # run as an authenticated end user: asu USER_UUID AAL SQL  (AAL = aal1|aal2|none ; none = no JWT at all)
 asu() {
   local claims
-  if [ "$2" = none ]; then claims='{}'; else claims="{\"sub\":\"$1\",\"role\":\"authenticated\",\"aal\":\"$2\"}"; fi
+  local exp; exp=$(( $(date +%s) + 3600 ))
+  case "$2" in
+    none) claims='{}' ;;
+    expired) claims="{\"sub\":\"$1\",\"role\":\"authenticated\",\"aal\":\"aal2\",\"exp\":$((exp - 7200))}" ;;
+    noexp) claims="{\"sub\":\"$1\",\"role\":\"authenticated\",\"aal\":\"aal2\"}" ;;
+    anonrole) claims="{\"sub\":\"$1\",\"role\":\"anon\",\"aal\":\"aal2\",\"exp\":$exp}" ;;
+    *) claims="{\"sub\":\"$1\",\"role\":\"authenticated\",\"aal\":\"$2\",\"exp\":$exp}" ;;
+  esac
   docker exec -i "$NAME" psql -U postgres -qAt -c "set role authenticated; select set_config('request.jwt.claims', '$claims', false) is not null; $3" </dev/null 2>&1 \
     | tr '\n' ' ' | sed -E 's/^SET t //; s/ERROR:  /ERR /' | sed -E 's/ +$//' | cut -c1-600
 }
@@ -58,6 +65,10 @@ docker exec -i "$NAME" psql -U postgres -v ON_ERROR_STOP=1 -q < "$M_D24" >/dev/n
 # precondition failure test: applying M2-B must have worked on the real base
 docker exec -i "$NAME" psql -U postgres -v ON_ERROR_STOP=1 -q < "$M_C2C" >/dev/null || { echo "FAIL M2-C migration did not apply"; exit 1; }
 docker exec -i "$NAME" psql -U postgres -v ON_ERROR_STOP=1 -q < "$M_OP" >/dev/null || { echo "FAIL M2-B migration did not apply"; exit 1; }
+# rollback works on a clean install, leaves M1/M2-C intact, and the migration re-applies (no duplicate objects)
+docker exec -i "$NAME" psql -U postgres -v ON_ERROR_STOP=1 -q < "$M_RB" >/dev/null 2>&1; RB1=$?
+RBLEFT=$(docker exec -i "$NAME" psql -U postgres -qAt -c "select (select count(*) from pg_proc where pronamespace='public'::regnamespace and proname like 'd24\_op\_%' or proname like '\_d24\_op\_%')||'/'||(to_regclass('public.hosted_invoice_dismissals') is null)||'/'||(to_regprocedure('public.d24_requeue_deferred_event(text,uuid,text)') is not null)||'/'||has_function_privilege('service_role','public.d24_requeue_deferred_event(text,uuid,text)','execute')")
+docker exec -i "$NAME" psql -U postgres -v ON_ERROR_STOP=1 -q < "$M_OP" >/dev/null 2>&1; RB2=$?
 
 pass=0; fail=0
 check() { if [ "$2" = "$3" ]; then pass=$((pass + 1)); echo "PASS $1"; else fail=$((fail + 1)); echo "FAIL $1 (expected '$3', got '$2')"; fi; }
@@ -124,6 +135,16 @@ has "platform admin on aal1 cannot requeue" "$(asu $PLAT aal1 "select public.d24
 has "studio owner on aal1 cannot acknowledge" "$(asu $OWA aal1 "select public.d24_op_acknowledge_anomalies('$RA',array['unverified_void_origin'],'a long enough reason')")" "d24_op_aal2_required"
 has "aal claim must equal exactly aal2 (empty is refused)" "$(asu $PLAT '' "select public.d24_op_list_invoices()")" "d24_op_aal2_required"
 check "refused calls wrote nothing" "$(q "select count(*) from public.hosted_invoice_dismissals")/$(q "select count(*) from public.hosted_invoice_deferred_requeues")" "0/0"
+has "an expired session (aal2, exp in the past) is refused" "$(asu $PLAT expired "select public.d24_op_list_invoices()")" "d24_op_session_expired"
+has "a token with no exp claim is refused" "$(asu $PLAT noexp "select public.d24_op_dismiss_unmatched('$U1','a long enough reason')")" "d24_op_session_expired"
+has "a token whose role claim is not authenticated is refused" "$(asu $PLAT anonrole "select public.d24_op_list_invoices()")" "d24_op_authentication_required"
+has "expired studio owner cannot acknowledge" "$(asu $OWA expired "select public.d24_op_acknowledge_anomalies('$RA',array['unverified_void_origin'],'a long enough reason')")" "d24_op_session_expired"
+has "expired platform admin cannot requeue" "$(asu $PLAT expired "select public.d24_op_requeue_deferred('evt_d1','a long enough reason')")" "d24_op_session_expired"
+check "rollback applied on a clean install" "$RB1" "0"
+check "rollback removed every M2-B function and table but kept M2-C requeue function and restored its pre-M2-B service_role grant" "$RBLEFT" "0/true/true/true"
+check "M2-B re-applies after rollback" "$RB2" "0"
+check "every SECURITY DEFINER function in the D24 family pins search_path" "$(q "select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and (p.proname like '%d24%') and p.prosecdef and not coalesce(p.proconfig::text like '%search_path%', false)")" "0"
+check "no D24 function is executable by PUBLIC" "$(q "select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and p.proname like '%d24%' and has_function_privilege('public', p.oid, 'execute')")" "0"
 
 # 3. acknowledge: authority + tenant scope -----------------------------------------------------------------------------------
 R="a long enough reason"
@@ -222,22 +243,17 @@ has "a dismissal audit row without actor/reason is refused" "$(q "select set_con
 
 # 7. review reads ----------------------------------------------------------------------------------------------------------
 claim evt_u3; ap evt_u3 invoice invoice.voided 1450 null "$(inv in_u3 void 100 0 100 100)"; U3=$(rid in_u3)
-out=$(asu $OWA aal2 "select (select count(*) from jsonb_array_elements((public.d24_op_list_invoices())->'rows') r where r->>'studio_id' <> '$SA' or r->>'studio_id' is null)")
-has "studio owner A list contains only studio A invoices" "$out" "0"
-has "studio owner A sees A's non-dismissed invoices" "$(asu $OWA aal2 "select (public.d24_op_list_invoices())->>'total'")" "1"
-has "...and the dismissed one with include_dismissed" "$(asu $OWA aal2 "select (public.d24_op_list_invoices(null,null,true))->>'total'")" "2"
-has "studio owner B sees only B's invoice" "$(asu $OWB aal2 "select (public.d24_op_list_invoices())->>'total'")" "1"
-has "studio B asking for studio A's id gets nothing" "$(asu $OWB aal2 "select (public.d24_op_list_invoices(null,'$SA'))->>'total'")" "0"
-has "user without any studio role cannot list" "$(asu $NOB aal2 "select public.d24_op_list_invoices()")" "d24_op_forbidden"
-has "front desk cannot list" "$(asu $FDA aal2 "select public.d24_op_list_invoices()")" "d24_op_forbidden"
+has "studio owner cannot list (acknowledge-only policy)" "$(asu $OWA aal2 "select public.d24_op_list_invoices()")" "d24_op_platform_admin_required"
+has "studio admin cannot list" "$(asu $ADA aal2 "select public.d24_op_list_invoices()")" "d24_op_platform_admin_required"
+has "user without any role cannot list" "$(asu $NOB aal2 "select public.d24_op_list_invoices()")" "d24_op_platform_admin_required"
+has "front desk cannot list" "$(asu $FDA aal2 "select public.d24_op_list_invoices()")" "d24_op_platform_admin_required"
+has "studio owner cannot get_invoice (own invoice)" "$(asu $OWA aal2 "select public.d24_op_get_invoice('$RA')")" "d24_op_platform_admin_required"
+has "studio owner cannot get_invoice (other studio)" "$(asu $OWB aal2 "select public.d24_op_get_invoice('$RA')")" "d24_op_platform_admin_required"
+has "studio owner cannot get_invoice (unmatched)" "$(asu $OWA aal2 "select public.d24_op_get_invoice('$U3')")" "d24_op_platform_admin_required"
 has "platform admin sees all invoices" "$(asu $PLAT aal2 "select (public.d24_op_list_invoices(null,null,true))->>'total'")" "$(q "select count(*) from public.hosted_invoices")"
 has "state filter validated" "$(asu $PLAT aal2 "select public.d24_op_list_invoices('bogus')")" "unknown state"
-has "get_invoice: studio A owner reads own" "$(asu $OWA aal2 "select (public.d24_op_get_invoice('$RA'))->'invoice'->>'stripe_invoice_id'")" "in_ra"
-has "get_invoice: cross tenant looks like not found" "$(asu $OWB aal2 "select public.d24_op_get_invoice('$RA')")" "d24_invoice_not_found"
-has "get_invoice: unmatched invoice is invisible to studio operators" "$(asu $OWA aal2 "select public.d24_op_get_invoice('$U3')")" "d24_invoice_not_found"
-has "studio view hides source-event snapshots" "$(asu $OWA aal2 "select (public.d24_op_get_invoice('$RA'))->'source_events'->0 ? 'object_snapshot'")" "f"
 has "platform view includes source-event snapshots" "$(asu $PLAT aal2 "select (public.d24_op_get_invoice('$RA'))->'source_events'->0 ? 'object_snapshot'")" "t"
-has "audit trail visible with the actor and reason" "$(asu $OWA aal2 "select jsonb_array_length((public.d24_op_get_invoice('$RA'))->'audit')")" "[3-9]"
+has "audit trail visible to platform admin with the actor and reason" "$(asu $PLAT aal2 "select jsonb_array_length((public.d24_op_get_invoice('$RA'))->'audit')")" "[3-9]"
 has "list_deferred: studio owner refused" "$(asu $OWA aal2 "select public.d24_op_list_deferred()")" "d24_op_platform_admin_required"
 has "list_deferred: counts and requeue count" "$(asu $PLAT aal2 "select ((public.d24_op_list_deferred('rejected'))->'counts'->>'rejected')||'/'||(select (r->>'requeue_count') from jsonb_array_elements((public.d24_op_list_deferred('rejected'))->'rows') r where r->>'provider_event_id'='evt_d3')")" "1/5"
 has "list_deferred: bad state refused" "$(asu $PLAT aal2 "select public.d24_op_list_deferred('bogus')")" "unknown state"

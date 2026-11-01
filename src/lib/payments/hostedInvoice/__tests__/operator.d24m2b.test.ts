@@ -92,6 +92,7 @@ describe("input validation and the allow-listed RPC call", () => {
 describe("database errors map to stable codes and never leak text", () => {
   it.each([
     [{ code: "P0001", message: "d24_op_aal2_required" }, "mfa_required"],
+    [{ code: "42501", message: "d24_op_session_expired" }, "mfa_required"],
     [{ code: "42501", message: "d24_op_authentication_required" }, "unauthenticated"],
     [{ code: "42501", message: "d24_op_platform_admin_required" }, "forbidden"],
     [{ code: "42501", message: "d24_op_code_requires_platform_admin" }, "forbidden"],

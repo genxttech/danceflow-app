@@ -102,7 +102,7 @@ export function buildOperatorCall(action: OperatorAction, input: Record<string, 
 /** Database error -> stable code. Unknown errors are "unavailable"; no message text is ever returned. */
 function mapError(err: { code?: string; message?: string }): OperatorResult {
   const msg = err.message ?? "";
-  if (msg.includes("d24_op_aal2_required")) return fail("mfa_required");
+  if (msg.includes("d24_op_aal2_required") || msg.includes("d24_op_session_expired")) return fail("mfa_required");
   if (msg.includes("d24_op_authentication_required")) return fail("unauthenticated");
   if (err.code === "42501") return fail("forbidden");
   if (err.code === "P0002") return fail("not_found");
