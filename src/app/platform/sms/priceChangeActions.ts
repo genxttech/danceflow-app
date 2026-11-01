@@ -192,14 +192,15 @@ const bad = (...v: unknown[]) => {
   if (v.some((x) => !isB64u(x))) throw new PriceChangeError("22023");
 };
 
-export async function priceCredBegin(input: { purpose: string; credentialId?: string; x?: string; y?: string; role?: string; label?: string }): Promise<Data<CredChallenge>> {
+export async function priceCredBegin(input: { purpose: string; credentialId?: string; x?: string; y?: string; role?: string; label?: string; changeId?: string }): Promise<Data<CredChallenge>> {
   return await guardedData("aal2", async () => {
     const purpose = input?.purpose;
-    if (purpose !== "enroll" && purpose !== "revoke" && purpose !== "thaw") throw new PriceChangeError("22023");
+    if (purpose !== "enroll" && purpose !== "revoke" && purpose !== "thaw" && purpose !== "cancel") throw new PriceChangeError("22023");
+    if (purpose === "cancel" && (typeof input.changeId !== "string" || !UUID.test(input.changeId))) throw new PriceChangeError("22023");
     if (purpose === "enroll") bad(input.credentialId, input.x, input.y);
     if (purpose === "revoke") bad(input.credentialId);
     if (purpose === "enroll" && (typeof input.role !== "string" || !["primary", "spare"].includes(input.role) || typeof input.label !== "string" || input.label.trim().length < 3 || input.label.length > 60)) throw new PriceChangeError("22023");
-    return (await store()).credBegin({ purpose, credentialId: input.credentialId ?? null, x: input.x ?? null, y: input.y ?? null, role: input.role ?? null, label: input.label ?? null });
+    return (await store()).credBegin({ purpose, credentialId: input.credentialId ?? null, x: input.x ?? null, y: input.y ?? null, role: input.role ?? null, label: input.label ?? null, changeId: input.changeId ?? null });
   });
 }
 
@@ -239,10 +240,13 @@ export async function priceCredApply(changeId: string): Promise<Data<Record<"sta
   });
 }
 
-export async function priceCredCancel(changeId: string): Promise<Data<Record<"status", string | null>>> {
+type CancelInput = Record<"changeId" | "nonce" | "credentialId" | "authData" | "clientData" | "signature", string>;
+export async function priceCredCancel(input: CancelInput): Promise<Data<Record<"status" | "reason", string | null>>> {
   return await guardedData("aal2", async () => {
-    if (typeof changeId !== "string" || !UUID.test(changeId)) throw new PriceChangeError("22023");
-    return (await store()).credCancel(changeId);
+    const i = input as Record<string, unknown>;
+    if (typeof i?.changeId !== "string" || !UUID.test(i.changeId)) throw new PriceChangeError("22023");
+    bad(i.nonce, i.credentialId, i.authData, i.clientData, i.signature);
+    return (await store()).credCancel(input);
   });
 }
 
