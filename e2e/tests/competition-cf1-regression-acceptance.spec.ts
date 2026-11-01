@@ -2,7 +2,7 @@ import { test, expect, type Browser, type TestInfo } from "@playwright/test";
 import { loadE2EConfig, type E2EConfig } from "@/lib/e2e/config";
 import { e2eAdminClient } from "../helpers/competitionFixture";
 import { verifyEmailAndBindPassword } from "../helpers/competitionFullEvent";
-import { useUniqueE2ESourceIp } from "../helpers/rateLimitBypass";
+import { useUniqueE2ESourceIp as assignUniqueSourceIpForContext } from "../helpers/rateLimitBypass";
 import {
   cleanupScheduleAcceptanceFixture,
   createScheduleAcceptanceFixture,
@@ -161,7 +161,7 @@ test.describe("CF1 cross-discipline regression and OD-17 scope (CF1-C)", () => {
   test("SCN-0c setup (not a scenario): judges and managers prove their mailbox", async ({ browser }) => {
     for (const account of [...fixture.judges, fixture.owner, fixture.deskAdmin]) {
       const page = await (await browser.newContext()).newPage();
-      await useUniqueE2ESourceIp(page);
+      await assignUniqueSourceIpForContext(page);
       await verifyEmailAndBindPassword(page, account);
       await page.context().close();
     }
