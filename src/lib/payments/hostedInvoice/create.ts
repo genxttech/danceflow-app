@@ -76,6 +76,7 @@ export type StripeInvoiceSnapshot = {
   livemode: boolean;
   status: string | null;
   collection_method: string | null;
+  auto_advance?: boolean | null;
   customer: string | null;
   currency: string | null;
   total?: number | null;
@@ -119,7 +120,6 @@ export type IntentRow = {
   stripeAccountId: string;
   businessObjectType: string;
   businessObjectId: string;
-  createdBy: string | null;
   stripeInvoiceId: string | null;
   livemode: boolean | null;
   createdAtMs: number;
@@ -294,6 +294,7 @@ async function runFrom(intent: IntentRow, spec: InvoiceSpec | null, account: str
     // spec and account are required to talk to Stripe; resumeIntent re-derives them from trusted records.
     if (!spec || !account) return fail("invalid_invoice_spec", false, intent.id);
     let snap: StripeInvoiceSnapshot;
+    let createdSnap: StripeInvoiceSnapshot | null = null;
     try {
       const created = await deps.stripe.createDraftInvoice({
         stripeAccount: account,
@@ -308,6 +309,7 @@ async function runFrom(intent: IntentRow, spec: InvoiceSpec | null, account: str
           metadata: { d24_intent_id: intent.id },
         },
       });
+      createdSnap = created;
       validateSnapshot(created, spec);
       snap = await deps.stripe.addInvoiceLines({
         stripeAccount: account,
@@ -319,12 +321,22 @@ async function runFrom(intent: IntentRow, spec: InvoiceSpec | null, account: str
       if (snap.id !== created.id || snap.livemode !== created.livemode) throw new SnapshotError();
       if (typeof snap.total !== "number" || snap.total !== specTotal(spec)) throw new SnapshotError();
     } catch (e) {
+      // Once a draft exists its id is recorded BEFORE any permanent failure, so the orphan stays tracked (never silently lost).
+      const keepId = async () => {
+        if (createdSnap && typeof createdSnap.id === "string" && INVOICE_ID.test(createdSnap.id) && createdSnap.livemode === deps.expectedLivemode) {
+          await store.markProviderCreated({ intentId: intent.id, studioId: intent.studioId, stripeInvoiceId: createdSnap.id, livemode: createdSnap.livemode, keyLivemode: deps.expectedLivemode as boolean, stripeAccountId: account });
+        }
+      };
       if (e instanceof SnapshotError) {
+        await keepId();
         await store.fail({ intentId: intent.id, studioId: intent.studioId, code: "stripe_response_invalid", permanent: true });
         return fail("stripe_response_invalid", false, intent.id);
       }
       const c = classifyStripeError(e);
-      if (!c.retryable) await store.fail({ intentId: intent.id, studioId: intent.studioId, code: c.code, permanent: true });
+      if (!c.retryable) {
+        await keepId();
+        await store.fail({ intentId: intent.id, studioId: intent.studioId, code: c.code, permanent: true });
+      }
       return fail(c.code, c.retryable, intent.id);
     }
 
@@ -339,13 +351,14 @@ async function runFrom(intent: IntentRow, spec: InvoiceSpec | null, account: str
     livemode = snap.livemode;
   }
 
-  if (intent.state === "provider_created" && livemode !== deps.expectedLivemode) {
+  if ((intent.state === "provider_created" || intent.state === "registered") && livemode !== deps.expectedLivemode) {
     await store.fail({ intentId: intent.id, studioId: intent.studioId, code: "livemode_mismatch", permanent: true });
     return fail("livemode_mismatch", false, intent.id);
   }
   if (!invoiceId || livemode == null || !INVOICE_ID.test(invoiceId)) return fail("registration_failed", false, intent.id);
 
   const reg = await store.register({ intentId: intent.id, studioId: intent.studioId });
+  if (!reg.ok && !reg.retryable) await store.fail({ intentId: intent.id, studioId: intent.studioId, code: "registration_failed", permanent: true });
   if (!reg.ok) return fail(reg.code === "registration_unavailable" ? "registration_unavailable" : "registration_failed", reg.retryable, intent.id);
   return { ok: true, state: "registered", intentId: intent.id, stripeInvoiceId: invoiceId, livemode, registryId: reg.registryId, adoptedExistingFacts: reg.adoptedExistingFacts };
 }
@@ -355,7 +368,7 @@ class SnapshotError extends Error {}
 function validateSnapshot(s: StripeInvoiceSnapshot, spec: InvoiceSpec) {
   if (
     !s || typeof s.id !== "string" || !INVOICE_ID.test(s.id) || typeof s.livemode !== "boolean" ||
-    s.status !== "draft" || s.collection_method !== "send_invoice" ||
+    s.status !== "draft" || s.collection_method !== "send_invoice" || s.auto_advance !== false ||
     s.customer !== spec.stripeCustomerId || s.currency !== spec.currency ||
     (s.subscription != null && s.subscription !== false) ||
     (s.parent != null && typeof s.parent === "object" && (s.parent as { subscription_details?: unknown }).subscription_details != null)
@@ -407,7 +420,7 @@ export async function createHostedInvoice(request: CreateInvoiceRequest, deps: C
   if (intent.stripeAccountId !== account) return fail("stripe_account_unavailable", false, intent.id);
   if (intent.state === "failed" || intent.state === "abandoned") return fail("intent_failed", false, intent.id);
   if (intent.state === "pending" && (deps.now ?? Date.now)() - intent.createdAtMs > STRIPE_IDEMPOTENCY_SAFE_WINDOW_MS) {
-    await deps.store.fail({ intentId: intent.id, studioId: intent.studioId, code: "idempotency_window_expired", permanent: true });
+    // Deliberately NOT failed: the intent stays pending and keeps the object blocked until an operator reconciles with Stripe.
     return fail("idempotency_window_expired", false, intent.id);
   }
   return runFrom(intent, spec, account, deps);
@@ -436,7 +449,7 @@ export async function resumeIntent(intentId: string, actor: ResumeActor, deps: C
 
   const now = (deps.now ?? Date.now)();
   if (now - intent.createdAtMs > STRIPE_IDEMPOTENCY_SAFE_WINDOW_MS) {
-    await deps.store.fail({ intentId: intent.id, studioId: intent.studioId, code: "idempotency_window_expired", permanent: true });
+    // Deliberately NOT failed: the intent stays pending and keeps the object blocked until an operator reconciles with Stripe.
     return fail("idempotency_window_expired", false, intent.id);
   }
   const resolvers = deps.resolvers ?? PRODUCTION_INVOICE_SPEC_RESOLVERS;

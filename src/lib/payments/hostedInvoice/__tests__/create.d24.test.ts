@@ -141,13 +141,14 @@ describe("livemode and response forgery", () => {
       const orig = stripe.createDraftInvoice.bind(stripe);
       stripe.createDraftInvoice = async (a) => { const s = (await orig(a)) as unknown as Record<string, unknown>; m(s); return s as never; };
       expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, code: "stripe_response_invalid" });
-      expect(store.log).not.toContain("mark");
+      expect(store.log).not.toContain("register");
+      expect([...store.rows.values()][0].state).toBe("failed");
     }
     const { stripe, store, deps } = setup();
     const orig = stripe.addInvoiceLines.bind(stripe);
     stripe.addInvoiceLines = async (a) => ({ ...(await orig(a)), total: 1 });
     expect(await createHostedInvoice(req(), deps)).toMatchObject({ code: "stripe_response_invalid" });
-    expect(store.log).not.toContain("mark");
+    expect(store.log).not.toContain("register");
   });
   it("does not trust metadata or any echoed studio / account values in the response", async () => {
     const { stripe, store, deps } = setup();
@@ -338,5 +339,36 @@ describe("webhook before registration (offline signed fixture)", () => {
     expect(Object.keys(r)).not.toContain("paid");
     expect([...store.rows.values()][0].studioId).toBe(STUDIO_A);
     expect(stripe.createCount).toBe(1);
+  });
+});
+
+describe("review follow-ups", () => {
+  it("refuses a response whose auto_advance is not false (would auto-finalize and email)", async () => {
+    const { stripe, store, deps } = setup();
+    const orig = stripe.createDraftInvoice.bind(stripe);
+    stripe.createDraftInvoice = async (a) => ({ ...(await orig(a)), auto_advance: true }) as never;
+    expect(await createHostedInvoice(req(), deps)).toMatchObject({ code: "stripe_response_invalid" });
+    expect(store.log).not.toContain("register");
+  });
+  it("a permanent failure after the draft exists still records the invoice id on the intent", async () => {
+    const { stripe, store, deps } = setup();
+    stripe.failAfterCreate = Object.assign(new Error("x"), { type: "StripeInvalidRequestError", statusCode: 400 });
+    expect(await createHostedInvoice(req(), deps)).toMatchObject({ code: "stripe_rejected", retryable: false });
+    const row = [...store.rows.values()][0];
+    expect(row.state).toBe("failed");
+    expect(row.stripeInvoiceId).toBe("in_fake1");
+  });
+  it("an expired pending intent is refused but NOT failed (object stays blocked)", async () => {
+    const { stripe, store, deps } = setup();
+    stripe.failNext = netErr();
+    await createHostedInvoice(req(), deps);
+    await resumeIntent(firstId(store), SYS, { ...deps, now: () => 1_000_000 + STRIPE_IDEMPOTENCY_SAFE_WINDOW_MS + 1 });
+    expect([...store.rows.values()][0].state).toBe("pending");
+  });
+  it("a permanent registration refusal terminates the intent", async () => {
+    const { store, deps } = setup();
+    store.registerFail = { code: "registration_failed", retryable: false };
+    await createHostedInvoice(req(), deps);
+    expect([...store.rows.values()][0].state).toBe("failed");
   });
 });

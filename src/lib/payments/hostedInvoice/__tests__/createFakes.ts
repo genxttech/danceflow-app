@@ -40,7 +40,7 @@ export class FakeStripe implements HostedInvoiceStripeClient {
       return { ...this.invoices.get(prior.id)! };
     }
     const id = `in_fake${this.prefix}${++this.seq}`;
-    const inv = { id, livemode: this.livemode, status: "draft", collection_method: "send_invoice", customer: a.params.customer, currency: a.params.currency, total: 0, account: a.stripeAccount };
+    const inv = { id, livemode: this.livemode, status: "draft", collection_method: "send_invoice", auto_advance: false, customer: a.params.customer, currency: a.params.currency, total: 0, account: a.stripeAccount };
     this.invoices.set(id, inv);
     this.keys.set(k, { hash, id });
     return { ...inv };
