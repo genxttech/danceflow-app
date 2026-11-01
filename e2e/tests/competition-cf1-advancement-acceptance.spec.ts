@@ -107,7 +107,7 @@ test.describe("CF1 callback -> Final advancement acceptance (CF1-C)", () => {
   });
 
   /** Common set-up of one callback competition up to a running Callback round with its heat on the floor and N couples paid. */
-  async function buildCallbackEvent(browser: import("@playwright/test").Browser, key: "P" | "Q" | "R" | "C", date: string, capacity: number | null) {
+  async function buildCallbackEvent(browser: import("@playwright/test").Browser, key: "P" | "Q" | "R" | "C" | "U", date: string, capacity: number | null) {
     const page = await signedIn(browser, fixture.owner);
     const event = await createDraftEvent(j, page, `E2E CF1 ${key} ${fixture.runId}`, date);
     await applyScoring(page, event.id, "Callbacks + Final");
@@ -543,6 +543,44 @@ test.describe("CF1 callback -> Final advancement acceptance (CF1-C)", () => {
     await submitOrdinalBallot(j, browser, 0, s);
     expect(await readBallotCount(config, s.finalRoundId)).toBe(1);
     await refusal(browser, s, CF1_CODES.ballotsExist, "refused-final-ballot", testInfo);
+  });
+
+  // ================================================================== U81: the callback family, unavailable couple refused at lock (browser half)
+
+  test("SCN-R81-callback a callback round refuses to lock ballots while a ranked couple is ineligible, and locks once eligibility is restored", async ({ browser }, testInfo) => {
+    const required = missing(cap, ["a1", "a2"]);
+    if (required.length) blockedBy(testInfo, required, "Predicate P at lock for a callback round.");
+    const shot = stepShots(testInfo);
+    const s = await buildCallbackEvent(browser, "U", "2027-07-14", null);
+    for (let judge = 0; judge < 3; judge += 1) await submitCallbackBallot(j, browser, judge, s, TIE_PICKS[judge]);
+    expect(await readBallotCount(config, s.callbackRoundId)).toBe(3);
+
+    // Make one called-back couple (entry 0) ineligible through the registrations page, the supported manager control.
+    const setEligibility = async (status: "ineligible" | "eligible") => {
+      const page = await signedIn(browser, fixture.owner);
+      await page.goto(`/app/events/${s.event.id}/competition/registrations`);
+      const card = page.locator("div.grid").filter({ hasText: coupleName(0) }).filter({ has: page.locator('select[name="eligibilityStatus"]') }).last();
+      await card.locator('select[name="eligibilityStatus"]').selectOption(status);
+      await card.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(card.locator('select[name="eligibilityStatus"]')).toHaveValue(status, { timeout: 30_000 });
+      await page.context().close();
+    };
+    await setEligibility("ineligible");
+
+    const owner = await signedIn(browser, fixture.owner);
+    const refused = await lockBallots(owner, s.event.id, s.callbackRoundId);
+    expect(refused.locked, "lock is refused while a ranked couple is unavailable").toBe(false);
+    expect(refused.refusal ?? "").toContain(CF1_CODES.rosterEntryUnavailable);
+    expect((await readHeatEvidence(config, s.event.id)).rounds.find((r) => r.id === s.callbackRoundId)?.status, "round did not lock").not.toBe("ballots_locked");
+    await shot(owner, "callback-lock-refused-unavailable-couple");
+    await owner.context().close();
+
+    await setEligibility("eligible");
+    const owner2 = await signedIn(browser, fixture.owner);
+    const locked = await lockBallots(owner2, s.event.id, s.callbackRoundId);
+    expect(locked.locked, `lock succeeds once the couple is eligible again: ${locked.refusal ?? ""}`).toBe(true);
+    await shot(owner2, "callback-lock-ok-after-restore");
+    await owner2.context().close();
   });
 });
 
