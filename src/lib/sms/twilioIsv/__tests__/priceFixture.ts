@@ -88,6 +88,12 @@ export const deleteFixtureRequestsSql = (approver: string): string => `do $d41$ 
     delete from public.studio_sms_price_change_requests where requested_by = '${PRICE_FIXTURE_REQUESTER}' or decided_by = '${approver}';
     alter table public.studio_sms_price_change_requests enable always trigger studio_sms_price_change_requests_guard;
   end if;
+  if to_regclass('public.studio_sms_price_audit') is not null then
+    -- the audit rows of the fixture proposals (immutable evidence in production; a local suite removes its own, visibly)
+    alter table public.studio_sms_price_audit disable trigger studio_sms_price_audit_guard;
+    delete from public.studio_sms_price_audit;
+    alter table public.studio_sms_price_audit enable always trigger studio_sms_price_audit_guard;
+  end if;
 end $d41$;`;
 
 /** Local-QA-only owner step: make a request look older (to exercise expiry). */
