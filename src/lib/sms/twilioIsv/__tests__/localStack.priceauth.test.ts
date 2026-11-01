@@ -5,7 +5,7 @@
  * LOCAL QA DATABASE ONLY: TW4A_LOCAL_DB_CONTAINER + TW4RFL_DB and the tw4_local_qa_only marker.
  */
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
@@ -37,9 +37,10 @@ const begin = (c: Record<string, unknown>, id: string) => authOut(c, `select pub
 /** run one statement as a session; a registered administrator's REFUSAL comes back as a recorded {status: 'refused'} answer and is rendered like an error text so that codeOf() reads its SQLSTATE */
 function tryAuth(c: Record<string, unknown> | null, sql: string): { err: string; out: Record<string, never> | null } {
   try {
-    return { err: "", out: JSON.parse(psql(asAuth(c, sql)).split(NL).pop()!) as Record<string, never> };
+    const out = execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-d", DB, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { input: `${String.fromCharCode(92)}set VERBOSITY verbose${NL}${asAuth(c, sql)}`, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+    return { err: "", out: JSON.parse(out.trim().split(NL).pop()!) as Record<string, never> };
   } catch (e) {
-    return { err: String((e as Error).message ?? e), out: null };
+    return { err: String((e as { stderr?: Buffer | string }).stderr ?? e), out: null };
   }
 }
 const refusalText = (r: { err: string; out: Record<string, never> | null }): string => ((r.out as Record<string, unknown> | null)?.status === "refused" ? `ERROR:  ${String((r.out as Record<string, unknown>).code)}: ${String((r.out as Record<string, unknown>).reason)}` : r.err);
@@ -315,15 +316,14 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(enroll(sess, KX, "spare", "attacker key", b.nonce, K1.assert(b.challenge), K2.assert(b.challenge)).status).toBe("rejected");
     // tampered enrolment: signed for the spare K2, submitted for the attacker's key / another role / another label
     b = enrollBegin(sess, K2, "spare", "second test key");
-    const byK1 = K1.assert(b.challenge);
-    expect(enroll(sess, KX, "spare", "second test key", b.nonce, byK1, KX.assert(b.challenge)).status).toBe("rejected");
-    expect(enroll(sess, K2, "primary", "second test key", b.nonce, byK1, K2.assert(b.challenge)).status).toBe("rejected");
-    expect(enroll(sess, K2, "spare", "renamed key x", b.nonce, byK1, K2.assert(b.challenge)).status).toBe("rejected");
+    expect(enroll(sess, KX, "spare", "second test key", b.nonce, K1.assert(b.challenge), KX.assert(b.challenge)).status).toBe("rejected");
+    expect(enroll(sess, K2, "primary", "second test key", b.nonce, K1.assert(b.challenge), K2.assert(b.challenge)).status).toBe("rejected");
+    expect(enroll(sess, K2, "spare", "renamed key x", b.nonce, K1.assert(b.challenge), K2.assert(b.challenge)).status).toBe("rejected");
     // a challenge issued to ANOTHER session cannot be used (enrol, revoke and thaw check the issuing user and session, not only authorize)
-    expect(enroll(claims(A, "d42-other-session"), K2, "spare", "second test key", b.nonce, byK1, K2.assert(b.challenge)).status).toBe("rejected");
+    expect(enroll(claims(A, "d42-other-session"), K2, "spare", "second test key", b.nonce, K1.assert(b.challenge), K2.assert(b.challenge)).status).toBe("rejected");
     // a backup-eligible (synced) credential is not accepted as the existing signer nor as the new key
     expect(enroll(sess, K2, "spare", "second test key", b.nonce, K1.assert(b.challenge, { flags: 0x0d }), K2.assert(b.challenge)).status).toBe("rejected");
-    expect(enroll(sess, K2, "spare", "second test key", b.nonce, byK1, K2.assert(b.challenge, { flags: 0x1d })).status).toBe("rejected");
+    expect(enroll(sess, K2, "spare", "second test key", b.nonce, K1.assert(b.challenge), K2.assert(b.challenge, { flags: 0x1d })).status).toBe("rejected");
     expect(num(`select count(*) from public.studio_sms_price_credentials`)).toBe(1);
     // direct writes
     expect(psqlError(`insert into public.studio_sms_price_credentials (credential_id, pub_x, pub_y, role, label, enrolled_via) values (decode('${KX.hex.cred}', 'hex'), decode('${KX.hex.x}', 'hex'), decode('${KX.hex.y}', 'hex'), 'spare', 'direct insert', 'assertion')`))
@@ -331,7 +331,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(psqlError(`begin; set local session_replication_role = replica; insert into public.studio_sms_price_credentials (credential_id, pub_x, pub_y, role, label, enrolled_via) values (decode('${KX.hex.cred}', 'hex'), decode('${KX.hex.x}', 'hex'), decode('${KX.hex.y}', 'hex'), 'spare', 'direct insert', 'assertion'); rollback;`))
       .toMatch(/written only by the price authorization functions/);
     // the legitimate request: PENDING, not active
-    const req2 = enroll(sess, K2, "spare", "second test key", b.nonce, byK1, K2.assert(b.challenge));
+    const req2 = enroll(sess, K2, "spare", "second test key", b.nonce, K1.assert(b.challenge), K2.assert(b.challenge));
     expect(req2).toMatchObject({ status: "pending", effective_in_hours: 24 });
     expect(num(`select count(*) from public.studio_sms_price_credentials`)).toBe(1);
     expect(audit("credential_change_pending")).toBe(1);
