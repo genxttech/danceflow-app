@@ -372,3 +372,13 @@ describe("review follow-ups", () => {
     expect([...store.rows.values()][0].state).toBe("failed");
   });
 });
+
+describe("M3-A final contract", () => {
+  it("a stale_key begin outcome never reaches Stripe", async () => {
+    const { stripe, store, deps } = setup();
+    const orig = store.begin.bind(store);
+    store.begin = async (i) => { const r = await orig(i); return r.ok ? { ok: true as const, intent: { ...r.intent, stale: true } } : r; };
+    expect(await createHostedInvoice(req(), deps)).toMatchObject({ ok: false, code: "idempotency_window_expired" });
+    expect(stripe.calls).toEqual([]);
+  });
+});

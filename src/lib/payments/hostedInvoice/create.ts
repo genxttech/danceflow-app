@@ -123,6 +123,8 @@ export type IntentRow = {
   stripeInvoiceId: string | null;
   livemode: boolean | null;
   createdAtMs: number;
+  /** begin only: the ledger says Stripe may have forgotten this pending intent's key (outcome stale_key). Never call Stripe. */
+  stale?: boolean;
 };
 
 /** Port over the M3-A SQL functions. The Supabase implementation below is the only place their signatures appear. */
@@ -414,6 +416,7 @@ export async function createHostedInvoice(request: CreateInvoiceRequest, deps: C
   });
   if (!begun.ok) return fail(begun.code, begun.retryable);
   const intent = begun.intent;
+  if (intent.stale) return fail("idempotency_window_expired", false, intent.id);
   // Defense in depth: the ledger row must be this studio's.
   if (intent.studioId !== actor.studioId) return fail("intent_unavailable", false);
   // The ledger resolved the account itself; it must agree with ours or nothing is sent to Stripe.
@@ -532,6 +535,7 @@ export function createSupabaseIntentStore(supabase: Pick<SupabaseClient, "rpc" |
         return { ok: false, code: "intent_unavailable", retryable: TRANSIENT.has(c) || MISSING_FN(c) };
       }
       const intent = toIntent(data);
+      if (intent && (data as { outcome?: unknown } | null)?.outcome === "stale_key") intent.stale = true;
       return intent ? { ok: true, intent } : { ok: false, code: "intent_unavailable", retryable: true };
     },
     async get(intentId) {
