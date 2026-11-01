@@ -73,4 +73,12 @@ The test-mode proof is **conditionally authorized**. It does not start until ALL
 
 Cases: T1-T14 above plus failed schedule creation, failed release, lost create response, audit-update recovery and post-boundary reconciliation (transition boundary, schedule activation, actual price change, atomic registry release), including advancing the test clock and inspecting the resulting subscription and invoices. If no suitable sandbox/key exists or one would need new credential provisioning, STOP and request the owner setup.
 
-Status at the time of writing: **BLOCKED on prerequisites 1-2**; no Stripe call has been made.
+Status 2026-11-01: **prerequisites met and the proof RUN.** Sandbox `DanceFlow-D7-Price-Transition` (`acct_1UWz98RESPl6zEVj`), restricted `rk_test_` key (Accounts Read added by the owner after the first preflight reported the missing permission), Stripe API version `2026-03-25.dahlia` (installed SDK). Result: **28 of 28 cases pass** (`scripts/billing/price-transition-proof.ts run`); redacted evidence in `docs/billing/evidence/d7-wp3-testmode/` (run-results.json, run-log.json, preflight-log.json). 16 disposable test clocks (with their customers and subscriptions) were created and deleted; the shared test product and 3 prices from the runs remain in the sandbox (no delete operation is allowlisted).
+
+Defects found by the proof and fixed in this PR (each now has a unit regression):
+1. Echoing the schedule phase back verbatim is rejected by Stripe (`automatic_tax.disabled_reason`, null/empty fields, `currency`): carried fields are now pruned and sanitized, and the read-back compares as a subset.
+2. Stripe does not copy subscription-item metadata into schedule phase items, so item metadata would be lost when the new price replaced the item: subscription and item metadata are now read, included in the approved plan/hash, and set explicitly on both phases (verified on the live subscription after the boundary).
+3. Lost-create-response recovery could have released a schedule it did not create: the executor now refuses to touch a subscription that already has a schedule.
+4. Harness-only: Stripe retains idempotency keys, so audit ids must be unique (production audit ids are UUIDs).
+
+Behavior confirmed against the real API: a final phase sent without an end date is accepted; Stripe stores one implicit billing cycle for it and releases the schedule afterwards (verified by advancing a second cycle: schedule `released`, subscription still active on the regular price, two renewal invoices of exactly the regular amount, no proration lines). Not exercised against Stripe: a genuinely failing renewal payment (past_due) on the new price — covered by unit tests only.

@@ -207,3 +207,28 @@ describe("price transition migration", () => {
     expect(sql).toMatch(/before truncate/);
   });
 });
+
+describe("executePriceTransition: pre-existing schedule", () => {
+  it("leaves a schedule it did not create untouched and writes nothing", async () => {
+    const { stripe, calls } = statefulStripe();
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({ schedule: "sub_sched_foreign" });
+    const result = await executePriceTransition(stripe, plan(), { keyMode: "test" });
+    expect(result).toMatchObject({ status: "failed", scheduleId: null, released: true });
+    expect(calls).toEqual([]);
+    expect(stripe.subscriptionSchedules.release).not.toHaveBeenCalled();
+  });
+});
+
+describe("executePriceTransition: metadata Stripe does not copy into the schedule", () => {
+  it("sets subscription and item metadata explicitly on both phases", async () => {
+    const { stripe, state } = statefulStripe();
+    const withMeta = plan({ subscription: subscription({ metadata: { studio: "st_9" }, items: [{ priceId: "price_legacy129", quantity: 1, metadata: { seat: "owner" } }] }) });
+    expect(withMeta.ok && withMeta.change.subscriptionMetadata).toEqual({ studio: "st_9" });
+    const result = await executePriceTransition(stripe, withMeta, { keyMode: "test" });
+    expect(result.status).toBe("scheduled");
+    for (const phase of state().phases) {
+      expect(phase.metadata).toMatchObject({ studio: "st_9" });
+      expect(phase.items[0].metadata).toMatchObject({ seat: "owner" });
+    }
+  });
+});

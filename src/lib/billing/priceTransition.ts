@@ -54,7 +54,9 @@ export type TransitionSubscription = {
   currentPeriodEnd: Date;
   cancelAtPeriodEnd: boolean;
   scheduleId: string | null;
-  items: Array<{ priceId: string; quantity: number }>;
+  items: Array<{ priceId: string; quantity: number; /** Subscription-item metadata; Stripe schedules do not copy it, so it is set explicitly on both phases. */ metadata?: Record<string, string> }>;
+  /** Subscription-level metadata, carried explicitly onto both phases. */
+  metadata?: Record<string, string>;
   /** Settings this transition does not model; any entry blocks the plan (e.g. "trial", "pause_collection", "pending_update"). */
   unsupportedSettings?: string[];
 };
@@ -92,7 +94,7 @@ export type PhaseCarry = Record<string, unknown>;
 export type TransitionPhase = {
   startDate: number;
   endDate?: number;
-  items: Array<{ price: string; quantity: number }>;
+  items: Array<{ price: string; quantity: number; metadata?: Record<string, string> }>;
 };
 
 export type TransitionPlan =
@@ -109,6 +111,7 @@ export type TransitionPlan =
         toUnitAmountCents: number;
         currency: string;
         proration: "none";
+        subscriptionMetadata?: Record<string, string>;
         phases: [TransitionPhase, TransitionPhase];
       };
     };
@@ -173,6 +176,8 @@ export function planPriceTransition(input: {
   if (blockers.length > 0 || !approval || !notice) return { ok: false, blockers: [...new Set(blockers)] };
 
   const [item] = subscription.items;
+  const itemMeta = item.metadata && Object.keys(item.metadata).length > 0 ? { metadata: item.metadata } : {};
+  const subMeta = subscription.metadata && Object.keys(subscription.metadata).length > 0 ? { subscriptionMetadata: subscription.metadata } : {};
   return {
     ok: true,
     blockers: [],
@@ -184,13 +189,14 @@ export function planPriceTransition(input: {
       toUnitAmountCents: notice.newUnitAmountCents,
       currency: notice.currency,
       proration: "none",
+      ...subMeta,
       phases: [
         {
           startDate: unix(subscription.currentPeriodStart),
           endDate: unix(approval.boundaryAt),
-          items: [{ price: item.priceId, quantity: item.quantity }],
+          items: [{ price: item.priceId, quantity: item.quantity, ...itemMeta }],
         },
-        { startDate: unix(approval.boundaryAt), items: [{ price: target.id, quantity: item.quantity }] },
+        { startDate: unix(approval.boundaryAt), items: [{ price: target.id, quantity: item.quantity, ...itemMeta }] },
       ],
     },
   };
@@ -248,23 +254,63 @@ export type ExecuteOptions = {
   idempotencyPrefix?: string;
 };
 
-const CARRY_EXCLUDED_PHASE_KEYS = new Set(["start_date", "end_date", "items", "iterations", "trial_end", "trial", "plans", "proration_behavior"]);
+// Keys never sent back: positions are set explicitly, trial/iterations would change timing, `currency` is derived, `plan` is the legacy duplicate of `price`.
+const CARRY_EXCLUDED_PHASE_KEYS = new Set(["start_date", "end_date", "items", "iterations", "trial_end", "trial", "plans", "proration_behavior", "currency"]);
 const CARRY_EXCLUDED_ITEM_KEYS = new Set(["price", "plan", "quantity"]);
+
+/** Removes null/undefined and empty arrays/objects recursively: Stripe returns many unset fields as null but rejects them as input. */
+export function prune(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    const items = value.map(prune).filter((v) => v !== undefined);
+    return items.length > 0 ? items : undefined;
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
+      const cleaned = prune(inner);
+      if (cleaned !== undefined) out[key] = cleaned;
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  }
+  return value === null ? undefined : value;
+}
+
+/** True when every defined value in `expected` is present and equal in `actual` (extra read-only fields in `actual` are fine). */
+export function isSubset(expected: unknown, actual: unknown): boolean {
+  if (expected && typeof expected === "object") {
+    if (!actual || typeof actual !== "object") return false;
+    if (Array.isArray(expected)) return Array.isArray(actual) && expected.length === actual.length && expected.every((v, i) => isSubset(v, actual[i]));
+    return Object.entries(expected as Record<string, unknown>).every(([k, v]) => isSubset(v, (actual as Record<string, unknown>)[k]));
+  }
+  return expected === actual;
+}
+
+/** `automatic_tax` is returned with read-only members (e.g. disabled_reason); only `enabled` and `liability` are valid input. */
+function pruneAutomaticTax(value: unknown): unknown {
+  if (!value || typeof value !== "object") return undefined;
+  const { enabled, liability } = value as { enabled?: boolean; liability?: unknown };
+  return prune({ enabled, liability });
+}
 
 /** Everything on the current phase that must survive into both phases: metadata, tax, discounts, payment settings, anchors. */
 export function carryFields(phase: SchedulePhaseRead): PhaseCarry {
   const carry: PhaseCarry = {};
   for (const [key, value] of Object.entries(phase)) {
-    if (!CARRY_EXCLUDED_PHASE_KEYS.has(key) && value !== null && value !== undefined) carry[key] = value;
+    if (CARRY_EXCLUDED_PHASE_KEYS.has(key)) continue;
+    const cleaned = key === "automatic_tax" ? pruneAutomaticTax(value) : prune(value);
+    if (cleaned !== undefined) carry[key] = cleaned;
   }
   return carry;
 }
 
-function carryItem(item: SchedulePhaseRead["items"][number], price: string): Record<string, unknown> {
+function carryItem(item: SchedulePhaseRead["items"][number], price: string, metadata?: Record<string, string>): Record<string, unknown> {
   const out: Record<string, unknown> = { price, quantity: item.quantity };
   for (const [key, value] of Object.entries(item)) {
-    if (!CARRY_EXCLUDED_ITEM_KEYS.has(key) && value !== null && value !== undefined) out[key] = value;
+    if (CARRY_EXCLUDED_ITEM_KEYS.has(key)) continue;
+    const cleaned = prune(value);
+    if (cleaned !== undefined) out[key] = cleaned;
   }
+  if (metadata) out.metadata = { ...(out.metadata as Record<string, string> | undefined), ...metadata };
   return out;
 }
 
@@ -280,6 +326,16 @@ export async function executePriceTransition(
 
   const { change } = plan;
   const idem = (suffix: string) => (options.idempotencyPrefix ? { idempotencyKey: `${options.idempotencyPrefix}-${suffix}` } : undefined);
+  // Never touch a subscription that already carries a schedule: whatever is attached is not ours, and the lost-response
+  // recovery below must only ever release a schedule that appeared as a result of OUR create call.
+  try {
+    const before = await stripe.subscriptions.retrieve(change.subscriptionId);
+    const existing = typeof before.schedule === "string" ? before.schedule : before.schedule?.id ?? null;
+    if (existing) return { status: "failed", scheduleId: null, reason: `subscription already has schedule ${existing}; left untouched`, released: true };
+  } catch (error) {
+    return { status: "failed", scheduleId: null, reason: `pre-create subscription read failed: ${error instanceof Error ? error.message : "unknown"}`, released: true };
+  }
+
   let scheduleId: string | null = null;
   try {
     const created = await stripe.subscriptionSchedules.create({ from_subscription: change.subscriptionId }, idem("create"));
@@ -297,14 +353,15 @@ export async function executePriceTransition(
     }
 
     const carry = carryFields(phase0);
+    if (change.subscriptionMetadata) carry.metadata = { ...(carry.metadata as Record<string, string> | undefined), ...change.subscriptionMetadata };
     await stripe.subscriptionSchedules.update(
       scheduleId,
       {
         end_behavior: "release",
         proration_behavior: "none",
         phases: [
-          { ...carry, start_date: phase0.start_date, end_date: wantCurrent.endDate!, items: [carryItem(phase0.items[0], wantCurrent.items[0].price)], proration_behavior: "none" },
-          { ...carry, start_date: wantNext.startDate, items: [carryItem(phase0.items[0], wantNext.items[0].price)], proration_behavior: "none" },
+          { ...carry, start_date: phase0.start_date, end_date: wantCurrent.endDate!, items: [carryItem(phase0.items[0], wantCurrent.items[0].price, wantCurrent.items[0].metadata)], proration_behavior: "none" },
+          { ...carry, start_date: wantNext.startDate, items: [carryItem(phase0.items[0], wantNext.items[0].price, wantNext.items[0].metadata)], proration_behavior: "none" },
         ],
       },
       idem("update"),
@@ -350,9 +407,12 @@ function verifyReadBack(schedule: ScheduleRead, change: Extract<TransitionPlan, 
   if (!same(current.items, wantCurrent.items)) return "first phase items changed";
   if (next.start_date !== wantNext.startDate) return "second phase does not start at the approved boundary";
   if (!same(next.items, wantNext.items)) return "second phase is not the disclosed price";
+  for (const [phase, want] of [[current, wantCurrent], [next, wantNext]] as const) {
+    if (want.items[0].metadata && !isSubset(want.items[0].metadata, phase.items[0].metadata)) return "item metadata was not carried onto the phase";
+  }
   for (const [key, value] of Object.entries(carry)) {
-    if (JSON.stringify(current[key]) !== JSON.stringify(value)) return `first phase lost ${key}`;
-    if (JSON.stringify(next[key]) !== JSON.stringify(value)) return `second phase lost ${key}`;
+    if (!isSubset(value, current[key])) return `first phase lost ${key}`;
+    if (!isSubset(value, next[key])) return `second phase lost ${key}`;
   }
   return null;
 }

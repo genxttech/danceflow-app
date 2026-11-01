@@ -114,7 +114,8 @@ async function main() {
         currentPeriodEnd: unix(periodEnd),
         cancelAtPeriodEnd: sub.cancel_at_period_end,
         scheduleId: typeof sub.schedule === "string" ? sub.schedule : sub.schedule?.id ?? null,
-        items: sub.items.data.map((i) => ({ priceId: i.price.id, quantity: i.quantity ?? 1 })),
+        items: sub.items.data.map((i) => ({ priceId: i.price.id, quantity: i.quantity ?? 1, metadata: { ...(i.metadata ?? {}) } })),
+        metadata: { ...(sub.metadata ?? {}) },
         unsupportedSettings,
       };
     },
