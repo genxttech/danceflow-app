@@ -459,8 +459,9 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     const s2 = run(asAuth(claims(A, S2), finishSql(p.request_id, b.nonce, a)));
     const [x, y] = await Promise.all([s1, s2]);
     expect(x.out).toContain('"status": "applied"');
-    expect(y.code).not.toBe(0);
-    expect(codeOf(y.out)).toBe("TW041");
+    // the loser is a RECORDED refusal (an answer, committed to the audit), not a silent rollback
+    expect(y.out).toContain('"status": "refused"');
+    expect(y.out).toContain('"code": "TW041"');
     expect(num(`select count(*) from public.studio_sms_price_list where kind = 'number' and customer_price_cents = 330`)).toBe(1);
   });
 
