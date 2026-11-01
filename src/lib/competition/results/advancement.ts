@@ -112,7 +112,7 @@ export function advancementPanel(preview: AdvancementPreview, input: { isManager
         blockerMessages,
       };
     case "blocked":
-      return { show: true, canApply: false, headline: "Advancement is blocked.", blockerMessages };
+      return { show: true, canApply: false, headline: "Advancement is blocked. Nothing has been advanced and the Final's roster is unchanged.", blockerMessages };
     case "applied":
       return {
         show: true,

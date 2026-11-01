@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
 import { checkScoringHeatMove, DEFAULT_SCORING_HEAT_CAPACITY, isSchedulableEntry, scoringHeatCapacity } from "@/lib/competition/floorPlanner";
+import { finalCapacityTargets, type FinalCapacityRound } from "@/lib/competition/finalCapacity";
 import { loadFloorSchedule, loadPlannerInput, loadScheduleVersions, pickWorkingVersion } from "@/lib/competition/floorScheduleServer";
 import {
   clearHeatsAction,
@@ -50,6 +52,13 @@ export default async function SchedulePage({
   const selected = summaries.find((summary) => summary.floorHeat.id === query.heat) ?? null;
   const base = `/app/events/${id}/competition/schedule`;
   const publishedDraftExists = versions.some((item) => item.status === "draft") && version?.status !== "draft";
+
+  // CF1 B5/B6: a callback Final has no heat until advancement, so its heat size is set here, per round (the database decides if it is allowed).
+  const { data: roundRows } = await supabase
+    .from("event_competition_rounds")
+    .select("id, name, division_id, sequence_number, round_type, scoring_method, status, configuration, target_advancement_count")
+    .eq("event_id", id);
+  const finalTargets = finalCapacityTargets((roundRows ?? []) as FinalCapacityRound[], new Set((view?.scoringHeats ?? []).map((heat) => heat.round_id)));
 
   const entryById = new Map(planner.entries.map((entry) => [entry.id, entry]));
   const peopleByEntry = new Map<string, string[]>();
@@ -102,6 +111,29 @@ export default async function SchedulePage({
           This schedule uses time blocks. Manage it in <Link href={`/app/events/${id}/competition/advanced/schedule`} className="font-semibold underline">Advanced scheduling</Link>.
         </p>
       ) : null}
+
+      {finalTargets.map((target) => (
+        <section key={target.roundId} aria-label={`Final heat size: ${target.name}`} className="rounded-xl border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-semibold text-slate-950">Final heat size - {target.name}</h3>
+          <p className="mt-1 text-xs text-slate-600">
+            The Final has no heat until couples advance from the callback round{target.callbackTarget ? ` (target ${target.callbackTarget})` : ""}. Set its heat size now; it is refused once the callback round has ballots or a result.
+          </p>
+          <form action={setHeatCapacityAction} className="mt-2 flex flex-wrap items-end gap-2">
+            <input type="hidden" name="eventId" value={id} />
+            <input type="hidden" name="roundId" value={target.roundId} />
+            <input type="hidden" name="requestId" value={randomUUID()} />
+            <label className="text-xs font-medium text-slate-600">
+              Max entries in the Final heat
+              <input name="capacity" type="number" min={1} max={100} defaultValue={target.capacity} className={`${selectClass} mt-1 w-24`} />
+            </label>
+            <label className="text-xs font-medium text-slate-600">
+              Reason (required, kept in the audit history)
+              <input name="reason" required minLength={20} maxLength={500} className={`${selectClass} mt-1 w-64`} />
+            </label>
+            <button className={secondaryButton}>Save Final heat size</button>
+          </form>
+        </section>
+      ))}
 
       {summaries.length === 0 ? (
         <section className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center">

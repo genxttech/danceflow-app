@@ -22,7 +22,7 @@ const MESSAGES: Record<string, string> = {
   // CF1: callback-to-Final advancement (apply, preview, Final start guard, correction trigger, Final guards).
   COMP_ADVANCEMENT_SOURCE_STATE: "This round's result must be approved before its callback can advance couples to the Final.",
   COMP_ADVANCEMENT_ALREADY_APPLIED: "Advancement has already been applied for this round.",
-  COMP_ADVANCEMENT_BLOCKED: "Advancement is blocked: the approved result still has an unresolved tie at the callback cut-off, or an entry without an advance decision.",
+  COMP_ADVANCEMENT_BLOCKED: "Advancement is unresolved: a tie at the callback cut-off would exceed the Final's capacity, or an entry has no advance decision. No couple has been advanced and DanceFlow does not break ties automatically. Approve and Advance stay unavailable until the tie is resolved; if a judge made an error, open a judge-entry correction.",
   COMP_ADVANCEMENT_TARGET_ROUND_STATE: "The Final is not in a state that can take couples (it must be scheduled and not started).",
   COMP_ADVANCEMENT_NO_LIVE_VERSION: "There is no running order yet. Generate heats before advancing couples to the Final.",
   COMP_ADVANCEMENT_FINAL_PLACEMENT_MODE: "The Final's placement mode does not support advancement from a callback.",
@@ -80,6 +80,15 @@ const MESSAGES: Record<string, string> = {
   COMP_EXCLUSION_COSIGN_SAME_PERSON: "A different person than the requester must co-sign.",
   COMP_EXCLUSION_COSIGNER_FILED_BALLOT: "You filed a corrected ballot in this round, so you cannot co-sign an exclusion for it.",
   COMP_EXCLUSION_COSIGNER_CONFLICT: "You co-signed an exclusion in this round, so you cannot file a corrected ballot for it.",
+
+  // CF1 A7: judge-entry correction co-sign.
+  COMP_CORRECTION_COSIGN_REQUIRED: "A different manager or the chair must co-sign this correction before a replacement ballot is accepted.",
+  COMP_CORRECTION_COSIGN_SAME_PERSON: "The manager who opened this correction cannot co-sign it. A different manager or the chair must.",
+  COMP_CORRECTION_COSIGN_NOT_REQUIRED: "This correction does not need a co-sign.",
+  COMP_CORRECTION_ALREADY_COSIGNED: "This correction has already been co-signed.",
+  COMP_CORRECTION_NOT_OPEN: "This correction is no longer open.",
+  COMP_CORRECTION_COSIGNER_FILED_BALLOT: "You filed a replacement ballot under this correction, so you cannot co-sign it.",
+  COMP_CORRECTION_COSIGNER_CONFLICT: "You co-signed this correction, so you cannot file a replacement ballot under it.",
 
   // CF1: callback target (A4a).
   COMP_CALLBACK_TARGET_BELOW_MINIMUM: "The callback target must be a whole number of 2 or more: a Final needs at least two couples.",

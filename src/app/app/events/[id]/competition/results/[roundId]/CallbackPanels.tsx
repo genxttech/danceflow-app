@@ -12,6 +12,7 @@ import {
   type WithdrawalState,
 } from "@/lib/competition/results/advancement";
 import { resultErrorMessage } from "@/lib/competition/results/messages";
+import { unresolvedTieSummary, type UnresolvedTie } from "@/lib/competition/results/unresolvedTie";
 import { excludedCoupleLabel, type ReviewExcludedCouple } from "@/lib/competition/results/reviewTypes";
 import {
   applyAdvancementAction,
@@ -67,6 +68,56 @@ export function ExcludedSection({ excluded }: { excluded: readonly ReviewExclude
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+function CoupleList({ couples }: { couples: UnresolvedTie["tiedAtCut"] }) {
+  return (
+    <ul className="list-disc pl-5 text-sm text-slate-900">
+      {couples.map((c) => (
+        <li key={c.entryId}>
+          {c.label}
+          {c.tally === null ? "" : ` - tally ${c.tally}`}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * An UNRESOLVED tie at the callback cut-off, read from the stored version only. It offers no control that picks, orders or advances a
+ * couple: the only supported route today is a judge-entry correction (reason, second manager or chair co-signs, judges re-file, recalculate).
+ */
+export function UnresolvedTiePanel({ tie }: { tie: UnresolvedTie }) {
+  return (
+    <section className="space-y-3 rounded border-2 border-amber-500 bg-amber-50 p-4" aria-label="Advancement unresolved">
+      <h3 className="text-base font-semibold text-slate-950">Advancement unresolved</h3>
+      <p className="text-sm text-slate-900">{unresolvedTieSummary(tie)}</p>
+      <ul className="list-disc space-y-1 pl-5 text-sm text-slate-900">
+        <li>No couple has been advanced.</li>
+        <li>DanceFlow does not break ties automatically.</li>
+        <li>Approve and Advance are unavailable until the tie is resolved.</li>
+        <li>The Final&apos;s capacity is frozen by design and cannot be raised to fit the tie.</li>
+      </ul>
+      {tie.listsAvailable ? (
+        <div className="space-y-2">
+          {tie.aboveCut.length > 0 ? (
+            <div>
+              <h4 className="text-sm font-semibold text-slate-950">Called back clearly (above the cut-off)</h4>
+              <CoupleList couples={tie.aboveCut} />
+            </div>
+          ) : null}
+          <div>
+            <h4 className="text-sm font-semibold text-slate-950">Tied at the cut-off{tie.cutTally === null ? "" : ` (tally ${tie.cutTally})`}</h4>
+            <CoupleList couples={tie.tiedAtCut} />
+          </div>
+        </div>
+      ) : null}
+      <p className="text-sm text-slate-900">
+        If a judge made an error, a judge-entry correction can be opened below: give a reason, a second manager or the chair co-signs it, the judges re-file their
+        ballots, and the result is recalculated.
+      </p>
     </section>
   );
 }
