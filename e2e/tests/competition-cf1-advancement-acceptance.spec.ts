@@ -268,32 +268,36 @@ test.describe("CF1 callback -> Final advancement acceptance (CF1-C)", () => {
 
   // ================================================================== Q: tie over capacity
 
-  test("SCN-11.4b tie over capacity: calculation completes with no advanced flags, Approve and Advance are refused, nothing is written, capacity cannot be raised", async ({ browser }, testInfo) => {
+  test("SCN-11.4b tie over capacity: the result is saved with its scores, advancement stays unresolved, nothing advances, no approve or advance control is offered", async ({ browser }, testInfo) => {
     const required = missing(cap, ["a0", "a1", "a2", "a3", "b"]);
     if (required.length) blockedBy(testInfo, required, "Approval guard and advancement panel do not exist yet.");
     const shot = stepShots(testInfo);
     const s = await buildCallbackEvent(browser, "Q", "2027-07-11", 4);
     const owner = await ballotsLockedCalculatedApproved(browser, s, testInfo);
     expect(owner).not.toBeNull();
+    // Evidence is saved, and no row is advanced (the engine sets no flag; the database treats any null flag as a blocked tie).
     const rows = readResultRows(s.callbackRoundId);
-    expect(rows.filter((r) => r.advanced === true), "no advanced flag is set").toHaveLength(0);
-    expect(rows.every((r) => r.advanced === null || r.advanced === false)).toBe(true);
-    await expect(owner!.getByText(CF1_UI.tieOverCapacity)).toBeVisible();
-    for (const i of [3, 4, 5]) await expect(owner!.getByText(coupleName(i))).toBeVisible();
-    await shot(owner!, "tie-over-capacity");
+    expect(rows.length, "scores are saved for every couple").toBe(s.entries.length);
+    expect(rows.every((r) => r.advanced === null), "every row is unresolved (advanced is null)").toBe(true);
+    const tied = rows.filter((r) => (r.output as { tie_status?: string } | null)?.tie_status === "tied_at_cut");
+    expect(tied, "the three couples tied at the cut-off are recorded").toHaveLength(3);
+    // The desk says so, in plain words, and lists the evidence.
+    const panel = owner!.getByRole("region", { name: "Advancement unresolved" });
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("No couple has been advanced");
+    await expect(panel).toContainText("DanceFlow does not break ties automatically");
+    await expect(panel).toContainText("capacity of 4");
+    for (const i of [3, 4, 5]) await expect(panel.getByText(coupleName(i)).first()).toBeVisible();
+    await expect(panel.getByText(coupleName(0)).first()).toBeVisible(); // called back clearly
+    await shot(owner!, "tie-over-capacity-unresolved");
     await owner!.context().close();
 
+    // Nothing can approve or advance an unresolved result from the desk, and nothing was written.
     const second = await signedIn(browser, fixture.deskAdmin);
     await second.goto(`/app/events/${s.event.id}/competition/results/${s.callbackRoundId}`);
-    const approve = second.getByRole("button", { name: "Approve result" });
-    if (await approve.isEnabled().catch(() => false)) {
-      await approve.click();
-      await expect(second.locator('main [role="alert"]')).toContainText(CF1_CODES.blocked, { timeout: 30_000 });
-    } else {
-      await expect(approve).toBeDisabled();
-    }
-    await expect(second.getByRole("button", { name: CF1_UI.advanceButton })).toHaveCount(0).catch(async () => expect(second.getByRole("button", { name: CF1_UI.advanceButton })).toBeDisabled());
-    await shot(second, "approve-and-advance-refused");
+    await expect(second.getByRole("button", { name: "Approve result" })).toHaveCount(0);
+    await expect(second.getByRole("button", { name: CF1_UI.advanceButton })).toHaveCount(0);
+    await shot(second, "no-approve-or-advance-control");
     const adv = readAdvancements(s.callbackRoundId);
     expect(adv.advancements, "no advancement written").toHaveLength(0);
     expect(adv.heats).toHaveLength(0);
@@ -303,19 +307,62 @@ test.describe("CF1 callback -> Final advancement acceptance (CF1-C)", () => {
     await second.context().close();
   });
 
-  test("SCN-11.4b-cap B5: raising the Final capacity while the tie is unresolved is refused", async ({ browser }, testInfo) => {
+  test("SCN-11.4b-cap B5: the Final capacity cannot be raised to fit an unresolved tie", async ({ browser }, testInfo) => {
     const required = missing(cap, ["a0", "b"]);
     if (required.length) blockedBy(testInfo, required, "Reasoned capacity RPC and its screen.");
     test.skip(!state.Q.calculated, "BLOCKED: SCN-11.4b did not produce the calculated callback round");
+    const shot = stepShots(testInfo);
     const s = events.Q!;
     const page = await signedIn(browser, fixture.owner);
-    if (!(await applyFinalCapacity(page, s.event.id, 8))) {
-      scenarioStatus(testInfo, "BLOCKED", "The application exposes no Final capacity control to drive (needs the B capacity screen).");
-      testInfo.skip(true, "BLOCKED: no capacity control");
-    }
-    await expect(page.locator('main [role="alert"]')).toBeVisible({ timeout: 30_000 });
+    await page.goto(`/app/events/${s.event.id}/competition/schedule`);
+    const section = page.locator("section").filter({ has: page.getByRole("heading", { name: /^Final heat size/ }) }).first();
+    await expect(section, "the Final heat size control is offered").toBeVisible();
+    await section.getByLabel("Max entries in the Final heat").fill("8");
+    await section.getByLabel(/^Reason/).fill("CF1-C acceptance tries to raise the capacity to fit the tie");
+    await section.getByRole("button", { name: "Save Final heat size" }).click();
+    await expect(page.locator('main [role="alert"]')).toBeVisible({ timeout: 60_000 });
     expect((await readHeatEvidence(config, s.event.id)).rounds.find((r) => r.id === s.finalRoundId)?.configuration).toMatchObject({ max_entries_per_heat: 4 });
+    await shot(page, "capacity-raise-refused");
     await page.context().close();
+  });
+
+  test("SCN-11.4b-resolve a judge-entry correction (co-signed) dissolves the tie; the unresolved version and its evidence are kept", async ({ browser }, testInfo) => {
+    const required = missing(cap, ["a0", "a1", "a2", "a3", "b"]);
+    if (required.length) blockedBy(testInfo, required, "Correction and advancement.");
+    test.skip(!state.Q.calculated, "BLOCKED: SCN-11.4b did not produce the calculated callback round");
+    const shot = stepShots(testInfo);
+    const s = events.Q!;
+    const opener = await signedIn(browser, fixture.deskAdmin);
+    await opener.goto(`/app/events/${s.event.id}/competition/results/${s.callbackRoundId}`);
+    await opener.getByLabel(CF1_UI.correctionReasonLabel).fill("CF1-C: judge 3 mis-ticked a couple on the callback sheet");
+    await opener.getByRole("button", { name: CF1_UI.openCorrectionButton }).click();
+    await expect.poll(async () => (await readHeatEvidence(config, s.event.id)).rounds.find((r) => r.id === s.callbackRoundId)?.status, { timeout: 240_000, intervals: [2_000] }).toBe("ballots_locked");
+    await opener.context().close();
+    const cosigner = await signedIn(browser, fixture.owner);
+    await cosigner.goto(`/app/events/${s.event.id}/competition/results/${s.callbackRoundId}`);
+    await cosigner.getByRole("region", { name: "Correction co-sign" }).getByRole("button", { name: "Co-sign correction" }).click();
+    await expect(cosigner.getByRole("status").filter({ hasText: "Correction co-signed" }).first()).toBeVisible({ timeout: 60_000 });
+    await cosigner.context().close();
+    await submitCallbackBallot(j, browser, 2, s, [0, 1, 3, 4]); // judge 3 ticks couples 0,1,3,4: tallies 3,3,3,2,1, so four couples are clear of the cut
+    const owner2 = await signedIn(browser, fixture.owner);
+    await owner2.goto(`/app/events/${s.event.id}/competition/results/${s.callbackRoundId}`);
+    await owner2.getByRole("button", { name: "Calculate result" }).click();
+    await expect(owner2.getByRole("status")).toContainText(/Calculated result version 2/, { timeout: 60_000 });
+    await expect(owner2.getByRole("region", { name: "Advancement unresolved" })).toHaveCount(0);
+    await shot(owner2, "tie-dissolved");
+    await owner2.context().close();
+    const after = readResultRows(s.callbackRoundId);
+    expect(after.filter((r) => r.version === 1).every((r) => r.advanced === null), "version 1 evidence is kept, still unresolved").toBe(true);
+    expect(after.filter((r) => r.version === 2 && r.advanced === true), "version 2 advances exactly four").toHaveLength(4);
+    const second = await signedIn(browser, fixture.deskAdmin);
+    await second.goto(`/app/events/${s.event.id}/competition/results/${s.callbackRoundId}`);
+    await second.getByRole("button", { name: "Approve result" }).click();
+    await expect(second.getByRole("status")).toContainText(/approved/i, { timeout: 60_000 });
+    await second.getByRole("button", { name: CF1_UI.advanceButton }).click();
+    await expect(second.getByText(CF1_UI.advanceDone)).toBeVisible({ timeout: 60_000 });
+    await shot(second, "advanced-after-correction");
+    expect(readAdvancements(s.callbackRoundId).active).toHaveLength(1);
+    await second.context().close();
   });
 
   test("SCN-11.5c-cancelled correction with the Final round cancelled (no advancement) is refused COMP_ADVANCEMENT_FINAL_CANCELLED (OD-10, U84)", async ({ browser }, testInfo) => {

@@ -348,7 +348,11 @@ export async function buildPanel(page: Page, eventId: string, roundText: string)
       await expect(article.locator("li").filter({ hasText: `E2E Judge ${n}` })).toBeVisible({ timeout: 90_000 });
     }).toPass({ timeout: 300_000 });
   }
-  await expect(page.locator("article").filter({ hasText: roundText }).first().getByText(/Panel ready/)).toBeVisible();
+  // The panel status comes from an RPC. The local Kong gateway occasionally answers 502 to one RPC POST (upstream keepalive race), which shows as "Unknown"; reload and look again instead of failing the build step.
+  await expect(async () => {
+    await page.reload();
+    await expect(page.locator("article").filter({ hasText: roundText }).first().getByText(/Panel ready/)).toBeVisible({ timeout: 15_000 });
+  }).toPass({ timeout: 120_000, intervals: [1_000, 3_000, 5_000] });
 }
 
 export async function startRound(page: Page, eventId: string, roundText: string) {
