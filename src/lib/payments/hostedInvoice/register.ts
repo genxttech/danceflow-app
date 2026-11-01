@@ -1,3 +1,4 @@
+import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
@@ -141,7 +142,7 @@ export async function registerHostedInvoice(input: RegisterHostedInvoiceInput): 
       // 42883 / 42P01: migration not applied. Nothing was written; safe to retry after the release.
       if (code === "42883" || code === "42P01" || code === "PGRST202") return fail("registration_unavailable", true);
       // other integrity violations (FK / check / not-null) are permanent: retrying can never succeed
-      if (/^23/.test(code)) return fail("registration_failed", false);
+      if (/^23/.test(code) || code === "42501" || code === "PGRST301") return fail("registration_failed", false);
       return fail("registration_failed", true);
     }
     const row = data as { outcome?: unknown; registry_id?: unknown; adopted_existing_facts?: unknown } | null;

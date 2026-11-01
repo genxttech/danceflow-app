@@ -106,7 +106,7 @@ describe("registerHostedInvoice", () => {
     expect(g.rpc).toHaveBeenCalledTimes(3);
   });
   it("treats FK / check violations as permanent and rejects control characters in the object id", async () => {
-    for (const code of ["23503", "23514", "23502"]) {
+    for (const code of ["23503", "23514", "23502", "42501", "PGRST301"]) {
       expect(await registerHostedInvoice({ ...base, supabase: fake({ rpc: () => ({ data: null, error: { code } }) }).supabase })).toEqual({ ok: false, code: "registration_failed", retryable: false });
     }
     expect(await registerHostedInvoice({ ...base, supabase: fake().supabase, businessObjectId: "bo-1\nx" })).toMatchObject({ code: "invalid_input" });

@@ -2,6 +2,17 @@
 
 Status: **merge candidate (draft PR). Nothing here is authorized against a hosted environment.** No migration is added in M2-A.
 
+## Hosted registration is NOT operational
+**No legitimate invoice-creation / registration call site exists, so nothing can register a hosted invoice today.** The wrapper is dark and unreferenced (pinned by `registerContract.d24.test.ts`), and with an empty resolver allow-list every production call is refused with `business_object_type_unsupported` before any database access. Invoices Stripe reports without a registry row stay `unmatched` and are never attributed.
+
+Missing integration points (all belong to a future, separately authorized, bounded creation package):
+1. A studio-facing server action / route that creates a `send_invoice` Stripe invoice in the studio's connected account. Does not exist.
+2. A business-object type and table that owns such an invoice (name must not contain `subscription`), plus its ownership resolver registered in `PRODUCTION_BUSINESS_OBJECT_RESOLVERS`. Does not exist.
+3. The call to `registerHostedInvoice` immediately after creation (before the invoice is finalized or sent), with retry / surfacing of `retryable` failures. Does not exist.
+4. A SQL-side hardening migration (invoice-id lock, in-function account binding; see follow-ups below).
+
+Authorization dependencies for that package: studio-staff authentication with an explicit billing permission and derived `studioId`/`createdBy` (M2-B operator auth covers operator flows only); owner approval to create real Stripe invoices; hosted DB migrations applied (M1 and any hardening) before the app; `D24_HOSTED_INVOICE_EVENTS` set to `defer`/`on` per the M1 rollout; and no Stripe calls or hosted changes are authorized by M2-A.
+
 ## Inventory result: no invoice-creation workflow exists
 Searched `src/` for `invoices.create`, `finalizeInvoice`, `sendInvoice`, `invoiceItems`, `collection_method`, `send_invoice`.
 - `src/lib/payments/subscriptions.ts` and `src/app/app/memberships/actions.ts` only create / pay **subscription** invoices with `collection_method: "charge_automatically"`. These are explicitly **not** hosted invoices and must never be registered (the wrapper refuses them).
@@ -39,6 +50,12 @@ So M2-A does **not** invent a creation workflow. It delivers the server-only reg
 - **P2 (SQL follow-up with the invoice-id lock above):** `d24_register_invoice` trusts its caller for the account and the studio-to-account binding, and accepts a NULL (platform) account. The wrapper is the only guard, and it reads the account moments before the rpc (a reconnect in between would register under the old account). Fix in SQL: look the account up inside the function, refuse NULL / mismatch, drop the account argument. Until then, no other caller may use the rpc (contract test).
 - **P3:** `subscriptionEvidence` is caller-supplied and the type check is a name heuristic; the future resolver must itself confirm the object is not a subscription, and M1 flags `subscription_registry_conflict` afterwards. Studio connected-account uniqueness was not verified in this package.
 - Fixed in M2-A: integrity violations (23xxx other than 23505) are non-retryable; business object ids are charset-restricted.
+
+## Review summary (two independent reviewers; second on the final diff)
+- **P0:** none. **P1:** none.
+- **P2 (blocks any call site):** registry uniqueness is per (account, invoice id) and the wrapper cannot prove an invoice id belongs to the studio's account without a Stripe call. A future caller passing an unvalidated id could let studio B register studio A's id under B's account and cause `account_scope_mismatch` flagging on A's not-yet-registered facts. Required before any call site: SQL invoice-id-only lock + refusal, in-function account binding, and the call site must take the id only from its own Stripe creation response.
+- **P3 (fixed):** `import "server-only"`; 42501 / PGRST301 / 23xxx are non-retryable.
+- **P3 (open):** `subscriptionEvidence` is optional (fail-open by design; M1 flags afterwards); no backoff on retries; a lost-reply retry returns `already_registered` without the adoption signal; `livemode` is caller-supplied and not checked against the environment; the PG race test tolerates a second-scope row for the racing studio.
 
 ## Not done / open
 - No call site exists, so the wrapper is unreferenced by app code by design (a contract test pins this).
