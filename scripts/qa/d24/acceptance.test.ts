@@ -629,7 +629,7 @@ suite("I. identity replay, scope, livemode and ordering edge cases (review gaps)
 
 suite("K. composed: a drain holding a key lock versus a live webhook apply (needs M2-C lock_timeout)", () => {
   const T = (name: string, fn: () => Promise<void>) => (has("m2c") ? it(name, fn) : it.skip(`BLOCKED(m2c not loaded) ${name}`, () => undefined));
-  T("K1 live apply blocked behind a drain's key lock returns 500 within ~3s with nothing written and the claim failed; redelivery then applies exactly once", async () => {
+  T("K1 live apply blocked behind a drain's key lock returns 500 after the ~3s lock_timeout (well below the 8s hold) with nothing written and the claim failed; redelivery then applies exactly once", async () => {
     const invoice = `in_${nextId()}`;
     await register(SA, invoice);
     // 1. a deferred event for the invoice, and a trigger that makes its apply hold the invoice's key lock for ~8s
@@ -654,7 +654,9 @@ suite("K. composed: a drain holding a key lock versus a live webhook apply (need
       const res = await post(live.body);
       const elapsed = Date.now() - t0;
       expect(res.status).toBe(500);
-      expect(elapsed).toBeLessThan(6500);
+      // the DB wait is ~3s (lock_timeout); each RPC is a docker exec (claim, apply, complete), so allow overhead but stay below the 8s lock hold:
+      // without a lock_timeout the apply would simply wait out the hold and return 200 instead of 500
+      expect(elapsed).toBeLessThan(7500);
       expect((await claimRow(live.id)).startsWith("failed")).toBe(true);
       expect(await q(`select count(*) from public.hosted_invoice_payments where stripe_invoice_payment_id='${pay}'`)).toBe("0");
       expect(await q(`select count(*) from public.hosted_invoice_source_events where provider_event_id='${live.id}'`)).toBe("0");

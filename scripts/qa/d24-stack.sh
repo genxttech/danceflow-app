@@ -4,7 +4,9 @@
 # The PAY-WH-1 claim migration is applied unmodified on a reconstructed base table (same limitation as stage3-claim-sql.sh).
 #
 # Usage:
-#   bash scripts/qa/d24-stack.sh up   [--m2a REF] [--m2b REF] [--m2c REF] [--stub FILE.sql]...
+#   bash scripts/qa/d24-stack.sh up                    # DEFAULT: layers come from this checkout (the merged tree), no refs
+#   bash scripts/qa/d24-stack.sh up --m1-only          # M1 only (layers m2a/m2b/m2c stay BLOCKED)
+#   bash scripts/qa/d24-stack.sh up   [--m2a REF] [--m2b REF] [--m2c REF] [--stub FILE.sql]...   # optional: draft layers from git refs
 #   bash scripts/qa/d24-stack.sh down
 #   bash scripts/qa/d24-stack.sh layers          # prints the loaded layers, e.g. "m1" or "m1 m2a m2c"
 # REF is a git branch/commit holding that sibling's draft. Every migration it ADDS under src/lib/supabase/migrations/ with a
@@ -30,16 +32,18 @@ case "$cmd" in
   *) sed -n 2,16p "$0"; exit 2 ;;
 esac
 
-declare -A REFS=(); STUBS=()
+declare -A REFS=(); STUBS=(); M1ONLY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --m2a) REFS[m2a]=$2; shift 2 ;;
     --m2b) REFS[m2b]=$2; shift 2 ;;
     --m2c) REFS[m2c]=$2; shift 2 ;;
     --stub) STUBS+=("$2"); shift 2 ;;
+    --m1-only) M1ONLY=1; shift ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac
 done
+if [ "$M1ONLY" = 0 ] && [ ${#REFS[@]} -eq 0 ]; then REFS[m2a]=TREE; REFS[m2c]=TREE; REFS[m2b]=TREE; fi
 [ -n "${REFS[m2b]:-}" ] && STUBS+=("scripts/qa/d24/stubs/auth-roles.sql")   # M2-B needs auth.uid()/auth.jwt(), profiles, user_studio_roles
 for f in "$M_CLAIM" "$M_D24"; do [ -f "$f" ] || { echo "missing $f" >&2; exit 2; }; done
 
@@ -73,11 +77,21 @@ layers="m1"
 for layer in m2a m2c m2b; do   # version order: M2-C (0206) before M2-B (0207)
   ref=${REFS[$layer]:-}
   [ -n "$ref" ] || continue
+  if [ "$ref" = TREE ]; then
+    case $layer in m2a) pat=NONE ;; m2c) pat=20270206 ;; m2b) pat=20270207 ;; esac
+    files=$(ls "$MIG" | grep -E "^${pat}[0-9]{6}_.*.sql$" | sed "s|^|$MIG/|")
+  else
   git rev-parse --verify --quiet --end-of-options "$BASE_REF^{commit}" >/dev/null && git rev-parse --verify --quiet --end-of-options "$ref^{commit}" >/dev/null || { echo "unknown git ref for $layer: $ref (or base $BASE_REF)" >&2; exit 1; }
   files=$(git diff --name-only --diff-filter=A --end-of-options "$BASE_REF" "$ref" -- "$MIG" | grep -E "/2027020[4-9][0-9]{6}_.*\.sql$" | grep -v '/rollback/' | sort)
+  fi
+  if [ "$ref" = TREE ] && [ "$layer" = m2a ]; then
+    [ -f src/lib/payments/hostedInvoice/register.ts ] && { echo "m2a: code-only layer present in tree (register.ts)" >&2; layers="$layers m2a"; }
+    continue
+  fi
+  if [ "$ref" = TREE ] && [ -z "$files" ]; then echo "$layer: expected migration is missing from this checkout" >&2; exit 1; fi
   if [ -z "$files" ]; then echo "$layer: no migration on $ref (code-only layer, loaded as a marker)" >&2; layers="$layers $layer"; continue; fi
   for f in $files; do
-    git show --end-of-options "$ref:$f" | psql_in >/dev/null || { echo "$layer migration failed: $f" >&2; exit 1; }
+    if [ "$ref" = TREE ]; then cat "$f" | psql_in; else git show --end-of-options "$ref:$f" | psql_in; fi >/dev/null || { echo "$layer migration failed: $f" >&2; exit 1; }
     echo "applied $layer: $f" >&2
   done
   layers="$layers $layer"
