@@ -48,7 +48,8 @@ const enrollReq = (by: SoftAuthenticator, nw: SoftAuthenticator, label: string, 
 const events = (afterSeq = 0) => rows<{ seq: number; kind: string; detail: Record<string, unknown> }>(`select seq, kind, detail from public.studio_sms_price_security_events where seq > ${afterSeq} order by seq`);
 const headSeq = () => num("select coalesce(max(seq), 0) from public.studio_sms_price_security_events");
 
-describe.skipIf(!enabled)("D4-2 owner authorization on the combined chain with the monitoring migration (#391 events table, gapless seq, owner-level emitter)", () => {
+const hasMonitor = enabled && psql("select to_regprocedure('public._tw4pricemon_emit_event(text,uuid,jsonb)') is not null") === "t";
+describe.skipIf(!hasMonitor)("D4-2 owner authorization on the combined chain with the monitoring migration (#391 events table, gapless seq, owner-level emitter)", () => {
   const K1 = new SoftAuthenticator();
   const K2 = new SoftAuthenticator();
   const KR = new SoftAuthenticator();
