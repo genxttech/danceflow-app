@@ -82,7 +82,7 @@ test.describe("CF1 callback -> Final advancement acceptance (CF1-C)", () => {
   let fixture: ScheduleAcceptanceFixture;
   let j: Journey;
   let cap: Cf1Capabilities;
-  const events: { P?: ScoredEvent; Q?: ScoredEvent; R?: ScoredEvent; C?: ScoredEvent } = {};
+  const events: { P?: ScoredEvent; Q?: ScoredEvent; R?: ScoredEvent; C?: ScoredEvent; U?: ScoredEvent } = {};
   const state = { P: { applied: false, finalDone: false }, Q: { calculated: false }, R: { applied: false } };
   const evidence = (value: unknown) => test.info().annotations.push({ type: "evidence", description: JSON.stringify(value) });
   const eventIds = () => Object.values(events).filter(Boolean).map((e) => e!.event.id);
