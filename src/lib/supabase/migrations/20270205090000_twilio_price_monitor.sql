@@ -34,14 +34,23 @@ create index if not exists studio_sms_price_monitor_evidence_kind_seq on public.
 revoke all on public.studio_sms_price_monitor_evidence from public, anon, authenticated, service_role;
 alter table public.studio_sms_price_monitor_evidence enable row level security;
 
+-- Columns (the authorization workstream reads ONLY seq, kind, subject_user_id, detail; it must never trust occurred_at / recorded_at for any decision):
+--   seq              gapless, strictly commit-ordered position, assigned by the _00_fill trigger under an advisory lock (never by the writer)
+--   kind             snake_case event kind; interpreted by the application (types.ts EVENT_KINDS)
+--   subject_user_id  the user the event is about (nullable); informational
+--   detail           small JSON object (<= 8 kB), no secrets
+--   occurred_at / recorded_at   database clock at insert, forced by the trigger (a writer cannot backdate); informational only
 create table if not exists public.studio_sms_price_security_events (
-  seq bigint generated always as identity primary key,
+  seq bigint primary key check (seq >= 1),
   kind text not null check (char_length(kind) between 3 and 60 and kind ~ '^[a-z0-9_]+$'),
   occurred_at timestamptz not null default clock_timestamp(),
   subject_user_id uuid null,
   detail jsonb not null default '{}'::jsonb check (jsonb_typeof(detail) = 'object' and pg_column_size(detail) <= 8192),
   recorded_at timestamptz not null default clock_timestamp()
 );
+comment on column public.studio_sms_price_security_events.seq is 'gapless commit-ordered position assigned by trigger; trust for ordering only';
+comment on column public.studio_sms_price_security_events.occurred_at is 'database clock at insert, forced by trigger; informational, never a decision input';
+comment on column public.studio_sms_price_security_events.recorded_at is 'database clock at insert, forced by trigger; informational, never a decision input';
 revoke all on public.studio_sms_price_security_events from public, anon, authenticated, service_role;
 alter table public.studio_sms_price_security_events enable row level security;
 
@@ -51,6 +60,33 @@ set search_path = pg_catalog, public, pg_temp
 as $$
 begin
   raise exception 'price monitor evidence and security events are append-only' using errcode = 'TW043';
+end $$;
+
+-- seq / timestamps are assigned here, ENABLE ALWAYS: a gapless commit-ordered seq (the advisory lock is held to commit, so seq order = commit order and a cursor reader cannot skip a late commit)
+create or replace function public._tw4pricemon_event_fill()
+returns trigger language plpgsql
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtext('tw4_price_security_events'));
+  new.seq := coalesce((select max(e.seq) from public.studio_sms_price_security_events e), 0) + 1;
+  new.occurred_at := clock_timestamp();
+  new.recorded_at := new.occurred_at;
+  return new;
+end $$;
+
+-- The ONLY supported writer of security events: owner-level, called by the SECURITY DEFINER functions of the pricing authorization workstream. No API role can execute it.
+create or replace function public._tw4pricemon_emit_event(p_kind text, p_subject uuid, p_detail jsonb)
+returns bigint language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare s bigint;
+begin
+  if p_kind is null or p_kind !~ '^[a-z0-9_]+$' or char_length(p_kind) not between 3 and 60 then
+    raise exception 'security event kind is not valid' using errcode = 'TW044';
+  end if;
+  insert into public.studio_sms_price_security_events (seq, kind, subject_user_id, detail) values (0, p_kind, p_subject, coalesce(p_detail, '{}'::jsonb)) returning seq into s;
+  return s;
 end $$;
 
 drop trigger if exists studio_sms_price_monitor_evidence_immutable on public.studio_sms_price_monitor_evidence;
@@ -63,6 +99,9 @@ drop trigger if exists studio_sms_price_security_events_truncate on public.studi
 create trigger studio_sms_price_security_events_truncate before truncate on public.studio_sms_price_security_events for each statement execute function public._tw4pricemon_immutable();
 alter table public.studio_sms_price_monitor_evidence enable always trigger studio_sms_price_monitor_evidence_immutable;
 alter table public.studio_sms_price_monitor_evidence enable always trigger studio_sms_price_monitor_evidence_truncate;
+drop trigger if exists studio_sms_price_security_events_00_fill on public.studio_sms_price_security_events;
+create trigger studio_sms_price_security_events_00_fill before insert on public.studio_sms_price_security_events for each row execute function public._tw4pricemon_event_fill();
+alter table public.studio_sms_price_security_events enable always trigger studio_sms_price_security_events_00_fill;
 alter table public.studio_sms_price_security_events enable always trigger studio_sms_price_security_events_immutable;
 alter table public.studio_sms_price_security_events enable always trigger studio_sms_price_security_events_truncate;
 
@@ -75,6 +114,10 @@ declare
   h record;
   genesis constant text := repeat('0', 64);
 begin
+  -- the recorded time must be close to the database clock: a forged future / past timestamp could keep the watchdog quiet (the watchdog also reads the database's own inserted_at)
+  if p_recorded_at is null or abs(extract(epoch from (p_recorded_at - clock_timestamp()))) > 600 then
+    return jsonb_build_object('appended', false, 'reason', 'recorded_at_out_of_range');
+  end if;
   perform pg_advisory_xact_lock(hashtext('tw4_price_monitor_evidence'));
   select e.seq, e.entry_hash into h from public.studio_sms_price_monitor_evidence e order by e.seq desc limit 1;
   if h.seq is null then
@@ -97,7 +140,7 @@ as $$
   select jsonb_build_object(
     'head_seq', coalesce((select max(seq) from public.studio_sms_price_monitor_evidence), 0),
     'rows', coalesce((select jsonb_agg(to_jsonb(t) order by t.seq) from (
-        select e.seq, e.run_id, e.kind, e.recorded_at, e.payload, e.prev_hash, e.entry_hash from public.studio_sms_price_monitor_evidence e
+        select e.seq, e.run_id, e.kind, e.recorded_at, e.inserted_at, e.payload, e.prev_hash, e.entry_hash from public.studio_sms_price_monitor_evidence e
          where p_before_seq is null or e.seq < p_before_seq order by e.seq desc limit greatest(1, least(coalesce(p_limit, 200), 1000))) t), '[]'::jsonb));
 $$;
 
@@ -121,7 +164,17 @@ create or replace function public.tw4_price_monitor_digest()
 returns jsonb language sql stable security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
+  with g as (
+    select t.tgname::text as name, t.tgenabled::text as enabled
+      from pg_trigger t
+     where not t.tgisinternal
+       and t.tgname in ('studio_sms_price_monitor_evidence_immutable', 'studio_sms_price_monitor_evidence_truncate', 'studio_sms_price_security_events_immutable', 'studio_sms_price_security_events_truncate',
+                        'studio_sms_price_security_events_00_fill', 'studio_sms_price_list_00_activation', 'studio_sms_price_list_00_truncate', 'studio_sms_price_change_requests_guard', 'studio_sms_price_change_requests_truncate')
+  )
   select jsonb_build_object(
+    'guards', (select coalesce(jsonb_object_agg(name, enabled), '{}'::jsonb) from g),
+    'guards_bad', (select coalesce(jsonb_agg(name order by name), '[]'::jsonb) from g where enabled <> 'A'),
+    'guards_ok', (select count(*) filter (where name like 'studio_sms_price_monitor_%' or name like 'studio_sms_price_security_events_%') = 5 and count(*) filter (where enabled <> 'A') = 0 from g),
     'rows', (select count(*) from public.studio_sms_price_list),
     'active_rows', (select count(*) from public.studio_sms_price_list where active),
     'digest', encode(sha256(convert_to(coalesce((select string_agg(concat_ws('|', p.id, p.kind, p.customer_price_cents, p.provider_cost_cents, p.description, p.active, p.created_by, p.created_at), E'\n' order by p.id)
@@ -129,7 +182,26 @@ as $$
     'checked_at', clock_timestamp());
 $$;
 
-revoke all on function public._tw4pricemon_immutable() from public, anon, authenticated, service_role;
+-- Pricing-side contract (informational ONLY): is monitoring expected, and is it up? A monitoring outage must NEVER authorize a financial change and the emergency freeze must not
+-- depend on this function; the pricing functions decide on their own and may at most use this to REFUSE or to warn. 'never' = the monitor was never activated (not expected).
+create or replace function public.tw4_price_monitor_status(p_max_age_seconds integer default 2700)
+returns jsonb language sql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+  with l as (select max(e.inserted_at) as at from public.studio_sms_price_monitor_evidence e where e.kind = 'run')
+  select jsonb_build_object(
+    'state', case when l.at is null then 'never' when extract(epoch from (clock_timestamp() - l.at)) > greatest(coalesce(p_max_age_seconds, 2700), 0) then 'stale' else 'ok' end,
+    'monitoring_expected', l.at is not null,
+    'last_run_inserted_at', l.at,
+    'age_seconds', case when l.at is null then null else extract(epoch from (clock_timestamp() - l.at)) end,
+    'max_age_seconds', greatest(coalesce(p_max_age_seconds, 2700), 0),
+    'informational_only', true,
+    'checked_at', clock_timestamp())
+  from l;
+$$;
+
+revoke all on function public._tw4pricemon_immutable(), public._tw4pricemon_event_fill(), public._tw4pricemon_emit_event(text, uuid, jsonb), public.tw4_price_monitor_status(integer) from public, anon, authenticated, service_role;
+grant execute on function public.tw4_price_monitor_status(integer) to service_role;
 revoke all on function public.tw4_price_monitor_evidence_append(bigint, text, text, uuid, text, timestamptz, text), public.tw4_price_monitor_evidence_list(integer, bigint),
   public.tw4_price_monitor_events(bigint), public.tw4_price_monitor_digest() from public, anon, authenticated, service_role;
 grant execute on function public.tw4_price_monitor_evidence_append(bigint, text, text, uuid, text, timestamptz, text), public.tw4_price_monitor_evidence_list(integer, bigint),

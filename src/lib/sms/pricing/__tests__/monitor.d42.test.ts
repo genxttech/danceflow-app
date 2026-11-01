@@ -7,40 +7,8 @@ import { createPriceMonitorDb } from "../db";
 import { GENESIS_HASH, canonicalJson, entryHash, parseEvidenceList, verifyChain } from "../evidence";
 import { runPriceMonitor, runPriceWatchdog } from "../monitor";
 import { FakeTransport, loadMonitorConfig, renderAlertText, resendTransport, webhookTransport, type MonitorConfig } from "../transport";
-import type { EvidenceRow, PriceMonitorDb } from "../types";
-
-class FakeDb implements PriceMonitorDb {
-  rows: EvidenceRow[] = [];
-  verifyResult: unknown = null;
-  verifyThrows = false;
-  digestValue = "a".repeat(64);
-  eventRows: unknown[] = [];
-  suspension: unknown = null;
-  appendFails = false;
-  calls: string[] = [];
-  constructor(private clock: () => Date) { this.verifyResult = this.clean(); }
-  clean() { return { ok: true, anomalies: [], checked_at: this.clock().toISOString() }; }
-  anomalies(a: Record<string, unknown>[]) { this.verifyResult = { ok: a.length === 0, anomalies: a, checked_at: this.clock().toISOString() }; }
-  async verify() { this.calls.push("verify"); if (this.verifyThrows) throw new Error("boom"); return this.verifyResult; }
-  async digest() { this.calls.push("digest"); return { rows: 3, active_rows: 3, digest: this.digestValue, checked_at: this.clock().toISOString() }; }
-  async events(after: number) {
-    this.calls.push("events");
-    const list = (this.eventRows as { seq: number }[]).filter((e) => e.seq > after);
-    return { head_seq: list.length ? list[list.length - 1].seq : after, events: list, last_suspension_event: this.suspension };
-  }
-  async evidenceList(limit: number) {
-    this.calls.push("evidenceList");
-    return { head_seq: this.rows.length ? this.rows[this.rows.length - 1].seq : 0, rows: this.rows.slice(-limit) };
-  }
-  async evidenceAppend(r: EvidenceRow) {
-    this.calls.push("evidenceAppend");
-    if (this.appendFails) throw new Error("down");
-    const head = this.rows[this.rows.length - 1];
-    if (r.seq !== (head ? head.seq + 1 : 1) || r.prev_hash !== (head ? head.entry_hash : GENESIS_HASH)) return { appended: false, reason: "chain_mismatch" };
-    this.rows.push({ ...r });
-    return { appended: true, seq: r.seq, head_hash: r.entry_hash };
-  }
-}
+import type { EvidenceRow } from "../types";
+import { FakeDb } from "./fakeDb";
 
 function setup(over: Partial<MonitorConfig> = {}, transports = [new FakeTransport()]) {
   let t = Date.parse("2026-11-01T12:00:00Z");
@@ -303,7 +271,7 @@ describe("D4-2 price monitor", () => {
     const files = dirs.flatMap((d) => readdirSync(d).filter((f) => f.endsWith(".ts")).map((f) => readFileSync(join(d, f), "utf8")));
     expect(files.length).toBeGreaterThanOrEqual(8);
     const code = files.join("\n").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-    expect(code).not.toMatch(/\.from\(/);
+    expect(code).not.toMatch(/\.from\(\s*["'`]/); // a table access (Buffer.from / Array.from are fine)
     expect(code).not.toMatch(/tw4_price_(set|propose|approve|reject)/);
     expect(code).not.toMatch(/studio_sms_price_(list|change_requests|approvers|limits)/);
   });

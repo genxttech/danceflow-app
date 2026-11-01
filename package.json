@@ -12,6 +12,7 @@
     "test:portal-linkage:sql": "bash scripts/run-portal-linkage-sql-tests.sh",
     "synthetic:run": "tsx scripts/run-synthetic-suite.ts",
     "qa:billing-prices": "node --import tsx scripts/qa/billing-price-verify.ts",
+    "qa:price-monitor": "node --import tsx scripts/qa/price-monitor-ops.ts",
     "qa:billing-readback": "node --import tsx scripts/qa/billing-session-readback.ts"
   },
   "dependencies": {

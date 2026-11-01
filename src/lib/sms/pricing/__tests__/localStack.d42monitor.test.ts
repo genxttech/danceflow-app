@@ -44,8 +44,8 @@ let since = "";
 /** Rows up to this seq are an acknowledged, deliberate break (earlier runs of this suite on the same database leave their forged appends behind: append-only). */
 let trusted = 0;
 const forgedIds: string[] = [];
-let clockMs = Date.now();
-const clock = () => new Date(clockMs);
+
+const clock = () => new Date();
 
 function config(transports: FakeTransport[], over: Partial<MonitorConfig> = {}): MonitorConfig {
   return { transports, chainKey: null, since, repeatMs: 6 * 3600_000, maxAgeMs: 45 * 60_000, trustedFromSeq: trusted, expectHead: null, ...over };
@@ -103,7 +103,7 @@ describe.skipIf(!enabled)("D4-2 price monitor on a real database", () => {
       insert into public.studio_sms_price_list (id, kind, customer_price_cents, provider_cost_cents, description, active, created_by) values ('${id}', '${FORGED_KIND}', 777, 100, 'forged by the d42 suite', false, gen_random_uuid());
       alter table public.studio_sms_price_list enable always trigger studio_sms_price_list_00_activation;
       commit;`);
-    clockMs += 60_000;
+
     const t = new FakeTransport();
     const out = await run([t]);
     expect(out.findings.map((f) => f.code)).toEqual(expect.arrayContaining(["unauthorized_price_change", "price_changed"]));
@@ -128,7 +128,7 @@ describe.skipIf(!enabled)("D4-2 price monitor on a real database", () => {
         values ('${rid}', 'brand', 4242, 100, 'd42 missing approval', 'd42 suite synthetic request without a valid approval', 'approved', gen_random_uuid(), now() - interval '10 minutes', now() + interval '20 hours', gen_random_uuid(), now() - interval '5 minutes', 'd42 synthetic approval record');
       alter table public.studio_sms_price_change_requests enable always trigger studio_sms_price_change_requests_guard;
       commit;`);
-    clockMs += 60_000;
+
     const t = new FakeTransport();
     const out = await run([t]);
     expect(out.findings.map((f) => f.code)).toContain("missing_approval");
@@ -144,7 +144,7 @@ describe.skipIf(!enabled)("D4-2 price monitor on a real database", () => {
     psql(`begin; do $d$ begin ${MARKER} end $d$;
       insert into public.studio_sms_price_security_events (kind, detail) values ('credential_compromise_reported', '{"note":"d42 synthetic"}'), ('pricing_suspended', '{}'), ('d42_unrecognized_kind', '{}');
       commit;`);
-    clockMs += 60_000;
+
     const t = new FakeTransport();
     const out = await run([t]);
     const codes = out.findings.map((f) => f.code);
@@ -180,7 +180,7 @@ describe.skipIf(!enabled)("D4-2 price monitor on a real database", () => {
     const head = dbHead()!;
     // the owner (a database writer) appends a row that links correctly but carries a made-up hash: the database accepts the linkage, the application hash check does not
     psql(`insert into public.studio_sms_price_monitor_evidence (seq, run_id, kind, recorded_at, payload, prev_hash, entry_hash) values (${head.seq + 1}, gen_random_uuid(), 'run', now(), '{"v":1,"findings":[]}', '${head.entry_hash}', '${"e".repeat(64)}');`);
-    clockMs += 60_000;
+
     const t = new FakeTransport();
     const out = await run([t]);
     expect(out.findings.map((f) => f.code)).toContain("evidence_chain_broken");
@@ -189,13 +189,13 @@ describe.skipIf(!enabled)("D4-2 price monitor on a real database", () => {
     // recovery without a permanent bypass: the owner acknowledges rows up to the break for ONE configuration (visible in every alert), the chain then extends normally
     const brokenSeq = head.seq + 1;
     const t2 = new FakeTransport();
-    clockMs += 60_000;
+
     trusted = brokenSeq;
     const out2 = await run([t2]);
     expect(out2.findings.map((f) => f.code)).not.toContain("evidence_chain_broken");
     expect(out2.evidenceRecorded).toBe(true);
     // a wrong published head (as if history was rewritten) is detected
-    clockMs += 60_000;
+
     const out3 = await run([new FakeTransport()], { expectHead: { seq: out2.chain.headSeq, hash: "d".repeat(64) } });
     expect(out3.findings.map((f) => f.code)).toContain("evidence_chain_broken");
   });
@@ -210,7 +210,7 @@ describe.skipIf(!enabled)("D4-2 price monitor on a real database", () => {
       insert into public.studio_sms_price_list (id, kind, customer_price_cents, provider_cost_cents, description, active, created_by) values ('${id}', 'campaign_vetting', 888, 100, 'forged two by the d42 suite', false, gen_random_uuid());
       alter table public.studio_sms_price_list enable always trigger studio_sms_price_list_00_activation;
       commit;`);
-    clockMs += 60_000;
+
     const bad = new FakeTransport();
     bad.failSends = 99;
     const out = await run([bad]);
@@ -218,7 +218,7 @@ describe.skipIf(!enabled)("D4-2 price monitor on a real database", () => {
     expect(out.errors).toContain("alert_delivery_failed");
     const rows = parseEvidenceList(asService("tw4_price_monitor_evidence_list", "20::int", "null::bigint"))!.rows;
     expect(rows.some((r) => r.kind === "delivery" && JSON.parse(r.payload).alert_ok === false)).toBe(true);
-    clockMs += 60_000;
+
     const good = new FakeTransport();
     const out2 = await run([good]);
     expect(out2.redelivered).toBeGreaterThanOrEqual(1);
@@ -226,9 +226,9 @@ describe.skipIf(!enabled)("D4-2 price monitor on a real database", () => {
   });
 
   it("monitor-down heartbeat: the watchdog alerts on the real chain when no run is recent", async () => {
-    clockMs += 3 * 3600_000;
+    await new Promise((r) => setTimeout(r, 30));
     const t = new FakeTransport();
-    const out = await runPriceWatchdog({ db: realDb, config: config([t]), now: clock, sleep: async () => undefined });
+    const out = await runPriceWatchdog({ db: realDb, config: config([t], { maxAgeMs: 1 }), now: clock, sleep: async () => undefined });
     expect(out.findings.map((f) => f.code)).toContain("monitor_stale");
     expect(t.sent.length).toBeGreaterThanOrEqual(1);
     expect(out.evidenceRecorded).toBe(true);
