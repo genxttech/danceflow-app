@@ -873,6 +873,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(audit("published")).toBe(published);
     // the guard refuses to delete an integrity event even with the prune flag set
     expect(codeOf(psqlError(`begin; set local tw4.priceauth_prune = 'on'; delete from public.studio_sms_price_audit where event = 'integrity_failure'; commit;`))).toBe("42501");
+    expect(begin(claims(B, "d42-b-after"), p.request_id)).toMatchObject({ status: "refused" }); // a fresh routine row exists
     expect(codeOf(psqlError(`delete from public.studio_sms_price_audit where event = 'gate_refused'`))).toBe("42501");
   });
 
