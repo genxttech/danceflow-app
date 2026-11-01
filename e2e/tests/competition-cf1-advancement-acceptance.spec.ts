@@ -36,7 +36,6 @@ import {
   startHeat,
   startRound,
   submitCallbackBallot,
-  cosignCorrectionViaRpc,
   clickUntil,
   submitOrdinalBallot,
   couple,
@@ -135,13 +134,17 @@ test.describe("CF1 callback -> Final advancement acceptance (CF1-C)", () => {
    * form, which exists for a round only once that round has a heat. A Final has no heat before advancement is applied, so before apply
    * there is no UI to set it (default capacity is 8). Returns false when no such form is found for the Final round.
    */
+  /**
+   * Capacity of the Final before it has a heat: the schedule page's "Final heat size" section (CF1 B). Returns false when no such section exists.
+   */
   async function applyFinalCapacity(page: import("@playwright/test").Page, eventId: string, capacity: number): Promise<boolean> {
     await page.goto(`/app/events/${eventId}/competition/schedule`);
-    const form = page.locator("section").filter({ hasText: /Final/ }).locator("form").filter({ has: page.getByLabel(/Max entries per heat for this division/) });
-    if (!(await form.count())) return false;
-    await form.first().getByLabel(/Max entries per heat for this division/).fill(String(capacity));
-    await form.first().getByLabel(/Reason \(required/).fill("CF1-C acceptance fixes the Final capacity to exercise the tie rule");
-    await form.first().getByRole("button", { name: "Save" }).click();
+    const section = page.locator("section").filter({ has: page.getByRole("heading", { name: /^Final heat size/ }) }).first();
+    if (!(await section.count())) return false;
+    await section.getByLabel("Max entries in the Final heat").fill(String(capacity));
+    await section.getByLabel(/^Reason/).fill("CF1-C acceptance fixes the Final capacity to exercise the tie rule");
+    await section.getByRole("button", { name: "Save Final heat size" }).click();
+    await expect(page.locator('main [role="status"]').first()).toContainText(/Heat size saved/, { timeout: 60_000 });
     return true;
   }
 
@@ -382,7 +385,20 @@ test.describe("CF1 callback -> Final advancement acceptance (CF1-C)", () => {
     const heatsNow = (await readHeatEvidence(config, s.event.id)).scoringHeats.filter((h) => h.round_id === s.finalRoundId);
     expect(heatsNow.find((h) => h.id === gen1HeatId)?.status, "generation 1 Final heat is cancelled and kept").toBe("cancelled");
 
-    await cosignCorrectionViaRpc(config, fixture.owner, s.callbackRoundId); // A7: no app UI for the co-sign exists; RPC-driven, labelled in the evidence
+    // A7 / OD-13: a different manager co-signs the judge-entry correction through the results page (CF1 B panel). The opener cannot.
+    const opener = await signedIn(browser, fixture.deskAdmin);
+    await opener.goto(`/app/events/${s.event.id}/competition/results/${s.callbackRoundId}`);
+    const openerPanel = opener.getByRole("region", { name: "Correction co-sign" });
+    await expect(openerPanel).toContainText("Waiting for a different manager or chair to co-sign");
+    await expect(openerPanel.getByRole("button", { name: "Co-sign correction" })).toHaveCount(0);
+    await shot(opener, "cosign-waiting");
+    await opener.context().close();
+    const cosigner = await signedIn(browser, fixture.owner);
+    await cosigner.goto(`/app/events/${s.event.id}/competition/results/${s.callbackRoundId}`);
+    await cosigner.getByRole("region", { name: "Correction co-sign" }).getByRole("button", { name: "Co-sign correction" }).click();
+    await expect(cosigner.getByRole("status").filter({ hasText: "Correction co-signed" }).first()).toBeVisible({ timeout: 60_000 });
+    await shot(cosigner, "cosign-done");
+    await cosigner.context().close();
     await submitCallbackBallot(j, browser, 2, s, [0, 1, 2, 3]); // corrected: judge 3 ticks couple 2 instead of 4/5
     const owner2 = await signedIn(browser, fixture.owner);
     await owner2.goto(`/app/events/${s.event.id}/competition/results/${s.callbackRoundId}`);
@@ -449,12 +465,13 @@ test.describe("CF1 callback -> Final advancement acceptance (CF1-C)", () => {
       return;
     }
     await heats.getByRole("button", { name: /^Lock heat/ }).first().click();
-    await expect.poll(async () => (await readHeatEvidence(config, s.event.id)).effective.filter((h) => h.roundId === s.finalRoundId).map((h) => h.lockState), { timeout: 30_000 }).toEqual(["locked"]);
+    await expect.poll(async () => (await readHeatEvidence(config, s.event.id)).effective.filter((h) => h.roundId === s.finalRoundId && h.status !== "cancelled").map((h) => h.lockState), { timeout: 30_000 }).toEqual(["locked"]);
     await refusal(browser, s, CF1_CODES.finalLocked, "refused-final-locked", testInfo);
     // Reopen so the next variant starts from an open heat.
     await owner.goto(`/app/events/${s.event.id}/competition/ballots/${s.finalRoundId}`);
+    await owner.getByRole("region", { name: "Heats" }).getByLabel(/^Reason for reopening heat/).first().fill("CF1-C: reopen the early-locked Final heat so the next variant starts open");
     await owner.getByRole("region", { name: "Heats" }).getByRole("button", { name: /^Reopen heat/ }).first().click();
-    await expect.poll(async () => (await readHeatEvidence(config, s.event.id)).effective.filter((h) => h.roundId === s.finalRoundId).map((h) => h.lockState), { timeout: 30_000 }).toEqual(["open"]);
+    await expect.poll(async () => (await readHeatEvidence(config, s.event.id)).effective.filter((h) => h.roundId === s.finalRoundId && h.status !== "cancelled").map((h) => h.lockState), { timeout: 30_000 }).toEqual(["open"]);
     await owner.context().close();
   });
 
