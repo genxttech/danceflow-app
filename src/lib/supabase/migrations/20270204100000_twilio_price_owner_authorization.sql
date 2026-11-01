@@ -134,10 +134,12 @@ declare w boolean := coalesce(current_setting('tw4.priceauth_write', true), '') 
 begin
   if tg_op = 'DELETE' then
     -- only the owner-level prune (flag set by _tw4price_prune) and only housekeeping rows: used or long-expired challenges, and routine audit rows. Integrity, publication and credential events are NEVER deleted.
-    if coalesce(current_setting('tw4.priceauth_prune', true), '') = 'on'
-       and ((tg_table_name = 'studio_sms_price_auth_challenges' and (old.used_at is not null or old.expires_at < clock_timestamp() - interval '30 days'))
-         or (tg_table_name = 'studio_sms_price_audit' and old.event in ('challenge_issued', 'gate_refused', 'assertion_rejected') and old.at < clock_timestamp() - interval '30 days')) then
-      return old;
+    if coalesce(current_setting('tw4.priceauth_prune', true), '') = 'on' then
+      if tg_table_name = 'studio_sms_price_auth_challenges' then
+        if old.used_at is not null or old.expires_at < clock_timestamp() - interval '30 days' then return old; end if;
+      elsif tg_table_name = 'studio_sms_price_audit' then
+        if old.event in ('challenge_issued', 'gate_refused', 'assertion_rejected') and old.at < clock_timestamp() - interval '30 days' then return old; end if;
+      end if;
     end if;
     raise exception '%: rows are never deleted', tg_table_name using errcode = '42501';
   end if;
