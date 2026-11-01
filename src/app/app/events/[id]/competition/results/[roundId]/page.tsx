@@ -7,7 +7,8 @@ import { parseAdvancementPreview, parseExclusionRows, parseWithdrawalState, with
 import { parseReviewExcluded } from "@/lib/competition/results/reviewTypes";
 import { correctionCosignPanel, parseCorrectionState } from "@/lib/competition/results/correction";
 import { approveRoundResultAction, cosignCorrectionAction, calculateRoundResultAction, completeRoundAction, openRoundCorrectionAction } from "../actions";
-import { AdvancementSection, ExcludedSection, ExclusionPanel, WithdrawalPanel, type Candidate } from "./CallbackPanels";
+import { deriveUnresolvedTie, type UnresolvedTie } from "@/lib/competition/results/unresolvedTie";
+import { AdvancementSection, UnresolvedTiePanel, ExcludedSection, ExclusionPanel, WithdrawalPanel, type Candidate } from "./CallbackPanels";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -115,6 +116,24 @@ export default async function CompetitionRoundResultsPage({
   for (const heat of (boardResult.data as { heats?: Array<{ entries?: Candidate[] }> } | null)?.heats ?? []) {
     for (const entry of heat.entries ?? []) if (!candidates.some((c) => c.entry_id === entry.entry_id)) candidates.push(entry);
   }
+  // An unresolved callback tie is read from the stored latest version only (its row outputs and cut trace); nothing is recomputed.
+  let unresolvedTie: UnresolvedTie | null = null;
+  if (isManager && isCallbackPreliminary && latest && (latest.status === "calculated" || latest.status === "approved")) {
+    const [{ data: traceRow }, { data: outputRows }] = await Promise.all([
+      supabase.from("event_competition_result_versions").select("trace").eq("id", latest.id).maybeSingle(),
+      supabase.from("event_competition_result_rows").select("entry_id, output").eq("result_version_id", latest.id),
+    ]);
+    const outputs = new Map((outputRows ?? []).map((r) => [r.entry_id as string, r.output as unknown]));
+    unresolvedTie = deriveUnresolvedTie({
+      rows: latest.rows.map((r) => ({
+        entryId: r.entry_id,
+        label: `${r.entry_number ? `#${r.entry_number} ` : ""}${r.display_name ?? "Entry"}`,
+        advanced: r.advanced,
+        output: outputs.get(r.entry_id) ?? null,
+      })),
+      trace: (traceRow as { trace?: unknown } | null)?.trace ?? null,
+    });
+  }
   const approvedVersion = review.versions.find((version) => version.status === "approved") ?? null;
 
   return (
@@ -147,11 +166,13 @@ export default async function CompetitionRoundResultsPage({
         </form>
       ) : null}
 
+      {unresolvedTie ? <UnresolvedTiePanel tie={unresolvedTie} /> : null}
+
       {review.versions.length === 0 ? (
         <p className="rounded border border-slate-200 bg-white p-4 text-sm text-slate-700">No result has been calculated for this round yet.</p>
       ) : (
         review.versions.map((version, index) => {
-          const canApprove = isManager && index === 0 && status === "calculated" && version.status === "calculated" && !version.stale;
+          const canApprove = isManager && index === 0 && !(unresolvedTie && version.id === latest?.id) && status === "calculated" && version.status === "calculated" && !version.stale;
           const isCalculator = version.calculated_by === review.viewer_id;
           return (
             <section key={version.id} className="space-y-3 rounded border border-slate-200 bg-white p-4">

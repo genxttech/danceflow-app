@@ -22,7 +22,7 @@ const MESSAGES: Record<string, string> = {
   // CF1: callback-to-Final advancement (apply, preview, Final start guard, correction trigger, Final guards).
   COMP_ADVANCEMENT_SOURCE_STATE: "This round's result must be approved before its callback can advance couples to the Final.",
   COMP_ADVANCEMENT_ALREADY_APPLIED: "Advancement has already been applied for this round.",
-  COMP_ADVANCEMENT_BLOCKED: "Advancement is blocked: the approved result still has an unresolved tie at the callback cut-off, or an entry without an advance decision.",
+  COMP_ADVANCEMENT_BLOCKED: "Advancement is unresolved: a tie at the callback cut-off would exceed the Final's capacity, or an entry has no advance decision. No couple has been advanced and DanceFlow does not break ties automatically. Approve and Advance stay unavailable until the tie is resolved; if a judge made an error, open a judge-entry correction.",
   COMP_ADVANCEMENT_TARGET_ROUND_STATE: "The Final is not in a state that can take couples (it must be scheduled and not started).",
   COMP_ADVANCEMENT_NO_LIVE_VERSION: "There is no running order yet. Generate heats before advancing couples to the Final.",
   COMP_ADVANCEMENT_FINAL_PLACEMENT_MODE: "The Final's placement mode does not support advancement from a callback.",
