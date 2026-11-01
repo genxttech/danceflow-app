@@ -890,7 +890,7 @@ begin
   values ('enroll', v_new, v_x, v_y, p_role, btrim(p_label), v_by, v_actor, clock_timestamp() + make_interval(hours => cfg.credential_delay_hours)) returning id into v_change;
   perform set_config('tw4.priceauth_write', 'off', true);
   perform public._tw4price_audit('credential_change_pending', v_actor, v_sid, null, v_new, jsonb_build_object('change', 'enroll', 'change_id', v_change, 'role', p_role, 'label', btrim(p_label), 'authorized_by', encode(v_by, 'hex')));
-  perform public._tw4price_emit('credential_change_pending', v_actor, jsonb_build_object('change', 'enroll', 'change_id', v_change, 'role', p_role, 'effective_in_hours', cfg.credential_delay_hours));
+  perform public._tw4price_emit('credential_replaced', v_actor, jsonb_build_object('status', 'pending', 'change', 'enroll', 'change_id', v_change, 'role', p_role, 'effective_in_hours', cfg.credential_delay_hours));
   return jsonb_build_object('status', 'pending', 'change_id', v_change, 'effective_in_hours', cfg.credential_delay_hours);
 end $$;
 
@@ -938,7 +938,7 @@ begin
   get diagnostics v_void = row_count;
   perform set_config('tw4.priceauth_write', 'off', true);
   perform public._tw4price_audit('credential_revoked', v_actor, v_sid, null, v_target, jsonb_build_object('authorized_by', encode(v_by, 'hex'), 'voided_changes', v_void));
-  perform public._tw4price_emit('credential_revoked', v_actor, jsonb_build_object('voided_changes', v_void));
+  perform public._tw4price_emit('credential_revocation_accepted', v_actor, jsonb_build_object('voided_changes', v_void));
   return jsonb_build_object('status', 'revoked', 'voided_changes', v_void);
 end $$;
 
@@ -967,7 +967,7 @@ begin
     update public.studio_sms_price_credential_changes set status = 'cancelled', cancelled_at = clock_timestamp(), cancelled_by = v_actor where id = ch.id;
     perform set_config('tw4.priceauth_write', 'off', true);
     perform public._tw4price_audit('credential_change_voided', v_actor, v_sid, null, ch.target_credential_id, jsonb_build_object('change', ch.kind, 'change_id', ch.id, 'reason', 'signer no longer active'));
-    perform public._tw4price_emit_safe('credential_change_pending', v_actor, jsonb_build_object('change', ch.kind, 'change_id', ch.id, 'status', 'voided'));
+    perform public._tw4price_emit_safe('credential_replaced', v_actor, jsonb_build_object('change', ch.kind, 'change_id', ch.id, 'status', 'voided'));
     return jsonb_build_object('status', 'voided', 'change', ch.kind);
   end if;
   if ch.effective_at > clock_timestamp() then raise exception 'the mandatory delay of this credential change has not ended (until %)', ch.effective_at using errcode = 'TW045'; end if;
@@ -985,9 +985,9 @@ begin
   update public.studio_sms_price_credential_changes set status = 'applied', applied_at = clock_timestamp() where id = ch.id;
   perform set_config('tw4.priceauth_write', 'off', true);
   perform public._tw4price_audit('credential_change_applied', v_actor, v_sid, null, ch.target_credential_id, jsonb_build_object('change', ch.kind, 'change_id', ch.id));
-  perform public._tw4price_emit('credential_replaced', v_actor, jsonb_build_object('change', ch.kind, 'role', case when ch.kind = 'recovery_enroll' then 'primary' else ch.role end));
+  perform public._tw4price_emit('credential_replaced', v_actor, jsonb_build_object('status', 'applied', 'change', ch.kind, 'role', case when ch.kind = 'recovery_enroll' then 'primary' else ch.role end));
   if ch.kind = 'recovery_enroll' then
-    perform public._tw4price_emit('recovery_completed', v_actor, jsonb_build_object('change_id', ch.id, 'severity', 'high'));
+    perform public._tw4price_emit('credential_recovery_used', v_actor, jsonb_build_object('action', 'recovery_completed', 'change_id', ch.id));
   end if;
   return jsonb_build_object('status', 'applied', 'change', ch.kind);
 end $$;
@@ -1032,7 +1032,7 @@ begin
   update public.studio_sms_price_credential_changes set status = 'cancelled', cancelled_at = clock_timestamp(), cancelled_by = v_actor, cancelled_by_credential_id = v_cred where id = ch.id;
   perform set_config('tw4.priceauth_write', 'off', true);
   perform public._tw4price_audit('credential_change_cancelled', v_actor, v_sid, null, v_cred, jsonb_build_object('change', ch.kind, 'change_id', ch.id));
-  perform public._tw4price_emit_safe('credential_change_pending', v_actor, jsonb_build_object('change', ch.kind, 'change_id', ch.id, 'status', 'cancelled'));
+  perform public._tw4price_emit_safe('credential_replaced', v_actor, jsonb_build_object('change', ch.kind, 'change_id', ch.id, 'status', 'cancelled'));
   return jsonb_build_object('status', 'cancelled');
 end $$;
 
@@ -1149,7 +1149,10 @@ returns void language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
 begin
-  if to_regclass('public.studio_sms_price_security_events') is not null then
+  if to_regprocedure('public._tw4pricemon_emit_event(text,uuid,jsonb)') is not null then
+    -- the monitoring workstream's owner-level emitter (20270205090000): seq and timestamps are assigned by the database, the kind is validated there
+    perform public._tw4pricemon_emit_event(p_kind, p_subject, coalesce(p_detail, '{}'::jsonb));
+  elsif to_regclass('public.studio_sms_price_security_events') is not null then
     execute 'insert into public.studio_sms_price_security_events (kind, subject_user_id, detail) values ($1, $2, $3)' using p_kind, p_subject, coalesce(p_detail, '{}'::jsonb);
   elsif (select monitoring_expected from public.studio_sms_price_auth_config) then
     -- once the owner declares monitoring expected, a missing events table is a LOUD failure, not a silent no-op
@@ -1168,6 +1171,10 @@ begin
     perform public._tw4price_emit(p_kind, p_subject, p_detail);
   exception when others then
     perform public._tw4price_audit('emit_failed', p_subject, null, null, null, jsonb_build_object('kind', p_kind, 'code', sqlstate, 'subject', p_subject, 'payload', coalesce(p_detail, '{}'::jsonb)));
+    begin
+      perform public._tw4price_emit('event_emit_failed', p_subject, jsonb_build_object('failed_kind', p_kind));
+    exception when others then null;
+    end;
   end;
 end $$;
 
@@ -1322,8 +1329,8 @@ begin
   values ('recovery_enroll', v_new, v_x, v_y, 'primary', btrim(p_label), v_rec, v_actor, clock_timestamp() + make_interval(hours => cfg.recovery_delay_hours)) returning id into v_change;
   perform set_config('tw4.priceauth_write', 'off', true);
   perform public._tw4price_audit('recovery_used', v_actor, v_sid, null, v_rec, jsonb_build_object('action', 'recovery_enroll', 'change_id', v_change, 'effective_in_hours', cfg.recovery_delay_hours));
-  perform public._tw4price_emit('recovery_credential_used', v_actor, jsonb_build_object('action', 'recovery_enroll', 'severity', 'high', 'change_id', v_change));
-  perform public._tw4price_emit('credential_change_pending', v_actor, jsonb_build_object('change', 'recovery_enroll', 'change_id', v_change, 'severity', 'high', 'effective_in_hours', cfg.recovery_delay_hours));
+  perform public._tw4price_emit('credential_recovery_used', v_actor, jsonb_build_object('action', 'recovery_enroll', 'change_id', v_change));
+  perform public._tw4price_emit('recovery_enrollment_started', v_actor, jsonb_build_object('change_id', v_change, 'effective_in_hours', cfg.recovery_delay_hours));
   return jsonb_build_object('status', 'pending', 'change_id', v_change, 'effective_in_hours', cfg.recovery_delay_hours);
 end $$;
 
@@ -1362,7 +1369,7 @@ begin
     perform public._tw4price_emit_safe('pricing_suspended', v_actor, jsonb_build_object('reason', 'recovery credential'));
   end if;
   perform public._tw4price_audit('recovery_used', v_actor, v_sid, null, v_cred, jsonb_build_object('action', 'recover_freeze'));
-  perform public._tw4price_emit_safe('recovery_credential_used', v_actor, jsonb_build_object('action', 'recover_freeze', 'severity', 'high'));
+  perform public._tw4price_emit_safe('credential_recovery_used', v_actor, jsonb_build_object('action', 'recover_freeze'));
   return jsonb_build_object('status', 'frozen');
 end $$;
 
@@ -1401,6 +1408,10 @@ begin
       perform public._tw4price_emit(r.detail ->> 'kind', nullif(r.detail ->> 'subject', '')::uuid, coalesce(r.detail -> 'payload', '{}'::jsonb) || jsonb_build_object('replayed_audit_id', r.id, 'original_at', r.at));
     exception when others then
       exit;
+    end;
+    begin
+      perform public._tw4price_emit('event_emit_failed', nullif(r.detail ->> 'subject', '')::uuid, jsonb_build_object('failed_kind', r.detail ->> 'kind', 'replayed_audit_id', r.id));
+    exception when others then null;
     end;
     perform set_config('tw4.priceauth_write', 'on', true);
     insert into public.studio_sms_price_emit_acks (audit_id) values (r.id);
