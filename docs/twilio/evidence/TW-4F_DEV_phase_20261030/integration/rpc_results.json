@@ -1,0 +1,450 @@
+{
+ "results": [
+  {
+   "fn": "get_sms_legal_context",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object",
+   "asActor": false
+  },
+  {
+   "fn": "sms_credit_admin_overview",
+   "vol": "s",
+   "cls": "REFUSED",
+   "note": "HTTP 403 code=42501 msg=not authorized",
+   "asActor": false
+  },
+  {
+   "fn": "sms_credit_history",
+   "vol": "s",
+   "cls": "REFUSED",
+   "note": "HTTP 403 code=42501 msg=not authorized",
+   "asActor": false
+  },
+  {
+   "fn": "sms_credit_overview",
+   "vol": "s",
+   "cls": "REFUSED",
+   "note": "HTTP 403 code=42501 msg=not authorized",
+   "asActor": false
+  },
+  {
+   "fn": "sms_credit_purchases",
+   "vol": "s",
+   "cls": "REFUSED",
+   "note": "HTTP 403 code=42501 msg=not authorized",
+   "asActor": false
+  },
+  {
+   "fn": "sms_inbound_admin_overview",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object(4 keys)",
+   "asActor": true
+  },
+  {
+   "fn": "sms_monthly_limit_overview",
+   "vol": "s",
+   "cls": "REFUSED",
+   "note": "HTTP 403 code=42501 msg=not authorized",
+   "asActor": false
+  },
+  {
+   "fn": "sms_price_list",
+   "vol": "s",
+   "cls": "REFUSED",
+   "note": "HTTP 403 code=42501 msg=not authorized",
+   "asActor": false
+  },
+  {
+   "fn": "sms_recurring_admin_overview",
+   "vol": "s",
+   "cls": "REFUSED",
+   "note": "HTTP 403 code=42501 msg=not authorized",
+   "asActor": false
+  },
+  {
+   "fn": "sms_recurring_overview",
+   "vol": "s",
+   "cls": "REFUSED",
+   "note": "HTTP 403 code=42501 msg=not authorized",
+   "asActor": false
+  },
+  {
+   "fn": "sms_rfl_owner_overview",
+   "vol": "s",
+   "cls": "REFUSED",
+   "note": "HTTP 403 code=42501 msg=not authorized",
+   "asActor": false
+  },
+  {
+   "fn": "sms_usage_admin_overview",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object(5 keys)",
+   "asActor": true
+  },
+  {
+   "fn": "sms_webhook_receipt_seen",
+   "vol": "s",
+   "cls": "OK",
+   "note": "boolean",
+   "asActor": false
+  },
+  {
+   "fn": "tw4_admin_deferred_retirements",
+   "vol": "s",
+   "cls": "OK",
+   "note": "array(0)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_admin_exposure",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object(3 keys)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_admin_prov_proof",
+   "vol": "s",
+   "cls": "OK",
+   "note": "array(0)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_admin_registration_gaps",
+   "vol": "s",
+   "cls": "OK",
+   "note": "array(0)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_approval_ref_trace",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object(1 keys)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_credit_checkout_context",
+   "vol": "s",
+   "cls": "REFUSED",
+   "note": "HTTP 403 code=42501 msg=not authorized to buy SMS credit for this studio",
+   "asActor": false
+  },
+  {
+   "fn": "tw4_credit_open_reservations",
+   "vol": "s",
+   "cls": "OK",
+   "note": "array(0)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_credit_topup_lookup",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object",
+   "asActor": false
+  },
+  {
+   "fn": "tw4_inbound_scan_targets",
+   "vol": "s",
+   "cls": "OK",
+   "note": "array(0)",
+   "asActor": false
+  },
+  {
+   "fn": "tw4_inbound_studio_for",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object",
+   "asActor": false
+  },
+  {
+   "fn": "tw4_num_recon_manual",
+   "vol": "s",
+   "cls": "OK",
+   "note": "array(0)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_num_recon_targets",
+   "vol": "s",
+   "cls": "OK",
+   "note": "array(0)",
+   "asActor": false
+  },
+  {
+   "fn": "tw4_num_registration_facts",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object(1 keys)",
+   "asActor": false
+  },
+  {
+   "fn": "tw4_num_registration_gaps",
+   "vol": "s",
+   "cls": "OK",
+   "note": "array(0)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_num_rent_basis",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object(5 keys)",
+   "asActor": false
+  },
+  {
+   "fn": "tw4_panel_monthly_limits",
+   "vol": "s",
+   "cls": "OK",
+   "note": "array(0)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_panel_overview",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object(5 keys)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_prov_evidence",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_prov_orphan_alert_status",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object(3 keys)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_prov_orphan_exposure",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object(3 keys)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_reconcile_run_alive",
+   "vol": "s",
+   "cls": "OK",
+   "note": "boolean",
+   "asActor": false
+  },
+  {
+   "fn": "tw4_recurring_due_list",
+   "vol": "s",
+   "cls": "OK",
+   "note": "array(0)",
+   "asActor": false
+  },
+  {
+   "fn": "tw4_recurring_service_state",
+   "vol": "s",
+   "cls": "OK",
+   "note": "string",
+   "asActor": false
+  },
+  {
+   "fn": "tw4_rfl_admin_overview",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object(6 keys)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_rfl_alert_recipients",
+   "vol": "s",
+   "cls": "OK",
+   "note": "array(0)",
+   "asActor": false
+  },
+  {
+   "fn": "tw4_rfl_cancel_target",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_rfl_exposure_report",
+   "vol": "s",
+   "cls": "OK",
+   "note": "array(0)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_rfl_health",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object(13 keys)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_rfl_scan_entities",
+   "vol": "s",
+   "cls": "OK",
+   "note": "array(0)",
+   "asActor": false
+  },
+  {
+   "fn": "tw4_rfl_studio_ready",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object(2 keys)",
+   "asActor": false
+  },
+  {
+   "fn": "tw4_rfl_switch_enabled",
+   "vol": "s",
+   "cls": "OK",
+   "note": "boolean",
+   "asActor": false
+  },
+  {
+   "fn": "tw4_rfl_variance_report",
+   "vol": "s",
+   "cls": "OK",
+   "note": "array(0)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_runner_status",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_sender_due_reverify",
+   "vol": "s",
+   "cls": "OK",
+   "note": "array(0)",
+   "asActor": false
+  },
+  {
+   "fn": "tw4_sender_health",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object(2 keys)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_sender_overview",
+   "vol": "s",
+   "cls": "OK",
+   "note": "array(0)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_usage_due",
+   "vol": "s",
+   "cls": "OK",
+   "note": "array(0)",
+   "asActor": false
+  },
+  {
+   "fn": "tw4_usage_reconcile_overview",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object(14 keys)",
+   "asActor": true
+  },
+  {
+   "fn": "tw4_usage_studio_mode",
+   "vol": "s",
+   "cls": "OK",
+   "note": "string",
+   "asActor": false
+  },
+  {
+   "fn": "tw4_webhook_account",
+   "vol": "s",
+   "cls": "OK",
+   "note": "object(1 keys)",
+   "asActor": false
+  }
+ ],
+ "neg": [
+  {
+   "fn": "sms_usage_admin_overview",
+   "status": 403,
+   "code": "42501",
+   "refused": true
+  },
+  {
+   "fn": "tw4_admin_registration_gaps",
+   "status": 403,
+   "code": "42501",
+   "refused": true
+  },
+  {
+   "fn": "tw4_num_registration_gaps",
+   "status": 403,
+   "code": "42501",
+   "refused": true
+  },
+  {
+   "fn": "tw4_panel_overview",
+   "status": 403,
+   "code": "42501",
+   "refused": true
+  },
+  {
+   "fn": "tw4_rfl_admin_overview",
+   "status": 403,
+   "code": "42501",
+   "refused": true
+  },
+  {
+   "fn": "tw4_rfl_health",
+   "status": 403,
+   "code": "42501",
+   "refused": true
+  },
+  {
+   "fn": "tw4_sender_overview",
+   "status": 403,
+   "code": "42501",
+   "refused": true
+  },
+  {
+   "fn": "tw4_usage_reconcile_overview",
+   "status": 403,
+   "code": "42501",
+   "refused": true
+  }
+ ],
+ "anon": [
+  {
+   "fn": "get_studio_sms_status",
+   "status": 401,
+   "code": "42501"
+  },
+  {
+   "fn": "tw4_panel_overview",
+   "status": 401,
+   "code": "42501"
+  },
+  {
+   "fn": "sms_price_list",
+   "status": 401,
+   "code": "42501"
+  },
+  {
+   "fn": "tw4_rfl_scan_entities",
+   "status": 401,
+   "code": "42501"
+  }
+ ],
+ "skipped": [
+  "tw4_inbound_unrecorded (array/composite/time arg)"
+ ]
+}

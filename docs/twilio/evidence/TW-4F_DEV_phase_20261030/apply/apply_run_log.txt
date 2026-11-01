@@ -1,0 +1,48 @@
+[21:41:26] CP0 vs local DEV-equivalent S0: fingerprint rows equal=true (hosted-only 0, local-only 0); objects equal=true (hosted-only 0, local-only 0)
+[21:41:28] re-read immediately before step 1: drift vs CP0 = false
+[21:41:38] step 1/41 20261123090000_twilio_tw4f3b_pay_stripe_credit_purchases.sql ok=true ALL=b67b8904 fp=true obj=true other_sms=true zero_rows=true tables=20 8715ms
+[21:41:50] step 2/41 20261124090000_twilio_tw4f3b_ui_credit_reads.sql ok=true ALL=112b1d65 fp=true obj=true other_sms=true zero_rows=true tables=20 7489ms
+[21:42:00] step 3/41 20261125090000_twilio_pay_integrity_hardening.sql ok=true ALL=3d945d60 fp=true obj=true other_sms=true zero_rows=true tables=21 7137ms
+[21:42:11] step 4/41 20261126090000_twilio_recurring_authorization.sql ok=true ALL=70f82528 fp=true obj=true other_sms=true zero_rows=true tables=23 7507ms
+[21:42:24] step 5/41 20261127090000_twilio_recurring_execution.sql ok=true ALL=2e881bae fp=true obj=true other_sms=true zero_rows=true tables=25 8109ms
+[21:42:36] step 6/41 20261128090000_twilio_monthly_spending_limits.sql ok=true ALL=6653943f fp=true obj=true other_sms=true zero_rows=true tables=28 9207ms
+[21:42:48] step 7/41 20261129090000_twilio_tw4f_provider_integration.sql ok=true ALL=4625d367 fp=true obj=true other_sms=true zero_rows=true tables=29 7804ms
+[21:43:00] step 8/41 20261130090000_twilio_tw4f_admin_panel.sql ok=true ALL=2682f786 fp=true obj=true other_sms=true zero_rows=true tables=30 8575ms
+[21:43:10] step 9/41 20261201090000_twilio_sms_usage_financials.sql ok=true ALL=a7bb2d70 fp=true obj=true other_sms=true zero_rows=true tables=33 6687ms
+[21:43:20] step 10/41 20261202090000_twilio_tw4f_financial_integrity.sql ok=true ALL=0655bf39 fp=true obj=true other_sms=true zero_rows=true tables=34 7128ms
+[21:43:31] step 11/41 20261202140000_twilio_tw4ml_default_tz_perf.sql ok=true ALL=a6b95f9e fp=true obj=true other_sms=true zero_rows=true tables=34 7087ms
+[21:43:43] step 12/41 20261202150000_twilio_tw4f_panel_monthly_limits.sql ok=true ALL=eb956a4a fp=true obj=true other_sms=true zero_rows=true tables=34 7771ms
+[21:43:54] step 13/41 20261203090000_twilio_inbound_usage_recording.sql ok=true ALL=4b831780 fp=true obj=true other_sms=true zero_rows=true tables=36 7500ms
+[21:44:04] step 14/41 20261204090000_twilio_sender_readiness.sql ok=true ALL=5c9c55c2 fp=true obj=true other_sms=true zero_rows=true tables=37 7034ms
+[21:44:15] step 15/41 20261205090000_twilio_usage_reconciliation.sql ok=true ALL=d0d74a77 fp=true obj=true other_sms=true zero_rows=true tables=42 7883ms
+[21:44:26] step 16/41 20261206090000_twilio_sender_reverification.sql ok=true ALL=ec4cf0dc fp=true obj=true other_sms=true zero_rows=true tables=42 6679ms
+[21:44:38] step 17/41 20261207090000_twilio_r2a_messaging_service_campaign.sql ok=true ALL=4da45740 fp=true obj=true other_sms=true zero_rows=true tables=44 7997ms
+[21:44:48] step 18/41 20261208090000_twilio_r2b_number_activation.sql ok=true ALL=a290a77b fp=true obj=true other_sms=true zero_rows=true tables=53 6738ms
+[21:44:59] step 19/41 20261209090000_twilio_recurring_fee_lifecycle.sql ok=true ALL=4032f78d fp=true obj=true other_sms=true zero_rows=true tables=58 6496ms
+[21:45:09] step 20/41 20261210090000_twilio_r2c_owner_provisioning_read.sql ok=true ALL=5c0b9939 fp=true obj=true other_sms=true zero_rows=true tables=58 6533ms
+[21:45:21] step 21/41 20261211090000_twilio_rfl_ops.sql ok=true ALL=cb2f82e0 fp=true obj=true other_sms=true zero_rows=true tables=64 7711ms
+[21:45:33] step 22/41 20261212090000_twilio_prov_fee_resolution_evidence.sql ok=true ALL=1b3656fe fp=true obj=true other_sms=true zero_rows=true tables=67 7855ms
+[21:45:46] step 23/41 20261213090000_twilio_r2b_p1_identity_evidence.sql ok=true ALL=997e6ae4 fp=true obj=true other_sms=true zero_rows=true tables=69 8477ms
+[21:45:57] step 24/41 20261214090000_twilio_r2b_p2_orphans_reconciliation.sql ok=true ALL=0953f865 fp=true obj=true other_sms=true zero_rows=true tables=72 7249ms
+[21:46:08] step 25/41 20261215090000_twilio_prov_evidence_targets.sql ok=true ALL=7e01ed4b fp=true obj=true other_sms=true zero_rows=true tables=72 7359ms
+[21:46:20] step 26/41 20261216090000_twilio_prov_orphan_exposure.sql ok=true ALL=f46e1763 fp=true obj=true other_sms=true zero_rows=true tables=72 7627ms
+[21:46:30] step 27/41 20261217090000_twilio_r2b_rfl_lifecycle_integration.sql ok=true ALL=bd4efcd3 fp=true obj=true other_sms=true zero_rows=true tables=72 7038ms
+[21:46:42] step 28/41 20261218090000_twilio_usage_reconciler_readiness.sql ok=true ALL=bb239a9e fp=true obj=true other_sms=true zero_rows=true tables=72 7448ms
+[21:46:52] step 29/41 20261219090000_twilio_act_pilot_funding_lock_order.sql ok=true ALL=a99340b4 fp=true obj=true other_sms=true zero_rows=true tables=72 6771ms
+[21:47:03] step 30/41 20261221090000_twilio_admin_recovery_tooling.sql ok=true ALL=c21895a0 fp=true obj=true other_sms=true zero_rows=true tables=72 6399ms
+[21:47:13] step 31/41 20261222090000_twilio_owner_texting_status.sql ok=true ALL=2a2550e2 fp=true obj=true other_sms=true zero_rows=true tables=72 6877ms
+[21:47:23] step 32/41 20261223090000_twilio_inventory_reconcile_run.sql ok=true ALL=d0bd2833 fp=true obj=true other_sms=true zero_rows=true tables=72 6694ms
+[21:47:33] step 33/41 20261224090000_twilio_rfl_cancel_target.sql ok=true ALL=9d3ac369 fp=true obj=true other_sms=true zero_rows=true tables=72 6285ms
+[21:47:42] step 34/41 20261225090000_twilio_rfl_d5_cover.sql ok=true ALL=0171e63d fp=true obj=true other_sms=true zero_rows=true tables=72 6437ms
+[21:47:52] step 35/41 20261226090000_twilio_act_console_gates.sql ok=true ALL=2b501f98 fp=true obj=true other_sms=true zero_rows=true tables=72 6868ms
+[21:48:03] step 36/41 20261227090000_twilio_owner_number_offers.sql ok=true ALL=9a0b0ef4 fp=true obj=true other_sms=true zero_rows=true tables=72 7091ms
+[21:48:13] step 37/41 20261228090000_twilio_ki1_cross_month_release.sql ok=true ALL=cbcfa52b fp=true obj=true other_sms=true zero_rows=true tables=72 7108ms
+[21:48:23] step 38/41 20261229090000_twilio_rfl_pilot_evidence.sql ok=true ALL=61316393 fp=true obj=true other_sms=true zero_rows=true tables=73 7122ms
+[21:48:33] step 39/41 20261230090000_twilio_rfl_pilot_spend_evidence.sql ok=true ALL=cf29d2e9 fp=true obj=true other_sms=true zero_rows=true tables=74 6729ms
+[21:48:44] step 40/41 20261231090000_twilio_platform_admin_aal2.sql ok=true ALL=5ed060cc fp=true obj=true other_sms=true zero_rows=true tables=74 7240ms
+[21:48:46] CP7 special: AT-5 aal2 body=true; AT-6 policies=3 all aal2=true
+[21:48:57] step 41/41 20261231100000_twilio_pilot_spend_hardening.sql ok=true ALL=3a38f6b6 fp=true obj=true other_sms=true zero_rows=true tables=74 6691ms
+[21:48:57] ALL 41 FILES APPLIED AND VERIFIED STEP BY STEP
+(node:20464) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+EXIT 0

@@ -1,0 +1,29 @@
+env names passed: PATH,SystemRoot,windir,TEMP,TMP,USERPROFILE,APPDATA,LOCALAPPDATA,HOME,NODE_OPTIONS,NEXT_TELEMETRY_DISABLED,NETGUARD_LOG,NETGUARD_ALLOW,NODE_ENV,NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY,SUPABASE_SERVICE_ROLE_KEY,NEXT_PUBLIC_APP_URL,NEXT_PUBLIC_SITE_URL
+server up on 127.0.0.1:3017: true
+listening sockets for the port: TCP 127.0.0.1:3017
+GET / -> 200 1161ms bytes=111542 title="DanceFlow | Where the dance community connects"
+GET /login -> 200 238ms bytes=57191 title="Log In | DanceFlow"
+GET /sms-consent -> 200 112ms bytes=64157 title="SMS Consent &amp; Messaging Terms | DanceFlow"
+GET /studios/t-landmark1a-s7-race-f/sms-privacy -> 404 395ms bytes=12754 title="DanceFlow | Where the dance community connects"
+GET /studios/t-landmark1a-s7-race-f/sms-terms -> 404 192ms bytes=12750 title="DanceFlow | Where the dance community connects"
+GET /studios/no-such-studio-smoke/sms-terms -> 404 119ms bytes=12746 title="DanceFlow | Where the dance community connects"
+GET /platform/sms -> 307 82ms bytes=11901 title="DanceFlow | Where the dance community connects" location=/login
+GET /app/settings/sms -> 307 49ms bytes=12478 title="DanceFlow | Where the dance community connects" location=/login
+GET /app/settings/sms/location -> 307 45ms bytes=12820 title="DanceFlow | Where the dance community connects" location=/login
+GET /api/cron/sms-inventory-reconcile -> 404 16ms bytes=0
+GET /api/cron/sms-usage-reconcile -> 404 10ms bytes=0
+GET /api/cron/sms-provider-fee-lifecycle -> 404 8ms bytes=0
+GET /api/cron/sms-recurring -> 404 13ms bytes=0
+GET /api/cron/sms-sender-reverify -> 404 11ms bytes=0
+GET /api/cron/sms-onboarding-purge -> 503 10ms bytes=61
+GET /api/sms/send -> 405 10ms bytes=0
+GET /api/sms/twilio/inbound -> 405 10ms bytes=0
+GET /api/sms/twilio/status -> 405 11ms bytes=0
+GET /api/billing/sms-credits/checkout -> 405 9ms bytes=0
+GET /api/billing/sms-limits/set -> 405 10ms bytes=0
+GET /api/billing/sms-recurring/authorize -> 405 9ms bytes=0
+after stop: port still answering: false | listening sockets: 0
+network guard tally: {"ALLOW connect epdrtzcydvnoidwrepqz.supabase.co":6}
+server log: lines=5 | error-ish lines: 0
+secret values in server log: false
+EXIT 0
