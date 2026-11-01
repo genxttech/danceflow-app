@@ -8,6 +8,7 @@ begin
   end if;
 end $$;
 
+drop function if exists public.complete_price_transition_reconciliation(uuid, jsonb);
 drop table if exists public.price_transitions;
 drop table if exists public.price_transition_notices;
 drop function if exists public.price_transitions_guard();

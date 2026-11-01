@@ -65,17 +65,27 @@ create table if not exists public.price_transitions (
   approved_at timestamptz not null default now(),
   dry_run jsonb not null,
   result jsonb,
+  -- lifecycle evidence: schedule creation, schedule activation, actual price change and registry reconciliation are separate facts
+  schedule_verified_at timestamptz,
+  activated_at timestamptz,
+  price_changed_at timestamptz,
+  reconciled_at timestamptz,
+  review_reason text,
+  review_evidence jsonb,
+  reconcile_evidence jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint price_transitions_status_check check (status in ('approved', 'scheduled', 'applied', 'failed', 'canceled')),
+  constraint price_transitions_status_check check (status in ('approved', 'scheduled', 'needs_review', 'reconciled', 'failed', 'canceled')),
   constraint price_transitions_sub_id_format check (stripe_subscription_id ~ '^sub_[A-Za-z0-9]+$'),
-  constraint price_transitions_scheduled_has_schedule check (status not in ('scheduled', 'applied') or stripe_schedule_id is not null),
+  constraint price_transitions_scheduled_has_schedule check (status not in ('scheduled', 'needs_review', 'reconciled') or stripe_schedule_id is not null),
+  constraint price_transitions_reconciled_evidence check (status <> 'reconciled' or (activated_at is not null and price_changed_at is not null and reconciled_at is not null and reconcile_evidence is not null)),
+  constraint price_transitions_review_reason check (status <> 'needs_review' or (review_reason is not null and length(btrim(review_reason)) > 0)),
   constraint price_transitions_notice_same_subscription foreign key (notice_id, protected_subscription_id) references public.price_transition_notices(id, protected_subscription_id) on delete restrict
 );
 
 -- At most one open transition per protected subscription.
 create unique index if not exists price_transitions_one_open_per_subscription
-  on public.price_transitions (protected_subscription_id) where status in ('approved', 'scheduled');
+  on public.price_transitions (protected_subscription_id) where status in ('approved', 'scheduled', 'needs_review');
 
 alter table public.price_transition_notices enable row level security;
 alter table public.price_transitions enable row level security;
@@ -144,11 +154,24 @@ begin
   if old.stripe_schedule_id is not null and new.stripe_schedule_id is distinct from old.stripe_schedule_id then
     raise exception 'the recorded Stripe schedule id is immutable' using errcode = '42501';
   end if;
-  if old.status = 'scheduled' and new.status = 'approved' then
-    raise exception 'a scheduled price transition cannot return to approved' using errcode = '42501';
+  -- lifecycle: approved -> scheduled | failed | canceled; scheduled -> needs_review | reconciled | canceled; needs_review -> scheduled | reconciled | canceled
+  if new.status is distinct from old.status and not (
+       (old.status = 'approved' and new.status in ('scheduled', 'failed', 'canceled'))
+    or (old.status = 'scheduled' and new.status in ('needs_review', 'reconciled', 'canceled'))
+    or (old.status = 'needs_review' and new.status in ('scheduled', 'reconciled', 'canceled'))
+  ) then
+    raise exception 'illegal price transition status change % -> %', old.status, new.status using errcode = '42501';
   end if;
-  if old.status in ('applied', 'failed', 'canceled') and new.status is distinct from old.status then
-    raise exception 'a finished price transition cannot change status' using errcode = '42501';
+  if old.status in ('reconciled', 'failed', 'canceled') then
+    raise exception 'a finished price transition is immutable' using errcode = '42501';
+  end if;
+  -- observed facts are write-once
+  if (old.schedule_verified_at is not null and new.schedule_verified_at is distinct from old.schedule_verified_at)
+     or (old.activated_at is not null and new.activated_at is distinct from old.activated_at)
+     or (old.price_changed_at is not null and new.price_changed_at is distinct from old.price_changed_at)
+     or (old.reconciled_at is not null and new.reconciled_at is distinct from old.reconciled_at)
+     or (old.reconcile_evidence is not null and new.reconcile_evidence is distinct from old.reconcile_evidence) then
+    raise exception 'recorded transition milestones are immutable' using errcode = '42501';
   end if;
   new.updated_at := now();
   return new;
@@ -176,5 +199,65 @@ drop trigger if exists price_transitions_no_truncate_trg on public.price_transit
 create trigger price_transitions_no_truncate_trg
   before truncate on public.price_transitions
   for each statement execute function public.price_transitions_no_truncate();
+
+-- Atomic completion: record the reconciled transition and release the protected-price registry row in ONE transaction.
+-- The evidence must restate what the application verified against Stripe; the function re-checks it against the stored plan.
+-- Retry-safe: a second call for an already reconciled transition returns 'already_reconciled' and changes nothing.
+create or replace function public.complete_price_transition_reconciliation(p_transition_id uuid, p_evidence jsonb)
+returns text
+language plpgsql
+security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  t public.price_transitions%rowtype;
+  r public.protected_subscriptions%rowtype;
+  v_release_reason text;
+begin
+  select * into t from public.price_transitions where id = p_transition_id for update;
+  if not found then
+    raise exception 'price transition not found' using errcode = '02000';
+  end if;
+  if t.status = 'reconciled' then
+    return 'already_reconciled';
+  end if;
+  if t.status not in ('scheduled', 'needs_review') then
+    raise exception 'price transition is % and cannot be reconciled', t.status using errcode = '55000';
+  end if;
+  if p_evidence is null
+     or p_evidence->>'subscription_id' is distinct from t.stripe_subscription_id
+     or p_evidence->>'price_id' is distinct from t.target_stripe_price_id
+     or p_evidence->>'schedule_id' is distinct from t.stripe_schedule_id
+     or (p_evidence->>'boundary_at')::timestamptz is distinct from t.boundary_at
+     or (p_evidence->>'period_start')::timestamptz is distinct from t.boundary_at
+     or p_evidence->>'customer_matches' is distinct from 'true'
+     or p_evidence->>'studio_matches' is distinct from 'true'
+     or p_evidence->>'phase_entered' is distinct from 'true'
+     or p_evidence->>'price_changed' is distinct from 'true'
+     or p_evidence->>'amount_matches_notice' is distinct from 'true' then
+    raise exception 'reconciliation evidence does not match the approved transition' using errcode = '22023';
+  end if;
+
+  select * into r from public.protected_subscriptions where id = t.protected_subscription_id for update;
+  v_release_reason := 'price_transition_reconciled:' || t.id::text;
+  if r.released_at is not null and r.released_reason is distinct from v_release_reason then
+    raise exception 'protected subscription was already released for another reason' using errcode = '55000';
+  end if;
+  if r.released_at is null then
+    update public.protected_subscriptions set released_at = now(), released_reason = v_release_reason where id = r.id;
+  end if;
+
+  update public.price_transitions
+     set status = 'reconciled',
+         activated_at = coalesce(activated_at, now()),
+         price_changed_at = coalesce(price_changed_at, now()),
+         reconciled_at = now(),
+         reconcile_evidence = p_evidence
+   where id = t.id;
+  return 'reconciled';
+end $$;
+
+revoke all on function public.complete_price_transition_reconciliation(uuid, jsonb) from public, anon, authenticated, service_role;
+grant execute on function public.complete_price_transition_reconciliation(uuid, jsonb) to service_role;
 
 commit;

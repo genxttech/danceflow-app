@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { PROTECTED_PRICE_BOUNDARY } from "@/lib/billing/priceTransitionReconcile";
 import {
   executePriceTransition,
   planPriceTransition,
@@ -31,6 +32,7 @@ export type RegistryRow = {
   stripeCustomerId: string | null;
   stripePriceId: string | null;
   releasedAt: string | null;
+  protectionKind: string;
 };
 
 export type StripeSubscriptionRead = TransitionSubscription & { customerId: string };
@@ -54,6 +56,8 @@ export type RunnerDeps = {
   hasOpenTransition(protectedSubscriptionId: string): Promise<boolean>;
   readSubscription(stripeSubscriptionId: string): Promise<StripeSubscriptionRead | null>;
   readPrice(priceId: string): Promise<TransitionTargetPrice | null>;
+  /** The DanceFlow plan code the Stripe Price maps to in this deployment's configuration (null when unmapped). */
+  resolvePlanForPrice(priceId: string): string | null;
   /** True when the approver id is on the deployment's owner list. */
   isAuthorizedApprover(approvedBy: string): boolean;
   insertAudit(row: TransitionAuditRow): Promise<{ id: string }>;
@@ -106,6 +110,7 @@ async function evaluate(args: RunnerArgs, deps: RunnerDeps, options: { ownAuditR
   if (!registry) return fail(["registry_row_missing"]);
   const identity: string[] = [];
   if (registry.releasedAt) identity.push("registry_row_released");
+  if (registry.protectionKind === "grandfathered_founder_legacy" && args.boundaryAt.getTime() !== PROTECTED_PRICE_BOUNDARY.getTime()) identity.push("boundary_not_policy_date");
   if (registry.stripeSubscriptionId !== args.stripeSubscriptionId) identity.push("registry_subscription_mismatch");
 
   const subscription = await deps.readSubscription(args.stripeSubscriptionId);
@@ -123,6 +128,7 @@ async function evaluate(args: RunnerArgs, deps: RunnerDeps, options: { ownAuditR
 
   const target = await deps.readPrice(args.targetPriceId);
   if (!target) return fail([...identity, "target_price_missing"], registry);
+  if (deps.resolvePlanForPrice(target.id) !== "pro") identity.push("target_price_not_mapped_to_pro_plan");
 
   if (!options.ownAuditRowOpen && (await deps.hasOpenTransition(registry.id))) identity.push("open_transition_exists");
 

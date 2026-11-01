@@ -3,7 +3,7 @@ import { runPriceTransition, type RegistryRow, type RunnerArgs, type RunnerDeps 
 import { BOUNDARY, PERIOD_START, statefulStripe } from "./priceTransitionFakes";
 
 const registryRow = (over: Partial<RegistryRow> = {}): RegistryRow => ({
-  id: "prot-1", studioId: "st", stripeSubscriptionId: "sub_ABC123", stripeCustomerId: "cus_1", stripePriceId: null, releasedAt: null, ...over,
+  id: "prot-1", studioId: "st", stripeSubscriptionId: "sub_ABC123", stripeCustomerId: "cus_1", stripePriceId: null, releasedAt: null, protectionKind: "grandfathered_founder_legacy", ...over,
 });
 
 function makeDeps(over: Partial<RunnerDeps> = {}, keyMode: "live" | "test" = "test", stripeOptions: Parameters<typeof statefulStripe>[0] = {}) {
@@ -13,6 +13,7 @@ function makeDeps(over: Partial<RunnerDeps> = {}, keyMode: "live" | "test" = "te
     stripe,
     keyMode,
     isAuthorizedApprover: (id) => id === "owner-1",
+    resolvePlanForPrice: (priceId) => (priceId === "price_regular" ? "pro" : null),
     loadRegistry: async () => registryRow(),
     loadNotice: async () => ({
       id: "n1", protectedSubscriptionId: "prot-1", studioId: "st", effectiveAt: BOUNDARY, newPriceId: "price_regular", newUnitAmountCents: 15900,
@@ -199,5 +200,21 @@ describe("runPriceTransition", () => {
     expect(report).toMatchObject({ ok: false, status: "scheduled", scheduleId: "sub_sched_1" });
     expect(report.blockers).toContain("audit_finalize_failed_schedule_is_live");
     expect(deps.finalizeAudit).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("runPriceTransition: policy date and plan recognition", () => {
+  it("refuses a grandfathered boundary other than July 9, 2027 04:00 UTC", async () => {
+    const { deps } = makeDeps();
+    const report = await runPriceTransition({ ...base, boundaryAt: new Date("2027-08-09T04:00:00Z") }, deps);
+    expect(report.blockers).toContain("boundary_not_policy_date");
+  });
+
+  it("refuses a target Price the webhook would not map to the pro plan", async () => {
+    const { deps, stripe } = makeDeps({ resolvePlanForPrice: () => null });
+    const hash = "x";
+    const report = await runPriceTransition({ ...base, execute: true, approvedBy: "owner-1", approvedPlanHash: hash }, deps);
+    expect(report.blockers).toContain("target_price_not_mapped_to_pro_plan");
+    expect(stripe.subscriptionSchedules.create).not.toHaveBeenCalled();
   });
 });

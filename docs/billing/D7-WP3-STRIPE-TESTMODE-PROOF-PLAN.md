@@ -60,3 +60,17 @@ Known follow-ups deliberately NOT in this PR (owner decisions or later work pack
 - Confirm the new regular Pro Price id is recognised by the subscription webhook plan mapping before July 2027.
 - Pin the Stripe API version in the script once the proof fixes the version used.
 - The 60-day notice minimum and the 24-hour minimum lead time are provisional parameters.
+
+## 10. Owner decisions recorded (2026-11-01) and proof prerequisites
+
+Approved policy: DanceAbel's protected rate runs through July 8, 2027; the boundary is 2027-07-09T04:00:00Z. The 60-day advance-notice minimum and a separate 24-hour minimum lead time before the boundary for creating the schedule are approved minimum safeguards (subject to stricter applicable requirements); neither authorizes sending a notice or creating a schedule automatically. The effective price is never assumed from today's regular Pro price: it must be explicitly authorized and appear in the delivered notice.
+
+The test-mode proof is **conditionally authorized**. It does not start until ALL of these are confirmed in writing, and the first provider call is preceded by `validateProofKey`, `checkSandboxIdentity` and a print of the exact operation list (`src/lib/billing/priceTransitionProofGuard.ts`):
+1. An explicitly approved, isolated Stripe TEST sandbox (account id supplied as `--expected-account`); the C6 invoice-testing sandbox/credential is excluded without separate approval.
+2. A restricted `rk_test_` key limited to the operations in `PROOF_ALLOWED_OPERATIONS`; no live key, live customer/subscription id or production webhook endpoint anywhere. This approval does not change existing account permissions.
+3. The Stripe API version is recorded before testing (the scripts print `Stripe.API_VERSION` of the installed SDK; the proof pins and records the version actually used).
+4. Evidence is captured without credentials (`redactSecrets`).
+
+Cases: T1-T14 above plus failed schedule creation, failed release, lost create response, audit-update recovery and post-boundary reconciliation (transition boundary, schedule activation, actual price change, atomic registry release), including advancing the test clock and inspecting the resulting subscription and invoices. If no suitable sandbox/key exists or one would need new credential provisioning, STOP and request the owner setup.
+
+Status at the time of writing: **BLOCKED on prerequisites 1-2**; no Stripe call has been made.

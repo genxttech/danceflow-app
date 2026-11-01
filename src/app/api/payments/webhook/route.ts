@@ -10,6 +10,7 @@ import { resolveMembershipStripeAccount } from "@/lib/payments/membershipStripeA
 import { livemodeMismatch, verifyStripeWebhook } from "@/lib/payments/webhookVerification";
 import { handleSmsCreditStripeEvent } from "@/lib/billing/smsCreditPurchases";
 import { resolvePlanCodeFromEnvPriceIds } from "@/lib/billing/subscriptionPlanResolution";
+import { maybeReconcilePriceTransition, subscriptionIdFromSchedule } from "@/lib/billing/priceTransitionWebhook";
 
 import {
   handleChargeDisputeEvent,
@@ -3618,6 +3619,26 @@ export async function POST(request: Request) {
           );
         }
 
+        // D7 WP-3: dark hook; re-reads Stripe truth, never throws, never writes to Stripe.
+        if (!event.account) {
+          await maybeReconcilePriceTransition({ db: supabase, stripe, stripeSubscriptionId: subscription.id });
+        }
+
+        break;
+      }
+
+      case "subscription_schedule.updated":
+      case "subscription_schedule.released":
+      case "subscription_schedule.completed":
+      case "subscription_schedule.canceled": {
+        // D7 WP-3: a schedule event only triggers a re-evaluation (payload not trusted); dark unless PRICE_TRANSITION_RECONCILE_ENABLED.
+        if (!event.account) {
+          await maybeReconcilePriceTransition({
+            db: supabase,
+            stripe,
+            stripeSubscriptionId: subscriptionIdFromSchedule(event.data.object as Stripe.SubscriptionSchedule),
+          });
+        }
         break;
       }
 

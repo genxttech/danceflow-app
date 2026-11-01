@@ -16,6 +16,7 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import { runPriceTransition, type RunnerDeps } from "@/lib/billing/priceTransitionRunner";
+import { resolvePlanCodeFromEnvPriceId } from "@/lib/billing/subscriptionPlanResolution";
 
 function flag(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
@@ -59,11 +60,12 @@ async function main() {
     keyMode,
     stripe: stripe as unknown as RunnerDeps["stripe"],
     isAuthorizedApprover: (id) => owners.has(id),
+    resolvePlanForPrice: (priceId) => resolvePlanCodeFromEnvPriceId(priceId, process.env),
     async loadRegistry(id) {
       const { data, error } = await db.from("protected_subscriptions").select("*").eq("id", id).maybeSingle();
       if (error) throw new Error(`registry read failed: ${error.message}`);
       return data
-        ? { id: data.id, studioId: data.studio_id, stripeSubscriptionId: data.stripe_subscription_id, stripeCustomerId: data.stripe_customer_id, stripePriceId: data.stripe_price_id, releasedAt: data.released_at }
+        ? { id: data.id, studioId: data.studio_id, stripeSubscriptionId: data.stripe_subscription_id, stripeCustomerId: data.stripe_customer_id, stripePriceId: data.stripe_price_id, releasedAt: data.released_at, protectionKind: data.protection_kind }
         : null;
     },
     async loadNotice(id) {
@@ -174,7 +176,7 @@ async function main() {
     },
     deps,
   );
-  console.log(JSON.stringify({ environment: { supabaseHost: new URL(supabaseUrl).host, stripeKeyMode: keyMode }, ...report }, null, 2));
+  console.log(JSON.stringify({ environment: { supabaseHost: new URL(supabaseUrl).host, stripeKeyMode: keyMode, stripeApiVersion: Stripe.API_VERSION }, ...report }, null, 2));
   process.exit(report.ok ? 0 : 1);
 }
 

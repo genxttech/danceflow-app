@@ -18,7 +18,7 @@ stub() {
 do $$ begin
   if not exists (select 1 from pg_roles where rolname='anon') then create role anon nologin; end if;
   if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;
-  if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role nologin; end if;
+  if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role nologin bypassrls; end if;
 end $$;
 grant usage on schema public to anon, authenticated, service_role;
 create table public.studios(id uuid primary key);
@@ -57,6 +57,28 @@ wait $A
 N=$(P t -Atc "select count(*) from public.price_transitions where protected_subscription_id='00000000-0000-0000-0000-0000000000b2' and status in ('approved','scheduled')")
 if [ "$N" != "1" ] || [ "$RB" = "0" ]; then echo "FAIL concurrency: open=$N exit_b=$RB"; cat /tmp/d7wp3_b.txt; exit 1; fi
 grep -q 'duplicate key' /tmp/d7wp3_b.txt && echo "PASS exactly one open transition; the second writer was refused (duplicate key)"
+
+echo "=== concurrency: two simultaneous reconciliations of one transition"
+P t <<'SQL'
+insert into public.protected_subscriptions(id, studio_id, stripe_subscription_id, stripe_customer_id, protection_kind, terms_reference)
+  values ('00000000-0000-0000-0000-0000000000b5', '00000000-0000-0000-0000-0000000000a1', 'sub_TEST5', 'cus_TEST5', 'grandfathered_founder_legacy', 'test');
+insert into public.price_transition_notices(id, protected_subscription_id, studio_id, effective_at, new_stripe_price_id, new_unit_amount_cents, wording_reference)
+  values ('00000000-0000-0000-0000-0000000000c5', '00000000-0000-0000-0000-0000000000b5', '00000000-0000-0000-0000-0000000000a1', '2027-07-09T04:00:00Z', 'price_regular', 15900, 'w');
+insert into public.price_transitions(id, protected_subscription_id, notice_id, stripe_subscription_id, target_stripe_price_id, boundary_at, approved_by, dry_run)
+  values ('00000000-0000-0000-0000-0000000000e5', '00000000-0000-0000-0000-0000000000b5', '00000000-0000-0000-0000-0000000000c5', 'sub_TEST5', 'price_regular', '2027-07-09T04:00:00Z', '00000000-0000-0000-0000-0000000000d1', '{}');
+update public.price_transitions set status='scheduled', stripe_schedule_id='sub_sched_5' where id='00000000-0000-0000-0000-0000000000e5';
+SQL
+EV="'{\"subscription_id\":\"sub_TEST5\",\"price_id\":\"price_regular\",\"schedule_id\":\"sub_sched_5\",\"boundary_at\":\"2027-07-09T04:00:00Z\",\"period_start\":\"2027-07-09T04:00:00Z\",\"customer_matches\":\"true\",\"studio_matches\":\"true\",\"phase_entered\":\"true\",\"price_changed\":\"true\",\"amount_matches_notice\":\"true\"}'::jsonb"
+CALLR="set role service_role; select public.complete_price_transition_reconciliation('00000000-0000-0000-0000-0000000000e5', $EV);"
+( P t -Atc "begin; $CALLR select pg_sleep(3); commit;" > /tmp/d7wp3_ra.txt 2>&1 ) &
+RA=$!
+sleep 1
+P t -Atc "begin; $CALLR commit;" > /tmp/d7wp3_rb.txt 2>&1
+wait $RA
+grep -q '^reconciled$' /tmp/d7wp3_ra.txt && grep -q '^already_reconciled$' /tmp/d7wp3_rb.txt || { echo "FAIL reconcile concurrency"; cat /tmp/d7wp3_ra.txt /tmp/d7wp3_rb.txt; exit 1; }
+REL=$(P t -Atc "select count(*) from public.protected_subscriptions where id='00000000-0000-0000-0000-0000000000b5' and released_reason like 'price_transition_reconciled:%'")
+[ "$REL" = "1" ] || { echo "FAIL: registry release count $REL"; exit 1; }
+echo "PASS reconcile concurrency: one reconciled, one already_reconciled, registry released once"
 
 echo "=== rollback refuses while records exist"
 docker cp "$MIG/rollback/20270204090000_billing_price_transitions_rollback.sql" "$C:/tmp/rb.sql"
