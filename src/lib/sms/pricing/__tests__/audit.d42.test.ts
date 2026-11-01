@@ -60,6 +60,20 @@ describe("D4-2 audit: guards and watchdog", () => {
     expect(gone.findings.find((f) => f.code === "guard_missing")!.refs).toEqual(["guard:studio_sms_price_list_00_activation"]);
   });
 
+  it("expected guards missing or tables absent are reported at once on the FIRST run (no earlier run needed); a digest without a guard inventory is critical", async () => {
+    const s = setup();
+    s.db.missingGuards = ["studio_sms_price_list_00_activation"];
+    s.db.absentTables = ["studio_sms_price_audit"];
+    const out = await runPriceMonitor(s.deps);
+    const codes = out.findings.map((f) => f.code);
+    expect(codes).toEqual(expect.arrayContaining(["guard_missing", "pricing_tables_partial"]));
+    expect(out.findings.find((f) => f.code === "guard_missing")!.refs).toEqual(["guard:studio_sms_price_list_00_activation"]);
+    expect(out.findings.find((f) => f.code === "pricing_tables_partial")!.refs).toEqual(["table:studio_sms_price_audit"]);
+    const s2 = setup();
+    s2.db.noGuardInventory = true;
+    expect((await runPriceMonitor(s2.deps)).findings.map((f) => f.code)).toContain("digest_unavailable");
+  });
+
   it("the watchdog trusts the database insert time, not the writer-supplied recorded time", async () => {
     const s = setup();
     await runPriceMonitor(s.deps);

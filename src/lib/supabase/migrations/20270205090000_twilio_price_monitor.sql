@@ -164,17 +164,57 @@ create or replace function public.tw4_price_monitor_digest()
 returns jsonb language sql stable security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
-  with g as (
-    select t.tgname::text as name, t.tgenabled::text as enabled
-      from pg_trigger t
-     where not t.tgisinternal
-       and t.tgname in ('studio_sms_price_monitor_evidence_immutable', 'studio_sms_price_monitor_evidence_truncate', 'studio_sms_price_security_events_immutable', 'studio_sms_price_security_events_truncate',
-                        'studio_sms_price_security_events_00_fill', 'studio_sms_price_list_00_activation', 'studio_sms_price_list_00_truncate', 'studio_sms_price_change_requests_guard', 'studio_sms_price_change_requests_truncate')
-  )
+  -- EXPECTED guard triggers, by table, trigger name and function. A guard counts only if it exists on that table, runs that function and is ENABLE ALWAYS (tgenabled = 'A').
+  -- Groups: 'own' (this migration) is always expected; 'dual' (D4-1, 20270204090000) and 'authz' (D4-2 authorization, 20270204100000) are expected when ANY of their tables exists.
+  -- A group with some of its tables missing is reported as expected_but_absent (loud), never silently skipped.
+  with exp(grp, tbl, trg, fn) as (values
+    ('own',   'studio_sms_price_monitor_evidence',  'studio_sms_price_monitor_evidence_immutable',  '_tw4pricemon_immutable'),
+    ('own',   'studio_sms_price_monitor_evidence',  'studio_sms_price_monitor_evidence_truncate',   '_tw4pricemon_immutable'),
+    ('own',   'studio_sms_price_security_events',   'studio_sms_price_security_events_immutable',   '_tw4pricemon_immutable'),
+    ('own',   'studio_sms_price_security_events',   'studio_sms_price_security_events_truncate',    '_tw4pricemon_immutable'),
+    ('own',   'studio_sms_price_security_events',   'studio_sms_price_security_events_00_fill',     '_tw4pricemon_event_fill'),
+    ('dual',  'studio_sms_price_list',              'studio_sms_price_list_00_activation',          '_tw4price_activation_guard'),
+    ('dual',  'studio_sms_price_list',              'studio_sms_price_list_00_truncate',            '_tw4price_truncate_guard'),
+    ('dual',  'studio_sms_price_change_requests',   'studio_sms_price_change_requests_guard',       '_tw4pricedual_guard'),
+    ('dual',  'studio_sms_price_change_requests',   'studio_sms_price_change_requests_truncate',    '_tw4c_truncate_guard'),
+    ('dual',  'studio_sms_price_approvers',         'studio_sms_price_approvers_guard',             '_tw4price_registry_guard'),
+    ('dual',  'studio_sms_price_approvers',         'studio_sms_price_approvers_truncate',          '_tw4c_truncate_guard'),
+    ('dual',  'studio_sms_price_limits',            null,                                           null),
+    ('authz', 'studio_sms_price_auth_config',       'studio_sms_price_auth_config_guard',           '_tw4priceauth_guard'),
+    ('authz', 'studio_sms_price_auth_config',       'studio_sms_price_auth_config_truncate',        '_tw4c_truncate_guard'),
+    ('authz', 'studio_sms_price_credentials',       'studio_sms_price_credentials_guard',           '_tw4priceauth_guard'),
+    ('authz', 'studio_sms_price_credentials',       'studio_sms_price_credentials_truncate',        '_tw4c_truncate_guard'),
+    ('authz', 'studio_sms_price_auth_challenges',   'studio_sms_price_auth_challenges_guard',       '_tw4priceauth_guard'),
+    ('authz', 'studio_sms_price_auth_challenges',   'studio_sms_price_auth_challenges_truncate',    '_tw4c_truncate_guard'),
+    ('authz', 'studio_sms_price_credential_changes','studio_sms_price_credential_changes_guard',    '_tw4priceauth_guard'),
+    ('authz', 'studio_sms_price_credential_changes','studio_sms_price_credential_changes_truncate', '_tw4c_truncate_guard'),
+    ('authz', 'studio_sms_price_audit',             'studio_sms_price_audit_guard',                 '_tw4priceauth_guard'),
+    ('authz', 'studio_sms_price_audit',             'studio_sms_price_audit_truncate',              '_tw4c_truncate_guard'),
+    ('authz', 'studio_sms_price_emit_acks',         'studio_sms_price_emit_acks_guard',             '_tw4priceauth_guard'),
+    ('authz', 'studio_sms_price_emit_acks',         'studio_sms_price_emit_acks_truncate',          '_tw4c_truncate_guard'),
+    ('authz', 'studio_sms_price_approvers',         'studio_sms_price_approvers_emit',              '_tw4price_registry_emit')
+  ),
+  tb as (select distinct grp, tbl, to_regclass('public.' || tbl) is not null as present from exp where tbl <> 'studio_sms_price_list' and not (grp = 'authz' and tbl = 'studio_sms_price_approvers')),
+  gr as (select grp, bool_or(present) as any_present from tb group by grp),
+  active as (select e.* from exp e join gr on gr.grp = e.grp where e.grp = 'own' or gr.any_present),
+  st as (
+    select a.grp, a.tbl, a.trg, a.fn, to_regclass('public.' || a.tbl) is not null as tbl_present, t.tgenabled::text as enabled, p.proname::text as actual_fn
+      from active a
+      left join pg_trigger t on t.tgname = a.trg and t.tgrelid = to_regclass('public.' || a.tbl) and not t.tgisinternal
+      left join pg_proc p on p.oid = t.tgfoid
+     where a.trg is not null
+  ),
+  absent as (select distinct tb.tbl from tb join gr on gr.grp = tb.grp where not tb.present and (tb.grp = 'own' or gr.any_present)),
+  g as (select trg as name, enabled from st where enabled is not null)
   select jsonb_build_object(
     'guards', (select coalesce(jsonb_object_agg(name, enabled), '{}'::jsonb) from g),
-    'guards_bad', (select coalesce(jsonb_agg(name order by name), '[]'::jsonb) from g where enabled <> 'A'),
-    'guards_ok', (select count(*) filter (where name like 'studio_sms_price_monitor_%' or name like 'studio_sms_price_security_events_%') = 5 and count(*) filter (where enabled <> 'A') = 0 from g),
+    'guards_missing', (select coalesce(jsonb_agg(trg order by trg), '[]'::jsonb) from st where tbl_present and enabled is null),
+    'guards_disabled', (select coalesce(jsonb_agg(trg order by trg), '[]'::jsonb) from st where enabled is not null and enabled <> 'A'),
+    'guards_wrong_function', (select coalesce(jsonb_agg(trg order by trg), '[]'::jsonb) from st where enabled is not null and actual_fn is distinct from fn),
+    'expected_but_absent', (select coalesce(jsonb_agg(tbl order by tbl), '[]'::jsonb) from absent),
+    'groups_active', (select coalesce(jsonb_agg(grp order by grp), '[]'::jsonb) from gr where any_present or grp = 'own'),
+    'guards_bad', (select coalesce(jsonb_agg(trg order by trg), '[]'::jsonb) from st where enabled is not null and (enabled <> 'A' or actual_fn is distinct from fn)),
+    'guards_ok', not exists (select 1 from st where (tbl_present and enabled is null) or (enabled is not null and (enabled <> 'A' or actual_fn is distinct from fn))) and not exists (select 1 from absent),
     'rows', (select count(*) from public.studio_sms_price_list),
     'active_rows', (select count(*) from public.studio_sms_price_list where active),
     'digest', encode(sha256(convert_to(coalesce((select string_agg(concat_ws('|', p.id, p.kind, p.customer_price_cents, p.provider_cost_cents, p.description, p.active, p.created_by, p.created_at), E'\n' order by p.id)

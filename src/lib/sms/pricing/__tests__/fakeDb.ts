@@ -6,6 +6,9 @@ export class FakeDb implements PriceMonitorDb {
   verifyResult: unknown = null;
   verifyThrows = false;
   digestValue = "a".repeat(64);
+  missingGuards: string[] = [];
+  absentTables: string[] = [];
+  noGuardInventory = false;
   guards: Record<string, string> = { studio_sms_price_monitor_evidence_immutable: "A" };
   eventRows: unknown[] = [];
   suspension: unknown = null;
@@ -15,7 +18,7 @@ export class FakeDb implements PriceMonitorDb {
   clean() { return { ok: true, anomalies: [], checked_at: this.clock().toISOString() }; }
   anomalies(a: Record<string, unknown>[]) { this.verifyResult = { ok: a.length === 0, anomalies: a, checked_at: this.clock().toISOString() }; }
   async verify(_since?: string | null) { void _since; this.calls.push("verify"); if (this.verifyThrows) throw new Error("boom"); return this.verifyResult; }
-  async digest() { this.calls.push("digest"); return { rows: 3, active_rows: 3, digest: this.digestValue, guards: this.guards, guards_bad: Object.entries(this.guards).filter(([, v]) => v !== "A").map(([k]) => k), checked_at: this.clock().toISOString() }; }
+  async digest() { this.calls.push("digest"); return { rows: 3, active_rows: 3, digest: this.digestValue, guards: this.guards, ...(this.noGuardInventory ? {} : { guards_ok: this.missingGuards.length === 0 && this.absentTables.length === 0 && Object.values(this.guards).every((v) => v === "A"), guards_missing: this.missingGuards, guards_disabled: Object.entries(this.guards).filter(([, v]) => v !== "A").map(([k]) => k), guards_wrong_function: [], expected_but_absent: this.absentTables }),guards_bad: Object.entries(this.guards).filter(([, v]) => v !== "A").map(([k]) => k), checked_at: this.clock().toISOString() }; }
   async events(after: number) {
     this.calls.push("events");
     const list = (this.eventRows as { seq: number }[]).filter((e) => e.seq > after);
