@@ -30,6 +30,7 @@ import {
 } from "@/lib/commerce/studentMarketplace";
 import { assertMembershipReferencesBelongToStudio } from "@/lib/payments/membershipReferenceOwnership";
 import { handleGroupClassPurchaseCheckout } from "@/lib/payments/groupClassPurchaseWebhook";
+import { isCompetitionOrderPaymentIntent, observeCompetitionRefundFromWebhook } from "@/lib/payments/competitionRefunds";
 import { applyCompetitionCheckoutEvent, COMPETITION_REGISTRATION_SOURCE } from "@/lib/competition/registrationLifecycle";
 import {
   centsToDollars,
@@ -1733,6 +1734,9 @@ async function updateEventPaymentRefundByPaymentIntent(
     refundEventMatchesStoredOwner(row.stripe_account_id, stripeAccountId),
   );
   if (rows.length === 0) return false;
+  // CI-D R2: a competition order's payment state is owned by observe_competition_stripe_refund (per refund
+  // object, see handleStripeRefundUpdated); never apply the pro-rata event path to it.
+  if (await isCompetitionOrderPaymentIntent(supabase, paymentIntentId)) return false;
 
   const totalAmount = rows.reduce(
     (sum, row) => sum + Number(row.amount ?? 0),
@@ -1842,7 +1846,18 @@ export async function handleStripeRefundUpdated(
     }
   }
 
-  if (!resolvedPaymentIntentId || cumulativeRefundAmount <= 0) return false;
+  // CI-D R2: competition orders record every refund object (any status, incl. reversals) in their own ledger.
+  const competitionRefundHandled = resolvedPaymentIntentId
+    ? await observeCompetitionRefundFromWebhook(
+        supabase,
+        refund,
+        resolvedPaymentIntentId,
+        stripeAccountId ?? null,
+        stripeEventId ?? null,
+      )
+    : false;
+
+  if (!resolvedPaymentIntentId || cumulativeRefundAmount <= 0) return competitionRefundHandled;
 
   // REFUND-RECON-1: payment-summary refund state only ever reflects money that
   // was actually returned. A resolved charge's amount_refunded is authoritative
