@@ -19,7 +19,7 @@ Run artifacts (outside the repository): `C:\Dev\cf1c-qa-run\runs\r10`..`r32`.
 | SCN-R81 | PASS for "Final only (ordinal majority)": clean round passes and an ineligible couple (registrations page, predicate P clause ii) is refused at lock. "Callbacks + Final" is covered by the callback scenarios, not by R81's driver. | cancelled/refunded variants (P clause iii) have no UI until R2 refunds (#292) |
 | SCN-X1 | PASS | request exclusion, different manager co-signs, judges re-rank, lock/calculate/approve, review shows "Excluded from the ranking" |
 | SCN-R82 | BLOCKED (not exercised) | no UI creates an entry without a registration; SQL gate U82 PASS |
-| SCN-X2 | BLOCKED (not exercised) | stub; the reversal needs the cause cleared, which the eligibility control can now do; not yet written |
+| SCN-X2 | PASS (r37) | reversal refused while the couple is still ineligible (COMP_EXCLUSION_STILL_UNAVAILABLE, nothing written); after eligibility is restored on the registrations page the reversal is requested, the requester cannot co-sign it, a different manager co-signs, and the round locks, calculates and approves with all four couples ranked |
 | SCN-11.4b, SCN-11.4b-cap, SCN-11.4b-resolve | PASS (r34) | owner policy 2026-11-01 (see cf1-tie-over-capacity-decisions-2026-11-01.md): the F1 engine now completes with every row advanced = null and per-row tie_status; the desk shows an "Advancement unresolved" panel (scores, couples above the cut, couples tied at the cut, why nothing advanced); no Approve or Advance control is offered; nothing is written; a capacity raise to fit the tie is refused; a co-signed judge-entry correction dissolves the tie, version 1 stays unresolved on record and version 2 advances four. Approve refusal itself is proven in SQL (the control is absent in the browser). No tie-breaker or director override was built (rules decisions RD-1..RD-6 open). |
 
 ## Intermittent second-manager 404: resolved as infrastructure + a product error-handling defect
@@ -27,3 +27,16 @@ Runs 15 and 17 showed a 404 on the results page for the second manager. Independ
 
 ## Harness fixes in this PR
 Ballot submits wait for the `?saved=`/`?error=` redirect; alerts target `main [role="alert"]`; lock refusal read from the page alert; action timeout 90 s; de-duplicated scoring setups; fixture cleanup deletes events by cascade; Stripe client removed (fixture-seeded payments).
+
+## Release-gate reconciliation (RB1(b) needs U80-U83 and U85 on the composed chain with the OD-17 protections)
+| Gate | SQL evidence | Browser evidence | Status / decision needed |
+|---|---|---|---|
+| U80 non-callback regression | A3 DB checks PASS | SCN-R80 PASS (r35) | met |
+| U81 each discipline family and scoring method | A3 DB checks PASS (5 labelled) | R81 PASS for "Final only (ordinal majority)" (clean round passes, ineligible couple refused at lock); "Callbacks + Final": callback scenarios 11.4a/11.5 and X1/X2 cover the ordinal Final, the callback roster-unavailable arm at lock is SQL-only | **owner decision**: accept "scoring setups the UI offers" = the two setups the wizard lists, with the callback unavailable-couple lock refusal proven in SQL only, or require a browser scenario for it |
+| U82 comped/manual entries | A1, A3 PASS (9 labelled) | none: no UI creates an entry without a registration (R82 not exercised) | **owner decision** (matrix row says "UI half only if a screen exists"): record U82 as SQL-only because no screen exists, or require the screen first |
+| U83 byte-identical evidence | A3 PASS (2 labelled) | SCN-R83 PASS (r35) | met |
+| U85 existing suites | 13 suites PASS on composed chain; A1 suite PASS 132 checks / 5 blocked on the A1-only chain and on the A1+A0..A7 chain (an earlier "no verdict" came from a stale suite copy lacking commit ff115943; the runner logs an empty verdict silently, fix recommended, not applied) | n/a (SQL gate by definition) | met on SQL |
+OD-17 protections remain disabled for live events; RB1(b) is not closed by any of this.
+
+## Local gateway 502 (kept separate from the harness)
+Kong (local QA stack) returns 502 to occasional RPC POSTs ("upstream prematurely closed connection", keepalive race). Effects seen: a 404 on the results page (before B 2e4de6e1 stopped mapping 5xx to 404) and a panel status of "Unknown". The harness now reloads and retries the panel status; that masks, not fixes, the stack fault. Not fixed: Kong upstream keepalive on the QA stack (not production; production has no Kong in the path).

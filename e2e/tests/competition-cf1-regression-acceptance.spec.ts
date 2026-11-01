@@ -145,17 +145,21 @@ test.describe("CF1 cross-discipline regression and OD-17 scope (CF1-C)", () => {
    * manager control (updateCompetitionEntryEligibilityAction). A cancelled or refunded registration (clauses iii) has no UI until R2 refunds
    * (#292); those variants stay BLOCKED. Returns false when the control is absent.
    */
-  async function cancelRegistrationViaUi(browser: Browser, s: ScoredEvent, entryIndex: number): Promise<boolean> {
+  async function setEntryEligibilityViaUi(browser: Browser, s: ScoredEvent, entryIndex: number, status: "ineligible" | "eligible"): Promise<boolean> {
     const page = await signedIn(browser, fixture.owner);
     await page.goto(`/app/events/${s.event.id}/competition/registrations`);
     const card = page.locator("div.grid").filter({ hasText: coupleName(entryIndex) }).filter({ has: page.locator('select[name="eligibilityStatus"]') }).last();
     const select = card.locator('select[name="eligibilityStatus"]');
     if (!(await select.count())) { await page.context().close(); return false; }
-    await select.selectOption("ineligible");
+    await select.selectOption(status);
     await card.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(card.locator('select[name="eligibilityStatus"]')).toHaveValue("ineligible", { timeout: 30_000 });
+    await expect(card.locator('select[name="eligibilityStatus"]')).toHaveValue(status, { timeout: 30_000 });
     await page.context().close();
     return true;
+  }
+
+  async function cancelRegistrationViaUi(browser: Browser, s: ScoredEvent, entryIndex: number): Promise<boolean> {
+    return setEntryEligibilityViaUi(browser, s, entryIndex, "ineligible");
   }
 
   test("SCN-0c setup (not a scenario): judges and managers prove their mailbox", async ({ browser }) => {
@@ -294,10 +298,71 @@ test.describe("CF1 cross-discipline regression and OD-17 scope (CF1-C)", () => {
     await review.context().close();
   });
 
-  test("SCN-X2 reversal is allowed only while the cause is gone", async ({}, testInfo) => {
-    const required = missing(cap, ["a5", "b"]);
+  test("SCN-X2 reversal is allowed only while the cause is gone: refused while the couple is still ineligible, accepted after eligibility is restored, co-signed by a different person", async ({ browser }, testInfo) => {
+    const required = missing(cap, ["a1", "a2", "a3", "a5", "b"]);
     if (required.length) blockedBy(testInfo, required, "Exclusion reversal screens and RPCs.");
-    scenarioStatus(testInfo, "BLOCKED", "Written against the first B build: depends on a UI to restore the cause (reinstating a cancelled registration), which does not exist in the harness base. SQL gate U65 covers it.");
-    testInfo.skip(true, "BLOCKED: no UI path to clear predicate P");
+    const shot = stepShots(testInfo);
+    const s = await ordinalEvent(browser, "X2", "2027-08-06");
+    for (let judge = 0; judge < 3; judge += 1) await submitOrdinalBallot(j, browser, judge, s);
+    if (!(await setEntryEligibilityViaUi(browser, s, 3, "ineligible"))) {
+      scenarioStatus(testInfo, "BLOCKED", "The registrations page offers no eligibility control for the couple.");
+      testInfo.skip(true, "BLOCKED: no eligibility control");
+    }
+    // Exclude the couple (request by one manager, co-sign by another), exactly as SCN-X1.
+    const owner = await signedIn(browser, fixture.owner);
+    await owner.goto(`/app/events/${s.event.id}/competition/results/${s.finalRoundId}`);
+    const panel = owner.getByRole("region", { name: "Exclude a couple" });
+    const optionValue = await panel.locator('select[name="entryId"]').first().locator("option").filter({ hasText: coupleName(3) }).first().getAttribute("value");
+    await panel.locator('select[name="entryId"]').first().selectOption(optionValue!);
+    await panel.getByLabel(/^Reason/).first().fill("The couple became ineligible after the round was danced");
+    await panel.getByRole("button", { name: CF1_UI.excludeButton }).click();
+    await expect(owner.getByRole("status").first()).toBeVisible({ timeout: 30_000 });
+    expect(readExclusions(s.finalRoundId).map((r) => r.kind)).toEqual(["exclude_requested"]);
+    await owner.context().close();
+    const second = await signedIn(browser, fixture.deskAdmin);
+    await second.goto(`/app/events/${s.event.id}/competition/results/${s.finalRoundId}`);
+    await second.getByRole("button", { name: /Co-sign exclusion/i }).first().click();
+    await expect(second.getByRole("status").first()).toBeVisible({ timeout: 30_000 });
+    expect(readExclusions(s.finalRoundId).map((r) => r.kind)).toEqual(["exclude_requested", "exclude_cosigned"]);
+    await second.context().close();
+
+    // 1. The cause is still there (ineligible): a reversal is refused and nothing is written.
+    const reverser = await signedIn(browser, fixture.owner);
+    await reverser.goto(`/app/events/${s.event.id}/competition/results/${s.finalRoundId}`);
+    const reversal = reverser.locator("form").filter({ has: reverser.getByRole("button", { name: "Request reversal" }) });
+    await reversal.getByLabel("Reason for reversing (required)").fill("The eligibility problem was fixed");
+    await reversal.getByRole("button", { name: "Request reversal" }).click();
+    await expect(reverser.locator('main [role="alert"]')).toContainText("still ineligible or refunded", { timeout: 30_000 });
+    expect(readExclusions(s.finalRoundId).map((r) => r.kind), "no reversal row while the cause remains").toEqual(["exclude_requested", "exclude_cosigned"]);
+    await shot(reverser, "reversal-refused-cause-remains");
+    await reverser.context().close();
+
+    // 2. Restore eligibility through the registrations page (the supported control), then the reversal is accepted.
+    expect(await setEntryEligibilityViaUi(browser, s, 3, "eligible")).toBe(true);
+    const owner2 = await signedIn(browser, fixture.owner);
+    await owner2.goto(`/app/events/${s.event.id}/competition/results/${s.finalRoundId}`);
+    const reversal2 = owner2.locator("form").filter({ has: owner2.getByRole("button", { name: "Request reversal" }) });
+    await reversal2.getByLabel("Reason for reversing (required)").fill("The eligibility problem was fixed");
+    await reversal2.getByRole("button", { name: "Request reversal" }).click();
+    await expect(owner2.getByRole("status").first()).toBeVisible({ timeout: 30_000 });
+    expect(readExclusions(s.finalRoundId).map((r) => r.kind)).toEqual(["exclude_requested", "exclude_cosigned", "reverse_requested"]);
+    // The requester cannot co-sign their own reversal.
+    await expect(owner2.getByRole("button", { name: /Co-sign reversal/i })).toHaveCount(0);
+    await shot(owner2, "reversal-requested");
+    await owner2.context().close();
+
+    // 3. A different person co-signs; the couple is back in the round.
+    const second2 = await signedIn(browser, fixture.deskAdmin);
+    await second2.goto(`/app/events/${s.event.id}/competition/results/${s.finalRoundId}`);
+    await second2.getByRole("button", { name: /Co-sign reversal/i }).first().click();
+    await expect(second2.getByRole("status").first()).toBeVisible({ timeout: 30_000 });
+    expect(readExclusions(s.finalRoundId).map((r) => r.kind)).toEqual(["exclude_requested", "exclude_cosigned", "reverse_requested", "reverse_cosigned"]);
+    await shot(second2, "reversal-cosigned");
+    await second2.context().close();
+
+    // The round now locks, calculates and approves with the couple in the ranking.
+    await lockCalcApprove(browser, s, testInfo);
+    const placed = readResultRows(s.finalRoundId).filter((r) => r.version === 1);
+    expect(placed.length, "all four couples are ranked again").toBe(s.entries.length);
   });
 });
