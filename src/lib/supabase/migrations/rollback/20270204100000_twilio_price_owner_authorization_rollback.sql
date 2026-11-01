@@ -40,6 +40,10 @@ drop function public.tw4_price_report_compromise(text);
 drop function public.tw4_price_cred_apply(uuid);
 drop function public.tw4_price_cred_cancel(uuid, text, text, text, text, text);
 drop function public.tw4_price_cred_pending();
+drop function public.tw4_price_recovery_enroll(text, text, text, text, text, text, text, text, text, text, text, text);
+drop function public.tw4_price_recovery_freeze(text, text, text, text, text);
+drop function public.tw4_price_emit_failures(int);
+drop function public.tw4_price_emit_replay(int);
 drop function public._tw4price_limits_check(text, int, int, int);
 drop function public._tw4price_challenge_ok(bytea, uuid, text);
 drop function public._tw4price_monitor_suspend_seq();
@@ -323,6 +327,7 @@ alter table public.studio_sms_price_change_requests
 alter table public.studio_sms_price_change_requests add constraint studio_sms_price_change_requests_window check (expires_at > requested_at and expires_at <= requested_at + interval '48 hours');
 alter table public.studio_sms_price_change_requests add constraint studio_sms_price_change_requests_distinct check (decided_by is null or decided_by <> requested_by or status = 'rejected');
 
+drop table public.studio_sms_price_emit_acks;
 drop table public.studio_sms_price_credential_changes;
 drop table public.studio_sms_price_audit;
 drop table public.studio_sms_price_auth_challenges;
