@@ -103,7 +103,7 @@ describe.skipIf(!enabled)("D4-2 owner authorization on the combined chain with t
     ownerAgeRequest(psql, p.request_id, 25);
     psql("select public._tw4pricemon_emit_event('pricing_suspended', null, '{\"by\": \"monitor\"}')");
     expect(psql("select public._tw4price_suspended()")).toBe("t");
-    expect(codeOf(authErr(claims(A, S2), `select public.tw4_price_authz_begin('${p.request_id}')::text;`))).toBe("42501");
+    expect(begin(p.request_id)).toMatchObject({ status: "refused", code: "42501" }); // a registered session's refusal is an audited answer
     psql("select public._tw4pricemon_emit_event('pricing_resumed', null, '{}')");
     expect(psql("select public._tw4price_suspended()")).toBe("t");
     expect(thawWith(K2)).toMatchObject({ status: "thawed" });
