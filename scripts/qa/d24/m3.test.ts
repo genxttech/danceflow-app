@@ -148,7 +148,7 @@ const must = (r: Res): Res & { stripeInvoiceId: string; intentId: string } => { 
 const FP = "a".repeat(64);   // a syntactically valid request fingerprint for direct ledger calls
 // QA-only: backdate created_at (immutable for every API role) by briefly disabling the guard trigger as the superuser; used to cross the safe-retry window without waiting.
 const ageIntent = (id: string, interval: string) =>
-  runSql(`alter table public.hosted_invoice_creation_intents disable trigger hosted_invoice_intents_guard_trg; update public.hosted_invoice_creation_intents set created_at = now() - interval '${interval}' where id='${id}'; alter table public.hosted_invoice_creation_intents enable trigger hosted_invoice_intents_guard_trg;`, null).then((r) => { if (r.error) throw new Error(r.error.message); });
+  runSql(`begin; alter table public.hosted_invoice_creation_intents disable trigger hosted_invoice_intents_guard_trg; update public.hosted_invoice_creation_intents set created_at = now() - interval '${interval}' where id='${id}'; alter table public.hosted_invoice_creation_intents enable trigger hosted_invoice_intents_guard_trg; commit;`, null).then((r) => { if (r.error) throw new Error(r.error.message); });
 const crashed = async (p: Promise<unknown>) => { try { await p; return false; } catch { return true; } };
 
 // ---- DB assertions ----
@@ -448,11 +448,11 @@ describe("M3-WEBHOOK. out-of-order webhooks around creation/registration (REAL r
   });
   T(M3, "W2 invoice_payment.paid arrives BEFORE registration: the payment is kept unattributed, registration adopts it; the amount comes only from the event", async () => {
     const s = await stuck();
-    await deliver("invoice_payment.paid", payObj(`inpay_${nextId()}`, s.inv, 5500), s.acct);
+    await deliver("invoice_payment.paid", payObj(`inpay_${nextId()}`, s.inv, 5555), s.acct);
     expect(await q(`select coalesce(studio_id::text,'NULL') from public.hosted_invoice_payments where stripe_invoice_id='${s.inv}'`)).toBe("NULL");
     const done = must(await orch!.resumeIntent(s.intentId, { system: "d24_recovery" }, s.deps));
     expect(done.adoptedExistingFacts).toBe(true);
-    expect(await q(`select studio_id::text||'/'||amount_paid from public.hosted_invoice_payments where stripe_invoice_id='${s.inv}'`)).toBe(`${SA}/5500`);
+    expect(await q(`select studio_id::text||'/'||amount_paid from public.hosted_invoice_payments where stripe_invoice_id='${s.inv}'`)).toBe(`${SA}/5555`);
   });
   T(M3, "W3 credit_note.created arrives BEFORE registration: unattributed until registration, then attributed to the issuing studio only", async () => {
     const s = await stuck();
@@ -492,7 +492,7 @@ describe("M3-WEBHOOK. out-of-order webhooks around creation/registration (REAL r
     expect(await again.text()).toBe("Already processed");
     expect(await q(`select count(*) from public.hosted_invoice_payments where stripe_invoice_id='${r.stripeInvoiceId}'`)).toBe("1");
   });
-  T(M3, "W7 a payment event for the invoice under ANOTHER Stripe account never attaches to the registered invoice; the scope mismatch is flagged", async () => {
+  T(M3, "W7 a payment event for the invoice under ANOTHER Stripe account never attaches to the registered invoice and stays unattributed in its own scope", async () => {
     const { deps } = ctx();
     const r = must(await orch!.createHostedInvoice(reqOf(SA, await newObject(SA)), deps));
     await deliver("invoice_payment.paid", payObj(`inpay_${nextId()}`, r.stripeInvoiceId, 5500), ACCT_B);
@@ -621,7 +621,7 @@ describe("M3-OWNER. ownership, forgery, subscription exclusion and the permissio
     expect(await hostedStudio(inv, ACCT_A)).toMatch(/^NULL\/.*\/subscription$/);
     expect(await regCount(inv)).toBe("0");
   });
-  T(["m3a"], "O11 permission matrix (database): anon and authenticated (even a studio owner JWT) cannot execute any intent function, read or write the ledger tables, or call the helpers; service_role can only EXECUTE the intent functions", async () => {
+  T(["m3a"], "O11 permission matrix (database): anon and authenticated (even a studio owner JWT) cannot execute any intent function, read or write the ledger tables, or call the helpers; service_role gets no direct DML or helper access", async () => {
     const claims = (sub: string) => `select set_config('request.jwt.claims','{"sub":"${sub}","role":"authenticated","aal":"aal2","exp":${Math.floor(Date.now() / 1000) + 3600}}',false) is not null;`;
     const fns = [
       "d24_intent_begin('" + SA + "','event_fee','x','d24inv_00000000','" + "a".repeat(64) + "',null)",
@@ -695,7 +695,7 @@ describe("M3-AUDIT. audit integrity and evidence", () => {
     await rpc("d24_intent_begin", { p_studio_id: SA, p_business_object_type: "unregistered_type", p_business_object_id: "x", p_idempotency_key: `d24inv_${nextId()}_x3`, p_request_fingerprint: FP, p_created_by: USER });
     expect(await ledgerTotals()).toBe(before);
   });
-  T(M3, "A4 registration atomicity: if the business object stops belonging to the studio between provider_created and registration, NO registry row appears and the intent stays provider_created (never half-registered)", async () => {
+  T(M3, "A4 registration atomicity: if the business object stops belonging to the studio between provider_created and registration, NO registry row appears and the intent is held in needs_review (never half-registered)", async () => {
     const { stripe, deps } = ctx({}, [{ rpc: "d24_intent_register", mode: "error", code: "57014", times: 1 }]);
     const obj = await newObject(SA);
     const r1 = await orch!.createHostedInvoice(reqOf(SA, obj), deps);
@@ -921,7 +921,7 @@ describe("M3-MATRIX. owner recovery matrix (offline fixtures only)", () => {
     expect(await attach(PLAT, "aal2", ACCT_A)).not.toMatch(/^ERR/);
     expect(await intentRow(ra.intentId!)).toBe(`registered/${(await q(`select attempt_count from public.hosted_invoice_creation_intents where id='${ra.intentId}'`))}/${inv}`);
     expect(await registryOf(inv)).toMatch(new RegExp(`^${SA}/${ACCT_A}/event_fee/`));
-    expect(await q(`select count(*) from public.hosted_invoice_creation_intent_events where intent_id='${ra.intentId}' and actor_user_id='${PLAT}'`)).not.toBe("0");
+    expect(await q(`select count(*) from public.hosted_invoice_creation_intent_events where intent_id='${ra.intentId}' and event_kind='registered' and actor_user_id='${PLAT}'`)).toBe("1");
     expect(a.stripe.createCount).toBe(1);   // reconciliation never replayed the create
     // B: needs_review with NO provider invoice: abandon allowed for a platform admin at AAL2 only
     const b = ctx();

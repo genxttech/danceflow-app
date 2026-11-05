@@ -122,11 +122,14 @@ head_sha=$(git rev-parse HEAD)
 OVERLAY=${D24_OVERLAY:-}
 overlay_from() {   # $1=ref $2=merge-base: extract every added/modified non-migration src/ file of the ref (later layers overwrite earlier ones)
   [ -n "$OVERLAY" ] || { echo "D24_OVERLAY is not set: a ref'd code layer cannot be loaded" >&2; exit 1; }
-  local f
-  for f in $(git diff --name-only --diff-filter=AM --end-of-options "$2" "$1" -- src | grep -v '/migrations/'); do
+  local f list
+  list=$(git diff --no-renames --name-only --diff-filter=AM --end-of-options "$2" "$1" -- src) || { echo "git diff failed for overlay of $1" >&2; exit 1; }
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    case "$f" in */migrations/*) continue ;; esac
     mkdir -p "$OVERLAY/$(dirname "$f")"
     git show --end-of-options "$1:$f" > "$OVERLAY/$f" || { echo "cannot extract $f from $1" >&2; exit 1; }
-  done
+  done <<< "$list"
 }
 for layer in m3a m3b m3c; do
   ref=${REFS[$layer]:-}
@@ -146,8 +149,8 @@ for layer in m3a m3b m3c; do
     sha=$(git rev-parse --verify --quiet --end-of-options "$ref^{commit}") || { echo "unknown git ref for $layer: $ref" >&2; exit 1; }
     mb=$(git merge-base "$sha" HEAD) || { echo "no merge-base for $layer ($ref) with HEAD" >&2; exit 1; }
     case $layer in
-      m3a) files=$(git diff --name-only --diff-filter=A --end-of-options "$mb" "$sha" -- "$MIG" | grep -E '/20270208[0-9]{6}_.*\.sql$' | grep -v '/rollback/' | sort) ;;
-      m3c) files=$(git diff --name-only --diff-filter=A --end-of-options "$mb" "$sha" -- "$MIG" | grep -v '/rollback/' | awk -F/ '{v=substr($NF,1,14)} v >= "20270209000000"' | sort) ;;
+      m3a) files=$(git diff --no-renames --name-only --diff-filter=A --end-of-options "$mb" "$sha" -- "$MIG" | grep -E '/20270208[0-9]{6}_.*\.sql$' | grep -v '/rollback/' | sort) ;;
+      m3c) files=$(git diff --no-renames --name-only --diff-filter=A --end-of-options "$mb" "$sha" -- "$MIG" | grep -v '/rollback/' | awk -F/ '{v=substr($NF,1,14)} v >= "20270209000000"' | sort) ;;
     esac
     [ "$layer" = m3a ] && [ -z "$files" ] && { echo "m3a: no 20270208 migration on $ref" >&2; exit 1; }
     [ "$layer" = m3b ] && ! git cat-file -e "$sha:src/lib/payments/hostedInvoice/create.ts" 2>/dev/null && { echo "m3b: $ref has no src/lib/payments/hostedInvoice/create.ts" >&2; exit 1; }

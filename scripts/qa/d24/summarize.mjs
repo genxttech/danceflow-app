@@ -19,5 +19,5 @@ for (const file of report.testResults) {
 }
 console.log(`\nD24 acceptance: PASS=${pass} FAIL=${fail} BLOCKED=${blocked} SUPERSEDED=${superseded}`);
 for (const [s, c] of Object.entries(sections)) console.log(`  ${s}: PASS=${c.PASS} FAIL=${c.FAIL} BLOCKED=${c.BLOCKED}${c.SUPERSEDED ? ` SUPERSEDED=${c.SUPERSEDED}` : ""}`);
-const bad = fail > 0 || pass + fail === 0 || report.numFailedTestSuites > 0 || (process.env.D24_FAIL_ON_BLOCKED === "1" && blocked > 0);
+const bad = fail > 0 || pass + fail === 0 || report.numFailedTestSuites > 0 || (process.env.D24_FAIL_ON_BLOCKED === "1" && blocked + superseded > 0);
 process.exit(bad ? 1 : 0);

@@ -587,7 +587,7 @@ suite("H. evidence integrity and scope", () => {
   });
   it("H3 the D24 schema (M1 plus loaded layers) creates only hosted_* tables on top of the reconstructed base: no settlement, ledger, refund or credit table exists to be written", async () => {
     const extra = has("m3c") ? " and table_name not in ('clients','appointments','events','payments') and table_name not like 'studio\_client\_invoice%'" : "";   // M3-C adds its business-object tables; clients/appointments/events/payments are reconstructed base stubs
-    expect(await q(`select coalesce(string_agg(table_name, ',' order by table_name),'') from information_schema.tables where table_schema='public' and table_name not like 'hosted\_%' and table_name not in ('studios','payment_provider_events','studio_invoices','profiles','user_studio_roles','qa_event_fee')${extra}`)).toBe("");
+    expect(await q(`select coalesce(string_agg(table_name, ',' order by table_name),'') from information_schema.tables where table_schema='public' and table_name not like 'hosted\\_%' and table_name not in ('studios','payment_provider_events','studio_invoices','profiles','user_studio_roles','qa_event_fee')${extra}`)).toBe("");
   });
 });
 
