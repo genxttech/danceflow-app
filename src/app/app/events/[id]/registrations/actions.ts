@@ -562,6 +562,9 @@ async function ensureClientInStudio(params: {
   return client ?? null;
 }
 
+/** The payment row WAS inserted but copying the Stripe identity onto it failed: the sale exists, so callers must not undo it. */
+class EventPaymentIdentityCopyError extends Error {}
+
 async function logEventPayment(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   registration: RegistrationRow;
@@ -617,7 +620,7 @@ async function logEventPayment(params: {
       .is("stripe_payment_intent_id", null);
 
     if (identityError) {
-      throw new Error(identityError.message);
+      throw new EventPaymentIdentityCopyError(identityError.message);
     }
   }
 }
@@ -1127,6 +1130,9 @@ async function claimRegistrationPaid(params: {
     .eq("id", params.registrationId)
     .eq("event_id", params.eventId)
     .or("payment_status.is.null,payment_status.neq.paid")
+    // Re-checked IN the claim (not only on the earlier read): a refund or cancellation that lands in between must win.
+    .neq("payment_status", "refunded")
+    .not("status", "in", "(cancelled,canceled,refunded)")
     .select("id");
 
   if (error) throw new Error(error.message);
@@ -2111,6 +2117,8 @@ export async function markEventRegistrationPaidAction(formData: FormData) {
           stripePaymentIntentId: registration.stripe_payment_intent_id,
         });
       } catch (paymentError) {
+        // The payment row exists (only the optional Stripe identity copy failed): keep the sale, report the failure.
+        if (paymentError instanceof EventPaymentIdentityCopyError) throw paymentError;
         // The claim must not leave a paid registration without its payment row: put the registration back as it was.
         await releaseRegistrationPaidClaim({
           supabase,
@@ -2121,6 +2129,21 @@ export async function markEventRegistrationPaidAction(formData: FormData) {
           confirmedByClaim: registration.status === "pending",
         });
         throw paymentError;
+      }
+    }
+
+    // A claim that matched no row means either an earlier request already marked it paid (success, nothing to record) or the
+    // update was silently filtered out (row-level security, or a refund/cancellation won the race). Never report success for
+    // the second case: re-read and verify the registration really is paid.
+    if (!claimed) {
+      const { data: verify } = await supabase
+        .from("event_registrations")
+        .select("payment_status")
+        .eq("id", registrationId)
+        .eq("event_id", eventId)
+        .maybeSingle<{ payment_status: string | null }>();
+      if ((verify?.payment_status ?? "").trim().toLowerCase() !== "paid") {
+        throw new Error("mark_paid_not_applied");
       }
     }
 

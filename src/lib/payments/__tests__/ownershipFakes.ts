@@ -143,6 +143,17 @@ export function createOwnershipFakeSupabase(
         );
         return builder;
       },
+      neq: (column: string, value: unknown) => {
+        filters.push((row) => row[column] != null && row[column] !== value);
+        return builder;
+      },
+      // PostgREST not(col, "in", "(a,b)")
+      not: (column: string, operator: string, value: string) => {
+        if (operator !== "in") throw new Error(`ownership fake: unsupported not() operator ${operator}`);
+        const list = value.replace(/^[(]|[)]$/g, "").split(",");
+        filters.push((row) => !list.includes(String(row[column])));
+        return builder;
+      },
       is: (column: string, value: unknown) => {
         filters.push((row) => (row[column] ?? null) === value);
         return builder;

@@ -174,3 +174,88 @@ describe("markEventRegistrationPaidAction: atomic and status-guarded", () => {
     expect(paymentRows()).toHaveLength(0);
   });
 });
+
+/** A chainable builder that resolves with the given result whatever is chained (PostgREST-style, thenable). */
+function chainResolving(result: { data: unknown; error: unknown }): unknown {
+  const sink: unknown = new Proxy(() => undefined, {
+    get: (_target, prop) => (prop === "then" ? (resolve: (v: unknown) => unknown) => resolve(result) : () => sink),
+    apply: () => sink,
+  });
+  return sink;
+}
+
+/**
+ * Review hardening (#396): a claim that matches no row must never be reported as success unless the registration really is
+ * paid; a refund or cancellation that lands between the read and the claim wins; and a failed optional Stripe-identity copy
+ * after the payment row exists must not undo the sale.
+ */
+describe("markEventRegistrationPaidAction: claim edge cases", () => {
+  it("an update silently filtered out (e.g. row-level security) is NOT reported as success and records nothing", async () => {
+    seed({});
+    const realFrom = state.user.client.from;
+    state.user.client.from = ((table: string) => {
+      const builder = realFrom(table) as Record<string, unknown>;
+      return table === "event_registrations" ? { ...builder, update: () => chainResolving({ data: [], error: null }) } : builder;
+    }) as typeof state.user.client.from;
+    expect(await markPaid()).toContain("error=mark_paid_failed");
+    expect(registration()).toMatchObject({ status: "pending", payment_status: "pending" });
+    expect(paymentRows()).toHaveLength(0);
+  });
+
+  it("a refund that lands between the read and the claim wins: nothing is marked paid or recorded", async () => {
+    seed({});
+    const realFrom = state.user.client.from;
+    state.user.client.from = ((table: string) => {
+      const builder = realFrom(table) as Record<string, unknown>;
+      if (table !== "event_registrations") return builder;
+      const realUpdate = builder.update as (value: Record<string, unknown>) => unknown;
+      return {
+        ...builder,
+        update: (value: Record<string, unknown>) => {
+          // the refund commits just before our conditional update runs
+          if (value.payment_status === "paid") state.user.tables.event_registrations[0].payment_status = "refunded";
+          return realUpdate(value);
+        },
+      };
+    }) as typeof state.user.client.from;
+    expect(await markPaid()).toContain("error=mark_paid_failed");
+    expect(registration()).toMatchObject({ payment_status: "refunded" });
+    expect(paymentRows()).toHaveLength(0);
+  });
+
+  it("a cancellation that lands between the read and the claim wins", async () => {
+    seed({});
+    const realFrom = state.user.client.from;
+    state.user.client.from = ((table: string) => {
+      const builder = realFrom(table) as Record<string, unknown>;
+      if (table !== "event_registrations") return builder;
+      const realUpdate = builder.update as (value: Record<string, unknown>) => unknown;
+      return {
+        ...builder,
+        update: (value: Record<string, unknown>) => {
+          if (value.payment_status === "paid") state.user.tables.event_registrations[0].status = "cancelled";
+          return realUpdate(value);
+        },
+      };
+    }) as typeof state.user.client.from;
+    expect(await markPaid()).toContain("error=mark_paid_failed");
+    expect(registration()).toMatchObject({ status: "cancelled", payment_status: "pending" });
+    expect(paymentRows()).toHaveLength(0);
+  });
+
+  it("if only the optional Stripe-identity copy fails, the payment row and the paid state are kept (no orphan, no second row on retry)", async () => {
+    seed({});
+    state.user.tables.event_registrations[0].stripe_payment_intent_id = "pi_identity";
+    const realAdminFrom = state.admin.client.from;
+    state.admin.client.from = ((table: string) => {
+      const builder = realAdminFrom(table) as Record<string, unknown>;
+      return table === "event_payments" ? { ...builder, update: () => chainResolving({ data: null, error: { message: "identity copy failed" } }) } : builder;
+    }) as typeof state.admin.client.from;
+    expect(await markPaid()).toContain("error=mark_paid_failed");
+    expect(registration()).toMatchObject({ status: "confirmed", payment_status: "paid" });
+    expect(paymentRows()).toHaveLength(1);
+    // the operator retries: already paid, so success and still exactly one payment row
+    expect(await markPaid()).toContain("success=registration_paid");
+    expect(paymentRows()).toHaveLength(1);
+  });
+});
