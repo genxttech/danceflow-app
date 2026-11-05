@@ -921,7 +921,7 @@ describe("M3-MATRIX. owner recovery matrix (offline fixtures only)", () => {
     expect(await attach(PLAT, "aal2", ACCT_A)).not.toMatch(/^ERR/);
     expect(await intentRow(ra.intentId!)).toBe(`registered/${(await q(`select attempt_count from public.hosted_invoice_creation_intents where id='${ra.intentId}'`))}/${inv}`);
     expect(await registryOf(inv)).toMatch(new RegExp(`^${SA}/${ACCT_A}/event_fee/`));
-    expect(await q(`select count(*) from public.hosted_invoice_creation_intent_events where intent_id='${ra.intentId}' and event_kind='registered' and actor_user_id='${PLAT}'`)).toBe("1");
+    expect(await q(`select count(*) from public.hosted_invoice_creation_intent_events where intent_id='${ra.intentId}' and event_kind='operator_attached' and actor_user_id='${PLAT}' and from_status='needs_review' and to_status='registered'`)).toBe("1");
     expect(a.stripe.createCount).toBe(1);   // reconciliation never replayed the create
     // B: needs_review with NO provider invoice: abandon allowed for a platform admin at AAL2 only
     const b = ctx();
