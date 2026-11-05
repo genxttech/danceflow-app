@@ -57,3 +57,10 @@ run() now logs "NO VERDICT" when a suite prints neither SUITE PASS nor SUITE FAI
 
 ## Still not verified
 A3 lock-probe script ("cannot create a3probe"; U61 lock-probe part), owner A3/A4 harness, unchanged from earlier reports. Kong 502 fault on the QA stack is tracked separately and is not fixed.
+
+## Integration-3 re-run (2026-11-05)
+Tree: cf1/integration-3 (no PR), local production build, local QA stack only.
+- Browser r40 (full pass): 16 passed, 1 failed (SCN-X1), 2 skipped (SCN-R82 no UI; X2 not run after X1). X1 failure: upstream 502 on the second manager's results page ("invalid response from upstream server", Kong keepalive flake, not a product defect).
+- r41 (X1+X2 rerun): X1 PASS; X2 failed on another upstream 502. r42 (X2 alone): X2 PASS. X1 and X2 therefore each pass, but not in one uninterrupted run; the Kong 502 fix remains open.
+- Full-chain SQL/concurrency on a quiet machine: 0 suites without verdict, 0 failed. Concurrency A0 (U54 apply under lock_timeout, U8 retry), A6, A2, A5, A7, A4 PASS. The earlier A0 failure (U54 R6 / U8 retry) occurred while an npm ci and build were running and did not reproduce: classified as load flake.
+- A3 concurrency: NOT VERIFIED (lock-probe script cannot create a3probe), unchanged; the runner counts it as one unverified concurrency script.
