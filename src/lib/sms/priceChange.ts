@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
  * D4-1: dual-controlled SMS price changes, application side. A thin, typed, SERVER-ONLY wrapper over `tw4_price_propose` / `tw4_price_approve` / `tw4_price_reject` /
- * `tw4_price_requests_list` (migration 20270204090000). These functions are executable by the authenticated role only and take the identity from the CALLER'S OWN verified
+ * `tw4_price_requests_list` (migration 20270208090000). These functions are executable by the authenticated role only and take the identity from the CALLER'S OWN verified
  * session (auth.uid(), aal2, a recent authenticator code): there is no actor argument and the service-role key is never used on this path. The client passed in must
  * therefore be the USER-scoped client of the signed-in administrator, never the admin client. The caller (a server action or page) has already run requirePlatformAdmin and,
  * for a write, requirePlatformStepUp; the database checks the session, the protected approver registry, the separation of duties and every state rule again. Reads never

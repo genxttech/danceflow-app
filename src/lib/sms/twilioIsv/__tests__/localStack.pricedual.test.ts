@@ -1,5 +1,5 @@
 /**
- * D4-1: dual-controlled SMS price changes (migration 20270204090000), on a throwaway DEV-equivalent database with synthetic administrators.
+ * D4-1: dual-controlled SMS price changes (migration 20270208090000), on a throwaway DEV-equivalent database with synthetic administrators.
  * Cast (wpd4Helpers): A, B platform administrators; C not an administrator; D administrator (session assurance is the action layer's job, see localStack.wpd4actions
  * and localStack.pricedualactions); E deactivated administrator; F a third administrator; G administrator whose auth user is banned.
  *
@@ -50,7 +50,7 @@ const mkAdmin = (label: string): string => {
   psql(registerApproverSql(u));
   return u;
 };
-const rollbackSql = () => readFileSync(join(__dirname, "..", "..", "..", "supabase", "migrations", "rollback", "20270204090000_twilio_price_dual_control_rollback.sql"), "utf8");
+const rollbackSql = () => readFileSync(join(__dirname, "..", "..", "..", "supabase", "migrations", "rollback", "20270208090000_twilio_price_dual_control_rollback.sql"), "utf8");
 
 describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic administrators)", () => {
   beforeAll(() => {
@@ -626,7 +626,7 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
 
   describe("fail-closed rollback and recovery (executed inside transactions that are rolled back)", () => {
     const strip = (s: string) => s.replace(/^begin;\s*$/m, "").replace(/^commit;\s*$/m, "");
-    const forwardSql = () => readFileSync(join(__dirname, "..", "..", "..", "supabase", "migrations", "20270204090000_twilio_price_dual_control.sql"), "utf8");
+    const forwardSql = () => readFileSync(join(__dirname, "..", "..", "..", "supabase", "migrations", "20270208090000_twilio_price_dual_control.sql"), "utf8");
     const noSingleAdmin = `
       if has_function_privilege('service_role', 'public.tw4_price_set(text,integer,integer,text,uuid)', 'execute') then raise exception 'RB: service_role can still execute tw4_price_set'; end if;
       begin perform public.tw4_price_set('number', 1, 1, 'single admin attempt', '${A}'); raise exception 'RB: tw4_price_set published'; exception when sqlstate 'TW042' then null; end;

@@ -1,7 +1,7 @@
 /**
  * D4-1 shared price fixture for the localStack suites. LOCAL QA DATABASE ONLY: every statement below asserts the tw4_local_qa_only marker table inside the SQL itself.
  *
- * Since migration 20270204090000 a price is published ONLY by an approved dual-control price change. The public functions (tw4_price_propose / approve / reject) take the
+ * Since migration 20270208090000 a price is published ONLY by an approved dual-control price change. The public functions (tw4_price_propose / approve / reject) take the
  * identity from the caller's own aal2 JWT, so a suite that runs as the database owner uses the internal _tw4price_do_* functions (nobody else can execute them) with
  * explicit actors. `seedPrice` does what production does in one transaction: one registered platform administrator proposes and a DIFFERENT one approves. The suite's own
  * administrator is the APPROVER (the price row is created_by that administrator, as before); a dedicated fixture administrator is the REQUESTER and is demoted again in the
