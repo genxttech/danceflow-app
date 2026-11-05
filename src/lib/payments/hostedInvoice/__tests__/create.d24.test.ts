@@ -476,7 +476,7 @@ describe("webhook before registration (offline signed fixture)", () => {
     const secret = "whsec_d24_m3b_synthetic";
     const payload = JSON.stringify({ id: "evt_1", object: "event", type: "invoice.paid", account: ACCT_B, livemode: false, data: { object: { id: r.stripeInvoiceId, object: "invoice", metadata: { studio_id: STUDIO_B }, status: "paid" } } });
     const offline = new Stripe("sk_test_d24_not_a_real_key");
-    const header = offline.webhooks.generateTestHeaderString({ payload, secret });
+    const header = offline.webhooks.generateTestHeaderString({ payload, secret } as Parameters<typeof offline.webhooks.generateTestHeaderString>[0]);
     expect(offline.webhooks.constructEvent(payload, header, secret).type).toBe("invoice.paid");
     expect(() => offline.webhooks.constructEvent(payload, header, "whsec_wrong")).toThrow();
     expect(Object.keys(r)).not.toContain("paid");

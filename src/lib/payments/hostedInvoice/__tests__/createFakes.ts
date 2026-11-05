@@ -182,7 +182,7 @@ export class FakeStore implements IntentStore {
     this.claims.granted++;
     return out("replay_permitted");
   }
-  async flagReview(i: { intentId: string; reasonCode: string }) {
+  async flagReview(i: { intentId: string; studioId?: string; reasonCode: string }) {
     this.log.push(`review:${i.reasonCode}`);
     if (this.flagFail) return false;
     const r = this.rows.get(i.intentId);
