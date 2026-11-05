@@ -577,7 +577,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
 
   it("PA-16 monitoring interface: security events are emitted into studio_sms_price_security_events when that table exists (no secrets); a monitoring suspension is lifted ONLY by this schema's hardware-key thaw (a pricing_resumed row in the events table lifts nothing); the second channel carries the fingerprint; emit fails loudly once monitoring is expected", () => {
     clear();
-    // the table belongs to the monitoring migration (20270205090000); a minimal stand-in with the same columns proves the conditional emit
+    // the table belongs to the monitoring migration (20270208110000); a minimal stand-in with the same columns proves the conditional emit
     psql(`create table public.studio_sms_price_security_events (seq bigint generated always as identity primary key, kind text not null, occurred_at timestamptz not null default clock_timestamp(), subject_user_id uuid null, detail jsonb not null default '{}'::jsonb, recorded_at timestamptz not null default clock_timestamp())`);
     try {
       const kinds = () => rows<{ kind: string }>("select kind from public.studio_sms_price_security_events order by seq").map((r) => r.kind);

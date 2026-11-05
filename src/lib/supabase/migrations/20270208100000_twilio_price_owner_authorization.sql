@@ -1179,8 +1179,8 @@ as $$
   from (select * from public.studio_sms_price_audit x where x.id > coalesce(p_after, 0) order by x.id limit least(greatest(coalesce(p_limit, 200), 1), 1000)) a;
 $$;
 -- ---------------------------------------------------------------------------------------------------------------
--- monitoring interface (workstream #391): security events are emitted into studio_sms_price_security_events WHEN that table exists (migration 20270205090000 creates it; the order on
--- the chain is 20270208090000, 20270208100000, then 20270205090000, so every emit is conditional and a missing table is simply a no-op). The same events are always in the
+-- monitoring interface (workstream #391): security events are emitted into studio_sms_price_security_events WHEN that table exists (migration 20270208110000 creates it; the order on
+-- the chain is 20270208090000, 20270208100000, then 20270208110000, so every emit is conditional and a missing table is simply a no-op). The same events are always in the
 -- local immutable audit (studio_sms_price_audit). No secrets in any detail: roles, labels, reasons, counts, never keys, challenges, tokens or credential ids.
 -- ---------------------------------------------------------------------------------------------------------------
 create or replace function public._tw4price_emit(p_kind text, p_subject uuid, p_detail jsonb)
@@ -1189,7 +1189,7 @@ set search_path = pg_catalog, public, pg_temp
 as $$
 begin
   if to_regprocedure('public._tw4pricemon_emit_event(text,uuid,jsonb)') is not null then
-    -- the monitoring workstream's owner-level emitter (20270205090000): seq and timestamps are assigned by the database, the kind is validated there
+    -- the monitoring workstream's owner-level emitter (20270208110000): seq and timestamps are assigned by the database, the kind is validated there
     perform public._tw4pricemon_emit_event(p_kind, p_subject, coalesce(p_detail, '{}'::jsonb));
   elsif to_regclass('public.studio_sms_price_security_events') is not null then
     execute 'insert into public.studio_sms_price_security_events (kind, subject_user_id, detail) values ($1, $2, $3)' using p_kind, p_subject, coalesce(p_detail, '{}'::jsonb);
