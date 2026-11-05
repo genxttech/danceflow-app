@@ -67,6 +67,13 @@ export function createTerminalFakeDb(seed: Record<string, Row[]>, rpcHandlers: R
         filters.push((row) => row[column] !== value);
         return builder;
       },
+      // PostgREST not(col, "in", "(a,b)")
+      not: (column: string, operator: string, value: string) => {
+        if (operator !== "in") throw new Error(`unsupported not() operator ${operator}`);
+        const list = value.replace(/^[(]|[)]$/g, "").split(",");
+        filters.push((row) => !list.includes(String(row[column])));
+        return builder;
+      },
       is: (column: string, value: unknown) => {
         filters.push((row) => (value === null ? row[column] == null : row[column] === value));
         return builder;
