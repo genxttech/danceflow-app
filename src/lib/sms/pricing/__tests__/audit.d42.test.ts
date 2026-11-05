@@ -24,6 +24,7 @@ describe("D4-2 audit: event kinds from the authorization workstream", () => {
     expect(ev("credential_revocation_accepted")).toMatchObject({ code: "credential_revocation_accepted", severity: "warning" });
     expect(ev("event_emit_failed")).toMatchObject({ code: "event_emit_failed", severity: "critical" });
     expect(ev("credential_compromise_reported").severity).toBe("critical");
+    expect(ev("price_proposed")).toMatchObject({ code: "price_proposed", severity: "info" });
     expect(ev("price_integrity_failure")).toMatchObject({ code: "price_integrity_failure", severity: "critical" });
     expect(ev("price_authorization_started")).toMatchObject({ code: "price_authorization_started", severity: "info" });
   });

@@ -1,5 +1,5 @@
 /**
- * D4-2 security audit of migration 20270205090000 against a REAL schema (failing-first: each test below was written before the fix it pins).
+ * D4-2 security audit of migration 20270208110000 against a REAL schema (failing-first: each test below was written before the fix it pins).
  * LOCAL QA ONLY (dedicated Postgres, public.tw4_local_qa_only):
  *   node scripts/qa/tw4f/run-chain.mjs suites --suite localStack.d42audit --extra-branch claude/d4-2-price-monitoring --env ISO_QA_MARKER=1 --env TW4RFL_DB=postgres
  * Each suite runs on a fresh clone of the applied chain, so the evidence and event tables start empty.

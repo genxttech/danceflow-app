@@ -1,4 +1,4 @@
--- Rollback of 20270205090000_twilio_price_monitor.sql. REFUSES while evidence or security-event rows exist (they are permanent evidence): export them first.
+-- Rollback of 20270208110000_twilio_price_monitor.sql. REFUSES while evidence or security-event rows exist (they are permanent evidence): export them first.
 -- Roll the application back first (the monitor routes), then run this.
 begin;
 set local lock_timeout = '5s';

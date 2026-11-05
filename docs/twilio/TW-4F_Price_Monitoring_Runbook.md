@@ -1,6 +1,6 @@
 # TW-4F price-integrity monitoring and alert path (D4-2) - runbook
 
-Status: Git only. Nothing is applied to a hosted database, nothing is deployed, the routes are NOT registered in `vercel.json`, no provider was called. Migration `20270205090000_twilio_price_monitor.sql` (rollback in `rollback/`) is local-QA proven only.
+Status: Git only. Nothing is applied to a hosted database, nothing is deployed, the routes are NOT registered in `vercel.json`, no provider was called. Migration `20270208110000_twilio_price_monitor.sql` (rollback in `rollback/`) is local-QA proven only.
 
 This monitor DETECTS and ALERTS. It never publishes, repairs, rolls back or overwrites a price. Preventing an unauthorized price change is D4-1's job (dual control, PR #384); this is the second line that tells the business owner when prevention failed, was bypassed, or its credentials may be compromised.
 
@@ -115,22 +115,22 @@ Not detected: anything by the database owner / superuser who also controls the h
 
 ## 9. What the authorization workstream (D4-1, PR #384) must provide
 
-1. `tw4_price_verify(p_since timestamptz)` returning `{ok, anomalies[], checked_at}` with codes `price_unattested`, `request_anomaly`, `several_active_prices` (as in `20270204090000`). New codes are classified as `verification_failure` until `classify.ts` learns them.
+1. `tw4_price_verify(p_since timestamptz)` returning `{ok, anomalies[], checked_at}` with codes `price_unattested`, `request_anomaly`, `several_active_prices` (as in `20270208090000`). New codes are classified as `verification_failure` until `classify.ts` learns them.
 2. Event emission: SECURITY DEFINER functions (owner-owned) inserting into `studio_sms_price_security_events` (`kind`, `subject_user_id`, `detail` without secrets) for: `credential_compromise_reported`, `credential_replaced` / `mfa_factor_changed` / `approver_credential_replaced`, `approver_registry_changed` / `approver_added` / `approver_removed`, `pricing_suspended`, `pricing_resumed`. Unknown kinds alert as warnings.
 3. Enforcement of the suspension: propose / approve refuse while the latest suspension event is `pricing_suspended` (read the same table).
-4. A migration order of `20270204090000` then `20270205090000`; this migration has no dependency on D4-1 objects, but the QA chain and `tw4_price_verify` do.
+4. A migration order of `20270208090000` then `20270208110000`; this migration has no dependency on D4-1 objects, but the QA chain and `tw4_price_verify` do.
 5. Its document updates should point to this runbook for the scheduled alert (replacing "alert wiring" as not shipped).
 
 ## 10. Activation prerequisites (all need explicit owner authorization)
 
-Apply `20270205090000` to the target database (after `20270204090000`); create the environment values in the owner scope; set `SMS_PRICE_MONITOR=on` and `CRON_SECRET`; register the two cron entries; a real end-to-end test with the owner's destination and a deliberately forged row on a non-production database; configure the dead-man service; decide on the dedicated database role.
+Apply `20270208110000` to the target database (after `20270208090000`); create the environment values in the owner scope; set `SMS_PRICE_MONITOR=on` and `CRON_SECRET`; register the two cron entries; a real end-to-end test with the owner's destination and a deliberately forged row on a non-production database; configure the dead-man service; decide on the dedicated database role.
 
 ## 11. Local proof
 
 - Unit tests: `src/lib/sms/pricing/__tests__/monitor.d42.test.ts` (fake DB and fake transports, no network).
 - Docker DB tests: `src/lib/sms/pricing/__tests__/localStack.d42monitor.test.ts` through `scripts/qa/tw4f/run-chain.mjs` (chain with D4-1 and D4-2 migrations, apply / rollback / re-apply fingerprints; monitor running as `service_role`).
 
-## 12. Security audit of migration 20270205090000 (D4-2 follow-up)
+## 12. Security audit of migration 20270208110000 (D4-2 follow-up)
 
 Findings, each with a failing-first test in `localStack.d42audit.test.ts` (it failed 8 of 9 against the first version of the migration) and fixed in the migration:
 

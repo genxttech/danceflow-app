@@ -16,6 +16,7 @@ export type FindingCode =
   | "credential_revocation_accepted" // security event: a credential revocation was accepted
   | "credential_recovery_used" // security event: a recovery path was USED (critical)
   | "recovery_enrollment_started" // security event: enrolment of a recovery path started (critical)
+  | "price_proposed" // security event: a price change was proposed (notice)
   | "price_authorization_started" // security event: a price authorization began (notice; carries a 16-hex fingerprint of the signed hash for the second channel)
   | "price_integrity_failure" // security event: the pricing side detected an integrity failure (critical)
   | "event_emit_failed" // security event: the pricing side could not emit / deliver an event (critical)
@@ -37,8 +38,8 @@ export type Finding = { code: FindingCode; severity: Severity; message: string; 
 
 /** Allow-listed database functions. Anything else is refused by the adapter (and by a unit test that scans this directory). */
 export const MONITOR_RPCS = [
-  "tw4_price_verify", // D4-1 (20270204090000), service_role, stable
-  "tw4_price_monitor_digest", // D4-2 (20270205090000)
+  "tw4_price_verify", // D4-1 (20270208090000), service_role, stable
+  "tw4_price_monitor_digest", // D4-2 (20270208110000)
   "tw4_price_monitor_events",
   "tw4_price_monitor_evidence_list",
   "tw4_price_monitor_evidence_append",
@@ -57,7 +58,7 @@ export interface PriceMonitorDb {
 }
 
 /**
- * SECURITY EVENT CONTRACT (table studio_sms_price_security_events, migration 20270205090000). The authorization workstream appends rows from its own SECURITY DEFINER
+ * SECURITY EVENT CONTRACT (table studio_sms_price_security_events, migration 20270208110000). The authorization workstream appends rows from its own SECURITY DEFINER
  * functions (owner-level; no API role can insert). `kind` is snake_case; `detail` is a small JSON object with NO secrets (ids, counts, reasons only).
  * The monitor consumes the feed generically: known kinds map below, unknown kinds alert as `unknown_security_event`.
  */
@@ -75,6 +76,7 @@ export const EVENT_KINDS: Record<string, { code: FindingCode; severity: Severity
   credential_recovery_used: { code: "credential_recovery_used", severity: "critical" },
   recovery_enrollment_started: { code: "recovery_enrollment_started", severity: "critical" },
   event_emit_failed: { code: "event_emit_failed", severity: "critical" },
+  price_proposed: { code: "price_proposed", severity: "info" },
   price_authorization_started: { code: "price_authorization_started", severity: "info" },
   price_integrity_failure: { code: "price_integrity_failure", severity: "critical" },
 };
