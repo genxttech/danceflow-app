@@ -48,7 +48,7 @@ type HeaderOptions = Parameters<typeof realStripe.webhooks.generateTestHeaderStr
 type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 type Res = { ok: boolean; code?: string; retryable?: boolean; intentId?: string; stripeInvoiceId?: string; registryId?: string; adoptedExistingFacts?: boolean; state?: string; livemode?: boolean };
 type FakeStripeT = {
-  invoices: Map<string, Json>; calls: Array<{ op: string; account: string; key: string; params: unknown }>; livemode: boolean; failNext: unknown; failAfterCreate: unknown; prefix: string; createCount: number;
+  invoices: Map<string, Json>; calls: Array<{ op: string; account: string; key: string; params: unknown }>; livemode: boolean; failNext: unknown; failAfterCreate: unknown; loseResponseAfterCreate: unknown; keys: Map<string, unknown>; prefix: string; createCount: number;
   createDraftInvoice(a: Json): Promise<Json>; addInvoiceLines(a: Json): Promise<Json>;
 };
 type Orch = {
@@ -57,7 +57,8 @@ type Orch = {
   sweepRecoverableIntents(deps: Json, opts?: Json): Promise<Json>;
   createSupabaseIntentStore(sb: unknown): Json;
   livemodeFromSecretKey(k: string | null): boolean | null;
-  deriveIdempotencyKey(studioId: string, type: string, objectId: string, requestKey: string, spec: Json): string;
+  deriveIdempotencyKey(studioId: string, type: string, objectId: string, requestKey: string): string;
+  deriveRequestFingerprint(studioId: string, type: string, objectId: string, spec: Json, account: string, livemode: boolean): string;
 };
 type Fakes = { FakeStripe: new () => FakeStripeT; SPEC: Json };
 const overlay = process.env.D24_OVERLAY ?? "";
@@ -144,6 +145,10 @@ const actor = (studioId: string) => ({ verified: true, studioId, userId: USER, c
 const reqOf = (studioId: string, objectId: string, requestKey = `req-${nextId()}-key`) => ({ actor: actor(studioId), businessObjectType: "event_fee", businessObjectId: objectId, requestKey });
 const newObject = async (studio: string) => { const id = `bo-${nextId()}`; await q(`insert into public.qa_event_fee (id, studio_id) values ('${id}','${studio}')`); return id; };
 const must = (r: Res): Res & { stripeInvoiceId: string; intentId: string } => { if (!r.ok) throw new Error(`expected ok, got ${JSON.stringify(r)}`); return r as never; };
+const FP = "a".repeat(64);   // a syntactically valid request fingerprint for direct ledger calls
+// QA-only: backdate created_at (immutable for every API role) by briefly disabling the guard trigger as the superuser; used to cross the safe-retry window without waiting.
+const ageIntent = (id: string, interval: string) =>
+  runSql(`alter table public.hosted_invoice_creation_intents disable trigger hosted_invoice_intents_guard_trg; update public.hosted_invoice_creation_intents set created_at = now() - interval '${interval}' where id='${id}'; alter table public.hosted_invoice_creation_intents enable trigger hosted_invoice_intents_guard_trg;`, null).then((r) => { if (r.error) throw new Error(r.error.message); });
 const crashed = async (p: Promise<unknown>) => { try { await p; return false; } catch { return true; } };
 
 // ---- DB assertions ----
@@ -317,16 +322,18 @@ describe("M3-RECOVERY. crash points and replay (the intent ledger is written BEF
     expect(await regCount(r2.stripeInvoiceId)).toBe("1");
     expect(await intentEvents(r1.intentId!)).toBe("created,provider_created,registered");
   });
-  T(M3, "R2 Stripe succeeds, then the provider_created write fails (error): the intent stays pending and a replay of the same key converges to ONE invoice", async () => {
+  T(M3, "R2 Stripe succeeds, then the provider_created write fails (error): the orchestrator holds the intent in needs_review WITH the invoice id (never silently pending), and a replay of the same key is refused without a Stripe call", async () => {
     const { stripe, deps } = ctx({}, [{ rpc: "d24_intent_mark_provider_created", mode: "error", code: "57014", times: 1 }]);
     const req = reqOf(SA, await newObject(SA));
     const r1 = await orch!.createHostedInvoice(req, deps);
-    expect(r1).toMatchObject({ ok: false, retryable: true });
-    expect(await intentRow(r1.intentId!)).toBe("pending/1/-");
-    const r2 = must(await orch!.createHostedInvoice(req, deps));
+    expect(r1).toMatchObject({ ok: false, retryable: false });
+    const inv = [...stripe.invoices.keys()][0];
+    expect(await q(`select status||'/'||coalesce(stripe_invoice_id,'-') from public.hosted_invoice_creation_intents where id='${r1.intentId}'`)).toBe(`needs_review/${inv}`);
+    const calls = stripe.calls.length;
+    expect(await orch!.createHostedInvoice(req, deps)).toMatchObject({ ok: false, code: "needs_review" });
+    expect(stripe.calls.length).toBe(calls);
     expect(stripe.createCount).toBe(1);
-    expect(await regCount(r2.stripeInvoiceId)).toBe("1");
-    expect(await intentRow(r2.intentId)).toBe(`registered/2/${r2.stripeInvoiceId}`);
+    expect(await regCount(inv)).toBe("0");
   });
   T(M3, "R3 the process CRASHES after the Stripe call and before provider_created is persisted: intent still pending, replay with the same idempotency key converges to one invoice", async () => {
     const { stripe, deps } = ctx({}, [{ rpc: "d24_intent_mark_provider_created", mode: "throw", times: 1 }]);
@@ -356,8 +363,8 @@ describe("M3-RECOVERY. crash points and replay (the intent ledger is written BEF
     const { stripe, deps } = ctx();
     const req = reqOf(SA, await newObject(SA));
     // the app got as far as the ledger and died: perform exactly that step with the key the orchestrator derives
-    const key = orch!.deriveIdempotencyKey(SA, "event_fee", req.businessObjectId, req.requestKey, fakes!.SPEC);
-    const begun = await deps.store.begin({ studioId: SA, createdBy: USER, idempotencyKey: key, businessObjectType: "event_fee", businessObjectId: req.businessObjectId });
+    const key = orch!.deriveIdempotencyKey(SA, "event_fee", req.businessObjectId, req.requestKey);
+    const begun = await deps.store.begin({ studioId: SA, createdBy: USER, idempotencyKey: key, requestFingerprint: orch!.deriveRequestFingerprint(SA, "event_fee", req.businessObjectId, fakes!.SPEC, ACCT_A, false), businessObjectType: "event_fee", businessObjectId: req.businessObjectId });
     expect(begun.ok).toBe(true);
     expect(stripe.calls).toEqual([]);
     expect(await q(`select status from public.hosted_invoice_creation_intents where business_object_id='${req.businessObjectId}'`)).toBe("pending");
@@ -366,14 +373,17 @@ describe("M3-RECOVERY. crash points and replay (the intent ledger is written BEF
     expect(await regCount(r.stripeInvoiceId)).toBe("1");
     expect(await intentRow(r.intentId)).toBe(`registered/2/${r.stripeInvoiceId}`);
   });
-  T(M3, "R6 a retryable Stripe failure leaves the intent pending (object stays blocked); a retry then creates one invoice", async () => {
+  T(M3, "R6 a connection error is an AMBIGUOUS end (the invoice may exist): outcome_unknown is recorded, an app retry does NOT call Stripe, the DB recovery claim replays the original key once", async () => {
     const { stripe, deps } = ctx();
     stripe.failNext = Object.assign(new Error("net"), { type: "StripeConnectionError" });
     const req = reqOf(SA, await newObject(SA));
     const r1 = await orch!.createHostedInvoice(req, deps);
-    expect(r1).toMatchObject({ ok: false, code: "stripe_unavailable", retryable: true });
-    expect(await intentRow(r1.intentId!)).toBe("pending/1/-");
-    must(await orch!.createHostedInvoice(req, deps));
+    expect(r1).toMatchObject({ ok: false, code: "outcome_unknown" });
+    expect(await q(`select status||'/'||outcome_unknown::text from public.hosted_invoice_creation_intents where id='${r1.intentId}'`)).toBe("pending/true");
+    const calls = stripe.calls.length;
+    expect(await orch!.createHostedInvoice(req, deps)).toMatchObject({ ok: false, code: "outcome_unknown" });
+    expect(stripe.calls.length).toBe(calls);
+    must(await orch!.resumeIntent(r1.intentId!, { system: "d24_recovery" }, deps));
     expect(stripe.createCount).toBe(1);
   });
   T(M3, "R7 a PERMANENT Stripe rejection fails the intent: no registry row, the object is released for a fresh attempt, error text never leaks", async () => {
@@ -398,17 +408,22 @@ describe("M3-RECOVERY. crash points and replay (the intent ledger is written BEF
     expect(await orch!.resumeIntent(r1.intentId!, { system: "d24_recovery" }, deps)).toMatchObject({ ok: true });
     expect(stripe.createCount).toBe(1);
   });
-  T(M3, "R10 an idempotency key older than the safe window is never re-sent to Stripe (a reused key could create a second invoice): idempotency_window_expired, object stays blocked", async () => {
-    const { stripe, deps } = ctx({}, [{ rpc: "d24_intent_mark_provider_created", mode: "error", code: "57014", times: 1 }]);
+  T(M3, "R10 recovery after the safe-retry window: the intent goes to needs_review and NOTHING is sent to Stripe, even though the fake has PRUNED its idempotency keys (a replay would visibly create a second invoice)", async () => {
+    const { stripe, deps } = ctx();
+    stripe.loseResponseAfterCreate = Object.assign(new Error("timeout"), { type: "StripeConnectionError" });
     const req = reqOf(SA, await newObject(SA));
     const r1 = await orch!.createHostedInvoice(req, deps);
-    expect(await intentRow(r1.intentId!)).toBe("pending/1/-");
-    const late = { ...deps, now: () => Date.now() + 21 * 60 * 60 * 1000 };
+    expect(r1).toMatchObject({ ok: false, code: "outcome_unknown" });
+    expect(stripe.createCount).toBe(1);
+    await ageIntent(r1.intentId!, "13 hours");
+    stripe.keys.clear();   // Stripe has forgotten the key: a replay would now create a SECOND invoice
     const calls = stripe.calls.length;
-    expect(await orch!.createHostedInvoice(req, late)).toMatchObject({ ok: false, code: "idempotency_window_expired" });
-    expect(await orch!.resumeIntent(r1.intentId!, { system: "d24_recovery" }, late)).toMatchObject({ ok: false, code: "idempotency_window_expired" });
+    expect(await orch!.resumeIntent(r1.intentId!, { system: "d24_recovery" }, deps)).toMatchObject({ ok: false, code: "needs_review" });
+    expect(await orch!.createHostedInvoice(req, deps)).toMatchObject({ ok: false, code: "needs_review" });
     expect(stripe.calls.length).toBe(calls);
-    expect(await intentRow(r1.intentId!)).toMatch(/^pending\/\d+\/-$/);
+    expect(stripe.createCount).toBe(1);
+    expect(await q(`select status from public.hosted_invoice_creation_intents where id='${r1.intentId}'`)).toBe("needs_review");
+    expect(await regCount([...stripe.invoices.keys()][0])).toBe("0");
   });
 });
 
@@ -509,7 +524,7 @@ describe("M3-OWNER. ownership, forgery, subscription exclusion and the permissio
   });
   T(["m3a"], "O3 SQL level: the studio's account is resolved INSIDE the database; begin for a studio without an account is refused, and a supplied account is only an assertion", async () => {
     const obj = await newObject(SN);
-    expect((await rpc("d24_intent_begin", { p_studio_id: SN, p_business_object_type: "event_fee", p_business_object_id: obj, p_idempotency_key: `d24inv_${nextId()}_0001`, p_created_by: USER })).error?.code).toBe("42501");
+    expect((await rpc("d24_intent_begin", { p_studio_id: SN, p_business_object_type: "event_fee", p_business_object_id: obj, p_idempotency_key: `d24inv_${nextId()}_0001`, p_request_fingerprint: FP, p_created_by: USER })).error?.code).toBe("42501");
     const inv = `in_${nextId()}`;
     const reg = (studio: string, acct: string | null) => rpc("d24_register_invoice", { p_studio_id: studio, p_stripe_account_id: acct, p_stripe_invoice_id: inv, p_livemode: false, p_business_object_type: "event_fee", p_business_object_id: "bo-x" });
     expect((await reg(SA, ACCT_B)).error?.code).toBe("42501");        // forged account for studio A
@@ -546,7 +561,7 @@ describe("M3-OWNER. ownership, forgery, subscription exclusion and the permissio
     expect(before.startsWith(`${SA}/${ACCT_A}/`)).toBe(true);
     expect(await registryOf(ra.stripeInvoiceId)).toBe(before);
     expect(await regCount(ra.stripeInvoiceId)).toBe("1");
-    expect(await q(`select status from public.hosted_invoice_creation_intents where id='${res.intentId}'`)).toBe("failed");
+    expect(await q(`select status from public.hosted_invoice_creation_intents where id='${res.intentId}'`)).toBe("needs_review");
   });
   T(M3, "O6 livemode forgery both ways: a live response in a test deployment and a test response in a live deployment are refused; the intent fails and nothing is registered", async () => {
     for (const [expected, responseLive] of [[false, true], [true, false]] as const) {
@@ -555,14 +570,14 @@ describe("M3-OWNER. ownership, forgery, subscription exclusion and the permissio
       const obj = await newObject(SA);
       const res = await orch!.createHostedInvoice(reqOf(SA, obj), deps);
       expect(res).toMatchObject({ ok: false, code: "livemode_mismatch" });
-      expect(await q(`select status from public.hosted_invoice_creation_intents where id='${res.intentId}'`)).toBe("failed");
+      expect(await q(`select status from public.hosted_invoice_creation_intents where id='${res.intentId}'`)).toBe("needs_review");
       expect(await q(`select count(*) from public.hosted_invoice_registry r join public.hosted_invoice_creation_intents i on i.stripe_invoice_id=r.stripe_invoice_id where i.id='${res.intentId}'`)).toBe("0");
     }
   });
   T(["m3a"], "O7 SQL level forgery: mark_provider_created refuses a livemode that disagrees with the key mode, a foreign account and a foreign studio; the intent stays pending", async () => {
     const obj = await newObject(SA);
     const key = `d24inv_${nextId()}_forge`;
-    const begun = await rpc("d24_intent_begin", { p_studio_id: SA, p_business_object_type: "event_fee", p_business_object_id: obj, p_idempotency_key: key, p_created_by: USER });
+    const begun = await rpc("d24_intent_begin", { p_studio_id: SA, p_business_object_type: "event_fee", p_business_object_id: obj, p_idempotency_key: key, p_request_fingerprint: FP, p_created_by: USER });
     const id = (begun.data as { intent_id: string }).intent_id;
     const mark = (studio: string, live: boolean, keyLive: boolean, acct: string | null) => rpc("d24_intent_mark_provider_created", { p_intent_id: id, p_studio_id: studio, p_stripe_invoice_id: `in_${nextId()}`, p_livemode: live, p_key_livemode: keyLive, p_stripe_account_id: acct });
     expect((await mark(SA, true, false, ACCT_A)).error?.code).toBe("42501");
@@ -589,7 +604,7 @@ describe("M3-OWNER. ownership, forgery, subscription exclusion and the permissio
       expect(await orch!.createHostedInvoice({ ...reqOf(SA, "bo-sub-1"), businessObjectType: t }, deps)).toMatchObject({ ok: false, code: "subscription_object_refused" });
     }
     expect(stripe.calls).toEqual([]);
-    expect((await rpc("d24_intent_begin", { p_studio_id: SA, p_business_object_type: "event_subscription", p_business_object_id: "bo-sub-2", p_idempotency_key: `d24inv_${nextId()}_sub`, p_created_by: USER })).error?.code).toBe("22023");
+    expect((await rpc("d24_intent_begin", { p_studio_id: SA, p_business_object_type: "event_subscription", p_business_object_id: "bo-sub-2", p_idempotency_key: `d24inv_${nextId()}_sub`, p_request_fingerprint: FP, p_created_by: USER })).error?.code).toBe("22023");
     expect(await ledgerTotals()).toBe(before);
     // a response that carries subscription markers is not a hosted draft: refused, nothing registered
     const mk = ctx();
@@ -606,19 +621,21 @@ describe("M3-OWNER. ownership, forgery, subscription exclusion and the permissio
     expect(await hostedStudio(inv, ACCT_A)).toMatch(/^NULL\/.*\/subscription$/);
     expect(await regCount(inv)).toBe("0");
   });
-  T(["m3a"], "O11 permission matrix (database): anon and authenticated (even a studio owner JWT) cannot execute any intent function, read or write the ledger tables, or call the helpers; service_role can only EXECUTE the six functions", async () => {
+  T(["m3a"], "O11 permission matrix (database): anon and authenticated (even a studio owner JWT) cannot execute any intent function, read or write the ledger tables, or call the helpers; service_role can only EXECUTE the intent functions", async () => {
     const claims = (sub: string) => `select set_config('request.jwt.claims','{"sub":"${sub}","role":"authenticated","aal":"aal2","exp":${Math.floor(Date.now() / 1000) + 3600}}',false) is not null;`;
     const fns = [
-      "d24_intent_begin('" + SA + "','event_fee','x','d24inv_00000000',null)",
+      "d24_intent_begin('" + SA + "','event_fee','x','d24inv_00000000','" + "a".repeat(64) + "',null)",
       "d24_intent_mark_provider_created(gen_random_uuid(),'" + SA + "','in_x',false,false,null)",
       "d24_intent_register(gen_random_uuid(),'" + SA + "')",
       "d24_intent_fail(gen_random_uuid(),'" + SA + "','x',false)",
-      "d24_intent_abandon(gen_random_uuid(),'" + SA + "','x',1500)",
+      "d24_intent_record_outcome(gen_random_uuid(),'" + SA + "','x',false)",
+      "d24_intent_claim_recovery(gen_random_uuid(),'" + SA + "','" + "a".repeat(64) + "',120)",
+      "d24_intent_flag_review(gen_random_uuid(),'" + SA + "','x')",
       "d24_intent_list_recoverable(1,1,null)",
     ];
     for (const role of ["anon", "authenticated"]) {
       for (const f of fns) expect(await as(role, `select public.${f}`)).toMatch(/permission denied/);
-      for (const t of ["hosted_invoice_creation_intents", "hosted_invoice_creation_intent_events", "hosted_invoice_business_object_types"]) {
+      for (const t of ["hosted_invoice_creation_intents", "hosted_invoice_creation_intent_events", "hosted_invoice_business_object_types", "hosted_invoice_creation_attempts"]) {
         expect(await as(role, `select count(*) from public.${t}`)).toMatch(/permission denied/);
       }
     }
@@ -672,10 +689,10 @@ describe("M3-AUDIT. audit integrity and evidence", () => {
   });
   T(["m3a"], "A3 a refused begin (unowned object, no account, malformed input) leaves no intent and no audit event behind", async () => {
     const before = await ledgerTotals();
-    await rpc("d24_intent_begin", { p_studio_id: SA, p_business_object_type: "event_fee", p_business_object_id: "bo-not-mine-" + nextId(), p_idempotency_key: `d24inv_${nextId()}_x1`, p_created_by: USER });
-    await rpc("d24_intent_begin", { p_studio_id: SN, p_business_object_type: "event_fee", p_business_object_id: await newObject(SN), p_idempotency_key: `d24inv_${nextId()}_x2`, p_created_by: USER });
-    await rpc("d24_intent_begin", { p_studio_id: SA, p_business_object_type: "Bad Type", p_business_object_id: "x", p_idempotency_key: "short", p_created_by: USER });
-    await rpc("d24_intent_begin", { p_studio_id: SA, p_business_object_type: "unregistered_type", p_business_object_id: "x", p_idempotency_key: `d24inv_${nextId()}_x3`, p_created_by: USER });
+    await rpc("d24_intent_begin", { p_studio_id: SA, p_business_object_type: "event_fee", p_business_object_id: "bo-not-mine-" + nextId(), p_idempotency_key: `d24inv_${nextId()}_x1`, p_request_fingerprint: FP, p_created_by: USER });
+    await rpc("d24_intent_begin", { p_studio_id: SN, p_business_object_type: "event_fee", p_business_object_id: await newObject(SN), p_idempotency_key: `d24inv_${nextId()}_x2`, p_request_fingerprint: FP, p_created_by: USER });
+    await rpc("d24_intent_begin", { p_studio_id: SA, p_business_object_type: "Bad Type", p_business_object_id: "x", p_idempotency_key: "short", p_request_fingerprint: FP, p_created_by: USER });
+    await rpc("d24_intent_begin", { p_studio_id: SA, p_business_object_type: "unregistered_type", p_business_object_id: "x", p_idempotency_key: `d24inv_${nextId()}_x3`, p_request_fingerprint: FP, p_created_by: USER });
     expect(await ledgerTotals()).toBe(before);
   });
   T(M3, "A4 registration atomicity: if the business object stops belonging to the studio between provider_created and registration, NO registry row appears and the intent stays provider_created (never half-registered)", async () => {
@@ -687,7 +704,7 @@ describe("M3-AUDIT. audit integrity and evidence", () => {
     const r2 = await orch!.resumeIntent(r1.intentId!, { system: "d24_recovery" }, deps);
     expect(r2.ok).toBe(false);
     expect(await regCount(inv)).toBe("0");
-    expect(await q(`select (status in ('provider_created','failed'))::text||'/'||coalesce(registry_id::text,'none') from public.hosted_invoice_creation_intents where id='${r1.intentId}'`)).toBe("true/none");
+    expect(await q(`select (status = 'needs_review')::text||'/'||coalesce(registry_id::text,'none') from public.hosted_invoice_creation_intents where id='${r1.intentId}'`)).toBe("true/none");
     expect(await q(`select count(*) from public.hosted_invoice_creation_intent_events where intent_id='${r1.intentId}' and event_kind='registered'`)).toBe("0");
   });
   T(M3, "A5 no settlement is ever inferred by the creation path: after every scenario above the new D24 invoices have no paid fact the route did not deliver", async () => {
@@ -791,15 +808,14 @@ describe("M2A-CONV. M2-A scenarios converted by M3 (QA-fixture business object)"
   PENDING(["m3c"], "app issues an invoice for the REAL business object (production resolver) -> registry row created atomically with it");
 });
 
-// Owner requirement (recovery matrix 1-10). Offline-fixture based: the fake Stripe models idempotency (same key+params => same invoice; same key + other params => error);
-// NOTHING here proves real Stripe behaviour. Cases 7 and 10 need the M3-A/M3-B heads that add needs_review / outcome_unknown / the request fingerprint / the
-// configurable 12 h window / the recovery claim lease / the authorized reconciliation function; those heads are not published, so those two stay BLOCKED.
+// Owner requirement (recovery matrix 1-10). Offline-fixture based: the fake Stripe models idempotency (same key+params => same invoice; same key + other params => error) and can PRUNE keys;
+// NOTHING here proves real Stripe behaviour.
 describe("M3-MATRIX. owner recovery matrix (offline fixtures only)", () => {
   T(M3, "Q1 crash before the Stripe request (ledger begun, no provider call), recovery via resumeIntent creates exactly one invoice", async () => {
     const { stripe, deps } = ctx();
     const req = reqOf(SA, await newObject(SA));
-    const key = orch!.deriveIdempotencyKey(SA, "event_fee", req.businessObjectId, req.requestKey, fakes!.SPEC);
-    expect((await deps.store.begin({ studioId: SA, createdBy: USER, idempotencyKey: key, businessObjectType: "event_fee", businessObjectId: req.businessObjectId })).ok).toBe(true);
+    const key = orch!.deriveIdempotencyKey(SA, "event_fee", req.businessObjectId, req.requestKey);
+    expect((await deps.store.begin({ studioId: SA, createdBy: USER, idempotencyKey: key, requestFingerprint: orch!.deriveRequestFingerprint(SA, "event_fee", req.businessObjectId, fakes!.SPEC, ACCT_A, false), businessObjectType: "event_fee", businessObjectId: req.businessObjectId })).ok).toBe(true);
     must(await orch!.resumeIntent(await q(`select id::text from public.hosted_invoice_creation_intents where business_object_id='${req.businessObjectId}'`), { system: "d24_recovery" }, deps));
     expect(stripe.createCount).toBe(1);
   });
@@ -812,12 +828,12 @@ describe("M3-MATRIX. owner recovery matrix (offline fixtures only)", () => {
     expect(stripe.createCount).toBe(1);
     expect(await regCount(r.stripeInvoiceId)).toBe("1");
   });
-  T(M3, "Q3 retry with the same key while the failure is retryable: two retryable failures in a row still end in one invoice under one key", async () => {
+  T(M3, "Q3 retry with the same key while the failure is definitively retryable (429, nothing processed): two in a row still end in one invoice under one key", async () => {
     const { stripe, deps } = ctx();
     const req = reqOf(SA, await newObject(SA));
     for (let i = 0; i < 2; i++) {
-      stripe.failNext = Object.assign(new Error("net"), { type: "StripeConnectionError" });
-      expect(await orch!.createHostedInvoice(req, deps)).toMatchObject({ ok: false, retryable: true });
+      stripe.failNext = Object.assign(new Error("slow down"), { type: "StripeRateLimitError", statusCode: 429 });
+      expect(await orch!.createHostedInvoice(req, deps)).toMatchObject({ ok: false, code: "stripe_unavailable", retryable: true });
     }
     must(await orch!.createHostedInvoice(req, deps));
     expect(stripe.createCount).toBe(1);
@@ -830,43 +846,96 @@ describe("M3-MATRIX. owner recovery matrix (offline fixtures only)", () => {
     await expect(stripe.createDraftInvoice({ stripeAccount: ACCT_A, idempotencyKey: call.key, params: { ...(call.params as Json), description: "changed" } })).rejects.toMatchObject({ type: "StripeIdempotencyError" });
     expect(stripe.createCount).toBe(1);
     const key = await q(`select idempotency_key from public.hosted_invoice_creation_intents where id='${first.intentId}'`);
-    const r = await rpc("d24_intent_begin", { p_studio_id: SA, p_business_object_type: "event_fee", p_business_object_id: await newObject(SA), p_idempotency_key: key, p_created_by: USER });
+    const r = await rpc("d24_intent_begin", { p_studio_id: SA, p_business_object_type: "event_fee", p_business_object_id: await newObject(SA), p_idempotency_key: key, p_request_fingerprint: FP, p_created_by: USER });
     expect(r.error?.code).toBe("23505");
   });
-  T(M3, "Q5 FIVE concurrent workers recover ONE stuck intent: exactly one Stripe invoice and one registry row", async () => {
+  T(M3, "Q5 FIVE concurrent workers recover ONE stuck intent: one lease holder replays, the others are told to wait (recovery_in_progress); one Stripe invoice and one registry row", async () => {
     const { stripe, deps } = ctx();
     stripe.failNext = Object.assign(new Error("net"), { type: "StripeConnectionError" });
     const r1 = await orch!.createHostedInvoice(reqOf(SA, await newObject(SA)), deps);
     const rs = await Promise.all(Array.from({ length: 5 }, () => orch!.resumeIntent(r1.intentId!, { system: "d24_recovery" }, deps)));
     expect(rs.some((r) => r.ok)).toBe(true);
-    for (const r of rs) if (!r.ok && r.intentId) await orch!.resumeIntent(r.intentId, { system: "d24_recovery" }, deps);
+    expect(rs.filter((r) => r.ok).length + rs.filter((r) => !r.ok && r.code === "recovery_in_progress").length).toBe(5);
     expect(stripe.createCount).toBe(1);
     expect(await q(`select count(*) from public.hosted_invoice_registry r join public.hosted_invoice_creation_intents i on i.registry_id=r.id where i.id='${r1.intentId}'`)).toBe("1");
     expect(await intentRow(r1.intentId!)).toMatch(/^registered\//);
   });
-  T(M3, "Q6 timeout with UNKNOWN result (the fake created the invoice, the client saw a connection error): intent stays pending, replay with the same key returns the original invoice", async () => {
+  T(M3, "Q6 timeout with UNKNOWN result (the fake created the invoice, the client never saw the response): outcome_unknown, retries do not call Stripe, the DB claim replays the ORIGINAL key and returns the original invoice", async () => {
     const { stripe, deps } = ctx();
-    const create = stripe.createDraftInvoice.bind(stripe);
-    let first = true;
-    stripe.createDraftInvoice = async (a: Json) => { const snap = await create(a); if (first) { first = false; throw Object.assign(new Error("timeout"), { type: "StripeConnectionError" }); } return snap; };
+    stripe.loseResponseAfterCreate = Object.assign(new Error("timeout"), { type: "StripeConnectionError" });
     const req = reqOf(SA, await newObject(SA));
-    expect(await orch!.createHostedInvoice(req, deps)).toMatchObject({ ok: false, code: "stripe_unavailable", retryable: true });
+    const r1 = await orch!.createHostedInvoice(req, deps);
+    expect(r1).toMatchObject({ ok: false, code: "outcome_unknown" });
     expect(stripe.createCount).toBe(1);
-    const r = must(await orch!.createHostedInvoice(req, deps));
+    const calls = stripe.calls.length;
+    expect(await orch!.createHostedInvoice(req, deps)).toMatchObject({ ok: false, code: "outcome_unknown" });
+    expect(stripe.calls.length).toBe(calls);
+    const r = must(await orch!.resumeIntent(r1.intentId!, { system: "d24_recovery" }, deps));
     expect(stripe.createCount).toBe(1);
     expect(await regCount(r.stripeInvoiceId)).toBe("1");
   });
-  PENDING(["m3a-needs-review"], "Q7 recovery AFTER the safe-retry window => needs_review and NO replay (fake Stripe prunes idempotency keys, so a replay would visibly duplicate). Needs the unpublished M3-A/M3-B heads (request fingerprint, configurable 12 h window, needs_review/outcome_unknown). Current heads only REFUSE the replay (idempotency_window_expired, see R10); they do not move the intent to needs_review");
-  T(M3, "Q8 provider invoice exists but registration is permanently refused: the invoice id stays recorded on the failed intent (orphan tracked, not lost), no registry row, no second invoice", async () => {
+  T(M3, "Q7 recovery after the window => needs_review and NO replay, with the fake's keys pruned (same scenario as R10, asserted on the matrix row): the duplicate would be visible", async () => {
+    const { stripe, deps } = ctx();
+    stripe.loseResponseAfterCreate = Object.assign(new Error("timeout"), { type: "StripeConnectionError" });
+    const req = reqOf(SA, await newObject(SA));
+    const r1 = await orch!.createHostedInvoice(req, deps);
+    await ageIntent(r1.intentId!, "13 hours");
+    stripe.keys.clear();
+    expect(await orch!.resumeIntent(r1.intentId!, { system: "d24_recovery" }, deps)).toMatchObject({ ok: false, code: "needs_review" });
+    expect(stripe.createCount).toBe(1);
+  });
+  T(M3, "Q8 provider invoice exists but registration is permanently refused: the intent is held in needs_review WITH the invoice id (orphan tracked, never failed/abandoned), no registry row, no second invoice", async () => {
     const { stripe, deps } = ctx({}, [{ rpc: "d24_intent_register", mode: "error", code: "23505", times: 1 }]);
     const res = await orch!.createHostedInvoice(reqOf(SA, await newObject(SA)), deps);
     expect(res).toMatchObject({ ok: false, retryable: false });
     const inv = [...stripe.invoices.keys()][0];
-    expect(await q(`select status||'/'||coalesce(stripe_invoice_id,'-') from public.hosted_invoice_creation_intents where id='${res.intentId}'`)).toBe(`failed/${inv}`);
+    // an intent that recorded a Stripe invoice id can never become failed: it is held for review WITH the id
+    expect(await q(`select status||'/'||coalesce(stripe_invoice_id,'-') from public.hosted_invoice_creation_intents where id='${res.intentId}'`)).toBe(`needs_review/${inv}`);
     expect(await regCount(inv)).toBe("0");
     expect(stripe.createCount).toBe(1);
   });
-  PENDING(["m3a-needs-review"], "Q10 authorized operator reconciliation of an unresolved creation (needs_review -> registered/failed/abandoned, audited, platform-admin aal2 only). Needs the reconciliation function from the unpublished M3-A head");
+  T(M3, "Q10 operator reconciliation of an unresolved creation (needs_review): studio owner and AAL1 refused, wrong account refused, platform admin at AAL2 with a reason attaches the Stripe-evidenced invoice (registered, audited with the actor); abandon is allowed only for a platform admin when no invoice id is recorded (the operator asserts nothing exists; the ledger cannot know)", async () => {
+    const PLAT = "00000000-0000-0000-0000-0000000d3ad1";
+    const OWN = "00000000-0000-0000-0000-0000000d3ad2";
+    await q(`insert into public.profiles (id, platform_role) values ('${PLAT}','platform_admin'),('${OWN}',null) on conflict do nothing;
+             insert into public.user_studio_roles (user_id, studio_id, role, active) select '${OWN}','${SA}','studio_owner',true where not exists (select 1 from public.user_studio_roles where user_id='${OWN}')`);
+    const asUser = (uid: string, aal: string, sql: string) =>
+      runSql(`select set_config('request.jwt.claims','{"sub":"${uid}","role":"authenticated","aal":"${aal}","exp":${Math.floor(Date.now() / 1000) + 3600}}',false) is not null; ${sql}`, "authenticated").then((r) => (r.error ? `ERR ${r.error.code} ${r.error.message}` : r.out.replace(/^t\n?/, "")));
+    expect(await asUser(PLAT, "aal2", "select (public.d24_op_set_enabled(true, 'enable operator actions for QA'))->>'outcome'")).not.toMatch(/^ERR/);
+    try {
+    // A: unresolved creation WITH a provider invoice (response lost), pushed past the window -> needs_review
+    const a = ctx();
+    a.stripe.loseResponseAfterCreate = Object.assign(new Error("timeout"), { type: "StripeConnectionError" });
+    const ra = await orch!.createHostedInvoice(reqOf(SA, await newObject(SA)), a.deps);
+    await ageIntent(ra.intentId!, "13 hours");
+    expect(await orch!.resumeIntent(ra.intentId!, { system: "d24_recovery" }, a.deps)).toMatchObject({ ok: false, code: "needs_review" });
+    const inv = [...a.stripe.invoices.keys()][0];
+    const attach = (uid: string, aal: string, acct: string, reason = "reconciled with the Stripe dashboard evidence") =>
+      asUser(uid, aal, `select public.d24_op_attach_creation_invoice('${ra.intentId}','${inv}',false,'${acct}','${reason}')::text`);
+    expect(await attach(OWN, "aal2", ACCT_A)).toMatch(/^ERR/);          // a studio owner is not a platform admin
+    expect(await attach(PLAT, "aal1", ACCT_A)).toMatch(/^ERR/);         // AAL1 refused
+    expect(await attach(PLAT, "aal2", ACCT_A, "short")).toMatch(/^ERR/); // reason required
+    expect(await attach(PLAT, "aal2", ACCT_B)).toMatch(/^ERR/);         // supplied account must equal the intent's
+    expect(await q(`select status from public.hosted_invoice_creation_intents where id='${ra.intentId}'`)).toBe("needs_review");
+    expect(await regCount(inv)).toBe("0");
+    expect(await attach(PLAT, "aal2", ACCT_A)).not.toMatch(/^ERR/);
+    expect(await intentRow(ra.intentId!)).toBe(`registered/${(await q(`select attempt_count from public.hosted_invoice_creation_intents where id='${ra.intentId}'`))}/${inv}`);
+    expect(await registryOf(inv)).toMatch(new RegExp(`^${SA}/${ACCT_A}/event_fee/`));
+    expect(await q(`select count(*) from public.hosted_invoice_creation_intent_events where intent_id='${ra.intentId}' and actor_user_id='${PLAT}'`)).not.toBe("0");
+    expect(a.stripe.createCount).toBe(1);   // reconciliation never replayed the create
+    // B: needs_review with NO provider invoice: abandon allowed for a platform admin at AAL2 only
+    const b = ctx();
+    b.stripe.failNext = Object.assign(new Error("net"), { type: "StripeConnectionError" });
+    const rb = await orch!.createHostedInvoice(reqOf(SA, await newObject(SA)), b.deps);
+    await ageIntent(rb.intentId!, "13 hours");
+    expect(await orch!.resumeIntent(rb.intentId!, { system: "d24_recovery" }, b.deps)).toMatchObject({ ok: false, code: "needs_review" });
+    expect(await asUser(OWN, "aal2", `select public.d24_op_abandon_creation('${rb.intentId}','provably nothing exists at Stripe')::text`)).toMatch(/^ERR/);
+    expect(await asUser(PLAT, "aal2", `select public.d24_op_abandon_creation('${rb.intentId}','provably nothing exists at Stripe')::text`)).not.toMatch(/^ERR/);
+    expect(await q(`select status from public.hosted_invoice_creation_intents where id='${rb.intentId}'`)).toBe("abandoned");
+    } finally {   // M2B0 asserts the switch ships OFF: leave it as found
+      await asUser(PLAT, "aal2", "select (public.d24_op_set_enabled(false, 'disable operator actions after QA'))->>'outcome'");
+    }
+  });
 });
 
 // The sweep is global (it resumes EVERY recoverable intent), so it runs last: it must not complete intents other scenarios deliberately leave pending.
