@@ -130,15 +130,24 @@ async function purgeRefundLedgerLocal(eventIds: string[]): Promise<{ error: { me
   }
   if (!eventIds.every((id) => /^[0-9a-f-]{36}$/.test(id))) return { error: { message: "refusing: malformed event id" } };
   const list = eventIds.map((id) => `'${id}'`).join(",");
-  const sql = `begin; set local session_replication_role = replica; delete from public.event_order_refund_allocations where event_id in (${list}); delete from public.event_order_refunds where event_id in (${list}); delete from public.event_competition_scratches where event_id in (${list}); do $$ declare t text; begin for t in select c.table_name from information_schema.columns c where c.table_schema = 'public' and c.column_name = 'event_id' and c.table_name like 'event\\_competition\\_%' loop execute format('delete from public.%I where event_id = any(%L::uuid[])', t, '{${eventIds.join(",")}}'); end loop; end $$; commit;`;
+  // CF1-C harness copy: (1) delete the events themselves as an ordinary session. CF1's history guards (ENABLE ALWAYS) refuse row-by-row
+  // deletes of advancement evidence, and allow only the cascade of deleting the event; (2) the legacy per-table purge under replication
+  // triggers off, tolerant of tables a chain does not have (R2's refund ledger is not in every composed chain). Limitation: R2 #292 absent.
+  const cascade = `delete from public.events where id in (${list});`;
+  const legacy = `begin; set local session_replication_role = replica; delete from public.events where id in (${list}); do $$ begin if to_regclass('public.event_order_refund_allocations') is not null then delete from public.event_order_refund_allocations where event_id in (${list}); end if; if to_regclass('public.event_order_refunds') is not null then delete from public.event_order_refunds where event_id in (${list}); end if; if to_regclass('public.event_competition_scratches') is not null then delete from public.event_competition_scratches where event_id in (${list}); end if; end $$; do $$ declare t text; begin for t in select c.table_name from information_schema.columns c where c.table_schema = 'public' and c.column_name = 'event_id' and c.table_name like 'event\\_competition\\_%' loop execute format('delete from public.%I where event_id = any(%L::uuid[])', t, '{${eventIds.join(",")}}'); end loop; end $$; commit;`;
+  const run = (sql: string) => execFileSync("docker", ["exec", "-i", container, "psql", "-U", "postgres", "-v", "ON_ERROR_STOP=1", "-q", "-c", sql], { stdio: "pipe" });
   try {
-    execFileSync("docker", ["exec", "-i", container, "psql", "-U", "postgres", "-v", "ON_ERROR_STOP=1", "-q", "-c", sql], { stdio: "pipe" });
+    try {
+      run(cascade);
+    } catch {
+      run(legacy);
+    }
     return { error: null };
   } catch (error) {
-    return { error: { message: `local ledger cleanup failed: ${(error as Error).message.split(String.fromCharCode(10))[0]}` } };
+    const text = String((error as { stderr?: Buffer }).stderr ?? (error as Error).message);
+    return { error: { message: `local ledger cleanup failed: ${text.split(String.fromCharCode(10)).slice(0, 3).join(" / ")}` } };
   }
 }
-
 /** Removes the seed and everything the UI created under the run's studio (events cascade to competition rows). */
 export async function cleanupCompetitionFullEventFixture(config: E2EConfig, fixture: CompetitionFullEventFixture | undefined) {
   if (!fixture) return;
