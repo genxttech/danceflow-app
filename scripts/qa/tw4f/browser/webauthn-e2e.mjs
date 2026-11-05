@@ -1,8 +1,8 @@
 // D4-2 REAL-BROWSER WebAuthn run (local only). Chromium (Playwright) with a CDP VIRTUAL authenticator (ctap2 / internal, user verifying) drives the same navigator.credentials
-// calls as PriceAuthorize.tsx / PriceCredentials.tsx against the REAL in-database verifier of migration 20270204100000, through a tiny local HTTP bridge that plays the part of
+// calls as PriceAuthorize.tsx / PriceCredentials.tsx against the REAL in-database verifier of migration 20270208100000, through a tiny local HTTP bridge that plays the part of
 // PostgREST (it sets the verified-claims JSON for a registered administrator and calls the public tw4_price_* functions; it is NOT the Next.js app and NOT GoTrue).
 // Owner-level steps a hosted deployment does by runbook (the bootstrap of the first key, and moving the test DATABASE clock past a delay) are explicit /owner calls.
-// LOCAL DISPOSABLE DOCKER DATABASE ONLY: pass --container <name> of a database with the chain applied (50 main migrations + 20270204090000 + 20270204100000).
+// LOCAL DISPOSABLE DOCKER DATABASE ONLY: pass --container <name> of a database with the chain applied (50 main migrations + 20270208090000 + 20270208100000).
 // No hosted service, no provider secret, no real credential is involved.
 import http from "node:http";
 import { spawnSync } from "node:child_process";

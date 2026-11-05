@@ -1,6 +1,6 @@
 # TW-4F price authorization: design, trust boundary and threat model (D4-2)
 
-Status 2026-10-31. Git only (migration `20270204100000_twilio_price_owner_authorization.sql`, stacked on D4-1 `20270204090000`); nothing is applied to any hosted database. **No residual risk below is accepted.** Each remaining exposure is a named OPEN OWNER DECISION or a named blocker; only the owner can accept a risk. Monitoring and alerting for this surface are built by the monitoring workstream (PR 391; runbook `docs/twilio/TW-4F_Price_Monitoring_Runbook.md`); this document defines the events and interfaces it consumes.
+Status 2026-10-31. Git only (migration `20270208100000_twilio_price_owner_authorization.sql`, stacked on D4-1 `20270208090000`); nothing is applied to any hosted database. **No residual risk below is accepted.** Each remaining exposure is a named OPEN OWNER DECISION or a named blocker; only the owner can accept a risk. Monitoring and alerting for this surface are built by the monitoring workstream (PR 391; runbook `docs/twilio/TW-4F_Price_Monitoring_Runbook.md`); this document defines the events and interfaces it consumes.
 
 Related: `TW-4F_Price_Dual_Control.md` (D4-1 rule, runbooks, rollback), `TW-4F_Price_Dual_Control_Impersonation_Design.md` (earlier analysis), `TW-4F_Price_Limits_Proposal.md` (unapproved limits), `TW-4F_Price_Monitoring_Runbook.md` (PR 391, alerting).
 

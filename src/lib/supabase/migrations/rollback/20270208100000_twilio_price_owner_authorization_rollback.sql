@@ -1,6 +1,6 @@
--- Rollback of 20270204100000 (D4-2: single-owner hardware-key price authorization). Returns the schema to EXACTLY 20270204090000 (the chain check compares it with no residue).
+-- Rollback of 20270208100000 (D4-2: single-owner hardware-key price authorization). Returns the schema to EXACTLY 20270208090000 (the chain check compares it with no residue).
 -- REFUSES (55000) while any owner-mode request, credential, challenge, audit row exists (that is evidence and never destroyed: forward-fix, or freeze publication with tw4_price_freeze),
--- or when one of the guarded functions was replaced by a later slice. Rolling back removes the hardware-key requirement: re-apply 20270204100000 before any owner-mode use.
+-- or when one of the guarded functions was replaced by a later slice. Rolling back removes the hardware-key requirement: re-apply 20270208100000 before any owner-mode use.
 begin;
 set local lock_timeout = '5s';
 
@@ -17,7 +17,7 @@ begin
       ('public._tw4pricedual_guard()', '9e2e81171fa5eab1d608727997ab9f48'),
       ('public._tw4price_activation_guard()', '3363832968848945cddb300f7e87fadd')) as x(sig, h) loop
     if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure(r.sig)) is distinct from r.h then
-      raise exception 'price owner authorization rollback refused: % is no longer the body installed by 20270204100000', r.sig using errcode = '55000';
+      raise exception 'price owner authorization rollback refused: % is no longer the body installed by 20270208100000', r.sig using errcode = '55000';
     end if;
   end loop;
   lock table public.studio_sms_price_change_requests, public.studio_sms_price_credentials, public.studio_sms_price_auth_challenges, public.studio_sms_price_audit, public.studio_sms_price_credential_changes in access exclusive mode;

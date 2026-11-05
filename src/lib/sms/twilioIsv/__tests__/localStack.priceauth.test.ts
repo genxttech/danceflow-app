@@ -1,5 +1,5 @@
 /**
- * D4-2: single-owner high-assurance price authorization (migration 20270204100000) on a throwaway DEV-equivalent database. The WebAuthn assertions come from a SOFTWARE
+ * D4-2: single-owner high-assurance price authorization (migration 20270208100000) on a throwaway DEV-equivalent database. The WebAuthn assertions come from a SOFTWARE
  * authenticator (P-256 test keys, webauthnFixture.ts) and are verified INSIDE Postgres. Sessions are simulated with verified-claims JSON (role authenticated, aal2, TOTP,
  * session_id) exactly as PostgREST hands them to the database; the real-GoTrue variants live in localStack.pricedual.realtokens.
  * LOCAL QA DATABASE ONLY: TW4A_LOCAL_DB_CONTAINER + TW4RFL_DB and the tw4_local_qa_only marker.
@@ -540,11 +540,11 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(psql(`select mode from public.studio_sms_price_auth_config`)).toBe("single_owner");
   });
 
-  it("PA-15 rollback of 20270204100000 is fail closed: it refuses while owner-mode evidence exists; with the evidence removed (visibly, by the owner) it returns the schema to the 20270204090000 bodies, and re-applying restores everything", () => {
-    const rb = strip(migration("rollback/20270204100000_twilio_price_owner_authorization_rollback.sql"));
-    const fwd = strip(migration("20270204100000_twilio_price_owner_authorization.sql"));
+  it("PA-15 rollback of 20270208100000 is fail closed: it refuses while owner-mode evidence exists; with the evidence removed (visibly, by the owner) it returns the schema to the 20270208090000 bodies, and re-applying restores everything", () => {
+    const rb = strip(migration("rollback/20270208100000_twilio_price_owner_authorization_rollback.sql"));
+    const fwd = strip(migration("20270208100000_twilio_price_owner_authorization.sql"));
     expect(codeOf(psqlError(`begin; ${rb} rollback;`))).toBe("55000");
-    const m1 = migration("20270204090000_twilio_price_dual_control.sql");
+    const m1 = migration("20270208090000_twilio_price_dual_control.sql");
     const body = (name: string) => {
       const i = m1.indexOf(`create or replace function public.${name}(`);
       const a = m1.indexOf("as $$", i) + 5;
