@@ -69,19 +69,27 @@ export async function resolveClientInvoiceSpec(input: {
 export function computeClientInvoiceFingerprint(input: {
   studioId: string;
   stripeAccountId: string;
-  customerRef: string;
-  currency: string;
-  lines: Array<{ description: string; amountCents: number }>;
+  /** the resolver output the Stripe request is built from (customer name/email, currency, days until due, lines) */
+  spec: ClientInvoiceSpec;
+  /** creation_spec.content_sha256 and .version: ties the fingerprint to the exact stored rows (quantity and unit price included) */
+  contentSha256: string;
+  specVersion: number;
   objectRef: string;
 }): string {
+  const s = input.spec;
   const canonical = JSON.stringify([
-    "d24.client_invoice.v1",
+    "d24.client_invoice.v2",
     input.studioId.toLowerCase(),
     input.stripeAccountId,
-    input.customerRef.toLowerCase(),
-    input.currency.toLowerCase(),
-    input.lines.map((l) => [l.description, l.amountCents]),
-    input.objectRef,
+    s.customerProfile.clientRef.toLowerCase(),
+    s.customerProfile.name,
+    s.customerProfile.email ?? null,
+    s.currency.toLowerCase(),
+    s.daysUntilDue,
+    s.lines.map((l) => [l.description, l.amountCents]),
+    input.contentSha256.toLowerCase(),
+    input.specVersion,
+    input.objectRef.toLowerCase(),
   ]);
   return createHash("sha256").update(canonical, "utf8").digest("hex");
 }

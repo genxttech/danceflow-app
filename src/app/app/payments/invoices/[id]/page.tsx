@@ -40,8 +40,9 @@ export default async function ClientInvoiceDetailPage({ params, searchParams }: 
 
   const status = (inv.status as ClientInvoiceStatus) in CLIENT_INVOICE_STATUS_LABEL ? (inv.status as ClientInvoiceStatus) : "draft";
   const label = CLIENT_INVOICE_STATUS_LABEL[status];
-  const { data: stateRaw } = await supabase.rpc("studio_client_invoice_creation_state", { p_studio_id: viewer.studioId, p_invoice_id: id });
-  const creationState = parseCreationState(stateRaw);
+  const { data: stateRaw, error: stateError } = await supabase.rpc("studio_client_invoice_creation_state", { p_studio_id: viewer.studioId, p_invoice_id: id });
+  // fail closed: if the state cannot be read, treat the invoice as locked (the database refuses edits regardless)
+  const creationState = stateError ? "needs_review" : parseCreationState(stateRaw);
   const editable = canEdit && status === "draft" && creationState === "none";
 
   return (

@@ -300,38 +300,46 @@ describe("contract: no finalize / send / pay / Stripe surface in this package", 
 });
 
 describe("recovery states and request fingerprint", () => {
-  const base = { studioId: "11111111-1111-4111-8111-111111111111", stripeAccountId: "acct_abc", customerRef: UUID_B, currency: "usd", lines: [{ description: "Lesson", amountCents: 15000 }], objectRef: `studio_client_invoice:${UUID_A}` };
+  const spec = { customerProfile: { clientRef: UUID_B, name: "Ada Lovelace", email: "ada@example.com" }, currency: "usd", daysUntilDue: 30, lines: [{ description: "Lesson (2 x $75.00)", amountCents: 15000 }] };
+  const base = { studioId: "11111111-1111-4111-8111-111111111111", stripeAccountId: "acct_abc", spec, contentSha256: "a".repeat(64), specVersion: 2, objectRef: `studio_client_invoice:${UUID_A}` };
   it("is a 64-char lowercase sha256, deterministic, and case-insensitive on ids", () => {
     const f = computeClientInvoiceFingerprint(base);
     expect(f).toMatch(/^[0-9a-f]{64}$/);
     expect(computeClientInvoiceFingerprint({ ...base })).toBe(f);
-    expect(computeClientInvoiceFingerprint({ ...base, studioId: base.studioId.toUpperCase(), currency: "USD" })).toBe(f);
+    expect(computeClientInvoiceFingerprint({ ...base, studioId: base.studioId.toUpperCase(), contentSha256: "A".repeat(64), objectRef: base.objectRef.toUpperCase() })).toBe(f);
   });
   it.each([
     ["studio", { studioId: "99999999-9999-4999-8999-999999999999" }],
     ["account", { stripeAccountId: "acct_other" }],
-    ["customer", { customerRef: UUID_A }],
-    ["currency", { currency: "eur" }],
-    ["line amount", { lines: [{ description: "Lesson", amountCents: 15001 }] }],
-    ["line text", { lines: [{ description: "Lessons", amountCents: 15000 }] }],
-    ["extra line", { lines: [...base.lines, { description: "x", amountCents: 1 }] }],
+    ["customer ref", { spec: { ...spec, customerProfile: { ...spec.customerProfile, clientRef: UUID_A } } }],
+    ["customer name", { spec: { ...spec, customerProfile: { ...spec.customerProfile, name: "Ada L" } } }],
+    ["customer email", { spec: { ...spec, customerProfile: { ...spec.customerProfile, email: "x@example.com" } } }],
+    ["currency", { spec: { ...spec, currency: "eur" } }],
+    ["days until due", { spec: { ...spec, daysUntilDue: 15 } }],
+    ["line amount", { spec: { ...spec, lines: [{ description: "Lesson (2 x $75.00)", amountCents: 15001 }] } }],
+    ["extra line", { spec: { ...spec, lines: [...spec.lines, { description: "x", amountCents: 1 }] } }],
+    ["stored content hash (quantity/unit price)", { contentSha256: "b".repeat(64) }],
+    ["spec version", { specVersion: 3 }],
     ["object", { objectRef: `studio_client_invoice:${UUID_B}` }],
   ])("changes when the %s changes", (_n, patch) => {
     expect(computeClientInvoiceFingerprint({ ...base, ...(patch as object) })).not.toBe(computeClientInvoiceFingerprint(base));
   });
-  it("creation state copy never claims issuance, a link, or a retry", () => {
+  it("creation state copy never claims issuance, a link, or offers a retry", () => {
     for (const k of ["provider_draft_pending", "needs_review", "registered"] as const) {
       const t = CLIENT_INVOICE_CREATION_STATE_COPY[k];
-      expect(t).toMatch(/no payment link|not finalized|no second invoice|nothing to retry/i);
-      expect(t).not.toMatch(/retry(?! here)|sent to your client|paid|issued/i);
+      expect(t).toMatch(/no payment link|not finalized|no second invoice/i);
+      expect(t).not.toMatch(/sent to your client|paid|issued|try again|click|button/i);
     }
+    expect(CLIENT_INVOICE_CREATION_STATE_COPY.needs_review).toMatch(/There is nothing to retry here\./);
     expect(parseCreationState("needs_review")).toBe("needs_review");
     expect(parseCreationState("anything else")).toBe("none");
     expect(parseCreationState(null)).toBe("none");
   });
-  it("the detail page locks editing and hides the create control unless the state is none", () => {
+  it("the detail page locks editing AND hides the create control unless the state is none, and fails closed on an RPC error", () => {
     const page = readFileSync("src/app/app/payments/invoices/[id]/page.tsx", "utf8");
-    expect(page).toMatch(/creationState === "none"/);
+    expect(page).toMatch(/const editable = [^\n]*creationState === "none"/);
+    expect(page).toMatch(/status === "draft" && creationState === "none" \? <ProviderDraftControl/);
+    expect(page).toMatch(/stateError \? "needs_review"/);
     expect(page).not.toMatch(/Retry|Try again/i);
   });
 });

@@ -368,6 +368,21 @@ check "needs_review intent: state reads needs_review" "$(SA_STATE $INV2)" "needs
 has "needs_review intent: edit still refused (object held, no second invoice path)" "$(aust $UO "$(sv $UO $SA $(NEWKEY) $INV2 $VI2 $CA2 "$LINE")")" "STATE 55000 client_invoice_not_editable"
 check "needs_review intent: creation spec still describes the immutable stored rows (fingerprint inputs)" "$(q "select (public.studio_client_invoice_creation_spec('$INV2','$SA'))->>'object_ref'")" "studio_client_invoice:$INV2"
 
+check "creation state: studio B passing its own studio id with A's invoice id gets none (no leak)" "$(au $UB "select public.studio_client_invoice_creation_state('$SB','$INV2')")" "none"
+# REVIEW P2-1: an UNCOMMITTED begin must block a concurrent edit until it commits, and the edit is then refused (no edit slips between spec read and begin)
+INV3=$(jf "$(au $UO "select $(sv $UO $SA $(NEWKEY) null null $CA1 "$LINE")")" invoice_id)
+( docker exec -i "$NAME" psql -U postgres -d d24m3c -qAt -c "begin; select public.d24_intent_begin('$SA','studio_client_invoice','$INV3','ci-intent-p21-0001','$FP1')::text; select pg_sleep(5); commit;" </dev/null >"$TMPD/p21_begin.txt" 2>&1 ) &
+sleep 2
+T0=$(date +%s)
+R=$(aust $UO "$(sv $UO $SA $(NEWKEY) $INV3 1 $CA1 "$LINE")")
+T1=$(date +%s)
+wait
+has "REVIEW P2-1: the edit is refused once the concurrent begin commits" "$R" "STATE 55000 client_invoice_not_editable"
+check "...and it WAITED for the in-flight begin (object lock shared, not a lucky ordering)" "$([ $((T1 - T0)) -ge 2 ] && echo waited || echo not-waited)" "waited"
+check "...the invoice is still version 1" "$(q "select version from public.studio_client_invoices where id='$INV3'")" "1"
+q "select public.d24_intent_fail(id, studio_id, 'qa_failed', true) from public.hosted_invoice_creation_intents where idempotency_key='ci-intent-p21-0001'" >/dev/null 2>&1
+check "...a failed intent reads none" "$(au $UO "select public.studio_client_invoice_creation_state('$SA','$INV3')")" "none"
+
 # 11. rollback ------------------------------------------------------------------------------------------------------------------------
 r=$(docker exec -i "$NAME" psql -U postgres -d d24m3c -v ON_ERROR_STOP=1 -q < "$M_RB" 2>&1 | tr -d '\n' | cut -c1-160)
 has "rollback refused while creation intents for the type exist" "$r" "creation intents exist"

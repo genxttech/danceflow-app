@@ -488,6 +488,8 @@ begin
     if not found then
       raise exception 'client_invoice_not_found' using errcode = '42501';   -- another studio's invoice looks exactly like a missing one
     end if;
+    -- serialize with d24_intent_begin for this object (same key it takes): an uncommitted begin cannot slip past the live-intent check below
+    perform pg_advisory_xact_lock(hashtextextended('d24intobj:' || p_studio_id::text || ':studio_client_invoice:' || v_inv.id::text, 0));
     if v_inv.status <> 'draft' or exists (select 1 from public.hosted_invoice_creation_intents n where n.studio_id = v_inv.studio_id
          and n.business_object_type = 'studio_client_invoice' and n.business_object_id = v_inv.id::text and n.status in ('pending', 'provider_created', 'registered', 'needs_review')) then
       raise exception 'client_invoice_not_editable' using errcode = '55000';     -- registered, or being created at the provider right now
