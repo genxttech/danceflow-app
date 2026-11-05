@@ -20,6 +20,7 @@ begin
 end $$;
 delete from public.hosted_invoice_business_object_types where business_object_type = 'studio_client_invoice';
 drop function if exists public.studio_client_invoice_link_registration(uuid, uuid, uuid, integer, text);
+drop function if exists public.studio_client_invoice_creation_state(uuid, uuid);
 drop function if exists public.studio_client_invoice_creation_spec(uuid, uuid);
 drop function if exists public.d24_owns_studio_client_invoice(uuid, text);
 drop function if exists public.studio_client_invoice_save_draft(uuid, uuid, uuid, integer, uuid, text, uuid, text, jsonb);

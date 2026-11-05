@@ -18,8 +18,8 @@ vi.mock("next/navigation", () => ({
 
 import { authorizeClientInvoiceActor } from "../authorize";
 import { getClientInvoiceCreationPort } from "../creationPort";
-import { CLIENT_INVOICE_BUSINESS_OBJECT_TYPE, clientInvoiceErrorMessage, formatCents, isClientInvoiceCreationEnabled, parseDollarsToCents, parseDraftForm } from "../model";
-import { resolveClientInvoiceSpec } from "../resolver";
+import { CLIENT_INVOICE_CREATION_STATE_COPY, parseCreationState, CLIENT_INVOICE_BUSINESS_OBJECT_TYPE, clientInvoiceErrorMessage, formatCents, isClientInvoiceCreationEnabled, parseDollarsToCents, parseDraftForm } from "../model";
+import { computeClientInvoiceFingerprint, resolveClientInvoiceSpec } from "../resolver";
 import { requestClientInvoiceProviderDraftAction, saveClientInvoiceDraftAction } from "@/app/app/payments/invoices/actions";
 
 const UUID_A = "33333333-3333-4333-8333-333333333333";
@@ -297,4 +297,41 @@ describe("contract: no finalize / send / pay / Stripe surface in this package", 
       .sort();
     expect(out).toEqual(["src/lib/billing/clientInvoices/creationPort.ts", "src/lib/billing/clientInvoices/resolver.ts"]);
   }, 60_000);
+});
+
+describe("recovery states and request fingerprint", () => {
+  const base = { studioId: "11111111-1111-4111-8111-111111111111", stripeAccountId: "acct_abc", customerRef: UUID_B, currency: "usd", lines: [{ description: "Lesson", amountCents: 15000 }], objectRef: `studio_client_invoice:${UUID_A}` };
+  it("is a 64-char lowercase sha256, deterministic, and case-insensitive on ids", () => {
+    const f = computeClientInvoiceFingerprint(base);
+    expect(f).toMatch(/^[0-9a-f]{64}$/);
+    expect(computeClientInvoiceFingerprint({ ...base })).toBe(f);
+    expect(computeClientInvoiceFingerprint({ ...base, studioId: base.studioId.toUpperCase(), currency: "USD" })).toBe(f);
+  });
+  it.each([
+    ["studio", { studioId: "99999999-9999-4999-8999-999999999999" }],
+    ["account", { stripeAccountId: "acct_other" }],
+    ["customer", { customerRef: UUID_A }],
+    ["currency", { currency: "eur" }],
+    ["line amount", { lines: [{ description: "Lesson", amountCents: 15001 }] }],
+    ["line text", { lines: [{ description: "Lessons", amountCents: 15000 }] }],
+    ["extra line", { lines: [...base.lines, { description: "x", amountCents: 1 }] }],
+    ["object", { objectRef: `studio_client_invoice:${UUID_B}` }],
+  ])("changes when the %s changes", (_n, patch) => {
+    expect(computeClientInvoiceFingerprint({ ...base, ...(patch as object) })).not.toBe(computeClientInvoiceFingerprint(base));
+  });
+  it("creation state copy never claims issuance, a link, or a retry", () => {
+    for (const k of ["provider_draft_pending", "needs_review", "registered"] as const) {
+      const t = CLIENT_INVOICE_CREATION_STATE_COPY[k];
+      expect(t).toMatch(/no payment link|not finalized|no second invoice|nothing to retry/i);
+      expect(t).not.toMatch(/retry(?! here)|sent to your client|paid|issued/i);
+    }
+    expect(parseCreationState("needs_review")).toBe("needs_review");
+    expect(parseCreationState("anything else")).toBe("none");
+    expect(parseCreationState(null)).toBe("none");
+  });
+  it("the detail page locks editing and hides the create control unless the state is none", () => {
+    const page = readFileSync("src/app/app/payments/invoices/[id]/page.tsx", "utf8");
+    expect(page).toMatch(/creationState === "none"/);
+    expect(page).not.toMatch(/Retry|Try again/i);
+  });
 });

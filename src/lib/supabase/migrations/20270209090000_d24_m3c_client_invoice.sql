@@ -489,7 +489,7 @@ begin
       raise exception 'client_invoice_not_found' using errcode = '42501';   -- another studio's invoice looks exactly like a missing one
     end if;
     if v_inv.status <> 'draft' or exists (select 1 from public.hosted_invoice_creation_intents n where n.studio_id = v_inv.studio_id
-         and n.business_object_type = 'studio_client_invoice' and n.business_object_id = v_inv.id::text and n.status in ('pending', 'provider_created', 'registered')) then
+         and n.business_object_type = 'studio_client_invoice' and n.business_object_id = v_inv.id::text and n.status in ('pending', 'provider_created', 'registered', 'needs_review')) then
       raise exception 'client_invoice_not_editable' using errcode = '55000';     -- registered, or being created at the provider right now
     end if;
     if p_expected_version is distinct from v_inv.version then
@@ -547,9 +547,29 @@ begin
   perform 1 from public.clients c where c.id = i.client_id and c.studio_id = i.studio_id;
   if not found then return null; end if;
   return jsonb_build_object('invoice_id', i.id, 'studio_id', i.studio_id, 'client_id', i.client_id, 'currency', i.currency, 'total_cents', i.total_cents,
-    'version', i.version, 'content_sha256', public._sci_content_hash(i.client_id, i.reference_type, i.reference_id, i.reference_note, i.id),
+    'object_ref', 'studio_client_invoice:' || i.id::text, 'version', i.version, 'content_sha256', public._sci_content_hash(i.client_id, i.reference_type, i.reference_id, i.reference_note, i.id),
     'lines', (select jsonb_agg(jsonb_build_object('description', l.description, 'quantity', l.quantity, 'unit_price_cents', l.unit_price_cents,
                 'line_total_cents', l.line_total_cents) order by l.position) from public.studio_client_invoice_lines l where l.invoice_id = i.id));
+end $$;
+
+-- Coarse creation state for staff screens (no ids, no keys, no payment data): none | provider_draft_pending | needs_review | registered.
+-- 'needs_review' and an in-flight/unknown creation both HOLD the invoice (edits refused); the UI offers no retry for either.
+create or replace function public.studio_client_invoice_creation_state(p_studio_id uuid, p_invoice_id uuid)
+returns text language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare v text;
+begin
+  perform public._sci_authorize(p_studio_id, 'client_invoice.view');
+  select case
+      when bool_or(n.status = 'needs_review') then 'needs_review'
+      when bool_or(n.status = 'registered') then 'registered'
+      when bool_or(n.status in ('pending', 'provider_created')) then 'provider_draft_pending'
+      else 'none' end
+    into v
+    from public.hosted_invoice_creation_intents n
+    where n.studio_id = p_studio_id and n.business_object_type = 'studio_client_invoice' and n.business_object_id = p_invoice_id::text;
+  return coalesce(v, 'none');
 end $$;
 
 -- Records the provider registration on the invoice. Trusts ONLY the M3-A ledger: the intent must be 'registered', for this studio, for this exact object,
@@ -624,6 +644,8 @@ revoke all on function public._sci_content_hash(uuid, text, uuid, text, uuid) fr
 revoke all on function public._sci_json(public.studio_client_invoices, text) from public, anon, authenticated, service_role;
 revoke all on function public.studio_client_invoice_save_draft(uuid, uuid, uuid, integer, uuid, text, uuid, text, jsonb) from public, anon, authenticated, service_role;
 revoke all on function public.d24_owns_studio_client_invoice(uuid, text) from public, anon, authenticated, service_role;
+revoke all on function public.studio_client_invoice_creation_state(uuid, uuid) from public, anon, authenticated, service_role;
+grant execute on function public.studio_client_invoice_creation_state(uuid, uuid) to authenticated;
 revoke all on function public.studio_client_invoice_creation_spec(uuid, uuid) from public, anon, authenticated, service_role;
 revoke all on function public.studio_client_invoice_link_registration(uuid, uuid, uuid, integer, text) from public, anon, authenticated, service_role;
 -- the RLS policies call the helper as the querying role: authenticated needs EXECUTE (it returns false for anyone else's identity; it takes no user id)

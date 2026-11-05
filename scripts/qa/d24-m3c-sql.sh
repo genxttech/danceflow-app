@@ -11,12 +11,13 @@ MIG="src/lib/supabase/migrations"
 M_CLAIM="$MIG/20261116090000_paywh1_webhook_event_claims.sql"
 M_D24="$MIG/20270203110000_d24_hosted_invoice_facts.sql"
 M_C="$MIG/20270206090000_d24_m2c_drain_recovery.sql"
+M_B="$MIG/20270207090000_d24_operator_actions.sql"
 M_A="$MIG/20270208090000_d24_m3a_intent_ledger.sql"
 M_3C="$MIG/20270209090000_d24_m3c_client_invoice.sql"
 M_RB="$MIG/rollback/20270209090000_d24_m3c_client_invoice_rollback.sql"
 STUB="scripts/qa/d24/stubs/auth-roles.sql"
 cd "$(dirname "$0")/../.."
-for f in "$M_CLAIM" "$M_D24" "$M_C" "$M_A" "$M_3C" "$M_RB" "$STUB"; do [ -f "$f" ] || { echo "missing $f"; exit 2; }; done
+for f in "$M_CLAIM" "$M_D24" "$M_C" "$M_B" "$M_A" "$M_3C" "$M_RB" "$STUB"; do [ -f "$f" ] || { echo "missing $f"; exit 2; }; done
 
 cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; }
 TMPD=$(mktemp -d)
@@ -57,7 +58,7 @@ create table public.payment_provider_events (
   created_at timestamptz not null default now(), unique (provider, provider_event_id));
 SQL
   $F < "$STUB" >/dev/null || return 1
-  for f in "$M_CLAIM" "$M_D24" "$M_C" "$M_A"; do $F < "$f" >/dev/null || { echo "prerequisite migration failed: $f"; return 1; }; done
+  for f in "$M_CLAIM" "$M_D24" "$M_C" "$M_B" "$M_A"; do $F < "$f" >/dev/null || { echo "prerequisite migration failed: $f"; return 1; }; done
 }
 bootstrap d24m3c || { echo "bootstrap failed"; exit 2; }
 P="docker exec -i $NAME psql -U postgres -d d24m3c -v ON_ERROR_STOP=1 -qAt"
@@ -70,6 +71,7 @@ pass=0; fail=0
 check() { if [ "$2" = "$3" ]; then pass=$((pass + 1)); echo "PASS $1"; else fail=$((fail + 1)); echo "FAIL $1 (expected '$3', got '$2')"; fi; }
 has() { check "$1" "$(echo "$2" | grep -c -F -- "$3")" "1"; }
 
+FP1=$(printf 'a%.0s' $(seq 1 64)); FP2=$(printf 'b%.0s' $(seq 1 64))
 SA=00000000-0000-0000-0000-00000000005a
 SB=00000000-0000-0000-0000-00000000005b
 SC=00000000-0000-0000-0000-00000000005c   # no connected account
@@ -306,9 +308,9 @@ check "ownership: malformed id false (no cast error)" "$(own $SA not-a-uuid)" "f
 check "ownership: NULL studio false" "$(q "select public.d24_owns_studio_client_invoice(null,'$INV1')")" "f"
 check "ownership: NULL object is not owned (false)" "$(q "select coalesce(public.d24_owns_studio_client_invoice('$SA',null)::text,'null')")" "false"
 KEY1=ci-intent-0000001
-has "begin on a foreign invoice id is refused by SQL ownership" "$(st "public.d24_intent_begin('$SB','studio_client_invoice','$INV1','ci-intent-forged01')")" "STATE 42501 d24_business_object_not_owned"
-has "begin on a studio with no connected account is refused" "$(st "public.d24_intent_begin('$SC','studio_client_invoice','$INV1','ci-intent-noacct01')")" "STATE 42501"
-B1=$(q "select public.d24_intent_begin('$SA','studio_client_invoice','$INV1','$KEY1','$UO')")
+has "begin on a foreign invoice id is refused by SQL ownership" "$(st "public.d24_intent_begin('$SB','studio_client_invoice','$INV1','ci-intent-forged01','$FP1')")" "STATE 42501 d24_business_object_not_owned"
+has "begin on a studio with no connected account is refused" "$(st "public.d24_intent_begin('$SC','studio_client_invoice','$INV1','ci-intent-noacct01','$FP1')")" "STATE 42501"
+B1=$(q "select public.d24_intent_begin('$SA','studio_client_invoice','$INV1','$KEY1','$FP1','$UO')")
 I1=$(echo "$B1" | grep -o '"intent_id": "[^"]*"' | sed -E 's/.*: "//; s/"//')
 check "M3-A begin accepts the client invoice type" "$(jf "$B1" outcome)/$(jf "$B1" status)" "created/pending"
 has "link before the intent is registered is refused" "$(st "public.studio_client_invoice_link_registration('$INV1','$SA','$I1',2)")" "STATE 55000 client_invoice_intent_not_registered"
@@ -323,7 +325,7 @@ has "link while provider_created (not registered) is refused" "$(st "public.stud
 RG=$(q "select public.d24_intent_register('$I1','$SA')")
 check "M3-A register succeeds for the client invoice" "$(jf "$RG" outcome)" "registered"
 # the intent exists, but intent for a different object / studio must not link
-q "select public.d24_intent_begin('$SA','studio_client_invoice','$INV2','ci-intent-0000002','$UO')" >/dev/null
+q "select public.d24_intent_begin('$SA','studio_client_invoice','$INV2','ci-intent-0000002','$FP2','$UO')" >/dev/null
 I2=$(q "select id from public.hosted_invoice_creation_intents where idempotency_key='ci-intent-0000002'")
 has "link with an intent for a DIFFERENT invoice is refused" "$(st "public.studio_client_invoice_link_registration('$INV1','$SA','$I2',2)")" "STATE 42501 client_invoice_intent_mismatch"
 has "link with another studio's id is refused" "$(st "public.studio_client_invoice_link_registration('$INV1','$SB','$I1',2)")" "STATE 42501 client_invoice_not_found"
@@ -349,10 +351,22 @@ has "direct line INSERT after registration refused" "$(try "begin; select set_co
 has "direct line DELETE after registration refused" "$(try "begin; select set_config('df.sci_writer','on',true); delete from public.studio_client_invoice_lines where invoice_id='$INV1'; commit")" "client_invoice_not_editable"
 check "creation spec is NULL once registered (no second provider draft)" "$(q "select coalesce(public.studio_client_invoice_creation_spec('$INV1','$SA')::text,'null')")" "null"
 check "the ownership function still answers true after registration (replayed register passes)" "$(own $SA $INV1)" "t"
-check "M3-A one-live-intent rule blocks a second invoice for the same object" "$(st "public.d24_intent_begin('$SA','studio_client_invoice','$INV1','ci-intent-second01')" | grep -c 'd24_object_has_live_intent')" "1"
+check "M3-A one-live-intent rule blocks a second invoice for the same object" "$(st "public.d24_intent_begin('$SA','studio_client_invoice','$INV1','ci-intent-second01','$FP1')" | grep -c 'd24_object_has_live_intent')" "1"
 check "nothing here wrote settlement: hosted_invoice_payments and payments untouched" "$(q "select (select count(*) from public.hosted_invoice_payments)||'/'||(select count(*) from public.payments)")" "0/2"
 # a draft's invoice row never carries a payment URL / secret fields in the RLS-visible projection
 check "RLS-visible columns contain no url/secret/token columns" "$(q "select count(*) from information_schema.columns where table_name='studio_client_invoices' and column_name ~ 'url|secret|token|key_id'")" "0"
+
+# 10b. recovery states (M3-A contract): needs_review / outcome_unknown hold the object and block edits; creation state is readable by staff only
+SA_STATE() { au $UO "select public.studio_client_invoice_creation_state('$SA','$1')"; }
+check "creation state: draft with a pending intent reads provider_draft_pending (INV2)" "$(SA_STATE $INV2)" "provider_draft_pending"
+check "creation state: registered intent reads registered (INV1)" "$(SA_STATE $INV1)" "registered"
+check "creation state: B's owner cannot read A's state" "$(au $UB "select coalesce(public.studio_client_invoice_creation_state('$SA','$INV2'),'null')" | grep -c 'client_invoice_forbidden')" "1"
+check "creation state: instructor refused" "$(au $UI "select public.studio_client_invoice_creation_state('$SA','$INV2')" | grep -c 'client_invoice_forbidden')" "1"
+check "creation state: anon cannot execute" "$(try "set role anon; select public.studio_client_invoice_creation_state('$SA','$INV2')" | grep -c 'permission denied')" "1"
+q "select public.d24_intent_flag_review('$I2','$SA','qa_review')" >/dev/null 2>&1
+check "needs_review intent: state reads needs_review" "$(SA_STATE $INV2)" "needs_review"
+has "needs_review intent: edit still refused (object held, no second invoice path)" "$(aust $UO "$(sv $UO $SA $(NEWKEY) $INV2 $VI2 $CA2 "$LINE")")" "STATE 55000 client_invoice_not_editable"
+check "needs_review intent: creation spec still describes the immutable stored rows (fingerprint inputs)" "$(q "select (public.studio_client_invoice_creation_spec('$INV2','$SA'))->>'object_ref'")" "studio_client_invoice:$INV2"
 
 # 11. rollback ------------------------------------------------------------------------------------------------------------------------
 r=$(docker exec -i "$NAME" psql -U postgres -d d24m3c -v ON_ERROR_STOP=1 -q < "$M_RB" 2>&1 | tr -d '\n' | cut -c1-160)

@@ -129,6 +129,21 @@ export function parseDraftForm(formData: FormData): { ok: true; value: ParsedDra
   };
 }
 
+export type ClientInvoiceCreationState = "none" | "provider_draft_pending" | "needs_review" | "registered";
+
+/** Truthful staff copy for the creation state of a DRAFT. Never claims issuance, a hosted link, or offers a retry. */
+export const CLIENT_INVOICE_CREATION_STATE_COPY: Record<Exclude<ClientInvoiceCreationState, "none">, string> = {
+  provider_draft_pending:
+    "A draft is being created at Stripe. It is not finalized or sent and there is no payment link. This invoice is locked while that finishes; DanceFlow will not create a second one.",
+  needs_review:
+    "Creation needs review. DanceFlow could not confirm what happened at Stripe, so this invoice is locked and no second invoice will be created. Support will reconcile it with Stripe. There is nothing to retry here.",
+  registered: "A draft exists at Stripe. It has not been finalized or sent, and there is no payment link.",
+};
+
+export function parseCreationState(value: unknown): ClientInvoiceCreationState {
+  return value === "provider_draft_pending" || value === "needs_review" || value === "registered" ? value : "none";
+}
+
 /** Maps database refusal codes to plain staff-facing messages. Unknown messages are never echoed. */
 export function clientInvoiceErrorMessage(raw: string | null | undefined, code?: string | null): string {
   const m = String(raw ?? "");

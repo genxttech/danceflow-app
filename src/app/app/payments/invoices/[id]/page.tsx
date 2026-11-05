@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { authorizeClientInvoiceActor } from "@/lib/billing/clientInvoices/authorize";
-import { CLIENT_INVOICE_STATUS_LABEL, formatCents, isClientInvoiceCreationEnabled, isUuid, type ClientInvoiceStatus } from "@/lib/billing/clientInvoices/model";
+import { CLIENT_INVOICE_CREATION_STATE_COPY, CLIENT_INVOICE_STATUS_LABEL, formatCents, parseCreationState, isClientInvoiceCreationEnabled, isUuid, type ClientInvoiceStatus } from "@/lib/billing/clientInvoices/model";
 import InvoiceEditor from "../InvoiceEditor";
 import ProviderDraftControl from "./ProviderDraftControl";
 
@@ -40,7 +40,9 @@ export default async function ClientInvoiceDetailPage({ params, searchParams }: 
 
   const status = (inv.status as ClientInvoiceStatus) in CLIENT_INVOICE_STATUS_LABEL ? (inv.status as ClientInvoiceStatus) : "draft";
   const label = CLIENT_INVOICE_STATUS_LABEL[status];
-  const editable = canEdit && status === "draft";
+  const { data: stateRaw } = await supabase.rpc("studio_client_invoice_creation_state", { p_studio_id: viewer.studioId, p_invoice_id: id });
+  const creationState = parseCreationState(stateRaw);
+  const editable = canEdit && status === "draft" && creationState === "none";
 
   return (
     <div className="space-y-8 p-1">
@@ -56,7 +58,13 @@ export default async function ClientInvoiceDetailPage({ params, searchParams }: 
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{label.detail}</p>
         {saved === "1" ? <p className="mt-3 text-sm font-medium text-emerald-700">Draft saved.</p> : null}
-        {!editable ? <p className="mt-3 text-sm text-slate-600">This invoice cannot be edited{status !== "draft" ? " because it already exists at Stripe" : ""}.</p> : null}
+        {creationState !== "none" ? (
+          <p role="status" className="mt-3 text-sm font-medium text-amber-800">
+            {CLIENT_INVOICE_CREATION_STATE_COPY[creationState]}
+          </p>
+        ) : !editable ? (
+          <p className="mt-3 text-sm text-slate-600">This invoice cannot be edited{status !== "draft" ? " because it already exists at Stripe" : ""}.</p>
+        ) : null}
       </section>
 
       <InvoiceEditor
@@ -74,7 +82,7 @@ export default async function ClientInvoiceDetailPage({ params, searchParams }: 
         readOnly={!editable}
       />
 
-      {status === "draft" ? <ProviderDraftControl invoiceId={id} requestKey={randomUUID()} canEdit={canEdit} creationEnabled={isClientInvoiceCreationEnabled()} /> : null}
+      {status === "draft" && creationState === "none" ? <ProviderDraftControl invoiceId={id} requestKey={randomUUID()} canEdit={canEdit} creationEnabled={isClientInvoiceCreationEnabled()} /> : null}
     </div>
   );
 }

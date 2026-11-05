@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { CLIENT_INVOICE_BUSINESS_OBJECT_TYPE, formatCents } from "./model";
 
 /**
@@ -58,6 +59,31 @@ export async function resolveClientInvoiceSpec(input: {
   }));
   if (lines.reduce((n, l) => n + l.amountCents, 0) !== raw.total_cents) return null;
   return { customerProfile: { clientRef: c.id, name, email: c.email }, currency: raw.currency, daysUntilDue: DEFAULT_DAYS_UNTIL_DUE, lines };
+}
+
+/**
+ * Canonical request fingerprint for the M3-A intent ledger (lowercase sha256 hex, 64 chars): studio, connected account, customer ref, lines, currency,
+ * object ref. Inputs come from the STORED invoice rows (creation spec) plus the studio's resolved account, never from a request. The database only
+ * enforces equality per idempotency key; because invoice content is immutable while a live intent exists, a retry always reproduces the same value.
+ */
+export function computeClientInvoiceFingerprint(input: {
+  studioId: string;
+  stripeAccountId: string;
+  customerRef: string;
+  currency: string;
+  lines: Array<{ description: string; amountCents: number }>;
+  objectRef: string;
+}): string {
+  const canonical = JSON.stringify([
+    "d24.client_invoice.v1",
+    input.studioId.toLowerCase(),
+    input.stripeAccountId,
+    input.customerRef.toLowerCase(),
+    input.currency.toLowerCase(),
+    input.lines.map((l) => [l.description, l.amountCents]),
+    input.objectRef,
+  ]);
+  return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
 
 export const CLIENT_INVOICE_SPEC_RESOLVERS = Object.freeze({ [CLIENT_INVOICE_BUSINESS_OBJECT_TYPE]: resolveClientInvoiceSpec });
