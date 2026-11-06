@@ -187,7 +187,7 @@ describe.skipIf(!hasMonitor)("D4-2 owner authorization on the combined chain wit
       const pn = enrollReq(Ka, Kn, "pending before the outage");
       psql(`begin; alter table public.studio_sms_price_credential_changes disable trigger studio_sms_price_credential_changes_guard; update public.studio_sms_price_credential_changes set requested_at = requested_at - interval '25 hours', effective_at = effective_at - interval '25 hours' where id = '${pn.change_id}'; alter table public.studio_sms_price_credential_changes enable always trigger studio_sms_price_credential_changes_guard; commit;`);
       const rvb = authOut(c, `select public.tw4_price_cred_begin('revoke', '${Kb.credIdB64u}', null, null, null, null)::text;`);
-      const rva = Ka.assert(rvb.challenge);
+      const rva = Kb.assert(rvb.challenge);   // Kb retires ITSELF (an ordinary key can revoke only itself)
       const revokeSql = `select public.tw4_price_cred_revoke('${rvb.nonce}', '${Kb.credIdB64u}', '${rva.credId}', '${rva.auth}', '${rva.client}', '${rva.sig}')::text;`;
       const eb = authOut(c, `select public.tw4_price_cred_begin('enroll', '${Kq.credIdB64u}', '${b64u(Kq.x)}', '${b64u(Kq.y)}', 'spare', 'enrolment in an outage')::text;`);
       const ea = Ka.assert(eb.challenge);
@@ -223,6 +223,10 @@ describe.skipIf(!hasMonitor)("D4-2 owner authorization on the combined chain wit
         const g = Kr.assert(fb.challenge);
         expect(JSON.parse(psql(asAuthLT(c, `select public.tw4_price_recovery_freeze('${fb.nonce}', '${g.credId}', '${g.auth}', '${g.client}', '${g.sig}')::text;`, v.lt)).split(NL).pop()!)).toMatchObject({ status: "frozen" });
         expect(psql("select recovery_hold from public.studio_sms_price_auth_config")).toBe("t");
+        // the recovery credential's eviction of an ordinary key is a recovery act: it works through the outage (the failed emit is audited and replayable)
+        const ob = JSON.parse(psql(asAuthLT(c, `select public.tw4_price_cred_begin('revoke_other', '${Kb.credIdB64u}', null, null, null, null)::text;`, v.lt)).split(NL).pop()!) as { nonce: string; challenge: string };
+        const og = Kr.assert(ob.challenge);
+        expect(JSON.parse(psql(asAuthLT(c, `select public.tw4_price_cred_revoke('${ob.nonce}', '${Kb.credIdB64u}', '${og.credId}', '${og.auth}', '${og.client}', '${og.sig}')::text;`, v.lt)).split(NL).pop()!)).toMatchObject({ status: "revoked" });
       } finally {
         await restore();
       }

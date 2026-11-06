@@ -11,7 +11,7 @@ begin
     raise exception 'price owner authorization rollback: not applied';
   end if;
   for r in select * from (values
-      ('public.tw4_price_authz_finish(uuid,text,text,text,text,text)', '98ec8b7adbe51643a666a88e61b26fe7'),
+      ('public.tw4_price_authz_finish(uuid,text,text,text,text,text)', '47c36885fef820294dd84147834af3af'),
       ('public._tw4price_do_propose_mode(text,integer,integer,text,text,uuid,text,text,uuid)', 'bdba14fc6537e6286d52cb7b90511c86'),
       ('public._tw4price_do_approve(uuid,uuid,text)', 'cfd0f8cad9935436b12298f4c89f0006'),
       ('public._tw4pricedual_guard()', '9e2e81171fa5eab1d608727997ab9f48'),
@@ -27,6 +27,13 @@ begin
   end if;
 end $$;
 
+drop function public._tw4price_attest_finish(bytea, bytea, bytea, bytea, bytea);
+drop function public._tw4price_attest_begin(bytea);
+-- the freshness window returns to the fixed D4-1 value
+create or replace function public._tw4price_fresh_seconds()
+returns int language sql stable
+set search_path = pg_catalog, public, pg_temp
+as $$ select 900; $$;
 drop function public.tw4_price_authz_begin(uuid);
 drop function public.tw4_price_authz_finish(uuid, text, text, text, text, text);
 drop function public.tw4_price_revise(uuid, int, int, text, text);

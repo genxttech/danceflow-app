@@ -460,4 +460,106 @@ describe.skipIf(!enabled)("D4-2: pricing authorization with REAL GoTrue tokens t
     // whatever the password statuses are, the stolen password-only session never reaches the pricing surface
     expect(denied(await rpc("tw4_price_cred_pending", aal1only.access))).toBe(true);
   });
+
+  it("RTA-10 fresh MFA with real tokens: a freshly verified TOTP session passes the sensitive entry points, the claims of that token with an old, missing or malformed amr timestamp (re-signed with the stack secret) are refused, a refresh-token refresh keeps the OLD timestamp (documented), re-verifying a code on the session renews it, and freeze / report_compromise / the recovery freeze work with a stale session", async () => {
+    resetCreds();
+    clearRequests();
+    const sens: [string, Record<string, unknown>][] = [
+      ["tw4_price_cred_begin", { p_purpose: "thaw", p_cred_id: null, p_x: null, p_y: null, p_role: null, p_label: null }],
+      ["tw4_price_authz_begin", { p_request_id: U() }],
+      ["tw4_price_cred_apply", { p_change_id: U() }],
+      ["tw4_price_propose", { p_kind: "number", p_customer_cents: 513, p_provider_cents: 115, p_description: "fresh test", p_reason: "a written reason for the fresh MFA test" }],
+    ];
+    const staleMsg = (r: { text: string }) => /fresh authenticator code is required|authenticator \(TOTP\) sign-in is required/.test(r.text);
+    const fresh = await newSession(A);
+    const amr0 = decode(fresh).amr as { method: string; timestamp: number }[];
+    expect(amr0.find((e) => e.method === "totp")?.timestamp, "GoTrue writes the TOTP timestamp in seconds").toBeGreaterThan(nowS() - 60);
+    for (const [fn, args] of sens) {
+      const r = await rpc(fn, fresh, args);
+      expect(staleMsg(r), `${fn} fresh: ${r.text.slice(0, 200)}`).toBe(false);
+    }
+    clearRequests();
+    // the same real token with the TOTP timestamp moved back 11 minutes, removed, or turned into a string-form amr: refused by the database, whatever the signature says
+    const variants: [string, unknown][] = [
+      ["11 minutes old", [{ ...amr0[0], timestamp: nowS() - 660 }]],
+      ["no timestamp", [{ method: "totp" }]],
+      ["string amr", ["totp"]],
+      ["amr removed", undefined],
+    ];
+    for (const [label, amr] of variants) {
+      const stale = resign(fresh, { amr });
+      for (const [fn, args] of sens) {
+        const r = await rpc(fn, stale, args);
+        expect(denied(r), `${fn} ${label}: ${r.status} ${r.text.slice(0, 160)}`).toBe(true);
+        expect(r.text, `${fn} ${label}`).toMatch(/fresh authenticator code is required|authenticator \(TOTP\) sign-in is required/);
+      }
+    }
+    // a refresh-token refresh does NOT make the code fresh: GoTrue keeps the original amr timestamp
+    const lg = await login(A.email, A.password);
+    const s1 = await verifyFactor(lg.access, A.factor);
+    const t1 = (decode(s1.access).amr as { method: string; timestamp: number }[]).find((e) => e.method === "totp")!.timestamp;
+    await sleep(3000);
+    const rf = await http("POST", `${AUTH}/token?grant_type=refresh_token`, null, { refresh_token: s1.refresh });
+    expect(rf.status, rf.text.slice(0, 200)).toBe(200);
+    const refreshed = (rf.json as { access_token: string }).access_token;
+    const t2 = (decode(refreshed).amr as { method: string; timestamp: number }[]).find((e) => e.method === "totp")!.timestamp;
+    expect(t2, "the refreshed token carries the original TOTP timestamp").toBe(t1);
+    expect(decode(refreshed).session_id).toBe(decode(s1.access).session_id);
+    // re-verifying a code on the SAME session (the step-up the panel performs: mfa challenge + verify) renews the timestamp
+    const again = await verifyFactor(refreshed, A.factor);
+    const t3 = (decode(again.access).amr as { method: string; timestamp: number }[]).filter((e) => e.method === "totp").map((e) => e.timestamp);
+    expect(Math.max(...t3), "the step-up produced a newer TOTP timestamp").toBeGreaterThan(t1);
+    expect(decode(again.access).session_id).toBe(decode(s1.access).session_id);
+    // EMERGENCY actions with a stale session: freeze, report_compromise and the recovery-freeze ceremony; the sensitive thaw is refused with the same stale token
+    const stale = resign(fresh, { amr: [{ ...amr0[0], timestamp: nowS() - 3000 }] });
+    expect(reached(await rpc("tw4_price_cred_pending", stale))).toBe(true);
+    const fz = await rpc("tw4_price_freeze", stale, { p_reason: "a freeze with a stale authenticator code, which must still work" });
+    expect(fz.json).toMatchObject({ status: "frozen" });
+    const rc = await rpc("tw4_price_report_compromise", stale, { p_note: "a compromise report with a stale authenticator code" });
+    expect(rc.json).toMatchObject({ status: "frozen" });
+    const rb = await rpc("tw4_price_cred_begin", stale, { p_purpose: "recover_freeze", p_cred_id: null, p_x: null, p_y: null, p_role: null, p_label: null });
+    expect(rb.status, rb.text).toBe(200);
+    const ra = KR.assert((rb.json as { challenge: string }).challenge);
+    const rfz = await rpc("tw4_price_recovery_freeze", stale, { p_nonce: (rb.json as { nonce: string }).nonce, p_cred: ra.credId, p_auth: ra.auth, p_client: ra.client, p_sig: ra.sig });
+    expect(rfz.json).toMatchObject({ status: "frozen" });
+    const thawStale = await rpc("tw4_price_cred_begin", stale, { p_purpose: "thaw", p_cred_id: null, p_x: null, p_y: null, p_role: null, p_label: null });
+    expect(denied(thawStale)).toBe(true);
+    expect(thawStale.text).toMatch(/fresh authenticator code is required/);
+    resetCreds();   // owner-level: clears the suspension and the recovery hold for the following tests
+  });
+
+  it("RTA-11 ordinary-key eviction restriction with real tokens: through PostgREST the primary cannot revoke the spare (direct or by a crafted recovery-type ceremony), the recovery credential can, once, and the spare then cannot sign", async () => {
+    resetCreds();
+    clearRequests();
+    const s = await newSession(A);
+    const status = (k: SoftAuthenticator) => psql(`select status from public.studio_sms_price_credentials where credential_id = decode('${k.hex.cred}', 'hex')`);
+    const rev = (c: { nonce: string }, target: SoftAuthenticator, a: { credId: string; auth: string; client: string; sig: string }) =>
+      rpc("tw4_price_cred_revoke", s, { p_nonce: c.nonce, p_target: target.credIdB64u, p_by_cred: a.credId, p_by_auth: a.auth, p_by_client: a.client, p_by_sig: a.sig });
+    const begin = (purpose: string, target: SoftAuthenticator) => rpc("tw4_price_cred_begin", s, { p_purpose: purpose, p_cred_id: target.credIdB64u, p_x: null, p_y: null, p_role: null, p_label: null });
+    // direct: the ceremony names the TARGET as the only signer; the primary's assertion is refused
+    const rb = await begin("revoke", K2);
+    expect((rb.json as { allow_credentials: string[] }).allow_credentials).toEqual([K2.credIdB64u]);
+    expect((await rev(rb.json as { nonce: string }, K2, K1.assert((rb.json as { challenge: string }).challenge))).json).toMatchObject({ status: "rejected" });
+    // crafted: the eviction ceremony (recovery only) signed by the primary
+    const eb = await begin("revoke_other", K2);
+    expect((eb.json as { allow_credentials: string[] }).allow_credentials).toEqual([KR.credIdB64u]);
+    expect((await rev(eb.json as { nonce: string }, K2, K1.assert((eb.json as { challenge: string }).challenge))).json).toMatchObject({ status: "rejected" });
+    expect(status(K2)).toBe("active");
+    // the recovery credential evicts the spare; the primary's own ceremony still cannot reach the recovery key
+    const eb2 = await begin("revoke_other", K2);
+    const done = await rev(eb2.json as { nonce: string }, K2, KR.assert((eb2.json as { challenge: string }).challenge));
+    expect(done.json).toMatchObject({ status: "revoked" });
+    expect(status(K2)).toBe("revoked");
+    expect(status(KR)).toBe("active");
+    expect(num("select count(*) from public.studio_sms_price_audit where event = 'recovery_used' and detail ->> 'action' = 'revoke_ordinary_key'")).toBeGreaterThanOrEqual(1);
+    // the spare cannot sign any more; the primary is the last ordinary credential and is protected
+    const p = await propose(s, 514);
+    expect(p.status, p.text).toBe(200);
+    const lastBegin = await begin("revoke_other", K1);
+    expect(lastBegin.status).toBe(400);
+    expect(lastBegin.text).toMatch(/other active signing credential/);
+    clearRequests();
+    resetCreds();
+  });
+
 });

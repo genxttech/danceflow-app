@@ -403,13 +403,13 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(psql(`select count(*) filter (where status = 'active') || ':' || count(*) filter (where role = 'spare') from public.studio_sms_price_credentials`)).toBe("2:1");
     expect(audit("credential_change_applied")).toBe(1);
     expect(authorize(310, K2).out.status).toBe("applied");
-    // revocation: a credential cannot revoke itself, an outsider key cannot revoke, the last one is protected, and a revocation is IMMEDIATE
+    // revocation: a credential retires ONLY ITSELF (the other ordinary key and an outsider cannot revoke it), the last one is protected, and a revocation is IMMEDIATE
     const rv = (c: Record<string, unknown>, target: SoftAuthenticator, by: SoftAuthenticator, tamper = false) => {
       const bb = authOut(c, `select public.tw4_price_cred_begin('revoke', '${target.credIdB64u}', null, null, null, null)::text;`);
       const a = by.assert(bb.challenge);
       return authOut(c, `select public.tw4_price_cred_revoke('${bb.nonce}', '${(tamper ? K2 : target).credIdB64u}', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}')::text;`);
     };
-    expect(rv(sess, K1, K1).status).toBe("rejected");
+    expect(rv(sess, K1, K2).status).toBe("rejected"); // the spare cannot revoke the primary
     expect(rv(sess, K1, KX).status).toBe("rejected");
     expect(rv(sess, K1, K2, true).status).toBe("rejected"); // signed for K1's revocation, submitted for K2's
     clear();
@@ -418,7 +418,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     const bk = begin(claims(A, S2), pk.request_id);
     expect([...bk.allow_credentials].sort()).toEqual([K1.credIdB64u, K2.credIdB64u].sort());
     // the revocation is IMMEDIATE: no pending state, no delay
-    const rr = rv(sess, K1, K2);
+    const rr = rv(sess, K1, K1); // the primary retires itself
     expect(rr).toMatchObject({ status: "revoked" });
     expect(psql(`select count(*) from public.studio_sms_price_credentials where status = 'active'`)).toBe("1");
     expect(audit("credential_revoked")).toBe(1);
@@ -688,7 +688,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect([...bc.allow_credentials].sort()).toEqual([Ka.credIdB64u, Kb.credIdB64u].sort());
     const failedBefore = audit("assertion_rejected");
     const revoked0 = audit("credential_revoked");
-    const rv = revokeReq(sess, Ka, Kb);
+    const rv = revokeReq(sess, Kb, Kb);   // Kb retires itself
     expect(rv).toMatchObject({ status: "revoked", voided_changes: 1 });
     expect(audit("credential_revoked")).toBe(revoked0 + 1);
     expect(psql(`select status from public.studio_sms_price_credentials where credential_id = decode('${Kb.hex.cred}', 'hex')`)).toBe("revoked");
@@ -737,7 +737,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     // (1) apply vs revoke: the revocation commits first (held open by a sleep), the apply waits for the credential lock and then finds its signer revoked
     const pn = enrollReq(sess, Kb, Kn, "pending by kb");
     ageChange(pn.change_id);
-    const s1 = sessionRun(asAuth(sess, revokeSql(Ka, Kb)).replace("commit;", "select pg_sleep(3.43); commit;"));
+    const s1 = sessionRun(asAuth(sess, revokeSql(Kb, Kb)).replace("commit;", "select pg_sleep(3.43); commit;"));
     for (let i = 0; i < 80 && psql(`select count(*) from pg_stat_activity where datname = '${DB}' and query like '%pg_sleep(3.43)%' and wait_event = 'PgSleep'`) !== "1"; i++) await sleep(150);
     const s2 = sessionRun(asAuth(sess, `select public.tw4_price_cred_apply('${pn.change_id}')::text;`));
     const [x, y] = await Promise.all([s1, s2]);
@@ -759,7 +759,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     const b = begin(claims(A, S2), p.request_id);
     const ab = Kb.assert(b.challenge);
     const before = active();
-    const s3 = sessionRun(asAuth(sess, revokeSql(Ka, Kb)).replace("commit;", "select pg_sleep(3.44); commit;"));
+    const s3 = sessionRun(asAuth(sess, revokeSql(Kb, Kb)).replace("commit;", "select pg_sleep(3.44); commit;"));
     for (let i = 0; i < 80 && psql(`select count(*) from pg_stat_activity where datname = '${DB}' and query like '%pg_sleep(3.44)%' and wait_event = 'PgSleep'`) !== "1"; i++) await sleep(150);
     const s4 = sessionRun(asAuth(sess, finishSql(p.request_id, b.nonce, ab)));
     const [x2, y2] = await Promise.all([s3, s4]);
@@ -792,7 +792,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       expect(cancelWith(sess, pe.change_id, Ka)).toMatchObject({ status: "cancelled" });
       // an ordinary spare key joins for the remaining checks (owner-level fixture); revoke is never offered to the recovery key
       resetCreds(Ka, Kb, [Kr, "recovery"]);
-      expect(authOut(sess, `select public.tw4_price_cred_begin('revoke', '${Kb.credIdB64u}', null, null, null, null)::text;`).allow_credentials).toEqual([Ka.credIdB64u]);
+      expect(authOut(sess, `select public.tw4_price_cred_begin('revoke', '${Kb.credIdB64u}', null, null, null, null)::text;`).allow_credentials).toEqual([Kb.credIdB64u]);   // a credential retires only itself: the target is the only signer
       // an ordinary key cannot use the recovery operations
       const fb = authOut(sess, `select public.tw4_price_cred_begin('recover_freeze', null, null, null, null, null)::text;`);
       expect(fb.allow_credentials).toEqual([Kr.credIdB64u]);
@@ -1226,11 +1226,11 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       clear();
       const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator();
       resetCreds(Ka, Kb);
-      const [x, y] = await race(revokeSqlOf(Ka, Kb), revokeSqlOf(Kb, Ka), sess, sess);
+      const [x, y] = await race(revokeSqlOf(Ka, Ka), revokeSqlOf(Kb, Kb), sess, sess);
       expect(x.out).toContain('"status": "revoked"');
       expect(y.out).toMatch(/"status": "rejected"|last active signing credential/);
       expect(activeSigning()).toBe(1);
-      expect(psql(`select status from public.studio_sms_price_credentials where credential_id = decode('${Ka.hex.cred}', 'hex')`)).toBe("active");
+      expect(psql(`select status from public.studio_sms_price_credentials where credential_id = decode('${Kb.hex.cred}', 'hex')`)).toBe("active");
     }
     // (2a) revoke first, apply of a change signed by the revoked key waits and applies nothing; (2b) apply first, then the revoke: serial order, never a revoked key's change applied after its revocation
     {
@@ -1239,14 +1239,14 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       resetCreds(Ka, Kb);
       const pn = enrollReq(sess, Kb, Kn, "pending by kb");
       ageChange(pn.change_id);
-      const [x, y] = await race(revokeSqlOf(Ka, Kb), applySqlOf(pn.change_id), sess, sess);
+      const [x, y] = await race(revokeSqlOf(Kb, Kb), applySqlOf(pn.change_id), sess, sess);
       expect(x.out).toContain('"status": "revoked"');
       expect(y.out).toMatch(/already cancelled|"status": "voided"/);
       expect(num(`select count(*) from public.studio_sms_price_credentials where credential_id = decode('${Kn.hex.cred}', 'hex')`)).toBe(0);
       resetCreds(Ka, Kb);
       const pm = enrollReq(sess, Kb, Km, "pending by kb again");
       ageChange(pm.change_id);
-      const [x2, y2] = await race(applySqlOf(pm.change_id), revokeSqlOf(Ka, Kb), sess, sess);
+      const [x2, y2] = await race(applySqlOf(pm.change_id), revokeSqlOf(Kb, Kb), sess, sess);
       expect(x2.out).toContain('"status": "applied"');
       expect(y2.out).toContain('"status": "revoked"');
       expect(activeSigning()).toBe(2); // Ka and the new Km; Kb is gone
@@ -1257,7 +1257,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator(), Kn = new SoftAuthenticator();
       resetCreds(Ka, Kb);
       const enr = enrollSqlOf(Ka, Kn, "raced enrolment");
-      const [x, y] = await race(revokeSqlOf(Kb, Ka), enr, sess, sess);
+      const [x, y] = await race(revokeSqlOf(Ka, Ka), enr, sess, sess);
       expect(x.out).toContain('"status": "revoked"');
       expect(y.out).toContain('"status": "rejected"');
       expect(num("select count(*) from public.studio_sms_price_credential_changes where status = 'pending'")).toBe(0);
@@ -1313,7 +1313,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       clear();
       const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator();
       resetCreds(Ka, Kb);
-      const [x, y] = await race(revokeSqlOf(Ka, Kb), `select public.tw4_price_propose('number', 532, 115, 'proposal during a revoke', 'a written reason for the proposal during a revoke')::text;`, sess, claims(A, S1));
+      const [x, y] = await race(revokeSqlOf(Kb, Kb), `select public.tw4_price_propose('number', 532, 115, 'proposal during a revoke', 'a written reason for the proposal during a revoke')::text;`, sess, claims(A, S1));
       expect(x.out).toContain('"status": "revoked"');
       expect(y.out).toContain("request_id");
       const id = (JSON.parse(y.out.split(NL).filter(Boolean).pop()!) as { request_id: string }).request_id;
@@ -1488,4 +1488,349 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(asSuper(`begin; ${setup} ${hide} set local role authenticated; select set_config('request.jwt.claims', '${claimsOf({ session_id: S_OK })}', true); select public.tw4_price_cred_pending()::text; rollback;`)).toMatch(/hosted preflight failed: auth\.sessions does not exist/);
     expect(asSuper(`begin; ${setup} ${rows} alter table auth.sessions owner to supabase_admin; revoke all on auth.sessions from postgres, public, supabase_auth_admin; revoke pg_read_all_data, supabase_privileged_role from postgres; set local role authenticated; select set_config('request.jwt.claims', '${claimsOf({ session_id: S_OK })}', true); select public.tw4_price_cred_pending()::text; rollback;`)).toMatch(/hosted preflight failed: the function owner cannot read auth.sessions/);
   });
+
+  // ---- OWNER POLICY: ordinary-key eviction restriction. A primary or spare key may revoke only ITSELF; evicting another ordinary key needs the offline recovery credential.
+  const evictBegin = (c: Record<string, unknown>, target: SoftAuthenticator) => authOut(c, `select public.tw4_price_cred_begin('revoke_other', '${target.credIdB64u}', null, null, null, null)::text;`);
+  const revokeSubmit = (c: Record<string, unknown>, nonce: string, target: SoftAuthenticator, a: Assertion) =>
+    authOut(c, `select public.tw4_price_cred_revoke('${nonce}', '${target.credIdB64u}', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}')::text;`);
+  const evictReq = (c: Record<string, unknown>, by: SoftAuthenticator, target: SoftAuthenticator) => {
+    const eb = evictBegin(c, target);
+    return revokeSubmit(c, eb.nonce, target, by.assert(eb.challenge));
+  };
+  // owner-level and visible: the recovery key is installed by the runbook step (never through a ceremony); only possible with at most 2 other active keys
+  const installRec = (k: SoftAuthenticator) => psql(`select public._tw4price_install_recovery(decode('${k.hex.cred}', 'hex'), decode('${k.hex.x}', 'hex'), decode('${k.hex.y}', 'hex'), 'recovery key')`);
+  const credStatus = (k: SoftAuthenticator) => psql(`select status from public.studio_sms_price_credentials where credential_id = decode('${k.hex.cred}', 'hex')`);
+
+  itSel("PA-34 a stolen ordinary key (with a live session) can no longer evict the other ordinary key: directly refused, by a crafted recovery-type challenge refused, a recovery assertion replayed for another target refused; only the recovery credential evicts, once, and it can do nothing else", () => {
+    clear();
+    const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator(), Kr = new SoftAuthenticator(), Kn = new SoftAuthenticator();
+    resetCreds(Ka, Kb);
+    const sess = claims(A, S2);
+    const pn = enrollReq(sess, Kb, Kn, "pending by kb");   // the spare signs a pending enrolment BEFORE the recovery key makes three active credentials
+    expect(pn.status).toBe("pending");
+    installRec(Kr);
+    // (a) the stolen primary tries to revoke the spare: the ceremony names the TARGET as the only signer, and the primary's assertion is refused
+    const rb = authOut(sess, `select public.tw4_price_cred_begin('revoke', '${Kb.credIdB64u}', null, null, null, null)::text;`);
+    expect(rb.allow_credentials).toEqual([Kb.credIdB64u]);
+    expect(revokeSubmit(sess, rb.nonce, Kb, Ka.assert(rb.challenge))).toMatchObject({ status: "rejected", reason: expect.stringMatching(/can revoke only itself/) });
+    // (b) the eviction ceremony names the recovery key only; the primary signing it is refused
+    const eb = evictBegin(sess, Kb);
+    expect(eb.allow_credentials).toEqual([Kr.credIdB64u]);
+    expect(revokeSubmit(sess, eb.nonce, Kb, Ka.assert(eb.challenge))).toMatchObject({ status: "rejected", reason: expect.stringMatching(/needs the recovery credential/) });
+    // (c) crafted: a recovery assertion over the ORDINARY revoke challenge (a different purpose) is not an eviction
+    const rb2 = authOut(sess, `select public.tw4_price_cred_begin('revoke', '${Kb.credIdB64u}', null, null, null, null)::text;`);
+    expect(revokeSubmit(sess, rb2.nonce, Kb, Kr.assert(rb2.challenge))).toMatchObject({ status: "rejected" });
+    // (d) crafted: the eviction challenge of ONE target replayed for ANOTHER target is refused (the signature is bound to the exact target record)
+    const ev = evictBegin(sess, Kb);
+    const sig = Kr.assert(ev.challenge);
+    expect(revokeSubmit(sess, ev.nonce, Ka, sig)).toMatchObject({ status: "rejected", reason: expect.stringMatching(/transaction changed/) });
+    // (e) service_role, anon and a direct table write are refused
+    for (const role of ["service_role", "anon"]) expect(codeOf(psqlError(`begin; set local role ${role}; select public.tw4_price_cred_begin('revoke_other', 'AAAA', null, null, null, null); commit;`)), role).toBe("42501");
+    expect(credStatus(Ka)).toBe("active");
+    expect(credStatus(Kb)).toBe("active");
+    // (f) the recovery credential evicts the spare: immediate, audited, a critical event, the pending change the spare signed is void
+    const used0 = audit("recovery_used"), rev0 = audit("credential_revoked");
+    expect(revokeSubmit(sess, ev.nonce, Kb, sig)).toMatchObject({ status: "revoked", voided_changes: 1 });   // the very assertion of (d), now for ITS target
+    expect(credStatus(Kb)).toBe("revoked");
+    expect(psql(`select revoked_note from public.studio_sms_price_credentials where credential_id = decode('${Kb.hex.cred}', 'hex')`)).toMatch(/evicted .* recovery credential/);
+    expect(psql(`select status from public.studio_sms_price_credential_changes where id = '${pn.change_id}'`)).toBe("cancelled");
+    expect(audit("credential_revoked")).toBe(rev0 + 1);
+    expect(audit("recovery_used")).toBe(used0 + 1);
+    expect(psql(`select detail ->> 'action' from public.studio_sms_price_audit where event = 'recovery_used' order by id desc limit 1`)).toBe("revoke_ordinary_key");
+    // the evicted key is dead at once: it cannot sign a ceremony; the survivor keeps working
+    const p = propose(claims(A, S1), 481);
+    ready(p.request_id);
+    const b = begin(claims(A, S2), p.request_id);
+    expect(b.allow_credentials).toEqual([Ka.credIdB64u]);
+    expect(finish(claims(A, S2), p.request_id, b.nonce, Kb.assert(b.challenge))).toMatchObject({ status: "rejected" });
+    expect(finish(claims(A, S2), p.request_id, b.nonce, Ka.assert(b.challenge))).toMatchObject({ status: "applied" });
+    // (g) the used eviction nonce is single use, and the recovery credential cannot evict the LAST ordinary credential
+    expect(revokeSubmit(sess, ev.nonce, Kb, sig)).toMatchObject({ status: "rejected" });   // replaying the accepted assertion changes nothing
+    expect(codeOf(authErr(sess, `select public.tw4_price_cred_begin('revoke_other', '${Ka.credIdB64u}', null, null, null, null)::text;`))).toBe("22023");
+    // (h) the recovery credential is not a universal bypass: it cannot authorize a price, enrol, cancel an ordinary enrolment, or thaw
+    const p2 = propose(claims(A, S1), 482);
+    ready(p2.request_id);
+    const b2 = begin(claims(A, S2), p2.request_id);
+    expect(b2.allow_credentials).not.toContain(Kr.credIdB64u);
+    expect(finish(claims(A, S2), p2.request_id, b2.nonce, Kr.assert(b2.challenge)).status).toBe("rejected");
+    expect(enrollReq(sess, Kr, new SoftAuthenticator(), "enrolled by recovery")).toMatchObject({ status: "rejected" });
+    expect(codeOf(authErr(sess, `select public.tw4_price_cred_begin('revoke_other', '${Kr.credIdB64u}', null, null, null, null)::text;`))).toBe("22023"); // the recovery key is evicted by no one
+    expect(req(p2.request_id).status).toBe("pending");
+  });
+
+  itSel("PA-35 safe self-revocation stays immediate; the last signing credential is never revoked; the three-credential scenario: a stolen primary plus a session can enrol a pending key and freeze, but cannot evict the spare or the recovery key, and the owner evicts it with the recovery key", () => {
+    clear();
+    const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator(), Kr = new SoftAuthenticator(), Kn = new SoftAuthenticator();
+    resetCreds(Ka, Kb);
+    const sess = claims(A, S2);
+    const pn = enrollReq(sess, Kb, Kn, "pending by the spare");
+    installRec(Kr);
+    // self-revocation: immediate (no pending state, no delay), voids what the key signed, and the key is unusable in the same transaction
+    expect(revokeReq(sess, Kb, Kb)).toMatchObject({ status: "revoked", voided_changes: 1 });
+    expect(credStatus(Kb)).toBe("revoked");
+    expect(psql(`select revoked_note from public.studio_sms_price_credentials where credential_id = decode('${Kb.hex.cred}', 'hex')`)).toMatch(/revoked immediately/);
+    expect(psql(`select status from public.studio_sms_price_credential_changes where id = '${pn.change_id}'`)).toBe("cancelled");
+    // the last signing credential cannot retire itself, and the recovery credential cannot evict it either
+    expect(codeOf(authErr(sess, `select public.tw4_price_cred_begin('revoke', '${Ka.credIdB64u}', null, null, null, null)::text;`))).toBe("22023");
+    expect(codeOf(authErr(sess, `select public.tw4_price_cred_begin('revoke_other', '${Ka.credIdB64u}', null, null, null, null)::text;`))).toBe("22023");
+    expect(credStatus(Ka)).toBe("active");
+
+    // the three-credential scenario
+    clear();
+    const Ka2 = new SoftAuthenticator(), Kb2 = new SoftAuthenticator(), Kr2 = new SoftAuthenticator(), Kx = new SoftAuthenticator();
+    resetCreds(Ka2, Kb2);
+    // the attacker holds Ka2 and a session: a spare enrolment is only PENDING, evicting the spare or retiring the recovery key is refused, a freeze is possible
+    const bad = enrollReq(sess, Ka2, Kx, "attacker key");
+    expect(bad.status).toBe("pending");
+    installRec(Kr2);
+    expect(revokeReq(sess, Ka2, Kb2)).toMatchObject({ status: "rejected" });
+    expect(revokeReq(sess, Ka2, Kr2)).toMatchObject({ status: "rejected" });
+    expect(authOut(sess, `select public.tw4_price_freeze('the owner freezes while the attacker is present')::text;`)).toMatchObject({ status: "frozen" });
+    // the owner (spare + recovery) evicts the stolen primary: the attacker's pending enrolment is void, the spare lifts the freeze and publishes
+    expect(evictReq(sess, Kr2, Ka2)).toMatchObject({ status: "revoked", voided_changes: 1 });
+    expect(credStatus(Ka2)).toBe("revoked");
+    expect(psql(`select status from public.studio_sms_price_credential_changes where id = '${bad.change_id}'`)).toBe("cancelled");
+    expect(thawWith(sess, Kb2).out).toMatchObject({ status: "thawed" });
+    const p = propose(claims(A, S1), 483);
+    ready(p.request_id);
+    const b = begin(claims(A, S2), p.request_id);
+    expect(finish(claims(A, S2), p.request_id, b.nonce, Ka2.assert(b.challenge)).status).toBe("rejected");
+    expect(finish(claims(A, S2), p.request_id, b.nonce, Kb2.assert(b.challenge)).status).toBe("applied");
+    expect(codeOf(authErr(sess, `select public.tw4_price_cred_apply('${bad.change_id}')::text;`))).toBe("TW041");
+  });
+
+  itSel("PA-36 races of the eviction: recovery-revoke vs apply of a change the target signed, recovery-revoke vs the target's own self-revoke, two simultaneous recovery assertions evicting different keys (exactly one survives)", async () => {
+    const sess = sessionA();
+    const evictSqlOf = (by: SoftAuthenticator, target: SoftAuthenticator) => {
+      const eb = authOut(sessionA(), `select public.tw4_price_cred_begin('revoke_other', '${target.credIdB64u}', null, null, null, null)::text;`);
+      const a = by.assert(eb.challenge);
+      return `select public.tw4_price_cred_revoke('${eb.nonce}', '${target.credIdB64u}', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}')::text;`;
+    };
+    // (1) eviction first (held open), the apply of the change the target signed waits for the credential lock and then finds its signer revoked
+    {
+      clear();
+      const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator(), Kr = new SoftAuthenticator(), Kn = new SoftAuthenticator();
+      resetCreds(Ka, Kb);
+      const pn = enrollReq(sess, Kb, Kn, "pending by the spare");
+      ageChange(pn.change_id);
+      installRec(Kr);
+      const [x, y] = await race(evictSqlOf(Kr, Kb), applySqlOf(pn.change_id), sess, sess);
+      expect(x.out).toContain('"status": "revoked"');
+      expect(y.out).toMatch(/already cancelled|"status": "voided"/);
+      expect(num(`select count(*) from public.studio_sms_price_credentials where credential_id = decode('${Kn.hex.cred}', 'hex')`)).toBe(0);
+    }
+    // (2) the recovery eviction vs the target's own self-revoke: exactly one revocation happens, the other is refused as already revoked
+    {
+      clear();
+      const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator(), Kr = new SoftAuthenticator();
+      resetCreds(Ka, Kb, [Kr, "recovery"]);
+      const revoked0 = num("select count(*) from public.studio_sms_price_audit where event = 'credential_revoked'");
+      const [x, y] = await race(evictSqlOf(Kr, Kb), revokeSqlOf(Kb, Kb), sess, sess);
+      expect(x.out).toContain('"status": "revoked"');
+      expect(y.out).toMatch(/"status": "rejected"/);
+      expect(num("select count(*) from public.studio_sms_price_audit where event = 'credential_revoked'")).toBe(revoked0 + 1);
+      expect(activeSigning()).toBe(1);
+    }
+    // (3) two simultaneous recovery assertions evicting DIFFERENT keys: exactly one ordinary credential survives
+    {
+      clear();
+      const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator(), Kr = new SoftAuthenticator();
+      resetCreds(Ka, Kb, [Kr, "recovery"]);
+      const [x, y] = await race(evictSqlOf(Kr, Ka), evictSqlOf(Kr, Kb), sess, sess);
+      expect(x.out).toContain('"status": "revoked"');
+      expect(y.out).toMatch(/last active signing credential|"status": "rejected"/);
+      expect(activeSigning()).toBe(1);
+    }
+  });
+
+
+  it("PA-37 fresh MFA: every sensitive pricing ceremony needs a TOTP authentication at most fresh_mfa_max_age_seconds old (default 10 minutes, owner-level only, CHECK 60..3600); an old, missing or malformed amr timestamp is refused; freeze, report_compromise and the recovery freeze stay available with an old code", () => {
+    clear();
+    const UU = "gen_random_uuid()";
+    const D = "'AAAAAAAAAAAAAAAAAAAAAA'";
+    const Ka = new SoftAuthenticator(), Kr = new SoftAuthenticator();
+    resetCreds(Ka, [Kr, "recovery"]);
+    const sensitive: [string, string][] = [
+      ["tw4_price_propose", "'number', 501, 115, 'fresh', 'a written reason for the fresh test'"],
+      ["tw4_price_approve", `${UU}, 'an approval note for the fresh test'`],
+      ["tw4_price_revise", `${UU}, 502, 115, 'fresh', 'a written reason for the fresh test'`],
+      ["tw4_price_authz_begin", UU],
+      ["tw4_price_authz_finish", `${UU}, ${D}, ${D}, ${D}, ${D}, ${D}`],
+      ["tw4_price_cred_begin", "'thaw', null, null, null, null, null"],
+      ["tw4_price_cred_enroll", `${D}, ${D}, ${D}, ${D}, 'spare', 'fresh', ${D}, ${D}, ${D}, ${D}, ${D}, ${D}, ${D}`],
+      ["tw4_price_cred_revoke", `${D}, ${D}, ${D}, ${D}, ${D}, ${D}`],
+      ["tw4_price_cred_apply", UU],
+      ["tw4_price_cred_cancel", `${UU}, ${D}, ${D}, ${D}, ${D}, ${D}`],
+      ["tw4_price_thaw", `${D}, ${D}, ${D}, ${D}, ${D}`],
+      ["tw4_price_recovery_enroll", `${D}, ${D}, ${D}, ${D}, 'fresh', ${D}, ${D}, ${D}, ${D}, ${D}, ${D}, ${D}`],
+    ];
+    const withAmr = (amr: unknown, over: Record<string, unknown> = {}) => claims(A, null, { amr, ...over });
+    const call = (c: Record<string, unknown>, fn: string, args: string, pre = "") =>
+      psqlError(`begin; ${pre} set local role authenticated; select set_config('request.jwt.claims', '${JSON.stringify(c).replace(/'/g, "''")}', true); select public.${fn}(${args})::text; rollback;`);
+    const stale = (s: number) => [{ method: "totp", timestamp: nowS() - s }];
+    expect(psql("select fresh_mfa_max_age_seconds from public.studio_sms_price_auth_config")).toBe("600");
+    for (const [fn, args] of sensitive) {
+      // too old, no timestamp, string-form amr (cannot prove recency), a far-future timestamp: refused with the fresh-code sentence
+      for (const [label, amr] of [["11 minutes old", stale(660)], ["no timestamp", [{ method: "totp" }]], ["string amr", ["totp"]], ["future timestamp", [{ method: "totp", timestamp: nowS() + 3600 }]]] as [string, unknown][]) {
+        expect(call(withAmr(amr), fn, args), `${fn} ${label}`).toMatch(/fresh authenticator code is required/);
+        expect(codeOf(call(withAmr(amr), fn, args)), `${fn} ${label} code`).toBe("42501");
+      }
+      // a fresh code passes THIS gate (the call may still be refused for its own reasons, never for freshness)
+      expect(call(withAmr(stale(30)), fn, args), `${fn} fresh`).not.toMatch(/fresh authenticator code is required/);
+      // aal1 stays refused whatever the timestamp
+      expect(call(withAmr(stale(30), { aal: "aal1" }), fn, args), `${fn} aal1`).toMatch(/second-factor \(aal2\) session is required/);
+    }
+    // the plain-aal2 reads and the reject keep working with an old code
+    for (const [fn, args] of [["tw4_price_cred_pending", ""], ["tw4_price_requests_list", ""]] as [string, string][]) expect(call(withAmr(stale(3000)), fn, args), fn).toBe("");
+    // EMERGENCY actions work with an old code: freeze, report_compromise, and the recovery freeze ceremony (begin + signed freeze)
+    const old = withAmr(stale(3000), { session_id: undefined });
+    expect(call(old, "tw4_price_freeze", "'a freeze with an old authenticator code'")).toBe("");
+    expect(call(old, "tw4_price_report_compromise", "'a compromise report with an old authenticator code'")).toBe("");
+    const rb = authOut(old, `select public.tw4_price_cred_begin('recover_freeze', null, null, null, null, null)::text;`);
+    expect(rb.allow_credentials).toEqual([Kr.credIdB64u]);
+    const ra = Kr.assert(rb.challenge);
+    expect(authOut(old, `select public.tw4_price_recovery_freeze('${rb.nonce}', '${ra.credId}', '${ra.auth}', '${ra.client}', '${ra.sig}')::text;`)).toMatchObject({ status: "frozen" });
+    // ... while the thaw, a sensitive ceremony, is refused with the same old code
+    expect(call(old, "tw4_price_cred_begin", "'thaw', null, null, null, null, null")).toMatch(/fresh authenticator code is required/);
+
+    // the maximum age is DATA: only an owner-level change (trigger disabled, visible) moves it, inside CHECK bounds 60..3600
+    expect(codeOf(psqlError("update public.studio_sms_price_auth_config set fresh_mfa_max_age_seconds = 3600 where singleton"))).toBe("42501");
+    expect(codeOf(psqlError("begin; set local role authenticated; update public.studio_sms_price_auth_config set fresh_mfa_max_age_seconds = 3600 where singleton; commit;"))).toBe("42501");
+    const owner = (age: number) => `alter table public.studio_sms_price_auth_config disable trigger studio_sms_price_auth_config_guard; update public.studio_sms_price_auth_config set fresh_mfa_max_age_seconds = ${age} where singleton;`;
+    for (const bad of [59, 3601, 0, -5]) expect(codeOf(psqlError(`begin; ${owner(bad)} rollback;`)), `age ${bad}`).toBe("23514");
+    expect(call(withAmr(stale(200)), "tw4_price_cred_pending", "")).toBe("");   // plain aal2 does not care
+    expect(call(withAmr(stale(200)), "tw4_price_cred_begin", "'thaw', null, null, null, null, null", owner(120))).toMatch(/fresh authenticator code is required/);   // 200 s > 120 s
+    expect(call(withAmr(stale(100)), "tw4_price_cred_begin", "'thaw', null, null, null, null, null", owner(120))).not.toMatch(/fresh authenticator code is required/);
+    expect(call(withAmr(stale(1000)), "tw4_price_cred_begin", "'thaw', null, null, null, null, null", owner(3600))).not.toMatch(/fresh authenticator code is required/);
+    setConfig("recovery_hold = false, frozen = false, frozen_at = null, freeze_reason = null");   // leave no suspension behind for the next test
+  });
+
+
+  itSel("PA-38 enrolment properties are verified fail-closed: a key that arrives by ceremony proves them with its possession assertion, a bootstrap / installed key proves them with an attest assertion; backup-eligible or backed-up, no user verification, no user presence, wrong rp id, wrong origin, wrong ceremony type and a non-increasing counter are all refused (allow_backup_eligible = false for primary, spare and recovery)", () => {
+    clear();
+    setConfig("recovery_hold = false, frozen = false, frozen_at = null, freeze_reason = null");
+    const Ka = new SoftAuthenticator(), Kr = new SoftAuthenticator();
+    resetCreds(Ka, [Kr, "recovery"]);
+    expect(psql("select allow_backup_eligible from public.studio_sms_price_auth_config")).toBe("f");
+    const sess = claims(A, S2);
+    const enrollBegin = (c: Record<string, unknown>, nw: SoftAuthenticator, role: string, label: string) =>
+      authOut(c, `select public.tw4_price_cred_begin('enroll', '${nw.credIdB64u}', '${b64u(nw.x)}', '${b64u(nw.y)}', '${role}', '${label}')::text;`);
+    const enroll = (c: Record<string, unknown>, nw: SoftAuthenticator, role: string, label: string, nonce: string, a: Assertion, m: Assertion) =>
+      authOut(c, `select public.tw4_price_cred_enroll('${nonce}', '${nw.credIdB64u}', '${b64u(nw.x)}', '${b64u(nw.y)}', '${role}', '${label}', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}', '${m.auth}', '${m.client}', '${m.sig}')::text;`);
+    const bad: [string, Record<string, unknown>, RegExp][] = [
+      ["no user verification (UP only)", { flags: 0x01 }, /user presence and user verification are required/],
+      ["no user presence (UV only)", { flags: 0x04 }, /user presence and user verification are required/],
+      ["backup eligible (BE)", { flags: 0x0d }, /backup-eligible/],
+      ["backed up (BE + BS)", { flags: 0x1d }, /backup-eligible/],
+      ["backed up without BE (BS)", { flags: 0x15 }, /backup-eligible/],
+      ["another relying party", { rpId: "evil.example" }, /relying party hash mismatch/],
+      ["another origin", { origin: "https://evil.example" }, /origin not allowed/],
+      ["a registration ceremony type", { type: "webauthn.create" }, /client data does not carry this challenge/],
+    ];
+    // 1. a key that arrives WITHOUT a ceremony (bootstrap primary, installed recovery) has no proof until it signs the attest challenge
+    expect(num("select count(*) from public.studio_sms_price_credentials where status = 'active' and proof_verified_at is null")).toBe(2);
+    const attestBegin = (k: SoftAuthenticator) => JSON.parse(psql(`select public._tw4price_attest_begin(decode('${k.hex.cred}', 'hex'))::text`).split(NL).filter(Boolean).pop()!) as { nonce: string; challenge: string };
+    const attestFinish = (k: SoftAuthenticator, b: { nonce: string }, a: Assertion) =>
+      psql(`select public._tw4price_attest_finish(decode('${k.hex.cred}', 'hex'), public._tw4price_unb64u('${b.nonce}'), public._tw4price_unb64u('${a.auth}'), public._tw4price_unb64u('${a.client}'), public._tw4price_unb64u('${a.sig}'))`);
+    for (const k of [Ka, Kr]) {
+      for (const [label, o, re] of bad) {
+        const b = attestBegin(k);
+        const r = attestFinish(k, b, k.assert(b.challenge, o));
+        expect(r, `attest ${label}`).toMatch(/^rejected: /);
+        expect(r, `attest ${label}`).toMatch(re);
+      }
+      expect(num(`select count(*) from public.studio_sms_price_credentials where credential_id = decode('${k.hex.cred}', 'hex') and proof_verified_at is not null`)).toBe(0);
+      const b = attestBegin(k);
+      const good = k.assert(b.challenge);
+      expect(attestFinish(k, b, good)).toBe("attested");
+      expect(num(`select count(*) from public.studio_sms_price_credentials where credential_id = decode('${k.hex.cred}', 'hex') and proof_verified_at is not null`)).toBe(1);
+      expect(attestFinish(k, b, good)).toMatch(/challenge already used/);   // single use
+      const again = attestBegin(k);
+      expect(attestFinish(k, again, k.assert(again.challenge, { counter: 1 }))).toMatch(/sign counter did not increase/);   // a cloned or replayed authenticator
+    }
+    expect(num("select count(*) from public.studio_sms_price_credentials where status = 'active' and proof_verified_at is null")).toBe(0);
+    expect(audit("credential_attested")).toBe(2);
+    // the proof is owner-level: no API role can begin or finish it, and the stamp cannot be set or cleared by any other path
+    for (const role of ["anon", "authenticated", "service_role"]) expect(codeOf(psqlError(`begin; set local role ${role}; select public._tw4price_attest_begin(decode('${Ka.hex.cred}', 'hex')); commit;`)), role).toBe("42501");
+    expect(codeOf(psqlError(`update public.studio_sms_price_credentials set proof_verified_at = null where credential_id = decode('${Ka.hex.cred}', 'hex')`))).toBe("42501");
+    expect(codeOf(psqlError(`begin; set local tw4.priceauth_write = 'on'; update public.studio_sms_price_credentials set proof_verified_at = now() where credential_id = decode('${Ka.hex.cred}', 'hex'); commit;`))).toBe("42501");
+    expect(codeOf(authErr(sess, `select public._tw4price_attest_begin(decode('${Ka.hex.cred}', 'hex'))::text;`))).toBe("42501");
+    expect(codeOf(psqlError(`select public._tw4price_attest_begin(decode('00112233445566778899aabbccddeeff', 'hex'))`))).toBe("22023");
+
+    // 2. a key that arrives by CEREMONY proves the same properties with the possession assertion of the NEW key; the SIGNING key's flags are checked too
+    for (const [label, o, re] of bad) {
+      const nw = new SoftAuthenticator();
+      const eb = enrollBegin(sess, nw, "spare", `props ${label}`.slice(0, 40));
+      expect(enroll(sess, nw, "spare", `props ${label}`.slice(0, 40), eb.nonce, Ka.assert(eb.challenge), nw.assert(eb.challenge, o)), `new key: ${label}`).toMatchObject({ status: "rejected", reason: expect.stringMatching(re) });
+      const nw2 = new SoftAuthenticator();
+      const eb2 = enrollBegin(sess, nw2, "spare", `by ${label}`.slice(0, 40));
+      expect(enroll(sess, nw2, "spare", `by ${label}`.slice(0, 40), eb2.nonce, Ka.assert(eb2.challenge, o), nw2.assert(eb2.challenge)), `signing key: ${label}`).toMatchObject({ status: "rejected", reason: expect.stringMatching(re) });
+    }
+    expect(num("select count(*) from public.studio_sms_price_credential_changes where status = 'pending'")).toBe(0);
+    const Kn = new SoftAuthenticator();
+    const eb = enrollBegin(sess, Kn, "spare", "a compliant spare");
+    const ok = enroll(sess, Kn, "spare", "a compliant spare", eb.nonce, Ka.assert(eb.challenge), Kn.assert(eb.challenge));
+    expect(ok.status).toBe("pending");
+    ageChange(ok.change_id);
+    expect(applyChange(sess, ok.change_id)).toMatchObject({ status: "applied" });
+    expect(num(`select count(*) from public.studio_sms_price_credentials where credential_id = decode('${Kn.hex.cred}', 'hex') and proof_verified_at is not null`)).toBe(1);   // the ceremony IS the proof
+    // an owner-level migration may allow synced passkeys (it is the owner's decision, default false for every role); the refusal above is the default behaviour
+    expect(psql("select allow_backup_eligible from public.studio_sms_price_auth_config")).toBe("f");
+  });
+
+
+  itSel("PA-39 the hosted preflight SQL (read-only, never run hosted) passes on a compliant chain and fails, naming the reason, when each condition is violated: auth.sessions unreadable or missing, the QA marker present, CREATE on schema public for an API role or PUBLIC, an API role able to execute the session actor, monitoring_expected false, the monitoring table missing, no recovery key, no enrolment proof, backup-eligible credentials allowed", () => {
+    const script = readFileSync(join(process.cwd(), "scripts", "hosted", "tw4f", "preflight_price_authorization.sql"), "utf8");
+    // the script itself changes nothing: no DDL or DML keyword outside comments and string literals
+    const code = script.replace(/--.*$/gm, "").replace(/'[^']*'/g, "''");
+    expect(code).not.toMatch(/\b(insert|update|delete|alter|drop|create|truncate|grant|revoke)\b\s+(into|table|from|function|schema|set|on)?/i);
+    clear();
+    setConfig("recovery_hold = false, frozen = false, frozen_at = null, freeze_reason = null");
+    const Ka = new SoftAuthenticator(), Kr = new SoftAuthenticator();
+    resetCreds(Ka, [Kr, "recovery"]);
+    const hasSessions = psql("select to_regclass('auth.sessions') is not null") === "t";
+    // the owner-level statements need the image superuser; every run is rolled back
+    const superRun = (sql: string): string => {
+      try {
+        execFileSync("docker", ["exec", "-i", "-e", "PGPASSWORD=postgres", PG, "psql", "-U", "supabase_admin", "-d", DB, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+        return "";
+      } catch (e) {
+        return String((e as { stderr?: Buffer | string }).stderr ?? e);
+      }
+    };
+    const unguard = (table: string, trigger: string, stmt: string) => `alter table public.${table} disable trigger ${trigger}; ${stmt} alter table public.${table} enable always trigger ${trigger};`;
+    const compliant = [
+      hasSessions ? "" : "create table auth.sessions (id uuid primary key, user_id uuid, not_after timestamptz);",
+      unguard("studio_sms_price_credentials", "studio_sms_price_credentials_guard", "update public.studio_sms_price_credentials set proof_verified_at = clock_timestamp() where status = 'active';"),
+      unguard("studio_sms_price_auth_config", "studio_sms_price_auth_config_guard", "update public.studio_sms_price_auth_config set monitoring_expected = true where singleton;"),
+      "create table public.studio_sms_price_security_events (seq bigint);",
+      "drop table if exists public.tw4_local_qa_only;",
+      "revoke create on schema public from public, anon, authenticated, service_role;",
+    ].join(" ");
+    const run = (violate = "") => superRun(`begin; ${compliant} ${violate} ${script} rollback;`);
+    expect(run()).toBe("");   // a compliant chain passes
+    const cases: [string, string, RegExp][] = [
+      ["the QA marker exists", "create table public.tw4_local_qa_only (x int);", /tw4_local_qa_only exists/],
+      ["authenticated can CREATE in schema public", "grant create on schema public to authenticated;", /authenticated can CREATE in schema public/],
+      ["anon can CREATE in schema public", "grant create on schema public to anon;", /anon can CREATE in schema public/],
+      ["service_role can CREATE in schema public", "grant create on schema public to service_role;", /service_role can CREATE in schema public/],
+      ["PUBLIC can CREATE in schema public", "grant create on schema public to public;", /PUBLIC can CREATE in schema public/],
+      ["authenticated can execute the session actor", "grant execute on function public._tw4price_session_actor(text) to authenticated;", /authenticated can execute the session-actor function/],
+      ["PUBLIC can execute the session actor", "grant execute on function public._tw4price_session_actor(text) to public;", /PUBLIC can execute the session-actor function/],
+      ["monitoring_expected is false", unguard("studio_sms_price_auth_config", "studio_sms_price_auth_config_guard", "update public.studio_sms_price_auth_config set monitoring_expected = false where singleton;"), /monitoring_expected is not true/],
+      ["the monitoring table is missing", "drop table public.studio_sms_price_security_events;", /monitoring events table is missing/],
+      ["backup-eligible credentials allowed", unguard("studio_sms_price_auth_config", "studio_sms_price_auth_config_guard", "update public.studio_sms_price_auth_config set allow_backup_eligible = true where singleton;"), /allow_backup_eligible is true/],
+      ["no recovery credential", unguard("studio_sms_price_credentials", "studio_sms_price_credentials_guard", "update public.studio_sms_price_credentials set status = 'revoked', revoked_at = clock_timestamp() where role = 'recovery';"), /exactly one active recovery credential/],
+      ["an active credential without proof", unguard("studio_sms_price_credentials", "studio_sms_price_credentials_guard", "update public.studio_sms_price_credentials set proof_verified_at = null where role = 'recovery';"), /no enrolment proof/],
+      ["the relying party is not configured", unguard("studio_sms_price_auth_config", "studio_sms_price_auth_config_guard", "update public.studio_sms_price_auth_config set rp_id = null, rp_origins = null where singleton;"), /relying party is not configured/],
+      ["auth.sessions is missing", "alter table auth.sessions rename to sessions_hidden;", /auth\.sessions does not exist/],
+      ["the function owner cannot read auth.sessions", "alter table auth.sessions owner to supabase_admin; revoke all on auth.sessions from postgres, public, supabase_auth_admin; revoke pg_read_all_data, supabase_privileged_role from postgres;", /function owner \(postgres\) cannot read auth\.sessions/],
+    ];
+    for (const [label, violation, re] of cases) {
+      const out = run(violation);
+      expect(out, label).toMatch(/price authorization preflight FAILED/);
+      expect(out, label).toMatch(re);
+    }
+  });
+
 });

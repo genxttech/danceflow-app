@@ -49,7 +49,7 @@ vi.mock("@/lib/sms/twilioIsv/factory", async (orig) => {
   return { ...real, buildRunnerRuntime: trap("runner"), buildRunnerStore: trap("store"), buildProvisioningRuntime: trap("prov"), buildNumberRuntime: trap("num") };
 });
 
-type Tier = "aal2" | "recent";
+type Tier = "aal2" | "recent" | "fresh";
 
 /** file -> action -> tier. Classification rationale is in docs/twilio/TW-4F_Platform_Admin_AAL2.md. */
 const REGISTRY: Record<string, Record<string, Tier>> = {
@@ -79,8 +79,8 @@ const REGISTRY: Record<string, Record<string, Tier>> = {
     panelDecideTierAction: "aal2",
   },
   "priceChangeActions.ts": {
-    pricePropose: "recent", priceApprove: "recent", priceReject: "aal2", priceRevise: "recent", priceFreeze: "aal2", priceReportCompromise: "aal2", priceAuthzBegin: "aal2", priceAuthzFinish: "aal2",
-    priceCredBegin: "aal2", priceCredEnroll: "aal2", priceCredRevoke: "aal2", priceThaw: "aal2", priceCredApply: "aal2", priceCredCancel: "aal2", priceCredPending: "aal2", priceRecoveryEnroll: "aal2", priceRecoveryFreeze: "aal2",
+    pricePropose: "fresh", priceApprove: "fresh", priceReject: "aal2", priceRevise: "fresh", priceFreeze: "aal2", priceReportCompromise: "aal2", priceAuthzBegin: "fresh", priceAuthzFinish: "fresh",
+    priceCredBegin: "fresh", priceCredEnroll: "fresh", priceCredRevoke: "fresh", priceThaw: "fresh", priceCredApply: "fresh", priceCredCancel: "fresh", priceCredPending: "aal2", priceRecoveryEnroll: "fresh", priceRecoveryFreeze: "aal2",
   },   // D4-1: dual-controlled SMS price changes
   "provisioningActions.ts": {
     resolveProvisioningOperationAction: "recent",
@@ -181,9 +181,19 @@ describe("completeness and source order", () => {
         "panelCreatePilotExceptionAction", "panelCreateSubaccountAction", "resolveProvisioningOperationAction", "reopenProvisioningAction",
         "runProvisioningStepAction", "runNumberStepAction", "retryRegistrationAction", "rflSetSwitchAction", "rflDualRequestAction", "rflDualApproveAction",
         "rflDisposeExposureAction", "rflPilotCoverAction", "rflCancelAuthorizeAction", "rflCancelBeginAction", "rflCancelFinishAction",
-        "rflCancelResolveAction", "rflCancelReleaseAction", "resolveUsageAttemptAction", "pricePropose", "priceApprove", "priceRevise",
+        "rflCancelResolveAction", "rflCancelReleaseAction", "resolveUsageAttemptAction",
       ].sort(),
     );
+  });
+
+  it("every pricing ceremony runs the fresh-MFA tier (10 minutes); only the emergency stops, reject and the read stay plain aal2", () => {
+    const fresh = Object.values(REGISTRY).flatMap((a) => Object.entries(a).filter(([, t]) => t === "fresh").map(([n]) => n));
+    expect(fresh.sort()).toEqual(
+      ["pricePropose", "priceApprove", "priceRevise", "priceAuthzBegin", "priceAuthzFinish", "priceCredBegin", "priceCredEnroll", "priceCredRevoke", "priceThaw", "priceCredApply", "priceCredCancel", "priceRecoveryEnroll"].sort(),
+    );
+    expect(REGISTRY["priceChangeActions.ts"].priceFreeze).toBe("aal2");
+    expect(REGISTRY["priceChangeActions.ts"].priceReportCompromise).toBe("aal2");
+    expect(REGISTRY["priceChangeActions.ts"].priceRecoveryFreeze).toBe("aal2");
   });
 });
 

@@ -78,7 +78,7 @@ async function guarded(tier: AssuranceTier, work: (admin: { id: string }) => Pro
 const store = async () => new PriceChangeStore(await createClient());
 
 export async function pricePropose(formData: FormData) {
-  await guarded("recent", async () => {
+  await guarded("fresh", async () => {
     const kind = field(formData, "kind");
     const customer = usdToCents(field(formData, "customerUsd"));
     const provider = usdToCents(field(formData, "providerUsd"));
@@ -95,7 +95,7 @@ export async function pricePropose(formData: FormData) {
 }
 
 export async function priceApprove(formData: FormData) {
-  await guarded("recent", async () => {
+  await guarded("fresh", async () => {
     const requestId = id(formData, "requestId");
     const note = text(formData, "note", 10, 500);
     if (!requestId || !note) return fail("Give an approval note of 10 to 500 characters. Nothing changed.");
@@ -134,7 +134,7 @@ async function guardedData<T>(tier: AssuranceTier, work: () => Promise<T>): Prom
 
 /** Step 1: the DATABASE issues the challenge for one proposal to this session. The owner reads the summary it returns, which comes from the database row. */
 export async function priceAuthzBegin(requestId: string): Promise<Data<AuthzChallenge>> {
-  return await guardedData("aal2", async () => {
+  return await guardedData("fresh", async () => {
     if (typeof requestId !== "string" || !UUID.test(requestId)) throw new PriceChangeError("22023");
     return (await store()).authzBegin(requestId);
   });
@@ -144,7 +144,7 @@ export async function priceAuthzBegin(requestId: string): Promise<Data<AuthzChal
 type AuthzFinishInput = Record<"requestId" | "nonce" | "credentialId" | "authData" | "clientData" | "signature", string>;
 type AuthzFinishOut = Data<Record<"status" | "reason", string | null>>;
 export async function priceAuthzFinish(input: AuthzFinishInput): Promise<AuthzFinishOut> {
-  return await guardedData("aal2", async () => {
+  return await guardedData("fresh", async () => {
     const i = input as Record<string, unknown>;
     if (typeof i?.requestId !== "string" || !UUID.test(i.requestId) || !isB64u(i.nonce) || !isB64u(i.credentialId) || !isB64u(i.authData) || !isB64u(i.clientData) || !isB64u(i.signature)) {
       throw new PriceChangeError("22023");
@@ -154,7 +154,7 @@ export async function priceAuthzFinish(input: AuthzFinishInput): Promise<AuthzFi
 }
 
 export async function priceRevise(formData: FormData) {
-  await guarded("recent", async () => {
+  await guarded("fresh", async () => {
     const requestId = id(formData, "requestId");
     const customer = usdToCents(field(formData, "customerUsd"));
     const provider = usdToCents(field(formData, "providerUsd"));
@@ -193,13 +193,13 @@ const bad = (...v: unknown[]) => {
 };
 
 export async function priceCredBegin(input: { purpose: string; credentialId?: string; x?: string; y?: string; role?: string; label?: string; changeId?: string }): Promise<Data<CredChallenge>> {
-  return await guardedData("aal2", async () => {
+  return await guardedData("fresh", async () => {
     const purpose = input?.purpose;
-    if (purpose !== "enroll" && purpose !== "revoke" && purpose !== "thaw" && purpose !== "cancel" && purpose !== "recover_enroll" && purpose !== "recover_freeze") throw new PriceChangeError("22023");
+    if (purpose !== "enroll" && purpose !== "revoke" && purpose !== "revoke_other" && purpose !== "thaw" && purpose !== "cancel" && purpose !== "recover_enroll" && purpose !== "recover_freeze") throw new PriceChangeError("22023");
     if (purpose === "cancel" && (typeof input.changeId !== "string" || !UUID.test(input.changeId))) throw new PriceChangeError("22023");
     if (purpose === "enroll" || purpose === "recover_enroll") bad(input.credentialId, input.x, input.y);
     if (purpose === "recover_enroll" && (typeof input.label !== "string" || input.label.trim().length < 3 || input.label.length > 60)) throw new PriceChangeError("22023");
-    if (purpose === "revoke") bad(input.credentialId);
+    if (purpose === "revoke" || purpose === "revoke_other") bad(input.credentialId);
     if (purpose === "enroll" && (typeof input.role !== "string" || !["primary", "spare"].includes(input.role) || typeof input.label !== "string" || input.label.trim().length < 3 || input.label.length > 60)) throw new PriceChangeError("22023");
     return (await store()).credBegin({ purpose, credentialId: input.credentialId ?? null, x: input.x ?? null, y: input.y ?? null, role: input.role ?? null, label: input.label ?? null, changeId: input.changeId ?? null });
   });
@@ -207,7 +207,7 @@ export async function priceCredBegin(input: { purpose: string; credentialId?: st
 
 type CredEnrollInput = Record<"nonce" | "newCredentialId" | "x" | "y" | "role" | "label" | "byCredentialId" | "byAuth" | "byClient" | "bySig" | "newAuth" | "newClient" | "newSig", string>;
 export async function priceCredEnroll(input: CredEnrollInput): Promise<Data<Record<"status" | "reason" | "changeId", string | null>>> {
-  return await guardedData("aal2", async () => {
+  return await guardedData("fresh", async () => {
     const i = input as Record<string, unknown>;
     bad(i?.nonce, i?.newCredentialId, i?.x, i?.y, i?.byCredentialId, i?.byAuth, i?.byClient, i?.bySig, i?.newAuth, i?.newClient, i?.newSig);
     if (i.role !== "primary" && i.role !== "spare") throw new PriceChangeError("22023"); // a recovery key is installed only by the owner-level runbook step
@@ -218,7 +218,7 @@ export async function priceCredEnroll(input: CredEnrollInput): Promise<Data<Reco
 
 type CredRevokeInput = Record<"nonce" | "target" | "byCredentialId" | "byAuth" | "byClient" | "bySig", string>;
 export async function priceCredRevoke(input: CredRevokeInput): Promise<Data<Record<"status" | "reason" | "changeId", string | null>>> {
-  return await guardedData("aal2", async () => {
+  return await guardedData("fresh", async () => {
     const i = input as Record<string, unknown>;
     bad(i?.nonce, i?.target, i?.byCredentialId, i?.byAuth, i?.byClient, i?.bySig);
     return (await store()).credRevoke(input);
@@ -227,7 +227,7 @@ export async function priceCredRevoke(input: CredRevokeInput): Promise<Data<Reco
 
 type ThawInput = Record<"nonce" | "credentialId" | "authData" | "clientData" | "signature", string>;
 export async function priceThaw(input: ThawInput): Promise<Data<Record<"status" | "reason", string | null>>> {
-  return await guardedData("aal2", async () => {
+  return await guardedData("fresh", async () => {
     const i = input as Record<string, unknown>;
     bad(i?.nonce, i?.credentialId, i?.authData, i?.clientData, i?.signature);
     return (await store()).thaw(input);
@@ -235,7 +235,7 @@ export async function priceThaw(input: ThawInput): Promise<Data<Record<"status" 
 }
 
 export async function priceCredApply(changeId: string): Promise<Data<Record<"status", string | null>>> {
-  return await guardedData("aal2", async () => {
+  return await guardedData("fresh", async () => {
     if (typeof changeId !== "string" || !UUID.test(changeId)) throw new PriceChangeError("22023");
     return (await store()).credApply(changeId);
   });
@@ -243,7 +243,7 @@ export async function priceCredApply(changeId: string): Promise<Data<Record<"sta
 
 type CancelInput = Record<"changeId" | "nonce" | "credentialId" | "authData" | "clientData" | "signature", string>;
 export async function priceCredCancel(input: CancelInput): Promise<Data<Record<"status" | "reason", string | null>>> {
-  return await guardedData("aal2", async () => {
+  return await guardedData("fresh", async () => {
     const i = input as Record<string, unknown>;
     if (typeof i?.changeId !== "string" || !UUID.test(i.changeId)) throw new PriceChangeError("22023");
     bad(i.nonce, i.credentialId, i.authData, i.clientData, i.signature);
@@ -257,7 +257,7 @@ export async function priceCredPending(): Promise<Data<CredentialState>> {
 
 type RecoveryEnrollInput = Record<"nonce" | "newCredentialId" | "x" | "y" | "label" | "recCredentialId" | "recAuth" | "recClient" | "recSig" | "newAuth" | "newClient" | "newSig", string>;
 export async function priceRecoveryEnroll(input: RecoveryEnrollInput): Promise<Data<Record<"status" | "reason" | "changeId", string | null>>> {
-  return await guardedData("aal2", async () => {
+  return await guardedData("fresh", async () => {
     const i = input as Record<string, unknown>;
     bad(i?.nonce, i?.newCredentialId, i?.x, i?.y, i?.recCredentialId, i?.recAuth, i?.recClient, i?.recSig, i?.newAuth, i?.newClient, i?.newSig);
     if (typeof i.label !== "string" || i.label.trim().length < 3 || i.label.length > 60) throw new PriceChangeError("22023");

@@ -107,9 +107,10 @@ export default function PriceCredentials() {
       return r.data.status === "pending" ? "Requested. The new key becomes usable only after the delay; you can cancel it until then." : `The database refused: ${r.data.reason ?? "unknown reason"}. Nothing changed.`;
     });
 
-  const revoke = (target: string) =>
+  // "self": a primary or spare key retires ITSELF (touch that same key). "evict": the OFFLINE RECOVERY key evicts an ordinary key (touch the recovery key). A primary or spare key can never revoke the other one.
+  const revoke = (target: string, mode: "self" | "evict") =>
     run(async () => {
-      const b = await priceCredBegin({ purpose: "revoke", credentialId: target });
+      const b = await priceCredBegin({ purpose: mode === "evict" ? "revoke_other" : "revoke", credentialId: target });
       if (!b.ok) return b.message;
       const by = await sign(b.data);
       const r = await priceCredRevoke({ nonce: b.data.nonce, target, byCredentialId: by.credentialId, byAuth: by.auth, byClient: by.client, bySig: by.sig });
@@ -186,12 +187,17 @@ export default function PriceCredentials() {
   return (
     <section className="space-y-3 rounded-xl border border-violet-200 bg-white px-3 py-3 text-sm text-slate-900" aria-label="Hardware keys for price authorization">
       <h3 className="font-semibold">Hardware keys</h3>
-      <p className="text-xs">Adding a key is a request: it takes effect only after the delay set in the database and can be cancelled with a key until then. Removing a key is immediate and final. Synced passkeys are refused. Keep three hardware keys: primary, spare and an offline recovery key.</p>
+      <p className="text-xs">Adding a key is a request: it takes effect only after the delay set in the database and can be cancelled with a key until then. Removing a key is immediate and final: a key can retire only itself, and evicting a lost or stolen key needs the offline recovery key. Synced passkeys are refused. Keep three hardware keys: primary, spare and an offline recovery key.</p>
       <ul className="space-y-1 text-xs">
         {state?.credentials.map((c) => (
           <li key={c.id} className="flex items-center justify-between gap-2">
             <span>{c.label} ({c.role})</span>
-            <button type="button" disabled={busy} onClick={() => revoke(c.id)} className="rounded border border-slate-300 px-2 py-0.5 disabled:opacity-60">Revoke now (final)</button>
+            <span className="flex gap-1">
+              <button type="button" disabled={busy} onClick={() => revoke(c.id, "self")} className="rounded border border-slate-300 px-2 py-0.5 disabled:opacity-60">{c.role === "recovery" ? "Retire the recovery key (final)" : "Retire this key (touch this key, final)"}</button>
+              {c.role !== "recovery" ? (
+                <button type="button" disabled={busy} onClick={() => revoke(c.id, "evict")} className="rounded border border-slate-300 px-2 py-0.5 disabled:opacity-60">Evict with the recovery key (final)</button>
+              ) : null}
+            </span>
           </li>
         ))}
         {state?.pending.map((p) => (

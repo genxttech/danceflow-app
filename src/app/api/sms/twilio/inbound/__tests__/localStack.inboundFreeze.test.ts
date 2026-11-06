@@ -9,6 +9,8 @@ import { createHmac, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getExpectedTwilioSignature } from "twilio/lib/webhooks/webhooks";
+import { A as ADMIN, seedCast } from "@/lib/sms/twilioIsv/__tests__/wpd4Helpers";
+import { registerApproverSql } from "@/lib/sms/twilioIsv/__tests__/priceFixture";
 
 vi.mock("server-only", () => ({}));
 vi.setConfig({ testTimeout: 240_000, hookTimeout: 240_000 });
@@ -153,5 +155,36 @@ describe.skipIf(!enabled)("D4-2: STOP / START / HELP through the real inbound ro
     expect(bad.status).toBe(403);
     const none = await POST(new Request(WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(params) }));
     expect(none.status).toBe(403);
+  });
+  it("a freeze made by an administrator session whose authenticator code is OLD works (the emergency stop is never blocked), the sensitive thaw ceremony is refused for that same session, and STOP / START / HELP are answered exactly as in the other states", async () => {
+    seedCast();
+    psql(registerApproverSql(ADMIN));
+    setState(CLEAR);
+    const stale = JSON.stringify({ sub: ADMIN, role: "authenticated", aal: "aal2", exp: Math.floor(Date.now() / 1000) + 3600, amr: [{ method: "totp", timestamp: Math.floor(Date.now() / 1000) - 3000 }] });
+    const asStale = (sql: string) => psql(`begin; set local role authenticated; select set_config('request.jwt.claims', '${stale}', true); ${sql} commit;`);
+    expect(asStale("select public.tw4_price_freeze('a freeze with an old authenticator code')::text;")).toContain("frozen");
+    expect(psql("select public._tw4price_suspended()")).toBe("t");
+    let thawError = "";
+    try {
+      asStale("select public.tw4_price_cred_begin('thaw', null, null, null, null, null)::text;");
+    } catch (e) {
+      thawError = String((e as Error).message);
+    }
+    expect(thawError).toMatch(/fresh authenticator code is required/);
+    const phone = "+15550107777";
+    const stop = await send(phone, "STOP");
+    const afterStop = consent(phone);
+    const start = await send(phone, "START");
+    const afterStart = consent(phone);
+    const help = await send(phone, "HELP");
+    for (const r of [stop, start, help]) {
+      expect(r.status).toBe(200);
+      expect(r.text).toMatch(/^<Response><Message>.+<\/Message><\/Response>$/);
+    }
+    expect(stop.text).toContain(escapeXml(STUDIO_NAME));
+    expect(afterStop).toMatch(/opted_out/);
+    expect(afterStart).not.toMatch(/opted_out/);
+    expect(help.text).toContain(escapeXml(STUDIO_NAME));
+    setState(CLEAR);
   });
 });

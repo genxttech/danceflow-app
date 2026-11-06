@@ -215,7 +215,7 @@ export class PriceChangeStore {
   }
 
   // ---- credential ceremonies (enrol / revoke / thaw are PENDING requests or hardware-key lifts; nothing here takes effect without the database's checks)
-  async credBegin(args: { purpose: "enroll" | "revoke" | "thaw" | "cancel" | "recover_enroll" | "recover_freeze"; credentialId?: string | null; x?: string | null; y?: string | null; role?: string | null; label?: string | null; changeId?: string | null }): Promise<CredChallenge> {
+  async credBegin(args: { purpose: "enroll" | "revoke" | "revoke_other" | "thaw" | "cancel" | "recover_enroll" | "recover_freeze"; credentialId?: string | null; x?: string | null; y?: string | null; role?: string | null; label?: string | null; changeId?: string | null }): Promise<CredChallenge> {
     // a cancel ceremony names the pending change (the database carries its id in the label slot)
     const row = await this.call("tw4_price_cred_begin", { p_purpose: args.purpose, p_cred_id: args.credentialId ?? null, p_x: args.x ?? null, p_y: args.y ?? null, p_role: args.role ?? null, p_label: args.purpose === "cancel" ? (args.changeId ?? null) : (args.label ?? null) });
     const ids = Array.isArray(row.allow_credentials) ? row.allow_credentials.filter(isB64u) : [];
