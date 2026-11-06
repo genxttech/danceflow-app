@@ -55,10 +55,6 @@ function redirectToBilling(request: NextRequest, params: Record<string, string>)
 }
 
 async function readPackKey(request: NextRequest) {
-  if (request.method === "GET") {
-    return request.nextUrl.searchParams.get("pack")?.trim() ?? "";
-  }
-
   const formData = await request.formData();
   const value = formData.get("pack");
   return typeof value === "string" ? value.trim() : "";
@@ -174,8 +170,4 @@ export async function POST(request: NextRequest) {
     console.error("AI credit pack checkout failed", error);
     return redirectToBilling(request, { error: "ai_pack_checkout_failed" });
   }
-}
-
-export async function GET(request: NextRequest) {
-  return POST(request);
 }
