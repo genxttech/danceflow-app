@@ -43,14 +43,14 @@ M3-A refuses platform-scope / unbound-account registration (the account is resol
 Retired outright: the `M3-RETAIN` copies (no longer needed) and the SUPERSEDED labelling. Coverage reductions, stated plainly: the cross-studio form of I1/I2 and the platform-registered half of F6.
 
 ## Results per configuration
-Tree: this branch = merged `origin/main` `c1e16f6f` + harness commits (tree SHA `1dfc7fa0d6bec848a114e8ad25cdc6b0f177ecb6` for all four runs; only docs changed after). Layer SHAs are the PR heads **fetched immediately before each run** (identical in all four): PR 394 `5e7bf1eabf1740f6ab72d5a9f2afb73eaa45b91f`, PR 393 `47f09e792abae92e1f5ad8263ec6557e90ecdce5`, PR 395 `18b7e8641927fc63236ed07de749565fdc24bf4c`.
+Tree: this branch = merged `origin/main` `c1e16f6f` + harness commits (tree SHA `1dfc7fa0d6bec848a114e8ad25cdc6b0f177ecb6` for all four runs; only docs changed after). Layer SHAs are the PR heads **fetched immediately before each run** (identical in all four): PR 394 `5e7bf1eabf1740f6ab72d5a9f2afb73eaa45b91f`, PR 393 `47f09e792abae92e1f5ad8263ec6557e90ecdce5`, PR 395 `3b9da8b25f43a91e830ed3ffdcd776fd4ff46b94` (configuration 4 was re-run on this head after PR 395 merged PR 394 `5e7bf1ea`; configurations 1–3 do not load M3-C, so they are unaffected; tree SHA of that run `f4c6433e`).
 
 | # | Configuration | Layers loaded | PASS | FAIL | BLOCKED | SUPERSEDED |
 |---|---|---|---|---|---|---|
 | 1 | merged tree, no M3 | m1 m2a m2c m2b | 85 | 0 | 56 | 0 |
 | 2 | + M3-A | + m3a `5e7bf1ea` | 91 | 0 | 50 | 0 |
 | 3 | + M3-A + M3-B | + m3b `47f09e79` | 139 | 0 | 2 | 0 |
-| 4 | + M3-A + M3-B + M3-C | + m3c `18b7e864` | **141** | 0 | **0** | 0 |
+| 4 | + M3-A + M3-B + M3-C | + m3c `3b9da8b2` | **141** | 0 | **0** | 0 |
 
 BLOCKED in 1–2 is "layer not loaded" (named per test). Configuration 3 has 2 BLOCKED: the two M3-C-dependent rows, `BLOCKED(m3a+m3b+m3c not loaded)`. Configuration 4 has none. K1 passes in all four full runs (and 10 of 10 isolated runs). Earlier runs on previous heads (M3-A `e24ad0ef`) gave 140/1/0/0 with one remaining failure, F6, which the shim had changed — fixed and re-verified before these runs; it is the only run-level failure the re-expression produced.
 
@@ -73,7 +73,7 @@ Run against M3-C's **real** `saveClientInvoiceDraftAction`, `authorizeClientInvo
 - **Not covered:** M3-C's `getClientInvoiceCreationPort()` is a stub returning `null` (asserted), so the wiring between the server action and the orchestrator does not exist; the test performs, in test code, the steps its documented contract assigns to it. The Next.js request layer (cookies, real Supabase auth, UI) is not exercised.
 
 ## Honest limits
-Fixture-based throughout; reconstructed base tables; no real Stripe call; the E5 drain race, the sweep and any test using timed waits are sensitive to this machine's `docker exec` latency (hence the 240 s timeout and the latency-independent K1); overlay `@/…` imports resolve overlay-first then to the merged tree; M3-C is composed with the M3-A it contains (`e24ad0ef`). D7's migrations (`20270204…`, `20270205100000`) are not loaded in the D24 stack (they need tables the reconstructed base does not have). Migration versions after merging `origin/main` `c1e16f6f`: `…0203110000` (M1) < `…0204090000` / `…0205100000` (D7) < `…0206090000` (M2-C) < `…0207090000` (M2-B) < `…0208090000` (M3-A) < `…0209090000` (M3-C), no collisions.
+Fixture-based throughout; reconstructed base tables; no real Stripe call; the E5 drain race, the sweep and any test using timed waits are sensitive to this machine's `docker exec` latency (hence the 240 s timeout and the latency-independent K1); overlay `@/…` imports resolve overlay-first then to the merged tree; M3-C is loaded exactly as its branch stacks: PR 395 `3b9da8b2` contains M3-A `5e7bf1ea`, the same M3-A loaded in configurations 2–4 (no older-M3-A caveat). D7's migrations (`20270204…`, `20270205100000`) are not loaded in the D24 stack (they need tables the reconstructed base does not have). Migration versions after merging `origin/main` `c1e16f6f`: `…0203110000` (M1) < `…0204090000` / `…0205100000` (D7) < `…0206090000` (M2-C) < `…0207090000` (M2-B) < `…0208090000` (M3-A) < `…0209090000` (M3-C), no collisions.
 
 ## Independent review
 Three fresh-reviewer passes over the harness diff, none with a P0. Fixed across them: R9/R10/regex defects, SUPERSEDED set too wide (now 0), overlay guard, A2 gate, non-atomic `ageIntent`, silent loss of renamed/failed-diff files in overlay extraction, escaping in H3, weak titles/assertions, proof-plan label collisions, K1 `drop table if exists` / drain catch hardening, and proof-plan metadata/email/negative-header wording. Accepted: the `fetch` stub does not block `node:https` (safety rests on the injected fake, the `getStripe` mock and the overlay guard); Q7 repeats R10; K1's 500 is tied to `lock_timeout` by construction (the drain is still running), not by an error-text assertion.
