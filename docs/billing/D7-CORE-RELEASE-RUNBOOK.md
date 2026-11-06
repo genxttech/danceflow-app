@@ -1,6 +1,6 @@
 # D7 core Organizer Suite release: runbook (DEV → staging → PROD)
 
-**Status: plan and scripts only. Nothing in this document is authorized.** Every gate below needs the owner's explicit approval at that moment. Prepared 2026-11-01 against `origin/main` `c06222b7` and the local release candidate `local/d7-release-candidate` (based on `release/pricing-p1` `4bc938c6`).
+**Status: plan and scripts only. Nothing in this document is authorized.** Every gate below needs the owner's explicit approval at that moment. Prepared 2026-11-01 against `origin/main` `c06222b7` and the local release candidate `release/d7-core-organizer-suite` (PR #397) (based on `release/pricing-p1` `4bc938c6`).
 
 ## 0. Scope: what "core" means and what it is not
 **In the core release:** the entitlement boundary for organizer-event purchases (cart, student checkout, private lessons, competition registration incl. free), in-person and Terminal sales, staff mark-paid, the competition registration-desk application gate, the audit trail, least-privilege grants, the dark expiry job, and protection of the existing complimentary grants.
@@ -15,14 +15,14 @@
 | Migrations (apply in this order) | `20270203090000_organizer_suite_entitlement_integrity.sql`, then `20270203100000_usage_addon_entitlements_least_privilege.sql` |
 | Rollbacks (reverse order) | `rollback/20270203100000_..._rollback.sql`, then `rollback/20270203090000_..._rollback.sql` (refuses once audit events exist) |
 | Preflight / postflight (read-only) | `scripts/release/d7_core_preflight.sql`, `scripts/release/d7_core_postflight.sql` |
-| Disposable rehearsal | `scripts/release/d7_core_sql_dryrun.sh` (8 steps, all pass) |
+| Disposable rehearsal | `scripts/release/d7_core_sql_dryrun.sh` (9 steps plus tamper-detection and unapplied-target checks, all pass) |
 
 ## 2. Gates (owner approval required for each)
 G1 push of the release branch / draft PR against `release/pricing-p1` · G2 DEV migration window · G3 staged (not promoted) build · G4 PROD migration window · G5 PROD promotion · G6 (later, separate) expiry activation and `period_end` update.
 
 ## 3. DEV window (G2)
 1. Re-run `d7_core_preflight.sql` on DEV; all rows must pass (it checks the PRE-state ACL, that no D7 object exists, that no workspace has two active manual grants, studios.timezone, the desk RPC).
-2. Apply migration 1, then migration 2, in one session (`supabase db query --linked -f <file>`; **never `supabase db push`**: DEV has a migration-history table, PROD has none, and the hosted histories are not aligned with the repository).
+2. Apply migration 1, then migration 2, back to back (each call is its own session; run migration 2 only after migration 1 succeeded) (`supabase db query --linked -f <file>`; **never `supabase db push`**: DEV has a migration-history table, PROD has none, and the hosted histories are not aligned with the repository).
 3. Run `d7_core_postflight.sql`; all rows must pass. Save both outputs.
 4. DEV has 1 organizer, 2 organizer events and a Stripe-sourced Suite row but **no manual grant**: to smoke-test the grant path, create one manual grant in DEV only (separate approval; DEV data), then run section 5.
 5. Rollback drill on DEV only if the owner wants it (reverse order; migration 1 rollback refuses once audit events exist, by design).
@@ -74,3 +74,27 @@ The job route answers 404 unless `ORGANIZER_SUITE_EXPIRY_ENABLED` is exactly `tr
 * **Must be closed before any grant is given a `period_end` (not a deployment blocker):** (1) database enforcement for `record_competition_checkin_payment`; (2) `confirmEventRegistrationAction` can confirm an unpaid pending organizer registration with no gate; (3) `bookPrivateLessonSlotOfflineAction` has no entitlement check; (4) cart and student Checkout sessions created before expiry stay payable until their own expiry (competition sessions are actively expired), which matches "webhooks never consult the entitlement" but should be an explicit owner-accepted behaviour.
 * **P3 follow-ups on the mark-paid claim** (not blockers): if row-level security silently blocks the update the action reports success without recording a payment (re-read and verify); a refund landing between the read and the claim could be re-marked paid (add the status filters to the claim); an orphan payment row if the optional Stripe-identity copy fails after the insert.
 * **Before the release window:** confirm the two PROD grants are on different studios (the preflight's duplicate check already proves no workspace holds two) and that DanceAbel's `studios.timezone` is `America/New_York` (a NULL timezone falls back to UTC and would end the grant at 00:00Z instead of 04:00Z).
+
+## 12. G2 window mechanics (after the independent G2 review, 2026-11-05: GO-with-fixes, no P1; fixes applied here)
+**Review result:** the migrations, scripts and SQL-first order are sound for DEV. Findings fixed in this revision: the postflight now compares exact ACLs as sorted sets, checks `tgenabled`/table of every trigger, every D7 function's EXECUTE grants, index validity/partiality, and anon's REFERENCES/TRIGGER/MAINTAIN; it reports failing rows instead of erroring on an unapplied target; a wrapper now asserts the result programmatically; the dry run proves the postflight detects 8 kinds of tampering. Runbook text drift corrected (9-step rehearsal; candidate branch is `release/d7-core-organizer-suite`).
+
+**Exact sequence for an approved window (DEV; PROD is identical with `prod`):**
+```
+export D7_DEV_WORKDIR=<checkout linked to DEV>   # and for PROD: export D7_PROD_WORKDIR=<scratch dir linked to PROD>
+bash scripts/release/d7_core_artifact_check.sh                     # reviewed file hashes + release/pricing-p1 unchanged
+bash scripts/release/d7_core_flight.sh preflight dev  evidence/    # must exit 0
+bash scripts/release/d7_core_flight.sh recheck   dev  evidence/    # must exit 0; save fingerprint + grant baseline
+supabase db query --linked -f <migration 1>                        # one transaction per file; a failure leaves the pre-state
+supabase db query --linked -f <migration 2>                        # run only after migration 1 succeeded
+bash scripts/release/d7_core_flight.sh postflight dev evidence/    # must exit 0
+```
+The wrapper refuses to send anything unless the linked project ref is the expected one (DEV `epdrtzcydvnoidwrepqz`, PROD `hvsujyfbftfffxpfmlpb`), saves the raw rows with a sha256, and exits non-zero unless the final row says every check passed. **Never `supabase db push`**: DEV's migration history holds 1 row against 441 repository files and PROD has no history table, so the history is not a source of truth; record the applied versions and file sha256 in the evidence instead. `db query -f` sends each file as one statement batch, so the file's own `begin/commit` is the transaction (verified: a failing precondition leaves no partial state and no session residue). The two files are separate calls (separate sessions); run migration 2 only after migration 1 succeeded.
+
+**Stop conditions (any one aborts the window):** artifact check fails; preflight or recheck exits non-zero; the recheck shows another session in a transaction or holding a lock on `usage_addon_entitlements`; the server is not PostgreSQL 17.x; the manual-grant baseline or definition fingerprint differs from the values saved at preflight; the linked project ref is not the intended one.
+
+**Evidence to capture:** raw preflight/recheck/postflight rows + sha256, the sha256 of each applied file, timestamps, the manual-grant baseline (id/status/period; the audit trail starts empty because the migration backfills nothing, so this is the known starting state), and an export of any audit events before any rollback attempt.
+
+**Rollback reality (do not discover this during an incident):**
+* After promotion the first real entitlement write creates an audit event, and migration 1's rollback **refuses once any event exists**. SQL rollback of migration 1 is therefore effectively one-way after go-live. The recovery order is: roll back the **application first** (promote the previous deployment) and **leave the SQL in place**; the old app tolerates the new schema.
+* If migration 1 must be removed after events exist, the emergency path is to drop only `usage_addon_entitlements_audit_trg` (stops new audit writes while keeping the evidence table and its history), record the unaudited window, and fix forward. Never delete audit events.
+* Rolling back migration 2 re-grants `anon`/`authenticated` full privileges on the entitlements table (the pre-state), including TRUNCATE. Prefer leaving migration 2 applied.

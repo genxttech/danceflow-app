@@ -43,6 +43,29 @@ echo "=== 3. postflight must pass"
 [ "$(flight_overall t d7_core_postflight.sql)" = "t" ] || { echo "FAIL: postflight did not pass"; flight_failures t d7_core_postflight.sql; exit 1; }
 echo "PASS postflight"
 
+echo "=== 3b. the postflight must detect tampering (blind spots found in the G2 review): each tamper must flip it to FAIL, then be undone"
+put "$SCR/d7_core_recheck.sql"
+tamper() { # name, sql-to-break, sql-to-fix
+  P t -c "$2" >/dev/null
+  if [ "$(flight_overall t d7_core_postflight.sql)" = "t" ]; then echo "FAIL: postflight did not detect: $1"; exit 1; fi
+  P t -c "$3" >/dev/null
+  [ "$(flight_overall t d7_core_postflight.sql)" = "t" ] || { echo "FAIL: postflight not clean after undoing: $1"; flight_failures t d7_core_postflight.sql; exit 1; }
+  echo "PASS detected: $1"
+}
+tamper "audit trigger disabled" "alter table public.usage_addon_entitlements disable trigger usage_addon_entitlements_audit_trg" "alter table public.usage_addon_entitlements enable trigger usage_addon_entitlements_audit_trg"
+tamper "anon granted TRIGGER on the entitlements table" "grant trigger on public.usage_addon_entitlements to anon" "revoke trigger on public.usage_addon_entitlements from anon"
+tamper "anon granted REFERENCES on the entitlements table" "grant references on public.usage_addon_entitlements to anon" "revoke references on public.usage_addon_entitlements from anon"
+tamper "service_role granted DELETE" "grant delete on public.usage_addon_entitlements to service_role" "revoke delete on public.usage_addon_entitlements from service_role"
+tamper "anon may execute a helper function" "grant execute on function public.usage_addon_entitlement_is_current(text,date,date,text,timestamptz) to anon" "revoke execute on function public.usage_addon_entitlement_is_current(text,date,date,text,timestamptz) from anon"
+tamper "authenticated lost a helper function grant" "revoke execute on function public.usage_addon_entitlement_end_instant(date,text) from authenticated" "grant execute on function public.usage_addon_entitlement_end_instant(date,text) to authenticated"
+tamper "authenticated may execute the expiry function" "grant execute on function public.expire_due_usage_addon_entitlements(timestamptz,text) to authenticated" "revoke execute on function public.expire_due_usage_addon_entitlements(timestamptz,text) from authenticated"
+tamper "an audit-table privilege widened" "grant update on public.usage_addon_entitlement_events to service_role" "revoke update on public.usage_addon_entitlement_events from service_role"
+
+echo "=== 3c. postflight on an UNAPPLIED target reports failing rows instead of erroring (and the recheck script runs on a clean target)"
+[ "$(flight_overall t2 d7_core_postflight.sql)" = "f" ] || { echo "FAIL: postflight on an unapplied database should report false (no error)"; exit 1; }
+[ "$(flight_overall t2 d7_core_recheck.sql)" = "t" ] || { echo "FAIL: recheck script did not pass on an idle disposable database"; flight_failures t2 d7_core_recheck.sql; exit 1; }
+echo "PASS postflight fails cleanly on an unapplied target; recheck passes on an idle database"
+
 echo "=== 4. preflight must now FAIL (it detects an already-applied or drifted target)"
 [ "$(flight_overall t d7_core_preflight.sql)" = "f" ] || { echo "FAIL: preflight still passes after apply"; exit 1; }
 echo "PASS preflight flags the applied state ($(flight_failures t d7_core_preflight.sql | wc -l) checks flagged)"
