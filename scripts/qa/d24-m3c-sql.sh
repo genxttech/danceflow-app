@@ -135,7 +135,7 @@ check "limits are seeded with the owner-approved initial values" "$(q "select co
 check "no payment-URL / finalize / send / paid column exists" "$(q "select count(*) from information_schema.columns where table_name like 'studio_client_invoice%' and (column_name ~ 'url|hosted|finalized|sent|paid|settle|payment_id')")" "0"
 check "no settlement/payment row types are written by this migration (no FK to payments)" "$(q "select count(*) from pg_constraint where conrelid::regclass::text like 'studio_client_invoice%' and confrelid::regclass::text in ('payments','hosted_invoice_payments')")" "0"
 
-# 2. fail closed until the owner supplies the ceiling ------------------------------------------------------------------------------
+# 2. fail closed when the limits are blank (seeded with the owner-approved 500/500000) ------------------------------------------------------------------------------
 K0=$(NEWKEY)
 q "update public.studio_client_invoice_limits set min_total_cents = null, max_total_cents = null" >/dev/null   # simulate a missing/blank configuration
 has "NULL limits (fail closed): owner draft refused" "$(aust $UO "$(sv $UO $SA $K0 null null $CA1 "$LINE")")" "STATE 55000 client_invoice_limits_not_configured"
@@ -145,8 +145,9 @@ has "limits cannot be set by authenticated" "$(au $UO "update public.studio_clie
 has "limits: min above max is refused" "$(try "update public.studio_client_invoice_limits set min_total_cents=1000, max_total_cents=100")" "sci_limits_range_chk"
 has "limits: below Stripe's 50c minimum is refused" "$(try "update public.studio_client_invoice_limits set min_total_cents=10, max_total_cents=100")" "sci_limits_range_chk"
 has "limits: one side NULL is refused" "$(try "update public.studio_client_invoice_limits set min_total_cents=100")" "sci_limits_range_chk"
+has "limits table cannot be truncated" "$(try "truncate public.studio_client_invoice_limits")" "cannot be deleted"
 has "limits row cannot be deleted" "$(try "delete from public.studio_client_invoice_limits")" "cannot be deleted"
-q "update public.studio_client_invoice_limits set min_total_cents=500, max_total_cents=500000, max_lines=25, max_quantity=1000" >/dev/null   # TEST VALUES ONLY (not the proposal)
+q "update public.studio_client_invoice_limits set min_total_cents=500, max_total_cents=500000, max_lines=25, max_quantity=1000" >/dev/null   # restore the owner-approved seeded values
 
 # 3. role matrix -------------------------------------------------------------------------------------------------------------------
 K1=$(NEWKEY)
@@ -185,7 +186,10 @@ bad "unit price as a string" '[{"description":"x","quantity":1,"unit_price_cents
 bad "unit price above the ceiling" '[{"description":"x","quantity":1,"unit_price_cents":500001}]' "22023 client_invoice_amount_invalid"
 bad "quantity x price above the ceiling" '[{"description":"x","quantity":101,"unit_price_cents":5000}]' "22023 client_invoice_amount_invalid"
 bad "sum of lines above the ceiling" '[{"description":"a","quantity":1,"unit_price_cents":300000},{"description":"b","quantity":1,"unit_price_cents":300000}]' "22023 client_invoice_total_out_of_range"
-bad "one cent over the ceiling (500001)" '[{"description":"x","quantity":1,"unit_price_cents":500001}]' "22023 client_invoice_amount_invalid"
+bad "2 x 250001 (product one cent over the ceiling)" '[{"description":"x","quantity":2,"unit_price_cents":250001}]' "22023 client_invoice_amount_invalid"
+bad "line missing quantity" '[{"description":"x","unit_price_cents":1000}]' "22023 client_invoice_lines_invalid"
+bad "line missing description" '[{"quantity":1,"unit_price_cents":1000}]' "22023 client_invoice_lines_invalid"
+bad "line missing price" '[{"description":"x","quantity":1}]' "22023 client_invoice_lines_invalid"
 bad "sum one cent over the ceiling" '[{"description":"a","quantity":1,"unit_price_cents":250000},{"description":"b","quantity":1,"unit_price_cents":250001}]' "22023 client_invoice_total_out_of_range"
 bad "adjustment line: negative price" '[{"description":"discount","quantity":1,"unit_price_cents":-500}]' "22023 client_invoice_amount_invalid"
 bad "adjustment line: zero price" '[{"description":"fee","quantity":1,"unit_price_cents":0}]' "22023 client_invoice_amount_invalid"

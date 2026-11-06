@@ -397,7 +397,7 @@ begin
     for k in select jsonb_object_keys(e) loop
       if k not in ('description', 'quantity', 'unit_price_cents') then raise exception 'client_invoice_lines_invalid' using errcode = '22023'; end if;
     end loop;
-    if jsonb_typeof(e -> 'description') <> 'string' or jsonb_typeof(e -> 'quantity') <> 'number' or jsonb_typeof(e -> 'unit_price_cents') <> 'number' then
+    if jsonb_typeof(e -> 'description') is distinct from 'string' or jsonb_typeof(e -> 'quantity') is distinct from 'number' or jsonb_typeof(e -> 'unit_price_cents') is distinct from 'number' then
       raise exception 'client_invoice_lines_invalid' using errcode = '22023';
     end if;
     v_desc := btrim(e ->> 'description');
@@ -546,7 +546,8 @@ begin
   select * into i from public.studio_client_invoices where id = p_invoice_id and studio_id = p_studio_id;
   if not found or i.status <> 'draft' then return null; end if;
   select coalesce(sum(line_total_cents), 0), count(*) into v_sum, v_n from public.studio_client_invoice_lines where invoice_id = i.id;
-  if v_sum <> i.total_cents or v_n <> i.line_count or i.total_cents < v_lim.min_total_cents or i.total_cents > v_lim.max_total_cents or v_n > v_lim.max_lines then return null; end if;
+  if v_sum <> i.total_cents or v_n <> i.line_count or i.total_cents < v_lim.min_total_cents or i.total_cents > v_lim.max_total_cents or v_n > v_lim.max_lines
+     or exists (select 1 from public.studio_client_invoice_lines l where l.invoice_id = i.id and l.quantity > v_lim.max_quantity) then return null; end if;
   perform 1 from public.clients c where c.id = i.client_id and c.studio_id = i.studio_id;
   if not found then return null; end if;
   return jsonb_build_object('invoice_id', i.id, 'studio_id', i.studio_id, 'client_id', i.client_id, 'currency', i.currency, 'total_cents', i.total_cents,
