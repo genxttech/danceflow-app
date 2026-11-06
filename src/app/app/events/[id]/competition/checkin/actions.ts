@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { terminalSaleNeedsOrganizerSuite } from "@/lib/events/terminalOrganizerSuite";
 import { buildCompetitionCredentialTargets } from "@/lib/competition/checkin";
 
 function text(formData: FormData, key: string) { return String(formData.get(key) ?? "").trim(); }
@@ -159,11 +161,43 @@ export async function issueCompetitionCredentialAction(formData: FormData): Prom
   await recalculateSession(supabase, eventId, sessionId); refresh(eventId, sessionId);
 }
 
+/** D7: shown to desk staff when an unpaid competition registration cannot be paid because its organizer's access lapsed. */
+const COMPETITION_DESK_SUITE_MESSAGE =
+  "This organizer is not accepting new registrations or payments for this event right now, and this registration is still unpaid. Nothing was recorded.";
+
+/**
+ * D7: the desk RPC records payment against an EXISTING competition order, and it also confirms an order that is still
+ * pending once its balance reaches zero. For an organizer event, completing an unpaid PENDING order after the Organizer
+ * Suite entitlement lapsed is refused (no grace window), exactly like the online payment step. Orders that are already
+ * confirmed or paid are existing authorized obligations: recording against them is unchanged, and payments already
+ * recorded are never touched. Fails closed when the order cannot be read. Runs before the RPC, so a refusal writes nothing.
+ */
+async function assertCompetitionDeskPaymentAllowed(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  params: { eventId: string; sessionId: string; studioId: string; organizerId: string | null },
+) {
+  if (!params.organizerId) return;
+  const unreadable = () => new Error("Could not verify the registration before recording the payment. Nothing was recorded.");
+  const { data: session, error: sessionError } = await supabase
+    .from("event_competition_checkin_sessions").select("order_id").eq("id", params.sessionId).eq("event_id", params.eventId).maybeSingle();
+  if (sessionError) throw unreadable();
+  if (!session?.order_id) return; // the RPC refuses a missing session or order
+  const { data: order, error: orderError } = await supabase
+    .from("event_orders").select("status, payment_status").eq("id", session.order_id).eq("event_id", params.eventId).maybeSingle();
+  if (orderError) throw unreadable();
+  if (!order) return; // the RPC refuses a missing order
+  if (order.status !== "pending" || order.payment_status === "paid") return;
+  if (await terminalSaleNeedsOrganizerSuite(createAdminClient(), { studioId: params.studioId, organizerId: params.organizerId })) {
+    throw new Error(COMPETITION_DESK_SUITE_MESSAGE);
+  }
+}
+
 export async function recordCompetitionCheckinPaymentAction(formData: FormData): Promise<void> {
   const eventId = text(formData, "eventId"), sessionId = text(formData, "sessionId"), paymentMethod = text(formData, "paymentMethod");
   const amount = Number(text(formData, "amount"));
   if (!eventId || !sessionId || !Number.isFinite(amount) || amount <= 0 || !["cash", "check", "external_card", "other"].includes(paymentMethod)) throw new Error("Valid payment details are required.");
-  const { supabase } = await requireEventManager(eventId);
+  const { supabase, context, event } = await requireEventManager(eventId);
+  await assertCompetitionDeskPaymentAllowed(supabase, { eventId, sessionId, studioId: context.studioId, organizerId: event.organizer_id });
   // PAY-WH-1A: one locked database operation re-checks the manager role, the competition source, the order/registration
   // state and the live balance, writes the payment and the registration/order state, and records an audit row. Client
   // roles cannot write payment rows of order-backed registrations directly.

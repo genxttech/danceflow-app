@@ -825,7 +825,7 @@ async function syncOrganizerSuiteAddonEntitlements(params: {
         status: subscriptionIsActive ? "active" : "canceled",
         updated_at: now,
       },
-      { onConflict: "studio_id,feature_key" },
+      { onConflict: "stripe_subscription_item_id" },
     );
 
     if (error) {

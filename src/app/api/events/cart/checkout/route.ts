@@ -27,6 +27,7 @@ import {
 } from "@/lib/validation/forms";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 import { effectiveTicketPrice, fromMinorUnits, ticketLineTotalCents, toMinorUnits } from "@/lib/events/ticketPricing";
+import { studioHasCurrentOrganizerSuiteEntitlement } from "@/lib/billing/organizerSuiteEntitlement";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -156,27 +157,6 @@ function isActiveBillingStatus(value: string | null | undefined) {
   return value === "active" || value === "trialing";
 }
 
-async function studioHasActiveOrganizerSuiteAddOn(
-  supabase: SupabaseClient,
-  studioId: string,
-) {
-  const { data, error } = await supabase
-    .from("usage_addon_entitlements")
-    .select("id")
-    .eq("studio_id", studioId)
-    .eq("feature_key", "organizer_suite")
-    .in("source", ["stripe_subscription_item", "manual_grant"])
-    .eq("status", "active")
-    .limit(1);
-
-  if (error) {
-    console.error("Failed to read Organizer Suite add-on entitlement", error);
-    return false;
-  }
-
-  return Boolean(data?.length);
-}
-
 async function getOrganizerPlatformFeePercent(
   supabase: SupabaseClient,
   studioId: string,
@@ -219,7 +199,7 @@ async function getOrganizerPlatformFeePercent(
     return 0;
   }
 
-  const hasOrganizerSuiteAddOn = await studioHasActiveOrganizerSuiteAddOn(
+  const hasOrganizerSuiteAddOn = await studioHasCurrentOrganizerSuiteEntitlement(
     supabase,
     studioId,
   );

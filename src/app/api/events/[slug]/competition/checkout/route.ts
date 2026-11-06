@@ -7,7 +7,10 @@ import {
   beginCompetitionPayment,
   CompetitionRegistrationError,
   isUuid,
+  assertOrganizerSuiteForNewRegistration,
+  competitionRegistrationRequestExists,
   quoteCompetitionRegistration,
+  refuseIfOrganizerSuiteLapsed,
   startCompetitionRegistration,
 } from "@/lib/competition/registrationCheckout";
 import { competitionRegistrationUrls } from "@/lib/competition/registrationUrls";
@@ -81,6 +84,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       }
     }
 
+    // D7: a brand-new registration on an organizer event needs a current Organizer Suite entitlement BEFORE anything is
+    // created (start_competition_registration confirms $0 orders with no documents by itself). A replay of an existing
+    // request skips this and gets its stored result.
+    if (event.organizer_id && !(await competitionRegistrationRequestExists(admin, { eventId: event.id, clientRequestId: body.clientRequestId }))) {
+      await assertOrganizerSuiteForNewRegistration(admin, { studioId: event.studio_id, organizerId: event.organizer_id });
+    }
+
     const started = await startCompetitionRegistration(admin, {
       eventId: event.id,
       clientRequestId: body.clientRequestId,
@@ -91,6 +101,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     if (started.order_status === "confirmed" || ["expired", "cancelled"].includes(started.order_status)) {
       return NextResponse.json({ url: urls.statusUrl, orderId: started.order_id });
+    }
+
+    // D7: a NEW registration on an organizer event needs a current Organizer Suite entitlement before documents are
+    // requested or payment is started (replays of confirmed/expired/cancelled orders returned above are untouched).
+    if (started.requires_signing) {
+      await refuseIfOrganizerSuiteLapsed(admin, { orderId: started.order_id, studioId: event.studio_id, organizerId: event.organizer_id });
     }
 
     if (started.requires_signing) {
