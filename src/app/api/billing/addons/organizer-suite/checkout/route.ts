@@ -215,7 +215,3 @@ export async function POST(request: NextRequest) {
     return redirectToBilling(request, { error: "organizer_suite_checkout_failed" });
   }
 }
-
-export async function GET(request: NextRequest) {
-  return POST(request);
-}
