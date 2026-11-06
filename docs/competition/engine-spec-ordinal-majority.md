@@ -134,7 +134,7 @@ computation is the owner-approved OM-A rule with strict majority.
 The owner adopted steps (1)–(3) as **DanceFlow Studio rules**. They resemble steps of the Skating System, but
 DanceFlow makes **no Skating System, NDCA or UCWDC compliance claim**. The chain is the same for every program using
 `ordinal_majority@1`; it is engine `@1` default behavior (X-1 option (a)), and the `@3` profile's empty
-`tie_break.chain` is not read for this engine. A different chain ships as `ordinal_majority@2`.
+`tie_break.chain` is not read for this engine, and a non-empty chain fails closed (`COMP_ENGINE_UNSPECIFIED_CASE`, reason `tie_break_chain_unsupported`) rather than being ignored. A different chain ships as `ordinal_majority@2`.
 
 ## 7. Invalid-input handling
 

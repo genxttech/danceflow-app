@@ -1,6 +1,6 @@
 # Engine spec — `callback_tally` (Studio v1, K1)
 
-Status: **DRAFT for owner approval** · Baseline: origin/main `973f36da` · Docs only (no code, no SQL). **Stage 1 (X-1…X-7) and Stage 2 (D-CT-1…10) APPROVED by the owner 2026-10-24. One sub-process remains unspecified: the auditable tie-break process for a tie that exceeds the final capacity (D-CT-4); until then that case blocks advancement. Engine code stays blocked until Stage 4 (proficiency rating) is also recorded.**
+Status: **DRAFT for owner approval** · Baseline: origin/main `973f36da` · Docs only (no code, no SQL). **Stage 1 (X-1…X-7) and Stage 2 (D-CT-1…10) APPROVED by the owner 2026-10-24. One sub-process remains unspecified: the auditable tie-break process for a tie that exceeds the final capacity (D-CT-4); until then that case is an UNRESOLVED result (`ok: true`, `advanced = null` on every row, warning `advancement_unresolved_tie_over_capacity`) that the database approve trigger refuses to approve. Engine code stays blocked until Stage 4 (proficiency rating) is also recorded.**
 
 Scoring architecture (five independent dimensions, S4-1…S4-7) is recorded in `scoring-architecture-decisions.md`; Stages 1–3 apply to the Studio methods only.
 
@@ -67,7 +67,7 @@ The K0 `EngineInput` envelope for one round. Fields this engine reads:
 | `round` | `{id, round_type, target_advancement_count, advancement_method}`; `T` is set by the organizer before ballots open (D-CT-5) | S11, D-CT-5 |
 | `final_capacity` | the final round's configured couples-per-heat capacity (10D) = the "approved floor capacity" for D-CT-4. Field name and source are for the F1/K0 envelope owner to define | D-CT-4 |
 | `mark_scheme` | none stored in `@1`; the engine `@1` default is yes-only by entry (D-CT-1, X-1 option (a)) | S6, S8, X-1 |
-| `tie_break_chain` | none in `@1`; D-CT-4 is a fixed rule here, not a chain | S6 |
+| `tie_break_chain` | none in `@1`; D-CT-4 is a fixed rule here, not a chain. A non-empty chain fails closed (`COMP_ENGINE_UNSPECIFIED_CASE`, reason `tie_break_chain_unsupported`); a profile other than `studio_simple@1` / `@3` fails closed (reason `profile_unsupported`) | S6 |
 | `entries[]`, `judges[]` | as K0 | K0 |
 | `marks[]` | `{official_id, entry_id, value}` | K0 |
 
@@ -89,7 +89,7 @@ K0 `EngineOutput` `rows[]`, one per entry:
 
 | Field | Meaning | Basis |
 |---|---|---|
-| `advanced` | `true` = called back into the next round; `false` for entries not called back; **not set on any row when advancement is blocked** (`tie_over_capacity`) | S6, K0 §6, D-CT-4 |
+| `advanced` | `true` = called back into the next round; `false` for entries not called back; **`null` on EVERY row when the tie is unresolved** (tie over the Final's capacity); the run is `ok: true` and carries `tie_status` per row (see §5 step 7) | S6, K0 §6, D-CT-4 |
 | `output.tally` | the entry's tally = count of yes marks (D-CT-3) | S2 (trace) |
 | `output.callback_rank` | position by tally, highest first; equal tallies share a position | S8, D-CT-3 |
 | `placement` | never set: entries not called back get no placement (D-CT-6) | D-CT-6 |
@@ -118,8 +118,14 @@ after the round is approved (K0 §6).
    - `|A| = T`: `A` advances.
    - `|A| > T` (tie at the cutoff) and `|A| ≤` the final's configured couples-per-heat capacity (10D): all of `A`
      advance (D-CT-4).
-   - `|A| >` that capacity: advancement is blocked, fail closed, reason `tie_over_capacity`; no row sets `advanced`
-     (D-CT-4).
+   - `|A| >` that capacity (or the capacity is missing): the advancement is **UNRESOLVED** (D-CT-4, owner policy). The
+     calculation **completes**: `ok: true`, every row has `advanced = null` (no couple advances, no tie-break is invented),
+     each row carries `output.tally`, `output.callback_rank` and `output.tie_status` (`above_cut` / `tied_at_cut` /
+     `below_cut`), the `cut` trace record has `outcome: blocked_tie_over_capacity` with `tiedAtCut`, `aboveCut` and
+     `unresolved: true`, and the warning `advancement_unresolved_tie_over_capacity` is returned. The engine never returns
+     the tie as a failure. **Enforcement is the database:** its approve trigger refuses a version that has any
+     `advanced IS NULL` row (`COMP_ADVANCEMENT_BLOCKED`), and apply / preview refuse it too. Resolution is outside the
+     engine (an authorized, auditable workflow, for example a corrected judge ballot) and produces a new version.
 8. **Emit rows** (§4) and the trace (§8). Entries not called back get `advanced = false`, no placement and the label
    "Semi-final" (D-CT-6). The tally is staff information only; nothing carries into the Final (D-CT-10). Never read
    the clock, database, randomness, names or entry numbers (S2).
@@ -130,7 +136,7 @@ after the round is approved (K0 §6).
 |---|---|---|
 | Entries tied entirely inside or entirely outside the cut | No tie-break needed: all advance or none do | §5 |
 | Tie at the cutoff (entries with the same tally as the `T`-th position) | Advance **all** tied entries when the final can safely accommodate the resulting count (≤ the final's configured couples-per-heat capacity from 10D) | **D-CT-4**, approved 2026-10-24 |
-| Same tie, count would exceed that capacity | **Advancement is blocked** (fail closed, reason `tie_over_capacity`). Not decidable by a manager | D-CT-4 |
+| Same tie, count would exceed that capacity | **Advancement is UNRESOLVED**: the run completes (`ok: true`) with `advanced = null` on every row, `tie_status` per row and the warning `advancement_unresolved_tie_over_capacity`; the database approve trigger is the enforcement. Not decidable by a manager | D-CT-4 |
 | Manager advancement decision (former option (c)) | **REJECTED** by the owner | D-CT-4 |
 | Callback runoff among tied couples | **Candidate only**, not authorized as an automatic rule. A separately approved, auditable tie-break process must be specified and successfully completed before advancement can proceed | D-CT-4 |
 | `@1` chain | none (schema 1) | S6 |
@@ -161,7 +167,9 @@ First failure stops the calculation; no partial result. Proposed `reason` values
 | V12 | Assigned judge with no ballot | lock step (K0 O1); if it reaches the engine: `COMP_ENGINE_UNSPECIFIED_CASE` | K0 O1 |
 | V13 | Scratched / no-show entry in `entries[]` | Excluded from the calculation and recorded in the trace (**X-5**); marks on an excluded entry are not counted, so a judge left without exactly `T` eligible selections fails V11 until a corrected ballot version is entered | X-5 |
 | V14 | Input spans more than one dance | Run once per dance (**X-6**, approved 2026-10-24); combined result not supported, fails closed (`COMP_ENGINE_UNSPECIFIED_CASE`) | X-6 |
-| V15 | Tie at the cutoff makes the advancing count exceed the final capacity (or the capacity is missing) | `COMP_ENGINE_UNSPECIFIED_CASE`, reason `tie_over_capacity` (proposed): advancement is blocked, no manager-selected advancement, until a separately approved auditable tie-break process exists and completes (**D-CT-4**) | D-CT-4 |
+| V15 | Tie at the cutoff makes the advancing count exceed the final capacity (or the capacity is missing) | **Not a failure.** The run returns `ok: true` with `advanced = null` on every row, `output.tie_status` (`above_cut` / `tied_at_cut` / `below_cut`), cut outcome `blocked_tie_over_capacity` and the warning `advancement_unresolved_tie_over_capacity`. No manager-selected advancement and no invented tie-break; the database approve trigger refuses the version until a corrected ballot (or a separately approved process) produces a resolved one (**D-CT-4**) | D-CT-4 |
+| V16 | Every calculated entry is in exactly one heat of the context (an excluded entry may stay on a roster) | `COMP_ENGINE_INVALID_INPUT`, reason `entry_heat_coverage` (offending entry ids listed); checked with the panel structure of a danced round | review of PR 337, P2-4 |
+| V17 | Input size caps (entries, judges, marks, heats, dances, excluded entries, chain length, id length), checked before hashing | `COMP_ENGINE_INVALID_INPUT`, reason `input_too_large` (field, count and cap in the failure trace; no input data) | review of PR 337, P2-3 |
 
 ## 8. Determinism and trace
 
@@ -179,7 +187,7 @@ First failure stops the calculation; no partial result. Proposed `reason` values
 3. `validation` — V1…V15 pass/fail, including each judge's count of eligible selections.
 4. `tally` — per eligible entry: which judges called it back, and the tally (count of yes).
 5. `order` — positions with shared positions shown.
-6. `cut` — `T`, the number of eligible entries, the tally at position `T`, the entries at or above it, the final capacity `cap`, and the outcome (advance all, or blocked with `tie_over_capacity`).
+6. `cut` — `T`, the number of eligible entries, the tally at position `T`, the entries at or above it, the final capacity `cap`, and the outcome (`exact_cut`, `advance_all_tied`, or `blocked_tie_over_capacity` with the tied and above-cut entries and `unresolved: true`).
 7. `result` — `advanced` per entry.
 8. On failure: `failure` with code, reason and offending ids.
 
@@ -208,7 +216,7 @@ tally ≥ 2 are 11, 12, 13, 14, 15 = 5 couples, one more than `T`.
 | Final capacity | Expected |
 |---|---|
 | `cap = 8` (or any `cap ≥ 5`) | All five advance (D-CT-4: advance all tied couples when the final can safely accommodate them) |
-| `cap = 4` (any `cap < 5`) | Fail closed: advancement blocked, reason `tie_over_capacity` (proposed code; entries 13, 14, 15 listed). No manager-selected advancement (option (c) rejected). The separately approved, auditable tie-break process is not yet specified, so the round stays blocked |
+| `cap = 4` (any `cap < 5`) | **Unresolved, the run completes:** `ok: true`, `advanced = null` on every row, `tie_status` `above_cut` for 11 and 12, `tied_at_cut` for 13, 14, 15, `below_cut` for the rest, warning `advancement_unresolved_tie_over_capacity`. No manager-selected advancement (option (c) rejected); the database approve trigger refuses the version, so the round stays blocked until a corrected ballot resolves it |
 
 **F-CT-03 — target not set.** F-CT-01 with `T = null` (as every `create_simple_competition` round today, S11) →
 `COMP_ENGINE_UNSPECIFIED_CASE` (V3): the organizer must set `T` before ballots open (D-CT-5).
@@ -238,7 +246,7 @@ panel: `COMP_ENGINE_UNSPECIFIED_CASE` (V6/X-7).
 | e | Scheme `scored_by: role` | `COMP_ENGINE_UNSPECIFIED_CASE` (V5, D-CT-7) |
 | f | Round type `final` | `COMP_ENGINE_UNSPECIFIED_CASE` (V2) |
 | g | Entry 13 scratched in 10D | 13 is excluded (X-5). J1 and J2 each have only 3 eligible selections → `callback_count` (V11) until their ballots are corrected by a new ballot version. J3 never marked 13 and is unaffected |
-| h | `cap` not supplied | `COMP_ENGINE_UNSPECIFIED_CASE` when a tie needs it (V15); not needed when there is no tie |
+| h | `cap` not supplied | When a tie at the cutoff needs it (V15): unresolved, `ok: true`, `advanced = null` on every row (`capacityMissing: true` in the cut trace); not needed when there is no tie |
 
 **F-CT-09 — determinism.** F-CT-01 with `marks[]` shuffled → identical output and trace hash.
 
@@ -251,7 +259,7 @@ Engine-specific:
 | D-CT-1 | What is a callback mark? | **APPROVED 2026-10-24 (Stage 2): yes only (CT-A).** CT-B (alternates) is not adopted. | Rule (approved) |
 | D-CT-2 | How many callbacks must each judge give? | **APPROVED 2026-10-24.** Owner: "Judges select exactly T couples across the entire callback round, not T per heat. They may save selections across heats but cannot submit their final ballot until exactly T eligible couples are selected." Eligible = not scratched and not a no-show (X-5). | Rule (approved) |
 | D-CT-3 | What is the tally? | **APPROVED 2026-10-24:** the count of yes marks; a higher count ranks higher. | Rule (approved) |
-| D-CT-4 | Tie straddling the cut | **APPROVED 2026-10-24.** Owner: "Advance all couples tied at the cutoff when the final can safely accommodate them. If that would exceed the approved floor capacity, do not permit an arbitrary manager-selected advancement decision. Require a separately approved, auditable tie-break process. Until that process is specified and successfully completed, advancement remains blocked. A callback runoff among tied couples is a candidate approach, but is not yet authorized as an automatic rule." Option (c), a manager advancement decision, is **REJECTED**. "Callback runoff" is a **candidate only**, not an authorized rule. Approved floor capacity = the final round's configured couples-per-heat capacity from 10D (owner, Stage 3, 2026-10-24: "floor capacity = 10D final heat capacity"). | Rule (approved); over-capacity process **NOT SPECIFIED, advancement blocked** |
+| D-CT-4 | Tie straddling the cut | **APPROVED 2026-10-24.** Owner: "Advance all couples tied at the cutoff when the final can safely accommodate them. If that would exceed the approved floor capacity, do not permit an arbitrary manager-selected advancement decision. Require a separately approved, auditable tie-break process. Until that process is specified and successfully completed, advancement remains blocked (implemented as an unresolved result: the engine completes with `advanced = null` on every row and the database refuses approval). A callback runoff among tied couples is a candidate approach, but is not yet authorized as an automatic rule." Option (c), a manager advancement decision, is **REJECTED**. "Callback runoff" is a **candidate only**, not an authorized rule. Approved floor capacity = the final round's configured couples-per-heat capacity from 10D (owner, Stage 3, 2026-10-24: "floor capacity = 10D final heat capacity"). | Rule (approved); over-capacity process **NOT SPECIFIED, advancement UNRESOLVED (`ok: true`, `advanced = null`, DB approve trigger enforces)** |
 | D-CT-5 | Who sets `T` and when; what if it is unset or `≥` entries? | **APPROVED 2026-10-24:** the organizer must set `T` before ballots open. If `T ≥` eligible entries, everyone advances and the callback round is not danced. | Rule (approved) |
 | D-CT-6 | Placement or label for entries not called back | **APPROVED 2026-10-24:** no placement, only the label "Semi-final" (recorded as the owner gave it). | Rule (approved) |
 | D-CT-7 | Callbacks per role? | **APPROVED 2026-10-24:** by entry only, never per role. | Rule (approved) |
@@ -286,7 +294,7 @@ Cross-cutting X-1…X-7 (same IDs in all three specs): **APPROVED by the owner 2
 - D-CT-6 is recorded as the owner gave it: no placement, "only the label 'Semi-final'". The label is attached to the
   entries that are *not* called back; the owner may want to confirm the intended wording.
 - The over-capacity tie-break process (a callback runoff is a candidate only) is not specified; advancement for that
-  case stays blocked until it is approved and completed.
+  case stays unresolved (blocked at approval by the database) until it is approved and completed.
 - Marks on an entry scratched after ballots were submitted leave a judge without exactly `T` eligible selections;
   the engine fails closed (V11) and a corrected ballot version is needed (K0 P1). If the owner prefers a different
   treatment that is a new decision.
