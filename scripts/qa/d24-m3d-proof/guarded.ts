@@ -8,10 +8,10 @@
 
 import { evaluateRequest } from "./allowlist";
 import { maskIdempotencyKey, redactText, summarizeBody } from "./redact";
+import { CLEANUP_RESERVE, HARD_CALL_CAP, STRIPE_API_VERSION } from "./config";
 import { ProofAbort, type ProofRequest, type ProofResponse, type Transport, type TranscriptEntry } from "./types";
 
-export const HARD_CALL_CAP = 40;
-export const CLEANUP_RESERVE = 8;
+export { CLEANUP_RESERVE, HARD_CALL_CAP };
 
 export type GuardedOptions = {
   transport: Transport;
@@ -43,6 +43,13 @@ export type GuardedClient = {
   /** POSTs whose response was lost (objects may exist at Stripe that were never seen) */
   uncertain: string[];
   aborted(): ProofAbort | null;
+  /** Called ONLY by the identity gate after both pinned ids matched. Until then every non-identity request is refused before any network I/O. */
+  /** Records an abort (first one wins; a no-further-call abort is never downgraded) and returns it for the caller to throw. */
+  raise(code: ConstructorParameters<typeof ProofAbort>[0], message: string): ProofAbort;
+  markIdentityVerified(): void;
+  identityVerified(): boolean;
+  /** Stripe-Version values Stripe reported in responses (all must equal the pin; recorded as evidence). */
+  versionsSeen: Set<string>;
 };
 
 export function createGuardedClient(o: GuardedOptions): GuardedClient {
@@ -56,6 +63,8 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
   const transcript: TranscriptEntry[] = [];
   const uncertain: string[] = [];
   const seen = { drafts: new Set<string>(), nonDrafts: new Set<string>(), customers: new Set<string>() };
+  const versionsSeen = new Set<string>();
+  let identityOk = false;
   let used = 0;
   let blocked = 0;
   let serverStreak = 0;
@@ -71,6 +80,7 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
       query: redactText(new URLSearchParams(req.query ?? {}).toString()),
       stripeAccount: req.stripeAccount ?? "-",
       idempotencyKey: maskIdempotencyKey(req.idempotencyKey),
+      stripeVersion: req.stripeVersion ?? "-",
       status,
       requestId: "-",
       replayed: null,
@@ -80,18 +90,27 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
     transcript.push(e);
     return e;
   };
-  const fail = (code: ConstructorParameters<typeof ProofAbort>[0], msg: string): never => {
-    abort = new ProofAbort(code, redactText(msg));
-    throw abort;
+  // The FIRST abort wins, except that an abort which forbids any further call (NO_CLEANUP_AFTER) is never downgraded by a later, weaker one
+  // (a parallel call finishing after a livemode:true must not turn it into "rate_limited" and re-enable cleanup).
+  const raise = (code: ConstructorParameters<typeof ProofAbort>[0], msg: string): ProofAbort => {
+    const err = new ProofAbort(code, redactText(msg));
+    if (!abort || (NO_CLEANUP_AFTER.has(code) && !NO_CLEANUP_AFTER.has(abort.code))) abort = err;
+    return err;
   };
+  const fail = (code: ConstructorParameters<typeof ProofAbort>[0], msg: string): never => {
+    throw raise(code, msg);
+  };
+  /** Refuses a call when the run has already aborted (cleanup excepted after a benign abort). Also polls the operator interrupt. */
+  const gate = (opts: CallOptions) => {
+    if (o.shouldStop?.() && !abort) abort = new ProofAbort("interrupted", "interrupted by the operator");
+    if (abort && !(opts.phase === "cleanup" && !NO_CLEANUP_AFTER.has(abort.code))) throw abort;
+  };
+  const worthless = (r: ProofResponse) => r.status >= 500 || r.json === null || (r.status >= 200 && r.status < 300 && typeof r.json.id !== "string" && r.json.object !== "list");
 
   async function call(input: ProofRequest, opts: CallOptions = {}): Promise<ProofResponse> {
     // the request is copied and frozen BEFORE validation; exactly this copy is what gets sent (no mutation between check and send)
     const req: ProofRequest = Object.freeze(structuredClone(input));
-    if (o.shouldStop?.() && !abort) abort = new ProofAbort("interrupted", "interrupted by the operator");
-    if (abort && !(opts.phase === "cleanup" && abort.code !== "livemode_true" && abort.code !== "identity_mismatch" && abort.code !== "blocked_request")) {
-      throw abort;
-    }
+    gate(opts);
     // 1. allow-list, before anything else
     const v = evaluateRequest(req, { connectedAcct: o.connectedAcct });
     if (!v.ok) {
@@ -99,15 +118,23 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
       entry(req, "BLOCKED", { note: v.reason });
       return fail("blocked_request", `blocked before network I/O: ${v.reason}`);
     }
-    // 2. drafts only
-    if (v.rule === "invoice.delete_draft") {
-      const id = req.path.split("/").pop() as string;
-      if (!seen.drafts.has(id)) {
-        blocked += 1;
-        entry(req, "BLOCKED", { note: "DELETE refused: invoice not seen with status=draft" });
-        return fail("blocked_request", `DELETE refused for ${id}: it was not observed as a draft`);
-      }
+    // 1b. nothing but the two identity reads may be sent before BOTH pinned ids matched
+    if (!v.rule.startsWith("identity.") && !identityOk) {
+      blocked += 1;
+      entry(req, "BLOCKED", { note: "identity gate has not passed" });
+      return fail("identity_not_verified", `refused before network I/O: ${v.rule} needs the identity gate to pass first`);
     }
+    // 2. object scope: the run may only touch objects it created itself (drafts it saw, customers it created)
+    const tail = req.path.split("/");
+    const scope = (ok: boolean, what: string) => {
+      if (ok) return;
+      blocked += 1;
+      entry(req, "BLOCKED", { note: `${what} was not created by this run` });
+      fail("blocked_request", `${v.rule} refused: ${what} was not created by this run`);
+    };
+    if (v.rule === "invoice.delete_draft") scope(seen.drafts.has(tail[tail.length - 1]), `invoice ${tail[tail.length - 1]} (not observed as a draft)`);
+    if (v.rule === "customer.delete") scope(seen.customers.has(tail[tail.length - 1]), `customer ${tail[tail.length - 1]}`);
+    if (v.rule === "invoice.add_lines") scope(seen.drafts.has(tail[3]), `invoice ${tail[3]} (not observed as a draft)`);
     // 3. budget (synchronous, so concurrent callers cannot overshoot)
     const limit = opts.phase === "cleanup" ? budget : budget - reserve;
     if (used >= limit) {
@@ -115,7 +142,10 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
       return fail("budget_exceeded", `call budget exhausted (${used} used, limit ${limit}${opts.phase === "cleanup" ? "" : `, ${reserve} reserved for cleanup`})`);
     }
     used += 1;
-    if (paceMs > 0 && used > 1) await sleep(paceMs);
+    if (paceMs > 0 && used > 1) {
+      await sleep(paceMs);
+      gate(opts); // an abort or interrupt that happened while this call was waiting stops it BEFORE the network
+    }
     // 4. network
     let res: ProofResponse;
     try {
@@ -127,11 +157,23 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
       throw err;
     }
     const e = entry(req, res.status, { requestId: res.requestId ?? "-", replayed: res.replayed ?? null, summary: summarizeBody(res.json), note: opts.note });
+    // a create that came back as a gateway error / unparseable body / 2xx without an id may still have been committed at Stripe
+    if (req.method === "POST" && worthless(res)) uncertain.push(`${req.path} idem=${maskIdempotencyKey(req.idempotencyKey)} (status ${res.status}, no usable body)`);
     // 5. response checks
+    if (res.stripeVersion !== undefined) {
+      versionsSeen.add(res.stripeVersion);
+      if (res.stripeVersion !== STRIPE_API_VERSION) return fail("version_mismatch", `Stripe answered with API version ${JSON.stringify(res.stripeVersion.slice(0, 40))}, not the pinned ${STRIPE_API_VERSION}`);
+    } else if (v.rule.startsWith("identity.")) {
+      return fail("version_mismatch", `the ${v.rule} response did not report a Stripe-Version`);
+    }
     const body = res.json;
     if (body) {
       const asText = JSON.stringify(body);
       if (body.livemode === true || /"livemode":\s*true/.test(asText)) return fail("livemode_true", `livemode:true in a response (${req.method} ${req.path})`);
+      // objects the run creates must POSITIVELY report test mode (livemode === false); a missing flag is not accepted
+      if (req.method === "POST" && (body.object === "customer" || body.object === "invoice") && body.livemode !== false) {
+        return fail("livemode_true", `a created ${String(body.object)} did not report livemode:false`);
+      }
       if (body.deleted === true && typeof body.id === "string") {
         seen.drafts.delete(body.id);
         seen.customers.delete(body.id);
@@ -172,5 +214,20 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
     return res;
   }
 
-  return { call, transcript, seen, uncertain, stats: () => ({ used, blocked, budget }), aborted: () => abort };
+  return {
+    call, transcript, seen, uncertain, versionsSeen,
+    stats: () => ({ used, blocked, budget }),
+    aborted: () => abort,
+    raise,
+    markIdentityVerified: () => { identityOk = true; },
+    identityVerified: () => identityOk,
+  };
 }
+
+/** Every scenario/cleanup request goes through this: it stamps the pinned Stripe-Version. The guard itself still refuses any request that arrives without it. */
+export function pinned(client: GuardedClient, req: Omit<ProofRequest, "stripeVersion">, opts?: CallOptions): Promise<ProofResponse> {
+  return client.call({ ...req, stripeVersion: STRIPE_API_VERSION }, opts);
+}
+
+/** After these aborts the run makes NO further Stripe call (cleanup included): another call could hit the wrong account/mode/version. */
+export const NO_CLEANUP_AFTER: ReadonlySet<string> = new Set(["livemode_true", "identity_mismatch", "blocked_request", "version_mismatch", "environment_refused", "key_refused"]);

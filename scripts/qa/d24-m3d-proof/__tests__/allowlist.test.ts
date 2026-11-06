@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { evaluateRequest } from "../allowlist";
+import { STRIPE_API_VERSION } from "../config";
 import type { ProofRequest } from "../types";
 
 const ACCT = "acct_CONNECTEDTEST1";
 const OTHER = "acct_SOMEONEELSE99";
-const ev = (r: ProofRequest) => evaluateRequest(r, { connectedAcct: ACCT });
+const ev = (r: ProofRequest) => evaluateRequest({ stripeVersion: STRIPE_API_VERSION, ...r }, { connectedAcct: ACCT });
 const base = (r: Partial<ProofRequest> & Pick<ProofRequest, "method" | "path">): ProofRequest => ({ stripeAccount: ACCT, ...r });
 const KEY = "d24proof-abc12345-inv-A";
 

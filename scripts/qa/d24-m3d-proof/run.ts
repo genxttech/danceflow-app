@@ -1,6 +1,7 @@
 // D24 M3-D Stripe TEST proof: command line entry.
 //
 //   npx tsx scripts/qa/d24-m3d-proof/run.ts --dry-run      # fake client, NO network, prints the planned call list. Needs nothing.
+//   npx tsx scripts/qa/d24-m3d-proof/run.ts --preflight    # local checks only (no Stripe call); prints MANUAL items the owner must confirm
 //   npx tsx scripts/qa/d24-m3d-proof/run.ts --print-hash   # prints the script SHA-256 the owner pins
 //   npx tsx scripts/qa/d24-m3d-proof/run.ts --allow-list   # prints the allow-list
 //   npx tsx scripts/qa/d24-m3d-proof/run.ts --live         # REAL Stripe TEST calls. Refuses unless EVERY owner-supplied variable below is present and valid.
@@ -11,15 +12,19 @@
 //   D24_PROOF_EXPECT_CONNECTED_ACCT    connected test account id acct_…
 //   D24_PROOF_PINNED_SHA256            must equal the manifest hash this checkout prints with --print-hash
 //   D24_PROOF_AUTHORIZATION            the owner's exact approval sentence
+// Optional: D24_PROOF_EVIDENCE_DIR (absolute, OUTSIDE the repository) writes a redacted evidence pack there.
 // This revision is NOT authorized to run live. Nothing here has been run against Stripe.
 
 import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { describeAllowList } from "./allowlist";
 import { cleanup, MANUAL_CLEANUP_NOTE, type CleanupReport } from "./cleanup";
 import { createFakeTransport } from "./fakeTransport";
 import { createGuardedClient, HARD_CALL_CAP, type GuardedClient } from "./guarded";
-import { AUTHORIZATION_PHRASE, checkEnvironment, checkKeyShape, checkPinnedIds, ENV, runIdentityGate } from "./identity";
+import { ENV, runIdentityGate } from "./identity";
+import { defaultDockerProbe, liveRefusals, runPreflight, type DockerProbe } from "./preflight";
+import { EVIDENCE_ENV, evidenceDirProblem, sanitize, writeEvidence } from "./evidence";
+import { STRIPE_API_VERSION } from "./config";
 import { manifest } from "./manifest";
 import { redactText } from "./redact";
 import { runScenarios, type ScenarioResult, type Verdicts } from "./scenarios";
@@ -27,34 +32,21 @@ import { createFetchTransport } from "./transport";
 import { ProofAbort, type Expect, type Transport } from "./types";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const FLAGS = new Set(["--dry-run", "--live", "--print-hash", "--allow-list", "--help"]);
+const FLAGS = new Set(["--dry-run", "--live", "--preflight", "--print-hash", "--allow-list", "--help"]);
+
+export { liveRefusals };
 
 export type Io = { out: (s: string) => void; sleep: (ms: number) => Promise<void> };
-export type RunDeps = { env: Record<string, string | undefined>; io: Io; liveTransport?: Transport; dir?: string; runId?: string; shouldStop?: () => boolean };
+export type RunDeps = { env: Record<string, string | undefined>; io: Io; liveTransport?: Transport; dir?: string; runId?: string; shouldStop?: () => boolean; docker?: DockerProbe; now?: () => Date };
 
 export function parseArgs(argv: string[]): { ok: true; flag: string } | { ok: false; reason: string } {
   const flags = argv.filter((a) => a.startsWith("-"));
   const extra = argv.filter((a) => !a.startsWith("-"));
   if (extra.length > 0) return { ok: false, reason: "positional arguments are not accepted (keys and ids come from the environment only)" };
   const unknown = flags.filter((f) => !FLAGS.has(f));
-  if (unknown.length > 0) return { ok: false, reason: `unknown option ${unknown.map((u) => u.split("=")[0]).join(", ")}` };
-  if (flags.length !== 1) return { ok: false, reason: "exactly one of --dry-run | --live | --print-hash | --allow-list | --help is required" };
+  if (unknown.length > 0) return { ok: false, reason: redactText(`unknown option ${unknown.map((u) => u.split("=")[0].slice(0, 24)).join(", ")}`) };
+  if (flags.length !== 1) return { ok: false, reason: "exactly one of --dry-run | --live | --preflight | --print-hash | --allow-list | --help is required" };
   return { ok: true, flag: flags[0] };
-}
-
-export function liveRefusals(env: Record<string, string | undefined>, dir: string): { problems: string[]; expect?: Expect } {
-  const problems: string[] = [];
-  const k = checkKeyShape(env[ENV.key]);
-  if (!k.ok) problems.push(`${ENV.key}: ${k.reason}`);
-  const ids = checkPinnedIds(env);
-  if (!ids.ok) problems.push(ids.reason);
-  const pinned = env[ENV.pinnedSha] ?? "";
-  const actual = manifest(dir).sha256;
-  if (!/^[0-9a-f]{64}$/.test(pinned)) problems.push(`${ENV.pinnedSha} must be the 64-hex script hash printed by --print-hash`);
-  else if (pinned !== actual) problems.push(`${ENV.pinnedSha} does not match this checkout's script hash (the script changed since it was pinned)`);
-  if (env[ENV.phrase] !== AUTHORIZATION_PHRASE) problems.push(`${ENV.phrase} must be the owner's exact approval sentence`);
-  problems.push(...checkEnvironment(env));
-  return { problems, expect: ids.ok ? ids.expect : undefined };
 }
 
 function report(io: Io, client: GuardedClient, results: ScenarioResult[], verdicts: Verdicts | null, clean: CleanupReport | null, abort: ProofAbort | null) {
@@ -82,26 +74,42 @@ function report(io: Io, client: GuardedClient, results: ScenarioResult[], verdic
 }
 
 export async function runProof(argv: string[], deps: RunDeps): Promise<number> {
-  const { env, io } = deps;
+  const { env } = deps;
   const dir = deps.dir ?? HERE;
+  const repoRoot = join(dir, "..", "..", "..");
+  const lines: string[] = [];
+  // everything printed is also kept (sanitised at write time) for the optional evidence pack
+  // (secrets removed and account ids masked in EVERY printed line, so the terminal and the files carry the same sanitised text)
+  const io: Io = { sleep: deps.io.sleep, out: (s) => { const c = sanitize(s); lines.push(c); deps.io.out(c); } };
   const parsed = parseArgs(argv);
   if (!parsed.ok) {
     io.out(`refused: ${parsed.reason}`);
     return 2;
   }
   if (parsed.flag === "--help") {
-    io.out("usage: run.ts --dry-run | --live | --print-hash | --allow-list   (see the header of run.ts)");
+    io.out("usage: run.ts --dry-run | --live | --preflight | --print-hash | --allow-list   (see the header of run.ts)");
     return 0;
   }
   const m = manifest(dir);
   if (parsed.flag === "--print-hash") {
     io.out(`script manifest SHA-256: ${m.sha256}`);
+    io.out(`files: ${m.files.length}`);
     for (const f of m.files) io.out(`  ${f.sha256}  ${f.path}`);
     return 0;
   }
   if (parsed.flag === "--allow-list") {
+    io.out(`Stripe-Version required on every request: ${STRIPE_API_VERSION}`);
     for (const l of describeAllowList()) io.out(l);
     return 0;
+  }
+  if (parsed.flag === "--preflight") {
+    const checks = await runPreflight(env, dir, deps.docker ?? defaultDockerProbe);
+    for (const c of checks) io.out(`${c.status.toUpperCase().padEnd(6)} ${c.id}: ${redactText(c.detail)}`);
+    const bad = checks.filter((c) => c.status === "fail").length;
+    const evProblem = evidenceDirProblem(env[EVIDENCE_ENV], repoRoot);
+    if (evProblem) io.out(`FAIL   evidence-dir: ${evProblem}`);
+    io.out(bad === 0 && !evProblem ? "preflight: no local check failed (MANUAL items are for the owner to confirm; they are not passed)" : "preflight: FAILED, a live run would refuse");
+    return bad === 0 && !evProblem ? 0 : 2;
   }
 
   const live = parsed.flag === "--live";
@@ -112,9 +120,13 @@ export async function runProof(argv: string[], deps: RunDeps): Promise<number> {
   let waitMs: number;
   if (live) {
     const r = liveRefusals(env, dir);
-    if (r.problems.length > 0 || !r.expect) {
-      io.out("refused: live mode needs every owner-supplied value; nothing was sent.");
+    const pf = (await runPreflight(env, dir, deps.docker ?? defaultDockerProbe)).filter((c) => c.status === "fail" && c.id !== "owner-values");
+    const evProblem = evidenceDirProblem(env[EVIDENCE_ENV], repoRoot);
+    if (r.problems.length > 0 || !r.expect || pf.length > 0 || evProblem) {
+      io.out("refused: live mode needs every owner-supplied value and a clean local preflight; nothing was sent.");
       for (const p of r.problems) io.out(`  - ${redactText(p)}`);
+      for (const c of pf) io.out(`  - preflight ${c.id}: ${redactText(c.detail)}`);
+      if (evProblem) io.out(`  - ${evProblem}`);
       return 2;
     }
     expect = r.expect;
@@ -124,6 +136,11 @@ export async function runProof(argv: string[], deps: RunDeps): Promise<number> {
     waitMs = 5 * 60_000;
   } else {
     // dry-run: synthetic ids, a fake key string that is never a real credential, the fake transport. The environment is NOT read for a key.
+    const evProblem = evidenceDirProblem(env[EVIDENCE_ENV], repoRoot);
+    if (evProblem) {
+      io.out(`refused: ${evProblem}`);
+      return 2;
+    }
     expect = { platformAcct: "acct_DRYRUNPLATFORM", connectedAcct: "acct_DRYRUNCONNECTED" };
     apiKey = "rk_test_DRYRUNFAKE";
     transport = createFakeTransport({ platformId: expect.platformAcct, connectedId: expect.connectedAcct }).transport;
@@ -133,7 +150,7 @@ export async function runProof(argv: string[], deps: RunDeps): Promise<number> {
 
   io.out(`D24 M3-D Stripe TEST proof - ${live ? "LIVE (Stripe TEST mode)" : "DRY RUN (fake client, no network)"}`);
   io.out(`script manifest SHA-256: ${m.sha256}`);
-  io.out(`pinned accounts: platform=${expect.platformAcct} connected=${expect.connectedAcct}; hard call cap ${HARD_CALL_CAP}`);
+  io.out(`pinned accounts: platform=${expect.platformAcct} connected=${expect.connectedAcct}; hard call cap ${HARD_CALL_CAP}; Stripe-Version pinned on every request: ${STRIPE_API_VERSION}`);
 
   const client = createGuardedClient({ transport, apiKey, connectedAcct: expect.connectedAcct, paceMs: live ? 250 : 0, sleep: io.sleep, shouldStop: deps.shouldStop });
   let results: ScenarioResult[] = [];
@@ -145,12 +162,27 @@ export async function runProof(argv: string[], deps: RunDeps): Promise<number> {
     results = r.results;
     verdicts = r.verdicts;
   } catch (e) {
-    abort = e instanceof ProofAbort ? e : new ProofAbort("blocked_request", `unexpected error: ${(e as Error).message}`);
+    abort = e instanceof ProofAbort ? e : new ProofAbort("unexpected_error", `unexpected error: ${redactText(String((e as Error)?.message ?? e))}`);
   }
   const clean = await cleanup(client, expect);
   report(io, client, results, verdicts, clean, abort);
+  const reported = [...client.versionsSeen];
+  io.out(`\nStripe-Version pinned: ${STRIPE_API_VERSION}; reported by Stripe in responses: ${reported.length ? reported.join(", ") : "none"}. Record the account's default API version from the dashboard by hand.`);
   const failed = results.some((x) => x.checks.some((c) => !c.ok));
-  return abort || failed ? 1 : 0;
+  // success needs EVERYTHING: no abort, every check passing, and cleanup verified the account empty (not skipped, not interrupted, nothing unverifiable)
+  const cleanOk = clean.verifiedEmpty && !clean.skipped && !clean.stoppedBecause;
+  const outcome: "OK" | "FAILED" = !abort && !failed && cleanOk ? "OK" : "FAILED";
+  io.out(`\nOUTCOME: ${outcome}${cleanOk ? "" : " (cleanup did not verify an empty account: see the Cleanup section and the README's manual reconciliation)"}`);
+  const evDir = env[EVIDENCE_ENV];
+  if (evDir) {
+    const files = writeEvidence(evDir, {
+      outcome, runId, mode: live ? "live" : "dry-run", scriptSha256: m.sha256, apiVersionPinned: STRIPE_API_VERSION, apiVersionsReported: reported,
+      callsUsed: client.stats().used, blocked: client.stats().blocked, scenarios: results, verdicts, cleanup: clean,
+      abort: abort ? { code: abort.code, message: abort.message } : null, transcriptText: lines.join("\n"), finishedUtc: (deps.now ?? (() => new Date()))().toISOString(),
+    });
+    io.out(`evidence written (redacted, account ids masked): ${sanitize(files.json)} and ${sanitize(files.transcript)}`);
+  }
+  return outcome === "OK" ? 0 : 1;
 }
 
 // executed only when run directly, never when imported by the tests
@@ -160,6 +192,7 @@ if (isMain) {
   let stop = false;
   const wake: Array<() => void> = [];
   process.on("SIGINT", () => {
+    if (stop) process.exit(130); // a second Ctrl-C ends the process immediately (e.g. a hung request)
     stop = true;
     process.stdout.write("\ninterrupt received: stopping scenarios, running cleanup...\n");
     wake.splice(0).forEach((w) => w());

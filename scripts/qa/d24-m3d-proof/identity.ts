@@ -1,7 +1,8 @@
 // Identity gate (plan section 2). Runs before any scenario and aborts on any mismatch. Nothing here trusts a name; only the pinned ids.
 
+import { STRIPE_API_VERSION } from "./config";
 import { looksLikeLiveSecret } from "./redact";
-import { ProofAbort, type Expect } from "./types";
+import type { Expect } from "./types";
 import type { GuardedClient } from "./guarded";
 
 /** Owner-supplied environment variables. The key is NEVER read from a file or argv; only from this environment variable. */
@@ -40,6 +41,10 @@ export function checkEnvironment(env: Record<string, string | undefined>): strin
   for (const [name, v] of Object.entries(env)) {
     if (name !== ENV.key && v && looksLikeLiveSecret(v)) problems.push(`${name} contains a live key (remove it from this shell)`);
   }
+  for (const name of ["NODE_OPTIONS", "NODE_EXTRA_CA_CERTS", "NODE_USE_ENV_PROXY", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"]) {
+    if (env[name]) problems.push(`${name} is set (it can redirect, observe or patch the HTTPS traffic that carries the key); unset it for the proof`);
+  }
+  if (env.NODE_TLS_REJECT_UNAUTHORIZED === "0") problems.push("NODE_TLS_REJECT_UNAUTHORIZED=0 is set (TLS verification must stay on)");
   if (env.D24_HOSTED_INVOICE_CREATION === "on") problems.push("D24_HOSTED_INVOICE_CREATION=on is set (the flag must stay off)");
   return problems;
 }
@@ -59,14 +64,15 @@ export function checkPinnedIds(env: Record<string, string | undefined>): { ok: t
  * Returns the evidence on success; throws ProofAbort("identity_mismatch") otherwise.
  */
 export async function runIdentityGate(client: GuardedClient, expect: Expect): Promise<{ platformId: string; connectedId: string; connectedType: string }> {
-  const platform = await client.call({ method: "GET", path: "/v1/account" });
+  const platform = await client.call({ method: "GET", path: "/v1/account", stripeVersion: STRIPE_API_VERSION });
   const platformId = String(platform.json?.id ?? "");
-  if (platformId !== expect.platformAcct) throw new ProofAbort("identity_mismatch", "GET /v1/account returned an id other than the pinned sandbox account");
-  const connected = await client.call({ method: "GET", path: `/v1/accounts/${expect.connectedAcct}` });
+  if (platformId !== expect.platformAcct) throw client.raise("identity_mismatch", "GET /v1/account returned an id other than the pinned sandbox account");
+  const connected = await client.call({ method: "GET", path: `/v1/accounts/${expect.connectedAcct}`, stripeVersion: STRIPE_API_VERSION });
   const connectedId = String(connected.json?.id ?? "");
-  if (connectedId !== expect.connectedAcct) throw new ProofAbort("identity_mismatch", "GET /v1/accounts/<connected> returned an id other than the pinned connected account");
+  if (connectedId !== expect.connectedAcct) throw client.raise("identity_mismatch", "GET /v1/accounts/<connected> returned an id other than the pinned connected account");
   const connectedType = String(connected.json?.type ?? "");
-  if (connectedType !== "express") throw new ProofAbort("identity_mismatch", `connected account type is "${connectedType}", expected express`);
-  if (connected.json?.livemode === true) throw new ProofAbort("livemode_true", "connected account says livemode:true");
+  if (connectedType !== "express") throw client.raise("identity_mismatch", `connected account type is "${connectedType}", expected express`);
+  if (connected.json?.livemode === true) throw client.raise("livemode_true", "connected account says livemode:true");
+  client.markIdentityVerified(); // only now may any other request be sent
   return { platformId, connectedId, connectedType };
 }

@@ -2,6 +2,7 @@
 // (idempotent replay, same-key/different-params error, draft invoices with add_lines totals, listing, drafts-only delete, 403 on
 // unpermitted reads). It performs no I/O and holds no secrets. Passing against it proves nothing about real Stripe; that is the point of the proof.
 
+import { STRIPE_API_VERSION } from "./config";
 import type { ProofRequest, ProofResponse, Transport } from "./types";
 
 export type FakeOptions = {
@@ -13,6 +14,8 @@ export type FakeOptions = {
   failWith?: { status: number; times: number };
   accountType?: string;
   platformIdOverride?: string;
+  /** the Stripe-Version the fake claims to have used in its responses (default: the pin) */
+  reportVersion?: string;
 };
 
 type Obj = Record<string, unknown> & { id: string; object: string };
@@ -25,8 +28,9 @@ export function createFakeTransport(o: FakeOptions): { transport: Transport; cal
   let seq = 0;
   let failTimes = o.failWith?.times ?? 0;
   const id = (p: string) => `${p}_FAKE${String(++seq).padStart(6, "0")}`;
-  const ok = (json: Obj | Record<string, unknown>, replayed = false): ProofResponse => ({ status: 200, requestId: `req_fake${seq}`, replayed, json });
-  const err = (status: number, type: string, code?: string): ProofResponse => ({ status, requestId: `req_fake${seq}`, json: { error: { type, code } } });
+  const ver = () => o.reportVersion ?? STRIPE_API_VERSION;
+  const ok = (json: Obj | Record<string, unknown>, replayed = false): ProofResponse => ({ status: 200, requestId: `req_fake${seq}`, replayed, stripeVersion: ver(), json });
+  const err = (status: number, type: string, code?: string): ProofResponse => ({ status, requestId: `req_fake${seq}`, stripeVersion: ver(), json: { error: { type, code } } });
 
   const transport: Transport = async (req) => {
     calls.push(structuredClone(req));

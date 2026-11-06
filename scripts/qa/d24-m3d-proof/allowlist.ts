@@ -3,6 +3,7 @@
 // Finalize, send, pay, void, mark_uncollectible and every unrelated Stripe operation have no rule, so they can never be sent,
 // whatever permissions the key carries.
 
+import { STRIPE_API_VERSION } from "./config";
 import type { Method, ProofRequest } from "./types";
 
 export type Verdict = { ok: true; rule: string } | { ok: false; reason: string };
@@ -134,6 +135,10 @@ export function evaluateRequest(req: ProofRequest, expect: { connectedAcct: stri
   // path hygiene first: encoded separators, dot segments, whitespace, query/fragment, host tricks are never matched
   if (typeof req.path !== "string" || !/^\/v1\/[A-Za-z0-9_/]+$/.test(req.path) || req.path.includes("//") || req.path.endsWith("/")) {
     return { ok: false, reason: `path is not a plain /v1 path: ${JSON.stringify(req.path)}` };
+  }
+  // the API version is pinned for EVERY request (a missing or different version is refused before any rule is considered)
+  if (req.stripeVersion !== STRIPE_API_VERSION) {
+    return { ok: false, reason: `Stripe-Version must be exactly the pinned ${STRIPE_API_VERSION} (got ${req.stripeVersion === undefined ? "none" : JSON.stringify(String(req.stripeVersion).slice(0, 40))})` };
   }
   const rule = rules(expect.connectedAcct).find((r) => r.method === req.method && r.path.test(req.path));
   if (!rule) {

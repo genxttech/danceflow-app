@@ -12,6 +12,7 @@ export function createFetchTransport(fetchImpl: typeof fetch = fetch): Transport
     for (const [k, v] of Object.entries(req.query ?? {})) url.searchParams.set(k, v);
     const headers: Record<string, string> = { Authorization: `Bearer ${apiKey}` };
     if (req.stripeAccount) headers["Stripe-Account"] = req.stripeAccount;
+    if (req.stripeVersion) headers["Stripe-Version"] = req.stripeVersion;
     if (req.idempotencyKey) headers["Idempotency-Key"] = req.idempotencyKey;
     let body: string | undefined;
     if (req.method === "POST") {
@@ -28,6 +29,7 @@ export function createFetchTransport(fetchImpl: typeof fetch = fetch): Transport
     return {
       status: res.status,
       requestId: res.headers.get("request-id") ?? undefined,
+      stripeVersion: res.headers.get("stripe-version") ?? undefined,
       replayed: res.headers.get("idempotent-replayed") === "true" ? true : undefined,
       json,
     };

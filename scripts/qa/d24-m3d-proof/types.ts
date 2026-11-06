@@ -11,10 +11,14 @@ export type ProofRequest = {
   /** Value of the Stripe-Account header, when sent. */
   stripeAccount?: string;
   idempotencyKey?: string;
+  /** Value of the Stripe-Version header. REQUIRED on every request and must equal STRIPE_API_VERSION (config.ts). */
+  stripeVersion?: string;
   body?: Record<string, string>;
 };
 
 export type ProofResponse = {
+  /** Stripe-Version response header (the version Stripe actually used), when present. */
+  stripeVersion?: string;
   status: number;
   requestId?: string;
   /** Idempotent-Replayed response header, when Stripe sent it. */
@@ -38,6 +42,9 @@ export type AbortCode =
   | "server_error_streak"
   | "rate_limited"
   | "interrupted"
+  | "version_mismatch"
+  | "unexpected_error"
+  | "identity_not_verified"
   | "environment_refused"
   | "key_refused";
 
@@ -58,6 +65,7 @@ export type TranscriptEntry = {
   query: string;
   stripeAccount: string;
   idempotencyKey: string;
+  stripeVersion: string;
   status: number | "BLOCKED" | "ERROR";
   requestId: string;
   replayed: boolean | null;

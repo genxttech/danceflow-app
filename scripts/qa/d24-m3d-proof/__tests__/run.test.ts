@@ -131,8 +131,9 @@ describe("script identity and hygiene", () => {
       expect(code, f).not.toMatch(/process\.env\.STRIPE|STRIPE_SECRET_KEY\s*\]/);
     }
     const run = readFileSync(join(DIR, "run.ts"), "utf8");
-    // exactly two reads, both inside liveRefusals / the live branch; dry-run never reads the key
-    expect(run.match(/env\[ENV\.key\]/g)?.length).toBe(2);
+    // exactly one read in run.ts (the live branch) and one in preflight.ts (key-shape check); dry-run never reads the key
+    expect(run.match(/env\[ENV\.key\]/g)?.length).toBe(1);
+    expect(readFileSync(join(DIR, "preflight.ts"), "utf8").match(/env\[ENV\.key\]/g)?.length).toBe(1);
     expect(run.slice(run.indexOf("if (live) {"), run.indexOf("} else {", run.indexOf("if (live) {")))).toContain("env[ENV.key]");
   });
   it("is not imported from application code", () => {

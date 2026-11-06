@@ -7,7 +7,7 @@
 // wired here, so those parts are reported NOT TESTED rather than inferred. Nothing here claims to prove the ledger.
 
 import { ProofAbort, type Expect } from "./types";
-import type { GuardedClient } from "./guarded";
+import { pinned, type GuardedClient } from "./guarded";
 
 export type Check = { id: string; ok: boolean; detail: string };
 export type ScenarioResult = { id: string; title: string; checks: Check[] };
@@ -24,6 +24,11 @@ export type ScenarioDeps = {
 };
 
 const str = (v: unknown) => (typeof v === "string" ? v : "");
+/** A missing / malformed id (e.g. after an unexpected Stripe error) stops the run with a clear error and lets cleanup run, instead of building a nonsense path. */
+function need(v: unknown, prefix: string, what: string): string {
+  if (typeof v === "string" && v.startsWith(prefix)) return v;
+  throw new ProofAbort("unexpected_error", `Stripe did not return a usable ${what}`);
+}
 
 export async function runScenarios(d: ScenarioDeps): Promise<{ results: ScenarioResult[]; verdicts: Verdicts }> {
   const { client, expect, runId } = d;
@@ -38,7 +43,7 @@ export async function runScenarios(d: ScenarioDeps): Promise<{ results: Scenario
   const intent = (n: string) => `d24proof-intent-${runId}-${n}`;
 
   const createCustomer = (k: string, name: string, ref: string, expectStatus?: number[]) =>
-    client.call(
+    pinned(client, 
       { method: "POST", path: "/v1/customers", stripeAccount: acct, idempotencyKey: key(k), body: { name, "metadata[d24_intent_id]": intent(ref), "metadata[d24_client_ref]": `proof-client-${ref}` } },
       { expectStatus },
     );
@@ -52,19 +57,19 @@ export async function runScenarios(d: ScenarioDeps): Promise<{ results: Scenario
     "metadata[d24_intent_id]": intent(ref),
   });
   const createDraft = (k: string, cus: string, ref: string, expectStatus?: number[], description?: string) =>
-    client.call({ method: "POST", path: "/v1/invoices", stripeAccount: acct, idempotencyKey: key(k), body: draftBody(cus, ref, description) }, { expectStatus });
-  const listFor = (cus: string) => client.call({ method: "GET", path: "/v1/invoices", stripeAccount: acct, query: { customer: cus, limit: "100" } });
+    pinned(client, { method: "POST", path: "/v1/invoices", stripeAccount: acct, idempotencyKey: key(k), body: draftBody(cus, ref, description) }, { expectStatus });
+  const listFor = (cus: string) => pinned(client, { method: "GET", path: "/v1/invoices", stripeAccount: acct, query: { customer: cus, limit: "100" } });
   const dataIds = (r: { json: Record<string, unknown> | null }) => (Array.isArray(r.json?.data) ? (r.json?.data as Array<Record<string, unknown>>).map((x) => str(x.id)) : []);
 
   // ---- S1: draft creation (customer + invoice + lines) --------------------------------------------------------------------------
   const s1 = scenario("S1", "Draft creation: customer, invoice, lines");
   const cus1 = await createCustomer("cus-1", "D24-M3 proof client 1", "A");
-  const cus1Id = str(cus1.json?.id);
+  const cus1Id = need(cus1.json?.id, "cus_", "customer id");
   s1.chk("customer", cus1Id.startsWith("cus_") && cus1.json?.livemode === false, "customer created in the connected account, livemode false");
   const invA = await createDraft("inv-A", cus1Id, "A");
-  const invAId = str(invA.json?.id);
+  const invAId = need(invA.json?.id, "in_", "invoice id");
   const lineBody = { "lines[0][description]": "Proof line 1", "lines[0][amount]": "5500", "lines[1][description]": "Proof line 2", "lines[1][amount]": "2500" };
-  const linesA = await client.call({ method: "POST", path: `/v1/invoices/${invAId}/add_lines`, stripeAccount: acct, idempotencyKey: key("inv-A:lines"), body: lineBody });
+  const linesA = await pinned(client, { method: "POST", path: `/v1/invoices/${invAId}/add_lines`, stripeAccount: acct, idempotencyKey: key("inv-A:lines"), body: lineBody });
   s1.chk("shape", invAId.startsWith("in_") && invA.json?.livemode === false && invA.json?.status === "draft" && invA.json?.customer === cus1Id && invA.json?.currency === "usd", "V1: response carries id, livemode=false, status=draft, customer, currency");
   s1.chk("send_invoice", invA.json?.collection_method === "send_invoice" && invA.json?.auto_advance === false, "collection_method=send_invoice, auto_advance=false");
   s1.chk("total", linesA.json?.total === 8000 && linesA.json?.status === "draft", "V3: total == sum(lines) (8000) and still draft");
@@ -85,7 +90,11 @@ export async function runScenarios(d: ScenarioDeps): Promise<{ results: Scenario
 
   // ---- S4: concurrent retries ---------------------------------------------------------------------------------------------------
   const s4 = scenario("S4", "Concurrent retries, same key");
-  const par = await Promise.all([0, 1, 2].map(() => createDraft("inv-B", cus1Id, "B", [200, 409])));
+  // allSettled: wait for EVERY parallel call to finish before anything else (cleanup included) can start, then surface the first failure
+  const settled = await Promise.allSettled([0, 1, 2].map(() => createDraft("inv-B", cus1Id, "B", [200, 409])).map((p) => p));
+  const firstRejected = settled.find((r): r is PromiseRejectedResult => r.status === "rejected");
+  if (firstRejected) throw firstRejected.reason;
+  const par = settled.map((r) => (r as PromiseFulfilledResult<Awaited<ReturnType<typeof createDraft>>>).value);
   const okIds = new Set(par.filter((r) => r.status === 200).map((r) => str(r.json?.id)));
   s4.chk("one_id", okIds.size === 1 && par.every((r) => r.status === 200 || r.status === 409), "all successful responses carry one invoice id (others are in-flight conflicts)");
   const l4 = await listFor(cus1Id);
@@ -94,7 +103,7 @@ export async function runScenarios(d: ScenarioDeps): Promise<{ results: Scenario
   // ---- S5: crash after success --------------------------------------------------------------------------------------------------
   const s5 = scenario("S5", "Crash after success: response discarded, fresh replay converges");
   const cus2 = await createCustomer("cus-2", "D24-M3 proof client 2", "C");
-  const cus2Id = str(cus2.json?.id);
+  const cus2Id = need(cus2.json?.id, "cus_", "customer id");
   const lost = await createDraft("inv-C", cus2Id, "C"); // the response is intentionally NOT used for control flow: the process 'crashed'
   const converged = await createDraft("inv-C", cus2Id, "C");
   s5.chk("converged", str(converged.json?.id) === str(lost.json?.id) && converged.replayed === true, "V4 (Stripe side): the replayed original key returns the invoice created before the 'crash'");
@@ -127,15 +136,15 @@ export async function runScenarios(d: ScenarioDeps): Promise<{ results: Scenario
   const s9 = scenario("S9", "Inertness: drafts only, nothing sent");
   let allDraft = true;
   for (const id of [...client.seen.drafts]) {
-    const r = await client.call({ method: "GET", path: `/v1/invoices/${id}`, stripeAccount: acct });
+    const r = await pinned(client, { method: "GET", path: `/v1/invoices/${id}`, stripeAccount: acct });
     if (r.json?.status !== "draft" || r.json?.auto_advance !== false || r.json?.collection_method !== "send_invoice" || r.json?.livemode !== false) allDraft = false;
   }
   s9.chk("all_drafts", allDraft && client.seen.nonDrafts.size === 0, "V5: every created invoice is a draft, auto_advance=false, send_invoice, livemode=false (dashboard Events review is manual)");
 
   // ---- S10: permission negatives ------------------------------------------------------------------------------------------------
   const s10 = scenario("S10", "Permission negatives (expected 403)");
-  const n1 = await client.call({ method: "GET", path: "/v1/transfers", stripeAccount: acct, query: { limit: "1" } }, { expectStatus: [403] });
-  const n2 = await client.call({ method: "GET", path: "/v1/webhook_endpoints", stripeAccount: acct }, { expectStatus: [403] });
+  const n1 = await pinned(client, { method: "GET", path: "/v1/transfers", stripeAccount: acct, query: { limit: "1" } }, { expectStatus: [403] });
+  const n2 = await pinned(client, { method: "GET", path: "/v1/webhook_endpoints", stripeAccount: acct }, { expectStatus: [403] });
   s10.chk("transfers", n1.status === 403, "V6: Transfers read is refused by the key");
   s10.chk("webhooks", n2.status === 403, "V6: Webhook Endpoints read is refused by the key");
 
