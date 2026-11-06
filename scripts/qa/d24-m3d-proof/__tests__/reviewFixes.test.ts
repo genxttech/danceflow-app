@@ -104,12 +104,25 @@ describe("P1-4 the evidence directory is checked on real paths", () => {
     mkdirSync(join(outer, ".git"));
     expect(evidenceDirProblem(join(outer, "out"), REPO)).toMatch(/git checkout or worktree/);
     const link = join(tmp(), "link-to-repo");
+    let linked = false;
     try {
       symlinkSync(REPO, link, "junction");
-      expect(evidenceDirProblem(join(link, "evidence"), REPO)).toMatch(/outside the repository|git checkout/);
+      linked = true;
     } catch {
-      /* creating a junction/symlink is not permitted in this environment: the .git-ancestor rule above still covers the repository */
+      /* creating a junction/symlink is not permitted in this environment: skip ONLY the link assertion below (the .git-ancestor rule above still ran) */
     }
+    // outside the try: a failing expectation must fail the test, not be swallowed
+    if (linked) expect(evidenceDirProblem(join(link, "evidence"), REPO)).toMatch(/outside the repository|git checkout/);
+    // a link into a SUB-folder of the repository has no git entry to trip over: only resolving the link (realpath) can refuse it
+    const sub = join(tmp(), "link-to-scripts");
+    let linkedSub = false;
+    try {
+      symlinkSync(join(REPO, "scripts"), sub, "junction");
+      linkedSub = true;
+    } catch {
+      /* link creation not permitted here: skip only this assertion */
+    }
+    if (linkedSub) expect(evidenceDirProblem(join(sub, "evidence"), REPO)).toMatch(/outside the repository/);
     expect(evidenceDirProblem(tmp(), REPO)).toBeNull();
   });
 });

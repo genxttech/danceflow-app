@@ -4,7 +4,6 @@ import { createFakeTransport } from "../fakeTransport";
 import { STRIPE_API_VERSION } from "../config";
 import { createGuardedClient, pinned } from "../guarded";
 import { redactText } from "../redact";
-import { createFetchTransport } from "../transport";
 import type { ProofRequest, Transport } from "../types";
 
 const PLATFORM = "acct_PLATFORMTEST1";
@@ -39,22 +38,7 @@ describe("guarded client: blocked requests never reach the transport", () => {
     await expect(pinned(client, { method: "GET", path: "/v1/account" })).rejects.toMatchObject({ code: "blocked_request" });
     expect(f.calls).toHaveLength(0);
   });
-  it("the real fetch transport is never reached by a blocked request (fetch spy)", async () => {
-    const fetchSpy = vi.fn(async () => new Response("{}"));
-    const client = createGuardedClient({ transport: createFetchTransport(fetchSpy as unknown as typeof fetch), apiKey: "rk_test_FAKEFAKE", connectedAcct: CONNECTED, paceMs: 0 });
-    await expect(pinned(client, { method: "POST", path: "/v1/invoices/in_ABC123/finalize", stripeAccount: CONNECTED, idempotencyKey: `${KEY}y`, body: {} })).rejects.toBeTruthy();
-    await expect(createGuardedClient({ transport: createFetchTransport(fetchSpy as unknown as typeof fetch), apiKey: "rk_test_FAKEFAKE", connectedAcct: CONNECTED, paceMs: 0 }).call({ method: "POST", path: "/v1/refunds", stripeAccount: CONNECTED, idempotencyKey: `${KEY}z`, body: { charge: "ch_1" } })).rejects.toBeTruthy();
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-  it("an allowed request does reach the fetch transport, to api.stripe.com only, with the pinned headers", async () => {
-    const fetchSpy = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({ id: PLATFORM, object: "account" }), { status: 200, headers: { "stripe-version": STRIPE_API_VERSION } }));
-    const client = createGuardedClient({ transport: createFetchTransport(fetchSpy as unknown as typeof fetch), apiKey: "rk_test_FAKEFAKE", connectedAcct: CONNECTED, paceMs: 0 });
-    await pinned(client, { method: "GET", path: "/v1/account" });
-    const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe("https://api.stripe.com/v1/account");
-    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer rk_test_FAKEFAKE");
-    expect(init.redirect).toBe("error");
-  });
+  // the real network transport (blocked requests never reach a socket; allowed ones arrive exactly once) is tested against a loopback server in transport.test.ts
   it("DELETE of an invoice is refused unless it was observed as a draft", async () => {
     const { f, client } = mk();
     await expect(pinned(client, { method: "DELETE", path: "/v1/invoices/in_NEVERSEEN1", stripeAccount: CONNECTED }, { phase: "cleanup" })).rejects.toMatchObject({ code: "blocked_request" });

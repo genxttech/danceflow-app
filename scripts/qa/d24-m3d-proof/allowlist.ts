@@ -156,11 +156,12 @@ export function evaluateRequest(req: ProofRequest, expect: { connectedAcct: stri
   }
   const q = req.query ?? {};
   for (const [k, v] of Object.entries(q)) {
-    const val = rule.query[k];
+    // own properties only: `constructor`, `toString`, `__proto__` etc. must never resolve through the prototype chain
+    const val = Object.hasOwn(rule.query, k) ? rule.query[k] : undefined;
     if (!val) return { ok: false, reason: `${rule.id}: query parameter not allowed: ${k}` };
     if (!val(v)) return { ok: false, reason: `${rule.id}: query value not allowed for ${k}` };
   }
-  for (const k of rule.requiredQuery) if (!(k in q)) return { ok: false, reason: `${rule.id}: missing query parameter ${k}` };
+  for (const k of rule.requiredQuery) if (!Object.hasOwn(q, k)) return { ok: false, reason: `${rule.id}: missing query parameter ${k}` };
   const body = req.body;
   if (rule.body === null) {
     if (body !== undefined && Object.keys(body).length > 0) return { ok: false, reason: `${rule.id}: no body allowed` };
@@ -172,11 +173,11 @@ export function evaluateRequest(req: ProofRequest, expect: { connectedAcct: stri
       if (!spec) return { ok: false, reason: `${rule.id}: body parameter not allowed: ${k}` };
       if (!spec.val(v)) return { ok: false, reason: `${rule.id}: body value not allowed for ${k}` };
     }
-    for (const k of rule.body.required) if (!(k in body)) return { ok: false, reason: `${rule.id}: missing body parameter ${k}` };
+    for (const k of rule.body.required) if (!Object.hasOwn(body, k)) return { ok: false, reason: `${rule.id}: missing body parameter ${k}` };
     if (rule.id === "invoice.add_lines") {
       const idx = new Set(Object.keys(body).map((k) => Number(/\[(\d)\]/.exec(k)?.[1])));
       for (const i of idx) {
-        if (!(`lines[${i}][description]` in body) || !(`lines[${i}][amount]` in body)) return { ok: false, reason: "invoice.add_lines: each line needs description and amount" };
+        if (!Object.hasOwn(body, `lines[${i}][description]`) || !Object.hasOwn(body, `lines[${i}][amount]`)) return { ok: false, reason: "invoice.add_lines: each line needs description and amount" };
       }
       const total = [...idx].reduce((s, i) => s + Number(body[`lines[${i}][amount]`]), 0);
       if (total > LIMITS.maxLineCents) return { ok: false, reason: "invoice.add_lines: total above the proof cap" };

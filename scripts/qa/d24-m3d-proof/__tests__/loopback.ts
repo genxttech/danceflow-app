@@ -1,0 +1,46 @@
+import http from "node:http";
+import type { AddressInfo } from "node:net";
+import { STRIPE_API_VERSION } from "../config";
+
+// A loopback (127.0.0.1) HTTP server that RECORDS every request it receives. Tests point the node transport at it to prove, with a real socket, how many
+// requests actually leave the client. Nothing here can reach the internet.
+
+export type Recorded = { method: string; url: string; headers: http.IncomingHttpHeaders; body: string; socketId: number };
+export type Behaviour = "ok" | "reset" | "redirect" | "hang" | "garbage" | "no-version" | "big";
+
+export async function startLoopback(behaviour: (n: number) => Behaviour = () => "ok") {
+  const requests: Recorded[] = [];
+  const sockets: Array<import("node:net").Socket> = [];
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      if (!sockets.includes(req.socket)) sockets.push(req.socket);
+      requests.push({ method: req.method ?? "", url: req.url ?? "", headers: req.headers, body, socketId: sockets.indexOf(req.socket) });
+      const b = behaviour(requests.length);
+      if (b === "reset") return void req.socket.destroy();
+      if (b === "hang") return; // never answers
+      if (b === "redirect") {
+        res.writeHead(302, { location: "http://127.0.0.1:1/elsewhere", "stripe-version": STRIPE_API_VERSION });
+        return void res.end();
+      }
+      const headers: Record<string, string> = { "content-type": "application/json", "request-id": `req_loop${requests.length}` };
+      if (b !== "no-version") headers["stripe-version"] = STRIPE_API_VERSION;
+      if (req.headers["idempotency-key"] && requests.filter((r) => r.headers["idempotency-key"] === req.headers["idempotency-key"]).length > 1) headers["idempotent-replayed"] = "true";
+      res.writeHead(200, headers);
+      if (b === "garbage") return void res.end("<html>not json</html>");
+      if (b === "big") return void res.end("x".repeat(1_100_000));
+      res.end(JSON.stringify({ id: "acct_LOOPBACK1", object: "account" }));
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  return {
+    origin,
+    requests,
+    async close() {
+      server.closeAllConnections?.();
+      await new Promise<void>((r) => server.close(() => r()));
+    },
+  };
+}

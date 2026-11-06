@@ -5,7 +5,8 @@ import { createFakeTransport } from "../fakeTransport";
 import { createGuardedClient, pinned } from "../guarded";
 import { runIdentityGate } from "../identity";
 import { runScenarios } from "../scenarios";
-import { createFetchTransport } from "../transport";
+import { createNodeTransport } from "../transport";
+import { startLoopback } from "./loopback";
 import type { ProofRequest, Transport } from "../types";
 import { manifest } from "../manifest";
 import { dirname, join } from "node:path";
@@ -50,10 +51,13 @@ describe("Stripe-Version is pinned on every request", () => {
     expect(spy.mock.calls.length).toBe(n);
   });
   it("the real transport sends the header, and every request of a full scenario run carries the pin", async () => {
-    const fetchSpy = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async () => new Response(JSON.stringify({ id: PLATFORM }), { status: 200, headers: { "stripe-version": STRIPE_API_VERSION } }));
-    const client0 = createGuardedClient({ transport: createFetchTransport(fetchSpy as unknown as typeof fetch), apiKey: "rk_test_FAKEFAKE", connectedAcct: CONNECTED, paceMs: 0 });
-    await pinned(client0, { method: "GET", path: "/v1/account" });
-    expect((fetchSpy.mock.calls[0][1].headers as Record<string, string>)["Stripe-Version"]).toBe(STRIPE_API_VERSION);
+    const lb = await startLoopback();
+    try {
+      await createNodeTransport({ origin: lb.origin })({ method: "GET", path: "/v1/account", stripeVersion: STRIPE_API_VERSION }, ["rk", "test", "LOOPBACKKEY0123456789"].join("_"));
+      expect(lb.requests[0].headers["stripe-version"]).toBe(STRIPE_API_VERSION);
+    } finally {
+      await lb.close();
+    }
     const f = createFakeTransport({ platformId: PLATFORM, connectedId: CONNECTED });
     const client = createGuardedClient({ transport: f.transport, apiKey: "rk_test_FAKEFAKE", connectedAcct: CONNECTED, paceMs: 0 });
     await runIdentityGate(client, { platformAcct: PLATFORM, connectedAcct: CONNECTED });
@@ -61,6 +65,12 @@ describe("Stripe-Version is pinned on every request", () => {
     expect(f.calls.length).toBeGreaterThan(20);
     expect(f.calls.every((c) => c.stripeVersion === STRIPE_API_VERSION)).toBe(true);
     expect([...client.versionsSeen]).toEqual([STRIPE_API_VERSION]);
+  });
+  it("a response that reports no Stripe-Version at all is not trusted", async () => {
+    const f = createFakeTransport({ platformId: PLATFORM, connectedId: CONNECTED });
+    const stripped: Transport = async (r, k) => ({ ...(await f.transport(r, k)), stripeVersion: undefined });
+    const client = createGuardedClient({ transport: stripped, apiKey: "rk_test_FAKEFAKE", connectedAcct: CONNECTED, paceMs: 0 });
+    await expect(runIdentityGate(client, { platformAcct: PLATFORM, connectedAcct: CONNECTED })).rejects.toMatchObject({ code: "version_mismatch" });
   });
   it("the pin lives in config.ts, which is part of the manifest hash", () => {
     const dir = join(dirname(fileURLToPath(import.meta.url)), "..");

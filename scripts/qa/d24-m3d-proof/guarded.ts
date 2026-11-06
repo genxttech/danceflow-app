@@ -135,6 +135,10 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
     if (v.rule === "invoice.delete_draft") scope(seen.drafts.has(tail[tail.length - 1]), `invoice ${tail[tail.length - 1]} (not observed as a draft)`);
     if (v.rule === "customer.delete") scope(seen.customers.has(tail[tail.length - 1]), `customer ${tail[tail.length - 1]}`);
     if (v.rule === "invoice.add_lines") scope(seen.drafts.has(tail[3]), `invoice ${tail[3]} (not observed as a draft)`);
+    // reads and creates are scoped to the run's own customers / invoices too, so a foreign object can never enter `seen` (and later be deleted by cleanup)
+    if (v.rule === "invoice.create_draft") scope(seen.customers.has(req.body?.customer ?? ""), `customer ${req.body?.customer ?? "?"}`);
+    if (v.rule === "invoice.list_by_customer") scope(seen.customers.has(req.query?.customer ?? ""), `customer ${req.query?.customer ?? "?"}`);
+    if (v.rule === "invoice.read") scope(seen.drafts.has(tail[tail.length - 1]), `invoice ${tail[tail.length - 1]} (not observed as a draft)`);
     // 3. budget (synchronous, so concurrent callers cannot overshoot)
     const limit = opts.phase === "cleanup" ? budget : budget - reserve;
     if (used >= limit) {
@@ -163,7 +167,8 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
     if (res.stripeVersion !== undefined) {
       versionsSeen.add(res.stripeVersion);
       if (res.stripeVersion !== STRIPE_API_VERSION) return fail("version_mismatch", `Stripe answered with API version ${JSON.stringify(res.stripeVersion.slice(0, 40))}, not the pinned ${STRIPE_API_VERSION}`);
-    } else if (v.rule.startsWith("identity.")) {
+    } else {
+      // Stripe always reports the version it used; a response without it is not trusted (blocked requests never get here)
       return fail("version_mismatch", `the ${v.rule} response did not report a Stripe-Version`);
     }
     const body = res.json;

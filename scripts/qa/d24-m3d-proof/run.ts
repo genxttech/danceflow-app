@@ -28,7 +28,7 @@ import { STRIPE_API_VERSION } from "./config";
 import { manifest } from "./manifest";
 import { redactText } from "./redact";
 import { runScenarios, type ScenarioResult, type Verdicts } from "./scenarios";
-import { createFetchTransport } from "./transport";
+import { createNodeTransport } from "./transport";
 import { ProofAbort, type Expect, type Transport } from "./types";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -37,7 +37,7 @@ const FLAGS = new Set(["--dry-run", "--live", "--preflight", "--print-hash", "--
 export { liveRefusals };
 
 export type Io = { out: (s: string) => void; sleep: (ms: number) => Promise<void> };
-export type RunDeps = { env: Record<string, string | undefined>; io: Io; liveTransport?: Transport; dir?: string; runId?: string; shouldStop?: () => boolean; docker?: DockerProbe; now?: () => Date };
+export type RunDeps = { env: Record<string, string | undefined>; io: Io; liveTransport?: Transport; dir?: string; runId?: string; shouldStop?: () => boolean; docker?: DockerProbe; now?: () => Date; onClient?: (c: GuardedClient) => void };
 
 export function parseArgs(argv: string[]): { ok: true; flag: string } | { ok: false; reason: string } {
   const flags = argv.filter((a) => a.startsWith("-"));
@@ -131,7 +131,7 @@ export async function runProof(argv: string[], deps: RunDeps): Promise<number> {
     }
     expect = r.expect;
     apiKey = env[ENV.key] as string;
-    transport = deps.liveTransport ?? createFetchTransport();
+    transport = deps.liveTransport ?? createNodeTransport();
     runId = deps.runId ?? Math.random().toString(16).slice(2, 10).padEnd(8, "0");
     waitMs = 5 * 60_000;
   } else {
@@ -153,6 +153,7 @@ export async function runProof(argv: string[], deps: RunDeps): Promise<number> {
   io.out(`pinned accounts: platform=${expect.platformAcct} connected=${expect.connectedAcct}; hard call cap ${HARD_CALL_CAP}; Stripe-Version pinned on every request: ${STRIPE_API_VERSION}`);
 
   const client = createGuardedClient({ transport, apiKey, connectedAcct: expect.connectedAcct, paceMs: live ? 250 : 0, sleep: io.sleep, shouldStop: deps.shouldStop });
+  deps.onClient?.(client);
   let results: ScenarioResult[] = [];
   let verdicts: Verdicts | null = null;
   let abort: ProofAbort | null = null;
@@ -165,23 +166,35 @@ export async function runProof(argv: string[], deps: RunDeps): Promise<number> {
     abort = e instanceof ProofAbort ? e : new ProofAbort("unexpected_error", `unexpected error: ${redactText(String((e as Error)?.message ?? e))}`);
   }
   const clean = await cleanup(client, expect);
-  report(io, client, results, verdicts, clean, abort);
+  // an abort recorded by the guard (also one raised inside cleanup or swallowed by a scenario) counts, not only the one that escaped the scenarios
+  const fatal = abort ?? client.aborted();
+  report(io, client, results, verdicts, clean, fatal);
   const reported = [...client.versionsSeen];
   io.out(`\nStripe-Version pinned: ${STRIPE_API_VERSION}; reported by Stripe in responses: ${reported.length ? reported.join(", ") : "none"}. Record the account's default API version from the dashboard by hand.`);
   const failed = results.some((x) => x.checks.some((c) => !c.ok));
   // success needs EVERYTHING: no abort, every check passing, and cleanup verified the account empty (not skipped, not interrupted, nothing unverifiable)
   const cleanOk = clean.verifiedEmpty && !clean.skipped && !clean.stoppedBecause;
-  const outcome: "OK" | "FAILED" = !abort && !failed && cleanOk ? "OK" : "FAILED";
-  io.out(`\nOUTCOME: ${outcome}${cleanOk ? "" : " (cleanup did not verify an empty account: see the Cleanup section and the README's manual reconciliation)"}`);
+  let outcome: "OK" | "FAILED" = !fatal && !failed && cleanOk ? "OK" : "FAILED";
   const evDir = env[EVIDENCE_ENV];
   if (evDir) {
-    const files = writeEvidence(evDir, {
-      outcome, runId, mode: live ? "live" : "dry-run", scriptSha256: m.sha256, apiVersionPinned: STRIPE_API_VERSION, apiVersionsReported: reported,
-      callsUsed: client.stats().used, blocked: client.stats().blocked, scenarios: results, verdicts, cleanup: clean,
-      abort: abort ? { code: abort.code, message: abort.message } : null, transcriptText: lines.join("\n"), finishedUtc: (deps.now ?? (() => new Date()))().toISOString(),
-    });
-    io.out(`evidence written (redacted, account ids masked): ${sanitize(files.json)} and ${sanitize(files.transcript)}`);
+    try {
+      const files = writeEvidence(
+        evDir,
+        {
+          outcome, runId, mode: live ? "live" : "dry-run", scriptSha256: m.sha256, apiVersionPinned: STRIPE_API_VERSION, apiVersionsReported: reported,
+          callsUsed: client.stats().used, blocked: client.stats().blocked, scenarios: results, verdicts, cleanup: clean,
+          abort: fatal ? { code: fatal.code, message: fatal.message } : null, transcriptText: lines.join("\n"), finishedUtc: (deps.now ?? (() => new Date()))().toISOString(),
+        },
+        repoRoot,
+      );
+      io.out(`evidence written (redacted, account ids masked): ${sanitize(files.json)} and ${sanitize(files.transcript)}`);
+    } catch (e) {
+      // evidence was requested and could not be written safely: the run is not reported as OK
+      outcome = "FAILED";
+      io.out(`EVIDENCE NOT WRITTEN: ${redactText(String((e as Error)?.message ?? e))}`);
+    }
   }
+  io.out(`\nOUTCOME: ${outcome}${cleanOk ? "" : " (cleanup did not verify an empty account: see the Cleanup section and the README's manual reconciliation)"}`);
   return outcome === "OK" ? 0 : 1;
 }
 
@@ -190,9 +203,15 @@ const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.arg
 if (isMain) {
   // Ctrl-C stops the scenarios but NOT the cleanup: the flag makes the next call abort, cleanup then runs, and waits end early
   let stop = false;
+  let live: GuardedClient | null = null;
   const wake: Array<() => void> = [];
   process.on("SIGINT", () => {
-    if (stop) process.exit(130); // a second Ctrl-C ends the process immediately (e.g. a hung request)
+    if (stop) {
+      // a second Ctrl-C ends the process immediately (e.g. a hung request): say what may be left behind, then exit
+      const left = live ? [...live.seen.drafts, ...live.seen.customers, ...live.uncertain].join(", ") : "unknown";
+      process.stdout.write(sanitize(`\nFORCED EXIT: cleanup did not finish. Objects that may remain at Stripe (and unverifiable creates): ${left || "none known"}. Do the manual reconciliation in the README, then expire the key.\n`));
+      process.exit(130);
+    }
     stop = true;
     process.stdout.write("\ninterrupt received: stopping scenarios, running cleanup...\n");
     wake.splice(0).forEach((w) => w());
@@ -200,6 +219,7 @@ if (isMain) {
   runProof(process.argv.slice(2), {
     env: process.env,
     shouldStop: () => stop,
+    onClient: (c) => { live = c; },
     io: {
       out: (s) => process.stdout.write(`${s}\n`),
       sleep: (ms) =>
@@ -212,5 +232,8 @@ if (isMain) {
           });
         }),
     },
-  }).then((code) => process.exit(code));
+  }).then((code) => process.exit(code), (e) => {
+    process.stdout.write(sanitize(`\nOUTCOME: FAILED (unexpected error: ${String((e as Error)?.message ?? e)})\n`));
+    process.exit(1);
+  });
 }

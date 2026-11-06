@@ -28,8 +28,8 @@ export function checkKeyShape(key: string | undefined): { ok: true } | { ok: fal
 
 const ACCT = /^acct_[A-Za-z0-9]{6,64}$/;
 /** Environment names that would point the run (or the app under test) at a hosted database. */
-const HOSTED_DB_VARS = ["DATABASE_URL", "POSTGRES_URL", "POSTGRES_PRISMA_URL", "POSTGRES_URL_NON_POOLING", "SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_DB_URL", "SUPABASE_SERVICE_ROLE_KEY"];
-const isLocalHost = (v: string) => /^(?:[a-z]+:\/\/)?(?:[^@/]*@)?(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:[/?]|$)/i.test(v);
+const HOSTED_DB_VARS = ["DATABASE_URL", "POSTGRES_URL", "POSTGRES_PRISMA_URL", "POSTGRES_URL_NON_POOLING", "SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_DB_URL", "SUPABASE_SERVICE_ROLE_KEY", "DIRECT_URL", "SHADOW_DATABASE_URL", "PGHOST"];
+const isLocalHost = (v: string) => !/[?&]host=/i.test(v) && /^(?:[a-z]+:\/\/)?(?:[^@/]*@)?(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:[/?]|$)/i.test(v);
 
 /** Problems with the environment (empty list = ok). Never includes a secret value. */
 export function checkEnvironment(env: Record<string, string | undefined>): string[] {
@@ -41,7 +41,7 @@ export function checkEnvironment(env: Record<string, string | undefined>): strin
   for (const [name, v] of Object.entries(env)) {
     if (name !== ENV.key && v && looksLikeLiveSecret(v)) problems.push(`${name} contains a live key (remove it from this shell)`);
   }
-  for (const name of ["NODE_OPTIONS", "NODE_EXTRA_CA_CERTS", "NODE_USE_ENV_PROXY", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"]) {
+  for (const name of ["NODE_OPTIONS", "NODE_PATH", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR", "npm_config_proxy", "npm_config_https_proxy", "NODE_USE_ENV_PROXY", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"]) {
     if (env[name]) problems.push(`${name} is set (it can redirect, observe or patch the HTTPS traffic that carries the key); unset it for the proof`);
   }
   if (env.NODE_TLS_REJECT_UNAUTHORIZED === "0") problems.push("NODE_TLS_REJECT_UNAUTHORIZED=0 is set (TLS verification must stay on)");

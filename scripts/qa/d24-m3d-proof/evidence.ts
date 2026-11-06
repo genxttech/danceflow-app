@@ -68,8 +68,17 @@ export type EvidenceInput = {
   finishedUtc: string;
 };
 
-export function writeEvidence(dir: string, e: EvidenceInput): { json: string; transcript: string } {
+/**
+ * Re-validates the directory immediately before writing (a live run lasts minutes: a link swapped in meanwhile is caught), creates it, validates the resolved
+ * real directory again, and writes only into that real directory with exclusive-create (an existing file or a pre-planted link is never written through).
+ */
+export function writeEvidence(dir: string, e: EvidenceInput, repoRoot: string): { json: string; transcript: string } {
+  const before = evidenceDirProblem(dir, repoRoot);
+  if (before) throw new Error(before);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const realDir = realpathSync(dir);
+  const after = evidenceDirProblem(realDir, repoRoot);
+  if (after) throw new Error(after);
   const body = {
     outcome: e.outcome,
     runId: e.runId,
@@ -87,9 +96,9 @@ export function writeEvidence(dir: string, e: EvidenceInput): { json: string; tr
     abort: e.abort,
     ownerAfterwards: "expire the restricted key, clear the shell variable and its history entry, verify the connected account has no invoices or customers",
   };
-  const json = join(dir, `evidence-${e.runId}.json`);
-  const transcript = join(dir, `transcript-${e.runId}.txt`);
-  writeFileSync(json, sanitize(JSON.stringify(body, null, 2)), { mode: 0o600 });
-  writeFileSync(transcript, sanitize(e.transcriptText), { mode: 0o600 });
+  const json = join(realDir, `evidence-${e.runId}.json`);
+  const transcript = join(realDir, `transcript-${e.runId}.txt`);
+  writeFileSync(json, sanitize(JSON.stringify(body, null, 2)), { mode: 0o600, flag: "wx" });
+  writeFileSync(transcript, sanitize(e.transcriptText), { mode: 0o600, flag: "wx" });
   return { json, transcript };
 }

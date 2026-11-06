@@ -114,9 +114,10 @@ describe("livemode:true anywhere aborts", () => {
       { error: { type: "x", livemode: true } },
     ];
     for (const json of bodies) {
-      const t: Transport = async (r) => (r.path === "/v1/account" ? { status: 200, json: { id: PLATFORM, object: "account", livemode: false }, stripeVersion: STRIPE_API_VERSION } : r.path.startsWith("/v1/accounts/") ? { status: 200, json: { id: CONNECTED, object: "account", type: "express" }, stripeVersion: STRIPE_API_VERSION } : { status: 200, json, stripeVersion: STRIPE_API_VERSION });
+      const t: Transport = async (r) => (r.method === "POST" && r.path === "/v1/customers" ? { status: 200, json: { id: "cus_ABC123", object: "customer", livemode: false }, stripeVersion: STRIPE_API_VERSION } : r.path === "/v1/account" ? { status: 200, json: { id: PLATFORM, object: "account", livemode: false }, stripeVersion: STRIPE_API_VERSION } : r.path.startsWith("/v1/accounts/") ? { status: 200, json: { id: CONNECTED, object: "account", type: "express" }, stripeVersion: STRIPE_API_VERSION } : { status: 200, json, stripeVersion: STRIPE_API_VERSION });
       const { client } = spyClient(t);
       await runIdentityGate(client, { platformAcct: PLATFORM, connectedAcct: CONNECTED });
+      await pinned(client, { method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: "d24proof-x-lm", body: { name: "n" } });
       await expect(pinned(client, { method: "GET", path: "/v1/invoices", stripeAccount: CONNECTED, query: { customer: "cus_ABC123", limit: "100" } }, { expectStatus: [200, 400] })).rejects.toMatchObject({ code: "livemode_true" });
     }
   });
@@ -144,15 +145,24 @@ describe("hosted-database environment variables are refused", () => {
 });
 
 describe("the 40-call cap holds including retries", () => {
-  it("100 repeated identical requests (retries) reach the transport at most 40 times", async () => {
-    const { spy, client } = spyClient();
-    await runIdentityGate(client, { platformAcct: PLATFORM, connectedAcct: CONNECTED });
-    for (let i = 0; i < 100; i++) {
-      await pinned(client, { method: "GET", path: "/v1/invoices/in_ABC123", stripeAccount: CONNECTED }, { phase: "cleanup", expectStatus: [200, 404] }).catch(() => undefined);
-    }
-    expect(spy.mock.calls.length).toBeLessThanOrEqual(40);
+  // GET /v1/webhook_endpoints is an allow-listed, unscoped rule, so repeating it is a pure test of the counter (status 200 so no streak ever aborts the loop)
+  const repeat = { method: "GET", path: "/v1/webhook_endpoints", stripeAccount: CONNECTED } as const;
+  it("100 repeated identical requests (retries) reach the transport EXACTLY 40 times in total, and the scenario phase stops at 32", async () => {
+    const mkc = () =>
+      spyClient(async (r) =>
+        r.path === "/v1/account" ? { status: 200, json: { id: PLATFORM, object: "account" }, stripeVersion: STRIPE_API_VERSION }
+        : r.path.startsWith("/v1/accounts/") ? { status: 200, json: { id: CONNECTED, object: "account", type: "express" }, stripeVersion: STRIPE_API_VERSION }
+        : { status: 200, json: { object: "list", data: [] }, stripeVersion: STRIPE_API_VERSION });
+    const a = mkc();
+    await runIdentityGate(a.client, { platformAcct: PLATFORM, connectedAcct: CONNECTED });
+    for (let i = 0; i < 100; i++) await pinned(a.client, repeat).catch(() => undefined);
+    expect(a.spy.mock.calls.length).toBe(32); // 2 identity reads + 30 more: the scenario phase never touches the 8 reserved for cleanup
+    const b = mkc();
+    await runIdentityGate(b.client, { platformAcct: PLATFORM, connectedAcct: CONNECTED });
+    for (let i = 0; i < 100; i++) await pinned(b.client, repeat, { phase: "cleanup" }).catch(() => undefined);
+    expect(b.spy.mock.calls.length).toBe(40);
   });
-  it("failed attempts (5xx / network errors) count against the cap", async () => {
+  it("failed attempts (network errors) count against the cap too", async () => {
     let n = 0;
     const flaky: Transport = async (r) => {
       n++;
@@ -162,8 +172,8 @@ describe("the 40-call cap holds including retries", () => {
     };
     const { client } = spyClient(flaky);
     await runIdentityGate(client, { platformAcct: PLATFORM, connectedAcct: CONNECTED });
-    for (let i = 0; i < 100; i++) await pinned(client, { method: "GET", path: "/v1/invoices/in_ABC123", stripeAccount: CONNECTED }, { phase: "cleanup" }).catch(() => undefined);
-    expect(n).toBeLessThanOrEqual(40);
+    for (let i = 0; i < 100; i++) await pinned(client, repeat, { phase: "cleanup" }).catch(() => undefined);
+    expect(n).toBe(40);
   });
   it("a whole dry run (scenarios + cleanup) stays inside the cap", async () => {
     const c = out();

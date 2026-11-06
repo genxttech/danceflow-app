@@ -31,10 +31,15 @@ npx tsx scripts/qa/d24-m3d-proof/run.ts --live         # REAL Stripe TEST calls;
    delay is re-checked against the abort **before** it reaches the network; the three parallel creates are all awaited before cleanup can start. A POST that ends in a gateway error, an unparseable
    body or a 2xx without an id is recorded as unverifiable. The identity reads must report a `Stripe-Version`. Note: Stripe's Account object has no `livemode` field, so the protection against live mode is
    the `rk_test_` key shape, the pinned ids and the `livemode:false` requirement on every created object, not a livemode flag on the account reads.
-7. **Environment refused**: a hosted-database URL, any live key, `NODE_OPTIONS`, `NODE_EXTRA_CA_CERTS`, proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NODE_USE_ENV_PROXY`) and
+   Reads and creates are scoped the same way: an invoice may be created for, listed for, or read from only a customer/invoice **this run created**, so a foreign object can never enter the run's bookkeeping.
+7. **Network transport (`transport.ts`)**: `node:https` with `agent: false` and `Connection: close`: one fresh connection per request, no pooling, no pipelining, no redirects, no library retry, a 30 s
+   timeout, a 1 MB response cap, and only `api.stripe.com` can be configured (tests may use a `127.0.0.1` loopback server). It replaced `fetch` because Node's `fetch` is undici with a keep-alive pool and
+   no way to force connection-close. Measured on Node 24 (bundled undici 7.24): a loopback server counted exactly one received request per client call for GET and POST, including after a mid-flight
+   connection reset (the reset surfaces as one `UND_ERR_SOCKET` error, nothing is re-sent); the transport tests repeat that with the real transport. A lost POST is recorded as unverifiable.
+8. **Environment refused**: a hosted-database URL, any live key, `NODE_OPTIONS`, `NODE_EXTRA_CA_CERTS`, proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NODE_USE_ENV_PROXY`) and
    `NODE_TLS_REJECT_UNAUTHORIZED=0` refuse a live run and fail the preflight (they can redirect, observe or patch the traffic that carries the key). The manifest hash covers this directory only, not tsx or
    `node_modules`: run it from a clean checkout with a clean install.
-8. **Owner-supplied values only**: live mode needs `D24_PROOF_STRIPE_KEY`, `D24_PROOF_EXPECT_PLATFORM_ACCT`, `D24_PROOF_EXPECT_CONNECTED_ACCT`, `D24_PROOF_PINNED_SHA256` (must equal this
+9. **Owner-supplied values only**: live mode needs `D24_PROOF_STRIPE_KEY`, `D24_PROOF_EXPECT_PLATFORM_ACCT`, `D24_PROOF_EXPECT_CONNECTED_ACCT`, `D24_PROOF_PINNED_SHA256` (must equal this
    checkout's `--print-hash`) and `D24_PROOF_AUTHORIZATION` (the exact approval sentence). The key is read from the environment only: never from a file, never from argv (positional
    arguments and unknown options are refused).
 
@@ -61,7 +66,9 @@ npx tsx scripts/qa/d24-m3d-proof/run.ts --live         # REAL Stripe TEST calls;
   and account ids **masked** (`acct_1Co…78`; short ids keep two characters). Cleanup targets are customer/invoice ids, not account ids, so nothing needs the full account id on screen. Tests feed
   hostile payloads through the writer and the printer.
 * The evidence directory is checked on **real paths**: links/junctions are resolved, and any directory inside this checkout or inside ANY git checkout/worktree (an ancestor holding a git
-  entry) is refused.
+  entry) is refused. It is checked again immediately before writing, the files are written into the resolved real directory with exclusive-create (an existing file or planted link is never written
+  through), and a run that was asked for evidence but could not write it safely is reported `OUTCOME: FAILED` (exit 1).
+* Cleanup's read-back of each customer's invoices must succeed (HTTP 200, a list, no further pages) and be empty; otherwise that customer is **not deleted**, the run is `FAILED` and the reason is printed.
 * Success needs everything: the run prints `OUTCOME: OK` and exits 0 only if nothing aborted, every scenario check passed **and** cleanup verified an empty account (not skipped, not interrupted, nothing
   unverifiable). Otherwise `OUTCOME: FAILED`, exit 1, and the evidence carries the same outcome.
 * After the run the owner: expires the restricted key (immediately), clears the shell variable and its history entry, verifies the connected account's Invoices and Customers lists are

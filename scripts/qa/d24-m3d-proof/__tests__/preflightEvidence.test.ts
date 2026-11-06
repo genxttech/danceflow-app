@@ -116,7 +116,7 @@ describe("evidence handling and redaction", () => {
     const files = writeEvidence(dir, {
       runId: "ev000002", mode: "dry-run", outcome: "FAILED", scriptSha256: "a".repeat(64), apiVersionPinned: "v", apiVersionsReported: [], callsUsed: 1, blocked: 0, scenarios: [], verdicts: {},
       cleanup: { note: `leak ${KEY} jo@example.com` }, abort: { code: "x", message: `Authorization: Bearer ${KEY}` }, transcriptText: `line ${KEY} ${CONNECTED}`, finishedUtc: "t",
-    });
+    }, REPO);
     for (const p of [files.json, files.transcript]) {
       const t = readFileSync(p, "utf8");
       expect(t).not.toMatch(/REALLOOKINGKEY|jo@example\.com|Bearer/);

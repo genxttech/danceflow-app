@@ -38,17 +38,31 @@ export async function cleanup(client: GuardedClient, expect: Expect): Promise<Cl
       rep.deletedInvoices.push(id);
     }
     let empty = true;
+    const keep = new Set<string>(); // customers whose invoices could NOT be verified gone: never deleted, never reported clean
+    const notes: string[] = [];
     for (const cus of [...client.seen.customers]) {
-      const l = await pinned(client, { method: "GET", path: "/v1/invoices", stripeAccount: acct, query: { customer: cus, limit: "100" } }, { phase: "cleanup" });
-      if (Array.isArray(l.json?.data) && l.json.data.length > 0) empty = false;
+      const l = await pinned(client, { method: "GET", path: "/v1/invoices", stripeAccount: acct, query: { customer: cus, limit: "100" } }, { phase: "cleanup", expectStatus: [200] });
+      // the read must have SUCCEEDED, returned a list, and the list must be complete; anything else means "not verified", never "empty"
+      const readable = l.status === 200 && Array.isArray(l.json?.data) && l.json?.has_more !== true;
+      if (!readable) {
+        empty = false;
+        keep.add(cus);
+        notes.push(`invoices of ${cus} could not be read back (status ${l.status}${l.json?.has_more === true ? ", more than one page" : ""})`);
+      } else if ((l.json?.data as unknown[]).length > 0) {
+        empty = false;
+        keep.add(cus);
+        notes.push(`${cus} still has ${(l.json?.data as unknown[]).length} invoice(s)`);
+      }
     }
     for (const cus of [...client.seen.customers]) {
+      if (keep.has(cus)) continue;
       await pinned(client, { method: "DELETE", path: `/v1/customers/${cus}`, stripeAccount: acct }, { phase: "cleanup", expectStatus: [200, 404] });
       rep.deletedCustomers.push(cus);
     }
     // a lost response means an object may exist that was never seen: never claim "empty" in that case
     rep.verifiedEmpty = empty && client.seen.drafts.size === 0 && client.seen.customers.size === 0 && client.uncertain.length === 0;
-    if (client.uncertain.length > 0) rep.stoppedBecause = `unverifiable: ${client.uncertain.length} create response(s) were lost (${client.uncertain.join("; ")}); check the dashboard`;
+    if (client.uncertain.length > 0) notes.push(`unverifiable: ${client.uncertain.length} create response(s) were lost (${client.uncertain.join("; ")}); check the dashboard`);
+    if (notes.length > 0) rep.stoppedBecause = notes.join(" | ");
   } catch (e) {
     rep.stoppedBecause = `cleanup interrupted: ${(e as Error).message}`;
   }
