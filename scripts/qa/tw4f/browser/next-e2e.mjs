@@ -290,6 +290,28 @@ async function sc3() {
     check("signed-out: the still-unexpired JWT is refused BY THE DATABASE (session ended, 42501)", post.status !== 200 && /session has ended|42501/.test(post.text), `${post.status} ${post.text.slice(0, 120)}`);
     const priv = q("select r.rolname || ' super=' || r.rolsuper || ' sees_auth.sessions=' || has_table_privilege(r.oid, 'auth.sessions', 'select') from pg_proc p join pg_roles r on r.oid = p.proowner where p.proname = '_tw4price_session_actor' limit 1");
     console.log("  function owner of _tw4price_session_actor:", priv, "(on a hosted project verify the owner can read auth.sessions)");
+    // forged tokens: valid signature (local secret), real sub, but a session that is not the caller's
+    check("production behaviour: public.tw4_local_qa_only is ABSENT in this database", q("select coalesce(to_regclass('public.tw4_local_qa_only')::text, 'absent')") === "absent");
+    const nLogin = await L.http("POST", `${ctx.state.url}/auth/v1/token?grant_type=password`, null, { email: ctx.N.email, password: ctx.N.password });
+    const nSess = B.sessionIds(ctx.N.id).at(-1);
+    check("another user's real GoTrue session exists for the forgery", nLogin.status === 200 && !!nSess, String(nLogin.status));
+    const rpcWith = (tok) => L.http("POST", `${ctx.state.url}/rest/v1/rpc/tw4_price_cred_pending`, tok, {}, { apikey: ctx.state.anon });
+    const cases = [
+      ["another user's real session id re-signed into the caller's token", (p) => { p.session_id = nSess; }, /belongs to another user|42501/],
+      ["a random (non-existent) session id", (p) => { p.session_id = "11111111-2222-4333-8444-555555555555"; }, /session has ended|42501/],
+      ["no session_id claim at all", (p) => { delete p.session_id; }, /42501|sign in|session/i],
+      ["a non-uuid session_id claim", (p) => { p.session_id = "not-a-session"; }, /42501|sign in|session/i],
+    ];
+    for (const [name, mutate, want] of cases) {
+      const F = await B.newSession(ctx.browser, ctx.state, "s-forge");
+      await sleep(1200);
+      await B.login(F, C, secretC);
+      const forged = await B.forgeJwt(F, ctx.state.jwt, mutate);
+      const d = await rpcWith(forged);
+      check(`forged token (${name}): refused by the database through PostgREST`, d.status >= 400 && want.test(d.text) && !/"credentials"/.test(d.text), `${d.status} ${d.text.slice(0, 110)}`);
+      const r = capPending ? await replay(F, capPending) : null;
+      check(`forged token (${name}): the real Next server action returns no data`, !!r && !/"credentials":\[/.test(r.text) && (r.status >= 300 || /"ok":false|login|platform-mfa/.test(r.text + r.redirect)), r ? `${r.status} ${(r.redirect || r.text).slice(0, 110).replace(/\n/g, " ")}` : "no capture");
+    }
     check("the owner of the session-actor function can read auth.sessions (local role; hosted must be confirmed separately)", /sees_auth\.sessions=true/.test(priv), priv);
   }
 }

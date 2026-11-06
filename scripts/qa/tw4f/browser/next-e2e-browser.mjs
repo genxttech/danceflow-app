@@ -205,6 +205,22 @@ export async function forgeExpiredJwt(S, jwtSecret) {
   for (const c of parts) await S.context.clearCookies({ name: c.name });
   await S.context.addCookies([{ name: base, value, domain: "localhost", path: "/", httpOnly: false, secure: false, sameSite: "Lax" }]);
 }
+/** re-sign the session's access token with a mutated payload (the stack's own JWT secret) and write it back into the browser cookie; returns the forged token */
+export async function forgeJwt(S, jwtSecret, mutate) {
+  const all = await S.context.cookies();
+  const parts = all.filter((c) => /^sb-.*-auth-token(\.\d+)?$/.test(c.name)).sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true }));
+  const base = parts[0].name.replace(/\.\d+$/, "");
+  const raw = parts.map((c) => c.value).join("");
+  const session = JSON.parse(raw.startsWith("base64-") ? Buffer.from(raw.slice(7), "base64url").toString("utf8") : decodeURIComponent(raw));
+  const payload = JSON.parse(Buffer.from(session.access_token.split(".")[1], "base64url").toString("utf8"));
+  mutate(payload);
+  const { signHs256 } = await import("./next-e2e-lib.mjs");
+  session.access_token = signHs256(jwtSecret, payload);
+  const value = "base64-" + Buffer.from(JSON.stringify(session), "utf8").toString("base64url");
+  for (const c of parts) await S.context.clearCookies({ name: c.name });
+  await S.context.addCookies([{ name: base, value, domain: "localhost", path: "/", httpOnly: false, secure: false, sameSite: "Lax" }]);
+  return session.access_token;
+}
 export const sessionIds = (userId) => q(`select id from auth.sessions where user_id = '${userId}' order by created_at`).split("\n").filter(Boolean);
 
 // ------------------------------------------------------------------------------------------------ UI drivers (/platform/sms)

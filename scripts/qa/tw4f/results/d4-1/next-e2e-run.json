@@ -1,8 +1,8 @@
 {
   "meta": {
-    "when": "2026-11-06T08:24:02.694Z",
+    "when": "2026-11-06T11:01:39.285Z",
     "branch": "claude/d4-2-price-next-e2e",
-    "head": "80512f7847fc22c2d9dcf50f9dac96d71d746871",
+    "head": "9fa551058f719e331107f183fa0d156ddc8278f6",
     "dirty": false,
     "node": "v24.14.1",
     "chromium": "151.0.7922.34",
@@ -14,7 +14,7 @@
     "crashed": null
   },
   "totals": {
-    "PASS": 142,
+    "PASS": 152,
     "FAIL": 0,
     "BLOCKED": 1
   },
@@ -30,7 +30,7 @@
       "BLOCKED": 0
     },
     "3": {
-      "PASS": 23,
+      "PASS": 33,
       "FAIL": 0,
       "BLOCKED": 0
     },
@@ -188,7 +188,7 @@
       "scenario": "2",
       "name": "after the (database-clock) cooling-off the separate session gets the challenge with the exact summary from the database",
       "status": "PASS",
-      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: none to $4.25\nDanceFlow provider cost: none to $1.15\nDescription: browser price one\nFingerprint: 3234fce47aa274c4"
+      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: none to $4.25\nDanceFlow provider cost: none to $1.15\nDescription: browser price one\nFingerprint: 3bea231b40a4e9fc"
     },
     {
       "scenario": "2",
@@ -212,13 +212,13 @@
       "scenario": "2",
       "name": "REPLAY of the captured server-action request publishes nothing and applies once",
       "status": "PASS",
-      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"eCBBuCU2zY5q3vhQnWVd8\"}\n1:{\"ok\":true,\"data\":{\"status\":\"refused\",\"reason\":\"this price proposal is already applied and c"
+      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"8lmz6uKGrhKMcCc7hZbkB\"}\n1:{\"ok\":true,\"data\":{\"status\":\"refused\",\"reason\":\"this price proposal is already applied and c"
     },
     {
       "scenario": "2",
       "name": "the price flash cookie (set by the propose action) is HttpOnly, SameSite=Strict, path /platform/sms, lives <= 60 s",
       "status": "PASS",
-      "note": "{\"httpOnly\":true,\"sameSite\":\"Strict\",\"path\":\"/platform/sms\",\"secure\":true,\"ttl\":42}"
+      "note": "{\"httpOnly\":true,\"sameSite\":\"Strict\",\"path\":\"/platform/sms\",\"secure\":true,\"ttl\":41}"
     },
     {
       "scenario": "2",
@@ -230,7 +230,7 @@
       "scenario": "2",
       "name": "challenge issued for v1 of the second proposal",
       "status": "PASS",
-      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: $4.25 to $5.10\nDanceFlow provider cost: $1.15 to $1.15\nDescription: browser price two\nFingerprint: a9529c54969b4cf9"
+      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: $4.25 to $5.10\nDanceFlow provider cost: $1.15 to $1.15\nDescription: browser price two\nFingerprint: cc86b43787a1721a"
     },
     {
       "scenario": "2",
@@ -260,7 +260,7 @@
       "scenario": "2",
       "name": "replaying the v1 signature again is also refused",
       "status": "PASS",
-      "note": "0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"eCBBuCU2zY5q3vhQnWVd8\"}\n1:{\"ok\":true,\"data\":{\"status\":\"refused\",\"reason\":\"this"
+      "note": "0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"8lmz6uKGrhKMcCc7hZbkB\"}\n1:{\"ok\":true,\"data\":{\"status\":\"refused\",\"reason\":\"this"
     },
     {
       "scenario": "2",
@@ -408,6 +408,66 @@
     },
     {
       "scenario": "3",
+      "name": "production behaviour: public.tw4_local_qa_only is ABSENT in this database",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "scenario": "3",
+      "name": "another user's real GoTrue session exists for the forgery",
+      "status": "PASS",
+      "note": "200"
+    },
+    {
+      "scenario": "3",
+      "name": "forged token (another user's real session id re-signed into the caller's token): refused by the database through PostgREST",
+      "status": "PASS",
+      "note": "403 {\"code\":\"42501\",\"details\":null,\"hint\":null,\"message\":\"this session belongs to another user\"}"
+    },
+    {
+      "scenario": "3",
+      "name": "forged token (another user's real session id re-signed into the caller's token): the real Next server action returns no data",
+      "status": "PASS",
+      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"8lmz6uKGrhKMcCc7hZbkB\"} 1:{\"ok\":false,\"message\":\"Not allowed. Price "
+    },
+    {
+      "scenario": "3",
+      "name": "forged token (a random (non-existent) session id): refused by the database through PostgREST",
+      "status": "PASS",
+      "note": "403 {\"code\":\"42501\",\"details\":null,\"hint\":null,\"message\":\"this session has ended: sign in again\"}"
+    },
+    {
+      "scenario": "3",
+      "name": "forged token (a random (non-existent) session id): the real Next server action returns no data",
+      "status": "PASS",
+      "note": "303 /login;push"
+    },
+    {
+      "scenario": "3",
+      "name": "forged token (no session_id claim at all): refused by the database through PostgREST",
+      "status": "PASS",
+      "note": "403 {\"code\":\"42501\",\"details\":null,\"hint\":null,\"message\":\"a session id (uuid) is required\"}"
+    },
+    {
+      "scenario": "3",
+      "name": "forged token (no session_id claim at all): the real Next server action returns no data",
+      "status": "PASS",
+      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"8lmz6uKGrhKMcCc7hZbkB\"} 1:{\"ok\":false,\"message\":\"Not allowed. Price "
+    },
+    {
+      "scenario": "3",
+      "name": "forged token (a non-uuid session_id claim): refused by the database through PostgREST",
+      "status": "PASS",
+      "note": "403 {\"code\":\"42501\",\"details\":null,\"hint\":null,\"message\":\"a session id (uuid) is required\"}"
+    },
+    {
+      "scenario": "3",
+      "name": "forged token (a non-uuid session_id claim): the real Next server action returns no data",
+      "status": "PASS",
+      "note": "303 /login;push"
+    },
+    {
+      "scenario": "3",
       "name": "the owner of the session-actor function can read auth.sessions (local role; hosted must be confirmed separately)",
       "status": "PASS",
       "note": "postgres super=false sees_auth.sessions=true"
@@ -458,7 +518,7 @@
       "scenario": "4",
       "name": "challenge issued while spare two is still active (it is offered)",
       "status": "PASS",
-      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: $5.20 to $6.00\nDanceFlow provider cost: $1.15 to $1.15\nDescription: revoked signer price\nFingerprint: 7070e626bab8d260"
+      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: $5.20 to $6.00\nDanceFlow provider cost: $1.15 to $1.15\nDescription: revoked signer price\nFingerprint: 03c4f0ab392c7908"
     },
     {
       "scenario": "4",
@@ -554,7 +614,7 @@
       "scenario": "6",
       "name": "two sessions revoke the same key at once: exactly one revocation is recorded",
       "status": "PASS",
-      "note": "Revoked. This takes effect immediately and cannot be undone: || The database refused: unknown or already revoked credential."
+      "note": "The database refused: unknown or already revoked credential. || Revoked. This takes effect immediately and cannot be undone:"
     },
     {
       "scenario": "6",
@@ -566,7 +626,7 @@
       "scenario": "6",
       "name": "two sessions apply the same pending key at once: one active row, one apply recorded",
       "status": "PASS",
-      "note": "This is not allowed in the proposal's current stat || Done: applied."
+      "note": "Done: applied. || This is not allowed in the proposal's current stat"
     },
     {
       "scenario": "6",
@@ -800,7 +860,7 @@
       "scenario": "10",
       "name": "attacker: the server action with role=recovery returns no challenge",
       "status": "PASS",
-      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"eCBBuCU2zY5q3vhQnWVd8\"} 1:{\"ok\":false,\"message\":\"The database refused the input (check the kind, t"
+      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"8lmz6uKGrhKMcCc7hZbkB\"} 1:{\"ok\":false,\"message\":\"The database refused the input (check the kind, t"
     },
     {
       "scenario": "10",
@@ -1129,12 +1189,12 @@
     {
       "scenario": "6",
       "where": "keys",
-      "text": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
+      "text": "The database refused: unknown or already revoked credential. Nothing changed."
     },
     {
       "scenario": "6",
       "where": "keys",
-      "text": "The database refused: unknown or already revoked credential. Nothing changed."
+      "text": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
     },
     {
       "scenario": "6",
@@ -1189,12 +1249,12 @@
     {
       "scenario": "6",
       "where": "flash",
-      "text": "This is not allowed in the proposal's current state (another proposal for this price is still open, or this one is already decided). Nothing changed."
+      "text": "Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed."
     },
     {
       "scenario": "6",
       "where": "flash",
-      "text": "Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed."
+      "text": "This is not allowed in the proposal's current state (another proposal for this price is still open, or this one is already decided). Nothing changed."
     },
     {
       "scenario": "8",
