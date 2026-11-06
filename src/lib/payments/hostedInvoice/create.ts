@@ -235,7 +235,7 @@ const OBJECT_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,254}$/;
 const REQUEST_KEY = /^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$/;
 const TYPE = /^[a-z][a-z0-9_]{0,63}$/;
 const SUBSCRIPTION_TYPE = /subscription|membership_billing|recurring/i;
-const CURRENCY = /^[a-z]{3}$/;
+// First slice is USD only. The $5.00-$5,000.00 payable-invoice limits for FINALIZED invoices are enforced by the creation spec (M3-C); drafts may be incomplete, so here the total only has to be positive. No fees, adjustments or taxes are ever added by this module.
 const MAX_LINES = 25;
 const MAX_TOTAL_CENTS = 10_000_000;
 
@@ -257,7 +257,7 @@ function validateSpec(spec: InvoiceSpec | null): spec is InvoiceSpec {
     if (typeof p.name !== "string" || p.name.trim().length < 1 || p.name.length > 200) return false;
     if (p.email != null && (typeof p.email !== "string" || !EMAIL.test(p.email))) return false;
   }
-  if (typeof spec.currency !== "string" || !CURRENCY.test(spec.currency)) return false;
+  if (typeof spec.currency !== "string" || spec.currency !== "usd") return false;
   if (!Number.isInteger(spec.daysUntilDue) || spec.daysUntilDue < 1 || spec.daysUntilDue > 90) return false;
   if (spec.description != null && (typeof spec.description !== "string" || spec.description.length > 500)) return false;
   if (!Array.isArray(spec.lines) || spec.lines.length < 1 || spec.lines.length > MAX_LINES) return false;
@@ -267,7 +267,7 @@ function validateSpec(spec: InvoiceSpec | null): spec is InvoiceSpec {
     if (!Number.isInteger(l.amountCents) || l.amountCents < 1 || l.amountCents > MAX_TOTAL_CENTS) return false;
     total += l.amountCents;
   }
-  return total <= MAX_TOTAL_CENTS;
+  return total >= 1 && total <= MAX_TOTAL_CENTS;
 }
 
 const specTotal = (s: InvoiceSpec) => s.lines.reduce((n, l) => n + l.amountCents, 0);

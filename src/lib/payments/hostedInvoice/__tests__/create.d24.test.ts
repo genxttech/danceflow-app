@@ -564,3 +564,21 @@ describe("second review (P1/P2) regressions", () => {
     expect(x.stripe.createCount).toBe(0);
   });
 });
+
+describe("USD-only, positive total, no invented amounts", () => {
+  it("refuses non-USD and non-positive totals before any ledger or Stripe access", async () => {
+    for (const bad of [{ ...SPEC, currency: "eur" }, { ...SPEC, currency: "USD" }, { ...SPEC, lines: [{ description: "a", amountCents: 0 }] }, { ...SPEC, lines: [{ description: "a", amountCents: 100 }, { description: "b", amountCents: -100 }] }]) {
+      const { stripe, store, deps } = setup({ resolvers: { event_fee: ownedResolver({ "bo-1": STUDIO_A }, bad as never) } });
+      expect(await createHostedInvoice(req(), deps)).toMatchObject({ code: "invalid_invoice_spec" });
+      expect(stripe.calls).toEqual([]);
+      expect(store.log).toEqual([]);
+    }
+  });
+  it("sends exactly the spec's lines: no fees, adjustments or taxes are added", async () => {
+    const { stripe, deps } = setup();
+    expect((await createHostedInvoice(req(), deps)).ok).toBe(true);
+    const lines = stripe.calls.find((c) => c.op === "lines")!.params as Array<{ description: string; amount: number }>;
+    expect(lines).toEqual(SPEC.lines.map((l) => ({ description: l.description, amount: l.amountCents })));
+    expect(JSON.stringify(stripe.calls)).not.toMatch(/tax|fee|discount|adjust|shipping/i);
+  });
+});
