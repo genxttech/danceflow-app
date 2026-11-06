@@ -1,0 +1,238 @@
+{
+  "meta": {
+    "when": "2026-11-06T02:11:02.449Z",
+    "branch": "claude/d4-2-price-next-e2e",
+    "head": "cafba9fd847d3c66a8da6967fa0876a8ac8cec37",
+    "dirty": true,
+    "node": "v24.14.1",
+    "chromium": "151.0.7922.34",
+    "pgImage": "df-isoqa/base:20261119092100",
+    "app": "next build + next start (Turbopack)",
+    "appOrigin": "http://localhost:3417",
+    "migrations": 56,
+    "lastMigration": "20270208110000_twilio_price_monitor.sql",
+    "crashed": null
+  },
+  "totals": {
+    "PASS": 14,
+    "FAIL": 6,
+    "BLOCKED": 1
+  },
+  "byScenario": {
+    "1": {
+      "PASS": 7,
+      "FAIL": 0,
+      "BLOCKED": 1
+    },
+    "5": {
+      "PASS": 2,
+      "FAIL": 6,
+      "BLOCKED": 0
+    },
+    "0 setup": {
+      "PASS": 5,
+      "FAIL": 0,
+      "BLOCKED": 0
+    }
+  },
+  "results": [
+    {
+      "scenario": "0 setup",
+      "name": "login + TOTP challenge through the real pages (session 1)",
+      "status": "PASS",
+      "note": "http://localhost:3417/platform/sms"
+    },
+    {
+      "scenario": "0 setup",
+      "name": "login + TOTP challenge through the real pages (session 2, separate session)",
+      "status": "PASS",
+      "note": "http://localhost:3417/platform/sms"
+    },
+    {
+      "scenario": "0 setup",
+      "name": "two distinct GoTrue sessions exist",
+      "status": "PASS",
+      "note": "3 sessions"
+    },
+    {
+      "scenario": "0 setup",
+      "name": "config defaults: single_owner, 24 h cooling-off, backup-eligible refused, monitoring not expected",
+      "status": "PASS",
+      "note": "single_owner"
+    },
+    {
+      "scenario": "0 setup",
+      "name": "the keys panel is rendered by the Next page (no credentials yet)",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "scenario": "1",
+      "name": "UI before any key exists: enrol is refused with a clear sentence and creates nothing",
+      "status": "PASS",
+      "note": "The action failed. Nothing changed; reload and check the current state before trying again."
+    },
+    {
+      "scenario": "1",
+      "name": "owner bootstrap registers the first primary (RP localhost, origin of the Next host)",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "scenario": "1",
+      "name": "first primary enrolment THROUGH THE UI",
+      "status": "BLOCKED",
+      "note": "by design there is no UI path: Request a new key needs an existing key to sign (priceCredBegin/priceCredEnroll); the first key is the owner runbook bootstrap (_tw4price_bootstrap). Verified above that the UI refuses cleanly with no key."
+    },
+    {
+      "scenario": "1",
+      "name": "spare request via UI is PENDING (not active)",
+      "status": "PASS",
+      "note": "Requested. The new key becomes usable only after the delay; you can cancel it until then."
+    },
+    {
+      "scenario": "1",
+      "name": "Apply before the delay is refused with a clear sentence and the key stays pending",
+      "status": "PASS",
+      "note": "The 24-hour cooling-off of this proposal has not ended yet. Nothing changed."
+    },
+    {
+      "scenario": "1",
+      "name": "spare applied through the UI after the aged database clock",
+      "status": "PASS",
+      "note": "Done: applied."
+    },
+    {
+      "scenario": "1",
+      "name": "recovery key enrolled through the UI (third credential)",
+      "status": "PASS",
+      "note": "Done: applied."
+    },
+    {
+      "scenario": "1",
+      "name": "the audit holds the credential_change_pending and credential_change_applied events",
+      "status": "PASS",
+      "note": "2"
+    },
+    {
+      "scenario": "5",
+      "name": "freeze through the UI (aal2 session)",
+      "status": "FAIL",
+      "note": "The action failed. Nothing changed; reload and check the current state before trying again."
+    },
+    {
+      "scenario": "5",
+      "name": "propose while frozen is refused with a clear message",
+      "status": "FAIL",
+      "note": "Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed."
+    },
+    {
+      "scenario": "5",
+      "name": "the page shows the suspension banner and the primary key lifts it",
+      "status": "FAIL",
+      "note": "This is not allowed in the proposal's current state (another proposal for this price is still open, or this one is already decided). Nothing changed."
+    },
+    {
+      "scenario": "5",
+      "name": "freeze with the RECOVERY key through the UI",
+      "status": "FAIL",
+      "note": "The action failed. Nothing changed; reload and check the current state before trying again."
+    },
+    {
+      "scenario": "5",
+      "name": "ordinary thaw is refused during a recovery freeze/hold",
+      "status": "FAIL",
+      "note": "This is not allowed in the proposal's current state (another proposal for this price is still open, or this one is already decided). Nothing changed. (recovery_hold=false)"
+    },
+    {
+      "scenario": "5",
+      "name": "an ordinary key cannot revoke the recovery key (stays active)",
+      "status": "PASS",
+      "note": "The authenticator did not sign or the request failed. Nothing changed."
+    },
+    {
+      "scenario": "5",
+      "name": "recovery enrolment through the UI is pending and suspends publication",
+      "status": "PASS",
+      "note": "Recovery requested. It completes only after the long delay, raises high-severity alerts, and a primary or spare key can cancel it. (suspended=true)"
+    },
+    {
+      "scenario": "5",
+      "name": "scenario 5 aborted by a harness/page error",
+      "status": "FAIL",
+      "note": "TimeoutError: locator.click: Timeout 30000ms exceeded."
+    }
+  ],
+  "messages": [
+    {
+      "scenario": "1",
+      "where": "keys",
+      "text": "The action failed. Nothing changed; reload and check the current state before trying again."
+    },
+    {
+      "scenario": "1",
+      "where": "keys",
+      "text": "Requested. The new key becomes usable only after the delay; you can cancel it until then."
+    },
+    {
+      "scenario": "1",
+      "where": "keys",
+      "text": "The 24-hour cooling-off of this proposal has not ended yet. Nothing changed."
+    },
+    {
+      "scenario": "1",
+      "where": "keys",
+      "text": "Done: applied."
+    },
+    {
+      "scenario": "1",
+      "where": "keys",
+      "text": "Requested. The new key becomes usable only after the delay; you can cancel it until then."
+    },
+    {
+      "scenario": "1",
+      "where": "keys",
+      "text": "The 24-hour cooling-off of this proposal has not ended yet. Nothing changed."
+    },
+    {
+      "scenario": "1",
+      "where": "keys",
+      "text": "Done: applied."
+    },
+    {
+      "scenario": "5",
+      "where": "flash",
+      "text": "The action failed. Nothing changed; reload and check the current state before trying again."
+    },
+    {
+      "scenario": "5",
+      "where": "flash",
+      "text": "Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed."
+    },
+    {
+      "scenario": "5",
+      "where": "keys",
+      "text": "This is not allowed in the proposal's current state (another proposal for this price is still open, or this one is already decided). Nothing changed."
+    },
+    {
+      "scenario": "5",
+      "where": "keys",
+      "text": "The action failed. Nothing changed; reload and check the current state before trying again."
+    },
+    {
+      "scenario": "5",
+      "where": "keys",
+      "text": "This is not allowed in the proposal's current state (another proposal for this price is still open, or this one is already decided). Nothing changed."
+    },
+    {
+      "scenario": "5",
+      "where": "keys",
+      "text": "The authenticator did not sign or the request failed. Nothing changed."
+    },
+    {
+      "scenario": "5",
+      "where": "keys",
+      "text": "Recovery requested. It completes only after the long delay, raises high-severity alerts, and a primary or spare key can cancel it."
+    }
+  ]
+}
