@@ -168,9 +168,10 @@ describe.skipIf(!hasMonitor)("D4-2 owner authorization on the combined chain wit
       { name: "lock timeout", lt: true, expectErr: /lock timeout|lock_timeout|could not obtain lock/, start: async () => {
         const holder = spawn("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-d", DB, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { stdio: ["pipe", "ignore", "ignore"] });
         const done = new Promise<void>((r) => holder.on("close", () => r()));
-        holder.stdin.end("begin; select pg_advisory_xact_lock(hashtext('tw4_price_security_events')); select pg_sleep(30); commit;");
+        holder.stdin.end("begin; select pg_advisory_xact_lock(hashtext('tw4_price_security_events')); select pg_sleep(173); commit;");
         await new Promise((r) => setTimeout(r, 2500));
-        return async () => { await done; }; // the holder ends by itself; the replay below waits for it
+        // the outage ends when the holder is terminated (it holds the lock for as long as the checks below need)
+        return async () => { psql("select pg_terminate_backend(pid) from pg_stat_activity where query like '%pg_sleep(173)%' and pid <> pg_backend_pid()"); await done; };
       } },
     ];
     for (const v of variants) {
