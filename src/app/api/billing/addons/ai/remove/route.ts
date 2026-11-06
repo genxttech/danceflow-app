@@ -60,10 +60,6 @@ function getSupabaseAdmin() {
 }
 
 async function readEntitlementId(request: NextRequest) {
-  if (request.method === "GET") {
-    return request.nextUrl.searchParams.get("entitlement")?.trim() ?? "";
-  }
-
   const formData = await request.formData();
   const value = formData.get("entitlement");
   return typeof value === "string" ? value.trim() : "";
@@ -176,8 +172,4 @@ export async function POST(request: NextRequest) {
     console.error("AI credit pack removal failed", error);
     return redirectToBilling(request, { error: "ai_pack_remove_failed" });
   }
-}
-
-export async function GET(request: NextRequest) {
-  return POST(request);
 }
