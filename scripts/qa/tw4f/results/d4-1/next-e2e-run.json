@@ -1,8 +1,8 @@
 {
   "meta": {
-    "when": "2026-11-06T11:01:39.285Z",
+    "when": "2026-11-06T17:21:22.519Z",
     "branch": "claude/d4-2-price-next-e2e",
-    "head": "9fa551058f719e331107f183fa0d156ddc8278f6",
+    "head": "4890ee2ac79d90ef7b664220fa04016202ebf08f",
     "dirty": false,
     "node": "v24.14.1",
     "chromium": "151.0.7922.34",
@@ -14,13 +14,13 @@
     "crashed": null
   },
   "totals": {
-    "PASS": 152,
+    "PASS": 172,
     "FAIL": 0,
     "BLOCKED": 1
   },
   "byScenario": {
     "1": {
-      "PASS": 8,
+      "PASS": 9,
       "FAIL": 0,
       "BLOCKED": 1
     },
@@ -35,7 +35,7 @@
       "BLOCKED": 0
     },
     "4": {
-      "PASS": 12,
+      "PASS": 13,
       "FAIL": 0,
       "BLOCKED": 0
     },
@@ -65,7 +65,12 @@
       "BLOCKED": 0
     },
     "10": {
-      "PASS": 20,
+      "PASS": 22,
+      "FAIL": 0,
+      "BLOCKED": 0
+    },
+    "11": {
+      "PASS": 16,
       "FAIL": 0,
       "BLOCKED": 0
     },
@@ -150,6 +155,12 @@
     },
     {
       "scenario": "1",
+      "name": "policy UI: the recovery row offers ONLY 'Retire the recovery key'; ordinary rows offer 'Retire this key' and 'Evict with the recovery key'",
+      "status": "PASS",
+      "note": "[[\"Retire the recovery key (final)\"],[\"Retire this key (touch this key, final)\",\"Evict with the recovery key (final)\"]]"
+    },
+    {
+      "scenario": "1",
       "name": "three-credential set: primary (owner-level) + spare (UI, delayed) + recovery (owner-level)",
       "status": "PASS",
       "note": "primary:primary,recovery one:recovery,spare one:spare"
@@ -188,7 +199,7 @@
       "scenario": "2",
       "name": "after the (database-clock) cooling-off the separate session gets the challenge with the exact summary from the database",
       "status": "PASS",
-      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: none to $4.25\nDanceFlow provider cost: none to $1.15\nDescription: browser price one\nFingerprint: 3bea231b40a4e9fc"
+      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: none to $4.25\nDanceFlow provider cost: none to $1.15\nDescription: browser price one\nFingerprint: 4103cbcc1507d501"
     },
     {
       "scenario": "2",
@@ -212,13 +223,13 @@
       "scenario": "2",
       "name": "REPLAY of the captured server-action request publishes nothing and applies once",
       "status": "PASS",
-      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"8lmz6uKGrhKMcCc7hZbkB\"}\n1:{\"ok\":true,\"data\":{\"status\":\"refused\",\"reason\":\"this price proposal is already applied and c"
+      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"2_IyJA6K_Zxsvj2ODUfzr\"}\n1:{\"ok\":true,\"data\":{\"status\":\"refused\",\"reason\":\"this price proposal is already applied and c"
     },
     {
       "scenario": "2",
       "name": "the price flash cookie (set by the propose action) is HttpOnly, SameSite=Strict, path /platform/sms, lives <= 60 s",
       "status": "PASS",
-      "note": "{\"httpOnly\":true,\"sameSite\":\"Strict\",\"path\":\"/platform/sms\",\"secure\":true,\"ttl\":41}"
+      "note": "{\"httpOnly\":true,\"sameSite\":\"Strict\",\"path\":\"/platform/sms\",\"secure\":true,\"ttl\":24}"
     },
     {
       "scenario": "2",
@@ -230,7 +241,7 @@
       "scenario": "2",
       "name": "challenge issued for v1 of the second proposal",
       "status": "PASS",
-      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: $4.25 to $5.10\nDanceFlow provider cost: $1.15 to $1.15\nDescription: browser price two\nFingerprint: cc86b43787a1721a"
+      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: $4.25 to $5.10\nDanceFlow provider cost: $1.15 to $1.15\nDescription: browser price two\nFingerprint: fde804a2f98e043b"
     },
     {
       "scenario": "2",
@@ -260,7 +271,7 @@
       "scenario": "2",
       "name": "replaying the v1 signature again is also refused",
       "status": "PASS",
-      "note": "0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"8lmz6uKGrhKMcCc7hZbkB\"}\n1:{\"ok\":true,\"data\":{\"status\":\"refused\",\"reason\":\"this"
+      "note": "0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"2_IyJA6K_Zxsvj2ODUfzr\"}\n1:{\"ok\":true,\"data\":{\"status\":\"refused\",\"reason\":\"this"
     },
     {
       "scenario": "2",
@@ -428,7 +439,7 @@
       "scenario": "3",
       "name": "forged token (another user's real session id re-signed into the caller's token): the real Next server action returns no data",
       "status": "PASS",
-      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"8lmz6uKGrhKMcCc7hZbkB\"} 1:{\"ok\":false,\"message\":\"Not allowed. Price "
+      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"2_IyJA6K_Zxsvj2ODUfzr\"} 1:{\"ok\":false,\"message\":\"Not allowed. Price "
     },
     {
       "scenario": "3",
@@ -452,7 +463,7 @@
       "scenario": "3",
       "name": "forged token (no session_id claim at all): the real Next server action returns no data",
       "status": "PASS",
-      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"8lmz6uKGrhKMcCc7hZbkB\"} 1:{\"ok\":false,\"message\":\"Not allowed. Price "
+      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"2_IyJA6K_Zxsvj2ODUfzr\"} 1:{\"ok\":false,\"message\":\"Not allowed. Price "
     },
     {
       "scenario": "3",
@@ -471,6 +482,12 @@
       "name": "the owner of the session-actor function can read auth.sessions (local role; hosted must be confirmed separately)",
       "status": "PASS",
       "note": "postgres super=false sees_auth.sessions=true"
+    },
+    {
+      "scenario": "4",
+      "name": "policy: the PRIMARY key cannot retire the spare (a key retires only itself)",
+      "status": "PASS",
+      "note": "The authenticator did not sign or the request failed. Nothing changed."
     },
     {
       "scenario": "4",
@@ -518,7 +535,7 @@
       "scenario": "4",
       "name": "challenge issued while spare two is still active (it is offered)",
       "status": "PASS",
-      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: $5.20 to $6.00\nDanceFlow provider cost: $1.15 to $1.15\nDescription: revoked signer price\nFingerprint: 03c4f0ab392c7908"
+      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: $5.20 to $6.00\nDanceFlow provider cost: $1.15 to $1.15\nDescription: revoked signer price\nFingerprint: ed9519fdc5e99efa"
     },
     {
       "scenario": "4",
@@ -614,7 +631,7 @@
       "scenario": "6",
       "name": "two sessions revoke the same key at once: exactly one revocation is recorded",
       "status": "PASS",
-      "note": "The database refused: unknown or already revoked credential. || Revoked. This takes effect immediately and cannot be undone:"
+      "note": "Revoked. This takes effect immediately and cannot be undone: || The database refused: unknown or already revoked credential."
     },
     {
       "scenario": "6",
@@ -644,7 +661,7 @@
       "scenario": "6",
       "name": "two competing proposals for one price: exactly one stays open",
       "status": "PASS",
-      "note": "This is not allowed in the proposal's current state (another || Proposal recorded. A different platform administrator must a"
+      "note": "Proposal recorded. A different platform administrator must a || This is not allowed in the proposal's current state (another"
     },
     {
       "scenario": "6",
@@ -860,7 +877,7 @@
       "scenario": "10",
       "name": "attacker: the server action with role=recovery returns no challenge",
       "status": "PASS",
-      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"8lmz6uKGrhKMcCc7hZbkB\"} 1:{\"ok\":false,\"message\":\"The database refused the input (check the kind, t"
+      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"2_IyJA6K_Zxsvj2ODUfzr\"} 1:{\"ok\":false,\"message\":\"The database refused the input (check the kind, t"
     },
     {
       "scenario": "10",
@@ -876,7 +893,19 @@
     },
     {
       "scenario": "10",
-      "name": "owner evicts the stolen spare through the UI (immediate)",
+      "name": "attacker with the primary key cannot retire the spare (a key retires only itself)",
+      "status": "PASS",
+      "note": "The authenticator did not sign or the request failed. Nothing changed."
+    },
+    {
+      "scenario": "10",
+      "name": "attacker with the primary key cannot evict it either (needs the recovery key)",
+      "status": "PASS",
+      "note": "The authenticator did not sign or the request failed. Nothing changed."
+    },
+    {
+      "scenario": "10",
+      "name": "owner evicts the stolen spare with the RECOVERY key through the UI (immediate)",
       "status": "PASS",
       "note": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
     },
@@ -959,6 +988,102 @@
       "note": "Authorized. The new price is published."
     },
     {
+      "scenario": "11",
+      "name": "login with a fresh TOTP (the session starts fresh)",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "scenario": "11",
+      "name": "fresh session: the database accepts the credential-list RPC",
+      "status": "PASS",
+      "note": "200"
+    },
+    {
+      "scenario": "11",
+      "name": "a TOTP verification 11 minutes old: the DATABASE refuses the authorize ceremony for freshness (a fresh token is refused for another reason)",
+      "status": "PASS",
+      "note": "stale: 403 {\"code\":\"42501\",\"details\":null,\"hint\":null,\"message\":\"a fresh authenticator code is requir | fresh: 200 {\"code\": \"22023\", \"reason\": \"unknown price proposal\", \"statu"
+    },
+    {
+      "scenario": "11",
+      "name": "stale: a credential ceremony (thaw challenge) is refused for freshness too",
+      "status": "PASS",
+      "note": "403 {\"code\":\"42501\",\"details\":null,\"hint\":null,\"message\":\"a fresh authenticator code is required (the la"
+    },
+    {
+      "scenario": "11",
+      "name": "stale: propose is refused by the database",
+      "status": "PASS",
+      "note": "403 {\"code\":\"42501\",\"details\":null,\"hint\":null,\"message\":\"a fresh authenticator code is required (the last one is too old or"
+    },
+    {
+      "scenario": "11",
+      "name": "stale: the authorize-begin server action bounces the browser to the step-up page (reason=stale)",
+      "status": "PASS",
+      "note": "303 /platform-mfa/challenge?stepup=1&reason=stale&next=%2Fplatform%2Fsms;push"
+    },
+    {
+      "scenario": "11",
+      "name": "stale: the plain-aal2 credential READ (panel list) is still served",
+      "status": "PASS",
+      "note": "200 "
+    },
+    {
+      "scenario": "11",
+      "name": "stale: the propose form action is bounced to the step-up page and creates nothing",
+      "status": "PASS",
+      "note": "303 /platform-mfa/challenge?stepup=1&reason=stale&next=%2Fplatform%2Fsms;push"
+    },
+    {
+      "scenario": "11",
+      "name": "stale: FREEZE still works (plain aal2, safe direction)",
+      "status": "PASS",
+      "note": "200 {\"status\": \"frozen\", \"replayed\": false}"
+    },
+    {
+      "scenario": "11",
+      "name": "stale: the freeze form action is not bounced to the step-up page",
+      "status": "PASS",
+      "note": "303 /platform/sms?price=1#price-changes;push"
+    },
+    {
+      "scenario": "11",
+      "name": "stale: report-compromise works (plain aal2)",
+      "status": "PASS",
+      "note": "200 {\"status\": \"frozen\"}"
+    },
+    {
+      "scenario": "11",
+      "name": "step-up through /platform-mfa/challenge?stepup=1 with a new code succeeds",
+      "status": "PASS",
+      "note": "http://localhost:3417/platform/sms"
+    },
+    {
+      "scenario": "11",
+      "name": "after the step-up the same server action is served",
+      "status": "PASS",
+      "note": "200 "
+    },
+    {
+      "scenario": "11",
+      "name": "after the step-up the database accepts the ceremony read again",
+      "status": "PASS",
+      "note": "200"
+    },
+    {
+      "scenario": "11",
+      "name": "thaw (fresh tier) with the ordinary key after the step-up lifts the suspension",
+      "status": "PASS",
+      "note": "Publication resumed."
+    },
+    {
+      "scenario": "11",
+      "name": "propose succeeds again after the step-up",
+      "status": "PASS",
+      "note": "Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed."
+    },
+    {
       "scenario": "9",
       "name": "built client output (.next/static, 109 files, 2.3 MB) contains none of the run's secrets",
       "status": "PASS",
@@ -990,7 +1115,7 @@
     },
     {
       "scenario": "9",
-      "name": "all 102 user-visible messages are plain sentences (no SQLSTATE, token, stack or SQL text)",
+      "name": "all 107 user-visible messages are plain sentences (no SQLSTATE, token, stack or SQL text)",
       "status": "PASS",
       "note": ""
     }
@@ -1065,6 +1190,11 @@
       "scenario": "2",
       "where": "authorize",
       "text": "Authorized. The new price is published."
+    },
+    {
+      "scenario": "4",
+      "where": "keys",
+      "text": "The authenticator did not sign or the request failed. Nothing changed."
     },
     {
       "scenario": "4",
@@ -1434,6 +1564,16 @@
     {
       "scenario": "10",
       "where": "keys",
+      "text": "The authenticator did not sign or the request failed. Nothing changed."
+    },
+    {
+      "scenario": "10",
+      "where": "keys",
+      "text": "The authenticator did not sign or the request failed. Nothing changed."
+    },
+    {
+      "scenario": "10",
+      "where": "keys",
       "text": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
     },
     {
@@ -1505,6 +1645,16 @@
       "scenario": "10",
       "where": "authorize",
       "text": "Authorized. The new price is published."
+    },
+    {
+      "scenario": "11",
+      "where": "keys",
+      "text": "Publication resumed."
+    },
+    {
+      "scenario": "11",
+      "where": "flash",
+      "text": "Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed."
     }
   ]
 }

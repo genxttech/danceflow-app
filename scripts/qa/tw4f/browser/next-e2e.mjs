@@ -119,6 +119,11 @@ async function sc1() {
   check("spare request via UI is PENDING (not active)", sp.pending === 1 && /Requested/.test(sp.m1), sp.m1);
   check("Apply before the delay is refused with a clear sentence and the key stays pending", /not ended|cooling|Nothing changed|not allowed/i.test(sp.early) && sp.stillPending, sp.early);
   check("spare applied through the UI after the aged database clock", B.keyStatus("spare one") === "active" && /applied/.test(sp.m2), sp.m2);
+  await B.only(S, ["primary"]);
+  await B.openSms(S);
+  const recBtns = await B.rowButtons(S, "recovery one");
+  const spBtns = await B.rowButtons(S, "spare one");
+  check("policy UI: the recovery row offers ONLY 'Retire the recovery key'; ordinary rows offer 'Retire this key' and 'Evict with the recovery key'", recBtns.length === 1 && /^Retire the recovery key/.test(recBtns[0]) && spBtns.length === 2 && /^Retire this key/.test(spBtns[0]) && /^Evict with the recovery key/.test(spBtns[1]), JSON.stringify([recBtns, spBtns]));
   check("three-credential set: primary (owner-level) + spare (UI, delayed) + recovery (owner-level)", B.countActive() === 3 && B.activeKeys().includes("spare one:spare") && B.activeKeys().includes("recovery one:recovery"), B.activeKeys());
   check("the audit holds the credential_change_pending and credential_change_applied events", B.audit("credential_change_applied") >= 1 && B.audit("credential_change_pending") >= 1, `applied=${B.audit("credential_change_applied")} pending=${B.audit("credential_change_pending")}`);
 }
@@ -322,7 +327,11 @@ async function sc4() {
   const { s1, s2 } = ctx;
   await B.only(s1, ["primary"]);
   await B.openSms(s1);
-  const rv = await B.revokeKey(s1, "spare one");
+  const rv0 = await B.revokeKey(s1, "spare one");
+  check("policy: the PRIMARY key cannot retire the spare (a key retires only itself)", !/^Revoked\./.test(rv0) && B.keyStatus("spare one") === "active", rv0);
+  await B.only(s1, [ctx.rec]);
+  await B.openSms(s1);
+  const rv = await B.evictKey(s1, "spare one");
   check("revoke through the UI is immediate and final", /^Revoked\./.test(rv) && B.keyStatus("spare one") === "revoked" && /cannot be undone/.test(rv), rv);
   await B.openSms(s1);
   const list = await B.keyListText(s1);
@@ -354,7 +363,7 @@ async function sc4() {
   await B.only(s2, ["spare two"]);
   const b = await B.authorizeBegin(s2, rid);
   check("challenge issued while spare two is still active (it is offered)", p.ok && !!b.summary, b.summary ?? b.message);
-  await B.only(s1, ["primary"]);
+  await B.only(s1, ["spare two"]);
   await B.openSms(s1);
   const rv2 = await B.revokeKey(s1, "spare two");
   check("spare two revoked via the UI between the challenge and the signature", /^Revoked\./.test(rv2) && B.keyStatus("spare two") === "revoked", rv2);
@@ -436,9 +445,9 @@ async function sc7() {
   B.withdraw(rid, ctx.A.id);
 
   // restore: revoke the BE keys
-  await B.only(s1, ["primary"]);
+  await B.only(s1, [ctx.rec]);
   await B.openSms(s1);
-  await B.revokeKey(s1, "be spare 2");
+  await B.evictKey(s1, "be spare 2");
   check("BE test key revoked again, set back to primary + recovery", B.keyStatus("be spare 2") === "revoked");
 }
 
@@ -450,8 +459,8 @@ async function sc6() {
   await enrolAndApply(s1, "race a", "spare", ["primary"]);
   check("race fixture active", B.keyStatus("race a") === "active");
   // 6a: the same revocation from two sessions at once
-  await B.only(s1, ["primary"]);
-  await B.only(s2, ["primary"]);
+  await B.only(s1, ["race a"]);
+  await B.only(s2, ["race a"], { bump: 10 });
   await B.openSms(s1);
   await B.openSms(s2);
   const auditBefore = B.audit("credential_revoked");
@@ -469,7 +478,7 @@ async function sc6() {
   const [a1, a2] = await Promise.all([B.applyPending(s1, "race c"), B.applyPending(s2, "race c")]);
   check("two sessions apply the same pending key at once: one active row, one apply recorded", Number(q("select count(*) from public.studio_sms_price_credentials where label = 'race c' and status = 'active'")) === 1 && B.audit("credential_change_applied") === appBefore + 1, `${a1.slice(0, 50)} || ${a2.slice(0, 50)}`);
   // 6c: a new key requested with key B's signature while key B is being revoked (make room: revoke race c and the recovery key, enrol B)
-  await B.only(s1, ["primary"]);
+  await B.only(s1, ["race c"]);
   await B.openSms(s1);
   await B.revokeKey(s1, "race c");
   await B.openSms(s1);
@@ -478,7 +487,7 @@ async function sc6() {
   await enrolAndApply(s1, "race b", "spare", ["primary"]);
   check("race fixture: [primary, race b] active", B.countActive() === 2 && B.keyStatus("race b") === "active", B.activeKeys());
   await B.only(s1, ["race b"]);
-  await B.only(s2, ["primary"]);
+  await B.only(s2, ["race b"], { bump: 10 });
   await B.openSms(s1);
   await B.openSms(s2);
   const [e1, e2] = await Promise.all([B.requestKey(s1, "race d", "spare").catch((e) => `ERR ${String(e).slice(0, 60)}`), B.revokeKey(s2, "race b")]);
@@ -561,6 +570,7 @@ async function sc8() {
   await B.openSms(s1);
   const ok = await B.applyPending(s1, "mon pending");
   check("after the table is back the pending change applies", B.keyStatus("mon pending") === "active", ok);
+  await B.only(s1, ["mon pending"]);
   await B.openSms(s1);
   await B.revokeKey(s1, "mon pending");
 }
@@ -706,10 +716,17 @@ async function sc10() {
   await B.propose(s1, "number", "11.10", "1.15", "attacker price", "a written reason for the attacker flow price");
   const rid = B.latestRequest();
   B.ageRequests(25);
-  await B.only(s1, [P]);
+  await B.only(atk, [P]);
+  await B.openSms(atk);
+  const ea = await B.revokeKey(atk, "stolen spare");
+  check("attacker with the primary key cannot retire the spare (a key retires only itself)", !/^Revoked\./.test(ea) && B.keyStatus("stolen spare") === "active", ea);
+  await B.openSms(atk);
+  const eb = await B.evictKey(atk, "stolen spare");
+  check("attacker with the primary key cannot evict it either (needs the recovery key)", !/^Revoked\./.test(eb) && B.keyStatus("stolen spare") === "active", eb);
+  await B.only(s1, [ctx.rec]);
   await B.openSms(s1);
-  const ev = await B.revokeKey(s1, "stolen spare");
-  check("owner evicts the stolen spare through the UI (immediate)", /^Revoked\./.test(ev) && B.keyStatus("stolen spare") === "revoked", ev);
+  const ev = await B.evictKey(s1, "stolen spare");
+  check("owner evicts the stolen spare with the RECOVERY key through the UI (immediate)", /^Revoked\./.test(ev) && B.keyStatus("stolen spare") === "revoked", ev);
   await B.only(atk, ["stolen spare"]);
   const a = await B.authorizeBegin(atk, rid);
   let am = a.message;
@@ -783,6 +800,66 @@ async function sc10() {
   B.setConfig("monitoring_expected = false");
 }
 
+// ---------------------------------------------------------------------------------------------------------------- 11 fresh-MFA policy (10 minutes) and the plain-aal2 safe actions
+async function sc11() {
+  scn(11);
+  const P = ctx.prim;
+  const S = await B.newSession(ctx.browser, ctx.state, "s-stale");
+  await sleep(1500);
+  check("login with a fresh TOTP (the session starts fresh)", await B.login(S, ctx.A, ctx.secret));
+  const capPending = ctx.s2.actions.find((a) => a.body === "[]");
+  const capBegin = ctx.s2.actions.find((a) => /^\["[0-9a-f-]{36}"\]$/.test(a.body));
+  const capPropose = ctx.s1.actions.find((a) => (a.headers["content-type"] ?? "").startsWith("multipart/form-data") && a.body.includes("customerUsd"));
+  const capFreeze = [...ctx.s1.actions].reverse().find((a) => (a.headers["content-type"] ?? "").startsWith("multipart/form-data") && a.body.includes("freeze from the UI"));
+  const rpc = (tok, fn, body) => L.http("POST", `${ctx.state.url}/rest/v1/rpc/${fn}`, tok, body, { apikey: ctx.state.anon });
+  const fresh0 = await B.accessTokenOf(S);
+  const f0 = await rpc(fresh0, "tw4_price_cred_pending", {});
+  check("fresh session: the database accepts the credential-list RPC", f0.status === 200, String(f0.status));
+  const stale = await B.forgeJwt(S, ctx.state.jwt, (p) => { const t = Math.floor(Date.now() / 1000) - 700; p.amr = (p.amr ?? []).map((e) => (e && e.method === "totp" ? { ...e, timestamp: t } : e)); });
+  const RID = "11111111-2222-4333-8444-555555555555";
+  const c1 = await rpc(fresh0, "tw4_price_authz_begin", { p_request_id: RID });
+  const d1 = await rpc(stale, "tw4_price_authz_begin", { p_request_id: RID });
+  check("a TOTP verification 11 minutes old: the DATABASE refuses the authorize ceremony for freshness (a fresh token is refused for another reason)", d1.status >= 400 && /fresh authenticator code/.test(d1.text) && !/fresh authenticator code/.test(c1.text), `stale: ${d1.status} ${d1.text.slice(0, 90)} | fresh: ${c1.status} ${c1.text.slice(0, 60)}`);
+  const d1b = await rpc(stale, "tw4_price_cred_begin", { p_purpose: "thaw", p_cred_id: null, p_x: null, p_y: null, p_role: null, p_label: null });
+  check("stale: a credential ceremony (thaw challenge) is refused for freshness too", d1b.status >= 400 && /fresh authenticator code/.test(d1b.text), `${d1b.status} ${d1b.text.slice(0, 100)}`);
+  const d2 = await rpc(stale, "tw4_price_propose", { p_kind: "number", p_customer_cents: 1234, p_provider_cents: 115, p_description: "stale session", p_reason: "a stale session must not propose" });
+  check("stale: propose is refused by the database", d2.status >= 400 && Number(q("select count(*) from public.studio_sms_price_change_requests where status = 'pending'")) === 0, `${d2.status} ${d2.text.slice(0, 120)}`);
+  if (capBegin) {
+    const r = await replay(S, capBegin);
+    check("stale: the authorize-begin server action bounces the browser to the step-up page (reason=stale)", /platform-mfa\/challenge\?stepup=1&reason=stale/.test(r.redirect), `${r.status} ${r.redirect}`);
+  } else blocked("stale server-action bounce", "no captured authorize-begin request");
+  if (capPending) { const r = await replay(S, capPending); check("stale: the plain-aal2 credential READ (panel list) is still served", r.status === 200 && !/platform-mfa/.test(r.redirect), `${r.status} ${r.redirect}`); }
+  if (capPropose) {
+    const r = await replay(S, capPropose);
+    check("stale: the propose form action is bounced to the step-up page and creates nothing", /platform-mfa\/challenge\?stepup=1&reason=stale/.test(r.redirect) && Number(q("select count(*) from public.studio_sms_price_change_requests where status = 'pending'")) === 0, `${r.status} ${r.redirect}`);
+  } else blocked("stale propose bounce", "no captured propose form");
+  // freeze / report compromise / recovery freeze stay plain aal2: a stale (but aal2) session may still freeze
+  const fz = await rpc(stale, "tw4_price_freeze", { p_reason: "stale session freezes: safe direction needs only aal2" });
+  check("stale: FREEZE still works (plain aal2, safe direction)", fz.status === 200 && B.cfg("frozen") === "true", `${fz.status} ${fz.text.slice(0, 100)}`);
+  if (capFreeze) {
+    // (the app-level freeze form is replayed after the DB freeze: a repeat is idempotent either way)
+    const r = await replay(S, capFreeze);
+    check("stale: the freeze form action is not bounced to the step-up page", !/platform-mfa/.test(r.redirect) || /reason=stale/.test(r.redirect) === false, `${r.status} ${r.redirect}`);
+  } else console.log("  NOTE no captured freeze form; the freeze was proven at the database level only");
+  const cp = await rpc(stale, "tw4_price_report_compromise", { p_note: "stale session reports a compromise: plain aal2" });
+  check("stale: report-compromise works (plain aal2)", cp.status === 200, `${cp.status} ${cp.text.slice(0, 100)}`);
+  // renew through the real page, then the same actions succeed
+  check("step-up through /platform-mfa/challenge?stepup=1 with a new code succeeds", await B.stepUp(S, ctx.secret), S.page.url());
+  if (capPending) { const r = await replay(S, capPending); check("after the step-up the same server action is served", r.status === 200 && !/platform-mfa|login/.test(r.redirect), `${r.status} ${r.redirect}`); }
+  const tokNew = await B.accessTokenOf(S);
+  const f1 = await rpc(tokNew, "tw4_price_cred_pending", {});
+  check("after the step-up the database accepts the ceremony read again", f1.status === 200, String(f1.status));
+  await B.only(S, [P]);
+  await B.openSms(S);
+  const th = await B.thaw(S);
+  check("thaw (fresh tier) with the ordinary key after the step-up lifts the suspension", /resumed/i.test(th) && B.cfg("frozen") === "false", th);
+  await B.stepUp(S, ctx.secret);
+  const pr = await B.propose(S, "number", "12.34", "1.15", "after step-up", "a written reason after the step-up");
+  check("propose succeeds again after the step-up", pr.ok && !!B.latestRequest(), pr.text);
+  const open = B.latestRequest();
+  if (open) B.withdraw(open, ctx.A.id);
+}
+
 function writeReport(crashed, browserVersion) {
   mkdirSync(OUT, { recursive: true });
   const { execFileSync } = require_("node:child_process");
@@ -816,7 +893,7 @@ async function runAll() {
   try {
     ctx.browser = browser;
     await setup(browser);
-    for (const [id, fn] of [[1, sc1], [2, sc2], [3, sc3], [4, sc4], [7, sc7], [6, sc6], [8, sc8], [5, sc5], [10, sc10], [9, sc9]]) if (want(id)) { try { await fn(); } catch (e) { check(`scenario ${id} aborted by a harness/page error`, false, String(e).split("\n")[0]); console.error(e); for (const S of B.SESSIONS) { try { await S.page.screenshot({ path: path.join(L.HOME, `abort-${id}-${S.name}.png`) }); } catch { /* ignore */ } } } }
+    for (const [id, fn] of [[1, sc1], [2, sc2], [3, sc3], [4, sc4], [7, sc7], [6, sc6], [8, sc8], [5, sc5], [10, sc10], [11, sc11], [9, sc9]]) if (want(id)) { try { await fn(); } catch (e) { check(`scenario ${id} aborted by a harness/page error`, false, String(e).split("\n")[0]); console.error(e); for (const S of B.SESSIONS) { try { await S.page.screenshot({ path: path.join(L.HOME, `abort-${id}-${S.name}.png`) }); } catch { /* ignore */ } } } }
   } catch (e) {
     crashed = e;
     console.error("HARNESS ERROR", e);

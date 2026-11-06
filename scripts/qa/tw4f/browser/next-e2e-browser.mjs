@@ -95,14 +95,14 @@ export async function sync(S) {
   }
 }
 /** make the session's authenticator hold EXACTLY the named keys (counters carried over from the newest use anywhere) */
-export async function only(S, names, { backup = false } = {}) {
+export async function only(S, names, { backup = false, bump = 0 } = {}) {
   for (const s of SESSIONS) await sync(s).catch(() => {});
   const { credentials } = await S.cdp.send("WebAuthn.getCredentials", { authenticatorId: S.authId });
   for (const c of credentials) await S.cdp.send("WebAuthn.removeCredential", { authenticatorId: S.authId, credentialId: c.credentialId });
   for (const n of names) {
     const rec = VAULT.get(keyId(n));
     const { backupEligibility, backupState, ...rest } = rec;
-    await S.cdp.send("WebAuthn.addCredential", { authenticatorId: S.authId, credential: { ...rest, rpId: rest.rpId || "localhost", ...(backup ? { backupEligibility: true, backupState: true } : { backupEligibility: backupEligibility ?? false, backupState: backupState ?? false }) } });
+    await S.cdp.send("WebAuthn.addCredential", { authenticatorId: S.authId, credential: { ...rest, signCount: (rest.signCount ?? 0) + bump, rpId: rest.rpId || "localhost", ...(backup ? { backupEligibility: true, backupState: true } : { backupEligibility: backupEligibility ?? false, backupState: backupState ?? false }) } });
   }
 }
 /** name the credential(s) the authenticator created since the last adoption */
@@ -174,16 +174,20 @@ export async function login(S, user, secret, { mfa = true } = {}) {
   await page.waitForURL(/\/platform/, { timeout: 30000 }).catch(() => {});
   await page.waitForLoadState("load").catch(() => {});
   if (!mfa) return true;
+  S.secret = secret;
   if (!page.url().includes("/platform-mfa/challenge")) await page.goto("/platform/sms");
   if (page.url().includes("/platform-mfa/challenge")) {
     if (!(await submitCode(S, secret, /\/platform(\?|$|\/)/))) return false;
   }
   await page.goto("/platform/sms");
+  S.freshAt = Date.now();
   return page.url().includes("/platform/sms");
 }
 export async function stepUp(S, secret) {
   await S.page.goto("/platform-mfa/challenge?stepup=1&next=%2Fplatform%2Fsms");
-  return submitCode(S, secret, /\/platform\/sms/);
+  const ok = await submitCode(S, secret, /\/platform\/sms/);
+  if (ok) { S.freshAt = Date.now(); S.secret = secret; }
+  return ok;
 }
 /** rewrite the browser's Supabase session cookie so its access token is EXPIRED (re-signed with the stack's own JWT secret); the refresh token is left alone */
 export async function forgeExpiredJwt(S, jwtSecret) {
@@ -225,6 +229,8 @@ export const sessionIds = (userId) => q(`select id from auth.sessions where user
 
 // ------------------------------------------------------------------------------------------------ UI drivers (/platform/sms)
 export async function openSms(S) {
+  // every pricing ceremony needs a TOTP verification at most 10 minutes old: renew through the real step-up page before the code gets stale
+  if (S.secret && S.freshAt && Date.now() - S.freshAt > 6 * 60_000) { if (!(await stepUp(S, S.secret))) throw new Error(`step-up failed for ${S.name}`); }
   await S.page.goto("/platform/sms");
   await openAll(S);
   await S.page.locator("#price-changes").waitFor({ timeout: 30000 });
@@ -257,9 +263,19 @@ export function applyPending(S, labelPart) {
 export function cancelPending(S, labelPart) {
   return keysAct(S, () => keys(S).locator("li", { hasText: new RegExp(`Pending .*${labelPart}`) }).getByRole("button", { name: /^Cancel with/ }).click());
 }
+/** "Retire this key" / "Retire the recovery key": a key retires ITSELF (touch that same key) */
 export function revokeKey(S, labelPart) {
-  return keysAct(S, () => keys(S).locator("li", { hasText: new RegExp(`^${labelPart} \\(`) }).getByRole("button", { name: /Revoke now/ }).click());
+  return keysAct(S, () => keys(S).locator("li", { hasText: new RegExp(`^${labelPart} \\(`) }).getByRole("button", { name: /^Retire/ }).click());
 }
+/** "Evict with the recovery key": the offline recovery key removes an ordinary key */
+export function evictKey(S, labelPart) {
+  return keysAct(S, () => keys(S).locator("li", { hasText: new RegExp(`^${labelPart} \\(`) }).getByRole("button", { name: /^Evict with the recovery key/ }).click());
+}
+export const rowButtons = async (S, labelPart) => {
+  const li = keys(S).locator("li", { hasText: new RegExp(`^${labelPart} \\(`) });
+  await li.first().waitFor({ timeout: 30000 });
+  return (await li.getByRole("button").allInnerTexts()).map((t) => t.trim());
+};
 export const thaw = (S) => keysAct(S, () => keys(S).getByRole("button", { name: "Lift suspension" }).click());
 export const recoveryFreeze = (S) => keysAct(S, () => keys(S).getByRole("button", { name: "Freeze with recovery key" }).click());
 export async function recoveryStart(S, label) {
