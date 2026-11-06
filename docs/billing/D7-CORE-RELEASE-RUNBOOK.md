@@ -98,3 +98,36 @@ The wrapper refuses to send anything unless the linked project ref is the expect
 * After promotion the first real entitlement write creates an audit event, and migration 1's rollback **refuses once any event exists**. SQL rollback of migration 1 is therefore effectively one-way after go-live. The recovery order is: roll back the **application first** (promote the previous deployment) and **leave the SQL in place**; the old app tolerates the new schema.
 * If migration 1 must be removed after events exist, the emergency path is to drop only `usage_addon_entitlements_audit_trg` (stops new audit writes while keeping the evidence table and its history), record the unaudited window, and fix forward. Never delete audit events.
 * Rolling back migration 2 re-grants `anon`/`authenticated` full privileges on the entitlements table (the pre-state), including TRUNCATE. Prefer leaving migration 2 applied.
+
+## 13. PROD window (G4 SQL, G4b staged build, G5 promotion): PREPARED, NOT AUTHORIZED (2026-11-06)
+**Status:** nothing in this section has been run against PROD. Every step needs the owner's explicit approval at that moment. DEV evidence this section relies on: both migrations applied to DEV 2026-11-06 with all 16 postflight checks passing; staged candidate smoke 5/5 (free flows, lapse/restore) and 10/10 (paid flow on a Stripe TEST connected account); fixture cleaned (no `d7-smoke` rows remain; 17 audit events kept by design).
+
+**PROD facts (read-only, 2026-11-06, evidence in the scratchpad `g4-prep-evidence`):** preflight and recheck pass; ACL is the exact pre-state; 2 active, open-ended manual grants (`095f8801-7d18-4c73-8d0e-141bd93dcbca`, `b515dc91-5d28-4c19-90d8-4cd589ad57fe`), both on `America/New_York` studios; 0 organizers / organizer events / organizer orders; entitlements definition fingerprint `eb924d51a569321aaa4c678562aa0090`, identical to DEV's pre-apply value; no migration-history table; PostgreSQL 17.6. Production serves `dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj` (`release/pricing-p1` `4bc938c6`); rollback target for the application is that same deployment.
+
+**What the candidate changes vs the production line (63 files):** application code and the two migrations only. No new environment variable is required (the expiry job's flags are dark by default), and `vercel.json`, `package.json`, `package-lock.json` and `next.config.ts` are unchanged: no cron, dependency or build-config change. Deploying changes no live customer flow (no organizer events exist).
+
+### 13.1 Decisions needed before the window (owner)
+1. **How the production line is updated.** (A, recommended) merge PR #397 into `release/pricing-p1` so the production branch head equals the deployed commit (traceable, rollback anchor stays `4bc938c6`); or (B) stage directly from the unmerged branch head `release/d7-core-organizer-suite` (nothing changes on `release/pricing-p1`; weaker traceability). Either way, PRs #396 and #403 should reach `main` so `main` does not lose the fixes.
+2. **Accepted gaps** (not exercised on DEV): Terminal / in-person sales (S5), staff mark-paid UI (no UI caller exists; covered by unit tests), real Stripe-delivered webhooks, a pending paid order that lapses mid-flight. None is reachable in PROD today (0 organizers).
+3. **Observation owner.** Who checks Stripe webhook deliveries and app errors for 30 minutes after promotion.
+
+### 13.2 Sequence
+| Step | Gate | Action | Evidence / stop condition |
+|---|---|---|---|
+| 0 | none (read-only) | within 24h of the window: `d7_core_artifact_check.sh`, `d7_core_flight.sh preflight prod`, `recheck prod` | all exit 0; record the grant baseline and fingerprint; STOP on any difference from the values above |
+| 1 | **G4** | `d7_core_flight.sh preflight prod` + `recheck prod` again immediately before; apply migration 1, then migration 2 (`supabase db query --linked --workdir <PROD workdir> -f <file>`); `d7_core_flight.sh postflight prod` | postflight exit 0; STOP and do not continue if migration 1 fails (nothing to undo); if migration 2 fails after 1, re-run it (idempotent) after diagnosing |
+| 2 | **G4b** | stage the application: from a clean `git archive` of the exact commit in a scratch directory, `vercel deploy --prod --skip-domain` with the cached CLI (`%LOCALAPPDATA%\npm-cache\_npx\69f9afb961c37556\node_modules\.bin\vercel.cmd`, env `VERCEL_ORG_ID`/`VERCEL_PROJECT_ID` for `danceflow-app-qfem`, `--scope dance-flow --non-interactive`, never `--yes`) | deployment `Ready`, **not promoted**; `www` still serves `dpl_HEvyvNbH…` |
+| 3 | none (public, read-only) | anonymous checks on the staged URL / after promotion: unsigned `POST /api/payments/webhook` returns 400; `GET /api/billing/addons/organizer-suite/checkout` returns 405; `GET /api/cron/organizer-suite-entitlement-expiry` returns 404; public pages render; asset `dpl=` markers | STOP on any mismatch. **No authenticated production flows** (owner policy: no production test accounts; record the owner-specified security note about omitted authenticated production smoke, with DEV staged-candidate evidence instead) |
+| 4 | **G5** | `vercel promote <staged dpl_id> --scope dance-flow`; confirm `vercel inspect www.idanceflow.com` resolves to it | domains `www.idanceflow.com` and `idanceflow.com` |
+| 5 | none | 30-minute observation: owner confirms Stripe webhook deliveries stay 200 and the app logs show no new error class; run `d7_core_flight.sh postflight prod` and `recheck prod` again: the 2 grants unchanged, `usage_addon_entitlement_events` still 0 (the deploy itself writes no entitlement) | any unexplained error => rollback |
+
+### 13.3 Rollback (reverse dependency order)
+1. `vercel rollback dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj` (previous production; stays Ready). Verify `www` resolves to it.
+2. **Leave the SQL in place.** The previous application runs against the new schema (additive; only anon/authenticated writes were removed, which no application code used). Rolling back migration 2 reintroduces anon TRUNCATE; rolling back migration 1 is refused once any audit event exists (before any entitlement write it is still possible: rollback 2 first, then rollback 1).
+3. Environment variables were not changed by this release, so there is no environment rollback.
+
+### 13.4 After promotion (separate, later; do not do these in the window)
+Expiry activation, DanceAbel `period_end`, and every commercial step stay blocked until: PR #402 (desk RPC database enforcement, applied after migration 1) and PR #401 (confirm / offline-booking gates) are released; the paid add-on (WP-4) and the advance notice (WP-5) exist and are tested; an owner decision on what a studio sees after access ends.
+
+### 13.5 Approval request text (copy for the owner)
+"Approve G4: apply `20270203090000` then `20270203100000` to PROD `hvsujyfbftfffxpfmlpb` under `docs/billing/D7-CORE-RELEASE-RUNBOOK.md` section 13, with the artifact check, preflight, recheck and postflight evidence saved; no application change in this step; rollback is the application only; the two existing complimentary grants remain active and open-ended."
