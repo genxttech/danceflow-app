@@ -62,7 +62,8 @@ export function deriveState(rows: EvidenceRow[]): CoalesceState {
 export type Decision = { send: Finding[]; coalesced: Record<string, number>; ids: string[]; summarized: string[] };
 
 /** Event findings (with an identity) are grouped per identity; everything else is passed through by the caller. */
-export function decide(events: Finding[], state: CoalesceState, now: Date, windowMs: number = COALESCE_WINDOW_MS): Decision {
+/** `heldSummaries`: identities whose summary is already waiting undelivered (do not queue another one every run while sends are held). */
+export function decide(events: Finding[], state: CoalesceState, now: Date, windowMs: number = COALESCE_WINDOW_MS, heldSummaries: Set<string> = new Set()): Decision {
   const groups = new Map<string, { f: Finding; n: number }>();
   for (const f of events) {
     const g = groups.get(f.identity!);
@@ -82,7 +83,7 @@ export function decide(events: Finding[], state: CoalesceState, now: Date, windo
   }
   // windows that closed with suppressed repeats and no new occurrence now: deliver the summary
   for (const [id, n] of state.pending) {
-    if (groups.has(id) || n <= 0) continue;
+    if (groups.has(id) || n <= 0 || heldSummaries.has(id)) continue;
     const last = state.sentAt.get(id);
     if (last !== undefined && now.getTime() - last < windowMs) continue;
     send.push({ code: "alert_coalesced", severity: "info", message: `${n} identical repeat(s) of ${id.split("|")[0]} were suppressed inside the ${Math.round(windowMs / 60000)}-minute window (all are in the evidence chain)`, refs: [`identity:${id}`] });

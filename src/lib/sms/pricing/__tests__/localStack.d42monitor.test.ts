@@ -149,7 +149,10 @@ describe.skipIf(!enabled)("D4-2 price monitor on a real database", () => {
     const out = await run([t]);
     const codes = out.findings.map((f) => f.code);
     expect(codes).toEqual(expect.arrayContaining(["credential_compromise", "pricing_suspended", "unknown_security_event"]));
-    expect(t.sent).toHaveLength(1);
+    // each distinct incident is its OWN alert message (plus one batch for the standing suspension state)
+    const own = t.sent.filter((m) => m.findings.length === 1 && ["credential_compromise", "pricing_suspended", "unknown_security_event"].includes(m.findings[0].code) && m.findings[0].identity);
+    expect(own.map((m) => m.findings[0].code).sort()).toEqual(["credential_compromise", "pricing_suspended", "unknown_security_event"]);
+    expect(own.every((m) => m.severity === "critical")).toBe(true);
     // lift the suspension (append-only: a resume event, no edit)
     psql("insert into public.studio_sms_price_security_events (kind, detail) values ('pricing_resumed', '{}');");
   });

@@ -37,7 +37,7 @@ export type FindingCode =
   | "monitor_stale"; // watchdog: no monitor run recorded within the allowed age
 
 /** `identity` is set for security-event findings (kind | subject | detail fingerprint): the unit of alert coalescing (coalesce.ts). */
-export type Finding = { code: FindingCode; severity: Severity; message: string; refs: string[]; identity?: string };
+export type Finding = { code: FindingCode; severity: Severity; message: string; refs: string[]; identity?: string; count?: number };
 
 /** Allow-listed database functions. Anything else is refused by the adapter (and by a unit test that scans this directory). */
 export const MONITOR_RPCS = [

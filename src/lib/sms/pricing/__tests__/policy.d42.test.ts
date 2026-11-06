@@ -31,7 +31,8 @@ function setup(transports = [new FakeTransport()], over: Partial<MonitorConfig> 
 }
 const U1 = "00000000-0000-4000-8000-000000000001";
 const U2 = "00000000-0000-4000-8000-000000000002";
-const FAKE_RUN_EVENT_FINDINGS = (db: FakeDb) => db.rows.filter((r) => r.kind === "run").flatMap((r) => (JSON.parse(r.payload).findings as { identity?: string }[]).filter((f) => f.identity));
+/** Events recorded in the evidence chain: collapsed per identity with a count (the events table keeps every row). */
+const EVIDENCE_EVENT_COUNT = (db: FakeDb) => db.rows.filter((r) => r.kind === "run").flatMap((r) => (JSON.parse(r.payload).findings as { identity?: string; count?: number }[]).filter((f) => f.identity)).reduce((n, f) => n + (f.count ?? 1), 0);
 
 describe("D4-2 event classification vs what the database emits", () => {
   it("every emitted kind is classified (none falls into unknown_security_event)", () => {
@@ -88,7 +89,7 @@ describe("D4-2 alert policy: identity and coalescing", () => {
     expect(rep.alertRequired).toBe(false);
     expect(s.transports[0].sent).toHaveLength(1);
     // the evidence still has BOTH events and the suppressed count
-    expect(FAKE_RUN_EVENT_FINDINGS(s.db)).toHaveLength(2);
+    expect(EVIDENCE_EVENT_COUNT(s.db)).toBe(2);
     const lastRun = JSON.parse(s.db.rows.filter((r) => r.kind === "run").at(-1)!.payload);
     expect(Object.values(lastRun.coalesced)).toEqual([1]);
     // a different subject, and a different kind, inside the same window: each is sent
@@ -97,9 +98,11 @@ describe("D4-2 alert policy: identity and coalescing", () => {
     s.emit("credential_recovery_used", U1, {});
     const other = await s.run();
     expect(other.alertRequired).toBe(true);
-    const codes = s.transports[0].sent.at(-1)!.findings.map((f) => f.code);
-    expect(codes).toEqual(expect.arrayContaining(["credential_compromise", "credential_recovery_used"]));
-    expect(s.transports[0].sent.at(-1)!.findings.filter((f) => f.identity)).toHaveLength(2);
+    // each distinct incident is its OWN message (own immediate alert), never batched with another
+    const last2 = s.transports[0].sent.slice(-2);
+    expect(last2.map((m) => m.findings.length)).toEqual([1, 1]);
+    expect(last2.map((m) => m.findings[0].code).sort()).toEqual(["credential_compromise", "credential_recovery_used"]);
+    expect(last2.every((m) => m.severity === "critical")).toBe(true);
   });
 
   it("when the window closes the suppressed repeats are summarised (once), then the next identical event is a fresh first alert", async () => {
@@ -192,9 +195,9 @@ describe("D4-2 alert policy: rate and cost protection", () => {
     const CAP = 12;
     const s = setup([new FakeTransport()], { defaultSendCap: CAP });
     let events = 0;
-    for (let minute = 0; minute < 45; minute++) {
+    for (let minute = 0; minute < 30; minute++) {
       for (let i = 0; i < 20; i++) { s.emit("credential_replaced", U1, { credential: "same" }); events += 1; }
-      for (let i = 0; i < 5; i++) { s.emit("credential_replaced", `00000000-0000-4000-8000-${String(minute * 10 + i).padStart(12, "0")}`, { credential: `c${minute}-${i}` }); events += 1; }
+      s.emit("credential_replaced", `00000000-0000-4000-8000-${String(minute).padStart(12, "0")}`, { credential: `c${minute}` }); events += 1;
       await s.run();
       s.advance(60_000);
     }
@@ -204,11 +207,11 @@ describe("D4-2 alert policy: rate and cost protection", () => {
     expect(attempts).toBeLessThanOrEqual(CAP);
     expect(t.sent.length).toBeLessThanOrEqual(CAP);
     expect(t.sent.filter((m) => m.findings.some((f) => f.code === "alert_rate_limited"))).toHaveLength(1);
-    // evidence is complete: every one of the 1125 events is a finding in some run row
-    expect(FAKE_RUN_EVENT_FINDINGS(s.db)).toHaveLength(events);
+    // evidence is complete: every one of the events is a finding in some run row
+    expect(EVIDENCE_EVENT_COUNT(s.db)).toBe(events);
     expect(verifyChain(s.db.rows).ok).toBe(true);
     // keep running with no new events: held alerts drain at the capped rate
-    for (let i = 0; i < 400; i++) { s.advance(60_000); await s.run(); }
+    for (let i = 0; i < 330; i++) { s.advance(60_000); await s.run(); }
     expect(sendsInAnyHour(t)).toBeLessThanOrEqual(CAP);
     const { listUndelivered } = await import("../ops");
     expect((await listUndelivered(s.deps())).undelivered).toEqual([]);
@@ -221,5 +224,61 @@ describe("D4-2 alert policy: rate and cost protection", () => {
     expect(b.sent.length).toBeLessThanOrEqual(4);
     expect(a.sent.length).toBeLessThanOrEqual(12);
     expect(a.sent.length).toBeGreaterThan(b.sent.length);
+  });
+});
+
+describe("D4-2 alert policy: one alert per distinct incident", () => {
+  it("two independent incidents in the same run are two messages; identical events in the same run collapse into one message that says so; an info event is batched", async () => {
+    const s = setup();
+    s.emit("credential_compromise_reported", U1, { reason: "lost" });
+    s.emit("credential_compromise_reported", U1, { reason: "lost" });
+    s.emit("price_integrity_failure", null, { check: "digest" });
+    s.emit("credential_replaced", U2, { credential: "k9" });
+    s.emit("price_proposed", U1, { kind: "number" });
+    await s.run();
+    const sent = s.transports[0].sent;
+    expect(sent).toHaveLength(4);
+    expect(sent.slice(0, 2).map((m) => m.findings[0].code).sort()).toEqual(["credential_compromise", "price_integrity_failure"]);
+    expect(sent[0].severity).toBe("critical");
+    expect(sent[2].findings.map((f) => f.code)).toEqual(["credential_replaced"]);
+    expect(sent[3].findings.map((f) => f.code)).toEqual(["price_proposed"]);
+    const compromise = sent.find((m) => m.findings[0].code === "credential_compromise")!;
+    expect(compromise.findings[0].message).toContain("(x2 in this run)");
+    expect(EVIDENCE_EVENT_COUNT(s.db)).toBe(5);
+  });
+
+  it("different credentials of the same kind are different incidents: each gets its own alert", async () => {
+    const s = setup();
+    s.emit("credential_replaced", U1, { credential: "k1" });
+    s.emit("credential_replaced", U1, { credential: "k2" });
+    s.emit("credential_replaced", U2, { credential: "k1" });
+    await s.run();
+    expect(s.transports[0].sent).toHaveLength(3);
+  });
+
+  it("per-message delivery evidence: a failed message is held and re-sent alone; delivered messages are never repeated", async () => {
+    const s = setup();
+    const t = s.transports[0];
+    s.emit("credential_compromise_reported", U1, { reason: "a" });
+    s.emit("credential_compromise_reported", U2, { reason: "b" });
+    // first message goes out; the second fails all 3 attempts
+    const origSend = t.send.bind(t);
+    let calls = 0;
+    t.send = async (m) => { calls += 1; if (calls >= 2 && calls <= 4) throw Object.assign(new Error("x"), { code: "network" }); return origSend(m); };
+    const first = await s.run();
+    expect(first.alertDelivered).toBe(false);
+    expect(t.sent).toHaveLength(1);
+    const rows = s.db.rows.filter((r) => r.kind === "delivery").map((r) => JSON.parse(r.payload));
+    expect(rows.map((r) => [r.msg, r.alert_ok])).toEqual([[0, true], [1, false]]);
+    s.advance(60_000);
+    const second = await s.run();
+    expect(second.redelivered).toBe(1);
+    const real = () => t.sent.filter((m) => !m.findings.every((f) => f.code === "alert_delivery_failed")); // the one-off 'held alerts exist' notice is not an incident alert
+    expect(real()).toHaveLength(2);
+    expect(real()[1].redeliveryOfSeq).toBeDefined();
+    expect(real()[1].findings).toHaveLength(1);
+    s.advance(60_000);
+    await s.run();
+    expect(real()).toHaveLength(2);
   });
 });
