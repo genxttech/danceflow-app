@@ -216,7 +216,7 @@ describe.skipIf(!hasMonitor)("D4-2 owner authorization on the combined chain wit
         expect(psql(`select status from public.studio_sms_price_credential_changes where id = '${pn.change_id}'`)).toBe("pending");
         void bg;
         // the safe-direction acts still work: freeze, compromise report, recovery freeze, ending the hold with the recovery key, thaw
-        psql(`select public._tw4price_install_recovery(decode('${Kr.hex.cred}', 'hex'), decode('${Kr.hex.x}', 'hex'), decode('${Kr.hex.y}', 'hex'), 'outage recovery key')`);
+        psql(`set lock_timeout = '300ms'; select public._tw4price_install_recovery(decode('${Kr.hex.cred}', 'hex'), decode('${Kr.hex.x}', 'hex'), decode('${Kr.hex.y}', 'hex'), 'outage recovery key')`);
         expect(JSON.parse(psql(asAuthLT(claims(B, "d42m-b-out"), `select public.tw4_price_freeze('a freeze during the ${v.name} outage')::text;`, v.lt)).split(NL).pop()!)).toMatchObject({ status: "frozen" });
         expect(JSON.parse(psql(asAuthLT(claims(B, "d42m-b-out"), `select public.tw4_price_report_compromise('a compromise report during the ${v.name} outage')::text;`, v.lt)).split(NL).pop()!)).toMatchObject({ status: "frozen" });
         const fb = JSON.parse(psql(asAuthLT(c, `select public.tw4_price_cred_begin('recover_freeze', null, null, null, null, null)::text;`, v.lt)).split(NL).pop()!) as { nonce: string; challenge: string };
