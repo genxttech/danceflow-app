@@ -1177,4 +1177,203 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       psql("drop table if exists public.studio_sms_price_security_events");
     }
   });
+
+  // ---- concurrency: real separate connections (docker exec psql), the first call held open by a sleep before its commit, the second started once the first holds its locks
+  let raceSeq = 0;
+  const holdTag = () => (3.5 + (++raceSeq) / 100).toFixed(2);
+  const race = async (first: string, second: string, c1: Record<string, unknown>, c2: Record<string, unknown>) => {
+    const tag = holdTag();
+    const s1 = sessionRun(asAuth(c1, first).replace("commit;", `select pg_sleep(${tag}); commit;`));
+    for (let i = 0; i < 80 && psql(`select count(*) from pg_stat_activity where datname = '${DB}' and query like '%pg_sleep(${tag})%' and wait_event = 'PgSleep'`) !== "1"; i++) await new Promise((r) => setTimeout(r, 150));
+    const s2 = sessionRun(asAuth(c2, second));
+    return Promise.all([s1, s2]);
+  };
+  const sessionA = () => claims(A, S2);
+  const revokeSqlOf = (by: SoftAuthenticator, target: SoftAuthenticator) => {
+    const bb = authOut(sessionA(), `select public.tw4_price_cred_begin('revoke', '${target.credIdB64u}', null, null, null, null)::text;`);
+    const a = by.assert(bb.challenge);
+    return `select public.tw4_price_cred_revoke('${bb.nonce}', '${target.credIdB64u}', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}')::text;`;
+  };
+  const enrollSqlOf = (by: SoftAuthenticator, nw: SoftAuthenticator, label: string) => {
+    const eb = authOut(sessionA(), `select public.tw4_price_cred_begin('enroll', '${nw.credIdB64u}', '${b64u(nw.x)}', '${b64u(nw.y)}', 'spare', '${label}')::text;`);
+    const a = by.assert(eb.challenge);
+    const m = nw.assert(eb.challenge);
+    return `select public.tw4_price_cred_enroll('${eb.nonce}', '${nw.credIdB64u}', '${b64u(nw.x)}', '${b64u(nw.y)}', 'spare', '${label}', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}', '${m.auth}', '${m.client}', '${m.sig}')::text;`;
+  };
+  const thawSqlOf = (k: SoftAuthenticator) => {
+    const tb = authOut(sessionA(), `select public.tw4_price_cred_begin('thaw', null, null, null, null, null)::text;`);
+    const a = k.assert(tb.challenge);
+    return `select public.tw4_price_thaw('${tb.nonce}', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}')::text;`;
+  };
+  const recEnrollSqlOf = (kr: SoftAuthenticator, kn: SoftAuthenticator) => {
+    const rb = authOut(sessionA(), `select public.tw4_price_cred_begin('recover_enroll', '${kn.credIdB64u}', '${b64u(kn.x)}', '${b64u(kn.y)}', null, 'raced recovery key')::text;`);
+    const a = kr.assert(rb.challenge);
+    const m = kn.assert(rb.challenge);
+    return `select public.tw4_price_recovery_enroll('${rb.nonce}', '${kn.credIdB64u}', '${b64u(kn.x)}', '${b64u(kn.y)}', 'raced recovery key', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}', '${m.auth}', '${m.client}', '${m.sig}')::text;`;
+  };
+  const applySqlOf = (id: string) => `select public.tw4_price_cred_apply('${id}')::text;`;
+  const activeSigning = () => num("select count(*) from public.studio_sms_price_credentials where status = 'active' and role <> 'recovery'");
+
+  it("PA-29 races on real separate connections fail closed: two revokes of different keys, revoke vs apply (both orders), enrol vs revoke of its signer, double finish of one nonce, freeze vs apply (both orders), thaw vs recovery, propose during a revoke, two concurrent recovery enrolments", async () => {
+    const sess = sessionA();
+    // (1) two simultaneous revokes of DIFFERENT keys, each signed by the other: exactly one signing credential survives
+    {
+      clear();
+      const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator();
+      resetCreds(Ka, Kb);
+      const [x, y] = await race(revokeSqlOf(Ka, Kb), revokeSqlOf(Kb, Ka), sess, sess);
+      expect(x.out).toContain('"status": "revoked"');
+      expect(y.out).toMatch(/"status": "rejected"|last active signing credential/);
+      expect(activeSigning()).toBe(1);
+      expect(psql(`select status from public.studio_sms_price_credentials where credential_id = decode('${Ka.hex.cred}', 'hex')`)).toBe("active");
+    }
+    // (2a) revoke first, apply of a change signed by the revoked key waits and applies nothing; (2b) apply first, then the revoke: serial order, never a revoked key's change applied after its revocation
+    {
+      clear();
+      const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator(), Kn = new SoftAuthenticator(), Km = new SoftAuthenticator();
+      resetCreds(Ka, Kb);
+      const pn = enrollReq(sess, Kb, Kn, "pending by kb");
+      ageChange(pn.change_id);
+      const [x, y] = await race(revokeSqlOf(Ka, Kb), applySqlOf(pn.change_id), sess, sess);
+      expect(x.out).toContain('"status": "revoked"');
+      expect(y.out).toMatch(/already cancelled|"status": "voided"/);
+      expect(num(`select count(*) from public.studio_sms_price_credentials where credential_id = decode('${Kn.hex.cred}', 'hex')`)).toBe(0);
+      resetCreds(Ka, Kb);
+      const pm = enrollReq(sess, Kb, Km, "pending by kb again");
+      ageChange(pm.change_id);
+      const [x2, y2] = await race(applySqlOf(pm.change_id), revokeSqlOf(Ka, Kb), sess, sess);
+      expect(x2.out).toContain('"status": "applied"');
+      expect(y2.out).toContain('"status": "revoked"');
+      expect(activeSigning()).toBe(2); // Ka and the new Km; Kb is gone
+    }
+    // (3) enrolment signed by Ka vs the revocation of Ka: the enrolment is refused, no change is left pending
+    {
+      clear();
+      const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator(), Kn = new SoftAuthenticator();
+      resetCreds(Ka, Kb);
+      const enr = enrollSqlOf(Ka, Kn, "raced enrolment");
+      const [x, y] = await race(revokeSqlOf(Kb, Ka), enr, sess, sess);
+      expect(x.out).toContain('"status": "revoked"');
+      expect(y.out).toContain('"status": "rejected"');
+      expect(num("select count(*) from public.studio_sms_price_credential_changes where status = 'pending'")).toBe(0);
+    }
+    // (4) double finish of ONE nonce with two different valid assertions: exactly one price
+    {
+      clear();
+      const Ka = new SoftAuthenticator();
+      resetCreds(Ka);
+      const p = propose(claims(A, S1), 531);
+      ready(p.request_id);
+      const b = begin(sess, p.request_id);
+      const a1 = Ka.assert(b.challenge);
+      const a2 = Ka.assert(b.challenge);
+      const [x, y] = await race(finishSql(p.request_id, b.nonce, a1), finishSql(p.request_id, b.nonce, a2), sess, sess);
+      expect([x.out, y.out].filter((o) => o.includes('"status": "applied"')).length).toBe(1);
+      expect(num(`select count(*) from public.studio_sms_price_list where kind = 'number' and customer_price_cents = 531`)).toBe(1);
+    }
+    // (5a) apply first, then the freeze: the credential counts as enrolled BEFORE the freeze; (5b) freeze first, then the apply: refused, nothing enrolled
+    {
+      clear();
+      const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator(), Kn = new SoftAuthenticator(), Kq = new SoftAuthenticator();
+      resetCreds(Ka, Kb);
+      const pn = enrollReq(sess, Ka, Kn, "pending before the freeze");
+      ageChange(pn.change_id);
+      const [x, y] = await race(applySqlOf(pn.change_id), `select public.tw4_price_freeze('a freeze raced against an apply')::text;`, sess, claims(B, "d42-b-race"));
+      expect(x.out).toContain('"status": "applied"');
+      expect(y.out).toContain('"status": "frozen"');
+      expect(psql(`select k.enrolled_at < c.frozen_at from public.studio_sms_price_credentials k, public.studio_sms_price_auth_config c where k.credential_id = decode('${Kn.hex.cred}', 'hex')`)).toBe("t");
+      resetCreds(Ka, Kb);
+      const pq = enrollReq(sess, Ka, Kq, "pending behind the freeze");
+      ageChange(pq.change_id);
+      const [x2, y2] = await race(`select public.tw4_price_freeze('a freeze that wins the race')::text;`, applySqlOf(pq.change_id), claims(B, "d42-b-race"), sess);
+      expect(x2.out).toContain('"status": "frozen"');
+      expect(y2.code).not.toBe(0);
+      expect(codeOf(y2.out)).toBe("42501");
+      expect(num(`select count(*) from public.studio_sms_price_credentials where credential_id = decode('${Kq.hex.cred}', 'hex')`)).toBe(0);
+    }
+    // (6) thaw vs a recovery enrolment: the thaw lands, the recovery enrolment lands, and publication stays suspended (a pending recovery suspends pricing); a second thaw is refused
+    {
+      clear();
+      const Ka = new SoftAuthenticator(), Kr = new SoftAuthenticator(), Kn = new SoftAuthenticator();
+      resetCreds(Ka, [Kr, "recovery"]);
+      psql(`begin; alter table public.studio_sms_price_auth_config disable trigger studio_sms_price_auth_config_guard; update public.studio_sms_price_auth_config set frozen = true, frozen_at = now() where singleton; alter table public.studio_sms_price_auth_config enable always trigger studio_sms_price_auth_config_guard; commit;`);
+      const [x, y] = await race(thawSqlOf(Ka), recEnrollSqlOf(Kr, Kn), sess, sess);
+      expect(x.out).toContain('"status": "thawed"');
+      expect(y.out).toContain('"status": "pending"');
+      expect(psql("select public._tw4price_suspended()")).toBe("t");
+      expect(authOut(sess, thawSqlOf(Ka)).status).toBe("rejected");
+    }
+    // (7) a proposal made while a revoke is in flight proceeds (no deadlock) and is useless to the revoked key
+    {
+      clear();
+      const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator();
+      resetCreds(Ka, Kb);
+      const [x, y] = await race(revokeSqlOf(Ka, Kb), `select public.tw4_price_propose('number', 532, 115, 'proposal during a revoke', 'a written reason for the proposal during a revoke')::text;`, sess, claims(A, S1));
+      expect(x.out).toContain('"status": "revoked"');
+      expect(y.out).toContain("request_id");
+      const id = (JSON.parse(y.out.split(NL).pop()!) as { request_id: string }).request_id;
+      ready(id);
+      const b = begin(sess, id);
+      expect(finish(sess, id, b.nonce, Kb.assert(b.challenge))).toMatchObject({ status: "rejected" });
+    }
+    // (8) two concurrent recovery enrolments: one pending, the other refused
+    {
+      clear();
+      const Ka = new SoftAuthenticator(), Kr = new SoftAuthenticator(), K1n = new SoftAuthenticator(), K2n = new SoftAuthenticator();
+      resetCreds(Ka, [Kr, "recovery"]);
+      const [x, y] = await race(recEnrollSqlOf(Kr, K1n), recEnrollSqlOf(Kr, K2n), sess, sess);
+      expect(x.out).toContain('"status": "pending"');
+      expect(y.out).toMatch(/already pending|"status": "rejected"/);
+      expect(num("select count(*) from public.studio_sms_price_credential_changes where status = 'pending' and kind = 'recovery_enroll'")).toBe(1);
+    }
+  });
+
+  it("PA-30 backup-eligible / backed-up authenticators: refused by default at enrolment (signer and new key) and at every assertion, including a key enrolled without BE whose later assertion shows BE or BS; accepted only when the owner-level allow_backup_eligible is true (documented: hardware-bound keys are the production recommendation)", () => {
+    clear();
+    const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator(), Kc = new SoftAuthenticator();
+    resetCreds(Ka);
+    const sess = sessionA();
+    const enrolFlags = (by: SoftAuthenticator, nw: SoftAuthenticator, label: string, byFlags: number, newFlags: number) => {
+      const eb = authOut(sess, `select public.tw4_price_cred_begin('enroll', '${nw.credIdB64u}', '${b64u(nw.x)}', '${b64u(nw.y)}', 'spare', '${label}')::text;`);
+      const a = by.assert(eb.challenge, { flags: byFlags });
+      const m = nw.assert(eb.challenge, { flags: newFlags });
+      return authOut(sess, `select public.tw4_price_cred_enroll('${eb.nonce}', '${nw.credIdB64u}', '${b64u(nw.x)}', '${b64u(nw.y)}', 'spare', '${label}', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}', '${m.auth}', '${m.client}', '${m.sig}')::text;`);
+    };
+    const publish = (cents: number, k: SoftAuthenticator, flags: number) => {
+      clear();
+      const p = propose(claims(A, S1), cents);
+      ready(p.request_id);
+      const b = begin(sess, p.request_id);
+      return finish(sess, p.request_id, b.nonce, k.assert(b.challenge, { flags }));
+    };
+    const rejected0 = audit("assertion_rejected");
+    // default (allow_backup_eligible = false): BE (0x08), BS (0x10) or both are refused at enrolment ...
+    for (const flags of [0x0d, 0x15, 0x1d]) {
+      expect(enrolFlags(Ka, Kb, "synced signer", flags, 0x05), `signer flags ${flags}`).toMatchObject({ status: "rejected", reason: expect.stringMatching(/backup-eligible/) });
+      expect(enrolFlags(Ka, Kb, "synced new key", 0x05, flags), `new key flags ${flags}`).toMatchObject({ status: "rejected" });
+    }
+    expect(num("select count(*) from public.studio_sms_price_credential_changes")).toBe(0);
+    // ... and a hardware-bound key enrols (0x05: user present + verified, no backup flags) and later publishes
+    const ok = enrolFlags(Ka, Kb, "hardware bound", 0x05, 0x05);
+    expect(ok.status).toBe("pending");
+    ageChange(ok.change_id);
+    expect(applyChange(sess, ok.change_id)).toMatchObject({ status: "applied" });
+    // a key enrolled WITHOUT the flags whose later assertion shows BE, BS or both is refused (and audited); the same key without them still works
+    for (const flags of [0x0d, 0x15, 0x1d]) expect(publish(541, Kb, flags), `assertion flags ${flags}`).toMatchObject({ status: "rejected", reason: expect.stringMatching(/backup-eligible/) });
+    expect(audit("assertion_rejected")).toBeGreaterThan(rejected0); // routine refusal rows are capped per actor and hour, so only growth is asserted
+    expect(publish(541, Kb, 0x05).status).toBe("applied");
+    // owner-level opt-in: allow_backup_eligible = true accepts a synced key at enrolment and at assertion time
+    setConfig("allow_backup_eligible = true");
+    try {
+      const sy = enrolFlags(Ka, Kc, "synced passkey", 0x1d, 0x1d);
+      expect(sy.status).toBe("pending");
+      ageChange(sy.change_id);
+      expect(applyChange(sess, sy.change_id)).toMatchObject({ status: "applied" });
+      expect(publish(542, Kc, 0x1d).status).toBe("applied");
+    } finally {
+      setConfig("allow_backup_eligible = false");
+    }
+    // switching the opt-in off again refuses that key's assertions at once (no grandfathering): replace it with a hardware-bound key
+    expect(publish(543, Kc, 0x1d)).toMatchObject({ status: "rejected", reason: expect.stringMatching(/backup-eligible/) });
+  });
 });

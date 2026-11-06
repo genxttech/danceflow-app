@@ -4,8 +4,9 @@
  * nothing may insert into the events table directly, the freeze must not need monitoring, an impaired monitoring table must make every risk-opening call fail closed, and
  * suspension decisions come only from seq and kind. Software authenticator, simulated verified claims. LOCAL QA DATABASE ONLY.
  */
+import { spawn } from "node:child_process";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { A, B, codeOf, enabled, num, psql, psqlError, rows, seedCast, seedPrices } from "./wpd4Helpers";
+import { A, B, DB, PG, codeOf, enabled, num, psql, psqlError, rows, seedCast, seedPrices } from "./wpd4Helpers";
 import { ownerAgeRequest, registerApproverSql } from "./priceFixture";
 import { ORIGIN, RP_ID, SoftAuthenticator, b64u, type Assertion } from "./webauthnFixture";
 
@@ -157,5 +158,80 @@ describe.skipIf(!hasMonitor)("D4-2 owner authorization on the combined chain wit
     expect(rp.replayed).toBeGreaterThan(0);
     expect(events(h).map((e) => e.kind)).toContain("pricing_suspended");
     expect(thawWith(K2)).toMatchObject({ status: "thawed" });
+  });
+
+  it("MON-04 monitoring_expected with the REAL events table unavailable in three ways (table missing, insert permission revoked, lock timeout on the event sequence): propose / begin / enrol / revoke / apply all refuse and change nothing; freeze, report_compromise and the recovery freeze still work; the recovery enrolment can be cancelled and the freeze thawed; the failed emits are audited, recoverable by replay, and a replay never re-suspends after the lawful thaw", async () => {
+    const asAuthLT = (c: Record<string, unknown>, sql: string, lt: boolean) => `begin; set local role authenticated; ${lt ? "set local lock_timeout = '300ms';" : ""} select set_config('request.jwt.claims', '${JSON.stringify(c).replace(/'/g, "''")}', true); ${sql} commit;`;
+    const variants: { name: string; start: () => Promise<() => Promise<void>>; lt: boolean; expectErr: RegExp }[] = [
+      { name: "table missing", lt: false, expectErr: /does not exist|TW046/, start: async () => { psql("alter table public.studio_sms_price_security_events rename to studio_sms_price_security_events_off"); return async () => { psql("alter table public.studio_sms_price_security_events_off rename to studio_sms_price_security_events"); }; } },
+      { name: "insert permission revoked", lt: false, expectErr: /permission denied/, start: async () => { psql("revoke insert on table public.studio_sms_price_security_events from postgres"); return async () => { psql("grant insert on table public.studio_sms_price_security_events to postgres"); }; } },
+      { name: "lock timeout", lt: true, expectErr: /lock timeout|lock_timeout|could not obtain lock/, start: async () => {
+        const holder = spawn("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-d", DB, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { stdio: ["pipe", "ignore", "ignore"] });
+        const done = new Promise<void>((r) => holder.on("close", () => r()));
+        holder.stdin.end("begin; select pg_advisory_xact_lock(hashtext('tw4_price_security_events')); select pg_sleep(30); commit;");
+        await new Promise((r) => setTimeout(r, 2500));
+        return async () => { await done; }; // the holder ends by itself; the replay below waits for it
+      } },
+    ];
+    for (const v of variants) {
+      clear();
+      const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator(), Kn = new SoftAuthenticator(), Kr = new SoftAuthenticator(), Kq = new SoftAuthenticator();
+      resetCreds(Ka, Kb);
+      psql("begin; alter table public.studio_sms_price_auth_config disable trigger studio_sms_price_auth_config_guard; update public.studio_sms_price_auth_config set frozen = false, frozen_at = null, recovery_hold = false, monitoring_expected = false where singleton; alter table public.studio_sms_price_auth_config enable always trigger studio_sms_price_auth_config_guard; commit;");
+      const c = claims(A, S2);
+      // everything prepared BEFORE the outage (ceremonies need no event): a ready proposal, a pending aged enrolment, a revoke, an enrolment request
+      const pr = propose(484);
+      ownerAgeRequest(psql, pr.request_id, 25);
+      const bg = authOut(c, `select public.tw4_price_authz_begin('${pr.request_id}')::text;`);
+      const pn = enrollReq(Ka, Kn, "pending before the outage");
+      psql(`begin; alter table public.studio_sms_price_credential_changes disable trigger studio_sms_price_credential_changes_guard; update public.studio_sms_price_credential_changes set requested_at = requested_at - interval '25 hours', effective_at = effective_at - interval '25 hours' where id = '${pn.change_id}'; alter table public.studio_sms_price_credential_changes enable always trigger studio_sms_price_credential_changes_guard; commit;`);
+      const rvb = authOut(c, `select public.tw4_price_cred_begin('revoke', '${Kb.credIdB64u}', null, null, null, null)::text;`);
+      const rva = Ka.assert(rvb.challenge);
+      const revokeSql = `select public.tw4_price_cred_revoke('${rvb.nonce}', '${Kb.credIdB64u}', '${rva.credId}', '${rva.auth}', '${rva.client}', '${rva.sig}')::text;`;
+      const eb = authOut(c, `select public.tw4_price_cred_begin('enroll', '${Kq.credIdB64u}', '${b64u(Kq.x)}', '${b64u(Kq.y)}', 'spare', 'enrolment in an outage')::text;`);
+      const ea = Ka.assert(eb.challenge);
+      const em = Kq.assert(eb.challenge);
+      const enrollSql = `select public.tw4_price_cred_enroll('${eb.nonce}', '${Kq.credIdB64u}', '${b64u(Kq.x)}', '${b64u(Kq.y)}', 'spare', 'enrolment in an outage', '${ea.credId}', '${ea.auth}', '${ea.client}', '${ea.sig}', '${em.auth}', '${em.client}', '${em.sig}')::text;`;
+      const before = psql("select (select count(*) from public.studio_sms_price_list) || ':' || (select count(*) from public.studio_sms_price_credential_changes) || ':' || (select count(*) from public.studio_sms_price_credentials where status = 'revoked') || ':' || (select count(*) from public.studio_sms_price_change_requests)");
+      psql("begin; alter table public.studio_sms_price_auth_config disable trigger studio_sms_price_auth_config_guard; update public.studio_sms_price_auth_config set monitoring_expected = true where singleton; alter table public.studio_sms_price_auth_config enable always trigger studio_sms_price_auth_config_guard; commit;");
+      const failed0 = num("select count(*) from public.studio_sms_price_audit where event = 'emit_failed'");
+      const restore = await v.start();
+      try {
+        // risk-opening calls refuse and change nothing
+        const strict: [string, string][] = [
+          ["propose", `select public.tw4_price_propose('number', 485, 115, 'proposal in an outage', 'a written reason for a proposal during an outage')::text;`],
+          ["begin", `select public.tw4_price_authz_begin('${pr.request_id}')::text;`],
+          ["enrol", enrollSql],
+          ["revoke", revokeSql],
+          ["apply", `select public.tw4_price_cred_apply('${pn.change_id}')::text;`],
+        ];
+        for (const [name, sql] of strict) {
+          const err = psqlError(asAuthLT(name === "propose" ? claims(A, S1) : c, sql, v.lt));
+          expect(err, `${v.name}: ${name} must refuse`).toMatch(v.expectErr);
+        }
+        expect(psql("select (select count(*) from public.studio_sms_price_list) || ':' || (select count(*) from public.studio_sms_price_credential_changes) || ':' || (select count(*) from public.studio_sms_price_credentials where status = 'revoked') || ':' || (select count(*) from public.studio_sms_price_change_requests)"), `${v.name}: nothing changed`).toBe(before);
+        expect(psql(`select status from public.studio_sms_price_credential_changes where id = '${pn.change_id}'`)).toBe("pending");
+        void bg;
+        // the safe-direction acts still work: freeze, compromise report, recovery freeze, ending the hold with the recovery key, thaw
+        psql(`select public._tw4price_install_recovery(decode('${Kr.hex.cred}', 'hex'), decode('${Kr.hex.x}', 'hex'), decode('${Kr.hex.y}', 'hex'), 'outage recovery key')`);
+        expect(JSON.parse(psql(asAuthLT(claims(B, "d42m-b-out"), `select public.tw4_price_freeze('a freeze during the ${v.name} outage')::text;`, v.lt)).split(NL).pop()!)).toMatchObject({ status: "frozen" });
+        expect(JSON.parse(psql(asAuthLT(claims(B, "d42m-b-out"), `select public.tw4_price_report_compromise('a compromise report during the ${v.name} outage')::text;`, v.lt)).split(NL).pop()!)).toMatchObject({ status: "frozen" });
+        const fb = JSON.parse(psql(asAuthLT(c, `select public.tw4_price_cred_begin('recover_freeze', null, null, null, null, null)::text;`, v.lt)).split(NL).pop()!) as { nonce: string; challenge: string };
+        const g = Kr.assert(fb.challenge);
+        expect(JSON.parse(psql(asAuthLT(c, `select public.tw4_price_recovery_freeze('${fb.nonce}', '${g.credId}', '${g.auth}', '${g.client}', '${g.sig}')::text;`, v.lt)).split(NL).pop()!)).toMatchObject({ status: "frozen" });
+        expect(psql("select recovery_hold from public.studio_sms_price_auth_config")).toBe("t");
+      } finally {
+        await restore();
+      }
+      // the recovery hold is ended with the recovery key and an ordinary key thaws (also tolerant of the outage; done after the table is back, which only needs the same calls)
+      expect(endHold(Kr, Ka)).toMatchObject({ status: "thawed" });
+      psql("begin; alter table public.studio_sms_price_auth_config disable trigger studio_sms_price_auth_config_guard; update public.studio_sms_price_auth_config set monitoring_expected = false where singleton; alter table public.studio_sms_price_auth_config enable always trigger studio_sms_price_auth_config_guard; commit;");
+      expect(num("select count(*) from public.studio_sms_price_audit where event = 'emit_failed'"), `${v.name}: failed emits are audited`).toBeGreaterThan(failed0);
+      // replay delivers the missed events; the stale suspension (lifted by the thaw) does not re-suspend
+      const rp = JSON.parse(asRole("service_role", "select public.tw4_price_emit_replay(200)::text;")) as { replayed: number; remaining: number };
+      expect(rp.remaining, `${v.name}: replay drains`).toBe(0);
+      expect(psql("select public._tw4price_suspended()"), `${v.name}: a stale suspension must not come back`).toBe("f");
+      expect(rows<{ detail: { stale?: boolean } }>("select detail from public.studio_sms_price_security_events where kind = 'event_emit_failed'").some((e) => e.detail.stale === true)).toBe(true);
+    }
   });
 });
