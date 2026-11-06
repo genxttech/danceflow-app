@@ -114,7 +114,7 @@ describe("evidence handling and redaction", () => {
   it("writeEvidence sanitises even a hostile payload", () => {
     const dir = tmp();
     const files = writeEvidence(dir, {
-      runId: "ev000002", mode: "dry-run", scriptSha256: "a".repeat(64), apiVersionPinned: "v", apiVersionsReported: [], callsUsed: 1, blocked: 0, scenarios: [], verdicts: {},
+      runId: "ev000002", mode: "dry-run", outcome: "FAILED", scriptSha256: "a".repeat(64), apiVersionPinned: "v", apiVersionsReported: [], callsUsed: 1, blocked: 0, scenarios: [], verdicts: {},
       cleanup: { note: `leak ${KEY} jo@example.com` }, abort: { code: "x", message: `Authorization: Bearer ${KEY}` }, transcriptText: `line ${KEY} ${CONNECTED}`, finishedUtc: "t",
     });
     for (const p of [files.json, files.transcript]) {
