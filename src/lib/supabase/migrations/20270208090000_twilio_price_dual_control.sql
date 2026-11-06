@@ -224,9 +224,17 @@ declare
   v_has_totp boolean := false;
   v_newest numeric := null;
   v_now numeric := extract(epoch from clock_timestamp());
+  v_sid text := nullif(v_claims ->> 'session_id', '');
 begin
   if v_uid is null or v_claims is null or coalesce(v_claims ->> 'role', '') <> 'authenticated' then
     raise exception 'sign in as a platform administrator' using errcode = '42501';
+  end if;
+  -- a GoTrue access token is a stateless JWT that outlives a sign-out: the SESSION it names must still exist (a signed-out or revoked session is refused at once). Real session ids are uuids;
+  -- a claim that is not a uuid cannot name a session and is left to the other checks (the synthetic claims of the local QA suites).
+  if v_sid ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' and to_regclass('auth.sessions') is not null then
+    if not exists (select 1 from auth.sessions s where s.id = v_sid::uuid) then
+      raise exception 'this session has ended: sign in again' using errcode = '42501';
+    end if;
   end if;
   if coalesce(v_claims ->> 'aal', '') <> 'aal2' then
     raise exception 'a second-factor (aal2) session is required' using errcode = '42501';

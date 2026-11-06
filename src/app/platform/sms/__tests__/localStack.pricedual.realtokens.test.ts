@@ -283,4 +283,21 @@ describe.skipIf(!enabled)("D4-1: price dual control with REAL GoTrue tokens thro
     expect(refused(await rpcCall("tw4_price_requests_list", unreg.aal2, {}))).toBe(true);
     expect(refused(await rpcCall("tw4_price_requests_list", plainUser.aal2, {}))).toBe(true);
   });
+
+  it("RT-10 a signed-out session is refused at once: the access token is a stateless JWT that outlives the sign-out, so the database checks that the session it names still exists", async () => {
+    clear();
+    const service = signHs256({ role: "service_role", aud: "authenticated", iss: "d41-local", exp: Math.floor(Date.now() / 1000) + 3600 });
+    const u = await makeUser("price-signout", service);
+    psql(`insert into public.profiles (id, platform_role) values ('${u.id}', 'platform_admin') on conflict (id) do update set platform_role = excluded.platform_role;
+      insert into public.studio_sms_price_approvers (user_id, added_note) values ('${u.id}', 'signed-out session test') on conflict (user_id) do nothing;`);
+    const sess = await stepUp(await passwordLogin(u.email, u.password));
+    expect((await propose(sess, 331)).status).toBe(200);
+    clear();
+    const out = await http("POST", `${AUTH}/logout?scope=global`, sess);
+    expect([200, 204]).toContain(out.status);
+    // the token is still validly signed and unexpired, but its session no longer exists
+    expect(refused(await propose(sess, 332))).toBe(true);
+    expect(refused(await rpcCall("tw4_price_requests_list", sess, {}))).toBe(true);
+    expect(refused(await rpcCall("tw4_price_reject", sess, { p_request_id: randomUUID(), p_note: "a signed-out session rejection attempt" }))).toBe(true);
+  });
 });
