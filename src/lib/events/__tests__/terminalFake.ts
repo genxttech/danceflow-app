@@ -63,6 +63,35 @@ export function createTerminalFakeDb(seed: Record<string, Row[]>, rpcHandlers: R
         filters.push((row) => row[column] === value);
         return builder;
       },
+      neq: (column: string, value: unknown) => {
+        filters.push((row) => row[column] !== value);
+        return builder;
+      },
+      // PostgREST not(col, "in", "(a,b)")
+      not: (column: string, operator: string, value: string) => {
+        if (operator !== "in") throw new Error(`unsupported not() operator ${operator}`);
+        const list = value.replace(/^[(]|[)]$/g, "").split(",");
+        filters.push((row) => !list.includes(String(row[column])));
+        return builder;
+      },
+      is: (column: string, value: unknown) => {
+        filters.push((row) => (value === null ? row[column] == null : row[column] === value));
+        return builder;
+      },
+      // Supports the PostgREST forms used by the mark-paid claim: "col.is.null,col.neq.value" (OR of the parts).
+      or: (expression: string) => {
+        const parts = expression.split(",").map((part) => part.split("."));
+        filters.push((row) =>
+          parts.some(([column, operator, ...rest]) => {
+            const value = rest.join(".");
+            if (operator === "is") return value === "null" ? row[column] == null : false;
+            if (operator === "neq") return row[column] !== value;
+            if (operator === "eq") return row[column] === value;
+            throw new Error(`unsupported or() operator ${operator}`);
+          }),
+        );
+        return builder;
+      },
       in: (column: string, values: unknown[]) => {
         filters.push((row) => values.includes(row[column]));
         return builder;
