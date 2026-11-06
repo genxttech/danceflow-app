@@ -1879,7 +1879,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(frozen()).toBe("t");
     // no financial change; nothing lifts it: not time, not housekeeping, not the verifier, not a proposal
     expect(world()).toBe(w0);
-    psql("begin; alter table public.studio_sms_price_auth_config disable trigger studio_sms_price_auth_config_guard; update public.studio_sms_price_auth_config set frozen_at = now() - interval '400 days' where singleton; alter table public.studio_sms_price_auth_config enable always trigger studio_sms_price_auth_config_guard; commit;");
+    psql("begin; alter table public.studio_sms_price_auth_config disable trigger studio_sms_price_auth_config_guard; update public.studio_sms_price_auth_config set frozen_at = now() - interval '300 hours' where singleton; alter table public.studio_sms_price_auth_config enable always trigger studio_sms_price_auth_config_guard; commit;");
     psql("select public._tw4price_prune()");
     psql("select public.tw4_price_verify()");
     expect(frozen()).toBe("t");
