@@ -101,15 +101,15 @@ age() { q "begin; select set_config('d24.writer','on',true); update public.hoste
 ageC() { q "alter table public.hosted_invoice_creation_intents disable trigger hosted_invoice_intents_guard_trg; update public.hosted_invoice_creation_intents set created_at = now() - interval '$2' where id='$1'; alter table public.hosted_invoice_creation_intents enable trigger hosted_invoice_intents_guard_trg" >/dev/null; }
 
 # 1. shape, privileges ---------------------------------------------------------------------------------------------------------
-check "5 new tables exist" "$(q "select count(*) from information_schema.tables where table_schema='public' and table_name in ('hosted_invoice_creation_intents','hosted_invoice_creation_intent_events','hosted_invoice_creation_attempts','hosted_invoice_creation_config','hosted_invoice_business_object_types')")" "5"
-check "RLS on all 5 new tables" "$(q "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('hosted_invoice_creation_intents','hosted_invoice_creation_intent_events','hosted_invoice_creation_attempts','hosted_invoice_creation_config','hosted_invoice_business_object_types') and c.relrowsecurity")" "5"
+check "6 new tables exist" "$(q "select count(*) from information_schema.tables where table_schema='public' and table_name in ('hosted_invoice_creation_intents','hosted_invoice_creation_intent_events','hosted_invoice_creation_attempts','hosted_invoice_creation_config','hosted_invoice_creation_orphans','hosted_invoice_business_object_types')")" "6"
+check "RLS on all 6 new tables" "$(q "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('hosted_invoice_creation_intents','hosted_invoice_creation_intent_events','hosted_invoice_creation_attempts','hosted_invoice_creation_config','hosted_invoice_creation_orphans','hosted_invoice_business_object_types') and c.relrowsecurity")" "6"
 check "service_role holds SELECT only on the new tables" "$(q "select string_agg(distinct privilege_type, ',') from information_schema.role_table_grants where grantee='service_role' and (table_name like 'hosted_invoice_creation%' or table_name='hosted_invoice_business_object_types')")" "SELECT"
 check "anon/authenticated/public hold no privilege on the new tables" "$(q "select count(*) from information_schema.role_table_grants where grantee in ('anon','authenticated','public') and (table_name like 'hosted_invoice_creation%' or table_name='hosted_invoice_business_object_types')")" "0"
 for fn in "d24_intent_begin(uuid,text,text,text,text,uuid)" "d24_intent_mark_provider_created(uuid,uuid,text,boolean,boolean,text)" "d24_intent_register(uuid,uuid)" "d24_intent_fail(uuid,uuid,text,boolean)" "d24_intent_record_outcome(uuid,uuid,text,boolean)" "d24_intent_claim_recovery(uuid,uuid,text,integer)" "d24_intent_flag_review(uuid,uuid,text)" "d24_intent_list_recoverable(integer,integer,uuid)" "d24_register_invoice(uuid,text,text,boolean,text,text,uuid)"; do
   check "service_role may execute $fn" "$(q "select has_function_privilege('service_role','public.$fn','execute')")" "t"
   check "anon/authenticated may not execute $fn" "$(q "select has_function_privilege('anon','public.$fn','execute') or has_function_privilege('authenticated','public.$fn','execute')")" "f"
 done
-for fn in "d24_op_flag_creation_review(uuid,text)" "d24_op_attach_creation_invoice(uuid,text,boolean,text,text)" "d24_op_abandon_creation(uuid,text)" "d24_op_list_creation_reviews(integer)"; do
+for fn in "d24_op_flag_creation_review(uuid,text)" "d24_op_attach_creation_invoice(uuid,text,boolean,text,text)" "d24_op_abandon_creation(uuid,text)" "d24_op_list_creation_reviews(integer)" "d24_op_list_creation_orphans(integer)"; do
   check "authenticated may execute $fn (checks inside)" "$(q "select has_function_privilege('authenticated','public.$fn','execute')")" "t"
   check "service_role/anon may NOT execute $fn" "$(q "select has_function_privilege('service_role','public.$fn','execute') or has_function_privilege('anon','public.$fn','execute')")" "f"
 done
@@ -126,8 +126,8 @@ check "service_role cannot change the safe-retry window" "$(as service_role "upd
 check "even the owner cannot change the window outside d24_intent_set_window" "$(as postgres "update public.hosted_invoice_creation_config set safe_retry_minutes=1380" | grep -c 'only be changed through d24_intent_set_window')" "1"
 has "service_role cannot call d24_intent_set_window" "$(as service_role "select public.d24_intent_set_window(60)")" "permission denied"
 has "a window of 0 is refused" "$(st "public.d24_intent_set_window(0)")" "STATE 23514"
-has "a window at or above Stripe's 24h minimum (1381+) is refused" "$(st "public.d24_intent_set_window(1381)")" "STATE 23514"
-check "a valid window can be set by the owner, and is capped" "$(q "select public.d24_intent_set_window(1380)" >/dev/null; q "select safe_retry_minutes from public.hosted_invoice_creation_config")" "1380"
+has "a window above the 22h cap (1321+) is refused" "$(st "public.d24_intent_set_window(1321)")" "STATE 23514"
+check "a valid window can be set by the owner, and is capped" "$(q "select public.d24_intent_set_window(1320)" >/dev/null; q "select safe_retry_minutes from public.hosted_invoice_creation_config")" "1320"
 q "select public.d24_intent_set_window(720)" >/dev/null
 
 # 2. hardened d24_register_invoice (M2-A blockers) -------------------------------------------------------------------------------
@@ -169,7 +169,7 @@ claim evt_dla >/dev/null; claim evt_dlb >/dev/null
 ap evt_dla invoice_payment invoice_payment.paid 31000 acct_dla "$(pj in_dl inpay_dla 11)" >/dev/null
 ap evt_dlb invoice_payment invoice_payment.paid 31001 acct_dlb "$(pj in_dl inpay_dlb 22)" >/dev/null
 SNAP=$(q "select (select count(*) from public.hosted_invoice_source_events)||'/'||(select count(*) from public.hosted_invoice_payments)||'/'||(select count(*) from public.hosted_invoices)")
-( docker exec -i "$NAME" psql -U postgres -qAt -c "begin; select pg_advisory_xact_lock(hashtextextended('d24:acct_dla:in_dl',0)); select pg_sleep(4); select pg_advisory_xact_lock(hashtextextended('d24:acct_aaa:in_dl',0)); commit;" </dev/null >"$TMPD/dl_1.txt" 2>&1 ) &
+( docker exec -i "$NAME" psql -U postgres -qAt -c "begin; select pg_advisory_xact_lock(hashtextextended('d24:acct_dla:in_dl',0)); do \$\$ begin for i in 1..300 loop exit when exists (select 1 from pg_locks where locktype='advisory' and not granted); perform pg_sleep(0.1); end loop; end \$\$; select pg_advisory_xact_lock(hashtextextended('d24:acct_aaa:in_dl',0)); commit;" </dev/null >"$TMPD/dl_1.txt" 2>&1 ) &
 for _ in $(seq 1 60); do [ "$(q "select count(*) from pg_locks where locktype='advisory' and granted")" -ge 1 ] && break; sleep 1; done; sleep 1
 ( docker exec -i "$NAME" psql -U postgres -qAt -c "select public.d24_register_invoice('$SA',null,'in_dl',false,'event_fee','bo-in_dl')" </dev/null >"$TMPD/dl_2.txt" 2>&1 ) &
 wait
@@ -399,7 +399,18 @@ FO=$(q "select (public.d24_intent_fail('$I9','$SA','registration_rejected',true)
 check "permanent failure is terminal" "$FO/$(st_of $I9)" "failed/failed"
 check "fail on a terminal intent is a no-op" "$(q "select (public.d24_intent_fail('$I9','$SA','again',true))->>'outcome'")" "noop_terminal"
 check "...failure_count unchanged" "$(q "select failure_count from public.hosted_invoice_creation_intents where id='$I9'")" "1"
-has "mark on a failed intent is refused" "$(st "public.d24_intent_mark_provider_created('$I9','$SA','in_m7',false,false)")" "STATE 55000 d24_intent_state"
+check "REVIEW P2: a LATE Stripe response for a failed/abandoned intent is RECORDED as an orphan (the id is never lost)" "$(mk $I9 $SA in_m7 false false "'acct_aaa'")/$(q "select count(*) from public.hosted_invoice_creation_orphans where stripe_invoice_id='in_m7' and intent_id='$I9'")/$(st_of $I9)" "orphan_recorded/1/failed"
+check "...recording it again is idempotent" "$(mk $I9 $SA in_m7 false false "'acct_aaa'")/$(q "select count(*) from public.hosted_invoice_creation_orphans")" "orphan_recorded/1"
+check "...the intent itself stays failed with no invoice id (terminal rows are frozen)" "$(q "select coalesce(stripe_invoice_id,'-') from public.hosted_invoice_creation_intents where id='$I9'")" "-"
+check "orphan evidence is append-only" "$(as postgres "select set_config('d24.writer','on',false); delete from public.hosted_invoice_creation_orphans" | grep -c 'append-only')" "1"
+check "orphan evidence cannot be inserted directly" "$(as postgres "insert into public.hosted_invoice_creation_orphans (intent_id, studio_id, stripe_account_id, stripe_invoice_id, livemode) values ('$I9','$SA','acct_aaa','in_zz',false)" | grep -c 'only allowed through the d24 functions')" "1"
+has "REVIEW P2: a permanent fail after ANY replay is refused (the first attempt's outcome is no longer provably 'no invoice')" "$(st "public.d24_intent_fail('$I7','$SA','gave_up',true)")" "STATE 55000 d24_intent_retried"
+check "REVIEW P3: the trigger itself refuses 'failed' for a retried/ambiguous intent" "$(as postgres "select set_config('d24.writer','on',false); update public.hosted_invoice_creation_intents set status='failed', settled_at=now() where id='$I7'" | grep -c 'ambiguous or retried')" "1"
+# cross-tenant: every intent function with a FOREIGN studio id behaves as 'not found'
+for call in "d24_intent_claim_recovery('$I7','$SB','$FP')" "d24_intent_record_outcome('$I7','$SB','x')" "d24_intent_flag_review('$I7','$SB','x')" "d24_intent_register('$I7','$SB')" "d24_intent_fail('$I7','$SB','x')" "d24_intent_mark_provider_created('$I7','$SB','in_xt',false,false)"; do
+  has "CROSS-TENANT: studio B cannot reach studio A's intent via ${call%%(*}" "$(st "public.$call")" "STATE 42501 d24_intent_not_found"
+done
+check "...and none of those calls changed the intent" "$(st_of $I7)/$(q "select failure_count from public.hosted_invoice_creation_intents where id='$I7'")" "pending/2"
 check "begin on a terminal key reports existing_terminal (caller must not call Stripe)" "$(q "select (public.d24_intent_begin('$SA','event_fee','o-a9','idem-a9-0000001','$FP'))->>'outcome'")" "existing_terminal"
 check "...and does not bump attempt_count" "$(q "select attempt_count from public.hosted_invoice_creation_intents where id='$I9'")" "1"
 has "fail by another studio is refused" "$(st "public.d24_intent_fail('$I2','$SB','x')")" "STATE 42501 d24_intent_not_found"
@@ -418,6 +429,8 @@ check "refusals changed nothing" "$(st_of $I14)/$(q "select count(*) from public
 has "a reason is mandatory" "$(asu $PLAT aal2 "select public.d24_op_attach_creation_invoice('$I14','in_op1',false,'acct_aaa','no')")" "d24_op_reason_required"
 has "the review queue lists the unresolved creations (platform admin)" "$(asu $PLAT aal2 "select e->>'intent_id' from jsonb_array_elements(public.d24_op_list_creation_reviews(200)) e where e->>'intent_id'='$I14'")" "$I14"
 has "a studio owner cannot read the review queue" "$(asu $OWA aal2 "select public.d24_op_list_creation_reviews(10)")" "d24_op_platform_admin_required"
+has "the orphan list shows the late invoice to a platform admin" "$(asu $PLAT aal2 "select e->>'stripe_invoice_id' from jsonb_array_elements(public.d24_op_list_creation_orphans(50)) e")" "in_m7"
+has "a studio owner cannot read the orphan list" "$(asu $OWA aal2 "select public.d24_op_list_creation_orphans(10)")" "d24_op_platform_admin_required"
 has "attach to an intent that is not in review is refused" "$(asu $PLAT aal2 "select public.d24_op_attach_creation_invoice('$I2','in_op1',false,'acct_aaa','$R')")" "d24_intent_state"
 has "attach with an account other than the intent's account is refused (wrong scope)" "$(asu $PLAT aal2 "select public.d24_op_attach_creation_invoice('$I14','in_op1',false,'acct_bbb','$R')")" "d24_account_mismatch"
 has "attach with a malformed invoice id is refused" "$(asu $PLAT aal2 "select public.d24_op_attach_creation_invoice('$I14','garbage',false,'acct_aaa','$R')")" "malformed"
@@ -446,6 +459,7 @@ q "select public.d24_intent_flag_review('$I24','$SA','window_expired')" >/dev/nu
 check "REVIEW P2: a late Stripe response on a needs_review intent still RECORDS the invoice id" "$(mk $I24 $SA in_m24 false false "'acct_aaa'")" "recorded_in_review"
 check "...status stays needs_review with the invoice recorded" "$(st_of $I24)/$(q "select stripe_invoice_id from public.hosted_invoice_creation_intents where id='$I24'")" "needs_review/in_m24"
 has "...so an operator can no longer abandon it (attach is forced)" "$(asu $PLAT aal2 "select public.d24_op_abandon_creation('$I24','$R')")" "d24_intent_has_invoice"
+has "REVIEW P3: attach with a livemode that contradicts the livemode the intent recorded is an explicit d24 refusal" "$(asu $PLAT aal2 "select public.d24_op_attach_creation_invoice('$I24','in_m24',true,'acct_aaa','$R')")" "d24_livemode_mismatch"
 I25=$(bg $SA event_fee o-a25 idem-a25-000001)
 ageC $I25 "13 hours"
 check "REVIEW P2: a Stripe response arriving after the window records the id but fails closed" "$(mk $I25 $SA in_m25 false false "'acct_aaa'")/$(st_of $I25)/$(q "select review_reason||'/'||stripe_invoice_id from public.hosted_invoice_creation_intents where id='$I25'")" "needs_review/needs_review/window_expired_provider/in_m25"
@@ -521,7 +535,7 @@ has "removing the registry row (the new package's rollback) fails closed again" 
 # 11. rollback + re-apply ------------------------------------------------------------------------------------------------------
 r=$(docker exec -i "$NAME" psql -U postgres -v ON_ERROR_STOP=1 -q < "$M_RB" 2>&1 | tr -d '\n' | cut -c1-140)
 has "rollback is refused while intent evidence exists" "$r" "rollback refused"
-check "refused rollback left the schema intact" "$(q "select count(*) from information_schema.tables where table_schema='public' and table_name like 'hosted_invoice_creation%'")" "4"
+check "refused rollback left the schema intact" "$(q "select count(*) from information_schema.tables where table_schema='public' and table_name like 'hosted_invoice_creation%'")" "5"
 docker exec "$NAME" psql -U postgres -qAt -c "create database d24m3fresh" >/dev/null
 F="docker exec -i $NAME psql -U postgres -d d24m3fresh -v ON_ERROR_STOP=1 -qAt"
 $F <<'SQL'
@@ -534,14 +548,14 @@ $F < "$STUB" >/dev/null 2>&1
 for f in "$M_CLAIM" "$M_D24" "$M_C" "$M_B"; do $F < "$f" >/dev/null 2>&1; done
 M1FN=$($F -c "select md5(pg_get_functiondef('public.d24_register_invoice(uuid,text,text,boolean,text,text,uuid)'::regprocedure))")
 $F < "$M_A" >/dev/null 2>&1
-check "fresh DB: migration applies" "$($F -c "select count(*) from information_schema.tables where table_schema='public' and table_name like 'hosted_invoice_creation%'")" "4"
+check "fresh DB: migration applies" "$($F -c "select count(*) from information_schema.tables where table_schema='public' and table_name like 'hosted_invoice_creation%'")" "5"
 check "fresh DB: register_invoice is the hardened body" "$($F -c "select pg_get_functiondef('public.d24_register_invoice(uuid,text,text,boolean,text,text,uuid)'::regprocedure) like '%d24inv:%'")" "t"
 $F < "$M_RB" >/dev/null 2>&1
 check "fresh DB: rollback removes every M3-A object" "$($F -c "select (select count(*) from information_schema.tables where table_schema='public' and (table_name like 'hosted_invoice_creation%' or table_name='hosted_invoice_business_object_types'))||'/'||(select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and (p.proname like 'd24_intent%' or p.proname like 'd24_op_%creation%' or p.proname in ('_d24_studio_account','_d24_check_owner','_d24_intent_guard','_d24_bot_guard','_d24_intent_json','_d24_intent_lock','_d24_intent_event','_d24_intent_to_review','_d24_attempt','_d24_safe_window','_d24_creation_config_guard','_d24_clean_code','d24_register_business_object_type')))")" "0/0"
 check "fresh DB: rollback restores the M1 d24_register_invoice VERBATIM" "$($F -c "select md5(pg_get_functiondef('public.d24_register_invoice(uuid,text,text,boolean,text,text,uuid)'::regprocedure))")" "$M1FN"
 check "fresh DB: the M2-B operator functions are untouched by the rollback" "$($F -c "select count(*) from pg_proc where proname in ('d24_op_set_enabled','_d24_op_caller','d24_op_dismiss_unmatched')")" "3"
 $F < "$M_A" >/dev/null 2>&1
-check "fresh DB: migration re-applies after rollback" "$($F -c "select count(*) from information_schema.tables where table_schema='public' and table_name like 'hosted_invoice_creation%'")" "4"
+check "fresh DB: migration re-applies after rollback" "$($F -c "select count(*) from information_schema.tables where table_schema='public' and table_name like 'hosted_invoice_creation%'")" "5"
 $F -c "insert into public.studios values ('$SA','acct_aaa')" >/dev/null
 $F -c "create function public.d24_owns_x(uuid,text) returns boolean language sql stable as 'select true'" >/dev/null
 $F -c "select public.d24_register_business_object_type('event_fee','public.d24_owns_x(uuid,text)'::regprocedure)" >/dev/null

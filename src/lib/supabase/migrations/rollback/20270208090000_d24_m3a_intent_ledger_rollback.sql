@@ -1,20 +1,21 @@
 -- Rollback of 20270208090000_d24_m3a_intent_ledger.sql. REFUSES (unless `set d24.m3a_rollback_exported = 'yes';` was run in the same session AFTER exporting
--- hosted_invoice_creation_intents, hosted_invoice_creation_intent_events and hosted_invoice_creation_attempts) while any intent, event or attempt row exists: export first.
+-- hosted_invoice_creation_intents, hosted_invoice_creation_intent_events, hosted_invoice_creation_attempts and hosted_invoice_creation_orphans) while any intent, event, attempt or orphan row exists: export first.
 -- Stop the creation flow and the operator functions first (nothing may create invoices while the ledger is gone). Restores the M1 d24_register_invoice VERBATIM
 -- (caller-supplied account, per-account lock only): after this rollback the M2-A blockers are open again, so the creation integration must not run.
 -- Registry rows created through the ledger stay (they are M1 evidence). Registered business-object types and the safe-retry window config are dropped with their tables.
 begin;
 set local lock_timeout = '5s';
-lock table public.hosted_invoice_creation_intents, public.hosted_invoice_creation_intent_events, public.hosted_invoice_creation_attempts,
+lock table public.hosted_invoice_creation_intents, public.hosted_invoice_creation_intent_events, public.hosted_invoice_creation_attempts, public.hosted_invoice_creation_orphans,
   public.hosted_invoice_business_object_types, public.hosted_invoice_creation_config in access exclusive mode;
 do $$
 begin
   if (exists (select 1 from public.hosted_invoice_creation_intents) or exists (select 1 from public.hosted_invoice_creation_intent_events)
-      or exists (select 1 from public.hosted_invoice_creation_attempts))
+      or exists (select 1 from public.hosted_invoice_creation_attempts) or exists (select 1 from public.hosted_invoice_creation_orphans))
      and coalesce(current_setting('d24.m3a_rollback_exported', true), '') <> 'yes' then
     raise exception 'd24 m3a rollback refused: intent evidence exists; export it first';
   end if;
 end $$;
+drop function if exists public.d24_op_list_creation_orphans(integer);
 drop function if exists public.d24_op_list_creation_reviews(integer);
 drop function if exists public.d24_op_abandon_creation(uuid, text);
 drop function if exists public.d24_op_attach_creation_invoice(uuid, text, boolean, text, text);
@@ -32,6 +33,7 @@ drop function if exists public.d24_intent_mark_provider_created(uuid, uuid, text
 drop function if exists public.d24_intent_begin(uuid, text, text, text, text, uuid);
 drop index if exists public.hosted_invoice_registry_invoice_idx;
 drop table public.hosted_invoice_creation_attempts;
+drop table public.hosted_invoice_creation_orphans;
 drop table public.hosted_invoice_creation_intent_events;
 drop table public.hosted_invoice_creation_intents;
 drop table public.hosted_invoice_creation_config;
