@@ -132,6 +132,7 @@ const resetCreds = () =>
     delete from public.studio_sms_price_credential_changes; delete from public.studio_sms_price_credentials; set local tw4.priceauth_write = 'on';
     ${[[K1, "primary"], [K2, "spare"], [KR, "recovery"]].map(([k, role]) => `insert into public.studio_sms_price_credentials (credential_id, pub_x, pub_y, role, label, enrolled_via, enrolled_at) values (decode('${(k as SoftAuthenticator).hex.cred}', 'hex'), decode('${(k as SoftAuthenticator).hex.x}', 'hex'), decode('${(k as SoftAuthenticator).hex.y}', 'hex'), '${role}', 'real token ${role}', 'bootstrap', now() - interval '400 hours');`).join(" ")}
     update public.studio_sms_price_auth_config set frozen = false, frozen_at = null, freeze_reason = null, recovery_hold = false;
+    do $$ begin if to_regclass('public.studio_sms_price_security_events') is not null then execute 'update public.studio_sms_price_auth_config set monitor_seq_lifted = (select coalesce(max(seq), 0) from public.studio_sms_price_security_events)'; end if; end $$;
     alter table public.studio_sms_price_credentials enable always trigger studio_sms_price_credentials_guard; alter table public.studio_sms_price_credential_changes enable always trigger studio_sms_price_credential_changes_guard; commit;`);
 const clearRequests = () => {
   for (const r of psql(`select id || '|' || requested_by from public.studio_sms_price_change_requests where status = 'pending'`).split("\n").filter(Boolean)) {
