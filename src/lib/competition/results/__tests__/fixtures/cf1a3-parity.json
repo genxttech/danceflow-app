@@ -1,0 +1,265 @@
+[
+  {
+    "name": "excluded_precedence_r13",
+    "evidence": {
+      "heats": [
+        {
+          "heatId": "00000000-0000-0000-0000-cf1a300d1300",
+          "entryIds": [
+            "00000000-0000-0000-0000-cf1a30081304",
+            "00000000-0000-0000-0000-cf1a30081305"
+          ],
+          "officialIds": [
+            "058f9aac-025b-4224-99d3-eee097dbfcda",
+            "5b9eff12-68c8-48a4-a4aa-f396608580a4",
+            "e4a1d799-a6ae-424c-a0e6-46d967aec3bd"
+          ]
+        }
+      ],
+      "marks": [
+        {
+          "role": null,
+          "value": 1,
+          "heatId": "00000000-0000-0000-0000-cf1a300d1300",
+          "entryId": "00000000-0000-0000-0000-cf1a30081304",
+          "officialId": "e4a1d799-a6ae-424c-a0e6-46d967aec3bd"
+        },
+        {
+          "role": null,
+          "value": 2,
+          "heatId": "00000000-0000-0000-0000-cf1a300d1300",
+          "entryId": "00000000-0000-0000-0000-cf1a30081305",
+          "officialId": "e4a1d799-a6ae-424c-a0e6-46d967aec3bd"
+        }
+      ],
+      "round": {
+        "id": "00000000-0000-0000-0000-cf1a30061300",
+        "roundType": "final",
+        "advancementMethod": "none",
+        "targetAdvancementCount": null
+      },
+      "judges": [
+        {
+          "letter": "C",
+          "officialId": "058f9aac-025b-4224-99d3-eee097dbfcda"
+        },
+        {
+          "letter": "B",
+          "officialId": "5b9eff12-68c8-48a4-a4aa-f396608580a4"
+        },
+        {
+          "letter": "A",
+          "officialId": "e4a1d799-a6ae-424c-a0e6-46d967aec3bd"
+        }
+      ],
+      "ballots": [
+        {
+          "heatId": "00000000-0000-0000-0000-cf1a300d1300",
+          "version": 1,
+          "ballotId": "7a4e266c-0104-47b6-9322-11f9be184507",
+          "officialId": "e4a1d799-a6ae-424c-a0e6-46d967aec3bd"
+        }
+      ],
+      "entries": [
+        {
+          "entryId": "00000000-0000-0000-0000-cf1a30081301"
+        },
+        {
+          "entryId": "00000000-0000-0000-0000-cf1a30081302"
+        },
+        {
+          "entryId": "00000000-0000-0000-0000-cf1a30081303"
+        },
+        {
+          "entryId": "00000000-0000-0000-0000-cf1a30081304"
+        },
+        {
+          "entryId": "00000000-0000-0000-0000-cf1a30081305"
+        }
+      ],
+      "profile": {
+        "key": "studio_simple",
+        "version": 1
+      },
+      "danceIds": [
+        "waltz"
+      ],
+      "engineKey": "studio_ordinal_majority",
+      "markScheme": null,
+      "engineVersion": "1",
+      "finalCapacity": null,
+      "tieBreakChain": [],
+      "excludedEntries": [
+        {
+          "reason": "scratched",
+          "entryId": "00000000-0000-0000-0000-cf1a30081301"
+        },
+        {
+          "reason": "no_show",
+          "entryId": "00000000-0000-0000-0000-cf1a30081302"
+        },
+        {
+          "reason": "excluded",
+          "entryId": "00000000-0000-0000-0000-cf1a30081303"
+        }
+      ],
+      "chiefJudgeTiebreak": false,
+      "scoreRolesSeparately": false
+    },
+    "canonical": "{\"ballots\":[{\"ballotId\":\"7a4e266c-0104-47b6-9322-11f9be184507\",\"heatId\":\"00000000-0000-0000-0000-cf1a300d1300\",\"officialId\":\"e4a1d799-a6ae-424c-a0e6-46d967aec3bd\",\"version\":1}],\"chiefJudgeTiebreak\":false,\"danceIds\":[\"waltz\"],\"engineKey\":\"studio_ordinal_majority\",\"engineVersion\":\"1\",\"entries\":[{\"entryId\":\"00000000-0000-0000-0000-cf1a30081301\"},{\"entryId\":\"00000000-0000-0000-0000-cf1a30081302\"},{\"entryId\":\"00000000-0000-0000-0000-cf1a30081303\"},{\"entryId\":\"00000000-0000-0000-0000-cf1a30081304\"},{\"entryId\":\"00000000-0000-0000-0000-cf1a30081305\"}],\"excludedEntries\":[{\"entryId\":\"00000000-0000-0000-0000-cf1a30081301\",\"reason\":\"scratched\"},{\"entryId\":\"00000000-0000-0000-0000-cf1a30081302\",\"reason\":\"no_show\"},{\"entryId\":\"00000000-0000-0000-0000-cf1a30081303\",\"reason\":\"excluded\"}],\"finalCapacity\":null,\"heats\":[{\"entryIds\":[\"00000000-0000-0000-0000-cf1a30081304\",\"00000000-0000-0000-0000-cf1a30081305\"],\"heatId\":\"00000000-0000-0000-0000-cf1a300d1300\",\"officialIds\":[\"058f9aac-025b-4224-99d3-eee097dbfcda\",\"5b9eff12-68c8-48a4-a4aa-f396608580a4\",\"e4a1d799-a6ae-424c-a0e6-46d967aec3bd\"]}],\"judges\":[{\"letter\":\"C\",\"officialId\":\"058f9aac-025b-4224-99d3-eee097dbfcda\"},{\"letter\":\"B\",\"officialId\":\"5b9eff12-68c8-48a4-a4aa-f396608580a4\"},{\"letter\":\"A\",\"officialId\":\"e4a1d799-a6ae-424c-a0e6-46d967aec3bd\"}],\"markScheme\":null,\"marks\":[{\"entryId\":\"00000000-0000-0000-0000-cf1a30081304\",\"heatId\":\"00000000-0000-0000-0000-cf1a300d1300\",\"officialId\":\"e4a1d799-a6ae-424c-a0e6-46d967aec3bd\",\"role\":null,\"value\":1},{\"entryId\":\"00000000-0000-0000-0000-cf1a30081305\",\"heatId\":\"00000000-0000-0000-0000-cf1a300d1300\",\"officialId\":\"e4a1d799-a6ae-424c-a0e6-46d967aec3bd\",\"role\":null,\"value\":2}],\"profile\":{\"key\":\"studio_simple\",\"version\":1},\"round\":{\"advancementMethod\":\"none\",\"id\":\"00000000-0000-0000-0000-cf1a30061300\",\"roundType\":\"final\",\"targetAdvancementCount\":null},\"scoreRolesSeparately\":false,\"tieBreakChain\":[]}",
+    "input_hash": "d33f0a03e0e4411c097b7b252914315577bc4fb4f10c29a252a5ebc921237a44"
+  },
+  {
+    "name": "no_exclusion_r3",
+    "evidence": {
+      "heats": [
+        {
+          "heatId": "00000000-0000-0000-0000-cf1a300d0300",
+          "entryIds": [
+            "00000000-0000-0000-0000-cf1a30080301",
+            "00000000-0000-0000-0000-cf1a30080302",
+            "00000000-0000-0000-0000-cf1a30080303"
+          ],
+          "officialIds": [
+            "058f9aac-025b-4224-99d3-eee097dbfcda",
+            "5b9eff12-68c8-48a4-a4aa-f396608580a4",
+            "e4a1d799-a6ae-424c-a0e6-46d967aec3bd"
+          ]
+        }
+      ],
+      "marks": [
+        {
+          "role": null,
+          "value": 3,
+          "heatId": "00000000-0000-0000-0000-cf1a300d0300",
+          "entryId": "00000000-0000-0000-0000-cf1a30080301",
+          "officialId": "058f9aac-025b-4224-99d3-eee097dbfcda"
+        },
+        {
+          "role": null,
+          "value": 2,
+          "heatId": "00000000-0000-0000-0000-cf1a300d0300",
+          "entryId": "00000000-0000-0000-0000-cf1a30080302",
+          "officialId": "058f9aac-025b-4224-99d3-eee097dbfcda"
+        },
+        {
+          "role": null,
+          "value": 1,
+          "heatId": "00000000-0000-0000-0000-cf1a300d0300",
+          "entryId": "00000000-0000-0000-0000-cf1a30080303",
+          "officialId": "058f9aac-025b-4224-99d3-eee097dbfcda"
+        },
+        {
+          "role": null,
+          "value": 1,
+          "heatId": "00000000-0000-0000-0000-cf1a300d0300",
+          "entryId": "00000000-0000-0000-0000-cf1a30080301",
+          "officialId": "5b9eff12-68c8-48a4-a4aa-f396608580a4"
+        },
+        {
+          "role": null,
+          "value": 2,
+          "heatId": "00000000-0000-0000-0000-cf1a300d0300",
+          "entryId": "00000000-0000-0000-0000-cf1a30080302",
+          "officialId": "5b9eff12-68c8-48a4-a4aa-f396608580a4"
+        },
+        {
+          "role": null,
+          "value": 3,
+          "heatId": "00000000-0000-0000-0000-cf1a300d0300",
+          "entryId": "00000000-0000-0000-0000-cf1a30080303",
+          "officialId": "5b9eff12-68c8-48a4-a4aa-f396608580a4"
+        },
+        {
+          "role": null,
+          "value": 1,
+          "heatId": "00000000-0000-0000-0000-cf1a300d0300",
+          "entryId": "00000000-0000-0000-0000-cf1a30080301",
+          "officialId": "e4a1d799-a6ae-424c-a0e6-46d967aec3bd"
+        },
+        {
+          "role": null,
+          "value": 2,
+          "heatId": "00000000-0000-0000-0000-cf1a300d0300",
+          "entryId": "00000000-0000-0000-0000-cf1a30080302",
+          "officialId": "e4a1d799-a6ae-424c-a0e6-46d967aec3bd"
+        },
+        {
+          "role": null,
+          "value": 3,
+          "heatId": "00000000-0000-0000-0000-cf1a300d0300",
+          "entryId": "00000000-0000-0000-0000-cf1a30080303",
+          "officialId": "e4a1d799-a6ae-424c-a0e6-46d967aec3bd"
+        }
+      ],
+      "round": {
+        "id": "00000000-0000-0000-0000-cf1a30060300",
+        "roundType": "final",
+        "advancementMethod": "none",
+        "targetAdvancementCount": null
+      },
+      "judges": [
+        {
+          "letter": "C",
+          "officialId": "058f9aac-025b-4224-99d3-eee097dbfcda"
+        },
+        {
+          "letter": "B",
+          "officialId": "5b9eff12-68c8-48a4-a4aa-f396608580a4"
+        },
+        {
+          "letter": "A",
+          "officialId": "e4a1d799-a6ae-424c-a0e6-46d967aec3bd"
+        }
+      ],
+      "ballots": [
+        {
+          "heatId": "00000000-0000-0000-0000-cf1a300d0300",
+          "version": 1,
+          "ballotId": "6f123297-a8e1-41f9-a391-a6a3910a5a24",
+          "officialId": "e4a1d799-a6ae-424c-a0e6-46d967aec3bd"
+        },
+        {
+          "heatId": "00000000-0000-0000-0000-cf1a300d0300",
+          "version": 1,
+          "ballotId": "c7aeddf2-3af5-47ea-8fd1-9f0facdcb9ad",
+          "officialId": "5b9eff12-68c8-48a4-a4aa-f396608580a4"
+        },
+        {
+          "heatId": "00000000-0000-0000-0000-cf1a300d0300",
+          "version": 1,
+          "ballotId": "f4c6535d-2c7c-462e-9311-2f4d4b13f479",
+          "officialId": "058f9aac-025b-4224-99d3-eee097dbfcda"
+        }
+      ],
+      "entries": [
+        {
+          "entryId": "00000000-0000-0000-0000-cf1a30080301"
+        },
+        {
+          "entryId": "00000000-0000-0000-0000-cf1a30080302"
+        },
+        {
+          "entryId": "00000000-0000-0000-0000-cf1a30080303"
+        }
+      ],
+      "profile": {
+        "key": "studio_simple",
+        "version": 1
+      },
+      "danceIds": [
+        "waltz"
+      ],
+      "engineKey": "studio_ordinal_majority",
+      "markScheme": null,
+      "engineVersion": "1",
+      "finalCapacity": null,
+      "tieBreakChain": [],
+      "excludedEntries": [],
+      "chiefJudgeTiebreak": false,
+      "scoreRolesSeparately": false
+    },
+    "canonical": "{\"ballots\":[{\"ballotId\":\"6f123297-a8e1-41f9-a391-a6a3910a5a24\",\"heatId\":\"00000000-0000-0000-0000-cf1a300d0300\",\"officialId\":\"e4a1d799-a6ae-424c-a0e6-46d967aec3bd\",\"version\":1},{\"ballotId\":\"c7aeddf2-3af5-47ea-8fd1-9f0facdcb9ad\",\"heatId\":\"00000000-0000-0000-0000-cf1a300d0300\",\"officialId\":\"5b9eff12-68c8-48a4-a4aa-f396608580a4\",\"version\":1},{\"ballotId\":\"f4c6535d-2c7c-462e-9311-2f4d4b13f479\",\"heatId\":\"00000000-0000-0000-0000-cf1a300d0300\",\"officialId\":\"058f9aac-025b-4224-99d3-eee097dbfcda\",\"version\":1}],\"chiefJudgeTiebreak\":false,\"danceIds\":[\"waltz\"],\"engineKey\":\"studio_ordinal_majority\",\"engineVersion\":\"1\",\"entries\":[{\"entryId\":\"00000000-0000-0000-0000-cf1a30080301\"},{\"entryId\":\"00000000-0000-0000-0000-cf1a30080302\"},{\"entryId\":\"00000000-0000-0000-0000-cf1a30080303\"}],\"excludedEntries\":[],\"finalCapacity\":null,\"heats\":[{\"entryIds\":[\"00000000-0000-0000-0000-cf1a30080301\",\"00000000-0000-0000-0000-cf1a30080302\",\"00000000-0000-0000-0000-cf1a30080303\"],\"heatId\":\"00000000-0000-0000-0000-cf1a300d0300\",\"officialIds\":[\"058f9aac-025b-4224-99d3-eee097dbfcda\",\"5b9eff12-68c8-48a4-a4aa-f396608580a4\",\"e4a1d799-a6ae-424c-a0e6-46d967aec3bd\"]}],\"judges\":[{\"letter\":\"C\",\"officialId\":\"058f9aac-025b-4224-99d3-eee097dbfcda\"},{\"letter\":\"B\",\"officialId\":\"5b9eff12-68c8-48a4-a4aa-f396608580a4\"},{\"letter\":\"A\",\"officialId\":\"e4a1d799-a6ae-424c-a0e6-46d967aec3bd\"}],\"markScheme\":null,\"marks\":[{\"entryId\":\"00000000-0000-0000-0000-cf1a30080301\",\"heatId\":\"00000000-0000-0000-0000-cf1a300d0300\",\"officialId\":\"058f9aac-025b-4224-99d3-eee097dbfcda\",\"role\":null,\"value\":3},{\"entryId\":\"00000000-0000-0000-0000-cf1a30080302\",\"heatId\":\"00000000-0000-0000-0000-cf1a300d0300\",\"officialId\":\"058f9aac-025b-4224-99d3-eee097dbfcda\",\"role\":null,\"value\":2},{\"entryId\":\"00000000-0000-0000-0000-cf1a30080303\",\"heatId\":\"00000000-0000-0000-0000-cf1a300d0300\",\"officialId\":\"058f9aac-025b-4224-99d3-eee097dbfcda\",\"role\":null,\"value\":1},{\"entryId\":\"00000000-0000-0000-0000-cf1a30080301\",\"heatId\":\"00000000-0000-0000-0000-cf1a300d0300\",\"officialId\":\"5b9eff12-68c8-48a4-a4aa-f396608580a4\",\"role\":null,\"value\":1},{\"entryId\":\"00000000-0000-0000-0000-cf1a30080302\",\"heatId\":\"00000000-0000-0000-0000-cf1a300d0300\",\"officialId\":\"5b9eff12-68c8-48a4-a4aa-f396608580a4\",\"role\":null,\"value\":2},{\"entryId\":\"00000000-0000-0000-0000-cf1a30080303\",\"heatId\":\"00000000-0000-0000-0000-cf1a300d0300\",\"officialId\":\"5b9eff12-68c8-48a4-a4aa-f396608580a4\",\"role\":null,\"value\":3},{\"entryId\":\"00000000-0000-0000-0000-cf1a30080301\",\"heatId\":\"00000000-0000-0000-0000-cf1a300d0300\",\"officialId\":\"e4a1d799-a6ae-424c-a0e6-46d967aec3bd\",\"role\":null,\"value\":1},{\"entryId\":\"00000000-0000-0000-0000-cf1a30080302\",\"heatId\":\"00000000-0000-0000-0000-cf1a300d0300\",\"officialId\":\"e4a1d799-a6ae-424c-a0e6-46d967aec3bd\",\"role\":null,\"value\":2},{\"entryId\":\"00000000-0000-0000-0000-cf1a30080303\",\"heatId\":\"00000000-0000-0000-0000-cf1a300d0300\",\"officialId\":\"e4a1d799-a6ae-424c-a0e6-46d967aec3bd\",\"role\":null,\"value\":3}],\"profile\":{\"key\":\"studio_simple\",\"version\":1},\"round\":{\"advancementMethod\":\"none\",\"id\":\"00000000-0000-0000-0000-cf1a30060300\",\"roundType\":\"final\",\"targetAdvancementCount\":null},\"scoreRolesSeparately\":false,\"tieBreakChain\":[]}",
+    "input_hash": "195632424e30ded68d4338e44a8072e59998a13c6719915e96a6a11fda7ad259"
+  }
+]

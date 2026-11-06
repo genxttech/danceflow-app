@@ -21,6 +21,13 @@ export type EvidenceMark = {
   value: unknown;
 };
 
+/**
+ * Why an entry is listed in `excludedEntries` (precedence when several apply: scratched, then no_show, then excluded).
+ * "excluded" (CF1 A3, design 4.7): a couple who danced and was later excluded with a recorded reason. Its heat entry, ballots and marks
+ * are retained (it is still listed in `entries`) but it is not in any `heats[].entryIds` and receives no result row.
+ */
+export type EvidenceExclusionReason = "scratched" | "no_show" | "excluded";
+
 export type EvidenceHeat = { heatId: string; officialIds: string[]; entryIds: string[] };
 
 export type EvidenceInput = {
@@ -40,8 +47,8 @@ export type EvidenceInput = {
   finalCapacity: number | null;
   /** Every entry on the ballot heats, scratched ones included. */
   entries: Array<{ entryId: string }>;
-  /** X-5: scratched entries with no live heat entry in the round. */
-  excludedEntries: Array<{ entryId: string; reason: "scratched" | "no_show" }>;
+  /** X-5: scratched and no-show entries with no live heat entry in the round, plus (CF1 A3) couples excluded with a reason. */
+  excludedEntries: Array<{ entryId: string; reason: EvidenceExclusionReason }>;
   /** X-7: each ballot heat with the panel that judged it and its live entries. */
   heats: EvidenceHeat[];
   /** X-6: dances of the ballot heats. */
