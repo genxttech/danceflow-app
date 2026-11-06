@@ -14,6 +14,7 @@ const LAYERS = stackLayers();
 const STACK = LAYERS !== null;
 const has = (layer: string) => LAYERS?.includes(layer) ?? false;
 
+
 const PLATFORM_SECRET = "whsec_d24_m2d_platform_synthetic";
 const CONNECT_SECRET = "whsec_d24_m2d_connect_synthetic";
 const realStripe = new Stripe("sk_test_d24_m2d_not_a_real_key");
@@ -71,16 +72,33 @@ async function post(body: string, secret = PLATFORM_SECRET, sig: string | null =
   const res = await sigStore.run({ sig }, () => route!.POST(new Request("https://example.test/api/payments/webhook", { method: "POST", body })));
   return { status: res.status, text: await res.text() };
 }
+// M3-A registers ONLY under the studio's own connected account (platform scope / unbound accounts are refused), so with it loaded every scenario that used the old
+// platform-scope model runs the trusted model instead: the studio gets a bound account, the invoice is registered under it, and events for that invoice arrive as
+// Connect events under it. Without M3-A nothing changes. `scope` remembers which account an invoice id lives under; `bind` declares it before registration.
+const scope = new Map<string, string>();
+const acctOfStudio = (studio: string) => `acct_m3d${studio.slice(-4)}`;
+const bind = (invoice: string, studio: string) => { if (has("m3a")) scope.set(invoice, acctOfStudio(studio)); };
+const invoiceRefOf = (object: Record<string, unknown>) => String((object.object === "invoice" ? object.id : object.invoice) ?? "");
 const deliver = async (type: string, object: Record<string, unknown>, o: EnvOpts = {}) => {
+  const forcePlatform = o.account === "PLATFORM";   // F6: deliberately platform-scope, whatever the invoice's registered scope is
+  if (forcePlatform) o = { ...o, account: undefined };
+  else if (has("m3a") && !o.account && scope.has(invoiceRefOf(object))) o = { ...o, account: scope.get(invoiceRefOf(object)) };
   const e = envelope(type, object, o);
   const r = await post(e.body, o.account ? CONNECT_SECRET : PLATFORM_SECRET);
   return { ...r, id: e.id };
 };
 const claimRow = (eventId: string) => q(`select coalesce(status,'-')||'/'||coalesce(outcome,'-') from public.payment_provider_events where provider_event_id='${eventId}'`);
 
-const inv = (invoiceId: string, expr: string, acct = "") => q(`select ${expr} from public.hosted_invoices where stripe_invoice_id='${invoiceId}' and account_key='${acct}'`);
-const register = (studio: string, invoiceId: string, acct: string | null = null) =>
-  rpc("d24_register_invoice", { p_studio_id: studio, p_stripe_account_id: acct, p_stripe_invoice_id: invoiceId, p_livemode: false, p_business_object_type: "event_fee", p_business_object_id: `bo-${invoiceId}` });
+const inv = (invoiceId: string, expr: string, acct?: string) => q(`select ${expr} from public.hosted_invoices where stripe_invoice_id='${invoiceId}' and account_key='${acct ?? (has("m3a") ? scope.get(invoiceId) ?? "" : "")}'`);
+const register = async (studio: string, invoiceId: string, acct: string | null = null, livemode = false) => {
+  let account = acct;
+  if (has("m3a")) {
+    account = acct ?? scope.get(invoiceId) ?? acctOfStudio(studio);
+    await q(`update public.studios set stripe_connected_account_id='${account}' where id='${studio}'`);
+    if (!scope.has(invoiceId)) scope.set(invoiceId, account);
+  }
+  return rpc("d24_register_invoice", { p_studio_id: studio, p_stripe_account_id: account, p_stripe_invoice_id: invoiceId, p_livemode: livemode, p_business_object_type: "event_fee", p_business_object_id: `bo-${invoiceId}` });
+};
 const factTotals = () =>
   q(`select (select count(*) from public.hosted_invoices)||'/'||(select count(*) from public.hosted_invoice_payments)||'/'||(select count(*) from public.hosted_credit_notes)||'/'||(select count(*) from public.hosted_invoice_source_events)||'/'||(select count(*) from public.hosted_invoice_deferred_events)`);
 // M2-C revokes service_role execute on d24_drain_deferred (the bounded, singleton d24_run_drain replaces it), so drain through whatever the loaded stack exposes.
@@ -221,6 +239,7 @@ suite("D. ordering, adoption, duplicates and replays", () => {
   beforeEach(() => MODE("on"));
   it("D1 event BEFORE registration is kept unmatched (studio null), then registration adopts it", async () => {
     const invoice = `in_${nextId()}`;
+    bind(invoice, SA);
     const r = await deliver("invoice.voided", invoiceObj(invoice, "void"));
     expect(r.status).toBe(200);
     expect(await inv(invoice, "coalesce(studio_id::text,'NULL')||'/'||reconciliation_state")).toBe("NULL/unmatched");
@@ -403,6 +422,7 @@ suite("E. defer then drain (including concurrent drains)", () => {
   });
   it("E6 drains racing registration and live-route deliveries still attribute once and lose nothing", async () => {
     const invoice = `in_${nextId()}`;
+    bind(invoice, SA);
     const pays = Array.from({ length: 4 }, () => `inpay_${nextId()}`);
     for (const p of pays) await deliver("invoice_payment.paid", payObj(p, invoice, 50));
     MODE("on");
@@ -467,11 +487,15 @@ suite("F. cross-studio attribution and metadata-only ownership attempts", () => 
   it("F6 platform-scope event for a Connect-registered invoice stays unmatched; Connect event for a platform-registered invoice stays unmatched", async () => {
     const c = `in_${nextId()}`, p = `in_${nextId()}`;
     await register(SA, c, "acct_m2dconn2");
-    await register(SA, p, null);
-    await deliver("invoice.voided", invoiceObj(c, "void"));
-    await deliver("invoice.voided", invoiceObj(p, "void"), { account: "acct_m2dconn2" });
+    await deliver("invoice.voided", invoiceObj(c, "void"), { account: "PLATFORM" });
     expect(await inv(c, "coalesce(studio_id::text,'NULL')", "")).toBe("NULL");
-    expect(await inv(p, "coalesce(studio_id::text,'NULL')", "acct_m2dconn2")).toBe("NULL");
+    // the second half needs a PLATFORM-scope registration, which M3-A refuses by design (platform scope is no longer registrable): retired under m3a, replaced by
+    // F5/W7 (an event under another account never attributes) and O3/O4 (registration is account-bound)
+    if (!has("m3a")) {
+      await register(SA, p, null);
+      await deliver("invoice.voided", invoiceObj(p, "void"), { account: "acct_m2dconn2" });
+      expect(await inv(p, "coalesce(studio_id::text,'NULL')", "acct_m2dconn2")).toBe("NULL");
+    }
   });
   it("F7 child facts of an unmatched invoice never carry a studio; of a registered invoice always the invoice's studio", async () => {
     const reg = `in_${nextId()}`, unreg = `in_${nextId()}`;
@@ -575,15 +599,16 @@ suite("H. evidence integrity and scope", () => {
     expect(await q(`select payload_mismatch from public.hosted_invoice_deferred_events where provider_event_id='${id}'`)).toBe("t");
   });
   it("H3 the D24 schema (M1 plus loaded layers) creates only hosted_* tables on top of the reconstructed base: no settlement, ledger, refund or credit table exists to be written", async () => {
-    expect(await q("select coalesce(string_agg(table_name, ',' order by table_name),'') from information_schema.tables where table_schema='public' and table_name not like 'hosted\\_%' and table_name not in ('studios','payment_provider_events','studio_invoices','profiles','user_studio_roles')")).toBe("");
+    const extra = has("m3c") ? " and table_name not in ('clients','appointments','events','payments') and table_name not like 'studio\_client\_invoice%'" : "";   // M3-C adds its business-object tables; clients/appointments/events/payments are reconstructed base stubs
+    expect(await q(`select coalesce(string_agg(table_name, ',' order by table_name),'') from information_schema.tables where table_schema='public' and table_name not like 'hosted\\_%' and table_name not in ('studios','payment_provider_events','studio_invoices','profiles','user_studio_roles','qa_event_fee')${extra}`)).toBe("");
   });
 });
 
 suite("I. identity replay, scope, livemode and ordering edge cases (review gaps)", () => {
   beforeEach(() => MODE("on"));
-  it("I1 an invoice-payment id replayed under a DIFFERENT invoice/studio stays with its first invoice and flags the second invoice", async () => {
+  it("I1 an invoice-payment id replayed under a DIFFERENT invoice stays with its first invoice and flags the second invoice (M3-A: both invoices of the same studio and account; the cross-studio form cannot exist because an account belongs to one studio, see O4)", async () => {
     const a = `in_${nextId()}`, b = `in_${nextId()}`, pay = `inpay_${nextId()}`;
-    await register(SA, a); await register(SB, b);
+    await register(SA, a); await register(has("m3a") ? SA : SB, b);
     expect((await deliver("invoice_payment.paid", payObj(pay, a, 10))).status).toBe(200);
     expect((await deliver("invoice_payment.paid", payObj(pay, b, 10))).status).toBe(200);
     expect(await q(`select i.stripe_invoice_id||'/'||p.studio_id from public.hosted_invoice_payments p join public.hosted_invoices i on i.id=p.invoice_row_id where p.stripe_invoice_payment_id='${pay}'`)).toBe(`${a}/${SA}`);
@@ -591,9 +616,9 @@ suite("I. identity replay, scope, livemode and ordering edge cases (review gaps)
     expect(await inv(b, "anomaly_codes @> array['invoice_payment_conflict']")).toBe("t");
     expect(await inv(a, "anomaly_codes @> array['invoice_payment_conflict']")).toBe("f");
   });
-  it("I2 a credit-note id replayed under a DIFFERENT invoice/studio stays with its first invoice and flags the second invoice", async () => {
+  it("I2 a credit-note id replayed under a DIFFERENT invoice stays with its first invoice and flags the second invoice (M3-A: both invoices of the same studio and account, see I1)", async () => {
     const a = `in_${nextId()}`, b = `in_${nextId()}`, cn = `cn_${nextId()}`;
-    await register(SA, a); await register(SB, b);
+    await register(SA, a); await register(has("m3a") ? SA : SB, b);
     await deliver("credit_note.created", noteObj(cn, a));
     await deliver("credit_note.created", noteObj(cn, b));
     expect(await q(`select i.stripe_invoice_id||'/'||c.studio_id from public.hosted_credit_notes c join public.hosted_invoices i on i.id=c.invoice_row_id where c.stripe_credit_note_id='${cn}'`)).toBe(`${a}/${SA}`);
@@ -607,7 +632,7 @@ suite("I. identity replay, scope, livemode and ordering edge cases (review gaps)
   });
   it("I4 a registry/event livemode mismatch still attributes by registry but flags livemode_mismatch and needs review", async () => {
     const invoice = `in_${nextId()}`;
-    expect((await rpc("d24_register_invoice", { p_studio_id: SA, p_stripe_account_id: null, p_stripe_invoice_id: invoice, p_livemode: true, p_business_object_type: "event_fee", p_business_object_id: `bo-${invoice}` })).error).toBeNull();
+    expect((await register(SA, invoice, null, true)).error).toBeNull();
     await deliver("invoice.voided", invoiceObj(invoice, "void"));
     expect(await inv(invoice, "(anomaly_codes @> array['livemode_mismatch'])::text||'/'||reconciliation_state")).toBe("true/anomalous");
   });
@@ -629,49 +654,55 @@ suite("I. identity replay, scope, livemode and ordering edge cases (review gaps)
 
 suite("K. composed: a drain holding a key lock versus a live webhook apply (needs M2-C lock_timeout)", () => {
   const T = (name: string, fn: () => Promise<void>) => (has("m2c") ? it(name, fn) : it.skip(`BLOCKED(m2c not loaded) ${name}`, () => undefined));
-  T("K1 live apply blocked behind a drain's key lock returns 500 after the ~3s lock_timeout (well below the 8s hold) with nothing written and the claim failed; redelivery then applies exactly once", async () => {
+  T("K1 live apply blocked behind a drain's key lock returns 500 after the ~3s lock_timeout while the drain is STILL holding the lock, with nothing written and the claim failed; redelivery then applies exactly once", async () => {
     const invoice = `in_${nextId()}`;
     await register(SA, invoice);
-    // 1. a deferred event for the invoice, and a trigger that makes its apply hold the invoice's key lock for ~8s
+    // 1. a deferred event for the invoice, and a trigger that makes its apply hold the invoice's key lock until the TEST releases it (a control row, capped at 2 min).
+    //    The hold is deliberately not a fixed sleep: this suite's RPCs are docker execs whose latency varies from 0.3 s to 6 s with machine load, so any fixed hold can expire before the live delivery reaches the database.
     MODE("defer");
     const held = await deliver("invoice_payment.paid", payObj(`inpay_${nextId()}`, invoice, 111));
     expect(await claimRow(held.id)).toBe("processed/d24_deferred");
-    await q(`create or replace function public._m2d_hold() returns trigger language plpgsql as $$ begin if new.provider_event_id = '${held.id}' then perform pg_sleep(8); end if; return new; end $$;
+    await q(`drop table if exists public.m2d_hold_ctl; create table public.m2d_hold_ctl (hold boolean not null); insert into public.m2d_hold_ctl values (true);
+             create or replace function public._m2d_hold() returns trigger language plpgsql as $$ declare n int := 0; begin if new.provider_event_id = '${held.id}' then while n < 600 and (select hold from public.m2d_hold_ctl) loop perform pg_sleep(0.2); n := n + 1; end loop; end if; return new; end $$;
              create trigger m2d_hold before insert on public.hosted_invoice_source_events for each row execute function public._m2d_hold();`);
     try {
       // 2. the drain starts (not awaited) and takes the key lock inside d24_apply_core
-      const drainP = rpc("d24_run_drain", { p_batch_size: 10, p_trigger: "manual" });
-      for (let i = 0; i < 40; i++) {
-        if (Number(await q("select count(*) from pg_stat_activity where state='active' and query like '%d24_run_drain%' and pid<>pg_backend_pid()")) > 0) break;
-        await new Promise((r) => setTimeout(r, 250));
+      let drainDone = false;
+      const drainP = rpc("d24_run_drain", { p_batch_size: 10, p_trigger: "manual" }).catch((e: unknown) => ({ data: null, error: { code: "XX000", message: String(e) } })).finally(() => { drainDone = true; });
+      // wait until the drain is demonstrably INSIDE the trigger's sleep (so it already holds the key lock), however slow docker is
+      let holding = false;
+      for (let i = 0; i < 480 && !holding; i++) {
+        holding = Number(await q("select count(*) from pg_stat_activity where query like '%d24_run_drain%' and wait_event = 'PgSleep' and pid<>pg_backend_pid()")) > 0;
+        if (!holding) await new Promise((r) => setTimeout(r, 250));
       }
-      await new Promise((r) => setTimeout(r, 1000));
+      expect(holding).toBe(true);
       // 3. a live delivery for the same invoice arrives while the lock is held
       MODE("on");
       const pay = `inpay_${nextId()}`;
-      const live = envelope("invoice_payment.paid", payObj(pay, invoice, 222));
-      const t0 = Date.now();
-      const res = await post(live.body);
-      const elapsed = Date.now() - t0;
+      const liveAccount = has("m3a") ? scope.get(invoice) : undefined;   // the lock is per (account, invoice): the live event must share the drained event's scope
+      const live = envelope("invoice_payment.paid", payObj(pay, invoice, 222), liveAccount ? { account: liveAccount } : {});
+      const res = await post(live.body, liveAccount ? CONNECT_SECRET : PLATFORM_SECRET);
+      // The drain is released only AFTER this assertion, so a 500 can only come from the live apply's own lock_timeout; without that bound the apply would
+      // wait for the hold (which only the test ends) and the POST would never return. No wall-clock threshold is involved.
+      expect(drainDone).toBe(false);
       expect(res.status).toBe(500);
-      // the DB wait is ~3s (lock_timeout); each RPC is a docker exec (claim, apply, complete), so allow overhead but stay below the 8s lock hold:
-      // without a lock_timeout the apply would simply wait out the hold and return 200 instead of 500
-      expect(elapsed).toBeLessThan(7500);
       expect((await claimRow(live.id)).startsWith("failed")).toBe(true);
       expect(await q(`select count(*) from public.hosted_invoice_payments where stripe_invoice_payment_id='${pay}'`)).toBe("0");
       expect(await q(`select count(*) from public.hosted_invoice_source_events where provider_event_id='${live.id}'`)).toBe("0");
+      await q("update public.m2d_hold_ctl set hold = false");   // release the drain; it now completes and applies the deferred event
       const dr = await drainP;
       expect(dr.error).toBeNull();
       // 4. Stripe-style redelivery of the same event after the lock is gone applies exactly once
-      const again = await post(live.body);
+      const again = await post(live.body, liveAccount ? CONNECT_SECRET : PLATFORM_SECRET);
       expect(again.status).toBe(200);
       expect(await claimRow(live.id)).toBe("processed/d24_applied_matched");
       expect(await q(`select count(*)||'/'||max(amount_paid) from public.hosted_invoice_payments where stripe_invoice_payment_id='${pay}'`)).toBe("1/222");
       expect(await q(`select count(*) from public.hosted_invoice_source_events where provider_event_id='${live.id}'`)).toBe("1");
-      expect((await post(live.body)).text).toBe("Already processed");
+      expect((await post(live.body, liveAccount ? CONNECT_SECRET : PLATFORM_SECRET)).text).toBe("Already processed");
       expect(await q(`select state from public.hosted_invoice_deferred_events where provider_event_id='${held.id}'`)).toBe("applied");
     } finally {
-      await q("drop trigger if exists m2d_hold on public.hosted_invoice_source_events; drop function if exists public._m2d_hold();");
+      await q("update public.m2d_hold_ctl set hold = false").catch(() => undefined);
+      await q("drop trigger if exists m2d_hold on public.hosted_invoice_source_events; drop function if exists public._m2d_hold(); drop table if exists public.m2d_hold_ctl;");
     }
   });
 });
@@ -702,8 +733,9 @@ describe("M2A. registration (M2-A database contract)", () => {
     expect(await inv(invoice, "studio_id::text", "acct_m2dreg2")).toBe(SA);
     expect(await q(`select count(*) from public.hosted_invoices where stripe_invoice_id='${invoice}'`)).toBe("1");
   });
-  it.skip("BLOCKED(no production resolver exists: M2-A fails closed with business_object_type_unsupported) app issues an invoice -> registry row created atomically with the business object", () => undefined);
-  it.skip("BLOCKED(no production caller authorizes a studio yet) registration for a studio the caller does not own is refused end to end", () => undefined);
+  // The two end-to-end scenarios that were BLOCKED here ("app issues an invoice -> registry row created atomically with the business object" and
+  // "registration for a studio the caller does not own is refused end to end") live in m3.test.ts (section M2A-CONV): they need the M3-A SQL + M3-B
+  // orchestrator and report BLOCKED(<layer> not loaded) until those layers are loaded.
 });
 
 describe("Z. stack availability", () => {
