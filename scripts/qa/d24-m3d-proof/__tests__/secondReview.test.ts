@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -142,7 +142,7 @@ describe("P2-3 / third review: evidence is exclusive-create, written into the re
         link,
         { runId: "swap0001", mode: "dry-run", outcome: "OK", scriptSha256: "a".repeat(64), apiVersionPinned: "v", apiVersionsReported: [], callsUsed: 1, blocked: 0, scenarios: [], verdicts: {}, cleanup: {}, abort: null, transcriptText: "t", finishedUtc: "t" },
         REPO,
-        { onBeforeWrite: () => { rmdirSync(link); symlinkSync(repoScripts, link, "junction"); } }, // the swap happens AFTER every check
+        { onBeforeWrite: () => { rmSync(link, { force: true }); symlinkSync(repoScripts, link, "junction"); } }, // the swap happens AFTER every check (rmSync removes a link on Windows and on Linux alike)
       );
       expect(readdirSync(real).sort()).toEqual(["evidence-swap0001.json", "transcript-swap0001.txt"]);
       expect(stray()).toEqual([]);
