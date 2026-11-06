@@ -5,7 +5,7 @@
  *   NODE_PATH=<a node_modules containing @supabase/supabase-js> node scripts/release/d7_dev_smoke_fixture.cjs create  <out.json>
  *   ... verify  <out.json>        # database-level checks of the D7 migrations using the fixture (does not change the fixture)
  *   ... lapse   <out.json> [YYYY-MM-DD]   # sets the grant's period_end (default: yesterday) so the lapsed-grant smoke cases can run
- *   ... connect <out.json>       # marks the studio payout-ready with a PLACEHOLDER (non-existent) Stripe account id so free registrations can run
+ *   ... connect <out.json> [acct_...]  # marks the studio payout-ready with a PLACEHOLDER (non-existent) Stripe account id so free registrations can run
  *   ... restore <out.json>        # makes the grant open-ended and active again
  *   ... cleanup <out.json>        # deletes exactly this run's rows (by ids) and its auth users; checks every delete
  *
@@ -204,12 +204,14 @@ async function verify(admin, cfg, outFile) {
   if (failed.length) process.exitCode = 1;
 }
 
-async function connect(admin, outFile) {
+async function connect(admin, outFile, accountId) {
   // The public cart checkout refuses ANY registration (even $0) until the studio looks payout-ready. A placeholder account id that
   // does not exist at Stripe is used on purpose: free flows never call Stripe, and any paid flow fails safely at Stripe.
   const f = JSON.parse(fs.readFileSync(outFile, "utf8"));
-  await must(admin.from("studios").update({ stripe_connected_account_id: `acct_d7smoke${f.runId}`, stripe_connect_charges_enabled: true, stripe_connect_payouts_enabled: true, stripe_connect_onboarding_complete: true }).eq("id", f.studioId), "connect flags");
-  console.log(`studio ${f.studioId} marked payout-ready with placeholder account acct_d7smoke${f.runId} (not a real Stripe account)`);
+  if (accountId && !/^acct_[A-Za-z0-9]+$/.test(accountId)) throw new Error("invalid account id");
+  await must(admin.from("studios").update({ stripe_connected_account_id: accountId || `acct_d7smoke${f.runId}`, stripe_connect_charges_enabled: true, stripe_connect_payouts_enabled: true, stripe_connect_onboarding_complete: true }).eq("id", f.studioId), "connect flags");
+  if (accountId && !/^acct_[A-Za-z0-9]+$/.test(accountId)) throw new Error("invalid account id");
+  console.log(accountId ? `studio ${f.studioId} linked to the existing Stripe TEST connected account ${accountId}` : `studio ${f.studioId} marked payout-ready with placeholder account acct_d7smoke${f.runId} (not a real Stripe account)`);
 }
 
 async function setPeriodEnd(admin, outFile, date) {
@@ -226,7 +228,7 @@ async function setPeriodEnd(admin, outFile, date) {
   if (cmd === "create") return create(admin, outFile);
   if (cmd === "verify") return verify(admin, cfg, outFile);
   if (cmd === "lapse") return setPeriodEnd(admin, outFile, arg || new Date(Date.now() - 86_400_000).toISOString().slice(0, 10));
-  if (cmd === "connect") return connect(admin, outFile);
+  if (cmd === "connect") return connect(admin, outFile, arg);
   if (cmd === "restore") return setPeriodEnd(admin, outFile, null);
   if (cmd === "cleanup") return cleanup(admin, outFile, false);
   throw new Error("unknown command " + cmd);
