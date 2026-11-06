@@ -131,13 +131,14 @@ check "the permission helper is callable by authenticated only" "$(q "select has
 check "every SECURITY DEFINER sci/d24-owner function pins its search_path" "$(q "select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and (p.proname like '%sci%' or p.proname like 'studio_%' or p.proname='d24_owns_studio_client_invoice') and p.prosecdef and not coalesce(p.proconfig::text like '%search_path=%', false)")" "0"
 check "the type is registered with M3-A and has no 'subscription' in its name" "$(q "select business_object_type from public.hosted_invoice_business_object_types where business_object_type like 'studio_client%'")" "studio_client_invoice"
 check "the ownership function is STABLE" "$(q "select provolatile from pg_proc where proname='d24_owns_studio_client_invoice'")" "s"
-check "limits ship NULL (fail closed)" "$(q "select coalesce(min_total_cents::text,'null')||'/'||coalesce(max_total_cents::text,'null') from public.studio_client_invoice_limits")" "null/null"
+check "limits are seeded with the owner-approved initial values" "$(q "select coalesce(min_total_cents::text,'null')||'/'||coalesce(max_total_cents::text,'null')||'/'||max_lines||'/'||max_quantity from public.studio_client_invoice_limits")" "500/500000/25/1000"
 check "no payment-URL / finalize / send / paid column exists" "$(q "select count(*) from information_schema.columns where table_name like 'studio_client_invoice%' and (column_name ~ 'url|hosted|finalized|sent|paid|settle|payment_id')")" "0"
 check "no settlement/payment row types are written by this migration (no FK to payments)" "$(q "select count(*) from pg_constraint where conrelid::regclass::text like 'studio_client_invoice%' and confrelid::regclass::text in ('payments','hosted_invoice_payments')")" "0"
 
 # 2. fail closed until the owner supplies the ceiling ------------------------------------------------------------------------------
 K0=$(NEWKEY)
-has "no limits configured: owner draft refused" "$(aust $UO "$(sv $UO $SA $K0 null null $CA1 "$LINE")")" "STATE 55000 client_invoice_limits_not_configured"
+q "update public.studio_client_invoice_limits set min_total_cents = null, max_total_cents = null" >/dev/null   # simulate a missing/blank configuration
+has "NULL limits (fail closed): owner draft refused" "$(aust $UO "$(sv $UO $SA $K0 null null $CA1 "$LINE")")" "STATE 55000 client_invoice_limits_not_configured"
 check "...and nothing was written" "$(q "select count(*) from public.studio_client_invoices")" "0"
 has "limits cannot be set by service_role" "$(try "set role service_role; update public.studio_client_invoice_limits set min_total_cents=100, max_total_cents=1000")" "permission denied"
 has "limits cannot be set by authenticated" "$(au $UO "update public.studio_client_invoice_limits set min_total_cents=100, max_total_cents=1000")" "permission denied"
@@ -184,7 +185,10 @@ bad "unit price as a string" '[{"description":"x","quantity":1,"unit_price_cents
 bad "unit price above the ceiling" '[{"description":"x","quantity":1,"unit_price_cents":500001}]' "22023 client_invoice_amount_invalid"
 bad "quantity x price above the ceiling" '[{"description":"x","quantity":101,"unit_price_cents":5000}]' "22023 client_invoice_amount_invalid"
 bad "sum of lines above the ceiling" '[{"description":"a","quantity":1,"unit_price_cents":300000},{"description":"b","quantity":1,"unit_price_cents":300000}]' "22023 client_invoice_total_out_of_range"
-bad "total below the floor" '[{"description":"x","quantity":1,"unit_price_cents":499}]' "22023 client_invoice_total_out_of_range"
+bad "one cent over the ceiling (500001)" '[{"description":"x","quantity":1,"unit_price_cents":500001}]' "22023 client_invoice_amount_invalid"
+bad "sum one cent over the ceiling" '[{"description":"a","quantity":1,"unit_price_cents":250000},{"description":"b","quantity":1,"unit_price_cents":250001}]' "22023 client_invoice_total_out_of_range"
+bad "adjustment line: negative price" '[{"description":"discount","quantity":1,"unit_price_cents":-500}]' "22023 client_invoice_amount_invalid"
+bad "adjustment line: zero price" '[{"description":"fee","quantity":1,"unit_price_cents":0}]' "22023 client_invoice_amount_invalid"
 bad "numeric overflow (1e30)" '[{"description":"x","quantity":1,"unit_price_cents":1e30}]' "22023 client_invoice_amount_invalid"
 bad "empty line list" '[]' "22023 client_invoice_line_count_invalid"
 bad "26 lines (max_lines 25)" "$(q "select jsonb_agg(jsonb_build_object('description','l'||g,'quantity',1,'unit_price_cents',500))::text from generate_series(1,26) g")" "22023 client_invoice_line_count_invalid"
@@ -196,10 +200,16 @@ bad "control character in a description" '[{"description":"a\u0007b","quantity":
 bad "unknown key (forged id)" '[{"description":"x","quantity":1,"unit_price_cents":1000,"stripe_invoice_id":"in_x"}]' "22023 client_invoice_lines_invalid"
 bad "forged line_total_cents" '[{"description":"x","quantity":2,"unit_price_cents":1000,"line_total_cents":1}]' "22023 client_invoice_lines_invalid"
 bad "line is not an object" '[7]' "22023 client_invoice_lines_invalid"
+R=$(au $UO "select $(sv $UO $SA $(NEWKEY) null null $CA1 '[{"description":"incomplete","quantity":1,"unit_price_cents":499}]')")
+check "OWNER POLICY: an incomplete draft one cent below the minimum (499) saves" "$(jf "$R" outcome)/$(jf "$R" total_cents)" "created/499"
+INV499=$(jf "$R" invoice_id)
+check "...but it cannot become a provider spec (creation_spec NULL below 500)" "$(q "select coalesce(public.studio_client_invoice_creation_spec('$INV499','$SA')::text,'null')")" "null"
 R=$(au $UO "select $(sv $UO $SA $(NEWKEY) null null $CA1 '[{"description":"floor","quantity":1,"unit_price_cents":500}]')")
-check "total exactly at the floor is accepted" "$(jf "$R" total_cents)" "500"
+check "total exactly at the floor (500) is accepted" "$(jf "$R" total_cents)" "500"
+check "...and exactly 500 DOES produce a provider spec" "$(q "select (public.studio_client_invoice_creation_spec('$(jf "$R" invoice_id)','$SA'))->>'total_cents'")" "500"
 R=$(au $UO "select $(sv $UO $SA $(NEWKEY) null null $CA1 '[{"description":"ceiling","quantity":1,"unit_price_cents":500000}]')")
-check "total exactly at the ceiling is accepted" "$(jf "$R" total_cents)" "500000"
+check "total exactly at the ceiling (500000) is accepted" "$(jf "$R" total_cents)" "500000"
+check "...and exactly 500000 DOES produce a provider spec" "$(q "select (public.studio_client_invoice_creation_spec('$(jf "$R" invoice_id)','$SA'))->>'total_cents'")" "500000"
 R=$(au $UO "select $(sv $UO $SA $(NEWKEY) null null $CA1 '[{"description":"a","quantity":3,"unit_price_cents":1999},{"description":"b","quantity":10,"unit_price_cents":333}]')")
 check "multi-line arithmetic: 3*1999 + 10*333 = 9327" "$(jf "$R" total_cents)/$(jf "$R" line_count)" "9327/2"
 check "stored lines agree with the stored total (DB-computed, line positions 1..n)" "$(q "select sum(line_total_cents)||'/'||string_agg(position::text, ',' order by position) from public.studio_client_invoice_lines where invoice_id='$(jf "$R" invoice_id)'")" "9327/1,2"

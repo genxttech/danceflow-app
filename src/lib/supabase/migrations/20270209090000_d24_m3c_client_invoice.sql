@@ -10,7 +10,7 @@
 --   * Decision D4: statuses 'draft' and 'provider_draft_created' only. Finalize / send / pay link / collection / void are designed (docs) but have no column value,
 --     no function and no grant here. A draft has no payment URL (there is no such column).
 --   * Decision D5: USD, integer cents, positive amounts, quantity bounds, bounded line count, stored total = sum of lines (constraint trigger), and FAIL-CLOSED limits:
---     studio_client_invoice_limits ships with NULL min/max, which refuses every draft until the owner supplies the numbers (migration/owner only; no API role can write).
+--     studio_client_invoice_limits is seeded with the OWNER-APPROVED initial values 500 / 500000 cents (initial launch limits, not permanent pricing; changeable only by the migration owner; no API role can write). NULL or a missing row refuses every draft (fail closed).
 --   * Registers the ownership function for business object type 'studio_client_invoice' with the M3-A registry (public.d24_owns_studio_client_invoice).
 -- Requires: 20270208090000 (M3-A), public.studios / clients / user_studio_roles, auth.uid()/auth.jwt().
 -- Rollback: rollback/20270209090000_d24_m3c_client_invoice_rollback.sql (export-gated). Contract: docs/billing/D24-M3C-CLIENT-INVOICE.md
@@ -35,7 +35,7 @@ end $$;
 -- Tables
 -- ---------------------------------------------------------------------------------------------------------------------
 
--- Fail-closed limits. Singleton. NULL min/max = no draft can be saved. No API role can write; only the migration owner (owner decision, documented procedure).
+-- Fail-closed limits. Singleton. NULL min/max (or a missing row) = no draft can be saved. The MAX bounds every saved total; the MIN applies when a provider spec is produced (creation_spec), so an incomplete draft below the minimum may be saved. No API role can write; only the migration owner (owner decision, documented procedure).
 create table public.studio_client_invoice_limits (
   singleton boolean primary key default true check (singleton),
   min_total_cents bigint,
@@ -49,7 +49,8 @@ create table public.studio_client_invoice_limits (
   constraint sci_limits_lines_chk check (max_lines between 1 and 100),
   constraint sci_limits_qty_chk check (max_quantity between 1 and 100000)
 );
-insert into public.studio_client_invoice_limits (singleton) values (true);
+-- Owner-approved initial values: minimum finalized payable invoice $5.00, maximum $5,000.00 (USD only). Creation itself stays OFF behind D24_HOSTED_INVOICE_CREATION.
+insert into public.studio_client_invoice_limits (singleton, min_total_cents, max_total_cents) values (true, 500, 500000);
 
 create table public.studio_client_invoices (
   id uuid primary key default gen_random_uuid(),
@@ -411,7 +412,7 @@ begin
     v_out := v_out || jsonb_build_array(jsonb_build_object('pos', i, 'description', v_desc, 'quantity', v_qty::integer,
       'unit_price_cents', v_unit::bigint, 'line_total_cents', (v_qty * v_unit)::bigint));
   end loop;
-  if v_total < v_lim.min_total_cents then raise exception 'client_invoice_total_out_of_range' using errcode = '22023'; end if;
+  -- no minimum here: an incomplete draft below min_total_cents may be saved; studio_client_invoice_creation_spec refuses to produce a provider spec below it
   return v_out;
 end $$;
 

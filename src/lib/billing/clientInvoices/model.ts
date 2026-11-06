@@ -148,7 +148,7 @@ export function parseCreationState(value: unknown): ClientInvoiceCreationState {
 export function clientInvoiceErrorMessage(raw: string | null | undefined, code?: string | null): string {
   const m = String(raw ?? "");
   const table: Array<[string, string]> = [
-    ["client_invoice_limits_not_configured", "Client invoices are not turned on for DanceFlow yet. Invoice amount limits have not been set."],
+    ["client_invoice_limits_not_configured", "Client invoices are not available right now. Invoice amount limits are not configured."],
     ["client_invoice_forbidden", "Only the studio owner or an admin can create or edit client invoices."],
     ["client_invoice_authentication_required", "Please sign in again."],
     ["client_invoice_session_expired", "Your session expired. Please sign in again."],
@@ -157,7 +157,7 @@ export function clientInvoiceErrorMessage(raw: string | null | undefined, code?:
     ["client_invoice_not_found", "That invoice was not found."],
     ["client_invoice_client_not_in_studio", "Choose one of your studio's clients."],
     ["client_invoice_reference_not_in_studio", "The linked record does not belong to your studio."],
-    ["client_invoice_total_out_of_range", "The invoice total is outside the allowed range."],
+    ["client_invoice_total_out_of_range", "The invoice total is above the maximum allowed for a client invoice."],
     ["client_invoice_amount_invalid", "A line amount is outside the allowed range."],
     ["client_invoice_quantity_invalid", "A line quantity is outside the allowed range."],
     ["client_invoice_line_count_invalid", "The number of lines is outside the allowed range."],
