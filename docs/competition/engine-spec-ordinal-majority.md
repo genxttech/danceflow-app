@@ -158,6 +158,9 @@ mirrored by the K0 contract owner; this spec does not edit `contract.ts`).
 | V12 | Input spans more than one dance | The engine is run once per dance (**X-6**, approved 2026-10-24); a combined result across dances is not supported and fails closed (`COMP_ENGINE_UNSPECIFIED_CASE`) | X-6 |
 | V13 | A scratched / no-show entry (10D) is in `entries[]` | Excluded from the calculation before ranking and recorded in the trace (**X-5**, approved 2026-10-24); never placed last. A ballot that still ranks an excluded entry is no longer a full 1…N ranking (D-OM-5, approved), so V7/V8 reject it until a corrected ballot version is entered | X-5 |
 | V14 | Entries still tied after chain step (3) | Not a failure: they share the placement (`tie_group`) per **D-OM-3** | D-OM-3 |
+| V15 | Every calculated entry is in exactly one heat of the context (an excluded entry may stay on a roster) | `COMP_ENGINE_INVALID_INPUT`, reason `entry_heat_coverage`; runs after V11/V12 so approved refusals keep their reason | F1 fail-closed addition (review of PR 337, P2-4); OD-F1-2 |
+| V16 | Input size caps, checked before hashing | `COMP_ENGINE_INVALID_INPUT`, reason `input_too_large` | F1 fail-closed addition (review of PR 337, P2-3); OD-F1-3 |
+| V17 | Profile is not `studio_simple@1` or `@3` | `COMP_ENGINE_UNSPECIFIED_CASE`, reason `profile_unsupported` (**X-1** scope `@1`/`@3`; **X-2** fail closed) | X-1, X-2; OD-F1-1 |
 
 ## 8. Determinism and trace
 

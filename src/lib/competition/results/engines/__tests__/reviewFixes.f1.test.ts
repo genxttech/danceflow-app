@@ -133,3 +133,39 @@ describe("P2-4 every calculated entry is in exactly one heat", () => {
     expect(split.reason).not.toBe("entry_heat_coverage");
   });
 });
+
+describe("contract alignment: approved refusals win over the coverage check; profile allow-list is @1/@3 only (X-1)", () => {
+  const cb = () => callbackInput(F01, ENTRIES, 4, 8);
+  it("a multi-dance round whose entries sit on two heats reports X-6 multi_dance_unsupported, not entry_heat_coverage", () => {
+    const input = cb();
+    const all = input.context.heats[0].entryIds;
+    const f = expectFail(
+      runStudioCallbackTally({
+        ...input,
+        context: { ...input.context, danceIds: ["d1", "d2"], heats: [{ ...input.context.heats[0], entryIds: all }, { ...input.context.heats[0], heatId: "heat-2", entryIds: [e(11)] }] },
+      }),
+    );
+    expect([f.code, f.reason]).toEqual(["COMP_ENGINE_UNSPECIFIED_CASE", "multi_dance_unsupported"]);
+  });
+  it("heats with different panels report X-7 heat_panel_mismatch even when an entry is on two heats", () => {
+    const input = cb();
+    const all = input.context.heats[0].entryIds;
+    const f = expectFail(
+      runStudioCallbackTally({
+        ...input,
+        context: { ...input.context, heats: [{ ...input.context.heats[0], entryIds: all }, { heatId: "heat-2", officialIds: [officialId(1), officialId(2)], entryIds: [e(11)] }] },
+      }),
+    );
+    expect([f.code, f.reason]).toEqual(["COMP_ENGINE_UNSPECIFIED_CASE", "heat_panel_mismatch"]);
+  });
+  it.each([
+    ["studio_simple@2 (never released)", { key: "studio_simple", version: 2 }],
+    ["studio_simple@4 (no approved spec yet)", { key: "studio_simple", version: 4 }],
+    ["another profile key", { key: "ndca_custom", version: 1 }],
+  ])("%s is COMP_ENGINE_UNSPECIFIED_CASE / profile_unsupported", (_n, profile) => {
+    for (const run of [runStudioCallbackTally(callbackInput(F01, ENTRIES, 4, 8, { profile })), runStudioOrdinalMajority(ordinalInput(OM, { profile }))]) {
+      const f = expectFail(run);
+      expect([f.code, f.reason]).toEqual(["COMP_ENGINE_UNSPECIFIED_CASE", "profile_unsupported"]);
+    }
+  });
+});

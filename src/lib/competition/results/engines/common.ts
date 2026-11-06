@@ -281,6 +281,22 @@ export function checkPanelStructure(input: StudioEngineInput, judges: readonly P
   if (strayHeatEntries.length > 0) {
     validation.fail(ids.x7, "heat entries belong to the round", "COMP_ENGINE_INVALID_INPUT", "heat_entry_not_in_round", strayHeatEntries);
   }
+  const mismatched = heats.filter((h) => {
+    const hp = [...h.officialIds].sort(cmp);
+    return hp.length !== panel.length || hp.some((id, i) => id !== panel[i]);
+  });
+  if (mismatched.length > 0) {
+    validation.fail(ids.x7, "same panel in every heat (X-7)", "COMP_ENGINE_UNSPECIFIED_CASE", "heat_panel_mismatch", mismatched.map((h) => h.heatId));
+  }
+  validation.pass(ids.x7, "same panel in every heat (X-7)");
+  if (input.context.danceIds.length !== 1) {
+    validation.fail(ids.x6, "exactly one dance per run (X-6)", "COMP_ENGINE_UNSPECIFIED_CASE", "multi_dance_unsupported", input.context.danceIds, {
+      dances: input.context.danceIds.length,
+    });
+  }
+  validation.pass(ids.x6, "exactly one dance per run (X-6)");
+  // Runs AFTER the approved X-3 / X-7 / X-6 refusals so a multi-dance or mixed-panel round still reports the approved COMP_ENGINE_UNSPECIFIED_CASE
+  // reason (an entry on two heats is normal there), and only a single-dance, single-panel round reaches this data-integrity check.
   // Review P2-4: every calculated entry is in exactly one heat. An entry in two heats, or in none, would be counted against a panel that did not
   // judge it (or not at all). Excluded (scratched / no-show) entries may stay on a heat roster.
   const heatOf = new Map<string, number>();
@@ -297,20 +313,6 @@ export function checkPanelStructure(input: StudioEngineInput, judges: readonly P
       inNoHeat: sortedUnique(inNoHeat),
     });
   }
-  const mismatched = heats.filter((h) => {
-    const hp = [...h.officialIds].sort(cmp);
-    return hp.length !== panel.length || hp.some((id, i) => id !== panel[i]);
-  });
-  if (mismatched.length > 0) {
-    validation.fail(ids.x7, "same panel in every heat (X-7)", "COMP_ENGINE_UNSPECIFIED_CASE", "heat_panel_mismatch", mismatched.map((h) => h.heatId));
-  }
-  validation.pass(ids.x7, "same panel in every heat (X-7)");
-  if (input.context.danceIds.length !== 1) {
-    validation.fail(ids.x6, "exactly one dance per run (X-6)", "COMP_ENGINE_UNSPECIFIED_CASE", "multi_dance_unsupported", input.context.danceIds, {
-      dances: input.context.danceIds.length,
-    });
-  }
-  validation.pass(ids.x6, "exactly one dance per run (X-6)");
 }
 
 /** Mark table for the `inputs` trace record: fully ordered, so duplicate marks with different values trace identically. */
