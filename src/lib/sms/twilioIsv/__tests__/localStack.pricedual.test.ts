@@ -1,5 +1,5 @@
 /**
- * D4-1: dual-controlled SMS price changes (migration 20270208090000), on a throwaway DEV-equivalent database with synthetic administrators.
+ * D4-1: dual-controlled SMS price changes (migration 20270210090000), on a throwaway DEV-equivalent database with synthetic administrators.
  * Cast (wpd4Helpers): A, B platform administrators; C not an administrator; D administrator (session assurance is the action layer's job, see localStack.wpd4actions
  * and localStack.pricedualactions); E deactivated administrator; F a third administrator; G administrator whose auth user is banned.
  *
@@ -52,11 +52,11 @@ const mkAdmin = (label: string): string => {
 };
 const mig = (name: string) => readFileSync(join(__dirname, "..", "..", "..", "supabase", "migrations", name), "utf8");
 const noTx = (s: string) => s.replace(/^begin;\s*$/gm, "").replace(/^commit;\s*$/gm, "");
-/** the audit rows and owner-mode evidence of 20270208100000 are immutable in production; this suite is a throwaway database and clears them visibly before it exercises the rollbacks */
+/** the audit rows and owner-mode evidence of 20270210100000 are immutable in production; this suite is a throwaway database and clears them visibly before it exercises the rollbacks */
 const clearAuthEvidence = `
   alter table public.studio_sms_price_audit disable trigger studio_sms_price_audit_guard; delete from public.studio_sms_price_audit; alter table public.studio_sms_price_audit enable always trigger studio_sms_price_audit_guard;
   alter table public.studio_sms_price_auth_challenges disable trigger studio_sms_price_auth_challenges_guard; delete from public.studio_sms_price_auth_challenges; alter table public.studio_sms_price_auth_challenges enable always trigger studio_sms_price_auth_challenges_guard;`;
-const rollbackSql = () => clearAuthEvidence + noTx(mig("rollback/20270208100000_twilio_price_owner_authorization_rollback.sql")) + noTx(mig("rollback/20270208090000_twilio_price_dual_control_rollback.sql"));
+const rollbackSql = () => clearAuthEvidence + noTx(mig("rollback/20270210100000_twilio_price_owner_authorization_rollback.sql")) + noTx(mig("rollback/20270210090000_twilio_price_dual_control_rollback.sql"));
 
 describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic administrators)", () => {
   beforeAll(() => {
@@ -633,7 +633,7 @@ describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic a
 
   describe("fail-closed rollback and recovery (executed inside transactions that are rolled back)", () => {
     const strip = (s: string) => s.replace(/^begin;\s*$/m, "").replace(/^commit;\s*$/m, "");
-    const forwardSql = () => noTx(mig("20270208090000_twilio_price_dual_control.sql")) + noTx(mig("20270208100000_twilio_price_owner_authorization.sql"));
+    const forwardSql = () => noTx(mig("20270210090000_twilio_price_dual_control.sql")) + noTx(mig("20270210100000_twilio_price_owner_authorization.sql"));
     const noSingleAdmin = `
       if has_function_privilege('service_role', 'public.tw4_price_set(text,integer,integer,text,uuid)', 'execute') then raise exception 'RB: service_role can still execute tw4_price_set'; end if;
       begin perform public.tw4_price_set('number', 1, 1, 'single admin attempt', '${A}'); raise exception 'RB: tw4_price_set published'; exception when sqlstate 'TW042' then null; end;

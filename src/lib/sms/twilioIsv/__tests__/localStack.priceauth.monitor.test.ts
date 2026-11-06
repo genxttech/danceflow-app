@@ -1,5 +1,5 @@
 /**
- * D4-2 x #391 integration: the owner-authorization migration (20270208100000) on the COMBINED chain with the monitoring migration (20270205090000) and its REAL
+ * D4-2 x #391 integration: the owner-authorization migration (20270210100000) on the COMBINED chain with the monitoring migration (20270210110000) and its REAL
  * studio_sms_price_security_events table, gapless trigger-assigned seq and owner-level emitter. Every event this schema emits must be accepted by the monitor's validation,
  * nothing may insert into the events table directly, the freeze must not need monitoring, an impaired monitoring table must make every risk-opening call fail closed, and
  * suspension decisions come only from seq and kind. Software authenticator, simulated verified claims. LOCAL QA DATABASE ONLY.

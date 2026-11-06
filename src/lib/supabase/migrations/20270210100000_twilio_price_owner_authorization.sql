@@ -1,5 +1,5 @@
 -- D4-2: SINGLE-OWNER HIGH-ASSURANCE price authorization (WebAuthn transaction approval verified INSIDE Postgres), with TEAM MODE kept. NOT APPLIED anywhere; Git only.
--- Depends on 20270208090000 (D4-1). Design, trust boundary and threat model: docs/twilio/TW-4F_Price_Authorization_Threat_Model.md.
+-- Depends on 20270210090000 (D4-1). Design, trust boundary and threat model: docs/twilio/TW-4F_Price_Authorization_Threat_Model.md.
 --
 -- Single-owner mode (the initial mode): the owner proposes in an aal2 session with a fresh TOTP; a MANDATORY 24 h cooling-off starts (a row CHECK, stored config, never auto-publishes);
 -- after it ends the owner authorizes from a SEPARATE session (different session_id) with a hardware-backed WebAuthn assertion over the canonical hash of the exact proposal
@@ -7,21 +7,21 @@
 -- credential registry that has no grants: neither GoTrue, a JWT, nor service_role can publish a price without the hardware key. Enrolling or revoking a credential needs an assertion
 -- from an existing credential (a new one also proves possession). Revising a proposal invalidates it and restarts the cooling-off. A freeze can only suspend; lifting it needs the
 -- ceremony. Mode, cooling-off, windows and the relying party are protected configuration: owner-level migration only. The 8 limit rows stay UNAPPROVED (nothing enforced).
--- ROLLBACK: rollback/20270208100000_twilio_price_owner_authorization_rollback.sql is valid only while no owner-mode request, credential, challenge or audit row exists (refuses 55000
--- afterwards: forward-fix, or freeze); it returns the schema to exactly 20270208090000.
+-- ROLLBACK: rollback/20270210100000_twilio_price_owner_authorization_rollback.sql is valid only while no owner-mode request, credential, challenge or audit row exists (refuses 55000
+-- afterwards: forward-fix, or freeze); it returns the schema to exactly 20270210090000.
 begin;
 set local lock_timeout = '5s';
 
 do $$
 begin
   if to_regprocedure('public.tw4_price_propose(text,integer,integer,text,text)') is null or to_regprocedure('public._tw4price_do_approve(uuid,uuid,text)') is null then
-    raise exception 'price owner authorization precondition failed: 20270208090000 is not applied';
+    raise exception 'price owner authorization precondition failed: 20270210090000 is not applied';
   end if;
   if to_regclass('public.studio_sms_price_auth_config') is not null then
     raise exception 'price owner authorization precondition failed: already applied';
   end if;
   if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = 'public._tw4price_do_approve(uuid,uuid,text)'::regprocedure) is distinct from '4030438f5d7d89ceead9226c09a8719f' then
-    raise exception 'price owner authorization precondition failed: _tw4price_do_approve differs from 20270208090000';
+    raise exception 'price owner authorization precondition failed: _tw4price_do_approve differs from 20270210090000';
   end if;
 end $$;
 
@@ -1258,8 +1258,8 @@ as $$
   from (select * from public.studio_sms_price_audit x where x.id > coalesce(p_after, 0) order by x.id limit least(greatest(coalesce(p_limit, 200), 1), 1000)) a;
 $$;
 -- ---------------------------------------------------------------------------------------------------------------
--- monitoring interface (workstream #391): security events are emitted into studio_sms_price_security_events WHEN that table exists (migration 20270208110000 creates it; the order on
--- the chain is 20270208090000, 20270208100000, then 20270208110000, so every emit is conditional and a missing table is simply a no-op). The same events are always in the
+-- monitoring interface (workstream #391): security events are emitted into studio_sms_price_security_events WHEN that table exists (migration 20270210110000 creates it; the order on
+-- the chain is 20270210090000, 20270210100000, then 20270210110000, so every emit is conditional and a missing table is simply a no-op). The same events are always in the
 -- local immutable audit (studio_sms_price_audit). No secrets in any detail: roles, labels, reasons, counts, never keys, challenges, tokens or credential ids.
 -- ---------------------------------------------------------------------------------------------------------------
 create or replace function public._tw4price_emit(p_kind text, p_subject uuid, p_detail jsonb)
@@ -1268,7 +1268,7 @@ set search_path = pg_catalog, public, pg_temp
 as $$
 begin
   if to_regprocedure('public._tw4pricemon_emit_event(text,uuid,jsonb)') is not null then
-    -- the monitoring workstream's owner-level emitter (20270208110000): seq and timestamps are assigned by the database, the kind is validated there
+    -- the monitoring workstream's owner-level emitter (20270210110000): seq and timestamps are assigned by the database, the kind is validated there
     perform public._tw4pricemon_emit_event(p_kind, p_subject, coalesce(p_detail, '{}'::jsonb));
   elsif to_regclass('public.studio_sms_price_security_events') is not null then
     execute 'insert into public.studio_sms_price_security_events (kind, subject_user_id, detail) values ($1, $2, $3)' using p_kind, p_subject, coalesce(p_detail, '{}'::jsonb);
@@ -1572,7 +1572,7 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
--- replaced functions (20270208090000 bodies are restored byte for byte by the rollback)
+-- replaced functions (20270210090000 bodies are restored byte for byte by the rollback)
 -- ---------------------------------------------------------------------------------------------------------------
 create or replace function public._tw4pricedual_guard()
 returns trigger language plpgsql

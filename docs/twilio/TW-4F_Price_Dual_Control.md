@@ -1,6 +1,6 @@
 # TW-4F SMS price dual control (D4-1)
 
-Status 2026-10-31. Git only: migration `20270208090000_twilio_price_dual_control.sql` is not applied to any hosted database. **The pricing release gate stays BLOCKED** until the owner has decided the OPEN OWNER DECISION below and an independent security review of the final tree is complete. Two independent reviews of earlier heads found no P0 or P1 CODE defect; that is not a statement that the design is accepted.
+Status 2026-10-31. Git only: migration `20270210090000_twilio_price_dual_control.sql` is not applied to any hosted database. **The pricing release gate stays BLOCKED** until the owner has decided the OPEN OWNER DECISION below and an independent security review of the final tree is complete. Two independent reviews of earlier heads found no P0 or P1 CODE defect; that is not a statement that the design is accepted.
 
 
 **Monitoring and alerting** for this surface (scheduled verification, evidence chain, security-event feed) is built by the monitoring workstream: see `docs/twilio/TW-4F_Price_Monitoring_Runbook.md` (PR 391). The authorization design, trust boundary and threat model are in `docs/twilio/TW-4F_Price_Authorization_Threat_Model.md` (D4-2).

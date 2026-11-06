@@ -1,5 +1,5 @@
 /**
- * D4-2: single-owner high-assurance price authorization (migration 20270208100000) on a throwaway DEV-equivalent database. The WebAuthn assertions come from a SOFTWARE
+ * D4-2: single-owner high-assurance price authorization (migration 20270210100000) on a throwaway DEV-equivalent database. The WebAuthn assertions come from a SOFTWARE
  * authenticator (P-256 test keys, webauthnFixture.ts) and are verified INSIDE Postgres. Sessions are simulated with verified-claims JSON (role authenticated, aal2, TOTP,
  * session_id) exactly as PostgREST hands them to the database; the real-GoTrue variants live in localStack.pricedual.realtokens.
  * LOCAL QA DATABASE ONLY: TW4A_LOCAL_DB_CONTAINER + TW4RFL_DB and the tw4_local_qa_only marker.
@@ -544,11 +544,11 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(psql(`select mode from public.studio_sms_price_auth_config`)).toBe("single_owner");
   });
 
-  itSel("PA-15 rollback of 20270208100000 is fail closed: it refuses while owner-mode evidence exists; with the evidence removed (visibly, by the owner) it returns the schema to the 20270208090000 bodies, and re-applying restores everything", () => {
-    const rb = strip(migration("rollback/20270208100000_twilio_price_owner_authorization_rollback.sql"));
-    const fwd = strip(migration("20270208100000_twilio_price_owner_authorization.sql"));
+  itSel("PA-15 rollback of 20270210100000 is fail closed: it refuses while owner-mode evidence exists; with the evidence removed (visibly, by the owner) it returns the schema to the 20270210090000 bodies, and re-applying restores everything", () => {
+    const rb = strip(migration("rollback/20270210100000_twilio_price_owner_authorization_rollback.sql"));
+    const fwd = strip(migration("20270210100000_twilio_price_owner_authorization.sql"));
     expect(codeOf(psqlError(`begin; ${rb} rollback;`))).toBe("55000");
-    const m1 = migration("20270208090000_twilio_price_dual_control.sql");
+    const m1 = migration("20270210090000_twilio_price_dual_control.sql");
     const body = (name: string) => {
       const i = m1.indexOf(`create or replace function public.${name}(`);
       const a = m1.indexOf("as $$", i) + 5;
@@ -581,7 +581,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
 
   itSel("PA-16 monitoring interface: security events are emitted into studio_sms_price_security_events when that table exists (no secrets); a monitoring suspension is lifted ONLY by this schema's hardware-key thaw (a pricing_resumed row in the events table lifts nothing); the second channel carries the fingerprint; emit fails loudly once monitoring is expected", () => {
     clear();
-    // the table belongs to the monitoring migration (20270208110000); a minimal stand-in with the same columns proves the conditional emit
+    // the table belongs to the monitoring migration (20270210110000); a minimal stand-in with the same columns proves the conditional emit
     psql(`create table public.studio_sms_price_security_events (seq bigint generated always as identity primary key, kind text not null, occurred_at timestamptz not null default clock_timestamp(), subject_user_id uuid null, detail jsonb not null default '{}'::jsonb, recorded_at timestamptz not null default clock_timestamp())`);
     try {
       const kinds = () => rows<{ kind: string }>("select kind from public.studio_sms_price_security_events order by seq").map((r) => r.kind);

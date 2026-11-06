@@ -1,7 +1,7 @@
 -- D4-1 / D4-2 / #391 HOSTED PREFLIGHT for SMS price authorization. READ-ONLY: it changes nothing (a DO block that only reads catalogs and the protected tables, then raises an
 -- error if any check fails). It is committed and tested against local disposable databases ONLY; it has NOT been run on any hosted database.
 --
--- Run it (psql, as the migration owner) BEFORE applying 20270208090000 / 20270208100000 / 20270208110000 for the checks marked [pre], and again AFTER applying and bootstrapping,
+-- Run it (psql, as the migration owner) BEFORE applying 20270210090000 / 20270210100000 / 20270210110000 for the checks marked [pre], and again AFTER applying and bootstrapping,
 -- before price authorization is activated, for the checks marked [post]. Each line prints PASS, FAIL or INFO; any FAIL stops the script with an error (use ON_ERROR_STOP).
 --
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/hosted/tw4f/preflight_price_authorization.sql
@@ -119,7 +119,7 @@ begin
     end if;
     if to_regclass('public.studio_sms_price_security_events') is null then
       v_fail := array_append(v_fail, ('the monitoring events table is missing')::text);
-      raise notice 'FAIL [post] public.studio_sms_price_security_events is missing (apply 20270208110000)';
+      raise notice 'FAIL [post] public.studio_sms_price_security_events is missing (apply 20270210110000)';
     else
       raise notice 'PASS [post] the monitoring events table exists';
     end if;
@@ -165,14 +165,14 @@ begin
 
   -- [post] migration order, when the migration history is visible
   if v_has_hist then
-    select coalesce(array_agg(version order by version), '{}') into v_versions from supabase_migrations.schema_migrations where version in ('20270208090000', '20270208100000', '20270208110000');
+    select coalesce(array_agg(version order by version), '{}') into v_versions from supabase_migrations.schema_migrations where version in ('20270210090000', '20270210100000', '20270210110000');
     raise notice 'INFO migration history: %', v_versions;
-    if ('20270208100000' = any (v_versions) and not '20270208090000' = any (v_versions)) or ('20270208110000' = any (v_versions) and not '20270208100000' = any (v_versions)) then
+    if ('20270210100000' = any (v_versions) and not '20270210090000' = any (v_versions)) or ('20270210110000' = any (v_versions) and not '20270210100000' = any (v_versions)) then
       v_fail := array_append(v_fail, ('the migrations are not applied in order')::text);
-      raise notice 'FAIL migration order: 20270208090000, then 20270208100000, then 20270208110000';
+      raise notice 'FAIL migration order: 20270210090000, then 20270210100000, then 20270210110000';
     end if;
   else
-    raise notice 'INFO the migration history table is not visible: confirm the order 20270208090000, 20270208100000, 20270208110000 by hand';
+    raise notice 'INFO the migration history table is not visible: confirm the order 20270210090000, 20270210100000, 20270210110000 by hand';
   end if;
 
   if cardinality(v_fail) > 0 then

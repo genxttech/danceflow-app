@@ -1,5 +1,5 @@
 /**
- * D4-2: the pricing AUTHORIZATION surface (migration 20270208100000) with REAL tokens issued by a LOCAL GoTrue (TOTP MFA), sent through Kong -> PostgREST -> the database.
+ * D4-2: the pricing AUTHORIZATION surface (migration 20270210100000) with REAL tokens issued by a LOCAL GoTrue (TOTP MFA), sent through Kong -> PostgREST -> the database.
  * Same harness as localStack.pricedual.realtokens (run-chain.mjs suites --auth). LOCAL / DISPOSABLE STACK ONLY; synthetic users on example.test, throwaway passwords generated at
  * run time, a TOTP factor whose secret the local GoTrue returns, WebAuthn assertions from the software authenticator (verified inside Postgres). Nothing touches a hosted service.
  * Where a token is edited or re-signed (expired, impersonation) it is built FROM a real one and said so.

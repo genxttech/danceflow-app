@@ -212,7 +212,7 @@ $$;
 
 -- the identity of the CALLER, from the caller's own verified JWT. tier 'recent': aal2 and a TOTP authentication within 15 minutes (mirrors requirePlatformStepUp);
 -- tier 'aal2': aal2 with a TOTP authentication. A service-role or anon token has another role claim and is refused. There is no way to name another actor.
--- how old (seconds) the TOTP authentication may be for the 'recent' tier. D4-1 alone fixes it at 15 minutes; 20270208100000 replaces this function with the owner-level configured value (default 10 minutes).
+-- how old (seconds) the TOTP authentication may be for the 'recent' tier. D4-1 alone fixes it at 15 minutes; 20270210100000 replaces this function with the owner-level configured value (default 10 minutes).
 create or replace function public._tw4price_fresh_seconds()
 returns int language sql stable
 set search_path = pg_catalog, public, pg_temp
