@@ -54,6 +54,35 @@ Tree: this branch = merged `origin/main` `c1e16f6f` + harness commits (tree SHA 
 
 BLOCKED in 1–2 is "layer not loaded" (named per test). Configuration 3 has 2 BLOCKED: the two M3-C-dependent rows, `BLOCKED(m3a+m3b+m3c not loaded)`. Configuration 4 has none. K1 passes in all four full runs (and 10 of 10 isolated runs). Earlier runs on previous heads (M3-A `e24ad0ef`) gave 140/1/0/0 with one remaining failure, F6, which the shim had changed — fixed and re-verified before these runs; it is the only run-level failure the re-expression produced.
 
+## Final results on the merged tree (2026-11-06) — supersedes the table above
+Run on a **clean detached worktree of `origin/main`**, no sibling refs, no local modifications (`git status` empty): commit **`0af00c9735ee6f1669d39f6d126e520c8902522c`**, git tree **`ad5f6935674404c316f32c4eca20187f0cdc5217`**. All M3 layers come from the merged tree itself (`D24 shas: tree=0af00c97… m3a=TREE@0af00c97… m3b=TREE@0af00c97… m3c=TREE@0af00c97…`). The sibling PR heads this document used earlier (394 `5e7bf1ea`, 393 `47f09e79`, 395 `3b9da8b2`) are historical; the merged heads are PR 394 `d1d3d859`, PR 393 `7d0ffa43` (includes the `orphan_recorded` one-liner), PR 407 (M3-C) `8e1c650c`, PR 399 (this harness) `0af00c97`.
+
+| # | Configuration | Layers loaded | PASS | FAIL | BLOCKED | SUPERSEDED |
+|---|---|---|---|---|---|---|
+| A | full M3 stack = the merged tree (`bash scripts/qa/d24-acceptance.sh`) | m1 m2a m2c m2b m3a m3b m3c | **141** | 0 | **0** | 0 |
+| B | merged tree with the M3 layers not loaded (`--m2a TREE --m2c TREE --m2b TREE`) | m1 m2a m2c m2b | 85 | 0 | 56 (`layer not loaded`, named per test) | 0 |
+
+Per-PR suites, same clean tree (each starts its own disposable offline Postgres):
+
+| Suite | Result |
+|---|---|
+| `scripts/qa/d24-m3a-sql.sh` (M3-A SQL) | 296 passed, 0 failed |
+| `scripts/qa/d24-m3c-sql.sh` (M3-C SQL) | 217 passed, 0 failed |
+| `scripts/qa/d24-m3b-orchestrator.sh` (orchestrator against real Postgres) | 18 passed, 0 failed |
+| `vitest run src/lib/payments/hostedInvoice src/lib/billing/clientInvoices` | 10 files passed, 237 tests passed, 29 skipped (2 Postgres-backed files that skip outside their own script; the orchestrator one is run by the M3-B script above), 0 failed |
+
+### Properties the owner asked to see confirmed, and where each is proven
+| Property | Result | Evidence in the runs above |
+|---|---|---|
+| Finalized-invoice policy **$5.00 min / $5,000.00 max** (boundaries 499 / 500 / 500000 / 500001) | PASS, with one nuance stated plainly | M3-C SQL: *499* — an incomplete **draft** saves (owner policy) but `studio_client_invoice_creation_spec` is NULL below 500, i.e. it **cannot become a provider spec**; *500* accepted and produces a spec; *500000* accepted and produces a spec; *500001* refused (unit price, quantity×price, sum of lines, `2 x 250001`, sum one cent over); limits seeded 500/500000 and NULL limits fail closed. So the floor is enforced at provider-spec time, not at draft save. |
+| **12-hour (720 min) default recovery window and 22 h cap** | PASS | M3-A SQL: default `safe_retry_minutes` = 720; setting 1320 (22 h) allowed; 1321 refused (`23514`); reset to 720. Harness R10: window expiry ⇒ `needs_review`, no Stripe call, with the fake's keys pruned so a replay would visibly duplicate. |
+| **Tenant isolation** and **owner/admin-only** permissions | PASS | Harness M3-OWNER (12) incl. O12 through M3-C's real action, authorizer and SQL (owner/admin save; front desk, instructor, other studio's owner, platform admin without a studio role, role-less and no session refused); M3-C SQL cross-tenant client/studio/line refusals, role matrix and RLS reads. |
+| **Account-bound registration** | PASS | Harness: `d24_register_invoice` resolves the account from the studio; a studio with no connected account is refused (42501); an asserted other/empty account is refused; no NULL-account registry row exists; the 18 former SUPERSEDED cases are re-expressed under account-bound registration (table above). M3-A SQL covers the same in SQL. |
+| **M3-C contract allow-list test** | PASS | `src/lib/payments/hostedInvoice/__tests__/createContract.d24.test.ts` (SEAM_ALLOW_LIST, seam files never import the orchestrator or Stripe, no creation port wired) is in the 237 passing unit tests. |
+| **`orphan_recorded` in the orchestrator**: `mark_provider_created` returning `orphan_recorded` ⇒ `needs_review` and no second Stripe create | **PARTIAL — a test gap, reported honestly** | The SQL side is covered (M3-A SQL: a late Stripe response for a failed/abandoned intent returns `orphan_recorded`, records the orphan once, idempotent on repeat). The orchestrator mapping is a one-liner (`create.ts`, `markProviderCreated`: `orphan_recorded` ⇒ `"review"`; `createHostedInvoice` then returns `needs_review` and does not register). **No committed test exercises that branch** (`grep orphan_recorded` finds it only in `create.ts` and the migration/SQL script). A test for it has been written and passes locally (store verdict mapping for all outcomes; orchestrator returns `needs_review`, registers nothing, one create); it is **not part of this docs-only PR** and belongs in a small tests-only follow-up. |
+
+Not part of these results: owner-requested local tests O13/O14 (cross-studio replay isolation; platform-scope registration refusal) are uncommitted and not on this tree; they pass in a local configuration-4 run (143/0/0/0) and belong in a separate follow-up PR.
+
 ## M3 sections (configuration 4; configuration 3 is the same except the two M3-C rows are `BLOCKED(m3c not loaded)`)
 | Section | Covers | PASS |
 |---|---|---|
