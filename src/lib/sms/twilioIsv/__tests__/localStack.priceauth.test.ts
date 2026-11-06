@@ -1312,7 +1312,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       expect(x.out).toContain('"status": "thawed"');
       expect(y.out).toContain('"status": "pending"');
       expect(psql("select public._tw4price_suspended()")).toBe("t");
-      expect(authOut(sess, thawSqlOf(Ka)).status).toBe("rejected");
+      expect(codeOf(authErr(sess, `select public.tw4_price_cred_begin('thaw', null, null, null, null, null)::text;`))).toBe("42501"); // no thaw ceremony while a recovery is pending
     }
     // (7) a proposal made while a revoke is in flight proceeds (no deadlock) and is useless to the revoked key
     {
