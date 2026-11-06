@@ -105,6 +105,20 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
     if (o.shouldStop?.() && !abort) abort = new ProofAbort("interrupted", "interrupted by the operator");
     if (abort && !(opts.phase === "cleanup" && !NO_CLEANUP_AFTER.has(abort.code))) throw abort;
   };
+  /** Adds customers / draft invoices a response reports to `seen` (and removes deleted ones). Never aborts. */
+  const track = (b: Record<string, unknown> | null) => {
+    if (!b) return;
+    if (b.deleted === true && typeof b.id === "string") {
+      seen.drafts.delete(b.id);
+      seen.customers.delete(b.id);
+      return;
+    }
+    if (b.object === "customer" && typeof b.id === "string") seen.customers.add(b.id);
+    if (b.object === "invoice" && typeof b.id === "string" && b.status === "draft") seen.drafts.add(b.id);
+    if (b.object === "list" && Array.isArray(b.data)) {
+      for (const d of b.data as Array<Record<string, unknown>>) if (d?.object === "invoice" && typeof d.id === "string" && d.status === "draft") seen.drafts.add(d.id);
+    }
+  };
   const worthless = (r: ProofResponse) => r.status >= 500 || r.json === null || (r.status >= 200 && r.status < 300 && typeof r.json.id !== "string" && r.json.object !== "list");
 
   async function call(input: ProofRequest, opts: CallOptions = {}): Promise<ProofResponse> {
@@ -163,6 +177,8 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
     const e = entry(req, res.status, { requestId: res.requestId ?? "-", replayed: res.replayed ?? null, summary: summarizeBody(res.json), note: opts.note });
     // a create that came back as a gateway error / unparseable body / 2xx without an id may still have been committed at Stripe
     if (req.method === "POST" && worthless(res)) uncertain.push(`${req.path} idem=${maskIdempotencyKey(req.idempotencyKey)} (status ${res.status}, no usable body)`);
+    // record what Stripe says exists BEFORE any abort below can fire, so cleanup and the forced-exit note always list the ids, even when the response is then rejected
+    track(res.json);
     // 5. response checks
     if (res.stripeVersion !== undefined) {
       versionsSeen.add(res.stripeVersion);
@@ -179,26 +195,17 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
       if (req.method === "POST" && (body.object === "customer" || body.object === "invoice") && body.livemode !== false) {
         return fail("livemode_true", `a created ${String(body.object)} did not report livemode:false`);
       }
-      if (body.deleted === true && typeof body.id === "string") {
+      // (created ids were already recorded by track() above; here only the non-draft abort remains)
+      if (body.deleted !== true && body.object === "invoice" && typeof body.id === "string" && typeof body.status === "string" && body.status !== "draft") {
+        seen.nonDrafts.add(body.id);
         seen.drafts.delete(body.id);
-        seen.customers.delete(body.id);
-      } else if (body.object === "invoice" && typeof body.id === "string") {
-        if (body.status === "draft") seen.drafts.add(body.id);
-        else if (typeof body.status === "string") {
-          seen.nonDrafts.add(body.id);
-          seen.drafts.delete(body.id);
-          return fail("non_draft_invoice", `invoice ${body.id} has status ${String(body.status)}`);
-        }
+        return fail("non_draft_invoice", `invoice ${body.id} has status ${String(body.status)}`);
       }
-      if (body.object === "customer" && typeof body.id === "string" && !body.deleted) seen.customers.add(body.id);
       if (body.object === "list" && Array.isArray(body.data)) {
         for (const d of body.data as Array<Record<string, unknown>>) {
-          if (d?.object === "invoice" && typeof d.id === "string") {
-            if (d.status === "draft") seen.drafts.add(d.id);
-            else if (typeof d.status === "string") {
-              seen.nonDrafts.add(d.id);
-              return fail("non_draft_invoice", `invoice ${d.id} has status ${String(d.status)}`);
-            }
+          if (d?.object === "invoice" && typeof d.id === "string" && typeof d.status === "string" && d.status !== "draft") {
+            seen.nonDrafts.add(d.id);
+            return fail("non_draft_invoice", `invoice ${d.id} has status ${String(d.status)}`);
           }
         }
       }

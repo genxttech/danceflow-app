@@ -63,8 +63,11 @@ export function createNodeTransport(opts: NodeTransportOptions = {}): Transport 
           });
         });
       });
+      // two clocks: an idle timeout (nothing arrives for timeoutMs) AND an absolute deadline for the whole exchange, so a slow-drip response cannot hold the run (and its cleanup) for long
       r.setTimeout(timeoutMs, () => r.destroy(new Error("request timed out")));
-      r.on("error", reject);
+      const deadline = setTimeout(() => r.destroy(new Error("request timed out (deadline)")), timeoutMs);
+      r.on("close", () => clearTimeout(deadline));
+      r.on("error", (e) => { clearTimeout(deadline); reject(e); });
       r.end(body);
     });
 }

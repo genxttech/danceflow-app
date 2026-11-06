@@ -1,12 +1,12 @@
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { evaluateRequest } from "../allowlist";
 import { cleanup } from "../cleanup";
 import { STRIPE_API_VERSION } from "../config";
-import { EVIDENCE_ENV } from "../evidence";
+import { EVIDENCE_ENV, evidenceDirProblem, writeEvidence } from "../evidence";
 import { createFakeTransport } from "../fakeTransport";
 import { createGuardedClient, pinned } from "../guarded";
 import { AUTHORIZATION_PHRASE, checkEnvironment, ENV, runIdentityGate } from "../identity";
@@ -17,6 +17,7 @@ import type { ProofRequest, ProofResponse, Transport } from "../types";
 // One or more tests per finding of the SECOND independent review (fresh reviewer, final head 61707b6e). Each must fail if its fix is removed.
 
 const DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
+const REPO = join(DIR, "..", "..", "..");
 const PLATFORM = "acct_PLATFORMTEST1";
 const CONNECTED = "acct_CONNECTEDTEST1";
 const V = STRIPE_API_VERSION;
@@ -80,21 +81,138 @@ describe("P2-1 Object.prototype names are not allowed query parameters", () => {
   });
 });
 
-describe("P2-3 the evidence directory is validated again at write time and files are created exclusively", () => {
-  it("a second run with the same run id cannot overwrite (or write through) an existing file: EVIDENCE NOT WRITTEN, outcome FAILED, exit 1", async () => {
+describe("P2-3 / third review: evidence is exclusive-create, written into the resolved real directory, and a half pack never survives", () => {
+  const dry = async (dir: string, runId: string) => {
+    const lines: string[] = [];
+    const code = await runProof(["--dry-run"], { env: { [EVIDENCE_ENV]: dir }, runId, io: { out: (s) => void lines.push(s), sleep: async () => undefined } });
+    return { code, text: lines.join("\n") };
+  };
+  it("a pre-existing evidence file is never overwritten: EVIDENCE NOT WRITTEN, OUTCOME FAILED, exit 1, content unchanged, and no half pack is left", async () => {
     const dir = tmp();
-    const run = async () => {
-      const lines: string[] = [];
-      const code = await runProof(["--dry-run"], { env: { [EVIDENCE_ENV]: dir }, io: { out: (s) => void lines.push(s), sleep: async () => undefined } });
-      return { code, text: lines.join("\n") };
+    writeFileSync(join(dir, "evidence-ex000009.json"), "KEEP");
+    const r = await dry(dir, "ex000009");
+    expect(r.code).toBe(1);
+    expect(r.text).toMatch(/EVIDENCE NOT WRITTEN/);
+    expect(r.text).toMatch(/OUTCOME: FAILED/);
+    expect(readFileSync(join(dir, "evidence-ex000009.json"), "utf8")).toBe("KEEP");
+    expect(existsSync(join(dir, "transcript-ex000009.txt"))).toBe(false);
+  });
+  it("if the SECOND file cannot be created, the first (which says OK) is removed again", async () => {
+    const dir = tmp();
+    writeFileSync(join(dir, "transcript-ex000010.txt"), "KEEP");
+    const r = await dry(dir, "ex000010");
+    expect(r.code).toBe(1);
+    expect(existsSync(join(dir, "evidence-ex000010.json"))).toBe(false);
+    expect(readFileSync(join(dir, "transcript-ex000010.txt"), "utf8")).toBe("KEEP");
+  });
+  it("a planted symlink at the evidence file name is not written through", async () => {
+    const dir = tmp();
+    const outside = join(tmp(), "victim.txt");
+    writeFileSync(outside, "VICTIM");
+    let linked = false;
+    try {
+      symlinkSync(outside, join(dir, "evidence-ex000011.json"), "file");
+      linked = true;
+    } catch {
+      /* creating a file symlink is not permitted here (needs a privilege on Windows): skip only this assertion */
+    }
+    if (linked) {
+      const r = await dry(dir, "ex000011");
+      expect(r.code).toBe(1);
+      expect(readFileSync(outside, "utf8")).toBe("VICTIM");
+    }
+  });
+  it("swapping the directory for a link into the repository between the checks and the writes does not redirect the files (they go to the resolved real directory)", () => {
+    const base = tmp();
+    const real = join(base, "real");
+    mkdirSync(real);
+    const link = join(base, "link");
+    let linked = false;
+    try {
+      symlinkSync(real, link, "junction");
+      linked = true;
+    } catch {
+      /* link creation not permitted here: skip */
+    }
+    if (!linked) return;
+    const repoScripts = join(REPO, "scripts");
+    const stray = () => readdirSync(repoScripts).filter((n) => n.startsWith("evidence-swap") || n.startsWith("transcript-swap"));
+    try {
+      writeEvidence(
+        link,
+        { runId: "swap0001", mode: "dry-run", outcome: "OK", scriptSha256: "a".repeat(64), apiVersionPinned: "v", apiVersionsReported: [], callsUsed: 1, blocked: 0, scenarios: [], verdicts: {}, cleanup: {}, abort: null, transcriptText: "t", finishedUtc: "t" },
+        REPO,
+        { onBeforeWrite: () => { rmdirSync(link); symlinkSync(repoScripts, link, "junction"); } }, // the swap happens AFTER every check
+      );
+      expect(readdirSync(real).sort()).toEqual(["evidence-swap0001.json", "transcript-swap0001.txt"]);
+      expect(stray()).toEqual([]);
+    } finally {
+      for (const n of stray()) rmSync(join(repoScripts, n), { force: true });
+    }
+  });
+  it("a '..' segment in the evidence directory is refused outright", () => {
+    expect(evidenceDirProblem(`${tmp()}${sep}sub${sep}..${sep}x`, REPO)).toMatch(/\.\./);
+  });
+});
+
+describe("third review P2-A: ids Stripe reports are recorded BEFORE any abort, so a rejected response never hides a created object", () => {
+  it("a created customer whose response lacks Stripe-Version aborts the run, and cleanup still lists its id for manual cleanup", async () => {
+    const f = createFakeTransport({ platformId: PLATFORM, connectedId: CONNECTED });
+    const t: Transport = async (r, k) => {
+      const res = await f.transport(r, k);
+      return r.method === "POST" && r.path === "/v1/customers" ? { ...res, stripeVersion: undefined } : res;
     };
-    const first = await run();
-    expect(first.code).toBe(0);
-    expect(readdirSync(dir)).toHaveLength(2);
-    const second = await run();
-    expect(second.code).toBe(1);
-    expect(second.text).toMatch(/EVIDENCE NOT WRITTEN/);
-    expect(second.text).toMatch(/OUTCOME: FAILED/);
+    const c = createGuardedClient({ transport: t, apiKey: "rk_test_FAKEFAKE", connectedAcct: CONNECTED, paceMs: 0 });
+    await gate(c);
+    await expect(pinned(c, custReq("nv"))).rejects.toMatchObject({ code: "version_mismatch" });
+    const rep = await cleanup(c, { platformAcct: PLATFORM, connectedAcct: CONNECTED });
+    expect(rep.skipped).toMatch(/NOT run/);
+    expect(rep.remainingCustomers).toHaveLength(1);
+    expect(rep.remainingCustomers[0]).toMatch(/^cus_/);
+  });
+  it("a customer created in LIVE mode (livemode:true) is listed for manual cleanup too", async () => {
+    const t: Transport = async (r) =>
+      r.path === "/v1/account" ? { status: 200, json: { id: PLATFORM, object: "account" }, stripeVersion: V }
+      : r.path.startsWith("/v1/accounts/") ? { status: 200, json: { id: CONNECTED, object: "account", type: "express" }, stripeVersion: V }
+      : { status: 200, json: { id: "cus_LIVE0001", object: "customer", livemode: true }, stripeVersion: V };
+    const c = createGuardedClient({ transport: t, apiKey: "rk_test_FAKEFAKE", connectedAcct: CONNECTED, paceMs: 0 });
+    await gate(c);
+    await expect(pinned(c, custReq("lv"))).rejects.toMatchObject({ code: "livemode_true" });
+    const rep = await cleanup(c, { platformAcct: PLATFORM, connectedAcct: CONNECTED });
+    expect(rep.remainingCustomers).toEqual(["cus_LIVE0001"]);
+  });
+});
+
+describe("third review P2-E: a readable but NON-empty invoice list keeps the customer", () => {
+  it("one draft still attached (e.g. created under a lost response) => the customer is not deleted, verifiedEmpty false, 'still has 1 invoice(s)'", async () => {
+    let armed = false;
+    const { f, c } = world((r) => {
+      if (r.method === "DELETE" && r.path.startsWith("/v1/invoices/")) armed = true;
+      return armed && r.method === "GET" && r.path === "/v1/invoices"
+        ? { status: 200, json: { object: "list", data: [{ id: "in_LEFT0001", object: "invoice", status: "draft", livemode: false }] }, stripeVersion: V }
+        : undefined;
+    });
+    await gate(c);
+    const cus = await pinned(c, custReq("ne"));
+    const cusId = String(cus.json?.id);
+    await pinned(c, { method: "POST", path: "/v1/invoices", stripeAccount: CONNECTED, idempotencyKey: "d24proof-sr-ne-inv", body: { customer: cusId, collection_method: "send_invoice", days_until_due: "14", currency: "usd", auto_advance: "false" } });
+    const rep = await cleanup(c, { platformAcct: PLATFORM, connectedAcct: CONNECTED });
+    expect(rep.verifiedEmpty).toBe(false);
+    expect(rep.deletedCustomers).toEqual([]);
+    expect(rep.stoppedBecause).toMatch(/still has 1 invoice/);
+    expect(f.state.customers.has(cusId)).toBe(true);
+  });
+});
+
+describe("third review P3", () => {
+  it("non-string query values (arrays, numbers) are refused", () => {
+    for (const bad of [["cus_ABC123"], 100, { a: 1 }] as unknown[]) {
+      const query = { customer: bad, limit: "100" } as unknown as Record<string, string>;
+      expect(evaluateRequest({ method: "GET", path: "/v1/invoices", stripeAccount: CONNECTED, stripeVersion: V, query }, { connectedAcct: CONNECTED }).ok).toBe(false);
+    }
+  });
+  it("NODE_DEBUG (can log request headers), NODE_DEBUG_NATIVE, OPENSSL_CONF and OPENSSL_MODULES refuse a live run", () => {
+    for (const name of ["NODE_DEBUG", "NODE_DEBUG_NATIVE", "OPENSSL_CONF", "OPENSSL_MODULES"]) expect(checkEnvironment({ [name]: "http" }).join(), name).toContain(name);
   });
 });
 

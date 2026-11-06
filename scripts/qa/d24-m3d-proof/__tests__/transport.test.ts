@@ -42,6 +42,17 @@ describe("node transport: what leaves the client", () => {
     const allowed = new Set(["host", "authorization", "accept", "connection", "stripe-account", "stripe-version", "idempotency-key", "content-type", "content-length"]);
     expect(Object.keys(r.headers).filter((h) => !allowed.has(h))).toEqual([]);
   });
+  it("identity GETs carry no Stripe-Account, no Idempotency-Key and no content headers; the values sent equal the request fields", async () => {
+    const s = await srv();
+    const tr = createNodeTransport({ origin: s.origin });
+    await tr(get(), KEY);
+    await tr({ method: "GET", path: "/v1/invoices/in_ABC123", stripeAccount: CONNECTED, stripeVersion: STRIPE_API_VERSION }, KEY);
+    const [idRead, invRead] = s.requests;
+    for (const h of ["stripe-account", "idempotency-key", "content-type", "content-length"]) expect(idRead.headers[h], h).toBeUndefined();
+    expect(idRead.headers["stripe-version"]).toBe(STRIPE_API_VERSION);
+    expect(invRead.headers["stripe-account"]).toBe(CONNECTED);
+    expect(invRead.headers["idempotency-key"]).toBeUndefined();
+  });
   it("a GET carries its query and no body or content headers", async () => {
     const s = await srv();
     await createNodeTransport({ origin: s.origin })({ method: "GET", path: "/v1/invoices", stripeAccount: CONNECTED, stripeVersion: STRIPE_API_VERSION, query: { customer: "cus_ABC123", limit: "100" } }, KEY);
@@ -85,6 +96,13 @@ describe("node transport: failures are surfaced once and never retried", () => {
   it("a hung request times out with an error, once", async () => {
     const s = await srv(() => "hang");
     await expect(createNodeTransport({ origin: s.origin, timeoutMs: 150 })(get(), KEY)).rejects.toThrow(/timed out/);
+    expect(s.requests).toHaveLength(1);
+  });
+  it("a slow-drip response (a byte every 40 ms) is cut off by the ABSOLUTE deadline, not just the idle timer", async () => {
+    const s = await srv(() => "drip");
+    const started = Date.now();
+    await expect(createNodeTransport({ origin: s.origin, timeoutMs: 250 })(get(), KEY)).rejects.toBeTruthy();
+    expect(Date.now() - started).toBeLessThan(1500);
     expect(s.requests).toHaveLength(1);
   });
   it("an unparseable body gives json:null, and an oversized body is rejected", async () => {

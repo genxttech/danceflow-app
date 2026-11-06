@@ -144,7 +144,7 @@ export async function runProof(argv: string[], deps: RunDeps): Promise<number> {
     expect = { platformAcct: "acct_DRYRUNPLATFORM", connectedAcct: "acct_DRYRUNCONNECTED" };
     apiKey = "rk_test_DRYRUNFAKE";
     transport = createFakeTransport({ platformId: expect.platformAcct, connectedId: expect.connectedAcct }).transport;
-    runId = "dryrun00";
+    runId = deps.runId ?? `dry${Math.random().toString(16).slice(2, 8).padEnd(6, "0")}`;
     waitMs = 0;
   }
 
@@ -183,7 +183,7 @@ export async function runProof(argv: string[], deps: RunDeps): Promise<number> {
         {
           outcome, runId, mode: live ? "live" : "dry-run", scriptSha256: m.sha256, apiVersionPinned: STRIPE_API_VERSION, apiVersionsReported: reported,
           callsUsed: client.stats().used, blocked: client.stats().blocked, scenarios: results, verdicts, cleanup: clean,
-          abort: fatal ? { code: fatal.code, message: fatal.message } : null, transcriptText: lines.join("\n"), finishedUtc: (deps.now ?? (() => new Date()))().toISOString(),
+          abort: fatal ? { code: fatal.code, message: fatal.message } : null, transcriptText: `${lines.join("\n")}\nOUTCOME (before the evidence write): ${outcome}\n`, finishedUtc: (deps.now ?? (() => new Date()))().toISOString(),
         },
         repoRoot,
       );

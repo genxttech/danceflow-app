@@ -6,7 +6,7 @@ import { STRIPE_API_VERSION } from "../config";
 // requests actually leave the client. Nothing here can reach the internet.
 
 export type Recorded = { method: string; url: string; headers: http.IncomingHttpHeaders; body: string; socketId: number };
-export type Behaviour = "ok" | "reset" | "redirect" | "hang" | "garbage" | "no-version" | "big";
+export type Behaviour = "ok" | "reset" | "redirect" | "hang" | "garbage" | "no-version" | "big" | "drip";
 
 export async function startLoopback(behaviour: (n: number) => Behaviour = () => "ok") {
   const requests: Recorded[] = [];
@@ -20,6 +20,13 @@ export async function startLoopback(behaviour: (n: number) => Behaviour = () => 
       const b = behaviour(requests.length);
       if (b === "reset") return void req.socket.destroy();
       if (b === "hang") return; // never answers
+      if (b === "drip") {
+        res.writeHead(200, { "content-type": "application/json", "stripe-version": STRIPE_API_VERSION });
+        const t = setInterval(() => res.write(" "), 40); // a byte every 40 ms for ~3 s: the idle timer never fires, only an absolute deadline can stop it
+        setTimeout(() => { clearInterval(t); res.end("{}"); }, 3000);
+        res.on("close", () => clearInterval(t));
+        return;
+      }
       if (b === "redirect") {
         res.writeHead(302, { location: "http://127.0.0.1:1/elsewhere", "stripe-version": STRIPE_API_VERSION });
         return void res.end();

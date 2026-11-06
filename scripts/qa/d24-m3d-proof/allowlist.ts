@@ -157,6 +157,7 @@ export function evaluateRequest(req: ProofRequest, expect: { connectedAcct: stri
   const q = req.query ?? {};
   for (const [k, v] of Object.entries(q)) {
     // own properties only: `constructor`, `toString`, `__proto__` etc. must never resolve through the prototype chain
+    if (typeof v !== "string") return { ok: false, reason: `${rule.id}: query values must be strings (${k})` };
     const val = Object.hasOwn(rule.query, k) ? rule.query[k] : undefined;
     if (!val) return { ok: false, reason: `${rule.id}: query parameter not allowed: ${k}` };
     if (!val(v)) return { ok: false, reason: `${rule.id}: query value not allowed for ${k}` };

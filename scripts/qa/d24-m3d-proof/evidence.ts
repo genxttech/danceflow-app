@@ -3,7 +3,7 @@
 // be committed). No key, no Authorization header, no webhook secret, no email and no full idempotency key is ever written or printed; account ids are masked
 // everywhere (files and terminal).
 
-import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { redactText } from "./redact";
 
@@ -39,6 +39,8 @@ const GIT_ENTRY = ".git";
 export function evidenceDirProblem(dir: string | undefined, repoRoot: string): string | null {
   if (dir === undefined || dir === "") return null;
   if (!isAbsolute(dir)) return `${EVIDENCE_ENV} must be an absolute path`;
+  // `..` segments are resolved differently by different operating systems when a link precedes them: refuse them outright
+  if (dir.split(/[\\/]/).includes("..")) return `${EVIDENCE_ENV} must not contain ".." segments`;
   const real = realExisting(dir);
   const root = realExisting(repoRoot);
   const rel = relative(root, real);
@@ -72,7 +74,7 @@ export type EvidenceInput = {
  * Re-validates the directory immediately before writing (a live run lasts minutes: a link swapped in meanwhile is caught), creates it, validates the resolved
  * real directory again, and writes only into that real directory with exclusive-create (an existing file or a pre-planted link is never written through).
  */
-export function writeEvidence(dir: string, e: EvidenceInput, repoRoot: string): { json: string; transcript: string } {
+export function writeEvidence(dir: string, e: EvidenceInput, repoRoot: string, hooks: { onBeforeWrite?: () => void } = {}): { json: string; transcript: string } {
   const before = evidenceDirProblem(dir, repoRoot);
   if (before) throw new Error(before);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -98,7 +100,18 @@ export function writeEvidence(dir: string, e: EvidenceInput, repoRoot: string): 
   };
   const json = join(realDir, `evidence-${e.runId}.json`);
   const transcript = join(realDir, `transcript-${e.runId}.txt`);
+  hooks.onBeforeWrite?.(); // test seam: lets a test swap the directory for a link between the checks and the writes
+  // exclusive-create into the resolved real directory; if the second file cannot be created the first is removed again, so a half pack never claims an outcome
   writeFileSync(json, sanitize(JSON.stringify(body, null, 2)), { mode: 0o600, flag: "wx" });
-  writeFileSync(transcript, sanitize(e.transcriptText), { mode: 0o600, flag: "wx" });
+  try {
+    writeFileSync(transcript, sanitize(e.transcriptText), { mode: 0o600, flag: "wx" });
+  } catch (err) {
+    try {
+      unlinkSync(json);
+    } catch {
+      /* best effort: the run is reported FAILED either way */
+    }
+    throw err;
+  }
   return { json, transcript };
 }

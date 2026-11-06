@@ -33,7 +33,7 @@ npx tsx scripts/qa/d24-m3d-proof/run.ts --live         # REAL Stripe TEST calls;
    the `rk_test_` key shape, the pinned ids and the `livemode:false` requirement on every created object, not a livemode flag on the account reads.
    Reads and creates are scoped the same way: an invoice may be created for, listed for, or read from only a customer/invoice **this run created**, so a foreign object can never enter the run's bookkeeping.
 7. **Network transport (`transport.ts`)**: `node:https` with `agent: false` and `Connection: close`: one fresh connection per request, no pooling, no pipelining, no redirects, no library retry, a 30 s
-   timeout, a 1 MB response cap, and only `api.stripe.com` can be configured (tests may use a `127.0.0.1` loopback server). It replaced `fetch` because Node's `fetch` is undici with a keep-alive pool and
+   timeout (idle AND an absolute deadline, so a slow-drip response cannot hold the run), a 1 MB response cap, and only `api.stripe.com` can be configured (tests may use a `127.0.0.1` loopback server). It replaced `fetch` because Node's `fetch` is undici with a keep-alive pool and
    no way to force connection-close. Measured on Node 24 (bundled undici 7.24): a loopback server counted exactly one received request per client call for GET and POST, including after a mid-flight
    connection reset (the reset surfaces as one `UND_ERR_SOCKET` error, nothing is re-sent); the transport tests repeat that with the real transport. A lost POST is recorded as unverifiable.
 8. **Environment refused**: a hosted-database URL, any live key, `NODE_OPTIONS`, `NODE_EXTRA_CA_CERTS`, proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NODE_USE_ENV_PROXY`) and
@@ -68,6 +68,10 @@ npx tsx scripts/qa/d24-m3d-proof/run.ts --live         # REAL Stripe TEST calls;
 * The evidence directory is checked on **real paths**: links/junctions are resolved, and any directory inside this checkout or inside ANY git checkout/worktree (an ancestor holding a git
   entry) is refused. It is checked again immediately before writing, the files are written into the resolved real directory with exclusive-create (an existing file or planted link is never written
   through), and a run that was asked for evidence but could not write it safely is reported `OUTCOME: FAILED` (exit 1).
+* Evidence files are created exclusively (`wx`) in the resolved real directory, JSON first then transcript; if the second cannot be created the first is removed again, so a half pack never claims an outcome.
+  `..` segments in the directory are refused. A dry run uses a random run id (a fixed one would make the second dry run into the same folder fail by design).
+* Ids Stripe reports are recorded **before** any post-send abort (a response that is then rejected for a missing `Stripe-Version`, a wrong version or `livemode:true` still has its customer/draft id listed
+  in the cleanup report and the forced-exit note). A missing `Stripe-Version` on any response aborts the run with no cleanup call (strict by design; the ids stay listed).
 * Cleanup's read-back of each customer's invoices must succeed (HTTP 200, a list, no further pages) and be empty; otherwise that customer is **not deleted**, the run is `FAILED` and the reason is printed.
 * Success needs everything: the run prints `OUTCOME: OK` and exits 0 only if nothing aborted, every scenario check passed **and** cleanup verified an empty account (not skipped, not interrupted, nothing
   unverifiable). Otherwise `OUTCOME: FAILED`, exit 1, and the evidence carries the same outcome.
