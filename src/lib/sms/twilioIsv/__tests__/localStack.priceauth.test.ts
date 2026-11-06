@@ -1487,8 +1487,6 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       expect(run({ session_id: S_NONE }, ["tw4_price_cred_pending", ""], { marker }), "unknown session").toMatch(/has ended/);
     }
     // (4) auth.sessions missing, or unreadable by the function owner: fail CLOSED naming the hosted preflight (also with the marker)
-    const hide = hasSessions ? "alter table auth.sessions rename to sessions_hidden;" : "drop table auth.sessions;";
-    expect(psqlError(`begin; ${setup} ${hide} set local role authenticated; select set_config('request.jwt.claims', '${claimsOf({ session_id: S_OK })}', true); select public.tw4_price_cred_pending()::text; rollback;`)).toMatch(/hosted preflight failed: auth\.sessions does not exist/);
     // the real auth.sessions belongs to the auth admin, so the revoke needs the image superuser (rolled back)
     const asSuper = (sql: string): string => {
       try {
@@ -1498,6 +1496,8 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
         return String((e as { stderr?: Buffer | string }).stderr ?? e);
       }
     };
+    const hide = hasSessions ? "alter table auth.sessions rename to sessions_hidden;" : "drop table auth.sessions;";
+    expect(asSuper(`begin; ${setup} ${hide} set local role authenticated; select set_config('request.jwt.claims', '${claimsOf({ session_id: S_OK })}', true); select public.tw4_price_cred_pending()::text; rollback;`)).toMatch(/hosted preflight failed: auth\.sessions does not exist/);
     expect(asSuper(`begin; ${setup} ${rows} revoke select on auth.sessions from postgres; set local role authenticated; select set_config('request.jwt.claims', '${claimsOf({ session_id: S_OK })}', true); select public.tw4_price_cred_pending()::text; rollback;`)).toMatch(/hosted preflight failed: the function owner cannot read auth.sessions/);
   });
 });
