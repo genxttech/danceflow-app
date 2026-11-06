@@ -1404,7 +1404,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     // LOAD of this library needs a superuser (supabase_admin in the image); the calls then run as the API role exactly as PostgREST's authenticator session would
     const superSql = (sql: string): string => {
       try {
-        return execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "supabase_admin", "-d", DB, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+        return execFileSync("docker", ["exec", "-i", "-e", "PGPASSWORD=postgres", PG, "psql", "-U", "supabase_admin", "-d", DB, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
       } catch (e) {
         return `ERROR ${String((e as { stderr?: Buffer | string }).stderr ?? e)}`;
       }
