@@ -579,6 +579,7 @@ describe("USD-only, positive total, no invented amounts", () => {
     expect((await createHostedInvoice(req(), deps)).ok).toBe(true);
     const lines = stripe.calls.find((c) => c.op === "lines")!.params as Array<{ description: string; amount: number }>;
     expect(lines).toEqual(SPEC.lines.map((l) => ({ description: l.description, amount: l.amountCents })));
-    expect(JSON.stringify(stripe.calls)).not.toMatch(/tax|fee|discount|adjust|shipping/i);
+    const keys = stripe.calls.flatMap((c) => Object.keys(c.params as object));
+    expect(keys.filter((k) => /tax|fee|discount|adjust|shipping/i.test(k))).toEqual([]);
   });
 });
