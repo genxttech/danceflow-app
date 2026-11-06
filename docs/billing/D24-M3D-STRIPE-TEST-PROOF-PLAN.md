@@ -40,12 +40,12 @@ The orchestrator's injected Stripe client has exactly three operations (`ensureC
 |---|---|---|---|
 | identity (platform) | `GET /v1/account` | identity gate | none beyond a valid key |
 | identity (connected) | `GET /v1/accounts/{EXPECT_CONNECTED_ACCT}` | identity gate | Connect: account **Read** (label varies by dashboard; confirmed at key creation) |
-| create customer | `POST /v1/customers` (idempotency key, synthetic name, **no email**, metadata `{client_ref}`) | `ensureCustomer` | Customers **Write** |
+| create customer | `POST /v1/customers` (idempotency key, synthetic name, metadata `{d24_intent_id, d24_client_ref}`; the orchestrator adds `email` only when the client profile has one, so the proof fixture client **must have no email**) | `ensureCustomer` | Customers **Write** |
 | create draft | `POST /v1/invoices` (`customer, collection_method=send_invoice, days_until_due, currency, auto_advance=false, description?, metadata{d24_intent_id}`) | `createDraftInvoice` | Invoices **Write** |
 | add lines | `POST /v1/invoices/{id}/add_lines` (idempotency key `<key>:lines`) | `addInvoiceLines` | Invoices **Write** |
 | read back | `GET /v1/invoices/{id}`, `GET /v1/invoices?customer={cus}&limit=100` | evidence, V7 | Invoices (Write includes read) |
 | cleanup | `DELETE /v1/invoices/{id}` (drafts only), `DELETE /v1/customers/{id}` | cleanup | Invoices **Write**, Customers **Write** |
-| expected-403 negatives | `GET /v1/transfers?limit=1`, `GET /v1/webhook_endpoints` | V6 | **None** on Transfers and Webhook Endpoints |
+| expected-403 negatives | `GET /v1/transfers?limit=1`, `GET /v1/webhook_endpoints`, both sent **with** `Stripe-Account: EXPECT_CONNECTED_ACCT` (the same shape as every other call) | V6 | **None** on Transfers and Webhook Endpoints |
 
 Everything else is **None**, explicitly: Charges/Refunds, PaymentIntents, Payment Methods, Payouts, Balance, Subscriptions, Products/Prices (ad-hoc line descriptions and amounts only), Webhook Endpoints, Customer Portal, any Connect account *write*, API-key/developer settings. Because Invoices Write technically allows finalize/send over the API, the **allow-list wrapper in the proof client is the barrier** for those; it rejects them before any network I/O. (Invoice Items stays **None**: lines go through `add_lines`.)
 
@@ -86,7 +86,7 @@ POST   /v1/customers                                 DELETE /v1/customers/{id}
 POST   /v1/invoices                                  DELETE /v1/invoices/{id}      (drafts only)
 POST   /v1/invoices/{id}/add_lines
 GET    /v1/invoices/{id}    GET /v1/invoices?customer={cus}&limit=100
-GET    /v1/transfers?limit=1    GET /v1/webhook_endpoints                         (the two expected-403 negatives only)
+GET    /v1/transfers?limit=1    GET /v1/webhook_endpoints      (the two expected-403 negatives only; with the Stripe-Account header)
 ```
 Rejected without a request: finalize, send, pay, void, mark_uncollectible, and every payment / refund / transfer / payout / credit-note / subscription / product / price / account / webhook / API-key call; any `POST` parameter outside the orchestrator's set.
 

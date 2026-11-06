@@ -662,13 +662,13 @@ suite("K. composed: a drain holding a key lock versus a live webhook apply (need
     MODE("defer");
     const held = await deliver("invoice_payment.paid", payObj(`inpay_${nextId()}`, invoice, 111));
     expect(await claimRow(held.id)).toBe("processed/d24_deferred");
-    await q(`create table public.m2d_hold_ctl (hold boolean not null); insert into public.m2d_hold_ctl values (true);
+    await q(`drop table if exists public.m2d_hold_ctl; create table public.m2d_hold_ctl (hold boolean not null); insert into public.m2d_hold_ctl values (true);
              create or replace function public._m2d_hold() returns trigger language plpgsql as $$ declare n int := 0; begin if new.provider_event_id = '${held.id}' then while n < 600 and (select hold from public.m2d_hold_ctl) loop perform pg_sleep(0.2); n := n + 1; end loop; end if; return new; end $$;
              create trigger m2d_hold before insert on public.hosted_invoice_source_events for each row execute function public._m2d_hold();`);
     try {
       // 2. the drain starts (not awaited) and takes the key lock inside d24_apply_core
       let drainDone = false;
-      const drainP = rpc("d24_run_drain", { p_batch_size: 10, p_trigger: "manual" }).finally(() => { drainDone = true; });
+      const drainP = rpc("d24_run_drain", { p_batch_size: 10, p_trigger: "manual" }).catch((e: unknown) => ({ data: null, error: { code: "XX000", message: String(e) } })).finally(() => { drainDone = true; });
       // wait until the drain is demonstrably INSIDE the trigger's sleep (so it already holds the key lock), however slow docker is
       let holding = false;
       for (let i = 0; i < 480 && !holding; i++) {
