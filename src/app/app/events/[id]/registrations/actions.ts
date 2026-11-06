@@ -1131,8 +1131,27 @@ export async function confirmEventRegistrationAction(formData: FormData) {
   }
 
   try {
-    const { supabase, studioId } = await getStudioContext();
-    await validateEventAccess(supabase, eventId, studioId);
+    const { supabase, studioId, studioRole, isPlatformAdmin } = await getStudioContext();
+    // D7 pre-expiry: confirming a registration is a registration-desk decision like marking it paid; it used to have no
+    // role check at all.
+    requireEventRegistrationManageAccessOrRedirect(studioRole, isPlatformAdmin, eventId);
+    const event = await validateEventAccess(supabase, eventId, studioId);
+
+    const registration = await getRegistrationForEvent({ supabase, eventId, registrationId });
+    if (!registration) {
+      redirect(buildReturnUrl(eventId, "error=registration_not_found"));
+    }
+
+    // D7 pre-expiry: confirming a PENDING, UNPAID registration completes the sale without any payment, so for an organizer
+    // event it needs a current Organizer Suite entitlement, exactly like marking it paid. Confirming a registration that is
+    // already paid (the payment settled first) or already confirmed is not a new sale and is never gated. Ordinary studio
+    // events (no organizer) are unaffected. Refused before any write.
+    const isNewSale =
+      (registration.status ?? "").trim().toLowerCase() === "pending" &&
+      (registration.payment_status ?? "").trim().toLowerCase() !== "paid";
+    if (isNewSale && (await terminalSaleNeedsOrganizerSuite(createAdminClient(), { studioId, organizerId: event.organizer_id }))) {
+      throw new OrganizerSuiteRefusal();
+    }
 
     const { error } = await supabase
       .from("event_registrations")
@@ -1145,7 +1164,13 @@ export async function confirmEventRegistrationAction(formData: FormData) {
     }
 
     redirect(buildReturnUrl(eventId, "success=registration_confirmed"));
-  } catch {
+  } catch (error) {
+    // redirect() works by throwing: the intentional redirects above (success, not found, access and sign-in) must pass
+    // through; before this fix a bare catch reported even a successful confirm as registration_confirm_failed.
+    if (isRedirectError(error)) throw error;
+    if (error instanceof OrganizerSuiteRefusal) {
+      redirect(buildReturnUrl(eventId, "error=registration_confirm_organizer_suite_required"));
+    }
     redirect(buildReturnUrl(eventId, "error=registration_confirm_failed"));
   }
 }
