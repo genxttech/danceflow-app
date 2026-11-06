@@ -1401,9 +1401,18 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     psql("begin; alter table public.studio_sms_price_auth_config disable trigger studio_sms_price_auth_config_guard; update public.studio_sms_price_auth_config set frozen = false, frozen_at = null, freeze_reason = null, recovery_hold = false where singleton; alter table public.studio_sms_price_auth_config enable always trigger studio_sms_price_auth_config_guard; commit;");
     const sess = sessionA();
     // sanity: the guard really is on, so an unqualified UPDATE is refused in such a session
-    expect(psqlError("begin; load 'safeupdate'; update public.studio_sms_price_audit set detail = detail; rollback;")).toMatch(/WHERE clause/);
+    // LOAD of this library needs a superuser (supabase_admin in the image); the calls then run as the API role exactly as PostgREST's authenticator session would
+    const superSql = (sql: string): string => {
+      try {
+        return execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "supabase_admin", "-d", DB, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+      } catch (e) {
+        return `ERROR ${String((e as { stderr?: Buffer | string }).stderr ?? e)}`;
+      }
+    };
+    expect(superSql("begin; load 'safeupdate'; update public.studio_sms_price_audit set detail = detail; rollback;")).toMatch(/WHERE clause/);
     const safe = (c: Record<string, unknown>, sql: string) => {
-      const out = psql(`begin; load 'safeupdate'; set local role authenticated; select set_config('request.jwt.claims', '${JSON.stringify(c).replace(/'/g, "''")}', true); ${sql} commit;`);
+      const out = superSql(`begin; load 'safeupdate'; set local role authenticated; select set_config('request.jwt.claims', '${JSON.stringify(c).replace(/'/g, "''")}', true); ${sql} commit;`);
+      expect(out.startsWith("ERROR"), out.slice(0, 300)).toBe(false);
       return JSON.parse(out.split(NL).filter(Boolean).pop()!) as Record<string, never>;
     };
     expect(safe(claims(B, "d42-b-safe"), `select public.tw4_price_freeze('a freeze under pg_safeupdate')::text;`)).toMatchObject({ status: "frozen" });
