@@ -17,10 +17,10 @@ PS -d postgres -qc "drop database if exists a3probe" >/dev/null 2>&1
 # CREATE DATABASE needs the template idle: the only other sessions are extension workers (pg_net, pg_cron); stop them and retry until it works.
 for i in $(seq 1 40); do
   # terminate the extension workers and CREATE DATABASE in ONE psql session (they respawn between separate sessions)
-  PS -d postgres -qAt -c "select pg_terminate_backend(pid) from pg_stat_activity where datname = 'postgres' and pid <> pg_backend_pid()" -c "create database a3probe template postgres" >/dev/null 2>&1 && break
+  PS -d postgres -qAt -c "select pg_terminate_backend(pid) from pg_stat_activity where datname = 'postgres' and pid <> pg_backend_pid()" -c "create database a3probe template postgres" 2>"$W/create_err.txt" >/dev/null && break
   sleep 1   # template must be idle (extension workers respawn); retry for up to ~40s
 done
-PS -d postgres -qAtc "select 1 from pg_database where datname = 'a3probe'" | grep -q 1 || { echo "cannot create a3probe"; exit 2; }
+PS -d postgres -qAtc "select 1 from pg_database where datname = 'a3probe'" | grep -q 1 || { echo "cannot create a3probe after 40 attempts; last psql error: $(tail -c 400 "$W/create_err.txt" 2>/dev/null | tr "\n" " ")"; exit 2; }
 
 # Session 1 script = suite fixtures (up to section 1), committed, then the three phases.
 N=$(grep -n '^-- 1\. U79' "$SUITE" | head -1 | cut -d: -f1)
