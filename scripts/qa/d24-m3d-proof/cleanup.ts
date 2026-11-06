@@ -46,7 +46,9 @@ export async function cleanup(client: GuardedClient, expect: Expect): Promise<Cl
       await client.call({ method: "DELETE", path: `/v1/customers/${cus}`, stripeAccount: acct }, { phase: "cleanup", expectStatus: [200, 404] });
       rep.deletedCustomers.push(cus);
     }
-    rep.verifiedEmpty = empty && client.seen.drafts.size === 0 && client.seen.customers.size === 0;
+    // a lost response means an object may exist that was never seen: never claim "empty" in that case
+    rep.verifiedEmpty = empty && client.seen.drafts.size === 0 && client.seen.customers.size === 0 && client.uncertain.length === 0;
+    if (client.uncertain.length > 0) rep.stoppedBecause = `unverifiable: ${client.uncertain.length} create response(s) were lost (${client.uncertain.join("; ")}); check the dashboard`;
   } catch (e) {
     rep.stoppedBecause = `cleanup interrupted: ${(e as Error).message}`;
   }

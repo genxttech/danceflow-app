@@ -30,7 +30,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const FLAGS = new Set(["--dry-run", "--live", "--print-hash", "--allow-list", "--help"]);
 
 export type Io = { out: (s: string) => void; sleep: (ms: number) => Promise<void> };
-export type RunDeps = { env: Record<string, string | undefined>; io: Io; liveTransport?: Transport; dir?: string; runId?: string };
+export type RunDeps = { env: Record<string, string | undefined>; io: Io; liveTransport?: Transport; dir?: string; runId?: string; shouldStop?: () => boolean };
 
 export function parseArgs(argv: string[]): { ok: true; flag: string } | { ok: false; reason: string } {
   const flags = argv.filter((a) => a.startsWith("-"));
@@ -135,7 +135,7 @@ export async function runProof(argv: string[], deps: RunDeps): Promise<number> {
   io.out(`script manifest SHA-256: ${m.sha256}`);
   io.out(`pinned accounts: platform=${expect.platformAcct} connected=${expect.connectedAcct}; hard call cap ${HARD_CALL_CAP}`);
 
-  const client = createGuardedClient({ transport, apiKey, connectedAcct: expect.connectedAcct, paceMs: live ? 250 : 0, sleep: io.sleep });
+  const client = createGuardedClient({ transport, apiKey, connectedAcct: expect.connectedAcct, paceMs: live ? 250 : 0, sleep: io.sleep, shouldStop: deps.shouldStop });
   let results: ScenarioResult[] = [];
   let verdicts: Verdicts | null = null;
   let abort: ProofAbort | null = null;
@@ -156,8 +156,28 @@ export async function runProof(argv: string[], deps: RunDeps): Promise<number> {
 // executed only when run directly, never when imported by the tests
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain) {
+  // Ctrl-C stops the scenarios but NOT the cleanup: the flag makes the next call abort, cleanup then runs, and waits end early
+  let stop = false;
+  const wake: Array<() => void> = [];
+  process.on("SIGINT", () => {
+    stop = true;
+    process.stdout.write("\ninterrupt received: stopping scenarios, running cleanup...\n");
+    wake.splice(0).forEach((w) => w());
+  });
   runProof(process.argv.slice(2), {
     env: process.env,
-    io: { out: (s) => process.stdout.write(`${s}\n`), sleep: (ms) => new Promise((r) => setTimeout(r, ms)) },
+    shouldStop: () => stop,
+    io: {
+      out: (s) => process.stdout.write(`${s}\n`),
+      sleep: (ms) =>
+        new Promise<void>((r) => {
+          if (stop) return r();
+          const t = setTimeout(r, ms);
+          wake.push(() => {
+            clearTimeout(t);
+            r();
+          });
+        }),
+    },
   }).then((code) => process.exit(code));
 }

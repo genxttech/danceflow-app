@@ -1,8 +1,9 @@
 // Secret redaction for everything the proof prints or records (plan section 9). Applied to every transcript line and error message.
 
 const PATTERNS: Array<[RegExp, string]> = [
-  [/\b(?:sk|rk|pk)_(?:test|live)_[A-Za-z0-9]+/g, "[REDACTED_KEY]"],
-  [/\bwhsec_[A-Za-z0-9]+/g, "[REDACTED_WHSEC]"],
+  // lookbehind (not \b): a key glued to a word character or underscore must still be caught
+  [/(?:sk|rk|pk)_(?:test|live)_[A-Za-z0-9]+/g, "[REDACTED_KEY]"],
+  [/whsec_[A-Za-z0-9]+/g, "[REDACTED_WHSEC]"],
   [/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]"],
   [/\bAuthorization\s*[:=]\s*\S+(?:\s+\S+)?/gi, "Authorization: [REDACTED]"],
   [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[REDACTED_EMAIL]"],
@@ -36,5 +37,5 @@ export function summarizeBody(json: Record<string, unknown> | null): Record<stri
 
 /** True when any env value looks like a live key; used by the environment check without ever printing the value. */
 export function looksLikeLiveSecret(v: string): boolean {
-  return /\b(?:sk|rk)_live_[A-Za-z0-9]+/.test(v);
+  return /(?:sk|rk)_live_[A-Za-z0-9]+/.test(v);
 }

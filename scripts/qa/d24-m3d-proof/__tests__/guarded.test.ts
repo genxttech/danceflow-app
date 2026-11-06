@@ -156,6 +156,54 @@ describe("cleanup", () => {
   });
 });
 
+describe("review hardening", () => {
+  it("nonsense budget / reserve values can never lift the cap of 40", async () => {
+    for (const o of [{ cleanupReserve: -10 }, { cleanupReserve: Number.NaN }, { budget: Number.NaN }, { budget: Infinity }, { budget: 41, cleanupReserve: 0 }, { budget: -3 }]) {
+      const { f, client } = mk(o);
+      for (let i = 0; i < 60; i++) await client.call({ method: "GET", path: "/v1/account" }, { phase: "cleanup" }).catch(() => undefined);
+      expect(f.calls.length, JSON.stringify(o)).toBeLessThanOrEqual(40);
+    }
+  });
+  it("a request mutated after the caller handed it over is not what gets sent", async () => {
+    const f = createFakeTransport({ platformId: PLATFORM, connectedId: CONNECTED });
+    const client = createGuardedClient({ transport: f.transport, apiKey: "rk_test_FAKEFAKE", connectedAcct: CONNECTED, paceMs: 5, sleep: async () => undefined });
+    const req: ProofRequest = { method: "GET", path: "/v1/account" };
+    const p = client.call(req);
+    req.path = "/v1/invoices/in_ABC123/finalize"; // mutation after the call started
+    await p;
+    expect(f.calls.map((c) => c.path)).toEqual(["/v1/account"]);
+  });
+  it("redacts keys glued to word characters and detects them in the environment scan", () => {
+    expect(redactText("xrk_test_ABC123 foo_sk_live_ZZZ9")).not.toMatch(/ABC123|ZZZ9/);
+  });
+  it("a lost create response is remembered and cleanup never reports 'empty'", async () => {
+    const f = createFakeTransport({ platformId: PLATFORM, connectedId: CONNECTED });
+    let n = 0;
+    const lossy: Transport = async (r, k) => {
+      const res = await f.transport(r, k);
+      if (r.method === "POST" && ++n === 1) throw new Error("socket hang up");
+      return res;
+    };
+    const client = createGuardedClient({ transport: lossy, apiKey: "rk_test_FAKEFAKE", connectedAcct: CONNECTED, paceMs: 0 });
+    await expect(client.call(cust("lost"))).rejects.toThrow(/socket/);
+    expect(client.uncertain).toHaveLength(1);
+    const rep = await cleanup(client, { platformAcct: PLATFORM, connectedAcct: CONNECTED });
+    expect(rep.verifiedEmpty).toBe(false);
+    expect(rep.stoppedBecause).toMatch(/lost/);
+  });
+  it("an operator interrupt stops further calls but cleanup still runs", async () => {
+    let stop = false;
+    const { f, client } = mk({ shouldStop: () => stop });
+    const c = await client.call(cust("a"));
+    await client.call(draft(String(c.json?.id), "b"));
+    stop = true;
+    await expect(client.call({ method: "GET", path: "/v1/account" })).rejects.toMatchObject({ code: "interrupted" });
+    const rep = await cleanup(client, { platformAcct: PLATFORM, connectedAcct: CONNECTED });
+    expect(rep.verifiedEmpty).toBe(true);
+    expect(f.state.invoices.size + f.state.customers.size).toBe(0);
+  });
+});
+
 describe("redaction", () => {
   it("removes keys, webhook secrets, bearer tokens and emails", () => {
     const s = redactText("key rk_test_ABC123 sk_live_ZZZ whsec_QQQ Bearer abc.def-ghi mail jo@example.com Authorization: Bearer tok");

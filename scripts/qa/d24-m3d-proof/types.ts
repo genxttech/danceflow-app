@@ -37,6 +37,7 @@ export type AbortCode =
   | "unexpected_4xx_streak"
   | "server_error_streak"
   | "rate_limited"
+  | "interrupted"
   | "environment_refused"
   | "key_refused";
 

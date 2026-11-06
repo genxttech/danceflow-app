@@ -35,6 +35,11 @@ npx tsx scripts/qa/d24-m3d-proof/run.ts --live         # REAL Stripe TEST calls;
 
 * Stripe-side scenarios S0-S10 and cleanup (S11) are implemented. The M3-B orchestrator + local Postgres ledger binding (intent state, registry row, audit events,
   the operator attach) is **not** wired here, so V4 and V7 report `PASS (Stripe side only)` at best and the ledger half is **NOT TESTED**.
+* Not implemented (known, from the independent review; none is exploitable by this offline revision): no `Stripe-Version` pin (V1 is partly about API version, so record the
+  account default at run time); no check of the local-container label / `--network none` or of "SHAs moved mid-run" (the script uses no database; the hosted-database check
+  is an environment-variable list); an object whose create **response was lost** cannot be cleaned up automatically (the run reports `unverifiable` and never claims "empty");
+  after a blocked-request / `livemode:true` / identity abort cleanup makes no call (documented deviation from plan section 9, chosen because a further call would be unsafe).
+* Ctrl-C stops the scenarios, ends the S8 wait early, and still runs cleanup.
 * S8's documented-retention figure and the dashboard Events review (S9) are recorded by the operator by hand.
 * The fake client proves only that the script's control flow and guards work. It proves nothing about real Stripe behaviour; that is what a separately authorized live run is for.
 

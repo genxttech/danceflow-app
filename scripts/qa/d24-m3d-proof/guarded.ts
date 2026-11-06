@@ -22,6 +22,8 @@ export type GuardedOptions = {
   paceMs?: number;
   sleep?: (ms: number) => Promise<void>;
   now?: () => Date;
+  /** Polled before every call; true = the operator interrupted (Ctrl-C). Scenarios stop, cleanup still runs. */
+  shouldStop?: () => boolean;
 };
 
 export type CallOptions = {
@@ -38,16 +40,21 @@ export type GuardedClient = {
   stats(): { used: number; blocked: number; budget: number };
   /** invoice ids seen as drafts / non-drafts / customers created, for cleanup */
   seen: { drafts: Set<string>; nonDrafts: Set<string>; customers: Set<string> };
+  /** POSTs whose response was lost (objects may exist at Stripe that were never seen) */
+  uncertain: string[];
   aborted(): ProofAbort | null;
 };
 
 export function createGuardedClient(o: GuardedOptions): GuardedClient {
-  const budget = Math.min(o.budget ?? HARD_CALL_CAP, HARD_CALL_CAP);
-  const reserve = o.cleanupReserve ?? CLEANUP_RESERVE;
+  // numbers are sanitised so NaN / negative / oversized values can never lift the absolute cap of 40
+  const num = (v: number | undefined, dflt: number) => (typeof v === "number" && Number.isFinite(v) ? Math.trunc(v) : dflt);
+  const budget = Math.max(0, Math.min(num(o.budget, HARD_CALL_CAP), HARD_CALL_CAP));
+  const reserve = Math.max(0, Math.min(num(o.cleanupReserve, CLEANUP_RESERVE), budget));
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const now = o.now ?? (() => new Date());
   const paceMs = o.paceMs ?? 250;
   const transcript: TranscriptEntry[] = [];
+  const uncertain: string[] = [];
   const seen = { drafts: new Set<string>(), nonDrafts: new Set<string>(), customers: new Set<string>() };
   let used = 0;
   let blocked = 0;
@@ -78,7 +85,10 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
     throw abort;
   };
 
-  async function call(req: ProofRequest, opts: CallOptions = {}): Promise<ProofResponse> {
+  async function call(input: ProofRequest, opts: CallOptions = {}): Promise<ProofResponse> {
+    // the request is copied and frozen BEFORE validation; exactly this copy is what gets sent (no mutation between check and send)
+    const req: ProofRequest = Object.freeze(structuredClone(input));
+    if (o.shouldStop?.() && !abort) abort = new ProofAbort("interrupted", "interrupted by the operator");
     if (abort && !(opts.phase === "cleanup" && abort.code !== "livemode_true" && abort.code !== "identity_mismatch" && abort.code !== "blocked_request")) {
       throw abort;
     }
@@ -112,6 +122,8 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
       res = await o.transport(req, o.apiKey);
     } catch (err) {
       entry(req, "ERROR", { note: redactText(String((err as Error)?.message ?? err)) });
+      // the response was lost: a create may exist at Stripe that we never saw. Cleanup must not claim "empty".
+      if (req.method === "POST") uncertain.push(`${req.path} idem=${maskIdempotencyKey(req.idempotencyKey)}`);
       throw err;
     }
     const e = entry(req, res.status, { requestId: res.requestId ?? "-", replayed: res.replayed ?? null, summary: summarizeBody(res.json), note: opts.note });
@@ -160,5 +172,5 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
     return res;
   }
 
-  return { call, transcript, seen, stats: () => ({ used, blocked, budget }), aborted: () => abort };
+  return { call, transcript, seen, uncertain, stats: () => ({ used, blocked, budget }), aborted: () => abort };
 }
