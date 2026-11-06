@@ -80,7 +80,7 @@ describe.skipIf(!enabled)("D4-2: STOP / START / HELP through the real inbound ro
     delete process.env.SMS_INBOUND_RECORDING;
     expect(psql("select to_regclass('public.studio_sms_price_auth_config') is not null and to_regclass('public.studio_sms_registrations') is not null")).toBe("t");
     psql(`insert into public.studios (id, name, slug, public_name, timezone) values ('${STUDIO}', '${STUDIO_NAME}', 'freeze-${RUN}', null, 'UTC');
-      insert into public.studio_sms_registrations (studio_id, messaging_service_sid, sender_e164, registration_status) values ('${STUDIO}', '${SERVICE}', '${SENDER}', 'approved');`);
+      insert into public.studio_sms_registrations (studio_id, messaging_service_sid, campaign_sid, sender_e164, registration_status, submitted_at, approved_at) values ('${STUDIO}', '${SERVICE}', 'QE${"0f".repeat(16)}', '${SENDER}', 'approved', now(), now());`);
   });
   afterAll(() => {
     for (const k of ENV_KEYS) {
