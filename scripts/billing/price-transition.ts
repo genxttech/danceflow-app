@@ -61,6 +61,16 @@ async function main() {
     stripe: stripe as unknown as RunnerDeps["stripe"],
     isAuthorizedApprover: (id) => owners.has(id),
     resolvePlanForPrice: (priceId) => resolvePlanCodeFromEnvPriceId(priceId, process.env),
+    // Multi-item subscriptions: an add-on carrying a legacy/protected Price is refused (it would need its own transition).
+    async isProtectedPrice(priceId) {
+      const legacy = Object.entries(process.env)
+        .filter(([name]) => name.endsWith("_FOUNDER_LEGACY"))
+        .flatMap(([, value]) => (value ?? "").split(",").map((s) => s.trim()));
+      if (legacy.includes(priceId)) return true;
+      const { count, error } = await db.from("protected_subscriptions").select("id", { count: "exact", head: true }).eq("stripe_price_id", priceId).is("released_at", null);
+      if (error || count === null) throw new Error(`protected-price read failed: ${error?.message ?? "no count"}`);
+      return count > 0;
+    },
     async loadRegistry(id) {
       const { data, error } = await db.from("protected_subscriptions").select("*").eq("id", id).maybeSingle();
       if (error) throw new Error(`registry read failed: ${error.message}`);
