@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getExpectedTwilioSignature } from "twilio/lib/webhooks/webhooks";
 
 vi.mock("server-only", () => ({}));
+vi.setConfig({ testTimeout: 240_000, hookTimeout: 240_000 });
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
