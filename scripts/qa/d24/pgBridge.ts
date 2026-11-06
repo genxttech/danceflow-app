@@ -20,7 +20,7 @@ export function stackLayers(): string[] | null {
 const lit = (v: unknown): string => {
   if (v === null || v === undefined) return "null";
   if (typeof v === "number" || typeof v === "boolean") return String(v);
-  if (Array.isArray(v)) return `array[${v.map(lit).join(",")}]::text[]`;
+  if (Array.isArray(v)) return v.some((x) => x !== null && typeof x === "object") ? `'${JSON.stringify(v).replace(/'/g, "''")}'::jsonb` : `array[${v.map(lit).join(",")}]::text[]`;
   if (typeof v === "object") return `'${JSON.stringify(v).replace(/'/g, "''")}'::jsonb`;
   return `'${String(v).replace(/'/g, "''")}'`;
 };
@@ -41,6 +41,16 @@ export function runSql(sql: string, role: string | null = "service_role"): Promi
     );
     child.stdin!.end(`${role ? `set role ${role};\n` : ""}${sql}\n`);
   });
+}
+
+/** Call a function as role `authenticated` with the JWT claims Supabase would set for end user `uid` (exp one hour ahead). Errors keep the exception text, like PostgREST. */
+export async function rpcAsUser(uid: string | null, aal: string, fn: string, args: Record<string, unknown>): Promise<{ data: unknown; error: { code: string; message: string } | null }> {
+  const named = Object.entries(args).map(([k, v]) => `${k} => ${lit(v)}`).join(", ");
+  const claims = uid ? JSON.stringify({ sub: uid, role: "authenticated", aal, exp: Math.floor(Date.now() / 1000) + 3600 }) : "{}";
+  const r = await runSql(`select set_config('request.jwt.claims', '${claims.replace(/'/g, "''")}', false) is not null; select to_jsonb(public.${fn}(${named}));`, "authenticated");
+  if (r.error) return { data: null, error: r.error };
+  const line = r.out.split("\n").pop() ?? "";
+  return { data: line && line !== "t" ? JSON.parse(line) : null, error: null };
 }
 
 /** Scalar query as superuser (assertions only; never the route's path). */

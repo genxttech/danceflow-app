@@ -32,7 +32,11 @@ const enableOperator = () => asUser(PLAT, "aal2", `select (public.d24_op_set_ena
 const claim = (id: string) => q(`select (public.claim_payment_provider_event('stripe','${id}','x','h','${OWNER}'))->>'outcome'`);
 const invObj = (inv: string, status = "void") => ({ invoice_id: inv, status, total: 100, amount_due: 100, amount_paid: 0, amount_remaining: 100, currency: "usd" });
 const payObj = (inv: string, pay: string, n: number) => ({ invoice_id: inv, object_id: pay, status: "paid", amount_requested: n, amount_paid: n, currency: "usd" });
+// M3-A resolves the Stripe account from the studio (platform-scope / unbound registration is refused by design), so with m3a loaded each invoice is registered
+// under its studio's own account and its events are delivered under that account. Without m3a nothing changes (platform scope, no account).
+const acctOfInv = new Map<string, string>();
 async function apply(id: string, type: string, created: number, kind: string, obj: Record<string, unknown>, account: string | null = null) {
+  account = account ?? acctOfInv.get(String(obj.invoice_id)) ?? null;
   await claim(id);
   const r = await rpc("d24_apply_event", { p_provider_event_id: id, p_owner: OWNER, p_event_type: type, p_event_created: created, p_account: account, p_livemode: false, p_payload_hash: "h", p_kind: kind, p_object: obj });
   if (r.error) throw new Error(`apply ${id}: ${r.error.message}`);
@@ -42,8 +46,16 @@ async function defer(id: string, type: string, created: number, kind: string, ob
   const r = await rpc("d24_defer_event", { p_provider_event_id: id, p_owner: OWNER, p_event_type: type, p_event_created: created, p_account: null, p_livemode: false, p_payload_hash: "h", p_kind: kind, p_object: obj });
   if (r.error) throw new Error(`defer ${id}: ${r.error.message}`);
 }
-const register = (studio: string, inv: string) => rpc("d24_register_invoice", { p_studio_id: studio, p_stripe_account_id: null, p_stripe_invoice_id: inv, p_livemode: false, p_business_object_type: "event_fee", p_business_object_id: `bo-${inv}` });
-const rowId = (inv: string) => q(`select id from public.hosted_invoices where stripe_invoice_id='${inv}' and account_key=''`);
+const register = async (studio: string, inv: string) => {
+  let acct: string | null = null;
+  if (has("m3a")) {
+    acct = `acct_m3dl${studio.slice(-2)}`;
+    await q(`update public.studios set stripe_connected_account_id='${acct}' where id='${studio}'`);
+    acctOfInv.set(inv, acct);
+  }
+  return rpc("d24_register_invoice", { p_studio_id: studio, p_stripe_account_id: acct, p_stripe_invoice_id: inv, p_livemode: false, p_business_object_type: "event_fee", p_business_object_id: `bo-${inv}` });
+};
+const rowId = (inv: string) => q(`select id from public.hosted_invoices where stripe_invoice_id='${inv}'`);
 /** an attributed invoice that is anomalous (registered void => unverified_void_origin) */
 async function anomalous(studio: string) {
   const inv = `in_${nid()}`;
