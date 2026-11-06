@@ -114,6 +114,30 @@ export async function adopt(S, name) {
   NAMES.set(name, fresh[0]);
   return fresh[0];
 }
+/** create a new key with the page's real navigator.credentials.create (same options as the panel) and name it */
+export async function createKey(S, name) {
+  const created = await S.page.evaluate(async () => {
+    const bufToB64u = (b) => { const u = new Uint8Array(b); let s = ""; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); };
+    const c = await navigator.credentials.create({ publicKey: { challenge: crypto.getRandomValues(new Uint8Array(32)), rp: { name: "DanceFlow" }, user: { id: crypto.getRandomValues(new Uint8Array(16)), name: "key", displayName: "key" },
+      pubKeyCredParams: [{ type: "public-key", alg: -7 }], authenticatorSelection: { userVerification: "required", residentKey: "discouraged" }, attestation: "none" } });
+    const raw = new Uint8Array(c.response.getPublicKey()).slice(-65);
+    return { id: bufToB64u(c.rawId), x: bufToB64u(raw.slice(1, 33)), y: bufToB64u(raw.slice(33, 65)) };
+  });
+  if (name) await adopt(S, name);
+  return created;
+}
+/** the access token of the browser's Supabase session cookie */
+export async function accessTokenOf(S) {
+  const all = await S.context.cookies();
+  const parts = all.filter((c) => /^sb-.*-auth-token(\.\d+)?$/.test(c.name)).sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true }));
+  const raw = parts.map((c) => c.value).join("");
+  const dec = raw.startsWith("base64-") ? Buffer.from(raw.slice(7), "base64url").toString("utf8") : decodeURIComponent(raw);
+  return JSON.parse(dec).access_token;
+}
+export async function signOutUi(S) {
+  await S.page.goto("/platform/sms");
+  await Promise.all([S.page.waitForURL((u) => !u.pathname.startsWith("/platform"), { timeout: 30000 }), S.page.getByRole("button", { name: "Log Out" }).first().click()]);
+}
 /** drop credentials the authenticator holds that we never named (a creation whose enrolment was refused) so the next adoption is unambiguous */
 export async function discardUnnamed(S) {
   await sync(S);
@@ -215,7 +239,7 @@ export function applyPending(S, labelPart) {
   return keysAct(S, () => keys(S).locator("li", { hasText: new RegExp(`Pending .*${labelPart}`) }).getByRole("button", { name: "Apply" }).click());
 }
 export function cancelPending(S, labelPart) {
-  return keysAct(S, () => keys(S).locator("li", { hasText: new RegExp(`Pending .*${labelPart}`) }).getByRole("button", { name: "Cancel with key" }).click());
+  return keysAct(S, () => keys(S).locator("li", { hasText: new RegExp(`Pending .*${labelPart}`) }).getByRole("button", { name: /^Cancel with/ }).click());
 }
 export function revokeKey(S, labelPart) {
   return keysAct(S, () => keys(S).locator("li", { hasText: new RegExp(`^${labelPart} \\(`) }).getByRole("button", { name: /Revoke now/ }).click());

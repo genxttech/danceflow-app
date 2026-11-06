@@ -1,9 +1,9 @@
 {
   "meta": {
-    "when": "2026-11-06T03:30:51.356Z",
+    "when": "2026-11-06T08:24:02.694Z",
     "branch": "claude/d4-2-price-next-e2e",
-    "head": "cafba9fd847d3c66a8da6967fa0876a8ac8cec37",
-    "dirty": true,
+    "head": "80512f7847fc22c2d9dcf50f9dac96d71d746871",
+    "dirty": false,
     "node": "v24.14.1",
     "chromium": "151.0.7922.34",
     "pgImage": "df-isoqa/base:20261119092100",
@@ -14,13 +14,13 @@
     "crashed": null
   },
   "totals": {
-    "PASS": 114,
+    "PASS": 142,
     "FAIL": 0,
     "BLOCKED": 1
   },
   "byScenario": {
     "1": {
-      "PASS": 7,
+      "PASS": 8,
       "FAIL": 0,
       "BLOCKED": 1
     },
@@ -30,7 +30,7 @@
       "BLOCKED": 0
     },
     "3": {
-      "PASS": 16,
+      "PASS": 23,
       "FAIL": 0,
       "BLOCKED": 0
     },
@@ -61,6 +61,11 @@
     },
     "9": {
       "PASS": 6,
+      "FAIL": 0,
+      "BLOCKED": 0
+    },
+    "10": {
+      "PASS": 20,
       "FAIL": 0,
       "BLOCKED": 0
     },
@@ -109,9 +114,15 @@
     },
     {
       "scenario": "1",
-      "name": "owner bootstrap registers the first primary (RP localhost, origin of the Next host)",
+      "name": "owner bootstrap installs primary + recovery in one transaction (RP localhost, origin of the Next host)",
       "status": "PASS",
       "note": ""
+    },
+    {
+      "scenario": "1",
+      "name": "the panel's role list offers no 'recovery' (a recovery key is never enrolled through the UI)",
+      "status": "PASS",
+      "note": "spare,primary"
     },
     {
       "scenario": "1",
@@ -139,15 +150,15 @@
     },
     {
       "scenario": "1",
-      "name": "recovery key enrolled through the UI (third credential)",
+      "name": "three-credential set: primary (owner-level) + spare (UI, delayed) + recovery (owner-level)",
       "status": "PASS",
-      "note": "Done: applied."
+      "note": "primary:primary,recovery one:recovery,spare one:spare"
     },
     {
       "scenario": "1",
       "name": "the audit holds the credential_change_pending and credential_change_applied events",
       "status": "PASS",
-      "note": "2"
+      "note": "applied=1 pending=1"
     },
     {
       "scenario": "2",
@@ -177,7 +188,7 @@
       "scenario": "2",
       "name": "after the (database-clock) cooling-off the separate session gets the challenge with the exact summary from the database",
       "status": "PASS",
-      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: none to $4.25\nDanceFlow provider cost: none to $1.15\nDescription: browser price one\nFingerprint: c8b1be1d497abcf7"
+      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: none to $4.25\nDanceFlow provider cost: none to $1.15\nDescription: browser price one\nFingerprint: 3234fce47aa274c4"
     },
     {
       "scenario": "2",
@@ -201,13 +212,13 @@
       "scenario": "2",
       "name": "REPLAY of the captured server-action request publishes nothing and applies once",
       "status": "PASS",
-      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"rkvH4u0faQOwgqRUfBfiO\"}\n1:{\"ok\":true,\"data\":{\"status\":\"refused\",\"reason\":\"this price proposal is already applied and c"
+      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"eCBBuCU2zY5q3vhQnWVd8\"}\n1:{\"ok\":true,\"data\":{\"status\":\"refused\",\"reason\":\"this price proposal is already applied and c"
     },
     {
       "scenario": "2",
       "name": "the price flash cookie (set by the propose action) is HttpOnly, SameSite=Strict, path /platform/sms, lives <= 60 s",
       "status": "PASS",
-      "note": "{\"httpOnly\":true,\"sameSite\":\"Strict\",\"path\":\"/platform/sms\",\"secure\":true,\"ttl\":15}"
+      "note": "{\"httpOnly\":true,\"sameSite\":\"Strict\",\"path\":\"/platform/sms\",\"secure\":true,\"ttl\":42}"
     },
     {
       "scenario": "2",
@@ -219,7 +230,7 @@
       "scenario": "2",
       "name": "challenge issued for v1 of the second proposal",
       "status": "PASS",
-      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: $4.25 to $5.10\nDanceFlow provider cost: $1.15 to $1.15\nDescription: browser price two\nFingerprint: e3ca1fb4b96b5e6d"
+      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: $4.25 to $5.10\nDanceFlow provider cost: $1.15 to $1.15\nDescription: browser price two\nFingerprint: a9529c54969b4cf9"
     },
     {
       "scenario": "2",
@@ -249,7 +260,7 @@
       "scenario": "2",
       "name": "replaying the v1 signature again is also refused",
       "status": "PASS",
-      "note": "0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"rkvH4u0faQOwgqRUfBfiO\"}\n1:{\"ok\":true,\"data\":{\"status\":\"refused\",\"reason\":\"this"
+      "note": "0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"eCBBuCU2zY5q3vhQnWVd8\"}\n1:{\"ok\":true,\"data\":{\"status\":\"refused\",\"reason\":\"this"
     },
     {
       "scenario": "2",
@@ -360,6 +371,48 @@
       "note": "http://localhost:3417/login"
     },
     {
+      "scenario": "3",
+      "name": "signed-out: full aal2 login first (second administrator)",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "scenario": "3",
+      "name": "signed-out: before sign-out the raw access token is accepted by the database RPC (PostgREST)",
+      "status": "PASS",
+      "note": "200"
+    },
+    {
+      "scenario": "3",
+      "name": "signed-out: before sign-out the server action is served",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "scenario": "3",
+      "name": "signed-out: the Log Out button ends the session and lands on a public page",
+      "status": "PASS",
+      "note": "http://localhost:3417/login"
+    },
+    {
+      "scenario": "3",
+      "name": "signed-out: replaying the captured server action with the OLD cookies is refused (redirect, no data)",
+      "status": "PASS",
+      "note": "303 /login;push"
+    },
+    {
+      "scenario": "3",
+      "name": "signed-out: the still-unexpired JWT is refused BY THE DATABASE (session ended, 42501)",
+      "status": "PASS",
+      "note": "403 {\"code\":\"42501\",\"details\":null,\"hint\":null,\"message\":\"this session has ended: sign in again\"}"
+    },
+    {
+      "scenario": "3",
+      "name": "the owner of the session-actor function can read auth.sessions (local role; hosted must be confirmed separately)",
+      "status": "PASS",
+      "note": "postgres super=false sees_auth.sessions=true"
+    },
+    {
       "scenario": "4",
       "name": "revoke through the UI is immediate and final",
       "status": "PASS",
@@ -405,7 +458,7 @@
       "scenario": "4",
       "name": "challenge issued while spare two is still active (it is offered)",
       "status": "PASS",
-      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: $5.20 to $6.00\nDanceFlow provider cost: $1.15 to $1.15\nDescription: revoked signer price\nFingerprint: 07246bec1c7b8ad9"
+      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: $5.20 to $6.00\nDanceFlow provider cost: $1.15 to $1.15\nDescription: revoked signer price\nFingerprint: 7070e626bab8d260"
     },
     {
       "scenario": "4",
@@ -501,7 +554,7 @@
       "scenario": "6",
       "name": "two sessions revoke the same key at once: exactly one revocation is recorded",
       "status": "PASS",
-      "note": "The database refused: unknown or already revoked credential. || Revoked. This takes effect immediately and cannot be undone:"
+      "note": "Revoked. This takes effect immediately and cannot be undone: || The database refused: unknown or already revoked credential."
     },
     {
       "scenario": "6",
@@ -675,7 +728,7 @@
       "scenario": "5",
       "name": "recovery enrolment through the UI is pending and suspends publication",
       "status": "PASS",
-      "note": "Recovery requested. It completes only after the long delay, raises high-severity alerts, and a primary or spare key can cancel it. (suspended=true)"
+      "note": "Recovery requested. It completes only after the long delay, raises high-severity alerts, and only the recovery key can cancel it. (suspended=true)"
     },
     {
       "scenario": "5",
@@ -726,6 +779,126 @@
       "note": ""
     },
     {
+      "scenario": "10",
+      "name": "fixture: [primary, recovery] active (recovery installed owner-level)",
+      "status": "PASS",
+      "note": "recovered two:primary,recovery five:recovery"
+    },
+    {
+      "scenario": "10",
+      "name": "the attacker holds the account (a separate session) and the ordinary keys",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "scenario": "10",
+      "name": "attacker: the UI offers no recovery role",
+      "status": "PASS",
+      "note": "spare,primary"
+    },
+    {
+      "scenario": "10",
+      "name": "attacker: the server action with role=recovery returns no challenge",
+      "status": "PASS",
+      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"eCBBuCU2zY5q3vhQnWVd8\"} 1:{\"ok\":false,\"message\":\"The database refused the input (check the kind, t"
+    },
+    {
+      "scenario": "10",
+      "name": "attacker: calling the database directly with the session token for role=recovery is refused",
+      "status": "PASS",
+      "note": "400 {\"code\":\"22023\",\"details\":null,\"hint\":null,\"message\":\"a recovery credential is never enrolled through an ordinary ceremony: it is installed "
+    },
+    {
+      "scenario": "10",
+      "name": "attacker: no recovery credential was added",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "scenario": "10",
+      "name": "owner evicts the stolen spare through the UI (immediate)",
+      "status": "PASS",
+      "note": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
+    },
+    {
+      "scenario": "10",
+      "name": "attacker: the evicted spare cannot authorize the pending proposal",
+      "status": "PASS",
+      "note": "The authenticator did not sign (cancelled, not available or not allowed). Nothing changed."
+    },
+    {
+      "scenario": "10",
+      "name": "owner freezes through the UI",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "scenario": "10",
+      "name": "an ordinary key may lift an ordinary freeze (documented design) - outcome consistent with the DB",
+      "status": "PASS",
+      "note": "Publication resumed."
+    },
+    {
+      "scenario": "10",
+      "name": "owner freezes with the RECOVERY key (hold)",
+      "status": "PASS",
+      "note": "Publication is suspended."
+    },
+    {
+      "scenario": "10",
+      "name": "attacker with the ordinary keys cannot lift the recovery freeze",
+      "status": "PASS",
+      "note": "Not allowed. Price changes need a registered administrator in a second-factor session; publication also needs a different session and the hardware key, and is refused while prices are suspended. Only an active platform administrator can do this, and a price change can never be approved by the admini"
+    },
+    {
+      "scenario": "10",
+      "name": "attacker cannot retire the recovery key (not offered)",
+      "status": "PASS",
+      "note": "The authenticator did not sign or the request failed. Nothing changed."
+    },
+    {
+      "scenario": "10",
+      "name": "attacker: a spare requested during the hold never becomes active",
+      "status": "PASS",
+      "note": "request: Not allowed. Price changes need a registered administrator in a second | apply: NO ROW (TimeoutError: locator.click: Timeout 300)"
+    },
+    {
+      "scenario": "10",
+      "name": "monitoring is expected AND unavailable",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "scenario": "10",
+      "name": "owner starts the recovery with the recovery key during the outage (tolerant emit)",
+      "status": "PASS",
+      "note": "Recovery requested. It completes only after the long delay, raises high-severity alerts, and only the recovery key can cancel it."
+    },
+    {
+      "scenario": "10",
+      "name": "owner completes the recovery during the outage; the whole ordinary set (attacker's keys) is replaced",
+      "status": "PASS",
+      "note": "Done: applied. / owner recovered:primary"
+    },
+    {
+      "scenario": "10",
+      "name": "attacker's old primary is dead after the recovery (not offered)",
+      "status": "PASS",
+      "note": "The authenticator did not sign or the request failed. Nothing changed."
+    },
+    {
+      "scenario": "10",
+      "name": "owner lifts the suspension with the recovered primary (monitoring back)",
+      "status": "PASS",
+      "note": "Publication resumed."
+    },
+    {
+      "scenario": "10",
+      "name": "the recovered owner proposes and authorizes a price again (monitoring expected and present)",
+      "status": "PASS",
+      "note": "Authorized. The new price is published."
+    },
+    {
       "scenario": "9",
       "name": "built client output (.next/static, 109 files, 2.3 MB) contains none of the run's secrets",
       "status": "PASS",
@@ -757,7 +930,7 @@
     },
     {
       "scenario": "9",
-      "name": "all 92 user-visible messages are plain sentences (no SQLSTATE, token, stack or SQL text)",
+      "name": "all 102 user-visible messages are plain sentences (no SQLSTATE, token, stack or SQL text)",
       "status": "PASS",
       "note": ""
     }
@@ -767,21 +940,6 @@
       "scenario": "1",
       "where": "keys",
       "text": "The action failed. Nothing changed; reload and check the current state before trying again."
-    },
-    {
-      "scenario": "1",
-      "where": "keys",
-      "text": "Requested. The new key becomes usable only after the delay; you can cancel it until then."
-    },
-    {
-      "scenario": "1",
-      "where": "keys",
-      "text": "The 24-hour cooling-off of this proposal has not ended yet. Nothing changed."
-    },
-    {
-      "scenario": "1",
-      "where": "keys",
-      "text": "Done: applied."
     },
     {
       "scenario": "1",
@@ -899,21 +1057,6 @@
       "text": "The database refused the signature: unknown or revoked credential. Nothing changed."
     },
     {
-      "scenario": "4",
-      "where": "keys",
-      "text": "Requested. The new key becomes usable only after the delay; you can cancel it until then."
-    },
-    {
-      "scenario": "4",
-      "where": "keys",
-      "text": "The 24-hour cooling-off of this proposal has not ended yet. Nothing changed."
-    },
-    {
-      "scenario": "4",
-      "where": "keys",
-      "text": "Done: applied."
-    },
-    {
       "scenario": "7",
       "where": "keys",
       "text": "The database refused: a backup-eligible (synced) credential is not accepted. Nothing changed."
@@ -986,17 +1129,22 @@
     {
       "scenario": "6",
       "where": "keys",
+      "text": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
+    },
+    {
+      "scenario": "6",
+      "where": "keys",
       "text": "The database refused: unknown or already revoked credential. Nothing changed."
     },
     {
       "scenario": "6",
       "where": "keys",
-      "text": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
+      "text": "Requested. The new key becomes usable only after the delay; you can cancel it until then."
     },
     {
       "scenario": "6",
       "where": "keys",
-      "text": "Requested. The new key becomes usable only after the delay; you can cancel it until then."
+      "text": "Done: applied."
     },
     {
       "scenario": "6",
@@ -1006,11 +1154,6 @@
     {
       "scenario": "6",
       "where": "keys",
-      "text": "Done: applied."
-    },
-    {
-      "scenario": "6",
-      "where": "keys",
       "text": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
     },
     {
@@ -1045,28 +1188,13 @@
     },
     {
       "scenario": "6",
-      "where": "keys",
-      "text": "Requested. The new key becomes usable only after the delay; you can cancel it until then."
-    },
-    {
-      "scenario": "6",
-      "where": "keys",
-      "text": "The 24-hour cooling-off of this proposal has not ended yet. Nothing changed."
-    },
-    {
-      "scenario": "6",
-      "where": "keys",
-      "text": "Done: applied."
+      "where": "flash",
+      "text": "This is not allowed in the proposal's current state (another proposal for this price is still open, or this one is already decided). Nothing changed."
     },
     {
       "scenario": "6",
       "where": "flash",
       "text": "Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed."
-    },
-    {
-      "scenario": "6",
-      "where": "flash",
-      "text": "This is not allowed in the proposal's current state (another proposal for this price is still open, or this one is already decided). Nothing changed."
     },
     {
       "scenario": "8",
@@ -1181,7 +1309,7 @@
     {
       "scenario": "5",
       "where": "keys",
-      "text": "Recovery requested. It completes only after the long delay, raises high-severity alerts, and a primary or spare key can cancel it."
+      "text": "Recovery requested. It completes only after the long delay, raises high-severity alerts, and only the recovery key can cancel it."
     },
     {
       "scenario": "5",
@@ -1196,7 +1324,7 @@
     {
       "scenario": "5",
       "where": "keys",
-      "text": "Recovery requested. It completes only after the long delay, raises high-severity alerts, and a primary or spare key can cancel it."
+      "text": "Recovery requested. It completes only after the long delay, raises high-severity alerts, and only the recovery key can cancel it."
     },
     {
       "scenario": "5",
@@ -1220,6 +1348,101 @@
     },
     {
       "scenario": "5",
+      "where": "authorize",
+      "text": "Authorized. The new price is published."
+    },
+    {
+      "scenario": "10",
+      "where": "keys",
+      "text": "Requested. The new key becomes usable only after the delay; you can cancel it until then."
+    },
+    {
+      "scenario": "10",
+      "where": "keys",
+      "text": "The 24-hour cooling-off of this proposal has not ended yet. Nothing changed."
+    },
+    {
+      "scenario": "10",
+      "where": "keys",
+      "text": "Done: applied."
+    },
+    {
+      "scenario": "10",
+      "where": "flash",
+      "text": "Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed."
+    },
+    {
+      "scenario": "10",
+      "where": "keys",
+      "text": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
+    },
+    {
+      "scenario": "10",
+      "where": "authorize",
+      "text": "The authenticator did not sign (cancelled, not available or not allowed). Nothing changed."
+    },
+    {
+      "scenario": "10",
+      "where": "flash",
+      "text": "Price publication is suspended. It publishes nothing; lifting the suspension needs the hardware key."
+    },
+    {
+      "scenario": "10",
+      "where": "keys",
+      "text": "Publication resumed."
+    },
+    {
+      "scenario": "10",
+      "where": "flash",
+      "text": "Price publication is suspended. It publishes nothing; lifting the suspension needs the hardware key."
+    },
+    {
+      "scenario": "10",
+      "where": "keys",
+      "text": "Publication is suspended."
+    },
+    {
+      "scenario": "10",
+      "where": "keys",
+      "text": "Not allowed. Price changes need a registered administrator in a second-factor session; publication also needs a different session and the hardware key, and is refused while prices are suspended. Only an active platform administrator can do this, and a price change can never be approved by the administrator who proposed it. Nothing changed."
+    },
+    {
+      "scenario": "10",
+      "where": "keys",
+      "text": "The authenticator did not sign or the request failed. Nothing changed."
+    },
+    {
+      "scenario": "10",
+      "where": "keys",
+      "text": "Not allowed. Price changes need a registered administrator in a second-factor session; publication also needs a different session and the hardware key, and is refused while prices are suspended. Only an active platform administrator can do this, and a price change can never be approved by the administrator who proposed it. Nothing changed."
+    },
+    {
+      "scenario": "10",
+      "where": "keys",
+      "text": "Recovery requested. It completes only after the long delay, raises high-severity alerts, and only the recovery key can cancel it."
+    },
+    {
+      "scenario": "10",
+      "where": "keys",
+      "text": "Done: applied."
+    },
+    {
+      "scenario": "10",
+      "where": "keys",
+      "text": "The authenticator did not sign or the request failed. Nothing changed."
+    },
+    {
+      "scenario": "10",
+      "where": "keys",
+      "text": "Publication resumed."
+    },
+    {
+      "scenario": "10",
+      "where": "flash",
+      "text": "Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed."
+    },
+    {
+      "scenario": "10",
       "where": "authorize",
       "text": "Authorized. The new price is published."
     }

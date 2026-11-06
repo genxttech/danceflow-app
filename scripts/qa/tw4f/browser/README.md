@@ -44,11 +44,13 @@ Results: `scripts/qa/tw4f/results/d4-1/next-e2e-run.md` and `.json` (per-scenari
 
 Old harness (`webauthn-e2e.mjs`) stays for DB-level checks that need no Next app.
 
-## Findings of the first full run (branch head cafba9fd + two src fixes)
 
-* DEFECT 1 (fixed in the same branch): 8 `update public.studio_sms_price_auth_config set ...` statements in migration 20270208100000 had no WHERE clause. The Supabase `authenticator` role preloads `pg_safeupdate`, so under PostgREST every one of them fails with `UPDATE requires a WHERE clause`: freeze, thaw, compromise report, recovery freeze, retiring the recovery key and cancelling a recovery enrolment all failed from the real app (the superuser-psql based tests cannot see it). Fix: `where singleton` on each statement. Evidence of the unfixed behaviour: `results/d4-1/next-e2e-run-unfixed-probe.md` (scenarios 1 and 5 against the unmodified migration). The function bodies changed, so the hosted manifest / probe fingerprints for 20270208100000 must be regenerated.
-* DEFECT 2 (fixed in the same branch): `PriceChangeStore.credState()` dropped pending changes whose kind is `recovery_enroll`, so the key panel never showed a pending recovery enrolment and offered no Apply / Cancel for it (a recovery could neither complete nor be cancelled from the UI). Fix: accept `recovery_enroll` in `src/lib/sms/priceChange.ts`.
-* Observation (not changed): the panel text after "Start recovery" says a primary or spare key can cancel it; the database allows only the recovery key (scenario 5 shows a primary key is not even offered).
-* Observation (not changed): database errors without a mapped SQLSTATE (TW046 monitoring outage, "no key yet", the 3-credential cap) surface as the generic sentence "The action failed. Nothing changed; ..." (scenarios 1 and 8).
-* Observation: the database caps active credentials at 3, and the recovery key can be retired only by itself; a completed recovery replaces the whole set (no recovery key remains afterwards).
-* Result files: `results/d4-1/next-e2e-run.md/.json` (final run, with both fixes: 114 PASS / 0 FAIL / 1 BLOCKED) and `next-e2e-run-unfixed-probe.*`.
+## Findings
+
+Final run: base `origin/claude/d4-2-price-owner-authz` 7acdeac7 (harness only on top), 142 PASS / 0 FAIL / 1 BLOCKED (`results/d4-1/next-e2e-run.md`). Scenario 10 (stolen ordinary keys) and the signed-out-session checks in scenario 3 were added for the hardening round; the bootstrap installs the recovery key owner-level (`_tw4price_bootstrap_with_recovery`) and the three-credential set is primary + recovery (owner-level) + spare (UI, delayed).
+
+* Found by the first run on cafba9fd (both already re-applied by the implementer in 7acdeac7, so the harness has no src changes): (1) 8 `update public.studio_sms_price_auth_config set ...` without WHERE fail under `pg_safeupdate` (the `authenticator` role), which broke freeze, thaw, compromise report, recovery freeze, retiring the recovery key and cancelling a recovery enrolment from the real app; evidence of the unfixed behaviour is `results/d4-1/next-e2e-run-unfixed-probe.md` (run on cafba9fd). (2) `credState()` dropped `recovery_enroll` pending changes so a recovery could be neither completed nor cancelled from the panel.
+* The Log Out button signs the user out GLOBALLY (all of that user's sessions): the signed-out check therefore uses a second administrator.
+* An ordinary key can lift an ORDINARY freeze (scenario 10 records it); only a recovery freeze (hold) is beyond ordinary keys. A stolen primary can therefore undo an owner's ordinary freeze; the owner's answer is the recovery freeze.
+* Unmapped database errors (TW046 monitoring outage, the 3-credential cap, "no key yet") surface as the generic sentence "The action failed. Nothing changed; ...".
+* The function owner of `_tw4price_session_actor` (`postgres`, not a superuser in the local image) can read `auth.sessions` (checked in scenario 3); confirm the same privilege on the hosted project before applying.

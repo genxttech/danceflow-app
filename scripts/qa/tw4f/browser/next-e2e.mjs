@@ -55,7 +55,7 @@ function doDown() {
 }
 
 // ================================================================================================ the run
-const ctx = { rec: "recovery one", state: null, A: null, secret: null, s1: null, s2: null, browser: null, sessions: () => B.SESSIONS };
+const ctx = { rec: "recovery one", prim: "primary", state: null, A: null, secret: null, s1: null, s2: null, browser: null, sessions: () => B.SESSIONS };
 
 async function setup(browser) {
   scn("0 setup");
@@ -101,16 +101,17 @@ async function sc1() {
   const m0 = await B.requestKey(S, "first primary", "primary");
   check("UI before any key exists: enrol is refused with a clear sentence and creates nothing", /not allowed|refused|Nothing changed|not available/i.test(m0) && B.countActive() === 0, m0);
   await B.discardUnnamed(S);
-  const created = await S.page.evaluate(async () => {
-    const bufToB64u = (b) => { const u = new Uint8Array(b); let s = ""; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); };
-    const c = await navigator.credentials.create({ publicKey: { challenge: crypto.getRandomValues(new Uint8Array(32)), rp: { name: "DanceFlow" }, user: { id: crypto.getRandomValues(new Uint8Array(16)), name: "primary", displayName: "primary" },
-      pubKeyCredParams: [{ type: "public-key", alg: -7 }], authenticatorSelection: { userVerification: "required", residentKey: "discouraged" }, attestation: "none" } });
-    const raw = new Uint8Array(c.response.getPublicKey()).slice(-65);
-    return { id: bufToB64u(c.rawId), x: bufToB64u(raw.slice(1, 33)), y: bufToB64u(raw.slice(33, 65)) };
-  });
-  await B.adopt(S, "primary");
-  const r = L.psql(`select public._tw4price_bootstrap('localhost', array['${ctx.state.appOrigin}'], decode('${B.hexOf(created.id)}','hex'), decode('${B.hexOf(created.x)}','hex'), decode('${B.hexOf(created.y)}','hex'), 'primary')`);
-  check("owner bootstrap registers the first primary (RP localhost, origin of the Next host)", r.code === 0 && B.countActive() === 1, r.err.slice(0, 120));
+  const created = await B.createKey(S, "primary");
+  const rk = await B.createKey(S, "recovery one");
+  const hx = (k) => `decode('${B.hexOf(k.id)}','hex'), decode('${B.hexOf(k.x)}','hex'), decode('${B.hexOf(k.y)}','hex')`;
+  const r = L.psql(`select public._tw4price_bootstrap_with_recovery('localhost', array['${ctx.state.appOrigin}'], ${hx(created)}, 'primary', ${hx(rk)}, 'recovery one')`);
+  ctx.rec = "recovery one";
+  ctx.prim = "primary";
+  check("owner bootstrap installs primary + recovery in one transaction (RP localhost, origin of the Next host)", r.code === 0 && B.countActive() === 2 && B.keyStatus("recovery one") === "active", r.err.slice(0, 120));
+  await B.only(S, ["primary"]);
+  await B.openSms(S);
+  const opts = await S.page.locator('section[aria-label="Hardware keys for price authorization"] select option').allInnerTexts();
+  check("the panel's role list offers no 'recovery' (a recovery key is never enrolled through the UI)", opts.length >= 1 && !opts.some((o) => /recovery/i.test(o)), opts.join(","));
   blocked("first primary enrolment THROUGH THE UI", "by design there is no UI path: Request a new key needs an existing key to sign (priceCredBegin/priceCredEnroll); the first key is the owner runbook bootstrap (_tw4price_bootstrap). Verified above that the UI refuses cleanly with no key.");
 
   // 1b. spare + recovery through the UI with the database-clock delay
@@ -118,10 +119,8 @@ async function sc1() {
   check("spare request via UI is PENDING (not active)", sp.pending === 1 && /Requested/.test(sp.m1), sp.m1);
   check("Apply before the delay is refused with a clear sentence and the key stays pending", /not ended|cooling|Nothing changed|not allowed/i.test(sp.early) && sp.stillPending, sp.early);
   check("spare applied through the UI after the aged database clock", B.keyStatus("spare one") === "active" && /applied/.test(sp.m2), sp.m2);
-  const rc = await enrolAndApply(S, "recovery one", "recovery", ["primary"]);
-  ctx.rec = "recovery one";
-  check("recovery key enrolled through the UI (third credential)", B.countActive() === 3 && B.keyStatus(ctx.rec) === "active", rc.m2);
-  check("the audit holds the credential_change_pending and credential_change_applied events", B.audit("credential_change_applied") >= 2, String(B.audit("credential_change_applied")));
+  check("three-credential set: primary (owner-level) + spare (UI, delayed) + recovery (owner-level)", B.countActive() === 3 && B.activeKeys().includes("spare one:spare") && B.activeKeys().includes("recovery one:recovery"), B.activeKeys());
+  check("the audit holds the credential_change_pending and credential_change_applied events", B.audit("credential_change_applied") >= 1 && B.audit("credential_change_pending") >= 1, `applied=${B.audit("credential_change_applied")} pending=${B.audit("credential_change_pending")}`);
 }
 
 
@@ -263,6 +262,35 @@ async function sc3() {
     check(`${mode}: the server action is refused afterwards (redirect, no data)`, !!r1 && /platform-mfa|login/.test(r1.redirect + r1.text) && !/"credentials":\[/.test(r1.text), r1 ? `${r1.status} ${r1.redirect}` : "");
     await S.page.goto("/platform/sms");
     check(`${mode}: the page sends the browser to sign in`, /\/login|platform-mfa/.test(S.page.url()), S.page.url());
+  }
+
+  // signed OUT (not just deleted): the stateless JWT outlives the sign-out; the stolen cookie and the raw token must both be refused
+  {
+    // the Log Out button signs the user out GLOBALLY (every session of that user), so this uses a second platform administrator and leaves the main owner's sessions alone
+    const C = await B.createUser(ctx.state, "second", `${randomBytes(18).toString("base64url")}Aa1!`);
+    q(`insert into public.profiles (id, email, platform_role) values ('${C.id}', '${C.email}', 'platform_admin') on conflict (id) do update set platform_role = 'platform_admin';
+       insert into public.studio_sms_price_approvers (user_id, added_note) values ('${C.id}', 'second synthetic administrator for the sign-out check') on conflict do nothing;`);
+    const secretC = await B.enrollTotp(ctx.state, C);
+    const S = await B.newSession(ctx.browser, ctx.state, "s-signedout");
+    check("signed-out: full aal2 login first (second administrator)", await B.login(S, C, secretC));
+    const token = await B.accessTokenOf(S);
+    const jar = await S.context.cookies();
+    const rpc = (tok) => L.http("POST", `${ctx.state.url}/rest/v1/rpc/tw4_price_cred_pending`, tok, {}, { apikey: ctx.state.anon });
+    const pre = await rpc(token);
+    check("signed-out: before sign-out the raw access token is accepted by the database RPC (PostgREST)", pre.status === 200, `${pre.status}`);
+    const r0 = capPending ? await replay(S, capPending) : null;
+    check("signed-out: before sign-out the server action is served", !!r0 && r0.status === 200 && !/platform-mfa|login/.test(r0.redirect));
+    await B.signOutUi(S);
+    check("signed-out: the Log Out button ends the session and lands on a public page", !S.page.url().includes("/platform"), S.page.url());
+    const thief = await B.newSession(ctx.browser, ctx.state, "s-thief");
+    await thief.context.addCookies(jar);
+    const r1 = capPending ? await replay(thief, capPending) : null;
+    check("signed-out: replaying the captured server action with the OLD cookies is refused (redirect, no data)", !!r1 && /platform-mfa|login/.test(r1.redirect + r1.text) && !/"credentials":\[/.test(r1.text), r1 ? `${r1.status} ${r1.redirect}` : "");
+    const post = await rpc(token);
+    check("signed-out: the still-unexpired JWT is refused BY THE DATABASE (session ended, 42501)", post.status !== 200 && /session has ended|42501/.test(post.text), `${post.status} ${post.text.slice(0, 120)}`);
+    const priv = q("select r.rolname || ' super=' || r.rolsuper || ' sees_auth.sessions=' || has_table_privilege(r.oid, 'auth.sessions', 'select') from pg_proc p join pg_roles r on r.oid = p.proowner where p.proname = '_tw4price_session_actor' limit 1");
+    console.log("  function owner of _tw4price_session_actor:", priv, "(on a hosted project verify the owner can read auth.sessions)");
+    check("the owner of the session-actor function can read auth.sessions (local role; hosted must be confirmed separately)", /sees_auth\.sessions=true/.test(priv), priv);
   }
 }
 
@@ -449,8 +477,11 @@ async function sc6() {
   check("stored sign counters are non-negative and the key set is [primary, recovery]", Number(q("select count(*) from public.studio_sms_price_credentials where sign_count < 0")) === 0 && B.countActive() === 2, B.activeKeys());
 }
 
+/** the recovery key is installed only by the owner-level runbook step: the browser creates the key, the owner step registers it */
 async function ensureRecovery(label) {
-  await enrolAndApply(ctx.s1, label, "recovery", ["primary"]);
+  const k = await B.createKey(ctx.s1, label);
+  const r = L.psql(`select public._tw4price_install_recovery(decode('${B.hexOf(k.id)}','hex'), decode('${B.hexOf(k.x)}','hex'), decode('${B.hexOf(k.y)}','hex'), '${label}')`);
+  if (r.code !== 0) throw new Error(`install recovery failed: ${r.err.slice(0, 200)}`);
   ctx.rec = label;
 }
 async function enrolAndApplyNoApply(S, label, role, signers) {
@@ -579,6 +610,7 @@ async function sc5() {
   const b = await B.authorizeBegin(s2, rid);
   await B.signClick(s2, rid);
   const done = await B.signMessage(s2, rid);
+  ctx.prim = "recovered two";
   check("the recovered primary authorizes a price from a separate session", pp.ok && !!b.summary && /Authorized/.test(done) && B.activePrice("number") === "1050", done);
   check("the audit holds recovery events", B.audit("recovery_used") >= 1 || Number(q("select count(*) from public.studio_sms_price_audit where event like 'recovery%'")) >= 1);
 }
@@ -619,6 +651,116 @@ async function sc9() {
 }
 
 
+// ---------------------------------------------------------------------------------------------------------------- 10 stolen ordinary keys: the attacker flow
+async function sc10() {
+  scn(10);
+  const { s1, s2 } = ctx;
+  const P = ctx.prim;
+  await ensureRecovery("recovery five");
+  check("fixture: [primary, recovery] active (recovery installed owner-level)", B.countActive() === 2 && B.keyStatus(ctx.rec) === "active", B.activeKeys());
+  const atk = await B.newSession(ctx.browser, ctx.state, "attacker");
+  check("the attacker holds the account (a separate session) and the ordinary keys", await B.login(atk, ctx.A, ctx.secret));
+  // 1. ordinary enrolment of role=recovery
+  await B.only(atk, [P]);
+  await B.openSms(atk);
+  const opts = await atk.page.locator('section[aria-label="Hardware keys for price authorization"] select option').allInnerTexts();
+  check("attacker: the UI offers no recovery role", !opts.some((o) => /recovery/i.test(o)), opts.join(","));
+  const capEnrol = [...s1.actions].reverse().find((a) => a.body.includes('"purpose":"enroll"') && a.body.includes('"role":"spare"'));
+  if (capEnrol) {
+    const forged = { ...capEnrol, body: capEnrol.body.replace('"role":"spare"', '"role":"recovery"') };
+    const r = await replay(atk, forged);
+    check("attacker: the server action with role=recovery returns no challenge", !/"challenge":"|"allowCredentials":\[/.test(r.text) && r.status < 400, `${r.status} ${r.text.slice(0, 140).replace(/\n/g, " ")}`);
+  } else blocked("forged role=recovery server action", "no captured enrol begin to modify");
+  const evil = await B.createKey(atk, null);
+  const token = await B.accessTokenOf(atk);
+  const direct = await L.http("POST", `${ctx.state.url}/rest/v1/rpc/tw4_price_cred_begin`, token, { p_purpose: "enroll", p_cred_id: evil.id, p_x: evil.x, p_y: evil.y, p_role: "recovery", p_label: "attacker recovery" }, { apikey: ctx.state.anon });
+  check("attacker: calling the database directly with the session token for role=recovery is refused", direct.status >= 400 && /never enrolled through an ordinary ceremony|22023/.test(direct.text), `${direct.status} ${direct.text.slice(0, 140)}`);
+  await B.discardUnnamed(atk);
+  check("attacker: no recovery credential was added", B.countActive() === 2 && Number(q("select count(*) from public.studio_sms_price_credentials where role = 'recovery' and status = 'active'")) === 1);
+
+  // 2. a stolen spare is evicted by the owner; its signature is then useless
+  await enrolAndApply(s1, "stolen spare", "spare", [P]);
+  await fresh(s1);
+  await B.propose(s1, "number", "11.10", "1.15", "attacker price", "a written reason for the attacker flow price");
+  const rid = B.latestRequest();
+  B.ageRequests(25);
+  await B.only(s1, [P]);
+  await B.openSms(s1);
+  const ev = await B.revokeKey(s1, "stolen spare");
+  check("owner evicts the stolen spare through the UI (immediate)", /^Revoked\./.test(ev) && B.keyStatus("stolen spare") === "revoked", ev);
+  await B.only(atk, ["stolen spare"]);
+  const a = await B.authorizeBegin(atk, rid);
+  let am = a.message;
+  if (a.summary) { await B.signClick(atk, rid); am = await B.signMessage(atk, rid, 60000).catch(() => "TIMEOUT"); }
+  check("attacker: the evicted spare cannot authorize the pending proposal", !/Authorized/.test(am ?? "") && B.activePrice("number") !== "1110", am ?? "");
+  B.withdraw(rid, ctx.A.id);
+
+  // 3. freeze / thaw by the owner and the attacker; recovery freeze holds
+  await B.freezeUi(s1, "stolen key suspected, owner freezes from the UI");
+  check("owner freezes through the UI", B.cfg("frozen") === "true");
+  await B.only(atk, [P]);
+  await B.openSms(atk);
+  const t1 = await B.thaw(atk);
+  console.log("  NOTE an ordinary key lifting an ORDINARY freeze:", t1.slice(0, 100));
+  check("an ordinary key may lift an ordinary freeze (documented design) - outcome consistent with the DB", /resumed/i.test(t1) ? B.cfg("frozen") === "false" : B.cfg("frozen") === "true", t1);
+  if (B.cfg("frozen") === "false") await B.freezeUi(s1, "stolen key suspected, owner freezes again");
+  await B.only(s1, [ctx.rec]);
+  await B.openSms(s1);
+  const rf = await B.recoveryFreeze(s1);
+  check("owner freezes with the RECOVERY key (hold)", /suspended/i.test(rf) && B.cfg("recovery_hold") === "true", rf);
+  await B.only(atk, [P]);
+  await B.openSms(atk);
+  const t2 = await B.thaw(atk);
+  check("attacker with the ordinary keys cannot lift the recovery freeze", !/resumed/i.test(t2) && B.cfg("frozen") === "true", t2);
+  await B.openSms(atk);
+  const rr = await B.revokeKey(atk, ctx.rec);
+  check("attacker cannot retire the recovery key (not offered)", !/^Revoked\./.test(rr) && B.keyStatus(ctx.rec) === "active", rr);
+  await B.openSms(atk);
+  const en = await B.requestKey(atk, "attacker spare", "spare");
+  await B.discardUnnamed(atk);
+  B.ageChanges(25);
+  await B.openSms(atk);
+  const ap = await B.applyPending(atk, "attacker spare").catch((e) => `NO ROW (${String(e).slice(0, 40)})`);
+  check("attacker: a spare requested during the hold never becomes active", B.keyStatus("attacker spare") !== "active", `request: ${en.slice(0, 70)} | apply: ${ap.slice(0, 70)}`);
+
+  // 4. the owner completes the recovery DURING a monitoring outage
+  B.setConfig("monitoring_expected = true");
+  L.psql("alter table if exists public.studio_sms_price_security_events rename to studio_sms_price_security_events_off");
+  L.psql("alter function public._tw4pricemon_emit_event(text, uuid, jsonb) rename to _tw4pricemon_emit_event_off");
+  check("monitoring is expected AND unavailable", B.cfg("monitoring_expected") === "true" && q("select to_regclass('public.studio_sms_price_security_events')::text") === "");
+  await B.only(s1, [ctx.rec]);
+  await B.openSms(s1);
+  const st = await B.recoveryStart(s1, "owner recovered");
+  await B.adopt(s1, "owner recovered");
+  check("owner starts the recovery with the recovery key during the outage (tolerant emit)", /Recovery requested/.test(st), st);
+  B.ageChanges(200);
+  await B.only(s1, [ctx.rec]);
+  await B.openSms(s1);
+  const done = await B.applyPending(s1, "owner recovered");
+  check("owner completes the recovery during the outage; the whole ordinary set (attacker's keys) is replaced", /applied/.test(done) && B.keyStatus("owner recovered") === "active" && B.keyStatus(P) === "revoked", `${done} / ${B.activeKeys()}`);
+  L.psql("alter function public._tw4pricemon_emit_event_off(text, uuid, jsonb) rename to _tw4pricemon_emit_event");
+  L.psql("alter table if exists public.studio_sms_price_security_events_off rename to studio_sms_price_security_events");
+  await B.only(atk, [P]);
+  await B.openSms(atk);
+  const t3 = await B.thaw(atk);
+  check("attacker's old primary is dead after the recovery (not offered)", !/resumed/i.test(t3) && B.cfg("frozen") === "true", t3);
+  await B.only(s1, ["owner recovered"]);
+  await B.openSms(s1);
+  const t4 = await B.thaw(s1);
+  check("owner lifts the suspension with the recovered primary (monitoring back)", /resumed/i.test(t4) && B.cfg("frozen") === "false", t4);
+  ctx.prim = "owner recovered";
+  await fresh(s1);
+  const pp = await B.propose(s1, "number", "11.50", "1.15", "after the attack", "a written reason after the attacker flow");
+  const rid2 = B.latestRequest();
+  B.ageRequests(25);
+  await B.only(s2, ["owner recovered"]);
+  const b = await B.authorizeBegin(s2, rid2);
+  await B.signClick(s2, rid2);
+  const m = await B.signMessage(s2, rid2);
+  check("the recovered owner proposes and authorizes a price again (monitoring expected and present)", pp.ok && !!b.summary && /Authorized/.test(m) && B.activePrice("number") === "1150", m);
+  B.setConfig("monitoring_expected = false");
+}
+
 function writeReport(crashed, browserVersion) {
   mkdirSync(OUT, { recursive: true });
   const { execFileSync } = require_("node:child_process");
@@ -652,7 +794,7 @@ async function runAll() {
   try {
     ctx.browser = browser;
     await setup(browser);
-    for (const [id, fn] of [[1, sc1], [2, sc2], [3, sc3], [4, sc4], [7, sc7], [6, sc6], [8, sc8], [5, sc5], [9, sc9]]) if (want(id)) { try { await fn(); } catch (e) { check(`scenario ${id} aborted by a harness/page error`, false, String(e).split("\n")[0]); console.error(e); for (const S of B.SESSIONS) { try { await S.page.screenshot({ path: path.join(L.HOME, `abort-${id}-${S.name}.png`) }); } catch { /* ignore */ } } } }
+    for (const [id, fn] of [[1, sc1], [2, sc2], [3, sc3], [4, sc4], [7, sc7], [6, sc6], [8, sc8], [5, sc5], [10, sc10], [9, sc9]]) if (want(id)) { try { await fn(); } catch (e) { check(`scenario ${id} aborted by a harness/page error`, false, String(e).split("\n")[0]); console.error(e); for (const S of B.SESSIONS) { try { await S.page.screenshot({ path: path.join(L.HOME, `abort-${id}-${S.name}.png`) }); } catch { /* ignore */ } } } }
   } catch (e) {
     crashed = e;
     console.error("HARNESS ERROR", e);
