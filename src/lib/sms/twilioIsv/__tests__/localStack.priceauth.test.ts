@@ -1498,6 +1498,6 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     };
     const hide = hasSessions ? "alter table auth.sessions rename to sessions_hidden;" : "drop table auth.sessions;";
     expect(asSuper(`begin; ${setup} ${hide} set local role authenticated; select set_config('request.jwt.claims', '${claimsOf({ session_id: S_OK })}', true); select public.tw4_price_cred_pending()::text; rollback;`)).toMatch(/hosted preflight failed: auth\.sessions does not exist/);
-    expect(asSuper(`begin; ${setup} ${rows} revoke select on auth.sessions from postgres; set local role authenticated; select set_config('request.jwt.claims', '${claimsOf({ session_id: S_OK })}', true); select public.tw4_price_cred_pending()::text; rollback;`)).toMatch(/hosted preflight failed: the function owner cannot read auth.sessions/);
+    expect(asSuper(`begin; ${setup} ${rows} alter table auth.sessions owner to supabase_admin; revoke all on auth.sessions from postgres, public, supabase_auth_admin; set local role authenticated; select set_config('request.jwt.claims', '${claimsOf({ session_id: S_OK })}', true); select public.tw4_price_cred_pending()::text; rollback;`)).toMatch(/hosted preflight failed: the function owner cannot read auth.sessions/);
   });
 });
