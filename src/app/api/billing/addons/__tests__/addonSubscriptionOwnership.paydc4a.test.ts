@@ -107,10 +107,10 @@ vi.mock("@/lib/payments/stripe", () => ({
   }),
 }));
 
-import { GET as aiCheckout } from "@/app/api/billing/addons/ai/checkout/route";
-import { GET as aiRemove } from "@/app/api/billing/addons/ai/remove/route";
-import { GET as organizerCheckout } from "@/app/api/billing/addons/organizer-suite/checkout/route";
-import { GET as organizerRemove } from "@/app/api/billing/addons/organizer-suite/remove/route";
+import { POST as aiCheckout } from "@/app/api/billing/addons/ai/checkout/route";
+import { POST as aiRemove } from "@/app/api/billing/addons/ai/remove/route";
+import { POST as organizerCheckout } from "@/app/api/billing/addons/organizer-suite/checkout/route";
+import { POST as organizerRemove } from "@/app/api/billing/addons/organizer-suite/remove/route";
 
 const OWN = { id: "sub_own", customer: "cus_own", metadata: { studioId: "studio-1" }, items: { data: [] } };
 const FOREIGN = { id: "sub_foreign", customer: "cus_victim", metadata: {}, items: { data: [] } };
@@ -157,8 +157,13 @@ function seed(options: { subscriptionId: string; status?: string; foreignHasItem
   };
 }
 
+// The add-on routes are POST-only (a GET used to be forwarded to POST, so a cross-site link could add or remove a paid item).
+// Query-string style paths are converted to the form body the real billing page posts.
 function request(path: string) {
-  return new NextRequest(`https://app.test${path}`);
+  const url = new URL(`https://app.test${path}`);
+  const body = new FormData();
+  url.searchParams.forEach((value, key) => body.set(key, value));
+  return new NextRequest(`https://app.test${url.pathname}`, { method: "POST", body });
 }
 
 function mutatingStripeCalls() {
