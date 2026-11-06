@@ -299,11 +299,14 @@ export function checkPanelStructure(input: StudioEngineInput, judges: readonly P
   // reason (an entry on two heats is normal there), and only a single-dance, single-panel round reaches this data-integrity check.
   // Review P2-4: every calculated entry is in exactly one heat. An entry in two heats, or in none, would be counted against a panel that did not
   // judge it (or not at all). Excluded (scratched / no-show) entries may stay on a heat roster.
+  // X-5 excludes scratched and no-show entries from calculation at ENTRY level; the A3 contract applies one entry-level exclusion with precedence
+  // scratched > no_show > excluded even when the entry's heat rows differ (scratched on one heat, no-show on another). An excluded entry is not
+  // calculated, so how many heat rosters still list it is irrelevant to this check: only calculated entries must be in exactly one heat.
+  const excludedIds = new Set(input.context.excludedEntries.map((e) => e.entryId));
   const heatOf = new Map<string, number>();
   for (const h of heats) for (const id of new Set(h.entryIds)) heatOf.set(id, (heatOf.get(id) ?? 0) + 1);
-  const inTwoHeats = [...heatOf].filter(([, n]) => n > 1).map(([id]) => id);
-  const sameHeatTwice = heats.flatMap((h) => h.entryIds.filter((id, i) => h.entryIds.indexOf(id) !== i));
-  const excludedIds = new Set(input.context.excludedEntries.map((e) => e.entryId));
+  const inTwoHeats = [...heatOf].filter(([id, n]) => n > 1 && !excludedIds.has(id)).map(([id]) => id);
+  const sameHeatTwice = heats.flatMap((h) => h.entryIds.filter((id, i) => h.entryIds.indexOf(id) !== i && !excludedIds.has(id)));
   const calculatedIds = input.entries.map((e) => e.entryId).filter((id) => !excludedIds.has(id));
   const inNoHeat = calculatedIds.filter((id) => !heatOf.has(id));
   const coverageOffenders = [...inTwoHeats, ...sameHeatTwice, ...inNoHeat];

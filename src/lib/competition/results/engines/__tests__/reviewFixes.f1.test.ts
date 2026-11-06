@@ -134,6 +134,50 @@ describe("P2-4 every calculated entry is in exactly one heat", () => {
   });
 });
 
+describe("cross-heat exclusion (X-5 entry-level; A3 precedence scratched > no_show)", () => {
+  const cb = () => callbackInput(F01, ENTRIES, 4, 8);
+  it("an excluded entry listed on two heat rosters (scratched on one, no-show on the other) is not an entry_heat_coverage failure", () => {
+    const input = cb();
+    const rest = input.context.heats[0].entryIds.filter((id) => id !== e(18));
+    const run = runStudioCallbackTally({
+      ...input,
+      context: {
+        ...input.context,
+        excludedEntries: [{ entryId: e(18), reason: "scratched" }],
+        heats: [{ ...input.context.heats[0], entryIds: [...rest, e(18)] }, { ...input.context.heats[0], heatId: "heat-2", entryIds: [e(18)] }],
+      },
+    });
+    expect(run.ok ? "ok" : (run as { reason: string }).reason).not.toBe("entry_heat_coverage");
+  });
+  it("a calculated entry on two heats still fails closed even when another entry is excluded", () => {
+    const input = cb();
+    const all = input.context.heats[0].entryIds;
+    const f = expectFail(
+      runStudioCallbackTally({
+        ...input,
+        context: {
+          ...input.context,
+          excludedEntries: [{ entryId: e(18), reason: "no_show" }],
+          heats: [{ ...input.context.heats[0], entryIds: all }, { ...input.context.heats[0], heatId: "heat-2", entryIds: [e(11), e(18)] }],
+        },
+      }),
+    );
+    expect([f.reason, f.offendingIds]).toEqual(["entry_heat_coverage", [e(11)]]);
+  });
+});
+
+describe("input caps cover a realistic large competition round", () => {
+  it("documents the headroom: 300 couples, 15 judges, 12 dances, 60 heats of 10 are far below every cap, and honest marks (judges x couples) fit", () => {
+    const c = ENGINE_INPUT_CAPS;
+    expect(300).toBeLessThan(c.entries);
+    expect(15).toBeLessThan(c.judges);
+    expect(12).toBeLessThan(c.danceIds);
+    expect(60).toBeLessThan(c.heats);
+    expect(60 * 10).toBeLessThan(c.heatEntriesTotal);
+    expect(c.judges * c.entries).toBeLessThanOrEqual(c.marks);
+  });
+});
+
 describe("contract alignment: approved refusals win over the coverage check; profile allow-list is @1/@3 only (X-1)", () => {
   const cb = () => callbackInput(F01, ENTRIES, 4, 8);
   it("a multi-dance round whose entries sit on two heats reports X-6 multi_dance_unsupported, not entry_heat_coverage", () => {
