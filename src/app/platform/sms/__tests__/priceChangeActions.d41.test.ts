@@ -279,9 +279,9 @@ describe("review fixes: refused answers and credential ceremonies", () => {
     const re = { nonce: ID, newCredentialId: ID, x: ID, y: ID, label: "recovered key", recCredentialId: ID, recAuth: ID, recClient: ID, recSig: ID, newAuth: ID, newClient: ID, newSig: ID };
     expect(await priceRecoveryEnroll(re)).toMatchObject({ ok: true, data: { status: "pending", changeId: REQ } });
     expect(await priceRecoveryEnroll({ ...re, label: "x" })).toMatchObject({ ok: false });
-    replies.tw4_price_cred_pending = { data: { pending: [{ change_id: REQ, kind: "enroll", label: "spare", role: "spare", effective_at: "2026-11-02T00:00:00Z" }, { kind: "bogus" }], credentials: [{ id: ID, role: "primary", label: "main" }, { id: "!!" }] } };
+    replies.tw4_price_cred_pending = { data: { pending: [{ change_id: REQ, kind: "enroll", label: "spare", role: "spare", effective_at: "2026-11-02T00:00:00Z" }, { change_id: "d4100000-0000-4000-8000-0000000000bb", kind: "recovery_enroll", label: "recovered", role: "primary" }, { kind: "bogus" }], credentials: [{ id: ID, role: "primary", label: "main" }, { id: "!!" }] } };
     const s = await priceCredPending();
-    expect(s).toMatchObject({ ok: true, data: { pending: [{ changeId: REQ, kind: "enroll" }], credentials: [{ id: ID }] } });
+    expect(s).toMatchObject({ ok: true, data: { pending: [{ changeId: REQ, kind: "enroll" }, { changeId: "d4100000-0000-4000-8000-0000000000bb", kind: "recovery_enroll" }], credentials: [{ id: ID }] } });
     expect(rpc.every((c) => !("p_actor" in c.args))).toBe(true);
   });
 });

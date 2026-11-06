@@ -55,7 +55,7 @@ export type PriceChangeOverview = { active: ActivePrice[]; requests: PriceChange
 /** What the owner must read before signing: produced by the DATABASE (never by the page that starts the ceremony). */
 export type CredChallenge = { nonce: string; challenge: string; rpId: string; allowCredentials: string[] };
 export type CredentialState = {
-  pending: { changeId: string; kind: "enroll" | "revoke"; role: string | null; label: string | null; requestedAt: string | null; effectiveAt: string | null }[];
+  pending: { changeId: string; kind: "enroll" | "revoke" | "recovery_enroll"; role: string | null; label: string | null; requestedAt: string | null; effectiveAt: string | null }[];
   credentials: { id: string; role: string; label: string; enrolledAt: string | null }[];
 };
 export type AuthzChallenge = {
@@ -271,7 +271,7 @@ export class PriceChangeStore {
     for (const e of Array.isArray(row.pending) ? row.pending : []) {
       const o = obj(e);
       const changeId = uuid(o?.change_id);
-      if (!o || !changeId || (o.kind !== "enroll" && o.kind !== "revoke")) continue;
+      if (!o || !changeId || (o.kind !== "enroll" && o.kind !== "revoke" && o.kind !== "recovery_enroll")) continue;
       pending.push({ changeId, kind: o.kind, role: str(o.role), label: str(o.label), requestedAt: str(o.requested_at), effectiveAt: str(o.effective_at) });
     }
     const credentials: CredentialState["credentials"] = [];

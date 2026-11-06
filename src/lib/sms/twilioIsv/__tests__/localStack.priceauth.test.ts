@@ -1393,4 +1393,42 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     // switching the opt-in off again refuses that key's assertions at once (no grandfathering): replace it with a hardware-bound key
     expect(publish(543, Kc, 0x1d)).toMatchObject({ status: "rejected", reason: expect.stringMatching(/backup-eligible/) });
   });
+
+  it("PA-32 the config updates carry a WHERE clause: freeze, thaw, compromise report, recovery freeze, recovery cancel, recovery retirement and recovery completion all work in a session where pg_safeupdate is loaded (what PostgREST's authenticator role preloads), which a plain superuser psql session hides", () => {
+    clear();
+    const Ka = new SoftAuthenticator(), Kr = new SoftAuthenticator(), Kn = new SoftAuthenticator(), Kr2 = new SoftAuthenticator();
+    resetCreds(Ka, [Kr, "recovery"]);
+    psql("begin; alter table public.studio_sms_price_auth_config disable trigger studio_sms_price_auth_config_guard; update public.studio_sms_price_auth_config set frozen = false, frozen_at = null, freeze_reason = null, recovery_hold = false where singleton; alter table public.studio_sms_price_auth_config enable always trigger studio_sms_price_auth_config_guard; commit;");
+    const sess = sessionA();
+    // sanity: the guard really is on, so an unqualified UPDATE is refused in such a session
+    expect(psqlError("begin; load 'safeupdate'; update public.studio_sms_price_audit set detail = detail; rollback;")).toMatch(/WHERE clause/);
+    const safe = (c: Record<string, unknown>, sql: string) => {
+      const out = psql(`begin; load 'safeupdate'; set local role authenticated; select set_config('request.jwt.claims', '${JSON.stringify(c).replace(/'/g, "''")}', true); ${sql} commit;`);
+      return JSON.parse(out.split(NL).filter(Boolean).pop()!) as Record<string, never>;
+    };
+    expect(safe(claims(B, "d42-b-safe"), `select public.tw4_price_freeze('a freeze under pg_safeupdate')::text;`)).toMatchObject({ status: "frozen" });
+    expect(safe(sess, thawSqlOf(Ka))).toMatchObject({ status: "thawed" });
+    expect(safe(claims(B, "d42-b-safe"), `select public.tw4_price_report_compromise('a compromise report under pg_safeupdate')::text;`)).toMatchObject({ status: "frozen" });
+    expect(safe(sess, thawSqlOf(Ka))).toMatchObject({ status: "thawed" });
+    // recovery freeze (sets the hold), recovery enrolment, its cancel by the recovery key (clears the hold)
+    const fb = authOut(sess, `select public.tw4_price_cred_begin('recover_freeze', null, null, null, null, null)::text;`);
+    const g = Kr.assert(fb.challenge);
+    expect(safe(sess, `select public.tw4_price_recovery_freeze('${fb.nonce}', '${g.credId}', '${g.auth}', '${g.client}', '${g.sig}')::text;`)).toMatchObject({ status: "frozen" });
+    expect(psql("select recovery_hold from public.studio_sms_price_auth_config")).toBe("t");
+    const rq = safe(sess, recEnrollSqlOf(Kr, Kn));
+    expect(rq.status).toBe("pending");
+    const cb = authOut(sess, `select public.tw4_price_cred_begin('cancel', null, null, null, null, '${rq.change_id}')::text;`);
+    const ca = Kr.assert(cb.challenge);
+    expect(safe(sess, `select public.tw4_price_cred_cancel('${rq.change_id}', '${cb.nonce}', '${ca.credId}', '${ca.auth}', '${ca.client}', '${ca.sig}')::text;`)).toMatchObject({ status: "cancelled" });
+    expect(psql("select recovery_hold from public.studio_sms_price_auth_config")).toBe("f");
+    expect(safe(sess, thawSqlOf(Ka))).toMatchObject({ status: "thawed" });
+    // the recovery key retires itself; the owner-level step installs another; a recovery then COMPLETES
+    expect(safe(sess, revokeSqlOf(Kr, Kr))).toMatchObject({ status: "revoked" });
+    psql(`select public._tw4price_install_recovery(decode('${Kr2.hex.cred}', 'hex'), decode('${Kr2.hex.x}', 'hex'), decode('${Kr2.hex.y}', 'hex'), 'second recovery key')`);
+    const rq2 = safe(sess, recEnrollSqlOf(Kr2, Kn));
+    expect(rq2.status).toBe("pending");
+    psql(`begin; alter table public.studio_sms_price_credential_changes disable trigger studio_sms_price_credential_changes_guard; update public.studio_sms_price_credential_changes set requested_at = requested_at - interval '200 hours', effective_at = effective_at - interval '200 hours' where id = '${rq2.change_id}'; alter table public.studio_sms_price_credential_changes enable always trigger studio_sms_price_credential_changes_guard; commit;`);
+    expect(safe(sess, applySqlOf(rq2.change_id))).toMatchObject({ status: "applied" });
+    expect(psql("select recovery_hold || ':' || frozen from public.studio_sms_price_auth_config")).toBe("false:false");
+  });
 });

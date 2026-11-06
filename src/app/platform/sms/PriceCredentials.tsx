@@ -153,7 +153,7 @@ export default function PriceCredentials() {
       const mine = await sign(b.data, [newId]);
       const r = await priceRecoveryEnroll({ nonce: b.data.nonce, newCredentialId: newId, x, y, label, recCredentialId: rec.credentialId, recAuth: rec.auth, recClient: rec.client, recSig: rec.sig, newAuth: mine.auth, newClient: mine.client, newSig: mine.sig });
       if (!r.ok) return r.message;
-      return r.data.status === "pending" ? "Recovery requested. It completes only after the long delay, raises high-severity alerts, and a primary or spare key can cancel it." : `The database refused: ${r.data.reason ?? "unknown reason"}. Nothing changed.`;
+      return r.data.status === "pending" ? "Recovery requested. It completes only after the long delay, raises high-severity alerts, and only the recovery key can cancel it." : `The database refused: ${r.data.reason ?? "unknown reason"}. Nothing changed.`;
     });
 
   const thaw = () =>
@@ -199,7 +199,7 @@ export default function PriceCredentials() {
             <span>Pending {p.kind}{p.label ? `: ${p.label}` : ""}, effective {p.effectiveAt ?? "later"}</span>
             <span className="flex gap-1">
               <button type="button" disabled={busy} onClick={() => apply(p.changeId)} className="rounded border border-slate-300 px-2 py-0.5 disabled:opacity-60">Apply</button>
-              <button type="button" disabled={busy} onClick={() => cancel(p.changeId)} className="rounded border border-slate-300 px-2 py-0.5 disabled:opacity-60">Cancel with key</button>
+              <button type="button" disabled={busy} onClick={() => cancel(p.changeId)} className="rounded border border-slate-300 px-2 py-0.5 disabled:opacity-60">{p.kind === "recovery_enroll" ? "Cancel with the recovery key" : "Cancel with key"}</button>
             </span>
           </li>
         ))}
