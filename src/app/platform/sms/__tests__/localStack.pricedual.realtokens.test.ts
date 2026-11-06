@@ -366,4 +366,30 @@ describe.skipIf(!enabled)("D4-1: price dual control with REAL GoTrue tokens thro
     expect(refused(await rpcCall("tw4_price_requests_list", sess, {}))).toBe(true);
     expect(refused(await rpcCall("tw4_price_reject", sess, { p_request_id: randomUUID(), p_note: "a signed-out session rejection attempt" }))).toBe(true);
   });
+
+  it("RT-11 the session is bound to the caller and to its lifetime: another user's session id in your token, a session past not_after and a session id that does not exist are all refused (claims copied from a real token and re-signed with the stack secret); the genuine token keeps working", async () => {
+    clear();
+    const service = signHs256({ role: "service_role", aud: "authenticated", iss: "d41-local", exp: Math.floor(Date.now() / 1000) + 3600 });
+    const u = await makeUser("price-bind", service);
+    psql(`insert into public.profiles (id, platform_role) values ('${u.id}', 'platform_admin') on conflict (id) do update set platform_role = excluded.platform_role;
+      insert into public.studio_sms_price_approvers (user_id, added_note) values ('${u.id}', 'session binding test') on conflict (user_id) do nothing;`);
+    const sess = await stepUp(await passwordLogin(u.email, u.password));
+    const own = String(decode(sess).session_id);
+    const resign = (over: Record<string, unknown>) => signHs256({ ...decode(sess), ...over });
+    expect((await rpcCall("tw4_price_requests_list", sess, {})).status).toBe(200);
+    // another user's (real) session id inside this user's token
+    expect(refused(await rpcCall("tw4_price_requests_list", resign({ session_id: String(decode(A.aal2).session_id) }), {}))).toBe(true);
+    // a uuid that names no session
+    expect(refused(await rpcCall("tw4_price_requests_list", resign({ session_id: randomUUID() }), {}))).toBe(true);
+    // a session past not_after (the column exists in this GoTrue version)
+    if (psql("select count(*) from information_schema.columns where table_schema = 'auth' and table_name = 'sessions' and column_name = 'not_after'") === "1") {
+      psql(`update auth.sessions set not_after = now() - interval '1 minute' where id = '${own}'`);
+      try {
+        expect(refused(await rpcCall("tw4_price_requests_list", sess, {}))).toBe(true);
+      } finally {
+        psql(`update auth.sessions set not_after = null where id = '${own}'`);
+      }
+      expect((await rpcCall("tw4_price_requests_list", sess, {})).status).toBe(200);
+    }
+  });
 });

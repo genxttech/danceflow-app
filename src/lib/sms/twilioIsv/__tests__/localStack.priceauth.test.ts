@@ -1440,4 +1440,55 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(safe(sess, applySqlOf(rq2.change_id))).toMatchObject({ status: "applied" });
     expect(psql("select recovery_hold || ':' || frozen from public.studio_sms_price_auth_config")).toBe("false:false");
   });
+
+  it("PA-33 session binding on every pricing entry point: without the local-QA marker a missing or non-uuid session id is refused everywhere; a uuid session must exist, belong to the caller and not be past not_after; a missing or unreadable auth.sessions fails closed with the hosted-preflight error; with the marker (this QA database) a claim with no uuid session still passes", () => {
+    const UU = "gen_random_uuid()";
+    const D = "'AAAAAAAAAAAAAAAAAAAAAA'";
+    const calls: [string, string][] = [
+      ["tw4_price_propose", "'number', 501, 115, 'binding', 'a written reason for the binding test'"],
+      ["tw4_price_approve", `${UU}, 'an approval note for the binding test'`],
+      ["tw4_price_reject", `${UU}, 'a rejection note for the binding test'`],
+      ["tw4_price_requests_list", ""],
+      ["tw4_price_authz_begin", UU],
+      ["tw4_price_authz_finish", `${UU}, ${D}, ${D}, ${D}, ${D}, ${D}`],
+      ["tw4_price_revise", `${UU}, 502, 115, 'binding', 'a written reason for the binding test'`],
+      ["tw4_price_cred_begin", "'thaw', null, null, null, null, null"],
+      ["tw4_price_cred_enroll", `${D}, ${D}, ${D}, ${D}, 'spare', 'binding', ${D}, ${D}, ${D}, ${D}, ${D}, ${D}, ${D}`],
+      ["tw4_price_cred_revoke", `${D}, ${D}, ${D}, ${D}, ${D}, ${D}`],
+      ["tw4_price_cred_apply", UU],
+      ["tw4_price_cred_cancel", `${UU}, ${D}, ${D}, ${D}, ${D}, ${D}`],
+      ["tw4_price_cred_pending", ""],
+      ["tw4_price_freeze", "'a freeze attempt for the binding test'"],
+      ["tw4_price_thaw", `${D}, ${D}, ${D}, ${D}, ${D}`],
+      ["tw4_price_report_compromise", "'a compromise report for the binding test'"],
+      ["tw4_price_recovery_enroll", `${D}, ${D}, ${D}, ${D}, 'binding', ${D}, ${D}, ${D}, ${D}, ${D}, ${D}, ${D}`],
+      ["tw4_price_recovery_freeze", `${D}, ${D}, ${D}, ${D}, ${D}`],
+    ];
+    const S_OK = psql("select gen_random_uuid()"), S_OTHER = psql("select gen_random_uuid()"), S_EXPIRED = psql("select gen_random_uuid()"), S_NONE = psql("select gen_random_uuid()");
+    const hasSessions = psql("select to_regclass('auth.sessions') is not null") === "t";
+    const hasNotAfter = hasSessions ? psql("select count(*) from information_schema.columns where table_schema = 'auth' and table_name = 'sessions' and column_name = 'not_after'") === "1" : true;
+    const setup = hasSessions ? "" : "create table auth.sessions (id uuid primary key, user_id uuid, not_after timestamptz);";
+    const rows = `insert into auth.sessions (id, user_id) values ('${S_OK}', '${A}'), ('${S_OTHER}', '${B}');${hasNotAfter ? ` insert into auth.sessions (id, user_id, not_after) values ('${S_EXPIRED}', '${A}', now() - interval '1 minute');` : ""}`;
+    const claimsOf = (over: Record<string, unknown>) => JSON.stringify({ sub: A, role: "authenticated", aal: "aal2", exp: nowS() + 3600, amr: [{ method: "totp", timestamp: nowS() - 30 }], ...over }).replace(/'/g, "''");
+    const run = (c: Record<string, unknown>, call: [string, string], o: { marker: boolean; pre?: string }) =>
+      psqlError(`begin; ${o.marker ? "" : "drop table public.tw4_local_qa_only;"} ${setup} ${rows} ${o.pre ?? ""} set local role authenticated; select set_config('request.jwt.claims', '${claimsOf(c)}', true); select public.${call[0]}(${call[1]})::text; rollback;`);
+    // (3) no uuid session id: refused at EVERY entry point when the QA marker is absent (what a hosted database is)
+    for (const call of calls) {
+      expect(run({}, call, { marker: false }), `${call[0]} without session_id`).toMatch(/a session id \(uuid\) is required/);
+      expect(run({ session_id: "not-a-uuid" }, call, { marker: false }), `${call[0]} with a non-uuid session id`).toMatch(/a session id \(uuid\) is required/);
+    }
+    // in THIS local QA database (marker present) the synthetic claims of the QA suites keep working
+    expect(run({}, ["tw4_price_cred_pending", ""], { marker: true })).toBe("");
+    // (1) the session belongs to the caller; (2) it is not past not_after; unknown sessions have ended; this holds with or without the marker
+    for (const marker of [true, false]) {
+      expect(run({ session_id: S_OK }, ["tw4_price_cred_pending", ""], { marker }), "own live session").toBe("");
+      expect(run({ session_id: S_OTHER }, ["tw4_price_cred_pending", ""], { marker }), "another user's session").toMatch(/belongs to another user/);
+      if (hasNotAfter) expect(run({ session_id: S_EXPIRED }, ["tw4_price_cred_pending", ""], { marker }), "expired session").toMatch(/has expired/);
+      expect(run({ session_id: S_NONE }, ["tw4_price_cred_pending", ""], { marker }), "unknown session").toMatch(/has ended/);
+    }
+    // (4) auth.sessions missing, or unreadable by the function owner: fail CLOSED naming the hosted preflight (also with the marker)
+    const hide = hasSessions ? "alter table auth.sessions rename to sessions_hidden;" : "drop table auth.sessions;";
+    expect(psqlError(`begin; ${setup} ${hide} set local role authenticated; select set_config('request.jwt.claims', '${claimsOf({ session_id: S_OK })}', true); select public.tw4_price_cred_pending()::text; rollback;`)).toMatch(/hosted preflight failed: auth\.sessions does not exist/);
+    expect(run({ session_id: S_OK }, ["tw4_price_cred_pending", ""], { marker: true, pre: "revoke select on auth.sessions from postgres;" })).toMatch(/hosted preflight failed: the function owner cannot read auth\.sessions/);
+  });
 });

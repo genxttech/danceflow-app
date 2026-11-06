@@ -118,7 +118,7 @@ CRLF handling, because it corrupted function-body fingerprints before:
 | 20261230090000 | 20261230090000_twilio_rfl_pilot_spend_evidence.sql | e3275cd720bd044029e3caed553e60211a7c20949e84be06dce3049f2a5667e8 | 92e691e2bff80de1d1daae01259880ee30f65ea8594f251f45de90af77055d84 | LF |
 | 20261231090000 | 20261231090000_twilio_platform_admin_aal2.sql | 5bb6faceecad0fef65bf842d93b4eba677e4df3e6b65bf01634ebb14c69e5333 | 7fd5f9d4739eaf8daede267930d813cb7217e136875a285df3115820ec4c131d | LF |
 | 20261231100000 | 20261231100000_twilio_pilot_spend_hardening.sql | 7862e9b97c83be4e1972de03104ac8b7d0738c54ce30c03cb731aeabd1d0a837 | 5d15406a53c1068c8369314d5b1978ac49d7828c383c0eeb8b2598da3b463b69 | LF |
-| 20270208090000 | 20270208090000_twilio_price_dual_control.sql | 0164c57be4795d48b8cf3b828814be31c7a396b3911550976df21acc6bc722b5 | 3baf6d693a2c88cb8566b1926bbf0375f360b834d51be7dde9c1e6318181a270 | LF |
+| 20270208090000 | 20270208090000_twilio_price_dual_control.sql | 5cf8fdea88496d42b5f80d2a11204bfcb21af82a3d03b5a5f67453c57f4b1c17 | 3baf6d693a2c88cb8566b1926bbf0375f360b834d51be7dde9c1e6318181a270 | LF |
 | 20270208100000 | 20270208100000_twilio_price_owner_authorization.sql | fc24ee602b81d0caa89bb0fca08859c93e25526e636cbed327134352ba1117a2 | a79471ed916d2074beca527c437a651eedc81b353b7c99b47bbe7852453cb4f9 | LF |
 
 ### 3.0 Notes on migrations merged after `960a9d02`
@@ -936,9 +936,9 @@ Generated from the blobs by `gen_manifest_data.mjs`; regenerate, do not hand-edi
 
 #### 20270208090000_twilio_price_dual_control.sql
 
-- **HOSTED PREFLIGHT (session check):** `_tw4price_session_actor` refuses a JWT whose `session_id` (a uuid) is no longer in `auth.sessions`; the function owner must be able to read that table (`select 1 from auth.sessions limit 1` as that role), or every pricing call fails closed. Verify before any hosted apply.
+- **HOSTED PREFLIGHT (session binding):** `_tw4price_session_actor` verifies the JWT's uuid `session_id` against `auth.sessions`: the session must exist, belong to the caller and not be past `not_after`; a claim with no uuid session id is REFUSED unless the local-QA marker table `public.tw4_local_qa_only` exists. Before any hosted apply, verify BOTH: (1) as the function owner, `select 1 from auth.sessions limit 1` succeeds (otherwise every pricing call fails closed with "hosted preflight failed"), and (2) `to_regclass('public.tw4_local_qa_only')` is NULL on the hosted database (the marker is what relaxes the check for synthetic QA claims).
 
-- sha256 (LF-normalized): `0164c57be4795d48b8cf3b828814be31c7a396b3911550976df21acc6bc722b5`  (D4-1, dual-controlled SMS price changes; Git-only, not applied anywhere)
+- sha256 (LF-normalized): `5cf8fdea88496d42b5f80d2a11204bfcb21af82a3d03b5a5f67453c57f4b1c17`  (D4-1, dual-controlled SMS price changes; Git-only, not applied anywhere)
 - created: 3 tables (`studio_sms_price_change_requests`, `studio_sms_price_approvers`, `studio_sms_price_limits`), 17 functions: public entry points `tw4_price_propose`, `tw4_price_approve`, `tw4_price_reject`, `tw4_price_requests_list` (**EXECUTE granted to `authenticated` ONLY**, a documented exception to the "no authenticated grants" convention; identity from `auth.uid()`, aal2 + TOTP required, no actor parameter), `tw4_price_verify` (service_role), internal `_tw4price_do_propose/approve/reject/list`, `_tw4price_admin_active`, `_tw4price_registered_at`, `_tw4price_session_actor`, `_tw4price_kinds` and four trigger functions (no grants). The limits table is seeded with 8 UNAPPROVED proposal rows (data insert into the new table only).
 - replaced (CREATE OR REPLACE / re-created): **`tw4_price_set` (first defined by `20261122090000`; from `20270208090000` it refuses every caller with TW042)**. The probes list an object only at the stamp that FIRST creates it, so `tw4_price_set` stays attributed to `20261122090000` there; the body change is visible only through the migration check below.
 - also adds `ENABLE ALWAYS` triggers: `studio_sms_price_list_00_activation` (insert/update/delete) and `_00_truncate` on the existing price list, and guard + truncate triggers on the new request and registry tables
