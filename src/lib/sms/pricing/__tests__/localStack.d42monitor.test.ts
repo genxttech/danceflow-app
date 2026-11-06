@@ -48,7 +48,7 @@ const forgedIds: string[] = [];
 const clock = () => new Date();
 
 function config(transports: FakeTransport[], over: Partial<MonitorConfig> = {}): MonitorConfig {
-  return { transports, chainKey: null, since, repeatMs: 6 * 3600_000, maxAgeMs: 45 * 60_000, trustedFromSeq: trusted, expectHead: null, ...over };
+  return { transports, chainKey: null, since, repeatMs: 6 * 3600_000, maxAgeMs: 45 * 60_000, trustedFromSeq: trusted, expectHead: null, defaultSendCap: 1000, ...over }; // the suite uses the real clock on one database for an hour: the hourly cap is covered by the unit flood test
 }
 const run = (transports: FakeTransport[], over: Partial<MonitorConfig> = {}) => runPriceMonitor({ db: realDb, config: config(transports, over), now: clock, sleep: async () => undefined });
 const dbHead = () => parseEvidenceList(asService("tw4_price_monitor_evidence_list", "1::int", "null::bigint"))!.rows[0] ?? null;
