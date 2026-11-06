@@ -14,7 +14,7 @@
 --   node scripts/hosted/tw4f/gen_manifest_data.mjs --sync-probes
 -- Objects from migrations that are not on main yet (1206, 1215, Wave 1: 1218..1223) appear as UNEXPECTED until the lists are regenerated.
 with
-  -- BEGIN GENERATED expected objects (gen_manifest_data.mjs --sync-probes; chain through 20270208090000)
+  -- BEGIN GENERATED expected objects (gen_manifest_data.mjs --sync-probes; chain through 20270210090000)
   exp_fn(name, since) as (values
     ('_sms_onb_access_enabled', '20261119090000'),
     ('_sms_onb_append_only', '20261119090000'),
@@ -481,24 +481,24 @@ with
     ('d24_op_list_invoices', '20270207090000'),
     ('d24_op_requeue_deferred', '20270207090000'),
     ('d24_op_set_enabled', '20270207090000'),
-    ('_tw4price_activation_guard', '20270208090000'),
-    ('_tw4price_admin_active', '20270208090000'),
-    ('_tw4price_do_approve', '20270208090000'),
-    ('_tw4price_do_list', '20270208090000'),
-    ('_tw4price_do_propose', '20270208090000'),
-    ('_tw4price_do_reject', '20270208090000'),
-    ('_tw4price_fresh_seconds', '20270208090000'),
-    ('_tw4price_kinds', '20270208090000'),
-    ('_tw4price_registered_at', '20270208090000'),
-    ('_tw4price_registry_guard', '20270208090000'),
-    ('_tw4price_session_actor', '20270208090000'),
-    ('_tw4price_truncate_guard', '20270208090000'),
-    ('_tw4pricedual_guard', '20270208090000'),
-    ('tw4_price_approve', '20270208090000'),
-    ('tw4_price_propose', '20270208090000'),
-    ('tw4_price_reject', '20270208090000'),
-    ('tw4_price_requests_list', '20270208090000'),
-    ('tw4_price_verify', '20270208090000')
+    ('_tw4price_activation_guard', '20270210090000'),
+    ('_tw4price_admin_active', '20270210090000'),
+    ('_tw4price_do_approve', '20270210090000'),
+    ('_tw4price_do_list', '20270210090000'),
+    ('_tw4price_do_propose', '20270210090000'),
+    ('_tw4price_do_reject', '20270210090000'),
+    ('_tw4price_fresh_seconds', '20270210090000'),
+    ('_tw4price_kinds', '20270210090000'),
+    ('_tw4price_registered_at', '20270210090000'),
+    ('_tw4price_registry_guard', '20270210090000'),
+    ('_tw4price_session_actor', '20270210090000'),
+    ('_tw4price_truncate_guard', '20270210090000'),
+    ('_tw4pricedual_guard', '20270210090000'),
+    ('tw4_price_approve', '20270210090000'),
+    ('tw4_price_propose', '20270210090000'),
+    ('tw4_price_reject', '20270210090000'),
+    ('tw4_price_requests_list', '20270210090000'),
+    ('tw4_price_verify', '20270210090000')
   ),
   exp_tbl(name, since) as (values
     ('studio_sms_onboarding', '20261119090000'),
@@ -593,9 +593,9 @@ with
     ('hosted_invoice_dismissals', '20270207090000'),
     ('hosted_invoice_operator_config', '20270207090000'),
     ('hosted_invoice_operator_config_audit', '20270207090000'),
-    ('studio_sms_price_approvers', '20270208090000'),
-    ('studio_sms_price_change_requests', '20270208090000'),
-    ('studio_sms_price_limits', '20270208090000')
+    ('studio_sms_price_approvers', '20270210090000'),
+    ('studio_sms_price_change_requests', '20270210090000'),
+    ('studio_sms_price_limits', '20270210090000')
   ),
   -- END GENERATED expected objects
   roles(rolname) as (values ('anon'), ('authenticated'), ('service_role')),

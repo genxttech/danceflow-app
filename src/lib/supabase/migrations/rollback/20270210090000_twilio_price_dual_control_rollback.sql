@@ -1,4 +1,4 @@
--- Rollback of 20270208090000 (D4-1: dual-controlled SMS price changes). FAIL CLOSED: it never restores single-administrator price publication.
+-- Rollback of 20270210090000 (D4-1: dual-controlled SMS price changes). FAIL CLOSED: it never restores single-administrator price publication.
 --
 -- What "rolled back" means (and why it differs from the catalog before the migration):
 --   * tw4_price_set is NOT restored to its 20261122090000 body. It stays the refusing stub (TW042), and EXECUTE is revoked from every role, including service_role.
@@ -11,7 +11,7 @@
 --   _tw4price_truncate_guard functions with their two price-list triggers, and (only when evidence exists) the retained tables and their guard functions.
 --   That deviation is deliberate: the alternative (restoring the old body) would reopen the single-administrator hole.
 -- REFUSES (SQLSTATE 55000) when tw4_price_set or one of the guarded functions is no longer the body this migration installed (a later slice replaced it).
--- RECOVERY after a rollback, with or without evidence: re-apply 20270208090000 (idempotent over retained tables). The full reverse chain (20261122090000's rollback) removes
+-- RECOVERY after a rollback, with or without evidence: re-apply 20270210090000 (idempotent over retained tables). The full reverse chain (20261122090000's rollback) removes
 -- tw4_price_set and the price list itself, which drops the two triggers; the two refusing guard functions then remain, harmless and replaced by a re-apply.
 begin;
 
@@ -32,7 +32,7 @@ begin
       ('public._tw4price_do_approve(uuid,uuid,text)', '4030438f5d7d89ceead9226c09a8719f'),
       ('public._tw4price_activation_guard()', '40be6b54f38eb9ad0e017343156fc7c0')) as x(sig, h) loop
     if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure(r.sig)) is distinct from r.h then
-      raise exception 'price dual control rollback refused: % is no longer the body installed by 20270208090000', r.sig using errcode = '55000';
+      raise exception 'price dual control rollback refused: % is no longer the body installed by 20270210090000', r.sig using errcode = '55000';
     end if;
   end loop;
   lock table public.studio_sms_price_change_requests, public.studio_sms_price_approvers, public.studio_sms_price_limits in access exclusive mode;
@@ -45,7 +45,7 @@ set search_path = pg_catalog, public, pg_temp
 as $$
 begin
   if tg_op = 'INSERT' then
-    raise exception 'price publication is disabled: the dual-control price machinery was rolled back (re-apply 20270208090000 to publish prices)' using errcode = '42501';
+    raise exception 'price publication is disabled: the dual-control price machinery was rolled back (re-apply 20270210090000 to publish prices)' using errcode = '42501';
   end if;
   if tg_op = 'DELETE' then
     raise exception 'a published price is never deleted (a retired price stays as history)' using errcode = '42501';
