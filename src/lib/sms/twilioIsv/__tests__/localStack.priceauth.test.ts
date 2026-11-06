@@ -6,7 +6,7 @@
  */
 import { createHash } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { A, B, C, DB, PG, codeOf, enabled, num, psql, psqlError, rows, seedCast, seedPrices } from "./wpd4Helpers";
@@ -1179,14 +1179,19 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
   });
 
   // ---- concurrency: real separate connections (docker exec psql), the first call held open by a sleep before its commit, the second started once the first holds its locks
+  const trace = (m: string) => { try { appendFileSync("C:/Dev/d41-runs/pa29.trace", `${new Date().toISOString()} ${m}
+`); } catch { /* optional */ } };
   let raceSeq = 0;
   const holdTag = () => (3.5 + (++raceSeq) / 100).toFixed(2);
   const race = async (first: string, second: string, c1: Record<string, unknown>, c2: Record<string, unknown>) => {
     const tag = holdTag();
+    trace(`race ${tag} start`);
     const s1 = sessionRun(asAuth(c1, first).replace("commit;", `select pg_sleep(${tag}); commit;`));
     for (let i = 0; i < 80 && psql(`select count(*) from pg_stat_activity where datname = '${DB}' and query like '%pg_sleep(${tag})%' and wait_event = 'PgSleep'`) !== "1"; i++) await new Promise((r) => setTimeout(r, 150));
     const s2 = sessionRun(asAuth(c2, second));
-    return Promise.all([s1, s2]);
+    const res = await Promise.all([s1, s2]);
+    trace(`race ${tag} done`);
+    return res;
   };
   const sessionA = () => claims(A, S2);
   const revokeSqlOf = (by: SoftAuthenticator, target: SoftAuthenticator) => {
@@ -1218,6 +1223,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     const sess = sessionA();
     // (1) two simultaneous revokes of DIFFERENT keys, each signed by the other: exactly one signing credential survives
     {
+      trace("case 1");
       clear();
       const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator();
       resetCreds(Ka, Kb);
@@ -1229,6 +1235,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     }
     // (2a) revoke first, apply of a change signed by the revoked key waits and applies nothing; (2b) apply first, then the revoke: serial order, never a revoked key's change applied after its revocation
     {
+      trace("case 2a");
       clear();
       const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator(), Kn = new SoftAuthenticator(), Km = new SoftAuthenticator();
       resetCreds(Ka, Kb);
@@ -1248,6 +1255,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     }
     // (3) enrolment signed by Ka vs the revocation of Ka: the enrolment is refused, no change is left pending
     {
+      trace("case 3");
       clear();
       const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator(), Kn = new SoftAuthenticator();
       resetCreds(Ka, Kb);
@@ -1259,6 +1267,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     }
     // (4) double finish of ONE nonce with two different valid assertions: exactly one price
     {
+      trace("case 4");
       clear();
       const Ka = new SoftAuthenticator();
       resetCreds(Ka);
@@ -1273,6 +1282,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     }
     // (5a) apply first, then the freeze: the credential counts as enrolled BEFORE the freeze; (5b) freeze first, then the apply: refused, nothing enrolled
     {
+      trace("case 5a");
       clear();
       const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator(), Kn = new SoftAuthenticator(), Kq = new SoftAuthenticator();
       resetCreds(Ka, Kb);
@@ -1293,6 +1303,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     }
     // (6) thaw vs a recovery enrolment: the thaw lands, the recovery enrolment lands, and publication stays suspended (a pending recovery suspends pricing); a second thaw is refused
     {
+      trace("case 6");
       clear();
       const Ka = new SoftAuthenticator(), Kr = new SoftAuthenticator(), Kn = new SoftAuthenticator();
       resetCreds(Ka, [Kr, "recovery"]);
@@ -1305,6 +1316,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     }
     // (7) a proposal made while a revoke is in flight proceeds (no deadlock) and is useless to the revoked key
     {
+      trace("case 7");
       clear();
       const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator();
       resetCreds(Ka, Kb);
@@ -1318,6 +1330,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     }
     // (8) two concurrent recovery enrolments: one pending, the other refused
     {
+      trace("case 8");
       clear();
       const Ka = new SoftAuthenticator(), Kr = new SoftAuthenticator(), K1n = new SoftAuthenticator(), K2n = new SoftAuthenticator();
       resetCreds(Ka, [Kr, "recovery"]);
