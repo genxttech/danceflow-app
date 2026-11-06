@@ -11,7 +11,7 @@ PHASE="${1:?usage: d7_core_flight.sh <preflight|postflight|recheck> <dev|prod> [
 TARGET="${2:?usage: d7_core_flight.sh <preflight|postflight|recheck> <dev|prod> [evidence-dir]}"
 EVID="${3:-./d7-release-evidence}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SQL="$HERE/d7_core_${PHASE}.sql"
+SQL="$HERE/${D7_FLIGHT_PREFIX:-d7_core}_${PHASE}.sql"
 [ -f "$SQL" ] || { echo "no such phase script: $SQL" >&2; exit 2; }
 
 case "$TARGET" in
