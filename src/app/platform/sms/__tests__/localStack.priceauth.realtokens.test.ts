@@ -294,7 +294,15 @@ describe.skipIf(!enabled)("D4-2: pricing authorization with REAL GoTrue tokens t
   it("RTA-05 a TOTP factor removed mid-flight: the session that already has aal2 keeps its token until it expires (documented), but a refresh after the removal is aal1 and is refused everywhere; re-adding a factor and verifying restores aal2", async () => {
     resetCreds();
     clearRequests();
-    const u = B;
+    // a user with no verified factor yet (a user who already has one cannot enrol another at aal1: GoTrue answers insufficient_aal)
+    const service = signHs256({ role: "service_role", aud: "authenticated", iss: "d42-local", exp: nowS() + 3600 });
+    const email = `d42-mfa-${RUN}@example.test`;
+    const password = `${randomBytes(18).toString("base64url")}Aa1!`;
+    const created = await http("POST", `${AUTH}/admin/users`, service, { email, password, email_confirm: true });
+    expect(created.status, created.text.slice(0, 200)).toBe(200);
+    const uid = String((created.json as { id: string }).id);
+    psql(`insert into public.profiles (id, platform_role) values ('${uid}', 'platform_admin') on conflict (id) do update set platform_role = excluded.platform_role; insert into public.studio_sms_price_approvers (user_id, added_note) values ('${uid}', 'mfa removal test') on conflict (user_id) do nothing;`);
+    const u = { email, password };
     const lg = await login(u.email, u.password);
     const f2 = await enrolFactor(lg.access);
     const sess = await verifyFactor(lg.access, f2);
@@ -321,9 +329,6 @@ describe.skipIf(!enabled)("D4-2: pricing authorization with REAL GoTrue tokens t
     expect(reached(await rpc("tw4_price_cred_pending", ok.access))).toBe(true);
     expect((await propose(ok.access, 513)).status).toBe(200);
     clearRequests();
-    B.factor = f3;
-    B.aal1 = again.access;
-    B.aal2 = ok.access;
   });
 
   it("RTA-06 a genuine aal2 token of a user who is not a registered platform administrator (an unregistered administrator, a registered user without the platform role) is refused at every entry point and writes no audit row", async () => {
