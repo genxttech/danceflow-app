@@ -115,6 +115,10 @@ function authorize(cents: number, k: SoftAuthenticator = K1, kind = "number", pr
   return { id: p.request_id, out: finish(claims(A, S2), p.request_id, b.nonce, k.assert(b.challenge)) };
 }
 
+/** local iteration aid: --env D42_ONLY=PA-29,PA-30 runs just those cells (they are independent of the earlier cells; the full file is the evidence) */
+const ONLY = (process.env.D42_ONLY ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+const itSel = (title: string, fn: () => void | Promise<void>) => (ONLY.length === 0 || ONLY.some((id) => title.startsWith(`${id} `)) ? it : it.skip)(title, fn);
+
 describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (WebAuthn verified in Postgres, software authenticators)", () => {
   beforeAll(() => {
     expect(psql(`select to_regclass('public.studio_sms_price_auth_config') is not null`)).toBe("t");
@@ -127,7 +131,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     psql(`select public._tw4price_bootstrap('${RP_ID}', array['${ORIGIN}'], decode('${K1.hex.cred}', 'hex'), decode('${K1.hex.x}', 'hex'), decode('${K1.hex.y}', 'hex'), 'primary test key')`);
   });
 
-  it("PA-01 the ECDSA P-256 verifier inside Postgres: valid signatures verify, and every tampering (message, key, r, s, off-curve key) fails", () => {
+  itSel("PA-01 the ECDSA P-256 verifier inside Postgres: valid signatures verify, and every tampering (message, key, r, s, off-curve key) fails", () => {
     const t0 = Date.now();
     for (let i = 0; i < 4; i++) {
       const msg = Buffer.from(`transaction ${i} ${Math.random()}`);
@@ -150,7 +154,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     console.info(`[priceauth] 14 ECDSA verifications in ${Date.now() - t0} ms`);
   });
 
-  it("PA-02 the ceremony: propose (aal2 + fresh TOTP) starts a 24 h cooling-off; no auto-publish; a SEPARATE session with the hardware key publishes exactly the proposed price; every step is audited", () => {
+  itSel("PA-02 the ceremony: propose (aal2 + fresh TOTP) starts a 24 h cooling-off; no auto-publish; a SEPARATE session with the hardware key publishes exactly the proposed price; every step is audited", () => {
     clear();
     const before = active();
     const p = propose(claims(A, S1), 250);
@@ -180,7 +184,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(JSON.parse(psql(`select public.tw4_price_verify()::text`))).toMatchObject({ ok: true });
   });
 
-  it("PA-03 a challenge is single use and the request is final: replaying the SAME valid assertion publishes nothing a second time", () => {
+  itSel("PA-03 a challenge is single use and the request is final: replaying the SAME valid assertion publishes nothing a second time", () => {
     const { id } = authorize(251);
     const row = rows<{ nonce: string }>(`select encode(auth_nonce, 'hex') as nonce from public.studio_sms_price_change_requests where id = '${id}'`)[0];
     expect(row.nonce).toHaveLength(64);
@@ -190,7 +194,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(num(`select count(*) from public.studio_sms_price_list where kind = 'number' and customer_price_cents = 251`)).toBe(1);
   });
 
-  it("PA-04 the assertion is bound to the exact proposal and the exact ceremony: wrong origin / relying party / flags / type / challenge / key / counter / signature are REJECTED (recorded, nothing published) and a valid assertion still works afterwards", () => {
+  itSel("PA-04 the assertion is bound to the exact proposal and the exact ceremony: wrong origin / relying party / flags / type / challenge / key / counter / signature are REJECTED (recorded, nothing published) and a valid assertion still works afterwards", () => {
     clear();
     const before = active();
     const p = propose(claims(A, S1), 260);
@@ -231,7 +235,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     clear();
   });
 
-  it("PA-05 proposal tampering / TOCTOU: a revision invalidates the old proposal and its challenge and RESTARTS the cooling-off; amounts of a pending proposal cannot be edited (also in replica mode); a signature over the old version never authorizes the new", () => {
+  itSel("PA-05 proposal tampering / TOCTOU: a revision invalidates the old proposal and its challenge and RESTARTS the cooling-off; amounts of a pending proposal cannot be edited (also in replica mode); a signature over the old version never authorizes the new", () => {
     clear();
     const p = propose(claims(A, S1), 270);
     ready(p.request_id);
@@ -259,7 +263,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(finish(claims(A, S2), rev.request_id, b2.nonce, K1.assert(b2.challenge)).status).toBe("applied");
   });
 
-  it("PA-06 the cooling-off cannot be bypassed: it is a ROW constraint (at least 24 hours), no function and no replica-mode owner can shorten it; expiry never publishes; an unauthorized window leaves the request pending and unauthorizable", () => {
+  itSel("PA-06 the cooling-off cannot be bypassed: it is a ROW constraint (at least 24 hours), no function and no replica-mode owner can shorten it; expiry never publishes; an unauthorized window leaves the request pending and unauthorizable", () => {
     clear();
     const p = propose(claims(A, S1), 290);
     // owner-level, guard visibly off: a shorter cooling-off still violates the CHECK
@@ -283,7 +287,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     clear();
   });
 
-  it("PA-07 identity and session abuse: aal1, stale TOTP, no session id, a service-role or anon claim, an unregistered or non-owner subject, the team-mode approve path and a second session id that equals the proposer's are all refused; service_role has no EXECUTE at all", () => {
+  itSel("PA-07 identity and session abuse: aal1, stale TOTP, no session id, a service-role or anon claim, an unregistered or non-owner subject, the team-mode approve path and a second session id that equals the proposer's are all refused; service_role has no EXECUTE at all", () => {
     clear();
     const p = propose(claims(A, S1), 300);
     ready(p.request_id);
@@ -323,7 +327,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     clear();
   });
 
-  it("PA-08 mode and configuration protection: no function, no API role and no plain owner statement changes the mode, the cooling-off or the relying party; the freeze flag moves only through its functions", () => {
+  itSel("PA-08 mode and configuration protection: no function, no API role and no plain owner statement changes the mode, the cooling-off or the relying party; the freeze flag moves only through its functions", () => {
     for (const set of ["mode = 'team'", "cooling_off_hours = 48", "authz_window_hours = 72", "challenge_ttl_seconds = 900", "rp_id = 'evil.example.test'", "rp_origins = array['https://evil.example.test']", "frozen = true, frozen_at = now()"]) {
       expect(psqlError(`update public.studio_sms_price_auth_config set ${set}`), set).toMatch(/owner-level migration|freeze functions/);
       expect(psqlError(`begin; set local session_replication_role = replica; update public.studio_sms_price_auth_config set ${set}; rollback;`), set).toMatch(/owner-level migration|freeze functions/);
@@ -337,7 +341,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(psqlError(`select public._tw4price_bootstrap('evil.example.test', array['https://evil.example.test'], decode('${KX.hex.cred}', 'hex'), decode('${KX.hex.x}', 'hex'), decode('${KX.hex.y}', 'hex'), 'second bootstrap')`)).toMatch(/already bootstrapped/);
   });
 
-  it("PA-09 credential changes are PENDING for a mandatory delay (visible, audited, cancellable) and never instant: an attacker with a perfect session cannot add, replace or revoke a credential; the legitimate ceremony works after the delay; aliasing, backup-eligible keys, foreign challenges and the last-credential rule are enforced", () => {
+  itSel("PA-09 credential changes are PENDING for a mandatory delay (visible, audited, cancellable) and never instant: an attacker with a perfect session cannot add, replace or revoke a credential; the legitimate ceremony works after the delay; aliasing, backup-eligible keys, foreign challenges and the last-credential rule are enforced", () => {
     const enrollBegin = (c: Record<string, unknown>, k: SoftAuthenticator, role: string, label: string) =>
       authOut(c, `select public.tw4_price_cred_begin('enroll', '${k.credIdB64u}', '${b64u(k.x)}', '${b64u(k.y)}', '${role}', '${label}')::text;`);
     const enroll = (c: Record<string, unknown>, k: SoftAuthenticator, role: string, label: string, nonce: string, by: Assertion, mine: Assertion) =>
@@ -433,7 +437,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(psqlError(`begin; set local tw4.priceauth_write = 'on'; insert into public.studio_sms_price_credentials (credential_id, pub_x, pub_y, role, label, enrolled_via) values (decode('${alias.hex.cred}', 'hex'), decode('${alias.hex.x}', 'hex'), decode('${alias.hex.y}', 'hex'), 'spare', 'alias insert', 'assertion'); rollback;`)).toMatch(/studio_sms_price_credentials_key|duplicate key/);
   });
 
-  it("PA-10 emergency freeze: any registered administrator session can only SUSPEND publication; with it frozen nothing can be published by any path and credential changes do not apply; lifting it needs the hardware key of a credential that PREDATES the freeze", () => {
+  itSel("PA-10 emergency freeze: any registered administrator session can only SUSPEND publication; with it frozen nothing can be published by any path and credential changes do not apply; lifting it needs the hardware key of a credential that PREDATES the freeze", () => {
     clear();
     const p = propose(claims(A, S1), 320);
     ready(p.request_id);
@@ -473,7 +477,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(finish(claims(A, S2), p.request_id, b2.nonce, K3.assert(b2.challenge)).status).toBe("applied");
   });
 
-  it("PA-11 concurrency: two sessions submitting the SAME valid assertion at the same moment publish exactly one price; the second is refused", async () => {
+  itSel("PA-11 concurrency: two sessions submitting the SAME valid assertion at the same moment publish exactly one price; the second is refused", async () => {
     clear();
     const p = propose(claims(A, S1), 330);
     ready(p.request_id);
@@ -500,7 +504,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(num(`select count(*) from public.studio_sms_price_list where kind = 'number' and customer_price_cents = 330`)).toBe(1);
   });
 
-  it("PA-12 audit is immutable evidence with a stable monitoring feed: no update, delete or truncate (also in replica mode); the feed is service_role/owner only and ordered", () => {
+  itSel("PA-12 audit is immutable evidence with a stable monitoring feed: no update, delete or truncate (also in replica mode); the feed is service_role/owner only and ordered", () => {
     expect(psqlError(`update public.studio_sms_price_audit set event = 'freeze_lifted'`)).toMatch(/written only by the price authorization functions|append-only/);
     expect(psqlError(`delete from public.studio_sms_price_audit`)).toMatch(/never deleted/);
     expect(psqlError(`begin; set local session_replication_role = replica; delete from public.studio_sms_price_audit; rollback;`)).toMatch(/never deleted/);
@@ -515,7 +519,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(psql(`select has_function_privilege('service_role', 'public.tw4_price_audit_feed(bigint,integer)', 'execute')`)).toBe("t");
   });
 
-  it("PA-13 the verifier covers owner-mode prices: clean after genuine ceremonies; an owner-mode price whose hardware-key evidence was tampered with is flagged; the limits stay unapproved and unenforced", () => {
+  itSel("PA-13 the verifier covers owner-mode prices: clean after genuine ceremonies; an owner-mode price whose hardware-key evidence was tampered with is flagged; the limits stay unapproved and unenforced", () => {
     expect(JSON.parse(psql(`select public.tw4_price_verify()::text`))).toMatchObject({ ok: true });
     const forged = psql(`begin; alter table public.studio_sms_price_change_requests disable trigger studio_sms_price_change_requests_guard;
       update public.studio_sms_price_change_requests set auth_nonce = decode(repeat('ab', 32), 'hex') where id = (select id from public.studio_sms_price_change_requests where approval_mode = 'owner' and status = 'applied' limit 1);
@@ -524,7 +528,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(psql(`select count(*) || ':' || count(*) filter (where approved) from public.studio_sms_price_limits`)).toBe("8:0");
   });
 
-  it("PA-14 team mode is kept: with the protected mode set to team by an owner-level migration step, two distinct registered administrators still work with no cooling-off and no hardware key; owner-mode rows stay unaffected", () => {
+  itSel("PA-14 team mode is kept: with the protected mode set to team by an owner-level migration step, two distinct registered administrators still work with no cooling-off and no hardware key; owner-mode rows stay unaffected", () => {
     clear();
     setConfig("mode = 'team'");
     try {
@@ -540,7 +544,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(psql(`select mode from public.studio_sms_price_auth_config`)).toBe("single_owner");
   });
 
-  it("PA-15 rollback of 20270208100000 is fail closed: it refuses while owner-mode evidence exists; with the evidence removed (visibly, by the owner) it returns the schema to the 20270208090000 bodies, and re-applying restores everything", () => {
+  itSel("PA-15 rollback of 20270208100000 is fail closed: it refuses while owner-mode evidence exists; with the evidence removed (visibly, by the owner) it returns the schema to the 20270208090000 bodies, and re-applying restores everything", () => {
     const rb = strip(migration("rollback/20270208100000_twilio_price_owner_authorization_rollback.sql"));
     const fwd = strip(migration("20270208100000_twilio_price_owner_authorization.sql"));
     expect(codeOf(psqlError(`begin; ${rb} rollback;`))).toBe("55000");
@@ -575,7 +579,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(psql(`select to_regclass('public.studio_sms_price_auth_config') is not null`)).toBe("t");
   });
 
-  it("PA-16 monitoring interface: security events are emitted into studio_sms_price_security_events when that table exists (no secrets); a monitoring suspension is lifted ONLY by this schema's hardware-key thaw (a pricing_resumed row in the events table lifts nothing); the second channel carries the fingerprint; emit fails loudly once monitoring is expected", () => {
+  itSel("PA-16 monitoring interface: security events are emitted into studio_sms_price_security_events when that table exists (no secrets); a monitoring suspension is lifted ONLY by this schema's hardware-key thaw (a pricing_resumed row in the events table lifts nothing); the second channel carries the fingerprint; emit fails loudly once monitoring is expected", () => {
     clear();
     // the table belongs to the monitoring migration (20270208110000); a minimal stand-in with the same columns proves the conditional emit
     psql(`create table public.studio_sms_price_security_events (seq bigint generated always as identity primary key, kind text not null, occurred_at timestamptz not null default clock_timestamp(), subject_user_id uuid null, detail jsonb not null default '{}'::jsonb, recorded_at timestamptz not null default clock_timestamp())`);
@@ -641,7 +645,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     }
   });
 
-  it("PA-17 refusals are AUDITED independent of any other table: a refused gate (cooling-off, same session, wrong owner, frozen) and a rejected assertion are committed to the immutable audit; a sign counter that did not increase is an integrity failure", () => {
+  itSel("PA-17 refusals are AUDITED independent of any other table: a refused gate (cooling-off, same session, wrong owner, frozen) and a rejected assertion are committed to the immutable audit; a sign counter that did not increase is an integrity failure", () => {
     clear();
     const gates = () => audit("gate_refused");
     const g0 = gates();
@@ -668,7 +672,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     clear();
   });
 
-  it("PA-18 a revocation is IMMEDIATE and FINAL: the target is unusable for pricing and credential management in the same transaction, what it signed is void, there is no cancel and no un-revoke (session, other key, service_role all fail), the last signing credential is protected, and a mistaken revocation is repaired only by a new enrolment", () => {
+  itSel("PA-18 a revocation is IMMEDIATE and FINAL: the target is unusable for pricing and credential management in the same transaction, what it signed is void, there is no cancel and no un-revoke (session, other key, service_role all fail), the last signing credential is protected, and a mistaken revocation is repaired only by a new enrolment", () => {
     clear();
     const Ka = new SoftAuthenticator();
     const Kb = new SoftAuthenticator();
@@ -717,7 +721,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(num("select count(*) from public.studio_sms_price_credentials where status = 'active'")).toBe(2);
   });
 
-  it("PA-21 races with a revocation: an apply that waits behind a revocation is VOID, and a publication signed by the credential being revoked is refused (credential lock ordering, concurrent sessions)", async () => {
+  itSel("PA-21 races with a revocation: an apply that waits behind a revocation is VOID, and a publication signed by the credential being revoked is refused (credential lock ordering, concurrent sessions)", async () => {
     clear();
     const Ka = new SoftAuthenticator();
     const Kb = new SoftAuthenticator();
@@ -765,7 +769,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(active()).toEqual(before);
   });
 
-  it("PA-22 the OFFLINE RECOVERY credential can only freeze and start a delayed re-enrolment of a new primary: it cannot publish, authorize, enrol, revoke, cancel or thaw; the re-enrolment is loud, waits at least 72 h, can be cancelled by a primary or spare key, and on completion replaces the whole set (the recovery key is single use); it works under a freeze and with the monitoring table missing", () => {
+  itSel("PA-22 the OFFLINE RECOVERY credential can only freeze and start a delayed re-enrolment of a new primary: it cannot publish, authorize, enrol, revoke, cancel or thaw; the re-enrolment is loud, waits at least 72 h, can be cancelled by a primary or spare key, and on completion replaces the whole set (the recovery key is single use); it works under a freeze and with the monitoring table missing", () => {
     clear();
     const Ka = new SoftAuthenticator();
     const Kb = new SoftAuthenticator();
@@ -853,7 +857,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     }
   });
 
-  it("PA-25 emit failures are recoverable evidence: the failed emit is listed (service_role only), a replay appends an acknowledgement and re-emits the original event without altering the audit row, never acknowledges while the monitoring table is missing, and the routine prune never removes emit_failed rows", () => {
+  itSel("PA-25 emit failures are recoverable evidence: the failed emit is listed (service_role only), a replay appends an acknowledgement and re-emits the original event without altering the audit row, never acknowledges while the monitoring table is missing, and the routine prune never removes emit_failed rows", () => {
     clear();
     const Ka = new SoftAuthenticator();
     resetCreds(Ka);
@@ -896,7 +900,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     }
   });
 
-  it("PA-19 limits are re-checked at the decision: a limit the owner approves AFTER a proposal was made refuses its challenge and its signature; the shipped (unapproved) rows enforce nothing", () => {
+  itSel("PA-19 limits are re-checked at the decision: a limit the owner approves AFTER a proposal was made refuses its challenge and its signature; the shipped (unapproved) rows enforce nothing", () => {
     clear();
     const p = propose(claims(A, S1), 430);
     ready(p.request_id);
@@ -915,7 +919,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     clear();
   });
 
-  it("PA-20 safe-direction actions survive a monitoring outage: with monitoring expected but its table missing, freeze, compromise report, hardware-key cancel and thaw all succeed and commit their audit row (the failed emit is recorded as emit_failed); an integrity failure is still audited; risk-opening calls (begin) fail closed; the delay is not touched", () => {
+  itSel("PA-20 safe-direction actions survive a monitoring outage: with monitoring expected but its table missing, freeze, compromise report, hardware-key cancel and thaw all succeed and commit their audit row (the failed emit is recorded as emit_failed); an integrity failure is still audited; risk-opening calls (begin) fail closed; the delay is not touched", () => {
     clear();
     const Ka = new SoftAuthenticator();
     const Kb = new SoftAuthenticator();
@@ -959,7 +963,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     }
   });
 
-  it("PA-23 audit flooding: a non-administrator gets a refusal and NO audit row from begin or finish; a registered session's routine refusal rows are capped per hour; the owner-level prune removes housekeeping rows only and the guard never deletes integrity events", () => {
+  itSel("PA-23 audit flooding: a non-administrator gets a refusal and NO audit row from begin or finish; a registered session's routine refusal rows are capped per hour; the owner-level prune removes housekeeping rows only and the guard never deletes integrity events", () => {
     clear();
     const p = propose(claims(A, S1), 451);
     ready(p.request_id);
@@ -993,7 +997,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(codeOf(psqlError(`delete from public.studio_sms_price_audit where event = 'gate_refused'`))).toBe("42501");
   });
 
-  it("PA-24 thaw eligibility never reads the events table's timestamps: a monitoring suspension whose recorded_at is forged to the distant past (or future) still lets a registered key lift it, and the challenge lists every active key", () => {
+  itSel("PA-24 thaw eligibility never reads the events table's timestamps: a monitoring suspension whose recorded_at is forged to the distant past (or future) still lets a registered key lift it, and the challenge lists every active key", () => {
     clear();
     const Ka = new SoftAuthenticator();
     const Kb = new SoftAuthenticator();
@@ -1014,7 +1018,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     }
   });
 
-  it("PA-26 (R3-1) only the recovery credential can retire the recovery credential: an ordinary key cannot revoke it, cannot enrol a second recovery key while one is active, and cannot touch it by any other ceremony", () => {
+  itSel("PA-26 (R3-1) only the recovery credential can retire the recovery credential: an ordinary key cannot revoke it, cannot enrol a second recovery key while one is active, and cannot touch it by any other ceremony", () => {
     clear();
     const Ka = new SoftAuthenticator();
     const Kb = new SoftAuthenticator();
@@ -1042,7 +1046,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(codeOf(psqlError(`select public._tw4price_install_recovery(decode('${Kb.hex.cred}', 'hex'), decode('${Kb.hex.x}', 'hex'), decode('${Kb.hex.y}', 'hex'), 'second recovery')`))).toBe("42501");
   });
 
-  it("PA-27 (R3-2) recovery beats a stolen ordinary key: after a recovery freeze or while a recovery enrolment is pending, ordinary keys cannot thaw, enrol, revoke or cancel the recovery; publication stays suspended; only the recovery key cancels; completion semantics are unchanged", () => {
+  itSel("PA-27 (R3-2) recovery beats a stolen ordinary key: after a recovery freeze or while a recovery enrolment is pending, ordinary keys cannot thaw, enrol, revoke or cancel the recovery; publication stays suspended; only the recovery key cancels; completion semantics are unchanged", () => {
     clear();
     const Ka = new SoftAuthenticator();
     const Kb = new SoftAuthenticator();
@@ -1101,7 +1105,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(psql("select public._tw4price_suspended()")).toBe("f");
   });
 
-  it("PA-28 (R3-4, R3-5) a replayed suspension that no longer holds never re-suspends pricing (it is replayed as stale information), and tw4_price_propose emits a proposed event and fails closed when monitoring is expected but its table is missing", () => {
+  itSel("PA-28 (R3-4, R3-5) a replayed suspension that no longer holds never re-suspends pricing (it is replayed as stale information), and tw4_price_propose emits a proposed event and fails closed when monitoring is expected but its table is missing", () => {
     clear();
     const Ka = new SoftAuthenticator();
     resetCreds(Ka);
@@ -1140,7 +1144,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     }
   });
 
-  it("PA-31 (P2-1) the recovery path does not depend on monitoring: with monitoring expected and the events table missing, the recovery enrolment starts and COMPLETES (apply keeps every integrity check, only its events are tolerant), the failed emits are audited and a later replay delivers them", () => {
+  itSel("PA-31 (P2-1) the recovery path does not depend on monitoring: with monitoring expected and the events table missing, the recovery enrolment starts and COMPLETES (apply keeps every integrity check, only its events are tolerant), the failed emits are audited and a later replay delivers them", () => {
     clear();
     const Ka = new SoftAuthenticator();
     const Kr = new SoftAuthenticator();
@@ -1219,7 +1223,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
   const applySqlOf = (id: string) => `select public.tw4_price_cred_apply('${id}')::text;`;
   const activeSigning = () => num("select count(*) from public.studio_sms_price_credentials where status = 'active' and role <> 'recovery'");
 
-  it("PA-29 races on real separate connections fail closed: two revokes of different keys, revoke vs apply (both orders), enrol vs revoke of its signer, double finish of one nonce, freeze vs apply (both orders), thaw vs recovery, propose during a revoke, two concurrent recovery enrolments", async () => {
+  itSel("PA-29 races on real separate connections fail closed: two revokes of different keys, revoke vs apply (both orders), enrol vs revoke of its signer, double finish of one nonce, freeze vs apply (both orders), thaw vs recovery, propose during a revoke, two concurrent recovery enrolments", async () => {
     const sess = sessionA();
     // (1) two simultaneous revokes of DIFFERENT keys, each signed by the other: exactly one signing credential survives
     {
@@ -1323,7 +1327,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       const [x, y] = await race(revokeSqlOf(Ka, Kb), `select public.tw4_price_propose('number', 532, 115, 'proposal during a revoke', 'a written reason for the proposal during a revoke')::text;`, sess, claims(A, S1));
       expect(x.out).toContain('"status": "revoked"');
       expect(y.out).toContain("request_id");
-      const id = (JSON.parse(y.out.split(NL).pop()!) as { request_id: string }).request_id;
+      const id = (JSON.parse(y.out.split(NL).filter(Boolean).pop()!) as { request_id: string }).request_id;
       ready(id);
       const b = begin(sess, id);
       expect(finish(sess, id, b.nonce, Kb.assert(b.challenge))).toMatchObject({ status: "rejected" });
@@ -1341,7 +1345,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     }
   });
 
-  it("PA-30 backup-eligible / backed-up authenticators: refused by default at enrolment (signer and new key) and at every assertion, including a key enrolled without BE whose later assertion shows BE or BS; accepted only when the owner-level allow_backup_eligible is true (documented: hardware-bound keys are the production recommendation)", () => {
+  itSel("PA-30 backup-eligible / backed-up authenticators: refused by default at enrolment (signer and new key) and at every assertion, including a key enrolled without BE whose later assertion shows BE or BS; accepted only when the owner-level allow_backup_eligible is true (documented: hardware-bound keys are the production recommendation)", () => {
     clear();
     const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator(), Kc = new SoftAuthenticator();
     resetCreds(Ka);
