@@ -1489,6 +1489,15 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     // (4) auth.sessions missing, or unreadable by the function owner: fail CLOSED naming the hosted preflight (also with the marker)
     const hide = hasSessions ? "alter table auth.sessions rename to sessions_hidden;" : "drop table auth.sessions;";
     expect(psqlError(`begin; ${setup} ${hide} set local role authenticated; select set_config('request.jwt.claims', '${claimsOf({ session_id: S_OK })}', true); select public.tw4_price_cred_pending()::text; rollback;`)).toMatch(/hosted preflight failed: auth\.sessions does not exist/);
-    expect(run({ session_id: S_OK }, ["tw4_price_cred_pending", ""], { marker: true, pre: "revoke select on auth.sessions from postgres;" })).toMatch(/hosted preflight failed: the function owner cannot read auth\.sessions/);
+    // the real auth.sessions belongs to the auth admin, so the revoke needs the image superuser (rolled back)
+    const asSuper = (sql: string): string => {
+      try {
+        execFileSync("docker", ["exec", "-i", "-e", "PGPASSWORD=postgres", PG, "psql", "-U", "supabase_admin", "-d", DB, "-q", "-At", "-v", "ON_ERROR_STOP=1"], { input: sql, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+        return "";
+      } catch (e) {
+        return String((e as { stderr?: Buffer | string }).stderr ?? e);
+      }
+    };
+    expect(asSuper(`begin; ${setup} ${rows} revoke select on auth.sessions from postgres; set local role authenticated; select set_config('request.jwt.claims', '${claimsOf({ session_id: S_OK })}', true); select public.tw4_price_cred_pending()::text; rollback;`)).toMatch(/hosted preflight failed: the function owner cannot read auth.sessions/);
   });
 });
