@@ -212,6 +212,12 @@ $$;
 
 -- the identity of the CALLER, from the caller's own verified JWT. tier 'recent': aal2 and a TOTP authentication within 15 minutes (mirrors requirePlatformStepUp);
 -- tier 'aal2': aal2 with a TOTP authentication. A service-role or anon token has another role claim and is refused. There is no way to name another actor.
+-- how old (seconds) the TOTP authentication may be for the 'recent' tier. D4-1 alone fixes it at 15 minutes; 20270208100000 replaces this function with the owner-level configured value (default 10 minutes).
+create or replace function public._tw4price_fresh_seconds()
+returns int language sql stable
+set search_path = pg_catalog, public, pg_temp
+as $$ select 900; $$;
+
 create or replace function public._tw4price_session_actor(p_tier text)
 returns uuid language plpgsql stable security definer
 set search_path = pg_catalog, public, pg_temp
@@ -274,8 +280,8 @@ begin
   if not v_has_totp then
     raise exception 'an authenticator (TOTP) sign-in is required' using errcode = '42501';
   end if;
-  if p_tier = 'recent' and (v_newest is null or v_newest > v_now + 60 or v_now - v_newest > 900) then
-    raise exception 'the authenticator code is older than 15 minutes: confirm it again' using errcode = '42501';
+  if p_tier = 'recent' and (v_newest is null or v_newest > v_now + 60 or v_now - v_newest > public._tw4price_fresh_seconds()) then
+    raise exception 'a fresh authenticator code is required (the last one is too old or carries no timestamp): confirm it again' using errcode = '42501';
   end if;
   return v_uid;
 end $$;
@@ -670,7 +676,7 @@ begin
   raise exception 'a price change needs a proposal and a second platform administrator: use tw4_price_propose and tw4_price_approve' using errcode = 'TW042';
 end $$;
 
-revoke all on function public._tw4price_admin_active(uuid), public._tw4price_registered_at(uuid, timestamptz), public._tw4price_session_actor(text), public._tw4price_kinds(),
+revoke all on function public._tw4price_admin_active(uuid), public._tw4price_registered_at(uuid, timestamptz), public._tw4price_session_actor(text), public._tw4price_fresh_seconds(), public._tw4price_kinds(),
   public._tw4pricedual_guard(), public._tw4price_activation_guard(), public._tw4price_truncate_guard(), public._tw4price_registry_guard(),
   public._tw4price_do_propose(text, int, int, text, text, uuid), public._tw4price_do_approve(uuid, uuid, text), public._tw4price_do_reject(uuid, uuid, text),
   public._tw4price_do_list(uuid) from public, anon, authenticated, service_role;

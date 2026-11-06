@@ -72,6 +72,7 @@ drop function public._tw4price_do_approve(uuid, uuid, text);
 drop function public._tw4price_do_reject(uuid, uuid, text);
 drop function public._tw4price_do_list(uuid);
 drop function public._tw4price_session_actor(text);
+drop function public._tw4price_fresh_seconds();
 drop function public._tw4price_registered_at(uuid, timestamptz);
 drop function public._tw4price_admin_active(uuid);
 drop function public._tw4price_kinds();
