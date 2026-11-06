@@ -665,7 +665,7 @@ export function createSupabaseIntentStore(supabase: Pick<SupabaseClient, "rpc" |
       });
       if (error) return "error";
       const o = (data as { outcome?: unknown; status?: unknown } | null);
-      if (o?.status === "needs_review" || o?.outcome === "recorded_in_review" || o?.outcome === "needs_review") return "review";
+      if (o?.status === "needs_review" || o?.outcome === "recorded_in_review" || o?.outcome === "orphan_recorded" || o?.outcome === "needs_review") return "review";
       return o?.outcome === "provider_created" || o?.outcome === "already_recorded" ? "recorded" : "error";
     },
     async register(i) {
