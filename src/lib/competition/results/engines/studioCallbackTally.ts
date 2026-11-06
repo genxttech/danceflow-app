@@ -17,6 +17,7 @@
 import type { EngineResultRow } from "../contract";
 import {
   checkPanelStructure,
+  checkProfileAndTieChain,
   cmp,
   engineVersionIs1,
   orderedJudges,
@@ -51,6 +52,7 @@ function body(input: StudioEngineInput, trace: TraceRecord[], v: ValidationLog):
     v.fail("V2", "round is a preliminary promote_callback round", UC, "round_not_callback", [input.round.id]);
   }
   v.pass("V2", "round is a preliminary promote_callback round");
+  checkProfileAndTieChain(input, v, "V2a");
 
   const { calculated, excluded, all } = splitEntries(input, v);
   const ordered = orderedJudges([...input.judges], v, "S3");

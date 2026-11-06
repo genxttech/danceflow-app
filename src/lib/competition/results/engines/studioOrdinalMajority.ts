@@ -13,6 +13,7 @@
 import type { EngineResultRow } from "../contract";
 import {
   checkPanelStructure,
+  checkProfileAndTieChain,
   cmp,
   engineVersionIs1,
   orderedJudges,
@@ -43,6 +44,7 @@ function body(input: StudioEngineInput, trace: TraceRecord[], v: ValidationLog):
   v.pass("V1", "engine key/version available");
   if (input.round.roundType !== "final") v.fail("RT", "round type is final", UC, "round_type_not_final", [input.round.id]);
   v.pass("RT", "round type is final");
+  checkProfileAndTieChain(input, v, "V2a");
 
   const { calculated, excluded, all } = splitEntries(input, v);
   const ordered = orderedJudges([...input.judges], v, "S3");

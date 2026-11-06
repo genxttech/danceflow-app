@@ -103,7 +103,10 @@ describe("studio_ordinal_majority@1 golden fixtures (engine-spec-ordinal-majorit
           ...input,
           context: {
             ...input.context,
-            heats: [input.context.heats[0], { heatId: "heat-2", officialIds: [officialId(1), officialId(2), "official-7"], entryIds: [e(11)] }],
+            heats: [
+              { ...input.context.heats[0], entryIds: input.context.heats[0].entryIds.filter((id) => id !== e(11)) },
+              { heatId: "heat-2", officialIds: [officialId(1), officialId(2), "official-7"], entryIds: [e(11)] },
+            ],
           },
         }),
       );
@@ -112,7 +115,16 @@ describe("studio_ordinal_majority@1 golden fixtures (engine-spec-ordinal-majorit
     it("h: same panel in both heats → combination not specified, fail closed", () => {
       const input = base();
       const f = expectFail(
-        run({ ...input, context: { ...input.context, heats: [input.context.heats[0], { ...input.context.heats[0], heatId: "heat-2" }] } }),
+        run({
+          ...input,
+          context: {
+            ...input.context,
+            heats: [
+              { ...input.context.heats[0], entryIds: input.context.heats[0].entryIds.filter((id) => id !== e(11)) },
+              { ...input.context.heats[0], heatId: "heat-2", entryIds: [e(11)] },
+            ],
+          },
+        }),
       );
       expect([f.code, f.reason]).toEqual(["COMP_ENGINE_UNSPECIFIED_CASE", "multi_heat_combination_unspecified"]);
     });
@@ -245,10 +257,18 @@ describe("studio_ordinal_majority@1 fail-closed cases", () => {
     expect("rows" in f).toBe(false);
     expect(f.trace[f.trace.length - 1].step).toBe("failure");
   });
-  it("ignores the stored tie-break chain (engine @1 default) and the entry order", () => {
+  it("fails closed on a non-empty tie-break chain instead of silently ignoring it (review P2-2); the empty chain is the only supported one", () => {
     const a = expectOk(run({ ...ordinalInput(F03), tieBreakChain: [] }));
-    const b = expectOk(run({ ...ordinalInput(F03), tieBreakChain: ["random_draw"] }));
-    expect(placements(a)).toEqual(placements(b));
+    const f = expectFail(run({ ...ordinalInput(F03), tieBreakChain: ["random_draw"] }));
+    expect([f.code, f.reason]).toEqual(["COMP_ENGINE_UNSPECIFIED_CASE", "tie_break_chain_unsupported"]);
+    expect(placements(a)).toBeDefined();
+  });
+  it("fails closed on a profile the engine is not specified for (review P2-2)", () => {
+    const f = expectFail(run({ ...ordinalInput(F03), profile: { key: "ndca_skating", version: 1 } }));
+    expect([f.code, f.reason]).toEqual(["COMP_ENGINE_UNSPECIFIED_CASE", "profile_unsupported"]);
+    const g = expectFail(run({ ...ordinalInput(F03), profile: { key: "studio_simple", version: 2 } }));
+    expect(g.reason).toBe("profile_unsupported");
+    expect(expectOk(run({ ...ordinalInput(F03), profile: { key: "studio_simple", version: 1 } })).rows.length).toBeGreaterThan(0);
   });
 });
 

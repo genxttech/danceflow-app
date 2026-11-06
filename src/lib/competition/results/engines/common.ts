@@ -44,6 +44,60 @@ export class ValidationLog {
   }
 }
 
+/**
+ * Input size caps (review P2-3). A calculation is a synchronous, in-process loop over the input; an oversized or hostile envelope must fail closed
+ * before it is hashed or looped over, never exhaust the server. The caps are far above any real studio round (a 300-couple round, 15 judges).
+ */
+export const ENGINE_INPUT_CAPS = {
+  entries: 1000,
+  judges: 25,
+  marks: 50_000,
+  heats: 500,
+  excludedEntries: 1000,
+  danceIds: 50,
+  heatEntriesTotal: 2000,
+  heatOfficials: 25,
+  tieBreakChain: 32,
+  idLength: 200,
+} as const;
+
+function tooLarge(field: string, count: number, max: number): never {
+  throw new EngineFailure("COMP_ENGINE_INVALID_INPUT", "input_too_large", [], { field, count, max });
+}
+
+function capArray(field: string, value: unknown, max: number): void {
+  if (!Array.isArray(value)) throw new EngineFailure("COMP_ENGINE_INVALID_INPUT", "malformed_input", [], { field });
+  if (value.length > max) tooLarge(field, value.length, max);
+}
+
+/** Throws an EngineFailure (never a raw error) when any collection or id exceeds the caps. Runs before canonicalisation and hashing. */
+export function checkInputCaps(input: StudioEngineInput): void {
+  const c = ENGINE_INPUT_CAPS;
+  capArray("entries", input.entries, c.entries);
+  capArray("judges", input.judges, c.judges);
+  capArray("marks", input.marks, c.marks);
+  capArray("tieBreakChain", input.tieBreakChain, c.tieBreakChain);
+  const ctx = input.context;
+  if (ctx === null || typeof ctx !== "object") throw new EngineFailure("COMP_ENGINE_INVALID_INPUT", "malformed_input", [], { field: "context" });
+  capArray("context.excludedEntries", ctx.excludedEntries, c.excludedEntries);
+  capArray("context.heats", ctx.heats, c.heats);
+  capArray("context.danceIds", ctx.danceIds, c.danceIds);
+  let heatEntries = 0;
+  for (const h of ctx.heats) {
+    capArray("context.heats[].officialIds", h.officialIds, c.heatOfficials);
+    capArray("context.heats[].entryIds", h.entryIds, c.entries);
+    heatEntries += h.entryIds.length;
+  }
+  if (heatEntries > c.heatEntriesTotal) tooLarge("context.heats[].entryIds (total)", heatEntries, c.heatEntriesTotal);
+  const longId = (id: unknown) => typeof id === "string" && id.length > c.idLength;
+  const tooLong = [
+    ...input.entries.map((e) => e.entryId),
+    ...input.judges.map((j) => j.officialId),
+    ...input.marks.flatMap((m) => [m.officialId, m.entryId]),
+  ].filter(longId);
+  if (tooLong.length > 0) tooLarge("id length", (tooLong[0] as string).length, c.idLength);
+}
+
 export type EngineBodyResult = { rows: EngineResultRow[]; warnings: string[] };
 
 type EngineMeta = { key: V1EngineKey; specRef: string };
@@ -80,6 +134,13 @@ export function runEngine(
       traceHash: sha256Hex(canonicalJson(trace)),
     };
   };
+
+  try {
+    checkInputCaps(input);
+  } catch (error) {
+    if (error instanceof EngineFailure) return finishFailure(error);
+    return finishFailure(new EngineFailure("COMP_ENGINE_INVALID_INPUT", "malformed_input", [], { message: String(error) }));
+  }
 
   try {
     inputHash = sha256Hex(canonicalEngineInput(normalizeStudioInput(input)));
@@ -175,6 +236,27 @@ export function splitEntries(input: StudioEngineInput, validation: ValidationLog
   };
 }
 
+/** Profile families the Studio v1 engines are specified for (studio_simple @1 and @3); anything else is not guessed at. */
+export const SUPPORTED_PROFILE_KEY = "studio_simple";
+export const SUPPORTED_PROFILE_VERSIONS: readonly number[] = [1, 3];
+
+/**
+ * Neither Studio v1 engine reads a tie-break chain (callback: D-CT-4 is a fixed rule; ordinal: "A different chain ships as ordinal_majority@2"),
+ * and both are specified for studio_simple @1/@3 only. A non-empty chain or another profile fails closed instead of being silently ignored (review P2-2).
+ */
+export function checkProfileAndTieChain(input: StudioEngineInput, validation: ValidationLog, id: string): void {
+  if (!Array.isArray(input.tieBreakChain) || input.tieBreakChain.length > 0) {
+    validation.fail(id, "no tie-break chain (the engine's tie rule is fixed)", "COMP_ENGINE_UNSPECIFIED_CASE", "tie_break_chain_unsupported", [], {
+      chain: Array.isArray(input.tieBreakChain) ? input.tieBreakChain : null,
+    });
+  }
+  const p = input.profile;
+  if (!p || p.key !== SUPPORTED_PROFILE_KEY || !SUPPORTED_PROFILE_VERSIONS.includes(p.version)) {
+    validation.fail(id, "profile is studio_simple @1 or @3", "COMP_ENGINE_UNSPECIFIED_CASE", "profile_unsupported", [], { profile: p ?? null });
+  }
+  validation.pass(id, "no tie-break chain; profile is studio_simple @1 or @3");
+}
+
 /** X-3 option flags, X-3 panel size, X-7 same panel in every heat, X-6 one dance. Shared by both engines. */
 export function checkPanelStructure(input: StudioEngineInput, judges: readonly PanelJudge[], validation: ValidationLog, ids: { x3: string; x3Flags: string; x7: string; x6: string }): void {
   if (input.context.chiefJudgeTiebreak || input.context.scoreRolesSeparately) {
@@ -198,6 +280,22 @@ export function checkPanelStructure(input: StudioEngineInput, judges: readonly P
   const strayHeatEntries = heats.flatMap((h) => h.entryIds).filter((id) => !roundEntries.has(id));
   if (strayHeatEntries.length > 0) {
     validation.fail(ids.x7, "heat entries belong to the round", "COMP_ENGINE_INVALID_INPUT", "heat_entry_not_in_round", strayHeatEntries);
+  }
+  // Review P2-4: every calculated entry is in exactly one heat. An entry in two heats, or in none, would be counted against a panel that did not
+  // judge it (or not at all). Excluded (scratched / no-show) entries may stay on a heat roster.
+  const heatOf = new Map<string, number>();
+  for (const h of heats) for (const id of new Set(h.entryIds)) heatOf.set(id, (heatOf.get(id) ?? 0) + 1);
+  const inTwoHeats = [...heatOf].filter(([, n]) => n > 1).map(([id]) => id);
+  const sameHeatTwice = heats.flatMap((h) => h.entryIds.filter((id, i) => h.entryIds.indexOf(id) !== i));
+  const excludedIds = new Set(input.context.excludedEntries.map((e) => e.entryId));
+  const calculatedIds = input.entries.map((e) => e.entryId).filter((id) => !excludedIds.has(id));
+  const inNoHeat = calculatedIds.filter((id) => !heatOf.has(id));
+  const coverageOffenders = [...inTwoHeats, ...sameHeatTwice, ...inNoHeat];
+  if (coverageOffenders.length > 0) {
+    validation.fail(ids.x7, "every calculated entry is in exactly one heat", "COMP_ENGINE_INVALID_INPUT", "entry_heat_coverage", coverageOffenders, {
+      inMoreThanOneHeat: sortedUnique([...inTwoHeats, ...sameHeatTwice]),
+      inNoHeat: sortedUnique(inNoHeat),
+    });
   }
   const mismatched = heats.filter((h) => {
     const hp = [...h.officialIds].sort(cmp);
