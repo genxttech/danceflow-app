@@ -845,8 +845,10 @@ begin
       elsif public._tw4price_recovery_active() then
         raise exception 'a recovery is in progress: revocations are refused until it completes or the recovery key cancels it' using errcode = '42501';
       end if;
-      if (select count(*) from public.studio_sms_price_credentials c where c.status = 'active' and c.role <> 'recovery' and c.credential_id <> v_target) < 1 then
-        raise exception 'revoke needs at least one other active signing credential' using errcode = '22023';
+      -- LAST-CREDENTIAL RULE: never leave zero usable, VERIFIED hardware credentials. To retire the last usable credential a replacement must first be enrolled AND have proved its properties (proof_verified_at):
+      -- a ceremony enrolment carries the proof of its possession assertion, a bootstrap / installed key gets it from _tw4price_attest_finish. Otherwise the freeze stays available and nothing is revoked.
+      if (select count(*) from public.studio_sms_price_credentials c where c.status = 'active' and c.role <> 'recovery' and c.credential_id <> v_target and c.proof_verified_at is not null) < 1 then
+        raise exception 'revoke needs at least one other active signing credential that has an enrolment proof' using errcode = '22023';
       end if;
     end if;
     v_exp := clock_timestamp() + make_interval(secs => cfg.challenge_ttl_seconds);
@@ -1012,8 +1014,8 @@ begin
     elsif v_trole <> 'recovery' and v_purpose = 'revoke' and v_by <> v_target then v_reason := 'a primary or spare credential can revoke only itself: evicting another credential needs the recovery credential';
     elsif v_purpose = 'recover_revoke_key' and v_brole is distinct from 'recovery' then v_reason := 'evicting another credential needs the recovery credential';
     elsif v_purpose = 'revoke' and public._tw4price_recovery_active() then v_reason := 'a recovery is in progress: revocations are refused';
-    elsif v_trole <> 'recovery' and (select count(*) from public.studio_sms_price_credentials c where c.status = 'active' and c.role <> 'recovery' and c.credential_id <> v_target) < 1 then
-      v_reason := 'the last active signing credential cannot be revoked';
+    elsif v_trole <> 'recovery' and (select count(*) from public.studio_sms_price_credentials c where c.status = 'active' and c.role <> 'recovery' and c.credential_id <> v_target and c.proof_verified_at is not null) < 1 then
+      v_reason := 'the last active signing credential with an enrolment proof cannot be revoked';
     else
       v_reason := public._tw4price_check_assertion(v_purpose, v_nonce,
         public._tw4price_cred_hash(v_purpose, v_target, null, null, null, case when v_purpose = 'recover_revoke_key' then v_trow::text || ':' || (extract(epoch from v_exp) * 1000000)::bigint::text end),
@@ -1373,7 +1375,9 @@ create or replace function public.tw4_price_report_compromise(p_note text)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
-declare v_actor uuid := public._tw4price_session_actor('aal2');
+declare
+  v_actor uuid := public._tw4price_session_actor('aal2');
+  v_limited boolean := false;
 begin
   if not public._tw4price_admin_active(v_actor) then
     raise exception 'actor must be an active registered platform admin' using errcode = '42501';
@@ -1388,9 +1392,15 @@ begin
     perform set_config('tw4.priceauth_write', 'off', true);
     perform public._tw4price_audit('freeze_set', v_actor, public._tw4price_session_id(), null, null, jsonb_build_object('reason', 'compromise reported'));
     perform public._tw4price_emit_safe('pricing_suspended', v_actor, jsonb_build_object('reason', 'compromise reported'));
+    perform public._tw4price_emit_safe('credential_compromise_reported', v_actor, jsonb_build_object('note_length', char_length(btrim(p_note))));
+  elsif (select count(*) from public.studio_sms_price_audit a where a.actor = v_actor and a.event = 'freeze_set' and a.detail ->> 'repeat' = 'true' and a.at > clock_timestamp() - interval '1 hour') < 10 then
+    -- a repeated report while already frozen is audited and evented, but at most 10 per administrator and hour; the cap is RESTRICTIVE ONLY: it limits extra rows, never the freeze itself
+    perform public._tw4price_audit('freeze_set', v_actor, public._tw4price_session_id(), null, null, jsonb_build_object('reason', 'compromise reported', 'repeat', true));
+    perform public._tw4price_emit_safe('credential_compromise_reported', v_actor, jsonb_build_object('note_length', char_length(btrim(p_note)), 'repeat', true));
+  else
+    v_limited := true;
   end if;
-  perform public._tw4price_emit_safe('credential_compromise_reported', v_actor, jsonb_build_object('note_length', char_length(btrim(p_note))));
-  return jsonb_build_object('status', 'frozen');
+  return jsonb_build_object('status', 'frozen', 'rate_limited', v_limited);
 end $$;
 
 
