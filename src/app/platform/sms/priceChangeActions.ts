@@ -200,7 +200,7 @@ export async function priceCredBegin(input: { purpose: string; credentialId?: st
     if (purpose === "enroll" || purpose === "recover_enroll") bad(input.credentialId, input.x, input.y);
     if (purpose === "recover_enroll" && (typeof input.label !== "string" || input.label.trim().length < 3 || input.label.length > 60)) throw new PriceChangeError("22023");
     if (purpose === "revoke") bad(input.credentialId);
-    if (purpose === "enroll" && (typeof input.role !== "string" || !["primary", "spare", "recovery"].includes(input.role) || typeof input.label !== "string" || input.label.trim().length < 3 || input.label.length > 60)) throw new PriceChangeError("22023");
+    if (purpose === "enroll" && (typeof input.role !== "string" || !["primary", "spare"].includes(input.role) || typeof input.label !== "string" || input.label.trim().length < 3 || input.label.length > 60)) throw new PriceChangeError("22023");
     return (await store()).credBegin({ purpose, credentialId: input.credentialId ?? null, x: input.x ?? null, y: input.y ?? null, role: input.role ?? null, label: input.label ?? null, changeId: input.changeId ?? null });
   });
 }
@@ -210,7 +210,7 @@ export async function priceCredEnroll(input: CredEnrollInput): Promise<Data<Reco
   return await guardedData("aal2", async () => {
     const i = input as Record<string, unknown>;
     bad(i?.nonce, i?.newCredentialId, i?.x, i?.y, i?.byCredentialId, i?.byAuth, i?.byClient, i?.bySig, i?.newAuth, i?.newClient, i?.newSig);
-    if (i.role !== "primary" && i.role !== "spare" && i.role !== "recovery") throw new PriceChangeError("22023");
+    if (i.role !== "primary" && i.role !== "spare") throw new PriceChangeError("22023"); // a recovery key is installed only by the owner-level runbook step
     if (typeof i.label !== "string" || i.label.trim().length < 3 || i.label.length > 60) throw new PriceChangeError("22023");
     return (await store()).credEnroll(input);
   });

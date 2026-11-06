@@ -55,6 +55,8 @@ drop function public._tw4price_recovery_active();
 drop function public._tw4price_prune(interval);
 drop function public._tw4price_emit(text, uuid, jsonb);
 drop function public._tw4price_owner_gate(uuid, uuid, text);
+drop function public._tw4price_bootstrap_with_recovery(text, text[], bytea, bytea, bytea, text, bytea, bytea, bytea, text);
+drop function public._tw4price_install_recovery(bytea, bytea, bytea, text);
 drop function public._tw4price_bootstrap(text, text[], bytea, bytea, bytea, text);
 drop function public._tw4price_do_propose_mode(text, int, int, text, text, uuid, text, text, uuid);
 

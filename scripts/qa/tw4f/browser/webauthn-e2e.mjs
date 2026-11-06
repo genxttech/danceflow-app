@@ -59,6 +59,9 @@ const OWNER = {
       update public.studio_sms_price_credential_changes set requested_at = requested_at - interval '${hours} hours', effective_at = effective_at - interval '${hours} hours' where id = '${id}';
       alter table public.studio_sms_price_credential_changes enable always trigger studio_sms_price_credential_changes_guard; commit;`);
   },
+  installRecovery({ id, x, y }) {
+    return sql(`select public._tw4price_install_recovery(decode('${hex(id)}','hex'), decode('${hex(x)}','hex'), decode('${hex(y)}','hex'), 'browser recovery key')`);
+  },
   query({ q }) { return sql(q); },
 };
 
@@ -140,9 +143,13 @@ try {
   check("apply before the delay is refused", (await H.rpc(A, S2, "tw4_price_cred_apply", [spare.e.data.change_id])).error?.includes("TW045"));
   await H.owner("ageChange", { id: spare.e.data.change_id, hours: 25 });
   check("spare applied after the (database-clock) delay", (await H.rpc(A, S2, "tw4_price_cred_apply", [spare.e.data.change_id])).data?.status === "applied");
-  const recovery = await enrol(primary.id, "browser recovery", "recovery");
-  await H.owner("ageChange", { id: recovery.e.data.change_id, hours: 25 });
-  check("recovery key enrolled (third credential)", (await H.rpc(A, S2, "tw4_price_cred_apply", [recovery.e.data.change_id])).data?.status === "applied" && (await q("select count(*) from public.studio_sms_price_credentials where status='active'")) === "3");
+  // the recovery key is installed ONLY by the owner-level runbook step; an ordinary ceremony for it is refused
+  const recKey = await H.create("browser recovery");
+  const refusedRec = await H.rpc(A, S2, "tw4_price_cred_begin", ["enroll", recKey.id, recKey.x, recKey.y, "recovery", "browser recovery"]);
+  check("an ordinary key cannot enrol a recovery key", !!refusedRec.error && refusedRec.error.includes("22023"), refusedRec.error);
+  await H.owner("installRecovery", recKey);
+  const recovery = { nk: recKey };
+  check("recovery key installed by the owner-level step (third credential)", (await q("select count(*) from public.studio_sms_price_credentials where status='active'")) === "3");
 
   // 2. propose in session 1, wait through the cooling-off by moving the DATABASE clock, authorize in session 2
   const prop = await H.rpc(A, S1, "tw4_price_propose", ["number", 377, 115, "browser price", "a written reason for the browser run"]);

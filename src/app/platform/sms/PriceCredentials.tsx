@@ -45,7 +45,7 @@ export default function PriceCredentials() {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [label, setLabel] = useState("");
-  const [role, setRole] = useState<"primary" | "spare" | "recovery">("spare");
+  const [role, setRole] = useState<"primary" | "spare">("spare");
 
   async function load() {
     const r = await priceCredPending();
@@ -207,10 +207,9 @@ export default function PriceCredentials() {
       <div className="flex flex-wrap items-end gap-2 text-xs">
         <label className="flex flex-col gap-1">Label<input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={60} className="rounded border border-slate-300 px-2 py-1" /></label>
         <label className="flex flex-col gap-1">Role
-          <select value={role} onChange={(e) => setRole(e.target.value === "primary" ? "primary" : e.target.value === "recovery" ? "recovery" : "spare")} className="rounded border border-slate-300 px-2 py-1">
+          <select value={role} onChange={(e) => setRole(e.target.value === "primary" ? "primary" : "spare")} className="rounded border border-slate-300 px-2 py-1">
             <option value="spare">spare</option>
             <option value="primary">primary</option>
-            <option value="recovery">recovery (keep offline)</option>
           </select>
         </label>
         <button type="button" disabled={busy || label.trim().length < 3} onClick={enroll} className="rounded-lg bg-violet-700 px-3 py-1.5 font-semibold text-white disabled:opacity-60">Request a new key</button>

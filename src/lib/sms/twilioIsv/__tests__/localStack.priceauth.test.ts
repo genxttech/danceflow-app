@@ -1033,7 +1033,13 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     // the recovery key can retire ITSELF (rotation), after which an ordinary key may enrol a new one (delayed)
     expect(revokeReq(sess, Kr, Kr)).toMatchObject({ status: "revoked" });
     expect(psql(`select count(*) from public.studio_sms_price_credentials where status = 'active' and role = 'recovery'`)).toBe("0");
-    expect(enrollReq(sess, Ka, Kx, "new recovery key", "recovery").status).toBe("pending");
+    // P2-2: an ordinary key can NEVER enrol a recovery key (refused at begin and at the request); only the owner-level runbook step installs one
+    expect(codeOf(authErr(sess, `select public.tw4_price_cred_begin('enroll', '${Kx.credIdB64u}', '${b64u(Kx.x)}', '${b64u(Kx.y)}', 'recovery', 'ordinary recovery attempt')::text;`))).toBe("22023");
+    expect(authErr(claims(A, S2), `select public.tw4_price_cred_begin('enroll', '${Kx.credIdB64u}', '${b64u(Kx.x)}', '${b64u(Kx.y)}', 'spare', 'a spare key')::text;`)).toBe("");
+    expect(codeOf(psqlError(`begin; set local role authenticated; select public._tw4price_install_recovery(decode('${Kx.hex.cred}', 'hex'), decode('${Kx.hex.x}', 'hex'), decode('${Kx.hex.y}', 'hex'), 'api attempt'); commit;`))).toBe("42501");
+    psql(`select public._tw4price_install_recovery(decode('${Kx.hex.cred}', 'hex'), decode('${Kx.hex.x}', 'hex'), decode('${Kx.hex.y}', 'hex'), 'owner installed recovery')`);
+    expect(psql("select count(*) from public.studio_sms_price_credentials where status = 'active' and role = 'recovery'")).toBe("1");
+    expect(codeOf(psqlError(`select public._tw4price_install_recovery(decode('${Kb.hex.cred}', 'hex'), decode('${Kb.hex.x}', 'hex'), decode('${Kb.hex.y}', 'hex'), 'second recovery')`))).toBe("42501");
   });
 
   it("PA-27 (R3-2) recovery beats a stolen ordinary key: after a recovery freeze or while a recovery enrolment is pending, ordinary keys cannot thaw, enrol, revoke or cancel the recovery; publication stays suspended; only the recovery key cancels; completion semantics are unchanged", () => {
@@ -1131,6 +1137,44 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     } finally {
       psql("drop table if exists public.studio_sms_price_security_events");
       clear();
+    }
+  });
+
+  it("PA-31 (P2-1) the recovery path does not depend on monitoring: with monitoring expected and the events table missing, the recovery enrolment starts and COMPLETES (apply keeps every integrity check, only its events are tolerant), the failed emits are audited and a later replay delivers them", () => {
+    clear();
+    const Ka = new SoftAuthenticator();
+    const Kr = new SoftAuthenticator();
+    const Kn = new SoftAuthenticator();
+    resetCreds(Ka, [Kr, "recovery"]);
+    const sess = claims(A, S2);
+    psql("drop table if exists public.studio_sms_price_security_events");
+    setConfig("monitoring_expected = true");
+    const asRole = (role: string, sql: string) => psql(`begin; set local role ${role}; ${sql} commit;`).split(NL).pop()!;
+    try {
+      const failed0 = audit("emit_failed");
+      const rb = authOut(sess, `select public.tw4_price_cred_begin('recover_enroll', '${Kn.credIdB64u}', '${b64u(Kn.x)}', '${b64u(Kn.y)}', null, 'recovered primary key')::text;`);
+      const a = Kr.assert(rb.challenge);
+      const m = Kn.assert(rb.challenge);
+      const rq = authOut(sess, `select public.tw4_price_recovery_enroll('${rb.nonce}', '${Kn.credIdB64u}', '${b64u(Kn.x)}', '${b64u(Kn.y)}', 'recovered primary key', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}', '${m.auth}', '${m.client}', '${m.sig}')::text;`);
+      expect(rq.status).toBe("pending");
+      expect(audit("emit_failed")).toBeGreaterThanOrEqual(failed0 + 2);
+      // completion is NOT blocked by the outage, and keeps its integrity checks (signer, delay)
+      expect(codeOf(authErr(sess, `select public.tw4_price_cred_apply('${rq.change_id}')::text;`))).toBe("TW045");
+      psql(`begin; alter table public.studio_sms_price_credential_changes disable trigger studio_sms_price_credential_changes_guard; update public.studio_sms_price_credential_changes set requested_at = requested_at - interval '200 hours', effective_at = effective_at - interval '200 hours' where id = '${rq.change_id}'; alter table public.studio_sms_price_credential_changes enable always trigger studio_sms_price_credential_changes_guard; commit;`);
+      expect(applyChange(sess, rq.change_id)).toMatchObject({ status: "applied" });
+      expect(rows<{ role: string }>("select role from public.studio_sms_price_credentials where status = 'active'")).toEqual([{ role: "primary" }]);
+      expect(audit("emit_failed")).toBeGreaterThanOrEqual(failed0 + 4);
+    } finally {
+      setConfig("monitoring_expected = false");
+    }
+    psql("create table public.studio_sms_price_security_events (seq bigint generated always as identity primary key, kind text not null, occurred_at timestamptz not null default clock_timestamp(), subject_user_id uuid null, detail jsonb not null default '{}'::jsonb, recorded_at timestamptz not null default clock_timestamp())");
+    try {
+      const rp = JSON.parse(asRole("service_role", "select public.tw4_price_emit_replay(100)::text;")) as { replayed: number; remaining: number };
+      expect(rp.remaining).toBe(0);
+      const kinds = rows<{ kind: string }>("select kind from public.studio_sms_price_security_events").map((e) => e.kind);
+      expect(kinds).toEqual(expect.arrayContaining(["credential_recovery_used", "recovery_enrollment_started", "credential_replaced"]));
+    } finally {
+      psql("drop table if exists public.studio_sms_price_security_events");
     }
   });
 });
