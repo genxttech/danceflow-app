@@ -60,6 +60,11 @@ export type RunnerDeps = {
   resolvePlanForPrice(priceId: string): string | null;
   /** True when the approver id is on the deployment's owner list. */
   isAuthorizedApprover(approvedBy: string): boolean;
+  /**
+   * Multi-item subscriptions only: true when the Price is a protected/legacy price (so an add-on carrying it would need its own
+   * transition). Required for a multi-item run; its absence blocks the run (fail closed).
+   */
+  isProtectedPrice?(priceId: string): Promise<boolean>;
   insertAudit(row: TransitionAuditRow): Promise<{ id: string }>;
   recordSchedule(auditId: string, scheduleId: string): Promise<void>;
   finalizeAudit(id: string, patch: { status: "scheduled" | "failed"; scheduleId: string | null; result: unknown }): Promise<void>;
@@ -119,7 +124,18 @@ async function evaluate(args: RunnerArgs, deps: RunnerDeps, options: { ownAuditR
   if (!registry.stripeCustomerId) identity.push("customer_unbound");
   else if (registry.stripeCustomerId !== subscription.customerId) identity.push("customer_mismatch");
   const currentPrices = subscription.items.map((item) => item.priceId);
-  if (currentPrices.length !== 1 || currentPrices[0] !== args.expectedCurrentPriceId) identity.push("current_price_unexpected");
+  // One item: it must be the expected price. Several items: exactly ONE carries the expected (protected) price; the others are
+  // add-ons that are preserved, and none of them may itself be a protected/legacy price (which needs its own transition).
+  let otherProtectedPriceIds: string[] = [];
+  if (currentPrices.length > 1) {
+    if (currentPrices.filter((p) => p === args.expectedCurrentPriceId).length !== 1) identity.push("current_price_unexpected");
+    if (!deps.isProtectedPrice) identity.push("protected_price_check_unavailable");
+    else {
+      const flagged: string[] = [];
+      for (const priceId of currentPrices) if (priceId !== args.expectedCurrentPriceId && (await deps.isProtectedPrice(priceId))) flagged.push(priceId);
+      otherProtectedPriceIds = flagged;
+    }
+  } else if (currentPrices.length !== 1 || currentPrices[0] !== args.expectedCurrentPriceId) identity.push("current_price_unexpected");
   if (registry.stripePriceId && registry.stripePriceId !== args.expectedCurrentPriceId) identity.push("registry_price_mismatch");
 
   const notice = await deps.loadNotice(args.noticeId);
@@ -139,6 +155,8 @@ async function evaluate(args: RunnerArgs, deps: RunnerDeps, options: { ownAuditR
     target,
     approval: args.approvedBy ? { approvedBy: args.approvedBy, boundaryAt: args.boundaryAt } : args.execute ? null : { approvedBy: "dry-run", boundaryAt: args.boundaryAt },
     protectedSubscriptionId: registry.id,
+    protectedPriceId: args.expectedCurrentPriceId,
+    otherProtectedPriceIds,
   });
   const blockers = [...identity, ...plan.blockers];
   const planHash =

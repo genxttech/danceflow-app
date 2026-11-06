@@ -1,6 +1,6 @@
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { ReconcileDeps } from "@/lib/billing/priceTransitionReconcile";
+import { approvedFromDryRun, type ReconcileDeps } from "@/lib/billing/priceTransitionReconcile";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = SupabaseClient<any, any, any>;
@@ -21,7 +21,7 @@ export function createReconcileDeps(db: Db, stripe: Stripe): ReconcileDeps {
       if (error) fail("transition read failed", error);
       if (!data) return null;
       const notice = data.price_transition_notices as { new_unit_amount_cents: number; currency: string; billing_interval: string };
-      const plannedQuantity = (data.dry_run as { change?: { phases?: Array<{ items?: Array<{ quantity?: number }> }> } } | null)?.change?.phases?.[1]?.items?.[0]?.quantity ?? 1;
+      const { plannedQuantity, approvedItems } = approvedFromDryRun(data.dry_run, data.target_stripe_price_id);
       return {
         id: data.id,
         status: data.status,
@@ -36,6 +36,7 @@ export function createReconcileDeps(db: Db, stripe: Stripe): ReconcileDeps {
         noticeCurrency: notice.currency,
         noticeInterval: notice.billing_interval,
         plannedQuantity,
+        ...(approvedItems ? { approvedItems } : {}),
       };
     },
 
