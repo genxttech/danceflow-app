@@ -8,6 +8,8 @@ import { describe, expect, it } from "vitest";
  * come back.
  */
 
+// Synchronous walk + read of ~1.3k source files (~16 MB): about 0.1 s on CI (Linux), 3-6 s on a loaded Windows host (measured), so the 5 s default is not a safe bound.
+const SCAN_TIMEOUT_MS = 30_000;
 const ROOT = join(__dirname, "..", "..", "..", "..");
 const read = (path: string) => readFileSync(join(ROOT, path), "utf8");
 
@@ -25,7 +27,7 @@ describe("one early-bird rule", () => {
       .filter((file) => !/[\\/]lib[\\/]ticketPricing\.ts$|[\\/]lib[\\/]events[\\/]ticketPricing\.ts$/.test(file))
       .filter((file) => /early_bird_ends_at[^\n]*getTime\(\)|earlyBirdEndsAt\s*>=\s*Date\.now\(\)/.test(readFileSync(file, "utf8")));
     expect(offenders.map((file) => file.replace(ROOT, ""))).toEqual([]);
-  });
+  }, SCAN_TIMEOUT_MS);
 
   it("the web registration form shows and totals the server-computed effective price, never ticket.price", () => {
     const form = read("src/app/events/[slug]/register/RegistrationForm.tsx");
