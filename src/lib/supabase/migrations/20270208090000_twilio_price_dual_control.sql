@@ -255,6 +255,9 @@ begin
   elsif to_regclass('public.tw4_local_qa_only') is null then
     raise exception 'a session id (uuid) is required' using errcode = '42501';
   end if;
+  if coalesce(v_claims ->> 'aal', '') <> 'aal2' then
+    raise exception 'a second-factor (aal2) session is required' using errcode = '42501';
+  end if;
   v_amr := v_claims -> 'amr';
   if v_amr is not null and jsonb_typeof(v_amr) = 'array' then
     for e in select * from jsonb_array_elements(v_amr) loop
