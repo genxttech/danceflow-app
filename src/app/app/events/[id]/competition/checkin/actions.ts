@@ -165,6 +165,9 @@ export async function issueCompetitionCredentialAction(formData: FormData): Prom
 const COMPETITION_DESK_SUITE_MESSAGE =
   "This organizer is not accepting new registrations or payments for this event right now, and this registration is still unpaid. Nothing was recorded.";
 
+/** D7: SQLSTATE raised by record_competition_checkin_payment (migration 20270205100000) when the Organizer Suite gate refuses. */
+const COMPETITION_DESK_SUITE_DB_ERROR_CODE = "D7001";
+
 /**
  * D7: the desk RPC records payment against an EXISTING competition order, and it also confirms an order that is still
  * pending once its balance reaches zero. For an organizer event, completing an unpaid PENDING order after the Organizer
@@ -202,7 +205,11 @@ export async function recordCompetitionCheckinPaymentAction(formData: FormData):
   // state and the live balance, writes the payment and the registration/order state, and records an audit row. Client
   // roles cannot write payment rows of order-backed registrations directly.
   const { error } = await supabase.rpc("record_competition_checkin_payment", { p_event_id: eventId, p_session_id: sessionId, p_amount: Math.round(amount * 100) / 100, p_payment_method: paymentMethod, p_notes: null });
-  if (error) throw new Error(error.message);
+  if (error) {
+    // D7: the database re-checks the Organizer Suite gate (SQLSTATE D7001) for direct API callers; show the same refusal as the app gate.
+    if (error.code === COMPETITION_DESK_SUITE_DB_ERROR_CODE || String(error.message ?? "").startsWith("organizer_suite_required")) throw new Error(COMPETITION_DESK_SUITE_MESSAGE);
+    throw new Error(error.message);
+  }
   await recalculateSession(supabase, eventId, sessionId); refresh(eventId, sessionId);
 }
 

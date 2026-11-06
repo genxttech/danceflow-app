@@ -255,6 +255,14 @@ export default async function PaymentsPage({
             >
               Quick charge
             </Link>
+            {["studio_owner", "studio_admin"].includes(context.studioRole ?? "") ? (
+              <Link
+                href="/app/payments/invoices"
+                className="rounded-xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+              >
+                Client invoices
+              </Link>
+            ) : null}
             {needsReviewCount > 0 ? (
               <Link
                 href="/app/payments/reconciliation"

@@ -1,7 +1,7 @@
 ### D4-1 local QA (disposable Docker databases only; runner scripts/qa/tw4f/run-chain.mjs)
-Flags: `--base 23ffbc43 --extra-branch claude/d4-1-price-dual-control --tests-ref claude/d4-1-price-dual-control --image df-isoqa/base:20261119092100 --cutoff 20261119092100 --until 20270208090000 --marker --env TW4RFL_DB=postgres` (plus `--env TW4F4_DB=postgres --env TW4A9_DB=postgres` for f4recovery / tw4a9).
+Flags: `--base 23ffbc43 --extra-branch claude/d4-1-price-dual-control --tests-ref claude/d4-1-price-dual-control --image df-isoqa/base:20261119092100 --cutoff 20261119092100 --until 20270210090000 --marker --env TW4RFL_DB=postgres` (plus `--env TW4F4_DB=postgres --env TW4A9_DB=postgres` for f4recovery / tw4a9).
 
-**Chain**: apply (47 main + 20270208090000), rollback of the extra == main-only catalog, re-apply == first apply, rollback of all (48 rollbacks, reverse order) == baseline catalog, re-apply == first apply, second cycle == first apply: all PASS (0/0 catalog diff).
+**Chain**: apply (47 main + 20270210090000), rollback of the extra == main-only catalog, re-apply == first apply, rollback of all (48 rollbacks, reverse order) == baseline catalog, re-apply == first apply, second cycle == first apply: all PASS (0/0 catalog diff).
 
 **Suites** (each on a fresh clone of the applied chain), final result per suite:
 - New: localStack.pricedual 23/23, localStack.pricedualactions 11/11 (app layer, real actions + real step-up logic).
