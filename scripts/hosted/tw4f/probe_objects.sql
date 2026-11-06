@@ -487,6 +487,7 @@ with
     ('_tw4price_do_list', '20270208090000'),
     ('_tw4price_do_propose', '20270208090000'),
     ('_tw4price_do_reject', '20270208090000'),
+    ('_tw4price_fresh_seconds', '20270208090000'),
     ('_tw4price_kinds', '20270208090000'),
     ('_tw4price_registered_at', '20270208090000'),
     ('_tw4price_registry_guard', '20270208090000'),
