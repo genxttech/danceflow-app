@@ -131,3 +131,9 @@ Expiry activation, DanceAbel `period_end`, and every commercial step stay blocke
 
 ### 13.5 Approval request text (copy for the owner)
 "Approve G4: apply `20270203090000` then `20270203100000` to PROD `hvsujyfbftfffxpfmlpb` under `docs/billing/D7-CORE-RELEASE-RUNBOOK.md` section 13, with the artifact check, preflight, recheck and postflight evidence saved; no application change in this step; rollback is the application only; the two existing complimentary grants remain active and open-ended."
+
+### 13.6 Execution record (2026-11-06)
+* **G4 (SQL) executed** 01:56-01:57Z: both migrations applied to PROD; postflight 16/16; grants unchanged; audit events 0.
+* **Option A executed:** PR #397 squash-merged into `release/pricing-p1` at 02:12Z; the head is `a372221c` and its tree (`2beaeee3f858`) is identical to the tested candidate `4af19181`; no attribution lines.
+* **G4b executed** 02:16Z: staged deployment `dpl_DFKP5sMmJMa1XiDe2czo49hvX4wz` (`danceflow-app-qfem-eh0bcin43-dance-flow.vercel.app`), target production, Ready, built with `vercel deploy --prod --skip-domain` from a clean `git archive` of `a372221c`. **Not promoted:** `www.idanceflow.com` and `idanceflow.com` still serve `dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj`. The staged URL is SSO-protected (302 to anonymous requests), so the public checks of step 3 run on the production domain immediately after promotion (or via a project automation-bypass secret, which must then be revoked; not created).
+* **Rollback target unchanged:** `dpl_HEvyvNbHzAiMBGT3yPVzeiGJk6Sj`.
