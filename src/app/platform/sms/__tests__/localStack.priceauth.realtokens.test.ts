@@ -433,4 +433,31 @@ describe.skipIf(!enabled)("D4-2: pricing authorization with REAL GoTrue tokens t
     // the used nonce is dead even for the right key and a new counter
     expect(((await fin(sessOwner, { id: p2.id, nonce: c2.nonce }, K1.assert(c2.challenge))).json as { status: string }).status === "applied").toBe(false);
   });
+
+  it("RTA-09 out-of-database account takeover surface (observed against the local GoTrue, its default configuration): what a stolen password-only (aal1) session and a stolen aal2 session can do to the owner's MFA and password", async () => {
+    const service = signHs256({ role: "service_role", aud: "authenticated", iss: "d42-local", exp: nowS() + 3600 });
+    const email = `d42-takeover-${RUN}@example.test`;
+    const password = `${randomBytes(18).toString("base64url")}Aa1!`;
+    const created = await http("POST", `${AUTH}/admin/users`, service, { email, password, email_confirm: true });
+    expect(created.status).toBe(200);
+    const first = await login(email, password);
+    const factor = await enrolFactor(first.access);
+    const aal2 = await verifyFactor(first.access, factor);
+    const aal1only = await login(email, password); // a stolen password: a NEW password-only session of a user with a verified factor
+    expect(decode(aal1only.access).aal).toBe("aal1");
+    const observed: Record<string, number> = {};
+    // (1) a second factor cannot be enrolled at aal1 once one is verified
+    observed.aal1_enrol_factor = (await http("POST", `${AUTH}/factors`, aal1only.access, { factor_type: "totp", friendly_name: `x-${RUN}`, issuer: "d42.example.test" })).status;
+    // (2) the verified factor cannot be removed at aal1
+    observed.aal1_unenrol_factor = (await http("DELETE", `${AUTH}/factors/${factor.id}`, aal1only.access)).status;
+    // (3) password change from the stolen password-only session, and from an aal2 session, without any reauthentication nonce
+    observed.aal1_password_change = (await http("PUT", `${AUTH}/user`, aal1only.access, { password: `${randomBytes(18).toString("base64url")}Bb2!` })).status;
+    observed.aal2_password_change = (await http("PUT", `${AUTH}/user`, aal2.access, { password: `${randomBytes(18).toString("base64url")}Cc3!` })).status;
+    console.warn(`RTA-09 observed GoTrue statuses: ${JSON.stringify(observed)}`);
+    // the two protections this design relies on at aal1 hold: no new factor, no factor removal
+    expect(observed.aal1_enrol_factor).toBeGreaterThanOrEqual(400);
+    expect(observed.aal1_unenrol_factor).toBeGreaterThanOrEqual(400);
+    // whatever the password statuses are, the stolen password-only session never reaches the pricing surface
+    expect(denied(await rpc("tw4_price_cred_pending", aal1only.access))).toBe(true);
+  });
 });
