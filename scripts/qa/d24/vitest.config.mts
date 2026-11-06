@@ -20,17 +20,6 @@ const EXT = ["", ".ts", ".tsx", ".mts", "/index.ts", "/index.tsx"];
 const pick = (base: string) => EXT.map((e) => base + e).find((p) => { try { return fs.statSync(p).isFile(); } catch { return false; } });
 export default defineConfig({
   root,
-  plugins: [
-    {
-      name: "d24-overlay-first",
-      enforce: "pre",
-      resolveId(id: string, importer?: string) {
-        if (!overlay || !importer || !id.startsWith("@/")) return null;
-        if (!path.resolve(importer).startsWith(path.resolve(overlay))) return null;
-        return pick(path.join(overlay, "src", id.slice(2))) ?? null;
-      },
-    },
-  ],
   test: {
     environment: "node",
     include: ["scripts/qa/d24/**/*.test.ts"],
@@ -41,10 +30,21 @@ export default defineConfig({
     hookTimeout: 120_000,
   },
   resolve: {
-    alias: {
-      "@d24overlay": path.join(overlay || path.join(root, "scripts/qa/d24/.overlay/none"), "src"),
-      "@": path.resolve(root, "./src"),
-      "server-only": path.resolve(root, "./src/test/serverOnlyStub.ts"),
-    },
+    alias: [
+      { find: "@d24overlay", replacement: path.join(overlay || path.join(root, "scripts/qa/d24/.overlay/none"), "src") },
+      // "@/x": overlay-first when the importer is itself an overlay file (a draft layer sees its siblings' changes), else the merged tree
+      {
+        find: /^@\/(.*)$/,
+        replacement: "$1",
+        customResolver(source: string, importer?: string) {
+          if (overlay && importer && importer.split("\\").join("/").includes("/scripts/qa/d24/.overlay/")) {
+            const hit = pick(path.join(overlay, "src", source));
+            if (hit) return hit;
+          }
+          return pick(path.join(root, "src", source)) ?? null;
+        },
+      },
+      { find: "server-only", replacement: path.resolve(root, "./src/test/serverOnlyStub.ts") },
+    ],
   },
 });

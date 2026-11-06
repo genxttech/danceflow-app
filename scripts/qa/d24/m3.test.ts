@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import Stripe from "stripe";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { as, q, rpc, runSql, stackLayers } from "./pgBridge";
+import { as, q, rpc, rpcAsUser, runSql, stackLayers } from "./pgBridge";
 
 /**
  * D24 M3-D composed acceptance. The REAL M3-B orchestrator (create.ts + createSupabaseIntentStore, loaded from the tree or from a draft PR head by
@@ -21,6 +22,16 @@ const PLATFORM_SECRET = "whsec_d24_m3d_platform_synthetic";
 const CONNECT_SECRET = "whsec_d24_m3d_connect_synthetic";
 const realStripe = new Stripe("sk_test_d24_m3d_not_a_real_key");
 const sigStore = new AsyncLocalStorage<{ sig: string | null }>();
+
+// M3-C's real server action / authorizer run against the real SQL; only the session (who is signed in) and Next's cache/redirect are replaced.
+const sess = vi.hoisted(() => ({ studioId: null as string | null, userId: null as string | null }));
+vi.mock("@/lib/auth/studio", () => ({ getCurrentStudioContext: async () => ({ studioId: sess.studioId, userId: sess.userId }) }));
+vi.mock("@/lib/supabase/server", async () => {
+  const bridge = await import("./pgBridge");
+  return { createClient: async () => ({ rpc: (fn: string, args: Record<string, unknown>) => bridge.rpcAsUser(sess.userId, "aal1", fn, args) }) };
+});
+vi.mock("next/cache", () => ({ revalidatePath: () => undefined }));
+vi.mock("next/navigation", () => ({ redirect: (u: string) => { throw new Error("NEXT_REDIRECT:" + u); } }));
 
 vi.mock("next/headers", () => ({ headers: async () => ({ get: (n: string) => (n === "stripe-signature" ? (sigStore.getStore()?.sig ?? null) : null) }) }));
 vi.mock("@/lib/payments/stripe", () => ({ getStripe: () => ({ webhooks: realStripe.webhooks }) }));
@@ -67,6 +78,22 @@ const orchSpec = spec("lib/payments/hostedInvoice/create");
 const fakesSpec = spec("lib/payments/hostedInvoice/__tests__/createFakes");
 const orch = STACK && has("m3b") ? ((await import(/* @vite-ignore */ orchSpec)) as Orch) : null;
 const fakes = STACK && has("m3b") ? ((await import(/* @vite-ignore */ fakesSpec)) as Fakes) : null;
+type C395 = {
+  actions: { saveClientInvoiceDraftAction(prev: { error: string }, fd: FormData): Promise<{ error: string; notice?: string }> };
+  authorize: { authorizeClientInvoiceActor(p: "draft" | "view"): Promise<Json | null> };
+  resolver: { CLIENT_INVOICE_SPEC_RESOLVERS: Record<string, unknown> };
+  port: { getClientInvoiceCreationPort(): unknown };
+};
+// M3-C's REAL server action, authorizer, production resolver and (stub) creation port, from the overlay (PR head) or the merged tree
+const c395: C395 | null = STACK && has("m3a") && has("m3b") && has("m3c")
+  ? {
+      actions: (await import(/* @vite-ignore */ spec("app/app/payments/invoices/actions"))) as unknown as C395["actions"],
+      authorize: (await import(/* @vite-ignore */ spec("lib/billing/clientInvoices/authorize"))) as unknown as C395["authorize"],
+      resolver: (await import(/* @vite-ignore */ spec("lib/billing/clientInvoices/resolver"))) as unknown as C395["resolver"],
+      port: (await import(/* @vite-ignore */ spec("lib/billing/clientInvoices/creationPort"))) as unknown as C395["port"],
+    }
+  : null;
+
 
 // ---- ids ----
 const RUN = Math.random().toString(36).slice(2, 8).replace(/[^a-z0-9]/g, "x");
@@ -116,13 +143,14 @@ function makeSupabase(inject: Inject[] = []) {
       return r;
     },
     from(table: string) {
-      let col = "", val = "";
+      const conds: Array<[string, string]> = [];
       const qb = {
         select: () => qb,
-        eq: (c: string, v: string) => ((col = c), (val = v), qb),
+        eq: (c: string, v: string) => (conds.push([c, v]), qb),
         maybeSingle: async () => {
-          if (!/^(studios|hosted_invoice_creation_intents)$/.test(table) || col !== "id" || !UUID.test(val)) throw new Error(`unsupported read ${table}.${col}`);
-          const r = await runSql(`select coalesce((select to_jsonb(t) from public.${table} t where id = '${val}')::text, '');`, null);
+          if (!/^(studios|hosted_invoice_creation_intents|clients)$/.test(table) || conds.length === 0 || conds.some(([c, v]) => !/^[a-z_]{1,40}$/.test(c) || !/^[A-Za-z0-9_.:-]{1,128}$/.test(v))) throw new Error(`unsupported read ${table}`);
+          const where = conds.map(([c, v]) => `t.${c}::text = '${v}'`).join(" and ");
+          const r = await runSql(`select coalesce((select to_jsonb(t) from public.${table} t where ${where})::text, '');`, null);
           return { data: r.out ? JSON.parse(r.out) : null, error: r.error };
         },
       };
@@ -209,6 +237,41 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); MODE(undefined); });
 
 // =====================================================================================================================================================
+// ---- M3-C composed fixtures (real action / authorizer / resolver / SQL; the signed-in session is the only thing replaced) ----
+const C3 = { owner: "00000000-0000-0000-0000-0000000d3c01", admin: "00000000-0000-0000-0000-0000000d3c02", front: "00000000-0000-0000-0000-0000000d3c03", instructor: "00000000-0000-0000-0000-0000000d3c04", otherOwner: "00000000-0000-0000-0000-0000000d3c05", platform: "00000000-0000-0000-0000-0000000d3c06", noRole: "00000000-0000-0000-0000-0000000d3c07" };
+const C3_CLIENT = "00000000-0000-0000-0000-0000000d3cc1";
+let c3Fixture: Promise<void> | null = null;
+const m3cFixture = () => (c3Fixture ??= (async () => {
+  // limits ship NULL (fail closed); the owner/migration supplies numbers - QA values only
+  await q(`update public.studio_client_invoice_limits set min_total_cents = 50, max_total_cents = 1000000 where singleton`);
+  await q(`insert into public.profiles (id, platform_role) values ('${C3.platform}','platform_admin') on conflict do nothing;
+    insert into public.user_studio_roles (user_id, studio_id, role, active) values
+      ('${C3.owner}','${SA}','studio_owner',true),('${C3.admin}','${SA}','studio_admin',true),('${C3.front}','${SA}','front_desk',true),
+      ('${C3.instructor}','${SA}','instructor',true),('${C3.otherOwner}','${SB}','studio_owner',true);
+    insert into public.clients (id, studio_id, first_name, last_name, email) values ('${C3_CLIENT}','${SA}','Casey','Dancer','casey@example.test') on conflict do nothing`);
+})());
+const draftForm = (requestKey: string, clientId = C3_CLIENT) => {
+  const fd = new FormData();
+  fd.set("requestKey", requestKey); fd.set("clientId", clientId);
+  fd.set("line_description_0", "Private lesson"); fd.set("line_quantity_0", "2"); fd.set("line_price_0", "75.00");
+  fd.set("line_description_1", "Studio fee"); fd.set("line_quantity_1", "1"); fd.set("line_price_1", "10.00");
+  return fd;
+};
+/** Runs the REAL saveClientInvoiceDraftAction as `userId` with the session studio `studioId`. */
+async function saveDraftAs(userId: string | null, studioId: string | null, requestKey: string): Promise<{ redirect?: string; error?: string }> {
+  sess.userId = userId; sess.studioId = studioId;
+  try {
+    const r = await c395!.actions.saveClientInvoiceDraftAction({ error: "" }, draftForm(requestKey));
+    return { error: r.error };
+  } catch (e) {
+    const m = String((e as Error).message);
+    if (m.startsWith("NEXT_REDIRECT:")) return { redirect: m.slice("NEXT_REDIRECT:".length) };
+    throw e;
+  }
+}
+const invoiceIdFrom = (redirectUrl: string | undefined) => /\/invoices\/([0-9a-f-]{36})\?saved=1/.exec(redirectUrl ?? "")?.[1] ?? "";
+const draftCount = (requestKey: string) => q(`select count(*) from public.studio_client_invoices where request_key = '${requestKey}'`);
+
 describe("M3-CREATE. studio-issued draft invoice end to end (M3-A SQL + M3-B orchestrator + offline fake Stripe)", () => {
   T(M3, "C1 creates a DRAFT send_invoice in the studio's own connected account, then registers it atomically with the intent; nothing is finalized, sent or paid", async () => {
     const { stripe, deps } = ctx();
@@ -654,7 +717,34 @@ describe("M3-OWNER. ownership, forgery, subscription exclusion and the permissio
     ]) expect(await as("service_role", dml)).toMatch(/permission denied/);
     expect(await as("service_role", "select count(*) >= 0 from public.hosted_invoice_creation_intents")).toBe("t");
   });
-  PENDING(["m3c"], "O12 app-level permission matrix: only studio owner/admin may issue (front desk / instructor / other-studio users refused) through the real call site");
+  T(["m3a", "m3b", "m3c"], "O12 app-level permission matrix through M3-C's REAL server action, authorizer and SQL (the signed-in session is the only thing replaced): studio owner and admin save a draft; front desk, instructor, another studio's owner, a platform admin without a studio role, a role-less user and no session are refused and nothing is written; the database refuses the same users directly", async () => {
+    await m3cFixture();
+    for (const [label, uid] of [["owner", C3.owner], ["admin", C3.admin]] as const) {
+      const k = randomUUID();
+      const r = await saveDraftAs(uid, SA, k);
+      expect(invoiceIdFrom(r.redirect), label).toMatch(UUID);
+      expect(await draftCount(k), label).toBe("1");
+    }
+    const refused: Array<[string, string | null]> = [["front desk", C3.front], ["instructor", C3.instructor], ["owner of another studio", C3.otherOwner], ["platform admin without a studio role", C3.platform], ["signed-in user with no role", C3.noRole], ["no session", null]];
+    for (const [label, uid] of refused) {
+      const k = randomUUID();
+      const r = await saveDraftAs(uid, uid ? SA : null, k);
+      expect(r.redirect, label).toBeUndefined();
+      expect(r.error, label).toMatch(/Only the studio owner or an admin/);
+      expect(await draftCount(k), label).toBe("0");
+      if (uid) {
+        // second layer: calling the database function directly as that user is refused too (it takes no actor argument)
+        const direct = await rpcAsUser(uid, "aal1", "studio_client_invoice_save_draft", { p_studio_id: SA, p_request_key: randomUUID(), p_invoice_id: null, p_expected_version: null, p_client_id: C3_CLIENT, p_reference_type: null, p_reference_id: null, p_reference_note: null, p_lines: [{ description: "x", quantity: 1, unit_price_cents: 1000 }] });
+        expect(direct.error?.message ?? "", label).toContain("client_invoice_forbidden");
+      }
+    }
+    sess.userId = C3.owner; sess.studioId = SA;
+    expect(await c395!.authorize.authorizeClientInvoiceActor("draft")).toEqual({ verified: true, studioId: SA, userId: C3.owner, canManageBilling: true });
+    sess.userId = C3.front;
+    expect(await c395!.authorize.authorizeClientInvoiceActor("draft")).toBeNull();
+    sess.userId = C3.platform;
+    expect(await c395!.authorize.authorizeClientInvoiceActor("view")).toBeNull();
+  });
 });
 
 // =====================================================================================================================================================
@@ -805,7 +895,47 @@ describe("M2A-CONV. M2-A scenarios converted by M3 (QA-fixture business object)"
     expect((await rpc("d24_register_invoice", { p_studio_id: SA, p_stripe_account_id: ACCT_A, p_stripe_invoice_id: inv, p_livemode: false, p_business_object_type: "event_fee", p_business_object_id: objB })).error?.code).toBe("23505");
     expect((await rpc("d24_register_invoice", { p_studio_id: SA, p_stripe_account_id: ACCT_B, p_stripe_invoice_id: `in_${nextId()}`, p_livemode: false, p_business_object_type: "event_fee", p_business_object_id: objB })).error?.code).toBe("42501");
   });
-  PENDING(["m3c"], "app issues an invoice for the REAL business object (production resolver) -> registry row created atomically with it");
+  T(["m3a", "m3b", "m3c"], "app issues an invoice for the REAL M3-C business object (real action saves the draft, real authorizer mints the actor, PRODUCTION resolver + SQL ownership, offline fake Stripe) -> registry row and ledger bound to that object; the provider-draft link is recorded only from a registered intent; the creation port itself is NOT wired in M3-C", async () => {
+    await m3cFixture();
+    const saved = await saveDraftAs(C3.owner, SA, randomUUID());
+    const invoiceId = invoiceIdFrom(saved.redirect);
+    expect(invoiceId).toMatch(UUID);
+    sess.userId = C3.owner; sess.studioId = SA;
+    const actorOk = await c395!.authorize.authorizeClientInvoiceActor("draft");
+    expect(actorOk).not.toBeNull();
+    const { stripe, deps } = ctx({ resolvers: c395!.resolver.CLIENT_INVOICE_SPEC_RESOLVERS });
+    const res = must(await orch!.createHostedInvoice({ actor: actorOk, businessObjectType: "studio_client_invoice", businessObjectId: invoiceId, requestKey: `req-m3c-${nextId()}` }, deps));
+    expect(await registryOf(res.stripeInvoiceId)).toBe(`${SA}/${ACCT_A}/studio_client_invoice/${invoiceId}`);
+    expect(await q(`select (i.business_object_type = 'studio_client_invoice' and i.business_object_id = '${invoiceId}' and i.status = 'registered' and i.registry_id is not null)::text from public.hosted_invoice_creation_intents i where i.id = '${res.intentId}'`)).toBe("true");
+    const lines = stripe.calls.find((c) => c.op === "lines")!.params as Array<{ description: string; amount: number }>;
+    expect(lines.map((l) => l.amount)).toEqual([15000, 1000]);
+    expect(lines[0].description).toBe("Private lesson (2 x $75.00)");
+    expect(stripe.calls.some((c) => c.op === "customer")).toBe(true);
+    expect(await factsOf(res.stripeInvoiceId)).toBe("0/0/0/0");
+    // the shipped creation port is a stub (returns null): the next steps perform what its documented contract says the future port must
+    expect(c395!.port.getClientInvoiceCreationPort()).toBeNull();
+    const version = Number(await q(`select version from public.studio_client_invoices where id = '${invoiceId}'`));
+    const linked = await rpc("studio_client_invoice_link_registration", { p_invoice_id: invoiceId, p_studio_id: SA, p_intent_id: res.intentId, p_expected_version: version, p_stripe_customer_id: null });
+    expect(linked.error).toBeNull();
+    expect(await q(`select status||'/'||stripe_invoice_id from public.studio_client_invoices where id = '${invoiceId}'`)).toBe(`provider_draft_created/${res.stripeInvoiceId}`);
+    const edit = await rpcAsUser(C3.owner, "aal1", "studio_client_invoice_save_draft", { p_studio_id: SA, p_request_key: randomUUID(), p_invoice_id: invoiceId, p_expected_version: version + 1, p_client_id: C3_CLIENT, p_reference_type: null, p_reference_id: null, p_reference_note: null, p_lines: [{ description: "x", quantity: 1, unit_price_cents: 1000 }] });
+    expect(edit.error?.message ?? "").toContain("client_invoice_not_editable");
+    // another studio's owner cannot create an invoice for this object, and nothing reaches the fake Stripe
+    sess.userId = C3.otherOwner; sess.studioId = SB;
+    const actorB = await c395!.authorize.authorizeClientInvoiceActor("draft");
+    expect(actorB).not.toBeNull();
+    const other = ctx({ resolvers: c395!.resolver.CLIENT_INVOICE_SPEC_RESOLVERS });
+    expect(await orch!.createHostedInvoice({ actor: actorB, businessObjectType: "studio_client_invoice", businessObjectId: invoiceId, requestKey: `req-m3c-${nextId()}` }, other.deps)).toMatchObject({ ok: false, code: "business_object_not_owned" });
+    expect(other.stripe.calls).toEqual([]);
+    // the link is refused for an intent that is not registered (a pending intent cannot freeze the invoice)
+    const saved2 = await saveDraftAs(C3.owner, SA, randomUUID());
+    const invoice2 = invoiceIdFrom(saved2.redirect);
+    const begun = await deps.store.begin({ studioId: SA, createdBy: C3.owner, idempotencyKey: orch!.deriveIdempotencyKey(SA, "studio_client_invoice", invoice2, `req-m3c-${nextId()}`), requestFingerprint: FP, businessObjectType: "studio_client_invoice", businessObjectId: invoice2 });
+    expect(begun.ok).toBe(true);
+    const bad = await rpc("studio_client_invoice_link_registration", { p_invoice_id: invoice2, p_studio_id: SA, p_intent_id: (begun as { intent: { id: string } }).intent.id, p_expected_version: Number(await q(`select version from public.studio_client_invoices where id = '${invoice2}'`)), p_stripe_customer_id: null });
+    expect(bad.error?.message ?? "").toContain("client_invoice_intent_not_registered");
+    expect(await q(`select status from public.studio_client_invoices where id = '${invoice2}'`)).toBe("draft");
+  });
 });
 
 // Owner requirement (recovery matrix 1-10). Offline-fixture based: the fake Stripe models idempotency (same key+params => same invoice; same key + other params => error) and can PRUNE keys;
