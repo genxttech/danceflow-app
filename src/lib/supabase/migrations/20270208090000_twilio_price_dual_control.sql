@@ -225,19 +225,35 @@ declare
   v_newest numeric := null;
   v_now numeric := extract(epoch from clock_timestamp());
   v_sid text := nullif(v_claims ->> 'session_id', '');
+  v_row jsonb;
 begin
   if v_uid is null or v_claims is null or coalesce(v_claims ->> 'role', '') <> 'authenticated' then
     raise exception 'sign in as a platform administrator' using errcode = '42501';
   end if;
-  -- a GoTrue access token is a stateless JWT that outlives a sign-out: the SESSION it names must still exist (a signed-out or revoked session is refused at once). Real session ids are uuids;
-  -- a claim that is not a uuid cannot name a session and is left to the other checks (the synthetic claims of the local QA suites).
-  if v_sid ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' and to_regclass('auth.sessions') is not null then
-    if not exists (select 1 from auth.sessions s where s.id = v_sid::uuid) then
+  -- SESSION BINDING. A GoTrue access token is a stateless JWT that outlives a sign-out, so the SESSION it names must still exist, belong to the caller and not be past its end.
+  -- Real session ids are uuids and are ALWAYS checked (any environment). A claim with no uuid session id is refused too, EXCEPT in a local QA database (the marker table
+  -- public.tw4_local_qa_only, which a hosted database must never have: a hosted preflight asserts its absence), where the synthetic claims of the QA suites carry none.
+  -- If auth.sessions is missing or cannot be read by the function owner the call FAILS CLOSED with an error naming the hosted preflight.
+  if v_sid is not null and v_sid ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+    if to_regclass('auth.sessions') is null then
+      raise exception 'hosted preflight failed: auth.sessions does not exist, so a session cannot be verified' using errcode = '42501';
+    end if;
+    begin
+      select to_jsonb(s) into v_row from auth.sessions s where s.id = v_sid::uuid;
+    exception when others then
+      raise exception 'hosted preflight failed: the function owner cannot read auth.sessions (%)', sqlstate using errcode = '42501';
+    end;
+    if v_row is null then
       raise exception 'this session has ended: sign in again' using errcode = '42501';
     end if;
-  end if;
-  if coalesce(v_claims ->> 'aal', '') <> 'aal2' then
-    raise exception 'a second-factor (aal2) session is required' using errcode = '42501';
+    if v_row ->> 'user_id' is distinct from v_uid::text then
+      raise exception 'this session belongs to another user' using errcode = '42501';
+    end if;
+    if nullif(v_row ->> 'not_after', '') is not null and (v_row ->> 'not_after')::timestamptz <= clock_timestamp() then
+      raise exception 'this session has expired: sign in again' using errcode = '42501';
+    end if;
+  elsif to_regclass('public.tw4_local_qa_only') is null then
+    raise exception 'a session id (uuid) is required' using errcode = '42501';
   end if;
   v_amr := v_claims -> 'amr';
   if v_amr is not null and jsonb_typeof(v_amr) = 'array' then
