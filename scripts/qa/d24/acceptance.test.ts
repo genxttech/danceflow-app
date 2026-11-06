@@ -80,7 +80,9 @@ const acctOfStudio = (studio: string) => `acct_m3d${studio.slice(-4)}`;
 const bind = (invoice: string, studio: string) => { if (has("m3a")) scope.set(invoice, acctOfStudio(studio)); };
 const invoiceRefOf = (object: Record<string, unknown>) => String((object.object === "invoice" ? object.id : object.invoice) ?? "");
 const deliver = async (type: string, object: Record<string, unknown>, o: EnvOpts = {}) => {
-  if (has("m3a") && !o.account && scope.has(invoiceRefOf(object))) o = { ...o, account: scope.get(invoiceRefOf(object)) };
+  const forcePlatform = o.account === "PLATFORM";   // F6: deliberately platform-scope, whatever the invoice's registered scope is
+  if (forcePlatform) o = { ...o, account: undefined };
+  else if (has("m3a") && !o.account && scope.has(invoiceRefOf(object))) o = { ...o, account: scope.get(invoiceRefOf(object)) };
   const e = envelope(type, object, o);
   const r = await post(e.body, o.account ? CONNECT_SECRET : PLATFORM_SECRET);
   return { ...r, id: e.id };
@@ -485,11 +487,15 @@ suite("F. cross-studio attribution and metadata-only ownership attempts", () => 
   it("F6 platform-scope event for a Connect-registered invoice stays unmatched; Connect event for a platform-registered invoice stays unmatched", async () => {
     const c = `in_${nextId()}`, p = `in_${nextId()}`;
     await register(SA, c, "acct_m2dconn2");
-    await register(SA, p, null);
-    await deliver("invoice.voided", invoiceObj(c, "void"));
-    await deliver("invoice.voided", invoiceObj(p, "void"), { account: "acct_m2dconn2" });
+    await deliver("invoice.voided", invoiceObj(c, "void"), { account: "PLATFORM" });
     expect(await inv(c, "coalesce(studio_id::text,'NULL')", "")).toBe("NULL");
-    expect(await inv(p, "coalesce(studio_id::text,'NULL')", "acct_m2dconn2")).toBe("NULL");
+    // the second half needs a PLATFORM-scope registration, which M3-A refuses by design (platform scope is no longer registrable): retired under m3a, replaced by
+    // F5/W7 (an event under another account never attributes) and O3/O4 (registration is account-bound)
+    if (!has("m3a")) {
+      await register(SA, p, null);
+      await deliver("invoice.voided", invoiceObj(p, "void"), { account: "acct_m2dconn2" });
+      expect(await inv(p, "coalesce(studio_id::text,'NULL')", "acct_m2dconn2")).toBe("NULL");
+    }
   });
   it("F7 child facts of an unmatched invoice never carry a studio; of a registered invoice always the invoice's studio", async () => {
     const reg = `in_${nextId()}`, unreg = `in_${nextId()}`;
