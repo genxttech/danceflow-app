@@ -165,14 +165,14 @@ describe("competition desk payment: completing an unpaid pending order needs a c
     state.user.client.rpc = (async (name: string, args: Record<string, unknown>) => {
       state.user.rpcCalls.push({ name, args });
       return { data: null, error };
-    }) as typeof state.user.client.rpc;
+    }) as unknown as typeof state.user.client.rpc;
     expect((await record()).error).toBe(REFUSAL);
     expect(rpcRecorded()).toHaveLength(1);
   });
 
   it("any other database error is passed through unchanged", async () => {
     seed({ organizerId: "org-1", entitlements: [grant()] });
-    state.user.client.rpc = (async () => ({ data: null, error: { code: "22023", message: "payment exceeds the current balance (10)" } })) as typeof state.user.client.rpc;
+    state.user.client.rpc = (async () => ({ data: null, error: { code: "22023", message: "payment exceeds the current balance (10)" } })) as unknown as typeof state.user.client.rpc;
     expect((await record()).error).toBe("payment exceeds the current balance (10)");
   });
 });
