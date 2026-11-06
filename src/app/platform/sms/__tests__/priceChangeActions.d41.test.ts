@@ -81,7 +81,7 @@ beforeEach(() => {
 describe("the assurance guard comes first, at the registered tier", () => {
   it("propose and approve need a recent authenticator code; reject needs aal2; a refused guard builds no client and calls nothing", async () => {
     for (const [action, tier, fields] of [
-      [pricePropose, "recent", GOOD], [priceApprove, "recent", { requestId: REQ, note: NOTE }], [priceReject, "aal2", { requestId: REQ, note: NOTE }],
+      [pricePropose, "fresh", GOOD], [priceApprove, "fresh", { requestId: REQ, note: NOTE }], [priceReject, "aal2", { requestId: REQ, note: NOTE }],
     ] as const) {
       state.tiers.length = 0;
       state.refuse = "STEPUP_REFUSED";
@@ -180,12 +180,12 @@ describe("single-owner ceremony actions", () => {
     summary: { kind: "number", scope: "studio_sms_price_list", old_customer_cents: 200, old_provider_cents: 115, new_customer_cents: 250, new_provider_cents: 115, description: "d", proposal_version: 1, request_id: REQ, hash: "ab" } };
   const FIN = { requestId: REQ, nonce: "bm9uY2U", credentialId: "Y3JlZA", authData: "YXV0aA", clientData: "Y2xpZW50", signature: "c2ln" };
 
-  it("begin and finish run the aal2 guard first, send NO actor, validate shapes before any client is built, and pass the database's answer through", async () => {
+  it("begin and finish run the fresh-MFA guard first, send NO actor, validate shapes before any client is built, and pass the database's answer through", async () => {
     for (const [action, arg] of [[priceAuthzBegin, REQ], [priceAuthzFinish, FIN]] as const) {
       state.tiers.length = 0;
       state.refuse = "STEPUP_REFUSED";
       await expect((action as (a: never) => Promise<unknown>)(arg as never)).rejects.toThrow("STEPUP_REFUSED");
-      expect(state.tiers).toEqual(["aal2"]);
+      expect(state.tiers).toEqual(["fresh"]);
     }
     expect(clientsBuilt).toBe(0);
     state.refuse = null;
@@ -236,17 +236,17 @@ describe("review fixes: refused answers and credential ceremonies", () => {
     expect(JSON.stringify(r)).not.toContain("SECRET");
   });
 
-  it("credential actions: aal2 guard first, shapes validated before any client, no actor sent, answers passed through", async () => {
-    const calls: [() => Promise<unknown>][] = [
-      [() => priceCredBegin({ purpose: "thaw" })], [() => priceCredEnroll({} as never)], [() => priceCredRevoke({} as never)],
-      [() => priceThaw({} as never)], [() => priceCredApply(REQ)], [() => priceCredCancel({} as never)], [() => priceCredPending()],
+  it("credential actions: step-up guard first (fresh for the ceremonies, aal2 for the read), shapes validated before any client, no actor sent, answers passed through", async () => {
+    const calls: [() => Promise<unknown>, string][] = [
+      [() => priceCredBegin({ purpose: "thaw" }), "fresh"], [() => priceCredBegin({ purpose: "revoke_other", credentialId: "AAAAAAAAAAAAAAAAAAAAAA" }), "fresh"], [() => priceCredEnroll({} as never), "fresh"], [() => priceCredRevoke({} as never), "fresh"],
+      [() => priceThaw({} as never), "fresh"], [() => priceCredApply(REQ), "fresh"], [() => priceCredCancel({} as never), "fresh"], [() => priceCredPending(), "aal2"],
     ];
     const built = clientsBuilt;
-    for (const [c] of calls) {
+    for (const [c, tier] of calls) {
       state.tiers.length = 0;
       state.refuse = "STEPUP_REFUSED";
       await expect(c()).rejects.toThrow("STEPUP_REFUSED");
-      expect(state.tiers).toEqual(["aal2"]);
+      expect(state.tiers).toEqual([tier]);
     }
     state.refuse = null;
     expect(clientsBuilt).toBe(built);
