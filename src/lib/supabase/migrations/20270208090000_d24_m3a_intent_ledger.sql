@@ -47,9 +47,9 @@ create table public.hosted_invoice_business_object_types (
 -- private config: the safe-retry window. Not writable by any API role; changed only by the owner-only d24_intent_set_window.
 create table public.hosted_invoice_creation_config (
   singleton boolean primary key default true check (singleton),
-  safe_retry_minutes integer not null default 720,   -- 12h; strictly below Stripe's 24h minimum retention
+  safe_retry_minutes integer not null default 720,   -- 12h; strictly below Stripe's 24h minimum, with margin for the recovery lease and client retries retention
   updated_at timestamptz not null default now(),
-  constraint hosted_invoice_creation_config_window_chk check (safe_retry_minutes between 1 and 1380)
+  constraint hosted_invoice_creation_config_window_chk check (safe_retry_minutes between 1 and 1320)
 );
 insert into public.hosted_invoice_creation_config (singleton) values (true);
 
@@ -126,6 +126,20 @@ create table public.hosted_invoice_creation_intent_events (
 create index hosted_invoice_intent_events_intent_idx on public.hosted_invoice_creation_intent_events (intent_id, id);
 
 -- append-only retry history: every begin / replay / recorded outcome / recovery claim, with an outcome code and timestamp
+-- append-only: a Stripe invoice that came back AFTER its intent was failed/abandoned (the object was already released). An operator must void or attach it.
+create table public.hosted_invoice_creation_orphans (
+  id bigint generated always as identity primary key,
+  intent_id uuid not null,
+  studio_id uuid not null,
+  stripe_account_id text not null,
+  stripe_invoice_id text not null,
+  livemode boolean not null,
+  created_at timestamptz not null default now(),
+  constraint hosted_invoice_creation_orphans_fk foreign key (intent_id, studio_id) references public.hosted_invoice_creation_intents (id, studio_id) on delete restrict,
+  constraint hosted_invoice_creation_orphans_invoice_chk check (stripe_invoice_id ~ '^in_[A-Za-z0-9]+$' and stripe_account_id ~ '^acct_[A-Za-z0-9]+$')
+);
+create unique index hosted_invoice_creation_orphans_uq on public.hosted_invoice_creation_orphans (stripe_account_id, stripe_invoice_id);
+
 create table public.hosted_invoice_creation_attempts (
   id bigint generated always as identity primary key,
   intent_id uuid not null,
@@ -144,7 +158,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['hosted_invoice_business_object_types', 'hosted_invoice_creation_config', 'hosted_invoice_creation_intents',
-                           'hosted_invoice_creation_intent_events', 'hosted_invoice_creation_attempts'] loop
+                           'hosted_invoice_creation_intent_events', 'hosted_invoice_creation_attempts', 'hosted_invoice_creation_orphans'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on public.%I from public, anon, authenticated, service_role', t);
     execute format('grant select on public.%I to service_role', t);
@@ -152,6 +166,7 @@ begin
 end $$;
 revoke all on sequence public.hosted_invoice_creation_intent_events_id_seq from public, anon, authenticated, service_role;
 revoke all on sequence public.hosted_invoice_creation_attempts_id_seq from public, anon, authenticated, service_role;
+revoke all on sequence public.hosted_invoice_creation_orphans_id_seq from public, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------------------------------------------------
 -- Write guards
@@ -188,13 +203,16 @@ begin
   if new.status in ('failed', 'abandoned') and new.stripe_invoice_id is not null then
     raise exception 'd24: an intent that records a provider invoice cannot be failed or abandoned (register or attach it)' using errcode = '42501';
   end if;
+  if new.status = 'failed' and old.status is distinct from 'failed' and (old.outcome_unknown or old.attempt_count > 1) then
+    raise exception 'd24: an intent with an ambiguous or retried creation cannot be failed (it must be reviewed)' using errcode = '42501';
+  end if;
   if new.attempt_count < old.attempt_count or new.failure_count < old.failure_count then
     raise exception 'd24: intent counters cannot decrease' using errcode = '42501';
   end if;
   if new.status is distinct from old.status then
     if not ((old.status = 'pending' and new.status in ('provider_created', 'failed', 'needs_review'))
          or (old.status = 'provider_created' and new.status in ('registered', 'failed', 'needs_review'))
-         or (old.status = 'needs_review' and new.status in ('registered', 'abandoned', 'failed'))) then
+         or (old.status = 'needs_review' and new.status in ('registered', 'abandoned'))) then
       raise exception 'd24: illegal intent transition % -> %', old.status, new.status using errcode = '42501';
     end if;
   elsif old.status in ('registered', 'failed', 'abandoned') then
@@ -219,6 +237,7 @@ create trigger hosted_invoice_creation_attempts_append_trg before update or dele
   for each row execute function public._d24_append_only();
 create trigger hosted_invoice_creation_attempts_trunc_trg before truncate on public.hosted_invoice_creation_attempts
   for each statement execute function public._d24_append_only();
+create trigger hosted_invoice_creation_orphans_writer_trg before insert on public.hosted_invoice_creation_orphans  for each row execute function public._d24_require_writer();create trigger hosted_invoice_creation_orphans_append_trg before update or delete on public.hosted_invoice_creation_orphans  for each row execute function public._d24_append_only();create trigger hosted_invoice_creation_orphans_trunc_trg before truncate on public.hosted_invoice_creation_orphans  for each statement execute function public._d24_append_only();
 
 create or replace function public._d24_creation_config_guard()
 returns trigger language plpgsql
@@ -270,7 +289,7 @@ set search_path = pg_catalog, public, pg_temp
 as $$
 begin
   perform set_config('d24.writer', 'on', true);
-  update public.hosted_invoice_creation_config set safe_retry_minutes = p_minutes, updated_at = now() where singleton;   -- the CHECK refuses anything outside 1..1380
+  update public.hosted_invoice_creation_config set safe_retry_minutes = p_minutes, updated_at = now() where singleton;   -- the CHECK refuses anything outside 1..1320
 end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------------
@@ -296,7 +315,7 @@ end $$;
 create or replace function public._d24_safe_window()
 returns interval language sql stable
 set search_path = pg_catalog, public, pg_temp
-as $$ select make_interval(mins => coalesce((select least(greatest(c.safe_retry_minutes, 0), 1380) from public.hosted_invoice_creation_config c where c.singleton), 0)) $$;
+as $$ select make_interval(mins => coalesce((select least(greatest(c.safe_retry_minutes, 0), 1320) from public.hosted_invoice_creation_config c where c.singleton), 0)) $$;
 
 -- Ownership by the registered per-type function; fails closed for an unregistered type or a missing function.
 create or replace function public._d24_check_owner(p_studio_id uuid, p_type text, p_object_id text)
@@ -580,6 +599,14 @@ begin
     perform public._d24_intent_event(v.id, v.studio_id, 'provider_created', 'needs_review', 'needs_review', null);
     return jsonb_build_object('outcome', 'recorded_in_review') || public._d24_intent_json(v);
   end if;
+  if v.status in ('failed', 'abandoned') then
+    -- a LATE Stripe response for an intent that was already released: the object is free, so this invoice is an orphan. Record it (append-only) for an operator;
+    -- never lose the id.
+    insert into public.hosted_invoice_creation_orphans (intent_id, studio_id, stripe_account_id, stripe_invoice_id, livemode)
+    values (v.id, v.studio_id, v.stripe_account_id, p_stripe_invoice_id, p_livemode)
+    on conflict (stripe_account_id, stripe_invoice_id) do nothing;
+    return jsonb_build_object('outcome', 'orphan_recorded') || public._d24_intent_json(v);
+  end if;
   if v.status <> 'pending' then
     raise exception 'd24_intent_state' using errcode = '55000';
   end if;
@@ -671,6 +698,10 @@ begin
     end if;
     if v.stripe_invoice_id is not null then
       raise exception 'd24_intent_has_invoice' using errcode = '55000';
+    end if;
+    -- after ANY replay the first attempt's outcome is no longer provably "no invoice": a permanent fail is only for a definitive first attempt
+    if v.attempt_count > 1 then
+      raise exception 'd24_intent_retried' using errcode = '55000';
     end if;
     update public.hosted_invoice_creation_intents
     set status = 'failed', failure_count = failure_count + 1, last_error_code = v_code, last_attempt_at = now(), updated_at = now(), settled_at = now(),
@@ -860,6 +891,9 @@ begin
   if p_stripe_account_id <> v.stripe_account_id then
     raise exception 'd24_account_mismatch' using errcode = '42501';
   end if;
+  if v.livemode is not null and v.livemode <> p_livemode then
+    raise exception 'd24_livemode_mismatch' using errcode = '42501';
+  end if;
   if v.stripe_invoice_id is not null and v.stripe_invoice_id <> p_stripe_invoice_id then
     raise exception 'd24_intent_invoice_conflict' using errcode = '23505';
   end if;
@@ -926,6 +960,22 @@ begin
                 order by updated_at, id limit least(greatest(coalesce(p_limit, 50), 1), 200)) r);
 end $$;
 
+-- Invoices that came back after their intent was already failed/abandoned: an operator must void them at Stripe or reconcile them.
+create or replace function public.d24_op_list_creation_orphans(p_limit integer default 50)
+returns jsonb language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  v_uid uuid := public._d24_op_caller();
+begin
+  if not public._d24_op_is_platform_admin(v_uid) then
+    raise exception 'd24_op_platform_admin_required' using errcode = '42501';
+  end if;
+  return (select coalesce(jsonb_agg(jsonb_build_object('intent_id', o.intent_id, 'studio_id', o.studio_id, 'stripe_account_id', o.stripe_account_id,
+                                                        'stripe_invoice_id', o.stripe_invoice_id, 'livemode', o.livemode, 'created_at', o.created_at) order by o.id), '[]'::jsonb)
+          from (select * from public.hosted_invoice_creation_orphans order by id limit least(greatest(coalesce(p_limit, 50), 1), 200)) o);
+end $$;
+
 -- ---------------------------------------------------------------------------------------------------------------------
 -- Grants: service_role only for the intent functions; authenticated (verified-operator checks inside) for d24_op_*; helpers are not callable by any API role.
 -- ---------------------------------------------------------------------------------------------------------------------
@@ -964,9 +1014,11 @@ revoke all on function public.d24_op_flag_creation_review(uuid, text) from publi
 revoke all on function public.d24_op_attach_creation_invoice(uuid, text, boolean, text, text) from public, anon, authenticated, service_role;
 revoke all on function public.d24_op_abandon_creation(uuid, text) from public, anon, authenticated, service_role;
 revoke all on function public.d24_op_list_creation_reviews(integer) from public, anon, authenticated, service_role;
+revoke all on function public.d24_op_list_creation_orphans(integer) from public, anon, authenticated, service_role;
 grant execute on function public.d24_op_flag_creation_review(uuid, text) to authenticated;
 grant execute on function public.d24_op_attach_creation_invoice(uuid, text, boolean, text, text) to authenticated;
 grant execute on function public.d24_op_abandon_creation(uuid, text) to authenticated;
 grant execute on function public.d24_op_list_creation_reviews(integer) to authenticated;
+grant execute on function public.d24_op_list_creation_orphans(integer) to authenticated;
 
 commit;
