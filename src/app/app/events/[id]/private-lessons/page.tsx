@@ -275,6 +275,14 @@ function getBanner(searchParams: Record<string, string | string[] | undefined>) 
     };
   }
 
+  if (searchParams.private_lesson_error === "organizer_suite_required") {
+    return {
+      className: "border-red-200 bg-red-50 text-red-800",
+      message:
+        "This organizer is not accepting new bookings for this event right now, so the slot was not booked. Nothing was recorded.",
+    };
+  }
+
   if (searchParams.private_lesson_error) {
     return {
       className: "border-red-200 bg-red-50 text-red-800",

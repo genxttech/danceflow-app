@@ -2,6 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { terminalSaleNeedsOrganizerSuite } from "@/lib/events/terminalOrganizerSuite";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { isOrganizerWorkspaceRole } from "@/lib/auth/permissions";
 import { readOrganizerSuiteEntitlement } from "@/lib/billing/organizerSuiteEntitlement";
@@ -27,6 +29,9 @@ import {
   safeStorageSegment,
   validateUploadFile,
 } from "@/lib/security/uploads";
+
+/** D7: an offline private-lesson booking for an organizer event was refused because the organizer has no current Organizer Suite. */
+class PrivateLessonOrganizerSuiteRefusal extends Error {}
 
 type ActionState = {
   error?: string;
@@ -1986,6 +1991,24 @@ async function requirePrivateLessonSlotAccess(formData: FormData) {
   };
 }
 
+/**
+ * The organizer a private-lesson slot belongs to: the event's organizer, or the slot's own (a guest-coach slot can carry
+ * the organizer on only one of them, exactly as the online private-lesson checkout resolves it). Null for ordinary studio
+ * lessons. A read error fails closed (the booking is not made).
+ */
+async function getPrivateLessonOrganizerId(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  params: { eventId: string; slotId: string; studioId: string },
+) {
+  const [eventResult, slotResult] = await Promise.all([
+    supabase.from("events").select("organizer_id").eq("id", params.eventId).eq("studio_id", params.studioId).maybeSingle<{ organizer_id: string | null }>(),
+    supabase.from("event_private_lesson_slots").select("organizer_id").eq("id", params.slotId).eq("studio_id", params.studioId).maybeSingle<{ organizer_id: string | null }>(),
+  ]);
+  if (eventResult.error) throw new Error(`Could not load the event: ${eventResult.error.message}`);
+  if (slotResult.error) throw new Error(`Could not load the private lesson slot: ${slotResult.error.message}`);
+  return eventResult.data?.organizer_id ?? slotResult.data?.organizer_id ?? null;
+}
+
 export async function bookPrivateLessonSlotOfflineAction(formData: FormData) {
   const fallback = `/app/events/${getString(formData, "eventId")}/private-lessons`;
   const buyerName = getString(formData, "buyerName");
@@ -2008,8 +2031,15 @@ export async function bookPrivateLessonSlotOfflineAction(formData: FormData) {
     : "paid";
 
   try {
-    const { supabase, studioId, slotId } =
+    const { supabase, studioId, slotId, eventId } =
       await requirePrivateLessonSlotAccess(formData);
+
+    // D7 pre-expiry: booking a slot offline is a NEW sale. For an organizer event or slot it needs a current Organizer
+    // Suite entitlement, like the online checkout; ordinary studio private lessons are never gated. Refused before any write.
+    const organizerId = await getPrivateLessonOrganizerId(supabase, { eventId, slotId, studioId });
+    if (await terminalSaleNeedsOrganizerSuite(createAdminClient(), { studioId, organizerId })) {
+      throw new PrivateLessonOrganizerSuiteRefusal();
+    }
 
     const { error: updateError } = await supabase
       .from("event_private_lesson_slots")
@@ -2035,6 +2065,9 @@ export async function bookPrivateLessonSlotOfflineAction(formData: FormData) {
       );
     }
   } catch (error) {
+    if (error instanceof PrivateLessonOrganizerSuiteRefusal) {
+      redirectWithSlotMessage(formData, fallback, "private_lesson_error=organizer_suite_required");
+    }
     redirectWithSlotMessage(
       formData,
       fallback,
