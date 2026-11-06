@@ -199,13 +199,15 @@ describe.skipIf(!hasMonitor)("D4-2 owner authorization on the combined chain wit
       try {
         // risk-opening calls refuse and change nothing
         const strict: [string, string][] = [
-          ["propose", `select public.tw4_price_propose('number', 485, 115, 'proposal in an outage', 'a written reason for a proposal during an outage')::text;`],
           ["begin", `select public.tw4_price_authz_begin('${pr.request_id}')::text;`],
           ["enrol", enrollSql],
           ["revoke", revokeSql],
           ["apply", `select public.tw4_price_cred_apply('${pn.change_id}')::text;`],
+          // the open proposal is withdrawn (owner-level) so that the proposal itself is what meets the outage
+          ["propose", `select public.tw4_price_propose('number', 485, 115, 'proposal in an outage', 'a written reason for a proposal during an outage')::text;`],
         ];
         for (const [name, sql] of strict) {
+          if (name === "propose") psql(`select public._tw4price_do_reject('${pr.request_id}', '${A}', 'withdrawn before the proposal meets the outage')`);
           const err = psqlError(asAuthLT(name === "propose" ? claims(A, S1) : c, sql, v.lt));
           expect(err, `${v.name}: ${name} must refuse`).toMatch(v.expectErr);
         }
