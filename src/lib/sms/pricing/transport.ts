@@ -142,7 +142,7 @@ export class FakeTransport implements AlertTransport {
   }
 }
 
-export type MonitorConfig = { transports: AlertTransport[]; chainKey: string | null; since: string | null; repeatMs: number; maxAgeMs: number; trustedFromSeq: number; expectHead: { seq: number; hash: string } | null };
+export type MonitorConfig = { sendCaps?: Record<string, number>; defaultSendCap?: number; coalesceMs?: number; transports: AlertTransport[]; chainKey: string | null; since: string | null; repeatMs: number; maxAgeMs: number; trustedFromSeq: number; expectHead: { seq: number; hash: string } | null };
 
 /** Environment only. Returns no transport when no destination is configured: the monitor then fails closed (it cannot report), see monitor.ts. */
 export function loadMonitorConfig(env: Record<string, string | undefined>, fetchImpl?: FetchLike): MonitorConfig {
@@ -156,7 +156,11 @@ export function loadMonitorConfig(env: Record<string, string | undefined>, fetch
   if (key && from && to && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) transports.push(resendTransport(key, from, to, fetchImpl));
   const num = (v: string | undefined, d: number) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d; };
   const head = (env.PRICE_MONITOR_EXPECT_HEAD ?? "").match(/^(\d+):([0-9a-f]{64})$/);
+  const cap = (v: string | undefined) => { const n = Math.trunc(Number(v)); return Number.isFinite(n) && n >= 2 ? n : undefined; };
   return {
+    defaultSendCap: cap(env.PRICE_MONITOR_MAX_SENDS_PER_HOUR) ?? 12,
+    sendCaps: Object.fromEntries(Object.entries({ webhook: cap(env.PRICE_MONITOR_MAX_SENDS_PER_HOUR_WEBHOOK), resend_email: cap(env.PRICE_MONITOR_MAX_SENDS_PER_HOUR_EMAIL) }).filter(([, v]) => v !== undefined)) as Record<string, number>,
+    coalesceMs: num(env.PRICE_MONITOR_COALESCE_MINUTES, 5) * 60_000,
     transports,
     chainKey: env.PRICE_MONITOR_CHAIN_KEY?.trim() || null,
     since: env.PRICE_MONITOR_SINCE?.trim() || null,

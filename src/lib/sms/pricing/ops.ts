@@ -17,7 +17,8 @@ export async function listUndelivered(deps: Pick<MonitorDeps, "db" | "config">):
   const undelivered = chain.rows
     .filter((r) => (r.kind === "run" || r.kind === "watchdog") && parse(r.payload).alert_required === true && !okRuns.has(r.seq))
     .map((r) => {
-      const f = (Array.isArray(parse(r.payload).findings) ? (parse(r.payload).findings as Finding[]) : []);
+      const pl = parse(r.payload);
+      const f = Array.isArray(pl.send_findings) ? (pl.send_findings as Finding[]) : Array.isArray(pl.findings) ? (pl.findings as Finding[]) : [];
       return { seq: r.seq, kind: r.kind, recordedAt: r.recorded_at, codes: [...new Set(f.map((x) => x.code))], severity: f.some((x) => x.severity === "critical") ? "critical" : "warning" };
     });
   return { chainOk: !chain.finding, undelivered };
@@ -34,7 +35,8 @@ export async function redeliverUndelivered(deps: MonitorDeps): Promise<{ attempt
   const runId = (deps.newRunId ?? randomUUID)();
   for (const u of listed.undelivered) {
     const row = chain.rows.find((r) => r.seq === u.seq)!;
-    const findings = Array.isArray(parse(row.payload).findings) ? (parse(row.payload).findings as Finding[]) : [];
+    const pl = parse(row.payload);
+    const findings = Array.isArray(pl.send_findings) ? (pl.send_findings as Finding[]) : Array.isArray(pl.findings) ? (pl.findings as Finding[]) : [];
     const msg: AlertMessage = {
       runId, severity: u.severity === "critical" ? "critical" : "warning", generatedAt: now.toISOString(), findings, chainHeadHash: head?.hash ?? "", chainHeadSeq: head?.seq ?? 0,
       chainStatus: chain.check?.ok ? "ok" : chain.check ? "broken" : "unavailable", redeliveryOfSeq: u.seq, subject: `Re-delivery: ${u.codes.join(", ")}`.slice(0, 180),

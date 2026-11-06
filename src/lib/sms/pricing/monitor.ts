@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { classifyEvents, classifyVerify, parseDigest, parseEvents } from "./classify";
+import { COALESCE_WINDOW_MS, attemptsLastHour, decide, deriveState, rateNoticeSentLastHour, type CoalesceState } from "./coalesce";
 import { appendEvidence, GENESIS_HASH, parseEvidenceList, verifyChain, type ChainCheck } from "./evidence";
 import type { AlertMessage, AlertTransport, EvidenceRow, Finding, PriceMonitorDb, Severity } from "./types";
 import type { MonitorConfig } from "./transport";
@@ -17,7 +18,7 @@ import type { MonitorConfig } from "./transport";
  */
 const WINDOW = 200;
 const SEND_ATTEMPTS = 3;
-const MAX_REDELIVERY = 5;
+const MAX_REDELIVERY = 20;
 
 export type MonitorDeps = {
   db: PriceMonitorDb;
@@ -49,17 +50,21 @@ export const parse = (p: string): Record<string, unknown> => { try { const v = J
 export type Head = { seq: number; hash: string };
 export type Delivery = { ok: boolean; results: { transport: string; ok: boolean; code?: string; attempts: number }[] };
 
-export async function deliver(transports: AlertTransport[], msg: AlertMessage, sleep: (ms: number) => Promise<void>): Promise<Delivery> {
+/** `budget`: remaining attempts per transport name this hour (mutated). A transport without budget is skipped with code rate_limited (recorded, alert stays pending). */
+export async function deliver(transports: AlertTransport[], msg: AlertMessage, sleep: (ms: number) => Promise<void>, budget?: Map<string, number>): Promise<Delivery> {
   const results: Delivery["results"] = [];
   for (const t of transports.filter((x) => x.canAlert)) {
     let code = "unknown", attempts = 0, ok = false;
-    for (let i = 0; i < SEND_ATTEMPTS && !ok; i++) {
+    const allowed = budget ? Math.min(SEND_ATTEMPTS, budget.get(t.name) ?? 0) : SEND_ATTEMPTS;
+    if (allowed <= 0) { results.push({ transport: t.name, ok: false, code: "rate_limited", attempts: 0 }); continue; }
+    for (let i = 0; i < allowed && !ok; i++) {
       attempts += 1;
       try { await t.send(msg); ok = true; } catch (e) {
         code = e && typeof e === "object" && "code" in e && typeof (e as { code: unknown }).code === "string" ? (e as { code: string }).code : "error";
-        if (i < SEND_ATTEMPTS - 1) await sleep(250 * 2 ** i);
+        if (i < allowed - 1) await sleep(250 * 2 ** i);
       }
     }
+    if (budget) budget.set(t.name, Math.max(0, (budget.get(t.name) ?? 0) - attempts));
     results.push({ transport: t.name, ok, ...(ok ? {} : { code }), attempts });
   }
   return { ok: results.some((r) => r.ok), results };
@@ -135,19 +140,29 @@ async function reportFlow(args: {
 
   if (chain.finding) findings.push(chain.finding);
   if (!hasDestination) findings.push(noDestinationFinding());
-  if (state.pending.length) findings.push({ code: "alert_delivery_failed", severity: "warning", message: `${state.pending.length} earlier alert(s) were not delivered and are being re-sent`, refs: state.pending.map((p) => `evidence:${p.seq}`) });
+  if (state.pending.length) findings.push({ code: "alert_delivery_failed", severity: "warning", message: `${state.pending.length} earlier alert(s) were not delivered and are being re-sent`, refs: ["pending"] }); // stable ref: a changing count must not look like a new finding (it would spend the send cap every run)
 
+  // ALERT POLICY: persistent findings keep the repeat-interval rule; security events are coalesced per identity (coalesce.ts) and fail OPEN when the state is not trusted
+  const persistent = findings.filter((f) => !f.identity);
+  const events = findings.filter((f) => f.identity);
+  const trusted = !chain.finding && (chain.check ? chain.check.ok : false);
+  const emptyState: CoalesceState = { sentAt: new Map(), pending: new Map() };
+  let cstate = emptyState;
+  if (trusted) { try { cstate = deriveState(chain.rows); } catch { cstate = emptyState; } }
+  const dec = decide(events, cstate, now, config.coalesceMs ?? COALESCE_WINDOW_MS);
   const fingerprint = fingerprintOf(findings);
   const stale = state.lastAt === null || now.getTime() - state.lastAt >= config.repeatMs;
-  // alert on any finding not covered by the last delivered alert (a shrinking set is quiet), and again on the repeat interval while findings persist
-  const alertRequired = findings.length > 0 && (findingKeys(findings).some((k) => !state.lastKeys.has(k)) || stale);
+  // persistent: alert on any finding not covered by the last delivered alert (a shrinking set is quiet), and again on the repeat interval while findings persist
+  const persistentRequired = persistent.length > 0 && (findingKeys(persistent).some((k) => !state.lastKeys.has(k)) || stale);
+  let toSend: Finding[] = [...(persistentRequired ? persistent : []), ...dec.send];
+  const alertRequired = toSend.length > 0;
 
-  // 1. record the run (when the chain head is known)
+  // 1. record the run (when the chain head is known): ALL findings, the subset to send, and what was coalesced (complete evidence)
   let head: Head | null = chain.head;
   let evidenceRecorded = false;
   let runSeq = 0;
   if (head) {
-    const res = await append(db, head, { runId, kind: source, now, payload: { v: 1, ...args.extraPayload, findings, fingerprint, alert_required: alertRequired } }, config);
+    const res = await append(db, head, { runId, kind: source, now, payload: { v: 1, ...args.extraPayload, findings, send_findings: toSend, coalesced: dec.coalesced, fingerprint, alert_required: alertRequired } }, config);
     evidenceRecorded = res.ok; head = res.head; runSeq = res.ok ? res.head.seq : 0;
     if (!res.ok) { errors.push("evidence_append_failed"); findings.push({ code: "evidence_unavailable", severity: "critical", message: "the run could not be recorded in the evidence chain", refs: ["append_failed"] }); }
   } else errors.push("evidence_unreadable");
@@ -155,39 +170,77 @@ async function reportFlow(args: {
   const headSeq = head?.seq ?? 0, headHash = head?.hash ?? GENESIS_HASH;
   const chainStatus: AlertMessage["chainStatus"] = !chain.check ? "unavailable" : chain.check.ok ? "ok" : "broken";
   const finalFindings = findings;
-  // recording failure is itself a reason to alert (fail closed), even when the earlier fingerprint check said no
-  const mustAlert = alertRequired || (!evidenceRecorded && finalFindings.length > 0);
-  const mk = (f: Finding[], redeliveryOfSeq?: number): AlertMessage => ({
-    runId, severity: worst(f), generatedAt: now.toISOString(), findings: f, chainHeadHash: headHash, chainHeadSeq: headSeq, chainStatus,
-    subject: `${f.filter((x) => x.severity === "critical").length ? "CRITICAL" : "Notice"}: ${[...new Set(f.map((x) => x.code))].join(", ")}`.slice(0, 180),
-    ...(redeliveryOfSeq ? { redeliveryOfSeq } : {}),
-  });
+  // recording failure is itself a reason to alert (fail closed / open toward sending): everything is sent, nothing is coalesced
+  if (!evidenceRecorded && finalFindings.length > 0) { toSend = [...finalFindings]; dec.ids.length = 0; dec.summarized.length = 0; }
+  const mustAlert = toSend.length > 0;
+  const MAX_IN_MESSAGE = 50;
+  const mk = (f: Finding[], redeliveryOfSeq?: number): AlertMessage => {
+    const shown = f.length > MAX_IN_MESSAGE ? [...f.slice(0, MAX_IN_MESSAGE), { code: "alert_coalesced" as const, severity: "info" as const, message: `+${f.length - MAX_IN_MESSAGE} more finding(s): see the evidence chain`, refs: [] }] : f;
+    return {
+      runId, severity: worst(f), generatedAt: now.toISOString(), findings: shown, chainHeadHash: headHash, chainHeadSeq: headSeq, chainStatus,
+      subject: `${f.filter((x) => x.severity === "critical").length ? "CRITICAL" : "Notice"}: ${[...new Set(f.map((x) => x.code))].join(", ")}`.slice(0, 180),
+      ...(redeliveryOfSeq ? { redeliveryOfSeq } : {}),
+    };
+  };
+
+  // per-transport hourly attempt budget (cost bound); the last slot of each hour is reserved for the rate-limit notice
+  const used = attemptsLastHour(chain.rows, now);
+  const capOf = (name: string) => config.sendCaps?.[name] ?? config.defaultSendCap ?? 12;
+  const budget = new Map<string, number>(config.transports.filter((x) => x.canAlert).map((x) => [x.name, Math.max(0, capOf(x.name) - 1 - (used.get(x.name) ?? 0))]));
+  let limited = false;
 
   // 2. re-send earlier alerts that no destination accepted
   let redelivered = 0;
   if (hasDestination) {
-    for (const p of state.pending) {
-      const old = parse(p.payload);
-      const oldFindings = Array.isArray(old.findings) ? (old.findings as Finding[]) : [];
-      const d = await deliver(config.transports, mk(oldFindings, p.seq), sleep);
-      if (head) {
-        const a = await append(db, head, { runId, kind: "delivery", now, payload: { v: 1, source, run_seq: p.seq, alert_ok: d.ok, results: d.results, redelivery: true } }, config);
-        head = a.head; if (!a.ok) errors.push("delivery_record_failed");
+    if (state.pending.length) {
+      // ONE message for all held alerts (cost bound); each pending row is then marked by its own delivery row
+      const union: Finding[] = [];
+      const seen = new Set<string>();
+      for (const p of state.pending) {
+        const old = parse(p.payload);
+        const fs2 = Array.isArray(old.send_findings) ? (old.send_findings as Finding[]) : Array.isArray(old.findings) ? (old.findings as Finding[]) : [];
+        for (const f of fs2) { const k = `${f.code}:${[...f.refs].sort().join(",")}:${f.identity ?? ""}`; if (!seen.has(k)) { seen.add(k); union.push(f); } }
       }
-      if (d.ok) redelivered += 1; else errors.push("redelivery_failed");
+      const d = await deliver(config.transports, mk(union, state.pending[0].seq), sleep, budget);
+      if (d.results.some((r) => r.code === "rate_limited")) limited = true;
+      for (const p of state.pending) {
+        if (head && !d.results.every((r) => r.code === "rate_limited")) {
+          const a = await append(db, head, { runId, kind: "delivery", now, payload: { v: 1, source, run_seq: p.seq, alert_ok: d.ok, results: d.results, redelivery: true } }, config);
+          head = a.head; if (!a.ok) errors.push("delivery_record_failed");
+        }
+        if (d.ok) redelivered += 1; else errors.push("redelivery_failed");
+      }
     }
   }
 
   // 3. this run's alert
   let alertDelivered: boolean | null = null;
   if (mustAlert) {
-    const d: Delivery = hasDestination ? await deliver(config.transports, mk(finalFindings), sleep) : { ok: false, results: [] };
+    const d: Delivery = hasDestination ? await deliver(config.transports, mk(toSend), sleep, budget) : { ok: false, results: [] };
+    if (d.results.some((r) => r.code === "rate_limited")) limited = true;
     alertDelivered = d.ok;
     if (head) {
-      const a = await append(db, head, { runId, kind: "delivery", now, payload: { v: 1, source, run_seq: runSeq, alert_ok: d.ok, fingerprint, keys: findingKeys(finalFindings), results: d.results } }, config);
+      const a = await append(db, head, { runId, kind: "delivery", now, payload: { v: 1, source, run_seq: runSeq, alert_ok: d.ok, fingerprint, keys: findingKeys(toSend), ids: d.ok ? dec.ids : [], summarized: d.ok ? dec.summarized : [], results: d.results } }, config);
       head = a.head; if (!a.ok) errors.push("delivery_record_failed");
     }
     if (!d.ok) errors.push("alert_delivery_failed");
+  }
+
+  // 3b. the cap was hit: ONE notice per hour from the reserved slot; the alerts themselves stay pending in the evidence chain
+  if (limited) {
+    errors.push("alert_rate_limited");
+    if (!rateNoticeSentLastHour(chain.rows, now)) {
+      const results: Delivery["results"] = [];
+      const notice: Finding = { code: "alert_rate_limited", severity: "warning", message: "the hourly alert send cap was reached: further alerts are held (not lost) and delivered as capacity returns; run 'npm run qa:price-monitor -- list-undelivered'", refs: [] };
+      for (const t of config.transports.filter((x) => x.canAlert)) {
+        if (capOf(t.name) - (used.get(t.name) ?? 0) <= 0) { results.push({ transport: t.name, ok: false, code: "rate_limited", attempts: 0 }); continue; }
+        try { await t.send(mk([notice])); results.push({ transport: t.name, ok: true, attempts: 1 }); } catch { results.push({ transport: t.name, ok: false, code: "error", attempts: 1 }); }
+      }
+      if (head) {
+        const a = await append(db, head, { runId, kind: "delivery", now, payload: { v: 1, source, rate_notice: true, results } }, config);
+        head = a.head; if (!a.ok) errors.push("delivery_record_failed");
+      }
+    }
   }
 
   // 4. heartbeat (dead-man): a completed run proves the monitor is alive

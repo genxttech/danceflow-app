@@ -16,6 +16,8 @@ export type FindingCode =
   | "credential_revocation_accepted" // security event: a credential revocation was accepted
   | "credential_recovery_used" // security event: a recovery path was USED (critical)
   | "recovery_enrollment_started" // security event: enrolment of a recovery path started (critical)
+  | "alert_coalesced" // summary of identical repeats suppressed inside a coalescing window (info)
+  | "alert_rate_limited" // the hourly send cap was reached; alerts stay pending and are delivered as capacity returns
   | "price_proposed" // security event: a price change was proposed (notice)
   | "price_authorization_started" // security event: a price authorization began (notice; carries a 16-hex fingerprint of the signed hash for the second channel)
   | "price_integrity_failure" // security event: the pricing side detected an integrity failure (critical)
@@ -34,7 +36,8 @@ export type FindingCode =
   | "alert_delivery_failed" // an earlier alert could not be delivered (re-sent on every run until delivered)
   | "monitor_stale"; // watchdog: no monitor run recorded within the allowed age
 
-export type Finding = { code: FindingCode; severity: Severity; message: string; refs: string[] };
+/** `identity` is set for security-event findings (kind | subject | detail fingerprint): the unit of alert coalescing (coalesce.ts). */
+export type Finding = { code: FindingCode; severity: Severity; message: string; refs: string[]; identity?: string };
 
 /** Allow-listed database functions. Anything else is refused by the adapter (and by a unit test that scans this directory). */
 export const MONITOR_RPCS = [
