@@ -1884,9 +1884,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     psql("select public.tw4_price_verify()");
     expect(frozen()).toBe("t");
     expect(psql("select public._tw4price_suspended()")).toBe("t");
-    const p = propose(claims(A, S1), 491);
-    ready(p.request_id);
-    expect(beginErr(claims(A, S2), p.request_id)).toMatch(/suspended/);
+    expect(authErr(claims(A, S1), "select public.tw4_price_propose('number', 491, 115, 'while frozen', 'a written reason for a proposal while frozen')::text;")).toMatch(/suspended/);
     // lifting it needs a FRESH authenticator code and the hardware key: a stale session cannot even begin, a fresh one needs the key's assertion
     const stale = claims(A, S2, { amr: [{ method: "totp", timestamp: nowS() - 3000 }] });
     expect(authErr(stale, "select public.tw4_price_cred_begin('thaw', null, null, null, null, null)::text;")).toMatch(/fresh authenticator code is required/);
@@ -1902,7 +1900,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
   itSel("PA-41 last-credential rule: never revoke leaving zero usable VERIFIED hardware credentials; the last one retires only after a replacement is enrolled AND verified (a pending or unverified key does not count); concurrent revocation vs replacement, replay, audit continuity, loss of the recovery key and the replace-then-retire sequence", async () => {
     const sess = sessionA();
     const beginRevoke = (k: SoftAuthenticator) => authErr(sess, `select public.tw4_price_cred_begin('revoke', '${k.credIdB64u}', null, null, null, null)::text;`);
-    const auditIds = () => rows<{ id: string }>("select id::text from public.studio_sms_price_audit order by id").map((r) => Number(r.id));
+    const auditIds = () => rows<{ idt: string }>("select id::text as idt from public.studio_sms_price_audit order by id").map((r) => Number(r.idt));
     // (1) replace-then-retire: the only signing credential cannot retire; a PENDING replacement does not count; once the replacement is applied (its possession proof is stored with it) the old key may retire, once
     {
       clear();
