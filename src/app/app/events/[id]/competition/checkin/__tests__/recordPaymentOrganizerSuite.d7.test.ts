@@ -156,4 +156,23 @@ describe("competition desk payment: completing an unpaid pending order needs a c
     expect((await record()).error).toBe("read failed");
     expect(rpcRecorded()).toHaveLength(0);
   });
+
+  it.each([
+    { name: "SQLSTATE D7001", error: { code: "D7001", message: "organizer_suite_required: this organizer is not accepting new registrations or payments for this event right now" } },
+    { name: "the message prefix alone", error: { message: "organizer_suite_required: anything" } },
+  ])("maps a database refusal (race or direct API) to the same organizer-suite message: $name", async ({ error }) => {
+    seed({ organizerId: "org-1", entitlements: [grant()] }); // the app gate passes (entitlement looked current), the database refuses
+    state.user.client.rpc = (async (name: string, args: Record<string, unknown>) => {
+      state.user.rpcCalls.push({ name, args });
+      return { data: null, error };
+    }) as typeof state.user.client.rpc;
+    expect((await record()).error).toBe(REFUSAL);
+    expect(rpcRecorded()).toHaveLength(1);
+  });
+
+  it("any other database error is passed through unchanged", async () => {
+    seed({ organizerId: "org-1", entitlements: [grant()] });
+    state.user.client.rpc = (async () => ({ data: null, error: { code: "22023", message: "payment exceeds the current balance (10)" } })) as typeof state.user.client.rpc;
+    expect((await record()).error).toBe("payment exceeds the current balance (10)");
+  });
 });
