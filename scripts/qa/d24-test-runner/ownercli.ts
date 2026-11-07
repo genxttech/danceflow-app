@@ -66,6 +66,7 @@ export function renderTerms(e: Envelope): string[] {
     `valid ${show(e.createdUtc)} -> ${show(e.expiresUtc)}; at most ${show(e.maxRuns)} run(s); ceiling ${show(e.apiCallCeiling)} calls (cleanup reserve ${show(e.cleanupReserve)})`,
     `code commit ${show(e.code.commitSha)}; package-lock sha256 ${show(e.code.lockfileSha256)}`,
     `proof manifest ${show(e.proof.manifestSha256)} (${show(e.proof.fileCount)} files); RUNNER manifest ${show(e.runner.manifestSha256)} (${show(e.runner.fileCount)} files)`,
+    `hardware anchor pin: ${show(e.hardwareAnchorFingerprintSha256)}`,
     `Stripe TEST accounts: platform ${show(e.accounts.platformAcct)}, connected ${show(e.accounts.connectedAcct)}`,
     `credential: ${show(e.credential.store)} label ${show(e.credential.label)}, fingerprint ${show(e.credential.keyFingerprintSha256Prefix)}, key expires ${show(e.credential.keyExpiresUtc)}`,
     `permitted operations: ${e.permittedRuleIds.map(show).join(", ")}`,

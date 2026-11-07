@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -120,18 +120,18 @@ describe("N-1: the owner directory ignores the environment", () => {
     expect(ownerSeparationWarning("D", { ...t, registeredBy: "someone-else" }, me, () => true)).toMatch(/writable by the current account/);
     expect(ownerSeparationWarning("D", { ...t, registeredBy: "someone-else" }, me, () => false)).toBeNull();
   });
-  it("`run` prints the warning (to stderr) and still refuses on the missing signature; dry prints nothing and is not refused", async () => {
+  it("a live `run` without a hardware anchor is refused and points at the design doc (no tooling that does not exist); dry is unaffected", async () => {
     const ownerDir = tmp();
-    mkdirSync(ownerDir, { recursive: true });
-    const trust = { ...ownerTrust(join(tmp(), "l"), join(ownerDir, "a.json")), registeredBy: userInfo().username };
-    writeFileSync(trustPath(ownerDir), JSON.stringify(trust));
     const live = io();
     expect(await main(["run", "--envelope", writeEnvelope(makeEnvelope())], live.io, nonTtyStdin(), { ownerDir })).toBe(2);
-    expect(live.err.join("\n")).toMatch(/WARNING: the owner trust directory/);
-    expect(live.out.join("\n")).toMatch(/FAIL {2}owner-signature/);
+    const text = live.err.join("\n");
+    expect(text).toMatch(/no hardware anchor/);
+    expect(text).toMatch(/design-only item/);
+    expect(text).toMatch(/OWNER-AUTH\.md section 7/);
+    expect(text).not.toMatch(/owner-keygen|owner-sign/);
     const dry = io();
     await main(["run", "--dry", "--envelope", writeEnvelope(makeEnvelope())], dry.io, nonTtyStdin(), { ownerDir });
-    expect(dry.err.join("\n")).not.toMatch(/WARNING/);
+    expect(dry.err.join("\n")).not.toMatch(/WARNING|refused/);
   });
 });
 
@@ -328,7 +328,7 @@ describe("self-approval is closed (review P1-1 reproduction)", () => {
     expect(await main(["create-envelope", "--spec", join(dir, "spec.json"), "--approval-file", join(dir, "appr.txt"), "--approval-ref", "chat self", "--out", join(dir, "e.json")], t.io, nonTtyStdin(), { ownerDir })).toBe(0);
     const live = io();
     expect(await main(["run", "--envelope", join(dir, "e.json")], live.io, nonTtyStdin(), { ownerDir })).toBe(2);
-    expect(live.err.join("\n")).toMatch(/no owner public key is registered/);
+    expect(live.err.join("\n")).toMatch(/no hardware anchor/);
   });
   it("live run refuses --ledger-dir, --repo and --home overrides", async () => {
     const t = io();

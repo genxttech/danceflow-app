@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MemoryStore } from "../credstore";
@@ -7,7 +7,8 @@ import { createFakeExec, type FakeOpts } from "../fakeChild";
 import { verifyCleanClone } from "../gitverify";
 import { Ledger } from "../ledger";
 import { runEnvelope, type RunnerDeps } from "../runner";
-import { KEY, LABEL, makeEnvelope, mkLedger, NOW, ownerSign, ownerTrust, REPO, SHA, tmp, writeEnvelope } from "./helpers";
+import { KEY, LABEL, makeEnvelope, mkLedger, NOW, REPO, SHA, tmp, writeEnvelope } from "./helpers";
+import { makeAssertion, testAuth } from "./softauth";
 import type { EnvelopeSpec } from "../envelope";
 
 type Setup = { fake?: Partial<FakeOpts>; spec?: Partial<EnvelopeSpec>; store?: MemoryStore; dry?: boolean; now?: Date; ledger?: Ledger; storeCalls?: { n: number }; install?: boolean; sig?: "none" | "other-envelope" | "garbage"; noTrust?: boolean; trustLedgerDir?: string; repoDir?: string; expireAfterInstall?: boolean };
@@ -22,15 +23,19 @@ async function go(s: Setup = {}) {
   if (!s.store && !s.dry) await store.write(LABEL, KEY);
   const storeCalls = s.storeCalls ?? { n: 0 };
   const ledger = s.ledger ?? mkLedger();
-  const trust = s.noTrust ? null : ownerTrust(s.trustLedgerDir ?? ledger.dir, ledger.anchorFile as string);
-  let signature: unknown = ownerSign(env);
-  if (s.sig === "none") signature = null;
-  if (s.sig === "garbage") signature = { v: 1, domain: "D24-TEST-ENVELOPE-V1", envelopeSha256: env.envelopeSha256, publicKeyFingerprint: trust?.publicKeyFingerprint ?? "x", signatureBase64: Buffer.alloc(64, 7).toString("base64") };
-  if (s.sig === "other-envelope") signature = ownerSign({ envelopeSha256: "ab".repeat(32) });
+  // LIVE runs always need the hardware-key approval: the anchor file, the assertion document and the counter state are per-test temporary files
+  const hwDir = tmp();
+  const anchorPath = join(hwDir, "owner-hw-anchor.json");
+  if (!s.noTrust) writeFileSync(anchorPath, JSON.stringify(testAuth.anchor)); // noTrust: the anchor file is missing
+  let hwDoc: unknown = makeAssertion(testAuth, env.envelopeSha256, { signCount: 1 });
+  if (s.sig === "none") hwDoc = null;
+  if (s.sig === "garbage") hwDoc = { ...makeAssertion(testAuth, env.envelopeSha256, { signCount: 1 }), signature: Buffer.alloc(64, 7).toString("base64url") };
+  if (s.sig === "other-envelope") hwDoc = makeAssertion(testAuth, "ab".repeat(32), { signCount: 1 });
+  const pins = { ledgerDir: s.trustLedgerDir ?? ledger.dir, anchorFile: ledger.anchorFile as string };
   const flag = { installed: false };
   const exec = createFakeExec({ commitSha: SHA, repoDir: REPO, calls, ...s.fake }, { simulateLive: !s.dry, tap: (_c, args) => { if (args.some((a) => /npm-cli/.test(a))) flag.installed = true; } });
   const deps: RunnerDeps = {
-    owner: { trust, signature },
+    owner: { trust: null, signature: null, hardware: { doc: hwDoc, anchorPath, statePath: join(hwDir, "state", "hw-signcount.json"), pins } },
     exec,
     parentEnv: { PATH: "C:\\bin", SystemRoot: "C:\\Windows", NODE_OPTIONS: "--require evil", HTTPS_PROXY: "http://p", DATABASE_URL: "postgres://prod/db" },
     store: () => {
@@ -83,7 +88,7 @@ describe("runner happy path (fake child)", () => {
   });
 });
 
-describe("owner signature (the self-approval control)", () => {
+describe("owner approval (hardware key) is required for every live run", () => {
   const blockedAt = async (s: Setup, gateId: string) => {
     const { r, ledger, env, calls } = await go(s);
     expect(r.status).toBe("BLOCKED");
@@ -92,22 +97,22 @@ describe("owner signature (the self-approval control)", () => {
     expect(calls.some((c) => c.args[c.args.length - 1] === "--live")).toBe(false);
     return r;
   };
-  it("no registered owner key -> live refused", async () => {
-    const r = await blockedAt({ noTrust: true }, "owner-signature");
-    expect(r.gates.find((g) => g.id === "owner-signature")?.detail).toMatch(/no owner public key/);
+  it("missing hardware anchor -> live refused, never downgraded", async () => {
+    const r = await blockedAt({ noTrust: true }, "owner-approval");
+    expect(r.gates.find((g) => g.id === "owner-approval")?.detail).toMatch(/never downgraded/);
+    expect(r.gates.some((g) => g.id === "owner-signature")).toBe(false);
   });
-  it("missing signature -> refused", async () => void (await blockedAt({ sig: "none" }, "owner-signature")));
-  it("garbage signature -> refused", async () => void (await blockedAt({ sig: "garbage" }, "owner-signature")));
-  it("a valid owner signature over a DIFFERENT envelope hash -> refused", async () => void (await blockedAt({ sig: "other-envelope" }, "owner-signature")));
+  it("missing approval document -> refused", async () => void (await blockedAt({ sig: "none" }, "owner-approval")));
+  it("garbage signature -> refused", async () => void (await blockedAt({ sig: "garbage" }, "owner-approval")));
+  it("an assertion for a DIFFERENT envelope hash -> refused", async () => void (await blockedAt({ sig: "other-envelope" }, "owner-approval")));
   it("a perfectly valid envelope that merely carries the right approval text (self-minted) cannot run live", async () => {
-    // exactly the review's P1 scenario: approval-template | create-envelope yields a structurally valid envelope, but nobody signed it
     const { r } = await go({ sig: "none" });
-    expect(failedGate(r)).toBe("owner-signature");
+    expect(failedGate(r)).toBe("owner-approval");
   });
-  it("the same envelope signed by the owner runs", async () => {
+  it("the same envelope approved by the hardware key runs", async () => {
     const { r } = await go();
     expect(r.status).toBe("PASS");
-    expect(r.gates.find((g) => g.id === "owner-signature")?.detail).toMatch(/valid owner signature/);
+    expect(r.gates.find((g) => g.id === "owner-approval")?.detail).toMatch(/HARDWARE-key approval/);
   });
 });
 

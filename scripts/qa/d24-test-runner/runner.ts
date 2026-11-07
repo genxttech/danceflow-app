@@ -11,7 +11,10 @@ import { checkKeyShape } from "../d24-m3d-proof/identity";
 import { manifest } from "../d24-m3d-proof/manifest";
 import { runnerInsideClone, runnerManifest } from "./runnerpin";
 import { defaultOwnerDir, defaultRunnerHome, verifyOwnerSignature, type OwnerTrust } from "./ownerverify";
-import { ANCHOR_FILE, loadAnchor, verifyAndRecord } from "./webauthn";
+import { ANCHOR_FILE, checkAgainstState, loadAnchor, type HardwareAnchor } from "./webauthn";
+
+/** Hard-coded policy (part of the runner folder hash that the signed envelope pins): live runs need the hardware-key approval. Tests flip nothing; a dev build that wants the Ed25519 kind must change this line, which changes the runner hash. */
+export const REQUIRE_HARDWARE_FOR_LIVE: boolean = true;
 import { baseEnv, proofEnv } from "./childenv";
 import { sha256 } from "./canon";
 import { checkEnvelopeWindow, KNOWN_RULE_IDS, validateEnvelope } from "./envelope";
@@ -92,19 +95,29 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   }
   gate("envelope-window", true, `valid until ${env.expiresUtc}`);
 
-  // 1b. OWNER signature: the control that the tooling cannot self-approve. Live runs need a registered owner key and a valid detached signature.
-  // The approval KIND is decided by the runner folder itself: if it contains the pinned hardware anchor (owner-hw-anchor.json), the hardware-key kind is
-  // REQUIRED and the passphrase-sealed Ed25519 kind can never authorise a live run. The anchor file is inside the runner-pinned folder.
-  const hwLoaded = d.dry ? null : loadAnchor(d.owner?.hardware?.anchorPath ?? join(__dirnameOf(), ANCHOR_FILE));
-  const hwAnchor = hwLoaded && hwLoaded.ok ? hwLoaded.anchor : null;
-  if (d.dry) gate("owner-signature", true, "DRY: not required (no live call is possible in dry mode); a LIVE run would be refused without a valid owner approval");
-  else if (hwLoaded !== null) {
-    if (!hwLoaded.ok) {
-      gate("owner-approval", false, `hardware anchor present but invalid: ${hwLoaded.problems.join("; ")}`);
+  // 1b. OWNER APPROVAL. REQUIRE_HARDWARE_FOR_LIVE is a constant in this (runner-hash-pinned) file, not read from any file, environment variable or argument:
+  // a LIVE run needs a valid hardware-key (WebAuthn) approval against the anchor file in this folder. A missing, unparseable, mis-pinned or edited anchor BLOCKS
+  // the run; it never downgrades to another approval kind. The passphrase-sealed Ed25519 kind is not consulted for live runs at all (dry and dev tooling only).
+  let commitApproval: (() => void) | null = null;
+  let hwAnchor: HardwareAnchor | null = null;
+  if (d.dry) gate("owner-signature", true, "DRY: not required (no live call is possible in dry mode); a LIVE run needs a valid hardware-key approval");
+  else if (REQUIRE_HARDWARE_FOR_LIVE) {
+    const hwLoaded = loadAnchor(d.owner?.hardware?.anchorPath ?? join(__dirnameOf(), ANCHOR_FILE));
+    if (hwLoaded === null) {
+      gate("owner-approval", false, `no hardware anchor (${ANCHOR_FILE}) in the runner folder: live runs require the hardware-key approval and are never downgraded. The owner enrollment is design only, see docs/billing/D24-TEST-RUNNER-OWNER-AUTH.md section 7`);
       return blocked("owner-approval");
     }
-    const r = verifyAndRecord(d.owner?.hardware?.statePath ?? join(defaultOwnerDir(), "hw-signcount.json"), { envelopeSha256: env.envelopeSha256, doc: d.owner?.hardware?.doc, anchor: hwLoaded.anchor });
-    if (!gate("owner-approval", r.ok, r.ok ? `HARDWARE-key approval (webauthn-es256) verified against anchor ${hwLoaded.anchor.fingerprintSha256.slice(0, 16)}, counter ${r.signCount}; Ed25519 is not accepted when the anchor is present` : r.reason)) return blocked("owner-approval");
+    if (!hwLoaded.ok) {
+      gate("owner-approval", false, `hardware anchor is invalid: ${hwLoaded.problems.join("; ")}`);
+      return blocked("owner-approval");
+    }
+    hwAnchor = hwLoaded.anchor;
+    // the envelope (covered by the assertion) names the anchor it was written for: a swapped or edited anchor cannot approve an envelope written for another
+    const pinOk = env.hardwareAnchorFingerprintSha256 === hwLoaded.anchor.fingerprintSha256;
+    if (!gate("owner-anchor-pin", pinOk, pinOk ? `envelope pins the same anchor (${hwLoaded.anchor.fingerprintSha256.slice(0, 16)})` : "the anchor fingerprint pinned inside the (hardware-approved) envelope differs from the anchor in this runner folder")) return blocked("owner-anchor-pin");
+    const chk = checkAgainstState(d.owner?.hardware?.statePath ?? join(defaultOwnerDir(), "hw-signcount.json"), { envelopeSha256: env.envelopeSha256, doc: d.owner?.hardware?.doc, anchor: hwLoaded.anchor });
+    if (!gate("owner-approval", chk.result.ok, chk.result.ok ? `HARDWARE-key approval (webauthn-es256) verified against anchor ${hwLoaded.anchor.fingerprintSha256.slice(0, 16)}, counter ${chk.result.signCount} (recorded only when the run is consumed)` : chk.result.reason)) return blocked("owner-approval");
+    commitApproval = chk.commit;
   } else {
     const sig = verifyOwnerSignature(env.envelopeSha256, d.owner?.signature, d.owner?.trust ?? null);
     if (!gate("owner-signature", sig.ok, sig.ok ? `DEV KIND (passphrase-sealed Ed25519; same-user, NOT an independent approval): ${sig.reason}` : sig.reason)) return blocked("owner-signature");
@@ -222,6 +235,14 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   // expiry is re-checked at the point the run is consumed (npm ci and the gates can take many minutes)
   const win2 = checkEnvelopeWindow(env, d.now());
   if (!gate("envelope-window-recheck", win2.length === 0, win2.length === 0 ? "still inside the approved window at the moment of consumption" : win2.map((i) => `${i.code}: ${i.detail}`).join(" | "))) return blocked("envelope-window-recheck");
+  if (commitApproval) {
+    try {
+      commitApproval(); // the hardware counter is recorded only now, after every gate has passed
+    } catch (e) {
+      gate("owner-approval-record", false, sanitize(String((e as Error).message), literals));
+      return blocked("owner-approval-record");
+    }
+  }
   mkdirSync(env.evidenceRoot, { recursive: true });
   const runId = `${env.envelopeId}-r${runNo}`;
   let start: LedgerEntry;
