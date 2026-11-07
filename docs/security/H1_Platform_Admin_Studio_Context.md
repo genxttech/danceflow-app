@@ -48,6 +48,10 @@ not rewritten here. Fresh-MFA or time-boxing for individual financial mutations 
 **Cost:** one indexed read of `workspace_access_logs` per request for platform admins only (ordinary users never reach it).
 
 **Residuals (backlog):**
-- Sign-out without using Exit does not write an exit row, so a copied cookie survives sign-out and re-login within its 8h window; it still needs the same admin's fresh AAL2 session. Fix: write an exit row on sign-out or bind the token to the JWT `session_id`.
+- Sign-out without using Exit does not write an exit row (audit-hardening backlog). It is NOT a bypass: see "Sign-out and re-authentication" below.
 - If both exit audit writes fail, the cookie is deleted in the browser but a copy stays valid until expiry.
 - Audit rows are written by the service role; anyone who can insert `platform_support:` rows as that admin could re-validate a cookie, which already implies service-role compromise.
+
+### Sign-out and re-authentication
+
+Sign-out clears the Supabase auth cookies, not the support cookie, so an old cookie survives in the browser. Tested failing-first: the same admin signing back in at AAL2 could reuse the pre-sign-out cookie (latest audit row was still the entry row). Fix: the cookie MAC is now also keyed on the caller's VERIFIED auth session id (`session_id` claim via `getVerifiedAal2SessionId`; not stored in the cookie). A new login is a new session, so the old cookie stops verifying; a different admin fails on the user binding; an AAL1 re-login has no verified AAL2 session and is demoted/redirected to the challenge. The cookie keeps working across token refreshes within its own session. Missing `session_id` in verified claims fails closed. An AAL1 session can hold no support context, so Exit at AAL1 only clears the cookie.

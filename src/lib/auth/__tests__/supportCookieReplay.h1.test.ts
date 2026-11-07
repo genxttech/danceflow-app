@@ -27,6 +27,8 @@ const S1 = "b6000000-0000-4000-8000-000000000031";
 const S2 = "b6000000-0000-4000-8000-000000000032";
 
 let currentUser = ADMIN;
+let currentSession = "sess-1";
+let currentAal: "aal1" | "aal2" = "aal2";
 vi.mock("@/lib/auth/platform", () => ({
   requirePlatformAdmin: async () => ({ id: currentUser }),
   requireAuthenticatedUser: async () => ({ id: currentUser, email: "a@example.test", platform_role: "platform_admin" }),
@@ -38,7 +40,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
     auth: {
       getClaims: async () => ({
-        data: { claims: { sub: currentUser, exp: NOW() + 3000, aal: "aal2", amr: [{ method: "totp", timestamp: NOW() - 60 }] } },
+        data: { claims: { sub: currentUser, session_id: currentSession, exp: NOW() + 3000, aal: currentAal, amr: [{ method: currentAal === "aal2" ? "totp" : "password", timestamp: NOW() - 60 }] } },
         error: null,
       }),
     },
@@ -116,6 +118,8 @@ beforeEach(() => {
   tick = 0;
   readFails = false;
   currentUser = ADMIN;
+  currentSession = "sess-1";
+  currentAal = "aal2";
 });
 
 describe("support cookie replay after exit", () => {
@@ -185,7 +189,7 @@ describe("support context currency is per admin and fails closed", () => {
 
   it("an authentic cookie whose nonce is not on the latest audit row is not a support context (self-minted token)", async () => {
     await enter(S1);
-    jar.set(COOKIE, signSupportCookie(ADMIN, S1)!); // valid MAC, never audited
+    jar.set(COOKIE, signSupportCookie(ADMIN, S1, currentSession)!); // valid MAC, never audited
     await expect(getCurrentStudioContext()).rejects.toThrow("NEXT_REDIRECT:/platform/studios");
   });
 
@@ -205,5 +209,54 @@ describe("support context currency is per admin and fails closed", () => {
     await enter(S1);
     logs = [];
     await expect(getCurrentStudioContext()).rejects.toThrow("NEXT_REDIRECT:/platform/studios");
+  });
+});
+
+describe("support cookie across sign-out and re-authentication", () => {
+  // Sign-out clears the Supabase auth cookies, NOT the support cookie, so the old cookie is still in the browser; the next login is a new auth session.
+  const newLogin = (user = ADMIN, aal: "aal1" | "aal2" = "aal2") => {
+    currentUser = user;
+    currentSession = `sess-${Math.random().toString(16).slice(2)}`;
+    currentAal = aal;
+  };
+
+  it("H1: the same admin signing back in at AAL2 cannot reuse the old cookie without a new audited entry", async () => {
+    const old = await enter(S1);
+    const rowsBefore = supportRows().length;
+    newLogin(ADMIN, "aal2");
+    jar.set(COOKIE, old);
+    await expect(getCurrentStudioContext()).rejects.toThrow("NEXT_REDIRECT:/platform/studios");
+    expect(supportRows()).toHaveLength(rowsBefore);
+  });
+
+  it("H1: a new audited entry after re-login works and the pre-sign-out cookie stays dead", async () => {
+    const old = await enter(S1);
+    newLogin(ADMIN, "aal2");
+    const fresh = await enter(S1);
+    expect(await getCurrentStudioContext()).toMatchObject({ studioId: S1 });
+    jar.set(COOKIE, old);
+    await expect(getCurrentStudioContext()).rejects.toThrow("NEXT_REDIRECT:/platform/studios");
+    jar.set(COOKIE, fresh);
+    expect(await getCurrentStudioContext()).toMatchObject({ studioId: S1 });
+  });
+
+  it("H1: a different administrator on the same browser cannot use the previous admin's cookie", async () => {
+    const old = await enter(S1);
+    newLogin(OTHER_ADMIN, "aal2");
+    jar.set(COOKIE, old);
+    await expect(getCurrentStudioContext()).rejects.toThrow("NEXT_REDIRECT:/platform/studios");
+  });
+
+  it("H1: the same admin re-authenticating at only AAL1 gets no studio authority from the old cookie", async () => {
+    const old = await enter(S1);
+    newLogin(ADMIN, "aal1");
+    jar.set(COOKIE, old);
+    await expect(getCurrentStudioContext()).rejects.toThrow(/NEXT_REDIRECT:\/platform-mfa\/challenge/);
+  });
+
+  it("the cookie keeps working for the life of the session it was issued in", async () => {
+    await enter(S1);
+    expect(await getCurrentStudioContext()).toMatchObject({ studioId: S1 });
+    expect(await getCurrentStudioContext()).toMatchObject({ studioId: S1 });
   });
 });

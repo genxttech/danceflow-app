@@ -32,7 +32,10 @@ vi.mock("next/headers", () => ({
 
 const order: string[] = [];
 let stepUpMode: "ok" | "aal1" = "ok";
+const SID = "sess-h1";
 vi.mock("@/lib/auth/platform-assurance", () => ({
+  stepUpChallengeUrl: (reason: string, returnTo: string) => `/platform-mfa/challenge?stepup=1&reason=${reason}&next=${encodeURIComponent(returnTo)}`,
+  getVerifiedAal2SessionId: async () => (stepUpMode === "aal1" ? null : SID),
   requirePlatformStepUp: async (tier: string) => {
     order.push(`stepup:${tier}`);
     if (stepUpMode === "aal1") throw new Error("NEXT_REDIRECT:/platform-mfa/challenge?stepup=1&reason=aal1&next=%2Fplatform%2Fstudios");
@@ -95,7 +98,7 @@ import { clearStudioContextAction, enterStudioContextAction } from "../actions";
 function seedContext(studioId: string): string {
   const nonce = newSupportNonce();
   auditRows.push({ studio_id: studioId, user_id: ADMIN, route: `platform_support:enter:jti=${nonce}`, accessed_at: ++seq });
-  const token = signSupportCookie(ADMIN, studioId, nonce)!;
+  const token = signSupportCookie(ADMIN, studioId, SID, nonce)!;
   jar.set("platform_selected_studio_id", token);
   return token;
 }
@@ -139,7 +142,7 @@ describe("enterStudioContextAction", () => {
     expect(auditRows[0].route).toMatch(/^platform_support:enter:jti=[0-9a-f]{32}$/);
     expect(cookieSets[0].value.split(".")[3]).toBe(auditRows[0].route.split("jti=")[1]);
     expect(cookieSets).toHaveLength(1);
-    expect(verifySupportCookie(cookieSets[0].value, ADMIN)).toBe(S1);
+    expect(verifySupportCookie(cookieSets[0].value, ADMIN, SID)).toBe(S1);
     expect(cookieSets[0].opts).toMatchObject({ httpOnly: true, sameSite: "lax", path: "/", maxAge: 8 * 60 * 60 });
   });
 
@@ -182,12 +185,19 @@ it("a hand-set cookie is not trusted as the previous studio (entry, not switch)"
 });
 
 describe("clearStudioContextAction", () => {
-  it("lets an admin leave a studio at any assurance level, audits the exit and clears the cookie", async () => {
-    stepUpMode = "aal1"; // exit must NOT depend on step-up
+  it("audits the exit of the current context and clears the cookie", async () => {
     seedContext(S1);
     await expect(clearStudioContextAction()).rejects.toThrow(/NEXT_REDIRECT:\/platform$/);
     expect(cookieDeletes).toEqual(["platform_selected_studio_id"]);
     expect(auditRows[1]).toMatchObject({ studio_id: S1, user_id: ADMIN, route: "platform_support:exit" });
+  });
+
+  it("lets an admin leave at AAL1 (exit never depends on step-up): cookie cleared; an AAL1 session can hold no context, so no exit row is needed", async () => {
+    stepUpMode = "aal1"; // exit must NOT depend on step-up
+    seedContext(S1);
+    await expect(clearStudioContextAction()).rejects.toThrow(/NEXT_REDIRECT:\/platform$/);
+    expect(cookieDeletes).toEqual(["platform_selected_studio_id"]);
+    expect(auditRows.filter((r) => r.route === "platform_support:exit")).toHaveLength(0);
   });
 
   it("clears the cookie even when the exit audit write fails", async () => {

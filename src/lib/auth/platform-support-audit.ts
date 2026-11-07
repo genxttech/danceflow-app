@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { parseSupportCookie } from "@/lib/auth/platform-support-cookie";
+import { getVerifiedAal2SessionId } from "@/lib/auth/platform-assurance";
 
 /**
  * H1: audit trail for platform-admin support access to a studio (entry, switch, exit). It reuses `workspace_access_logs` (studio_id, user_id, accessed_at,
@@ -49,11 +50,15 @@ export async function recordPlatformSupportEvent(params: {
 }
 
 /**
- * The studio of the admin's CURRENT support context, or null. `cookieValue` must be authentic and bound to `userId`, AND its nonce must be carried by the
+ * The studio of the admin's CURRENT support context, or null. The caller must hold a verified aal2 session; `cookieValue` must be authentic and bound to
+ * `userId` AND to that session (so it does not survive sign-out/re-login), AND its nonce must be carried by the
  * admin's most recent `platform_support:` audit row for that studio. Fails closed on any read error.
  */
 export async function resolveCurrentSupportStudio(cookieValue: string | null | undefined, userId: string): Promise<string | null> {
-  const claims = parseSupportCookie(cookieValue, userId);
+  if (typeof cookieValue !== "string") return null;
+  const sessionId = await getVerifiedAal2SessionId(userId);
+  if (!sessionId) return null;
+  const claims = parseSupportCookie(cookieValue, userId, sessionId);
   if (!claims) return null;
   try {
     const admin = createAdminClient();
