@@ -24,7 +24,7 @@ export type PsRunner = (script: string, stdin?: string) => Promise<{ code: numbe
 export const defaultPsRunner: PsRunner = (script, stdin) =>
   new Promise((resolve, reject) => {
     const enc = Buffer.from(script, "utf16le").toString("base64");
-    const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", enc], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { SystemRoot: process.env.SystemRoot ?? "C:\\Windows", PATH: process.env.PATH ?? "" } });
+    const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", enc], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { SystemRoot: process.env.SystemRoot ?? "C:\\Windows", PATH: process.env.PATH ?? "" } as unknown as NodeJS.ProcessEnv });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d));

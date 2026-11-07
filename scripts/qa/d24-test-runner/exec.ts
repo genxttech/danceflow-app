@@ -11,7 +11,7 @@ const MAX_OUT = 4 * 1024 * 1024;
 /** shell:false always. The caller supplies the COMPLETE environment (nothing is inherited), so the child sees exactly what the runner decided. */
 export const realExec: Exec = (cmd, args, opts) =>
   new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env, shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env as NodeJS.ProcessEnv, shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
