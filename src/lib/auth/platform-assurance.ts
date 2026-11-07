@@ -116,6 +116,25 @@ export async function hasVerifiedAal2Session(userId: string): Promise<boolean> {
   }
 }
 
+/**
+ * H1: the id of the caller's VERIFIED aal2 (TOTP) auth session, or null. Support-context cookies are bound to it, so signing out (which does not clear the
+ * support cookie) and signing back in, even as the same admin at aal2, starts a new session and the old cookie stops verifying. Null on any assurance failure
+ * or when the verified claims carry no session id (fail closed).
+ */
+export async function getVerifiedAal2SessionId(userId: string): Promise<string | null> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase.auth.getClaims();
+    if (error || !data) return null;
+    const claims = data.claims as Claims;
+    if (!evaluateAssurance(claims, Math.floor(Date.now() / 1000), "aal2", userId).ok) return null;
+    const sid = isRecord(claims) ? claims.session_id : null;
+    return typeof sid === "string" && sid.length > 0 && sid.length <= 200 ? sid : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The sentence the challenge page shows for a refusal reason. Unknown reasons get the generic sentence. */
 export function stepUpMessage(reason: unknown): string | null {
   switch (reason) {

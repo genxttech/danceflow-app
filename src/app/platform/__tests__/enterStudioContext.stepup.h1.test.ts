@@ -15,6 +15,7 @@ vi.mock("next/cache", () => ({ revalidatePath: () => undefined }));
 const ADMIN = "a6000000-0000-4000-8000-000000000801";
 const OTHER = "a6000000-0000-4000-8000-000000000802";
 const S1 = "b6000000-0000-4000-8000-000000000021";
+const SID = "sess-stepup";
 
 const jar = new Map<string, string>();
 const cookieSets: { name: string; value: string }[] = [];
@@ -50,16 +51,19 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
-const auditRows: { route: string }[] = [];
+const auditRows: { route: string; studio_id?: string; user_id?: string }[] = [];
 vi.mock("@/lib/supabase/admin", () => ({
-  createAdminClient: () => ({
-    from: () => ({
+  createAdminClient: () => {
+    const q: Record<string, unknown> = {
       insert: async (row: { route: string }) => {
         auditRows.push(row);
         return { error: null };
       },
-    }),
-  }),
+    };
+    for (const m of ["select", "eq", "like", "order", "limit"]) q[m] = () => q;
+    q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(res);
+    return { from: () => q };
+  },
 }));
 vi.mock("@/lib/student-identity/lifecycle", () => ({ linkExistingClientAccount: vi.fn() }));
 vi.mock("@/lib/auth/verifiedIdentity", () => ({ getVerifiedEmailForUser: vi.fn(), verifiedEmailMatches: vi.fn() }));
@@ -69,7 +73,7 @@ import { enterStudioContextAction } from "../actions";
 
 const NOW = () => Math.floor(Date.now() / 1000);
 const aal2 = (over: Record<string, unknown> = {}): ClaimsResult => ({
-  data: { claims: { sub: ADMIN, exp: NOW() + 3000, aal: "aal2", amr: [{ method: "totp", timestamp: NOW() - 60 }], ...over } },
+  data: { claims: { sub: ADMIN, session_id: SID, exp: NOW() + 3000, aal: "aal2", amr: [{ method: "totp", timestamp: NOW() - 60 }], ...over } },
   error: null,
 });
 const form = () => {
@@ -88,7 +92,7 @@ beforeEach(() => {
 
 describe("enterStudioContextAction - real assurance gate", () => {
   it("rejects an aal1 session: redirects to the challenge, no cookie, no audit row", async () => {
-    claimsResult = { data: { claims: { sub: ADMIN, exp: NOW() + 3000, aal: "aal1", amr: [{ method: "password", timestamp: NOW() - 60 }] } }, error: null };
+    claimsResult = { data: { claims: { sub: ADMIN, session_id: SID, exp: NOW() + 3000, aal: "aal1", amr: [{ method: "password", timestamp: NOW() - 60 }] } }, error: null };
     await expect(enterStudioContextAction(form())).rejects.toThrow("NEXT_REDIRECT:/platform-mfa/challenge?stepup=1&reason=aal1&next=%2Fplatform%2Fstudios");
     expect(cookieSets).toHaveLength(0);
     expect(auditRows).toHaveLength(0);
@@ -96,10 +100,12 @@ describe("enterStudioContextAction - real assurance gate", () => {
 
   it("accepts a verified aal2 totp session for an authorized admin: audit row then a cookie bound to that admin", async () => {
     await expect(enterStudioContextAction(form())).rejects.toThrow("NEXT_REDIRECT:/app");
-    expect(auditRows).toEqual([{ studio_id: S1, user_id: ADMIN, route: "platform_support:enter" }]);
+    expect(auditRows).toHaveLength(1);
+    expect(auditRows[0]).toMatchObject({ studio_id: S1, user_id: ADMIN });
+    expect(auditRows[0].route).toMatch(/^platform_support:enter:jti=[0-9a-f]{32}$/);
     expect(cookieSets).toHaveLength(1);
-    expect(verifySupportCookie(cookieSets[0].value, ADMIN)).toBe(S1);
-    expect(verifySupportCookie(cookieSets[0].value, OTHER)).toBeNull();
+    expect(verifySupportCookie(cookieSets[0].value, ADMIN, SID)).toBe(S1);
+    expect(verifySupportCookie(cookieSets[0].value, OTHER, SID)).toBeNull();
   });
 
   it.each([

@@ -57,23 +57,35 @@ vi.mock("@/lib/supabase/server", () => ({
     },
   }),
 }));
-vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({}) }));
+// The admin's latest support audit row: a support cookie is only a context while its nonce is on this row (see platform-support-audit.ts).
+const NONCE = "ab".repeat(16);
+const SID = "session-aaaa";
+let latestSupportRow: { studio_id: string; route: string } | null = null;
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => {
+    const q: Record<string, unknown> = {};
+    for (const m of ["select", "eq", "like", "order", "limit"]) q[m] = () => q;
+    q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: latestSupportRow ? [latestSupportRow] : [], error: null }).then(res);
+    return { from: () => q };
+  },
+}));
 
 import { signSupportCookie } from "../platform-support-cookie";
 import { getCurrentStudioContext, getStudioContextForStudio } from "../studio";
 
 const NOW = () => Math.floor(Date.now() / 1000);
 const aal2 = (over: Record<string, unknown> = {}) => ({
-  data: { claims: { sub: USER, exp: NOW() + 3000, aal: "aal2", amr: [{ method: "totp", timestamp: NOW() - 60 }], ...over } },
+  data: { claims: { sub: USER, session_id: SID, exp: NOW() + 3000, aal: "aal2", amr: [{ method: "totp", timestamp: NOW() - 60 }], ...over } },
   error: null,
 });
-const aal1 = () => ({ data: { claims: { sub: USER, exp: NOW() + 3000, aal: "aal1", amr: [{ method: "password", timestamp: NOW() - 60 }] } }, error: null });
+const aal1 = () => ({ data: { claims: { sub: USER, session_id: SID, exp: NOW() + 3000, aal: "aal1", amr: [{ method: "password", timestamp: NOW() - 60 }] } }, error: null });
 
 beforeEach(() => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key-for-hmac";
   redirects.length = 0;
   cookieJar.clear();
-  cookieJar.set("platform_selected_studio_id", signSupportCookie(USER, SUPPORT_STUDIO)!);
+  cookieJar.set("platform_selected_studio_id", signSupportCookie(USER, SUPPORT_STUDIO, SID, NONCE)!);
+  latestSupportRow = { studio_id: SUPPORT_STUDIO, route: `platform_support:enter:jti=${NONCE}` };
   platformRole = "platform_admin";
   ownRoles = [];
   claimsResult = aal2();
@@ -124,9 +136,9 @@ describe("getCurrentStudioContext - platform admin support context", () => {
 describe("H1 support cookie is signed, user-bound and time-bounded", () => {
   it.each([
     ["a bare studio id set by hand", () => SUPPORT_STUDIO],
-    ["a token signed for another admin", () => signSupportCookie(OTHER, SUPPORT_STUDIO)!],
-    ["a token with a tampered studio", () => signSupportCookie(USER, SUPPORT_STUDIO)!.replace(SUPPORT_STUDIO, OWN_STUDIO)],
-    ["an expired token", () => signSupportCookie(USER, SUPPORT_STUDIO, NOW() - 9 * 3600)!],
+    ["a token signed for another admin", () => signSupportCookie(OTHER, SUPPORT_STUDIO, SID, NONCE)!],
+    ["a token with a tampered studio", () => signSupportCookie(USER, SUPPORT_STUDIO, SID, NONCE)!.replace(SUPPORT_STUDIO, OWN_STUDIO)],
+    ["an expired token", () => signSupportCookie(USER, SUPPORT_STUDIO, SID, NONCE, NOW() - 9 * 3600)!],
     ["garbage", () => "v1...."],
   ])("%s does not resolve a support studio even at aal2", async (_n, make) => {
     cookieJar.set("platform_selected_studio_id", make());

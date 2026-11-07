@@ -6,9 +6,9 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
-import { requirePlatformStepUp } from "@/lib/auth/platform-assurance";
-import { recordPlatformSupportEvent } from "@/lib/auth/platform-support-audit";
-import { SUPPORT_COOKIE_MAX_AGE_SECONDS, signSupportCookie, verifySupportCookie } from "@/lib/auth/platform-support-cookie";
+import { getVerifiedAal2SessionId, requirePlatformStepUp, stepUpChallengeUrl } from "@/lib/auth/platform-assurance";
+import { recordPlatformSupportEvent, resolveCurrentSupportStudio } from "@/lib/auth/platform-support-audit";
+import { SUPPORT_COOKIE_MAX_AGE_SECONDS, newSupportNonce, signSupportCookie, supportCookieStudioHint } from "@/lib/auth/platform-support-cookie";
 import { linkExistingClientAccount } from "@/lib/student-identity/lifecycle";
 import { getVerifiedEmailForUser, verifiedEmailMatches } from "@/lib/auth/verifiedIdentity";
 import {
@@ -76,16 +76,21 @@ export async function enterStudioContextAction(formData: FormData) {
   }
 
   const cookieStore = await cookies();
-  const previousStudioId = verifySupportCookie(cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value, admin.id);
-  const token = signSupportCookie(admin.id, studioId);
+  const previousStudioId = await resolveCurrentSupportStudio(cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value, admin.id);
+  const nonce = newSupportNonce();
+  // Bind the cookie to this verified auth session so it cannot outlive a sign-out/re-login.
+  const sessionId = await getVerifiedAal2SessionId(admin.id);
+  if (!sessionId) redirect(stepUpChallengeUrl("aal1", "/platform/studios"));
+  const token = signSupportCookie(admin.id, studioId, sessionId, nonce);
   if (!token) redirect("/platform/studios");
 
-  // Fail closed: no audit row, no support context.
+  // Fail closed: no audit row, no support context. The row carries the token's nonce, which also revokes every earlier token for this admin.
   const audited = await recordPlatformSupportEvent({
     event: previousStudioId && previousStudioId !== studioId ? "switch" : "enter",
     studioId,
     userId: admin.id,
     previousStudioId,
+    nonce,
   });
   if (!audited) redirect("/platform/studios");
 
@@ -105,8 +110,15 @@ export async function clearStudioContextAction() {
   const admin = await requirePlatformAdmin();
 
   const cookieStore = await cookies();
-  const current = verifySupportCookie(cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value, admin.id);
-  if (current) await recordPlatformSupportEvent({ event: "exit", studioId: current, userId: admin.id });
+  const rawCookie = cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value;
+  // Fall back to the unauthenticated studio hint so a failed claims read or an AAL1 session cannot leave a copied cookie un-revoked: the exit row only
+  // reduces privilege, so it is safe to write for an unverified cookie (the caller is an authenticated platform admin and can only revoke their own context).
+  const current = (await resolveCurrentSupportStudio(rawCookie, admin.id)) ?? supportCookieStudioHint(rawCookie);
+  if (current) {
+    // The exit row is what REVOKES the cookie (it makes the entry row no longer the latest), so retry once before giving up.
+    const recorded = await recordPlatformSupportEvent({ event: "exit", studioId: current, userId: admin.id });
+    if (!recorded) await recordPlatformSupportEvent({ event: "exit", studioId: current, userId: admin.id });
+  }
   cookieStore.delete(PLATFORM_STUDIO_COOKIE);
 
   redirect("/platform");
@@ -116,7 +128,7 @@ export async function getPlatformSelectedStudioId() {
   const admin = await requirePlatformAdmin();
 
   const cookieStore = await cookies();
-  return verifySupportCookie(cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value, admin.id);
+  return resolveCurrentSupportStudio(cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value, admin.id);
 }
 function normalizePlatformAlertType(value: FormDataEntryValue | null) {
   const normalized = String(value ?? "info").trim().toLowerCase();

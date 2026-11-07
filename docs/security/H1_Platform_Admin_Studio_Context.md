@@ -38,3 +38,24 @@ not rewritten here. Fresh-MFA or time-boxing for individual financial mutations 
 
 - P2 fixed: `getStudioContextForStudio` no longer grants platform authority from a caller-supplied studio id. It now requires the verified, user-bound support cookie to name that studio (so an audited entry exists); otherwise the admin is treated as an ordinary user and, without a membership, sent to `/platform/studios`.
 - P3 accepted: a copied cookie stays valid until its 8h expiry after exit (needs the same admin aal2 session); no per-token revocation, key rotation is the global invalidation.
+
+## Replay of a previously valid support cookie (follow-up to #418)
+
+**Finding (was classified P3, re-tested and reclassified P2):** the #418 cookie was stateless. After `clearStudioContextAction` (exit) or a switch to another studio, a copied authentic, unexpired cookie for the same admin with an AAL2 session still resolved to studio-owner-equivalent authority, with no new audit row. Proven failing-first (6 of 8 replay scenarios failed before the fix).
+
+**Fix (no schema change):** cookie v2 carries a random nonce. `enterStudioContextAction` writes the nonce into the entry/switch audit row (`platform_support:enter:jti=<nonce>`, `platform_support:switch:from=<uuid>:jti=<nonce>`). The resolver (`resolveCurrentSupportStudio`) honours a cookie only when it is authentic, bound to the admin, unexpired AND its nonce is on the admin's most recent `platform_support:` audit row for that studio. An exit row (or any later enter/switch) therefore revokes every earlier cookie. A cookie with no audited entry row, a pre-fix v1 cookie and an unreadable audit trail all fail closed. Exit audit is retried once because the exit row is the revocation.
+
+**Cost:** one indexed read of `workspace_access_logs` per request for platform admins only (ordinary users never reach it).
+
+**Residuals (backlog):**
+- Sign-out without using Exit does not write an exit row (audit-hardening backlog). It is NOT a bypass: see "Sign-out and re-authentication" below.
+- If both exit audit writes fail, the cookie is deleted in the browser but a copy stays valid until expiry.
+- Audit rows are written by the service role; anyone who can insert `platform_support:` rows as that admin could re-validate a cookie, which already implies service-role compromise.
+
+### Sign-out and re-authentication
+
+Sign-out clears the Supabase auth cookies, not the support cookie, so an old cookie survives in the browser. Tested failing-first: the same admin signing back in at AAL2 could reuse the pre-sign-out cookie (latest audit row was still the entry row). Fix: the cookie MAC is now also keyed on the caller's VERIFIED auth session id (`session_id` claim via `getVerifiedAal2SessionId`; not stored in the cookie). A new login is a new session, so the old cookie stops verifying; a different admin fails on the user binding; an AAL1 re-login has no verified AAL2 session and is demoted/redirected to the challenge. The cookie keeps working across token refreshes within its own session. Missing `session_id` in verified claims fails closed. An AAL1 session can hold no support context, so Exit at AAL1 only clears the cookie.
+
+### Targeted review of the replay correction (head 89fd6411)
+
+No P0/P1. P2 fixed: Exit wrote its revoking row only when the cookie could be authenticated, so a transient claims failure during Exit left a copied cookie valid once the session recovered. Exit now also writes the row from an unauthenticated studio hint (`supportCookieStudioHint`); this can only reduce privilege and an admin can only revoke their own context. Failing-first test added. Accepted P3s: no tiebreaker on `accessed_at` (needs two inserts in the same microsecond, e.g. concurrent tabs; worst case a mislabeled enter/switch row or a forced re-entry, no escalation); leading-zero `issuedAt` aliases the same token; `workspace_access_logs` insert RLS lets a studio member insert their own rows, so a member could forge a `platform_support:` row for themselves, which still needs a valid MAC for their own session and grants nothing beyond their existing membership (hardening option: CHECK on route, backlog). Assumption to keep verifying: `session_id` is stable across token refresh and the AAL1-to-AAL2 upgrade (if not, the result is fail-closed re-entry).
