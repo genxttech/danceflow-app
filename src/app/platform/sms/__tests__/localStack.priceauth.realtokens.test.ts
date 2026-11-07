@@ -513,7 +513,8 @@ describe.skipIf(!enabled)("D4-2: pricing authorization with REAL GoTrue tokens t
     expect(decode(again.access).session_id).toBe(decode(s1.access).session_id);
     // EMERGENCY actions with a stale session: freeze, report_compromise and the recovery-freeze ceremony; the sensitive thaw is refused with the same stale token
     const stale = resign(fresh, { amr: [{ ...amr0[0], timestamp: nowS() - 3000 }] });
-    expect(reached(await rpc("tw4_price_cred_pending", stale))).toBe(true);
+    const pendingStale = await rpc("tw4_price_cred_pending", stale);
+    expect(reached(pendingStale), `${pendingStale.status} ${pendingStale.text.slice(0, 300)}`).toBe(true);
     const fz = await rpc("tw4_price_freeze", stale, { p_reason: "a freeze with a stale authenticator code, which must still work" });
     expect(fz.json).toMatchObject({ status: "frozen" });
     const rc = await rpc("tw4_price_report_compromise", stale, { p_note: "a compromise report with a stale authenticator code" });
