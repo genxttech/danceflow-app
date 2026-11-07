@@ -6,7 +6,9 @@
 //   approval-template --spec spec.json            print the term line the OWNER must approve (the runner never creates the approval)
 //   create-envelope --spec spec.json --approval-file owner.txt --approval-ref "chat 2026-11-07 14:02" --out envelope.json
 //   validate-envelope --envelope envelope.json
-//   run --envelope envelope.json [--repo DIR] [--dry]
+//   run --envelope envelope.json [--signature sig.json] [--dry]   LIVE needs the owner's detached signature + the registered owner key; --dry never does
+//   owner-keygen | owner-sign --envelope E [--out S] | owner-show   OWNER-side commands (interactive TTY only; see ownercli.ts)
+//   repo-pins                                     print lockfile / proof / runner hashes of this checkout for the envelope spec
 //   dry                                           self-test with a synthetic envelope and a fake child (no store, no network)
 //   ledger | reconcile --envelope-id ID --run-no N --note "what you checked"
 
@@ -16,6 +18,13 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { manifest } from "../d24-m3d-proof/manifest";
+import { resolveGit } from "./bins";
+import { lockfileSha } from "./gitverify";
+import { ownerKeygen, ownerShow, ownerSign, type Prompter } from "./ownercli";
+import { defaultOwnerDir, loadTrust } from "./ownersig";
+import { runnerManifest } from "./runnerpin";
+import { existsSync } from "node:fs";
+import { createInterface } from "node:readline";
 import { checkKeyShape } from "../d24-m3d-proof/identity";
 import { DpapiFileStore, WindowsCredentialManagerStore, type CredentialStore } from "./credstore";
 import { approvalTemplate, createEnvelope, validateEnvelope, type EnvelopeSpec } from "./envelope";
@@ -48,9 +57,9 @@ function parseOpts(argv: string[]): { cmd: string; opts: Map<string, string | tr
 const str = (o: Map<string, string | true>, k: string) => (typeof o.get(k) === "string" ? (o.get(k) as string) : undefined);
 
 /** Hidden prompt on a TTY (no echo); otherwise all of stdin. The value is returned to the caller and never printed. */
-export async function readSecret(stdin: NodeJS.ReadStream, prompt: (s: string) => void): Promise<string> {
+export async function readSecret(stdin: NodeJS.ReadStream, prompt: (s: string) => void, label = "Paste the restricted TEST key (input hidden), then press Enter: "): Promise<string> {
   if (stdin.isTTY) {
-    prompt("Paste the restricted TEST key (input hidden), then press Enter: ");
+    prompt(label);
     return new Promise((resolveP) => {
       let buf = "";
       stdin.setRawMode(true);
@@ -77,6 +86,22 @@ export async function readSecret(stdin: NodeJS.ReadStream, prompt: (s: string) =
   stdin.setEncoding("utf8");
   for await (const chunk of stdin) data += chunk;
   return data.replace(/[\r\n]+$/, "");
+}
+
+/** A real interactive prompter. isTty is false when stdin is not a terminal, which makes the owner commands refuse. */
+export function makePrompter(stdin: NodeJS.ReadStream): Prompter {
+  return {
+    isTty: Boolean(stdin.isTTY),
+    hidden: (label) => readSecret(stdin, (x) => process.stderr.write(x), label),
+    line: (label) =>
+      new Promise((res) => {
+        const rl = createInterface({ input: stdin, output: process.stderr, terminal: true });
+        rl.question(label, (a) => {
+          rl.close();
+          res(a);
+        });
+      }),
+  };
 }
 
 export function makeStore(kind: string, home: string): CredentialStore {
@@ -127,8 +152,9 @@ export async function selfTest(io: Io, now = () => new Date()): Promise<number> 
     envelopeId: "dry-selftest-1",
     createdUtc: created.toISOString().replace(/\.\d+Z$/, "Z"),
     expiresUtc: new Date(created.getTime() + 86_400_000).toISOString().replace(/\.\d+Z$/, "Z"),
-    code: { commitSha: "a".repeat(40) },
+    code: { commitSha: "a".repeat(40), lockfileSha256: lockfileSha(readFileSync(join(REPO, "package-lock.json"))) },
     proof: { manifestSha256: m.sha256, fileCount: m.files.length },
+    runner: { manifestSha256: runnerManifest(HERE).sha256, fileCount: runnerManifest(HERE).files.length },
     accounts: { platformAcct: "acct_DRYRUNPLATFORM", connectedAcct: "acct_DRYRUNCONNECTED" },
     permittedRuleIds: [
       "customer.create", "customer.delete", "identity.connected", "identity.platform", "invoice.add_lines", "invoice.create_draft", "invoice.delete_draft", "invoice.list_by_customer", "invoice.read", "negative.transfers", "negative.webhook_endpoints",
@@ -166,7 +192,9 @@ export async function selfTest(io: Io, now = () => new Date()): Promise<number> 
   return r.status === "PASS" ? 0 : 1;
 }
 
-export async function main(argv: string[], io: Io, stdin: NodeJS.ReadStream = process.stdin): Promise<number> {
+export type MainCtx = { ownerDir?: string; prompter?: Prompter; repo?: string };
+
+export async function main(argv: string[], io: Io, stdin: NodeJS.ReadStream = process.stdin, ctx: MainCtx = {}): Promise<number> {
   const p = parseOpts(argv);
   if ("error" in p) {
     io.err(`refused: ${p.error}`);
@@ -174,12 +202,36 @@ export async function main(argv: string[], io: Io, stdin: NodeJS.ReadStream = pr
   }
   const { cmd, opts } = p;
   const home = str(opts, "ledger-dir") ?? defaultHome();
+  const ownerDir = ctx.ownerDir ?? defaultOwnerDir();
+  const repoRoot = ctx.repo ?? REPO;
+  const liveLedger = () => {
+    const t = loadTrust(ownerDir);
+    return t ? new Ledger(t.ledgerDir, () => new Date(), t.anchorFile) : null;
+  };
   try {
     switch (cmd) {
       case "provision":
         return await provision(opts, io, stdin, home);
       case "dry":
         return await selfTest(io);
+      case "owner-keygen":
+        return await ownerKeygen(io, ctx.prompter ?? makePrompter(stdin), ownerDir, str(opts, "ledger-dir"));
+      case "owner-sign": {
+        const e = str(opts, "envelope");
+        if (!e) {
+          io.err("--envelope is required");
+          return 2;
+        }
+        return await ownerSign(io, ctx.prompter ?? makePrompter(stdin), e, str(opts, "out") ?? `${e}.sig.json`, ownerDir);
+      }
+      case "owner-show":
+        return ownerShow(io, ownerDir);
+      case "repo-pins": {
+        const pm = manifest(join(repoRoot, "scripts", "qa", "d24-m3d-proof"));
+        const rm = runnerManifest(join(repoRoot, "scripts", "qa", "d24-test-runner"));
+        io.out(JSON.stringify({ code: { lockfileSha256: lockfileSha(readFileSync(join(repoRoot, "package-lock.json"))) }, proof: { manifestSha256: pm.sha256, fileCount: pm.files.length }, runner: { manifestSha256: rm.sha256, fileCount: rm.files.length } }, null, 2));
+        return 0;
+      }
       case "approval-template": {
         const spec = JSON.parse(readFileSync(str(opts, "spec") ?? "", "utf8")) as EnvelopeSpec;
         io.out(approvalTemplate(spec));
@@ -219,11 +271,11 @@ export async function main(argv: string[], io: Io, stdin: NodeJS.ReadStream = pr
           io.err("--envelope is required");
           return 2;
         }
-        const repo = resolve(str(opts, "repo") ?? REPO);
         if (opts.has("dry")) {
-          // dry: fake child, temp ledger, a store factory that throws
+          // dry: fake child, temp ledger, a store factory that throws; no owner key needed because nothing live is possible
           const raw = JSON.parse(readFileSync(envelope, "utf8")) as { code?: { commitSha?: string } };
           const tmp = mkdtempSync(join(tmpdir(), "d24-runner-dry-"));
+          const repo = resolve(str(opts, "repo") ?? repoRoot);
           const r = await runEnvelope(envelope, repo, {
             exec: createFakeExec({ commitSha: raw.code?.commitSha ?? "", repoDir: repo }), parentEnv: process.env,
             store: () => {
@@ -233,32 +285,53 @@ export async function main(argv: string[], io: Io, stdin: NodeJS.ReadStream = pr
           });
           return r.exitCode;
         }
-        const r = await runEnvelope(envelope, repo, { exec: realExec, parentEnv: process.env, store: () => makeStore(readStoreKind(envelope), home), ledger: new Ledger(home), now: () => new Date(), out: io.out, dry: false, runInstall: true });
+        // LIVE: no location or checkout can be chosen on the command line
+        if (opts.has("ledger-dir") || opts.has("repo") || opts.has("home")) {
+          io.err("refused: a live run takes its ledger location from the owner trust file and its checkout from this runner's own clone; --ledger-dir/--repo/--home are not accepted");
+          return 2;
+        }
+        const trust = loadTrust(ownerDir);
+        if (!trust) {
+          io.err("refused (live): no owner public key is registered, so no envelope can be authorised. Use --dry, or have the owner run owner-keygen and owner-sign.");
+          return 2;
+        }
+        const sigPath = str(opts, "signature") ?? `${envelope}.sig.json`;
+        let signature: unknown = null;
+        if (existsSync(sigPath)) {
+          try {
+            signature = JSON.parse(readFileSync(sigPath, "utf8"));
+          } catch {
+            signature = null;
+          }
+        }
+        const gitBin = resolveGit(process.env.PATH);
+        if (!gitBin) {
+          io.err("refused (live): git was not found at an absolute path on PATH");
+          return 2;
+        }
+        const envDoc = JSON.parse(readFileSync(envelope, "utf8")) as { credential?: { store?: string } };
+        const kind = envDoc.credential?.store === "dpapi-file" ? "dpapi" : "wcm";
+        const r = await runEnvelope(envelope, repoRoot, { exec: realExec, parentEnv: process.env, store: () => makeStore(kind, home), ledger: new Ledger(trust.ledgerDir, () => new Date(), trust.anchorFile), now: () => new Date(), out: io.out, dry: false, runInstall: true, gitBin, owner: { trust, signature } });
         return r.exitCode;
       }
       case "ledger": {
-        for (const e of new Ledger(home).load()) io.out(`${e.seq} ${e.atUtc} ${e.type} envelope=${e.envelopeId} run=${e.runNo} ${e.outcome ?? e.note ?? ""}`);
+        for (const e of (liveLedger() ?? new Ledger(join(home, "ledger"))).load()) io.out(`${e.seq} ${e.atUtc} ${e.type} envelope=${e.envelopeId} run=${e.runNo} ${e.outcome ?? e.note ?? ""}`);
         return 0;
       }
       case "reconcile": {
-        const l = new Ledger(home);
+        const l = liveLedger() ?? new Ledger(join(home, "ledger"));
         l.reconcile(str(opts, "envelope-id") ?? "", Number(str(opts, "run-no")), str(opts, "note") ?? "");
         io.out("reconciled (the consumed run is NOT given back)");
         return 0;
       }
       default:
-        io.err("usage: provision | approval-template | create-envelope | validate-envelope | run | dry | ledger | reconcile (see the header of cli.ts)");
+        io.err("usage: provision | owner-keygen | owner-sign | owner-show | repo-pins | approval-template | create-envelope | validate-envelope | run | dry | ledger | reconcile (see the header of cli.ts)");
         return 2;
     }
   } catch (e) {
     io.err(`error: ${sanitize(String((e as Error)?.message ?? e))}`);
     return 1;
   }
-}
-
-function readStoreKind(envelopePath: string): string {
-  const e = JSON.parse(readFileSync(envelopePath, "utf8")) as { credential?: { store?: string } };
-  return e.credential?.store === "dpapi-file" ? "dpapi" : "wcm";
 }
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];

@@ -22,7 +22,7 @@ export type FakeOpts = {
   preflightFail?: string[];
   preflightManual?: string[];
   /** live behaviour */
-  live?: "ok" | "abort" | "unverifiable" | "no-evidence" | "overbudget" | "crash";
+  live?: "ok" | "abort" | "unverifiable" | "no-evidence" | "overbudget" | "crash" | "timeout";
   /** hostile text appended to the live stdout (tests secret detection) */
   hostileStdout?: string;
   hostileEvidence?: string;
@@ -35,7 +35,7 @@ const ok = (stdout = ""): ExecResult => ({ code: 0, stdout, stderr: "" });
 export function createFakeExec(o: FakeOpts): Exec {
   return async (cmd, args, opts) => {
     o.calls?.push({ cmd, args, env: { ...opts.env }, cwd: opts.cwd });
-    if (cmd === "git") {
+    if (cmd === "git" || /[\\/]git(\.exe)?$/.test(cmd)) {
       const a = args.filter((x) => x !== "-c" && x !== "core.fsmonitor=false");
       if (a[0] === "rev-parse" && a[1] === "HEAD") return ok(`${o.commitSha}\n`);
       if (a[0] === "rev-parse") return ok(`${o.repoDir.replace(/\\/g, "/")}\n`);
@@ -65,6 +65,7 @@ export function createFakeExec(o: FakeOpts): Exec {
     }
     if (flag === "--live") {
       if (o.live === "crash") throw new Error("spawn failed");
+      if (o.live === "timeout") return { code: null, stdout: "", stderr: "", timedOut: true };
       const dir = opts.env.D24_PROOF_EVIDENCE_DIR;
       const mode = o.live ?? "ok";
       if (dir && mode !== "no-evidence") {

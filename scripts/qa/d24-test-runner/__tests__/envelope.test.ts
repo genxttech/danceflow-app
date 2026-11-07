@@ -82,7 +82,7 @@ describe("owner approval binding (the runner cannot mint its own approval)", () 
   it("an approval for other terms (more runs, other commit) cannot be reused", () => {
     const old = approvalTemplate(baseSpec({ maxRuns: 1 }));
     expect(createEnvelope(baseSpec({ maxRuns: 2 }), old, "ref").ok).toBe(false);
-    expect(createEnvelope(baseSpec({ code: { commitSha: "d".repeat(40) } }), old, "ref").ok).toBe(false);
+    expect(createEnvelope(baseSpec({ code: { commitSha: "d".repeat(40), lockfileSha256: baseSpec().code.lockfileSha256 } }), old, "ref").ok).toBe(false);
   });
   it("detects a tampered approval text via its hash", () => {
     const e = makeEnvelope();

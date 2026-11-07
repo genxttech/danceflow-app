@@ -7,12 +7,15 @@ import type { Exec } from "./exec";
 
 export type Gate = { id: string; ok: boolean; detail: string };
 
-export type GitVerifyOpts = { repoDir: string; commitSha: string; lockfileSha256?: string; env: Record<string, string>; exec: Exec; runInstall: boolean; readLock?: (p: string) => Buffer };
+export type GitVerifyOpts = { repoDir: string; commitSha: string; lockfileSha256?: string; env: Record<string, string>; exec: Exec; runInstall: boolean; readLock?: (p: string) => Buffer; /** absolute git path (resolved from absolute PATH entries only); tests use the bare name with a fake exec */ gitBin?: string };
+
+/** SHA-256 of package-lock.json with CRLF normalised, so a Windows autocrlf checkout and a Linux checkout pin the same value. */
+export const lockfileSha = (buf: Buffer): string => createHash("sha256").update(buf.toString("utf8").replace(/\r\n/g, "\n")).digest("hex");
 
 /** Each query is a separate gate so a failure names exactly what was wrong. Order matters: nothing is installed unless the tree is already exactly the pinned commit. */
 export async function verifyCleanClone(o: GitVerifyOpts): Promise<Gate[]> {
   const gates: Gate[] = [];
-  const git = (args: string[]) => o.exec("git", ["-c", "core.fsmonitor=false", ...args], { cwd: o.repoDir, env: o.env, timeoutMs: 60_000 });
+  const git = (args: string[]) => o.exec(o.gitBin ?? "git", ["-c", "core.fsmonitor=false", ...args], { cwd: o.repoDir, env: o.env, timeoutMs: 60_000 });
 
   const head = await git(["rev-parse", "HEAD"]);
   const headSha = head.stdout.trim();
@@ -37,7 +40,7 @@ export async function verifyCleanClone(o: GitVerifyOpts): Promise<Gate[]> {
   const read = o.readLock ?? ((p: string) => readFileSync(p));
   let lockSha = "";
   try {
-    lockSha = createHash("sha256").update(read(join(o.repoDir, "package-lock.json"))).digest("hex");
+    lockSha = lockfileSha(read(join(o.repoDir, "package-lock.json")));
   } catch {
     lockSha = "";
   }
