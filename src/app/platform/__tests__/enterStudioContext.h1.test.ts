@@ -75,6 +75,7 @@ vi.mock("@/lib/supabase/admin", () => ({
 vi.mock("@/lib/student-identity/lifecycle", () => ({ linkExistingClientAccount: vi.fn() }));
 vi.mock("@/lib/auth/verifiedIdentity", () => ({ getVerifiedEmailForUser: vi.fn(), verifiedEmailMatches: vi.fn() }));
 
+import { signSupportCookie, verifySupportCookie } from "@/lib/auth/platform-support-cookie";
 import { clearStudioContextAction, enterStudioContextAction } from "../actions";
 
 const form = (studioId: string) => {
@@ -84,6 +85,7 @@ const form = (studioId: string) => {
 };
 
 beforeEach(() => {
+  process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key-for-hmac";
   jar.clear();
   cookieSets.length = 0;
   cookieDeletes.length = 0;
@@ -111,17 +113,18 @@ describe("enterStudioContextAction", () => {
     await expect(enterStudioContextAction(form(S1))).rejects.toThrow(/NEXT_REDIRECT:\/app/);
     expect(auditRows).toEqual([{ studio_id: S1, user_id: ADMIN, route: "platform_support:enter" }]);
     expect(cookieSets).toHaveLength(1);
+    expect(verifySupportCookie(cookieSets[0].value, ADMIN)).toBe(S1);
     expect(cookieSets[0].opts).toMatchObject({ httpOnly: true, sameSite: "lax", path: "/", maxAge: 8 * 60 * 60 });
   });
 
   it("audits a switch to a different studio with the previous studio recorded", async () => {
-    jar.set("platform_selected_studio_id", S2);
+    jar.set("platform_selected_studio_id", signSupportCookie(ADMIN, S2)!);
     await expect(enterStudioContextAction(form(S1))).rejects.toThrow(/NEXT_REDIRECT:\/app/);
     expect(auditRows[0].route).toBe(`platform_support:switch:from=${S2}`);
   });
 
   it("re-entering the same studio is an entry, not a switch", async () => {
-    jar.set("platform_selected_studio_id", S1);
+    jar.set("platform_selected_studio_id", signSupportCookie(ADMIN, S1)!);
     await expect(enterStudioContextAction(form(S1))).rejects.toThrow(/NEXT_REDIRECT:\/app/);
     expect(auditRows[0].route).toBe("platform_support:enter");
   });
@@ -146,10 +149,16 @@ describe("enterStudioContextAction", () => {
   });
 });
 
+it("a hand-set cookie is not trusted as the previous studio (entry, not switch)", async () => {
+  jar.set("platform_selected_studio_id", S2);
+  await expect(enterStudioContextAction(form(S1))).rejects.toThrow("NEXT_REDIRECT:/app");
+  expect(auditRows[0].route).toBe("platform_support:enter");
+});
+
 describe("clearStudioContextAction", () => {
   it("lets an admin leave a studio at any assurance level, audits the exit and clears the cookie", async () => {
     stepUpMode = "aal1"; // exit must NOT depend on step-up
-    jar.set("platform_selected_studio_id", S1);
+    jar.set("platform_selected_studio_id", signSupportCookie(ADMIN, S1)!);
     await expect(clearStudioContextAction()).rejects.toThrow(/NEXT_REDIRECT:\/platform$/);
     expect(cookieDeletes).toEqual(["platform_selected_studio_id"]);
     expect(auditRows).toEqual([{ studio_id: S1, user_id: ADMIN, route: "platform_support:exit" }]);
@@ -157,7 +166,7 @@ describe("clearStudioContextAction", () => {
 
   it("clears the cookie even when the exit audit write fails", async () => {
     auditOk = false;
-    jar.set("platform_selected_studio_id", S1);
+    jar.set("platform_selected_studio_id", signSupportCookie(ADMIN, S1)!);
     await expect(clearStudioContextAction()).rejects.toThrow(/NEXT_REDIRECT:\/platform$/);
     expect(cookieDeletes).toEqual(["platform_selected_studio_id"]);
   });

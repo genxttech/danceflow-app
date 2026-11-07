@@ -59,6 +59,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({}) }));
 
+import { signSupportCookie } from "../platform-support-cookie";
 import { getCurrentStudioContext, getStudioContextForStudio } from "../studio";
 
 const NOW = () => Math.floor(Date.now() / 1000);
@@ -69,9 +70,10 @@ const aal2 = (over: Record<string, unknown> = {}) => ({
 const aal1 = () => ({ data: { claims: { sub: USER, exp: NOW() + 3000, aal: "aal1", amr: [{ method: "password", timestamp: NOW() - 60 }] } }, error: null });
 
 beforeEach(() => {
+  process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key-for-hmac";
   redirects.length = 0;
   cookieJar.clear();
-  cookieJar.set("platform_selected_studio_id", SUPPORT_STUDIO);
+  cookieJar.set("platform_selected_studio_id", signSupportCookie(USER, SUPPORT_STUDIO)!);
   platformRole = "platform_admin";
   ownRoles = [];
   claimsResult = aal2();
@@ -116,6 +118,19 @@ describe("getCurrentStudioContext - platform admin support context", () => {
   it("a platform admin with no support cookie is still sent to pick a studio (unchanged)", async () => {
     cookieJar.delete("platform_selected_studio_id");
     await expect(getCurrentStudioContext()).rejects.toThrow(/NEXT_REDIRECT:\/platform\/studios/);
+  });
+});
+
+describe("H1 support cookie is signed, user-bound and time-bounded", () => {
+  it.each([
+    ["a bare studio id set by hand", () => SUPPORT_STUDIO],
+    ["a token signed for another admin", () => signSupportCookie(OTHER, SUPPORT_STUDIO)!],
+    ["a token with a tampered studio", () => signSupportCookie(USER, SUPPORT_STUDIO)!.replace(SUPPORT_STUDIO, OWN_STUDIO)],
+    ["an expired token", () => signSupportCookie(USER, SUPPORT_STUDIO, NOW() - 9 * 3600)!],
+    ["garbage", () => "v1...."],
+  ])("%s does not resolve a support studio even at aal2", async (_n, make) => {
+    cookieJar.set("platform_selected_studio_id", make());
+    await expect(getCurrentStudioContext()).rejects.toThrow("NEXT_REDIRECT:/platform/studios");
   });
 });
 

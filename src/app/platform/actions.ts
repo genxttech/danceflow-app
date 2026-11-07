@@ -8,6 +8,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { requirePlatformStepUp } from "@/lib/auth/platform-assurance";
 import { recordPlatformSupportEvent } from "@/lib/auth/platform-support-audit";
+import { SUPPORT_COOKIE_MAX_AGE_SECONDS, signSupportCookie, verifySupportCookie } from "@/lib/auth/platform-support-cookie";
 import { linkExistingClientAccount } from "@/lib/student-identity/lifecycle";
 import { getVerifiedEmailForUser, verifiedEmailMatches } from "@/lib/auth/verifiedIdentity";
 import {
@@ -20,8 +21,6 @@ import {
 } from "@/lib/validation/forms";
 
 const PLATFORM_STUDIO_COOKIE = "platform_selected_studio_id";
-/** H1: the support context is time-bounded as well as aal2-gated: the cookie expires after 8 hours even if the session stays aal2. */
-const PLATFORM_STUDIO_COOKIE_MAX_AGE_SECONDS = 8 * 60 * 60;
 
 function cleanActionText(formData: FormData, key: string, fieldLabel: string, maxLength: number, allowNewlines = false) {
   const result = cleanTextValue(rawFormString(formData, key), {
@@ -77,8 +76,9 @@ export async function enterStudioContextAction(formData: FormData) {
   }
 
   const cookieStore = await cookies();
-  const previous = normalizeOptionalUuid(cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value ?? "", "Selected studio");
-  const previousStudioId = previous.ok ? previous.value : null;
+  const previousStudioId = verifySupportCookie(cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value, admin.id);
+  const token = signSupportCookie(admin.id, studioId);
+  if (!token) redirect("/platform/studios");
 
   // Fail closed: no audit row, no support context.
   const audited = await recordPlatformSupportEvent({
@@ -89,12 +89,12 @@ export async function enterStudioContextAction(formData: FormData) {
   });
   if (!audited) redirect("/platform/studios");
 
-  cookieStore.set(PLATFORM_STUDIO_COOKIE, studioId, {
+  cookieStore.set(PLATFORM_STUDIO_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: PLATFORM_STUDIO_COOKIE_MAX_AGE_SECONDS,
+    maxAge: SUPPORT_COOKIE_MAX_AGE_SECONDS,
   });
 
   redirect("/app");
@@ -105,25 +105,18 @@ export async function clearStudioContextAction() {
   const admin = await requirePlatformAdmin();
 
   const cookieStore = await cookies();
-  const current = normalizeOptionalUuid(cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value ?? "", "Selected studio");
-  if (current.ok && current.value) {
-    await recordPlatformSupportEvent({ event: "exit", studioId: current.value, userId: admin.id });
-  }
+  const current = verifySupportCookie(cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value, admin.id);
+  if (current) await recordPlatformSupportEvent({ event: "exit", studioId: current, userId: admin.id });
   cookieStore.delete(PLATFORM_STUDIO_COOKIE);
 
   redirect("/platform");
 }
 
 export async function getPlatformSelectedStudioId() {
-  await requirePlatformAdmin();
+  const admin = await requirePlatformAdmin();
 
   const cookieStore = await cookies();
-  const selectedStudioIdResult = normalizeOptionalUuid(
-    cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value ?? "",
-    "Selected studio",
-  );
-
-  return selectedStudioIdResult.ok ? selectedStudioIdResult.value : null;
+  return verifySupportCookie(cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value, admin.id);
 }
 function normalizePlatformAlertType(value: FormDataEntryValue | null) {
   const normalized = String(value ?? "info").trim().toLowerCase();

@@ -28,3 +28,8 @@ Ordinary studio owners/staff never reach the claims read (tested). An admin who 
 ## Not changed (separate backlog, see Platform_Admin_Security_Backlog.md)
 Database paths: RLS policies and SECURITY DEFINER functions that check `platform_role` without `aal2` are reachable with an aal1 token via PostgREST. They are inventoried,
 not rewritten here. Fresh-MFA or time-boxing for individual financial mutations inside a support session is a recommendation, not implemented.
+
+## Review follow-ups (independent review, round 1)
+- The support cookie is now a signed token `v1.<studio>.<issuedAt>.<hmac>` bound to the admin's user id and limited to 8 hours, so a hand-set, stale or other-admin cookie resolves to nothing and the audited enter action is the only way to obtain a context.
+- **Limitation, stated plainly:** this PR secures the studio-support context only. It does NOT make every platform-admin capability aal2-only. Platform server actions guarded by `requirePlatformAdmin()` alone (create platform admin, workspace-active, credential approve/reject/reset, portal repair, mobile push test, invites, expenses, sales, wave/ops actions), `api/platform/billing/price-config`, and RLS/SECURITY DEFINER paths remain as in the backlog.
+- Not done here: exit rows for sign-out and cookie expiry; user agent / IP in audit rows; a distinct refusal reason for transient claims failures; per-request memoisation of the claims read.
