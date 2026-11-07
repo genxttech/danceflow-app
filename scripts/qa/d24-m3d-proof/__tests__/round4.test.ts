@@ -151,7 +151,7 @@ describe("P2-4 a partial evidence pack that cannot be removed is reported loudly
     writeEvidence(dir, { ...input, runId: "r4000002" }, REPO); // makes evidence-r4000002.json + transcript-r4000002.txt exist
     // second pack with a clashing TRANSCRIPT name only: remove the first pack's JSON so the JSON create succeeds and the transcript create then collides
     rmSync(join(dir, "evidence-r4000002.json"));
-    expect(() => writeEvidence(dir, { ...input, runId: "r4000002" }, REPO, { unlink: () => { throw new Error("EPERM simulated"); } })).toThrow(/could not be removed[\s\S]*delete it by hand/);
+    expect(() => writeEvidence(dir, { ...input, runId: "r4000002" }, REPO, { unlink: () => { throw new Error("EPERM simulated"); } })).toThrow(/could not be removed[\s\S]*delete by hand/);
     expect(existsSync(join(dir, "evidence-r4000002.json"))).toBe(true); // the leftover is exactly the file named in the message
   });
 });

@@ -6,7 +6,7 @@ import { STRIPE_API_VERSION } from "../config";
 // requests actually leave the client. Nothing here can reach the internet.
 
 export type Recorded = { method: string; url: string; headers: http.IncomingHttpHeaders; body: string; socketId: number };
-export type Behaviour = "ok" | "reset" | "redirect" | "hang" | "garbage" | "no-version" | "big" | "drip" | "scalar" | "array";
+export type Behaviour = "ok" | "reset" | "redirect" | "hang" | "garbage" | "no-version" | "big" | "drip" | "scalar" | "array" | "dupkey";
 
 export async function startLoopback(behaviour: (n: number) => Behaviour = () => "ok") {
   const requests: Recorded[] = [];
@@ -38,6 +38,7 @@ export async function startLoopback(behaviour: (n: number) => Behaviour = () => 
       if (b === "garbage") return void res.end("<html>not json</html>");
       if (b === "big") return void res.end("x".repeat(1_100_000));
       if (b === "scalar") return void res.end("5");
+      if (b === "dupkey") return void res.end('{"id":"cus_DUP00001","object":"customer","livemode":true,"livemode":false}');
       if (b === "array") return void res.end("[\"cus_ARR00001\"]");
       res.end(JSON.stringify({ id: "acct_LOOPBACK1", object: "account" }));
     });

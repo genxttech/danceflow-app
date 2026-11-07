@@ -48,10 +48,13 @@ export function createNodeTransport(opts: NodeTransportOptions = {}): Transport 
         res.on("error", reject);
         res.on("end", () => {
           let json: Record<string, unknown> | null = null;
+          const raw = Buffer.concat(chunks).toString("utf8");
           try {
-            const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+            const parsed: unknown = JSON.parse(raw);
             // only a plain JSON object is a usable body; a scalar or an array is treated like an unparseable one
             json = parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+            // duplicate keys: JSON.parse keeps the LAST one, which could hide an earlier "livemode":true. Scan the raw text and force the flag so the guard sees it.
+            if (json && /"livemode"\s*:\s*true/.test(raw)) json = { ...json, livemode: true };
           } catch {
             json = null;
           }
