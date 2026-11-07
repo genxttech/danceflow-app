@@ -22,6 +22,7 @@ import { resolveGit } from "./bins";
 import { lockfileSha } from "./gitverify";
 import { defaultOwnerDir, defaultRunnerHome, loadTrust, ownerSeparationWarning } from "./ownerverify";
 import { readSecret } from "./secretprompt";
+import { ANCHOR_FILE } from "./webauthn";
 import { runnerManifest } from "./runnerpin";
 import { existsSync } from "node:fs";
 import { checkKeyShape } from "../d24-m3d-proof/identity";
@@ -230,13 +231,25 @@ export async function main(argv: string[], io: Io, stdin: NodeJS.ReadStream = pr
           io.err("refused: a live run takes its ledger location from the owner trust file and its checkout from this runner's own clone; --ledger-dir/--repo/--home are not accepted");
           return 2;
         }
-        const trust = loadTrust(ownerDir);
-        if (!trust) {
-          io.err("refused (live): no owner public key is registered, so no envelope can be authorised. Use --dry, or have the owner run owner-keygen and owner-sign.");
+        const hwMode = existsSync(join(HERE, ANCHOR_FILE));
+        const trust = hwMode ? null : loadTrust(ownerDir);
+        if (!hwMode && !trust) {
+          io.err("refused (live): no owner approval can be verified: this checkout has no hardware anchor and no owner public key is registered. Use --dry, or have the owner enroll.");
           return 2;
         }
-        const warn = ownerSeparationWarning(ownerDir, trust);
-        if (warn) io.err(warn);
+        if (trust) {
+          const warn = ownerSeparationWarning(ownerDir, trust);
+          if (warn) io.err(warn);
+        }
+        let hwDoc: unknown = null;
+        if (hwMode) {
+          const hwPath = str(opts, "hw-approval") ?? `${envelope}.hw.json`;
+          try {
+            hwDoc = JSON.parse(readFileSync(hwPath, "utf8"));
+          } catch {
+            hwDoc = null;
+          }
+        }
         const sigPath = str(opts, "signature") ?? `${envelope}.sig.json`;
         let signature: unknown = null;
         if (existsSync(sigPath)) {
@@ -253,7 +266,7 @@ export async function main(argv: string[], io: Io, stdin: NodeJS.ReadStream = pr
         }
         const envDoc = JSON.parse(readFileSync(envelope, "utf8")) as { credential?: { store?: string } };
         const kind = envDoc.credential?.store === "dpapi-file" ? "dpapi" : "wcm";
-        const r = await runEnvelope(envelope, repoRoot, { exec: realExec, parentEnv: process.env, store: () => makeStore(kind, home), ledger: new Ledger(trust.ledgerDir, () => new Date(), trust.anchorFile), now: () => new Date(), out: io.out, dry: false, runInstall: true, gitBin, owner: { trust, signature } });
+        const r = await runEnvelope(envelope, repoRoot, { exec: realExec, parentEnv: process.env, store: () => makeStore(kind, home), ledger: hwMode ? new Ledger(join(defaultRunnerHome(), "ledger"), () => new Date(), join(ownerDir, "ledger-anchor.json")) : new Ledger(trust!.ledgerDir, () => new Date(), trust!.anchorFile), now: () => new Date(), out: io.out, dry: false, runInstall: true, gitBin, owner: { trust, signature, hardware: hwMode ? { doc: hwDoc } : undefined } });
         return r.exitCode;
       }
       case "ledger": {

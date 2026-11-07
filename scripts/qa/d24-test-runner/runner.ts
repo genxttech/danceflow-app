@@ -10,14 +10,15 @@ import { evidenceDirProblem } from "../d24-m3d-proof/evidence";
 import { checkKeyShape } from "../d24-m3d-proof/identity";
 import { manifest } from "../d24-m3d-proof/manifest";
 import { runnerInsideClone, runnerManifest } from "./runnerpin";
-import { verifyOwnerSignature, type OwnerTrust } from "./ownerverify";
+import { defaultOwnerDir, defaultRunnerHome, verifyOwnerSignature, type OwnerTrust } from "./ownerverify";
+import { ANCHOR_FILE, loadAnchor, verifyAndRecord } from "./webauthn";
 import { baseEnv, proofEnv } from "./childenv";
 import { sha256 } from "./canon";
 import { checkEnvelopeWindow, KNOWN_RULE_IDS, validateEnvelope } from "./envelope";
 import type { CredentialStore } from "./credstore";
 import { realExec, type Exec } from "./exec";
 import { isDryFakeExec, isSimulatedLiveExec } from "./fakeChild";
-import { verifyCleanClone, type Gate } from "./gitverify";
+import { commitOnMain, verifyCleanClone, type Gate } from "./gitverify";
 import type { Ledger, LedgerEntry } from "./ledger";
 import { analyzeEvidence, decide, hashFile, redactionScan, renderReport, type FileHash, type RunSummary } from "./postrun";
 import { proofAllowList, proofDryRun, proofLive, proofPreflight, proofPrintHash, type ProofCall } from "./proofcli";
@@ -39,7 +40,12 @@ export type RunnerDeps = {
   /** absolute git path for live runs (see bins.resolveGit) */
   gitBin?: string;
   /** LIVE only: the pinned owner trust (null = none registered => refuse) and the parsed detached signature document. Ignored in dry. */
-  owner?: { trust: OwnerTrust | null; signature: unknown };
+  owner?: {
+    trust: OwnerTrust | null;
+    signature: unknown;
+    /** the hardware-key approval document (webauthn-es256). seams: anchorPath/statePath/pins default to the fixed locations */
+    hardware?: { doc: unknown; anchorPath?: string; statePath?: string; pins?: { ledgerDir: string; anchorFile: string } };
+  };
 };
 
 export type RunResult = { summary: RunSummary | null; status: RunSummary["status"]; exitCode: number; reportPath: string | null; gates: Gate[] };
@@ -87,10 +93,21 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   gate("envelope-window", true, `valid until ${env.expiresUtc}`);
 
   // 1b. OWNER signature: the control that the tooling cannot self-approve. Live runs need a registered owner key and a valid detached signature.
-  if (d.dry) gate("owner-signature", true, "DRY: not required (no live call is possible in dry mode); a LIVE run would be refused without a registered owner key and a valid signature");
-  else {
+  // The approval KIND is decided by the runner folder itself: if it contains the pinned hardware anchor (owner-hw-anchor.json), the hardware-key kind is
+  // REQUIRED and the passphrase-sealed Ed25519 kind can never authorise a live run. The anchor file is inside the runner-pinned folder.
+  const hwLoaded = d.dry ? null : loadAnchor(d.owner?.hardware?.anchorPath ?? join(__dirnameOf(), ANCHOR_FILE));
+  const hwAnchor = hwLoaded && hwLoaded.ok ? hwLoaded.anchor : null;
+  if (d.dry) gate("owner-signature", true, "DRY: not required (no live call is possible in dry mode); a LIVE run would be refused without a valid owner approval");
+  else if (hwLoaded !== null) {
+    if (!hwLoaded.ok) {
+      gate("owner-approval", false, `hardware anchor present but invalid: ${hwLoaded.problems.join("; ")}`);
+      return blocked("owner-approval");
+    }
+    const r = verifyAndRecord(d.owner?.hardware?.statePath ?? join(defaultOwnerDir(), "hw-signcount.json"), { envelopeSha256: env.envelopeSha256, doc: d.owner?.hardware?.doc, anchor: hwLoaded.anchor });
+    if (!gate("owner-approval", r.ok, r.ok ? `HARDWARE-key approval (webauthn-es256) verified against anchor ${hwLoaded.anchor.fingerprintSha256.slice(0, 16)}, counter ${r.signCount}; Ed25519 is not accepted when the anchor is present` : r.reason)) return blocked("owner-approval");
+  } else {
     const sig = verifyOwnerSignature(env.envelopeSha256, d.owner?.signature, d.owner?.trust ?? null);
-    if (!gate("owner-signature", sig.ok, sig.reason)) return blocked("owner-signature");
+    if (!gate("owner-signature", sig.ok, sig.ok ? `DEV KIND (passphrase-sealed Ed25519; same-user, NOT an independent approval): ${sig.reason}` : sig.reason)) return blocked("owner-signature");
   }
 
   // 1c. the runner's own code is part of the approval: it must live in the verified clone and match the hash in the envelope
@@ -105,10 +122,10 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   let blockers: string[];
   const bind = { envelopeSha256: env.envelopeSha256, keyFp: env.credential.keyFingerprintSha256Prefix };
   if (!d.dry) {
-    const pinned = d.owner?.trust;
+    const pinned = hwAnchor ? (d.owner?.hardware?.pins ?? { ledgerDir: join(defaultRunnerHome(), "ledger"), anchorFile: join(defaultOwnerDir(), "ledger-anchor.json") }) : d.owner?.trust;
     const same = (a: string, b: string) => resolve(a).toLowerCase() === resolve(b).toLowerCase();
     const okPin = Boolean(pinned) && same(d.ledger.dir, pinned!.ledgerDir) && d.ledger.anchorFile !== undefined && same(d.ledger.anchorFile, pinned!.anchorFile);
-    if (!gate("ledger-pinned", okPin, okPin ? "ledger directory and anchor are the locations pinned in the owner trust file" : "the ledger is not at the location pinned in the owner trust file (a fresh or other ledger would reset the run budget)")) return blocked("ledger-pinned");
+    if (!gate("ledger-pinned", okPin, okPin ? "ledger directory and anchor are the fixed locations (owner trust file / hardware mode defaults)" : "the ledger is not at the pinned location (a fresh or other ledger would reset the run budget)")) return blocked("ledger-pinned");
   }
   try {
     blockers = d.ledger.startBlockers(env.envelopeId, env.maxRuns, bind);
@@ -128,6 +145,10 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   const git = await verifyCleanClone({ repoDir, commitSha: env.code.commitSha, lockfileSha256: env.code.lockfileSha256, env: plain.env, exec: d.exec, runInstall: d.runInstall, gitBin: d.gitBin });
   for (const g of git) gate(g.id, g.ok, g.detail);
   if (git.some((g) => !g.ok)) return blocked("clean-clone");
+  if (hwAnchor) {
+    const m = await commitOnMain({ repoDir, commitSha: env.code.commitSha, repoUrl: hwAnchor.repoUrl, branch: hwAnchor.branch, env: plain.env, exec: d.exec, gitBin: d.gitBin });
+    if (!gate(m.id, m.ok, m.detail)) return blocked("commit-on-main");
+  }
 
   // 5. proof manifest: runner recomputation AND the proof's own --print-hash AND the envelope must all agree
   const call: ProofCall = { repoDir, env: plain.env, exec: d.exec, tsxCli: d.tsxCli };

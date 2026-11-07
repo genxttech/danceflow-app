@@ -13,6 +13,8 @@ export type FakeOpts = {
   repoDir: string;
   dirty?: boolean;
   hiddenEdit?: boolean;
+  /** hardware mode: merge-base --is-ancestor says the commit is NOT on the branch */
+  notOnMain?: boolean;
   npmCiFails?: boolean;
   /** override what the fake proof reports as its manifest hash */
   proofHash?: string;
@@ -46,6 +48,8 @@ export function createFakeExec(o: FakeOpts, hooks: { tap?: (cmd: string, args: s
     o.calls?.push({ cmd, args, env: { ...opts.env }, cwd: opts.cwd });
     if (cmd === "git" || /[\\/]git(\.exe)?$/.test(cmd)) {
       const a = args.filter((x) => x !== "-c" && x !== "core.fsmonitor=false");
+      if (a[0] === "fetch") return ok();
+      if (a[0] === "merge-base") return { code: o.notOnMain ? 1 : 0, stdout: "", stderr: "" };
       if (a[0] === "rev-parse" && a[1] === "HEAD") return ok(`${o.commitSha}\n`);
       if (a[0] === "rev-parse") return ok(`${o.repoDir.replace(/\\/g, "/")}\n`);
       if (a[0] === "status") return ok(o.dirty ? " M scripts/qa/d24-m3d-proof/allowlist.ts\n" : "");
