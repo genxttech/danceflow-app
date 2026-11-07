@@ -2,7 +2,7 @@
 // crashed run still consumes one. A start without an end blocks further runs until a human reconciles it (cleanup may be incomplete).
 // The chain head is also recorded in a SECOND location (the anchor file) so truncating the tail or replacing the ledger is detected.
 
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { canonicalJson, sha256 } from "./canon";
 
@@ -48,7 +48,7 @@ export class Ledger {
   readonly file: string;
   readonly lockFile: string;
   /** `anchorFile` (a second location, outside the ledger directory) records the entry count and head hash after every append. */
-  constructor(readonly dir: string, private readonly now: () => Date = () => new Date(), readonly anchorFile?: string) {
+  constructor(readonly dir: string, private readonly now: () => Date = () => new Date(), readonly anchorFile?: string, private readonly appendLockWaitMs = 5000) {
     if (insideGitCheckout(dir)) throw new Error("the run ledger must live outside any git checkout or worktree");
     mkdirSync(dir, { recursive: true });
     this.file = join(dir, "ledger.jsonl");
@@ -111,7 +111,49 @@ export class Ledger {
     renameSync(tmp, this.anchorFile);
   }
 
+  private appendLockHeld = false;
+
+  /** Short exclusive lock around load+append (+anchor): two writers (endRun/reconcile/startRun) can never produce the same seq and brick the chain. */
+  private withAppendLock<T>(fn: () => T): T {
+    if (this.appendLockHeld) return fn();
+    const lf = join(this.dir, "append.lock");
+    const deadline = Date.now() + this.appendLockWaitMs;
+    for (;;) {
+      try {
+        closeSync(openSync(lf, "wx", 0o600));
+        break;
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+        try {
+          if (Date.now() - statSync(lf).mtimeMs > 60_000) {
+            unlinkSync(lf); // stale lock from a crashed writer
+            continue;
+          }
+        } catch {
+          /* raced with the owner releasing it */
+        }
+        if (Date.now() > deadline) throw new Error("ledger append lock is busy (another process is writing the ledger); try again");
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+      }
+    }
+    this.appendLockHeld = true;
+    try {
+      return fn();
+    } finally {
+      this.appendLockHeld = false;
+      try {
+        unlinkSync(lf);
+      } catch {
+        /* already gone */
+      }
+    }
+  }
+
   private append(partial: Omit<LedgerEntry, "seq" | "atUtc" | "prev" | "hash">): LedgerEntry {
+    return this.withAppendLock(() => this.appendLocked(partial));
+  }
+
+  private appendLocked(partial: Omit<LedgerEntry, "seq" | "atUtc" | "prev" | "hash">): LedgerEntry {
     const entries = this.load();
     const prev = entries.length ? entries[entries.length - 1].hash : GENESIS;
     const rest = { seq: entries.length + 1, atUtc: this.now().toISOString(), ...partial, prev };
@@ -204,6 +246,10 @@ export class Ledger {
 
   /** Human acknowledgement of an unfinished run (after checking the Stripe dashboard). Does NOT give the run back and refuses while the lock holder is alive. */
   reconcile(envelopeId: string, runNo: number, note: string): LedgerEntry {
+    return this.withAppendLock(() => this.reconcileLocked(envelopeId, runNo, note));
+  }
+
+  private reconcileLocked(envelopeId: string, runNo: number, note: string): LedgerEntry {
     const s = this.load().find((e) => e.type === "run-start" && e.envelopeId === envelopeId && e.runNo === runNo);
     if (!s) throw new Error("no such run in the ledger");
     if (note.trim().length < 10) throw new Error("a reconcile note (what was checked, where) of at least 10 characters is required");

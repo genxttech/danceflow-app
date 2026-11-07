@@ -76,11 +76,31 @@ export const approvalTemplate = (e: Parameters<typeof approvalTokens>[0]): strin
 
 export type EnvelopeIssue = { code: string; detail: string };
 
+/** C0/C1 controls (ESC, CR, LF, NUL...), DEL, soft hyphen, zero-width and bidi controls (U+202A-202E, U+2066-2069), line/paragraph separators, BOM, interlinear marks. */
+export const UNSAFE_CHARS = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/;
+
+/** Paths (never the offending text) of every string key/value that contains an unsafe character. */
+export function unsafeStringPaths(v: unknown, path = "$", out: string[] = [], depth = 0): string[] {
+  if (depth > 12 || out.length > 20) return out;
+  if (typeof v === "string") {
+    if (UNSAFE_CHARS.test(v)) out.push(path);
+  } else if (Array.isArray(v)) v.forEach((x, i) => unsafeStringPaths(x, `${path}[${i}]`, out, depth + 1));
+  else if (v !== null && typeof v === "object") {
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      if (UNSAFE_CHARS.test(k)) out.push(`${path}.<key with control character>`);
+      unsafeStringPaths(x, `${path}.${k.replace(/[^\x20-\x7e]/g, "?").slice(0, 40)}`, out, depth + 1);
+    }
+  }
+  return out;
+}
+
 /** Structural + policy validation. Does NOT check expiry against the clock (see checkEnvelopeWindow) or run counts (ledger). */
 export function validateEnvelope(raw: unknown): { ok: true; envelope: Envelope } | { ok: false; issues: EnvelopeIssue[] } {
   const issues: EnvelopeIssue[] = [];
   const bad = (code: string, detail: string) => issues.push({ code, detail });
   if (!plain(raw)) return { ok: false, issues: [{ code: "shape", detail: "envelope is not a JSON object" }] };
+  const unsafe = unsafeStringPaths(raw);
+  if (unsafe.length > 0) return { ok: false, issues: [{ code: "control-char", detail: `control, escape, line-break or bidi characters are not allowed in any envelope string (at ${unsafe.slice(0, 5).join(", ")})` }] };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const e = raw as Record<string, any>;
   const allowedTop = ["schemaVersion", "envelopeId", "mode", "createdUtc", "expiresUtc", "code", "proof", "runner", "accounts", "permittedRuleIds", "apiCallCeiling", "cleanupReserve", "credential", "cleanup", "forbidden", "stopConditions", "maxRuns", "evidenceRoot", "manualAttestations", "ownerApproval", "envelopeSha256"];

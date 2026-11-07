@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { icaclsExe, powershellExe, resolveGit, systemRoot, taskkillExe } from "../bins";
+import { GIT_FALLBACK_PATH, icaclsExe, powershellExe, resolveGit, system32, systemRoot, taskkillExe } from "../bins";
 import { realExec } from "../exec";
 import { tmp } from "./helpers";
 
@@ -37,20 +37,28 @@ describe("timeout kills the WHOLE process tree (P2-4)", () => {
   });
 });
 
-describe("absolute system binaries, neutral resolution (P3-1)", () => {
-  it("System32 paths are absolute and rooted at SystemRoot, whatever PATH or cwd says", () => {
-    const env = { SystemRoot: "C:\\Windows", PATH: ".;C:\\evil" };
-    expect(powershellExe(env)).toMatch(/^C:\\Windows\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe$/i);
-    expect(icaclsExe(env)).toMatch(/^C:\\Windows\\System32\\icacls\.exe$/i);
-    expect(taskkillExe(env)).toMatch(/^C:\\Windows\\System32\\taskkill\.exe$/i);
+describe("absolute system binaries, neutral resolution (P3-1, N-5)", () => {
+  const WIN = String.raw`C:\Windows`;
+  it("System32 paths are absolute and rooted at the fixed Windows dir, whatever PATH, cwd or SystemRoot says", () => {
+    const env = { SystemRoot: String.raw`D:\Windows`, PATH: String.raw`.;C:\evil` };
+    expect(powershellExe(env).toLowerCase()).toBe(String.raw`c:\windows\system32\windowspowershell\v1.0\powershell.exe`);
+    expect(icaclsExe(env).toLowerCase()).toBe(String.raw`c:\windows\system32\icacls.exe`);
+    expect(taskkillExe(env).toLowerCase()).toBe(String.raw`c:\windows\system32\taskkill.exe`);
   });
-  it("a hostile SystemRoot value is ignored", () => {
-    expect(systemRoot({ SystemRoot: "C:\\evil\\dir" })).toBe("C:\\Windows");
-    expect(systemRoot({ SystemRoot: "..\\..\\x" })).toBe("C:\\Windows");
+  it("SystemRoot / drive letters from the environment are never trusted", () => {
+    for (const v of [String.raw`C:\evil\dir`, String.raw`..\..\x`, String.raw`D:\Windows`, String.raw`E:\windows`]) expect(systemRoot({ SystemRoot: v })).toBe(WIN);
+  });
+  it("the git fallback is a real absolute path with its backslashes (not a drive-relative string)", () => {
+    expect(GIT_FALLBACK_PATH).toBe(String.raw`C:\Program Files\Git\cmd\git.exe`);
+    expect(GIT_FALLBACK_PATH).toMatch(/^[A-Za-z]:\\/);
+    if (process.platform === "win32") expect(resolveGit("", (p) => p === GIT_FALLBACK_PATH)).toBe(GIT_FALLBACK_PATH);
+  });
+  it("refuses (does not guess another drive) when the fixed Windows dir has no System32", () => {
+    if (process.platform === "win32") expect(() => system32(undefined, () => false)).toThrow(/refusing to guess/);
   });
   it("git is resolved from ABSOLUTE PATH entries only (never cwd or relative entries)", () => {
     const sep = process.platform === "win32" ? ";" : ":";
-    const abs = process.platform === "win32" ? "C:\\tools\\git" : "/opt/git";
+    const abs = process.platform === "win32" ? String.raw`C:\tools\git` : "/opt/git";
     const name = process.platform === "win32" ? "git.exe" : "git";
     const seen: string[] = [];
     const found = resolveGit(`.${sep}relative${sep}${abs}`, (p) => (seen.push(p), p.endsWith(name) && p.startsWith(abs)));
@@ -61,11 +69,11 @@ describe("absolute system binaries, neutral resolution (P3-1)", () => {
 });
 
 describe("no bare system binary names in spawn calls (static)", () => {
-  it("credstore and exec launch powershell/icacls/taskkill only via bins.ts absolute paths", async () => {
-    const { readFileSync } = await import("node:fs");
+  it("credstore and exec launch powershell/icacls/taskkill only via bins.ts absolute paths", () => {
     for (const f of ["credstore.ts", "exec.ts", "gitverify.ts"]) {
       const src = readFileSync(join(__dirname, "..", f), "utf8");
       expect(src, f).not.toMatch(/spawn(Sync)?\(\s*"(powershell|icacls|taskkill)(\.exe)?"/);
+      expect(src, f).not.toMatch(/process\.env\.SystemRoot/);
     }
   });
 });

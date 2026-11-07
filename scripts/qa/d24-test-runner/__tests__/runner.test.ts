@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MemoryStore } from "../credstore";
+import { realExec } from "../exec";
 import { createFakeExec, type FakeOpts } from "../fakeChild";
 import { verifyCleanClone } from "../gitverify";
 import { Ledger } from "../ledger";
@@ -27,13 +28,10 @@ async function go(s: Setup = {}) {
   if (s.sig === "garbage") signature = { v: 1, domain: "D24-TEST-ENVELOPE-V1", envelopeSha256: env.envelopeSha256, publicKeyFingerprint: trust?.publicKeyFingerprint ?? "x", signatureBase64: Buffer.alloc(64, 7).toString("base64") };
   if (s.sig === "other-envelope") signature = ownerSign({ envelopeSha256: "ab".repeat(32) });
   const flag = { installed: false };
-  const baseExec = createFakeExec({ commitSha: SHA, repoDir: REPO, calls, ...s.fake });
+  const exec = createFakeExec({ commitSha: SHA, repoDir: REPO, calls, ...s.fake }, { simulateLive: !s.dry, tap: (_c, args) => { if (args.some((a) => /npm-cli/.test(a))) flag.installed = true; } });
   const deps: RunnerDeps = {
     owner: { trust, signature },
-    exec: async (cmd, args, o) => {
-      if (args.some((a) => /npm-cli/.test(a))) flag.installed = true;
-      return baseExec(cmd, args, o);
-    },
+    exec,
     parentEnv: { PATH: "C:\\bin", SystemRoot: "C:\\Windows", NODE_OPTIONS: "--require evil", HTTPS_PROXY: "http://p", DATABASE_URL: "postgres://prod/db" },
     store: () => {
       storeCalls.n++;
@@ -146,6 +144,22 @@ describe("timeout disposition", () => {
     expect(existsSync(ledger.lockFile)).toBe(true);
     expect(ledger.startBlockers(env.envelopeId, 2).join()).toMatch(/no recorded end|run.lock/);
     expect(readFileSync(r.reportPath as string, "utf8")).toMatch(/timed out and was killed/);
+  });
+});
+
+describe("dry is bound to the executor (N-4)", () => {
+  const baseDeps = (over: Partial<RunnerDeps>): RunnerDeps => ({ exec: createFakeExec({ commitSha: SHA, repoDir: REPO }), parentEnv: {}, store: () => new MemoryStore(), ledger: mkLedger(), now: () => NOW, out: () => {}, dry: true, runInstall: true, ...over });
+  const file = () => writeEnvelope(makeEnvelope());
+  it("dry:true with a REAL executor throws before any gate (no gate can be skipped by the flag)", async () => {
+    await expect(runEnvelope(file(), REPO, baseDeps({ exec: realExec }))).rejects.toThrow(/dry:true requires the dry fake executor/);
+    const lookalike = async () => ({ code: 0, stdout: "", stderr: "" });
+    await expect(runEnvelope(file(), REPO, baseDeps({ exec: lookalike }))).rejects.toThrow(/dry fake/);
+  });
+  it("a dry fake with dry:false (pretending to be live) throws", async () => {
+    await expect(runEnvelope(file(), REPO, baseDeps({ dry: false }))).rejects.toThrow(/requires the real executor/);
+  });
+  it("a hand-made lookalike executor is not accepted for a live run either", async () => {
+    await expect(runEnvelope(file(), REPO, baseDeps({ dry: false, exec: async () => ({ code: 0, stdout: "", stderr: "" }) }))).rejects.toThrow(/real executor/);
   });
 });
 

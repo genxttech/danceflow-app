@@ -11,7 +11,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { icaclsExe, powershellExe, system32 } from "./bins";
+import { icaclsExe, powershellExe, system32, systemRoot } from "./bins";
 import { LABEL_RE } from "./envelope";
 
 export interface CredentialStore {
@@ -27,7 +27,7 @@ export type PsRunner = (script: string, stdin?: string) => Promise<{ code: numbe
 export const defaultPsRunner: PsRunner = (script, stdin) =>
   new Promise((resolve, reject) => {
     const enc = Buffer.from(script, "utf16le").toString("base64");
-    const child = spawn(powershellExe(), ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", enc], { windowsHide: true, cwd: process.platform === "win32" ? system32() : undefined, stdio: ["pipe", "pipe", "pipe"], env: { SystemRoot: process.env.SystemRoot ?? "C:\\Windows", PATH: process.env.PATH ?? "" } as unknown as NodeJS.ProcessEnv });
+    const child = spawn(powershellExe(), ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", enc], { windowsHide: true, cwd: process.platform === "win32" ? system32() : undefined, stdio: ["pipe", "pipe", "pipe"], env: { SystemRoot: systemRoot(), PATH: process.env.PATH ?? "" } as unknown as NodeJS.ProcessEnv });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d));
