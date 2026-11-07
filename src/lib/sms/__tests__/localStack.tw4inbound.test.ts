@@ -331,6 +331,24 @@ describe.skipIf(!enabled)("inbound SMS usage recording: ceiling, compliance, lim
       unpublish("sms_usage");
     });
 
+    it("D2b: a price FREEZE (publication suspended) or an unpublished price never stops compliance traffic: STOP / START / HELP are still recorded, free, with no credit", async () => {
+      reset(EA);
+      const freeze = (on: boolean) => psql(`begin; select set_config('tw4.priceauth_write', 'on', true); update public.studio_sms_price_auth_config set frozen = ${on}, frozen_at = ${on ? "now()" : "null"}, freeze_reason = ${on ? "'compliance traffic test'" : "null"}; commit;`);
+      freeze(true);
+      try {
+        expect(psql("select frozen from public.studio_sms_price_auth_config")).toBe("t");
+        for (const body of ["You have been unsubscribed from INB Alpha. Reply START to resubscribe.", "Reply HELP for help. Msg&data rates may apply.", "You are subscribed again. Reply STOP to unsubscribe."]) {
+          const r = await recorded(PA1, { p_classification: "compliance", p_segments: 1, p_reply_body: body });
+          expect(r).toMatchObject({ classification: "compliance", charged_cents: 0, uncollected_cents: 0 });
+        }
+        expect(balance(EA)).toBe(0);
+        expect(psql(`select count(*) from public.studio_sms_inbound_usage where legal_entity_id = '${EA}' and classification = 'compliance'`)).toBe("3");
+      } finally {
+        freeze(false);
+      }
+      expect(psql("select frozen from public.studio_sms_price_auth_config")).toBe("f");
+    });
+
     it("reply counters: one error reply per sender per day, five HELP/START confirmations; per account and kind; the sender is a hash", async () => {
       aged(`delete from public.sms_inbound_reply_counters where account_key in ('${ACC_A}', 'parent') and sender_hash in ('${hash("x")}', '${hash("y")}')`);
       const allowed = async (account: string | null, sender: string, kind: string, limit: number) => (await rpc("tw4_inbound_reply_allowed", { p_account_sid: account, p_sender_hash: hash(sender), p_kind: kind, p_limit: limit })).data;

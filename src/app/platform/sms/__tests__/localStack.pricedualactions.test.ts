@@ -66,7 +66,7 @@ vi.mock("@/lib/supabase/admin", () => ({
 }));
 
 import { A, B, C, D, E, F, call, enabled, num, psql, rows, seedCast, seedPrices } from "../../../../lib/sms/twilioIsv/__tests__/wpd4Helpers";
-import { ownerReactivate, registerApproverSql } from "../../../../lib/sms/twilioIsv/__tests__/priceFixture";
+import { ownerReactivate, registerApproverSql, setPriceMode } from "../../../../lib/sms/twilioIsv/__tests__/priceFixture";
 import { priceApprove, pricePropose, priceReject } from "../priceChangeActions";
 
 const nowS = () => Math.floor(Date.now() / 1000);
@@ -100,6 +100,7 @@ describe.skipIf(!enabled)("D4-1 application layer: AAL / role gates in front of 
   beforeAll(() => {
     seedCast();
     for (const u of [A, B, C, D, E, F]) psql(registerApproverSql(u));
+    setPriceMode(psql, "team"); // the application-layer cells exercise the team-mode approve action
     seedPrices();
   });
   beforeEach(() => {
