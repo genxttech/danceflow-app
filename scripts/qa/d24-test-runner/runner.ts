@@ -21,7 +21,7 @@ import { checkEnvelopeWindow, KNOWN_RULE_IDS, validateEnvelope } from "./envelop
 import type { CredentialStore } from "./credstore";
 import { realExec, type Exec } from "./exec";
 import { isDryFakeExec, isSimulatedLiveExec } from "./fakeChild";
-import { commitOnMain, runnerTracked, verifyCleanClone, type Gate } from "./gitverify";
+import { mainVerification, runnerTracked, verifyCleanClone, type Gate } from "./gitverify";
 import type { Ledger, LedgerEntry } from "./ledger";
 import { analyzeEvidence, decide, hashFile, redactionScan, renderReport, type FileHash, type RunSummary } from "./postrun";
 import { proofAllowList, proofDryRun, proofLive, proofPreflight, proofPrintHash, type ProofCall } from "./proofcli";
@@ -172,8 +172,11 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
     }
     const tr = await runnerTracked({ repoDir, runnerRel: "scripts/qa/d24-test-runner", files: rm.files.map((f) => f.path), env: plain.env, exec: d.exec, gitBin: d.gitBin });
     if (!gate(tr.id, tr.ok, tr.detail)) return blocked("runner-tracked");
-    const m = await commitOnMain({ repoDir, commitSha: env.code.commitSha, env: plain.env, exec: d.exec, gitBin: d.gitBin });
-    if (!gate(m.id, m.ok, m.detail)) return blocked("commit-on-main");
+    // ancestry AND on-disk bytes == the blobs of the pinned commit, both checked in a private temporary repository (not the stat cache, not the working repo)
+    const contentFiles = [...rm.files.map((f) => `scripts/qa/d24-test-runner/${f.path}`), ...manifest(join(repoDir, "scripts", "qa", "d24-m3d-proof")).files.map((f) => `scripts/qa/d24-m3d-proof/${f.path}`)];
+    const mv = await mainVerification({ repoDir, commitSha: env.code.commitSha, env: plain.env, exec: d.exec, gitBin: d.gitBin, contentFiles });
+    if (!gate(mv.ancestry.id, mv.ancestry.ok, mv.ancestry.detail)) return blocked("commit-on-main");
+    if (mv.content && !gate(mv.content.id, mv.content.ok, mv.content.detail)) return blocked("committed-content");
   }
 
   // 5. proof manifest: runner recomputation AND the proof's own --print-hash AND the envelope must all agree

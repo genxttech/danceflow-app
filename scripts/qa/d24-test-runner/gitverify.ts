@@ -1,8 +1,9 @@
 // Clean-clone + pinned-commit verification. Read-only git queries plus `npm ci --ignore-scripts` (lockfile integrity). No Stripe, no credential.
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Exec } from "./exec";
 import { PINNED_REF, PINNED_REPO_URL } from "./trustroot";
 
@@ -23,7 +24,7 @@ export async function verifyCleanClone(o: GitVerifyOpts): Promise<Gate[]> {
 /** HEAD == commit, repo root, clean tree, no diff vs HEAD, no hidden edits. Also used by the owner commands to prove they run from a pristine checkout. */
 export async function pristineGates(o: Pick<GitVerifyOpts, "repoDir" | "commitSha" | "env" | "exec" | "gitBin">): Promise<Gate[]> {
   const gates: Gate[] = [];
-  const git = (args: string[]) => o.exec(o.gitBin ?? "git", ["-c", "core.fsmonitor=false", ...args], { cwd: o.repoDir, env: o.env, timeoutMs: 60_000 });
+  const git = (args: string[]) => o.exec(o.gitBin ?? "git", ["-c", "core.fsmonitor=false", ...args], { cwd: o.repoDir, env: isolatedGitEnv(o.env), timeoutMs: 60_000 });
 
   const head = await git(["rev-parse", "HEAD"]);
   const headSha = head.stdout.trim();
@@ -49,7 +50,7 @@ export async function pristineGates(o: Pick<GitVerifyOpts, "repoDir" | "commitSh
 }
 
 async function finishClone(o: GitVerifyOpts, gates: Gate[]): Promise<Gate[]> {
-  const git = (args: string[]) => o.exec(o.gitBin ?? "git", ["-c", "core.fsmonitor=false", ...args], { cwd: o.repoDir, env: o.env, timeoutMs: 60_000 });
+  const git = (args: string[]) => o.exec(o.gitBin ?? "git", ["-c", "core.fsmonitor=false", ...args], { cwd: o.repoDir, env: isolatedGitEnv(o.env), timeoutMs: 60_000 });
   const read = o.readLock ?? ((p: string) => readFileSync(p));
   let lockSha = "";
   try {
@@ -79,7 +80,7 @@ function npmCliPath(): string {
 
 /** Git isolated from agent-writable configuration: no system or global config (so no url.<x>.insteadOf from ~/.gitconfig), no replace objects, no prompts. */
 export function isolatedGitEnv(env: Record<string, string>): Record<string, string> {
-  return { ...env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null", GIT_NO_REPLACE_OBJECTS: "1", GIT_TERMINAL_PROMPT: "0" };
+  return { ...Object.fromEntries(Object.entries(env).filter(([k]) => !/^GIT_/i.test(k))), GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null", GIT_NO_REPLACE_OBJECTS: "1", GIT_TERMINAL_PROMPT: "0" };
 }
 
 type GitOpts = { repoDir: string; env: Record<string, string>; exec: Exec; gitBin?: string };
@@ -97,35 +98,99 @@ export async function runnerTracked(o: GitOpts & { runnerRel: string; files: str
   return { id: "runner-tracked", ok: missing.length === 0, detail: missing.length === 0 ? `all ${o.files.length} hashed runner files (including the anchor) are tracked by git` : `${missing.length} hashed runner file(s) are not tracked by git (untracked or ignored): ${missing.slice(0, 8).join(", ")}` };
 }
 
-const SUSPICIOUS_CONFIG = "^(url\.|http\.|include|includeif|credential\.|protocol\.|core\.(sshcommand|gitproxy|askpass)|remote\..*(url|pushurl|proxy))";
+export type MainVerifyOpts = GitOpts & {
+  commitSha: string;
+  /** TEST ONLY: the runner never passes this; the default is the trustroot.ts constant. */
+  remoteUrl?: string;
+  /** repo-relative files whose on-disk bytes must equal the blobs of commitSha (runner folder, anchor, proof folder) */
+  contentFiles?: string[];
+  readFile?: (rel: string) => Buffer;
+  tmpRoot?: string;
+};
+export type MainVerifyResult = { ancestry: Gate; content: Gate | null };
+
+/** Git blob id of the CRLF-normalised bytes (the form git stores). */
+export const blobSha = (buf: Buffer): string => {
+  const lf = Buffer.from(buf.toString("latin1").replace(/\r\n/g, "\n"), "latin1");
+  return createHash("sha1").update(`blob ${lf.length}\0`).update(lf).digest("hex");
+};
 
 /**
- * Hardware mode only: the pinned commit (which contains the anchor file and the runner) must be an ancestor of the owner-merged branch of the
- * PINNED repository (trustroot.ts constants: not the anchor, not .git/config). Hardening against agent-writable git state: system/global config disabled,
- * replace objects off, no local url/http/proxy/include config, no shallow or replace refs or grafts; the branch tip is read with ls-remote, fetched into a
- * private ref, checked to be that exact commit, and ancestry is tested against that SHA (never FETCH_HEAD). Needs the network (GitHub, never Stripe).
- * This is still POLICY against a hostile same-user process (it controls the machine's git, TLS and filesystem): see the design doc.
+ * Hardware mode only. Two checks, both done in a FRESH PRIVATE BARE REPOSITORY the runner creates itself, never in the working repository (whose
+ * config, config.worktree, hooks, commit-graph, alternates, grafts and refs an agent can write):
+ *  1. ANCESTRY: the pinned commit must be an ancestor of the tip of the owner-merged branch of the PINNED repository (trustroot.ts constants). The tip is
+ *     read with ls-remote, fetched into the temp repo, checked to be that exact commit, and ancestry is tested against that SHA. The temp repo has no
+ *     hooks (core.hooksPath -> empty dir), no commit-graph, no alternates, no worktree config, no grafts, no replace objects, and no system/global config.
+ *     The commit object exists there only if the fetch brought it, i.e. only if it is reachable from the branch.
+ *  2. CONTENT: the CRLF-normalised bytes on disk of every listed file (runner folder incl. anchor, proof folder) must hash to the blob recorded for that
+ *     path in that commit. This does not trust git status / the stat cache, which a same-length rewrite with a restored mtime defeats.
+ * Needs the network (GitHub, never Stripe) and anonymous read access to the pinned repository: the isolated environment has no credential helper.
+ * Still POLICY against a hostile same-user process (it controls the machine's git binary, TLS trust, filesystem and the runner code itself).
  */
-export async function commitOnMain(o: GitOpts & { commitSha: string; fileExists?: (p: string) => boolean }): Promise<Gate> {
-  const git = gitIn(o);
-  const no = (detail: string): Gate => ({ id: "commit-on-main", ok: false, detail });
-  const cfg = await git(["config", "--local", "--get-regexp", SUSPICIOUS_CONFIG]);
-  if (cfg.code === 0 && cfg.stdout.trim() !== "") return no("the repository's local git config redirects or alters remote access (url/http/proxy/include/credential entries): refused");
-  const sh = await git(["rev-parse", "--is-shallow-repository"]);
-  if (sh.code !== 0 || sh.stdout.trim() !== "false") return no("the repository is shallow or its state could not be read: refused");
-  const rep = await git(["for-each-ref", "refs/replace"]);
-  if (rep.code !== 0 || rep.stdout.trim() !== "") return no("replace refs exist (they can rewrite history seen by git): refused");
-  const gp = await git(["rev-parse", "--git-path", "info/grafts"]);
-  if (gp.code !== 0 || (o.fileExists ?? existsSync)(resolve(o.repoDir, gp.stdout.trim()))) return no("an info/grafts file exists or could not be checked (it can rewrite history seen by git): refused");
+export async function mainVerification(o: MainVerifyOpts): Promise<MainVerifyResult> {
+  const no = (detail: string): MainVerifyResult => ({ ancestry: { id: "commit-on-main", ok: false, detail }, content: null });
+  let root: string;
+  try {
+    root = mkdtempSync(join(o.tmpRoot ?? tmpdir(), "d24-main-"));
+  } catch {
+    return no("could not create the private verification repository: refused");
+  }
+  try {
+    const hooks = join(root, "no-hooks");
+    const repo = join(root, "r.git");
+    mkdirSync(hooks);
+    const clean = Object.fromEntries(Object.entries(o.env).filter(([k]) => !/^GIT_/i.test(k)));
+    const env = isolatedGitEnv(clean);
+    const bin = o.gitBin ?? "git";
+    const base = ["-c", `core.hooksPath=${hooks}`, "-c", "core.commitGraph=false", "-c", "core.fsmonitor=false", "-c", "extensions.worktreeConfig=false", "-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "fetch.fsckObjects=true"];
+    const run = (args: string[]) => o.exec(bin, [...base, ...args], { cwd: root, env, timeoutMs: 180_000 });
+    const g = (args: string[]) => run([`--git-dir=${repo}`, ...args]);
+    const url = o.remoteUrl ?? PINNED_REPO_URL;
 
-  const lr = await git(["ls-remote", PINNED_REPO_URL, PINNED_REF]);
-  const tip = lr.stdout.trim().split(/\s+/)[0] ?? "";
-  if (lr.code !== 0 || !/^[0-9a-f]{40}$/.test(tip)) return no(`could not read ${PINNED_REF} of the pinned repository (exit ${lr.code}); a hardware-approved run needs the pinned commit to be on the owner-merged branch`);
-  const privateRef = "refs/d24-runner/main-check";
-  const f = await git(["fetch", "--quiet", "--no-tags", PINNED_REPO_URL, `+${PINNED_REF}:${privateRef}`]);
-  if (f.code !== 0 || f.timedOut) return no(`could not fetch ${PINNED_REF} from the pinned repository (exit ${f.code})`);
-  const got = await git(["rev-parse", "--verify", privateRef]);
-  if (got.code !== 0 || got.stdout.trim() !== tip) return no("the fetched branch tip differs from what ls-remote reported (changed during the check, or git is being redirected): refused");
-  const a = await git(["merge-base", "--is-ancestor", o.commitSha, tip]);
-  return { id: "commit-on-main", ok: a.code === 0, detail: a.code === 0 ? `${o.commitSha.slice(0, 12)} is contained in ${PINNED_REF} (${tip.slice(0, 12)}) of the pinned repository` : `${o.commitSha.slice(0, 12)} is NOT contained in ${PINNED_REF} of the pinned repository: the runner and anchor were not merged by the owner` };
+    const init = await run(["init", "--bare", "--quiet", repo]);
+    if (init.code !== 0) return no("could not initialise the private verification repository: refused");
+    const lr = await g(["ls-remote", url, PINNED_REF]);
+    const tip = lr.stdout.trim().split(/\s+/)[0] ?? "";
+    if (lr.code !== 0 || !/^[0-9a-f]{40}$/.test(tip)) return no(`could not read ${PINNED_REF} of the pinned repository anonymously (exit ${lr.code}); a hardware-approved run needs the pinned commit to be on the owner-merged branch`);
+    const privateRef = "refs/d24-runner/main-check";
+    const f = await g(["fetch", "--quiet", "--no-tags", url, `+${PINNED_REF}:${privateRef}`]);
+    if (f.code !== 0 || f.timedOut) return no(`could not fetch ${PINNED_REF} from the pinned repository (exit ${f.code})`);
+    const got = await g(["rev-parse", "--verify", privateRef]);
+    if (got.code !== 0 || got.stdout.trim() !== tip) return no("the fetched branch tip differs from what ls-remote reported (changed during the check): refused");
+    const a = await g(["merge-base", "--is-ancestor", o.commitSha, tip]);
+    const ancestry: Gate = { id: "commit-on-main", ok: a.code === 0, detail: a.code === 0 ? `${o.commitSha.slice(0, 12)} is contained in ${PINNED_REF} (${tip.slice(0, 12)}) of the pinned repository (checked in a private temporary repository)` : `${o.commitSha.slice(0, 12)} is NOT contained in ${PINNED_REF} of the pinned repository: the runner and anchor were not merged by the owner` };
+    if (!ancestry.ok || !o.contentFiles) return { ancestry, content: null };
+
+    const lt = await g(["ls-tree", "-r", "-z", "--full-tree", o.commitSha, "--", ...o.contentFiles]);
+    if (lt.code !== 0) return { ancestry, content: { id: "committed-content", ok: false, detail: "could not list the pinned commit's files: refused" } };
+    const tree = new Map<string, { mode: string; sha: string }>();
+    for (const rec of lt.stdout.split("\0")) {
+      const m = /^(\d+) blob ([0-9a-f]{40})\t(.+)$/.exec(rec);
+      if (m) tree.set(m[3], { mode: m[1], sha: m[2] });
+    }
+    const read = o.readFile ?? ((rel: string) => readFileSync(join(o.repoDir, rel)));
+    const bad: string[] = [];
+    for (const rel of o.contentFiles) {
+      const t = tree.get(rel);
+      let disk = "";
+      try {
+        disk = blobSha(read(rel));
+      } catch {
+        disk = "";
+      }
+      if (!t || t.mode === "120000" || t.sha !== disk) bad.push(rel);
+    }
+    return { ancestry, content: { id: "committed-content", ok: bad.length === 0, detail: bad.length === 0 ? `all ${o.contentFiles.length} runner, anchor and proof files are byte-identical to the blobs of the pinned commit (stat cache not trusted)` : `${bad.length} file(s) differ from, or are absent in, the pinned commit: ${bad.slice(0, 8).join(", ")}` } };
+  } finally {
+    try {
+      rmSync(root, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  }
+}
+
+/** Ancestry only (the first of the two checks). */
+export async function commitOnMain(o: Omit<MainVerifyOpts, "contentFiles">): Promise<Gate> {
+  return (await mainVerification(o)).ancestry;
 }

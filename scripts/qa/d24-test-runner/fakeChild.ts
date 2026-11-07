@@ -2,10 +2,11 @@
 // git, npm, and the proof's CLI (--print-hash, --allow-list, --dry-run, --preflight, --live) so the runner's parsers are exercised for real.
 
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { manifest } from "../d24-m3d-proof/manifest";
 import type { Exec, ExecResult } from "./exec";
+import { blobSha } from "./gitverify";
 import { runnerManifest } from "./runnerpin";
 import { KNOWN_RULE_IDS } from "./envelope";
 
@@ -31,10 +32,9 @@ export type FakeOpts = {
   hostileEvidence?: string;
   /** runner-folder files (relative to scripts/qa/d24-test-runner) that git does NOT track (untracked or ignored): omitted from `git ls-files` */
   untracked?: string[];
-  /** hardening probes of commit-on-main */
-  urlConfig?: boolean;
-  shallow?: boolean;
-  replaceRefs?: boolean;
+  /** repo-relative path suffixes whose blob in the pinned commit differs from the disk, or that are absent from the commit's tree */
+  tamperedContent?: string[];
+  missingFromTree?: string[];
   /** what `git ls-remote` reports for the pinned branch, and what the fetched private ref then resolves to */
   lsRemoteSha?: string;
   fetchedSha?: string;
@@ -60,15 +60,32 @@ export function createFakeExec(o: FakeOpts, hooks: { tap?: (cmd: string, args: s
       const a: string[] = [];
       for (let i = 0; i < args.length; i++) {
         if (args[i] === "-c") i++; // skip the "-c key=value" pair
+        else if (args[i].startsWith("--git-dir=")) continue;
         else a.push(args[i]);
       }
       const mainSha = o.lsRemoteSha ?? "d".repeat(40);
       if (a[0] === "fetch") return ok();
       if (a[0] === "ls-remote") return ok(`${mainSha}\trefs/heads/main\n`);
-      if (a[0] === "config") return o.urlConfig ? ok("url.file:///evil/.insteadof https://github.com/\n") : { code: 1, stdout: "", stderr: "" };
-      if (a[0] === "for-each-ref") return ok(o.replaceRefs ? `${mainSha} commit refs/replace/aaaa\n` : "");
-      if (a[0] === "rev-parse" && a[1] === "--is-shallow-repository") return ok(o.shallow ? "true\n" : "false\n");
-      if (a[0] === "rev-parse" && a[1] === "--git-path") return ok(`${join(o.repoDir, ".git-fake-none", a[2])}\n`);
+      if (a[0] === "init") return ok();
+      if (a[0] === "ls-tree") {
+        const dd = a.indexOf("--");
+        const paths = dd >= 0 ? a.slice(dd + 1) : [];
+        return ok(
+          paths
+            .filter((p) => !(o.missingFromTree ?? []).some((m) => p.endsWith(m)))
+            .map((p) => {
+              let sha = "0".repeat(40);
+              try {
+                sha = blobSha(readFileSync(join(o.repoDir, p)));
+              } catch {
+                /* not on disk: a wrong id */
+              }
+              if ((o.tamperedContent ?? []).some((m) => p.endsWith(m))) sha = "1".repeat(40);
+              return `100644 blob ${sha}\t${p}\0`;
+            })
+            .join(""),
+        );
+      }
       if (a[0] === "rev-parse" && a[a.length - 1].startsWith("refs/")) return ok(`${o.fetchedSha ?? mainSha}\n`);
       if (a[0] === "ls-files" && a[1] === "-z") {
         const dir = a[a.length - 1];

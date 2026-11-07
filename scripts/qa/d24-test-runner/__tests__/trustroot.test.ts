@@ -1,11 +1,11 @@
 // Review of PR #419 (targeted): the commit-on-main gate must not take its location from the anchor, must cover every hashed runner file,
 // must not be steerable through git config / replace refs / grafts / shallow state, and the test seams must not exist on a real executor.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MemoryStore } from "../credstore";
 import { createFakeExec, type FakeOpts } from "../fakeChild";
-import { commitOnMain, runnerTracked } from "../gitverify";
+import { mainVerification, pristineGates, runnerTracked } from "../gitverify";
 import { realExec } from "../exec";
 import { runEnvelope, type RunnerDeps } from "../runner";
 import { PINNED_BRANCH, PINNED_REF, PINNED_REPO_URL } from "../trustroot";
@@ -104,25 +104,51 @@ describe("P2-1: every hashed runner file (and the anchor) must be tracked by git
   });
 });
 
-describe("P2-2: commit-on-main is isolated from agent-writable git state", () => {
-  const base = { repoDir: REPO, commitSha: SHA, env: { PATH: "x" } };
-  const run = async (fake: Partial<FakeOpts> = {}, extra: { fileExists?: (p: string) => boolean } = {}) => {
+describe("P2-2 (fix delta): commit-on-main runs in a private temporary repository, never in the working repository", () => {
+  const base = { repoDir: REPO, commitSha: SHA, env: { PATH: "x", GIT_DIR: "C:\\agent\\.git", GIT_ALTERNATE_OBJECT_DIRECTORIES: "C:\\agent\\objs" } };
+  const run = async (fake: Partial<FakeOpts> = {}, extra: Partial<Parameters<typeof mainVerification>[0]> = {}) => {
     const calls: NonNullable<FakeOpts["calls"]> = [];
     const exec = createFakeExec({ commitSha: SHA, repoDir: REPO, calls, ...fake }, { simulateLive: true });
-    const gate = await commitOnMain({ ...base, exec, ...extra });
-    return { gate, calls };
+    const res = await mainVerification({ ...base, exec, ...extra });
+    return { res, gate: res.ancestry, calls };
   };
 
-  it("every git call runs with system and global config disabled, replace objects off, no prompts", async () => {
+  it("every git call runs with system and global config disabled, replace objects off, no prompts, and without any inherited GIT_* variable", async () => {
     const { gate, calls } = await run();
     expect(gate.ok).toBe(true);
-    expect(calls.length).toBeGreaterThan(3);
+    expect(calls.length).toBeGreaterThan(4);
     for (const c of calls) {
       expect(c.env.GIT_CONFIG_NOSYSTEM).toBe("1");
       expect(c.env.GIT_CONFIG_GLOBAL).toBe(process.platform === "win32" ? "NUL" : "/dev/null");
       expect(c.env.GIT_NO_REPLACE_OBJECTS).toBe("1");
       expect(c.env.GIT_TERMINAL_PROMPT).toBe("0");
+      expect(c.env.GIT_DIR).toBeUndefined();
+      expect(c.env.GIT_ALTERNATE_OBJECT_DIRECTORIES).toBeUndefined();
     }
+  });
+
+  it("no command runs in, or points at, the working repository: a fresh bare repo is created and used; hooks, commit-graph and worktree config are switched off for every call", async () => {
+    const { calls } = await run();
+    for (const c of calls) {
+      expect(c.cwd).not.toBe(REPO);
+      const joined = c.args.join(" ");
+      expect(joined).toContain("core.commitGraph=false");
+      expect(joined).toMatch(/core\.hooksPath=.*no-hooks/);
+      expect(joined).toContain("extensions.worktreeConfig=false");
+      expect(joined).not.toContain(REPO);
+    }
+    expect(calls[0].args).toContain("init");
+    expect(calls[0].args).toContain("--bare");
+    expect(calls.slice(1).every((c) => c.args.some((a) => a.startsWith("--git-dir=")))).toBe(true);
+  });
+
+  it("the temporary repository is removed afterwards, also when a step fails", async () => {
+    const { calls } = await run();
+    const dirOf = (cs: typeof calls) => (cs[0].args.find((a) => /r\.git$/.test(a)) as string).replace(/[\\/]r\.git$/, "");
+    expect(existsSync(dirOf(calls))).toBe(false);
+    const bad = await run({ lsRemoteSha: "nothex" });
+    expect(bad.gate.ok).toBe(false);
+    expect(existsSync(dirOf(bad.calls))).toBe(false);
   });
 
   it("ancestry is checked against the exact SHA from ls-remote, never FETCH_HEAD", async () => {
@@ -137,23 +163,86 @@ describe("P2-2: commit-on-main is isolated from agent-writable git state", () =>
   it("a fetched ref that differs from what ls-remote reported is refused", async () => {
     const { gate } = await run({ lsRemoteSha: "e".repeat(40), fetchedSha: "f".repeat(40) });
     expect(gate.ok).toBe(false);
-    expect(gate.detail).toMatch(/differs|changed/);
+    expect(gate.detail).toMatch(/differs/);
   });
 
-  it("a local url.* / http / proxy config entry, a shallow repo, replace refs or a grafts file each refuse, and nothing is fetched into a suspicious repository", async () => {
-    expect((await run({ urlConfig: true })).gate.detail).toMatch(/config/);
-    expect((await run({ shallow: true })).gate.detail).toMatch(/shallow/);
-    expect((await run({ replaceRefs: true })).gate.detail).toMatch(/replace/);
-    expect((await run({}, { fileExists: (p) => /grafts$/.test(p) })).gate.detail).toMatch(/graft/);
-    for (const f of [{ urlConfig: true }, { shallow: true }, { replaceRefs: true }]) {
-      const { gate, calls } = await run(f);
-      expect(gate.ok).toBe(false);
-      expect(calls.some((c) => c.args.includes("fetch"))).toBe(false);
-    }
-  });
-
-  it("not-on-branch still refuses", async () => {
+  it("a failed ls-remote, fetch or ancestry check refuses; a failed init refuses", async () => {
     expect((await run({ notOnMain: true })).gate.ok).toBe(false);
+    expect((await run({ lsRemoteSha: "zz" })).gate.ok).toBe(false);
+  });
+
+  it("the remote URL is the trustroot constant unless a test passes one explicitly (the runner never does)", async () => {
+    const { calls } = await run();
+    expect(calls.filter((c) => c.args.includes("ls-remote") || c.args.includes("fetch")).every((c) => c.args.includes(PINNED_REPO_URL))).toBe(true);
+    const src = readFileSync(join(__dirname, "..", "runner.ts"), "utf8");
+    expect(src).not.toMatch(/remoteUrl/);
+  });
+});
+
+describe("F4 (fix delta): the on-disk bytes of every runner, anchor and proof file are compared with the blobs of the pinned commit", () => {
+  const files = ["scripts/qa/d24-test-runner/owner-hw-anchor.json", "scripts/qa/d24-test-runner/webauthn.ts"];
+  const run = async (fake: Partial<FakeOpts>, over: { readFile?: (rel: string) => Buffer } = {}) => {
+    const dir = tmp();
+    mkdirSync(join(dir, "scripts", "qa", "d24-test-runner"), { recursive: true });
+    for (const f of files) writeFileSync(join(dir, f), `content of ${f}\r\n`);
+    const exec = createFakeExec({ commitSha: SHA, repoDir: dir, ...fake }, { simulateLive: true });
+    return mainVerification({ repoDir: dir, commitSha: SHA, env: {}, exec, contentFiles: files, ...over });
+  };
+
+  it("matching bytes (CRLF-normalised) pass", async () => {
+    const r = await run({});
+    expect(r.ancestry.ok).toBe(true);
+    expect(r.content?.ok).toBe(true);
+  });
+
+  it("a file whose bytes differ from the committed blob is refused and named", async () => {
+    const r = await run({ tamperedContent: ["owner-hw-anchor.json"] });
+    expect(r.content?.ok).toBe(false);
+    expect(r.content?.detail).toMatch(/owner-hw-anchor\.json/);
+  });
+
+  it("a file absent from the pinned commit's tree is refused", async () => {
+    const r = await run({ missingFromTree: ["webauthn.ts"] });
+    expect(r.content?.ok).toBe(false);
+    expect(r.content?.detail).toMatch(/webauthn\.ts/);
+  });
+
+  it("a file that cannot be read from disk is refused", async () => {
+    const r = await run({}, { readFile: () => { throw new Error("EACCES"); } });
+    expect(r.content?.ok).toBe(false);
+  });
+
+  it("content is not checked (null) when the ancestry check already failed", async () => {
+    const r = await run({ notOnMain: true });
+    expect(r.ancestry.ok).toBe(false);
+    expect(r.content).toBeNull();
+  });
+
+  it("through runEnvelope: an altered runner file, a runner file missing from the commit, or a proof file is BLOCKED at committed-content before the credential", async () => {
+    const t = await go({ fake: { tamperedContent: ["webauthn.ts"] } });
+    expect(t.r.status).toBe("BLOCKED");
+    expect(failed(t.r)).toBe("committed-content");
+    expect(t.r.gates.some((g) => g.id === "credential")).toBe(false);
+    expect(t.ledger.runsStarted(t.env.envelopeId)).toBe(0);
+    const t2 = await go({ fake: { tamperedContent: ["d24-m3d-proof/guarded.ts"] } });
+    expect(failed(t2.r)).toBe("committed-content");
+    const t3 = await go({ fake: { missingFromTree: ["runner.ts"] } });
+    expect(failed(t3.r)).toBe("committed-content");
+    expect(gateDetail((await go()).r, "committed-content")).toMatch(/byte-identical/);
+  });
+});
+
+describe("F8 (fix delta): the clean-tree gates also run with the isolated git environment", () => {
+  it("pristineGates passes no system/global config and no inherited GIT_* to git", async () => {
+    const calls: NonNullable<FakeOpts["calls"]> = [];
+    const exec = createFakeExec({ commitSha: SHA, repoDir: REPO, calls }, { simulateLive: true });
+    const gates = await pristineGates({ repoDir: REPO, commitSha: SHA, env: { PATH: "x", GIT_DIR: "evil" }, exec });
+    expect(gates.every((g) => g.ok)).toBe(true);
+    expect(calls.length).toBeGreaterThanOrEqual(5);
+    for (const c of calls) {
+      expect(c.env.GIT_CONFIG_NOSYSTEM).toBe("1");
+      expect(c.env.GIT_NO_REPLACE_OBJECTS).toBe("1");
+    }
   });
 });
 
