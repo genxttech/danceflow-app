@@ -10,6 +10,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { deletePricesSql, ownerReactivate, seedPrice } from "../../sms/twilioIsv/__tests__/priceFixture";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 1_000_000 });
 
@@ -191,14 +192,14 @@ describe.skipIf(!enabled)("recurring SMS service charges: authorization, funding
     psqlFile(FIXTURES);
     snapshotActivePrices = psql("select id from public.studio_sms_price_list where active").split("\n").filter(Boolean);
     for (const [kind, cents] of [["number", 500], ["monthly", 1500]] as const) {
-      const result = await rpc("tw4_price_set", { p_kind: kind, p_customer_cents: cents, p_provider_cents: cents - 100, p_description: `fixture ${kind} price`, p_actor: U.padmin });
-      expect(result.error).toBeNull();
+      seedPrice(psql, { kind: kind, customer: cents, provider: cents - 100, description: `fixture ${kind} price`, approver: U.padmin });
     }
   });
   afterAll(() => {
     try {
       psqlFile(CLEANUP);
-      aged(`delete from public.studio_sms_price_list where created_by = '${U.padmin}'; update public.studio_sms_price_list set active = true where id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"});`);
+      psql(deletePricesSql(`created_by = '${U.padmin}'`));
+      ownerReactivate(psql, `id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
     } catch {
       /* best effort */
     }
@@ -392,14 +393,14 @@ describe.skipIf(!enabled)("recurring SMS service charges: authorization, funding
 
       // price changed after the owner agreed
       const id3 = await newAuth("owner_a", PA2, "monthly");
-      await rpc("tw4_price_set", { p_kind: "monthly", p_customer_cents: 1_800, p_provider_cents: 1_000, p_description: "fixture repriced monthly", p_actor: U.padmin });
+      seedPrice(psql, { kind: "monthly", customer: 1_800, provider: 1_000, description: "fixture repriced monthly", approver: U.padmin });
       try {
         expect((await charge(id3)).data).toMatchObject({ outcome: "refused", reason: "price changed: the owner must authorize again" });
         expect((await authorize("owner_a", PA2, "monthly", { p_acknowledged_price_cents: 1_500 })).error?.code).toBe("TW008"); // the old price no longer authorizes anything
         await revoke("owner_a", id3);
         expect((await authorize("owner_a", PA2, "monthly", { p_acknowledged_price_cents: 1_800, p_total_limit_cents: 5_400 })).error).toBeNull();
       } finally {
-        await rpc("tw4_price_set", { p_kind: "monthly", p_customer_cents: 1_500, p_provider_cents: 1_400, p_description: "fixture monthly price", p_actor: U.padmin });
+        seedPrice(psql, { kind: "monthly", customer: 1_500, provider: 1_400, description: "fixture monthly price", approver: U.padmin });
       }
 
       // revoked

@@ -6,6 +6,7 @@ import SmsOnboardingPilot from "./SmsOnboardingPilot";
 import SmsCreditAdmin from "./SmsCreditAdmin";
 import UsageReconciliation from "./UsageReconciliation";
 import RecurringFeesPanel from "./RecurringFeesPanel";
+import PriceChangesPanel from "./PriceChangesPanel";
 import RecoveryPanel from "./RecoveryPanel";
 import ActivationPanel from "./ActivationPanel";
 import { loadReconcileOverview } from "@/lib/sms/usageReconcileView";
@@ -452,6 +453,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
       <UsageReconciliation overview={usageOverview} readiness={usageReadiness} notice={firstParam(params.usage) === "resolved"} error={firstParam(params.usage_error)} />
 
       <RecurringFeesPanel adminId={admin.id} prices={panelOverview?.prices} notice={firstParam(params.rfl)} error={firstParam(params.rfl_error)} />
+      <PriceChangesPanel adminId={admin.id} notice={firstParam(params.price)} error={firstParam(params.price_error)} />
       <RecoveryPanel adminId={admin.id} notice={firstParam(params.recovery)} error={firstParam(params.recovery_error)} />
       <ActivationPanel adminId={admin.id} notice={firstParam(params.activation)} error={firstParam(params.activation_error)} />
 
