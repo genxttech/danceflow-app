@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { requirePlatformStepUp } from "@/lib/auth/platform-assurance";
+import { recordPlatformSupportEvent } from "@/lib/auth/platform-support-audit";
 import { linkExistingClientAccount } from "@/lib/student-identity/lifecycle";
 import { getVerifiedEmailForUser, verifiedEmailMatches } from "@/lib/auth/verifiedIdentity";
 import {
@@ -18,6 +20,8 @@ import {
 } from "@/lib/validation/forms";
 
 const PLATFORM_STUDIO_COOKIE = "platform_selected_studio_id";
+/** H1: the support context is time-bounded as well as aal2-gated: the cookie expires after 8 hours even if the session stays aal2. */
+const PLATFORM_STUDIO_COOKIE_MAX_AGE_SECONDS = 8 * 60 * 60;
 
 function cleanActionText(formData: FormData, key: string, fieldLabel: string, maxLength: number, allowNewlines = false) {
   const result = cleanTextValue(rawFormString(formData, key), {
@@ -55,7 +59,9 @@ function optionalSafeUrl(value: string) {
 }
 
 export async function enterStudioContextAction(formData: FormData) {
-  await requirePlatformAdmin();
+  // H1: entering a studio as platform admin grants studio-owner-equivalent authority, so it needs a VERIFIED aal2 session (role first, then claims).
+  // Called outside any try/catch: a refusal is a redirect to the MFA challenge. getCurrentStudioContext enforces the same rule on every later request.
+  const admin = await requirePlatformStepUp("aal2", "/platform/studios");
 
   const studioId = requireUuidFromForm(formData, "studioId", "Studio", "/platform/studios");
 
@@ -71,20 +77,38 @@ export async function enterStudioContextAction(formData: FormData) {
   }
 
   const cookieStore = await cookies();
+  const previous = normalizeOptionalUuid(cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value ?? "", "Selected studio");
+  const previousStudioId = previous.ok ? previous.value : null;
+
+  // Fail closed: no audit row, no support context.
+  const audited = await recordPlatformSupportEvent({
+    event: previousStudioId && previousStudioId !== studioId ? "switch" : "enter",
+    studioId,
+    userId: admin.id,
+    previousStudioId,
+  });
+  if (!audited) redirect("/platform/studios");
+
   cookieStore.set(PLATFORM_STUDIO_COOKIE, studioId, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
+    maxAge: PLATFORM_STUDIO_COOKIE_MAX_AGE_SECONDS,
   });
 
   redirect("/app");
 }
 
 export async function clearStudioContextAction() {
-  await requirePlatformAdmin();
+  // Leaving a studio only REDUCES privilege, so it stays available to a platform admin at any assurance level and its audit write is best-effort.
+  const admin = await requirePlatformAdmin();
 
   const cookieStore = await cookies();
+  const current = normalizeOptionalUuid(cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value ?? "", "Selected studio");
+  if (current.ok && current.value) {
+    await recordPlatformSupportEvent({ event: "exit", studioId: current.value, userId: admin.id });
+  }
   cookieStore.delete(PLATFORM_STUDIO_COOKIE);
 
   redirect("/platform");

@@ -2,7 +2,8 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isPlatformAdmin, requireAuthenticatedUser } from "./platform";
+import { requireAuthenticatedUser } from "./platform";
+import { hasVerifiedAal2Session, stepUpChallengeUrl } from "./platform-assurance";
 
 const PLATFORM_STUDIO_COOKIE = "platform_selected_studio_id";
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
@@ -345,9 +346,26 @@ export async function getCurrentStudioRole() {
   } as StudioRoleRow;
 }
 
+/**
+ * H1: platform-admin authority over a studio (the support context and its studio-owner-equivalent powers) is granted ONLY to a platform_admin whose verified
+ * session is aal2. A platform_admin whose session is not aal2 (aal1, downgraded, unverifiable, expired) is resolved as an ORDINARY user: they keep whatever
+ * memberships they genuinely hold, and the support cookie is ignored. This is the one boundary every server action, route handler and page reaches through
+ * getCurrentStudioContext / getStudioContextForStudio, so the layout redirect is not what protects it. Ordinary users never reach the claims read.
+ */
+async function hasPlatformAdminAuthority(profile: { id: string; platform_role: string | null }) {
+  if (profile.platform_role !== "platform_admin") return false;
+  return hasVerifiedAal2Session(profile.id);
+}
+
+/** An admin-role user with no membership of their own and no verified aal2 session goes to the step-up challenge, not to a dead end. */
+function redirectUnverifiedAdmin(profile: { platform_role: string | null }): never {
+  if (profile.platform_role === "platform_admin") redirect(stepUpChallengeUrl("aal1", "/platform/studios"));
+  redirect("/app");
+}
+
 export async function getCurrentStudioContext(): Promise<StudioContext> {
   const profile = await requireAuthenticatedUser();
-  const platformAdmin = await isPlatformAdmin();
+  const platformAdmin = await hasPlatformAdminAuthority(profile);
 
   if (platformAdmin) {
     const selectedStudioId = await getSelectedPlatformStudioIdFromCookie();
@@ -368,6 +386,7 @@ export async function getCurrentStudioContext(): Promise<StudioContext> {
   const studioRole = await getCurrentStudioRole();
 
   if (!studioRole) {
+    if (profile.platform_role === "platform_admin") redirect(stepUpChallengeUrl("aal1", "/platform/studios"));
     redirect("/account");
   }
 
@@ -384,7 +403,7 @@ export async function getStudioContextForStudio(
   studioId: string
 ): Promise<StudioContext> {
   const profile = await requireAuthenticatedUser();
-  const platformAdmin = await isPlatformAdmin();
+  const platformAdmin = await hasPlatformAdminAuthority(profile);
 
   if (platformAdmin) {
     return {
@@ -400,7 +419,7 @@ export async function getStudioContextForStudio(
   const matchingRole = roles.find((row) => row.studio_id === studioId);
 
   if (!matchingRole) {
-    redirect("/app");
+    redirectUnverifiedAdmin(profile);
   }
 
   return {
