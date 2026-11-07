@@ -50,16 +50,19 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
-const auditRows: { route: string }[] = [];
+const auditRows: { route: string; studio_id?: string; user_id?: string }[] = [];
 vi.mock("@/lib/supabase/admin", () => ({
-  createAdminClient: () => ({
-    from: () => ({
+  createAdminClient: () => {
+    const q: Record<string, unknown> = {
       insert: async (row: { route: string }) => {
         auditRows.push(row);
         return { error: null };
       },
-    }),
-  }),
+    };
+    for (const m of ["select", "eq", "like", "order", "limit"]) q[m] = () => q;
+    q.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(res);
+    return { from: () => q };
+  },
 }));
 vi.mock("@/lib/student-identity/lifecycle", () => ({ linkExistingClientAccount: vi.fn() }));
 vi.mock("@/lib/auth/verifiedIdentity", () => ({ getVerifiedEmailForUser: vi.fn(), verifiedEmailMatches: vi.fn() }));
@@ -96,7 +99,9 @@ describe("enterStudioContextAction - real assurance gate", () => {
 
   it("accepts a verified aal2 totp session for an authorized admin: audit row then a cookie bound to that admin", async () => {
     await expect(enterStudioContextAction(form())).rejects.toThrow("NEXT_REDIRECT:/app");
-    expect(auditRows).toEqual([{ studio_id: S1, user_id: ADMIN, route: "platform_support:enter" }]);
+    expect(auditRows).toHaveLength(1);
+    expect(auditRows[0]).toMatchObject({ studio_id: S1, user_id: ADMIN });
+    expect(auditRows[0].route).toMatch(/^platform_support:enter:jti=[0-9a-f]{32}$/);
     expect(cookieSets).toHaveLength(1);
     expect(verifySupportCookie(cookieSets[0].value, ADMIN)).toBe(S1);
     expect(verifySupportCookie(cookieSets[0].value, OTHER)).toBeNull();

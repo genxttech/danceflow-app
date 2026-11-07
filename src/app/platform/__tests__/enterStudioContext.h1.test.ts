@@ -59,24 +59,46 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 let auditOk = true;
-const auditRows: { route: string; studio_id: string; user_id: string }[] = [];
+type Row = { route: string; studio_id: string; user_id: string; accessed_at?: number };
+const auditRows: Row[] = [];
+let seq = 0;
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
-    from: (t: string) => ({
-      insert: async (row: { route: string; studio_id: string; user_id: string }) => {
-        order.push(`audit:${t}`);
-        if (!auditOk) return { error: { code: "XX000" } };
-        auditRows.push(row);
-        return { error: null };
-      },
-    }),
+    from: (t: string) => {
+      const filters: ((r: Row) => boolean)[] = [];
+      const q: Record<string, unknown> = {
+        insert: async (row: Row) => {
+          order.push(`audit:${t}`);
+          if (!auditOk) return { error: { code: "XX000" } };
+          auditRows.push({ ...row, accessed_at: ++seq });
+          return { error: null };
+        },
+        select: () => q,
+        eq: (c: keyof Row, v: unknown) => (filters.push((r) => r[c] === v), q),
+        like: (c: keyof Row, p: string) => (filters.push((r) => String(r[c]).startsWith(p.replace(/%$/, ""))), q),
+        order: () => q,
+        limit: () => q,
+      };
+      q.then = (res: (v: unknown) => unknown) =>
+        Promise.resolve({ data: auditRows.filter((r) => filters.every((f) => f(r))).sort((x, y) => (y.accessed_at ?? 0) - (x.accessed_at ?? 0)).slice(0, 1), error: null }).then(res);
+      return q;
+    },
   }),
 }));
 vi.mock("@/lib/student-identity/lifecycle", () => ({ linkExistingClientAccount: vi.fn() }));
 vi.mock("@/lib/auth/verifiedIdentity", () => ({ getVerifiedEmailForUser: vi.fn(), verifiedEmailMatches: vi.fn() }));
 
-import { signSupportCookie, verifySupportCookie } from "@/lib/auth/platform-support-cookie";
+import { newSupportNonce, signSupportCookie, verifySupportCookie } from "@/lib/auth/platform-support-cookie";
 import { clearStudioContextAction, enterStudioContextAction } from "../actions";
+
+/** Establish a genuine current support context for ADMIN in studio, as the entry action would: audit row + matching signed cookie. */
+function seedContext(studioId: string): string {
+  const nonce = newSupportNonce();
+  auditRows.push({ studio_id: studioId, user_id: ADMIN, route: `platform_support:enter:jti=${nonce}`, accessed_at: ++seq });
+  const token = signSupportCookie(ADMIN, studioId, nonce)!;
+  jar.set("platform_selected_studio_id", token);
+  return token;
+}
 
 const form = (studioId: string) => {
   const f = new FormData();
@@ -91,6 +113,7 @@ beforeEach(() => {
   cookieDeletes.length = 0;
   order.length = 0;
   auditRows.length = 0;
+  seq = 0;
   stepUpMode = "ok";
   studioExists = true;
   auditOk = true;
@@ -111,22 +134,25 @@ describe("enterStudioContextAction", () => {
 
   it("audits entry BEFORE setting a time-bounded httpOnly cookie", async () => {
     await expect(enterStudioContextAction(form(S1))).rejects.toThrow(/NEXT_REDIRECT:\/app/);
-    expect(auditRows).toEqual([{ studio_id: S1, user_id: ADMIN, route: "platform_support:enter" }]);
+    expect(auditRows).toHaveLength(1);
+    expect(auditRows[0]).toMatchObject({ studio_id: S1, user_id: ADMIN });
+    expect(auditRows[0].route).toMatch(/^platform_support:enter:jti=[0-9a-f]{32}$/);
+    expect(cookieSets[0].value.split(".")[3]).toBe(auditRows[0].route.split("jti=")[1]);
     expect(cookieSets).toHaveLength(1);
     expect(verifySupportCookie(cookieSets[0].value, ADMIN)).toBe(S1);
     expect(cookieSets[0].opts).toMatchObject({ httpOnly: true, sameSite: "lax", path: "/", maxAge: 8 * 60 * 60 });
   });
 
   it("audits a switch to a different studio with the previous studio recorded", async () => {
-    jar.set("platform_selected_studio_id", signSupportCookie(ADMIN, S2)!);
+    seedContext(S2);
     await expect(enterStudioContextAction(form(S1))).rejects.toThrow(/NEXT_REDIRECT:\/app/);
-    expect(auditRows[0].route).toBe(`platform_support:switch:from=${S2}`);
+    expect(auditRows[1].route).toMatch(new RegExp(`^platform_support:switch:from=${S2}:jti=[0-9a-f]{32}$`));
   });
 
   it("re-entering the same studio is an entry, not a switch", async () => {
-    jar.set("platform_selected_studio_id", signSupportCookie(ADMIN, S1)!);
+    seedContext(S1);
     await expect(enterStudioContextAction(form(S1))).rejects.toThrow(/NEXT_REDIRECT:\/app/);
-    expect(auditRows[0].route).toBe("platform_support:enter");
+    expect(auditRows[1].route).toMatch(/^platform_support:enter:jti=/);
   });
 
   it("fails closed: when the audit write fails no support cookie is set", async () => {
@@ -152,21 +178,21 @@ describe("enterStudioContextAction", () => {
 it("a hand-set cookie is not trusted as the previous studio (entry, not switch)", async () => {
   jar.set("platform_selected_studio_id", S2);
   await expect(enterStudioContextAction(form(S1))).rejects.toThrow("NEXT_REDIRECT:/app");
-  expect(auditRows[0].route).toBe("platform_support:enter");
+  expect(auditRows[0].route).toMatch(/^platform_support:enter:jti=/);
 });
 
 describe("clearStudioContextAction", () => {
   it("lets an admin leave a studio at any assurance level, audits the exit and clears the cookie", async () => {
     stepUpMode = "aal1"; // exit must NOT depend on step-up
-    jar.set("platform_selected_studio_id", signSupportCookie(ADMIN, S1)!);
+    seedContext(S1);
     await expect(clearStudioContextAction()).rejects.toThrow(/NEXT_REDIRECT:\/platform$/);
     expect(cookieDeletes).toEqual(["platform_selected_studio_id"]);
-    expect(auditRows).toEqual([{ studio_id: S1, user_id: ADMIN, route: "platform_support:exit" }]);
+    expect(auditRows[1]).toMatchObject({ studio_id: S1, user_id: ADMIN, route: "platform_support:exit" });
   });
 
   it("clears the cookie even when the exit audit write fails", async () => {
+    seedContext(S1);
     auditOk = false;
-    jar.set("platform_selected_studio_id", signSupportCookie(ADMIN, S1)!);
     await expect(clearStudioContextAction()).rejects.toThrow(/NEXT_REDIRECT:\/platform$/);
     expect(cookieDeletes).toEqual(["platform_selected_studio_id"]);
   });

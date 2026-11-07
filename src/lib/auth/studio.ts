@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAuthenticatedUser } from "./platform";
 import { hasVerifiedAal2Session, stepUpChallengeUrl } from "./platform-assurance";
-import { verifySupportCookie } from "./platform-support-cookie";
+import { resolveCurrentSupportStudio } from "./platform-support-audit";
 
 const PLATFORM_STUDIO_COOKIE = "platform_selected_studio_id";
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
@@ -300,7 +300,7 @@ export function isWorkspaceAccessAllowedStatus(status: string | null | undefined
 
 /** H1: only an authentic, user-bound, unexpired support token yields a studio id; a bare or foreign cookie value is null. */
 export async function getSelectedPlatformStudioIdFromCookie(userId: string) {
-  return verifySupportCookie(await getCookieValue(PLATFORM_STUDIO_COOKIE), userId);
+  return resolveCurrentSupportStudio(await getCookieValue(PLATFORM_STUDIO_COOKIE), userId);
 }
 
 export async function getSelectedAppStudioIdFromCookie() {

@@ -38,3 +38,16 @@ not rewritten here. Fresh-MFA or time-boxing for individual financial mutations 
 
 - P2 fixed: `getStudioContextForStudio` no longer grants platform authority from a caller-supplied studio id. It now requires the verified, user-bound support cookie to name that studio (so an audited entry exists); otherwise the admin is treated as an ordinary user and, without a membership, sent to `/platform/studios`.
 - P3 accepted: a copied cookie stays valid until its 8h expiry after exit (needs the same admin aal2 session); no per-token revocation, key rotation is the global invalidation.
+
+## Replay of a previously valid support cookie (follow-up to #418)
+
+**Finding (was classified P3, re-tested and reclassified P2):** the #418 cookie was stateless. After `clearStudioContextAction` (exit) or a switch to another studio, a copied authentic, unexpired cookie for the same admin with an AAL2 session still resolved to studio-owner-equivalent authority, with no new audit row. Proven failing-first (6 of 8 replay scenarios failed before the fix).
+
+**Fix (no schema change):** cookie v2 carries a random nonce. `enterStudioContextAction` writes the nonce into the entry/switch audit row (`platform_support:enter:jti=<nonce>`, `platform_support:switch:from=<uuid>:jti=<nonce>`). The resolver (`resolveCurrentSupportStudio`) honours a cookie only when it is authentic, bound to the admin, unexpired AND its nonce is on the admin's most recent `platform_support:` audit row for that studio. An exit row (or any later enter/switch) therefore revokes every earlier cookie. A cookie with no audited entry row, a pre-fix v1 cookie and an unreadable audit trail all fail closed. Exit audit is retried once because the exit row is the revocation.
+
+**Cost:** one indexed read of `workspace_access_logs` per request for platform admins only (ordinary users never reach it).
+
+**Residuals (backlog):**
+- Sign-out without using Exit does not write an exit row, so a copied cookie survives sign-out and re-login within its 8h window; it still needs the same admin's fresh AAL2 session. Fix: write an exit row on sign-out or bind the token to the JWT `session_id`.
+- If both exit audit writes fail, the cookie is deleted in the browser but a copy stays valid until expiry.
+- Audit rows are written by the service role; anyone who can insert `platform_support:` rows as that admin could re-validate a cookie, which already implies service-role compromise.
