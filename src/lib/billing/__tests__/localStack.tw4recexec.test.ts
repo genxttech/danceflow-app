@@ -11,6 +11,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { deletePricesSql, ownerReactivate, seedPrice } from "../../sms/twilioIsv/__tests__/priceFixture";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 1_000_000 });
 
@@ -193,13 +194,14 @@ describe.skipIf(!enabled)("recurring-charge execution: spending cap, pilot busin
     psqlFile(FIXTURES);
     snapshotActivePrices = psql("select id from public.studio_sms_price_list where active").split("\n").filter(Boolean);
     for (const [kind, cents] of [["number", 500], ["monthly", 1500], ["brand", 100]] as const) {
-      expect((await rpc("tw4_price_set", { p_kind: kind, p_customer_cents: cents, p_provider_cents: Math.max(cents - 50, 0), p_description: `fixture ${kind} price`, p_actor: U.padmin })).error).toBeNull();
+      seedPrice(psql, { kind: kind, customer: cents, provider: Math.max(cents - 50, 0), description: `fixture ${kind} price`, approver: U.padmin });
     }
   });
   afterAll(() => {
     try {
       psqlFile(CLEANUP);
-      aged(`delete from public.studio_sms_price_list where created_by = '${U.padmin}'; update public.studio_sms_price_list set active = true where id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"});`);
+      psql(deletePricesSql(`created_by = '${U.padmin}'`));
+      ownerReactivate(psql, `id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
     } catch {
       /* best effort */
     }

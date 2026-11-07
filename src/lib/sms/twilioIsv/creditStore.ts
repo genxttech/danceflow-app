@@ -3,7 +3,7 @@ import { RunnerStoreError, type SpendKind } from "./store";
 import { exceptionEvidenceParams, type PilotEvidence } from "@/lib/sms/pilotApprovalEvidence";
 
 /**
- * TW-4F-3b-0: persistence for the prepaid SMS credit ledger (see migration 20261122090000). Service-role `tw4_credit_*` / `tw4_price_set` functions only;
+ * TW-4F-3b-0: persistence for the prepaid SMS credit ledger (see migration 20261122090000). Service-role `tw4_credit_*` functions only (prices are published by the dual-controlled `tw4_price_*` functions, see priceChange.ts);
  * the tables have no API privileges. Errors carry the SQLSTATE, never the database message text.
  *
  * ONE balance per verified LEGAL BUSINESS (the TW-4F-3a legal entity); every cost is attributed to the studio LOCATION it belongs to, and the database
@@ -14,7 +14,6 @@ import { exceptionEvidenceParams, type PilotEvidence } from "@/lib/sms/pilotAppr
 export type CreditVerification = { balance_cents: number; reserved_cents: number; ledger_balance_cents: number; ledger_reserved_cents: number; open_reservations_cents: number; ok: boolean };
 
 export interface CreditStore {
-  setPrice(kind: SpendKind, customerCents: number, providerCents: number, description: string, actorId: string): Promise<string>;
   /** Checkout creation: packs of $25 / $50 / $100 only, and never above the $500 balance ceiling (balance + pending + this pack). Not spendable. */
   topupPending(entityId: string, paidByStudioId: string | null, providerRef: string, amountCents: number, expiresAt?: string | null): Promise<void>;
   /** The Stripe webhook calls this once a payment is SETTLED. Replays (same provider ref) credit nothing again. */
@@ -60,10 +59,6 @@ export class SupabaseCreditStore implements CreditStore {
     return { replayed: Boolean(row?.replayed) };
   }
 
-  async setPrice(kind: SpendKind, customerCents: number, providerCents: number, description: string, actorId: string) {
-    const row = await this.call<{ price_id: string }>("tw4_price_set", { p_kind: kind, p_customer_cents: customerCents, p_provider_cents: providerCents, p_description: description, p_actor: actorId });
-    return row.price_id;
-  }
   async topupPending(entityId: string, paidByStudioId: string | null, providerRef: string, amountCents: number, expiresAt: string | null = null) {
     await this.call("tw4_credit_topup_pending", { p_entity_id: entityId, p_paid_by_studio_id: paidByStudioId, p_provider_ref: providerRef, p_amount_cents: amountCents, p_expires_at: expiresAt });
   }

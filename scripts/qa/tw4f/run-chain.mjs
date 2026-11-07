@@ -30,6 +30,8 @@
  *   --until <version>        drop every planned migration whose version is above <version> (e.g. 20261231100000: the hosted DEV pending list)
  *   --track-functions        start every SUITE database with track_functions=all and write coverage.json per suite (pg_stat_user_functions vs public functions)
  *   --marker                 create public.tw4_local_qa_only in the seed before the plan (plus the auth.users columns GoTrue adds, i.e. iso-qa.mjs parity: ISO_QA_MARKER=1 and its auth step; 11 localStack suites require them)
+ *   --auth                   also start a disposable local GoTrue (own container, TOTP MFA on, auto-confirm, no SMTP) behind Kong at /auth/v1 and export TW4_LOCAL_AUTH_URL (WP-D2 layer b)
+ *   --residue <regex>        (repeatable) catalog lines matching the regex are an ACCEPTED, DOCUMENTED residue of a fail-closed rollback: they are ignored (and listed) when a ROLLBACK stage is compared with the earlier catalog; re-apply stages are still compared exactly (D4-1)
  *   --keep                   keep the chain image and worktrees
  *   --known <file>           known environment failures (default scripts/qa/tw4f/known-failures.json)
  *
@@ -74,7 +76,7 @@ const CRASH_RE = /terminated by signal|was terminated by|exited with exit code [
 
 // ------------------------------------------------------------------------------------------------------------------------------------ args
 function parseArgs(argv) {
-  const flags = { extraBranch: [], extra: [], suite: [], env: {} };
+  const flags = { extraBranch: [], extra: [], suite: [], residue: [], env: {} };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -82,12 +84,14 @@ function parseArgs(argv) {
     const k = a.slice(2);
     if (k === "keep") { flags.keep = true; continue; }
     if (k === "marker") { flags.marker = true; continue; }
+    if (k === "auth") { flags.auth = true; continue; }
     if (k === "track-functions") { flags.trackFunctions = true; continue; }
     const v = argv[++i];
     if (v === undefined) die(`--${k} needs a value`);
     if (k === "extra-branch") flags.extraBranch.push(v);
     else if (k === "extra") flags.extra.push(v);
     else if (k === "suite") flags.suite.push(v);
+    else if (k === "residue") flags.residue.push(new RegExp(v));
     else if (k === "env") { const i = v.indexOf("="); flags.env[v.slice(0, i)] = v.slice(i + 1); }
     else flags[k.replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = v;
   }
@@ -154,19 +158,33 @@ async function freePort() {
   }
   throw new Error("no free port in 56800-56899");
 }
-const kongYml = (rest) => `_format_version: "2.1"\nservices:\n  - name: rest-v1\n    url: http://${rest}:3000/\n    routes:\n      - name: rest-v1\n        strip_path: true\n        paths: ["/rest/v1/"]\n`;
+const GOTRUE_IMAGE = process.env.ISO_QA_GOTRUE_IMAGE ?? "public.ecr.aws/supabase/gotrue:v2.188.1";
+const kongYml = (rest, auth) => `_format_version: "2.1"\nservices:\n  - name: rest-v1\n    url: http://${rest}:3000/\n    routes:\n      - name: rest-v1\n        strip_path: true\n        paths: ["/rest/v1/"]\n${auth ? `  - name: auth-v1\n    url: http://${auth}:9999/\n    routes:\n      - name: auth-v1\n        strip_path: true\n        paths: ["/auth/v1/"]\n` : ""}`;
 /** PostgREST + Kong in front of a started database; returns the env the suites need. */
 async function startApi(base, dbName) {
-  const n = { rest: `${base}-rest`, kong: `${base}-kong` };
-  removeAll(n.kong, n.rest);
+  const n = { rest: `${base}-rest`, kong: `${base}-kong`, ...(flags.auth ? { auth: `${base}-auth` } : {}) };
+  removeAll(...Object.values(n));
   const jwt = createHash("sha256").update(`${Date.now()}${Math.random()}`).digest("hex").slice(0, 48);
   const port = await freePort();
   const yml = path.join(QA_HOME, `kong-${base}.yml`);
-  writeFileSync(yml, kongYml(n.rest));
+  writeFileSync(yml, kongYml(n.rest, n.auth));
   const pw = psql(dbName, "alter role authenticator with password 'postgres';", { user: "supabase_admin" });
   if (pw.code !== 0) throw new Error(`could not set authenticator password: ${pw.out.slice(0, 200)}`);
   docker("run", "-d", "--name", n.rest, "--label", LABEL, "--network", NET, ...LIMITS.rest, "-e", `PGRST_DB_URI=postgres://authenticator:postgres@${dbName}:5432/postgres`, "-e", "PGRST_DB_SCHEMAS=public",
     "-e", "PGRST_DB_ANON_ROLE=anon", "-e", `PGRST_JWT_SECRET=${jwt}`, "-e", "PGRST_DB_USE_LEGACY_GUCS=false", REST_IMAGE);
+  if (n.auth) {
+    // the baseline image pre-creates auth.jwt()/auth.uid() owned by supabase_admin and the auth tables by another role: GoTrue's own migrations need to own them (disposable database only)
+    const own = psql(dbName, "alter role supabase_auth_admin with password 'postgres';\ndo $q$ declare r record; begin\n  for r in select p.oid::regprocedure as sig from pg_proc p where p.pronamespace = 'auth'::regnamespace and p.proowner <> 'supabase_auth_admin'::regrole loop execute format('alter function %s owner to supabase_auth_admin', r.sig); end loop;\n  for r in select c.oid::regclass as rel, c.relkind from pg_class c where c.relnamespace = 'auth'::regnamespace and c.relkind in ('r','p','v','m','S') and c.relowner <> 'supabase_auth_admin'::regrole loop\n    execute format('alter %s %s owner to supabase_auth_admin', case r.relkind when 'S' then 'sequence' when 'v' then 'view' when 'm' then 'materialized view' else 'table' end, r.rel); end loop;\n  for r in select t.oid::regtype as ty from pg_type t where t.typnamespace = 'auth'::regnamespace and t.typtype = 'e' and t.typowner <> 'supabase_auth_admin'::regrole loop execute format('alter type %s owner to supabase_auth_admin', r.ty); end loop;\nend $q$;", { user: "supabase_admin" });
+    if (own.code !== 0) throw new Error(`could not hand the auth schema to supabase_auth_admin: ${own.out.slice(0, 200)}`);
+  }
+  if (n.auth) {
+    const e = (k, v) => ["-e", `${k}=${v}`];
+    docker("run", "-d", "--name", n.auth, "--label", LABEL, "--network", NET, "--memory", "256m", "--cpus", "0.5",
+      ...e("GOTRUE_API_HOST", "0.0.0.0"), ...e("GOTRUE_API_PORT", "9999"), ...e("API_EXTERNAL_URL", `http://127.0.0.1:${port}`), ...e("GOTRUE_DB_DRIVER", "postgres"), ...e("GOTRUE_DB_NAMESPACE", "auth"),
+      ...e("GOTRUE_DB_DATABASE_URL", `postgres://supabase_auth_admin:postgres@${dbName}:5432/postgres`), ...e("GOTRUE_SITE_URL", "http://127.0.0.1:3000"), ...e("GOTRUE_JWT_SECRET", jwt), ...e("GOTRUE_JWT_EXP", "3600"),
+      ...e("GOTRUE_JWT_AUD", "authenticated"), ...e("GOTRUE_JWT_DEFAULT_GROUP_NAME", "authenticated"), ...e("GOTRUE_DISABLE_SIGNUP", "false"), ...e("GOTRUE_EXTERNAL_EMAIL_ENABLED", "true"), ...e("GOTRUE_MAILER_AUTOCONFIRM", "true"),
+      ...e("GOTRUE_MFA_TOTP_ENROLL_ENABLED", "true"), ...e("GOTRUE_MFA_TOTP_VERIFY_ENABLED", "true"), ...e("GOTRUE_RATE_LIMIT_EMAIL_SENT", "1000"), ...e("GOTRUE_LOG_LEVEL", "info"), GOTRUE_IMAGE);
+  }
   docker("create", "--name", n.kong, "--label", LABEL, "--network", NET, ...LIMITS.kong, "-p", `127.0.0.1:${port}:8000`, "-e", "KONG_DATABASE=off", "-e", "KONG_NGINX_WORKER_PROCESSES=1",
     "-e", "KONG_NGINX_HTTP_KEEPALIVE_TIMEOUT=3600s", "-e", "KONG_NGINX_HTTP_KEEPALIVE_REQUESTS=100000", "-e", "KONG_DECLARATIVE_CONFIG=/home/kong/kong.yml", "-e", "KONG_PROXY_LISTEN=0.0.0.0:8000", "-e", "KONG_DNS_ORDER=LAST,A,CNAME", KONG_IMAGE);
   docker("cp", yml, `${n.kong}:/home/kong/kong.yml`);
@@ -178,7 +196,7 @@ async function startApi(base, dbName) {
     if (Date.now() - t0 > 180_000) throw Object.assign(new Error("the API did not come up"), { infra: true });
     await sleep(1500);
   }
-  return { names: n, env: { TW4A_LOCAL_URL: url, TW4A_LOCAL_DB_CONTAINER: dbName, TW4A_LOCAL_JWT_SECRET: jwt, TW4_ISO_QA: "1" } };
+  return { names: n, env: { TW4A_LOCAL_URL: url, TW4A_LOCAL_DB_CONTAINER: dbName, TW4A_LOCAL_JWT_SECRET: jwt, TW4_ISO_QA: "1", ...(n.auth ? { TW4_LOCAL_AUTH_URL: `${url}/auth/v1` } : {}) } };
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------------ migration plan
@@ -282,10 +300,16 @@ async function chainCheck(plan, image, outDir) {
       }
       return { ok: true, rows };
     };
-    const cmp = (stage, before, after, expectEqual = true) => {
-      const d = diffFp(before, after);
+    const cmp = (stage, before, after, expectEqual = true, residue = false) => {
+      let d = diffFp(before, after);
+      let ignored = [];
+      if (residue && flags.residue.length) {
+        const isRes = (l) => flags.residue.some((re) => re.test(l));
+        ignored = [...d.onlyBefore, ...d.onlyAfter].filter(isRes);
+        d = { onlyBefore: d.onlyBefore.filter((l) => !isRes(l)), onlyAfter: d.onlyAfter.filter((l) => !isRes(l)) };
+      }
       const same = d.onlyBefore.length === 0 && d.onlyAfter.length === 0;
-      rec(stage, same === expectEqual ? "PASS" : "FAIL", { equal: same, onlyBefore: d.onlyBefore.slice(0, 40), onlyAfter: d.onlyAfter.slice(0, 40), counts: [d.onlyBefore.length, d.onlyAfter.length] });
+      rec(stage, same === expectEqual ? "PASS" : "FAIL", { ...(ignored.length ? { note: `${ignored.length} accepted rollback-residue catalog line(s)`, residue: ignored.slice(0, 40) } : {}), equal: same, onlyBefore: d.onlyBefore.slice(0, 40), onlyAfter: d.onlyAfter.slice(0, 40), counts: [d.onlyBefore.length, d.onlyAfter.length] });
       return same;
     };
 
@@ -303,7 +327,7 @@ async function chainCheck(plan, image, outDir) {
       fpTop = fingerprint(name);
       const r2 = rollAll(extras, "rollback extras");
       if (!r2.ok) return finish("FAIL");
-      cmp("rollback extras == main-only catalog", fpMain, fingerprint(name));
+      cmp("rollback extras == main-only catalog", fpMain, fingerprint(name), true, true);
       const a3 = applyAll(extras, "re-apply extras");
       if (!a3.ok) return finish("FAIL");
       cmp("re-apply extras == first apply", fpTop, fingerprint(name));
@@ -312,7 +336,7 @@ async function chainCheck(plan, image, outDir) {
     const rAll = rollAll(plan, "rollback all (reverse order)");
     if (!rAll.ok) return finish("FAIL");
     rec("rollback all (reverse order)", "PASS", { note: `${plan.length} rollback(s) ran without error`, rows: rAll.rows });
-    cmp("rollback all == baseline catalog", fp0, fingerprint(name));
+    cmp("rollback all == baseline catalog", fp0, fingerprint(name), true, true);
     // 4. re-apply the full plan in plan order
     const a4 = applyAll(plan, "re-apply all");
     if (!a4.ok) return finish("FAIL");
@@ -450,7 +474,7 @@ async function suiteRun(plan, image, testsRef, outDir) {
         rec.host.end = await hostSample();
         rec.hostSaturated = saturated(rec.host.start) || saturated(rec.host.end);
         if (rec.hostSaturated && ["FAIL", "INFRA"].includes(rec.status)) rec.note = `${rec.note} [resource exhaustion suspected: host saturated during this suite; rerun on an idle host before treating as a regression]`.trim();
-        removeAll(`${base}-kong`, `${base}-rest`, base);
+        removeAll(`${base}-kong`, `${base}-rest`, `${base}-auth`, base);
       }
       results.push(rec);
       log(`${rec.status.padEnd(7)} ${f} ${rec.counts ? `${rec.counts.passed}/${rec.counts.total}` : ""} ${rec.seconds}s ${rec.note ? "- " + rec.note.slice(0, 100) : ""}`);

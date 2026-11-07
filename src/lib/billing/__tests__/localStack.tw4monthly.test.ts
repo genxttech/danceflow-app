@@ -12,6 +12,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { deletePricesSql, ownerReactivate, seedPrice } from "../../sms/twilioIsv/__tests__/priceFixture";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 1_000_000 });
 
@@ -191,13 +192,14 @@ describe.skipIf(!enabled)("monthly spending limits: months in the business's tim
     psqlFile(FIXTURES);
     snapshotActivePrices = psql("select id from public.studio_sms_price_list where active").split("\n").filter(Boolean);
     for (const [kind, cents] of [["number", 500], ["monthly", 1500]] as const) {
-      expect((await rpc("tw4_price_set", { p_kind: kind, p_customer_cents: cents, p_provider_cents: cents - 100, p_description: `fixture ${kind} price`, p_actor: U.padmin })).error).toBeNull();
+      seedPrice(psql, { kind: kind, customer: cents, provider: cents - 100, description: `fixture ${kind} price`, approver: U.padmin });
     }
   });
   afterAll(() => {
     try {
       psqlFile(CLEANUP);
-      aged(`delete from public.studio_sms_price_list where created_by = '${U.padmin}'; update public.studio_sms_price_list set active = true where id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"});`);
+      psql(deletePricesSql(`created_by = '${U.padmin}'`));
+      ownerReactivate(psql, `id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
     } catch {
       /* best effort */
     }
@@ -592,15 +594,16 @@ describe.skipIf(!enabled)("monthly spending limits: months in the business's tim
       expect(Number(psql(`select public._tw4f3a_committed('${EA}')`))).toBe(0); // the setup budget is untouched by a recurring fee
       expect(Number(psql(`select spend_cap_cents from public.studio_sms_legal_entities where id = '${EA}'`))).toBe(15_000);
       // a setup-fee authorization still draws on (and is bounded by) the cumulative budget
-      expect((await rpc("tw4_price_set", { p_kind: "brand", p_customer_cents: 20_000, p_provider_cents: 100, p_description: "fixture brand price over the budget", p_actor: U.padmin })).error).toBeNull();
+      seedPrice(psql, { kind: "brand", customer: 20_000, provider: 100, description: "fixture brand price over the budget", approver: U.padmin });
       expect((await rpc("tw4_spend_authorize", { p_entity_id: EA, p_kind: "brand", p_amount_cents: 20_000, p_approval_ref: "fixture approval ref", p_actor: U.padmin })).error?.code).toBe("TW004");
-      expect((await rpc("tw4_price_set", { p_kind: "brand", p_customer_cents: 5_000, p_provider_cents: 100, p_description: "fixture brand price within the budget", p_actor: U.padmin })).error).toBeNull();
+      seedPrice(psql, { kind: "brand", customer: 5_000, provider: 100, description: "fixture brand price within the budget", approver: U.padmin });
       const event = await rpc("tw4_spend_authorize", { p_entity_id: EA, p_kind: "brand", p_amount_cents: 5_000, p_approval_ref: "fixture approval ref", p_actor: U.padmin });
       expect(event.error).toBeNull();
       expect(Number(psql(`select public._tw4f3a_committed('${EA}')`))).toBe(5_000);
       expect(spend(EA)).toBe(1_500); // and the setup fee is not a routine cost of the month
       await rpc("tw4_spend_withdraw", { p_spend_event_id: (event.data as { spend_event_id: string }).spend_event_id, p_actor: U.padmin, p_note: "fixture: withdraw the setup authorization" });
-      aged(`delete from public.studio_sms_approval_refs where legal_entity_id = '${EA}'; delete from public.studio_sms_spend_events where legal_entity_id = '${EA}'; delete from public.studio_sms_price_list where kind = 'brand' and created_by = '${U.padmin}';`);
+      aged(`delete from public.studio_sms_approval_refs where legal_entity_id = '${EA}'; delete from public.studio_sms_spend_events where legal_entity_id = '${EA}';`);
+      psql(deletePricesSql(`kind = 'brand' and created_by = '${U.padmin}'`));
       await resetMoney(EA);
       clearAuths();
     });
