@@ -4,11 +4,14 @@
 // The secret travels ONLY over the helper's stdin (write) and stdout (read). It is never in argv, a file in clear, a log or an env var of this process.
 // Threat model: both back ends are bound to the Windows user. ANY process running as the same user can read the secret (Credential Manager has no
 // per-application ACL; DPAPI CurrentUser decrypts for any process of that user). They protect against disk theft, other users, backups and repo/commit leaks,
-// NOT against malware or another agent running as the same user. Mitigations are the key's own restrictions (rk_test_, 3 permissions, a TEST sandbox) and its expiry.
+// NOT against malware or another agent running as the same user. If PowerShell module/script-block/transcription logging is enabled by policy,
+// the read helper's output (SECRET:<value>) can be written to that log: the value is never in argv or the script text, but it IS in stdout. Check the
+// machine's PowerShell logging policy before provisioning; if transcription is on, use a machine without it. System binaries are invoked by absolute path. Mitigations are the key's own restrictions (rk_test_, 3 permissions, a TEST sandbox) and its expiry.
 
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { icaclsExe, powershellExe, system32 } from "./bins";
 import { LABEL_RE } from "./envelope";
 
 export interface CredentialStore {
@@ -24,7 +27,7 @@ export type PsRunner = (script: string, stdin?: string) => Promise<{ code: numbe
 export const defaultPsRunner: PsRunner = (script, stdin) =>
   new Promise((resolve, reject) => {
     const enc = Buffer.from(script, "utf16le").toString("base64");
-    const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", enc], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { SystemRoot: process.env.SystemRoot ?? "C:\\Windows", PATH: process.env.PATH ?? "" } as unknown as NodeJS.ProcessEnv });
+    const child = spawn(powershellExe(), ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", enc], { windowsHide: true, cwd: process.platform === "win32" ? system32() : undefined, stdio: ["pipe", "pipe", "pipe"], env: { SystemRoot: process.env.SystemRoot ?? "C:\\Windows", PATH: process.env.PATH ?? "" } as unknown as NodeJS.ProcessEnv });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d));
@@ -125,7 +128,7 @@ async function icaclsUserOnly(file: string): Promise<void> {
   const user = process.env.USERNAME;
   if (!user) throw new Error("cannot determine the current user for the ACL");
   await new Promise<void>((resolve, reject) => {
-    const c = spawn("icacls.exe", [file, "/inheritance:r", "/grant:r", `${user}:(F)`], { windowsHide: true, stdio: "ignore" });
+    const c = spawn(icaclsExe(), [file, "/inheritance:r", "/grant:r", `${user}:(F)`], { windowsHide: true, cwd: system32(), stdio: "ignore" });
     c.on("error", reject);
     c.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`icacls failed (exit ${code})`))));
   });

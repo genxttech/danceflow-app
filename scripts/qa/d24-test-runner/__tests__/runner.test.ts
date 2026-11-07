@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MemoryStore } from "../credstore";
@@ -6,10 +6,10 @@ import { createFakeExec, type FakeOpts } from "../fakeChild";
 import { verifyCleanClone } from "../gitverify";
 import { Ledger } from "../ledger";
 import { runEnvelope, type RunnerDeps } from "../runner";
-import { KEY, LABEL, makeEnvelope, NOW, REPO, SHA, tmp, writeEnvelope } from "./helpers";
+import { KEY, LABEL, makeEnvelope, mkLedger, NOW, ownerSign, ownerTrust, REPO, SHA, tmp, writeEnvelope } from "./helpers";
 import type { EnvelopeSpec } from "../envelope";
 
-type Setup = { fake?: Partial<FakeOpts>; spec?: Partial<EnvelopeSpec>; store?: MemoryStore; dry?: boolean; now?: Date; ledger?: Ledger; storeCalls?: { n: number }; install?: boolean };
+type Setup = { fake?: Partial<FakeOpts>; spec?: Partial<EnvelopeSpec>; store?: MemoryStore; dry?: boolean; now?: Date; ledger?: Ledger; storeCalls?: { n: number }; install?: boolean; sig?: "none" | "other-envelope" | "garbage"; noTrust?: boolean; trustLedgerDir?: string; repoDir?: string; expireAfterInstall?: boolean };
 
 async function go(s: Setup = {}) {
   const evidenceRoot = join(tmp(), "evidence");
@@ -20,18 +20,29 @@ async function go(s: Setup = {}) {
   const store = s.store ?? new MemoryStore();
   if (!s.store && !s.dry) await store.write(LABEL, KEY);
   const storeCalls = s.storeCalls ?? { n: 0 };
-  const ledger = s.ledger ?? new Ledger(join(tmp(), "ledger"), () => NOW);
+  const ledger = s.ledger ?? mkLedger();
+  const trust = s.noTrust ? null : ownerTrust(s.trustLedgerDir ?? ledger.dir, ledger.anchorFile as string);
+  let signature: unknown = ownerSign(env);
+  if (s.sig === "none") signature = null;
+  if (s.sig === "garbage") signature = { v: 1, domain: "D24-TEST-ENVELOPE-V1", envelopeSha256: env.envelopeSha256, publicKeyFingerprint: trust?.publicKeyFingerprint ?? "x", signatureBase64: Buffer.alloc(64, 7).toString("base64") };
+  if (s.sig === "other-envelope") signature = ownerSign({ envelopeSha256: "ab".repeat(32) });
+  const flag = { installed: false };
+  const baseExec = createFakeExec({ commitSha: SHA, repoDir: REPO, calls, ...s.fake });
   const deps: RunnerDeps = {
-    exec: createFakeExec({ commitSha: SHA, repoDir: REPO, calls, ...s.fake }),
+    owner: { trust, signature },
+    exec: async (cmd, args, o) => {
+      if (args.some((a) => /npm-cli/.test(a))) flag.installed = true;
+      return baseExec(cmd, args, o);
+    },
     parentEnv: { PATH: "C:\\bin", SystemRoot: "C:\\Windows", NODE_OPTIONS: "--require evil", HTTPS_PROXY: "http://p", DATABASE_URL: "postgres://prod/db" },
     store: () => {
       storeCalls.n++;
       if (s.dry) throw new Error("store must not be touched in dry");
       return store;
     },
-    ledger, now: () => s.now ?? NOW, out: (l) => lines.push(l), dry: Boolean(s.dry), runInstall: s.install ?? true, dryKey: s.dry ? KEY : undefined, tsxCli: "tsx-cli-unused",
+    ledger, now: () => (s.expireAfterInstall && flag.installed ? new Date("2026-11-15T00:00:00Z") : s.now ?? NOW), out: (l) => lines.push(l), dry: Boolean(s.dry), runInstall: s.install ?? true, dryKey: s.dry ? KEY : undefined, tsxCli: "tsx-cli-unused",
   };
-  const r = await runEnvelope(file, REPO, deps);
+  const r = await runEnvelope(file, s.repoDir ?? REPO, deps);
   return { r, calls, lines, ledger, env, storeCalls, evidenceRoot };
 }
 const failedGate = (r: { gates: Array<{ id: string; ok: boolean }> }) => r.gates.find((g) => !g.ok)?.id;
@@ -71,6 +82,70 @@ describe("runner happy path (fake child)", () => {
     const { calls } = await go();
     const flags = calls.filter((c) => c.cmd !== "git" && !c.args.some((a) => /npm-cli/.test(a))).map((c) => c.args[c.args.length - 1]);
     expect(flags).toEqual(["--print-hash", "--allow-list", "--dry-run", "--preflight", "--live"]);
+  });
+});
+
+describe("owner signature (the self-approval control)", () => {
+  const blockedAt = async (s: Setup, gateId: string) => {
+    const { r, ledger, env, calls } = await go(s);
+    expect(r.status).toBe("BLOCKED");
+    expect(failedGate(r)).toBe(gateId);
+    expect(ledger.runsStarted(env.envelopeId)).toBe(0);
+    expect(calls.some((c) => c.args[c.args.length - 1] === "--live")).toBe(false);
+    return r;
+  };
+  it("no registered owner key -> live refused", async () => {
+    const r = await blockedAt({ noTrust: true }, "owner-signature");
+    expect(r.gates.find((g) => g.id === "owner-signature")?.detail).toMatch(/no owner public key/);
+  });
+  it("missing signature -> refused", async () => void (await blockedAt({ sig: "none" }, "owner-signature")));
+  it("garbage signature -> refused", async () => void (await blockedAt({ sig: "garbage" }, "owner-signature")));
+  it("a valid owner signature over a DIFFERENT envelope hash -> refused", async () => void (await blockedAt({ sig: "other-envelope" }, "owner-signature")));
+  it("a perfectly valid envelope that merely carries the right approval text (self-minted) cannot run live", async () => {
+    // exactly the review's P1 scenario: approval-template | create-envelope yields a structurally valid envelope, but nobody signed it
+    const { r } = await go({ sig: "none" });
+    expect(failedGate(r)).toBe("owner-signature");
+  });
+  it("the same envelope signed by the owner runs", async () => {
+    const { r } = await go();
+    expect(r.status).toBe("PASS");
+    expect(r.gates.find((g) => g.id === "owner-signature")?.detail).toMatch(/valid owner signature/);
+  });
+});
+
+describe("runner pin, checkout pin, ceiling pin", () => {
+  const blockedAt = async (s: Setup, gateId: string) => {
+    const { r, ledger, env } = await go(s);
+    expect(r.status).toBe("BLOCKED");
+    expect(failedGate(r)).toBe(gateId);
+    expect(ledger.runsStarted(env.envelopeId)).toBe(0);
+    return r;
+  };
+  it("the runner folder hash must equal the envelope's (a modified enforcement module cannot run)", async () => {
+    const r = await blockedAt({ spec: { runner: { manifestSha256: "1".repeat(64), fileCount: 20 } } }, "runner-pin");
+    expect(r.gates.find((g) => g.id === "runner-pin")?.detail).toMatch(/changed after approval/);
+  });
+  it("--repo must be the clone this runner lives in", async () => void (await blockedAt({ repoDir: tmp("d24-other-clone-") }, "runner-in-clone")));
+  it("an envelope ceiling different from the proof's enforced cap is refused (cannot be enforced live)", async () => {
+    const r = await blockedAt({ spec: { apiCallCeiling: 30 } }, "ceiling-pin");
+    expect(r.gates.find((g) => g.id === "ceiling-pin")?.detail).toMatch(/cannot be enforced live/);
+  });
+  it("the ledger must be at the location pinned in the owner trust (a fresh ledger would reset the budget)", async () => void (await blockedAt({ trustLedgerDir: join(tmp(), "some-other-ledger") }, "ledger-pinned")));
+  it("expiry is re-checked when the run is consumed, after a long install", async () => {
+    const r = await blockedAt({ expireAfterInstall: true }, "envelope-window-recheck");
+    expect(r.gates.find((g) => g.id === "envelope-window")?.ok).toBe(true);
+  });
+});
+
+describe("timeout disposition", () => {
+  it("a timed-out proof is UNVERIFIABLE, never clean: the run stays open and the lock is kept", async () => {
+    const { r, ledger, env } = await go({ fake: { live: "timeout" } });
+    expect(r.status).toBe("UNVERIFIABLE");
+    expect(r.exitCode).toBe(1);
+    expect(ledger.load().map((e) => e.type)).toEqual(["run-start"]);
+    expect(existsSync(ledger.lockFile)).toBe(true);
+    expect(ledger.startBlockers(env.envelopeId, 2).join()).toMatch(/no recorded end|run.lock/);
+    expect(readFileSync(r.reportPath as string, "utf8")).toMatch(/timed out and was killed/);
   });
 });
 
@@ -142,7 +217,7 @@ describe("refusals (each BLOCKED before any live call, no run consumed)", () => 
 
 describe("run count", () => {
   it("refuses once maxRuns is consumed; a failed run still counts", async () => {
-    const ledger = new Ledger(join(tmp(), "ledger"), () => NOW);
+    const ledger = mkLedger();
     const evidenceRoot = join(tmp(), "evidence");
     const spec = { evidenceRoot, maxRuns: 2 };
     const a = await go({ ledger, spec, fake: { live: "abort" } });
@@ -156,7 +231,7 @@ describe("run count", () => {
     expect(c.r.gates.find((g) => g.id === "ledger")?.detail).toMatch(/exhausted/);
   });
   it("a crash inside the live child still ends the run in the ledger and consumes it", async () => {
-    const ledger = new Ledger(join(tmp(), "ledger"), () => NOW);
+    const ledger = mkLedger();
     await expect(go({ ledger, fake: { live: "crash" } })).rejects.toThrow(/spawn failed/);
     expect(ledger.load().map((e) => e.type)).toEqual(["run-start", "run-end"]);
     expect(ledger.load()[1].outcome).toBe("UNVERIFIABLE");

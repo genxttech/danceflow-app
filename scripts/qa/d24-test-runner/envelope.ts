@@ -27,8 +27,10 @@ export type Envelope = {
   mode: "TEST";
   createdUtc: string;
   expiresUtc: string;
-  code: { commitSha: string; lockfileSha256?: string };
+  code: { commitSha: string; lockfileSha256: string };
   proof: { manifestSha256: string; fileCount: number };
+  /** Hash of the runner folder itself (this enforcement code, excluding __tests__): a modified runner cannot run under an approved envelope. */
+  runner: { manifestSha256: string; fileCount: number };
   accounts: { platformAcct: string; connectedAcct: string };
   permittedRuleIds: string[];
   apiCallCeiling: number;
@@ -57,9 +59,18 @@ export const envelopeHash = (e: Omit<Envelope, "envelopeSha256"> | Envelope): st
   return sha256(canonicalJson(rest));
 };
 
+/** Every security-relevant field the owner approves, in one digest (everything except the approval record itself). */
+const MATERIAL_KEYS = ["envelopeId", "createdUtc", "expiresUtc", "code", "proof", "runner", "accounts", "permittedRuleIds", "apiCallCeiling", "cleanupReserve", "credential", "stopConditions", "maxRuns", "evidenceRoot", "manualAttestations"] as const;
+export function materialDigest(e: Record<string, unknown>): string {
+  const m: Record<string, unknown> = {};
+  for (const k of MATERIAL_KEYS) m[k] = e[k];
+  return sha256(canonicalJson(m));
+}
+
 /** The tokens the owner's approval text must contain. The owner approves THIS text; the runner never generates the approval itself. */
 export function approvalTokens(e: Pick<Envelope, "envelopeId" | "code" | "proof" | "maxRuns" | "expiresUtc">): string[] {
-  return [AUTHORIZATION_PHRASE, `envelope=${e.envelopeId}`, `code=${e.code.commitSha.slice(0, 12)}`, `manifest=${e.proof.manifestSha256.slice(0, 12)}`, `maxRuns=${e.maxRuns}`, `expires=${e.expiresUtc}`];
+  const digest = materialDigest(e as unknown as Record<string, unknown>);
+  return [AUTHORIZATION_PHRASE, `envelope=${e.envelopeId}`, `code=${e.code.commitSha.slice(0, 12)}`, `manifest=${e.proof.manifestSha256.slice(0, 12)}`, `maxRuns=${e.maxRuns}`, `expires=${e.expiresUtc}`, `terms=${digest.slice(0, 16)}`];
 }
 export const approvalTemplate = (e: Parameters<typeof approvalTokens>[0]): string => approvalTokens(e).join(" ");
 
@@ -72,7 +83,7 @@ export function validateEnvelope(raw: unknown): { ok: true; envelope: Envelope }
   if (!plain(raw)) return { ok: false, issues: [{ code: "shape", detail: "envelope is not a JSON object" }] };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const e = raw as Record<string, any>;
-  const allowedTop = ["schemaVersion", "envelopeId", "mode", "createdUtc", "expiresUtc", "code", "proof", "accounts", "permittedRuleIds", "apiCallCeiling", "cleanupReserve", "credential", "cleanup", "forbidden", "stopConditions", "maxRuns", "evidenceRoot", "manualAttestations", "ownerApproval", "envelopeSha256"];
+  const allowedTop = ["schemaVersion", "envelopeId", "mode", "createdUtc", "expiresUtc", "code", "proof", "runner", "accounts", "permittedRuleIds", "apiCallCeiling", "cleanupReserve", "credential", "cleanup", "forbidden", "stopConditions", "maxRuns", "evidenceRoot", "manualAttestations", "ownerApproval", "envelopeSha256"];
   for (const k of Object.keys(e)) if (!allowedTop.includes(k)) bad("unknown-field", `unknown top-level field ${JSON.stringify(k.slice(0, 40))}`);
   for (const k of allowedTop) if (!(k in e)) bad("missing-field", `missing ${k}`);
   if (issues.length > 0) return { ok: false, issues };
@@ -87,7 +98,8 @@ export function validateEnvelope(raw: unknown): { ok: true; envelope: Envelope }
     if (span > MAX_LIFETIME_DAYS * 86_400_000) bad("expiry", `an envelope may live at most ${MAX_LIFETIME_DAYS} days (a standing envelope is never unlimited)`);
   }
   if (!plain(e.code) || typeof e.code.commitSha !== "string" || !HEX(40).test(e.code.commitSha)) bad("code-sha", "code.commitSha must be a full 40-hex commit id");
-  if (plain(e.code) && e.code.lockfileSha256 !== undefined && !(typeof e.code.lockfileSha256 === "string" && HEX(64).test(e.code.lockfileSha256))) bad("lockfile", "code.lockfileSha256 must be 64 hex");
+  if (plain(e.code) && !(typeof e.code.lockfileSha256 === "string" && HEX(64).test(e.code.lockfileSha256))) bad("lockfile", "code.lockfileSha256 is required and must be 64 hex");
+  if (!plain(e.runner) || typeof e.runner.manifestSha256 !== "string" || !HEX(64).test(e.runner.manifestSha256) || !(Number.isInteger(e.runner.fileCount) && Number(e.runner.fileCount) > 0)) bad("runner", "runner.manifestSha256 (64 hex) and runner.fileCount are required");
   if (!plain(e.proof) || typeof e.proof.manifestSha256 !== "string" || !HEX(64).test(e.proof.manifestSha256)) bad("manifest", "proof.manifestSha256 must be 64 hex");
   if (plain(e.proof) && !(Number.isInteger(e.proof.fileCount) && Number(e.proof.fileCount) > 0)) bad("manifest", "proof.fileCount must be a positive integer");
   if (!plain(e.accounts) || !ACCT.test(String(e.accounts.platformAcct)) || !ACCT.test(String(e.accounts.connectedAcct))) bad("accounts", "accounts.platformAcct and accounts.connectedAcct must be acct_ ids");
@@ -131,7 +143,7 @@ export function validateEnvelope(raw: unknown): { ok: true; envelope: Envelope }
   if (!plain(a) || typeof a.text !== "string" || typeof a.textSha256 !== "string" || typeof a.reference !== "string" || a.reference.length < 3) bad("approval", "ownerApproval needs text, textSha256 and reference");
   else {
     if (sha256(a.text) !== a.textSha256) bad("approval", "ownerApproval.textSha256 does not match the recorded text (approval text was altered)");
-    if (issues.every((i) => !["envelope-id", "code-sha", "manifest", "max-runs", "timestamp"].includes(i.code))) {
+    if (issues.every((i) => !["envelope-id", "code-sha", "manifest", "max-runs", "timestamp", "lockfile", "runner", "accounts", "rules", "ceiling", "credential", "evidence-root", "manual", "stop-conditions"].includes(i.code))) {
       for (const t of approvalTokens(e as Envelope)) if (!a.text.includes(t)) bad("approval", `ownerApproval.text does not contain the term ${JSON.stringify(t.length > 60 ? t.slice(0, 60) : t)} (the approval must name the exact terms)`);
     }
   }
@@ -152,8 +164,8 @@ export type EnvelopeSpec = Omit<Envelope, "envelopeSha256" | "ownerApproval" | "
 
 /**
  * Builds an envelope from a spec plus an owner approval text supplied by a human. The runner never invents the text: term-less text is refused
- * by validation. NOTE: a process that can write files can write any text; the control is the coordinator comparing `ownerApproval.text`
- * with the verbatim owner message (documented limitation).
+ * by validation. NOTE: the approval text is NOT the control (anything that can write a file can write it). The control is the detached owner
+ * Ed25519 signature over `envelopeSha256` (see ownersig.ts), which the runner verifies against a pinned public key before any live run.
  */
 export function createEnvelope(spec: EnvelopeSpec, approvalText: string, approvalReference: string): { ok: true; envelope: Envelope } | { ok: false; issues: EnvelopeIssue[] } {
   const base = {

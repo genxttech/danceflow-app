@@ -4,11 +4,13 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { evidenceDirProblem } from "../d24-m3d-proof/evidence";
 import { checkKeyShape } from "../d24-m3d-proof/identity";
 import { manifest } from "../d24-m3d-proof/manifest";
+import { runnerInsideClone, runnerManifest } from "./runnerpin";
+import { verifyOwnerSignature, type OwnerTrust } from "./ownersig";
 import { baseEnv, proofEnv } from "./childenv";
 import { sha256 } from "./canon";
 import { checkEnvelopeWindow, KNOWN_RULE_IDS, validateEnvelope } from "./envelope";
@@ -33,6 +35,10 @@ export type RunnerDeps = {
   /** dry only: the fake key to inject instead of reading a store */
   dryKey?: string;
   tsxCli?: string;
+  /** absolute git path for live runs (see bins.resolveGit) */
+  gitBin?: string;
+  /** LIVE only: the pinned owner trust (null = none registered => refuse) and the parsed detached signature document. Ignored in dry. */
+  owner?: { trust: OwnerTrust | null; signature: unknown };
 };
 
 export type RunResult = { summary: RunSummary | null; status: RunSummary["status"]; exitCode: number; reportPath: string | null; gates: Gate[] };
@@ -76,15 +82,37 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   }
   gate("envelope-window", true, `valid until ${env.expiresUtc}`);
 
+  // 1b. OWNER signature: the control that the tooling cannot self-approve. Live runs need a registered owner key and a valid detached signature.
+  if (d.dry) gate("owner-signature", true, "DRY: not required (no live call is possible in dry mode); a LIVE run would be refused without a registered owner key and a valid signature");
+  else {
+    const sig = verifyOwnerSignature(env.envelopeSha256, d.owner?.signature, d.owner?.trust ?? null);
+    if (!gate("owner-signature", sig.ok, sig.reason)) return blocked("owner-signature");
+  }
+
+  // 1c. the runner's own code is part of the approval: it must live in the verified clone and match the hash in the envelope
+  const runnerDir = __dirnameOf();
+  const inClone = runnerInsideClone(runnerDir, repoDir);
+  if (!gate("runner-in-clone", inClone.ok, inClone.detail)) return blocked("runner-in-clone");
+  const rm = runnerManifest(runnerDir);
+  const runnerOk = rm.sha256 === env.runner.manifestSha256 && rm.files.length === env.runner.fileCount;
+  if (!gate("runner-pin", runnerOk, runnerOk ? `runner folder ${sha12(rm.sha256)}, ${rm.files.length} files == envelope` : `runner folder hash ${sha12(rm.sha256)} (${rm.files.length} files) differs from the envelope (${sha12(env.runner.manifestSha256)}): the enforcement code was changed after approval`)) return blocked("runner-pin");
+
   // 2. ledger: run count, unfinished runs, lock
   let blockers: string[];
+  const bind = { envelopeSha256: env.envelopeSha256, keyFp: env.credential.keyFingerprintSha256Prefix };
+  if (!d.dry) {
+    const pinned = d.owner?.trust;
+    const same = (a: string, b: string) => resolve(a).toLowerCase() === resolve(b).toLowerCase();
+    const okPin = Boolean(pinned) && same(d.ledger.dir, pinned!.ledgerDir) && d.ledger.anchorFile !== undefined && same(d.ledger.anchorFile, pinned!.anchorFile);
+    if (!gate("ledger-pinned", okPin, okPin ? "ledger directory and anchor are the locations pinned in the owner trust file" : "the ledger is not at the location pinned in the owner trust file (a fresh or other ledger would reset the run budget)")) return blocked("ledger-pinned");
+  }
   try {
-    blockers = d.ledger.startBlockers(env.envelopeId, env.maxRuns);
+    blockers = d.ledger.startBlockers(env.envelopeId, env.maxRuns, bind);
   } catch (e) {
     blockers = [String((e as Error).message)];
   }
   if (!gate("ledger", blockers.length === 0, blockers.length === 0 ? `${d.ledger.runsStarted(env.envelopeId)} of ${env.maxRuns} runs consumed; no unfinished run` : blockers.join(" | "))) return blocked("ledger");
-  const runNo = d.ledger.runsStarted(env.envelopeId) + 1;
+  const runNo = d.ledger.nextRunNo(env.envelopeId);
 
   // 3. evidence root (outside any git checkout, resolved on real paths)
   const runDir = join(env.evidenceRoot, env.envelopeId, `run-${runNo}`);
@@ -93,7 +121,7 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
 
   // 4. clean clone, pinned commit, npm ci
   const plain = baseEnv(d.parentEnv);
-  const git = await verifyCleanClone({ repoDir, commitSha: env.code.commitSha, lockfileSha256: env.code.lockfileSha256, env: plain.env, exec: d.exec, runInstall: d.runInstall });
+  const git = await verifyCleanClone({ repoDir, commitSha: env.code.commitSha, lockfileSha256: env.code.lockfileSha256, env: plain.env, exec: d.exec, runInstall: d.runInstall, gitBin: d.gitBin });
   for (const g of git) gate(g.id, g.ok, g.detail);
   if (git.some((g) => !g.ok)) return blocked("clean-clone");
 
@@ -103,6 +131,17 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   const theirs = await proofPrintHash(call);
   const agree = theirs.ok && theirs.sha256 === local.sha256 && local.sha256 === env.proof.manifestSha256 && local.files.length === env.proof.fileCount && theirs.fileCount === env.proof.fileCount;
   if (!gate("proof-manifest", agree, agree ? `manifest ${sha12(local.sha256)}, ${local.files.length} files: runner recomputation == proof --print-hash == envelope` : `manifest mismatch (runner ${sha12(local.sha256)}, proof ${theirs.sha256 ? sha12(theirs.sha256) : "unavailable"}, envelope ${sha12(env.proof.manifestSha256)})`)) return blocked("proof-manifest");
+
+  // 5b. the call ceiling: the proof enforces only its own constant (HARD_CALL_CAP), which cannot be lowered without editing the hashed proof folder.
+  // So the envelope ceiling must EQUAL the proof constant (read from the manifest-verified source); a lower value could only be checked after the fact.
+  let proofCap: number | null = null;
+  try {
+    proofCap = Number(/HARD_CALL_CAP\s*=\s*(\d+)/.exec(readFileSync(join(repoDir, "scripts", "qa", "d24-m3d-proof", "config.ts"), "utf8"))?.[1] ?? NaN);
+  } catch {
+    proofCap = null;
+  }
+  const capOk = proofCap !== null && Number.isInteger(proofCap) && proofCap === env.apiCallCeiling;
+  if (!gate("ceiling-pin", capOk, capOk ? `envelope ceiling ${env.apiCallCeiling} == the proof's enforced HARD_CALL_CAP` : `envelope ceiling ${env.apiCallCeiling} differs from the proof's enforced cap ${proofCap ?? "unreadable"}: a different ceiling cannot be enforced live without editing the hashed proof, so it is refused`)) return blocked("ceiling-pin");
 
   // 6. allow-list rule ids == envelope permitted operations
   const al = await proofAllowList(call);
@@ -152,17 +191,32 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   if (!gate("proof-preflight", pfOk, pfDetail)) return blocked("proof-preflight");
 
   // 10. last TOCTOU check, then consume the run BEFORE going live
-  const again = await verifyCleanClone({ repoDir, commitSha: env.code.commitSha, lockfileSha256: env.code.lockfileSha256, env: plain.env, exec: d.exec, runInstall: false });
+  const again = await verifyCleanClone({ repoDir, commitSha: env.code.commitSha, lockfileSha256: env.code.lockfileSha256, env: plain.env, exec: d.exec, runInstall: false, gitBin: d.gitBin });
   const stillOk = again.filter((g) => g.id !== "npm-ci").every((g) => g.ok);
   if (!gate("recheck-tree", stillOk, stillOk ? "tree still exactly the pinned commit, clean" : "tree changed during the gates")) return blocked("recheck-tree");
+  // expiry is re-checked at the point the run is consumed (npm ci and the gates can take many minutes)
+  const win2 = checkEnvelopeWindow(env, d.now());
+  if (!gate("envelope-window-recheck", win2.length === 0, win2.length === 0 ? "still inside the approved window at the moment of consumption" : win2.map((i) => `${i.code}: ${i.detail}`).join(" | "))) return blocked("envelope-window-recheck");
   mkdirSync(env.evidenceRoot, { recursive: true });
   const runId = `${env.envelopeId}-r${runNo}`;
-  const start: LedgerEntry = d.ledger.startRun(env.envelopeId, env.envelopeSha256, runId);
+  let start: LedgerEntry;
+  try {
+    start = d.ledger.startRun(env.envelopeId, env.envelopeSha256, runId, { maxRuns: env.maxRuns, keyFp: env.credential.keyFingerprintSha256Prefix });
+  } catch (e) {
+    gate("ledger-start", false, sanitize(String((e as Error).message), literals));
+    return blocked("ledger-start");
+  }
+  if (start.runNo !== runNo) {
+    d.ledger.endRun(start, "ABORTED-RUNNO-RACE");
+    gate("ledger-start", false, `another run consumed number ${runNo} between the check and the start (now ${start.runNo}); nothing was sent`);
+    return blocked("ledger-start");
+  }
   say(`LEDGER: run ${runNo} of ${env.maxRuns} consumed for envelope ${env.envelopeId} (counts even if the run fails).`);
 
   let childExit: number | null = null;
   let childOut = "";
   let childErr = "";
+  let timedOut = false;
   let summary: RunSummary | null = null;
   let status: RunSummary["status"] = "UNVERIFIABLE";
   try {
@@ -170,6 +224,7 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
     childExit = r.code;
     childOut = r.stdout;
     childErr = r.stderr;
+    timedOut = r.timedOut === true;
     say(`proof --live finished with exit code ${r.code}`);
 
     // 11. post-run
@@ -184,16 +239,17 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
     mkdirSync(runDir, { recursive: true, mode: 0o700 });
     writeFileSync(join(runDir, "runner-child-output.txt"), childLog, { mode: 0o600, flag: "wx" });
     hashes.push(hashFile("runner-child-output.txt", childLog));
-    const dec = decide({ analysis, safetyFindings: findings, childExitCode: childExit, blockedAt: undefined });
+    const dec = decide({ analysis, safetyFindings: findings, childExitCode: childExit, blockedAt: undefined, timedOut });
     status = dec.status;
-    summary = { status: dec.status, statusReason: dec.reason, envelope: env, runNo, runId, startedUtc, finishedUtc: d.now().toISOString(), childExitCode: childExit, analysis, safetyFindings: findings, fileHashes: hashes, gates, dry: d.dry, runnerManifestSha256: manifest(__dirnameOf()).sha256 };
+    summary = { status: dec.status, statusReason: dec.reason, envelope: env, runNo, runId, startedUtc, finishedUtc: d.now().toISOString(), childExitCode: childExit, analysis, safetyFindings: findings, fileHashes: hashes, gates, dry: d.dry, runnerManifestSha256: rm.sha256 };
     const report = renderReport(summary, d.now());
     writeFileSync(join(runDir, "report.md"), report, { mode: 0o600, flag: "wx" });
     say(`REPORT: ${join(runDir, "report.md")} (sha256 ${sha256(report).slice(0, 16)})`);
     say(`DECISION: ${dec.status} - ${dec.reason}`);
     if (hasSecretFinding(findings)) say("SAFETY: a secret-shaped value was found in the output. Expire the key NOW and delete the stored credential.");
   } finally {
-    d.ledger.endRun(start, status);
+    // a timed-out child's tree was killed, but its calls are unverified: leave the run open (and the lock held) until a human reconciles it
+    if (!timedOut) d.ledger.endRun(start, status);
   }
   const exitCode = status === "PASS" ? 0 : 1;
   return { summary, status, exitCode, reportPath: join(runDir, "report.md"), gates };

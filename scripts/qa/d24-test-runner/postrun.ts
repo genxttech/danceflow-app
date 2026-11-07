@@ -129,9 +129,11 @@ export type RunSummary = {
 };
 
 /** Hard failures outrank unverifiable; BLOCKED means the runner refused before any live call (no run consumed). */
-export function decide(s: Pick<RunSummary, "analysis" | "safetyFindings" | "childExitCode" | "blockedAt">): { status: DecisionStatus; reason: string } {
+export function decide(s: Pick<RunSummary, "analysis" | "safetyFindings" | "childExitCode" | "blockedAt"> & { timedOut?: boolean }): { status: DecisionStatus; reason: string } {
   if (s.blockedAt) return { status: "BLOCKED", reason: `refused before any live call at gate ${s.blockedAt}` };
   if (hasSecretFinding(s.safetyFindings)) return { status: "FAIL", reason: "SAFETY: a secret-shaped value was found in the run output. Expire the key immediately." };
+  // a timed-out child may still have been calling Stripe: never PASS, and never clean, whatever partial evidence exists
+  if (s.timedOut) return { status: "UNVERIFIABLE", reason: "the proof timed out and was killed (process tree): calls and cleanup are unverified; the run stays open in the ledger until reconciled in the Stripe dashboard" };
   const a = s.analysis;
   if (!a || !a.evidenceParsed) return { status: "UNVERIFIABLE", reason: "no readable evidence: the outcome cannot be verified; reconcile in the dashboard" };
   const hardFail = Boolean(a.abort) || a.checks.fail > 0 || (a.callsUsed ?? 0) > a.ceiling || (a.blockedBeforeNetwork ?? 0) > 0 || a.manifestMatches === false || (a.cleanup?.remaining ?? 0) > 0 || a.failures.some((f) => /^verdict V\d is FAIL|^evidence mode/.test(f));
