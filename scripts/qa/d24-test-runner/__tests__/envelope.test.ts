@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.setConfig({ testTimeout: 30_000 }); // every makeEnvelope reads the repo; stay robust under a loaded CI runner
 import { approvalTemplate, checkEnvelopeWindow, createEnvelope, envelopeHash, validateEnvelope } from "../envelope";
 import { baseSpec, makeEnvelope } from "./helpers";
 

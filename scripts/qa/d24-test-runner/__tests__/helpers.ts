@@ -11,6 +11,7 @@ import type { OwnerTrust, SignatureDoc } from "../ownerverify";
 import { runnerManifest } from "../runnerpin";
 import { readFileSync } from "node:fs";
 import { Ledger } from "../ledger";
+import { testAuth } from "./softauth";
 
 export const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 // built at run time: a realistic key literal in source trips GitHub push protection
@@ -39,6 +40,16 @@ export function ownerTrust(ledgerDir: string, anchorFile: string): OwnerTrust {
 }
 export const ownerSign = (e: Pick<Envelope, "envelopeSha256">): SignatureDoc => signEnvelopeHash(ownerKey().encrypted, OWNER_PASS, e.envelopeSha256, 1 << 10);
 
+let runnerPinCache: { manifestSha256: string; fileCount: number } | undefined;
+/** The runner folder hash is computed once per test process (it is read from disk and hashed). */
+function runnerPin() {
+  if (!runnerPinCache) {
+    const m = runnerManifest(join(REPO, "scripts", "qa", "d24-test-runner"));
+    runnerPinCache = { manifestSha256: m.sha256, fileCount: m.files.length };
+  }
+  return { ...runnerPinCache };
+}
+
 export function baseSpec(over: Partial<EnvelopeSpec> = {}, evidenceRoot = join(tmp(), "evidence")): EnvelopeSpec {
   const m = manifest(join(REPO, "scripts", "qa", "d24-m3d-proof"));
   return {
@@ -47,7 +58,8 @@ export function baseSpec(over: Partial<EnvelopeSpec> = {}, evidenceRoot = join(t
     expiresUtc: "2026-11-14T10:00:00Z",
     code: { commitSha: SHA, lockfileSha256: lockfileSha(readFileSync(join(REPO, "package-lock.json"))) },
     proof: { manifestSha256: m.sha256, fileCount: m.files.length },
-    runner: { manifestSha256: runnerManifest(join(REPO, "scripts", "qa", "d24-test-runner")).sha256, fileCount: runnerManifest(join(REPO, "scripts", "qa", "d24-test-runner")).files.length },
+    runner: runnerPin(),
+    hardwareAnchorFingerprintSha256: testAuth.anchor.fingerprintSha256,
     accounts: { platformAcct: "acct_UNITPLATFORM1", connectedAcct: "acct_UNITCONNECTED1" },
     permittedRuleIds: ["customer.create", "customer.delete", "identity.connected", "identity.platform", "invoice.add_lines", "invoice.create_draft", "invoice.delete_draft", "invoice.list_by_customer", "invoice.read", "negative.transfers", "negative.webhook_endpoints"],
     apiCallCeiling: 40,

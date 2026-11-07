@@ -75,3 +75,16 @@ function npmCliPath(): string {
   const base = process.execPath.replace(/[\\/][^\\/]+$/, "");
   return join(base, "node_modules", "npm", "bin", "npm-cli.js");
 }
+
+/**
+ * Hardware mode only: the pinned commit (which contains the anchor file and the runner) must be an ancestor of the owner-merged branch on the PINNED
+ * repository URL, fetched fresh (the URL comes from the runner-pinned anchor, not from .git/config). This needs the network (GitHub, never Stripe) and is
+ * only as strong as GitHub's branch protection plus the machine's git/TLS configuration: see the design doc for what it does not prove.
+ */
+export async function commitOnMain(o: { repoDir: string; commitSha: string; repoUrl: string; branch: string; env: Record<string, string>; exec: Exec; gitBin?: string }): Promise<Gate> {
+  const git = (args: string[]) => o.exec(o.gitBin ?? "git", ["-c", "core.fsmonitor=false", ...args], { cwd: o.repoDir, env: o.env, timeoutMs: 120_000 });
+  const f = await git(["fetch", "--quiet", "--no-tags", o.repoUrl, `refs/heads/${o.branch}`]);
+  if (f.code !== 0 || f.timedOut) return { id: "commit-on-main", ok: false, detail: `could not fetch ${o.branch} from the pinned repository (exit ${f.code}); a hardware-approved run needs the pinned commit to be on the owner-merged branch` };
+  const a = await git(["merge-base", "--is-ancestor", o.commitSha, "FETCH_HEAD"]);
+  return { id: "commit-on-main", ok: a.code === 0, detail: a.code === 0 ? `${o.commitSha.slice(0, 12)} is contained in ${o.branch} of the pinned repository` : `${o.commitSha.slice(0, 12)} is NOT contained in ${o.branch} of the pinned repository: the runner and anchor were not merged by the owner` };
+}
