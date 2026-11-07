@@ -21,7 +21,7 @@ import { describeAllowList } from "./allowlist";
 import { cleanup, MANUAL_CLEANUP_NOTE, type CleanupReport } from "./cleanup";
 import { createFakeTransport } from "./fakeTransport";
 import { createGuardedClient, HARD_CALL_CAP, type GuardedClient } from "./guarded";
-import { ENV, runIdentityGate, type ConnectedFacts } from "./identity";
+import { ENV, runIdentityGate, type ConnectedFacts, type ConnectedObserved } from "./identity";
 import { defaultDockerProbe, liveRefusals, runPreflight, type DockerProbe } from "./preflight";
 import { EVIDENCE_ENV, evidenceDirProblem, sanitize, writeEvidence } from "./evidence";
 import { STRIPE_API_VERSION } from "./config";
@@ -158,8 +158,9 @@ export async function runProof(argv: string[], deps: RunDeps): Promise<number> {
   let verdicts: Verdicts | null = null;
   let abort: ProofAbort | null = null;
   let connectedFacts: ConnectedFacts | null = null;
+  let connectedObserved: ConnectedObserved | null = null;
   try {
-    connectedFacts = (await runIdentityGate(client, expect)).connectedFacts;
+    connectedFacts = (await runIdentityGate(client, expect, (o) => { connectedObserved = o; io.out(`connected account observed (enum tokens only): ${sanitize(JSON.stringify(o))}`); })).connectedFacts;
     io.out(`connected account verified: ${sanitize(JSON.stringify(connectedFacts))}`);
     const r = await runScenarios({ client, expect, runId, sleep: io.sleep, replayWaitMs: waitMs });
     results = r.results;
@@ -184,7 +185,7 @@ export async function runProof(argv: string[], deps: RunDeps): Promise<number> {
         evDir,
         {
           outcome, runId, mode: live ? "live" : "dry-run", scriptSha256: m.sha256, apiVersionPinned: STRIPE_API_VERSION, apiVersionsReported: reported,
-          connectedFacts, callsUsed: client.stats().used, blocked: client.stats().blocked, scenarios: results, verdicts, cleanup: clean,
+          connectedFacts, connectedObserved, callsUsed: client.stats().used, blocked: client.stats().blocked, scenarios: results, verdicts, cleanup: clean,
           abort: fatal ? { code: fatal.code, message: fatal.message } : null, transcriptText: `${lines.join("\n")}\nOUTCOME (before the evidence write): ${outcome}\n`, finishedUtc: (deps.now ?? (() => new Date()))().toISOString(),
         },
         repoRoot,

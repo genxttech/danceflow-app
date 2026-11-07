@@ -5,7 +5,7 @@
 
 import { existsSync, mkdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import type { ConnectedFacts } from "./identity";
+import type { ConnectedFacts, ConnectedObserved } from "./identity";
 import { redactText } from "./redact";
 
 export const EVIDENCE_ENV = "D24_PROOF_EVIDENCE_DIR";
@@ -63,6 +63,8 @@ export type EvidenceInput = {
   blocked: number;
   /** account type + controller enum strings the identity gate verified (null when the gate did not pass) */
   connectedFacts?: ConnectedFacts | null;
+  /** the account type + controller values the gate actually saw, as bounded enum tokens (recorded for a rejected gate too) */
+  connectedObserved?: ConnectedObserved | null;
   scenarios: unknown;
   verdicts: unknown;
   cleanup: unknown;
@@ -94,6 +96,7 @@ export function writeEvidence(dir: string, e: EvidenceInput, repoRoot: string, h
     stripeApiVersionsReportedByStripe: e.apiVersionsReported,
     accountDefaultApiVersion: "RECORD BY HAND from the dashboard (the proof pins its own version on every request)",
     connectedAccountVerified: e.connectedFacts ?? null,
+    connectedAccountObserved: e.connectedObserved ?? null,
     callsUsed: e.callsUsed,
     blockedBeforeNetwork: e.blocked,
     scenarios: e.scenarios,
