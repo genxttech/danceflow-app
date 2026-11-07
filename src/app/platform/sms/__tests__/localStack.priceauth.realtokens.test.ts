@@ -474,6 +474,7 @@ describe.skipIf(!enabled)("D4-2: pricing authorization with REAL GoTrue tokens t
     const staleMsg = (r: { text: string }) => /fresh authenticator code is required|authenticator \(TOTP\) sign-in is required/.test(r.text);
     const fresh = await newSession(A);
     const amr0 = decode(fresh).amr as { method: string; timestamp: number }[];
+    const totp0 = amr0.find((e) => e.method === "totp")!;   // GoTrue does not promise the order of the amr entries
     expect(amr0.find((e) => e.method === "totp")?.timestamp, "GoTrue writes the TOTP timestamp in seconds").toBeGreaterThan(nowS() - 60);
     for (const [fn, args] of sens) {
       const r = await rpc(fn, fresh, args);
@@ -482,7 +483,7 @@ describe.skipIf(!enabled)("D4-2: pricing authorization with REAL GoTrue tokens t
     clearRequests();
     // the same real token with the TOTP timestamp moved back 11 minutes, removed, or turned into a string-form amr: refused by the database, whatever the signature says
     const variants: [string, unknown][] = [
-      ["11 minutes old", [{ ...amr0[0], timestamp: nowS() - 660 }]],
+      ["11 minutes old", [{ ...totp0, timestamp: nowS() - 660 }]],
       ["no timestamp", [{ method: "totp" }]],
       ["string amr", ["totp"]],
       ["amr removed", undefined],
@@ -512,7 +513,7 @@ describe.skipIf(!enabled)("D4-2: pricing authorization with REAL GoTrue tokens t
     expect(Math.max(...t3), "the step-up produced a newer TOTP timestamp").toBeGreaterThan(t1);
     expect(decode(again.access).session_id).toBe(decode(s1.access).session_id);
     // EMERGENCY actions with a stale session: freeze, report_compromise and the recovery-freeze ceremony; the sensitive thaw is refused with the same stale token
-    const stale = resign(fresh, { amr: [{ ...amr0[0], timestamp: nowS() - 3000 }] });
+    const stale = resign(fresh, { amr: [{ ...totp0, timestamp: nowS() - 3000 }] });
     const pendingStale = await rpc("tw4_price_cred_pending", stale);
     expect(reached(pendingStale), `${pendingStale.status} ${pendingStale.text.slice(0, 300)}`).toBe(true);
     const fz = await rpc("tw4_price_freeze", stale, { p_reason: "a freeze with a stale authenticator code, which must still work" });
