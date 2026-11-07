@@ -1,28 +1,18 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import Stripe from "stripe";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { STRIPE_API_VERSION } from "../../d24-m3d-proof/config";
 import { checkConnectedAccount } from "../../d24-m3d-proof/identity";
 import type { ProofRequest } from "../../d24-m3d-proof/types";
 import { AUTHORIZATION_PHRASE, ENV, PROVISION_API_VERSION, PROVISION_HARD_CALL_CAP, ProvisionAbort, allowProblem, buildCreateRequest, createFakeProvisionTransport, runProvision } from "../provision";
-import { liveRefusals, main } from "../run";
+import { main } from "../run";
 
 const PLATFORM = "acct_FAKEPLATFORM01";
 const ENVREF = "D24-ENV-20261108-abcdef123456";
 const IDEM = "d24prov-0123456789abcdef0123";
 const KEY = ["rk", "test", "abcdefghijklmnop1234"].join("_"); // built at run time: no key-shaped literal in the source
 const REPO = join(__dirname, "..", "..", "..", "..");
-const dirs: string[] = [];
-afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
-});
-const tmp = () => {
-  const d = mkdtempSync(join(tmpdir(), "d24prov-"));
-  dirs.push(d);
-  return d;
-};
 
 const run = (transport: ReturnType<typeof createFakeProvisionTransport>["transport"], over: Partial<Parameters<typeof runProvision>[0]> = {}) =>
   runProvision({ transport, apiKey: KEY, expectPlatformAcct: PLATFORM, envelopeRef: ENVREF, idempotencyKey: IDEM, ...over });
@@ -131,48 +121,38 @@ describe("allow-list is default deny", () => {
   });
 });
 
-describe("cannot run live without the owner envelope", () => {
-  const good = { [ENV.key]: KEY, [ENV.platform]: PLATFORM, [ENV.envelope]: ENVREF, [ENV.phrase]: AUTHORIZATION_PHRASE };
-  it("refuses with an empty environment and sends nothing", async () => {
+describe("--live is permanently disabled", () => {
+  const everything = { [ENV.key]: KEY, [ENV.platform]: PLATFORM, [ENV.envelope]: ENVREF, [ENV.phrase]: AUTHORIZATION_PHRASE, [ENV.evidenceDir]: "/somewhere" };
+  it("exits 3 and never touches any transport, even with every variable set and a transport injected", async () => {
     const f = createFakeProvisionTransport({ platformId: PLATFORM });
+    let envReads = 0;
+    const env = new Proxy(everything as Record<string, string | undefined>, { get: (t, k) => { envReads += 1; return t[k as string]; } });
     const err: string[] = [];
-    const code = await main(["--live"], {}, { out: () => {}, err: (s) => err.push(s) }, { transport: f.transport, repoRoot: REPO });
+    const out: string[] = [];
+    const code = await main(["--live"], env, { out: (s) => out.push(s), err: (s) => err.push(s) }, { transport: f.transport });
     expect(code).toBe(3);
     expect(f.calls).toHaveLength(0);
-    expect(err.join("\n")).toMatch(/envelope reference/);
+    expect(envReads).toBe(0);
+    expect(out).toHaveLength(0);
+    expect(err.join("\n")).toMatch(/disabled/);
+    expect(err.join("\n")).toMatch(/owner-signed envelope/);
+    expect(err.join("\n")).not.toContain(KEY);
   });
-  it.each([ENV.envelope, ENV.phrase, ENV.key, ENV.platform, ENV.evidenceDir])("refuses when %s alone is missing", (name) => {
-    const env: Record<string, string | undefined> = { ...good, [ENV.evidenceDir]: tmp() };
-    delete env[name];
-    expect(liveRefusals(env, REPO).length).toBeGreaterThan(0);
+  it("exits 3 with an empty environment too", async () => {
+    expect(await main(["--live"], {}, { out: () => {}, err: () => {} })).toBe(3);
   });
-  it("refuses a malformed envelope reference and an evidence dir inside the repo", () => {
-    expect(liveRefusals({ ...good, [ENV.envelope]: "D24-ENV-x", [ENV.evidenceDir]: tmp() }, REPO).join(" ")).toMatch(/envelope/);
-    expect(liveRefusals({ ...good, [ENV.evidenceDir]: join(REPO, "evidence") }, REPO).join(" ")).toMatch(/outside|inside/);
-  });
-  it("refuses proxy environment like the proof", () => {
-    expect(liveRefusals({ ...good, [ENV.evidenceDir]: tmp(), HTTPS_PROXY: "http://x" }, REPO).join(" ")).toMatch(/HTTPS_PROXY/);
-  });
-  it("with everything supplied it uses the injected fake, writes evidence outside git, and never prints the key or the full account id", async () => {
-    const dir = tmp();
-    const f = createFakeProvisionTransport({ platformId: PLATFORM });
-    const out: string[] = [];
-    const code = await main(["--live"], { ...good, [ENV.evidenceDir]: dir }, { out: (s) => out.push(s), err: (s) => out.push(s) }, { transport: f.transport, repoRoot: REPO, newIdempotencyKey: () => IDEM });
-    expect(out.join("\n")).not.toContain(KEY);
-    expect(code).toBe(0);
-    const text = out.join("\n");
-    expect(text).not.toContain("acct_FAKEPROVISION01");
-    const files = readdirSync(dir);
-    expect(files).toHaveLength(1);
-    const body = readFileSync(join(dir, files[0]), "utf8");
-    expect(body).toContain("acct_FAKEPROVISION01");
-    expect(body).not.toContain(KEY);
-    expect(body).not.toContain(IDEM);
+  it("the CLI source has no path to a real transport, key, filesystem or network", () => {
+    const src = readFileSync(join(__dirname, "..", "run.ts"), "utf8");
+    for (const bad of ["createNodeTransport", "node:https", "node:http", "node:fs", "d24-m3d-proof/transport", "process.env[", "ENV.key"]) expect(src).not.toContain(bad);
+    const prov = readFileSync(join(__dirname, "..", "provision.ts"), "utf8");
+    expect(prov).not.toContain("createNodeTransport");
+    expect(prov).not.toContain("node:https");
   });
   it("--plan and --dry-run need nothing and make no network call", async () => {
     const out: string[] = [];
     expect(await main(["--plan"], {}, { out: (s) => out.push(s), err: () => {} })).toBe(0);
     expect(await main(["--dry-run"], {}, { out: (s) => out.push(s), err: () => {} })).toBe(0);
+    expect(out.join("\n")).toMatch(/cannot run live/);
     expect(await main(["--plan", "--live"], {}, { out: () => {}, err: () => {} })).toBe(2);
     expect(await main(["x"], {}, { out: () => {}, err: () => {} })).toBe(2);
   });

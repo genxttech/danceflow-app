@@ -1,7 +1,7 @@
 // D24 TEST-account provisioning (PROOF-SUPPORT ONLY, NOT AUTHORIZED TO RUN LIVE). Never imported from src/.
 // Creates ONE production-equivalent Express connected account in the dedicated Stripe TEST sandbox, exactly as
 // src/app/api/stripe/connect/onboarding/route.ts does, plus a D24-fixture metadata marker. Default deny: a closed allow-list of three requests,
-// a hard call cap, no retry, no redirect, the same node:https transport as the proof, and a fake transport for --dry-run.
+// a hard call cap, no retry, no redirect, and an in-memory fake transport for --dry-run. This file imports NO real transport; the run.ts CLI cannot send a request.
 // Nothing here has been run against Stripe. The proof's identity gate (checkConnectedAccount) is REUSED unchanged to judge the account that comes back.
 
 import { createHash } from "node:crypto";

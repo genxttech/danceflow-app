@@ -44,13 +44,14 @@ export type Provenance = {
 export type Finding = {
   kind:
     | "missing_in_provider" | "extra_in_provider" | "duplicate_in_provider" | "duplicate_in_sent" | "field_mismatch" | "time_skew" | "count_mismatch"
-    | "replay_matched_to_original" | "error_entry_matched" | "error_entry_not_in_provider" | "out_of_window_ignored" | "provenance_problem" | "unusable_input";
+    | "replay_matched_to_original" | "replay_without_original" | "error_entry_matched" | "error_entry_not_in_provider" | "out_of_window_provider" | "out_of_window_sent" | "transcript_unparsed" | "provenance_problem" | "unusable_input";
   severity: "fail" | "warn" | "info";
   detail: string;
   requestId?: string;
 };
 
-export type ReconcileOptions = { slackMs?: number; maxSkewMs?: number };
+/** `window` MUST come from outside the transcript (the operator's own start/end of the supervised run, e.g. CLI args), never from the transcript's timestamps: a truncated transcript would otherwise shrink the window and hide extras. */
+export type ReconcileOptions = { window: { fromUtc: string; toUtc: string }; maxSkewMs?: number; unparsedTranscriptLines?: string[] };
 export type ReconcileResult = {
   verdict: "CONSISTENT" | "DISCREPANCIES";
   /** Always STILL_REQUIRED: a tool cannot establish that an export is complete or genuine. */
@@ -61,7 +62,6 @@ export type ReconcileResult = {
   findings: Finding[];
 };
 
-const DEFAULT_SLACK_MS = 120_000;
 const DEFAULT_MAX_SKEW_MS = 120_000;
 const norm = (p: string) => p.split("?")[0];
 const sameAccount = (a: string | null | undefined, b: string | null | undefined) => {
@@ -85,9 +85,8 @@ export function idempotencyMatches(sent: string | undefined, provider: string | 
   return sent === provider;
 }
 
-export function reconcile(sentAll: SentRequest[], providerAll: ProviderEntry[], provenance: Provenance | null, opts: ReconcileOptions = {}): ReconcileResult {
-  const slack = opts.slackMs ?? DEFAULT_SLACK_MS;
-  const maxSkew = opts.maxSkewMs ?? DEFAULT_MAX_SKEW_MS;
+export function reconcile(sentAll: SentRequest[], providerAll: ProviderEntry[], provenance: Provenance | null, opts: ReconcileOptions): ReconcileResult {
+  const maxSkew = opts?.maxSkewMs ?? DEFAULT_MAX_SKEW_MS;
   const findings: Finding[] = [];
   const add = (f: Finding) => findings.push(f);
 
@@ -103,19 +102,28 @@ export function reconcile(sentAll: SentRequest[], providerAll: ProviderEntry[], 
   const sent = sentAll.filter((s) => s.status !== "BLOCKED"); // BLOCKED = refused before any network I/O: must NOT appear at the provider
   for (const s of sent) if (Number.isNaN(Date.parse(s.atUtc))) add({ kind: "unusable_input", severity: "fail", detail: `sent entry ${s.n ?? "?"} has an unparseable time` });
   for (const p of providerAll) if (Number.isNaN(Date.parse(p.createdUtc)) || !p.requestId) add({ kind: "unusable_input", severity: "fail", detail: "provider entry without a request id or a parseable time", requestId: p.requestId });
-  const times = sent.map((s) => Date.parse(s.atUtc)).filter((t) => !Number.isNaN(t));
-  if (times.length === 0) {
-    add({ kind: "unusable_input", severity: "fail", detail: "no network requests recorded by the app: nothing to reconcile" });
+  for (const line of opts?.unparsedTranscriptLines ?? []) add({ kind: "transcript_unparsed", severity: "fail", detail: `transcript line could not be parsed and was NOT compared: ${line.slice(0, 120)}` });
+  const from = Date.parse(opts?.window?.fromUtc ?? "");
+  const to = Date.parse(opts?.window?.toUtc ?? "");
+  if (Number.isNaN(from) || Number.isNaN(to) || from >= to) {
+    add({ kind: "unusable_input", severity: "fail", detail: "an independently supplied run window (start < end, ISO-8601) is required; it is never derived from the transcript" });
     return finish(null, sent, sentBlocked, [], 0, findings);
   }
-  const from = Math.min(...times) - slack;
-  const to = Math.max(...times) + slack;
+  if (sent.length === 0) {
+    add({ kind: "unusable_input", severity: "fail", detail: "no network requests recorded by the app: nothing to reconcile" });
+    return finish({ fromUtc: new Date(from).toISOString(), toUtc: new Date(to).toISOString() }, sent, sentBlocked, [], 0, findings);
+  }
+  for (const s of sent) {
+    const t = Date.parse(s.atUtc);
+    if (!Number.isNaN(t) && (t < from || t > to)) add({ kind: "out_of_window_sent", severity: "fail", detail: `app transcript entry ${s.n ?? "?"} (${s.method} ${norm(s.path)}) is outside the independently supplied run window`, requestId: s.requestId });
+  }
 
   const inWin: ProviderEntry[] = [];
   for (const p of providerAll) {
     const t = Date.parse(p.createdUtc);
     if (Number.isNaN(t)) continue;
-    if (t < from || t > to) add({ kind: "out_of_window_ignored", severity: "info", detail: `provider entry ${p.method} ${norm(p.path)} at ${p.createdUtc} is outside the run window and ignored`, requestId: p.requestId });
+    // A provider row outside the window is NOT ignorable: it is either a request the app never recorded (a truncated transcript) or evidence the filter was wider than attested.
+    if (t < from || t > to) add({ kind: "out_of_window_provider", severity: "fail", detail: `provider entry ${p.method} ${norm(p.path)} -> ${p.status} at ${p.createdUtc} is outside the run window: not in the app transcript; explain or re-filter`, requestId: p.requestId });
     else inWin.push(p);
   }
 
@@ -127,6 +135,7 @@ export function reconcile(sentAll: SentRequest[], providerAll: ProviderEntry[], 
   const byId = new Map<string, ProviderEntry>();
   for (const p of inWin) if (!byId.has(p.requestId)) byId.set(p.requestId, p);
   const claimed = new Set<ProviderEntry>();
+  const claimedBy = new Map<SentRequest, ProviderEntry>();
   let matched = 0;
 
   const compare = (s: SentRequest, p: ProviderEntry) => {
@@ -145,6 +154,7 @@ export function reconcile(sentAll: SentRequest[], providerAll: ProviderEntry[], 
     const p = s.requestId ? byId.get(s.requestId) : undefined;
     if (p && !claimed.has(p)) {
       claimed.add(p);
+      claimedBy.set(s, p);
       matched += 1;
       compare(s, p);
     } else pending.push(s);
@@ -154,8 +164,11 @@ export function reconcile(sentAll: SentRequest[], providerAll: ProviderEntry[], 
   for (const s of pending) {
     const free = inWin.filter((p) => !claimed.has(p));
     if (s.replayed) {
-      const orig = inWin.find((p) => p.method === s.method && norm(p.path) === norm(s.path) && !!s.idempotencyKey && idempotencyMatches(s.idempotencyKey, p.idempotencyKey));
-      if (orig) { add({ kind: "replay_matched_to_original", severity: "info", detail: "idempotent replay: the provider log shows the original request (same key, method, path) but not the replay's own id; replay logging is not verified", requestId: orig.requestId }); matched += 1; replayExcluded.add(s); continue; }
+      // A replay may only be explained by an EXISTING, already matched original (same method, path and full idempotency key, different request id). It never claims an unmatched provider row.
+      const origin = [...claimedBy.entries()].find(([o, p]) => !o.replayed && o.requestId !== s.requestId && o.method === s.method && norm(o.path) === norm(s.path) && !!s.idempotencyKey && o.idempotencyKey === s.idempotencyKey && idempotencyMatches(s.idempotencyKey, p.idempotencyKey));
+      if (origin) { add({ kind: "replay_matched_to_original", severity: "info", detail: "idempotent replay: the provider log shows the matched original request (same key, method, path) but not the replay's own id; replay logging is not verified", requestId: origin[1].requestId }); replayExcluded.add(s); continue; }
+      add({ kind: "replay_without_original", severity: "fail", detail: `app marked ${s.method} ${norm(s.path)} as a replay but no matched original request with the same idempotency key exists; a replay line cannot explain a provider request`, requestId: s.requestId });
+      continue;
     }
     if (s.status === "ERROR" || !s.requestId) {
       const cand = free.find((p) => p.method === s.method && norm(p.path) === norm(s.path) && (s.method !== "POST" || idempotencyMatches(s.idempotencyKey, p.idempotencyKey)) && Math.abs(Date.parse(s.atUtc) - Date.parse(p.createdUtc)) <= maxSkew);
@@ -169,7 +182,6 @@ export function reconcile(sentAll: SentRequest[], providerAll: ProviderEntry[], 
   // anything left at the provider inside the window is an operation the app did not record
   for (const p of inWin) {
     if (claimed.has(p)) continue;
-    if (findings.some((f) => f.kind === "replay_matched_to_original" && f.requestId === p.requestId)) continue;
     if (inWin.filter((q) => q.requestId === p.requestId).length > 1 && byId.get(p.requestId) !== p) continue; // already reported as a duplicate
     add({ kind: "extra_in_provider", severity: "fail", detail: `provider shows ${p.method} ${norm(p.path)} -> ${p.status} that the app did not record`, requestId: p.requestId });
   }
@@ -200,15 +212,23 @@ function finish(window: ReconcileResult["window"], sent: SentRequest[], blocked:
 
 /** One line of the proof's printed transcript (`run.ts report`): `NN. <iso> METHOD path[?q] acct=<x> idem=<x> -> <status> req=<id>[ replayed] {…}` */
 const LINE = /^\s*(\d+)\.\s+(\S+)\s+(GET|POST|DELETE)\s+(\S+)\s+acct=(\S*)\s+idem=(\S*)\s+->\s+(\d{3}|BLOCKED|ERROR)\s+req=(\S*)(\s+replayed)?/;
-export function parseProofTranscript(text: string): SentRequest[] {
-  const out: SentRequest[] = [];
+export function parseProofTranscript(text: string): { requests: SentRequest[]; unparsed: string[] } {
+  const requests: SentRequest[] = [];
+  const unparsed: string[] = [];
+  let declared: number | null = null;
   for (const line of text.split(/\r?\n/)) {
+    const calls = /^\s*Calls used:\s*(\d+)/.exec(line);
+    if (calls) declared = Number(calls[1]);
     const m = LINE.exec(line);
-    if (!m) continue;
+    if (!m) {
+      if (/^\s*\d+\.\s/.test(line)) unparsed.push(line.trim()); // looks like a numbered request line but is not in the known format: never dropped silently
+      continue;
+    }
     const status = /^\d+$/.test(m[7]) ? Number(m[7]) : (m[7] as "BLOCKED" | "ERROR");
-    out.push({ n: Number(m[1]), atUtc: m[2], method: m[3], path: m[4].split("?")[0], stripeAccount: m[5] === "-" ? undefined : m[5], idempotencyKey: m[6] === "-" ? undefined : m[6], status, requestId: m[8] && m[8] !== "-" ? m[8] : undefined, replayed: m[9] ? true : undefined });
+    requests.push({ n: Number(m[1]), atUtc: m[2], method: m[3], path: m[4].split("?")[0], stripeAccount: m[5] === "-" ? undefined : m[5], idempotencyKey: m[6] === "-" ? undefined : m[6], status, requestId: m[8] && m[8] !== "-" ? m[8] : undefined, replayed: m[9] ? true : undefined });
   }
-  return out;
+  if (declared !== null && declared !== requests.length + unparsed.length) unparsed.push(`transcript says "Calls used: ${declared}" but ${requests.length + unparsed.length} request lines were found`);
+  return { requests, unparsed };
 }
 
 const str = (v: unknown) => (typeof v === "string" ? v : undefined);

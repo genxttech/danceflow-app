@@ -1,6 +1,6 @@
 # D24 TEST connected-account provisioning (workstream C, part 1)
 
-Status: **design + offline tooling only. Nothing here has called Stripe.** The provisioning script is not authorized to run live; it refuses without an owner-issued envelope reference (see 5).
+Status: **design + offline tooling only (plan + dry-run). Nothing here has called Stripe, and `--live` is permanently disabled in this PR (exits 3, reads nothing, sends nothing).** Live provisioning is re-enabled only later, through the test-runner's owner-signed envelope, ledger and credential store, in a separate reviewed change.
 Scope: a production-equivalent Express connected account in the dedicated D24 Stripe TEST sandbox, for the M3-D proof (`scripts/qa/d24-m3d-proof`, main `b1a91b58`).
 Code: `scripts/qa/d24-test-provision/` (new; the proof folder is untouched and still hashed).
 
@@ -49,20 +49,20 @@ HTTP method maps to RAK permission (GET=read, POST/DELETE=write; write implies r
 
 ## 4. The provisioning script (default deny)
 
-`npx tsx scripts/qa/d24-test-provision/run.ts --plan | --dry-run | --live`
+`npx tsx scripts/qa/d24-test-provision/run.ts --plan | --dry-run` (`--live` is accepted as a flag only to be refused)
 
 * `--plan` prints the three requests; `--dry-run` runs the whole flow against an in-memory fake (no network, no key). Both need nothing.
 * Allow-list (`allowProblem`, checked before the transport): `GET /v1/account` (platform identity), one `POST /v1/accounts` with exactly the production body plus three fixture-marker metadata keys, and `GET /v1/accounts/<the id this run just created>`. Everything else (DELETE, update, account links, login links, any other path, `Stripe-Account`, query strings, a second create, a create before the platform is verified, a missing/changed `Stripe-Version`) is refused with no network I/O. Hard cap 3 requests, **no retry** (a lost create is reported "may have happened, do NOT retry", the owner checks the TEST dashboard for `d24_envelope_ref`).
-* Transport: the proof's `createNodeTransport` (node:https, `agent:false`, `Connection: close`, one host `api.stripe.com`, no redirects). Key: `rk_test_` only (`checkKeyShape` reused), read from `D24_PROVISION_STRIPE_KEY` only; never argv or a file; never printed (all output goes through the proof's `sanitize`).
+* Transport: **none real.** `provision.ts` and `run.ts` import no network transport (a test greps both sources). The flow runs only against the in-memory fake. The design for a future live transport is the proof's `createNodeTransport` (node:https, `agent:false`, `Connection: close`, one host `api.stripe.com`, no redirects), to be wired in by the test-runner, not here.
 * Platform identity pinned (`D24_PROVISION_EXPECT_PLATFORM_ACCT`); a different platform aborts **before** the create. `livemode:true` or a different API version in any response aborts.
 * Idempotency key `d24prov-<24 hex>` is random per run; only its SHA-256 is stored.
 * Marker metadata on the account: `d24_proof_fixture=true`, `d24_fixture_role=express_prod_equivalent`, `d24_envelope_ref=<ref>`.
 * Both the create response and an independent readback are judged by the proof's unchanged `checkConnectedAccount`, and the readback metadata must carry the markers.
-* Evidence: written only to `D24_PROVISION_EVIDENCE_DIR`, required for `--live`, validated by the proof's `evidenceDirProblem` (absolute, outside every git checkout/worktree, links resolved), exclusive-create, mode 0600. It holds the full new account id (the owner pins it), request ids, observed enums and capability statuses, never the key or the idempotency key. Stdout shows a masked id.
+* Evidence (design for the later live path, not implemented here): a dedicated directory outside git validated by the proof's `evidenceDirProblem`, exclusive-create, mode 0600, holding the new account id, request ids and observed enums, never the key or the idempotency key.
 
-## 5. Why it cannot be run live by accident
+## 5. Why it cannot be run live
 
-`--live` refuses (exit 3, nothing sent) unless **all** hold: `D24_PROVISION_ENVELOPE_REF` matches `D24-ENV-<yyyymmdd>-<8-32 alnum>` (issued by the owner in an approval message); `D24_PROVISION_AUTHORIZATION` equals the fixed phrase `Approved: D24 TEST account provisioning as written`; `rk_test_` key; pinned platform id; an evidence directory outside git; and the proof's environment hygiene (no proxy/NODE_OPTIONS/CA overrides, no hosted-DB variables, no live key anywhere in the environment). The tool cannot verify that the owner really issued the reference; the control is that a person must type it, and it is recorded on the account and in the evidence. Tests prove each missing item refuses with zero transport calls. **This work did not run it live and must not be run live without that approval.**
+`--live` exits 3 unconditionally, before any environment variable is read and before any transport is touched. The code path that built a real transport and could send `POST /v1/accounts` was **removed** (it was previously guarded only by a public-format regex and a fixed phrase, with the pinned platform id taken from the same environment as the key, so any `rk_test_` key would have made a real create). Tests prove: with every old variable set and a transport injected, `--live` exits 3, makes zero transport calls and reads zero environment variables; and the CLI sources contain no `createNodeTransport`, `node:https`, `node:fs` or env-index access. The pure request builder, the allow-list and the fake-transport tests are kept as the design record. **Do not run provisioning live from this tool.** Re-enabling it is a later change that must use the test-runner's owner-signed envelope, ledger and credential store.
 
 ## 6. The old account: NEGATIVE fixture
 
@@ -77,6 +77,6 @@ Unchanged: the proof's S0 reads `GET /v1/account` (pinned platform) and `GET /v1
 ## 8. Owner-only actions
 
 1. Create (or confirm) the dedicated D24 TEST sandbox platform; supply its `acct_` id for pinning.
-2. Create the separate provisioning RAK (Accounts Write only), issue an envelope reference and the authorization phrase for one run, choose an evidence directory outside git.
+2. Create the separate provisioning RAK (Accounts Write only) only when the later, test-runner-based live path exists; the owner issues the signed envelope there (the earlier envelope-reference/phrase scheme in this tool is retired).
 3. After the run: expire the provisioning key at once; check its request log shows exactly 3 requests; (optional) complete hosted onboarding with test data if the proof shows draft invoices need active capabilities.
 4. Record the negative-fixture label; decide whether to delete the old account.

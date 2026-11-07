@@ -26,18 +26,21 @@ Therefore: **independent Dashboard/Workbench verification is STILL REQUIRED.** E
 
 `scripts/qa/d24-test-provision/reconcile.ts` (pure; no I/O, no network) compares `SentRequest[]` (parsed from the proof's printed transcript lines, `parseProofTranscript`) with `ProviderEntry[]` from a normalized provider-log file.
 
-Comparison keys, in order: `req_...` request id (primary); method; path (query dropped); HTTP status; `Stripe-Account` scope (masked ids compared by visible prefix/suffix); idempotency key for POSTs (full or the proof's masked `first12…(length)` form); timestamps within `maxSkewMs` (default 120 s); run window = first..last app request +/- `slackMs` (default 120 s).
+Comparison keys, in order: `req_...` request id (primary); method; path (query dropped); HTTP status; `Stripe-Account` scope (masked ids compared by visible prefix/suffix); idempotency key for POSTs (full or the proof's masked `first12…(length)` form); timestamps within `maxSkewMs` (default 120 s); run window = **supplied independently by the operator** (`--window-start`/`--window-end`, required), never derived from the transcript: a truncated transcript would otherwise shrink the window and hide extras.
 
 | Finding | Meaning | Severity |
 |---|---|---|
 | `missing_in_provider` | app recorded a request id the provider log lacks | fail |
 | `extra_in_provider` | provider shows an in-window request the app did not record (also: a request the app BLOCKED before the network appears at the provider) | fail |
+| `out_of_window_provider` | provider row outside the operator's window: either a request the app never recorded or a filter wider than attested | **fail** |
+| `out_of_window_sent` | transcript entry outside the operator's window | fail |
+| `transcript_unparsed` | a numbered transcript line did not parse, or "Calls used: N" disagrees with the parsed count; the line is reported, never dropped | fail |
+| `replay_without_original` | a `replayed` transcript line has no already-matched original (same method, path, full idempotency key, different request id); a replay cannot explain, and never absorbs, a provider request | fail |
 | `count_mismatch` | per `METHOD path` counts differ (app vs provider, replays excluded) | fail |
 | `duplicate_in_provider` / `duplicate_in_sent` | same request id twice | fail |
 | `field_mismatch` / `time_skew` | matched id but method, path, status, account scope, idempotency key or time disagree | fail |
-| `replay_matched_to_original` | app flagged an idempotent replay; the provider shows the original request (same key, method, path) but not the replay's own id | info (whether Stripe logs a replay as its own row is **[unverified]**) |
+| `replay_matched_to_original` | app flagged an idempotent replay and an already-matched original exists (same key, method, path); the provider does not show the replay's own id | info (whether Stripe logs a replay as its own row is **[unverified]**) |
 | `error_entry_matched` / `error_entry_not_in_provider` | app saw no response (transport error); provider does / does not show it | warn |
-| `out_of_window_ignored` | provider row outside the window | info |
 | `provenance_problem` | provider file lacks who/when/filter, or the operator did not attest that the filter covered the whole window, all methods and statuses (fail); source is `events_api_partial` (warn) | fail / warn |
 
 Fixtures in `__tests__/reconcile.test.ts`: matching, missing, extra, duplicate (both sides), out-of-window, replayed idempotent request, failed 4xx (match and status disagreement), field/time mismatches, transport-error entry reached/not reached, blocked-must-be-absent, missing/weak provenance, empty transcript, parsers.
@@ -50,7 +53,7 @@ Fixtures in `__tests__/reconcile.test.ts`: matching, missing, extra, duplicate (
   "entries": [ { "requestId": "req_...", "method": "POST", "path": "/v1/customers", "status": 200,
                  "createdUtc": "ISO or epoch", "idempotencyKey": "optional", "account": "acct_... or null" } ] }
 ```
-`source: "app_collected"` is rejected by the parser. A person converts what they see (or the `--format JSON` CLI lines) into this shape; the tool never invents fields. Run: `npx tsx scripts/qa/d24-test-provision/reconcile-cli.ts --transcript <transcript-*.txt> --provider <provider-log.json>` (exit 0 only when CONSISTENT).
+`source: "app_collected"` is rejected by the parser. A person converts what they see (or the `--format JSON` CLI lines) into this shape; the tool never invents fields. Run: `npx tsx scripts/qa/d24-test-provision/reconcile-cli.ts --transcript <transcript-*.txt> --provider <provider-log.json> --window-start <ISO> --window-end <ISO>`. **Exit codes:** `10` = CONSISTENT_UNVERIFIED (no discrepancy found; independent Dashboard verification STILL REQUIRED; there is deliberately no exit 0), `1` = discrepancies, `2` = usage or input problem. Output always states that consistency is NOT independent verification ().
 
 ## 4. What it cannot do (state these in any report that uses it)
 * It cannot prove the provider file is complete, unaltered or from the right account; a person's attestation and a screenshot-level look at the Dashboard remain necessary.
