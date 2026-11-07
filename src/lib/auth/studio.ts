@@ -407,7 +407,9 @@ export async function getStudioContextForStudio(
   const profile = await requireAuthenticatedUser();
   const platformAdmin = await hasPlatformAdminAuthority(profile);
 
-  if (platformAdmin) {
+  // Platform authority over a studio exists only inside an entered (and therefore audited) support context for THAT studio: the verified,
+  // user-bound cookie must name it. A caller-supplied studio id alone never grants it (it would bypass the entry audit).
+  if (platformAdmin && (await getSelectedPlatformStudioIdFromCookie(profile.id)) === studioId) {
     return {
       studioId,
       studioRole: "platform_admin",
@@ -421,6 +423,7 @@ export async function getStudioContextForStudio(
   const matchingRole = roles.find((row) => row.studio_id === studioId);
 
   if (!matchingRole) {
+    if (platformAdmin) redirect("/platform/studios");
     redirectUnverifiedAdmin(profile);
   }
 

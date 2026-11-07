@@ -139,6 +139,20 @@ describe("getStudioContextForStudio - platform admin", () => {
     expect(await getStudioContextForStudio(SUPPORT_STUDIO)).toMatchObject({ studioId: SUPPORT_STUDIO, isPlatformAdmin: true });
   });
 
+  it("H1: an aal2 admin gets no authority over a studio that is not their entered (audited) support context", async () => {
+    await expect(getStudioContextForStudio(OWN_STUDIO)).rejects.toThrow("NEXT_REDIRECT:/platform/studios");
+  });
+
+  it("H1: an aal2 admin with no support cookie gets no authority over any studio by id alone", async () => {
+    cookieJar.delete("platform_selected_studio_id");
+    await expect(getStudioContextForStudio(SUPPORT_STUDIO)).rejects.toThrow("NEXT_REDIRECT:/platform/studios");
+  });
+
+  it("H1: an aal2 admin keeps ordinary access to a studio they genuinely belong to, outside the support context", async () => {
+    ownRoles = [{ studio_id: OWN_STUDIO, role: "studio_owner" }];
+    expect(await getStudioContextForStudio(OWN_STUDIO)).toMatchObject({ studioId: OWN_STUDIO, studioRole: "studio_owner", isPlatformAdmin: false });
+  });
+
   it("H1: an aal1 platform admin gets no authority over a studio they have no role in", async () => {
     claimsResult = aal1();
     await expect(getStudioContextForStudio(SUPPORT_STUDIO)).rejects.toThrow(/NEXT_REDIRECT/);

@@ -33,3 +33,8 @@ not rewritten here. Fresh-MFA or time-boxing for individual financial mutations 
 - The support cookie is now a signed token `v1.<studio>.<issuedAt>.<hmac>` bound to the admin's user id and limited to 8 hours, so a hand-set, stale or other-admin cookie resolves to nothing and the audited enter action is the only way to obtain a context.
 - **Limitation, stated plainly:** this PR secures the studio-support context only. It does NOT make every platform-admin capability aal2-only. Platform server actions guarded by `requirePlatformAdmin()` alone (create platform admin, workspace-active, credential approve/reject/reset, portal repair, mobile push test, invites, expenses, sales, wave/ops actions), `api/platform/billing/price-config`, and RLS/SECURITY DEFINER paths remain as in the backlog.
 - Not done here: exit rows for sign-out and cookie expiry; user agent / IP in audit rows; a distinct refusal reason for transient claims failures; per-request memoisation of the claims read.
+
+## Review follow-up 2 (targeted cookie review)
+
+- P2 fixed: `getStudioContextForStudio` no longer grants platform authority from a caller-supplied studio id. It now requires the verified, user-bound support cookie to name that studio (so an audited entry exists); otherwise the admin is treated as an ordinary user and, without a membership, sent to `/platform/studios`.
+- P3 accepted: a copied cookie stays valid until its 8h expiry after exit (needs the same admin aal2 session); no per-token revocation, key rotation is the global invalidation.
