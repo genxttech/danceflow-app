@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { classifyEvents } from "../classify";
-import { eventIdentity } from "../coalesce";
+import { eventIdentity, REASON_CODES, reasonCode } from "../coalesce";
 import { verifyChain } from "../evidence";
 import { runPriceMonitor } from "../monitor";
 import { FakeTransport, type MonitorConfig } from "../transport";
@@ -352,5 +352,123 @@ describe("D4-2 alert policy: priority classes and capacity reservation", () => {
     expect(seqs.length).toBeGreaterThan(0);
     expect(seqs.every((n) => Number.isFinite(n))).toBe(true);
     expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+  });
+});
+
+describe("D4-2 alert identity: no user-controlled text, bounded identities, priorities intact", () => {
+  const hex = (i: number) => (0xabc000 + i).toString(16).padStart(12, "0");
+  const sentCodes = (t: FakeTransport, code: string) => t.sent.flatMap((m) => m.findings).filter((f) => f.code === code);
+
+  it("repeated arbitrary freeze reasons keep the number of distinct identities bounded: any text is the catch-all, only the database's own phrases have codes", () => {
+    const ids = new Set<string>();
+    for (let i = 0; i < 300; i++) ids.add(eventIdentity("pricing_suspended", U1, { reason: i % 3 === 0 ? `reason number ${i}` : i % 3 === 1 ? `freeze-${i}-abcdefghij` : `ZZ ${"x".repeat(i)} <script>`, note_length: i }));
+    expect(ids.size).toBe(1);
+    const trusted = new Set(["compromise reported", "recovery credential", "sign counter did not increase", "Compromise Reported "].map((r) => eventIdentity("pricing_suspended", U1, { reason: r })));
+    expect(trusted.size).toBe(3); // the case/space variant is the same trusted phrase
+    expect(trusted.has([...ids][0])).toBe(false);
+    // the reason code enumeration is closed
+    expect(reasonCode("compromise reported")).toBe("compromise_reported");
+    expect(reasonCode("anything else typed by a person")).toBe("other");
+    expect(reasonCode(42)).toBe("other");
+    expect(new Set(REASON_CODES).size).toBe(REASON_CODES.length);
+    // other free-text keys contribute nothing either, whatever they say
+    const base = eventIdentity("credential_compromise_reported", U1, { target: "key1" });
+    for (const key of ["note", "label", "description", "message", "comment", "details"]) expect(eventIdentity("credential_compromise_reported", U1, { target: "key1", [key]: "typed by whoever" })).toBe(eventIdentity("credential_compromise_reported", U1, { target: "key1", [key]: "something else entirely" }));
+    // the shape of a server-defined token / uuid / hex reference is kept, so real distinctions stay distinct
+    expect(eventIdentity("credential_replaced", U1, { change_id: U2 })).not.toBe(eventIdentity("credential_replaced", U1, { change_id: U1 }));
+    expect(eventIdentity("credential_replaced", U1, { credential_ref: hex(1) })).not.toBe(eventIdentity("credential_replaced", U1, { credential_ref: hex(2) }));
+    expect(eventIdentity("credential_replaced", U1, { status: "pending" })).not.toBe(eventIdentity("credential_replaced", U1, { status: "applied" }));
+    // free text in a token-shaped slot that is not a token (spaces, upper case, long) is the catch-all, not a new identity
+    expect(eventIdentity("credential_replaced", U1, { status: "A long typed sentence with spaces" })).toBe(eventIdentity("credential_replaced", U1, { status: "Another long typed sentence" }));
+    expect(base).toContain("credential_compromise_reported|");
+  });
+
+  it("15 different freeze reasons are ONE incident: one alert, the rest coalesced and counted; a genuine credential_recovery_used right after is sent immediately (not held an hour)", async () => {
+    const s = setup();
+    const t = s.transports[0];
+    for (let i = 0; i < 15; i++) s.emit("pricing_suspended", U1, { reason: `typed reason ${i} for the stolen-key freeze loop` });
+    await s.run();
+    expect(sentCodes(t, "pricing_suspended")).toHaveLength(1);
+    expect(sentCodes(t, "pricing_suspended")[0].message).toContain("(x15 in this run)");
+    expect(EVIDENCE_EVENT_COUNT(s.db)).toBe(15); // every event is in the evidence chain
+    s.advance(30_000);
+    s.emit("credential_recovery_used", U1, { action: "recover_freeze" });
+    await s.run();
+    expect(t.sent.some((m) => m.findings.some((f) => f.code === "credential_recovery_used"))).toBe(true);
+    // the typed text is nowhere in what was sent or recorded
+    const everything = JSON.stringify([t.sent, s.db.rows]);
+    expect(everything).not.toContain("typed reason");
+    expect(everything).not.toContain("stolen-key freeze loop");
+  });
+
+  it("freeze, thaw, freeze with different reasons inside 5 minutes: ONE alert; after the window an equivalent repeat is alerted again", async () => {
+    const s = setup();
+    const t = s.transports[0];
+    s.emit("pricing_suspended", U1, { reason: "first reason" });
+    await s.run();
+    s.advance(120_000);
+    s.emit("pricing_suspended", U1, { reason: "a completely different second reason" });
+    await s.run();
+    expect(sentCodes(t, "pricing_suspended")).toHaveLength(1);
+    s.advance(4 * 60_000);
+    s.emit("pricing_suspended", U1, { reason: "third reason after the window" });
+    await s.run();
+    expect(sentCodes(t, "pricing_suspended").length).toBeGreaterThanOrEqual(2);
+    // a different administrator's freeze is a distinct incident and is alerted at once
+    s.emit("pricing_suspended", U2, { reason: "first reason" });
+    await s.run();
+    expect(sentCodes(t, "pricing_suspended").filter((f) => f.message.length > 0).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("distinct affected credentials are distinct incidents and alert immediately, an equivalent repeat of one credential is coalesced", async () => {
+    const s = setup();
+    const t = s.transports[0];
+    for (let i = 0; i < 3; i++) s.emit("credential_compromise_reported", U1, { credential_ref: hex(i), note_length: 20 + i });
+    await s.run();
+    expect(sentCodes(t, "credential_compromise")).toHaveLength(3);
+    s.advance(60_000);
+    s.emit("credential_compromise_reported", U1, { credential_ref: hex(0), note_length: 99 });
+    s.emit("credential_compromise_reported", U1, { credential_ref: hex(1) });
+    s.emit("credential_compromise_reported", U1, { credential_ref: hex(7) }); // a new credential is not held back by the repeats
+    await s.run();
+    expect(sentCodes(t, "credential_compromise")).toHaveLength(4);
+    expect(EVIDENCE_EVENT_COUNT(s.db)).toBe(6);
+  });
+
+  it("rate limits still bound the cost: 40 distinct credentials (a real flood) stay within the hourly cap and top priority keeps its reserve", async () => {
+    const s = setup();
+    const t = s.transports[0];
+    for (let i = 0; i < 40; i++) s.emit("credential_compromise_reported", U1, { credential_ref: hex(i) });
+    await s.run();
+    s.advance(30_000);
+    s.emit("credential_recovery_used", U1, { action: "recover_freeze" });
+    await s.run();
+    expect(t.sent.some((m) => m.findings.some((f) => f.code === "credential_recovery_used"))).toBe(true);
+    const attempts = s.db.rows.filter((r) => r.kind === "delivery").flatMap((r) => (JSON.parse(r.payload).results ?? []) as { attempts: number }[]).reduce((n, x) => n + x.attempts, 0);
+    expect(attempts).toBeLessThanOrEqual(12);
+    expect(EVIDENCE_EVENT_COUNT(s.db)).toBe(41);
+  });
+
+  it("monitoring outage: when the evidence store is down the monitor fails open (no coalescing state) but 50 arbitrary freeze reasons are still one identity per run and the run never throws", async () => {
+    const s = setup();
+    const t = s.transports[0];
+    s.db.appendFails = true;
+    for (let i = 0; i < 50; i++) s.emit("pricing_suspended", U1, { reason: `outage reason ${i}` });
+    await expect(s.run()).resolves.toBeDefined();
+    const first = sentCodes(t, "pricing_suspended").length;
+    expect(first).toBeLessThanOrEqual(1);
+    expect(JSON.stringify(t.sent)).not.toContain("outage reason");
+  });
+
+  it("delivery failure does not lose the incident: the send is retried on a later run, and the freeze itself never depended on delivery", async () => {
+    const s = setup();
+    const t = s.transports[0];
+    t.failSends = 3;
+    s.emit("pricing_suspended", U1, { reason: "emergency freeze while the pager is down" });
+    await s.run();
+    expect(sentCodes(t, "pricing_suspended")).toHaveLength(0);
+    for (let i = 0; i < 3; i++) { s.advance(600_000); await s.run(); }
+    expect(sentCodes(t, "pricing_suspended").length).toBeGreaterThanOrEqual(1);
+    expect(EVIDENCE_EVENT_COUNT(s.db)).toBe(1);
   });
 });
