@@ -69,6 +69,56 @@ export type ConnectedFacts = {
 
 const plain = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
 
+/** The values the gate actually saw on the connected account: bounded enum-like tokens only, whatever the account returned. */
+export type ConnectedObserved = {
+  type: string;
+  controller_type: string;
+  controller_is_controller: string | boolean;
+  controller_stripe_dashboard_type: string;
+  controller_requirement_collection: string;
+  controller_losses_payments: string;
+  controller_fees_payer: string;
+};
+const TOKEN = /^[a-z_]{1,32}$/;
+/** One observed value as a token: a lowercase enum-like string as is; "absent" | "null" | "unexpected_type:<typeof>" | "unrecognised" otherwise. Never free text. */
+const tokenOf = (v: unknown): string => {
+  if (v === undefined) return "absent";
+  if (v === null) return "null";
+  if (typeof v === "string") return TOKEN.test(v) ? v : "unrecognised";
+  return `unexpected_type:${Array.isArray(v) ? "array" : typeof v}`;
+};
+/** Walks `path` down from `root`. A missing / null / non-object ancestor is DESCRIBED ("absent" | "null" | "unexpected_type:..."), never indexed. Returns the leaf or a token string for a broken path. */
+const walk = (root: unknown, path: string[]): { leaf: unknown } | { broken: string } => {
+  let cur = root;
+  for (const k of path) {
+    if (cur === undefined) return { broken: "absent" };
+    if (cur === null) return { broken: "null" };
+    if (!plain(cur)) return { broken: `unexpected_type:${Array.isArray(cur) ? "array" : typeof cur}` };
+    cur = cur[k];
+  }
+  return { leaf: cur };
+};
+const observeToken = (root: unknown, path: string[]): string => {
+  const w = walk(root, path);
+  return "broken" in w ? w.broken : tokenOf(w.leaf);
+};
+
+/** Reads ONLY the seven fields below from the answer; nothing else is ever copied. */
+export function observeConnectedAccount(json: Record<string, unknown> | null | undefined): ConnectedObserved {
+  const j = json ?? {};
+  const w = walk(j, ["controller", "is_controller"]);
+  const isController: string | boolean = "broken" in w ? w.broken : typeof w.leaf === "boolean" ? w.leaf : w.leaf === undefined ? "absent" : w.leaf === null ? "null" : `unexpected_type:${Array.isArray(w.leaf) ? "array" : typeof w.leaf}`;
+  return {
+    type: observeToken(j, ["type"]),
+    controller_type: observeToken(j, ["controller", "type"]),
+    controller_is_controller: isController,
+    controller_stripe_dashboard_type: observeToken(j, ["controller", "stripe_dashboard", "type"]),
+    controller_requirement_collection: observeToken(j, ["controller", "requirement_collection"]),
+    controller_losses_payments: observeToken(j, ["controller", "losses", "payments"]),
+    controller_fees_payer: observeToken(j, ["controller", "fees", "payer"]),
+  };
+}
+
 /**
  * Pure check of GET /v1/accounts/<connected>. Accepts ONLY an Express-dashboard account:
  *   (a) legacy type "express" (if a controller object is present and reports a stripe_dashboard.type, that must be "express"), or
@@ -115,7 +165,7 @@ export function checkConnectedAccount(json: Record<string, unknown> | null | und
       },
     };
   }
-  return { ok: false, reason: `connected account type is ${typeof type === "string" ? JSON.stringify(type.slice(0, 20)) : "not a string"}, expected an Express-dashboard account (type express, or type none with an Express-equivalent controller)` };
+  return { ok: false, reason: `connected account type is ${typeof type === "string" ? (type === "standard" || type === "custom" ? JSON.stringify(type) : "unrecognised") : "not a string"}, expected an Express-dashboard account (type express, or type none with an Express-equivalent controller)` };
 }
 
 /**
@@ -123,13 +173,14 @@ export function checkConnectedAccount(json: Record<string, unknown> | null | und
  * (see checkConnectedAccount), and must not say livemode:true. Both reads go through the guarded client (allow-list, budget, livemode check).
  * Returns the evidence on success; throws ProofAbort("identity_mismatch") otherwise.
  */
-export async function runIdentityGate(client: GuardedClient, expect: Expect): Promise<{ platformId: string; connectedId: string; connectedType: string; connectedFacts: ConnectedFacts }> {
+export async function runIdentityGate(client: GuardedClient, expect: Expect, onObserved?: (o: ConnectedObserved) => void): Promise<{ platformId: string; connectedId: string; connectedType: string; connectedFacts: ConnectedFacts }> {
   const platform = await client.call({ method: "GET", path: "/v1/account", stripeVersion: STRIPE_API_VERSION });
   const platformId = String(platform.json?.id ?? "");
   if (platformId !== expect.platformAcct) throw client.raise("identity_mismatch", "GET /v1/account returned an id other than the pinned sandbox account");
   const connected = await client.call({ method: "GET", path: `/v1/accounts/${expect.connectedAcct}`, stripeVersion: STRIPE_API_VERSION });
   const connectedId = String(connected.json?.id ?? "");
   if (connectedId !== expect.connectedAcct) throw client.raise("identity_mismatch", "GET /v1/accounts/<connected> returned an id other than the pinned connected account");
+  onObserved?.(observeConnectedAccount(connected.json)); // what the answer actually said, recorded BEFORE any verdict (a rejection must be diagnosable)
   if (connected.json?.livemode === true) throw client.raise("livemode_true", "connected account says livemode:true");
   const verdict = checkConnectedAccount(connected.json);
   if (!verdict.ok) throw client.raise("identity_mismatch", verdict.reason);

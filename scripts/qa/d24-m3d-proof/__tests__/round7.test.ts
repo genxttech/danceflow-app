@@ -9,6 +9,7 @@ import { createGuardedClient, pinned } from "../guarded";
 import { AUTHORIZATION_PHRASE, ENV, runIdentityGate } from "../identity";
 import { manifest } from "../manifest";
 import { runProof } from "../run";
+import type { ProofAbort } from "../types";
 
 // Round 7: the connected account may be a controller-model Express account (type "none" + Express-equivalent controller), never a blanket "none".
 // These tests go through runIdentityGate + the fake only, so they also run (and the positive ones fail) against the pre-round-7 code.
@@ -40,14 +41,24 @@ const accepted = async (fake: Parameters<typeof gate>[0]) => {
 };
 const rejected = async (fake: Parameters<typeof gate>[0], code = "identity_mismatch") => {
   const g = gate(fake);
-  await expect(g.run()).rejects.toMatchObject({ code });
+  const err = (await g.run().then(() => null, (e: unknown) => e)) as ProofAbort | null;
+  expect(err).toMatchObject({ code });
+  // the reason text says WHY (a type / controller reason, or the livemode abort), never an empty or generic message
+  expect(err?.message).toMatch(code === "livemode_true" ? /livemode:true/ : /^connected account type is /);
   expect(g.client.identityVerified()).toBe(false);
   // exactly the two identity reads happened; no create can be sent afterwards
   expect(g.f.calls).toHaveLength(2);
-  await expect(pinned(g.client, { method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: "d24proof-r7-cus", body: { name: "n" } })).rejects.toBeTruthy();
+  // the run is aborted: any later call is refused with that same abort (before any network I/O)
+  await expect(pinned(g.client, { method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: "d24proof-r7-cus", body: { name: "n" } })).rejects.toMatchObject({ code, message: err?.message });
   expect(g.f.calls).toHaveLength(2);
   return g;
 };
+
+it("a client that never ran the gate refuses a create with identity_not_verified (before any network I/O)", async () => {
+  const g = gate({ accountType: "express" });
+  await expect(pinned(g.client, { method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: "d24proof-r7-cus", body: { name: "n" } })).rejects.toMatchObject({ code: "identity_not_verified" });
+  expect(g.f.calls).toHaveLength(0);
+});
 
 describe("accepted connected accounts", () => {
   it("legacy type=express (no controller)", async () => { await accepted({ accountType: "express" }); });
