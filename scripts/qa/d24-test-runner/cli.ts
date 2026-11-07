@@ -7,24 +7,23 @@
 //   create-envelope --spec spec.json --approval-file owner.txt --approval-ref "chat 2026-11-07 14:02" --out envelope.json
 //   validate-envelope --envelope envelope.json
 //   run --envelope envelope.json [--signature sig.json] [--dry]   LIVE needs the owner's detached signature + the registered owner key; --dry never does
-//   owner-keygen | owner-sign --envelope E [--out S] | owner-show   OWNER-side commands (interactive TTY only; see ownercli.ts)
+//   (owner-keygen / owner-sign / owner-rotate / owner-show live in ownermain.ts, a separate entry point this CLI never imports)
 //   repo-pins                                     print lockfile / proof / runner hashes of this checkout for the envelope spec
 //   dry                                           self-test with a synthetic envelope and a fake child (no store, no network)
 //   ledger | reconcile --envelope-id ID --run-no N --note "what you checked"
 
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { manifest } from "../d24-m3d-proof/manifest";
 import { resolveGit } from "./bins";
 import { lockfileSha } from "./gitverify";
-import { ownerKeygen, ownerShow, ownerSign, type Prompter } from "./ownercli";
-import { defaultOwnerDir, loadTrust } from "./ownersig";
+import { defaultOwnerDir, defaultRunnerHome, loadTrust, ownerSeparationWarning } from "./ownerverify";
+import { readSecret } from "./secretprompt";
 import { runnerManifest } from "./runnerpin";
 import { existsSync } from "node:fs";
-import { createInterface } from "node:readline";
 import { checkKeyShape } from "../d24-m3d-proof/identity";
 import { DpapiFileStore, WindowsCredentialManagerStore, type CredentialStore } from "./credstore";
 import { approvalTemplate, createEnvelope, validateEnvelope, type EnvelopeSpec } from "./envelope";
@@ -36,7 +35,8 @@ import { sanitize } from "./scan";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..", "..", "..");
-const defaultHome = () => join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "DanceFlow", "d24-runner");
+const defaultHome = () => defaultRunnerHome();
+export { readSecret };
 
 type Io = { out: (s: string) => void; err: (s: string) => void };
 
@@ -55,54 +55,6 @@ function parseOpts(argv: string[]): { cmd: string; opts: Map<string, string | tr
   return { cmd: cmd ?? "", opts };
 }
 const str = (o: Map<string, string | true>, k: string) => (typeof o.get(k) === "string" ? (o.get(k) as string) : undefined);
-
-/** Hidden prompt on a TTY (no echo); otherwise all of stdin. The value is returned to the caller and never printed. */
-export async function readSecret(stdin: NodeJS.ReadStream, prompt: (s: string) => void, label = "Paste the restricted TEST key (input hidden), then press Enter: "): Promise<string> {
-  if (stdin.isTTY) {
-    prompt(label);
-    return new Promise((resolveP) => {
-      let buf = "";
-      stdin.setRawMode(true);
-      stdin.resume();
-      stdin.setEncoding("utf8");
-      const onData = (ch: string) => {
-        for (const c of ch) {
-          if (c === "\r" || c === "\n") {
-            stdin.setRawMode(false);
-            stdin.pause();
-            stdin.off("data", onData);
-            prompt("\n");
-            return resolveP(buf);
-          }
-          if (c === "\u0003") process.exit(130);
-          if (c === "\u007f" || c === "\b") buf = buf.slice(0, -1);
-          else buf += c;
-        }
-      };
-      stdin.on("data", onData);
-    });
-  }
-  let data = "";
-  stdin.setEncoding("utf8");
-  for await (const chunk of stdin) data += chunk;
-  return data.replace(/[\r\n]+$/, "");
-}
-
-/** A real interactive prompter. isTty is false when stdin is not a terminal, which makes the owner commands refuse. */
-export function makePrompter(stdin: NodeJS.ReadStream): Prompter {
-  return {
-    isTty: Boolean(stdin.isTTY),
-    hidden: (label) => readSecret(stdin, (x) => process.stderr.write(x), label),
-    line: (label) =>
-      new Promise((res) => {
-        const rl = createInterface({ input: stdin, output: process.stderr, terminal: true });
-        rl.question(label, (a) => {
-          rl.close();
-          res(a);
-        });
-      }),
-  };
-}
 
 export function makeStore(kind: string, home: string): CredentialStore {
   return kind === "dpapi" ? new DpapiFileStore(join(home, "creds")) : new WindowsCredentialManagerStore();
@@ -192,7 +144,7 @@ export async function selfTest(io: Io, now = () => new Date()): Promise<number> 
   return r.status === "PASS" ? 0 : 1;
 }
 
-export type MainCtx = { ownerDir?: string; prompter?: Prompter; repo?: string };
+export type MainCtx = { ownerDir?: string; repo?: string };
 
 export async function main(argv: string[], io: Io, stdin: NodeJS.ReadStream = process.stdin, ctx: MainCtx = {}): Promise<number> {
   const p = parseOpts(argv);
@@ -214,18 +166,6 @@ export async function main(argv: string[], io: Io, stdin: NodeJS.ReadStream = pr
         return await provision(opts, io, stdin, home);
       case "dry":
         return await selfTest(io);
-      case "owner-keygen":
-        return await ownerKeygen(io, ctx.prompter ?? makePrompter(stdin), ownerDir, str(opts, "ledger-dir"));
-      case "owner-sign": {
-        const e = str(opts, "envelope");
-        if (!e) {
-          io.err("--envelope is required");
-          return 2;
-        }
-        return await ownerSign(io, ctx.prompter ?? makePrompter(stdin), e, str(opts, "out") ?? `${e}.sig.json`, ownerDir);
-      }
-      case "owner-show":
-        return ownerShow(io, ownerDir);
       case "repo-pins": {
         const pm = manifest(join(repoRoot, "scripts", "qa", "d24-m3d-proof"));
         const rm = runnerManifest(join(repoRoot, "scripts", "qa", "d24-test-runner"));
@@ -295,6 +235,8 @@ export async function main(argv: string[], io: Io, stdin: NodeJS.ReadStream = pr
           io.err("refused (live): no owner public key is registered, so no envelope can be authorised. Use --dry, or have the owner run owner-keygen and owner-sign.");
           return 2;
         }
+        const warn = ownerSeparationWarning(ownerDir, trust);
+        if (warn) io.err(warn);
         const sigPath = str(opts, "signature") ?? `${envelope}.sig.json`;
         let signature: unknown = null;
         if (existsSync(sigPath)) {
@@ -325,7 +267,7 @@ export async function main(argv: string[], io: Io, stdin: NodeJS.ReadStream = pr
         return 0;
       }
       default:
-        io.err("usage: provision | owner-keygen | owner-sign | owner-show | repo-pins | approval-template | create-envelope | validate-envelope | run | dry | ledger | reconcile (see the header of cli.ts)");
+        io.err("usage: provision | repo-pins | approval-template | create-envelope | validate-envelope | run | dry | ledger | reconcile (see the header of cli.ts)");
         return 2;
     }
   } catch (e) {

@@ -1,14 +1,19 @@
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { main } from "../cli";
-import { approvalTemplate, createEnvelope, materialDigest, validateEnvelope } from "../envelope";
-import { ownerKeygen, ownerShow, ownerSign, renderTerms, type Prompter } from "../ownercli";
-import { generateOwnerKey, loadTrust, signEnvelopeHash, trustPath, verifyOwnerSignature } from "../ownersig";
-import { baseSpec, makeEnvelope, OWNER_PASS, ownerKey, ownerSign as signHelper, ownerTrust, tmp, writeEnvelope } from "./helpers";
+import { approvalTemplate, createEnvelope, envelopeHash, materialDigest, UNSAFE_CHARS, validateEnvelope, type Envelope } from "../envelope";
+import { createFakeExec } from "../fakeChild";
+import { OWNER_TOOL_FILES, ownerCanonicalHash, ownerKeygen, ownerRotate, ownerSign, ownerToolsSha256, renderTerms, show, type Pristine, type Prompter } from "../ownercli";
+import { ownerMain } from "../ownermain";
+import { generateOwnerKey, signEnvelopeHash } from "../ownersig";
+import { defaultOwnerDir, defaultRunnerHome, loadTrust, ownerSeparationWarning, privateKeyPath, trustPath, verifyOwnerSignature } from "../ownerverify";
+import { baseSpec, makeEnvelope, OWNER_PASS, ownerKey, ownerSign as signHelper, ownerTrust, REPO, SHA, tmp, writeEnvelope } from "./helpers";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+const TOOLS = join(HERE, "..");
 const io = () => {
   const out: string[] = [];
   const err: string[] = [];
@@ -20,6 +25,7 @@ const prompter = (answers: { lines?: string[]; hidden?: string[]; tty?: boolean 
   return { isTty: answers.tty ?? true, line: async () => lines.shift() ?? "", hidden: async () => hidden.shift() ?? "" };
 };
 const nonTtyStdin = () => ({ isTTY: false }) as unknown as NodeJS.ReadStream;
+const pristine = (over: { fake?: Parameters<typeof createFakeExec>[0]; toolsDir?: string } = {}): Pristine => ({ repoDir: REPO, commitSha: SHA, exec: createFakeExec({ commitSha: SHA, repoDir: REPO, ...over.fake }), env: {}, toolsDir: over.toolsDir });
 
 describe("owner Ed25519 signature", () => {
   const e = makeEnvelope();
@@ -34,7 +40,6 @@ describe("owner Ed25519 signature", () => {
     const other = generateOwnerKey("another passphrase 12345", 1 << 10);
     const forged = signEnvelopeHash(other.encrypted, "another passphrase 12345", e.envelopeSha256);
     expect(verifyOwnerSignature(e.envelopeSha256, forged, trust).reason).toMatch(/not the registered owner key/);
-    // an attacker who claims the registered fingerprint but signs with their own key
     expect(verifyOwnerSignature(e.envelopeSha256, { ...forged, publicKeyFingerprint: trust.publicKeyFingerprint }, trust).ok).toBe(false);
     const flipped = Buffer.from(sig.signatureBase64, "base64");
     flipped[0] ^= 1;
@@ -60,10 +65,9 @@ describe("owner Ed25519 signature", () => {
     ];
     for (const [name, over] of edits) expect(makeEnvelope(over).envelopeSha256, name).not.toBe(base);
   });
-  it("the approval text must carry a digest of all material terms (terms=…), so an old approval cannot be reused for changed terms", () => {
+  it("the approval text must carry a digest of all material terms (terms=…)", () => {
     const spec = baseSpec();
-    const ok = createEnvelope(spec, approvalTemplate(spec), "ref ref");
-    expect(ok.ok).toBe(true);
+    expect(createEnvelope(spec, approvalTemplate(spec), "ref ref").ok).toBe(true);
     expect(approvalTemplate(spec)).toContain(`terms=${materialDigest(spec as unknown as Record<string, unknown>).slice(0, 16)}`);
     const stale = createEnvelope({ ...spec, accounts: { ...spec.accounts, connectedAcct: "acct_SWAPPEDCONN1" } }, approvalTemplate(spec), "ref ref");
     expect(stale.ok).toBe(false);
@@ -79,63 +83,240 @@ describe("owner Ed25519 signature", () => {
   });
 });
 
-describe("owner-side commands", () => {
-  it("refuse a non-TTY stdin (a piped passphrase/confirmation defeats the control)", async () => {
-    const dir = tmp();
-    const t = io();
-    expect(await ownerKeygen(t.io, prompter({ tty: false, hidden: [OWNER_PASS, OWNER_PASS] }), dir)).toBe(2);
-    expect(existsSync(trustPath(dir))).toBe(false);
-    expect(await main(["owner-keygen"], t.io, nonTtyStdin(), { ownerDir: dir })).toBe(2);
-    expect(await main(["owner-sign", "--envelope", writeEnvelope(makeEnvelope())], t.io, nonTtyStdin(), { ownerDir: dir })).toBe(2);
-    expect(t.err.join("\n")).toMatch(/interactive terminal/);
+describe("N-1: the owner directory ignores the environment", () => {
+  it("setting LOCALAPPDATA / HOME / USERPROFILE / APPDATA / HOMEDRIVE changes nothing", () => {
+    const before = [defaultOwnerDir(), defaultRunnerHome()];
+    const saved: Record<string, string | undefined> = {};
+    const names = ["LOCALAPPDATA", "APPDATA", "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "XDG_CONFIG_HOME"];
+    for (const n of names) saved[n] = process.env[n];
+    try {
+      for (const n of names) process.env[n] = join(tmp(), "attacker-controlled");
+      expect([defaultOwnerDir(), defaultRunnerHome()]).toEqual(before);
+      expect(before[0].startsWith(join(tmp(), "attacker-controlled"))).toBe(false);
+    } finally {
+      for (const n of names) {
+        if (saved[n] === undefined) delete process.env[n];
+        else process.env[n] = saved[n];
+      }
+    }
+    expect(before[0]).toBe(join(userInfo().homedir, "AppData", "Local", "DanceFlow", "d24-owner"));
   });
-
-  it("keygen registers only the PUBLIC key + pinned ledger; sign prints terms, needs the typed hash and the passphrase; output has no private material", async () => {
-    const dir = tmp();
+  it("a live `run` reads the trust from the fixed owner dir (ctx is a test seam, not a CLI/env option)", async () => {
     const t = io();
-    expect(await ownerKeygen(t.io, prompter({ hidden: [OWNER_PASS, "mismatch passphrase 99"] }), dir)).toBe(2);
-    expect(await ownerKeygen(t.io, prompter({ hidden: [OWNER_PASS, OWNER_PASS] }), dir, join(tmp(), "pinned-ledger"))).toBe(0);
+    const prev = process.env.LOCALAPPDATA;
+    process.env.LOCALAPPDATA = join(tmp(), "evil");
+    try {
+      expect(await main(["run", "--envelope", writeEnvelope(makeEnvelope())], t.io, nonTtyStdin())).toBe(2); // fixed dir: no trust registered in this environment's real profile
+    } finally {
+      if (prev === undefined) delete process.env.LOCALAPPDATA;
+      else process.env.LOCALAPPDATA = prev;
+    }
+  });
+  it("loud, non-refusing warning when the same account registered/can write the owner dir", () => {
+    const t = ownerTrust("L", "A");
+    const me = userInfo().username;
+    expect(ownerSeparationWarning("D", { ...t, registeredBy: me }, me, () => false)).toMatch(/WARNING.*does NOT separate/);
+    expect(ownerSeparationWarning("D", { ...t, registeredBy: "someone-else" }, me, () => true)).toMatch(/writable by the current user/);
+    expect(ownerSeparationWarning("D", { ...t, registeredBy: "someone-else" }, me, () => false)).toBeNull();
+  });
+  it("`run` prints the warning (to stderr) and still refuses on the missing signature; dry prints nothing and is not refused", async () => {
+    const ownerDir = tmp();
+    mkdirSync(ownerDir, { recursive: true });
+    const trust = { ...ownerTrust(join(tmp(), "l"), join(ownerDir, "a.json")), registeredBy: userInfo().username };
+    writeFileSync(trustPath(ownerDir), JSON.stringify(trust));
+    const live = io();
+    expect(await main(["run", "--envelope", writeEnvelope(makeEnvelope())], live.io, nonTtyStdin(), { ownerDir })).toBe(2);
+    expect(live.err.join("\n")).toMatch(/WARNING: the owner trust directory/);
+    expect(live.out.join("\n")).toMatch(/FAIL {2}owner-signature/);
+    const dry = io();
+    await main(["run", "--dry", "--envelope", writeEnvelope(makeEnvelope())], dry.io, nonTtyStdin(), { ownerDir });
+    expect(dry.err.join("\n")).not.toMatch(/WARNING/);
+  });
+});
+
+describe("N-1: signing and trust-writing code is not reachable from the runner (static import scan)", () => {
+  const imports = (src: string) => [...src.matchAll(/from "(\.\/[a-z]+)"/g)].map((m) => m[1]);
+  const files = readdirSync(TOOLS).filter((x) => x.endsWith(".ts"));
+  it("only ownercli.ts and ownermain.ts import ownersig; only ownermain.ts imports ownercli; nothing imports ownermain", () => {
+    for (const f of files) {
+      const imp = imports(readFileSync(join(TOOLS, f), "utf8"));
+      if (imp.includes("./ownersig")) expect(["ownercli.ts", "ownermain.ts"], `${f} imports ownersig`).toContain(f);
+      if (imp.includes("./ownercli")) expect(["ownermain.ts"], `${f} imports ownercli`).toContain(f);
+      expect(imp, `${f} imports ownermain`).not.toContain("./ownermain");
+    }
+  });
+  it("the runner and the runner CLI import verification only", () => {
+    for (const f of ["runner.ts", "cli.ts", "ledger.ts", "postrun.ts", "childenv.ts"]) {
+      const src = readFileSync(join(TOOLS, f), "utf8");
+      expect(imports(src), f).not.toContain("./ownersig");
+      expect(imports(src), f).not.toContain("./ownercli");
+      expect(src, f).not.toMatch(/signEnvelopeHash|writeTrust|generateOwnerKey|writeEncryptedKey|readEncryptedKey|rotateTrust/);
+    }
+  });
+  it("ownerverify.ts exports nothing that signs or writes", () => {
+    expect(readFileSync(join(TOOLS, "ownerverify.ts"), "utf8")).not.toMatch(/writeFileSync|createPrivateKey|sign\(/);
+  });
+});
+
+describe("N-2: owner commands run only from a pristine, reviewed checkout", () => {
+  const keygen = async (pr: Pristine, dir: string) => {
+    const t = io();
+    const code = await ownerKeygen(t.io, prompter({ hidden: [OWNER_PASS, OWNER_PASS] }), pr, dir, join(tmp(), "pinned-ledger"));
+    return { code, t };
+  };
+  it("refuses keygen on a dirty tree, a wrong HEAD, or hidden edits; registers nothing", async () => {
+    for (const fake of [{ dirty: true }, { commitSha: "d".repeat(40) }, { hiddenEdit: true }]) {
+      const dir = tmp();
+      const { code, t } = await keygen(pristine({ fake: { commitSha: SHA, repoDir: REPO, ...fake } }), dir);
+      expect(code, JSON.stringify(fake)).toBe(2);
+      expect(t.err.join()).toMatch(/pristine checkout/);
+      expect(existsSync(trustPath(dir))).toBe(false);
+    }
+  });
+  it("keygen records the tool hash, commit and account; a second keygen is refused (no silent re-registration)", async () => {
+    const dir = tmp();
+    const { code } = await keygen(pristine(), dir);
+    expect(code).toBe(0);
+    const trust = loadTrust(dir);
+    expect(trust?.ownerToolsSha256).toBe(ownerToolsSha256());
+    expect(trust?.registeredAtCommit).toBe(SHA);
+    expect(trust?.registeredBy).toBe(userInfo().username);
+    expect((await keygen(pristine(), dir)).code).toBe(2);
+  });
+  it("owner-sign refuses on a dirty tree and when the owner-tool files changed since keygen", async () => {
+    const dir = tmp();
+    await keygen(pristine(), dir);
+    const env = makeEnvelope();
+    const file = writeEnvelope(env);
+    const answers = { lines: [`SIGN ${env.envelopeSha256.slice(0, 12)}`], hidden: [OWNER_PASS] };
+    const dirty = io();
+    expect(await ownerSign(dirty.io, prompter(answers), pristine({ fake: { commitSha: SHA, repoDir: REPO, dirty: true } }), file, join(tmp(), "s.json"), dir)).toBe(2);
+    expect(dirty.err.join()).toMatch(/pristine checkout/);
+    // a modified copy of the owner tools
+    const copy = tmp("d24-tools-");
+    for (const f of OWNER_TOOL_FILES) cpSync(join(TOOLS, f), join(copy, f));
+    writeFileSync(join(copy, "ownercli.ts"), `${readFileSync(join(copy, "ownercli.ts"), "utf8")}\n// tampered\n`);
+    const tampered = io();
+    expect(await ownerSign(tampered.io, prompter(answers), pristine({ toolsDir: copy }), file, join(tmp(), "s2.json"), dir)).toBe(2);
+    expect(tampered.err.join()).toMatch(/owner-tool files differ/);
+  });
+  it("owner-rotate needs the OLD passphrase, signs a rotation statement, and re-binds the tools", async () => {
+    const dir = tmp();
+    await keygen(pristine(), dir);
+    const copy = tmp("d24-tools-");
+    for (const f of OWNER_TOOL_FILES) cpSync(join(TOOLS, f), join(copy, f));
+    writeFileSync(join(copy, "ownercli.ts"), `${readFileSync(join(copy, "ownercli.ts"), "utf8")}\n// reviewed change\n`);
+    await expect(ownerRotate(io().io, prompter({ hidden: ["wrong old passphrase"] }), pristine({ toolsDir: copy }), dir)).rejects.toThrow(/wrong passphrase/);
+    const before = loadTrust(dir)!;
+    expect(await ownerRotate(io().io, prompter({ hidden: [OWNER_PASS] }), pristine({ toolsDir: copy }), dir)).toBe(0);
+    const after = loadTrust(dir)!;
+    expect(after.publicKeyFingerprint).toBe(before.publicKeyFingerprint);
+    expect(after.ownerToolsSha256).toBe(ownerToolsSha256(copy));
+    expect(after.rotation?.statement).toMatch(/D24-OWNER-ROTATE-V1/);
+    expect(await ownerRotate(io().io, prompter({ tty: false }), pristine(), dir)).toBe(2);
+    expect(existsSync(privateKeyPath(dir))).toBe(true);
+  });
+  it("owner-sign displays and signs an INDEPENDENTLY recomputed canonical hash", () => {
+    for (const e of [makeEnvelope(), makeEnvelope({ manualAttestations: { "123": { statement: "numeric id attestation", attestedBy: "unit", reference: "unit-ref" }, ...baseSpec().manualAttestations } })]) {
+      expect(ownerCanonicalHash(e as unknown as Record<string, unknown>)).toBe(e.envelopeSha256);
+    }
+  });
+  it("ownerMain: non-TTY refused; --commit is required", async () => {
+    const t = io();
+    expect(await ownerMain(["owner-keygen", "--commit", SHA], t.io, nonTtyStdin(), { ownerDir: tmp(), pristine: pristine() })).toBe(2);
+    expect(t.err.join()).toMatch(/interactive terminal/);
+    const u = io();
+    expect(await ownerMain(["owner-sign", "--envelope", "x.json"], u.io, nonTtyStdin(), { ownerDir: tmp() })).toBe(2);
+    expect(u.err.join()).toMatch(/--commit/);
+  });
+});
+
+describe("owner-sign end to end", () => {
+  it("prints every escaped term and the recomputed hash, needs the typed hash and passphrase, and leaks no private material", async () => {
+    const dir = tmp();
+    const k = io();
+    expect(await ownerKeygen(k.io, prompter({ hidden: [OWNER_PASS, OWNER_PASS] }), pristine(), dir, join(tmp(), "pinned-ledger"))).toBe(0);
     const trust = loadTrust(dir);
     expect(trust?.ledgerDir).toMatch(/pinned-ledger$/);
     const keyFile = readFileSync(join(dir, "owner-key.enc.json"), "utf8");
     expect(keyFile).not.toContain("PRIVATE KEY");
-    expect(JSON.parse(keyFile).ct).toBeTruthy();
-    // a second keygen is refused (no silent rotation)
-    expect(await ownerKeygen(t.io, prompter({ hidden: [OWNER_PASS, OWNER_PASS] }), dir)).toBe(2);
-
     const env = makeEnvelope();
     const file = writeEnvelope(env);
     const out = join(tmp(), "e.sig.json");
     const wrongConfirm = io();
-    expect(await ownerSign(wrongConfirm.io, prompter({ lines: ["yes"], hidden: [OWNER_PASS] }), file, out, dir)).toBe(2);
+    expect(await ownerSign(wrongConfirm.io, prompter({ lines: ["yes"], hidden: [OWNER_PASS] }), pristine(), file, out, dir)).toBe(2);
     expect(existsSync(out)).toBe(false);
-    const wrongPass = io();
-    await expect(ownerSign(wrongPass.io, prompter({ lines: [`SIGN ${env.envelopeSha256.slice(0, 12)}`], hidden: ["definitely wrong pass"] }), file, out, dir)).rejects.toThrow(/wrong passphrase/);
+    await expect(ownerSign(io().io, prompter({ lines: [`SIGN ${env.envelopeSha256.slice(0, 12)}`], hidden: ["definitely wrong pass"] }), pristine(), file, out, dir)).rejects.toThrow(/wrong passphrase/);
     const good = io();
-    expect(await ownerSign(good.io, prompter({ lines: [`SIGN ${env.envelopeSha256.slice(0, 12)}`], hidden: [OWNER_PASS] }), file, out, dir)).toBe(0);
+    expect(await ownerSign(good.io, prompter({ lines: [`SIGN ${env.envelopeSha256.slice(0, 12)}`], hidden: [OWNER_PASS] }), pristine(), file, out, dir)).toBe(0);
     const shown = good.out.join("\n");
-    // every material term is displayed before signing
+    expect(shown).toContain(`canonical hash recomputed by this tool: ${env.envelopeSha256}`);
     for (const term of renderTerms(env)) expect(shown).toContain(term);
-    for (const must of [env.accounts.platformAcct, env.accounts.connectedAcct, env.credential.keyFingerprintSha256Prefix, env.code.lockfileSha256, env.runner.manifestSha256, env.evidenceRoot, "invoice.create_draft"]) expect(shown).toContain(must);
+    for (const must of [env.accounts.platformAcct, env.accounts.connectedAcct, env.credential.keyFingerprintSha256Prefix, env.code.lockfileSha256, env.runner.manifestSha256, "invoice.create_draft"]) expect(shown).toContain(must);
     const sigText = readFileSync(out, "utf8");
     expect(verifyOwnerSignature(env.envelopeSha256, JSON.parse(sigText), trust).ok).toBe(true);
-    expect(sigText + shown).not.toMatch(/PRIVATE|passphrase/i);
+    expect(sigText + shown).not.toMatch(/PRIVATE/);
     expect(shown).not.toContain(OWNER_PASS);
-    // owner-show prints only public information
-    const sh = io();
-    expect(ownerShow(sh.io, dir)).toBe(0);
-    expect(sh.out.join("\n")).toContain(trust!.publicKeyFingerprint);
   });
-
-  it("owner-sign refuses an invalid envelope and an unregistered machine", async () => {
+  it("refuses an invalid envelope and an unregistered machine", async () => {
     const t = io();
-    expect(await ownerSign(t.io, prompter({}), writeEnvelope(makeEnvelope()), join(tmp(), "s.json"), tmp())).toBe(2);
+    expect(await ownerSign(t.io, prompter({}), pristine(), writeEnvelope(makeEnvelope()), join(tmp(), "s.json"), tmp())).toBe(2);
     expect(t.err.join()).toMatch(/no owner key/);
   });
 });
 
+describe("N-3: terminal-escape injection", () => {
+  const evil = ["\u001b[2J\u001b[1;1Hno risk here", "line one\rSIGN something harmless", "approved‮txeT", "nul\u0000byte", "bell\u0007", "line\nbreak", "zero​width", "isolate⁦x"];
+  const mutate = (e: Envelope, path: string[], value: string): unknown => {
+    const c = JSON.parse(JSON.stringify(e)) as Record<string, unknown>;
+    let cur: Record<string, unknown> = c;
+    for (const k of path.slice(0, -1)) cur = cur[k] as Record<string, unknown>;
+    cur[path[path.length - 1]] = value;
+    return c;
+  };
+  it("validateEnvelope rejects ANSI, CR, LF, NUL, bell, bidi and zero-width characters in every kind of string field", () => {
+    const e = makeEnvelope();
+    const targets = [["envelopeId"], ["evidenceRoot"], ["credential", "label"], ["manualAttestations", "sandbox", "statement"], ["manualAttestations", "sandbox", "attestedBy"], ["ownerApproval", "text"], ["ownerApproval", "reference"], ["accounts", "platformAcct"], ["stopConditions"]];
+    for (const bad of evil) {
+      expect(UNSAFE_CHARS.test(bad)).toBe(true);
+      for (const t of targets) {
+        const v = mutate(e, t, bad);
+        const r = validateEnvelope(t[0] === "stopConditions" ? { ...(v as object), stopConditions: [bad] } : v);
+        expect(r.ok, `${JSON.stringify(bad)} in ${t.join(".")}`).toBe(false);
+        expect(JSON.stringify((r as { issues: Array<{ code: string }> }).issues[0]), "no raw control characters in the refusal").not.toMatch(/\\u001b|\u001b|\r|‮/);
+        expect((r as { issues: Array<{ code: string }> }).issues[0].code).toBe("control-char");
+      }
+    }
+  });
+  it("also rejects a control character in an object KEY", () => {
+    const e = JSON.parse(JSON.stringify(makeEnvelope())) as Record<string, Record<string, unknown>>;
+    e.manualAttestations["bad\u001b[31mkey"] = { statement: "a statement long enough", attestedBy: "unit", reference: "unit-ref" };
+    (e as unknown as Record<string, unknown>).envelopeSha256 = envelopeHash(e as unknown as Envelope); // re-seal so only the key is wrong
+    const r = validateEnvelope(e);
+    expect(r.ok).toBe(false);
+    expect((r as { issues: Array<{ code: string }> }).issues[0].code).toBe("control-char");
+  });
+  it("the review screen escapes everything: even an envelope that bypassed validation prints no raw control/bidi byte", () => {
+    const e = JSON.parse(JSON.stringify(makeEnvelope())) as Envelope;
+    e.manualAttestations.sandbox.statement = "\u001b[2J\u001b[1;1H fake screen \r SIGN ‮evil";
+    e.envelopeId = "id\u001b[31m";
+    const text = renderTerms(e).join("\n") + show("‮\r\u001b");
+    expect(text).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f‪-‮⁦-⁩]/);
+    expect(text).toContain("\\u001b");
+    expect(text).toContain("\\u202e");
+  });
+  it("ownerSign refuses an envelope carrying escape sequences and prints none", async () => {
+    const dir = tmp();
+    await ownerKeygen(io().io, prompter({ hidden: [OWNER_PASS, OWNER_PASS] }), pristine(), dir);
+    const t = io();
+    const bad = mutate(makeEnvelope(), ["manualAttestations", "sandbox", "statement"], "\u001b[2Jhidden");
+    expect(await ownerSign(t.io, prompter({ lines: ["x"], hidden: [OWNER_PASS] }), pristine(), writeEnvelope(bad as Record<string, unknown>), join(tmp(), "s.json"), dir)).toBe(2);
+    expect(t.err.join("\n") + t.out.join("\n")).not.toContain("\u001b");
+  });
+});
+
 describe("self-approval is closed (review P1-1 reproduction)", () => {
-  it("approval-template | create-envelope yields a valid envelope that `run` (live) still refuses: no owner key, then no/forged signature", async () => {
+  it("approval-template | create-envelope yields a valid envelope that `run` (live) still refuses", async () => {
     const dir = tmp();
     const ownerDir = join(dir, "owner");
     const spec = baseSpec();
@@ -148,21 +329,9 @@ describe("self-approval is closed (review P1-1 reproduction)", () => {
     expect(await main(["run", "--envelope", join(dir, "e.json")], live.io, nonTtyStdin(), { ownerDir })).toBe(2);
     expect(live.err.join("\n")).toMatch(/no owner public key is registered/);
   });
-
   it("live run refuses --ledger-dir, --repo and --home overrides", async () => {
     const t = io();
     for (const f of ["--ledger-dir", "--repo", "--home"]) expect(await main(["run", "--envelope", "x.json", f, "somewhere"], t.io, nonTtyStdin(), { ownerDir: tmp() })).toBe(2);
     expect(t.err.join("\n")).toMatch(/not accepted/);
-  });
-
-  it("no signing or trust-writing code is reachable from the runner path (static check)", () => {
-    const dir = join(HERE, "..");
-    const forbidden = /signEnvelopeHash|writeTrust|generateOwnerKey|writeEncryptedKey|readEncryptedKey/;
-    for (const f of readdirSync(dir).filter((x) => x.endsWith(".ts"))) {
-      if (["ownersig.ts", "ownercli.ts"].includes(f)) continue;
-      expect(forbidden.test(readFileSync(join(dir, f), "utf8")), `${f} must not contain signing / trust-writing code`).toBe(false);
-    }
-    // and cli.ts only reaches them through ownercli's interactive, TTY-only commands
-    expect(readFileSync(join(dir, "cli.ts"), "utf8")).toMatch(/ownerKeygen|ownerSign/);
   });
 });

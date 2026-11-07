@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 import { manifest } from "../../d24-m3d-proof/manifest";
 import { createEnvelope, approvalTemplate, type Envelope, type EnvelopeSpec } from "../envelope";
 import { lockfileSha } from "../gitverify";
-import { generateOwnerKey, signEnvelopeHash, type OwnerTrust, type SignatureDoc } from "../ownersig";
+import { generateOwnerKey, signEnvelopeHash } from "../ownersig";
+import type { OwnerTrust, SignatureDoc } from "../ownerverify";
 import { runnerManifest } from "../runnerpin";
 import { readFileSync } from "node:fs";
 import { Ledger } from "../ledger";
@@ -34,7 +35,7 @@ export function ownerKey() {
 }
 export function ownerTrust(ledgerDir: string, anchorFile: string): OwnerTrust {
   const k = ownerKey();
-  return { v: 1, publicKeySpkiDerBase64: k.publicKeySpkiDerBase64, publicKeyFingerprint: k.publicKeyFingerprint, ledgerDir, anchorFile, registeredUtc: "2026-11-01T00:00:00Z" };
+  return { v: 1, publicKeySpkiDerBase64: k.publicKeySpkiDerBase64, publicKeyFingerprint: k.publicKeyFingerprint, ledgerDir, anchorFile, registeredUtc: "2026-11-01T00:00:00Z", registeredBy: "owner-account", ownerToolsSha256: "0".repeat(64), registeredAtCommit: "c".repeat(40) };
 }
 export const ownerSign = (e: Pick<Envelope, "envelopeSha256">): SignatureDoc => signEnvelopeHash(ownerKey().encrypted, OWNER_PASS, e.envelopeSha256);
 

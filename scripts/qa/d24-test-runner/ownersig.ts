@@ -1,31 +1,19 @@
-// Owner authorization: a detached Ed25519 signature over the envelope's canonical hash, made with a key that only the OWNER holds.
-// The runner (and the coordinator/engineering tooling) can VERIFY against a pinned public key but contains no code path that signs, and no code
-// path outside `ownercli.ts` that writes the trust file. This is the control that stops the tooling from minting and approving its own envelope.
+// OWNER-ONLY key operations: generate the keypair, sign an envelope hash, write/replace the trust file. Imported ONLY by ownercli.ts / ownermain.ts and
+// by tests (a test scans every other source file's imports). The runner and runner CLI import ownerverify.ts, which can verify and nothing else.
 //
 // Private key at rest: PKCS8 DER encrypted with AES-256-GCM under a scrypt-derived key from an owner passphrase. It is deliberately NOT DPAPI:
 // DPAPI CurrentUser would let any process of the same Windows user decrypt it, which would turn the signature back into a self-approval.
-// Residual risk (documented): on a single-user machine, a process that can capture the owner's passphrase (keylogger, a shared terminal) can sign.
+// Residual risk (documented): a process that can capture the owner's passphrase, or that runs in the owner's account and writes the owner directory,
+// can sign or re-register; real separation needs a separate Windows account / machine or a hardware-held key (open owner decision).
 
-import { createCipheriv, createDecipheriv, createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, scryptSync, sign, verify } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { createCipheriv, createDecipheriv, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, scryptSync, sign } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { privateKeyPath, keyFingerprint, SIG_DOMAIN, signedMessage, trustPath, type OwnerTrust, type SignatureDoc } from "./ownerverify";
 
-export const SIG_DOMAIN = "D24-TEST-ENVELOPE-V1";
 export const MIN_PASSPHRASE = 12;
-
-export type OwnerTrust = { v: 1; publicKeySpkiDerBase64: string; publicKeyFingerprint: string; ledgerDir: string; anchorFile: string; registeredUtc: string };
-export type SignatureDoc = { v: 1; domain: typeof SIG_DOMAIN; envelopeSha256: string; publicKeyFingerprint: string; signatureBase64: string };
 export type EncryptedKey = { v: 1; kdf: "scrypt"; n: number; salt: string; iv: string; tag: string; ct: string };
 
-export const defaultOwnerDir = () => join(process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"), "DanceFlow", "d24-owner");
-export const trustPath = (ownerDir: string) => join(ownerDir, "owner-trust.json");
-export const privateKeyPath = (ownerDir: string) => join(ownerDir, "owner-key.enc.json");
-
-const fp = (spkiDer: Buffer) => createHash("sha256").update(spkiDer).digest("hex");
-const message = (envelopeSha256: string) => Buffer.from(`${SIG_DOMAIN}\n${envelopeSha256}`, "utf8");
 const kdf = (pass: string, salt: Buffer, n: number) => scryptSync(pass, salt, 32, { N: n, r: 8, p: 1, maxmem: 256 * 1024 * 1024 });
-
 function checkPass(p: string) {
   if (p.length < MIN_PASSPHRASE) throw new Error(`the owner passphrase must be at least ${MIN_PASSPHRASE} characters`);
 }
@@ -39,43 +27,31 @@ export function generateOwnerKey(passphrase: string, scryptN = 1 << 15): { publi
   const iv = randomBytes(12);
   const c = createCipheriv("aes-256-gcm", kdf(passphrase, salt, scryptN), iv);
   const ct = Buffer.concat([c.update(pkcs8), c.final()]);
-  return { publicKeySpkiDerBase64: spki.toString("base64"), publicKeyFingerprint: fp(spki), encrypted: { v: 1, kdf: "scrypt", n: scryptN, salt: salt.toString("base64"), iv: iv.toString("base64"), tag: c.getAuthTag().toString("base64"), ct: ct.toString("base64") } };
+  return { publicKeySpkiDerBase64: spki.toString("base64"), publicKeyFingerprint: keyFingerprint(spki), encrypted: { v: 1, kdf: "scrypt", n: scryptN, salt: salt.toString("base64"), iv: iv.toString("base64"), tag: c.getAuthTag().toString("base64"), ct: ct.toString("base64") } };
+}
+
+function openKey(enc: EncryptedKey, passphrase: string) {
+  try {
+    const d = createDecipheriv("aes-256-gcm", kdf(passphrase, Buffer.from(enc.salt, "base64"), enc.n), Buffer.from(enc.iv, "base64"));
+    d.setAuthTag(Buffer.from(enc.tag, "base64"));
+    return createPrivateKey({ key: Buffer.concat([d.update(Buffer.from(enc.ct, "base64")), d.final()]), format: "der", type: "pkcs8" });
+  } catch {
+    throw new Error("wrong passphrase or corrupt owner key file");
+  }
 }
 
 export function signEnvelopeHash(enc: EncryptedKey, passphrase: string, envelopeSha256: string): SignatureDoc {
   if (!/^[0-9a-f]{64}$/.test(envelopeSha256)) throw new Error("envelopeSha256 must be 64 hex");
-  let pkcs8: Buffer;
-  try {
-    const d = createDecipheriv("aes-256-gcm", kdf(passphrase, Buffer.from(enc.salt, "base64"), enc.n), Buffer.from(enc.iv, "base64"));
-    d.setAuthTag(Buffer.from(enc.tag, "base64"));
-    pkcs8 = Buffer.concat([d.update(Buffer.from(enc.ct, "base64")), d.final()]);
-  } catch {
-    throw new Error("wrong passphrase or corrupt owner key file");
-  }
-  const priv = createPrivateKey({ key: pkcs8, format: "der", type: "pkcs8" });
+  const priv = openKey(enc, passphrase);
   const spki = createPublicKey(priv).export({ type: "spki", format: "der" });
-  return { v: 1, domain: SIG_DOMAIN, envelopeSha256, publicKeyFingerprint: fp(spki), signatureBase64: sign(null, message(envelopeSha256), priv).toString("base64") };
+  return { v: 1, domain: SIG_DOMAIN, envelopeSha256, publicKeyFingerprint: keyFingerprint(spki), signatureBase64: sign(null, signedMessage(envelopeSha256), priv).toString("base64") };
 }
 
-export function parseTrust(raw: unknown): OwnerTrust {
-  const t = raw as Partial<OwnerTrust> | null;
-  if (!t || t.v !== 1 || typeof t.publicKeySpkiDerBase64 !== "string" || typeof t.publicKeyFingerprint !== "string" || typeof t.ledgerDir !== "string" || typeof t.anchorFile !== "string" || typeof t.registeredUtc !== "string") throw new Error("owner trust file is malformed");
-  if (fp(Buffer.from(t.publicKeySpkiDerBase64, "base64")) !== t.publicKeyFingerprint) throw new Error("owner trust file: public key does not match its fingerprint");
-  return t as OwnerTrust;
-}
-
-/** Reads the pinned trust file. Returns null when no owner key was ever registered (live runs are then refused). */
-export function loadTrust(ownerDir: string): OwnerTrust | null {
-  const f = trustPath(ownerDir);
-  if (!existsSync(f)) return null;
-  return parseTrust(JSON.parse(readFileSync(f, "utf8")));
-}
-
-/** The only writer of the trust file. Called by `owner-keygen` (owner side) and nowhere in the runner path. Refuses to overwrite. */
+/** First registration only: refuses when a trust file exists. Replacement is `rotateTrust`, which needs the OLD key. */
 export function writeTrust(ownerDir: string, t: OwnerTrust): void {
   mkdirSync(ownerDir, { recursive: true });
   const f = trustPath(ownerDir);
-  if (existsSync(f)) throw new Error("an owner key is already registered; rotating it is a deliberate manual act (delete the trust file yourself)");
+  if (existsSync(f)) throw new Error("an owner key is already registered; replacing it needs owner-rotate (which requires the old key's passphrase)");
   writeFileSync(f, JSON.stringify(t, null, 2), { flag: "wx", mode: 0o444 });
   try {
     chmodSync(f, 0o444);
@@ -90,21 +66,34 @@ export function writeEncryptedKey(ownerDir: string, enc: EncryptedKey): void {
 }
 export const readEncryptedKey = (ownerDir: string): EncryptedKey => JSON.parse(readFileSync(privateKeyPath(ownerDir), "utf8")) as EncryptedKey;
 
-export function verifyOwnerSignature(envelopeSha256: string, doc: unknown, trust: OwnerTrust | null): { ok: boolean; reason: string } {
-  if (!trust) return { ok: false, reason: "no owner public key is registered: live runs are refused (run owner-keygen on the owner's machine)" };
-  const d = doc as Partial<SignatureDoc> | null;
-  if (!d || d.v !== 1 || d.domain !== SIG_DOMAIN || typeof d.signatureBase64 !== "string" || typeof d.envelopeSha256 !== "string") return { ok: false, reason: "signature file missing or malformed" };
-  if (d.envelopeSha256 !== envelopeSha256) return { ok: false, reason: "the signature is for a different envelope hash" };
-  if (d.publicKeyFingerprint !== trust.publicKeyFingerprint) return { ok: false, reason: "the signature was made by a key that is not the registered owner key" };
-  try {
-    const pub = createPublicKey({ key: Buffer.from(trust.publicKeySpkiDerBase64, "base64"), format: "der", type: "spki" });
-    return verify(null, message(envelopeSha256), pub, Buffer.from(d.signatureBase64, "base64")) ? { ok: true, reason: `valid owner signature (key ${trust.publicKeyFingerprint.slice(0, 16)})` } : { ok: false, reason: "the owner signature does not verify" };
-  } catch {
-    return { ok: false, reason: "the owner signature does not verify" };
+/**
+ * Explicit rotation / tool re-binding. Requires the OLD key (passphrase) to sign a statement binding old key -> new key + tool hash + commit.
+ * `newPassphrase` given => a new keypair replaces the old one; omitted => the key is kept and only the owner-tool hash / commit are re-bound.
+ */
+export function rotateTrust(ownerDir: string, current: OwnerTrust, oldPassphrase: string, next: { ownerToolsSha256: string; registeredAtCommit: string; registeredBy: string; newPassphrase?: string }, nowUtc: string): OwnerTrust {
+  const oldPriv = openKey(readEncryptedKey(ownerDir), oldPassphrase); // throws on the wrong passphrase
+  let pub = current.publicKeySpkiDerBase64;
+  let newEnc: EncryptedKey | null = null;
+  if (next.newPassphrase !== undefined) {
+    const k = generateOwnerKey(next.newPassphrase);
+    pub = k.publicKeySpkiDerBase64;
+    newEnc = k.encrypted;
   }
+  const newFp = keyFingerprint(Buffer.from(pub, "base64"));
+  const statement = `D24-OWNER-ROTATE-V1\nold=${current.publicKeyFingerprint}\nnew=${newFp}\ntools=${next.ownerToolsSha256}\ncommit=${next.registeredAtCommit}`;
+  const rotated: OwnerTrust = { ...current, publicKeySpkiDerBase64: pub, publicKeyFingerprint: newFp, ownerToolsSha256: next.ownerToolsSha256, registeredAtCommit: next.registeredAtCommit, registeredBy: next.registeredBy, registeredUtc: nowUtc, rotation: { fromFingerprint: current.publicKeyFingerprint, statement, signatureBase64: sign(null, Buffer.from(statement, "utf8"), oldPriv).toString("base64"), atUtc: nowUtc } };
+  const f = trustPath(ownerDir);
+  const tmp = `${f}.new`;
+  writeFileSync(tmp, JSON.stringify(rotated, null, 2), { mode: 0o444 });
+  try {
+    chmodSync(f, 0o644); // clear the read-only attribute so the rename can replace it
+  } catch {
+    /* ignore */
+  }
+  if (newEnc) {
+    writeFileSync(`${privateKeyPath(ownerDir)}.new`, JSON.stringify(newEnc), { mode: 0o600 });
+    renameSync(`${privateKeyPath(ownerDir)}.new`, privateKeyPath(ownerDir));
+  }
+  renameSync(tmp, f);
+  return rotated;
 }
-
-export const resolveOwnerPaths = (ownerDir: string, ledgerDir?: string) => {
-  const ld = resolve(ledgerDir ?? join(ownerDir, "..", "d24-runner", "ledger"));
-  return { ledgerDir: ld, anchorFile: join(resolve(ownerDir), "ledger-anchor.json") };
-};

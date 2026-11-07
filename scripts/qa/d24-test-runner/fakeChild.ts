@@ -32,8 +32,17 @@ export type FakeOpts = {
 
 const ok = (stdout = ""): ExecResult => ({ code: 0, stdout, stderr: "" });
 
-export function createFakeExec(o: FakeOpts): Exec {
-  return async (cmd, args, opts) => {
+// Brands: only executors created HERE are fakes. runEnvelope requires `dry === true` <=> the executor is a dry fake, so a caller cannot pass dry:true
+// with a real executor to skip the owner-signature / credential / ledger gates, nor run a dry fake as if it were live.
+const dryFakes = new WeakSet<Exec>();
+const simulatedLiveFakes = new WeakSet<Exec>();
+export const isDryFakeExec = (e: Exec) => dryFakes.has(e);
+export const isSimulatedLiveExec = (e: Exec) => simulatedLiveFakes.has(e);
+
+/** `simulateLive` is for tests of the LIVE gate path: still no process and no network, but accepted by runEnvelope with dry:false. */
+export function createFakeExec(o: FakeOpts, hooks: { tap?: (cmd: string, args: string[]) => void; simulateLive?: boolean } = {}): Exec {
+  const fn: Exec = async (cmd, args, opts) => {
+    hooks.tap?.(cmd, args);
     o.calls?.push({ cmd, args, env: { ...opts.env }, cwd: opts.cwd });
     if (cmd === "git" || /[\\/]git(\.exe)?$/.test(cmd)) {
       const a = args.filter((x) => x !== "-c" && x !== "core.fsmonitor=false");
@@ -85,4 +94,6 @@ export function createFakeExec(o: FakeOpts): Exec {
     }
     return { code: 1, stdout: "", stderr: "unknown flag" };
   };
+  (hooks.simulateLive ? simulatedLiveFakes : dryFakes).add(fn);
+  return fn;
 }

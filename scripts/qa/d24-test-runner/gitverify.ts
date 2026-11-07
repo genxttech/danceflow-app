@@ -14,6 +14,13 @@ export const lockfileSha = (buf: Buffer): string => createHash("sha256").update(
 
 /** Each query is a separate gate so a failure names exactly what was wrong. Order matters: nothing is installed unless the tree is already exactly the pinned commit. */
 export async function verifyCleanClone(o: GitVerifyOpts): Promise<Gate[]> {
+  const gates = await pristineGates(o);
+  if (!gates[0].ok) return gates;
+  return finishClone(o, gates);
+}
+
+/** HEAD == commit, repo root, clean tree, no diff vs HEAD, no hidden edits. Also used by the owner commands to prove they run from a pristine checkout. */
+export async function pristineGates(o: Pick<GitVerifyOpts, "repoDir" | "commitSha" | "env" | "exec" | "gitBin">): Promise<Gate[]> {
   const gates: Gate[] = [];
   const git = (args: string[]) => o.exec(o.gitBin ?? "git", ["-c", "core.fsmonitor=false", ...args], { cwd: o.repoDir, env: o.env, timeoutMs: 60_000 });
 
@@ -37,6 +44,11 @@ export async function verifyCleanClone(o: GitVerifyOpts): Promise<Gate[]> {
   const hidden = lsv.stdout.split("\n").filter((l) => /^[a-zS] /.test(l));
   gates.push({ id: "git-no-hidden-edits", ok: lsv.code === 0 && hidden.length === 0, detail: hidden.length === 0 ? "no assume-unchanged / skip-worktree files" : `${hidden.length} file(s) flagged assume-unchanged or skip-worktree` });
 
+  return gates;
+}
+
+async function finishClone(o: GitVerifyOpts, gates: Gate[]): Promise<Gate[]> {
+  const git = (args: string[]) => o.exec(o.gitBin ?? "git", ["-c", "core.fsmonitor=false", ...args], { cwd: o.repoDir, env: o.env, timeoutMs: 60_000 });
   const read = o.readLock ?? ((p: string) => readFileSync(p));
   let lockSha = "";
   try {

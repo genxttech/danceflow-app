@@ -162,3 +162,28 @@ describe("startRun re-checks under the lock (P2-1 race)", () => {
     expect(new Ledger(dir, NOWF).runsStarted("e1")).toBe(1);
   });
 });
+
+describe("append lock (N-6)", () => {
+  it("a writer that cannot get the append lock fails instead of appending a duplicate seq", () => {
+    const dir = join(tmp(), "ledger");
+    const l = new Ledger(dir, NOWF, undefined, 150);
+    const started = l.startRun("e1", "h", "r1", L);
+    writeFileSync(join(dir, "append.lock"), ""); // another writer is mid-append
+    expect(() => l.endRun(started, "PASS")).toThrow(/append lock is busy/);
+    killLockHolder(l);
+    expect(() => l.reconcile("e1", 1, "checked the dashboard: nothing there")).toThrow(/append lock is busy/);
+    expect(l.load()).toHaveLength(1); // nothing was appended
+    unlinkSync(join(dir, "append.lock"));
+    l.endRun(started, "PASS");
+    expect(l.load().map((e) => e.seq)).toEqual([1, 2]);
+    expect(existsSync(join(dir, "append.lock"))).toBe(false); // released after every append
+  });
+  it("reconcile appends under the same lock and releases it", () => {
+    const l = mk();
+    l.startRun("e1", "h", "r1", L);
+    killLockHolder(l);
+    l.reconcile("e1", 1, "checked the dashboard: nothing there");
+    expect(existsSync(join(l.dir, "append.lock"))).toBe(false);
+    expect(l.load().map((e) => e.seq)).toEqual([1, 2]);
+  });
+});

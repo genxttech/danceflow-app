@@ -10,12 +10,13 @@ import { evidenceDirProblem } from "../d24-m3d-proof/evidence";
 import { checkKeyShape } from "../d24-m3d-proof/identity";
 import { manifest } from "../d24-m3d-proof/manifest";
 import { runnerInsideClone, runnerManifest } from "./runnerpin";
-import { verifyOwnerSignature, type OwnerTrust } from "./ownersig";
+import { verifyOwnerSignature, type OwnerTrust } from "./ownerverify";
 import { baseEnv, proofEnv } from "./childenv";
 import { sha256 } from "./canon";
 import { checkEnvelopeWindow, KNOWN_RULE_IDS, validateEnvelope } from "./envelope";
 import type { CredentialStore } from "./credstore";
-import type { Exec } from "./exec";
+import { realExec, type Exec } from "./exec";
+import { isDryFakeExec, isSimulatedLiveExec } from "./fakeChild";
 import { verifyCleanClone, type Gate } from "./gitverify";
 import type { Ledger, LedgerEntry } from "./ledger";
 import { analyzeEvidence, decide, hashFile, redactionScan, renderReport, type FileHash, type RunSummary } from "./postrun";
@@ -46,6 +47,9 @@ export type RunResult = { summary: RunSummary | null; status: RunSummary["status
 const sha12 = (s: string) => s.slice(0, 12);
 
 export async function runEnvelope(envelopePath: string, repoDir: string, d: RunnerDeps): Promise<RunResult> {
+  // dry is not a trusted caller flag: it must agree with the executor. dry => a dry fake; live => the real executor (or a test-only simulated-live fake).
+  if (d.dry && !isDryFakeExec(d.exec)) throw new Error("refused: dry:true requires the dry fake executor (a real executor with dry:true would skip the live gates)");
+  if (!d.dry && !(d.exec === realExec || isSimulatedLiveExec(d.exec))) throw new Error("refused: a live run requires the real executor");
   const gates: Gate[] = [];
   let literals: string[] = [];
   const say = (s: string) => d.out(sanitize(s, literals));
