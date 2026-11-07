@@ -68,13 +68,16 @@ npx tsx scripts/qa/d24-m3d-proof/run.ts --live         # REAL Stripe TEST calls;
 * The evidence directory is checked on **real paths**: links/junctions are resolved, and any directory inside this checkout or inside ANY git checkout/worktree (an ancestor holding a git
   entry) is refused. It is checked again immediately before writing, the files are written into the resolved real directory with exclusive-create (an existing file or planted link is never written
   through), and a run that was asked for evidence but could not write it safely is reported `OUTCOME: FAILED` (exit 1).
-* Evidence files are created exclusively (`wx`) in the resolved real directory, JSON first then transcript; if the second cannot be created the first is removed again, so a half pack never claims an outcome.
+* Evidence files are created exclusively (`wx`) in the resolved real directory with a COMMIT PROTOCOL: the JSON is written first with outcome `INCOMPLETE`, then the transcript, and only then is the real outcome
+  put into the JSON (temp file + rename). A failure, or a process killed between any two steps, can leave `INCOMPLETE` on disk but never an outcome (`OK` / `FAILED`) next to a missing transcript; files this run created
+  are removed again on failure and, if one cannot be removed, the error names it.
   `..` segments in the directory are refused. A dry run uses a random run id (a fixed one would make the second dry run into the same folder fail by design).
 * Ids Stripe reports are recorded **before** any post-send abort (a response that is then rejected for a missing `Stripe-Version`, a wrong version or `livemode:true` still has its customer/draft id listed
   in the cleanup report and the forced-exit note). A create is also recorded **by the rule that sent it** (a `customer.create` answered with an id is a customer, an invoice create/add_lines answered with an id is an
   invoice candidate) even if the body omits or mislabels `object` / `status`; such an odd shape also makes the run unverifiable. A body that is not a plain JSON object (a number, string, array) is treated as "no usable
   body", so a POST answered that way is recorded as unverifiable. A missing `Stripe-Version` on a 2xx/4xx response aborts the run with no cleanup call (strict by design; the ids stay listed); on a 429 or a 5xx (an edge or
-  gateway response) it follows the 429/5xx rules, which keep cleanup possible. Cleanup lists an object as deleted only when Stripe's answer says `deleted:true`.
+  gateway response) it follows the 429/5xx rules, which keep cleanup possible. Cleanup lists an object as deleted, and the guard removes it from its books, only when the DELETE was answered HTTP 200 with `deleted:true` for the id that was requested (a 404, or a body naming another id, confirms nothing). A 2xx create must carry a string id whatever else the body
+  looks like, and an `add_lines` answer naming a different invoice never becomes deletable. A raw-text scan forces `livemode:true` even if a duplicate JSON key would hide it. The cleanup report lists the unverifiable creates on every path.
 * Cleanup's read-back of each customer's invoices must succeed (HTTP 200, a list, no further pages) and be empty; otherwise that customer is **not deleted**, the run is `FAILED` and the reason is printed.
 * Success needs everything: the run prints `OUTCOME: OK` and exits 0 only if nothing aborted, every scenario check passed **and** cleanup verified an empty account (not skipped, not interrupted, nothing
   unverifiable). Otherwise `OUTCOME: FAILED`, exit 1, and the evidence carries the same outcome.

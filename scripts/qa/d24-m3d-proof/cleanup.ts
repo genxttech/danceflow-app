@@ -12,17 +12,20 @@ export type CleanupReport = {
   deletedCustomers: string[];
   remainingInvoices: string[];
   remainingCustomers: string[];
+  /** creates whose outcome could not be confirmed (lost response, odd shape, 5xx...): look for them by metadata.d24_intent_id (see the README). Filled on EVERY path. */
+  unverifiable: string[];
   verifiedEmpty: boolean;
 };
 
 export async function cleanup(client: GuardedClient, expect: Expect): Promise<CleanupReport> {
-  const rep: CleanupReport = { skipped: null, stoppedBecause: null, deletedInvoices: [], deletedCustomers: [], remainingInvoices: [], remainingCustomers: [], verifiedEmpty: false };
+  const rep: CleanupReport = { skipped: null, stoppedBecause: null, deletedInvoices: [], deletedCustomers: [], remainingInvoices: [], remainingCustomers: [], unverifiable: [], verifiedEmpty: false };
   const acct = expect.connectedAcct;
   const a = client.aborted();
   if (a && NO_CLEANUP_AFTER.has(a.code)) {
     rep.skipped = `cleanup NOT run after ${a.code}: no further Stripe call is made. Manual cleanup needed.`;
     rep.remainingInvoices = [...client.seen.drafts];
     rep.remainingCustomers = [...client.seen.customers];
+    rep.unverifiable = [...client.uncertain];
     return rep;
   }
   if (client.seen.nonDrafts.size > 0) {
@@ -30,13 +33,14 @@ export async function cleanup(client: GuardedClient, expect: Expect): Promise<Cl
     rep.stoppedBecause = `non-draft invoice(s) present: ${[...client.seen.nonDrafts].join(", ")}`;
     rep.remainingInvoices = [...client.seen.drafts, ...client.seen.nonDrafts];
     rep.remainingCustomers = [...client.seen.customers];
+    rep.unverifiable = [...client.uncertain];
     return rep;
   }
   try {
     for (const id of [...client.seen.drafts]) {
       const d = await pinned(client, { method: "DELETE", path: `/v1/invoices/${id}`, stripeAccount: acct }, { phase: "cleanup", expectStatus: [200, 404] });
       // listed as deleted ONLY when Stripe says so; a 404 / anything else leaves the id in `seen` (so it stays in remainingInvoices and verifiedEmpty stays false)
-      if (d.json?.deleted === true) rep.deletedInvoices.push(id);
+      if (d.status === 200 && d.json?.deleted === true && d.json?.id === id) rep.deletedInvoices.push(id);
     }
     let empty = true;
     const keep = new Set<string>(); // customers whose invoices could NOT be verified gone: never deleted, never reported clean
@@ -58,7 +62,7 @@ export async function cleanup(client: GuardedClient, expect: Expect): Promise<Cl
     for (const cus of [...client.seen.customers]) {
       if (keep.has(cus)) continue;
       const d = await pinned(client, { method: "DELETE", path: `/v1/customers/${cus}`, stripeAccount: acct }, { phase: "cleanup", expectStatus: [200, 404] });
-      if (d.json?.deleted === true) rep.deletedCustomers.push(cus);
+      if (d.status === 200 && d.json?.deleted === true && d.json?.id === cus) rep.deletedCustomers.push(cus);
     }
     // a lost response means an object may exist that was never seen: never claim "empty" in that case
     rep.verifiedEmpty = empty && client.seen.drafts.size === 0 && client.seen.customers.size === 0 && client.uncertain.length === 0;
@@ -69,6 +73,7 @@ export async function cleanup(client: GuardedClient, expect: Expect): Promise<Cl
   }
   rep.remainingInvoices = [...client.seen.drafts];
   rep.remainingCustomers = [...client.seen.customers];
+  rep.unverifiable = [...client.uncertain];
   return rep;
 }
 
