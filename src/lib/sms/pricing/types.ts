@@ -41,8 +41,8 @@ export type Finding = { code: FindingCode; severity: Severity; message: string; 
 
 /** Allow-listed database functions. Anything else is refused by the adapter (and by a unit test that scans this directory). */
 export const MONITOR_RPCS = [
-  "tw4_price_verify", // D4-1 (20270208090000), service_role, stable
-  "tw4_price_monitor_digest", // D4-2 (20270208110000)
+  "tw4_price_verify", // D4-1 (20270210090000), service_role, stable
+  "tw4_price_monitor_digest", // D4-2 (20270210110000)
   "tw4_price_monitor_events",
   "tw4_price_monitor_evidence_list",
   "tw4_price_monitor_evidence_append",
@@ -61,7 +61,7 @@ export interface PriceMonitorDb {
 }
 
 /**
- * SECURITY EVENT CONTRACT (table studio_sms_price_security_events, migration 20270208110000). The authorization workstream appends rows from its own SECURITY DEFINER
+ * SECURITY EVENT CONTRACT (table studio_sms_price_security_events, migration 20270210110000). The authorization workstream appends rows from its own SECURITY DEFINER
  * functions (owner-level; no API role can insert). `kind` is snake_case; `detail` is a small JSON object with NO secrets (ids, counts, reasons only).
  * The monitor consumes the feed generically: known kinds map below, unknown kinds alert as `unknown_security_event`.
  */

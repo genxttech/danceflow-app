@@ -1,7 +1,7 @@
 /**
- * D4-2 price monitor against a REAL schema: migration 20270208110000 (evidence chain, security events, digest) together with D4-1's 20270208090000 (tw4_price_verify), with
+ * D4-2 price monitor against a REAL schema: migration 20270210110000 (evidence chain, security events, digest) together with D4-1's 20270210090000 (tw4_price_verify), with
  * the monitor running AS service_role (set local role) through the real db contract. Synthetic fixtures; fake transports (no network, no Resend, no Twilio, no Stripe).
- * LOCAL QA ONLY: a DEDICATED Postgres with the chain through 20270208110000 and public.tw4_local_qa_only:
+ * LOCAL QA ONLY: a DEDICATED Postgres with the chain through 20270210110000 and public.tw4_local_qa_only:
  *
  *   node scripts/qa/tw4f/run-chain.mjs suites --suite localStack.d42monitor --extra-branch origin/claude/d4-1-price-dual-control --extra-branch claude/d4-2-price-monitoring --env ISO_QA_MARKER=1 --env TW4RFL_DB=postgres
  *
@@ -57,7 +57,7 @@ describe.skipIf(!enabled)("D4-2 price monitor on a real database", () => {
   beforeAll(() => {
     psql(`do $d$ begin ${MARKER} end $d$;`);
     if (psql("select to_regprocedure('public.tw4_price_verify(timestamptz)') is not null and to_regprocedure('public.tw4_price_monitor_digest()') is not null") !== "t") {
-      throw new Error("chain must include D4-1 (20270208090000) and D4-2 (20270208110000)");
+      throw new Error("chain must include D4-1 (20270210090000) and D4-2 (20270210110000)");
     }
     since = psql("select clock_timestamp()::text");
     trusted = scanBreaks();

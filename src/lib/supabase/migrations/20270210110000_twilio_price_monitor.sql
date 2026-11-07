@@ -1,5 +1,5 @@
 -- D4-2: pricing-integrity MONITOR support (append-only hash-chained run evidence, security-event feed, read-only price digest).
--- NOT APPLIED anywhere; Git only. Independent of 20270208090000 (D4-1 dual control): it reads public.studio_sms_price_list only and does not call tw4_price_verify (the application does).
+-- NOT APPLIED anywhere; Git only. Independent of 20270210090000 (D4-1 dual control): it reads public.studio_sms_price_list only and does not call tw4_price_verify (the application does).
 --
 --   * studio_sms_price_monitor_evidence   append-only, hash-chained record of every monitor run, alert delivery attempt and watchdog check. The chain hash is computed by the
 --                                         APPLICATION (src/lib/sms/pricing/evidence.ts); the database enforces linkage (seq = head + 1, prev_hash = head hash), serialization
@@ -165,7 +165,7 @@ returns jsonb language sql stable security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
   -- EXPECTED guard triggers, by table, trigger name and function. A guard counts only if it exists on that table, runs that function and is ENABLE ALWAYS (tgenabled = 'A').
-  -- Groups: 'own' (this migration) is always expected; 'dual' (D4-1, 20270208090000) and 'authz' (D4-2 authorization, 20270208100000) are expected when ANY of their tables exists.
+  -- Groups: 'own' (this migration) is always expected; 'dual' (D4-1, 20270210090000) and 'authz' (D4-2 authorization, 20270210100000) are expected when ANY of their tables exists.
   -- A group with some of its tables missing is reported as expected_but_absent (loud), never silently skipped.
   with exp(grp, tbl, trg, fn) as (values
     ('own',   'studio_sms_price_monitor_evidence',  'studio_sms_price_monitor_evidence_immutable',  '_tw4pricemon_immutable'),
