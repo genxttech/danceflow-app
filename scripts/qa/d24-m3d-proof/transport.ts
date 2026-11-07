@@ -49,7 +49,9 @@ export function createNodeTransport(opts: NodeTransportOptions = {}): Transport 
         res.on("end", () => {
           let json: Record<string, unknown> | null = null;
           try {
-            json = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+            const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+            // only a plain JSON object is a usable body; a scalar or an array is treated like an unparseable one
+            json = parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
           } catch {
             json = null;
           }

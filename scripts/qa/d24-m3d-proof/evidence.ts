@@ -74,7 +74,7 @@ export type EvidenceInput = {
  * Re-validates the directory immediately before writing (a live run lasts minutes: a link swapped in meanwhile is caught), creates it, validates the resolved
  * real directory again, and writes only into that real directory with exclusive-create (an existing file or a pre-planted link is never written through).
  */
-export function writeEvidence(dir: string, e: EvidenceInput, repoRoot: string, hooks: { onBeforeWrite?: () => void } = {}): { json: string; transcript: string } {
+export function writeEvidence(dir: string, e: EvidenceInput, repoRoot: string, hooks: { onBeforeWrite?: () => void; unlink?: (p: string) => void } = {}): { json: string; transcript: string } {
   const before = evidenceDirProblem(dir, repoRoot);
   if (before) throw new Error(before);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -107,9 +107,10 @@ export function writeEvidence(dir: string, e: EvidenceInput, repoRoot: string, h
     writeFileSync(transcript, sanitize(e.transcriptText), { mode: 0o600, flag: "wx" });
   } catch (err) {
     try {
-      unlinkSync(json);
-    } catch {
-      /* best effort: the run is reported FAILED either way */
+      (hooks.unlink ?? unlinkSync)(json);
+    } catch (unlinkErr) {
+      // the first file says what the run concluded but the pack is incomplete and the file could not be removed: say so loudly instead of leaving a silent disagreement
+      throw new Error(`${String((err as Error)?.message ?? err)}; AND the partial pack file ${json} could not be removed (${String((unlinkErr as Error)?.message ?? unlinkErr)}): delete it by hand, it is NOT a complete evidence pack`);
     }
     throw err;
   }

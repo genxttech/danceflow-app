@@ -119,6 +119,19 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
       for (const d of b.data as Array<Record<string, unknown>>) if (d?.object === "invoice" && typeof d.id === "string" && d.status === "draft") seen.drafts.add(d.id);
     }
   };
+  const trackCreate = (rule: string, req: ProofRequest, r: ProofResponse) => {
+    if (req.method !== "POST" || r.status < 200 || r.status >= 300) return;
+    const id = r.json && typeof r.json.id === "string" ? r.json.id : null;
+    if (id === null) return; // no id at all is already handled by worthless()
+    const note = `${req.path} idem=${maskIdempotencyKey(req.idempotencyKey)}`;
+    if (rule === "customer.create") {
+      if (id.startsWith("cus_")) seen.customers.add(id);
+      if (r.json?.object !== "customer" || !id.startsWith("cus_")) uncertain.push(`${note} (response shape not recognised: object=${JSON.stringify(String(r.json?.object).slice(0, 20))}, id=${JSON.stringify(id.slice(0, 12))})`);
+    } else if (rule === "invoice.create_draft" || rule === "invoice.add_lines") {
+      if (id.startsWith("in_")) seen.drafts.add(id); // cleanup will try to delete it (a non-draft is refused by Stripe and reported); a later non-draft status removes it again below
+      if (r.json?.object !== "invoice" || typeof r.json?.status !== "string" || !id.startsWith("in_")) uncertain.push(`${note} (response shape not recognised: object=${JSON.stringify(String(r.json?.object).slice(0, 20))}, status=${JSON.stringify(String(r.json?.status).slice(0, 20))})`);
+    }
+  };
   const worthless = (r: ProofResponse) => r.status >= 500 || r.json === null || (r.status >= 200 && r.status < 300 && typeof r.json.id !== "string" && r.json.object !== "list");
 
   async function call(input: ProofRequest, opts: CallOptions = {}): Promise<ProofResponse> {
@@ -174,26 +187,34 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
       if (req.method === "POST") uncertain.push(`${req.path} idem=${maskIdempotencyKey(req.idempotencyKey)}`);
       throw err;
     }
+    // only a plain JSON object counts as a body; a scalar / array / anything else is treated as "no usable body" (so a POST is recorded as unverifiable, never a crash)
+    if (res.json !== null && (typeof res.json !== "object" || Array.isArray(res.json))) res = { ...res, json: null };
     const e = entry(req, res.status, { requestId: res.requestId ?? "-", replayed: res.replayed ?? null, summary: summarizeBody(res.json), note: opts.note });
     // a create that came back as a gateway error / unparseable body / 2xx without an id may still have been committed at Stripe
     if (req.method === "POST" && worthless(res)) uncertain.push(`${req.path} idem=${maskIdempotencyKey(req.idempotencyKey)} (status ${res.status}, no usable body)`);
     // record what Stripe says exists BEFORE any abort below can fire, so cleanup and the forced-exit note always list the ids, even when the response is then rejected
     track(res.json);
+    // A create answered with an id is recorded BY THE RULE that sent it (customer.create => cus_, invoice rules => in_), whatever `object` / `status` say: a body
+    // that omits or mislabels them must not make a created object invisible. An odd shape also makes the create unverifiable (verifiedEmpty can never be true).
+    trackCreate(v.rule, req, res);
     // 5. response checks
     if (res.stripeVersion !== undefined) {
       versionsSeen.add(res.stripeVersion);
       if (res.stripeVersion !== STRIPE_API_VERSION) return fail("version_mismatch", `Stripe answered with API version ${JSON.stringify(res.stripeVersion.slice(0, 40))}, not the pinned ${STRIPE_API_VERSION}`);
+    } else if (res.status === 429 || res.status >= 500) {
+      // an edge / gateway / overload response may legitimately lack Stripe's header: it takes the rate-limit / 5xx rules below (which keep cleanup possible)
     } else {
-      // Stripe always reports the version it used; a response without it is not trusted (blocked requests never get here)
+      // Stripe always reports the version it used on a 2xx / 4xx; such a response without it is not trusted (blocked requests never get here)
       return fail("version_mismatch", `the ${v.rule} response did not report a Stripe-Version`);
     }
     const body = res.json;
     if (body) {
       const asText = JSON.stringify(body);
       if (body.livemode === true || /"livemode":\s*true/.test(asText)) return fail("livemode_true", `livemode:true in a response (${req.method} ${req.path})`);
-      // objects the run creates must POSITIVELY report test mode (livemode === false); a missing flag is not accepted
-      if (req.method === "POST" && (body.object === "customer" || body.object === "invoice") && body.livemode !== false) {
-        return fail("livemode_true", `a created ${String(body.object)} did not report livemode:false`);
+      // objects the run creates must POSITIVELY report test mode (livemode === false); a missing flag is not accepted, whatever `object` says
+      const isCreateRule = v.rule === "customer.create" || v.rule === "invoice.create_draft" || v.rule === "invoice.add_lines";
+      if (req.method === "POST" && res.status >= 200 && res.status < 300 && (isCreateRule || body.object === "customer" || body.object === "invoice") && body.livemode !== false) {
+        return fail("livemode_true", `a created ${String(body.object ?? v.rule)} did not report livemode:false`);
       }
       // (created ids were already recorded by track() above; here only the non-draft abort remains)
       if (body.deleted !== true && body.object === "invoice" && typeof body.id === "string" && typeof body.status === "string" && body.status !== "draft") {

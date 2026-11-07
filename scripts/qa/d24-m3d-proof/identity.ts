@@ -41,7 +41,7 @@ export function checkEnvironment(env: Record<string, string | undefined>): strin
   for (const [name, v] of Object.entries(env)) {
     if (name !== ENV.key && v && looksLikeLiveSecret(v)) problems.push(`${name} contains a live key (remove it from this shell)`);
   }
-  for (const name of ["NODE_OPTIONS", "NODE_DEBUG", "NODE_DEBUG_NATIVE", "OPENSSL_CONF", "OPENSSL_MODULES", "NODE_PATH", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR", "npm_config_proxy", "npm_config_https_proxy", "NODE_USE_ENV_PROXY", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"]) {
+  for (const name of ["NODE_OPTIONS", "NODE_USE_SYSTEM_CA", "NODE_DEBUG", "NODE_DEBUG_NATIVE", "OPENSSL_CONF", "OPENSSL_MODULES", "NODE_PATH", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR", "npm_config_proxy", "npm_config_https_proxy", "NODE_USE_ENV_PROXY", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"]) {
     if (env[name]) problems.push(`${name} is set (it can redirect, observe or patch the HTTPS traffic that carries the key); unset it for the proof`);
   }
   if (env.NODE_TLS_REJECT_UNAUTHORIZED === "0") problems.push("NODE_TLS_REJECT_UNAUTHORIZED=0 is set (TLS verification must stay on)");
