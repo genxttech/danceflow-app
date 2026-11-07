@@ -2,7 +2,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { headers, cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { isPlatformAdmin } from "@/lib/auth/platform";
 import {
   getAccessibleStudios,
   getCurrentStudioContext,
@@ -1109,7 +1108,7 @@ export default async function AppLayout({
 
   let studioBanner: React.ReactNode = null;
 
-  if (await isPlatformAdmin()) {
+  if (context.isPlatformAdmin) {
     studioBanner = (
       <div className="border-b border-amber-200 bg-amber-50">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-6 py-3 md:flex-row md:items-center md:justify-between">

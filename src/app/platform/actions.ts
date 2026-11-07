@@ -6,6 +6,9 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { requirePlatformStepUp } from "@/lib/auth/platform-assurance";
+import { recordPlatformSupportEvent } from "@/lib/auth/platform-support-audit";
+import { SUPPORT_COOKIE_MAX_AGE_SECONDS, signSupportCookie, verifySupportCookie } from "@/lib/auth/platform-support-cookie";
 import { linkExistingClientAccount } from "@/lib/student-identity/lifecycle";
 import { getVerifiedEmailForUser, verifiedEmailMatches } from "@/lib/auth/verifiedIdentity";
 import {
@@ -55,7 +58,9 @@ function optionalSafeUrl(value: string) {
 }
 
 export async function enterStudioContextAction(formData: FormData) {
-  await requirePlatformAdmin();
+  // H1: entering a studio as platform admin grants studio-owner-equivalent authority, so it needs a VERIFIED aal2 session (role first, then claims).
+  // Called outside any try/catch: a refusal is a redirect to the MFA challenge. getCurrentStudioContext enforces the same rule on every later request.
+  const admin = await requirePlatformStepUp("aal2", "/platform/studios");
 
   const studioId = requireUuidFromForm(formData, "studioId", "Studio", "/platform/studios");
 
@@ -71,35 +76,47 @@ export async function enterStudioContextAction(formData: FormData) {
   }
 
   const cookieStore = await cookies();
-  cookieStore.set(PLATFORM_STUDIO_COOKIE, studioId, {
+  const previousStudioId = verifySupportCookie(cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value, admin.id);
+  const token = signSupportCookie(admin.id, studioId);
+  if (!token) redirect("/platform/studios");
+
+  // Fail closed: no audit row, no support context.
+  const audited = await recordPlatformSupportEvent({
+    event: previousStudioId && previousStudioId !== studioId ? "switch" : "enter",
+    studioId,
+    userId: admin.id,
+    previousStudioId,
+  });
+  if (!audited) redirect("/platform/studios");
+
+  cookieStore.set(PLATFORM_STUDIO_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
+    maxAge: SUPPORT_COOKIE_MAX_AGE_SECONDS,
   });
 
   redirect("/app");
 }
 
 export async function clearStudioContextAction() {
-  await requirePlatformAdmin();
+  // Leaving a studio only REDUCES privilege, so it stays available to a platform admin at any assurance level and its audit write is best-effort.
+  const admin = await requirePlatformAdmin();
 
   const cookieStore = await cookies();
+  const current = verifySupportCookie(cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value, admin.id);
+  if (current) await recordPlatformSupportEvent({ event: "exit", studioId: current, userId: admin.id });
   cookieStore.delete(PLATFORM_STUDIO_COOKIE);
 
   redirect("/platform");
 }
 
 export async function getPlatformSelectedStudioId() {
-  await requirePlatformAdmin();
+  const admin = await requirePlatformAdmin();
 
   const cookieStore = await cookies();
-  const selectedStudioIdResult = normalizeOptionalUuid(
-    cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value ?? "",
-    "Selected studio",
-  );
-
-  return selectedStudioIdResult.ok ? selectedStudioIdResult.value : null;
+  return verifySupportCookie(cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value, admin.id);
 }
 function normalizePlatformAlertType(value: FormDataEntryValue | null) {
   const normalized = String(value ?? "info").trim().toLowerCase();

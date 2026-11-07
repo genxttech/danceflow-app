@@ -99,6 +99,23 @@ export async function requirePlatformStepUp(tier: AssuranceTier, returnTo = "/pl
   return admin;
 }
 
+/**
+ * H1: the authoritative gate for platform-admin authority over a studio. True only when the caller's VERIFIED session is aal2 (TOTP) for `userId`.
+ * It is a pure predicate, not a redirect, so a context resolver can DEMOTE an aal1 admin to an ordinary user (their own memberships only) instead of
+ * locking them out of a studio they genuinely belong to. Fail closed: a claims error, a throw, a subject mismatch, an expired token or a missing TOTP entry is
+ * false, never the role alone. Callers must have established the platform_admin ROLE first; this function does not read it.
+ */
+export async function hasVerifiedAal2Session(userId: string): Promise<boolean> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase.auth.getClaims();
+    if (error || !data) return false;
+    return evaluateAssurance(data.claims as Claims, Math.floor(Date.now() / 1000), "aal2", userId).ok;
+  } catch {
+    return false;
+  }
+}
+
 /** The sentence the challenge page shows for a refusal reason. Unknown reasons get the generic sentence. */
 export function stepUpMessage(reason: unknown): string | null {
   switch (reason) {
