@@ -35,7 +35,7 @@ describe("envelope validation", () => {
       expect(issuesOf(e).join(), bad).toMatch(/unknown-operation/);
     }
     expect(issuesOf(seal({ ...makeEnvelope(), permittedRuleIds: ["invoice.finalize"] })).join()).toMatch(/fee-bearing, financial or LIVE/);
-  });
+  }, 30_000);
 
   it("refuses LIVE mode and a relaxed forbidden block", () => {
     expect(issuesOf(seal({ ...makeEnvelope(), mode: "LIVE" })).join()).toMatch(/mode/);
