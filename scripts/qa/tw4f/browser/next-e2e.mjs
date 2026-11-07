@@ -119,6 +119,14 @@ async function sc1() {
   check("spare request via UI is PENDING (not active)", sp.pending === 1 && /Requested/.test(sp.m1), sp.m1);
   check("Apply before the delay is refused with a clear sentence and the key stays pending", /not ended|cooling|Nothing changed|not allowed/i.test(sp.early) && sp.stillPending, sp.early);
   check("spare applied through the UI after the aged database clock", B.keyStatus("spare one") === "active" && /applied/.test(sp.m2), sp.m2);
+  // a bootstrapped key has no proof yet: it does not count as the verified replacement the last-credential rule needs
+  await B.only(S, ["spare one"]);
+  await B.openSms(S);
+  const early = await B.revokeKey(S, "spare one");
+  check("last-credential rule: the spare cannot retire itself while the bootstrap primary has no enrolment proof", !/^Revoked\./.test(early) && B.keyStatus("spare one") === "active", early);
+  const ap1 = await B.attestKey(S, "primary");
+  const ap2 = await B.attestKey(S, "recovery one");
+  check("owner-level enrolment proof: the real authenticator attests the bootstrap primary and the installed recovery key", ap1 === "attested" && ap2 === "attested" && Number(q("select count(*) from public.studio_sms_price_credentials where status = 'active' and proof_verified_at is null")) === 0, `${ap1} / ${ap2}`);
   await B.only(S, ["primary"]);
   await B.openSms(S);
   const recBtns = await B.rowButtons(S, "recovery one");
@@ -514,6 +522,9 @@ async function ensureRecovery(label) {
   const r = L.psql(`select public._tw4price_install_recovery(decode('${B.hexOf(k.id)}','hex'), decode('${B.hexOf(k.x)}','hex'), decode('${B.hexOf(k.y)}','hex'), '${label}')`);
   if (r.code !== 0) throw new Error(`install recovery failed: ${r.err.slice(0, 200)}`);
   ctx.rec = label;
+  await B.openSms(ctx.s1);
+  const at = await B.attestKey(ctx.s1, label);
+  if (at !== "attested") throw new Error(`attest of the installed recovery key failed: ${at}`);
 }
 async function enrolAndApplyNoApply(S, label, role, signers) {
   await B.only(S, signers);
@@ -834,13 +845,13 @@ async function sc11() {
     check("stale: the propose form action is bounced to the step-up page and creates nothing", /platform-mfa\/challenge\?stepup=1&reason=stale/.test(r.redirect) && Number(q("select count(*) from public.studio_sms_price_change_requests where status = 'pending'")) === 0, `${r.status} ${r.redirect}`);
   } else blocked("stale propose bounce", "no captured propose form");
   // freeze / report compromise / recovery freeze stay plain aal2: a stale (but aal2) session may still freeze
+  if (B.cfg("frozen") !== "false") throw new Error("precondition: prices must not be frozen at this point");
+  if (capFreeze) {
+    const r = await replay(S, capFreeze);
+    check("stale (11 min old TOTP): the REAL freeze form action is not bounced to the step-up page and freezes publication (plain aal2)", /price=1/.test(r.redirect) && !/platform-mfa/.test(r.redirect) && B.cfg("frozen") === "true", `${r.status} ${r.redirect} frozen=${B.cfg("frozen")}`);
+  } else blocked("freeze form action on a stale session", "the freeze form submission was not captured from the earlier scenarios");
   const fz = await rpc(stale, "tw4_price_freeze", { p_reason: "stale session freezes: safe direction needs only aal2" });
   check("stale: FREEZE still works (plain aal2, safe direction)", fz.status === 200 && B.cfg("frozen") === "true", `${fz.status} ${fz.text.slice(0, 100)}`);
-  if (capFreeze) {
-    // (the app-level freeze form is replayed after the DB freeze: a repeat is idempotent either way)
-    const r = await replay(S, capFreeze);
-    check("stale: the freeze form action is not bounced to the step-up page", !/platform-mfa/.test(r.redirect) || /reason=stale/.test(r.redirect) === false, `${r.status} ${r.redirect}`);
-  } else console.log("  NOTE no captured freeze form; the freeze was proven at the database level only");
   const cp = await rpc(stale, "tw4_price_report_compromise", { p_note: "stale session reports a compromise: plain aal2" });
   check("stale: report-compromise works (plain aal2)", cp.status === 200, `${cp.status} ${cp.text.slice(0, 100)}`);
   // renew through the real page, then the same actions succeed
@@ -858,6 +869,25 @@ async function sc11() {
   check("propose succeeds again after the step-up", pr.ok && !!B.latestRequest(), pr.text);
   const open = B.latestRequest();
   if (open) B.withdraw(open, ctx.A.id);
+}
+
+// ---------------------------------------------------------------------------------------------------------------- 12 the last usable credential
+async function sc12() {
+  scn(12);
+  const { s1 } = ctx;
+  const P = ctx.prim;
+  check("fixture: exactly one active signing credential", Number(q("select count(*) from public.studio_sms_price_credentials where status = 'active' and role <> 'recovery'")) === 1, B.activeKeys());
+  await B.only(s1, [P]);
+  await B.openSms(s1);
+  const m0 = await B.revokeKey(s1, P);
+  check("UI: the last active signing credential cannot retire itself (nothing changes)", !/^Revoked\./.test(m0) && B.keyStatus(P) === "active", m0);
+  const en = await enrolAndApply(s1, "replacement spare", "spare", [P]);
+  check("a replacement is enrolled through the UI and applied after the delay", B.keyStatus("replacement spare") === "active", en.m2);
+  await B.only(s1, [P]);
+  await B.openSms(s1);
+  const m1 = await B.revokeKey(s1, P);
+  check("once a replacement is active the old key retires itself through the UI", /^Revoked\./.test(m1) && B.keyStatus(P) === "revoked" && B.keyStatus("replacement spare") === "active", m1);
+  ctx.prim = "replacement spare";
 }
 
 function writeReport(crashed, browserVersion) {
@@ -893,7 +923,7 @@ async function runAll() {
   try {
     ctx.browser = browser;
     await setup(browser);
-    for (const [id, fn] of [[1, sc1], [2, sc2], [3, sc3], [4, sc4], [7, sc7], [6, sc6], [8, sc8], [5, sc5], [10, sc10], [11, sc11], [9, sc9]]) if (want(id)) { try { await fn(); } catch (e) { check(`scenario ${id} aborted by a harness/page error`, false, String(e).split("\n")[0]); console.error(e); for (const S of B.SESSIONS) { try { await S.page.screenshot({ path: path.join(L.HOME, `abort-${id}-${S.name}.png`) }); } catch { /* ignore */ } } } }
+    for (const [id, fn] of [[1, sc1], [2, sc2], [3, sc3], [4, sc4], [7, sc7], [6, sc6], [8, sc8], [5, sc5], [10, sc10], [11, sc11], [12, sc12], [9, sc9]]) if (want(id)) { try { await fn(); } catch (e) { check(`scenario ${id} aborted by a harness/page error`, false, String(e).split("\n")[0]); console.error(e); for (const S of B.SESSIONS) { try { await S.page.screenshot({ path: path.join(L.HOME, `abort-${id}-${S.name}.png`) }); } catch { /* ignore */ } } } }
   } catch (e) {
     crashed = e;
     console.error("HARNESS ERROR", e);

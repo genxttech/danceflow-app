@@ -134,6 +134,19 @@ export async function accessTokenOf(S) {
   const dec = raw.startsWith("base64-") ? Buffer.from(raw.slice(7), "base64url").toString("utf8") : decodeURIComponent(raw);
   return JSON.parse(dec).access_token;
 }
+/** the owner-level ENROLMENT PROOF for a bootstrap / installed key: the real browser authenticator signs the database's attest challenge, the owner step checks and stamps proof_verified_at */
+export async function attestKey(S, name) {
+  const id = keyId(name);
+  await only(S, [name]);
+  const begin = JSON.parse(q(`select public._tw4price_attest_begin(decode('${hexOf(id)}','hex'))::text`));
+  const r = await S.page.evaluate(async ({ challenge, id, rpId }) => {
+    const b64uToBuf = (s) => { const pad = "=".repeat((4 - (s.length % 4)) % 4); const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/") + pad); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out.buffer; };
+    const bufToB64u = (b) => { const u = new Uint8Array(b); let s = ""; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); };
+    const c = await navigator.credentials.get({ publicKey: { challenge: b64uToBuf(challenge), rpId, allowCredentials: [{ type: "public-key", id: b64uToBuf(id) }], userVerification: "required", timeout: 60000 } });
+    return { auth: bufToB64u(c.response.authenticatorData), client: bufToB64u(c.response.clientDataJSON), sig: bufToB64u(c.response.signature) };
+  }, { challenge: begin.challenge, id, rpId: begin.rp_id });
+  return q(`select public._tw4price_attest_finish(decode('${hexOf(id)}','hex'), decode('${hexOf(begin.nonce)}','hex'), decode('${hexOf(r.auth)}','hex'), decode('${hexOf(r.client)}','hex'), decode('${hexOf(r.sig)}','hex'))`);
+}
 export async function signOutUi(S) {
   await S.page.goto("/platform/sms");
   await Promise.all([S.page.waitForURL((u) => !u.pathname.startsWith("/platform"), { timeout: 30000 }), S.page.getByRole("button", { name: "Log Out" }).first().click()]);

@@ -23,7 +23,7 @@ const KONG_IMAGE = process.env.ISO_QA_KONG_IMAGE ?? "public.ecr.aws/supabase/kon
 const GOTRUE_IMAGE = process.env.ISO_QA_GOTRUE_IMAGE ?? "public.ecr.aws/supabase/gotrue:v2.188.1";
 export const MIGRATIONS = path.join(REPO, "src", "lib", "supabase", "migrations");
 export const MONITOR_REF = "origin/claude/d4-2-price-monitoring";
-export const MONITOR_FILE = "20270208110000_twilio_price_monitor.sql";
+export const MONITOR_FILE = "20270210110000_twilio_price_monitor.sql";
 process.env.MSYS_NO_PATHCONV = "1";
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
