@@ -6,7 +6,7 @@
 //   approval-template --spec spec.json            print the term line the OWNER must approve (the runner never creates the approval)
 //   create-envelope --spec spec.json --approval-file owner.txt --approval-ref "chat 2026-11-07 14:02" --out envelope.json
 //   validate-envelope --envelope envelope.json
-//   run --envelope envelope.json [--signature sig.json] [--dry]   LIVE needs the owner's detached signature + the registered owner key; --dry never does
+//   run --envelope envelope.json [--hw-approval approval.json] [--dry]   LIVE needs a hardware-key (WebAuthn) approval of the envelope hash and the enrolled anchor; --dry needs neither and reads no credential
 //   (owner-keygen / owner-sign / owner-rotate / owner-show live in ownermain.ts, a separate entry point this CLI never imports)
 //   repo-pins                                     print lockfile / proof / runner hashes of this checkout for the envelope spec
 //   dry                                           self-test with a synthetic envelope and a fake child (no store, no network)

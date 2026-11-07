@@ -10,7 +10,7 @@ Non-goals: it does not widen the proof's allow-list or call cap (the proof enfor
 
 ## 2. Run pipeline (order is deliberate)
 
-`cli.ts run --envelope E [--signature S] [--dry]` ->  `runner.ts runEnvelope`. Any failed gate = **BLOCKED**, exit 2, nothing sent, no run consumed. `runEnvelope` also requires `dry === true` <=> the executor is the dry fake created in `fakeChild.ts` (a WeakSet brand; a real or look-alike executor with `dry:true` throws before any gate, and a dry fake cannot be used as a live executor), so the `dry` flag cannot skip the signature/credential/ledger gates. A live run accepts no `--repo`, `--ledger-dir` or `--home`: the checkout is the clone this runner lives in and the ledger location comes from the owner trust file.
+`cli.ts run --envelope E [--hw-approval H] [--dry]` ->  `runner.ts runEnvelope`. (A live run needs the hardware-key approval of `D24-TEST-RUNNER-OWNER-AUTH.md`; the passphrase-sealed Ed25519 `--signature` kind described in the owner-approval section below is dry/dev tooling only and is never consulted for a live run.) Any failed gate = **BLOCKED**, exit 2, nothing sent, no run consumed. `runEnvelope` also requires `dry === true` <=> the executor is the dry fake created in `fakeChild.ts` (a WeakSet brand; a real or look-alike executor with `dry:true` throws before any gate, and a dry fake cannot be used as a live executor), so the `dry` flag cannot skip the signature/credential/ledger gates. A live run accepts no `--repo`, `--ledger-dir` or `--home`: the checkout is the clone this runner lives in and the ledger location comes from the owner trust file.
 
 | # | Gate | Source of truth |
 |---|---|---|
