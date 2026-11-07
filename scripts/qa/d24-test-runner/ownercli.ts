@@ -28,12 +28,16 @@ export type Prompter = { isTty: boolean; line: (prompt: string) => Promise<strin
 export type Pristine = { repoDir: string; commitSha: string; exec: Exec; env: Record<string, string>; gitBin?: string; toolsDir?: string };
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+/** Files OUTSIDE this folder that the owner tools import (envelope.ts -> identity.ts -> redact.ts, config.ts): part of the owner-tool hash too. */
+export const OWNER_EXTERNAL_FILES = ["config.ts", "identity.ts", "redact.ts"] as const;
 export const OWNER_TOOL_FILES = ["bins.ts", "canon.ts", "envelope.ts", "exec.ts", "gitverify.ts", "ownercli.ts", "ownermain.ts", "ownersig.ts", "ownerverify.ts", "childenv.ts", "secretprompt.ts"] as const;
 
 /** Hash of the files the owner commands execute (CRLF-normalised). Recorded in the trust file at keygen; owner-sign refuses if it changed. */
-export function ownerToolsSha256(dir: string = HERE): string {
+export function ownerToolsSha256(dir: string = HERE, proofDir: string = join(HERE, "..", "d24-m3d-proof")): string {
   const roll = createHash("sha256");
-  for (const f of OWNER_TOOL_FILES) roll.update(`${f}\0${createHash("sha256").update(readFileSync(join(dir, f), "utf8").replace(/\r\n/g, "\n")).digest("hex")}\n`);
+  const h = (p: string) => createHash("sha256").update(readFileSync(p, "utf8").replace(/\r\n/g, "\n")).digest("hex");
+  for (const f of OWNER_TOOL_FILES) roll.update(`${f}\0${h(join(dir, f))}\n`);
+  for (const f of OWNER_EXTERNAL_FILES) roll.update(`../d24-m3d-proof/${f}\0${h(join(proofDir, f))}\n`);
   return roll.digest("hex");
 }
 
@@ -135,9 +139,9 @@ export async function ownerSign(io: OwnerIo, pr: Prompter, pristine: Pristine, e
     return 2;
   }
   io.out("You are about to AUTHORISE a Stripe TEST run with exactly these terms (every value is shown escaped):");
+  io.out(`owner approval text on record (read this first): ${show(e.ownerApproval.text)}`);
   io.out(`canonical hash recomputed by this tool: ${recomputed}`);
   for (const l of renderTerms(e)) io.out(`  - ${l}`);
-  io.out(`owner approval text on record: ${show(e.ownerApproval.text)}`);
   const want = `SIGN ${recomputed.slice(0, 12)}`;
   const typed = await pr.line(`Type exactly "${want}" to continue: `);
   if (typed.trim() !== want) {

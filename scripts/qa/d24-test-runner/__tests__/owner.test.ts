@@ -2,7 +2,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync
 import { userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { main } from "../cli";
 import { approvalTemplate, createEnvelope, envelopeHash, materialDigest, UNSAFE_CHARS, validateEnvelope, type Envelope } from "../envelope";
 import { createFakeExec } from "../fakeChild";
@@ -12,6 +12,7 @@ import { generateOwnerKey, signEnvelopeHash } from "../ownersig";
 import { defaultOwnerDir, defaultRunnerHome, loadTrust, ownerSeparationWarning, privateKeyPath, trustPath, verifyOwnerSignature } from "../ownerverify";
 import { baseSpec, makeEnvelope, OWNER_PASS, ownerKey, ownerSign as signHelper, ownerTrust, REPO, SHA, tmp, writeEnvelope } from "./helpers";
 
+vi.setConfig({ testTimeout: 90_000 }); // scrypt N=2^17 key generation is deliberately slow
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TOOLS = join(HERE, "..");
 const io = () => {
@@ -37,8 +38,8 @@ describe("owner Ed25519 signature", () => {
     const sig = signHelper(e);
     expect(verifyOwnerSignature(e.envelopeSha256, sig, null).reason).toMatch(/no owner public key/);
     expect(verifyOwnerSignature("ab".repeat(32), sig, trust).reason).toMatch(/different envelope/);
-    const other = generateOwnerKey("another passphrase 12345", 1 << 10);
-    const forged = signEnvelopeHash(other.encrypted, "another passphrase 12345", e.envelopeSha256);
+    const other = generateOwnerKey("another passphrase 1234567", 1 << 10);
+    const forged = signEnvelopeHash(other.encrypted, "another passphrase 1234567", e.envelopeSha256, 1 << 10);
     expect(verifyOwnerSignature(e.envelopeSha256, forged, trust).reason).toMatch(/not the registered owner key/);
     expect(verifyOwnerSignature(e.envelopeSha256, { ...forged, publicKeyFingerprint: trust.publicKeyFingerprint }, trust).ok).toBe(false);
     const flipped = Buffer.from(sig.signatureBase64, "base64");
@@ -48,8 +49,8 @@ describe("owner Ed25519 signature", () => {
     expect(verifyOwnerSignature(e.envelopeSha256, null, trust).ok).toBe(false);
   });
   it("a wrong passphrase cannot sign; a short passphrase cannot create a key", () => {
-    expect(() => signEnvelopeHash(ownerKey().encrypted, "not the passphrase", e.envelopeSha256)).toThrow(/wrong passphrase/);
-    expect(() => generateOwnerKey("short", 1 << 10)).toThrow(/at least 12/);
+    expect(() => signEnvelopeHash(ownerKey().encrypted, "not the passphrase", e.envelopeSha256, 1 << 10)).toThrow(/wrong passphrase/);
+    expect(() => generateOwnerKey("short", 1 << 10)).toThrow(/at least 16/);
   });
   it("the signature is bound to EVERY material field: editing any of them changes the signed hash", () => {
     const base = signHelper(e).envelopeSha256;
@@ -116,7 +117,7 @@ describe("N-1: the owner directory ignores the environment", () => {
     const t = ownerTrust("L", "A");
     const me = userInfo().username;
     expect(ownerSeparationWarning("D", { ...t, registeredBy: me }, me, () => false)).toMatch(/WARNING.*does NOT separate/);
-    expect(ownerSeparationWarning("D", { ...t, registeredBy: "someone-else" }, me, () => true)).toMatch(/writable by the current user/);
+    expect(ownerSeparationWarning("D", { ...t, registeredBy: "someone-else" }, me, () => true)).toMatch(/writable by the current account/);
     expect(ownerSeparationWarning("D", { ...t, registeredBy: "someone-else" }, me, () => false)).toBeNull();
   });
   it("`run` prints the warning (to stderr) and still refuses on the missing signature; dry prints nothing and is not refused", async () => {

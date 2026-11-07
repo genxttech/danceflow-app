@@ -37,7 +37,7 @@ export function ownerTrust(ledgerDir: string, anchorFile: string): OwnerTrust {
   const k = ownerKey();
   return { v: 1, publicKeySpkiDerBase64: k.publicKeySpkiDerBase64, publicKeyFingerprint: k.publicKeyFingerprint, ledgerDir, anchorFile, registeredUtc: "2026-11-01T00:00:00Z", registeredBy: "owner-account", ownerToolsSha256: "0".repeat(64), registeredAtCommit: "c".repeat(40) };
 }
-export const ownerSign = (e: Pick<Envelope, "envelopeSha256">): SignatureDoc => signEnvelopeHash(ownerKey().encrypted, OWNER_PASS, e.envelopeSha256);
+export const ownerSign = (e: Pick<Envelope, "envelopeSha256">): SignatureDoc => signEnvelopeHash(ownerKey().encrypted, OWNER_PASS, e.envelopeSha256, 1 << 10);
 
 export function baseSpec(over: Partial<EnvelopeSpec> = {}, evidenceRoot = join(tmp(), "evidence")): EnvelopeSpec {
   const m = manifest(join(REPO, "scripts", "qa", "d24-m3d-proof"));

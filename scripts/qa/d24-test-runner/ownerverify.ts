@@ -6,9 +6,11 @@
 // never from LOCALAPPDATA / HOME / USERPROFILE: environment variables cannot redirect which trust file the runner believes.
 
 import { createHash, createPublicKey, verify } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join, resolve } from "node:path";
+import { icaclsExe, system32 } from "./bins";
 
 export const SIG_DOMAIN = "D24-TEST-ENVELOPE-V1";
 
@@ -77,13 +79,52 @@ export const resolveOwnerPaths = (ownerDir: string, ledgerDir?: string) => {
   return { ledgerDir: ld, anchorFile: join(resolve(ownerDir), "ledger-anchor.json") };
 };
 
+const WRITE_TOKENS = new Set(["F", "M", "W", "WD", "AD", "WA", "GA", "GW", "DC", "WDAC", "WO"]);
+const BROAD_GROUPS = /(^|\\)(Users|Everyone|Authenticated Users|INTERACTIVE)$/i;
+
 /**
- * Best-effort, loud-warning check (never refuses): the signature only separates the owner from the tooling when the tooling cannot write the owner
- * directory. Returns a one-line warning when the directory looks writable by the current user, or when the key was registered by this very account.
+ * Parses `icacls <dir>` output: does `me` (or a group that every interactive user belongs to) hold a write-class right (F, M, W, WD, AD, WA, DC)
+ * that is not a DENY entry? Pure and exported so it is testable on any platform.
  */
-export function ownerSeparationWarning(ownerDir: string, trust: OwnerTrust, me: string = userInfo().username, access: (p: string) => boolean = (p) => { try { accessSync(p, constants.W_OK); return true; } catch { return false; } }): string | null {
+export function icaclsGrantsWrite(output: string, dir: string, me: string): boolean {
+  for (const raw of output.split(/\r?\n/)) {
+    let line = raw.trim();
+    if (line.toLowerCase().startsWith(dir.toLowerCase())) line = line.slice(dir.length).trim();
+    const at = line.indexOf(":(");
+    if (at < 0) continue;
+    const principal = line.slice(0, at).trim();
+    const tokens = [...line.slice(at).matchAll(/\(([A-Za-z,]+)\)/g)].flatMap((m) => m[1].split(","));
+    if (tokens.includes("DENY")) continue;
+    const short = principal.split("\\").pop() ?? principal;
+    const isMe = short.toLowerCase() === me.toLowerCase();
+    if ((isMe || BROAD_GROUPS.test(principal)) && tokens.some((t) => WRITE_TOKENS.has(t))) return true;
+  }
+  return false;
+}
+
+/** Windows: ask icacls (absolute path, neutral cwd). Elsewhere: the permission bits. Never throws: an error means "assume writable" so the warning errs on the loud side. */
+export function writableByAccount(dir: string, me: string): boolean {
+  try {
+    if (process.platform === "win32") {
+      const r = spawnSync(icaclsExe(), [dir], { encoding: "utf8", windowsHide: true, cwd: system32(), timeout: 15_000 });
+      if (r.status !== 0) return true;
+      return icaclsGrantsWrite(r.stdout ?? "", dir, me);
+    }
+    accessSync(dir, constants.W_OK);
+    return true;
+  } catch {
+    return process.platform === "win32";
+  }
+}
+
+/**
+ * Loud-warning check (never refuses). The signature only separates the owner from the machine's tooling when the tooling cannot write the owner
+ * directory, so: no warning when the key was registered by a DIFFERENT account and this account has no write right (the separate-account marker);
+ * otherwise one warning line per run.
+ */
+export function ownerSeparationWarning(ownerDir: string, trust: OwnerTrust, me: string = userInfo().username, access: (p: string, me: string) => boolean = writableByAccount): string | null {
   const sameAccount = trust.registeredBy.toLowerCase() === me.toLowerCase();
-  const writable = access(ownerDir);
+  const writable = sameAccount || access(ownerDir, me);
   if (!sameAccount && !writable) return null;
-  return `WARNING: the owner trust directory ${ownerDir} ${writable ? "is writable by the current user" : "was registered by this same Windows account"}${sameAccount ? " (registered by this account)" : ""}: a process running as this user can replace the owner key, so the signature does NOT separate the owner from this machine's tooling. Run owner-keygen/owner-sign from a separate Windows account (or a hardware-held key) and grant this account read-only access.`;
+  return `WARNING: the owner trust directory ${ownerDir} ${sameAccount ? "was registered by this same Windows account" : "is writable by the current account"}: a process running as this user can replace the owner key, so the signature does NOT separate the owner from this machine's tooling. Run owner-keygen/owner-sign from a separate Windows account (or a hardware-held key) and grant this account read-only access.`;
 }
