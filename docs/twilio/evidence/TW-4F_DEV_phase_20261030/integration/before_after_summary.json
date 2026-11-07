@@ -1,0 +1,10 @@
+{
+ "rollupALL": {
+  "before": "3a38f6b6",
+  "after": "3a38f6b6"
+ },
+ "fingerprintRows": 1234,
+ "differingRows": 0,
+ "studio_sms_tables": 74,
+ "nonZeroTables": 0
+}

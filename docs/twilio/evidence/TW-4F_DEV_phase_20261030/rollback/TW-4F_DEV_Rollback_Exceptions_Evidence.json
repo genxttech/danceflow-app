@@ -1,0 +1,497 @@
+{
+ "dev0": [
+  "20261120090000",
+  "20261121090000",
+  "20261122090000"
+ ],
+ "pending": [
+  "20261123090000",
+  "20261124090000",
+  "20261125090000",
+  "20261126090000",
+  "20261127090000",
+  "20261128090000",
+  "20261129090000",
+  "20261130090000",
+  "20261201090000",
+  "20261202090000",
+  "20261202140000",
+  "20261202150000",
+  "20261203090000",
+  "20261204090000",
+  "20261205090000",
+  "20261206090000",
+  "20261207090000",
+  "20261208090000",
+  "20261209090000",
+  "20261210090000",
+  "20261211090000",
+  "20261212090000",
+  "20261213090000",
+  "20261214090000",
+  "20261215090000",
+  "20261216090000",
+  "20261217090000",
+  "20261218090000",
+  "20261219090000",
+  "20261221090000",
+  "20261222090000",
+  "20261223090000",
+  "20261224090000",
+  "20261225090000",
+  "20261226090000",
+  "20261227090000",
+  "20261228090000",
+  "20261229090000",
+  "20261230090000",
+  "20261231090000",
+  "20261231100000"
+ ],
+ "steps": [
+  {
+   "ts": "20261231100000",
+   "nOnlyBefore": 0,
+   "nOnlyAfter": 0,
+   "onlyBefore": [],
+   "onlyAfter": []
+  },
+  {
+   "ts": "20261231090000",
+   "nOnlyBefore": 0,
+   "nOnlyAfter": 0,
+   "onlyBefore": [],
+   "onlyAfter": []
+  },
+  {
+   "ts": "20261230090000",
+   "nOnlyBefore": 0,
+   "nOnlyAfter": 0,
+   "onlyBefore": [],
+   "onlyAfter": []
+  },
+  {
+   "ts": "20261229090000",
+   "nOnlyBefore": 0,
+   "nOnlyAfter": 0,
+   "onlyBefore": [],
+   "onlyAfter": []
+  },
+  {
+   "ts": "20261228090000",
+   "nOnlyBefore": 0,
+   "nOnlyAfter": 0,
+   "onlyBefore": [],
+   "onlyAfter": []
+  },
+  {
+   "ts": "20261227090000",
+   "nOnlyBefore": 0,
+   "nOnlyAfter": 0,
+   "onlyBefore": [],
+   "onlyAfter": []
+  },
+  {
+   "ts": "20261226090000",
+   "nOnlyBefore": 0,
+   "nOnlyAfter": 0,
+   "onlyBefore": [],
+   "onlyAfter": []
+  },
+  {
+   "ts": "20261225090000",
+   "nOnlyBefore": 1,
+   "nOnlyAfter": 1,
+   "onlyBefore": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_provider_billed,rfl_registered,rfl_registration_retry,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_registration_retry,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261224090000",
+   "nOnlyBefore": 1,
+   "nOnlyAfter": 1,
+   "onlyBefore": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_provider_billed,rfl_registered,rfl_registration_retry,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_registration_retry,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261223090000",
+   "nOnlyBefore": 1,
+   "nOnlyAfter": 1,
+   "onlyBefore": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_provider_billed,rfl_registered,rfl_registration_retry,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_registration_retry,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261222090000",
+   "nOnlyBefore": 1,
+   "nOnlyAfter": 1,
+   "onlyBefore": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_provider_billed,rfl_registered,rfl_registration_retry,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_registration_retry,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261221090000",
+   "nOnlyBefore": 1,
+   "nOnlyAfter": 1,
+   "onlyBefore": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261219090000",
+   "nOnlyBefore": 1,
+   "nOnlyAfter": 1,
+   "onlyBefore": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261218090000",
+   "nOnlyBefore": 1,
+   "nOnlyAfter": 1,
+   "onlyBefore": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261217090000",
+   "nOnlyBefore": 1,
+   "nOnlyAfter": 1,
+   "onlyBefore": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261216090000",
+   "nOnlyBefore": 1,
+   "nOnlyAfter": 1,
+   "onlyBefore": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261215090000",
+   "nOnlyBefore": 1,
+   "nOnlyAfter": 1,
+   "onlyBefore": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261214090000",
+   "nOnlyBefore": 1,
+   "nOnlyAfter": 1,
+   "onlyBefore": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_acknowledged,num_finished,num_history_read,num_identity_read,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261213090000",
+   "nOnlyBefore": 1,
+   "nOnlyAfter": 1,
+   "onlyBefore": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_finished,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_finished,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261212090000",
+   "nOnlyBefore": 1,
+   "nOnlyAfter": 1,
+   "onlyBefore": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_finished,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_finished,prov_observed,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_finished,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261211090000",
+   "nOnlyBefore": 2,
+   "nOnlyAfter": 2,
+   "onlyBefore": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_finished,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_finished,prov_observed,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_df_suspended,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_provider_billed,rfl_registered,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))",
+    "con studio_sms_provider_alerts studio_sms_provider_alerts_kind_check CHECK ((kind = ANY (ARRAY['authorization_expiring'::text, 'next_period_uncovered'::text, 'pilot_approval_needed'::text, 'funding_low'::text, 'negative_balance'::text, 'account_on_hold'::text, 'exposure_open'::text, 'provider_variance'::text, 'inventory_gap'::text, 'cancel_unknown'::text, 'cancelled_authorization_active'::text, 'charged_after_cancellation'::text, 'released_resource_active'::text])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_finished,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))",
+    "con studio_sms_provider_alerts studio_sms_provider_alerts_kind_check CHECK ((kind = ANY ('{account_on_hold,alert_delivery_exhausted,authorization_expiring,cancel_unknown,cancelled_authorization_active,charged_after_cancellation,exposure_open,funding_low,inventory_gap,negative_balance,next_period_uncovered,owner_notice_second,owner_unresponsive,pilot_approval_needed,provider_variance,released_resource_active}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261210090000",
+   "nOnlyBefore": 2,
+   "nOnlyAfter": 2,
+   "onlyBefore": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_finished,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_finished,prov_observed,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_df_suspended,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_provider_billed,rfl_registered,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))",
+    "con studio_sms_provider_alerts studio_sms_provider_alerts_kind_check CHECK ((kind = ANY (ARRAY['authorization_expiring'::text, 'next_period_uncovered'::text, 'pilot_approval_needed'::text, 'funding_low'::text, 'negative_balance'::text, 'account_on_hold'::text, 'exposure_open'::text, 'provider_variance'::text, 'inventory_gap'::text, 'cancel_unknown'::text, 'cancelled_authorization_active'::text, 'charged_after_cancellation'::text, 'released_resource_active'::text])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_finished,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))",
+    "con studio_sms_provider_alerts studio_sms_provider_alerts_kind_check CHECK ((kind = ANY ('{account_on_hold,alert_delivery_exhausted,authorization_expiring,cancel_unknown,cancelled_authorization_active,charged_after_cancellation,exposure_open,funding_low,inventory_gap,negative_balance,next_period_uncovered,owner_notice_second,owner_unresponsive,pilot_approval_needed,provider_variance,released_resource_active}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261209090000",
+   "nOnlyBefore": 1,
+   "nOnlyAfter": 1,
+   "onlyBefore": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_finished,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_finished,prov_observed,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,activation_done,activation_ready,activation_suspended,cancelled,compliance_checked,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,num_finished,num_observed,num_offered,num_resolved,num_retired,num_selected,num_started,num_withdrawn,optout_attested,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261208090000",
+   "nOnlyBefore": 3,
+   "nOnlyAfter": 3,
+   "onlyBefore": [
+    "con studio_sms_approval_refs studio_sms_approval_refs_shape CHECK ((((source = 'spend_authorization'::text) AND (spend_event_id IS NOT NULL) AND (kind IS NOT NULL) AND (amount_cents IS NOT NULL) AND (funding IS NOT NULL)) OR ((source = 'pilot_exception'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NULL))))",
+    "con studio_sms_approval_refs studio_sms_approval_refs_source_check CHECK ((source = ANY (ARRAY['spend_authorization'::text, 'pilot_exception'::text])))",
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,cancelled,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,price_set,prov_finished,prov_observed,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_approval_refs studio_sms_approval_refs_shape CHECK ((((source = 'spend_authorization'::text) AND (spend_event_id IS NOT NULL) AND (kind IS NOT NULL) AND (amount_cents IS NOT NULL) AND (funding IS NOT NULL)) OR ((source = 'pilot_exception'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NULL)) OR ((source = 'number_selection'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NOT NULL))))",
+    "con studio_sms_approval_refs studio_sms_approval_refs_source_check CHECK ((source = ANY ('{pilot_exception,spend_authorization}'::text[])))",
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,cancelled,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,price_set,prov_disposition,prov_finished,prov_listing,prov_observed,prov_orphan,prov_resolved,prov_started,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261207090000",
+   "nOnlyBefore": 3,
+   "nOnlyAfter": 3,
+   "onlyBefore": [
+    "con studio_sms_approval_refs studio_sms_approval_refs_shape CHECK ((((source = 'spend_authorization'::text) AND (spend_event_id IS NOT NULL) AND (kind IS NOT NULL) AND (amount_cents IS NOT NULL) AND (funding IS NOT NULL)) OR ((source = 'pilot_exception'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NULL))))",
+    "con studio_sms_approval_refs studio_sms_approval_refs_source_check CHECK ((source = ANY (ARRAY['spend_authorization'::text, 'pilot_exception'::text])))",
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,cancelled,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,price_set,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_approval_refs studio_sms_approval_refs_shape CHECK ((((source = 'spend_authorization'::text) AND (spend_event_id IS NOT NULL) AND (kind IS NOT NULL) AND (amount_cents IS NOT NULL) AND (funding IS NOT NULL)) OR ((source = 'pilot_exception'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NULL)) OR ((source = 'number_selection'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NOT NULL))))",
+    "con studio_sms_approval_refs studio_sms_approval_refs_source_check CHECK ((source = ANY ('{pilot_exception,spend_authorization}'::text[])))",
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,cancelled,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,price_set,prov_disposition,prov_listing,prov_orphan,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_reverify_inconclusive,sender_reverify_restored,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261206090000",
+   "nOnlyBefore": 3,
+   "nOnlyAfter": 3,
+   "onlyBefore": [
+    "con studio_sms_approval_refs studio_sms_approval_refs_shape CHECK ((((source = 'spend_authorization'::text) AND (spend_event_id IS NOT NULL) AND (kind IS NOT NULL) AND (amount_cents IS NOT NULL) AND (funding IS NOT NULL)) OR ((source = 'pilot_exception'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NULL))))",
+    "con studio_sms_approval_refs studio_sms_approval_refs_source_check CHECK ((source = ANY (ARRAY['spend_authorization'::text, 'pilot_exception'::text])))",
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,cancelled,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,price_set,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_approval_refs studio_sms_approval_refs_shape CHECK ((((source = 'spend_authorization'::text) AND (spend_event_id IS NOT NULL) AND (kind IS NOT NULL) AND (amount_cents IS NOT NULL) AND (funding IS NOT NULL)) OR ((source = 'pilot_exception'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NULL)) OR ((source = 'number_selection'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NOT NULL))))",
+    "con studio_sms_approval_refs studio_sms_approval_refs_source_check CHECK ((source = ANY ('{pilot_exception,spend_authorization}'::text[])))",
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,cancelled,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,price_set,prov_disposition,prov_listing,prov_orphan,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261205090000",
+   "nOnlyBefore": 3,
+   "nOnlyAfter": 3,
+   "onlyBefore": [
+    "con studio_sms_approval_refs studio_sms_approval_refs_shape CHECK ((((source = 'spend_authorization'::text) AND (spend_event_id IS NOT NULL) AND (kind IS NOT NULL) AND (amount_cents IS NOT NULL) AND (funding IS NOT NULL)) OR ((source = 'pilot_exception'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NULL))))",
+    "con studio_sms_approval_refs studio_sms_approval_refs_source_check CHECK ((source = ANY (ARRAY['spend_authorization'::text, 'pilot_exception'::text])))",
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,cancelled,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,price_set,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_approval_refs studio_sms_approval_refs_shape CHECK ((((source = 'spend_authorization'::text) AND (spend_event_id IS NOT NULL) AND (kind IS NOT NULL) AND (amount_cents IS NOT NULL) AND (funding IS NOT NULL)) OR ((source = 'pilot_exception'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NULL)) OR ((source = 'number_selection'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NOT NULL))))",
+    "con studio_sms_approval_refs studio_sms_approval_refs_source_check CHECK ((source = ANY ('{pilot_exception,spend_authorization}'::text[])))",
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,cancelled,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,price_set,prov_disposition,prov_listing,prov_orphan,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,sender_flagged,sender_recorded,sender_released,sender_revoked,sender_verified,sender_verify_failed,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261204090000",
+   "nOnlyBefore": 3,
+   "nOnlyAfter": 3,
+   "onlyBefore": [
+    "con studio_sms_approval_refs studio_sms_approval_refs_shape CHECK ((((source = 'spend_authorization'::text) AND (spend_event_id IS NOT NULL) AND (kind IS NOT NULL) AND (amount_cents IS NOT NULL) AND (funding IS NOT NULL)) OR ((source = 'pilot_exception'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NULL))))",
+    "con studio_sms_approval_refs studio_sms_approval_refs_source_check CHECK ((source = ANY (ARRAY['spend_authorization'::text, 'pilot_exception'::text])))",
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY (ARRAY['access_enabled'::text, 'access_disabled'::text, 'draft_created'::text, 'ein_stored'::text, 'ein_purged'::text, 'submitted'::text, 'cancelled'::text, 'state_changed'::text, 'runner_step'::text, 'runner_ein_read'::text, 'runner_lease'::text, 'runner_window'::text, 'runner_submission_confirmed'::text, 'runner_evaluation'::text, 'entity_created'::text, 'location_attested'::text, 'location_decided'::text, 'spend_cap_set'::text, 'spend_authorized'::text, 'spend_reserved'::text, 'subaccount_confirmed'::text, 'runner_subaccount'::text, 'credit_topup'::text, 'credit_reversal'::text, 'credit_adjustment'::text, 'credit_hold'::text, 'credit_reserved'::text, 'credit_captured'::text, 'credit_released'::text, 'price_set'::text, 'credit_pilot_exception'::text, 'spend_withdrawn'::text, 'recurring_authorized'::text, 'recurring_revoked'::text, 'recurring_charged'::text, 'recurring_unfunded'::text, 'recurring_held'::text, 'recurring_refused'::text, 'monthly_limit_set'::text, 'monthly_limit_ceiling'::text, 'entity_timezone_set'::text, 'usage_switch'::text, 'usage_sender_set'::text, 'usage_resolved'::text])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_approval_refs studio_sms_approval_refs_shape CHECK ((((source = 'spend_authorization'::text) AND (spend_event_id IS NOT NULL) AND (kind IS NOT NULL) AND (amount_cents IS NOT NULL) AND (funding IS NOT NULL)) OR ((source = 'pilot_exception'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NULL)) OR ((source = 'number_selection'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NOT NULL))))",
+    "con studio_sms_approval_refs studio_sms_approval_refs_source_check CHECK ((source = ANY ('{pilot_exception,spend_authorization}'::text[])))",
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,cancelled,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,price_set,prov_disposition,prov_listing,prov_orphan,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261203090000",
+   "nOnlyBefore": 4,
+   "nOnlyAfter": 4,
+   "onlyBefore": [
+    "con studio_sms_approval_refs studio_sms_approval_refs_shape CHECK ((((source = 'spend_authorization'::text) AND (spend_event_id IS NOT NULL) AND (kind IS NOT NULL) AND (amount_cents IS NOT NULL) AND (funding IS NOT NULL)) OR ((source = 'pilot_exception'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NULL))))",
+    "con studio_sms_approval_refs studio_sms_approval_refs_source_check CHECK ((source = ANY (ARRAY['spend_authorization'::text, 'pilot_exception'::text])))",
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY (ARRAY['access_enabled'::text, 'access_disabled'::text, 'draft_created'::text, 'ein_stored'::text, 'ein_purged'::text, 'submitted'::text, 'cancelled'::text, 'state_changed'::text, 'runner_step'::text, 'runner_ein_read'::text, 'runner_lease'::text, 'runner_window'::text, 'runner_submission_confirmed'::text, 'runner_evaluation'::text, 'entity_created'::text, 'location_attested'::text, 'location_decided'::text, 'spend_cap_set'::text, 'spend_authorized'::text, 'spend_reserved'::text, 'subaccount_confirmed'::text, 'runner_subaccount'::text, 'credit_topup'::text, 'credit_reversal'::text, 'credit_adjustment'::text, 'credit_hold'::text, 'credit_reserved'::text, 'credit_captured'::text, 'credit_released'::text, 'price_set'::text, 'credit_pilot_exception'::text, 'spend_withdrawn'::text, 'recurring_authorized'::text, 'recurring_revoked'::text, 'recurring_charged'::text, 'recurring_unfunded'::text, 'recurring_held'::text, 'recurring_refused'::text, 'monthly_limit_set'::text, 'monthly_limit_ceiling'::text, 'entity_timezone_set'::text, 'usage_switch'::text, 'usage_sender_set'::text, 'usage_resolved'::text])))",
+    "con studio_sms_price_list studio_sms_price_list_kind_check CHECK ((kind = ANY (ARRAY['brand'::text, 'brand_low_volume'::text, 'campaign_vetting'::text, 'number'::text, 'monthly'::text, 'monthly_low_volume'::text, 'sms_usage'::text])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_approval_refs studio_sms_approval_refs_shape CHECK ((((source = 'spend_authorization'::text) AND (spend_event_id IS NOT NULL) AND (kind IS NOT NULL) AND (amount_cents IS NOT NULL) AND (funding IS NOT NULL)) OR ((source = 'pilot_exception'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NULL)) OR ((source = 'number_selection'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NOT NULL))))",
+    "con studio_sms_approval_refs studio_sms_approval_refs_source_check CHECK ((source = ANY ('{pilot_exception,spend_authorization}'::text[])))",
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,cancelled,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,price_set,prov_disposition,prov_listing,prov_orphan,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))",
+    "con studio_sms_price_list studio_sms_price_list_kind_check CHECK ((kind = ANY ('{brand,brand_low_volume,campaign_vetting,monthly,monthly_low_volume,number,sms_usage}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261202150000",
+   "nOnlyBefore": 4,
+   "nOnlyAfter": 4,
+   "onlyBefore": [
+    "con studio_sms_approval_refs studio_sms_approval_refs_shape CHECK ((((source = 'spend_authorization'::text) AND (spend_event_id IS NOT NULL) AND (kind IS NOT NULL) AND (amount_cents IS NOT NULL) AND (funding IS NOT NULL)) OR ((source = 'pilot_exception'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NULL))))",
+    "con studio_sms_approval_refs studio_sms_approval_refs_source_check CHECK ((source = ANY (ARRAY['spend_authorization'::text, 'pilot_exception'::text])))",
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY (ARRAY['access_enabled'::text, 'access_disabled'::text, 'draft_created'::text, 'ein_stored'::text, 'ein_purged'::text, 'submitted'::text, 'cancelled'::text, 'state_changed'::text, 'runner_step'::text, 'runner_ein_read'::text, 'runner_lease'::text, 'runner_window'::text, 'runner_submission_confirmed'::text, 'runner_evaluation'::text, 'entity_created'::text, 'location_attested'::text, 'location_decided'::text, 'spend_cap_set'::text, 'spend_authorized'::text, 'spend_reserved'::text, 'subaccount_confirmed'::text, 'runner_subaccount'::text, 'credit_topup'::text, 'credit_reversal'::text, 'credit_adjustment'::text, 'credit_hold'::text, 'credit_reserved'::text, 'credit_captured'::text, 'credit_released'::text, 'price_set'::text, 'credit_pilot_exception'::text, 'spend_withdrawn'::text, 'recurring_authorized'::text, 'recurring_revoked'::text, 'recurring_charged'::text, 'recurring_unfunded'::text, 'recurring_held'::text, 'recurring_refused'::text, 'monthly_limit_set'::text, 'monthly_limit_ceiling'::text, 'entity_timezone_set'::text, 'usage_switch'::text, 'usage_sender_set'::text, 'usage_resolved'::text])))",
+    "con studio_sms_price_list studio_sms_price_list_kind_check CHECK ((kind = ANY (ARRAY['brand'::text, 'brand_low_volume'::text, 'campaign_vetting'::text, 'number'::text, 'monthly'::text, 'monthly_low_volume'::text, 'sms_usage'::text])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_approval_refs studio_sms_approval_refs_shape CHECK ((((source = 'spend_authorization'::text) AND (spend_event_id IS NOT NULL) AND (kind IS NOT NULL) AND (amount_cents IS NOT NULL) AND (funding IS NOT NULL)) OR ((source = 'pilot_exception'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NULL)) OR ((source = 'number_selection'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NOT NULL))))",
+    "con studio_sms_approval_refs studio_sms_approval_refs_source_check CHECK ((source = ANY ('{pilot_exception,spend_authorization}'::text[])))",
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,cancelled,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,price_set,prov_disposition,prov_listing,prov_orphan,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))",
+    "con studio_sms_price_list studio_sms_price_list_kind_check CHECK ((kind = ANY ('{brand,brand_low_volume,campaign_vetting,monthly,monthly_low_volume,number,sms_usage}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261202140000",
+   "nOnlyBefore": 4,
+   "nOnlyAfter": 4,
+   "onlyBefore": [
+    "con studio_sms_approval_refs studio_sms_approval_refs_shape CHECK ((((source = 'spend_authorization'::text) AND (spend_event_id IS NOT NULL) AND (kind IS NOT NULL) AND (amount_cents IS NOT NULL) AND (funding IS NOT NULL)) OR ((source = 'pilot_exception'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NULL))))",
+    "con studio_sms_approval_refs studio_sms_approval_refs_source_check CHECK ((source = ANY (ARRAY['spend_authorization'::text, 'pilot_exception'::text])))",
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY (ARRAY['access_enabled'::text, 'access_disabled'::text, 'draft_created'::text, 'ein_stored'::text, 'ein_purged'::text, 'submitted'::text, 'cancelled'::text, 'state_changed'::text, 'runner_step'::text, 'runner_ein_read'::text, 'runner_lease'::text, 'runner_window'::text, 'runner_submission_confirmed'::text, 'runner_evaluation'::text, 'entity_created'::text, 'location_attested'::text, 'location_decided'::text, 'spend_cap_set'::text, 'spend_authorized'::text, 'spend_reserved'::text, 'subaccount_confirmed'::text, 'runner_subaccount'::text, 'credit_topup'::text, 'credit_reversal'::text, 'credit_adjustment'::text, 'credit_hold'::text, 'credit_reserved'::text, 'credit_captured'::text, 'credit_released'::text, 'price_set'::text, 'credit_pilot_exception'::text, 'spend_withdrawn'::text, 'recurring_authorized'::text, 'recurring_revoked'::text, 'recurring_charged'::text, 'recurring_unfunded'::text, 'recurring_held'::text, 'recurring_refused'::text, 'monthly_limit_set'::text, 'monthly_limit_ceiling'::text, 'entity_timezone_set'::text, 'usage_switch'::text, 'usage_sender_set'::text, 'usage_resolved'::text])))",
+    "con studio_sms_price_list studio_sms_price_list_kind_check CHECK ((kind = ANY (ARRAY['brand'::text, 'brand_low_volume'::text, 'campaign_vetting'::text, 'number'::text, 'monthly'::text, 'monthly_low_volume'::text, 'sms_usage'::text])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_approval_refs studio_sms_approval_refs_shape CHECK ((((source = 'spend_authorization'::text) AND (spend_event_id IS NOT NULL) AND (kind IS NOT NULL) AND (amount_cents IS NOT NULL) AND (funding IS NOT NULL)) OR ((source = 'pilot_exception'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NULL)) OR ((source = 'number_selection'::text) AND (spend_event_id IS NULL) AND (kind IS NULL) AND (amount_cents IS NULL) AND (funding IS NULL) AND (studio_id IS NOT NULL))))",
+    "con studio_sms_approval_refs studio_sms_approval_refs_source_check CHECK ((source = ANY ('{pilot_exception,spend_authorization}'::text[])))",
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,cancelled,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,price_set,prov_disposition,prov_listing,prov_orphan,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))",
+    "con studio_sms_price_list studio_sms_price_list_kind_check CHECK ((kind = ANY ('{brand,brand_low_volume,campaign_vetting,monthly,monthly_low_volume,number,sms_usage}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261202090000",
+   "nOnlyBefore": 1,
+   "nOnlyAfter": 1,
+   "onlyBefore": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY (ARRAY['access_enabled'::text, 'access_disabled'::text, 'draft_created'::text, 'ein_stored'::text, 'ein_purged'::text, 'submitted'::text, 'cancelled'::text, 'state_changed'::text, 'runner_step'::text, 'runner_ein_read'::text, 'runner_lease'::text, 'runner_window'::text, 'runner_submission_confirmed'::text, 'runner_evaluation'::text, 'entity_created'::text, 'location_attested'::text, 'location_decided'::text, 'spend_cap_set'::text, 'spend_authorized'::text, 'spend_reserved'::text, 'subaccount_confirmed'::text, 'runner_subaccount'::text, 'credit_topup'::text, 'credit_reversal'::text, 'credit_adjustment'::text, 'credit_hold'::text, 'credit_reserved'::text, 'credit_captured'::text, 'credit_released'::text, 'price_set'::text, 'credit_pilot_exception'::text, 'spend_withdrawn'::text, 'recurring_authorized'::text, 'recurring_revoked'::text, 'recurring_charged'::text, 'recurring_unfunded'::text, 'recurring_held'::text, 'recurring_refused'::text, 'monthly_limit_set'::text, 'monthly_limit_ceiling'::text, 'entity_timezone_set'::text, 'usage_switch'::text, 'usage_sender_set'::text, 'usage_resolved'::text])))"
+   ],
+   "onlyAfter": [
+    "con studio_sms_onboarding_audit studio_sms_onboarding_audit_action_check CHECK ((action = ANY ('{access_disabled,access_enabled,cancelled,credit_adjustment,credit_captured,credit_hold,credit_pilot_exception,credit_released,credit_reserved,credit_reversal,credit_topup,draft_created,ein_purged,ein_stored,entity_created,entity_timezone_set,location_attested,location_decided,monthly_limit_ceiling,monthly_limit_set,price_set,prov_disposition,prov_listing,prov_orphan,recurring_authorized,recurring_charged,recurring_held,recurring_refused,recurring_revoked,recurring_unfunded,rfl_alert_delivery,rfl_cancel_authorized,rfl_cancel_confirmed,rfl_cancel_refused,rfl_cancel_resolved,rfl_cancel_started,rfl_cancel_unknown,rfl_cancel_withdrawn,rfl_cover_recorded,rfl_cover_superseded,rfl_df_suspended,rfl_dual_approved,rfl_dual_consumed,rfl_dual_invalidated,rfl_dual_rejected,rfl_dual_requested,rfl_exposure_closed,rfl_exposure_disposed,rfl_exposure_opened,rfl_initial_cover_skipped,rfl_provider_billed,rfl_registered,rfl_switch_set,rfl_variance_acked,runner_ein_read,runner_evaluation,runner_lease,runner_step,runner_subaccount,runner_submission_confirmed,runner_window,spend_authorized,spend_cap_set,spend_reserved,spend_withdrawn,state_changed,subaccount_confirmed,submitted,usage_resolved,usage_sender_set,usage_switch}'::text[])))"
+   ]
+  },
+  {
+   "ts": "20261201090000",
+   "nOnlyBefore": 0,
+   "nOnlyAfter": 0,
+   "onlyBefore": [],
+   "onlyAfter": []
+  },
+  {
+   "ts": "20261130090000",
+   "nOnlyBefore": 0,
+   "nOnlyAfter": 0,
+   "onlyBefore": [],
+   "onlyAfter": []
+  },
+  {
+   "ts": "20261129090000",
+   "nOnlyBefore": 0,
+   "nOnlyAfter": 0,
+   "onlyBefore": [],
+   "onlyAfter": []
+  },
+  {
+   "ts": "20261128090000",
+   "nOnlyBefore": 1,
+   "nOnlyAfter": 1,
+   "onlyBefore": [
+    "fn tw4_recurring_due(text) d38ad5accf56ffb7a106932b6cd6c58a args=p_period_key text secdef=true cfg={\"search_path=pg_catalog, public, pg_temp\"} owner=postgres ret=jsonb vol=s strict=false lang=plpgsql acl={postgres=X/postgres,service_role=X/postgres}"
+   ],
+   "onlyAfter": [
+    "fn tw4_recurring_due(text) ae36ce194ed2482dc2f97c8d1a955e87 args=p_period_key text secdef=true cfg={\"search_path=pg_catalog, public, pg_temp\"} owner=postgres ret=jsonb vol=s strict=false lang=plpgsql acl={postgres=X/postgres,service_role=X/postgres}"
+   ]
+  },
+  {
+   "ts": "20261127090000",
+   "nOnlyBefore": 1,
+   "nOnlyAfter": 1,
+   "onlyBefore": [
+    "fn tw4_recurring_due(text) d38ad5accf56ffb7a106932b6cd6c58a args=p_period_key text secdef=true cfg={\"search_path=pg_catalog, public, pg_temp\"} owner=postgres ret=jsonb vol=s strict=false lang=plpgsql acl={postgres=X/postgres,service_role=X/postgres}"
+   ],
+   "onlyAfter": [
+    "fn tw4_recurring_due(text) ae36ce194ed2482dc2f97c8d1a955e87 args=p_period_key text secdef=true cfg={\"search_path=pg_catalog, public, pg_temp\"} owner=postgres ret=jsonb vol=s strict=false lang=plpgsql acl={postgres=X/postgres,service_role=X/postgres}"
+   ]
+  },
+  {
+   "ts": "20261126090000",
+   "nOnlyBefore": 0,
+   "nOnlyAfter": 0,
+   "onlyBefore": [],
+   "onlyAfter": []
+  },
+  {
+   "ts": "20261125090000",
+   "nOnlyBefore": 0,
+   "nOnlyAfter": 0,
+   "onlyBefore": [],
+   "onlyAfter": []
+  },
+  {
+   "ts": "20261124090000",
+   "nOnlyBefore": 0,
+   "nOnlyAfter": 0,
+   "onlyBefore": [],
+   "onlyAfter": []
+  },
+  {
+   "ts": "20261123090000",
+   "nOnlyBefore": 0,
+   "nOnlyAfter": 0,
+   "onlyBefore": [],
+   "onlyAfter": []
+  }
+ ],
+ "final": {
+  "onlyBefore": [],
+  "onlyAfter": []
+ },
+ "reapplyDiff": {
+  "b": 0,
+  "a": 0
+ }
+}
