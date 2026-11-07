@@ -89,7 +89,7 @@ export function validateEnvelope(raw: unknown): { ok: true; envelope: Envelope }
   if (!plain(e.code) || typeof e.code.commitSha !== "string" || !HEX(40).test(e.code.commitSha)) bad("code-sha", "code.commitSha must be a full 40-hex commit id");
   if (plain(e.code) && e.code.lockfileSha256 !== undefined && !(typeof e.code.lockfileSha256 === "string" && HEX(64).test(e.code.lockfileSha256))) bad("lockfile", "code.lockfileSha256 must be 64 hex");
   if (!plain(e.proof) || typeof e.proof.manifestSha256 !== "string" || !HEX(64).test(e.proof.manifestSha256)) bad("manifest", "proof.manifestSha256 must be 64 hex");
-  if (plain(e.proof) && !(Number.isInteger(e.proof.fileCount) && e.proof.fileCount > 0)) bad("manifest", "proof.fileCount must be a positive integer");
+  if (plain(e.proof) && !(Number.isInteger(e.proof.fileCount) && Number(e.proof.fileCount) > 0)) bad("manifest", "proof.fileCount must be a positive integer");
   if (!plain(e.accounts) || !ACCT.test(String(e.accounts.platformAcct)) || !ACCT.test(String(e.accounts.connectedAcct))) bad("accounts", "accounts.platformAcct and accounts.connectedAcct must be acct_ ids");
   else if (e.accounts.platformAcct === e.accounts.connectedAcct) bad("accounts", "platform and connected account ids must differ");
 
