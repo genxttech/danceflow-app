@@ -494,12 +494,13 @@ begin
   -- backup-eligible / backed-up (synced passkey) credentials are not device-bound: refused unless the owner's migration allows them. (There is no attestation, so this flag is the strongest evidence an assertion carries.)
   if (get_byte(p_auth, 32) & 24) <> 0 and not cfg.allow_backup_eligible then return 'a backup-eligible (synced) credential is not accepted'; end if;
   v_count := get_byte(p_auth, 33)::bigint * 16777216 + get_byte(p_auth, 34) * 65536 + get_byte(p_auth, 35) * 256 + get_byte(p_auth, 36);
-  if v_count <= cr.sign_count and not (v_count = 0 and cr.sign_count = 0) then return 'sign counter did not increase (cloned authenticator?)'; end if;
   select * into v_rs from public._tw4price_der_rs(p_sig);
   if v_rs.r is null then return 'malformed signature'; end if;
   if not public._tw4price_p256_verify(public._tw4price_bytes2num(sha256(p_auth || sha256(p_client))), v_rs.r, v_rs.s, public._tw4price_bytes2num(cr.pub_x), public._tw4price_bytes2num(cr.pub_y)) then
     return 'signature does not verify';
   end if;
+  -- the counter regression is judged only AFTER the signature verifies: a caller without the private key can never produce an integrity_failure (a false 'cloned authenticator' incident)
+  if v_count <= cr.sign_count and not (v_count = 0 and cr.sign_count = 0) then return 'sign counter did not increase (cloned authenticator?)'; end if;
   perform set_config('tw4.priceauth_write', 'on', true);
   if p_consume then
     update public.studio_sms_price_auth_challenges set used_at = clock_timestamp() where nonce = p_nonce;

@@ -2045,4 +2045,29 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(thawWith(claims(A, S2), Ka).out).toMatchObject({ status: "thawed" });
   });
 
+
+  itSel("PA-43 a sign-counter regression is an integrity failure ONLY when the signature verifies: a caller without the private key (garbage signature, counter at or below the stored one) gets a plain rejection and no integrity_failure audit row or critical event; a genuinely signed regression still does", () => {
+    clear();
+    const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator();
+    resetCreds(Ka, Kb);
+    psql(`begin; alter table public.studio_sms_price_credentials disable trigger studio_sms_price_credentials_guard; update public.studio_sms_price_credentials set sign_count = 5 where credential_id = decode('${Ka.hex.cred}', 'hex'); alter table public.studio_sms_price_credentials enable always trigger studio_sms_price_credentials_guard; commit;`);   // owner-level and visible, in this throwaway database
+    const p = propose(claims(A, S1), 494);
+    ready(p.request_id);
+    const b = begin(claims(A, S2), p.request_id);
+    const good = Ka.assert(b.challenge, { counter: 3 });   // a REAL signature over a regressed counter
+    const forged = { ...good, sig: b64u(Buffer.alloc(70, 1)) };   // a garbage DER-shaped signature over the same data
+    const integrity0 = audit("integrity_failure");
+    const rejected0 = audit("assertion_rejected");
+    // no key: rejected as an invalid signature (or malformed), never as a cloned authenticator
+    const r1 = finish(claims(A, S2), p.request_id, b.nonce, forged);
+    expect(r1).toMatchObject({ status: "rejected" });
+    expect(String((r1 as { reason?: string }).reason)).not.toMatch(/sign counter/);
+    expect(audit("integrity_failure")).toBe(integrity0);
+    expect(audit("assertion_rejected")).toBeGreaterThan(rejected0);
+    // the key holder's regressed counter IS an integrity failure, and the challenge stays unused
+    const r2 = finish(claims(A, S2), p.request_id, b.nonce, good);
+    expect(r2).toMatchObject({ status: "rejected", reason: expect.stringMatching(/sign counter did not increase/) });
+    expect(audit("integrity_failure")).toBe(integrity0 + 1);
+  });
+
 });
