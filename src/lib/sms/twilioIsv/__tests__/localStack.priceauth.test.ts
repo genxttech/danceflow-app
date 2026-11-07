@@ -1867,6 +1867,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     expect(audit("freeze_set")).toBe(sets0 + 1);
     // repeated compromise reports while frozen are audited but capped at 10 per administrator and hour; the cap never touches the freeze
     const repeats0 = num(`select count(*) from public.studio_sms_price_audit where actor = '${A}' and event = 'freeze_set' and detail ->> 'repeat' = 'true' and at > now() - interval '1 hour'`);
+    const lim0 = num(`select count(*) from public.studio_sms_price_audit where actor = '${A}' and event = 'freeze_set' and detail ->> 'rate_limited' = 'true' and at > now() - interval '1 hour'`);
     let limited = 0;
     for (let i = 0; i < 12; i += 1) {
       const r = authOut(claims(A, S2), reportSql) as unknown as { status: string; rate_limited: boolean };
@@ -1874,7 +1875,7 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       if (r.rate_limited) limited += 1;
     }
     const allowed = Math.max(0, 10 - repeats0);
-    expect(audit("freeze_set")).toBe(sets0 + 1 + Math.min(12, allowed));
+    expect(audit("freeze_set")).toBe(sets0 + 1 + Math.min(12, allowed) + (limited > 0 && lim0 === 0 ? 1 : 0));   // plus ONE rate-limited row per hour
     expect(limited).toBe(12 - Math.min(12, allowed));
     expect(frozen()).toBe("t");
     // no financial change; nothing lifts it: not time, not housekeeping, not the verifier, not a proposal
@@ -1998,6 +1999,50 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       expect(psql("select count(*) from public.studio_sms_price_credentials where status = 'active' and role = 'recovery'")).toBe("1");
       expect(credStatus(Klost)).toBe("revoked");
     }
+  });
+
+
+  itSel("PA-42 compromise-report flood: 13 reports are one freeze, at most 10 audited repeats and ONE audited rate-limited row per administrator and hour (the cap never touches the freeze); the first freeze after a thaw is immediate whatever the cap says", () => {
+    clear();
+    setConfig("recovery_hold = false, frozen = false, frozen_at = null, freeze_reason = null");
+    const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator();
+    resetCreds(Ka, Kb);
+    const reportSql = "select public.tw4_price_report_compromise('a flood of compromise reports for the cap test')::text;";
+    const hourRows = (flag: string) => num(`select count(*) from public.studio_sms_price_audit where actor = '${B}' and event = 'freeze_set' and detail ->> '${flag}' = 'true' and at > now() - interval '1 hour'`);
+    const repeats0 = hourRows("repeat");
+    const limited0 = hourRows("rate_limited");
+    const sets0 = audit("freeze_set");
+    const answers: { status: string; rate_limited: boolean }[] = [];
+    for (let i = 0; i < 13; i += 1) answers.push(authOut(claims(B, S2), reportSql) as unknown as { status: string; rate_limited: boolean });
+    expect(answers.every((x) => x.status === "frozen")).toBe(true);
+    expect(answers[0].rate_limited).toBe(false);
+    const allowed = Math.max(0, 10 - repeats0);
+    const limited = answers.filter((x) => x.rate_limited).length;
+    expect(limited).toBe(12 - Math.min(12, allowed));
+    expect(limited).toBeGreaterThan(0);   // 13 calls always exceed the cap of 10 repeats
+    // one state change, bounded repeats, and exactly one rate-limited row for the hour
+    expect(psql("select frozen from public.studio_sms_price_auth_config")).toBe("t");
+    expect(hourRows("repeat") - repeats0).toBe(Math.min(12, allowed));
+    expect(hourRows("repeat")).toBeLessThanOrEqual(10);
+    expect(hourRows("rate_limited") - limited0).toBe(limited0 === 0 ? 1 : 0);
+    expect(hourRows("rate_limited")).toBe(1);
+    expect(audit("freeze_set")).toBe(sets0 + 1 + Math.min(12, allowed) + (limited0 === 0 ? 1 : 0));
+    // more reports in the same hour add NO further rows
+    const total = audit("freeze_set");
+    for (let i = 0; i < 3; i += 1) expect(authOut(claims(B, S2), reportSql)).toMatchObject({ status: "frozen", rate_limited: true });
+    expect(audit("freeze_set")).toBe(total);
+    // the audited rate-limited row carries actor, session and reason
+    const row = rows<{ actor: string; session_id: string; reason: string }>(`select actor::text, session_id, detail ->> 'reason' as reason from public.studio_sms_price_audit where event = 'freeze_set' and detail ->> 'rate_limited' = 'true' order by id desc limit 1`)[0];
+    expect(row).toMatchObject({ actor: B, session_id: S2, reason: "compromise reported" });
+    // lift it with the hardware key: the NEXT report freezes immediately, as a real state change (not a repeat), whatever the cap says
+    expect(thawWith(claims(A, S2), Ka).out).toMatchObject({ status: "thawed" });
+    expect(psql("select frozen from public.studio_sms_price_auth_config")).toBe("f");
+    const before = audit("freeze_set");
+    expect(authOut(claims(B, S2), reportSql)).toMatchObject({ status: "frozen", rate_limited: false });
+    expect(psql("select frozen from public.studio_sms_price_auth_config")).toBe("t");
+    expect(audit("freeze_set")).toBe(before + 1);
+    expect(psql("select detail ->> 'repeat' is null and detail ->> 'rate_limited' is null from public.studio_sms_price_audit where event = 'freeze_set' order by id desc limit 1")).toBe("t");
+    expect(thawWith(claims(A, S2), Ka).out).toMatchObject({ status: "thawed" });
   });
 
 });

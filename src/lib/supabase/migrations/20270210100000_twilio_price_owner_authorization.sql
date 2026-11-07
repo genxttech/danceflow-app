@@ -1398,7 +1398,12 @@ begin
     perform public._tw4price_audit('freeze_set', v_actor, public._tw4price_session_id(), null, null, jsonb_build_object('reason', 'compromise reported', 'repeat', true));
     perform public._tw4price_emit_safe('credential_compromise_reported', v_actor, jsonb_build_object('note_length', char_length(btrim(p_note)), 'repeat', true));
   else
+    -- over the cap: the freeze is untouched, and ONE audited rate-limited row (and one tolerant event) per administrator and hour records that reports were dropped
     v_limited := true;
+    if not exists (select 1 from public.studio_sms_price_audit a where a.actor = v_actor and a.event = 'freeze_set' and a.detail ->> 'rate_limited' = 'true' and a.at > clock_timestamp() - interval '1 hour') then
+      perform public._tw4price_audit('freeze_set', v_actor, public._tw4price_session_id(), null, null, jsonb_build_object('reason', 'compromise reported', 'rate_limited', true));
+      perform public._tw4price_emit_safe('credential_compromise_reported', v_actor, jsonb_build_object('note_length', char_length(btrim(p_note)), 'rate_limited', true));
+    end if;
   end if;
   return jsonb_build_object('status', 'frozen', 'rate_limited', v_limited);
 end $$;
