@@ -132,6 +132,49 @@ describe.skipIf(!hasMonitor)("D4-2 owner authorization on the combined chain wit
     psql("begin; alter table public.studio_sms_price_credentials disable trigger studio_sms_price_credentials_guard; update public.studio_sms_price_credentials set sign_count = 0; alter table public.studio_sms_price_credentials enable always trigger studio_sms_price_credentials_guard; commit;");
   });
 
+  it("MON-06 revoke, evict and applied-enrolment events carry a short NON-SECRET credential reference, so two different credentials handled by the same administrator are two different alert identities; the audit rows are unchanged", () => {
+    clear();
+    const ref12 = /^[0-9a-f]{12}$/;
+    const evict = (by: SoftAuthenticator, target: SoftAuthenticator) => {
+      const c = claims(A, S2);
+      const eb = authOut(c, `select public.tw4_price_cred_begin('revoke_other', '${target.credIdB64u}', null, null, null, null)::text;`);
+      const a = by.assert(eb.challenge);
+      return authOut(c, `select public.tw4_price_cred_revoke('${eb.nonce}', '${target.credIdB64u}', '${a.credId}', '${a.auth}', '${a.client}', '${a.sig}')::text;`);
+    };
+    const h0 = headSeq();
+    const auditRevoked0 = num("select count(*) from public.studio_sms_price_audit where event = 'credential_revoked'");
+    // two different credentials evicted by the SAME administrator
+    const Ka = new SoftAuthenticator(), Kb = new SoftAuthenticator(), Kc = new SoftAuthenticator(), Kd = new SoftAuthenticator(), Kr = new SoftAuthenticator();
+    resetCreds(Ka, Kb, [Kr, "recovery"]);
+    expect(evict(Kr, Kb)).toMatchObject({ status: "revoked" });
+    resetCreds(Kc, Kd, [Kr, "recovery"]);
+    expect(evict(Kr, Kd)).toMatchObject({ status: "revoked" });
+    // an applied enrolment (the new credential's reference and the change id)
+    resetCreds(Kc, [Kr, "recovery"]);
+    const Ke = new SoftAuthenticator();
+    const pend = enrollReq(Kc, Ke, "a spare for the reference test");
+    psql(`begin; alter table public.studio_sms_price_credential_changes disable trigger studio_sms_price_credential_changes_guard; update public.studio_sms_price_credential_changes set requested_at = requested_at - interval '25 hours', effective_at = effective_at - interval '25 hours' where id = '${pend.change_id}'; alter table public.studio_sms_price_credential_changes enable always trigger studio_sms_price_credential_changes_guard; commit;`);
+    expect(authOut(claims(A, S2), `select public.tw4_price_cred_apply('${pend.change_id}')::text;`)).toMatchObject({ status: "applied" });
+    const got = events(h0);
+    const used = got.filter((e) => e.kind === "credential_recovery_used" && e.detail.action === "revoke_ordinary_key");
+    const accepted = got.filter((e) => e.kind === "credential_revocation_accepted");
+    const applied = got.filter((e) => e.kind === "credential_replaced" && e.detail.status === "applied");
+    expect(used).toHaveLength(2);
+    expect(accepted).toHaveLength(2);
+    expect(applied).toHaveLength(1);
+    for (const e of [...used, ...accepted, ...applied]) expect(String(e.detail.credential_ref), e.kind).toMatch(ref12);
+    expect(used[0].detail.credential_ref).not.toBe(used[1].detail.credential_ref);   // different credentials, different references
+    expect(used[0].detail.credential_ref).toBe(accepted[0].detail.credential_ref);   // one credential, one reference across its events
+    expect(applied[0].detail.change_id).toBe(pend.change_id);
+    // nothing secret: no credential id, public key or signature material in any event
+    const text = JSON.stringify(got);
+    for (const k of [Ka, Kb, Kc, Kd, Ke, Kr]) for (const s of [k.credIdB64u, b64u(k.x), b64u(k.y), k.hex.cred, k.hex.x, k.hex.y]) expect(text.includes(s)).toBe(false);
+    // the audit rows are unchanged: the same keys as before, no reference in them
+    expect(num("select count(*) from public.studio_sms_price_audit where event = 'credential_revoked'")).toBe(auditRevoked0 + 2);
+    const keys = rows<{ k: string }>("select string_agg(k, ',' order by k) as k from (select distinct jsonb_object_keys(detail) k from (select detail from public.studio_sms_price_audit where event = 'credential_revoked' order by id desc limit 2) x) y")[0].k;
+    expect(keys).toBe("authorized_by,via,voided_changes");
+  });
+
   it("MON-02 suspension decisions come from seq and kind only: the monitor-side suspension blocks begin, a forged pricing_resumed lifts nothing, and only the hardware-key thaw lifts it", () => {
     clear();
     resetCreds(K1, K2);

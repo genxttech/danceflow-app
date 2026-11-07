@@ -1041,10 +1041,10 @@ begin
   if v_purpose = 'recover_revoke_key' then
     -- the recovery credential's use is a critical event, and (like every recovery act) tolerant of a monitoring outage: the failed emit is audited and replayable
     perform public._tw4price_audit('recovery_used', v_actor, v_sid, null, v_by, jsonb_build_object('action', 'revoke_ordinary_key', 'target', encode(v_target, 'hex')));
-    perform public._tw4price_emit_safe('credential_recovery_used', v_actor, jsonb_build_object('action', 'revoke_ordinary_key'));
-    perform public._tw4price_emit_safe('credential_revocation_accepted', v_actor, jsonb_build_object('voided_changes', v_void, 'via', 'recovery'));
+    perform public._tw4price_emit_safe('credential_recovery_used', v_actor, jsonb_build_object('action', 'revoke_ordinary_key', 'credential_ref', left(encode(sha256(convert_to(v_trow::text, 'UTF8')), 'hex'), 12)));
+    perform public._tw4price_emit_safe('credential_revocation_accepted', v_actor, jsonb_build_object('voided_changes', v_void, 'via', 'recovery', 'credential_ref', left(encode(sha256(convert_to(v_trow::text, 'UTF8')), 'hex'), 12)));
   else
-    perform public._tw4price_emit('credential_revocation_accepted', v_actor, jsonb_build_object('voided_changes', v_void));
+    perform public._tw4price_emit('credential_revocation_accepted', v_actor, jsonb_build_object('voided_changes', v_void, 'credential_ref', left(encode(sha256(convert_to(v_trow::text, 'UTF8')), 'hex'), 12)));
   end if;
   return jsonb_build_object('status', 'revoked', 'voided_changes', v_void);
 end $$;
@@ -1059,6 +1059,7 @@ declare
   v_actor uuid := public._tw4price_session_actor('recent');
   v_sid text := public._tw4price_session_id();
   ch public.studio_sms_price_credential_changes;
+  v_ref text;
 begin
   if not public._tw4price_admin_active(v_actor) then
     raise exception 'actor must be an active registered platform admin' using errcode = '42501';
@@ -1093,11 +1094,12 @@ begin
   update public.studio_sms_price_credential_changes set status = 'applied', applied_at = clock_timestamp() where id = ch.id;
   perform set_config('tw4.priceauth_write', 'off', true);
   perform public._tw4price_audit('credential_change_applied', v_actor, v_sid, null, ch.target_credential_id, jsonb_build_object('change', ch.kind, 'change_id', ch.id));
+  select left(encode(sha256(convert_to(k.id::text, 'UTF8')), 'hex'), 12) into v_ref from public.studio_sms_price_credentials k where k.credential_id = ch.target_credential_id;   -- a short non-secret reference to the credential record
   -- the recovery completion is tolerant of a monitoring outage (the failed emit is audited and replayable); every other apply keeps the strict emit
   if ch.kind = 'recovery_enroll' then
-    perform public._tw4price_emit_safe('credential_replaced', v_actor, jsonb_build_object('status', 'applied', 'change', ch.kind, 'role', 'primary'));
+    perform public._tw4price_emit_safe('credential_replaced', v_actor, jsonb_build_object('status', 'applied', 'change', ch.kind, 'role', 'primary', 'change_id', ch.id, 'credential_ref', v_ref));
   else
-  perform public._tw4price_emit('credential_replaced', v_actor, jsonb_build_object('status', 'applied', 'change', ch.kind, 'role', case when ch.kind = 'recovery_enroll' then 'primary' else ch.role end));
+  perform public._tw4price_emit('credential_replaced', v_actor, jsonb_build_object('status', 'applied', 'change', ch.kind, 'role', case when ch.kind = 'recovery_enroll' then 'primary' else ch.role end, 'change_id', ch.id, 'credential_ref', v_ref));
   end if;
   if ch.kind = 'recovery_enroll' then
     perform public._tw4price_emit_safe('credential_recovery_used', v_actor, jsonb_build_object('action', 'recovery_completed', 'change_id', ch.id));
