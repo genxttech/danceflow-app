@@ -1,8 +1,8 @@
 {
   "meta": {
-    "when": "2026-11-07T01:52:42.925Z",
+    "when": "2026-11-07T03:27:05.929Z",
     "branch": "claude/d4-2-price-next-e2e",
-    "head": "456fdf509249816b3e58766b563567f752b60a5c",
+    "head": "8183ab2b44d96a98665ef046bae5fdf2cc3e4468",
     "dirty": false,
     "node": "v24.14.1",
     "chromium": "151.0.7922.34",
@@ -14,7 +14,7 @@
     "crashed": null
   },
   "totals": {
-    "PASS": 178,
+    "PASS": 184,
     "FAIL": 0,
     "BLOCKED": 1
   },
@@ -76,6 +76,11 @@
     },
     "12": {
       "PASS": 4,
+      "FAIL": 0,
+      "BLOCKED": 0
+    },
+    "13": {
+      "PASS": 6,
       "FAIL": 0,
       "BLOCKED": 0
     },
@@ -216,7 +221,7 @@
       "scenario": "2",
       "name": "after the (database-clock) cooling-off the separate session gets the challenge with the exact summary from the database",
       "status": "PASS",
-      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: none to $4.25\nDanceFlow provider cost: none to $1.15\nDescription: browser price one\nFingerprint: a7f819b92413e98f"
+      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: none to $4.25\nDanceFlow provider cost: none to $1.15\nDescription: browser price one\nFingerprint: a7f33484865c4091"
     },
     {
       "scenario": "2",
@@ -240,13 +245,13 @@
       "scenario": "2",
       "name": "REPLAY of the captured server-action request publishes nothing and applies once",
       "status": "PASS",
-      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"62bFQuWzlkiXnpLOm9szo\"}\n1:{\"ok\":true,\"data\":{\"status\":\"refused\",\"reason\":\"this price proposal is already applied and c"
+      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"mqL3WL7trQMSV4pyqY6oE\"}\n1:{\"ok\":true,\"data\":{\"status\":\"refused\",\"reason\":\"this price proposal is already applied and c"
     },
     {
       "scenario": "2",
       "name": "the price flash cookie (set by the propose action) is HttpOnly, SameSite=Strict, path /platform/sms, lives <= 60 s",
       "status": "PASS",
-      "note": "{\"httpOnly\":true,\"sameSite\":\"Strict\",\"path\":\"/platform/sms\",\"secure\":true,\"ttl\":27}"
+      "note": "{\"httpOnly\":true,\"sameSite\":\"Strict\",\"path\":\"/platform/sms\",\"secure\":true,\"ttl\":35}"
     },
     {
       "scenario": "2",
@@ -258,7 +263,7 @@
       "scenario": "2",
       "name": "challenge issued for v1 of the second proposal",
       "status": "PASS",
-      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: $4.25 to $5.10\nDanceFlow provider cost: $1.15 to $1.15\nDescription: browser price two\nFingerprint: c9f677c5419a1986"
+      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: $4.25 to $5.10\nDanceFlow provider cost: $1.15 to $1.15\nDescription: browser price two\nFingerprint: 3fceea32e6db9802"
     },
     {
       "scenario": "2",
@@ -288,7 +293,7 @@
       "scenario": "2",
       "name": "replaying the v1 signature again is also refused",
       "status": "PASS",
-      "note": "0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"62bFQuWzlkiXnpLOm9szo\"}\n1:{\"ok\":true,\"data\":{\"status\":\"refused\",\"reason\":\"this"
+      "note": "0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"mqL3WL7trQMSV4pyqY6oE\"}\n1:{\"ok\":true,\"data\":{\"status\":\"refused\",\"reason\":\"this"
     },
     {
       "scenario": "2",
@@ -456,7 +461,7 @@
       "scenario": "3",
       "name": "forged token (another user's real session id re-signed into the caller's token): the real Next server action returns no data",
       "status": "PASS",
-      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"62bFQuWzlkiXnpLOm9szo\"} 1:{\"ok\":false,\"message\":\"Not allowed. Price "
+      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"mqL3WL7trQMSV4pyqY6oE\"} 1:{\"ok\":false,\"message\":\"Not allowed. Price "
     },
     {
       "scenario": "3",
@@ -480,7 +485,7 @@
       "scenario": "3",
       "name": "forged token (no session_id claim at all): the real Next server action returns no data",
       "status": "PASS",
-      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"62bFQuWzlkiXnpLOm9szo\"} 1:{\"ok\":false,\"message\":\"Not allowed. Price "
+      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"mqL3WL7trQMSV4pyqY6oE\"} 1:{\"ok\":false,\"message\":\"Not allowed. Price "
     },
     {
       "scenario": "3",
@@ -552,7 +557,7 @@
       "scenario": "4",
       "name": "challenge issued while spare two is still active (it is offered)",
       "status": "PASS",
-      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: $5.20 to $6.00\nDanceFlow provider cost: $1.15 to $1.15\nDescription: revoked signer price\nFingerprint: a5819b0d0b2b674a"
+      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: $5.20 to $6.00\nDanceFlow provider cost: $1.15 to $1.15\nDescription: revoked signer price\nFingerprint: 8a1d2fb1fbfa13dd"
     },
     {
       "scenario": "4",
@@ -648,7 +653,7 @@
       "scenario": "6",
       "name": "two sessions revoke the same key at once: exactly one revocation is recorded",
       "status": "PASS",
-      "note": "The database refused: unknown or already revoked credential. || Revoked. This takes effect immediately and cannot be undone:"
+      "note": "Revoked. This takes effect immediately and cannot be undone: || The database refused: unknown or already revoked credential."
     },
     {
       "scenario": "6",
@@ -660,7 +665,7 @@
       "scenario": "6",
       "name": "two sessions apply the same pending key at once: one active row, one apply recorded",
       "status": "PASS",
-      "note": "Done: applied. || This is not allowed in the proposal's current stat"
+      "note": "This is not allowed in the proposal's current stat || Done: applied."
     },
     {
       "scenario": "6",
@@ -678,7 +683,7 @@
       "scenario": "6",
       "name": "two competing proposals for one price: exactly one stays open",
       "status": "PASS",
-      "note": "Proposal recorded. A different platform administrator must a || This is not allowed in the proposal's current state (another"
+      "note": "This is not allowed in the proposal's current state (another || Proposal recorded. A different platform administrator must a"
     },
     {
       "scenario": "6",
@@ -894,7 +899,7 @@
       "scenario": "10",
       "name": "attacker: the server action with role=recovery returns no challenge",
       "status": "PASS",
-      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"62bFQuWzlkiXnpLOm9szo\"} 1:{\"ok\":false,\"message\":\"The database refused the input (check the kind, t"
+      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"mqL3WL7trQMSV4pyqY6oE\"} 1:{\"ok\":false,\"message\":\"The database refused the input (check the kind, t"
     },
     {
       "scenario": "10",
@@ -1125,6 +1130,42 @@
       "note": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
     },
     {
+      "scenario": "13",
+      "name": "13 compromise reports through the real form: every call is accepted and publication is frozen",
+      "status": "PASS",
+      "note": "accepted=13"
+    },
+    {
+      "scenario": "13",
+      "name": "exactly ONE freeze (one non-repeat freeze_set row); the 12 repeats add a bounded number of audited rows (at most 12 new rows)",
+      "status": "PASS",
+      "note": "new rows=11, first-freeze rows=1"
+    },
+    {
+      "scenario": "13",
+      "name": "repeat rows are capped at 10 per administrator and hour, and ONE audited rate-limited row records the dropped reports",
+      "status": "PASS",
+      "note": "repeat/h=10 limited/h=1"
+    },
+    {
+      "scenario": "13",
+      "name": "thaw after the report storm (fresh MFA, ordinary key)",
+      "status": "PASS",
+      "note": "Publication resumed."
+    },
+    {
+      "scenario": "13",
+      "name": "a freeze right after the thaw is IMMEDIATE (never limited: a new plain freeze_set row, frozen)",
+      "status": "PASS",
+      "note": "Price publication is suspended. It publishes nothing; liftin newRows=1"
+    },
+    {
+      "scenario": "13",
+      "name": "left unfrozen",
+      "status": "PASS",
+      "note": ""
+    },
+    {
       "scenario": "9",
       "name": "built client output (.next/static, 111 files, 2.4 MB) contains none of the run's secrets",
       "status": "PASS",
@@ -1156,7 +1197,7 @@
     },
     {
       "scenario": "9",
-      "name": "all 113 user-visible messages are plain sentences (no SQLSTATE, token, stack or SQL text)",
+      "name": "all 129 user-visible messages are plain sentences (no SQLSTATE, token, stack or SQL text)",
       "status": "PASS",
       "note": ""
     }
@@ -1365,12 +1406,12 @@
     {
       "scenario": "6",
       "where": "keys",
-      "text": "The database refused: unknown or already revoked credential. Nothing changed."
+      "text": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
     },
     {
       "scenario": "6",
       "where": "keys",
-      "text": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
+      "text": "The database refused: unknown or already revoked credential. Nothing changed."
     },
     {
       "scenario": "6",
@@ -1726,6 +1767,86 @@
       "scenario": "12",
       "where": "keys",
       "text": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
+    },
+    {
+      "scenario": "13",
+      "where": "flash",
+      "text": "Reported. Price publication is suspended and the security event is raised."
+    },
+    {
+      "scenario": "13",
+      "where": "flash",
+      "text": "Reported. Price publication is suspended and the security event is raised."
+    },
+    {
+      "scenario": "13",
+      "where": "flash",
+      "text": "Reported. Price publication is suspended and the security event is raised."
+    },
+    {
+      "scenario": "13",
+      "where": "flash",
+      "text": "Reported. Price publication is suspended and the security event is raised."
+    },
+    {
+      "scenario": "13",
+      "where": "flash",
+      "text": "Reported. Price publication is suspended and the security event is raised."
+    },
+    {
+      "scenario": "13",
+      "where": "flash",
+      "text": "Reported. Price publication is suspended and the security event is raised."
+    },
+    {
+      "scenario": "13",
+      "where": "flash",
+      "text": "Reported. Price publication is suspended and the security event is raised."
+    },
+    {
+      "scenario": "13",
+      "where": "flash",
+      "text": "Reported. Price publication is suspended and the security event is raised."
+    },
+    {
+      "scenario": "13",
+      "where": "flash",
+      "text": "Reported. Price publication is suspended and the security event is raised."
+    },
+    {
+      "scenario": "13",
+      "where": "flash",
+      "text": "Reported. Price publication is suspended and the security event is raised."
+    },
+    {
+      "scenario": "13",
+      "where": "flash",
+      "text": "Reported. Price publication is suspended and the security event is raised."
+    },
+    {
+      "scenario": "13",
+      "where": "flash",
+      "text": "Reported. Price publication is suspended and the security event is raised."
+    },
+    {
+      "scenario": "13",
+      "where": "flash",
+      "text": "Reported. Price publication is suspended and the security event is raised."
+    },
+    {
+      "scenario": "13",
+      "where": "keys",
+      "text": "Publication resumed."
+    },
+    {
+      "scenario": "13",
+      "where": "flash",
+      "text": "Price publication is suspended. It publishes nothing; lifting the suspension needs the hardware key."
+    },
+    {
+      "scenario": "13",
+      "where": "keys",
+      "text": "Publication resumed."
     }
   ]
 }

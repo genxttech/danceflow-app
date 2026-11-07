@@ -64,3 +64,7 @@ IMPORTANT LIMIT: every WebAuthn result here comes from Chromium CDP VIRTUAL auth
 ## Base 5d9cb51d (migrations 20270210090000/100000, monitor 20270210110000)
 
 New in this round: the last-credential rule (a bootstrapped or installed key has no enrolment proof until the owner-level attest step: the real authenticator signs `_tw4price_attest_begin`, `_tw4price_attest_finish` stamps it; until then it does not count as a verified replacement, scenario 1; scenario 12 retires the only signing credential only after a replacement was enrolled through the UI and applied) and the freeze form action replayed on a stale-MFA session through the real Next action (scenario 11, no longer database-only). Observation: the refusal of the last credential surfaces as the generic 22023 sentence ("check the kind, the amounts, the lengths...") which does not describe the cause. Virtual authenticators only: no hardware-compatibility claim.
+
+## Base c5483deb, monitor #391 f8ebb68b
+
+Scenario 13: 13 compromise reports through the real form yield ONE freeze, at most 10 audited repeat rows per administrator and hour plus ONE audited rate-limited row, and a freeze right after the thaw is immediate (never limited). Virtual authenticators only: no hardware-compatibility claim.

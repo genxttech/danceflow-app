@@ -1,8 +1,8 @@
 # D4-2 real Next.js browser acceptance run
 
-- when 2026-11-07T01:52:42.925Z; branch claude/d4-2-price-next-e2e @ 456fdf50; node v24.14.1; Chromium 151.0.7922.34
+- when 2026-11-07T03:27:05.929Z; branch claude/d4-2-price-next-e2e @ 8183ab2b; node v24.14.1; Chromium 151.0.7922.34
 - stack: df-isoqa/base:20261119092100 + 59 repo migrations (last 20270210110000_twilio_price_monitor.sql), PostgREST, GoTrue, Kong (local, disposable); app: next build + next start (Turbopack) at http://localhost:3417
-- **totals: 178 PASS, 0 FAIL, 1 BLOCKED**
+- **totals: 184 PASS, 0 FAIL, 1 BLOCKED**
 
 | scenario | PASS | FAIL | BLOCKED |
 |---|---|---|---|
@@ -18,6 +18,7 @@
 | 10 | 22 | 0 | 0 |
 | 11 | 16 | 0 | 0 |
 | 12 | 4 | 0 | 0 |
+| 13 | 6 | 0 | 0 |
 | 0 setup | 5 | 0 | 0 |
 
 ## Checks
@@ -43,19 +44,19 @@
 - PASS [2] recorded as a single-owner proposal v1 with a 24 h cooling-off, price untouched :: pending|owner|v1|425
 - PASS [2] the PROPOSING session is refused (no challenge summary) :: Not allowed. Price changes need a registered administrator in a second-factor session; publication also needs a different session and the hardware key, and is refused while prices are suspended. Only an active platform administrator can do this, and a price change can never be approved by the admini
 - PASS [2] a second session is refused inside the cooling-off (no challenge) :: The 24-hour cooling-off of this proposal has not ended yet. Nothing changed.
-- PASS [2] after the (database-clock) cooling-off the separate session gets the challenge with the exact summary from the database :: Scope: studio_sms_price_list; price: number; proposal version 1 Customer price: none to $4.25 DanceFlow provider cost: none to $1.15 Description: browser price one Fingerprint: a7f819b92413e98f
+- PASS [2] after the (database-clock) cooling-off the separate session gets the challenge with the exact summary from the database :: Scope: studio_sms_price_list; price: number; proposal version 1 Customer price: none to $4.25 DanceFlow provider cost: none to $1.15 Description: browser price one Fingerprint: a7f33484865c4091
 - PASS [2] an authenticator holding ONLY the recovery key cannot sign a price (the recovery key is not offered) :: The authenticator did not sign (cancelled, not available or not allowed). Nothing changed.
 - PASS [2] authorize with the primary key: the price is published :: Authorized. The new price is published.
 - PASS [2] assertion profile (default virtual authenticator): UP and UV set, backup flags (BE/BS) clear :: flags=0x5
-- PASS [2] REPLAY of the captured server-action request publishes nothing and applies once :: 200 0:{"a":"$@1","f":"","q":"","i":false,"b":"62bFQuWzlkiXnpLOm9szo"} 1:{"ok":true,"data":{"status":"refused","reason":"this price proposal is already applied and c
-- PASS [2] the price flash cookie (set by the propose action) is HttpOnly, SameSite=Strict, path /platform/sms, lives <= 60 s :: {"httpOnly":true,"sameSite":"Strict","path":"/platform/sms","secure":true,"ttl":27}
+- PASS [2] REPLAY of the captured server-action request publishes nothing and applies once :: 200 0:{"a":"$@1","f":"","q":"","i":false,"b":"mqL3WL7trQMSV4pyqY6oE"} 1:{"ok":true,"data":{"status":"refused","reason":"this price proposal is already applied and c
+- PASS [2] the price flash cookie (set by the propose action) is HttpOnly, SameSite=Strict, path /platform/sms, lives <= 60 s :: {"httpOnly":true,"sameSite":"Strict","path":"/platform/sms","secure":true,"ttl":35}
 - PASS [2] second proposal recorded :: Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed.
-- PASS [2] challenge issued for v1 of the second proposal :: Scope: studio_sms_price_list; price: number; proposal version 1 Customer price: $4.25 to $5.10 DanceFlow provider cost: $1.15 to $1.15 Description: browser price two Fingerprint: c9f677c5419a1986
+- PASS [2] challenge issued for v1 of the second proposal :: Scope: studio_sms_price_list; price: number; proposal version 1 Customer price: $4.25 to $5.10 DanceFlow provider cost: $1.15 to $1.15 Description: browser price two Fingerprint: 3fceea32e6db9802
 - PASS [2] the signed finish request was held in the browser (signature over v1 captured)
 - PASS [2] revise through the UI voids v1 and creates v2 :: Revised (version 2). The earlier proposal and any signature over it are void and the 24-hour cooling-off starts again.
 - PASS [2] v2 restarts the 24 h cooling-off and the old request is no longer pending :: invalidated|owner|v1|510 / pending|owner|v2|520
 - PASS [2] the pre-revision signature is REFUSED by the database and publishes nothing :: The database refused the signature: this price proposal is already invalidated and cannot be authorized. Nothing changed.
-- PASS [2] replaying the v1 signature again is also refused :: 0:{"a":"$@1","f":"","q":"","i":false,"b":"62bFQuWzlkiXnpLOm9szo"} 1:{"ok":true,"data":{"status":"refused","reason":"this
+- PASS [2] replaying the v1 signature again is also refused :: 0:{"a":"$@1","f":"","q":"","i":false,"b":"mqL3WL7trQMSV4pyqY6oE"} 1:{"ok":true,"data":{"status":"refused","reason":"this
 - PASS [2] v2 cannot be authorized inside its restarted cooling-off :: The 24-hour cooling-off of this proposal has not ended yet. Nothing changed.
 - PASS [2] after the new cooling-off v2 (5.20) is authorized and published :: Authorized. The new price is published.
 - PASS [3] password-only login (aal1) succeeds
@@ -83,11 +84,11 @@
 - PASS [3] production behaviour: public.tw4_local_qa_only is ABSENT in this database
 - PASS [3] another user's real GoTrue session exists for the forgery :: 200
 - PASS [3] forged token (another user's real session id re-signed into the caller's token): refused by the database through PostgREST :: 403 {"code":"42501","details":null,"hint":null,"message":"this session belongs to another user"}
-- PASS [3] forged token (another user's real session id re-signed into the caller's token): the real Next server action returns no data :: 200 0:{"a":"$@1","f":"","q":"","i":false,"b":"62bFQuWzlkiXnpLOm9szo"} 1:{"ok":false,"message":"Not allowed. Price 
+- PASS [3] forged token (another user's real session id re-signed into the caller's token): the real Next server action returns no data :: 200 0:{"a":"$@1","f":"","q":"","i":false,"b":"mqL3WL7trQMSV4pyqY6oE"} 1:{"ok":false,"message":"Not allowed. Price 
 - PASS [3] forged token (a random (non-existent) session id): refused by the database through PostgREST :: 403 {"code":"42501","details":null,"hint":null,"message":"this session has ended: sign in again"}
 - PASS [3] forged token (a random (non-existent) session id): the real Next server action returns no data :: 303 /login;push
 - PASS [3] forged token (no session_id claim at all): refused by the database through PostgREST :: 403 {"code":"42501","details":null,"hint":null,"message":"a session id (uuid) is required"}
-- PASS [3] forged token (no session_id claim at all): the real Next server action returns no data :: 200 0:{"a":"$@1","f":"","q":"","i":false,"b":"62bFQuWzlkiXnpLOm9szo"} 1:{"ok":false,"message":"Not allowed. Price 
+- PASS [3] forged token (no session_id claim at all): the real Next server action returns no data :: 200 0:{"a":"$@1","f":"","q":"","i":false,"b":"mqL3WL7trQMSV4pyqY6oE"} 1:{"ok":false,"message":"Not allowed. Price 
 - PASS [3] forged token (a non-uuid session_id claim): refused by the database through PostgREST :: 403 {"code":"42501","details":null,"hint":null,"message":"a session id (uuid) is required"}
 - PASS [3] forged token (a non-uuid session_id claim): the real Next server action returns no data :: 303 /login;push
 - PASS [3] the owner of the session-actor function can read auth.sessions (local role; hosted must be confirmed separately) :: postgres super=false sees_auth.sessions=true
@@ -99,7 +100,7 @@
 - PASS [4] an ordinary (primary) key is NOT offered for retiring the recovery key: only the recovery key can retire itself :: The authenticator did not sign or the request failed. Nothing changed.
 - PASS [4] the recovery key retires itself through the UI (immediate, final) :: Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key.
 - PASS [4] a new key is requested with the SPARE key's signature (pending) :: Requested. The new key becomes usable only after the delay; you can cancel it until then.
-- PASS [4] challenge issued while spare two is still active (it is offered) :: Scope: studio_sms_price_list; price: number; proposal version 1 Customer price: $5.20 to $6.00 DanceFlow provider cost: $1.15 to $1.15 Description: revoked signer price Fingerprint: a5819b0d0b2b674a
+- PASS [4] challenge issued while spare two is still active (it is offered) :: Scope: studio_sms_price_list; price: number; proposal version 1 Customer price: $5.20 to $6.00 DanceFlow provider cost: $1.15 to $1.15 Description: revoked signer price Fingerprint: 8a1d2fb1fbfa13dd
 - PASS [4] spare two revoked via the UI between the challenge and the signature :: Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key.
 - PASS [4] the revoked key's REAL signature on the already-issued challenge is rejected, nothing published :: The database refused the signature: unknown or revoked credential. Nothing changed.
 - PASS [4] the pending enrolment authorized by the now-revoked key is dead (voided, or Apply refused); the key never becomes active :: change status before apply: cancelled; apply: NO ROW (TimeoutError: locator.click: Timeout 300)
@@ -115,12 +116,12 @@
 - PASS [7] an authenticator that does not verify the user cannot authorize (userVerification: required) :: The authenticator did not sign (cancelled, not available or not allowed). Nothing changed.
 - PASS [7] BE test key revoked again, set back to primary + recovery
 - PASS [6] race fixture active
-- PASS [6] two sessions revoke the same key at once: exactly one revocation is recorded :: The database refused: unknown or already revoked credential. || Revoked. This takes effect immediately and cannot be undone:
+- PASS [6] two sessions revoke the same key at once: exactly one revocation is recorded :: Revoked. This takes effect immediately and cannot be undone: || The database refused: unknown or already revoked credential.
 - PASS [6] the primary and recovery keys are untouched by the race
-- PASS [6] two sessions apply the same pending key at once: one active row, one apply recorded :: Done: applied. || This is not allowed in the proposal's current stat
+- PASS [6] two sessions apply the same pending key at once: one active row, one apply recorded :: This is not allowed in the proposal's current stat || Done: applied.
 - PASS [6] race fixture: [primary, race b] active :: primary:primary,race b:spare
 - PASS [6] enrol signed by key B races B's revocation: B ends revoked and the key it authorized never becomes active :: enrol: Requested. The new key becomes usable only after the delay; you can ca | revoke: Revoked. This takes effect immediately a | apply: 
-- PASS [6] two competing proposals for one price: exactly one stays open :: Proposal recorded. A different platform administrator must a || This is not allowed in the proposal's current state (another
+- PASS [6] two competing proposals for one price: exactly one stays open :: This is not allowed in the proposal's current state (another || Proposal recorded. A different platform administrator must a
 - PASS [6] stored sign counters are non-negative and the key set is [primary, recovery] :: primary:primary,recovery three:recovery
 - PASS [8] control: monitoring expected AND available -> a proposal is accepted :: Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed.
 - PASS [8] [table] monitoring table is unavailable
@@ -156,7 +157,7 @@
 - PASS [10] fixture: [primary, recovery] active (recovery installed owner-level) :: recovered two:primary,recovery five:recovery
 - PASS [10] the attacker holds the account (a separate session) and the ordinary keys
 - PASS [10] attacker: the UI offers no recovery role :: spare,primary
-- PASS [10] attacker: the server action with role=recovery returns no challenge :: 200 0:{"a":"$@1","f":"","q":"","i":false,"b":"62bFQuWzlkiXnpLOm9szo"} 1:{"ok":false,"message":"The database refused the input (check the kind, t
+- PASS [10] attacker: the server action with role=recovery returns no challenge :: 200 0:{"a":"$@1","f":"","q":"","i":false,"b":"mqL3WL7trQMSV4pyqY6oE"} 1:{"ok":false,"message":"The database refused the input (check the kind, t
 - PASS [10] attacker: calling the database directly with the session token for role=recovery is refused :: 400 {"code":"22023","details":null,"hint":null,"message":"a recovery credential is never enrolled through an ordinary ceremony: it is installed 
 - PASS [10] attacker: no recovery credential was added
 - PASS [10] attacker with the primary key cannot retire the spare (a key retires only itself) :: The authenticator did not sign or the request failed. Nothing changed.
@@ -195,9 +196,15 @@
 - PASS [12] UI: the last active signing credential cannot retire itself (nothing changes) :: The database refused the input (check the kind, the amounts, the lengths, and that the proposal differs from the active price). Nothing changed.
 - PASS [12] a replacement is enrolled through the UI and applied after the delay :: Done: applied.
 - PASS [12] once a replacement is active the old key retires itself through the UI :: Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key.
+- PASS [13] 13 compromise reports through the real form: every call is accepted and publication is frozen :: accepted=13
+- PASS [13] exactly ONE freeze (one non-repeat freeze_set row); the 12 repeats add a bounded number of audited rows (at most 12 new rows) :: new rows=11, first-freeze rows=1
+- PASS [13] repeat rows are capped at 10 per administrator and hour, and ONE audited rate-limited row records the dropped reports :: repeat/h=10 limited/h=1
+- PASS [13] thaw after the report storm (fresh MFA, ordinary key) :: Publication resumed.
+- PASS [13] a freeze right after the thaw is IMMEDIATE (never limited: a new plain freeze_set row, frozen) :: Price publication is suspended. It publishes nothing; liftin newRows=1
+- PASS [13] left unfrozen
 - PASS [9] built client output (.next/static, 111 files, 2.4 MB) contains none of the run's secrets :: {}
 - PASS [9] security headers on the pricing page (CSP, nosniff, frame, referrer) :: x-content-type-options,referrer-policy,x-frame-options,content-security-policy
 - PASS [9] CSP forbids framing, plugins and foreign form posts :: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self' https://checkout.stri
 - PASS [9] Supabase session cookies are SameSite=Lax/Strict and path=/ (httpOnly is not set by @supabase/ssr by design; recorded) :: sb-127-auth-token:http=false,secure=false,ss=Lax
 - PASS [9] no Content-Security-Policy violation in any browser console during the run
-- PASS [9] all 113 user-visible messages are plain sentences (no SQLSTATE, token, stack or SQL text)
+- PASS [9] all 129 user-visible messages are plain sentences (no SQLSTATE, token, stack or SQL text)

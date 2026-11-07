@@ -890,6 +890,42 @@ async function sc12() {
   ctx.prim = "replacement spare";
 }
 
+// ---------------------------------------------------------------------------------------------------------------- 13 repeated compromise reports and an immediate post-thaw freeze
+async function sc13() {
+  scn(13);
+  const S = ctx.s1;
+  const P = ctx.prim;
+  if (B.cfg("frozen") !== "false") throw new Error("precondition: prices must not be frozen");
+  const cnt = (where) => Number(q(`select count(*) from public.studio_sms_price_audit a where a.event = 'freeze_set' and a.actor = '${ctx.A.id}' and ${where}`));
+  const base = cnt("true");
+  const baseRepeat = cnt("a.detail ->> 'repeat' = 'true' and a.at > clock_timestamp() - interval '1 hour'");
+  const baseLimited = cnt("a.detail ->> 'rate_limited' = 'true' and a.at > clock_timestamp() - interval '1 hour'");
+  let accepted = 0;
+  for (let i = 1; i <= 13; i++) {
+    const r = await B.submitPriceForm(S, "Report a compromise (suspends publication)", { note: `compromise report ${i} from the browser run` });
+    if (r.ok) accepted++;
+  }
+  const added = cnt("true") - base;
+  const first = cnt("coalesce(a.detail ->> 'repeat', '') <> 'true' and coalesce(a.detail ->> 'rate_limited', '') <> 'true'") - (base - baseRepeat - baseLimited);
+  const repeatHour = cnt("a.detail ->> 'repeat' = 'true' and a.at > clock_timestamp() - interval '1 hour'");
+  const limitedHour = cnt("a.detail ->> 'rate_limited' = 'true' and a.at > clock_timestamp() - interval '1 hour'");
+  check("13 compromise reports through the real form: every call is accepted and publication is frozen", accepted === 13 && B.cfg("frozen") === "true", `accepted=${accepted}`);
+  check("exactly ONE freeze (one non-repeat freeze_set row); the 12 repeats add a bounded number of audited rows (at most 12 new rows)", first === 1 && added >= 2 && added <= 12, `new rows=${added}, first-freeze rows=${first}`);
+  check("repeat rows are capped at 10 per administrator and hour, and ONE audited rate-limited row records the dropped reports", repeatHour <= 10 && limitedHour - baseLimited === 1, `repeat/h=${repeatHour} limited/h=${limitedHour}`);
+  await B.only(S, [P]);
+  await B.openSms(S);
+  const th = await B.thaw(S);
+  check("thaw after the report storm (fresh MFA, ordinary key)", /resumed/i.test(th) && B.cfg("frozen") === "false", th);
+  const before = cnt("true");
+  const f = await B.freezeUi(S, "a freeze right after the thaw must never be rate limited");
+  const nonRepeatNew = cnt("true") - before;
+  check("a freeze right after the thaw is IMMEDIATE (never limited: a new plain freeze_set row, frozen)", f.ok && B.cfg("frozen") === "true" && nonRepeatNew === 1, `${f.text.slice(0, 60)} newRows=${nonRepeatNew}`);
+  await B.only(S, [P]);
+  await B.openSms(S);
+  await B.thaw(S);
+  check("left unfrozen", B.cfg("frozen") === "false");
+}
+
 function writeReport(crashed, browserVersion) {
   mkdirSync(OUT, { recursive: true });
   const { execFileSync } = require_("node:child_process");
@@ -923,7 +959,7 @@ async function runAll() {
   try {
     ctx.browser = browser;
     await setup(browser);
-    for (const [id, fn] of [[1, sc1], [2, sc2], [3, sc3], [4, sc4], [7, sc7], [6, sc6], [8, sc8], [5, sc5], [10, sc10], [11, sc11], [12, sc12], [9, sc9]]) if (want(id)) { try { await fn(); } catch (e) { check(`scenario ${id} aborted by a harness/page error`, false, String(e).split("\n")[0]); console.error(e); for (const S of B.SESSIONS) { try { await S.page.screenshot({ path: path.join(L.HOME, `abort-${id}-${S.name}.png`) }); } catch { /* ignore */ } } } }
+    for (const [id, fn] of [[1, sc1], [2, sc2], [3, sc3], [4, sc4], [7, sc7], [6, sc6], [8, sc8], [5, sc5], [10, sc10], [11, sc11], [12, sc12], [13, sc13], [9, sc9]]) if (want(id)) { try { await fn(); } catch (e) { check(`scenario ${id} aborted by a harness/page error`, false, String(e).split("\n")[0]); console.error(e); for (const S of B.SESSIONS) { try { await S.page.screenshot({ path: path.join(L.HOME, `abort-${id}-${S.name}.png`) }); } catch { /* ignore */ } } } }
   } catch (e) {
     crashed = e;
     console.error("HARNESS ERROR", e);
