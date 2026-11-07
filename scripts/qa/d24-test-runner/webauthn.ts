@@ -7,8 +7,8 @@
 //
 // NOTHING here talks to an authenticator, registers a credential, or opens a browser. Tests use software-generated vectors only.
 
-import { createHash, createPublicKey, verify } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { createHash, createPublicKey, randomBytes, verify } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { canonicalJson } from "./canon";
 
@@ -25,8 +25,8 @@ export type HardwareAnchor = {
   publicKey: { x: string; y: string };
   rpId: string;
   origins: string[];
-  /** true (default): require the UV flag. Setting false is only for documented test use. */
-  requireUV: boolean;
+  /** MUST be true: live approvals always require user verification (PIN/biometric on the key). A lax mode exists only as a test-only verifier parameter. */
+  requireUV: true;
   /** repository + branch that must contain the pinned commit before a live run (see runner gate commit-on-main) */
   repoUrl: string;
   branch: string;
@@ -38,7 +38,74 @@ export type HardwareApprovalDoc = { v: 1; kind: typeof HW_KIND; envelopeSha256: 
 
 const B64U = /^[A-Za-z0-9_-]*$/;
 const b64u = (buf: Buffer) => buf.toString("base64url");
-const fromB64u = (s: string): Buffer | null => (typeof s === "string" && B64U.test(s) ? Buffer.from(s, "base64url") : null);
+/** Strict, canonical unpadded base64url: re-encoding must give the identical string (rejects stray trailing bits, impossible lengths, padding). */
+const fromB64u = (s: string): Buffer | null => {
+  if (typeof s !== "string" || !B64U.test(s) || s.length % 4 === 1) return null;
+  const b = Buffer.from(s, "base64url");
+  return b.toString("base64url") === s ? b : null;
+};
+
+/** Keys of the TOP-LEVEL object of a JSON text, with escapes decoded (so "\u0063hallenge" counts as "challenge"); null if it is not a plain JSON object. */
+export function topLevelKeys(text: string): string[] | null {
+  let i = 0;
+  const ws = () => {
+    while (i < text.length && " \t\n\r".includes(text[i])) i++;
+  };
+  const str = (): string | null => {
+    if (text[i] !== '"') return null;
+    const start = i++;
+    while (i < text.length) {
+      if (text[i] === "\\") i += 2;
+      else if (text[i] === '"') {
+        i++;
+        try {
+          return JSON.parse(text.slice(start, i)) as string;
+        } catch {
+          return null;
+        }
+      } else i++;
+    }
+    return null;
+  };
+  const skipValue = (): boolean => {
+    let depth = 0;
+    while (i < text.length) {
+      const c = text[i];
+      if (c === '"') {
+        if (str() === null) return false;
+        continue;
+      }
+      if (c === "{" || c === "[") depth++;
+      else if (c === "}" || c === "]") {
+        if (depth === 0) return true;
+        depth--;
+      } else if (c === "," && depth === 0) return true;
+      i++;
+    }
+    return false;
+  };
+  ws();
+  if (text[i++] !== "{") return null;
+  const keys: string[] = [];
+  ws();
+  if (text[i] === "}") return keys;
+  for (;;) {
+    ws();
+    const k = str();
+    if (k === null) return null;
+    keys.push(k);
+    ws();
+    if (text[i++] !== ":") return null;
+    ws();
+    if (!skipValue()) return null;
+    if (text[i] === ",") {
+      i++;
+      continue;
+    }
+    if (text[i] === "}") return keys;
+    return null;
+  }
+}
 const sha256 = (b: Buffer | string) => createHash("sha256").update(b).digest();
 const RPID_RE = /^(localhost|([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,})$/;
 const ORIGIN_RE = /^(https:\/\/([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}|http:\/\/localhost)(:\d{1,5})?$/;
@@ -71,7 +138,7 @@ export function parseAnchor(raw: unknown): { ok: true; anchor: HardwareAnchor } 
   if (typeof a.rpId !== "string" || !RPID_RE.test(a.rpId)) p.push("rpId must be a lowercase hostname (or localhost)");
   if (!Array.isArray(a.origins) || a.origins.length === 0 || a.origins.length > 4 || !a.origins.every((o) => typeof o === "string" && ORIGIN_RE.test(o))) p.push("origins must be 1..4 exact https origins (or http://localhost)");
   else if (typeof a.rpId === "string" && !a.origins.every((o) => { const h = new URL(o).hostname; return h === a.rpId || h.endsWith(`.${a.rpId}`); })) p.push("every origin must be the rpId or a subdomain of it");
-  if (typeof a.requireUV !== "boolean") p.push("requireUV must be a boolean");
+  if (a.requireUV !== true) p.push("requireUV must be exactly true: live approvals always require user verification");
   if (typeof a.repoUrl !== "string" || !/^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\.git$/.test(a.repoUrl)) p.push("repoUrl must be an https://github.com/<owner>/<repo>.git URL");
   if (typeof a.branch !== "string" || !/^[A-Za-z0-9._/-]{1,60}$/.test(a.branch)) p.push("branch must be a plain branch name");
   if (p.length === 0 && anchorFingerprint(a as HardwareAnchor) !== a.fingerprintSha256) p.push("fingerprintSha256 does not match the anchor content (edited after the owner recorded it)");
@@ -107,7 +174,14 @@ export function strictDerEcdsa(sig: Buffer): boolean {
   return off === sig.length;
 }
 
-export type VerifyInput = { envelopeSha256: string; doc: unknown; anchor: HardwareAnchor; storedSignCount: number };
+export type VerifyInput = {
+  envelopeSha256: string;
+  doc: unknown;
+  anchor: HardwareAnchor;
+  storedSignCount: number;
+  /** TEST-ONLY seam: it is a code parameter, not reachable from the anchor file, the approval document or the CLI. */
+  testOnly?: { allowNoUV?: boolean };
+};
 export type VerifyResult = { ok: true; signCount: number; flags: number } | { ok: false; reason: string };
 
 /** Verifies one assertion for one envelope hash. Never throws; the reason never contains attacker-controlled text beyond fixed labels. */
@@ -127,7 +201,9 @@ export function verifyAssertion(i: VerifyInput): VerifyResult {
   // clientDataJSON: exact fields, no duplicate keys, exact challenge/origin, not cross-origin
   const text = cdj.toString("utf8");
   if (Buffer.from(text, "utf8").compare(cdj) !== 0) return no("clientDataJSON is not valid UTF-8");
-  for (const k of ["type", "challenge", "origin", "crossOrigin", "topOrigin"]) if ((text.match(new RegExp(`"${k}"\\s*:`, "g")) ?? []).length > 1) return no("clientDataJSON has a duplicate key");
+  const keys = topLevelKeys(text);
+  if (keys === null) return no("clientDataJSON is not a plain JSON object");
+  if (new Set(keys).size !== keys.length) return no("clientDataJSON has a duplicate key");
   let cd: Record<string, unknown>;
   try {
     cd = JSON.parse(text) as Record<string, unknown>;
@@ -147,13 +223,15 @@ export function verifyAssertion(i: VerifyInput): VerifyResult {
   if (!authData.subarray(0, 32).equals(sha256(i.anchor.rpId))) return no("rpIdHash does not match the pinned rpId");
   const flags = authData[32];
   if (!(flags & 0x01)) return no("user presence flag (UP) is not set");
-  if (i.anchor.requireUV && !(flags & 0x04)) return no("user verification flag (UV) is not set");
+  if (!(flags & 0x04) && !(i.testOnly?.allowNoUV === true)) return no("user verification flag (UV) is not set");
   if (flags & 0x08 || flags & 0x10) return no("backup-eligible / backed-up flags are set: a synced credential is not accepted");
   if (flags & 0x40) return no("attested-credential-data flag is set on an assertion");
   if (flags & 0x20 || (flags & 0x02)) return no("reserved flag bits are set");
-  if (!(flags & 0x80) && authData.length !== 37) return no("trailing bytes after authenticatorData without the extension flag");
+  if (flags & 0x80) return no("authenticator extension data (ED flag) is refused");
+  if (authData.length !== 37) return no("unexpected bytes after the 37-byte authenticatorData header");
   const signCount = authData.readUInt32BE(33);
   if (!Number.isInteger(i.storedSignCount) || i.storedSignCount < 0) return no("stored sign counter is invalid");
+  if (i.storedSignCount >= 0xffffffff) return no("sign counter is at its 32-bit maximum: enroll a new credential (wrap-around is not accepted)");
   if (!(i.storedSignCount === 0 && signCount === 0) && signCount <= i.storedSignCount) return no("sign counter did not increase (replay or cloned authenticator)");
 
   // signature over authData || sha256(clientDataJSON)
@@ -171,6 +249,8 @@ export function verifyAssertion(i: VerifyInput): VerifyResult {
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 // Sign-counter state. One approval document is reused for every run of the SAME envelope (same counter value, accepted again); a NEW envelope needs a
 // strictly higher counter than the highest accepted so far. The state file is detection-grade (same-user writable): see the design doc.
+// The counter is RECORDED ONLY WHEN THE CALLER COMMITS (the runner commits after every gate has passed, immediately before it consumes the run), so a run
+// that is blocked by some other gate does not burn the approval's counter. Writes take a short lock and use a unique temp file.
 
 export type HwState = { v: 1; last: number; byEnvelope: Record<string, number> };
 export const emptyState = (): HwState => ({ v: 1, last: 0, byEnvelope: {} });
@@ -187,27 +267,77 @@ export function counterFloor(state: HwState, envelopeSha256: string): { storedSi
   return envelopeSha256 in state.byEnvelope ? { storedSignCount: state.byEnvelope[envelopeSha256] - 1, sameEnvelope: true } : { storedSignCount: state.last, sameEnvelope: false };
 }
 
-/** Verifies and (on success) records the counter. A repeat of an accepted envelope must present exactly its recorded counter. */
-export function verifyAndRecord(stateFile: string, i: Omit<VerifyInput, "storedSignCount">): VerifyResult {
+function withStateLock<T>(stateFile: string, fn: () => T, waitMs = 3000): T {
+  mkdirSync(dirname(stateFile), { recursive: true });
+  const lf = `${stateFile}.lock`;
+  const token = `${process.pid}:${randomBytes(12).toString("hex")}`;
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    try {
+      writeFileSync(lf, token, { flag: "wx", mode: 0o600 });
+      break;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      try {
+        if (Date.now() - statSync(lf).mtimeMs > 60_000) unlinkSync(lf);
+      } catch {
+        /* released or taken over by someone else */
+      }
+      if (Date.now() > deadline) throw new Error("hardware approval state is locked by another process");
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try {
+      if (readFileSync(lf, "utf8") === token) unlinkSync(lf);
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
+export type StateCheck = { result: VerifyResult; /** records the counter (idempotent for an already recorded envelope); throws if the state changed incompatibly */ commit: () => void };
+
+/** Verifies against the stored counter WITHOUT recording anything. */
+export function checkAgainstState(stateFile: string, i: Omit<VerifyInput, "storedSignCount">): StateCheck {
+  const none = (reason: string): StateCheck => ({ result: { ok: false, reason }, commit: () => { throw new Error(reason); } });
   let state: HwState;
   try {
     state = readState(stateFile);
   } catch {
-    return { ok: false, reason: "hardware approval state file is unreadable or malformed" };
+    return none("hardware approval state file is unreadable or malformed");
   }
   const known = state.byEnvelope[i.envelopeSha256];
   const floor = counterFloor(state, i.envelopeSha256);
-  // known envelope with a 0-counter token: recorded value 0 -> floor -1 would be invalid; handle the equal-counter case explicitly
   const r = known !== undefined && known === 0 ? verifyAssertion({ ...i, storedSignCount: 0 }) : verifyAssertion({ ...i, storedSignCount: Math.max(0, floor.storedSignCount) });
-  if (!r.ok) return r;
-  if (known !== undefined && r.signCount !== known) return { ok: false, reason: "a different assertion was presented for an envelope that was already approved with another counter" };
-  if (known === undefined) {
-    state.byEnvelope[i.envelopeSha256] = r.signCount;
-    state.last = Math.max(state.last, r.signCount);
-    mkdirSync(dirname(stateFile), { recursive: true });
-    const tmp = `${stateFile}.tmp`;
-    writeFileSync(tmp, JSON.stringify(state), { mode: 0o600 });
-    renameSync(tmp, stateFile);
-  }
-  return r;
+  if (!r.ok) return { result: r, commit: () => { throw new Error(r.reason); } };
+  if (known !== undefined && r.signCount !== known) return none("a different assertion was presented for an envelope that was already approved with another counter");
+  const count = r.signCount;
+  return {
+    result: r,
+    commit: () =>
+      withStateLock(stateFile, () => {
+        const cur = readState(stateFile);
+        const prior = cur.byEnvelope[i.envelopeSha256];
+        if (prior !== undefined) {
+          if (prior !== count) throw new Error("hardware approval state changed incompatibly while the run was being prepared");
+          return;
+        }
+        if (!(cur.last === 0 && count === 0) && count <= cur.last) throw new Error("hardware approval counter was advanced by another run while this one was being prepared");
+        cur.byEnvelope[i.envelopeSha256] = count;
+        cur.last = Math.max(cur.last, count);
+        const tmp = `${stateFile}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+        writeFileSync(tmp, JSON.stringify(cur), { mode: 0o600, flag: "wx" });
+        renameSync(tmp, stateFile);
+      }),
+  };
+}
+
+/** Convenience: verify and record in one step (used by tests and tools; the runner uses checkAgainstState + commit). */
+export function verifyAndRecord(stateFile: string, i: Omit<VerifyInput, "storedSignCount">): VerifyResult {
+  const c = checkAgainstState(stateFile, i);
+  if (c.result.ok) c.commit();
+  return c.result;
 }

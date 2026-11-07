@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { manifest } from "../d24-m3d-proof/manifest";
 import { resolveGit } from "./bins";
 import { lockfileSha } from "./gitverify";
-import { defaultOwnerDir, defaultRunnerHome, loadTrust, ownerSeparationWarning } from "./ownerverify";
+import { defaultOwnerDir, defaultRunnerHome, loadTrust } from "./ownerverify";
 import { readSecret } from "./secretprompt";
 import { ANCHOR_FILE } from "./webauthn";
 import { runnerManifest } from "./runnerpin";
@@ -108,6 +108,7 @@ export async function selfTest(io: Io, now = () => new Date()): Promise<number> 
     code: { commitSha: "a".repeat(40), lockfileSha256: lockfileSha(readFileSync(join(REPO, "package-lock.json"))) },
     proof: { manifestSha256: m.sha256, fileCount: m.files.length },
     runner: { manifestSha256: runnerManifest(HERE).sha256, fileCount: runnerManifest(HERE).files.length },
+    hardwareAnchorFingerprintSha256: "0".repeat(64), // dry self-test only: no anchor is consulted in dry mode
     accounts: { platformAcct: "acct_DRYRUNPLATFORM", connectedAcct: "acct_DRYRUNCONNECTED" },
     permittedRuleIds: [
       "customer.create", "customer.delete", "identity.connected", "identity.platform", "invoice.add_lines", "invoice.create_draft", "invoice.delete_draft", "invoice.list_by_customer", "invoice.read", "negative.transfers", "negative.webhook_endpoints",
@@ -231,32 +232,18 @@ export async function main(argv: string[], io: Io, stdin: NodeJS.ReadStream = pr
           io.err("refused: a live run takes its ledger location from the owner trust file and its checkout from this runner's own clone; --ledger-dir/--repo/--home are not accepted");
           return 2;
         }
-        const hwMode = existsSync(join(HERE, ANCHOR_FILE));
-        const trust = hwMode ? null : loadTrust(ownerDir);
-        if (!hwMode && !trust) {
-          io.err("refused (live): no owner approval can be verified: this checkout has no hardware anchor and no owner public key is registered. Use --dry, or have the owner enroll.");
+        // LIVE runs always need the hardware-key approval (REQUIRE_HARDWARE_FOR_LIVE in runner.ts); the passphrase-sealed Ed25519 kind is dry/dev only
+        if (!existsSync(join(HERE, ANCHOR_FILE))) {
+          io.err(`refused (live): this checkout has no hardware anchor (${ANCHOR_FILE}), so no approval can be verified. Live runs require the owner's hardware-key approval; the owner enrollment is a design-only item, see docs/billing/D24-TEST-RUNNER-OWNER-AUTH.md section 7. Use --dry.`);
           return 2;
         }
-        if (trust) {
-          const warn = ownerSeparationWarning(ownerDir, trust);
-          if (warn) io.err(warn);
-        }
         let hwDoc: unknown = null;
-        if (hwMode) {
+        {
           const hwPath = str(opts, "hw-approval") ?? `${envelope}.hw.json`;
           try {
             hwDoc = JSON.parse(readFileSync(hwPath, "utf8"));
           } catch {
             hwDoc = null;
-          }
-        }
-        const sigPath = str(opts, "signature") ?? `${envelope}.sig.json`;
-        let signature: unknown = null;
-        if (existsSync(sigPath)) {
-          try {
-            signature = JSON.parse(readFileSync(sigPath, "utf8"));
-          } catch {
-            signature = null;
           }
         }
         const gitBin = resolveGit(process.env.PATH);
@@ -266,7 +253,7 @@ export async function main(argv: string[], io: Io, stdin: NodeJS.ReadStream = pr
         }
         const envDoc = JSON.parse(readFileSync(envelope, "utf8")) as { credential?: { store?: string } };
         const kind = envDoc.credential?.store === "dpapi-file" ? "dpapi" : "wcm";
-        const r = await runEnvelope(envelope, repoRoot, { exec: realExec, parentEnv: process.env, store: () => makeStore(kind, home), ledger: hwMode ? new Ledger(join(defaultRunnerHome(), "ledger"), () => new Date(), join(ownerDir, "ledger-anchor.json")) : new Ledger(trust!.ledgerDir, () => new Date(), trust!.anchorFile), now: () => new Date(), out: io.out, dry: false, runInstall: true, gitBin, owner: { trust, signature, hardware: hwMode ? { doc: hwDoc } : undefined } });
+        const r = await runEnvelope(envelope, repoRoot, { exec: realExec, parentEnv: process.env, store: () => makeStore(kind, home), ledger: new Ledger(join(defaultRunnerHome(), "ledger"), () => new Date(), join(ownerDir, "ledger-anchor.json")), now: () => new Date(), out: io.out, dry: false, runInstall: true, gitBin, owner: { trust: null, signature: null, hardware: { doc: hwDoc } } });
         return r.exitCode;
       }
       case "ledger": {

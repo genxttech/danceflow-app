@@ -11,6 +11,7 @@ import type { OwnerTrust, SignatureDoc } from "../ownerverify";
 import { runnerManifest } from "../runnerpin";
 import { readFileSync } from "node:fs";
 import { Ledger } from "../ledger";
+import { testAuth } from "./softauth";
 
 export const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 // built at run time: a realistic key literal in source trips GitHub push protection
@@ -58,6 +59,7 @@ export function baseSpec(over: Partial<EnvelopeSpec> = {}, evidenceRoot = join(t
     code: { commitSha: SHA, lockfileSha256: lockfileSha(readFileSync(join(REPO, "package-lock.json"))) },
     proof: { manifestSha256: m.sha256, fileCount: m.files.length },
     runner: runnerPin(),
+    hardwareAnchorFingerprintSha256: testAuth.anchor.fingerprintSha256,
     accounts: { platformAcct: "acct_UNITPLATFORM1", connectedAcct: "acct_UNITCONNECTED1" },
     permittedRuleIds: ["customer.create", "customer.delete", "identity.connected", "identity.platform", "invoice.add_lines", "invoice.create_draft", "invoice.delete_draft", "invoice.list_by_customer", "invoice.read", "negative.transfers", "negative.webhook_endpoints"],
     apiCallCeiling: 40,

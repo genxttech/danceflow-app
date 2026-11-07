@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { anchorFingerprint, counterFloor, emptyState, parseAnchor, readState, strictDerEcdsa, verifyAndRecord, verifyAssertion, type HardwareAnchor } from "../webauthn";
+import { anchorFingerprint, checkAgainstState, counterFloor, emptyState, parseAnchor, readState, strictDerEcdsa, topLevelKeys, verifyAndRecord, verifyAssertion, type HardwareAnchor } from "../webauthn";
 import { makeAssertion, makeSoftAuth, ORIGIN, P256_N, RP_ID, type AssertionOpts } from "./softauth";
 import { tmp } from "./helpers";
 
@@ -40,9 +40,10 @@ describe("verifyAssertion: the accepted shape", () => {
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.signCount).toBe(5);
   });
-  it("accepts extension bytes only when the ED flag is set (0x85)", () => {
-    expect(verify({ flags: 0x85, extension: Buffer.from([0xa0]), signCount: 2 }, 1).ok).toBe(true);
-    expect(reason(verify({ flags: 0x05, extension: Buffer.from([0xa0]), signCount: 2 }, 1))).toMatch(/trailing bytes/);
+  it("refuses the ED (extension data) flag and any bytes beyond the 37-byte header", () => {
+    expect(reason(verify({ flags: 0x85, extension: Buffer.from([0xa0]), signCount: 2 }, 1))).toMatch(/ED flag/);
+    expect(reason(verify({ flags: 0x05, extension: Buffer.from([0xa0]), signCount: 2 }, 1))).toMatch(/unexpected bytes/);
+    expect(reason(verify({ flags: 0x85, signCount: 2 }, 1))).toMatch(/ED flag/);
   });
   it("a token that never counts (0 -> 0) is accepted", () => {
     expect(verify({ signCount: 0 }, 0).ok).toBe(true);
@@ -78,13 +79,27 @@ describe("verifyAssertion: binding to the envelope and the ceremony", () => {
   it("rejects a different credential id", () => {
     expect(reason(verify({ credentialId: "A".repeat(43) }))).toMatch(/not the pinned owner credential/);
   });
-  it("rejects duplicate keys in clientDataJSON (parser-differential trick) and non-JSON / non-object client data", () => {
+  it("rejects duplicate keys in clientDataJSON, including ones hidden behind JSON escapes, and non-JSON / non-object client data", () => {
     const good = Buffer.from(H, "hex").toString("base64url");
-    const dup = `{"type":"webauthn.get","challenge":"${good}","challenge":"${Buffer.from(H2, "hex").toString("base64url")}","origin":"${ORIGIN}"}`;
+    const bad = Buffer.from(H2, "hex").toString("base64url");
+    const dup = `{"type":"webauthn.get","challenge":"${good}","challenge":"${bad}","origin":"${ORIGIN}"}`;
     expect(reason(verify({ clientDataText: dup }))).toMatch(/duplicate key/);
-    expect(reason(verify({ clientDataText: "not json" }))).toMatch(/JSON/);
-    expect(reason(verify({ clientDataText: "[1,2]" }))).toMatch(/not an object/);
-    expect(reason(verify({ clientDataText: "null" }))).toMatch(/not an object/);
+    // JSON.parse keeps the LAST value; an escaped spelling of the same key must not hide the duplicate
+    const esc = `{"type":"webauthn.get","challenge":"${good}","\\u0063hallenge":"${bad}","origin":"${ORIGIN}"}`;
+    expect(esc).toContain("\\u0063hallenge");
+    expect(reason(verify({ clientDataText: esc }))).toMatch(/duplicate key/);
+    const esc2 = `{"\\u0074ype":"webauthn.get","type":"webauthn.create","challenge":"${good}","origin":"${ORIGIN}"}`;
+    expect(reason(verify({ clientDataText: esc2 }))).toMatch(/duplicate key/);
+    expect(reason(verify({ clientDataText: "not json" }))).toMatch(/plain JSON object/);
+    expect(reason(verify({ clientDataText: "[1,2]" }))).toMatch(/plain JSON object/);
+    expect(reason(verify({ clientDataText: "null" }))).toMatch(/plain JSON object/);
+  });
+  it("topLevelKeys decodes escapes, ignores nested keys and rejects malformed input", () => {
+    expect(topLevelKeys('{"a":1,"b":{"a":2,"a":3},"c":[{"a":1}]}')).toEqual(["a", "b", "c"]);
+    expect(topLevelKeys('{"\\u0061":1,"a":2}')).toEqual(["a", "a"]);
+    expect(topLevelKeys('{"s":"x,\\"y}","k":1}')).toEqual(["s", "k"]);
+    expect(topLevelKeys("{}")).toEqual([]);
+    for (const bad of ["", "[]", '{"a"}', '{"a":1', '{"a":1,}', '{a:1}', '{"a":"unterminated}']) expect(topLevelKeys(bad), bad).toBeNull();
   });
 });
 
@@ -93,9 +108,16 @@ describe("verifyAssertion: authenticator data flags and counter", () => {
     expect(reason(verify({ flags: 0x04 }))).toMatch(/UP/);
     expect(reason(verify({ flags: 0x01 }))).toMatch(/UV/);
   });
-  it("UV is waived only when the anchor says requireUV false", () => {
-    const lax = makeSoftAuth({ requireUV: false });
-    expect(verifyAssertion({ envelopeSha256: H, doc: makeAssertion(lax, H, { flags: 0x01 }), anchor: lax.anchor, storedSignCount: 0 }).ok).toBe(true);
+  it("UV can NOT be waived from the anchor: an anchor with requireUV false is invalid, and even a forced one is ignored; only the test-only parameter waives it", () => {
+    const lax = makeSoftAuth({ requireUV: false as unknown as true });
+    const p = parseAnchor(lax.anchor);
+    expect(p.ok).toBe(false);
+    expect((p as { problems: string[] }).problems.join()).toMatch(/requireUV must be exactly true/);
+    // a forced anchor object (bypassing parseAnchor) still cannot waive UV
+    expect(reason(verifyAssertion({ envelopeSha256: H, doc: makeAssertion(lax, H, { flags: 0x01 }), anchor: lax.anchor, storedSignCount: 0 }))).toMatch(/UV/);
+    // the explicit TEST-ONLY code parameter is the only way
+    expect(verifyAssertion({ envelopeSha256: H, doc: makeAssertion(auth, H, { flags: 0x01 }), anchor: auth.anchor, storedSignCount: 0, testOnly: { allowNoUV: true } }).ok).toBe(true);
+    for (const f of readdirSync(join(__dirname, ".."))) if (f.endsWith(".ts")) expect(readFileSync(join(__dirname, "..", f), "utf8"), f).not.toMatch(/allowNoUV:\s*true/);
   });
   it("rejects backup-eligible / backed-up (synced) credentials, attested-data and reserved bits", () => {
     expect(reason(verify({ flags: 0x0d }))).toMatch(/backup/);
@@ -105,7 +127,7 @@ describe("verifyAssertion: authenticator data flags and counter", () => {
     expect(reason(verify({ flags: 0x07 }))).toMatch(/reserved/);
   });
   it("rejects authenticatorData shorter than 37 bytes", () => {
-    expect(reason(verify({ tamperAuthData: (b) => b.subarray(0, 36) }))).toMatch(/shorter than 37|signature/);
+    expect(reason(verify({ tamperAuthData: (b) => b.subarray(0, 36) }))).toMatch(/shorter than 37 bytes/);
   });
   it("sign counter must strictly increase (equal, lower, and 0 after non-zero are refused)", () => {
     expect(reason(verify({ signCount: 4 }, 4))).toMatch(/did not increase/);
@@ -160,6 +182,34 @@ describe("verifyAssertion: signature checks, edge cases and malleability", () =>
     for (const d of [null, undefined, 5, "x", [], {}]) expect(verifyAssertion({ envelopeSha256: H, doc: d, anchor: auth.anchor, storedSignCount: 0 }).ok).toBe(false);
     expect(verifyAssertion({ envelopeSha256: "xyz", doc: good, anchor: auth.anchor, storedSignCount: 0 }).ok).toBe(false);
     expect(verifyAssertion({ envelopeSha256: H, doc: good, anchor: auth.anchor, storedSignCount: -1 }).ok).toBe(false);
+  });
+  it("base64url must be canonical: stray trailing bits, impossible lengths, padding and standard-alphabet characters are refused", () => {
+    const good = makeAssertion(auth, H);
+    const sig = good.signature;
+    const probes = [`${sig.slice(0, -1)}${sig.endsWith("A") ? "B" : sig.slice(-1) === "Q" ? "R" : "A"}`];
+    // build a non-canonical twin: same bytes, but the final sextet carries non-zero padding bits
+    const bytes = Buffer.from(sig, "base64url");
+    const rem = bytes.length % 3;
+    if (rem !== 0) {
+      const chars = sig.split("");
+      const last = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".indexOf(chars[chars.length - 1]);
+      chars[chars.length - 1] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"[last ^ 1];
+      probes.push(chars.join(""));
+    }
+    probes.push(`${sig}A`, `${sig}=`, sig.replace(/[-_]/, "+"), `${sig}AAAAA`);
+    for (const p of probes) {
+      const r = verifyAssertion({ envelopeSha256: H, doc: { ...good, signature: p }, anchor: auth.anchor, storedSignCount: 0 });
+      expect(r.ok, p.slice(-8)).toBe(false);
+    }
+    for (const field of ["authenticatorData", "clientDataJSON"] as const) {
+      const v = good[field];
+      expect(verifyAssertion({ envelopeSha256: H, doc: { ...good, [field]: `${v}A` }, anchor: auth.anchor, storedSignCount: 0 }).ok, field).toBe(false);
+    }
+  });
+  it("the sign counter cannot wrap: at the 32-bit maximum the credential must be re-enrolled", () => {
+    expect(reason(verify({ signCount: 0 }, 0xffffffff))).toMatch(/32-bit maximum/);
+    expect(reason(verify({ signCount: 0xffffffff }, 0xffffffff))).toMatch(/32-bit maximum/);
+    expect(verify({ signCount: 0xffffffff }, 0xfffffffe).ok).toBe(true);
   });
   it("refusal reasons are fixed labels: hostile document content is never echoed", () => {
     const hostile = "\u001b[2JSIGN-EVERYTHING";
@@ -236,6 +286,32 @@ describe("sign-counter state (one approval document is reused across the runs of
     expect(run(f, H2, { signCount: 0 }).ok).toBe(true);
     expect(run(f, H, { signCount: 0 }).ok).toBe(true);
   });
+  it("checkAgainstState records NOTHING until commit() is called; commit is idempotent and refuses an incompatible concurrent change", () => {
+    const f = stateFile();
+    const c = checkAgainstState(f, { envelopeSha256: H, doc: makeAssertion(auth, H, { signCount: 7 }), anchor: auth.anchor });
+    expect(c.result.ok).toBe(true);
+    expect(existsSync(f)).toBe(false);
+    c.commit();
+    c.commit();
+    expect(readState(f)).toMatchObject({ last: 7, byEnvelope: { [H]: 7 } });
+    // another run advanced the counter past this (not yet committed) approval
+    const g = stateFile();
+    const c1 = checkAgainstState(g, { envelopeSha256: H, doc: makeAssertion(auth, H, { signCount: 5 }), anchor: auth.anchor });
+    const c2 = checkAgainstState(g, { envelopeSha256: H2, doc: makeAssertion(auth, H2, { signCount: 6 }), anchor: auth.anchor });
+    c2.commit();
+    expect(() => c1.commit()).toThrow(/advanced by another run/);
+  });
+  it("the state write uses a unique temp file and a lock: no leftovers, and a held lock makes the writer fail rather than race", () => {
+    const f = stateFile();
+    run(f, H, { signCount: 2 });
+    expect(readdirSync(join(f, "..")).filter((n) => /\.(tmp|lock)$/.test(n))).toEqual([]);
+    writeFileSync(`${f}.lock`, "someone-else"); // a fresh lock held by another process
+    const c = checkAgainstState(f, { envelopeSha256: H2, doc: makeAssertion(auth, H2, { signCount: 3 }), anchor: auth.anchor });
+    expect(c.result.ok).toBe(true);
+    expect(() => c.commit()).toThrow(/locked by another process/);
+    expect(readFileSync(join(__dirname, "..", "webauthn.ts"), "utf8")).toContain("randomBytes(6).toString(\"hex\")}.tmp"); // unique temp name
+    expect(readState(f).byEnvelope[H2]).toBeUndefined();
+  }, 20_000);
   it("a failed verification records nothing", () => {
     const f = stateFile();
     expect(run(f, H, { signCount: 7, flags: 0x01 }).ok).toBe(false);

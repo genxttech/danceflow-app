@@ -6,17 +6,18 @@ import { createFakeExec, type FakeOpts } from "../fakeChild";
 import { runEnvelope, type RunnerDeps } from "../runner";
 import { anchorFingerprint } from "../webauthn";
 import { KEY, LABEL, makeEnvelope, mkLedger, NOW, ownerSign, ownerTrust, REPO, SHA, tmp, writeEnvelope } from "./helpers";
-import { makeAssertion, makeSoftAuth, type AssertionOpts } from "./softauth";
+import { makeAssertion, makeSoftAuth, testAuth, type AssertionOpts } from "./softauth";
+import { REQUIRE_HARDWARE_FOR_LIVE } from "../runner";
 
-const auth = makeSoftAuth();
+const auth = testAuth;
 const failed = (r: { gates: Array<{ id: string; ok: boolean }> }) => r.gates.find((g) => !g.ok)?.id;
 
-async function go(o: { anchor?: object | null; doc?: AssertionOpts | "none" | "other-envelope"; ed25519?: boolean; fake?: Partial<FakeOpts>; dry?: boolean; noAnchorFile?: boolean } = {}) {
-  const dir = tmp();
-  const env = makeEnvelope({ evidenceRoot: join(dir, "evidence") });
+async function go(o: { anchor?: object | string | null; doc?: AssertionOpts | "none" | "other-envelope"; ed25519?: boolean; fake?: Partial<FakeOpts>; dry?: boolean; noAnchorFile?: boolean; envSpec?: Parameters<typeof makeEnvelope>[0]; dir?: string } = {}) {
+  const dir = o.dir ?? tmp();
+  const env = makeEnvelope({ evidenceRoot: join(dir, "evidence"), ...o.envSpec });
   const file = writeEnvelope(env);
   const anchorPath = join(dir, "owner-hw-anchor.json");
-  if (!o.noAnchorFile) writeFileSync(anchorPath, JSON.stringify(o.anchor ?? auth.anchor));
+  if (!o.noAnchorFile) writeFileSync(anchorPath, typeof o.anchor === "string" ? o.anchor : JSON.stringify(o.anchor ?? auth.anchor));
   const statePath = join(dir, "state", "hw-signcount.json");
   const ledger = mkLedger();
   const calls: NonNullable<FakeOpts["calls"]> = [];
@@ -76,12 +77,12 @@ describe("hardware approval kind wired into the envelope gate", () => {
     const bad = { ...auth.anchor, rpId: "evil.example.test" };
     const t = await go({ anchor: bad });
     expect(failed(t.r)).toBe("owner-approval");
-    expect(t.r.gates.find((g) => g.id === "owner-approval")?.detail).toMatch(/anchor present but invalid/);
+    expect(t.r.gates.find((g) => g.id === "owner-approval")?.detail).toMatch(/anchor is invalid/);
     // an anchor re-fingerprinted by an attacker with their own key still fails: the assertion is not by that key
     const other = makeSoftAuth();
     const swapped = { ...other.anchor, credentialId: auth.anchor.credentialId };
     swapped.fingerprintSha256 = anchorFingerprint(swapped);
-    expect(failed((await go({ anchor: swapped })).r)).toBe("owner-approval");
+    expect(failed((await go({ anchor: swapped })).r)).toBe("owner-anchor-pin");
   });
 
   it("nothing is consumed or sent when the approval fails: no ledger run, no credential read, no live call", async () => {
@@ -119,13 +120,62 @@ describe("hardware approval kind wired into the envelope gate", () => {
     expect(failed(r)).toBe("ledger-pinned");
   });
 
-  it("without an anchor file the Ed25519 kind still works but is labelled DEV KIND, not an independent approval", async () => {
-    const { r } = await go({ noAnchorFile: true, ed25519: true, doc: "none" });
-    expect(r.status).toBe("PASS");
-    const g = r.gates.find((x) => x.id === "owner-signature");
-    expect(g?.detail).toMatch(/DEV KIND/);
-    expect(g?.detail).toMatch(/NOT an independent approval/);
-    expect(r.gates.some((x) => x.id === "commit-on-main")).toBe(false);
+  it("REQUIRE_HARDWARE_FOR_LIVE is a hard-coded true constant (not read from any file, environment or argument)", () => {
+    expect(REQUIRE_HARDWARE_FOR_LIVE).toBe(true);
+    const src = readFileSync(join(__dirname, "..", "runner.ts"), "utf8");
+    expect(src).toMatch(/export const REQUIRE_HARDWARE_FOR_LIVE: boolean = true;/);
+    expect(src).not.toMatch(/REQUIRE_HARDWARE_FOR_LIVE\s*=\s*(process|d\.|opts|args|JSON|read)/);
+  });
+
+  it("deleting, renaming, blanking or corrupting the anchor BLOCKS a live run; it never downgrades to Ed25519 (even with a valid signature and trust)", async () => {
+    const variants: Array<{ name: string; o: Parameters<typeof go>[0] }> = [
+      { name: "deleted/renamed (file missing)", o: { noAnchorFile: true, ed25519: true } },
+      { name: "blank", o: { anchor: "", ed25519: true } },
+      { name: "not JSON", o: { anchor: "{oops", ed25519: true } },
+      { name: "empty object", o: { anchor: {}, ed25519: true } },
+      { name: "JSON null", o: { anchor: "null", ed25519: true } },
+    ];
+    for (const v of variants) {
+      const { r, ledger, env, calls } = await go(v.o);
+      expect(r.status, v.name).toBe("BLOCKED");
+      expect(failed(r), v.name).toBe("owner-approval");
+      expect(r.gates.some((g) => g.id === "owner-signature"), v.name).toBe(false);
+      expect(ledger.runsStarted(env.envelopeId), v.name).toBe(0);
+      expect(calls.some((c) => c.args[c.args.length - 1] === "--live"), v.name).toBe(false);
+    }
+  });
+
+  it("the anchor fingerprint pinned INSIDE the (hardware-approved) envelope must equal the runner's anchor: a swapped anchor cannot approve an envelope written for another", async () => {
+    const other = makeSoftAuth();
+    // the attacker replaces the anchor with their own (valid, re-fingerprinted) one and signs with their own software key
+    const dir = tmp();
+    const env = makeEnvelope({ evidenceRoot: join(dir, "evidence") }); // pins the OWNER anchor
+    const anchorPath = join(dir, "a.json");
+    writeFileSync(anchorPath, JSON.stringify(other.anchor));
+    const ledger = mkLedger();
+    const r = await runEnvelope(writeEnvelope(env), REPO, {
+      exec: createFakeExec({ commitSha: SHA, repoDir: REPO }, { simulateLive: true }),
+      parentEnv: {},
+      store: () => new MemoryStore(),
+      ledger,
+      now: () => NOW,
+      out: () => {},
+      dry: false,
+      runInstall: true,
+      owner: { trust: null, signature: null, hardware: { doc: makeAssertion(other, env.envelopeSha256, { signCount: 3 }), anchorPath, statePath: join(dir, "s.json"), pins: { ledgerDir: ledger.dir, anchorFile: ledger.anchorFile as string } } },
+    });
+    expect(failed(r)).toBe("owner-anchor-pin");
+    expect(ledger.runsStarted(env.envelopeId)).toBe(0);
+  });
+
+  it("the sign counter is recorded only when the run is consumed: a run blocked by a later gate leaves the state untouched, and the SAME approval works on retry", async () => {
+    const dir = tmp();
+    const blocked = await go({ dir, fake: { notOnMain: true } });
+    expect(failed(blocked.r)).toBe("commit-on-main");
+    expect(existsSync(blocked.statePath)).toBe(false);
+    const ok = await go({ dir });
+    expect(ok.r.status).toBe("PASS");
+    expect(JSON.parse(readFileSync(ok.statePath, "utf8")).byEnvelope[ok.env.envelopeSha256]).toBe(5);
   });
 
   it("dry mode never needs or records a hardware approval, even with the anchor present", async () => {
