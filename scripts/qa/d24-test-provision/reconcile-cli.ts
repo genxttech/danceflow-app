@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { sanitize } from "../d24-m3d-proof/evidence";
-import { parseProofTranscript, parseProviderLog, reconcile } from "./reconcile";
+import { ISO_UTC, MAX_WINDOW_MS, parseProofTranscript, parseProviderLog, reconcile } from "./reconcile";
 
 export const EXIT_CONSISTENT_UNVERIFIED = 10;
 export const EXIT_DISCREPANCIES = 1;
@@ -23,13 +23,13 @@ export function main(argv: string[], out: (s: string) => void): number {
   const ws = get("--window-start");
   const we = get("--window-end");
   if (!t || !p || !ws || !we) { out("usage: --transcript <file> --provider <file> --window-start <ISO-8601 UTC> --window-end <ISO-8601 UTC> (the window is the operator's own run start/end, not taken from the transcript)"); return EXIT_INPUT; }
-  if (Number.isNaN(Date.parse(ws)) || Number.isNaN(Date.parse(we)) || Date.parse(ws) >= Date.parse(we)) { out("window-start/window-end must be ISO-8601 timestamps with start before end"); return EXIT_INPUT; }
+  if (!ISO_UTC.test(ws) || !ISO_UTC.test(we) || Date.parse(ws) >= Date.parse(we) || Date.parse(we) - Date.parse(ws) > MAX_WINDOW_MS) { out("window-start/window-end must be ISO-8601 UTC (Z or +00:00) timestamps, start before end, at most 24 h apart"); return EXIT_INPUT; }
   let sentParsed;
   try { sentParsed = parseProofTranscript(readFileSync(t, "utf8")); } catch { out("transcript file could not be read"); return EXIT_INPUT; }
   let parsed;
   try { parsed = parseProviderLog(JSON.parse(readFileSync(p, "utf8"))); } catch { out("provider file is not valid JSON"); return EXIT_INPUT; }
   if (parsed.problems.length > 0) { for (const x of parsed.problems) out(`INPUT PROBLEM: ${sanitize(x)}`); return EXIT_INPUT; }
-  const r = reconcile(sentParsed.requests, parsed.entries, parsed.provenance, { window: { fromUtc: new Date(ws).toISOString(), toUtc: new Date(we).toISOString() }, unparsedTranscriptLines: sentParsed.unparsed });
+  const r = reconcile(sentParsed.requests, parsed.entries, parsed.provenance, { window: { fromUtc: ws, toUtc: we }, unparsedTranscriptLines: sentParsed.unparsed });
   out(`verdict: ${r.verdict === "CONSISTENT" ? "CONSISTENT_UNVERIFIED" : r.verdict}   independent verification: ${r.independentVerification}`);
   out(`app network requests ${r.counts.sentNetwork}, blocked ${r.counts.sentBlocked}, provider in window ${r.counts.providerInWindow}, matched ${r.counts.matched}`);
   for (const e of r.perEndpoint) out(`  ${e.key}: app ${e.sent} / provider ${e.provider}`);

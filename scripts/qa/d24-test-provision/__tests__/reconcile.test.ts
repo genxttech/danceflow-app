@@ -84,7 +84,7 @@ describe("reconcile", () => {
     expect(r.verdict).toBe("DISCREPANCIES");
   });
   it("transcript lines that fail to parse produce a finding and a non-consistent result", () => {
-    const parsed = parseProofTranscript(" 1. 2026-11-08T10:00:00.000Z GET /v1/account acct=- idem=- -> 200 req=req_s1 {}\n 2. garbled line that is numbered\nCalls used: 2");
+    const parsed = parseProofTranscript(" 1. 2026-11-08T10:00:00.000Z GET /v1/account acct=- idem=- -> 200 req=req_s1 {}\n 2. garbled line that is numbered\nCalls used: 1 of hard cap 40; blocked before network: 0");
     expect(parsed.requests).toHaveLength(1);
     expect(parsed.unparsed).toHaveLength(1);
     const r = reconcile(parsed.requests, [pe(1, 0)], prov, { ...O, unparsedTranscriptLines: parsed.unparsed });
@@ -92,13 +92,40 @@ describe("reconcile", () => {
     expect(r.findings.some((f) => f.kind === "transcript_unparsed")).toBe(true);
   });
   it("a garbled numbered line is flagged even with no Calls-used footer", () => {
-    const p = parseProofTranscript(" 1. 2026-11-08T10:00:00.000Z GET /v1/account acct=- idem=- -> 200 req=req_s1 {}\n 2. 2026-11-08T10:00:01Z GET /v1/x ?? nonsense");
+    const p = parseProofTranscript(" 1. 2026-11-08T10:00:00.000Z GET /v1/account acct=- idem=- -> 200 req=req_s1 {}\n 2. 2026-11-08T10:00:01Z GET /v1/x ?? nonsense\nCalls used: 1 of hard cap 40; blocked before network: 0");
     expect(p.requests).toHaveLength(1);
     expect(p.unparsed).toEqual([expect.stringContaining("nonsense")]);
   });
+  it("N-8: BLOCKED lines are accounted for separately; a correct footer raises no finding", () => {
+    const ok = parseProofTranscript(" 1. 2026-11-08T10:00:00.000Z GET /v1/account acct=- idem=- -> 200 req=req_a {}\n 2. 2026-11-08T10:00:01.000Z POST /v1/invoices/in_1/finalize acct=- idem=- -> BLOCKED req=- {}\n 3. 2026-11-08T10:00:02.000Z POST /v1/x acct=- idem=- -> BLOCKED req=- {}\nCalls used: 1 of hard cap 40; blocked before network: 1");
+    expect(ok.requests).toHaveLength(3);
+    expect(ok.unparsed).toEqual([]);
+  });
+  it("N-8: a missing Calls-used footer is an explicit finding, not a skip", () => {
+    const p = parseProofTranscript(" 1. 2026-11-08T10:00:00.000Z GET /v1/account acct=- idem=- -> 200 req=req_a {}");
+    expect(p.unparsed.join()).toMatch(/no .Calls used. footer/);
+    const r = reconcile(p.requests, [pe(1, 0, { requestId: "req_a" })], prov, { ...O, unparsedTranscriptLines: p.unparsed });
+    expect(r.verdict).toBe("DISCREPANCIES");
+  });
+  it("N-8: network lines must equal Calls used; fewer BLOCKED lines than declared is flagged", () => {
+    const line = " 1. 2026-11-08T10:00:00.000Z GET /v1/account acct=- idem=- -> 200 req=req_a {}";
+    expect(parseProofTranscript(line + "\nCalls used: 2 of hard cap 40; blocked before network: 0").unparsed.join()).toMatch(/network request lines/);
+    expect(parseProofTranscript(line + "\nCalls used: 1 of hard cap 40; blocked before network: 2").unparsed.join()).toMatch(/BLOCKED/);
+    expect(parseProofTranscript(line + "\nCalls used: lots").unparsed.join()).toMatch(/footer/);
+  });
+  it("N-9: the operator window must be ISO UTC, ordered, and at most 24 h", () => {
+    const run = (fromUtc: string, toUtc: string) => reconcile([sent(1, 0)], [pe(1, 1)], prov, { window: { fromUtc, toUtc } });
+    expect(run("2026-11-08T09:58:00Z", "2026-11-08T10:05:00Z").verdict).toBe("CONSISTENT");
+    expect(run("2026-11-08T00:00:00Z", "2026-11-09T00:00:00Z").verdict).toBe("CONSISTENT"); // exactly 24 h
+    expect(run("2026-11-08T00:00:00Z", "2026-11-09T00:00:01Z").verdict).toBe("DISCREPANCIES");
+    expect(run("2026-11-08T10:05:00Z", "2026-11-08T10:05:00Z").verdict).toBe("DISCREPANCIES");
+    expect(run("2026-11-08T09:58:00", "2026-11-08T10:05:00").verdict).toBe("DISCREPANCIES"); // no zone
+    expect(run("2026-11-08T04:58:00-05:00", "2026-11-08T05:05:00-05:00").verdict).toBe("DISCREPANCIES"); // not UTC
+    expect(run("1794218400", "1794218900").verdict).toBe("DISCREPANCIES");
+  });
   it("a declared call count that disagrees with the parsed lines is reported", () => {
-    const p = parseProofTranscript(" 1. 2026-11-08T10:00:00.000Z GET /v1/account acct=- idem=- -> 200 req=req_s1 {}\nCalls used: 3");
-    expect(p.unparsed.join()).toMatch(/Calls used: 3/);
+    const p = parseProofTranscript(" 1. 2026-11-08T10:00:00.000Z GET /v1/account acct=- idem=- -> 200 req=req_s1 {}\nCalls used: 3 of hard cap 40; blocked before network: 0");
+    expect(p.unparsed.join()).toMatch(/network request lines/);
   });
   it("failed 4xx requests match on status; a status disagreement fails", () => {
     const ok = reconcile([sent(1, 0, { status: 403, path: "/v1/balance" })], [pe(1, 1, { status: 403, path: "/v1/balance" })], prov, O);
@@ -158,7 +185,7 @@ describe("idempotencyMatches", () => {
 
 describe("parsers", () => {
   it("parses the proof transcript line format", () => {
-    const text = ` 1. 2026-11-08T10:00:00.000Z GET /v1/account acct=- idem=- -> 200 req=req_a {"id":"acct_x"}\n 2. 2026-11-08T10:00:01.000Z POST /v1/customers acct=acct_abc…yz idem=abcdefghijkl…(30) -> 200 req=req_b replayed {}\n 3. 2026-11-08T10:00:02.000Z POST /v1/invoices/in_1/finalize acct=acct_abc…yz idem=- -> BLOCKED req=- {}\nCalls used: 3`;
+    const text = ` 1. 2026-11-08T10:00:00.000Z GET /v1/account acct=- idem=- -> 200 req=req_a {"id":"acct_x"}\n 2. 2026-11-08T10:00:01.000Z POST /v1/customers acct=acct_abc…yz idem=abcdefghijkl…(30) -> 200 req=req_b replayed {}\n 3. 2026-11-08T10:00:02.000Z POST /v1/invoices/in_1/finalize acct=acct_abc…yz idem=- -> BLOCKED req=- {}\nCalls used: 2 of hard cap 40; blocked before network: 1`;
     const p = parseProofTranscript(text).requests;
     expect(p).toHaveLength(3);
     expect(p[1]).toMatchObject({ method: "POST", requestId: "req_b", replayed: true, stripeAccount: "acct_abc…yz", status: 200 });
@@ -181,7 +208,7 @@ describe("reconcile-cli exit codes", () => {
   const dir = mkdtempSync(join(tmpdir(), "d24rec-"));
   const tx = join(dir, "t.txt");
   const pv = join(dir, "p.json");
-  writeFileSync(tx, " 1. 2026-11-08T10:00:00.000Z GET /v1/account acct=- idem=- -> 200 req=req_a {}\nCalls used: 1");
+  writeFileSync(tx, " 1. 2026-11-08T10:00:00.000Z GET /v1/account acct=- idem=- -> 200 req=req_a {}\nCalls used: 1 of hard cap 40; blocked before network: 0");
   const wrap = (entries: unknown[]) => JSON.stringify({ provenance: prov, entries });
   const entry = { requestId: "req_a", method: "GET", path: "/v1/account", status: 200, createdUtc: "2026-11-08T10:00:01Z" };
   const win = ["--window-start", W.fromUtc, "--window-end", W.toUtc];

@@ -63,6 +63,8 @@ export type ReconcileResult = {
 };
 
 const DEFAULT_MAX_SKEW_MS = 120_000;
+export const MAX_WINDOW_MS = 24 * 3600 * 1000;
+export const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|\+00:00)$/;
 const norm = (p: string) => p.split("?")[0];
 const sameAccount = (a: string | null | undefined, b: string | null | undefined) => {
   const x = !a || a === "-" ? null : a;
@@ -105,8 +107,9 @@ export function reconcile(sentAll: SentRequest[], providerAll: ProviderEntry[], 
   for (const line of opts?.unparsedTranscriptLines ?? []) add({ kind: "transcript_unparsed", severity: "fail", detail: `transcript line could not be parsed and was NOT compared: ${line.slice(0, 120)}` });
   const from = Date.parse(opts?.window?.fromUtc ?? "");
   const to = Date.parse(opts?.window?.toUtc ?? "");
-  if (Number.isNaN(from) || Number.isNaN(to) || from >= to) {
-    add({ kind: "unusable_input", severity: "fail", detail: "an independently supplied run window (start < end, ISO-8601) is required; it is never derived from the transcript" });
+  const w = opts?.window;
+  if (!w || !ISO_UTC.test(w.fromUtc ?? "") || !ISO_UTC.test(w.toUtc ?? "") || Number.isNaN(from) || Number.isNaN(to) || from >= to || to - from > MAX_WINDOW_MS) {
+    add({ kind: "unusable_input", severity: "fail", detail: "an independently supplied run window is required: ISO-8601 UTC (Z or +00:00), start before end, at most 24 h; it is never derived from the transcript" });
     return finish(null, sent, sentBlocked, [], 0, findings);
   }
   if (sent.length === 0) {
@@ -215,10 +218,15 @@ const LINE = /^\s*(\d+)\.\s+(\S+)\s+(GET|POST|DELETE)\s+(\S+)\s+acct=(\S*)\s+ide
 export function parseProofTranscript(text: string): { requests: SentRequest[]; unparsed: string[] } {
   const requests: SentRequest[] = [];
   const unparsed: string[] = [];
-  let declared: number | null = null;
+  let footer: { used: number; blocked: number } | null = null;
+  let footerBad: string | null = null;
   for (const line of text.split(/\r?\n/)) {
-    const calls = /^\s*Calls used:\s*(\d+)/.exec(line);
-    if (calls) declared = Number(calls[1]);
+    if (/^\s*Calls used:/.test(line)) {
+      const f = /^\s*Calls used:\s*(\d+) of hard cap \d+; blocked before network:\s*(\d+)\s*$/.exec(line);
+      if (f) footer = { used: Number(f[1]), blocked: Number(f[2]) };
+      else footerBad = line.trim();
+      continue;
+    }
     const m = LINE.exec(line);
     if (!m) {
       if (/^\s*\d+\.\s/.test(line)) unparsed.push(line.trim()); // looks like a numbered request line but is not in the known format: never dropped silently
@@ -227,7 +235,15 @@ export function parseProofTranscript(text: string): { requests: SentRequest[]; u
     const status = /^\d+$/.test(m[7]) ? Number(m[7]) : (m[7] as "BLOCKED" | "ERROR");
     requests.push({ n: Number(m[1]), atUtc: m[2], method: m[3], path: m[4].split("?")[0], stripeAccount: m[5] === "-" ? undefined : m[5], idempotencyKey: m[6] === "-" ? undefined : m[6], status, requestId: m[8] && m[8] !== "-" ? m[8] : undefined, replayed: m[9] ? true : undefined });
   }
-  if (declared !== null && declared !== requests.length + unparsed.length) unparsed.push(`transcript says "Calls used: ${declared}" but ${requests.length + unparsed.length} request lines were found`);
+  if (footerBad !== null) unparsed.push(`transcript footer not in the expected "Calls used: N of hard cap M; blocked before network: B" format: ${footerBad.slice(0, 120)}`);
+  else if (footer === null) unparsed.push('transcript has no "Calls used" footer: completeness of the transcript cannot be checked');
+  else {
+    // network lines (anything not BLOCKED, ERROR included) are exactly the calls used; BLOCKED lines are at least the declared count (budget refusals are logged as BLOCKED but not counted)
+    const net = requests.filter((r) => r.status !== "BLOCKED").length;
+    const blk = requests.length - net;
+    if (net + 0 !== footer.used) unparsed.push(`footer says ${footer.used} calls used but ${net} network request lines were found`);
+    if (blk < footer.blocked) unparsed.push(`footer says ${footer.blocked} blocked before network but only ${blk} BLOCKED lines were found`);
+  }
   return { requests, unparsed };
 }
 

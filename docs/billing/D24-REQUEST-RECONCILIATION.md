@@ -26,7 +26,7 @@ Therefore: **independent Dashboard/Workbench verification is STILL REQUIRED.** E
 
 `scripts/qa/d24-test-provision/reconcile.ts` (pure; no I/O, no network) compares `SentRequest[]` (parsed from the proof's printed transcript lines, `parseProofTranscript`) with `ProviderEntry[]` from a normalized provider-log file.
 
-Comparison keys, in order: `req_...` request id (primary); method; path (query dropped); HTTP status; `Stripe-Account` scope (masked ids compared by visible prefix/suffix); idempotency key for POSTs (full or the proof's masked `first12…(length)` form); timestamps within `maxSkewMs` (default 120 s); run window = **supplied independently by the operator** (`--window-start`/`--window-end`, required), never derived from the transcript: a truncated transcript would otherwise shrink the window and hide extras.
+Comparison keys, in order: `req_...` request id (primary); method; path (query dropped); HTTP status; `Stripe-Account` scope (masked ids compared by visible prefix/suffix); idempotency key for POSTs (full or the proof's masked `first12…(length)` form); timestamps within `maxSkewMs` (default 120 s); run window = **supplied independently by the operator** (`--window-start`/`--window-end`, required; ISO-8601 UTC with Z or +00:00, start before end, at most 24 h), never derived from the transcript: a truncated transcript would otherwise shrink the window and hide extras.
 
 | Finding | Meaning | Severity |
 |---|---|---|
@@ -34,7 +34,7 @@ Comparison keys, in order: `req_...` request id (primary); method; path (query d
 | `extra_in_provider` | provider shows an in-window request the app did not record (also: a request the app BLOCKED before the network appears at the provider) | fail |
 | `out_of_window_provider` | provider row outside the operator's window: either a request the app never recorded or a filter wider than attested | **fail** |
 | `out_of_window_sent` | transcript entry outside the operator's window | fail |
-| `transcript_unparsed` | a numbered transcript line did not parse, or "Calls used: N" disagrees with the parsed count; the line is reported, never dropped | fail |
+| `transcript_unparsed` | a numbered transcript line did not parse, or the footer `Calls used: U of hard cap N; blocked before network: B` is missing, malformed, or disagrees (network lines must equal U, BLOCKED lines must be at least B); reported, never skipped | fail |
 | `replay_without_original` | a `replayed` transcript line has no already-matched original (same method, path, full idempotency key, different request id); a replay cannot explain, and never absorbs, a provider request | fail |
 | `count_mismatch` | per `METHOD path` counts differ (app vs provider, replays excluded) | fail |
 | `duplicate_in_provider` / `duplicate_in_sent` | same request id twice | fail |
