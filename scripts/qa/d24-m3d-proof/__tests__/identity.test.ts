@@ -62,7 +62,7 @@ describe("identity gate: pinned ids", () => {
 describe("identity gate: reads against the (fake) accounts", () => {
   it("passes when both ids match and the connected account is express", async () => {
     const g = gate({ platformId: PLATFORM, connectedId: CONNECTED });
-    await expect(g.run()).resolves.toEqual({ platformId: PLATFORM, connectedId: CONNECTED, connectedType: "express" });
+    await expect(g.run()).resolves.toEqual({ platformId: PLATFORM, connectedId: CONNECTED, connectedType: "express", connectedFacts: { accountType: "express", model: "legacy_express" } });
     expect(g.f.calls.map((c) => `${c.method} ${c.path}`)).toEqual(["GET /v1/account", `GET /v1/accounts/${CONNECTED}`]);
     expect(g.f.calls.every((c) => c.stripeAccount === undefined)).toBe(true);
   });

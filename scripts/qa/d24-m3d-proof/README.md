@@ -21,7 +21,9 @@ npx tsx scripts/qa/d24-m3d-proof/run.ts --live         # REAL Stripe TEST calls;
    manifest hash. The account's own default version is not readable from the API: the operator records it from the dashboard (the evidence pack carries a reminder).
 3. **Hard cap 40 calls** (`HARD_CALL_CAP`), counted synchronously **including retries and failed attempts** (parallel callers cannot overshoot). Scenario calls stop at 32; the last 8
    are reserved for cleanup. A requested larger budget, NaN or negative value is clamped. The request is copied and frozen before validation.
-4. **Identity gate (`identity.ts`)**: `rk_test_` key only; `GET /v1/account` must equal the pinned sandbox id **and** `GET /v1/accounts/<id>` the pinned connected id (type `express`)
+4. **Identity gate (`identity.ts`)**: `rk_test_` key only; `GET /v1/account` must equal the pinned sandbox id **and** `GET /v1/accounts/<id>` the pinned connected id with **Express dashboard access**: legacy `type: "express"`, or the controller-model equivalent (`type: "none"` whose `controller` is exactly
+   `type=application`, `is_controller=true`, `stripe_dashboard.type=express`, `requirement_collection=stripe`, `losses.payments=application`, `fees.payer` = `application` or `application_express`;
+   any other `none`, standard, custom, or a missing / mistyped controller field is refused; a legacy `express` whose controller reports another dashboard type is refused). The verified enum strings are recorded in the evidence (`connectedAccountVerified`)
    **before any other request can be sent** (the guard refuses every non-identity request until the gate has passed). Every later request must carry `Stripe-Account` equal to the pinned
    connected id (missing, empty, the platform id or another `acct_` is refused before network I/O; the identity reads must carry none). Any `livemode:true` anywhere in a response aborts;
    a hosted-database variable or any live key in the environment refuses the run.
@@ -48,7 +50,7 @@ npx tsx scripts/qa/d24-m3d-proof/run.ts --live         # REAL Stripe TEST calls;
 | Must exist | Who checks | How |
 |---|---|---|
 | A **new** Stripe sandbox named `DanceFlow D24-M3 TEST` (not D7, C6, DanceFlow Dev or production) | owner (MANUAL) | the name is never trusted; only the pinned platform id is, and `GET /v1/account` must return it |
-| Exactly **one connected test account**, type `express`, created with Stripe's test onboarding data | owner (MANUAL) + script | `GET /v1/accounts/<pinned id>` must return that id and `express` |
+| Exactly **one connected test account** with Express dashboard access (legacy `type=express` or the controller-model equivalent), created with Stripe's test onboarding data | owner (MANUAL) + script | `GET /v1/accounts/<pinned id>` must return that id and pass the Express check above |
 | A restricted key `rk_test_…` made for this proof only: Invoices=Write, Customers=Write, connected-account Read, everything else None; no webhook endpoints | owner (MANUAL) | key shape is checked locally; the two expected-403 reads (Transfers, Webhook Endpoints) are checked at run time |
 | The fixture client has **no email** | script | the allow-list refuses any `email` parameter (preflight evaluates this) |
 | Local disposable Postgres with **no published ports** (this revision uses no database) | script | `docker ps --filter label=df-d24-qa=1`: any labelled container with a published port or a network other than `none` is a FAIL; docker unreachable is MANUAL, never "ok" |

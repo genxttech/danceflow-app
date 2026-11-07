@@ -70,7 +70,7 @@ export async function runPreflight(env: Record<string, string | undefined>, dir:
   // what only the owner can confirm; reported as MANUAL, never as passed
   const manual = (id: string, detail: string) => out.push({ id, status: "manual", detail });
   manual("sandbox", `a NEW Stripe sandbox named "${SANDBOX_NAME}" exists, distinct from the D7 and C6 sandboxes, DanceFlow Dev and production (the name is never trusted: only the pinned platform id is)`);
-  manual("connected-account", "exactly ONE connected test account of type express exists in that sandbox, created with Stripe's test onboarding data");
+  manual("connected-account", "exactly ONE connected test account with Express dashboard access exists in that sandbox (legacy type=express, or the controller-model equivalent: type=none with controller type application, stripe_dashboard express, requirement_collection stripe, losses.payments application, fees.payer application or application_express), created with Stripe's test onboarding data");
   manual("key-permissions", "the restricted rk_test_ key was created for this proof only with exactly Invoices=Write, Customers=Write, connected-account Read; everything else None");
   manual("no-webhooks", "the sandbox has no webhook endpoints for this proof; the key cannot create any");
   manual("api-version", `record the account's default API version from the dashboard; the proof sends Stripe-Version ${STRIPE_API_VERSION} on every request regardless`);

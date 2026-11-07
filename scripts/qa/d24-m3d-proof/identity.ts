@@ -58,21 +58,81 @@ export function checkPinnedIds(env: Record<string, string | undefined>): { ok: t
   return { ok: true, expect: { platformAcct, connectedAcct } };
 }
 
+/** What the gate verified about the connected account: enum strings only (every value below was compared against a fixed literal), never free text. */
+export type ConnectedFacts = {
+  accountType: "express" | "none";
+  model: "legacy_express" | "controller_express";
+  controller?: { type: "application"; is_controller: true; stripe_dashboard_type: "express"; requirement_collection: "stripe"; losses_payments: "application"; fees_payer: "application" | "application_express" };
+  /** legacy express only: the dashboard type the account's controller object reported, when it had one */
+  legacyDashboardType?: "express";
+};
+
+const plain = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
+
 /**
- * S0: GET /v1/account must be the pinned sandbox; GET /v1/accounts/<connected> must be the pinned connected account, type express,
- * and must not say livemode:true. Both reads go through the guarded client (allow-list, budget, livemode check).
+ * Pure check of GET /v1/accounts/<connected>. Accepts ONLY an Express-dashboard account:
+ *   (a) legacy type "express" (if a controller object is present and reports a stripe_dashboard.type, that must be "express"), or
+ *   (b) type "none" (controller-model account) whose controller is EXACTLY the Express-equivalent: type application, is_controller true,
+ *       stripe_dashboard.type express, requirement_collection stripe, losses.payments application, fees.payer application | application_express.
+ * Anything else (standard, custom, none with any other / missing / mistyped controller value, unknown or non-string type) is refused. No blanket "none".
+ */
+export function checkConnectedAccount(json: Record<string, unknown> | null | undefined): { ok: true; facts: ConnectedFacts } | { ok: false; reason: string } {
+  const j = json ?? {};
+  const type = j.type;
+  const c = j.controller;
+  if (type === "express") {
+    const legacy: ConnectedFacts = { accountType: "express", model: "legacy_express" };
+    if (c === undefined || c === null) return { ok: true, facts: legacy };
+    if (!plain(c)) return { ok: false, reason: 'connected account type is "express" but its controller is not an object' };
+    const d = c.stripe_dashboard;
+    if (d === undefined || d === null) return { ok: true, facts: legacy };
+    if (!plain(d)) return { ok: false, reason: 'connected account type is "express" but controller.stripe_dashboard is not an object' };
+    if (d.type === undefined) return { ok: true, facts: legacy };
+    if (d.type !== "express") return { ok: false, reason: 'connected account type is "express" but controller.stripe_dashboard.type is not "express"' };
+    return { ok: true, facts: { ...legacy, legacyDashboardType: "express" } };
+  }
+  if (type === "none") {
+    if (!plain(c)) return { ok: false, reason: 'connected account type is "none" and it has no controller object (cannot be shown to be Express-equivalent)' };
+    const dash = plain(c.stripe_dashboard) ? c.stripe_dashboard : null;
+    const losses = plain(c.losses) ? c.losses : null;
+    const fees = plain(c.fees) ? c.fees : null;
+    const checks: Array<[string, boolean]> = [
+      ["controller.type = application", c.type === "application"],
+      ["controller.is_controller = true", c.is_controller === true],
+      ["controller.stripe_dashboard.type = express", dash?.type === "express"],
+      ["controller.requirement_collection = stripe", c.requirement_collection === "stripe"],
+      ["controller.losses.payments = application", losses?.payments === "application"],
+      ["controller.fees.payer = application | application_express", fees?.payer === "application" || fees?.payer === "application_express"],
+    ];
+    const bad = checks.filter(([, ok]) => !ok).map(([n]) => n);
+    if (bad.length > 0) return { ok: false, reason: `connected account type is "none" and its controller is not Express-equivalent (failed: ${bad.join("; ")})` };
+    return {
+      ok: true,
+      facts: {
+        accountType: "none",
+        model: "controller_express",
+        controller: { type: "application", is_controller: true, stripe_dashboard_type: "express", requirement_collection: "stripe", losses_payments: "application", fees_payer: fees?.payer as "application" | "application_express" },
+      },
+    };
+  }
+  return { ok: false, reason: `connected account type is ${typeof type === "string" ? JSON.stringify(type.slice(0, 20)) : "not a string"}, expected an Express-dashboard account (type express, or type none with an Express-equivalent controller)` };
+}
+
+/**
+ * S0: GET /v1/account must be the pinned sandbox; GET /v1/accounts/<connected> must be the pinned connected account, Express-dashboard
+ * (see checkConnectedAccount), and must not say livemode:true. Both reads go through the guarded client (allow-list, budget, livemode check).
  * Returns the evidence on success; throws ProofAbort("identity_mismatch") otherwise.
  */
-export async function runIdentityGate(client: GuardedClient, expect: Expect): Promise<{ platformId: string; connectedId: string; connectedType: string }> {
+export async function runIdentityGate(client: GuardedClient, expect: Expect): Promise<{ platformId: string; connectedId: string; connectedType: string; connectedFacts: ConnectedFacts }> {
   const platform = await client.call({ method: "GET", path: "/v1/account", stripeVersion: STRIPE_API_VERSION });
   const platformId = String(platform.json?.id ?? "");
   if (platformId !== expect.platformAcct) throw client.raise("identity_mismatch", "GET /v1/account returned an id other than the pinned sandbox account");
   const connected = await client.call({ method: "GET", path: `/v1/accounts/${expect.connectedAcct}`, stripeVersion: STRIPE_API_VERSION });
   const connectedId = String(connected.json?.id ?? "");
   if (connectedId !== expect.connectedAcct) throw client.raise("identity_mismatch", "GET /v1/accounts/<connected> returned an id other than the pinned connected account");
-  const connectedType = String(connected.json?.type ?? "");
-  if (connectedType !== "express") throw client.raise("identity_mismatch", `connected account type is "${connectedType}", expected express`);
   if (connected.json?.livemode === true) throw client.raise("livemode_true", "connected account says livemode:true");
+  const verdict = checkConnectedAccount(connected.json);
+  if (!verdict.ok) throw client.raise("identity_mismatch", verdict.reason);
   client.markIdentityVerified(); // only now may any other request be sent
-  return { platformId, connectedId, connectedType };
+  return { platformId, connectedId, connectedType: verdict.facts.accountType, connectedFacts: verdict.facts };
 }
