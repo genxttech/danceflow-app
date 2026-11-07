@@ -54,3 +54,12 @@ export function parseSupportCookie(value: string | null | undefined, userId: str
 export function verifySupportCookie(value: string | null | undefined, userId: string, sessionId: string, nowSeconds = Math.floor(Date.now() / 1000)): string | null {
   return parseSupportCookie(value, userId, sessionId, nowSeconds)?.studioId ?? null;
 }
+
+/** UNAUTHENTICATED hint: the studio id named by a v2-shaped value, or null. It proves nothing and must never grant authority; its only use is to let Exit
+ *  write a revoking exit row when the assurance/claims read needed to authenticate the cookie is unavailable (Exit only reduces privilege). */
+export function supportCookieStudioHint(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const parts = value.split(".");
+  if (parts.length !== 5 || parts[0] !== "v2" || !UUID.test(parts[1]) || !NONCE.test(parts[3])) return null;
+  return parts[1];
+}

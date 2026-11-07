@@ -8,7 +8,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { getVerifiedAal2SessionId, requirePlatformStepUp, stepUpChallengeUrl } from "@/lib/auth/platform-assurance";
 import { recordPlatformSupportEvent, resolveCurrentSupportStudio } from "@/lib/auth/platform-support-audit";
-import { SUPPORT_COOKIE_MAX_AGE_SECONDS, newSupportNonce, signSupportCookie } from "@/lib/auth/platform-support-cookie";
+import { SUPPORT_COOKIE_MAX_AGE_SECONDS, newSupportNonce, signSupportCookie, supportCookieStudioHint } from "@/lib/auth/platform-support-cookie";
 import { linkExistingClientAccount } from "@/lib/student-identity/lifecycle";
 import { getVerifiedEmailForUser, verifiedEmailMatches } from "@/lib/auth/verifiedIdentity";
 import {
@@ -110,7 +110,10 @@ export async function clearStudioContextAction() {
   const admin = await requirePlatformAdmin();
 
   const cookieStore = await cookies();
-  const current = await resolveCurrentSupportStudio(cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value, admin.id);
+  const rawCookie = cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value;
+  // Fall back to the unauthenticated studio hint so a failed claims read or an AAL1 session cannot leave a copied cookie un-revoked: the exit row only
+  // reduces privilege, so it is safe to write for an unverified cookie (the caller is an authenticated platform admin and can only revoke their own context).
+  const current = (await resolveCurrentSupportStudio(rawCookie, admin.id)) ?? supportCookieStudioHint(rawCookie);
   if (current) {
     // The exit row is what REVOKES the cookie (it makes the entry row no longer the latest), so retry once before giving up.
     const recorded = await recordPlatformSupportEvent({ event: "exit", studioId: current, userId: admin.id });

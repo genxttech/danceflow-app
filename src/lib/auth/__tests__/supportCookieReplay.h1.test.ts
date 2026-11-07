@@ -28,6 +28,7 @@ const S2 = "b6000000-0000-4000-8000-000000000032";
 
 let currentUser = ADMIN;
 let currentSession = "sess-1";
+let claimsFail = false;
 let currentAal: "aal1" | "aal2" = "aal2";
 vi.mock("@/lib/auth/platform", () => ({
   requirePlatformAdmin: async () => ({ id: currentUser }),
@@ -39,7 +40,7 @@ const NOW = () => Math.floor(Date.now() / 1000);
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
     auth: {
-      getClaims: async () => ({
+      getClaims: async () => (claimsFail ? { data: null, error: { message: "transient" } } : {
         data: { claims: { sub: currentUser, session_id: currentSession, exp: NOW() + 3000, aal: currentAal, amr: [{ method: currentAal === "aal2" ? "totp" : "password", timestamp: NOW() - 60 }] } },
         error: null,
       }),
@@ -120,6 +121,7 @@ beforeEach(() => {
   currentUser = ADMIN;
   currentSession = "sess-1";
   currentAal = "aal2";
+  claimsFail = false;
 });
 
 describe("support cookie replay after exit", () => {
@@ -150,6 +152,25 @@ describe("support cookie replay after exit", () => {
     await expect(getCurrentStudioContext()).rejects.toThrow("NEXT_REDIRECT:/platform/studios");
     jar.set(COOKIE, second);
     expect(await getCurrentStudioContext()).toMatchObject({ studioId: S1 });
+  });
+});
+
+describe("exit under degraded assurance still revokes", () => {
+  it("H1: exiting while the claims read fails (transient) still writes the exit row, so a copy cannot revive when the session recovers", async () => {
+    const captured = await enter(S1);
+    claimsFail = true;
+    await exit();
+    expect(supportRows().filter((r) => r.route === "platform_support:exit")).toHaveLength(1);
+    claimsFail = false;
+    jar.set(COOKIE, captured);
+    await expect(getCurrentStudioContext()).rejects.toThrow("NEXT_REDIRECT:/platform/studios");
+  });
+
+  it("H1: exiting with a tampered or hand-set cookie writes no exit row", async () => {
+    await enter(S1);
+    jar.set(COOKIE, S1);
+    await exit();
+    expect(supportRows().filter((r) => r.route === "platform_support:exit")).toHaveLength(0);
   });
 });
 
