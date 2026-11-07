@@ -106,27 +106,30 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
     if (abort && !(opts.phase === "cleanup" && !NO_CLEANUP_AFTER.has(abort.code))) throw abort;
   };
   /** One entry per distinct unverifiable create (a lost response, an odd shape, a 5xx...). */
-  const markUncertain = (s: string) => {
-    if (!uncertain.includes(s)) uncertain.push(s);
+  // de-duplicated on the FULL idempotency key + path (the displayed note carries only the masked key, which can collide for same-length keys)
+  const uncertainKeys = new Set<string>();
+  const markUncertain = (s: string, req?: ProofRequest) => {
+    const k = req?.idempotencyKey !== undefined ? `${req.path}\u0000${req.idempotencyKey}` : s;
+    if (uncertainKeys.has(k)) return;
+    uncertainKeys.add(k);
+    uncertain.push(s);
   };
   /**
    * Adds customers / draft invoices a response reports to `seen` (and removes deleted ones). Never aborts.
    * An object is removed ONLY by a DELETE answered 200 whose body says deleted:true for the id that was requested (a 404 or a body naming another id never counts).
    */
-  const track = (b: Record<string, unknown> | null, ctx: { status: number; deleteId?: string; onlyInvoiceId?: string }) => {
-    if (!b) return;
+  const track = (b: Record<string, unknown> | null, ctx: { status: number; deleteId?: string; onlyInvoiceId?: string }): string | null => {
+    if (!b) return null;
     if (b.deleted === true && typeof b.id === "string") {
-      if (ctx.deleteId !== undefined && ctx.status === 200 && b.id === ctx.deleteId) {
-        seen.drafts.delete(b.id);
-        seen.customers.delete(b.id);
-      }
-      return;
+      // the removal is RETURNED, not applied: call() applies it only after every response check passed (an unverified delete stays in remaining*)
+      return ctx.deleteId !== undefined && ctx.status === 200 && b.id === ctx.deleteId ? b.id : null;
     }
     if (b.object === "customer" && typeof b.id === "string") seen.customers.add(b.id);
     if (b.object === "invoice" && typeof b.id === "string" && b.status === "draft" && (ctx.onlyInvoiceId === undefined || b.id === ctx.onlyInvoiceId)) seen.drafts.add(b.id); // an add_lines answer naming a DIFFERENT invoice never becomes deletable
     if (b.object === "list" && Array.isArray(b.data)) {
       for (const d of b.data as Array<Record<string, unknown>>) if (d?.object === "invoice" && typeof d.id === "string" && d.status === "draft") seen.drafts.add(d.id);
     }
+    return null;
   };
   const CREATE_RULES = new Set(["customer.create", "invoice.create_draft", "invoice.add_lines"]);
   const trackCreate = (rule: string, req: ProofRequest, r: ProofResponse) => {
@@ -134,16 +137,16 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
     const note = `${req.path} idem=${maskIdempotencyKey(req.idempotencyKey)}`;
     const id = r.json && typeof r.json.id === "string" ? r.json.id : null;
     // a create answered 2xx must carry a STRING id, whatever else the body looks like (an `object:"list"` body with an array id is not a create result)
-    if (id === null) return void (worthless(r) || markUncertain(`${note} (2xx without a string id)`)); // (worthless() has already recorded the plain cases; this catches the `object:"list"` exemption)
+    if (id === null) return void (worthless(r) || markUncertain(`${note} (2xx without a string id)`, req)); // (worthless() has already recorded the plain cases; this catches the `object:"list"` exemption)
     const shown = (x: unknown) => JSON.stringify(String(x).slice(0, 40));
     if (rule === "customer.create") {
       if (id.startsWith("cus_")) seen.customers.add(id);
-      if (r.json?.object !== "customer" || !id.startsWith("cus_")) markUncertain(`${note} (response shape not recognised: object=${shown(r.json?.object)}, id=${shown(id)})`);
+      if (r.json?.object !== "customer" || !id.startsWith("cus_")) markUncertain(`${note} (response shape not recognised: object=${shown(r.json?.object)}, id=${shown(id)})`, req);
     } else {
       const target = rule === "invoice.add_lines" ? req.path.split("/")[3] : undefined; // add_lines must answer with the invoice it was sent to
       if (id.startsWith("in_") && (target === undefined || id === target)) seen.drafts.add(id); // cleanup will try to delete it; a later non-draft status removes it again below
       if (r.json?.object !== "invoice" || typeof r.json?.status !== "string" || !id.startsWith("in_") || (target !== undefined && id !== target)) {
-        markUncertain(`${note} (response shape not recognised: object=${shown(r.json?.object)}, status=${shown(r.json?.status)}, id=${shown(id)})`);
+        markUncertain(`${note} (response shape not recognised: object=${shown(r.json?.object)}, status=${shown(r.json?.status)}, id=${shown(id)})`, req);
       }
     }
   };
@@ -199,16 +202,16 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
     } catch (err) {
       entry(req, "ERROR", { note: redactText(String((err as Error)?.message ?? err)) });
       // the response was lost: a create may exist at Stripe that we never saw. Cleanup must not claim "empty".
-      if (req.method === "POST") markUncertain(`${req.path} idem=${maskIdempotencyKey(req.idempotencyKey)}`);
+      if (req.method === "POST") markUncertain(`${req.path} idem=${maskIdempotencyKey(req.idempotencyKey)}`, req);
       throw err;
     }
     // only a plain JSON object counts as a body; a scalar / array / anything else is treated as "no usable body" (so a POST is recorded as unverifiable, never a crash)
     if (res.json !== null && (typeof res.json !== "object" || Array.isArray(res.json))) res = { ...res, json: null };
     const e = entry(req, res.status, { requestId: res.requestId ?? "-", replayed: res.replayed ?? null, summary: summarizeBody(res.json), note: opts.note });
     // a create that came back as a gateway error / unparseable body / 2xx without an id may still have been committed at Stripe
-    if (req.method === "POST" && worthless(res)) markUncertain(`${req.path} idem=${maskIdempotencyKey(req.idempotencyKey)} (status ${res.status}, no usable body)`);
+    if (req.method === "POST" && worthless(res)) markUncertain(`${req.path} idem=${maskIdempotencyKey(req.idempotencyKey)} (status ${res.status}, no usable body)`, req);
     // record what Stripe says exists BEFORE any abort below can fire, so cleanup and the forced-exit note always list the ids, even when the response is then rejected
-    track(res.json, { status: res.status, deleteId: req.method === "DELETE" ? req.path.split("/").pop() : undefined, onlyInvoiceId: v.rule === "invoice.add_lines" ? req.path.split("/")[3] : undefined });
+    const removal = track(res.json, { status: res.status, deleteId: req.method === "DELETE" ? req.path.split("/").pop() : undefined, onlyInvoiceId: v.rule === "invoice.add_lines" ? req.path.split("/")[3] : undefined });
     // A create answered with an id is recorded BY THE RULE that sent it (customer.create => cus_, invoice rules => in_), whatever `object` / `status` say: a body
     // that omits or mislabels them must not make a created object invisible. An odd shape also makes the create unverifiable (verifiedEmpty can never be true).
     trackCreate(v.rule, req, res);
@@ -259,6 +262,10 @@ export function createGuardedClient(o: GuardedOptions): GuardedClient {
         if (unexpectedStreak >= 2) return fail("unexpected_4xx_streak", "two consecutive unexpected 4xx responses");
       }
     } else unexpectedStreak = 0;
+    if (removal !== null) {
+      seen.drafts.delete(removal);
+      seen.customers.delete(removal);
+    }
     return res;
   }
 
