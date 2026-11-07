@@ -21,7 +21,7 @@ export function maskIdempotencyKey(k: string | undefined): string {
 
 /** The only response fields that ever reach the transcript; everything else in a Stripe body is dropped. */
 export function summarizeBody(json: Record<string, unknown> | null): Record<string, unknown> {
-  if (!json) return {};
+  if (!json || typeof json !== "object" || Array.isArray(json)) return {};
   const out: Record<string, unknown> = {};
   for (const k of ["id", "object", "livemode", "status", "total", "deleted"] as const) {
     if (k in json) out[k] = json[k];

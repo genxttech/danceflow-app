@@ -71,7 +71,10 @@ npx tsx scripts/qa/d24-m3d-proof/run.ts --live         # REAL Stripe TEST calls;
 * Evidence files are created exclusively (`wx`) in the resolved real directory, JSON first then transcript; if the second cannot be created the first is removed again, so a half pack never claims an outcome.
   `..` segments in the directory are refused. A dry run uses a random run id (a fixed one would make the second dry run into the same folder fail by design).
 * Ids Stripe reports are recorded **before** any post-send abort (a response that is then rejected for a missing `Stripe-Version`, a wrong version or `livemode:true` still has its customer/draft id listed
-  in the cleanup report and the forced-exit note). A missing `Stripe-Version` on any response aborts the run with no cleanup call (strict by design; the ids stay listed).
+  in the cleanup report and the forced-exit note). A create is also recorded **by the rule that sent it** (a `customer.create` answered with an id is a customer, an invoice create/add_lines answered with an id is an
+  invoice candidate) even if the body omits or mislabels `object` / `status`; such an odd shape also makes the run unverifiable. A body that is not a plain JSON object (a number, string, array) is treated as "no usable
+  body", so a POST answered that way is recorded as unverifiable. A missing `Stripe-Version` on a 2xx/4xx response aborts the run with no cleanup call (strict by design; the ids stay listed); on a 429 or a 5xx (an edge or
+  gateway response) it follows the 429/5xx rules, which keep cleanup possible. Cleanup lists an object as deleted only when Stripe's answer says `deleted:true`.
 * Cleanup's read-back of each customer's invoices must succeed (HTTP 200, a list, no further pages) and be empty; otherwise that customer is **not deleted**, the run is `FAILED` and the reason is printed.
 * Success needs everything: the run prints `OUTCOME: OK` and exits 0 only if nothing aborted, every scenario check passed **and** cleanup verified an empty account (not skipped, not interrupted, nothing
   unverifiable). Otherwise `OUTCOME: FAILED`, exit 1, and the evidence carries the same outcome.
