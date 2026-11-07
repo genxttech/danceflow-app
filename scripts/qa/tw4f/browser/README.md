@@ -68,3 +68,7 @@ New in this round: the last-credential rule (a bootstrapped or installed key has
 ## Base c5483deb, monitor #391 f8ebb68b
 
 Scenario 13: 13 compromise reports through the real form yield ONE freeze, at most 10 audited repeat rows per administrator and hour plus ONE audited rate-limited row, and a freeze right after the thaw is immediate (never limited). Virtual authenticators only: no hardware-compatibility claim.
+
+## Base 20596712 (+ #391 f8ebb68b): forged signatures (scenario 14)
+
+A signature corrupted in flight (the server-action body is rewritten in the browser) on authorize, thaw, ordinary-key retire and recovery-key retire gives the plain sentence "The database refused ...: signature does not verify. Nothing changed.", one `assertion_rejected` audit row each and no `integrity_failure` row or security event; the genuine assertion that follows succeeds. Subset run (scenarios 1, 2, 4, 5, 14): `results/d4-1/next-e2e-run-subset.md`. Virtual authenticators only: no hardware-token compatibility claim.

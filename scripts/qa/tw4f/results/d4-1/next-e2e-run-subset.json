@@ -1,0 +1,765 @@
+{
+  "meta": {
+    "when": "2026-11-07T05:09:31.000Z",
+    "branch": "claude/d4-2-price-next-e2e",
+    "head": "d16a951ec114b7cceb0cc74cfd148497d089b1e5",
+    "dirty": false,
+    "node": "v24.14.1",
+    "chromium": "151.0.7922.34",
+    "pgImage": "df-isoqa/base:20261119092100",
+    "app": "next build + next start (Turbopack)",
+    "appOrigin": "http://localhost:3417",
+    "migrations": 59,
+    "lastMigration": "20270210110000_twilio_price_monitor.sql",
+    "crashed": null
+  },
+  "totals": {
+    "PASS": 72,
+    "FAIL": 0,
+    "BLOCKED": 1
+  },
+  "byScenario": {
+    "1": {
+      "PASS": 11,
+      "FAIL": 0,
+      "BLOCKED": 1
+    },
+    "2": {
+      "PASS": 19,
+      "FAIL": 0,
+      "BLOCKED": 0
+    },
+    "4": {
+      "PASS": 13,
+      "FAIL": 0,
+      "BLOCKED": 0
+    },
+    "5": {
+      "PASS": 15,
+      "FAIL": 0,
+      "BLOCKED": 0
+    },
+    "14": {
+      "PASS": 9,
+      "FAIL": 0,
+      "BLOCKED": 0
+    },
+    "0 setup": {
+      "PASS": 5,
+      "FAIL": 0,
+      "BLOCKED": 0
+    }
+  },
+  "results": [
+    {
+      "scenario": "0 setup",
+      "name": "login + TOTP challenge through the real pages (session 1)",
+      "status": "PASS",
+      "note": "http://localhost:3417/platform/sms"
+    },
+    {
+      "scenario": "0 setup",
+      "name": "login + TOTP challenge through the real pages (session 2, separate session)",
+      "status": "PASS",
+      "note": "http://localhost:3417/platform/sms"
+    },
+    {
+      "scenario": "0 setup",
+      "name": "two distinct GoTrue sessions exist",
+      "status": "PASS",
+      "note": "3 sessions"
+    },
+    {
+      "scenario": "0 setup",
+      "name": "config defaults: single_owner, 24 h cooling-off, backup-eligible refused, monitoring not expected",
+      "status": "PASS",
+      "note": "single_owner"
+    },
+    {
+      "scenario": "0 setup",
+      "name": "the keys panel is rendered by the Next page (no credentials yet)",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "scenario": "1",
+      "name": "UI before any key exists: enrol is refused with a clear sentence and creates nothing",
+      "status": "PASS",
+      "note": "The action failed. Nothing changed; reload and check the current state before trying again."
+    },
+    {
+      "scenario": "1",
+      "name": "owner bootstrap installs primary + recovery in one transaction (RP localhost, origin of the Next host)",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "scenario": "1",
+      "name": "the panel's role list offers no 'recovery' (a recovery key is never enrolled through the UI)",
+      "status": "PASS",
+      "note": "spare,primary"
+    },
+    {
+      "scenario": "1",
+      "name": "first primary enrolment THROUGH THE UI",
+      "status": "BLOCKED",
+      "note": "by design there is no UI path: Request a new key needs an existing key to sign (priceCredBegin/priceCredEnroll); the first key is the owner runbook bootstrap (_tw4price_bootstrap). Verified above that the UI refuses cleanly with no key."
+    },
+    {
+      "scenario": "1",
+      "name": "spare request via UI is PENDING (not active)",
+      "status": "PASS",
+      "note": "Requested. The new key becomes usable only after the delay; you can cancel it until then."
+    },
+    {
+      "scenario": "1",
+      "name": "Apply before the delay is refused with a clear sentence and the key stays pending",
+      "status": "PASS",
+      "note": "The 24-hour cooling-off of this proposal has not ended yet. Nothing changed."
+    },
+    {
+      "scenario": "1",
+      "name": "spare applied through the UI after the aged database clock",
+      "status": "PASS",
+      "note": "Done: applied."
+    },
+    {
+      "scenario": "1",
+      "name": "last-credential rule: the spare cannot retire itself while the bootstrap primary has no enrolment proof",
+      "status": "PASS",
+      "note": "The database refused the input (check the kind, the amounts, the lengths, and that the proposal differs from the active price). Nothing changed."
+    },
+    {
+      "scenario": "1",
+      "name": "owner-level enrolment proof: the real authenticator attests the bootstrap primary and the installed recovery key",
+      "status": "PASS",
+      "note": "attested / attested"
+    },
+    {
+      "scenario": "1",
+      "name": "policy UI: the recovery row offers ONLY 'Retire the recovery key'; ordinary rows offer 'Retire this key' and 'Evict with the recovery key'",
+      "status": "PASS",
+      "note": "[[\"Retire the recovery key (final)\"],[\"Retire this key (touch this key, final)\",\"Evict with the recovery key (final)\"]]"
+    },
+    {
+      "scenario": "1",
+      "name": "three-credential set: primary (owner-level) + spare (UI, delayed) + recovery (owner-level)",
+      "status": "PASS",
+      "note": "primary:primary,recovery one:recovery,spare one:spare"
+    },
+    {
+      "scenario": "1",
+      "name": "the audit holds the credential_change_pending and credential_change_applied events",
+      "status": "PASS",
+      "note": "applied=1 pending=1"
+    },
+    {
+      "scenario": "2",
+      "name": "propose through the UI form (aal2 + fresh TOTP, session 1)",
+      "status": "PASS",
+      "note": "Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed."
+    },
+    {
+      "scenario": "2",
+      "name": "recorded as a single-owner proposal v1 with a 24 h cooling-off, price untouched",
+      "status": "PASS",
+      "note": "pending|owner|v1|425"
+    },
+    {
+      "scenario": "2",
+      "name": "the PROPOSING session is refused (no challenge summary)",
+      "status": "PASS",
+      "note": "Not allowed. Price changes need a registered administrator in a second-factor session; publication also needs a different session and the hardware key, and is refused while prices are suspended. Only an active platform administrator can do this, and a price change can never be approved by the admini"
+    },
+    {
+      "scenario": "2",
+      "name": "a second session is refused inside the cooling-off (no challenge)",
+      "status": "PASS",
+      "note": "The 24-hour cooling-off of this proposal has not ended yet. Nothing changed."
+    },
+    {
+      "scenario": "2",
+      "name": "after the (database-clock) cooling-off the separate session gets the challenge with the exact summary from the database",
+      "status": "PASS",
+      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: none to $4.25\nDanceFlow provider cost: none to $1.15\nDescription: browser price one\nFingerprint: 288a2409e4daf269"
+    },
+    {
+      "scenario": "2",
+      "name": "an authenticator holding ONLY the recovery key cannot sign a price (the recovery key is not offered)",
+      "status": "PASS",
+      "note": "The authenticator did not sign (cancelled, not available or not allowed). Nothing changed."
+    },
+    {
+      "scenario": "2",
+      "name": "authorize with the primary key: the price is published",
+      "status": "PASS",
+      "note": "Authorized. The new price is published."
+    },
+    {
+      "scenario": "2",
+      "name": "assertion profile (default virtual authenticator): UP and UV set, backup flags (BE/BS) clear",
+      "status": "PASS",
+      "note": "flags=0x5"
+    },
+    {
+      "scenario": "2",
+      "name": "REPLAY of the captured server-action request publishes nothing and applies once",
+      "status": "PASS",
+      "note": "200 0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"eB3nJ_UyBuD2zaC6-C6mE\"}\n1:{\"ok\":true,\"data\":{\"status\":\"refused\",\"reason\":\"this price proposal is already applied and c"
+    },
+    {
+      "scenario": "2",
+      "name": "the price flash cookie (set by the propose action) is HttpOnly, SameSite=Strict, path /platform/sms, lives <= 60 s",
+      "status": "PASS",
+      "note": "{\"httpOnly\":true,\"sameSite\":\"Strict\",\"path\":\"/platform/sms\",\"secure\":true,\"ttl\":45}"
+    },
+    {
+      "scenario": "2",
+      "name": "second proposal recorded",
+      "status": "PASS",
+      "note": "Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed."
+    },
+    {
+      "scenario": "2",
+      "name": "challenge issued for v1 of the second proposal",
+      "status": "PASS",
+      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: $4.25 to $5.10\nDanceFlow provider cost: $1.15 to $1.15\nDescription: browser price two\nFingerprint: 86255f520ee199eb"
+    },
+    {
+      "scenario": "2",
+      "name": "the signed finish request was held in the browser (signature over v1 captured)",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "scenario": "2",
+      "name": "revise through the UI voids v1 and creates v2",
+      "status": "PASS",
+      "note": "Revised (version 2). The earlier proposal and any signature over it are void and the 24-hour cooling-off starts again."
+    },
+    {
+      "scenario": "2",
+      "name": "v2 restarts the 24 h cooling-off and the old request is no longer pending",
+      "status": "PASS",
+      "note": "invalidated|owner|v1|510 / pending|owner|v2|520"
+    },
+    {
+      "scenario": "2",
+      "name": "the pre-revision signature is REFUSED by the database and publishes nothing",
+      "status": "PASS",
+      "note": "The database refused the signature: this price proposal is already invalidated and cannot be authorized. Nothing changed."
+    },
+    {
+      "scenario": "2",
+      "name": "replaying the v1 signature again is also refused",
+      "status": "PASS",
+      "note": "0:{\"a\":\"$@1\",\"f\":\"\",\"q\":\"\",\"i\":false,\"b\":\"eB3nJ_UyBuD2zaC6-C6mE\"}\n1:{\"ok\":true,\"data\":{\"status\":\"refused\",\"reason\":\"this"
+    },
+    {
+      "scenario": "2",
+      "name": "v2 cannot be authorized inside its restarted cooling-off",
+      "status": "PASS",
+      "note": "The 24-hour cooling-off of this proposal has not ended yet. Nothing changed."
+    },
+    {
+      "scenario": "2",
+      "name": "after the new cooling-off v2 (5.20) is authorized and published",
+      "status": "PASS",
+      "note": "Authorized. The new price is published."
+    },
+    {
+      "scenario": "4",
+      "name": "policy: the PRIMARY key cannot retire the spare (a key retires only itself)",
+      "status": "PASS",
+      "note": "The authenticator did not sign or the request failed. Nothing changed."
+    },
+    {
+      "scenario": "4",
+      "name": "revoke through the UI is immediate and final",
+      "status": "PASS",
+      "note": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
+    },
+    {
+      "scenario": "4",
+      "name": "no cancel / undo control exists for a revoked key (no row, no pending change, no Cancel button)",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "scenario": "4",
+      "name": "the database exposes no cancel / undo / reinstate function for a revocation",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "scenario": "4",
+      "name": "second spare enrolled through the UI",
+      "status": "PASS",
+      "note": "Done: applied."
+    },
+    {
+      "scenario": "4",
+      "name": "an ordinary (primary) key is NOT offered for retiring the recovery key: only the recovery key can retire itself",
+      "status": "PASS",
+      "note": "The authenticator did not sign or the request failed. Nothing changed."
+    },
+    {
+      "scenario": "4",
+      "name": "the recovery key retires itself through the UI (immediate, final)",
+      "status": "PASS",
+      "note": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
+    },
+    {
+      "scenario": "4",
+      "name": "a new key is requested with the SPARE key's signature (pending)",
+      "status": "PASS",
+      "note": "Requested. The new key becomes usable only after the delay; you can cancel it until then."
+    },
+    {
+      "scenario": "4",
+      "name": "challenge issued while spare two is still active (it is offered)",
+      "status": "PASS",
+      "note": "Scope: studio_sms_price_list; price: number; proposal version 1\nCustomer price: $5.20 to $6.00\nDanceFlow provider cost: $1.15 to $1.15\nDescription: revoked signer price\nFingerprint: e16d5065fccf2c4a"
+    },
+    {
+      "scenario": "4",
+      "name": "spare two revoked via the UI between the challenge and the signature",
+      "status": "PASS",
+      "note": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
+    },
+    {
+      "scenario": "4",
+      "name": "the revoked key's REAL signature on the already-issued challenge is rejected, nothing published",
+      "status": "PASS",
+      "note": "The database refused the signature: unknown or revoked credential. Nothing changed."
+    },
+    {
+      "scenario": "4",
+      "name": "the pending enrolment authorized by the now-revoked key is dead (voided, or Apply refused); the key never becomes active",
+      "status": "PASS",
+      "note": "change status before apply: cancelled; apply: NO ROW (TimeoutError: locator.click: Timeout 300)"
+    },
+    {
+      "scenario": "4",
+      "name": "a fresh recovery key is enrolled again for the following scenarios",
+      "status": "PASS",
+      "note": "primary:primary,recovery two:recovery"
+    },
+    {
+      "scenario": "5",
+      "name": "freeze through the UI (aal2 session)",
+      "status": "PASS",
+      "note": "Price publication is suspended. It publishes nothing; lifting the suspension needs the hardware key."
+    },
+    {
+      "scenario": "5",
+      "name": "propose while frozen is refused with a clear message",
+      "status": "PASS",
+      "note": "Not allowed. Price changes need a registered administrator in a second-factor session; publication also needs a different session and the hardware key, and is refused while prices are suspended. Only an active platform administrator can do this, and a price change can never be approved by the admini"
+    },
+    {
+      "scenario": "5",
+      "name": "the page shows the suspension banner and the primary key lifts it",
+      "status": "PASS",
+      "note": "Publication resumed."
+    },
+    {
+      "scenario": "5",
+      "name": "freeze with the RECOVERY key through the UI",
+      "status": "PASS",
+      "note": "Publication is suspended."
+    },
+    {
+      "scenario": "5",
+      "name": "ordinary thaw is refused during a recovery freeze/hold",
+      "status": "PASS",
+      "note": "Not allowed. Price changes need a registered administrator in a second-factor session; publication also needs a different session and the hardware key, and is refused while prices are suspended. Only an active platform administrator can do this, and a price change can never be approved by the admini"
+    },
+    {
+      "scenario": "5",
+      "name": "an ordinary key cannot revoke the recovery key (stays active)",
+      "status": "PASS",
+      "note": "The authenticator did not sign or the request failed. Nothing changed."
+    },
+    {
+      "scenario": "5",
+      "name": "recovery enrolment through the UI is pending and suspends publication",
+      "status": "PASS",
+      "note": "Recovery requested. It completes only after the long delay, raises high-severity alerts, and only the recovery key can cancel it. (suspended=true)"
+    },
+    {
+      "scenario": "5",
+      "name": "a primary key cannot cancel the recovery enrolment (not offered / refused)",
+      "status": "PASS",
+      "note": "The authenticator did not sign or the request failed. Nothing changed."
+    },
+    {
+      "scenario": "5",
+      "name": "the recovery key cancels the recovery enrolment",
+      "status": "PASS",
+      "note": "Cancelled."
+    },
+    {
+      "scenario": "5",
+      "name": "recovery restarted (new key), pending with the long delay",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "scenario": "5",
+      "name": "apply before the recovery delay is refused",
+      "status": "PASS",
+      "note": "The 24-hour cooling-off of this proposal has not ended yet. Nothing changed."
+    },
+    {
+      "scenario": "5",
+      "name": "after the delay the recovery completes and replaces the whole set",
+      "status": "PASS",
+      "note": "Done: applied. / recovered two:primary"
+    },
+    {
+      "scenario": "5",
+      "name": "suspension after completed recovery is lifted with the recovered primary",
+      "status": "PASS",
+      "note": "Publication resumed."
+    },
+    {
+      "scenario": "5",
+      "name": "the recovered primary authorizes a price from a separate session",
+      "status": "PASS",
+      "note": "Authorized. The new price is published."
+    },
+    {
+      "scenario": "5",
+      "name": "the audit holds recovery events",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "scenario": "14",
+      "name": "forged signature on AUTHORIZE (corrupted in flight): a plain refusal sentence, nothing published",
+      "status": "PASS",
+      "note": "The database refused the signature: signature does not verify. Nothing changed."
+    },
+    {
+      "scenario": "14",
+      "name": "forged signature on authorize: one assertion_rejected row, NO integrity_failure row and NO integrity security event",
+      "status": "PASS",
+      "note": "[{\"integrity\":0,\"rejected\":1,\"events\":0},{\"integrity\":0,\"rejected\":2,\"events\":0}]"
+    },
+    {
+      "scenario": "14",
+      "name": "the genuine assertion that follows is accepted (the forgery did not touch the key's counter)",
+      "status": "PASS",
+      "note": "Authorized. The new price is published."
+    },
+    {
+      "scenario": "14",
+      "name": "forged signature on THAW: plain refusal, still frozen, no integrity alert",
+      "status": "PASS",
+      "note": "The database refused: signature does not verify. Nothing changed. [{\"integrity\":0,\"rejected\":2,\"events\":0},{\"integrity\":0,\"rejected\":3,\"events\":0}]"
+    },
+    {
+      "scenario": "14",
+      "name": "the genuine thaw then succeeds",
+      "status": "PASS",
+      "note": "Publication resumed."
+    },
+    {
+      "scenario": "14",
+      "name": "forged signature on RETIRE (credential revoke): plain refusal, key stays active, no integrity alert",
+      "status": "PASS",
+      "note": "The database refused: signature does not verify. Nothing changed. [{\"integrity\":0,\"rejected\":3,\"events\":0},{\"integrity\":0,\"rejected\":4,\"events\":0}]"
+    },
+    {
+      "scenario": "14",
+      "name": "the genuine retire then succeeds",
+      "status": "PASS",
+      "note": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
+    },
+    {
+      "scenario": "14",
+      "name": "forged signature on RECOVERY revoke: plain refusal, recovery key stays active, no integrity alert",
+      "status": "PASS",
+      "note": "The database refused: signature does not verify. Nothing changed. [{\"integrity\":0,\"rejected\":4,\"events\":0},{\"integrity\":0,\"rejected\":5,\"events\":0}]"
+    },
+    {
+      "scenario": "14",
+      "name": "the genuine recovery revoke then succeeds",
+      "status": "PASS",
+      "note": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
+    }
+  ],
+  "messages": [
+    {
+      "scenario": "1",
+      "where": "keys",
+      "text": "The action failed. Nothing changed; reload and check the current state before trying again."
+    },
+    {
+      "scenario": "1",
+      "where": "keys",
+      "text": "Requested. The new key becomes usable only after the delay; you can cancel it until then."
+    },
+    {
+      "scenario": "1",
+      "where": "keys",
+      "text": "The 24-hour cooling-off of this proposal has not ended yet. Nothing changed."
+    },
+    {
+      "scenario": "1",
+      "where": "keys",
+      "text": "Done: applied."
+    },
+    {
+      "scenario": "1",
+      "where": "keys",
+      "text": "The database refused the input (check the kind, the amounts, the lengths, and that the proposal differs from the active price). Nothing changed."
+    },
+    {
+      "scenario": "2",
+      "where": "flash",
+      "text": "Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed."
+    },
+    {
+      "scenario": "2",
+      "where": "authorize",
+      "text": "Not allowed. Price changes need a registered administrator in a second-factor session; publication also needs a different session and the hardware key, and is refused while prices are suspended. Only an active platform administrator can do this, and a price change can never be approved by the administrator who proposed it. Nothing changed."
+    },
+    {
+      "scenario": "2",
+      "where": "authorize",
+      "text": "The 24-hour cooling-off of this proposal has not ended yet. Nothing changed."
+    },
+    {
+      "scenario": "2",
+      "where": "authorize",
+      "text": "The authenticator did not sign (cancelled, not available or not allowed). Nothing changed."
+    },
+    {
+      "scenario": "2",
+      "where": "authorize",
+      "text": "Authorized. The new price is published."
+    },
+    {
+      "scenario": "2",
+      "where": "flash",
+      "text": "Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed."
+    },
+    {
+      "scenario": "2",
+      "where": "flash",
+      "text": "Revised (version 2). The earlier proposal and any signature over it are void and the 24-hour cooling-off starts again."
+    },
+    {
+      "scenario": "2",
+      "where": "authorize",
+      "text": "The database refused the signature: this price proposal is already invalidated and cannot be authorized. Nothing changed."
+    },
+    {
+      "scenario": "2",
+      "where": "authorize",
+      "text": "The 24-hour cooling-off of this proposal has not ended yet. Nothing changed."
+    },
+    {
+      "scenario": "2",
+      "where": "authorize",
+      "text": "Authorized. The new price is published."
+    },
+    {
+      "scenario": "4",
+      "where": "keys",
+      "text": "The authenticator did not sign or the request failed. Nothing changed."
+    },
+    {
+      "scenario": "4",
+      "where": "keys",
+      "text": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
+    },
+    {
+      "scenario": "4",
+      "where": "keys",
+      "text": "Requested. The new key becomes usable only after the delay; you can cancel it until then."
+    },
+    {
+      "scenario": "4",
+      "where": "keys",
+      "text": "The 24-hour cooling-off of this proposal has not ended yet. Nothing changed."
+    },
+    {
+      "scenario": "4",
+      "where": "keys",
+      "text": "Done: applied."
+    },
+    {
+      "scenario": "4",
+      "where": "keys",
+      "text": "The authenticator did not sign or the request failed. Nothing changed."
+    },
+    {
+      "scenario": "4",
+      "where": "keys",
+      "text": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
+    },
+    {
+      "scenario": "4",
+      "where": "keys",
+      "text": "Requested. The new key becomes usable only after the delay; you can cancel it until then."
+    },
+    {
+      "scenario": "4",
+      "where": "flash",
+      "text": "Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed."
+    },
+    {
+      "scenario": "4",
+      "where": "keys",
+      "text": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
+    },
+    {
+      "scenario": "4",
+      "where": "authorize",
+      "text": "The database refused the signature: unknown or revoked credential. Nothing changed."
+    },
+    {
+      "scenario": "5",
+      "where": "flash",
+      "text": "Price publication is suspended. It publishes nothing; lifting the suspension needs the hardware key."
+    },
+    {
+      "scenario": "5",
+      "where": "flash",
+      "text": "Not allowed. Price changes need a registered administrator in a second-factor session; publication also needs a different session and the hardware key, and is refused while prices are suspended. Only an active platform administrator can do this, and a price change can never be approved by the administrator who proposed it. Nothing changed."
+    },
+    {
+      "scenario": "5",
+      "where": "keys",
+      "text": "Publication resumed."
+    },
+    {
+      "scenario": "5",
+      "where": "keys",
+      "text": "Publication is suspended."
+    },
+    {
+      "scenario": "5",
+      "where": "keys",
+      "text": "Not allowed. Price changes need a registered administrator in a second-factor session; publication also needs a different session and the hardware key, and is refused while prices are suspended. Only an active platform administrator can do this, and a price change can never be approved by the administrator who proposed it. Nothing changed."
+    },
+    {
+      "scenario": "5",
+      "where": "keys",
+      "text": "The authenticator did not sign or the request failed. Nothing changed."
+    },
+    {
+      "scenario": "5",
+      "where": "keys",
+      "text": "Recovery requested. It completes only after the long delay, raises high-severity alerts, and only the recovery key can cancel it."
+    },
+    {
+      "scenario": "5",
+      "where": "keys",
+      "text": "The authenticator did not sign or the request failed. Nothing changed."
+    },
+    {
+      "scenario": "5",
+      "where": "keys",
+      "text": "Cancelled."
+    },
+    {
+      "scenario": "5",
+      "where": "keys",
+      "text": "Recovery requested. It completes only after the long delay, raises high-severity alerts, and only the recovery key can cancel it."
+    },
+    {
+      "scenario": "5",
+      "where": "keys",
+      "text": "The 24-hour cooling-off of this proposal has not ended yet. Nothing changed."
+    },
+    {
+      "scenario": "5",
+      "where": "keys",
+      "text": "Done: applied."
+    },
+    {
+      "scenario": "5",
+      "where": "keys",
+      "text": "Publication resumed."
+    },
+    {
+      "scenario": "5",
+      "where": "flash",
+      "text": "Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed."
+    },
+    {
+      "scenario": "5",
+      "where": "authorize",
+      "text": "Authorized. The new price is published."
+    },
+    {
+      "scenario": "14",
+      "where": "flash",
+      "text": "Proposal recorded. A different platform administrator must approve it within 24 hours; no price has changed."
+    },
+    {
+      "scenario": "14",
+      "where": "authorize",
+      "text": "The database refused the signature: signature does not verify. Nothing changed."
+    },
+    {
+      "scenario": "14",
+      "where": "authorize",
+      "text": "Authorized. The new price is published."
+    },
+    {
+      "scenario": "14",
+      "where": "flash",
+      "text": "Price publication is suspended. It publishes nothing; lifting the suspension needs the hardware key."
+    },
+    {
+      "scenario": "14",
+      "where": "keys",
+      "text": "The database refused: signature does not verify. Nothing changed."
+    },
+    {
+      "scenario": "14",
+      "where": "keys",
+      "text": "Publication resumed."
+    },
+    {
+      "scenario": "14",
+      "where": "keys",
+      "text": "Requested. The new key becomes usable only after the delay; you can cancel it until then."
+    },
+    {
+      "scenario": "14",
+      "where": "keys",
+      "text": "The 24-hour cooling-off of this proposal has not ended yet. Nothing changed."
+    },
+    {
+      "scenario": "14",
+      "where": "keys",
+      "text": "Done: applied."
+    },
+    {
+      "scenario": "14",
+      "where": "keys",
+      "text": "The database refused: signature does not verify. Nothing changed."
+    },
+    {
+      "scenario": "14",
+      "where": "keys",
+      "text": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
+    },
+    {
+      "scenario": "14",
+      "where": "keys",
+      "text": "The database refused: signature does not verify. Nothing changed."
+    },
+    {
+      "scenario": "14",
+      "where": "keys",
+      "text": "Revoked. This takes effect immediately and cannot be undone: a mistaken revocation is repaired only by enrolling a new key."
+    }
+  ]
+}

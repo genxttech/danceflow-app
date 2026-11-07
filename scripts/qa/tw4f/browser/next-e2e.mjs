@@ -926,6 +926,90 @@ async function sc13() {
   check("left unfrozen", B.cfg("frozen") === "false");
 }
 
+// ---------------------------------------------------------------------------------------------------------------- 14 forged-signature assertions: a plain refusal, no integrity alert
+/** corrupt the signature of the NEXT server action that carries one (the bytes stay a well-formed base64url string) */
+async function armForge(S) {
+  let done = false;
+  const h = async (route) => {
+    const req = route.request();
+    const pd = req.postData() ?? "";
+    if (!done && req.headers()["next-action"] && /"(signature|bySig)":"/.test(pd)) {
+      done = true;
+      const forged = pd.replace(/("(?:signature|bySig)":")([^"]+)"/, (m, a, b) => `${a}${b.slice(0, 30)}${b[30] === "A" ? "B" : "A"}${b.slice(31)}"`);
+      return route.continue({ postData: forged });
+    }
+    return route.continue();
+  };
+  await S.page.route("**/platform/sms*", h);
+  return async () => { await S.page.unroute("**/platform/sms*", h); return done; };
+}
+async function sc14() {
+  scn(14);
+  const { s1, s2 } = ctx;
+  const P = ctx.prim;
+  const snap = () => ({ integrity: B.audit("integrity_failure"), rejected: B.audit("assertion_rejected"), events: Number(q("select coalesce((select count(*) from public.studio_sms_price_security_events where kind ~ 'integrity'), 0)")) });
+  const plain = (m) => !!m && /refused|did not sign|Nothing changed/i.test(m) && !/integrity|cloned|incident|alert/i.test(m);
+  const noAlert = (a, b) => b.integrity === a.integrity && b.events === a.events && b.rejected === a.rejected + 1;
+  // authorize
+  await fresh(s1);
+  await B.propose(s1, "number", "13.00", "1.15", "forged signature price", "a written reason for the forged signature check");
+  const rid = B.latestRequest();
+  B.ageRequests(25);
+  await B.only(s2, [P]);
+  await B.authorizeBegin(s2, rid);
+  const off1 = await armForge(s2);
+  const a0 = snap();
+  await B.signClick(s2, rid);
+  const m1 = await B.signMessage(s2, rid);
+  const was1 = await off1();
+  const a1 = snap();
+  check("forged signature on AUTHORIZE (corrupted in flight): a plain refusal sentence, nothing published", was1 && plain(m1) && !/Authorized/.test(m1) && B.activePrice("number") !== "1300", m1);
+  check("forged signature on authorize: one assertion_rejected row, NO integrity_failure row and NO integrity security event", noAlert(a0, a1), JSON.stringify([a0, a1]));
+  await B.authorizeBegin(s2, rid);
+  await B.signClick(s2, rid);
+  const g1 = await B.signMessage(s2, rid);
+  check("the genuine assertion that follows is accepted (the forgery did not touch the key's counter)", /Authorized/.test(g1) && B.activePrice("number") === "1300", g1);
+  // thaw
+  await B.freezeUi(s1, "forged signature thaw check freeze from the UI");
+  await B.only(s1, [P]);
+  await B.openSms(s1);
+  const off2 = await armForge(s1);
+  const b0 = snap();
+  const t1 = await B.thaw(s1);
+  const was2 = await off2();
+  const b1 = snap();
+  check("forged signature on THAW: plain refusal, still frozen, no integrity alert", was2 && plain(t1) && !/resumed/i.test(t1) && B.cfg("frozen") === "true" && noAlert(b0, b1), `${t1.slice(0, 90)} ${JSON.stringify([b0, b1])}`);
+  await B.openSms(s1);
+  const t2 = await B.thaw(s1);
+  check("the genuine thaw then succeeds", /resumed/i.test(t2) && B.cfg("frozen") === "false", t2);
+  // retire an ordinary key
+  await enrolAndApply(s1, "forge spare", "spare", [P]);
+  await B.only(s1, ["forge spare"]);
+  await B.openSms(s1);
+  const off3 = await armForge(s1);
+  const c0 = snap();
+  const r1 = await B.revokeKey(s1, "forge spare");
+  const was3 = await off3();
+  const c1 = snap();
+  check("forged signature on RETIRE (credential revoke): plain refusal, key stays active, no integrity alert", was3 && plain(r1) && !/^Revoked/.test(r1) && B.keyStatus("forge spare") === "active" && noAlert(c0, c1), `${r1.slice(0, 90)} ${JSON.stringify([c0, c1])}`);
+  await B.openSms(s1);
+  const r2 = await B.revokeKey(s1, "forge spare");
+  check("the genuine retire then succeeds", /^Revoked\./.test(r2) && B.keyStatus("forge spare") === "revoked", r2);
+  // the recovery key retiring itself
+  await ensureRecovery("forge recovery");
+  await B.only(s1, [ctx.rec]);
+  await B.openSms(s1);
+  const off4 = await armForge(s1);
+  const d0 = snap();
+  const v1 = await B.revokeKey(s1, ctx.rec);
+  const was4 = await off4();
+  const d1 = snap();
+  check("forged signature on RECOVERY revoke: plain refusal, recovery key stays active, no integrity alert", was4 && plain(v1) && !/^Revoked/.test(v1) && B.keyStatus(ctx.rec) === "active" && noAlert(d0, d1), `${v1.slice(0, 90)} ${JSON.stringify([d0, d1])}`);
+  await B.openSms(s1);
+  const v2 = await B.revokeKey(s1, ctx.rec);
+  check("the genuine recovery revoke then succeeds", /^Revoked\./.test(v2) && B.keyStatus(ctx.rec) === "revoked", v2);
+}
+
 function writeReport(crashed, browserVersion) {
   mkdirSync(OUT, { recursive: true });
   const { execFileSync } = require_("node:child_process");
@@ -959,7 +1043,7 @@ async function runAll() {
   try {
     ctx.browser = browser;
     await setup(browser);
-    for (const [id, fn] of [[1, sc1], [2, sc2], [3, sc3], [4, sc4], [7, sc7], [6, sc6], [8, sc8], [5, sc5], [10, sc10], [11, sc11], [12, sc12], [13, sc13], [9, sc9]]) if (want(id)) { try { await fn(); } catch (e) { check(`scenario ${id} aborted by a harness/page error`, false, String(e).split("\n")[0]); console.error(e); for (const S of B.SESSIONS) { try { await S.page.screenshot({ path: path.join(L.HOME, `abort-${id}-${S.name}.png`) }); } catch { /* ignore */ } } } }
+    for (const [id, fn] of [[1, sc1], [2, sc2], [3, sc3], [4, sc4], [7, sc7], [6, sc6], [8, sc8], [5, sc5], [10, sc10], [11, sc11], [12, sc12], [13, sc13], [14, sc14], [9, sc9]]) if (want(id)) { try { await fn(); } catch (e) { check(`scenario ${id} aborted by a harness/page error`, false, String(e).split("\n")[0]); console.error(e); for (const S of B.SESSIONS) { try { await S.page.screenshot({ path: path.join(L.HOME, `abort-${id}-${S.name}.png`) }); } catch { /* ignore */ } } } }
   } catch (e) {
     crashed = e;
     console.error("HARNESS ERROR", e);
