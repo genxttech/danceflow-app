@@ -209,3 +209,18 @@ Local proof: `policy.d42.test.ts` (flood of 630 events over 30 simulated minutes
 Outage contract (unchanged, restated): a monitoring outage never authorizes a financial change and the emergency freeze does not depend on the monitor; `tw4_price_monitor_status` is informational. Residual risks: the owner-scope environment can redirect or mute the destination; a service-role holder can append forged `delivery` rows (set `PRICE_MONITOR_CHAIN_KEY`); an attacker who controls the host can stop the cron (watchdog and dead-man are the backstops); a flood of distinct incidents is bounded by the cap, so beyond it alerts arrive late (hours) rather than not at all; the evidence chain and the events table keep every event.
 
 The real-destination delivery verification (section 15) has NOT been run: no external destination was contacted in any of this work.
+
+### 17a. Priority classes and capacity reservation (review R8-P2)
+
+Distinct low-value identities must not be able to fill the hourly cap and delay a genuine critical alert. Each alert message has a class, and capacity is reserved by class (N = cap - 1 usable attempts per transport per rolling hour; the last slot stays the rate notice):
+
+| Class | Contents | Capacity |
+|---|---|---|
+| top | `credential_recovery_used`, `recovery_enrollment_started`, `price_integrity_failure`, `unknown_security_event`, `event_emit_failed`, `pricing_suspended`, and every standing critical condition (unauthorized price, verification failure, guard findings, chain break) | all N; the only class that may spend the reserve |
+| crit | any other critical event (for example `credential_compromise_reported`) | together with warn and info at most N - R, where R = ceil(N/4) slots are reserved for top (3 of 11 at the default) |
+| warn | warning events (credential replaced, revocation accepted, registry changes) and the held-alert notice | at most floor(N/2) (5 of 11), inside the crit limit |
+| info | `price_proposed`, `price_authorization_started`, coalescing summaries | same sub-cap as warn |
+
+At the default cap of 12 this means: 15 distinct warning identities send 5 and hold 10; 15 distinct critical report variants send 8 and hold 7; a `credential_recovery_used` or `price_integrity_failure` arriving after either is sent immediately. Held messages are never lost: they stay in the evidence chain, are listed by `list-undelivered`, and drain in priority order, oldest first inside a class, as capacity returns (a lower class never drains ahead of a higher one). This run's new messages are always sent before held ones, in class order. Usage per class is recomputed from the delivery rows (`cls`), so it survives restarts.
+
+User-controlled sizes (keys ending `length`, `len`, `size`, `bytes`, such as `note_length`) are removed from the identity, so variants of one report collapse into one alert while every event is still counted in the evidence. Residual: an attacker who can create events with genuinely different details (a different target or credential) still creates distinct identities; the class sub-caps bound what they can consume, and the delay for lower classes is hours at worst, not a loss. Tests: `policy.d42.test.ts` ("priority classes and capacity reservation") reproduces both reviewer scenarios and the ordering rule; the flood test still holds.

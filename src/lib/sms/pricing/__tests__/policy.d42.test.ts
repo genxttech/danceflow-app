@@ -211,7 +211,7 @@ describe("D4-2 alert policy: rate and cost protection", () => {
     expect(EVIDENCE_EVENT_COUNT(s.db)).toBe(events);
     expect(verifyChain(s.db.rows).ok).toBe(true);
     // keep running with no new events: held alerts drain at the capped rate
-    for (let i = 0; i < 330; i++) { s.advance(60_000); await s.run(); }
+    for (let i = 0; i < 90; i++) { s.advance(600_000); await s.run(); } // warn-class capacity is half of the hourly slots, so the backlog drains over hours
     expect(sendsInAnyHour(t)).toBeLessThanOrEqual(CAP);
     const { listUndelivered } = await import("../ops");
     expect((await listUndelivered(s.deps())).undelivered).toEqual([]);
@@ -280,5 +280,77 @@ describe("D4-2 alert policy: one alert per distinct incident", () => {
     s.advance(60_000);
     await s.run();
     expect(real()).toHaveLength(2);
+  });
+});
+
+describe("D4-2 alert policy: priority classes and capacity reservation", () => {
+  const recoverySent = (t: FakeTransport) => t.sent.filter((m) => m.findings.some((f) => f.code === "credential_recovery_used"));
+
+  it("15 distinct WARNING identities cannot delay a genuine credential_recovery_used: it is sent immediately; the warnings stay held, none lost", async () => {
+    const s = setup();
+    const t = s.transports[0];
+    for (let i = 0; i < 15; i++) s.emit("credential_replaced", U1, { credential: "k" + i, change_id: "c" + i });
+    await s.run();
+    const warnSent = t.sent.filter((m) => m.findings.every((f) => f.code === "credential_replaced")).length;
+    expect(warnSent).toBe(5); // warn/info may use at most half of the 11 alert slots
+    expect(recoverySent(t)).toHaveLength(0);
+    s.advance(60_000);
+    s.emit("credential_recovery_used", U1, { action: "recovery_completed" });
+    await s.run();
+    expect(recoverySent(t)).toHaveLength(1);
+    expect(recoverySent(t)[0].severity).toBe("critical");
+    // the held warnings are recorded (evidence has all 16), not lost
+    expect(EVIDENCE_EVENT_COUNT(s.db)).toBe(16);
+    const { listUndelivered } = await import("../ops");
+    expect((await listUndelivered(s.deps())).undelivered.filter((u) => u.codes.includes("credential_replaced")).length).toBe(10);
+  });
+
+  it("15 distinct CRITICAL (non-top) incidents cannot starve credential_recovery_used either: the reserve is only for top-priority kinds", async () => {
+    const s = setup();
+    const t = s.transports[0];
+    for (let i = 0; i < 15; i++) s.emit("credential_compromise_reported", U1, { target: "key" + i });
+    await s.run();
+    const critSent = t.sent.filter((m) => m.findings.every((f) => f.code === "credential_compromise")).length;
+    expect(critSent).toBe(8); // N=11 minus the 3 slots reserved for top priority
+    s.advance(30_000);
+    s.emit("credential_recovery_used", U1, { action: "recover_freeze" });
+    s.emit("price_integrity_failure", null, { check: "digest" });
+    await s.run();
+    expect(recoverySent(t)).toHaveLength(1);
+    expect(t.sent.some((m) => m.findings.some((f) => f.code === "price_integrity_failure"))).toBe(true);
+    // top priority never exceeds the hourly cap
+    const attempts = s.db.rows.filter((r) => r.kind === "delivery").flatMap((r) => (JSON.parse(r.payload).results ?? []) as { attempts: number }[]).reduce((n, x) => n + x.attempts, 0);
+    expect(attempts).toBeLessThanOrEqual(12);
+  });
+
+  it("user-controlled sizes (note_length) are not part of the identity: variants of one report collapse into one alert while every event is still counted", async () => {
+    const s = setup();
+    for (let i = 0; i < 15; i++) s.emit("credential_compromise_reported", U1, { reason: "lost", note_length: 10 + i });
+    await s.run();
+    expect(s.transports[0].sent).toHaveLength(1);
+    expect(s.transports[0].sent[0].findings[0].message).toContain("(x15 in this run)");
+    expect(EVIDENCE_EVENT_COUNT(s.db)).toBe(15);
+  });
+
+  it("held messages drain by priority class, oldest first inside a class, when capacity returns", async () => {
+    const s = setup();
+    const t = s.transports[0];
+    for (let i = 0; i < 10; i++) s.emit("credential_compromise_reported", U1, { target: "k" + String(i).padStart(2, "0") }); // crit: 8 sent, 2 held (k08, k09)
+    for (let i = 0; i < 8; i++) s.emit("credential_replaced", U2, { credential: "w" + i }); // warn: 3 slots left under the warn+crit limit... all but few held
+    await s.run();
+    const firstHour = t.sent.length;
+    s.advance(61 * 60_000);
+    await s.run();
+    const after = t.sent.slice(firstHour).filter((m) => m.redeliveryOfSeq !== undefined);
+    expect(after.length).toBeGreaterThan(0);
+    // crit messages come before warn messages in the re-delivery order
+    const order = after.map((m) => m.findings[0].code);
+    const firstWarn = order.indexOf("credential_replaced");
+    if (firstWarn >= 0) expect(order.slice(0, firstWarn).every((c) => c === "credential_compromise")).toBe(true);
+    expect(order.indexOf("credential_compromise")).toBeLessThan(firstWarn < 0 ? order.length : firstWarn);
+    const seqs = after.filter((m) => m.findings[0].code === "credential_compromise").map((m) => Number(/event:(\d+):/.exec(m.findings[0].refs.join(" "))?.[1] ?? NaN));
+    expect(seqs.length).toBeGreaterThan(0);
+    expect(seqs.every((n) => Number.isFinite(n))).toBe(true);
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
   });
 });

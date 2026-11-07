@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { classifyEvents, classifyVerify, parseDigest, parseEvents } from "./classify";
-import { COALESCE_WINDOW_MS, attemptsLastHour, decide, deriveState, rateNoticeSentLastHour, type CoalesceState } from "./coalesce";
+import { CLASS_RANK, COALESCE_WINDOW_MS, attemptsLastHour, availableAttempts, classOfMessage, decide, deriveState, rateNoticeSentLastHour, usageLastHour, type AlertClass, type CoalesceState, type Usage } from "./coalesce";
 import { appendEvidence, GENESIS_HASH, parseEvidenceList, verifyChain, type ChainCheck } from "./evidence";
 import type { AlertMessage, AlertTransport, EvidenceRow, Finding, PriceMonitorDb, Severity } from "./types";
 import type { MonitorConfig } from "./transport";
@@ -114,10 +114,10 @@ export type HeldMessage = { runSeq: number; kind: string; msg: number; findings:
 /** Groups of indices into `send` that travel together: every event identity of warning or critical severity is its OWN message (own immediate alert); the rest is one batch. */
 export function messageGroups(send: Finding[]): number[][] {
   const own = (f: Finding) => !!f.identity && f.severity !== "info";
-  const rank = (f: Finding) => (f.severity === "critical" ? 0 : 1);
-  const events = send.map((f, i) => ({ f, i })).filter((x) => own(x.f)).sort((a, b) => rank(a.f) - rank(b.f) || a.i - b.i);
+  const events = send.map((f, i) => ({ f, i })).filter((x) => own(x.f)).sort((a, b) => CLASS_RANK[classOfMessage([a.f])] - CLASS_RANK[classOfMessage([b.f])] || a.i - b.i);
   const rest = send.map((_, i) => i).filter((i) => !own(send[i]));
-  return [...events.map((x) => [x.i]), ...(rest.length ? [rest] : [])];
+  const groups = [...events.map((x) => [x.i]), ...(rest.length ? [rest] : [])];
+  return groups.sort((a, b) => CLASS_RANK[classOfMessage(a.map((i) => send[i]))] - CLASS_RANK[classOfMessage(b.map((i) => send[i]))]); // stable: priority class first, original order inside a class
 }
 
 /** The evidence copy of the findings: events collapsed per identity with a count (the events table itself keeps every row), so a flood cannot overflow the evidence payload. */
@@ -244,7 +244,17 @@ async function reportFlow(args: {
   // per-transport hourly attempt budget (cost bound); the last slot of each hour is reserved for the rate-limit notice
   const used = attemptsLastHour(chain.rows, now);
   const capOf = (name: string) => config.sendCaps?.[name] ?? config.defaultSendCap ?? 12;
-  const budget = new Map<string, number>(config.transports.filter((x) => x.canAlert).map((x) => [x.name, Math.max(0, capOf(x.name) - 1 - (used.get(x.name) ?? 0))]));
+  // class-aware capacity: warn/info messages can use at most half of the hourly slots, crit+warn+info leave a reserve that only top-priority messages (recovery used, integrity failure, unknown kind, standing critical conditions) can spend
+  const usage = usageLastHour(chain.rows, now);
+  const alertTransports = config.transports.filter((x) => x.canAlert);
+  const budgetFor = (cls: AlertClass) => new Map<string, number>(alertTransports.map((x) => [x.name, availableAttempts(capOf(x.name), usage.get(x.name), cls)]));
+  const account = (cls: AlertClass, results: Delivery["results"]) => {
+    for (const r of results) {
+      const u: Usage = usage.get(r.transport) ?? { all: 0, nonTop: 0, warnInfo: 0 };
+      u.all += r.attempts; if (cls !== "top") u.nonTop += r.attempts; if (cls === "warn" || cls === "info") u.warnInfo += r.attempts;
+      usage.set(r.transport, u);
+    }
+  };
   let limited = false;
 
   // 2. this run's alerts FIRST (a new incident is never starved by held ones): one message per event identity (critical first), then one batch for the rest
@@ -253,14 +263,16 @@ async function reportFlow(args: {
     let allOk = true;
     for (let i = 0; i < groups.length; i++) {
       const msgFindings = groups[i].map((k) => toSend[k]);
-      const d: Delivery = hasDestination ? await deliver(config.transports, mk(msgFindings), sleep, budget) : { ok: false, results: [] };
+      const cls = classOfMessage(msgFindings);
+      const d: Delivery = hasDestination ? await deliver(config.transports, mk(msgFindings), sleep, budgetFor(cls)) : { ok: false, results: [] };
+      account(cls, d.results);
       const rateLimited = d.results.length > 0 && d.results.every((r) => r.code === "rate_limited");
       if (d.results.some((r) => r.code === "rate_limited")) limited = true;
       if (!d.ok) allOk = false;
       if (head && !rateLimited) {
         const ids = msgFindings.filter((f) => f.identity).map((f) => f.identity!);
         const summ = dec.summarized.filter((id) => ids.includes(id) || msgFindings.some((f) => f.refs.includes(`identity:${id}`)));
-        const a = await append(db, head, { runId, kind: "delivery", now, payload: { v: 1, source, run_seq: runSeq, msg: i, alert_ok: d.ok, fingerprint, keys: findingKeys(msgFindings), ids: d.ok ? ids : [], summarized: d.ok ? summ : [], results: d.results } }, config);
+        const a = await append(db, head, { runId, kind: "delivery", now, payload: { v: 1, source, run_seq: runSeq, msg: i, cls, alert_ok: d.ok, fingerprint, keys: findingKeys(msgFindings), ids: d.ok ? ids : [], summarized: d.ok ? summ : [], results: d.results } }, config);
         head = a.head; if (!a.ok) errors.push("delivery_record_failed");
       }
     }
@@ -271,12 +283,16 @@ async function reportFlow(args: {
   // 3. re-send earlier messages that no destination accepted, oldest first, with whatever budget is left
   let redelivered = 0;
   if (hasDestination) {
-    for (const h of state.pending.slice(0, MAX_REDELIVERY)) {
-      if ([...budget.values()].every((v) => v <= 0)) { limited = true; break; }
-      const d = await deliver(config.transports, mk(h.findings, h.runSeq), sleep, budget);
+    // oldest first WITHIN each priority class; classes in priority order
+    const held = [...state.pending].map((h) => ({ h, cls: classOfMessage(h.findings) })).sort((a, b) => CLASS_RANK[a.cls] - CLASS_RANK[b.cls] || a.h.runSeq - b.h.runSeq || a.h.msg - b.h.msg).slice(0, MAX_REDELIVERY);
+    for (const { h, cls } of held) {
+      const b = budgetFor(cls);
+      if ([...b.values()].every((v) => v <= 0)) { limited = true; continue; }
+      const d = await deliver(config.transports, mk(h.findings, h.runSeq), sleep, b);
+      account(cls, d.results);
       if (d.results.some((r) => r.code === "rate_limited")) limited = true;
       if (head && !d.results.every((r) => r.code === "rate_limited")) {
-        const a = await append(db, head, { runId, kind: "delivery", now, payload: { v: 1, source, run_seq: h.runSeq, msg: h.msg, alert_ok: d.ok, results: d.results, redelivery: true } }, config);
+        const a = await append(db, head, { runId, kind: "delivery", now, payload: { v: 1, source, run_seq: h.runSeq, msg: h.msg, cls, alert_ok: d.ok, results: d.results, redelivery: true } }, config);
         head = a.head; if (!a.ok) errors.push("delivery_record_failed");
       }
       if (d.ok) redelivered += 1; else errors.push("redelivery_failed");

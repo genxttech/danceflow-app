@@ -15,7 +15,7 @@ import type { EvidenceRow, Finding } from "./types";
 export const COALESCE_WINDOW_MS = 5 * 60_000;
 
 /** Keys that change on every occurrence of the same incident and must not make two identical events look different. */
-const VOLATILE = /^(?:.*_)?(?:at|ts|timestamp|time|seq|nonce|request_id|run_id|event_id|attempt|attempts|counter)$/i;
+const VOLATILE = /^(?:.*_)?(?:at|ts|timestamp|time|seq|nonce|request_id|run_id|event_id|attempt|attempts|counter|length|len|size|bytes)$/i; // includes user-controlled sizes such as note_length
 
 export function normalizeDetail(v: unknown): unknown {
   if (Array.isArray(v)) return v.map(normalizeDetail);
@@ -103,6 +103,52 @@ export function attemptsLastHour(rows: EvidenceRow[], now: Date): Map<string, nu
     for (const x of res as { transport?: unknown; attempts?: unknown }[]) if (typeof x.transport === "string" && typeof x.attempts === "number") used.set(x.transport, (used.get(x.transport) ?? 0) + x.attempts);
   }
   return used;
+}
+
+/** Priority classes of an alert message: top > crit > warn > info. */
+export type AlertClass = "top" | "crit" | "warn" | "info";
+export const CLASS_RANK: Record<AlertClass, number> = { top: 0, crit: 1, warn: 2, info: 3 };
+/** Highest-priority kinds: a recovery path used or started, an integrity failure, an unclassified kind, a failed emit, a freeze. Standing critical conditions (non-event findings) are top too. */
+const TOP_CODES = new Set(["credential_recovery_used", "recovery_enrollment_started", "price_integrity_failure", "unknown_security_event", "event_emit_failed", "pricing_suspended"]);
+export function classOfFinding(f: Finding): AlertClass {
+  if (f.severity === "critical") return !f.identity || TOP_CODES.has(f.code) ? "top" : "crit";
+  return f.severity === "warning" ? "warn" : "info";
+}
+export function classOfMessage(fs: Finding[]): AlertClass {
+  return fs.map(classOfFinding).sort((a, b) => CLASS_RANK[a] - CLASS_RANK[b])[0] ?? "info";
+}
+
+/** Hourly capacity per transport and class (attempts). N = cap - 1 (the last slot is the rate notice). Top may use all N; crit+warn+info at most N - R (R slots are reserved for top); warn+info at most half of N. */
+export function classLimits(cap: number): { n: number; nonTop: number; warnInfo: number } {
+  const n = Math.max(1, cap - 1);
+  const reserve = n >= 4 ? Math.ceil(n / 4) : 0;
+  return { n, nonTop: n - reserve, warnInfo: n >= 2 ? Math.floor(n / 2) : n };
+}
+export type Usage = { all: number; nonTop: number; warnInfo: number };
+/** Attempts per transport in the last hour, by class (delivery rows record `cls`; older rows count as crit; rate notices are excluded). */
+export function usageLastHour(rows: EvidenceRow[], now: Date): Map<string, Usage> {
+  const out = new Map<string, Usage>();
+  const since = now.getTime() - 3600_000;
+  for (const r of rows) {
+    if (r.kind !== "delivery" || at(r) < since) continue;
+    const p = parse(r.payload);
+    if (p.rate_notice === true || !Array.isArray(p.results)) continue;
+    const cls = (typeof p.cls === "string" && p.cls in CLASS_RANK ? p.cls : "crit") as AlertClass;
+    for (const x of p.results as { transport?: unknown; attempts?: unknown }[]) {
+      if (typeof x.transport !== "string" || typeof x.attempts !== "number") continue;
+      const u = out.get(x.transport) ?? { all: 0, nonTop: 0, warnInfo: 0 };
+      u.all += x.attempts; if (cls !== "top") u.nonTop += x.attempts; if (cls === "warn" || cls === "info") u.warnInfo += x.attempts;
+      out.set(x.transport, u);
+    }
+  }
+  return out;
+}
+export function availableAttempts(cap: number, u: Usage | undefined, cls: AlertClass): number {
+  const l = classLimits(cap);
+  const used = u ?? { all: 0, nonTop: 0, warnInfo: 0 };
+  if (cls === "top") return Math.max(0, l.n - used.all);
+  const room = Math.min(l.nonTop - used.nonTop, l.n - used.all);
+  return Math.max(0, cls === "crit" ? room : Math.min(room, l.warnInfo - used.warnInfo));
 }
 
 export function rateNoticeSentLastHour(rows: EvidenceRow[], now: Date): boolean {
