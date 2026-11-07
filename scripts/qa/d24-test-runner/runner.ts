@@ -11,7 +11,7 @@ import { checkKeyShape } from "../d24-m3d-proof/identity";
 import { manifest } from "../d24-m3d-proof/manifest";
 import { runnerInsideClone, runnerManifest } from "./runnerpin";
 import { defaultOwnerDir, defaultRunnerHome, verifyOwnerSignature, type OwnerTrust } from "./ownerverify";
-import { ANCHOR_FILE, checkAgainstState, loadAnchor, type HardwareAnchor } from "./webauthn";
+import { ANCHOR_FILE, anchorMatchesManifest, checkAgainstState, loadAnchor, type HardwareAnchor } from "./webauthn";
 
 /** Hard-coded policy (part of the runner folder hash that the signed envelope pins): live runs need the hardware-key approval. Tests flip nothing; a dev build that wants the Ed25519 kind must change this line, which changes the runner hash. */
 export const REQUIRE_HARDWARE_FOR_LIVE: boolean = true;
@@ -21,7 +21,7 @@ import { checkEnvelopeWindow, KNOWN_RULE_IDS, validateEnvelope } from "./envelop
 import type { CredentialStore } from "./credstore";
 import { realExec, type Exec } from "./exec";
 import { isDryFakeExec, isSimulatedLiveExec } from "./fakeChild";
-import { commitOnMain, verifyCleanClone, type Gate } from "./gitverify";
+import { commitOnMain, runnerTracked, verifyCleanClone, type Gate } from "./gitverify";
 import type { Ledger, LedgerEntry } from "./ledger";
 import { analyzeEvidence, decide, hashFile, redactionScan, renderReport, type FileHash, type RunSummary } from "./postrun";
 import { proofAllowList, proofDryRun, proofLive, proofPreflight, proofPrintHash, type ProofCall } from "./proofcli";
@@ -59,6 +59,9 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   // dry is not a trusted caller flag: it must agree with the executor. dry => a dry fake; live => the real executor (or a test-only simulated-live fake).
   if (d.dry && !isDryFakeExec(d.exec)) throw new Error("refused: dry:true requires the dry fake executor (a real executor with dry:true would skip the live gates)");
   if (!d.dry && !(d.exec === realExec || isSimulatedLiveExec(d.exec))) throw new Error("refused: a live run requires the real executor");
+  // test seams (anchor / counter-state / ledger locations) exist only for the simulated-live fake; the real executor always uses the fixed locations
+  const hwSeams = d.owner?.hardware;
+  if (!d.dry && hwSeams && (hwSeams.anchorPath !== undefined || hwSeams.statePath !== undefined || hwSeams.pins !== undefined) && !isSimulatedLiveExec(d.exec)) throw new Error("refused: the anchor/state/ledger test seams are only allowed with the simulated-live test executor");
   const gates: Gate[] = [];
   let literals: string[] = [];
   const say = (s: string) => d.out(sanitize(s, literals));
@@ -100,9 +103,11 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   // the run; it never downgrades to another approval kind. The passphrase-sealed Ed25519 kind is not consulted for live runs at all (dry and dev tooling only).
   let commitApproval: (() => void) | null = null;
   let hwAnchor: HardwareAnchor | null = null;
+  let hwAnchorSha = "";
+  const anchorPathUsed = d.owner?.hardware?.anchorPath ?? join(__dirnameOf(), ANCHOR_FILE);
   if (d.dry) gate("owner-signature", true, "DRY: not required (no live call is possible in dry mode); a LIVE run needs a valid hardware-key approval");
   else if (REQUIRE_HARDWARE_FOR_LIVE) {
-    const hwLoaded = loadAnchor(d.owner?.hardware?.anchorPath ?? join(__dirnameOf(), ANCHOR_FILE));
+    const hwLoaded = loadAnchor(anchorPathUsed);
     if (hwLoaded === null) {
       gate("owner-approval", false, `no hardware anchor (${ANCHOR_FILE}) in the runner folder: live runs require the hardware-key approval and are never downgraded. The owner enrollment is design only, see docs/billing/D24-TEST-RUNNER-OWNER-AUTH.md section 7`);
       return blocked("owner-approval");
@@ -112,6 +117,7 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
       return blocked("owner-approval");
     }
     hwAnchor = hwLoaded.anchor;
+    hwAnchorSha = hwLoaded.sha256;
     // the envelope (covered by the assertion) names the anchor it was written for: a swapped or edited anchor cannot approve an envelope written for another
     const pinOk = env.hardwareAnchorFingerprintSha256 === hwLoaded.anchor.fingerprintSha256;
     if (!gate("owner-anchor-pin", pinOk, pinOk ? `envelope pins the same anchor (${hwLoaded.anchor.fingerprintSha256.slice(0, 16)})` : "the anchor fingerprint pinned inside the (hardware-approved) envelope differs from the anchor in this runner folder")) return blocked("owner-anchor-pin");
@@ -159,7 +165,14 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   for (const g of git) gate(g.id, g.ok, g.detail);
   if (git.some((g) => !g.ok)) return blocked("clean-clone");
   if (hwAnchor) {
-    const m = await commitOnMain({ repoDir, commitSha: env.code.commitSha, repoUrl: hwAnchor.repoUrl, branch: hwAnchor.branch, env: plain.env, exec: d.exec, gitBin: d.gitBin });
+    // the anchor bytes parsed above are the bytes the folder hash covered, and every hashed file (anchor included) is tracked by git
+    if (resolve(anchorPathUsed) === resolve(runnerDir, ANCHOR_FILE)) {
+      const same = anchorMatchesManifest(hwAnchorSha, rm.files);
+      if (!gate("anchor-bytes", same, same ? "the anchor that was parsed is byte-identical to the one the runner-folder hash covers" : "the anchor file changed between being parsed and being hashed")) return blocked("anchor-bytes");
+    }
+    const tr = await runnerTracked({ repoDir, runnerRel: "scripts/qa/d24-test-runner", files: rm.files.map((f) => f.path), env: plain.env, exec: d.exec, gitBin: d.gitBin });
+    if (!gate(tr.id, tr.ok, tr.detail)) return blocked("runner-tracked");
+    const m = await commitOnMain({ repoDir, commitSha: env.code.commitSha, env: plain.env, exec: d.exec, gitBin: d.gitBin });
     if (!gate(m.id, m.ok, m.detail)) return blocked("commit-on-main");
   }
 

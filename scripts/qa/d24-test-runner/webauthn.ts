@@ -11,6 +11,7 @@ import { createHash, createPublicKey, randomBytes, verify } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { canonicalJson } from "./canon";
+import { PINNED_BRANCH, PINNED_REPO_URL } from "./trustroot";
 
 export const HW_KIND = "webauthn-es256" as const;
 /** Present in the runner folder => the runner requires the hardware approval kind for every live run (and the folder hash pins the file). */
@@ -139,16 +140,22 @@ export function parseAnchor(raw: unknown): { ok: true; anchor: HardwareAnchor } 
   if (!Array.isArray(a.origins) || a.origins.length === 0 || a.origins.length > 4 || !a.origins.every((o) => typeof o === "string" && ORIGIN_RE.test(o))) p.push("origins must be 1..4 exact https origins (or http://localhost)");
   else if (typeof a.rpId === "string" && !a.origins.every((o) => { const h = new URL(o).hostname; return h === a.rpId || h.endsWith(`.${a.rpId}`); })) p.push("every origin must be the rpId or a subdomain of it");
   if (a.requireUV !== true) p.push("requireUV must be exactly true: live approvals always require user verification");
-  if (typeof a.repoUrl !== "string" || !/^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\.git$/.test(a.repoUrl)) p.push("repoUrl must be an https://github.com/<owner>/<repo>.git URL");
-  if (typeof a.branch !== "string" || !/^[A-Za-z0-9._/-]{1,60}$/.test(a.branch)) p.push("branch must be a plain branch name");
+  // the owner-merged location is a runner constant (trustroot.ts); the anchor may only restate it, never choose it
+  if (a.repoUrl !== PINNED_REPO_URL) p.push("repoUrl must equal the runner's pinned repository (it cannot be chosen by the anchor)");
+  if (a.branch !== PINNED_BRANCH) p.push("branch must equal the runner's pinned branch (it cannot be chosen by the anchor)");
   if (p.length === 0 && anchorFingerprint(a as HardwareAnchor) !== a.fingerprintSha256) p.push("fingerprintSha256 does not match the anchor content (edited after the owner recorded it)");
   return p.length > 0 ? { ok: false, problems: p } : { ok: true, anchor: a as HardwareAnchor };
 }
 
-export function loadAnchor(file: string): { ok: true; anchor: HardwareAnchor } | { ok: false; problems: string[] } | null {
+export type LoadedAnchor = { ok: true; anchor: HardwareAnchor; sha256: string } | { ok: false; problems: string[] };
+
+/** Reads the file ONCE: the returned sha256 is of the exact bytes that were parsed (CRLF-normalised like the runner manifest), so the runner can require the folder hash to cover the same bytes. */
+export function loadAnchor(file: string): LoadedAnchor | null {
   if (!existsSync(file)) return null;
   try {
-    return parseAnchor(JSON.parse(readFileSync(file, "utf8")));
+    const text = readFileSync(file, "utf8");
+    const r = parseAnchor(JSON.parse(text));
+    return r.ok ? { ...r, sha256: createHash("sha256").update(text.replace(/\r\n/g, "\n")).digest("hex") } : r;
   } catch {
     return { ok: false, problems: ["anchor file is not valid JSON"] };
   }
@@ -340,4 +347,10 @@ export function verifyAndRecord(stateFile: string, i: Omit<VerifyInput, "storedS
   const c = checkAgainstState(stateFile, i);
   if (c.result.ok) c.commit();
   return c.result;
+}
+
+/** The anchor bytes the runner parsed must be the bytes the runner-folder manifest hashed (closes the read-parse / hash gap). */
+export function anchorMatchesManifest(anchorSha256: string, files: Array<{ path: string; sha256: string }>): boolean {
+  const f = files.find((x) => x.path === ANCHOR_FILE);
+  return f !== undefined && f.sha256 === anchorSha256;
 }

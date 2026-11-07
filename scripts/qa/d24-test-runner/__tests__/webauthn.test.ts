@@ -197,7 +197,8 @@ describe("verifyAssertion: signature checks, edge cases and malleability", () =>
       probes.push(chars.join(""));
     }
     probes.push(`${sig}A`, `${sig}=`, sig.replace(/[-_]/, "+"), `${sig}AAAAA`);
-    for (const p of probes) {
+    // the first probe can, for some random signatures, be exactly the canonical spelling of the same bytes: only genuinely non-canonical or different strings are probed
+    for (const p of probes.filter((x) => !(Buffer.from(x, "base64url").equals(bytes) && Buffer.from(x, "base64url").toString("base64url") === x))) {
       const r = verifyAssertion({ envelopeSha256: H, doc: { ...good, signature: p }, anchor: auth.anchor, storedSignCount: 0 });
       expect(r.ok, p.slice(-8)).toBe(false);
     }

@@ -2,6 +2,7 @@
 // browser. (The repository's TW-4F tests use the same idea in src/lib/sms/twilioIsv/__tests__/webauthnFixture.ts; this one is self-contained.)
 
 import { createHash, generateKeyPairSync, randomBytes, sign, type KeyObject } from "node:crypto";
+import { PINNED_BRANCH, PINNED_REPO_URL } from "../trustroot";
 import { anchorFingerprint, HW_KIND, type HardwareAnchor, type HardwareApprovalDoc } from "../webauthn";
 
 export const RP_ID = "ops.example.test";
@@ -14,7 +15,7 @@ export function makeSoftAuth(over: Partial<Omit<HardwareAnchor, "fingerprintSha2
   const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   const jwk = publicKey.export({ format: "jwk" });
   const credentialId = randomBytes(32).toString("base64url");
-  const base = { v: 1 as const, kind: HW_KIND, credentialId, publicKey: { x: jwk.x as string, y: jwk.y as string }, rpId: RP_ID, origins: [ORIGIN], requireUV: true as const, repoUrl: "https://github.com/example-owner/example-repo.git", branch: "main", ...over };
+  const base = { v: 1 as const, kind: HW_KIND, credentialId, publicKey: { x: jwk.x as string, y: jwk.y as string }, rpId: RP_ID, origins: [ORIGIN], requireUV: true as const, repoUrl: PINNED_REPO_URL, branch: PINNED_BRANCH, ...over };
   return { anchor: { ...base, fingerprintSha256: anchorFingerprint(base) }, privateKey, credentialId: base.credentialId };
 }
 

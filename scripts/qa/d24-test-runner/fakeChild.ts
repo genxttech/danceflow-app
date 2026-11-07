@@ -6,6 +6,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { manifest } from "../d24-m3d-proof/manifest";
 import type { Exec, ExecResult } from "./exec";
+import { runnerManifest } from "./runnerpin";
 import { KNOWN_RULE_IDS } from "./envelope";
 
 export type FakeOpts = {
@@ -28,6 +29,15 @@ export type FakeOpts = {
   /** hostile text appended to the live stdout (tests secret detection) */
   hostileStdout?: string;
   hostileEvidence?: string;
+  /** runner-folder files (relative to scripts/qa/d24-test-runner) that git does NOT track (untracked or ignored): omitted from `git ls-files` */
+  untracked?: string[];
+  /** hardening probes of commit-on-main */
+  urlConfig?: boolean;
+  shallow?: boolean;
+  replaceRefs?: boolean;
+  /** what `git ls-remote` reports for the pinned branch, and what the fetched private ref then resolves to */
+  lsRemoteSha?: string;
+  fetchedSha?: string;
   /** captures every call (cmd + args + env) for assertions. Env values are kept so tests can check key placement. */
   calls?: Array<{ cmd: string; args: string[]; env: Record<string, string>; cwd: string }>;
 };
@@ -47,8 +57,29 @@ export function createFakeExec(o: FakeOpts, hooks: { tap?: (cmd: string, args: s
     hooks.tap?.(cmd, args);
     o.calls?.push({ cmd, args, env: { ...opts.env }, cwd: opts.cwd });
     if (cmd === "git" || /[\\/]git(\.exe)?$/.test(cmd)) {
-      const a = args.filter((x) => x !== "-c" && x !== "core.fsmonitor=false");
+      const a: string[] = [];
+      for (let i = 0; i < args.length; i++) {
+        if (args[i] === "-c") i++; // skip the "-c key=value" pair
+        else a.push(args[i]);
+      }
+      const mainSha = o.lsRemoteSha ?? "d".repeat(40);
       if (a[0] === "fetch") return ok();
+      if (a[0] === "ls-remote") return ok(`${mainSha}\trefs/heads/main\n`);
+      if (a[0] === "config") return o.urlConfig ? ok("url.file:///evil/.insteadof https://github.com/\n") : { code: 1, stdout: "", stderr: "" };
+      if (a[0] === "for-each-ref") return ok(o.replaceRefs ? `${mainSha} commit refs/replace/aaaa\n` : "");
+      if (a[0] === "rev-parse" && a[1] === "--is-shallow-repository") return ok(o.shallow ? "true\n" : "false\n");
+      if (a[0] === "rev-parse" && a[1] === "--git-path") return ok(`${join(o.repoDir, ".git-fake-none", a[2])}\n`);
+      if (a[0] === "rev-parse" && a[a.length - 1].startsWith("refs/")) return ok(`${o.fetchedSha ?? mainSha}\n`);
+      if (a[0] === "ls-files" && a[1] === "-z") {
+        const dir = a[a.length - 1];
+        let files: string[] = [];
+        try {
+          files = runnerManifest(join(opts.cwd, dir)).files.map((f) => f.path);
+        } catch {
+          files = [];
+        }
+        return ok(files.filter((f) => !(o.untracked ?? []).includes(f)).map((f) => `${dir}/${f}\0`).join(""));
+      }
       if (a[0] === "merge-base") return { code: o.notOnMain ? 1 : 0, stdout: "", stderr: "" };
       if (a[0] === "rev-parse" && a[1] === "HEAD") return ok(`${o.commitSha}\n`);
       if (a[0] === "rev-parse") return ok(`${o.repoDir.replace(/\\/g, "/")}\n`);
