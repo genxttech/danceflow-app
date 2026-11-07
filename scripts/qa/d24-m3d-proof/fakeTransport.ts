@@ -13,6 +13,10 @@ export type FakeOptions = {
   invoiceStatusAfterCreate?: string;
   failWith?: { status: number; times: number };
   accountType?: string;
+  /** the connected account's `controller` field (omitted from the answer when the key is absent; null / odd values pass through as given) */
+  accountController?: unknown;
+  /** livemode on the connected-account answer */
+  accountLivemode?: boolean;
   platformIdOverride?: string;
   /** the Stripe-Version the fake claims to have used in its responses (default: the pin) */
   reportVersion?: string;
@@ -40,7 +44,7 @@ export function createFakeTransport(o: FakeOptions): { transport: Transport; cal
     }
     const { method, path } = req;
     if (method === "GET" && path === "/v1/account") return ok({ id: o.platformIdOverride ?? o.platformId, object: "account", livemode: false });
-    if (method === "GET" && path === `/v1/accounts/${o.connectedId}`) return ok({ id: o.connectedId, object: "account", type: o.accountType ?? "express" });
+    if (method === "GET" && path === `/v1/accounts/${o.connectedId}`) return ok({ id: o.connectedId, object: "account", type: o.accountType ?? "express", ...("accountController" in o ? { controller: o.accountController } : {}), ...(o.accountLivemode !== undefined ? { livemode: o.accountLivemode } : {}) });
     if (req.stripeAccount !== o.connectedId) return err(400, "invalid_request_error", "account_invalid");
     if (method === "GET" && (path === "/v1/transfers" || path === "/v1/webhook_endpoints")) return err(403, "invalid_request_error", "permission");
 
