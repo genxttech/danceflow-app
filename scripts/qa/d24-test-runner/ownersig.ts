@@ -1,38 +1,56 @@
 // OWNER-ONLY key operations: generate the keypair, sign an envelope hash, write/replace the trust file. Imported ONLY by ownercli.ts / ownermain.ts and
 // by tests (a test scans every other source file's imports). The runner and runner CLI import ownerverify.ts, which can verify and nothing else.
 //
-// Private key at rest: PKCS8 DER encrypted with AES-256-GCM under a scrypt-derived key from an owner passphrase. It is deliberately NOT DPAPI:
-// DPAPI CurrentUser would let any process of the same Windows user decrypt it, which would turn the signature back into a self-approval.
-// Residual risk (documented): a process that can capture the owner's passphrase, or that runs in the owner's account and writes the owner directory,
-// can sign or re-register; real separation needs a separate Windows account / machine or a hardware-held key (open owner decision).
+// Private key at rest: PKCS8 DER encrypted with AES-256-GCM (16-byte tag, 12-byte IV) under a scrypt-derived key (N >= 2^17, r = 8, p = 1, about 134 MB)
+// from an owner passphrase. It is deliberately NOT DPAPI: DPAPI CurrentUser would let any process of the same Windows user decrypt it, which would turn
+// the signature back into a self-approval. Residual risk (documented): a process that can capture the owner's passphrase, or that runs in the owner's
+// account and writes the owner directory, can sign or re-register; real separation needs a separate Windows account / machine or a hardware-held key.
 
 import { createCipheriv, createDecipheriv, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, scryptSync, sign } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { privateKeyPath, keyFingerprint, SIG_DOMAIN, signedMessage, trustPath, type OwnerTrust, type SignatureDoc } from "./ownerverify";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { keyFingerprint, privateKeyPath, SIG_DOMAIN, signedMessage, trustPath, type OwnerTrust, type SignatureDoc } from "./ownerverify";
 
-export const MIN_PASSPHRASE = 12;
+export const MIN_PASSPHRASE = 16;
+export const MIN_SCRYPT_N = 1 << 17;
+export const DEFAULT_SCRYPT_N = 1 << 17;
 export type EncryptedKey = { v: 1; kdf: "scrypt"; n: number; salt: string; iv: string; tag: string; ct: string };
 
-const kdf = (pass: string, salt: Buffer, n: number) => scryptSync(pass, salt, 32, { N: n, r: 8, p: 1, maxmem: 256 * 1024 * 1024 });
-function checkPass(p: string) {
-  if (p.length < MIN_PASSPHRASE) throw new Error(`the owner passphrase must be at least ${MIN_PASSPHRASE} characters`);
+const kdf = (pass: string, salt: Buffer, n: number) => scryptSync(pass, salt, 32, { N: n, r: 8, p: 1, maxmem: 512 * 1024 * 1024 });
+
+/** Length and a basic sanity check (not a strength meter): not one repeated character, not only digits, at least 6 distinct characters. */
+export function passphraseProblem(p: string): string | null {
+  if (p.length < MIN_PASSPHRASE) return `the owner passphrase must be at least ${MIN_PASSPHRASE} characters`;
+  if (new Set(p).size < 6) return "the owner passphrase needs at least 6 distinct characters";
+  if (/^\d+$/.test(p)) return "the owner passphrase cannot be only digits";
+  if (/^(.{1,4})\1+$/.test(p)) return "the owner passphrase cannot be a short pattern repeated";
+  return null;
 }
 
-export function generateOwnerKey(passphrase: string, scryptN = 1 << 15): { publicKeySpkiDerBase64: string; publicKeyFingerprint: string; encrypted: EncryptedKey } {
-  checkPass(passphrase);
+export function generateOwnerKey(passphrase: string, scryptN = DEFAULT_SCRYPT_N): { publicKeySpkiDerBase64: string; publicKeyFingerprint: string; encrypted: EncryptedKey } {
+  const problem = passphraseProblem(passphrase);
+  if (problem) throw new Error(problem);
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   const spki = publicKey.export({ type: "spki", format: "der" });
   const pkcs8 = privateKey.export({ type: "pkcs8", format: "der" });
   const salt = randomBytes(16);
   const iv = randomBytes(12);
-  const c = createCipheriv("aes-256-gcm", kdf(passphrase, salt, scryptN), iv);
+  const c = createCipheriv("aes-256-gcm", kdf(passphrase, salt, scryptN), iv, { authTagLength: 16 });
   const ct = Buffer.concat([c.update(pkcs8), c.final()]);
   return { publicKeySpkiDerBase64: spki.toString("base64"), publicKeyFingerprint: keyFingerprint(spki), encrypted: { v: 1, kdf: "scrypt", n: scryptN, salt: salt.toString("base64"), iv: iv.toString("base64"), tag: c.getAuthTag().toString("base64"), ct: ct.toString("base64") } };
 }
 
-function openKey(enc: EncryptedKey, passphrase: string) {
+/** Structural validation of a stored key file BEFORE any key derivation (attacker-lowered cost, truncated tag, odd IV are refused). `minN` is a test seam. */
+export function checkEncryptedKey(enc: EncryptedKey, minN = MIN_SCRYPT_N): void {
+  const len = (b64: string) => Buffer.from(b64, "base64").length;
+  if (!enc || enc.v !== 1 || enc.kdf !== "scrypt" || !Number.isInteger(enc.n) || enc.n < minN || (enc.n & (enc.n - 1)) !== 0) throw new Error("owner key file: weak or malformed key-derivation parameters");
+  if (typeof enc.salt !== "string" || typeof enc.iv !== "string" || typeof enc.tag !== "string" || typeof enc.ct !== "string") throw new Error("owner key file is malformed");
+  if (len(enc.salt) !== 16 || len(enc.iv) !== 12 || len(enc.tag) !== 16) throw new Error("owner key file: unexpected salt, IV or authentication-tag length");
+}
+
+function openKey(enc: EncryptedKey, passphrase: string, minN = MIN_SCRYPT_N) {
+  checkEncryptedKey(enc, minN);
   try {
-    const d = createDecipheriv("aes-256-gcm", kdf(passphrase, Buffer.from(enc.salt, "base64"), enc.n), Buffer.from(enc.iv, "base64"));
+    const d = createDecipheriv("aes-256-gcm", kdf(passphrase, Buffer.from(enc.salt, "base64"), enc.n), Buffer.from(enc.iv, "base64"), { authTagLength: 16 });
     d.setAuthTag(Buffer.from(enc.tag, "base64"));
     return createPrivateKey({ key: Buffer.concat([d.update(Buffer.from(enc.ct, "base64")), d.final()]), format: "der", type: "pkcs8" });
   } catch {
@@ -40,9 +58,9 @@ function openKey(enc: EncryptedKey, passphrase: string) {
   }
 }
 
-export function signEnvelopeHash(enc: EncryptedKey, passphrase: string, envelopeSha256: string): SignatureDoc {
+export function signEnvelopeHash(enc: EncryptedKey, passphrase: string, envelopeSha256: string, minN = MIN_SCRYPT_N): SignatureDoc {
   if (!/^[0-9a-f]{64}$/.test(envelopeSha256)) throw new Error("envelopeSha256 must be 64 hex");
-  const priv = openKey(enc, passphrase);
+  const priv = openKey(enc, passphrase, minN);
   const spki = createPublicKey(priv).export({ type: "spki", format: "der" });
   return { v: 1, domain: SIG_DOMAIN, envelopeSha256, publicKeyFingerprint: keyFingerprint(spki), signatureBase64: sign(null, signedMessage(envelopeSha256), priv).toString("base64") };
 }
@@ -66,12 +84,19 @@ export function writeEncryptedKey(ownerDir: string, enc: EncryptedKey): void {
 }
 export const readEncryptedKey = (ownerDir: string): EncryptedKey => JSON.parse(readFileSync(privateKeyPath(ownerDir), "utf8")) as EncryptedKey;
 
+export type RotateHooks = { /** test seam: called after the new files are written and before the swap */ beforeSwap?: () => void; /** test seam: fail the second rename */ failSecondRename?: boolean; minN?: number };
+
 /**
- * Explicit rotation / tool re-binding. Requires the OLD key (passphrase) to sign a statement binding old key -> new key + tool hash + commit.
- * `newPassphrase` given => a new keypair replaces the old one; omitted => the key is kept and only the owner-tool hash / commit are re-bound.
+ * Explicit rotation / tool re-binding. Requires the OLD key (passphrase), checks that the decrypted old key IS the registered key, and signs a
+ * statement binding old key -> new key + tool hash + commit. `newPassphrase` given => a new keypair replaces the old one; omitted => the key is kept
+ * and only the owner-tool hash / commit are re-bound.
+ * Atomicity: the new files are written first (`.new`), the old ones are copied to `.bak`, both are swapped with renames, and the `.bak` files are removed
+ * only after both succeeded; on any failure the old files are restored from the backups.
  */
-export function rotateTrust(ownerDir: string, current: OwnerTrust, oldPassphrase: string, next: { ownerToolsSha256: string; registeredAtCommit: string; registeredBy: string; newPassphrase?: string }, nowUtc: string): OwnerTrust {
-  const oldPriv = openKey(readEncryptedKey(ownerDir), oldPassphrase); // throws on the wrong passphrase
+export function rotateTrust(ownerDir: string, current: OwnerTrust, oldPassphrase: string, next: { ownerToolsSha256: string; registeredAtCommit: string; registeredBy: string; newPassphrase?: string }, nowUtc: string, hooks: RotateHooks = {}): OwnerTrust {
+  const oldPriv = openKey(readEncryptedKey(ownerDir), oldPassphrase, hooks.minN); // throws on the wrong passphrase
+  const oldFp = keyFingerprint(createPublicKey(oldPriv).export({ type: "spki", format: "der" }));
+  if (oldFp !== current.publicKeyFingerprint) throw new Error("the key file does not match the registered public key; refusing to rotate");
   let pub = current.publicKeySpkiDerBase64;
   let newEnc: EncryptedKey | null = null;
   if (next.newPassphrase !== undefined) {
@@ -82,18 +107,38 @@ export function rotateTrust(ownerDir: string, current: OwnerTrust, oldPassphrase
   const newFp = keyFingerprint(Buffer.from(pub, "base64"));
   const statement = `D24-OWNER-ROTATE-V1\nold=${current.publicKeyFingerprint}\nnew=${newFp}\ntools=${next.ownerToolsSha256}\ncommit=${next.registeredAtCommit}`;
   const rotated: OwnerTrust = { ...current, publicKeySpkiDerBase64: pub, publicKeyFingerprint: newFp, ownerToolsSha256: next.ownerToolsSha256, registeredAtCommit: next.registeredAtCommit, registeredBy: next.registeredBy, registeredUtc: nowUtc, rotation: { fromFingerprint: current.publicKeyFingerprint, statement, signatureBase64: sign(null, Buffer.from(statement, "utf8"), oldPriv).toString("base64"), atUtc: nowUtc } };
-  const f = trustPath(ownerDir);
-  const tmp = `${f}.new`;
-  writeFileSync(tmp, JSON.stringify(rotated, null, 2), { mode: 0o444 });
+
+  const tf = trustPath(ownerDir);
+  const kf = privateKeyPath(ownerDir);
+  const files = [tf, kf];
+  // 1. write everything new first; nothing live has changed yet
+  writeFileSync(`${tf}.new`, JSON.stringify(rotated, null, 2), { mode: 0o444 });
+  if (newEnc) writeFileSync(`${kf}.new`, JSON.stringify(newEnc), { mode: 0o600 });
+  // 2. back up the old files
+  for (const f of files) copyFileSync(f, `${f}.bak`);
+  hooks.beforeSwap?.();
   try {
-    chmodSync(f, 0o644); // clear the read-only attribute so the rename can replace it
-  } catch {
-    /* ignore */
+    try {
+      chmodSync(tf, 0o644); // clear the read-only attribute so the rename can replace it
+    } catch {
+      /* ignore */
+    }
+    if (newEnc) renameSync(`${kf}.new`, kf);
+    if (hooks.failSecondRename) throw new Error("simulated failure during the swap");
+    renameSync(`${tf}.new`, tf);
+  } catch (e) {
+    for (const f of files) {
+      try {
+        chmodSync(f, 0o644);
+        copyFileSync(`${f}.bak`, f);
+      } catch {
+        /* best effort restore */
+      }
+    }
+    for (const f of [`${tf}.new`, `${kf}.new`, `${tf}.bak`, `${kf}.bak`]) if (existsSync(f)) unlinkSync(f);
+    throw e;
   }
-  if (newEnc) {
-    writeFileSync(`${privateKeyPath(ownerDir)}.new`, JSON.stringify(newEnc), { mode: 0o600 });
-    renameSync(`${privateKeyPath(ownerDir)}.new`, privateKeyPath(ownerDir));
-  }
-  renameSync(tmp, f);
+  // 3. both succeeded: drop the backups
+  for (const f of files) if (existsSync(`${f}.bak`)) unlinkSync(`${f}.bak`);
   return rotated;
 }

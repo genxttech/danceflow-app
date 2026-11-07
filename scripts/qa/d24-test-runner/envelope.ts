@@ -94,11 +94,52 @@ export function unsafeStringPaths(v: unknown, path = "$", out: string[] = [], de
   return out;
 }
 
+/** Size caps (P3-2): nothing in an envelope is legitimately large, and the owner reads every value on a terminal. */
+export const MAX_STRING = 2000;
+export const MAX_ARRAY = 64;
+export const MAX_KEYS = 64;
+export function oversizePaths(v: unknown, path = "$", out: string[] = [], depth = 0): string[] {
+  if (out.length > 20) return out;
+  if (depth > 6) {
+    out.push(`${path} (nested too deeply)`);
+    return out;
+  }
+  if (typeof v === "string") {
+    if (v.length > MAX_STRING) out.push(`${path} (string longer than ${MAX_STRING})`);
+  } else if (Array.isArray(v)) {
+    if (v.length > MAX_ARRAY) out.push(`${path} (array longer than ${MAX_ARRAY})`);
+    else v.forEach((x, i) => oversizePaths(x, `${path}[${i}]`, out, depth + 1));
+  } else if (v !== null && typeof v === "object") {
+    const ks = Object.keys(v as Record<string, unknown>);
+    if (ks.length > MAX_KEYS) out.push(`${path} (more than ${MAX_KEYS} keys)`);
+    else for (const k of ks) {
+      if (k.length > 64) out.push(`${path} (key longer than 64)`);
+      else oversizePaths((v as Record<string, unknown>)[k], `${path}.${k}`, out, depth + 1);
+    }
+  }
+  return out;
+}
+
+/** Exact key sets of the nested objects (P3-3): an unknown nested key is refused, not ignored. */
+export const NESTED_KEYS: Record<string, readonly string[]> = {
+  code: ["commitSha", "lockfileSha256"],
+  proof: ["manifestSha256", "fileCount"],
+  runner: ["manifestSha256", "fileCount"],
+  accounts: ["platformAcct", "connectedAcct"],
+  credential: ["store", "label", "keyKind", "keyFingerprintSha256Prefix", "keyExpiresUtc"],
+  cleanup: ["required", "mustVerifyEmpty"],
+  forbidden: ["feeBearing", "financialMutation", "liveMode"],
+  ownerApproval: ["text", "textSha256", "reference"],
+};
+const ATTESTATION_KEYS = ["statement", "attestedBy", "reference"];
+
 /** Structural + policy validation. Does NOT check expiry against the clock (see checkEnvelopeWindow) or run counts (ledger). */
 export function validateEnvelope(raw: unknown): { ok: true; envelope: Envelope } | { ok: false; issues: EnvelopeIssue[] } {
   const issues: EnvelopeIssue[] = [];
   const bad = (code: string, detail: string) => issues.push({ code, detail });
   if (!plain(raw)) return { ok: false, issues: [{ code: "shape", detail: "envelope is not a JSON object" }] };
+  const big = oversizePaths(raw);
+  if (big.length > 0) return { ok: false, issues: [{ code: "oversize", detail: `envelope value too large (at ${big.slice(0, 5).join(", ")})` }] };
   const unsafe = unsafeStringPaths(raw);
   if (unsafe.length > 0) return { ok: false, issues: [{ code: "control-char", detail: `control, escape, line-break or bidi characters are not allowed in any envelope string (at ${unsafe.slice(0, 5).join(", ")})` }] };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -106,6 +147,11 @@ export function validateEnvelope(raw: unknown): { ok: true; envelope: Envelope }
   const allowedTop = ["schemaVersion", "envelopeId", "mode", "createdUtc", "expiresUtc", "code", "proof", "runner", "accounts", "permittedRuleIds", "apiCallCeiling", "cleanupReserve", "credential", "cleanup", "forbidden", "stopConditions", "maxRuns", "evidenceRoot", "manualAttestations", "ownerApproval", "envelopeSha256"];
   for (const k of Object.keys(e)) if (!allowedTop.includes(k)) bad("unknown-field", `unknown top-level field ${JSON.stringify(k.slice(0, 40))}`);
   for (const k of allowedTop) if (!(k in e)) bad("missing-field", `missing ${k}`);
+  for (const [obj, keys] of Object.entries(NESTED_KEYS)) {
+    if (!plain(e[obj])) continue;
+    for (const k of Object.keys(e[obj])) if (!keys.includes(k)) bad("unknown-field", `unknown field ${JSON.stringify(`${obj}.${k}`.slice(0, 50))}`);
+  }
+  if (plain(e.manualAttestations)) for (const [id, a] of Object.entries(e.manualAttestations)) if (plain(a)) for (const k of Object.keys(a)) if (!ATTESTATION_KEYS.includes(k)) bad("unknown-field", `unknown field in attestation ${JSON.stringify(id.slice(0, 30))}: ${JSON.stringify(k.slice(0, 30))}`);
   if (issues.length > 0) return { ok: false, issues };
 
   if (e.schemaVersion !== 1) bad("schema-version", "schemaVersion must be 1");

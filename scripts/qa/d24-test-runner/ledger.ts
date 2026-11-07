@@ -3,6 +3,7 @@
 // The chain head is also recorded in a SECOND location (the anchor file) so truncating the tail or replacing the ledger is detected.
 
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { canonicalJson, sha256 } from "./canon";
 
@@ -117,21 +118,20 @@ export class Ledger {
   private withAppendLock<T>(fn: () => T): T {
     if (this.appendLockHeld) return fn();
     const lf = join(this.dir, "append.lock");
+    const token = `${process.pid}:${randomBytes(12).toString("hex")}`; // unique per acquisition: we only ever remove a lock file that still holds OUR token
     const deadline = Date.now() + this.appendLockWaitMs;
     for (;;) {
       try {
-        closeSync(openSync(lf, "wx", 0o600));
+        const fd = openSync(lf, "wx", 0o600);
+        try {
+          writeSync(fd, token);
+        } finally {
+          closeSync(fd);
+        }
         break;
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-        try {
-          if (Date.now() - statSync(lf).mtimeMs > 60_000) {
-            unlinkSync(lf); // stale lock from a crashed writer
-            continue;
-          }
-        } catch {
-          /* raced with the owner releasing it */
-        }
+        this.takeOverIfStale(lf);
         if (Date.now() > deadline) throw new Error("ledger append lock is busy (another process is writing the ledger); try again");
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
       }
@@ -141,11 +141,26 @@ export class Ledger {
       return fn();
     } finally {
       this.appendLockHeld = false;
-      try {
-        unlinkSync(lf);
-      } catch {
-        /* already gone */
-      }
+      this.releaseIfOurs(lf, token);
+    }
+  }
+
+  /** Removes a lock file older than 60 s, but only if its content is unchanged between two reads (a fresh holder that replaced it is never removed). */
+  private takeOverIfStale(lf: string): void {
+    try {
+      if (Date.now() - statSync(lf).mtimeMs <= 60_000) return;
+      const seen = readFileSync(lf, "utf8");
+      if (readFileSync(lf, "utf8") === seen && Date.now() - statSync(lf).mtimeMs > 60_000) unlinkSync(lf);
+    } catch {
+      /* the holder released it, or another waiter took it over first */
+    }
+  }
+
+  private releaseIfOurs(lf: string, token: string): void {
+    try {
+      if (readFileSync(lf, "utf8") === token) unlinkSync(lf);
+    } catch {
+      /* already gone */
     }
   }
 
