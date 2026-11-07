@@ -71,11 +71,11 @@ describe("D4-2 event classification vs what the database emits", () => {
 
 describe("D4-2 alert policy: identity and coalescing", () => {
   it("identity ignores volatile keys, but a different subject, kind or detail is a different identity", () => {
-    const a = eventIdentity("credential_replaced", U1, { credential: "k1", occurred_at: "2026-11-06T00:00:00Z", request_id: "r1", seq: 4 });
-    expect(eventIdentity("credential_replaced", U1, { credential: "k1", occurred_at: "2026-11-06T00:05:00Z", request_id: "r2", seq: 9 })).toBe(a);
-    expect(eventIdentity("credential_replaced", U2, { credential: "k1" })).not.toBe(a);
-    expect(eventIdentity("credential_replaced", U1, { credential: "k2" })).not.toBe(a);
-    expect(eventIdentity("credential_revocation_accepted", U1, { credential: "k1" })).not.toBe(a);
+    const a = eventIdentity("credential_replaced", U1, { credential_ref: "k1", occurred_at: "2026-11-06T00:00:00Z", request_id: "r1", seq: 4 });
+    expect(eventIdentity("credential_replaced", U1, { credential_ref: "k1", occurred_at: "2026-11-06T00:05:00Z", request_id: "r2", seq: 9 })).toBe(a);
+    expect(eventIdentity("credential_replaced", U2, { credential_ref: "k1" })).not.toBe(a);
+    expect(eventIdentity("credential_replaced", U1, { credential_ref: "k2" })).not.toBe(a);
+    expect(eventIdentity("credential_revocation_accepted", U1, { credential_ref: "k1" })).not.toBe(a);
   });
 
   it("first critical alert is immediate; an identical repeat inside 5 minutes is not sent but is fully recorded; a different identity is sent independently", async () => {
@@ -107,9 +107,9 @@ describe("D4-2 alert policy: identity and coalescing", () => {
 
   it("when the window closes the suppressed repeats are summarised (once), then the next identical event is a fresh first alert", async () => {
     const s = setup();
-    s.emit("credential_replaced", U1, { credential: "k1" });
+    s.emit("credential_replaced", U1, { credential_ref: "k1" });
     await s.run();
-    for (let i = 0; i < 3; i++) { s.advance(30_000); s.emit("credential_replaced", U1, { credential: "k1" }); await s.run(); }
+    for (let i = 0; i < 3; i++) { s.advance(30_000); s.emit("credential_replaced", U1, { credential_ref: "k1" }); await s.run(); }
     expect(s.transports[0].sent).toHaveLength(1);
     s.advance(6 * 60_000); // window closed, no new event
     const sum = await s.run();
@@ -121,7 +121,7 @@ describe("D4-2 alert policy: identity and coalescing", () => {
     s.advance(60_000);
     expect((await s.run()).alertRequired).toBe(false);
     // and the next identical event after the window is sent again as a fresh alert
-    s.emit("credential_replaced", U1, { credential: "k1" });
+    s.emit("credential_replaced", U1, { credential_ref: "k1" });
     s.advance(1000);
     await s.run();
     expect(s.transports[0].sent).toHaveLength(3);
@@ -129,20 +129,20 @@ describe("D4-2 alert policy: identity and coalescing", () => {
 
   it("repeats carried by the next send are summarised in that send", async () => {
     const s = setup();
-    s.emit("credential_replaced", U1, { credential: "k1" });
+    s.emit("credential_replaced", U1, { credential_ref: "k1" });
     await s.run();
-    s.advance(60_000); s.emit("credential_replaced", U1, { credential: "k1" }); await s.run();
-    s.advance(6 * 60_000); s.emit("credential_replaced", U1, { credential: "k1" }); await s.run();
+    s.advance(60_000); s.emit("credential_replaced", U1, { credential_ref: "k1" }); await s.run();
+    s.advance(6 * 60_000); s.emit("credential_replaced", U1, { credential_ref: "k1" }); await s.run();
     const last = s.transports[0].sent.at(-1)!;
     expect(last.findings[0].message).toContain("+1 identical repeat(s) were suppressed earlier");
   });
 
   it("state is in the evidence chain: a brand-new process with the same database still coalesces", async () => {
     const s = setup();
-    s.emit("credential_replaced", U1, { credential: "k1" });
+    s.emit("credential_replaced", U1, { credential_ref: "k1" });
     await s.run();
     s.advance(60_000);
-    s.emit("credential_replaced", U1, { credential: "k1" });
+    s.emit("credential_replaced", U1, { credential_ref: "k1" });
     const freshTransport = new FakeTransport();
     const out = await runPriceMonitor({ ...s.deps(), config: { ...s.config, transports: [freshTransport] } });
     expect(out.alertRequired).toBe(false);
@@ -151,10 +151,10 @@ describe("D4-2 alert policy: identity and coalescing", () => {
 
   it("fails OPEN: an unreadable or tampered chain disables coalescing (everything is sent), a failed delivery is not treated as sent", async () => {
     const s = setup();
-    s.emit("credential_replaced", U1, { credential: "k1" });
+    s.emit("credential_replaced", U1, { credential_ref: "k1" });
     await s.run();
     s.advance(60_000);
-    s.emit("credential_replaced", U1, { credential: "k1" });
+    s.emit("credential_replaced", U1, { credential_ref: "k1" });
     // tamper with an earlier row
     s.db.rows[0] = { ...s.db.rows[0], payload: "{\"x\":1}" };
     expect(verifyChain(s.db.rows).ok).toBe(false);
@@ -163,20 +163,20 @@ describe("D4-2 alert policy: identity and coalescing", () => {
     expect(s.transports[0].sent.length).toBeGreaterThanOrEqual(2);
     // unreadable evidence list
     const s2 = setup();
-    s2.emit("credential_replaced", U1, { credential: "k1" });
+    s2.emit("credential_replaced", U1, { credential_ref: "k1" });
     await s2.run();
     s2.advance(60_000);
-    s2.emit("credential_replaced", U1, { credential: "k1" });
+    s2.emit("credential_replaced", U1, { credential_ref: "k1" });
     s2.db.evidenceList = async () => { throw new Error("down"); };
     const o2 = await s2.run();
     expect(o2.alertRequired).toBe(true);
     // delivery failure: the identity was never sent, so the next identical event is not suppressed
     const s3 = setup();
     s3.transports[0].failSends = 3;
-    s3.emit("credential_replaced", U1, { credential: "k1" });
+    s3.emit("credential_replaced", U1, { credential_ref: "k1" });
     await s3.run();
     s3.advance(60_000);
-    s3.emit("credential_replaced", U1, { credential: "k1" });
+    s3.emit("credential_replaced", U1, { credential_ref: "k1" });
     const o3 = await s3.run();
     expect(o3.alertRequired).toBe(true);
     expect(s3.transports[0].sent.length).toBeGreaterThanOrEqual(1);
@@ -196,8 +196,8 @@ describe("D4-2 alert policy: rate and cost protection", () => {
     const s = setup([new FakeTransport()], { defaultSendCap: CAP });
     let events = 0;
     for (let minute = 0; minute < 30; minute++) {
-      for (let i = 0; i < 20; i++) { s.emit("credential_replaced", U1, { credential: "same" }); events += 1; }
-      s.emit("credential_replaced", `00000000-0000-4000-8000-${String(minute).padStart(12, "0")}`, { credential: `c${minute}` }); events += 1;
+      for (let i = 0; i < 20; i++) { s.emit("credential_replaced", U1, { credential_ref: "same" }); events += 1; }
+      s.emit("credential_replaced", `00000000-0000-4000-8000-${String(minute).padStart(12, "0")}`, { credential_ref: `c${minute}` }); events += 1;
       await s.run();
       s.advance(60_000);
     }
@@ -220,7 +220,7 @@ describe("D4-2 alert policy: rate and cost protection", () => {
   it("the cap is per transport", async () => {
     const a = new FakeTransport("webhook"), b = new FakeTransport("resend_email");
     const s = setup([a, b], { defaultSendCap: 12, sendCaps: { resend_email: 4 } });
-    for (let i = 0; i < 30; i++) { s.emit("credential_replaced", `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, { credential: `c${i}` }); await s.run(); s.advance(30_000); }
+    for (let i = 0; i < 30; i++) { s.emit("credential_replaced", `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, { credential_ref: `c${i}` }); await s.run(); s.advance(30_000); }
     expect(b.sent.length).toBeLessThanOrEqual(4);
     expect(a.sent.length).toBeLessThanOrEqual(12);
     expect(a.sent.length).toBeGreaterThan(b.sent.length);
@@ -232,8 +232,8 @@ describe("D4-2 alert policy: one alert per distinct incident", () => {
     const s = setup();
     s.emit("credential_compromise_reported", U1, { reason: "lost" });
     s.emit("credential_compromise_reported", U1, { reason: "lost" });
-    s.emit("price_integrity_failure", null, { check: "digest" });
-    s.emit("credential_replaced", U2, { credential: "k9" });
+    s.emit("price_integrity_failure", null, { failed_kind: "digest" });
+    s.emit("credential_replaced", U2, { credential_ref: "k9" });
     s.emit("price_proposed", U1, { kind: "number" });
     await s.run();
     const sent = s.transports[0].sent;
@@ -249,9 +249,9 @@ describe("D4-2 alert policy: one alert per distinct incident", () => {
 
   it("different credentials of the same kind are different incidents: each gets its own alert", async () => {
     const s = setup();
-    s.emit("credential_replaced", U1, { credential: "k1" });
-    s.emit("credential_replaced", U1, { credential: "k2" });
-    s.emit("credential_replaced", U2, { credential: "k1" });
+    s.emit("credential_replaced", U1, { credential_ref: "k1" });
+    s.emit("credential_replaced", U1, { credential_ref: "k2" });
+    s.emit("credential_replaced", U2, { credential_ref: "k1" });
     await s.run();
     expect(s.transports[0].sent).toHaveLength(3);
   });
@@ -289,7 +289,7 @@ describe("D4-2 alert policy: priority classes and capacity reservation", () => {
   it("15 distinct WARNING identities cannot delay a genuine credential_recovery_used: it is sent immediately; the warnings stay held, none lost", async () => {
     const s = setup();
     const t = s.transports[0];
-    for (let i = 0; i < 15; i++) s.emit("credential_replaced", U1, { credential: "k" + i, change_id: "c" + i });
+    for (let i = 0; i < 15; i++) s.emit("credential_replaced", U1, { credential_ref: "k" + i, change_id: "c" + i });
     await s.run();
     const warnSent = t.sent.filter((m) => m.findings.every((f) => f.code === "credential_replaced")).length;
     expect(warnSent).toBe(5); // warn/info may use at most half of the 11 alert slots
@@ -308,13 +308,13 @@ describe("D4-2 alert policy: priority classes and capacity reservation", () => {
   it("15 distinct CRITICAL (non-top) incidents cannot starve credential_recovery_used either: the reserve is only for top-priority kinds", async () => {
     const s = setup();
     const t = s.transports[0];
-    for (let i = 0; i < 15; i++) s.emit("credential_compromise_reported", U1, { target: "key" + i });
+    for (let i = 0; i < 15; i++) s.emit("credential_compromise_reported", U1, { credential_ref: "key" + i });
     await s.run();
     const critSent = t.sent.filter((m) => m.findings.every((f) => f.code === "credential_compromise")).length;
     expect(critSent).toBe(8); // N=11 minus the 3 slots reserved for top priority
     s.advance(30_000);
     s.emit("credential_recovery_used", U1, { action: "recover_freeze" });
-    s.emit("price_integrity_failure", null, { check: "digest" });
+    s.emit("price_integrity_failure", null, { failed_kind: "digest" });
     await s.run();
     expect(recoverySent(t)).toHaveLength(1);
     expect(t.sent.some((m) => m.findings.some((f) => f.code === "price_integrity_failure"))).toBe(true);
@@ -335,8 +335,8 @@ describe("D4-2 alert policy: priority classes and capacity reservation", () => {
   it("held messages drain by priority class, oldest first inside a class, when capacity returns", async () => {
     const s = setup();
     const t = s.transports[0];
-    for (let i = 0; i < 10; i++) s.emit("credential_compromise_reported", U1, { target: "k" + String(i).padStart(2, "0") }); // crit: 8 sent, 2 held (k08, k09)
-    for (let i = 0; i < 8; i++) s.emit("credential_replaced", U2, { credential: "w" + i }); // warn: 3 slots left under the warn+crit limit... all but few held
+    for (let i = 0; i < 10; i++) s.emit("credential_compromise_reported", U1, { credential_ref: "k" + String(i).padStart(2, "0") }); // crit: 8 sent, 2 held (k08, k09)
+    for (let i = 0; i < 8; i++) s.emit("credential_replaced", U2, { credential_ref: "w" + i }); // warn: 3 slots left under the warn+crit limit... all but few held
     await s.run();
     const firstHour = t.sent.length;
     s.advance(61 * 60_000);
@@ -372,8 +372,8 @@ describe("D4-2 alert identity: no user-controlled text, bounded identities, prio
     expect(reasonCode(42)).toBe("other");
     expect(new Set(REASON_CODES).size).toBe(REASON_CODES.length);
     // other free-text keys contribute nothing either, whatever they say
-    const base = eventIdentity("credential_compromise_reported", U1, { target: "key1" });
-    for (const key of ["note", "label", "description", "message", "comment", "details"]) expect(eventIdentity("credential_compromise_reported", U1, { target: "key1", [key]: "typed by whoever" })).toBe(eventIdentity("credential_compromise_reported", U1, { target: "key1", [key]: "something else entirely" }));
+    const base = eventIdentity("credential_compromise_reported", U1, { credential_ref: "key1" });
+    for (const key of ["note", "label", "description", "message", "comment", "details"]) expect(eventIdentity("credential_compromise_reported", U1, { credential_ref: "key1", [key]: "typed by whoever" })).toBe(eventIdentity("credential_compromise_reported", U1, { credential_ref: "key1", [key]: "something else entirely" }));
     // the shape of a server-defined token / uuid / hex reference is kept, so real distinctions stay distinct
     expect(eventIdentity("credential_replaced", U1, { change_id: U2 })).not.toBe(eventIdentity("credential_replaced", U1, { change_id: U1 }));
     expect(eventIdentity("credential_replaced", U1, { credential_ref: hex(1) })).not.toBe(eventIdentity("credential_replaced", U1, { credential_ref: hex(2) }));
@@ -470,5 +470,60 @@ describe("D4-2 alert identity: no user-controlled text, bounded identities, prio
     for (let i = 0; i < 3; i++) { s.advance(600_000); await s.run(); }
     expect(sentCodes(t, "pricing_suspended").length).toBeGreaterThanOrEqual(1);
     expect(EVIDENCE_EVENT_COUNT(s.db)).toBe(1);
+  });
+});
+
+describe("D4-2 alert identity: key allow-list and per-credential references", () => {
+  const ref = (i: number) => (0xfedc00 + i).toString(16).padStart(12, "0");
+  const sent = (t: FakeTransport, code: string) => t.sent.flatMap((m) => m.findings).filter((f) => f.code === code);
+
+  it("200 distinct strings under UNLISTED keys (memo, tag, extra, memo_N) are ONE identity: tokens and hex under an unlisted key mint nothing", () => {
+    const ids = new Set<string>();
+    for (let i = 0; i < 200; i++) {
+      ids.add(eventIdentity("credential_compromise_reported", U1, { memo: "tok" + i, tag: ref(i), extra: "abcdef" + i, ["memo_" + i]: "v" + i, count: i, nested: { a: ref(i) } }));
+    }
+    expect(ids.size).toBe(1);
+    // the constant is "unlisted", so it differs from an event without unknown keys (never silently equal)
+    expect(ids.has(eventIdentity("credential_compromise_reported", U1, {}))).toBe(false);
+    // numbers only count under known numeric keys; booleans only under known boolean keys
+    expect(eventIdentity("credential_replaced", U1, { votes: 1 })).toBe(eventIdentity("credential_replaced", U1, { votes: 2 }));
+    expect(eventIdentity("price_proposed", U1, { new_customer_cents: 501 })).not.toBe(eventIdentity("price_proposed", U1, { new_customer_cents: 502 }));
+    expect(eventIdentity("credential_replaced", U1, { voided_changes: 0 })).not.toBe(eventIdentity("credential_replaced", U1, { voided_changes: 1 }));
+    expect(eventIdentity("credential_replaced", U1, { repeat: true })).not.toBe(eventIdentity("credential_replaced", U1, { repeat: false }));
+    expect(eventIdentity("credential_replaced", U1, { new_customer_cents: "501" })).toBe(eventIdentity("credential_replaced", U1, { new_customer_cents: "502" })); // a string under a numeric key is the catch-all
+    expect(eventIdentity("credential_replaced", U1, { status: ["pending"] })).toBe(eventIdentity("credential_replaced", U1, { status: ["applied"] })); // nested values are never part of the identity
+    // the known keys still separate real incidents
+    expect(eventIdentity("credential_revocation_accepted", U1, { credential_ref: ref(1) })).not.toBe(eventIdentity("credential_revocation_accepted", U1, { credential_ref: ref(2) }));
+    expect(eventIdentity("credential_replaced", U1, { change_id: U1 })).not.toBe(eventIdentity("credential_replaced", U1, { change_id: U2 }));
+  });
+
+  it("two different credentials revoked or evicted by the SAME administrator within 5 minutes each alert immediately; an equivalent repeat is coalesced; every event is recorded", async () => {
+    const s = setup();
+    const t = s.transports[0];
+    // what the database emits for an eviction: credential_recovery_used {action, credential_ref} and credential_revocation_accepted {voided_changes, via, credential_ref}
+    s.emit("credential_recovery_used", U1, { action: "revoke_ordinary_key", credential_ref: ref(1) });
+    s.emit("credential_revocation_accepted", U1, { voided_changes: 0, via: "recovery", credential_ref: ref(1) });
+    await s.run();
+    expect(sent(t, "credential_recovery_used")).toHaveLength(1);
+    s.advance(90_000);
+    s.emit("credential_recovery_used", U1, { action: "revoke_ordinary_key", credential_ref: ref(2) });   // another credential: immediate
+    s.emit("credential_revocation_accepted", U1, { voided_changes: 2, via: "recovery", credential_ref: ref(2) });
+    await s.run();
+    expect(sent(t, "credential_recovery_used")).toHaveLength(2);
+    s.advance(60_000);
+    s.emit("credential_recovery_used", U1, { action: "revoke_ordinary_key", credential_ref: ref(1) });   // an equivalent repeat of the first: coalesced
+    await s.run();
+    expect(sent(t, "credential_recovery_used")).toHaveLength(2);
+    expect(EVIDENCE_EVENT_COUNT(s.db)).toBe(5);
+    // after the window the repeat is alerted again
+    s.advance(6 * 60_000);
+    s.emit("credential_recovery_used", U1, { action: "revoke_ordinary_key", credential_ref: ref(1) });
+    await s.run();
+    expect(sent(t, "credential_recovery_used").length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("an applied enrolment carries change_id and the new credential's reference: two applied enrolments are two incidents", () => {
+    expect(eventIdentity("credential_replaced", U1, { status: "applied", change: "enroll", role: "spare", change_id: U1, credential_ref: ref(5) })).not.toBe(
+      eventIdentity("credential_replaced", U1, { status: "applied", change: "enroll", role: "spare", change_id: U2, credential_ref: ref(6) }));
   });
 });

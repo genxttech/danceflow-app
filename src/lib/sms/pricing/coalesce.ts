@@ -28,17 +28,17 @@ export function normalizeDetail(v: unknown): unknown {
 }
 
 /**
- * The dedup identity must never contain USER-CONTROLLED text (a freeze reason is typed by an administrator, or by whoever holds a stolen session): fifteen different reasons would
- * be fifteen different "incidents" and could fill the top-priority alert budget. The identity is therefore built from a bounded, server-defined projection of the detail:
- *   - a `reason` maps to a code from the closed enumeration REASON_CODES; text this monitor does not recognise maps to the catch-all 'other';
- *   - other free-text keys (note, label, description, message, ...) contribute only the constant 'other';
- *   - any other string is kept only if it has the shape of a server-defined token, a uuid or a hex reference; anything else is 'other';
- *   - numbers, booleans and null are kept; objects and arrays are bounded.
+ * The dedup identity must never contain USER-CONTROLLED text, and must not be mintable through keys the database does not define. It is built from a KEY ALLOW-LIST:
+ * only the server-defined keys below contribute, each with a bounded value rule; every other key contributes ONE constant (`unlisted: true`), whatever its name or value, so a
+ * token or hex string under an unlisted key (memo, tag, extra, ...) cannot create identities.
+ *   - `reason` maps to a code from the closed enumeration REASON_CODES (the database's own phrases; anything typed by a person is 'other');
+ *   - other string keys keep a value only if it has the shape of a server-defined token, a uuid or a hex reference, otherwise 'other';
+ *   - numbers are kept only for the known numeric keys, booleans only for the known boolean keys; nested values are never part of the identity.
  * The original text stays in the protected audit record and the events table; it is not part of the identity and not part of the alert message.
  */
 export const REASON_CODES = ["compromise_reported", "recovery_credential", "sign_counter_regression", "other"] as const;
 export type ReasonCode = (typeof REASON_CODES)[number];
-/** The only reason texts the database itself emits (exact, case-insensitive match). A freeze typed by a person is never one of these by construction of the freeze function's own wording. */
+/** The only reason texts the database itself emits (exact, case-insensitive match). */
 const TRUSTED_REASONS: Record<string, ReasonCode> = {
   "compromise reported": "compromise_reported",
   "recovery credential": "recovery_credential",
@@ -47,28 +47,27 @@ const TRUSTED_REASONS: Record<string, ReasonCode> = {
 export function reasonCode(text: unknown): ReasonCode {
   return typeof text === "string" ? (TRUSTED_REASONS[text.trim().toLowerCase()] ?? "other") : "other";
 }
-const USER_TEXT_KEY = /^(?:reason|note|notes|label|description|message|text|comment|detail|details|error|summary|title|name)$/i;
+/** Keys the pricing migrations put in an event detail (grep of the emit literals) that may contribute a token / uuid / hex value. */
+export const IDENTITY_STRING_KEYS: ReadonlySet<string> = new Set(["kind", "status", "role", "change", "action", "via", "lifted_by", "failed_kind", "change_id", "credential_ref", "fingerprint"]);
+export const IDENTITY_NUMBER_KEYS: ReadonlySet<string> = new Set(["new_customer_cents", "new_provider_cents", "effective_in_hours", "voided_changes"]);
+export const IDENTITY_BOOLEAN_KEYS: ReadonlySet<string> = new Set(["repeat", "rate_limited", "stale"]);
 const TOKEN = /^[a-z][a-z0-9_]{0,31}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HEXREF = /^[0-9a-f]{8,64}$/i;
-const MAX_KEYS = 24;
-const MAX_ITEMS = 20;
-export function identityDetail(v: unknown, key = "", depth = 0): unknown {
-  if (typeof v === "string") {
-    if (key.toLowerCase() === "reason") return reasonCode(v);
-    if (USER_TEXT_KEY.test(key)) return "other";
-    return TOKEN.test(v) || UUID.test(v) || HEXREF.test(v) ? v.toLowerCase() : "other";
+export function identityDetail(v: unknown): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (!v || typeof v !== "object" || Array.isArray(v)) return { unlisted: true };
+  let unlisted = false;
+  for (const k of Object.keys(v as Record<string, unknown>).sort()) {
+    const x = (v as Record<string, unknown>)[k];
+    if (k === "reason") out[k] = reasonCode(x);
+    else if (IDENTITY_STRING_KEYS.has(k)) out[k] = typeof x === "string" && (TOKEN.test(x) || UUID.test(x) || HEXREF.test(x)) ? x.toLowerCase() : "other";
+    else if (IDENTITY_NUMBER_KEYS.has(k)) out[k] = typeof x === "number" && Number.isFinite(x) ? x : "other";
+    else if (IDENTITY_BOOLEAN_KEYS.has(k)) out[k] = typeof x === "boolean" ? x : "other";
+    else unlisted = true;
   }
-  if (typeof v === "number") return Number.isFinite(v) ? v : "other";
-  if (typeof v === "boolean" || v === null) return v;
-  if (depth >= 3) return "other";
-  if (Array.isArray(v)) return v.slice(0, MAX_ITEMS).map((x) => identityDetail(x, key, depth + 1));
-  if (v && typeof v === "object") {
-    const o: Record<string, unknown> = {};
-    for (const k of Object.keys(v as Record<string, unknown>).sort().slice(0, MAX_KEYS)) o[k] = identityDetail((v as Record<string, unknown>)[k], k, depth + 1);
-    return o;
-  }
-  return "other";
+  if (unlisted) out.unlisted = true;
+  return out;
 }
 
 export function eventIdentity(kind: string, subject: string | null, detail: Record<string, unknown>): string {
