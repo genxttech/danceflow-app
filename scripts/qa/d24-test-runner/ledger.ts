@@ -145,12 +145,17 @@ export class Ledger {
     }
   }
 
-  /** Removes a lock file older than 60 s, but only if its content is unchanged between two reads (a fresh holder that replaced it is never removed). */
-  private takeOverIfStale(lf: string): void {
+  /**
+   * Best-effort removal of an abandoned lock: only a file older than 60 s whose content is unchanged between two reads is removed. This narrows, but does
+   * not eliminate, the window in which a holder that replaced the file between our last check and the unlink could lose its lock (no portable atomic
+   * compare-and-delete exists for files); a lost lock is still caught by the chain/seq checks, which fail closed. The 60 s age is far above the
+   * milliseconds an append takes. `read` is a test seam.
+   */
+  private takeOverIfStale(lf: string, read: (p: string, enc: "utf8") => string = readFileSync): void {
     try {
       if (Date.now() - statSync(lf).mtimeMs <= 60_000) return;
-      const seen = readFileSync(lf, "utf8");
-      if (readFileSync(lf, "utf8") === seen && Date.now() - statSync(lf).mtimeMs > 60_000) unlinkSync(lf);
+      const seen = read(lf, "utf8");
+      if (read(lf, "utf8") === seen && Date.now() - statSync(lf).mtimeMs > 60_000) unlinkSync(lf);
     } catch {
       /* the holder released it, or another waiter took it over first */
     }

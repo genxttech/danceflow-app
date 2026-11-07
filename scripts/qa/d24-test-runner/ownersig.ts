@@ -84,16 +84,47 @@ export function writeEncryptedKey(ownerDir: string, enc: EncryptedKey): void {
 }
 export const readEncryptedKey = (ownerDir: string): EncryptedKey => JSON.parse(readFileSync(privateKeyPath(ownerDir), "utf8")) as EncryptedKey;
 
-export type RotateHooks = { /** test seam: called after the new files are written and before the swap */ beforeSwap?: () => void; /** test seam: fail the second rename */ failSecondRename?: boolean; minN?: number };
+export type FsOps = { copyFile: (from: string, to: string) => void; renameFile: (from: string, to: string) => void; unlink: (p: string) => void; chmod: (p: string, mode: number) => void };
+const realOps: FsOps = { copyFile: copyFileSync, renameFile: renameSync, unlink: unlinkSync, chmod: chmodSync };
+export type RotateHooks = {
+  /** test seam: called after the new files are written and before the swap */
+  beforeSwap?: () => void;
+  /** test seam: fail the second rename */
+  failSecondRename?: boolean;
+  /** test seam: replacement file operations (e.g. a copy that fails during the restore) */
+  ops?: Partial<FsOps>;
+  /** test seam: scrypt floor for the EXISTING key file */
+  minN?: number;
+};
+
+/** The final on-disk state must be consistent: the trust file parses and the key file decrypts to exactly the registered public key. */
+function stateConsistent(ownerDir: string, passphrase: string, minN?: number): boolean {
+  try {
+    const t = JSON.parse(readFileSync(trustPath(ownerDir), "utf8")) as OwnerTrust;
+    const priv = openKey(readEncryptedKey(ownerDir), passphrase, minN);
+    return keyFingerprint(createPublicKey(priv).export({ type: "spki", format: "der" })) === t.publicKeyFingerprint;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Explicit rotation / tool re-binding. Requires the OLD key (passphrase), checks that the decrypted old key IS the registered key, and signs a
  * statement binding old key -> new key + tool hash + commit. `newPassphrase` given => a new keypair replaces the old one; omitted => the key is kept
  * and only the owner-tool hash / commit are re-bound.
- * Atomicity: the new files are written first (`.new`), the old ones are copied to `.bak`, both are swapped with renames, and the `.bak` files are removed
- * only after both succeeded; on any failure the old files are restored from the backups.
+ * Safety of the swap: new files are written first (`.new`), the old ones are copied to `.bak`, both are swapped with renames, and the result is verified
+ * (trust parses, key file decrypts to the registered key). Only then are the backups deleted. On any failure the old files are restored from the backups;
+ * if ANY restore step fails, or the restored state cannot be verified, every `.bak` and `.new` file is KEPT and the error names them with the manual
+ * recovery step. A leftover `.new` / `.bak` from an interrupted rotation makes the next rotation refuse with the same instructions (never a silent overwrite).
  */
 export function rotateTrust(ownerDir: string, current: OwnerTrust, oldPassphrase: string, next: { ownerToolsSha256: string; registeredAtCommit: string; registeredBy: string; newPassphrase?: string }, nowUtc: string, hooks: RotateHooks = {}): OwnerTrust {
+  const ops: FsOps = { ...realOps, ...hooks.ops };
+  const tf = trustPath(ownerDir);
+  const kf = privateKeyPath(ownerDir);
+  const files = [tf, kf];
+  const leftovers = files.flatMap((f) => [`${f}.new`, `${f}.bak`]).filter((f) => existsSync(f));
+  if (leftovers.length > 0) throw new Error(`refusing to rotate: leftover file(s) from an interrupted rotation: ${leftovers.join(", ")}. ${RECOVERY}`);
+
   const oldPriv = openKey(readEncryptedKey(ownerDir), oldPassphrase, hooks.minN); // throws on the wrong passphrase
   const oldFp = keyFingerprint(createPublicKey(oldPriv).export({ type: "spki", format: "der" }));
   if (oldFp !== current.publicKeyFingerprint) throw new Error("the key file does not match the registered public key; refusing to rotate");
@@ -108,37 +139,55 @@ export function rotateTrust(ownerDir: string, current: OwnerTrust, oldPassphrase
   const statement = `D24-OWNER-ROTATE-V1\nold=${current.publicKeyFingerprint}\nnew=${newFp}\ntools=${next.ownerToolsSha256}\ncommit=${next.registeredAtCommit}`;
   const rotated: OwnerTrust = { ...current, publicKeySpkiDerBase64: pub, publicKeyFingerprint: newFp, ownerToolsSha256: next.ownerToolsSha256, registeredAtCommit: next.registeredAtCommit, registeredBy: next.registeredBy, registeredUtc: nowUtc, rotation: { fromFingerprint: current.publicKeyFingerprint, statement, signatureBase64: sign(null, Buffer.from(statement, "utf8"), oldPriv).toString("base64"), atUtc: nowUtc } };
 
-  const tf = trustPath(ownerDir);
-  const kf = privateKeyPath(ownerDir);
-  const files = [tf, kf];
   // 1. write everything new first; nothing live has changed yet
   writeFileSync(`${tf}.new`, JSON.stringify(rotated, null, 2), { mode: 0o444 });
   if (newEnc) writeFileSync(`${kf}.new`, JSON.stringify(newEnc), { mode: 0o600 });
   // 2. back up the old files
-  for (const f of files) copyFileSync(f, `${f}.bak`);
+  for (const f of files) ops.copyFile(f, `${f}.bak`);
   hooks.beforeSwap?.();
+  const finalPass = next.newPassphrase ?? oldPassphrase;
   try {
     try {
-      chmodSync(tf, 0o644); // clear the read-only attribute so the rename can replace it
+      ops.chmod(tf, 0o644); // clear the read-only attribute so the rename can replace it
     } catch {
       /* ignore */
     }
-    if (newEnc) renameSync(`${kf}.new`, kf);
+    if (newEnc) ops.renameFile(`${kf}.new`, kf);
     if (hooks.failSecondRename) throw new Error("simulated failure during the swap");
-    renameSync(`${tf}.new`, tf);
+    ops.renameFile(`${tf}.new`, tf);
+    if (!stateConsistent(ownerDir, finalPass, newEnc ? undefined : hooks.minN)) throw new Error("the rotated trust file and key file are not consistent");
   } catch (e) {
+    // 3a. restore from the backups, tracking every step
+    const failed: string[] = [];
     for (const f of files) {
       try {
-        chmodSync(f, 0o644);
-        copyFileSync(`${f}.bak`, f);
+        ops.chmod(f, 0o644);
+        ops.copyFile(`${f}.bak`, f);
       } catch {
-        /* best effort restore */
+        failed.push(f);
       }
     }
-    for (const f of [`${tf}.new`, `${kf}.new`, `${tf}.bak`, `${kf}.bak`]) if (existsSync(f)) unlinkSync(f);
+    try {
+      ops.chmod(tf, 0o444); // the trust file is read-only again
+    } catch {
+      /* best effort */
+    }
+    const restoredOk = failed.length === 0 && stateConsistent(ownerDir, oldPassphrase, hooks.minN);
+    if (!restoredOk) {
+      const keep = files.flatMap((f) => [`${f}.bak`, `${f}.new`]).filter((f) => existsSync(f));
+      throw new Error(`rotation failed (${(e as Error).message}) AND the previous state could not be restored${failed.length ? ` for ${failed.join(", ")}` : " or verified"}. KEPT: ${keep.join(", ")}. ${RECOVERY}`);
+    }
+    for (const f of [`${tf}.new`, `${kf}.new`, `${tf}.bak`, `${kf}.bak`]) if (existsSync(f)) ops.unlink(f);
     throw e;
   }
-  // 3. both succeeded: drop the backups
-  for (const f of files) if (existsSync(`${f}.bak`)) unlinkSync(`${f}.bak`);
+  // 3b. both swaps succeeded and the state is verified: drop the backups
+  try {
+    ops.chmod(tf, 0o444);
+  } catch {
+    /* best effort */
+  }
+  for (const f of files) if (existsSync(`${f}.bak`)) ops.unlink(`${f}.bak`);
   return rotated;
 }
+
+const RECOVERY = "Manual recovery: stop, do not delete anything; for each <file>.bak copy it over <file> (owner-trust.json / owner-key.enc.json in the owner directory) to return to the previous registration, check with owner-show, then delete the leftover .new/.bak files and retry. If you are unsure, the old private key is the .bak (or the unchanged original) and the passphrase is unchanged.";

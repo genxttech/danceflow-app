@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import { validateEnvelope, type Envelope } from "./envelope";
 import type { Exec } from "./exec";
 import { pristineGates } from "./gitverify";
-import { generateOwnerKey, readEncryptedKey, rotateTrust, signEnvelopeHash, writeEncryptedKey, writeTrust } from "./ownersig";
+import { generateOwnerKey, passphraseProblem, readEncryptedKey, rotateTrust, signEnvelopeHash, writeEncryptedKey, writeTrust } from "./ownersig";
 import { defaultOwnerDir, loadTrust, privateKeyPath, resolveOwnerPaths, trustPath } from "./ownerverify";
 
 export type OwnerIo = { out: (s: string) => void; err: (s: string) => void };
@@ -95,7 +95,12 @@ export async function ownerKeygen(io: OwnerIo, pr: Prompter, pristine: Pristine,
     return 2;
   }
   if (!(await requirePristine(io, pristine))) return 2;
-  const a = await pr.hidden("Choose an owner passphrase (at least 12 characters; it protects the signing key): ");
+  const a = await pr.hidden("Choose an owner passphrase (at least 16 characters; it protects the signing key): ");
+  const weak = passphraseProblem(a);
+  if (weak) {
+    io.err(`refused: ${weak}`);
+    return 2;
+  }
   const b = await pr.hidden("Repeat the passphrase: ");
   if (a !== b) {
     io.err("refused: the passphrases differ");
@@ -175,7 +180,12 @@ export async function ownerRotate(io: OwnerIo, pr: Prompter, pristine: Pristine,
   const old = await pr.hidden("OLD owner passphrase: ");
   let fresh: string | undefined;
   if (newKey) {
-    fresh = await pr.hidden("NEW owner passphrase (at least 12 characters): ");
+    fresh = await pr.hidden("NEW owner passphrase (at least 16 characters): ");
+    const weakNew = passphraseProblem(fresh);
+    if (weakNew) {
+      io.err(`refused: ${weakNew}`);
+      return 2;
+    }
     if (fresh !== (await pr.hidden("Repeat the NEW passphrase: "))) {
       io.err("refused: the new passphrases differ");
       return 2;
