@@ -110,6 +110,28 @@ describe.skipIf(!hasMonitor)("D4-2 owner authorization on the combined chain wit
     }
   });
 
+
+  it("MON-05 a counter regression without the private key (garbage signature) raises NO price_integrity_failure event and no integrity_failure audit row; a genuinely signed regression does", () => {
+    clear();
+    resetCreds(K1, [KR, "recovery"]);
+    psql("begin; alter table public.studio_sms_price_credentials disable trigger studio_sms_price_credentials_guard; update public.studio_sms_price_credentials set sign_count = 9000; alter table public.studio_sms_price_credentials enable always trigger studio_sms_price_credentials_guard; commit;");
+    const p = propose(482);
+    ownerAgeRequest(psql, p.request_id, 25);
+    const b = begin(p.request_id);
+    const good = K1.assert(b.challenge, { counter: 3 });
+    const forged = { ...good, sig: b64u(Buffer.alloc(70, 1)) };
+    const h0 = headSeq();
+    const audit0 = num("select count(*) from public.studio_sms_price_audit where event = 'integrity_failure'");
+    expect(finish(p.request_id, b.nonce, forged).status).toBe("rejected");
+    expect(events(h0).map((e) => e.kind)).not.toContain("price_integrity_failure");
+    expect(num("select count(*) from public.studio_sms_price_audit where event = 'integrity_failure'")).toBe(audit0);
+    const h1 = headSeq();
+    expect(finish(p.request_id, b.nonce, good)).toMatchObject({ status: "rejected", reason: expect.stringMatching(/sign counter did not increase/) });
+    expect(events(h1).map((e) => e.kind)).toContain("price_integrity_failure");
+    expect(num("select count(*) from public.studio_sms_price_audit where event = 'integrity_failure'")).toBe(audit0 + 1);
+    psql("begin; alter table public.studio_sms_price_credentials disable trigger studio_sms_price_credentials_guard; update public.studio_sms_price_credentials set sign_count = 0; alter table public.studio_sms_price_credentials enable always trigger studio_sms_price_credentials_guard; commit;");
+  });
+
   it("MON-02 suspension decisions come from seq and kind only: the monitor-side suspension blocks begin, a forged pricing_resumed lifts nothing, and only the hardware-key thaw lifts it", () => {
     clear();
     resetCreds(K1, K2);
