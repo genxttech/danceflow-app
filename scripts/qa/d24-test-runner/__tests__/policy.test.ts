@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { confirmFirstGroup, envelopeFingerprint, fingerprintOfFile, firstGroup, termsLines } from "../fingerprint";
+import { anchorCode, confirmAnchorCode, confirmFirstGroup, envelopeFingerprint, fingerprintOfFile, firstGroup, termsLines } from "../fingerprint";
 import { clampEnvelopeToPolicy, parsePolicy, type ClampCtx, type Policy } from "../policy";
 import { makeEnvelope, baseSpec } from "./helpers";
 import { testAuth } from "./softauth";
@@ -88,5 +88,16 @@ describe("envelope fingerprint", () => {
     const t = termsLines(e).join("\n");
     expect(t).toContain(envelopeFingerprint(e.envelopeSha256));
     expect(t).toContain(e.accounts.platformAcct);
+  });
+});
+
+describe("anchor confirmation is 64 bits (P1-3)", () => {
+  const fp = "7f3a91c20b5d4e6f8a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6071";
+  it("is 16 hex characters in four groups and rejects the 16-bit first group and any shorter or different input", () => {
+    expect(anchorCode(fp)).toBe("7F3A-91C2-0B5D-4E6F");
+    expect(confirmAnchorCode("7f3a 91c2 0b5d 4e6f", fp)).toBe(true);
+    expect(confirmAnchorCode("7F3A91C20B5D4E6F", fp)).toBe(true);
+    for (const t of ["", "7F3A", "7F3A-91C2", "7F3A-91C2-0B5D", "7F3A-91C2-0B5D-4E6E", "7F3A-91C2-0B5D-4E6F-8A1B"]) expect(confirmAnchorCode(t, fp), t).toBe(false);
+    expect(() => anchorCode("short")).toThrow();
   });
 });

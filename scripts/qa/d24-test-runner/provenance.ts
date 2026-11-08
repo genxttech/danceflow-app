@@ -33,7 +33,7 @@ export async function verifyMergedPr(get: HttpGet, o: { prNumber: number; commit
   return problems.length === 0 ? { id: "pr-merge-commit", ok: true, detail: `PR #${o.prNumber} merged into main by ${o.ownerLogin}; ${o.commit.slice(0, 12)} is its merge commit` } : fail(problems.join("; "));
 }
 
-const NPM_VARS = /^(npm_config_|NPM_CONFIG_|NODE_PATH$|NODE_OPTIONS$|NODE_ENV$|TSX_|GIT_|HTTP_PROXY$|HTTPS_PROXY$|ALL_PROXY$|NO_PROXY$)/i;
+const NPM_VARS = /^(npm_config_|NPM_CONFIG_|NODE_PATH$|NODE_OPTIONS$|NODE_ENV$|TSX_(?!DISABLE_CACHE$)|GIT_|HTTP_PROXY$|HTTPS_PROXY$|ALL_PROXY$|NO_PROXY$)/i;
 export type ToolchainInput = {
   env: Record<string, string | undefined>;
   execArgv: readonly string[];
@@ -43,6 +43,9 @@ export type ToolchainInput = {
   sourceRepo: string;
   gitBin: string | null;
   adminGit: string;
+  /** the binary `cmd\git.exe` actually launches, and npm's entry point: both run ELEVATED during the install */
+  realGit: string;
+  npmCli: string;
   reader: AclReader;
   who: Who;
 };
@@ -61,5 +64,9 @@ export async function toolchainGates(t: ToolchainInput): Promise<Gate[]> {
   const gitOk = t.gitBin !== null && lc(t.gitBin) === lc(t.adminGit);
   out.push({ id: "elevated-git", ok: gitOk, detail: gitOk ? `git is ${t.adminGit}` : "git was not found at its fixed administrator-only location" });
   if (gitOk) out.push(await lockedTreeGate("elevated-git-acl", t.adminGit, false, t.reader, t.who));
+  out.push(await lockedTreeGate("elevated-real-git-acl", t.realGit, false, t.reader, t.who));
+  out.push(await lockedTreeGate("elevated-npm-acl", t.npmCli, false, t.reader, t.who));
+  const tsxOk = (t.env.TSX_DISABLE_CACHE ?? "1") === "1";
+  out.push({ id: "elevated-tsx-cache", ok: tsxOk && t.env.TSX_DISABLE_CACHE === "1", detail: t.env.TSX_DISABLE_CACHE === "1" ? "TSX_DISABLE_CACHE=1: tsx compiles in memory, nothing is read from a TEMP cache" : "TSX_DISABLE_CACHE=1 must be set for the elevated installer (tsx's compile cache lives in the owner's TEMP, which the agent can write)" });
   return out;
 }

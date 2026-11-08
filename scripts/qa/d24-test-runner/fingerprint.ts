@@ -34,3 +34,11 @@ export function termsLines(e: Envelope): string[] {
     `code commit        ${e.code.commitSha.slice(0, 12)}   anchor ${e.hardwareAnchorFingerprintSha256.slice(0, 16)}`,
   ];
 }
+
+/** The anchor is confirmed by typing 64 bits (16 hex characters, shown as XXXX-XXXX-XXXX-XXXX), not the 16-bit first group: a software key whose fingerprint shares 16 bits is cheap to grind, 64 bits is not. */
+export const anchorCode = (fingerprintSha256: string): string => {
+  if (!/^[0-9a-f]{64}$/.test(fingerprintSha256)) throw new Error("anchor fingerprint must be 64 lowercase hex");
+  const h = fingerprintSha256.slice(0, 16).toUpperCase();
+  return `${h.slice(0, 4)}-${h.slice(4, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}`;
+};
+export const confirmAnchorCode = (typed: string, fingerprintSha256: string): boolean => typed.replace(/[^0-9A-Za-z]/g, "").toUpperCase() === anchorCode(fingerprintSha256).replace(/-/g, "");

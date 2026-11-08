@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { createFakeExec } from "../fakeChild";
 import { install, type InstallInputs, type InstallProviders } from "../installer";
 import { ADMIN_NODE, layout, roleOfPath, SID_ADMINS, type AclApplier, type AclRole, type Layout, type TreeEntry, type Who } from "../installroot";
+import { anchorCode } from "../fingerprint";
 import { REPO, SHA, tmp } from "./helpers";
 import { testAuth } from "./softauth";
 
@@ -83,8 +84,9 @@ export function inputs(root: string, over: Partial<InstallInputs> = {}): Install
   return { root, sourceRepo: REPO, commit: SHA, prNumber: 421, ownerGithubLogin: "genxowner", platformAcct: PLATFORM, connectedAcct: CONNECTED, anchorFile: writeAnchor(), ownerAccount: OWNER, runAsAccount: "d24run", ownerSid: OWNER_SID, runAsSid: RUNAS_SID, ...over };
 }
 
+export const defaultAnswer = (q: string): string => (/anchor fingerprint/.test(q) ? anchorCode(testAuth.anchor.fingerprintSha256) : /(([0-9A-F]{4}))/.exec(q)?.[1] ?? "");
 export type Prov = InstallProviders & { lines: string[]; questions: string[]; installDepsCalls: string[]; acl: FakeAcl };
-export function providers(l: Layout, over: Partial<InstallProviders> = {}, answer: (q: string) => string = (q) => /\(([0-9A-F]{4})\)/.exec(q)?.[1] ?? ""): Prov {
+export function providers(l: Layout, over: Partial<InstallProviders> = {}, answer: (q: string) => string = (q) => (/anchor fingerprint/.test(q) ? anchorCode(testAuth.anchor.fingerprintSha256) : /\(([0-9A-F]{4})\)/.exec(q)?.[1] ?? "")): Prov {
   const lines: string[] = [];
   const questions: string[] = [];
   const installDepsCalls: string[] = [];
@@ -95,6 +97,7 @@ export function providers(l: Layout, over: Partial<InstallProviders> = {}, answe
     verifyRelease: async () => [{ id: "commit-on-main", ok: true, detail: "fake: ancestry and blobs verified" }],
     verifyPr: async () => ({ id: "pr-merge-commit", ok: true, detail: "fake: merged PR whose merge commit is the release" }),
     anchorSourceGate: async () => ({ id: "anchor-source", ok: true, detail: "fake: pinned in the verified tree" }),
+    isAncestor: async () => true,
     acl,
     confirm: async (q) => {
       questions.push(q);

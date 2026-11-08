@@ -36,12 +36,12 @@ describe("verifyMergedPr (P2-4): the release is THE merge commit of a merged PR 
 describe("toolchainGates (P0-2): the elevated installer runs administrator-only code with a clean environment", () => {
   const base = async () => {
     const { l } = await installed();
-    return { env: { SystemRoot: "C:\\Windows", PATH: "C:\\Windows\\System32" } as Record<string, string | undefined>, execArgv: [] as string[], execPath: ADMIN_NODE, adminNode: ADMIN_NODE, runningFile: "C:\\ProgramData\\d24-src\\scripts\\qa\\d24-test-runner\\installedcli.ts", sourceRepo: "C:\\ProgramData\\d24-src", gitBin: "C:\\Program Files\\Git\\cmd\\git.exe" as string | null, adminGit: "C:\\Program Files\\Git\\cmd\\git.exe", reader: new FakeAcl(l), who: WHO };
+    return { env: { SystemRoot: "C:\\Windows", PATH: "C:\\Windows\\System32", TSX_DISABLE_CACHE: "1" } as Record<string, string | undefined>, execArgv: [] as string[], execPath: ADMIN_NODE, adminNode: ADMIN_NODE, runningFile: "C:\\ProgramData\\d24-src\\scripts\\qa\\d24-test-runner\\installedcli.ts", sourceRepo: "C:\\ProgramData\\d24-src", gitBin: "C:\\Program Files\\Git\\cmd\\git.exe" as string | null, adminGit: "C:\\Program Files\\Git\\cmd\\git.exe", realGit: "C:\\Program Files\\Git\\mingw64\\bin\\git.exe", npmCli: "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js", reader: new FakeAcl(l), who: WHO };
   };
   it("passes in the clean, administrator-only configuration", async () => {
     const gates = await toolchainGates(await base());
     expect(gates.filter((g) => !g.ok)).toEqual([]);
-    expect(gates.map((g) => g.id)).toEqual(["elevated-env", "elevated-node", "elevated-node-acl", "elevated-code-location", "elevated-source-acl", "elevated-git", "elevated-git-acl"]);
+    expect(gates.map((g) => g.id)).toEqual(["elevated-env", "elevated-node", "elevated-node-acl", "elevated-code-location", "elevated-source-acl", "elevated-git", "elevated-git-acl", "elevated-real-git-acl", "elevated-npm-acl", "elevated-tsx-cache"]);
   });
   it("each way the elevated process could run agent-controlled code or configuration is a failure", async () => {
     const b = await base();
@@ -49,6 +49,14 @@ describe("toolchainGates (P0-2): the elevated installer runs administrator-only 
     await bad({ env: { ...b.env, NODE_OPTIONS: "--require C:\\Users\\x\\evil.js" } }, "elevated-env");
     await bad({ env: { ...b.env, npm_config_registry: "http://evil" } }, "elevated-env");
     await bad({ env: { ...b.env, GIT_DIR: "C:\\x" } }, "elevated-env");
+    await bad({ env: { ...b.env, TSX_TSCONFIG_PATH: "C:\\x" } }, "elevated-env");
+    await bad({ env: { SystemRoot: "C:\\Windows", PATH: "C:\\Windows\\System32" } }, "elevated-tsx-cache");
+    const rg = new FakeAcl((await installed()).l);
+    rg.override("C:\\Program Files\\Git\\mingw64\\bin\\git.exe", sddlFor("locked", WHO, OWNER_SID));
+    await bad({ reader: rg }, "elevated-real-git-acl");
+    const nn = new FakeAcl((await installed()).l);
+    nn.override("C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js", sddlFor("locked", WHO, OWNER_SID));
+    await bad({ reader: nn }, "elevated-npm-acl");
     await bad({ execArgv: ["--use-env-proxy"] }, "elevated-env");
     await bad({ execPath: "C:\\Users\\mcurt\\AppData\\node.exe" }, "elevated-node");
     await bad({ runningFile: "C:\\Users\\mcurt\\Dev\\installedcli.ts" }, "elevated-code-location");

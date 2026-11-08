@@ -32,7 +32,7 @@ function drop(l: Layout, env: ReturnType<typeof makeEnvelope>, o: { sign?: Param
 }
 function depsFor(l: Layout, acl: FakeAcl, over: Partial<ExecInboxDeps> = {}) {
   const lines: string[] = [];
-  const d: ExecInboxDeps = { layout: l, runningFile: join(l.runnerDir, "execinbox.ts"), acl, currentSid: () => RUNAS_SID, execPath: ADMIN_NODE, tmpdir: () => l.tmp, now: () => NOW, out: (x) => void lines.push(x), ...over };
+  const d: ExecInboxDeps = { layout: l, runningFile: join(l.runnerDir, "execinbox.ts"), acl, currentSid: () => RUNAS_SID, execPath: ADMIN_NODE, tmpdir: () => l.tmp, env: { TSX_DISABLE_CACHE: "1" }, now: () => NOW, out: (x) => void lines.push(x), ...over };
   return { d, lines };
 }
 async function ready(over: EnvOver = {}) {
@@ -53,7 +53,7 @@ describe("verifyInstalled: the happy path", () => {
     const { l, acl } = await ready();
     const v = await verifyInstalled(RUN, depsFor(l, acl).d);
     expect(v.ok).toBe(true);
-    expect(v.gates.map((g) => g.id)).toEqual(["run-id", "install-root", "policy", "identity", "node-binary", "node-binary-acl", "temp-isolation", "install-root-acl", "release-record", "tree-hash", "policy-hash", "anchor", "inbox-copy", "envelope", "envelope-window", "policy-clamp"]);
+    expect(v.gates.map((g) => g.id)).toEqual(["run-id", "install-root", "policy", "identity", "node-binary", "node-binary-acl", "tsx-no-cache", "temp-isolation", "install-root-acl", "release-record", "tree-hash", "policy-hash", "anchor", "inbox-copy", "envelope", "envelope-window", "policy-clamp"]);
   });
 });
 
@@ -165,6 +165,13 @@ describe("P1-2: who runs, on what node, with what TEMP", () => {
     const live = calls.find((c) => c.args.includes("--live"));
     expect(live?.env.TEMP?.toLowerCase()).toBe(f.l.tmp.toLowerCase());
     expect(live?.env.TMP?.toLowerCase()).toBe(f.l.tmp.toLowerCase());
+  });
+});
+
+describe("P1-2: the tsx compile cache is not a vector", () => {
+  it("the task action must have set TSX_DISABLE_CACHE=1 (checked after the fact; the control is the action, before tsx loads)", async () => {
+    const { l, acl } = await ready();
+    for (const env of [{}, { TSX_DISABLE_CACHE: "0" }, { TSX_DISABLE_CACHE: "" }]) expect(failedGate((await verifyInstalled(RUN, depsFor(l, acl, { env }).d)).gates), JSON.stringify(env)).toBe("tsx-no-cache");
   });
 });
 

@@ -8,7 +8,8 @@ import { policySha256 } from "../policy";
 import { runnerManifest } from "../runnerpin";
 import { loadAnchor } from "../webauthn";
 import { REPO, SHA, tmp } from "./helpers";
-import { FakeAcl, inputs, installed, OWNER_SID, providers, sddlFor, WHO, writeAnchor } from "./installfixture";
+import { anchorCode } from "../fingerprint";
+import { defaultAnswer, FakeAcl, inputs, installed, OWNER_SID, providers, sddlFor, WHO, writeAnchor } from "./installfixture";
 import { makeSoftAuth, testAuth } from "./softauth";
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -111,6 +112,19 @@ describe("installer: P0-1 the root is created by the installer, owner and ACL fi
     expect(emptyAtLock).toBe(true);
     expect(p.acl.applied.map((a) => a.role).slice(0, 5)).toEqual(["locked", "state", "secret", "inbox", "evidence"]);
   });
+  it("a child (or junction) planted in the new root between mkdir and apply is detected before any content is written (the root must be EMPTY after the apply)", async () => {
+    const root = freshRoot();
+    const p = providers(layout(root));
+    const apply = p.acl.apply.bind(p.acl);
+    p.acl.apply = async (path, role, who) => {
+      if (path === root && role === "locked") mkdirSync(join(root, "planted"));
+      return apply(path, role, who);
+    };
+    const r = await install(inputs(root), p);
+    expect(r.gates.at(-1)).toMatchObject({ id: "root-owner", ok: false });
+    expect(r.gates.at(-1)?.detail).toMatch(/planted during creation/);
+    expect(readdirSync(root)).toEqual(["planted"]);
+  });
   it("a root that already exists (agent pre-created it) is never adopted: its owner/DACL must already pass the full gate", async () => {
     const root = freshRoot();
     const l = layout(root);
@@ -151,7 +165,7 @@ describe("installer: a good install", () => {
     const root = freshRoot();
     const l = layout(root);
     const events: string[] = [];
-    const p = providers(l, { out: (x) => void events.push(`out:${x}`), confirm: async (q) => (events.push("ask"), /\(([0-9A-F]{4})\)/.exec(q)![1]) });
+    const p = providers(l, { out: (x) => void events.push(`out:${x}`), confirm: async (q) => (events.push("ask"), defaultAnswer(q)) });
     const r = await install(inputs(root), p);
     expect(r.ok).toBe(true);
     const shown = events.slice(0, events.indexOf("ask")).join("\n");
@@ -205,7 +219,7 @@ describe("installer: P1-1 the confirmed bytes are the installed bytes", () => {
       const p = providers(layout(root));
       p.confirm = async (q) => {
         writeFileSync(join(src, file), `${original} `);
-        return /(([0-9A-F]{4}))/.exec(q)![1];
+        return defaultAnswer(q);
       };
       const r = await install(inputs(root, { sourceRepo: src }), p);
       expect(r.ok, file).toBe(true);
@@ -221,7 +235,7 @@ describe("installer: P1-1 the confirmed bytes are the installed bytes", () => {
       p.confirm = async (q) => {
         writeFileSync(f, `${readFileSync(f, "utf8")}
 // swapped`);
-        return /(([0-9A-F]{4}))/.exec(q)![1];
+        return defaultAnswer(q);
       };
       const r = await install(inputs(root, { sourceRepo: src }), p);
       expect(r.gates.at(-1), rel[1]).toMatchObject({ id: "copy-verified", ok: false });
@@ -238,15 +252,19 @@ describe("installer: P1-1 the confirmed bytes are the installed bytes", () => {
 });
 
 describe("installer: updates, downgrade protection, anchor rotation", () => {
-  it("re-installing the same release is an update; a newer PR is accepted; an older PR or another commit of the same PR is refused as a downgrade", async () => {
+  it("releases are ordered by GIT HISTORY, not PR number: a descendant commit is accepted whatever its PR number; a non-descendant is refused even with a higher PR number", async () => {
     const { root, l } = await installed();
-    expect((await install(inputs(root), providers(l))).ok).toBe(true);
-    expect((await install(inputs(root, { prNumber: 430 }), providers(l))).ok).toBe(true);
-    const older = await install(inputs(root, { prNumber: 425 }), providers(l));
+    const calls: Array<[string, string]> = [];
+    const asked = (ok: boolean) => providers(l, { isAncestor: async (o) => (calls.push([o.ancestor, o.descendant]), ok) });
+    expect((await install(inputs(root), asked(false))).ok).toBe(true); // same commit: an update, no ancestry needed
+    expect(calls).toEqual([]);
+    const newer = "d".repeat(40);
+    expect((await install(inputs(root, { prNumber: 400, commit: newer }), asked(true))).ok).toBe(true); // LOWER PR number, descendant commit: accepted
+    expect(calls).toEqual([[SHA, newer]]);
+    const older = await install(inputs(root, { prNumber: 999, commit: "e".repeat(40) }), asked(false)); // HIGHER PR number, not a descendant: refused
     expect(older.gates.at(-1)).toMatchObject({ id: "no-downgrade", ok: false });
-    const other = await install(inputs(root, { prNumber: 430, commit: "d".repeat(40) }), providers(l));
-    expect(other.gates.at(-1)).toMatchObject({ id: "no-downgrade", ok: false });
-    expect(((readJson(l.releaseJson) as { prNumber: number }).prNumber)).toBe(430);
+    expect(older.gates.at(-1)?.detail).toMatch(/not PR number/);
+    expect(((readJson(l.releaseJson) as { commit: string }).commit)).toBe(newer);
   });
   it("a different anchor without rotateAnchor is refused and the installed anchor is unchanged", async () => {
     const { root, l } = await installed();
@@ -259,11 +277,16 @@ describe("installer: updates, downgrade protection, anchor rotation", () => {
     const { root, l } = await installed();
     const other = makeSoftAuth();
     const wrongFor = (q: string) => (/anchor fingerprint/i.test(q) ? "0000" : /\(([0-9A-F]{4})\)/.exec(q)![1]);
+    const rightFor = (q: string) => (/anchor fingerprint/i.test(q) ? anchorCode(other.anchor.fingerprintSha256) : /\(([0-9A-F]{4})\)/.exec(q)![1]);
     expect((await install(inputs(root, { anchorFile: writeAnchor(other.anchor), rotateAnchor: true }), providers(l, {}, wrongFor))).ok).toBe(false);
     expect(loadAnchor(l.anchorJson)).toMatchObject({ ok: true, anchor: { fingerprintSha256: testAuth.anchor.fingerprintSha256 } });
-    const p = providers(l);
+    // 16 bits is not enough: the old 4-hex group of the new anchor is refused, only the full 64-bit code passes
+    const group = anchorCode(other.anchor.fingerprintSha256).split("-")[0];
+    expect((await install(inputs(root, { anchorFile: writeAnchor(other.anchor), rotateAnchor: true }), providers(l, {}, (q) => (/anchor fingerprint/i.test(q) ? group : /\(([0-9A-F]{4})\)/.exec(q)![1])))).ok).toBe(false);
+    const p = providers(l, {}, rightFor);
     expect((await install(inputs(root, { anchorFile: writeAnchor(other.anchor), rotateAnchor: true }), p)).ok).toBe(true);
-    expect(p.lines.join("\n")).toContain(`old ${testAuth.anchor.fingerprintSha256}`);
+    expect(p.lines.join("\n")).toContain(testAuth.anchor.fingerprintSha256);
+    expect(p.lines.join("\n")).not.toContain(other.anchor.fingerprintSha256); // the new fingerprint is never printed: it is typed from the enrollment record
     expect(loadAnchor(l.anchorJson)).toMatchObject({ ok: true, anchor: { fingerprintSha256: other.anchor.fingerprintSha256 } });
     expect((readJson(l.policyJson) as { anchorFingerprint: string }).anchorFingerprint).toBe(other.anchor.fingerprintSha256);
   });

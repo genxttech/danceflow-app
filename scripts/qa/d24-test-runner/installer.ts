@@ -11,7 +11,7 @@ import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSy
 import { randomBytes } from "node:crypto";
 import { join, relative } from "node:path";
 import { manifest } from "../d24-m3d-proof/manifest";
-import { confirmFirstGroup, envelopeFingerprint, firstGroup } from "./fingerprint";
+import { confirmAnchorCode, confirmFirstGroup, envelopeFingerprint, firstGroup } from "./fingerprint";
 import { aclGate, entryViolations, fileSha256, INSTALLER_VERSION, layout, lockedTreeGate, parseRelease, PROOF_REL, rawTreeSha256, readJson, RELEASE_TSCONFIG, releaseText, RUNNER_REL, verifyInstalledTree, type AclApplier, type AclRole, type Gate, type Layout, type Release, type Who } from "./installroot";
 import { parsePolicy, policySha256, policyText, proofHardCap, proofMaxLineCents, type Policy } from "./policy";
 import { runnerManifest } from "./runnerpin";
@@ -48,6 +48,8 @@ export type InstallProviders = {
   verifyPr(o: { prNumber: number; commit: string; ownerLogin: string }): Promise<Gate>;
   /** the anchor file is pinned inside the verified tree or is administrator-owned and not writable by anyone else */
   anchorSourceGate(file: string): Promise<Gate>;
+  /** `git merge-base --is-ancestor ancestor descendant` in the administrator-owned clone (releases are ordered by history, never by PR number) */
+  isAncestor(o: { repoDir: string; ancestor: string; descendant: string }): Promise<boolean>;
   acl: AclApplier;
   /** prints the question and returns what the owner typed */
   confirm(question: string): Promise<string>;
@@ -135,8 +137,9 @@ export async function install(i: InstallInputs, p: InstallProviders): Promise<In
       oldRelease = null;
     }
     if (oldRelease) {
-      const down = i.prNumber < oldRelease.prNumber || (i.prNumber === oldRelease.prNumber && i.commit !== oldRelease.commit);
-      if (!gate("no-downgrade", !down, down ? `installed release is PR #${oldRelease.prNumber} (${oldRelease.commit.slice(0, 12)}); PR #${i.prNumber} is older or a different commit of the same PR` : `PR #${i.prNumber} is not older than the installed PR #${oldRelease.prNumber}`)) return fail();
+      const same = i.commit === oldRelease.commit;
+      const forward = same || (await p.isAncestor({ repoDir: i.sourceRepo, ancestor: oldRelease.commit, descendant: i.commit }));
+      if (!gate("no-downgrade", forward, forward ? (same ? "re-installing the installed commit" : `${i.commit.slice(0, 12)} descends from the installed ${oldRelease.commit.slice(0, 12)}`) : `${i.commit.slice(0, 12)} does not descend from the installed release ${oldRelease.commit.slice(0, 12)} (PR #${oldRelease.prNumber}): releases are ordered by git history, not PR number`)) return fail();
     }
   }
 
@@ -166,27 +169,25 @@ export async function install(i: InstallInputs, p: InstallProviders): Promise<In
     anchorChanges = oldFp !== anchor.anchor.fingerprintSha256;
     if (anchorChanges) {
       if (!i.rotateAnchor) return gate("anchor-rotation", false, `an anchor is already installed (${oldFp ? oldFp.slice(0, 16) : "unreadable"}) and a different one (${anchor.anchor.fingerprintSha256.slice(0, 16)}) was given: rotation must be requested explicitly`), fail();
-      p.out(`ANCHOR ROTATION: old ${oldFp ?? "unreadable"}`);
-      p.out(`                 new ${anchor.anchor.fingerprintSha256}`);
+      p.out(`ANCHOR ROTATION: installed anchor ${oldFp ?? "unreadable"} will be replaced (the new fingerprint is NOT printed: type it from your enrollment record)`);
     }
   }
   if (i.rotateAnchor && !(existing && existsSync(l.anchorJson))) return gate("anchor-rotation", false, "rotateAnchor was requested but no anchor is installed"), fail();
 
   // 8. show the owner exactly what will be installed, then require typed confirmations
   const treeFp = envelopeFingerprint(rm.sha256);
-  const afp = envelopeFingerprint(anchor.anchor.fingerprintSha256);
   p.out(`INSTALL  commit ${i.commit}  PR #${i.prNumber}`);
   p.out(`         runner tree ${rm.sha256} (${rm.files.length} files)  fingerprint ${treeFp}`);
   p.out(`         proof       ${pm.sha256} (${pm.files.length} files)`);
   p.out(`         lockfile    ${lock}`);
   p.out(`         package.json ${pkg}`);
-  p.out(`         anchor      ${anchor.anchor.fingerprintSha256}  fingerprint ${afp}`);
+  p.out(`         anchor      (its fingerprint is deliberately NOT shown here: you type it from the record you made at enrollment)`);
   p.out(`         accounts    ${i.platformAcct} / ${i.connectedAcct}   run-as ${i.runAsAccount} (${i.runAsSid})   owner ${i.ownerAccount} (${i.ownerSid})`);
   const typedTree = await p.confirm(`Type the first group of the runner tree fingerprint (${firstGroup(treeFp)}) to install: `);
   if (!gate("owner-confirm-tree", confirmFirstGroup(typedTree, treeFp), "typed confirmation of the runner tree fingerprint")) return fail();
   if (anchorChanges) {
-    const typedAnchor = await p.confirm(`Type the first group of the ${existing ? "NEW " : ""}anchor fingerprint (${firstGroup(afp)}) to ${existing ? "rotate" : "accept"} the approval identity: `);
-    if (!gate("owner-confirm-anchor", confirmFirstGroup(typedAnchor, afp), "typed confirmation of the anchor fingerprint")) return fail();
+    const typedAnchor = await p.confirm(`Type the first 16 hex characters (64 bits) of the ${existing ? "NEW " : ""}anchor fingerprint from your enrollment record to ${existing ? "rotate" : "accept"} the approval identity: `);
+    if (!gate("owner-confirm-anchor", confirmAnchorCode(typedAnchor, anchor.anchor.fingerprintSha256), "typed confirmation of the anchor fingerprint (64 bits)")) return fail();
   }
 
   // 9. the installer creates the root itself, owner+ACL first
@@ -197,9 +198,11 @@ export async function install(i: InstallInputs, p: InstallProviders): Promise<In
       return gate("create-root", false, "the install root already exists or cannot be created (an existing root is never adopted unless it is a valid install)"), fail();
     }
     await p.acl.apply(l.root, "locked", who);
-    const rootNow = await p.acl.readTree(l.root, false);
+    // nothing else may exist in the root yet: a child (or junction) planted between mkdir and apply would show here, before any content is written
+    const rootNow = await p.acl.readTree(l.root, true);
     const v = rootNow.flatMap((e) => entryViolations(e, "locked", who));
-    if (!gate("root-owner", v.length === 0 && rootNow.length > 0, v.length === 0 ? "the new root is owned by Administrators with the locked DACL before any content is written" : v.slice(0, 3).join(" | "))) return fail();
+    const alone = rootNow.length === 1;
+    if (!gate("root-owner", v.length === 0 && alone, v.length === 0 && alone ? "the new root is owned by Administrators with the locked DACL and is EMPTY before any content is written" : alone ? v.slice(0, 3).join(" | ") : `the new root already contains ${rootNow.length - 1} object(s) (planted during creation): refusing to continue`)) return fail();
   }
   for (const [dir, role] of [[l.state, "state"], [l.cred, "secret"], [l.inbox, "inbox"], [l.evidence, "evidence"]] as Array<[string, AclRole]>) {
     if (!existsSync(dir)) {

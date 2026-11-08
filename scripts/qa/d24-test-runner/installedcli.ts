@@ -28,6 +28,7 @@ import type { Policy } from "./policy";
 import { toolchainGates, verifyMergedPr } from "./provenance";
 import { defaultGet } from "./remotetip";
 
+const WINDOWS_DIR = String.raw`C:\Windows`;
 const ask = (q: string): Promise<string> =>
   new Promise((res) => {
     const rl = createInterface({ input: process.stdin, output: process.stderr, terminal: true });
@@ -60,7 +61,7 @@ export function grantsFor(role: AclRole, who: Who): string[] {
     case "inbox": return [...base, g(who.runAsSid, "RX"), g(who.ownerSid, "RX,WD,AD", "(CI)")];
   }
 }
-const SDDL_SCRIPT = `$ErrorActionPreference='Stop'; $p=[Console]::In.ReadLine(); $rec=[Console]::In.ReadLine(); $items=@(Get-Item -LiteralPath $p -Force); if ($rec -eq '1') { $items += @(Get-ChildItem -LiteralPath $p -Force -Recurse) }; foreach ($i in $items) { $k='file'; if ($i.Attributes -band [IO.FileAttributes]::ReparsePoint) { $k='link' } elseif ($i.PSIsContainer) { $k='dir' }; $s=$i.GetAccessControl().GetSecurityDescriptorSddlForm('Owner,Access'); $k + [char]9 + $i.FullName + [char]9 + $s }`;
+const SDDL_SCRIPT = `$ErrorActionPreference='Stop'; $p=[Console]::In.ReadLine(); $rec=[Console]::In.ReadLine(); function Kind($i) { if ($i.Attributes -band [IO.FileAttributes]::ReparsePoint) { 'link' } elseif ($i.PSIsContainer) { 'dir' } else { 'file' } }; function Emit($i) { (Kind $i) + [char]9 + $i.FullName + [char]9 + $i.GetAccessControl().GetSecurityDescriptorSddlForm('Owner,Access') }; function Walk($d) { foreach ($i in @(Get-ChildItem -LiteralPath $d -Force)) { Emit $i; if ((Kind $i) -eq 'dir') { Walk $i.FullName } } }; $root=Get-Item -LiteralPath $p -Force; Emit $root; if ($rec -eq '1' -and (Kind $root) -eq 'dir') { Walk $p }`;
 export const realAcl: AclApplier = {
   async readTree(path, recurse) {
     const r = await defaultPsRunner(SDDL_SCRIPT, `${path}\n${recurse ? "1" : "0"}\n`);
@@ -71,9 +72,9 @@ export const realAcl: AclApplier = {
     });
   },
   async apply(path, role, who) {
-    const own = await run(icaclsExe(), [path, "/setowner", `*${SID_ADMINS}`, "/T"]);
+    const own = await run(icaclsExe(), [path, "/setowner", `*${SID_ADMINS}`]);
     if (own.code !== 0) throw new Error(`icacls /setowner failed for ${path}`);
-    const r = await run(icaclsExe(), [path, "/inheritance:r", "/grant:r", ...grantsFor(role, who), "/T"]);
+    const r = await run(icaclsExe(), [path, "/inheritance:r", "/grant:r", ...grantsFor(role, who)]);
     if (r.code !== 0) throw new Error(`icacls apply failed for ${path}`);
   },
 };
@@ -97,7 +98,7 @@ async function sidOfAccount(name: string): Promise<string> {
 
 /** Environment for the elevated `npm ci`: nothing inherited from the owner's profile, empty administrator-owned npm configs, fixed registry. */
 function scrubbedNpmEnv(stage: string): Record<string, string> {
-  const sys = process.env.SystemRoot ?? "C:\\Windows";
+  const sys = WINDOWS_DIR;
   return { SystemRoot: sys, PATH: `${dirname(ADMIN_NODE)};${join(sys, "System32")}`, TEMP: join(stage, ".npm-tmp"), TMP: join(stage, ".npm-tmp"), npm_config_userconfig: join(stage, ".npmrc-empty"), npm_config_globalconfig: join(stage, ".npmrc-empty"), npm_config_cache: join(stage, ".npm-cache"), npm_config_registry: "https://registry.npmjs.org/", npm_config_ignore_scripts: "true", npm_config_audit: "false", npm_config_fund: "false" };
 }
 
@@ -108,15 +109,16 @@ function realInstallProviders(sourceRepo: string, who: Who): InstallProviders {
     confirm: ask,
     out: (l) => console.log(l),
     now: () => new Date(),
-    toolchainGates: () => toolchainGates({ env: process.env, execArgv: process.execArgv, execPath: process.execPath, adminNode: ADMIN_NODE, runningFile: fileURLToPath(import.meta.url), sourceRepo, gitBin: resolveGit(undefined), adminGit: GIT_FALLBACK_PATH, reader: realAcl, who }),
+    toolchainGates: () => toolchainGates({ env: process.env, execArgv: process.execArgv, execPath: process.execPath, adminNode: ADMIN_NODE, runningFile: fileURLToPath(import.meta.url), sourceRepo, gitBin: resolveGit(undefined), adminGit: GIT_FALLBACK_PATH, realGit: String.raw`C:\Program Files\Git\mingw64\bin\git.exe`, npmCli: join(dirname(ADMIN_NODE), 'node_modules', 'npm', 'bin', 'npm-cli.js'), reader: realAcl, who }),
     verifyPr: (o) => verifyMergedPr(defaultGet, o),
-    async anchorSourceGate(file) {
-      const inTree = file.toLowerCase().replace(/\\/g, "/").startsWith(`${sourceRepo.toLowerCase().replace(/\\/g, "/")}/`);
-      // inside the (administrator-owned, SHA-1-verified, pinned) source clone: covered by the pins; elsewhere it must itself be administrator-only
-      return inTree ? { id: "anchor-source", ok: true, detail: "the anchor file is inside the verified source clone and is pinned with the runner folder" } : lockedTreeGate("anchor-source", file, false, realAcl, who);
+    // the anchor comes from an owner-present enrollment OUTPUT on an ADMINISTRATOR-OWNED path; being inside the clone proves nothing (the pins cover only the runner and proof folders)
+    anchorSourceGate: (file) => lockedTreeGate('anchor-source', file, false, realAcl, who),
+    async isAncestor({ repoDir, ancestor, descendant }) {
+      const r = await realExec(GIT_FALLBACK_PATH, ['-c', 'core.fsmonitor=false', 'merge-base', '--is-ancestor', ancestor, descendant], { cwd: repoDir, env: baseEnv({ SystemRoot: WINDOWS_DIR, PATH: dirname(GIT_FALLBACK_PATH) }).env, timeoutMs: 60_000 });
+      return r.code === 0;
     },
     async verifyRelease({ repoDir, commit, pins }) {
-      const env = baseEnv({ SystemRoot: process.env.SystemRoot, PATH: `${dirname(GIT_FALLBACK_PATH)}` }).env;
+      const env = baseEnv({ SystemRoot: WINDOWS_DIR, PATH: `${dirname(GIT_FALLBACK_PATH)}` }).env;
       const gitBin = GIT_FALLBACK_PATH;
       const pristine = await pristineGates({ repoDir, commitSha: commit, env, exec: realExec, gitBin });
       if (pristine.some((g) => !g.ok)) return pristine;
@@ -171,7 +173,7 @@ export async function main(argv: string[], out: (s: string) => void): Promise<nu
   if (cmd === "exec") {
     const runId = argv[1];
     if (!runId) return out("usage: exec <runId>"), 2;
-    return execInboxMain(runId, { layout: l, runningFile: fileURLToPath(import.meta.url), acl: realAcl, currentSid, execPath: process.execPath, tmpdir, now: () => new Date(), out }, () => new DpapiFileStore(l.cred), process.env, realExec);
+    return execInboxMain(runId, { layout: l, runningFile: fileURLToPath(import.meta.url), acl: realAcl, currentSid, execPath: process.execPath, tmpdir, env: process.env, now: () => new Date(), out }, () => new DpapiFileStore(l.cred), process.env, realExec);
   }
   return out("usage: install | launch | exec <runId>"), 2;
 }

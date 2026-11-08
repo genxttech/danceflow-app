@@ -1,118 +1,149 @@
 <#
 .SYNOPSIS
-  Run by the STANDARD agent user (never elevated) after the administrator setup. NOT RUN by engineering. Proves, by attempting each forbidden action, that this
-  account CANNOT write the install root, read cred\, elevate silently, read the owner's profile or the runner's anchor/trust files. Prints a PASS/FAIL table.
+  Run in the STANDARD agent user's session (never elevated) after the administrator setup. NOT RUN by engineering. Tries each forbidden action and prints a PASS/FAIL table.
 
 .DESCRIPTION
-  Every negative test is non-destructive in the success case it must not reach: the "write" tests create a uniquely named empty probe file and delete it again if
-  (unexpectedly) it was created, reporting FAIL. Nothing is modified when the system is correct. No Stripe call, no network, no credential read: the "read cred\" test
-  only lists the directory and tries to open a file for reading, and only reports whether Windows refused.
+  *** SELF-ATTESTING WHEN THE AGENT RUNS IT. *** This script lives where the agent can write and runs as the agent: if the agent runs it, its output proves nothing (the agent
+  could edit it, or report any result). Engineering reads agent-run output as ADVISORY only. The AUTHORITATIVE run is the one the OWNER performs: copy this file from the
+  administrator-owned bootstrap clone (docs section 14.6), compare the printed script sha256 with the reviewed commit, run it in the agent's own logon session, and read
+  the console personally.
 
-  Exit codes: 0 = every check ran and passed; 1 = at least one FAIL; 3 = no FAIL but at least one check could not be evaluated (SKIP): NOT fully verified.
+  Probes are non-destructive in the correct configuration: "write" probes try to create ONE empty, uniquely named file or folder and delete it if (wrongly) it was created;
+  pinned files are opened for writing (nothing is written). Only Windows' "access denied" counts as a PASS; any other error is reported as FAIL (the result is unknown).
+  No network, no Stripe, no credential read, no file CONTENT is read from cred\.
+
+  Exit codes: 0 every check ran and passed; 1 at least one FAIL (including unknown errors); 3 no FAIL but at least one check could not be evaluated (SKIP, e.g. install root absent).
 #>
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)][string]$OwnerUser,
   [string]$InstallRoot = 'C:\ProgramData\d24-runner',
-  [string]$OwnerProfileRoot = 'C:\Users'
+  [string]$OwnerProfileRoot = 'C:\Users',
+  [string]$AdminClone = ''
 )
+$env:PSModulePath = Join-Path $PSHOME 'Modules'
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$SystemDir = 'C:\Windows\System32'
 $script:Rows = New-Object System.Collections.Generic.List[object]
-function Row([string]$Id, [string]$Status, [string]$Detail) { $script:Rows.Add([pscustomobject]@{ Id = $Id; Status = $Status; Detail = $Detail }); $c = @{ PASS = 'Green'; FAIL = 'Red'; SKIP = 'Yellow' }[$Status]; Write-Host ("{0,-5} {1,-34} {2}" -f $Status, $Id, $Detail) -ForegroundColor $c }
+function Row([string]$Id, [string]$Status, [string]$Detail) { $script:Rows.Add([pscustomobject]@{ Id = $Id; Status = $Status; Detail = $Detail }); $c = @{ PASS = 'Green'; FAIL = 'Red'; SKIP = 'Yellow' }[$Status]; Write-Host ("{0,-5} {1,-40} {2}" -f $Status, $Id, $Detail) -ForegroundColor $c }
 
-# a probe that must be REFUSED. Returns $true when Windows refused (or the target does not exist for SKIP handling by the caller).
-function Test-WriteRefused([string]$dir) {
+$self = $MyInvocation.MyCommand.Path
+if ($self) { Write-Host ("script sha256: " + [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([IO.File]::ReadAllBytes($self))).Replace('-', '').ToLower()) }
+Write-Host 'REMINDER: run by the agent, this output is self-attesting and advisory only; the owner-run copy from the administrator-owned clone is authoritative.'
+
+# 'denied' only for Windows' access-denied; 'created' when the probe landed (and is removed again); 'error:<type>' for anything else (result unknown)
+function Test-Create([string]$dir, [ValidateSet('file', 'folder')][string]$kind) {
   $probe = Join-Path $dir (".d24probe-" + [guid]::NewGuid().ToString('N'))
   try {
-    [IO.File]::WriteAllText($probe, 'x')
-    Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue   # it should never have been created; clean up and report FAIL
-    return $false
-  } catch [UnauthorizedAccessException] { return $true }
-  catch [System.Security.SecurityException] { return $true }
-  catch { return $true }   # any other failure to create the file also means the probe did not land; the detail is printed by the caller via $_ if needed
+    if ($kind -eq 'file') { [IO.File]::WriteAllText($probe, '') } else { [void][IO.Directory]::CreateDirectory($probe) }
+  } catch [UnauthorizedAccessException] { return 'denied' }
+  catch { return ('error:' + $_.Exception.GetType().Name) }
+  if ($kind -eq 'file') { Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue } else { Remove-Item -LiteralPath $probe -Force -Recurse:$false -ErrorAction SilentlyContinue }
+  return 'created'
+}
+function Row-Create([string]$Id, [string]$dir, [string]$kind, [string]$why) {
+  if (-not (Test-Path -LiteralPath $dir)) { Row $Id 'SKIP' "$dir does not exist"; return }
+  $r = Test-Create $dir $kind
+  switch -Wildcard ($r) { 'denied' { Row $Id 'PASS' "creating a $kind in $dir was refused ($why)" } 'created' { Row $Id 'FAIL' "a $kind WAS created in $dir (removed again): $why" } default { Row $Id 'FAIL' "unexpected result '$r' for $dir (not access-denied, so nothing is proven)" } }
 }
 function Test-ReadRefused([string]$path) {
-  try { $null = Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop; return $false } catch [UnauthorizedAccessException] { return $true } catch { return ($_.Exception.Message -match 'denied|Access') }
+  try { $null = Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop; return 'readable' } catch [UnauthorizedAccessException] { return 'denied' } catch { return ('error:' + $_.Exception.GetType().Name) }
+}
+function Row-ReadDenied([string]$Id, [string]$path, [string]$why) {
+  if (-not (Test-Path -LiteralPath $path -ErrorAction SilentlyContinue)) {
+    # a path below a denied folder reports as absent. Walk up to the first ancestor that exists: PASS only if THAT ancestor is refused
+    $anc = Split-Path -Parent $path
+    while ($anc -and -not (Test-Path -LiteralPath $anc -ErrorAction SilentlyContinue)) { $anc = Split-Path -Parent $anc }
+    if ($anc -and (Test-ReadRefused $anc) -eq 'denied') { Row $Id 'PASS' "$path is unreachable: the nearest visible ancestor $anc refuses listing ($why)"; return }
+    Row $Id 'SKIP' "$path is absent or not visible and no refusing ancestor was found: cannot tell 'denied' from 'does not exist'"; return
+  }
+  $r = Test-ReadRefused $path
+  switch -Wildcard ($r) { 'denied' { Row $Id 'PASS' "$path : listing refused ($why)" } 'readable' { Row $Id 'FAIL' "$path IS readable: $why" } default { Row $Id 'FAIL' "unexpected result '$r' for $path" } }
 }
 
-# ---------------------------------------------------------------- identity and token
+# ---------------------------------------------------------------- identity and token (works for a SPLIT administrator token too)
 $id = [Security.Principal.WindowsIdentity]::GetCurrent()
 $prin = New-Object Security.Principal.WindowsPrincipal($id)
-Row 'not-administrator-member' $(if ($prin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { 'FAIL' } else { 'PASS' }) 'IsInRole(Administrator) must be false'
-$sids = @($id.Groups | ForEach-Object { $_.Value })
-Row 'no-administrators-sid-at-all' $(if ($sids -contains 'S-1-5-32-544') { 'FAIL' } else { 'PASS' }) 'S-1-5-32-544 must not appear in the token even as deny-only (a deny-only SID means a split administrator token)'
-$integrity = (& "$env:SystemRoot\System32\whoami.exe" /groups) -join "`n"
-Row 'integrity-not-high' $(if ($integrity -match 'High Mandatory Level|System Mandatory Level') { 'FAIL' } else { 'PASS' }) 'must run at Medium integrity or lower'
-$priv = (& "$env:SystemRoot\System32\whoami.exe" /priv) -join "`n"
-$dangerous = @('SeDebugPrivilege', 'SeTakeOwnershipPrivilege', 'SeLoadDriverPrivilege', 'SeBackupPrivilege', 'SeRestorePrivilege', 'SeImpersonatePrivilege', 'SeTcbPrivilege') | Where-Object { $priv -match $_ }
-Row 'no-dangerous-privileges' $(if ($dangerous) { 'FAIL' } else { 'PASS' }) $(if ($dangerous) { "present: $($dangerous -join ', ')" } else { 'none of Debug/TakeOwnership/LoadDriver/Backup/Restore/Impersonate/Tcb' })
+Row 'not-administrator-member' $(if ($prin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { 'FAIL' } else { 'PASS' }) 'IsInRole(Administrator) must be false (necessary, NOT sufficient: a filtered administrator token also answers false)'
+# whoami lists deny-only groups; WindowsIdentity.Groups and IsInRole do NOT
+$grp = @(& "$SystemDir\whoami.exe" /groups /fo csv | ConvertFrom-Csv)
+$hasAdminSid = @($grp | Where-Object { $_.SID -eq 'S-1-5-32-544' }).Count -gt 0
+Row 'no-administrators-sid-even-deny-only' $(if ($hasAdminSid) { 'FAIL' } else { 'PASS' }) 'S-1-5-32-544 must not appear in `whoami /groups` with ANY attribute; "Group used for deny only" means this is a split administrator token (a member of Administrators)'
+$high = @($grp | Where-Object { $_.SID -match '^S-1-16-(12288|16384)$' }).Count -gt 0
+Row 'integrity-not-high' $(if ($high) { 'FAIL' } else { 'PASS' }) 'must run at Medium integrity or lower'
+$priv = (& "$SystemDir\whoami.exe" /priv) -join "`n"
+$dangerous = @('SeDebugPrivilege', 'SeTakeOwnershipPrivilege', 'SeLoadDriverPrivilege', 'SeBackupPrivilege', 'SeRestorePrivilege', 'SeImpersonatePrivilege', 'SeTcbPrivilege', 'SeCreateTokenPrivilege', 'SeAssignPrimaryTokenPrivilege') | Where-Object { $priv -match $_ }
+Row 'no-dangerous-privileges' $(if ($dangerous) { 'FAIL' } else { 'PASS' }) $(if ($dangerous) { "present: $($dangerous -join ', ')" } else { 'none of Debug/TakeOwnership/LoadDriver/Backup/Restore/Impersonate/Tcb/CreateToken/AssignPrimaryToken' })
 
 # ---------------------------------------------------------------- UAC policy (HKLM is readable by standard users)
 $pol = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
-function Get-Pol([string]$n) { (Get-ItemProperty -LiteralPath $pol -Name $n -ErrorAction SilentlyContinue).$n }
-$lua = Get-Pol 'EnableLUA'; $cpu = Get-Pol 'ConsentPromptBehaviorUser'; $sd = Get-Pol 'PromptOnSecureDesktop'; $cpa = Get-Pol 'ConsentPromptBehaviorAdmin'
+function Get-Pol([string]$n) { $o = Get-ItemProperty -LiteralPath $pol -ErrorAction SilentlyContinue; if ($null -eq $o) { return $null }; $p = $o.PSObject.Properties[$n]; if ($null -eq $p) { return $null }; return $p.Value }
+$lua = Get-Pol 'EnableLUA'; $cpu = Get-Pol 'ConsentPromptBehaviorUser'; $sd = Get-Pol 'PromptOnSecureDesktop'; $cpa = Get-Pol 'ConsentPromptBehaviorAdmin'; $fat = Get-Pol 'FilterAdministratorToken'
 Row 'uac-enabled' $(if ($lua -eq 1) { 'PASS' } else { 'FAIL' }) "EnableLUA=$lua (required 1)"
-Row 'uac-user-needs-credentials' $(if ($cpu -eq 1 -or $cpu -eq 0) { 'PASS' } else { 'FAIL' }) "ConsentPromptBehaviorUser=$cpu (required 1 = credentials on the secure desktop, or 0 = automatically deny; 3 prompts for credentials off the secure desktop and is NOT acceptable)"
+Row 'uac-standard-user-auto-deny' $(if ($cpu -eq 0) { 'PASS' } else { 'FAIL' }) "ConsentPromptBehaviorUser=$cpu (required 0 = automatically deny elevation requests; 1/3 let this account raise credential prompts, a lure for the owner)"
 Row 'uac-secure-desktop' $(if ($sd -eq 1) { 'PASS' } else { 'FAIL' }) "PromptOnSecureDesktop=$sd (required 1)"
-Row 'uac-admin-consent' $(if ($cpa -eq 2 -or $cpa -eq 1) { 'PASS' } else { 'FAIL' }) "ConsentPromptBehaviorAdmin=$cpa (required 2 or 1; 0 and 5 allow silent or low-friction elevation for administrators)"
+Row 'uac-admin-consent' $(if ($cpa -eq 2) { 'PASS' } else { 'FAIL' }) "ConsentPromptBehaviorAdmin=$cpa (required 2: consent on the secure desktop; 0 is silent elevation)"
+Row 'uac-builtin-admin-filtered' $(if ($fat -eq 1) { 'PASS' } else { 'FAIL' }) "FilterAdministratorToken=$fat (required 1)"
 
 # ---------------------------------------------------------------- the install root
 if (-not (Test-Path -LiteralPath $InstallRoot)) {
-  foreach ($n in 'write-root', 'write-release', 'write-state', 'write-anchor-policy', 'read-cred', 'open-cred-file', 'inbox-no-modify') { Row $n 'SKIP' "install root $InstallRoot does not exist yet: run again after the elevated install" }
+  foreach ($n in 'create-in-root', 'create-in-release', 'create-in-release-runner', 'create-in-release-proof', 'create-in-state', 'create-in-evidence', 'create-in-inbox', 'mkdir-in-root', 'write-pinned-files', 'read-cred', 'open-cred-file') { Row $n 'SKIP' "install root $InstallRoot does not exist yet: run again after the elevated install" }
 } else {
-  foreach ($sub in @('', 'release', 'state', 'evidence')) {
+  foreach ($sub in @('', 'release', 'release\scripts\qa\d24-test-runner', 'release\scripts\qa\d24-m3d-proof', 'state', 'evidence', 'inbox')) {
     $d = if ($sub) { Join-Path $InstallRoot $sub } else { $InstallRoot }
-    $name = if ($sub) { "write-$sub" } else { 'write-root' }
-    if (-not (Test-Path -LiteralPath $d)) { Row $name 'SKIP' "$d missing"; continue }
-    Row $name $(if (Test-WriteRefused $d) { 'PASS' } else { 'FAIL' }) "a standard user must NOT be able to create a file in $d"
+    $name = 'create-in-' + $(if ($sub) { ($sub -replace '^release\\scripts\\qa\\d24-test-runner$', 'release-runner' -replace '^release\\scripts\\qa\\d24-m3d-proof$', 'release-proof') } else { 'root' })
+    Row-Create $name $d 'file' 'a standard user must not write the install root'
   }
-  # replacing the pinned files: opening them for WRITE must be refused (open only, nothing is written)
+  Row-Create 'mkdir-in-root' $InstallRoot 'folder' 'creating a sub-folder (a junction/planting vector) must be refused as well'
   $pinned = @('anchor.json', 'policy.json', 'release.json') | ForEach-Object { Join-Path $InstallRoot $_ }
-  $openOk = @()
-  foreach ($f in $pinned) { if (Test-Path -LiteralPath $f) { try { $fs = [IO.File]::Open($f, 'Open', 'Write', 'ReadWrite'); $fs.Close(); $openOk += $f } catch { } } }
-  Row 'write-anchor-policy' $(if ($openOk.Count -gt 0) { 'FAIL' } else { 'PASS' }) $(if ($openOk.Count -gt 0) { "opened for write: $($openOk -join ', ')" } else { 'anchor.json, policy.json, release.json cannot be opened for writing' })
+  $opened = @(); $missing = @(); $unexpected = @()
+  foreach ($f in $pinned) {
+    if (-not (Test-Path -LiteralPath $f)) { $missing += $f; continue }
+    try { $fs = [IO.File]::Open($f, 'Open', 'Write', 'ReadWrite'); $fs.Close(); $opened += $f } catch [UnauthorizedAccessException] { } catch { $unexpected += "$f ($($_.Exception.GetType().Name))" }
+  }
+  if ($missing.Count -gt 0) { Row 'write-pinned-files' 'FAIL' "pinned file(s) missing (incomplete install?): $($missing -join ', ')" }
+  elseif ($opened.Count -gt 0) { Row 'write-pinned-files' 'FAIL' "opened for write: $($opened -join ', ')" }
+  elseif ($unexpected.Count -gt 0) { Row 'write-pinned-files' 'FAIL' "unexpected error (not access-denied): $($unexpected -join ', ')" }
+  else { Row 'write-pinned-files' 'PASS' 'anchor.json, policy.json, release.json cannot be opened for writing' }
   $cred = Join-Path $InstallRoot 'cred'
   if (Test-Path -LiteralPath $cred) {
-    Row 'read-cred' $(if (Test-ReadRefused $cred) { 'PASS' } else { 'FAIL' }) 'listing cred\ must be refused'
-    $credFiles = $null
-    try { $credFiles = @(Get-ChildItem -LiteralPath $cred -Force -ErrorAction Stop) } catch { }
-    if ($credFiles -and $credFiles.Count -gt 0) {
-      $opened = $false
-      try { $s = [IO.File]::Open($credFiles[0].FullName, 'Open', 'Read', 'ReadWrite'); $s.Close(); $opened = $true } catch { }
-      Row 'open-cred-file' $(if ($opened) { 'FAIL' } else { 'PASS' }) 'opening a cred\ file for reading must be refused'
-    } else { Row 'open-cred-file' 'PASS' 'cred\ could not be listed, so no file is reachable' }
+    Row-ReadDenied 'read-cred' $cred 'cred\ is d24run-only'
+    $opened = $false; $err = $null; $listed = $null
+    try { $listed = @(Get-ChildItem -LiteralPath $cred -Force -ErrorAction Stop) } catch [UnauthorizedAccessException] { } catch { $err = $_.Exception.GetType().Name }
+    if ($err) { Row 'open-cred-file' 'FAIL' "unexpected error ($err)" }
+    elseif ($listed -and $listed.Count -gt 0) {
+      try { $s = [IO.File]::Open($listed[0].FullName, 'Open', 'Read', 'ReadWrite'); $s.Close(); $opened = $true } catch { }
+      Row 'open-cred-file' $(if ($opened) { 'FAIL' } else { 'PASS' }) 'opening a cred\ file for reading must be refused (no content is read)'
+    } else { Row 'open-cred-file' 'PASS' 'cred\ cannot be listed, so no file inside it is reachable' }
   } else { Row 'read-cred' 'SKIP' 'cred\ missing'; Row 'open-cred-file' 'SKIP' 'cred\ missing' }
-  # the inbox: this account may NOT be the owner of the inbox; if it can create there it must not be able to modify an existing file it does not own
-  $inbox = Join-Path $InstallRoot 'inbox'
-  Row 'inbox-no-modify' 'SKIP' 'the inbox belongs to the OWNER account by design; run the inbox check as the owner, not as the agent (see docs section 14.4)'
 }
 
-# ---------------------------------------------------------------- the owner's data and the runner's owner-side files
-$ownerPath = Join-Path $OwnerProfileRoot $OwnerUser
-if (Test-Path -LiteralPath $ownerPath) {
-  Row 'read-owner-profile' $(if (Test-ReadRefused $ownerPath) { 'PASS' } else { 'FAIL' }) "listing $ownerPath must be refused"
-  foreach ($sub in 'AppData\Local\DanceFlow\d24-owner', 'AppData\Local\DanceFlow\d24-runner', 'AppData\Roaming', '.ssh', '.config\gh') {
-    $p = Join-Path $ownerPath $sub
-    Row ("read-owner-" + ($sub -replace '[\\.]', '-')) $(if ((Test-ReadRefused $p) -or -not (Test-Path -LiteralPath $p -ErrorAction SilentlyContinue)) { 'PASS' } else { 'FAIL' }) "$p must not be readable"
-  }
-} else { Row 'read-owner-profile' 'SKIP' "$ownerPath not found (owner account name wrong or a different profile root)" }
-$ownerRepo = 'C:\Dev\studioapp'
-if (Test-Path -LiteralPath $ownerRepo) { Row 'read-owner-repository' $(if (Test-ReadRefused $ownerRepo) { 'PASS' } else { 'FAIL' }) "$ownerRepo (the owner's checkout with .env files) must not be readable by the agent" } else { Row 'read-owner-repository' 'SKIP' "$ownerRepo not present" }
+# ---------------------------------------------------------------- the toolchain and places a junction/plant could come from
+foreach ($p in @('C:\Program Files\nodejs', 'C:\Program Files\nodejs\node_modules\npm', 'C:\Program Files\Git', 'C:\Program Files\Git\mingw64\bin')) { Row-Create ('create-in-' + ($p -replace '[^A-Za-z0-9]+', '-').Trim('-').ToLower()) $p 'file' 'the elevated installer runs this binary tree' }
+Row-Create 'create-in-dev-root' 'C:\Dev' 'folder' 'C:\Dev is where an agent could plant a junction at the workspace path; tighten it to administrators (the setup script only reports it)'
+if ($AdminClone) { Row-Create 'create-in-admin-clone' $AdminClone 'file' 'the administrator-owned bootstrap clone' } else { Row 'create-in-admin-clone' 'SKIP' 'pass -AdminClone <path> to test the bootstrap clone' }
 
-# ---------------------------------------------------------------- credential stores reachable from THIS account
-$cm = (& "$env:SystemRoot\System32\cmdkey.exe" /list) -join "`n"
+# ---------------------------------------------------------------- the owner's data
+$ownerPath = Join-Path $OwnerProfileRoot $OwnerUser
+Row-ReadDenied 'read-owner-profile' $ownerPath "the owner's profile must be unreadable to the agent"
+foreach ($sub in 'AppData\Local\DanceFlow\d24-owner', 'AppData\Local\DanceFlow\d24-runner', '.ssh', '.config\gh') { Row-ReadDenied ('read-owner-' + ($sub -replace '[^A-Za-z0-9]+', '-').ToLower()) (Join-Path $ownerPath $sub) "$sub must be unreadable" }
+Row-ReadDenied 'read-owner-repository' 'C:\Dev\studioapp' "the owner's checkout (.env files, credentials) must be unreadable"
+
+# ---------------------------------------------------------------- credential stores and environment of THIS account
+$cm = (& "$SystemDir\cmdkey.exe" /list) -join "`n"
 Row 'no-d24-credential-in-this-profile' $(if ($cm -match 'D24-TEST|DanceFlow/D24') { 'FAIL' } else { 'PASS' }) 'Credential Manager of this account must hold no D24 TEST credential'
 $envBad = @('NODE_OPTIONS', 'NODE_EXTRA_CA_CERTS', 'NODE_TLS_REJECT_UNAUTHORIZED', 'STRIPE_SECRET_KEY', 'STRIPE_API_KEY') | Where-Object { [Environment]::GetEnvironmentVariable($_) }
 Row 'no-sensitive-env' $(if ($envBad) { 'FAIL' } else { 'PASS' }) $(if ($envBad) { "set in this session: $($envBad -join ', ')" } else { 'no NODE_OPTIONS/CA/Stripe variables set' })
 
 # ---------------------------------------------------------------- what this script cannot prove
 Write-Host ''
-Write-Host 'NOT TESTABLE FROM HERE (owner/administrator checks, docs section 14.4): that a UAC consent for THIS account really asks for administrator CREDENTIALS on the secure desktop;'
-Write-Host 'that d24run cannot log on interactively; that the scheduled task cannot be edited by this account; that the inbox owner cannot modify files it does not own.'
+Write-Host 'NOT TESTABLE FROM HERE (owner/administrator checks, docs section 14.4): that a UAC request from this account is really auto-denied (try one by hand, then cancel); that d24run cannot log on interactively;'
+Write-Host 'that the scheduled task cannot be edited by this account; that the owner (not this account) can create in the inbox; that no administrator credentials are saved anywhere this account can read.'
 $fail = @($script:Rows | Where-Object Status -eq 'FAIL').Count
 $skip = @($script:Rows | Where-Object Status -eq 'SKIP').Count
 Write-Host ("Result: {0} PASS, {1} FAIL, {2} SKIP" -f @($script:Rows | Where-Object Status -eq 'PASS').Count, $fail, $skip)
+Write-Host 'Self-attesting if run by the agent; authoritative only when the owner runs a hash-checked copy in the agent''s logon session and reads this console.'
 if ($fail -gt 0) { exit 1 }
 if ($skip -gt 0) { Write-Host 'NOT FULLY VERIFIED (some checks were skipped).' -ForegroundColor Yellow; exit 3 }
 exit 0

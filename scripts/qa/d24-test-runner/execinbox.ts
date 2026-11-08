@@ -33,6 +33,8 @@ export type ExecInboxDeps = {
   execPath: string;
   /** production: os.tmpdir(); must be <root>\state\tmp so a shared writable TEMP cannot hold a poisoned tsx cache */
   tmpdir(): string;
+  /** production: process.env. The task action sets TSX_DISABLE_CACHE=1 BEFORE tsx loads; this gate is the after-the-fact consistency check. */
+  env: Record<string, string | undefined>;
   now(): Date;
   out(line: string): void;
   realpath?: (p: string) => string;
@@ -94,6 +96,7 @@ export async function verifyInstalled(runId: string, d: ExecInboxDeps): Promise<
   if (!gate("node-binary", nodeOk, nodeOk ? `running under ${ADMIN_NODE}` : `node is ${d.execPath}, not the fixed administrator-only binary`)) return stop();
   const na = await lockedTreeGate("node-binary-acl", d.execPath, false, d.acl, who);
   if (!gate(na.id, na.ok, na.detail)) return stop();
+  if (!gate("tsx-no-cache", d.env.TSX_DISABLE_CACHE === "1", d.env.TSX_DISABLE_CACHE === "1" ? "TSX_DISABLE_CACHE=1: no compile cache is read" : "TSX_DISABLE_CACHE=1 is not set by the task action: a poisoned tsx cache could have run before any gate")) return stop();
   const tmpOk = lc(d.tmpdir()) === lc(l.tmp) || lc(d.tmpdir()).startsWith(`${lc(l.tmp)}/`);
   if (!gate("temp-isolation", tmpOk, tmpOk ? "TEMP is <root>\\state\\tmp (d24run-only): no shared tsx cache" : `TEMP is ${d.tmpdir()}, not ${l.tmp}`)) return stop();
 
