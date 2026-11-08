@@ -52,7 +52,8 @@ export class FakeAcl implements AclApplier {
   }
   async readTree(path: string, recurse: boolean): Promise<TreeEntry[]> {
     this.reads.push({ path, recurse });
-    if (!existsSync(path)) return [this.entry(path)];
+    // paths outside the install root (node.exe, Program Files trees, source clones) are never walked on the real disk: one synthetic entry stands for them
+    if (!path.toLowerCase().startsWith(this.l.root.toLowerCase()) || !existsSync(path)) return [this.entry(path)];
     const out: TreeEntry[] = [this.entry(path)];
     if (recurse && lstatSync(path).isDirectory()) {
       const walk = (d: string) => {

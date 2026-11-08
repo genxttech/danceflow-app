@@ -1,14 +1,15 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { ADMIN_NODE } from "../installroot";
+import { ADMIN_NODE, layout } from "../installroot";
 import { toolchainGates, verifyMergedPr } from "../provenance";
 import type { HttpGet } from "../remotetip";
 import { readFileNoFollow, isRealDir } from "../safefs";
 import { tmp } from "./helpers";
-import { FakeAcl, installed, sddlFor, WHO, OWNER_SID } from "./installfixture";
+import { FakeAcl, sddlFor, WHO, OWNER_SID } from "./installfixture";
 
 vi.setConfig({ testTimeout: 60_000 });
+const layoutOnce = layout(String.raw`C:\nowhere\d24-runner`);
 const COMMIT = "a".repeat(40);
 const pr = (over: Record<string, unknown> = {}) => ({ number: 421, merged: true, merge_commit_sha: COMMIT, base: { ref: "main", repo: { full_name: "genxttech/danceflow-app" } }, merged_by: { login: "GenxOwner" }, ...over });
 const getOf = (body: unknown, status = 200, contentType = "application/json; charset=utf-8"): HttpGet => async () => ({ status, contentType, body: Buffer.from(typeof body === "string" ? body : JSON.stringify(body)) });
@@ -35,7 +36,7 @@ describe("verifyMergedPr (P2-4): the release is THE merge commit of a merged PR 
 
 describe("toolchainGates (P0-2): the elevated installer runs administrator-only code with a clean environment", () => {
   const base = async () => {
-    const { l } = await installed();
+    const l = layoutOnce;
     return { env: { SystemRoot: "C:\\Windows", PATH: "C:\\Windows\\System32", TSX_DISABLE_CACHE: "1" } as Record<string, string | undefined>, execArgv: [] as string[], execPath: ADMIN_NODE, adminNode: ADMIN_NODE, runningFile: "C:\\ProgramData\\d24-src\\scripts\\qa\\d24-test-runner\\installedcli.ts", sourceRepo: "C:\\ProgramData\\d24-src", gitBin: "C:\\Program Files\\Git\\cmd\\git.exe" as string | null, adminGit: "C:\\Program Files\\Git\\cmd\\git.exe", realGitDir: "C:\\Program Files\\Git\\mingw64\\bin", gitCoreDir: "C:\\Program Files\\Git\\mingw64\\libexec\\git-core", npmDir: "C:\\Program Files\\nodejs\\node_modules\\npm", reader: new FakeAcl(l), who: WHO };
   };
   it("passes in the clean, administrator-only configuration", async () => {
@@ -51,13 +52,13 @@ describe("toolchainGates (P0-2): the elevated installer runs administrator-only 
     await bad({ env: { ...b.env, GIT_DIR: "C:\\x" } }, "elevated-env");
     await bad({ env: { ...b.env, TSX_TSCONFIG_PATH: "C:\\x" } }, "elevated-env");
     await bad({ env: { SystemRoot: "C:\\Windows", PATH: "C:\\Windows\\System32" } }, "elevated-tsx-cache");
-    const rg = new FakeAcl((await installed()).l);
+    const rg = new FakeAcl(layoutOnce);
     rg.override("C:\\Program Files\\Git\\mingw64\\bin", sddlFor("locked", WHO, OWNER_SID));
     await bad({ reader: rg }, "elevated-real-git-acl");
-    const gc = new FakeAcl((await installed()).l);
+    const gc = new FakeAcl(layoutOnce);
     gc.override("C:\\Program Files\\Git\\mingw64\\libexec\\git-core", sddlFor("locked", WHO, OWNER_SID));
     await bad({ reader: gc }, "elevated-git-core-acl");
-    const nn = new FakeAcl((await installed()).l);
+    const nn = new FakeAcl(layoutOnce);
     nn.override("C:\\Program Files\\nodejs\\node_modules\\npm", sddlFor("locked", WHO, OWNER_SID));
     await bad({ reader: nn }, "elevated-npm-acl");
     await bad({ execArgv: ["--use-env-proxy"] }, "elevated-env");
@@ -65,10 +66,10 @@ describe("toolchainGates (P0-2): the elevated installer runs administrator-only 
     await bad({ runningFile: "C:\\Users\\mcurt\\Dev\\installedcli.ts" }, "elevated-code-location");
     await bad({ gitBin: null }, "elevated-git");
     await bad({ gitBin: "C:\\Users\\mcurt\\git.exe" }, "elevated-git");
-    const a = new FakeAcl((await installed()).l);
+    const a = new FakeAcl(layoutOnce);
     a.override("C:\\ProgramData\\d24-src", sddlFor("locked", WHO, OWNER_SID)); // the clone is owned by the owner's user
     await bad({ reader: a }, "elevated-source-acl");
-    const n = new FakeAcl((await installed()).l);
+    const n = new FakeAcl(layoutOnce);
     n.override(ADMIN_NODE, sddlFor("locked", WHO, OWNER_SID));
     await bad({ reader: n }, "elevated-node-acl");
   });
