@@ -3,8 +3,8 @@ name: D24 TEST account provisioning
 # ONE-SHOT, owner-approved creation of the production-equivalent Express connected account in the isolated D24 Stripe TEST sandbox (scripts/qa/d24-test-provision).
 # Design, requests, permissions, cost and cleanup: docs/billing/D24-TEST-ACCOUNT-PROVISIONING.md section 9.
 #
-# INERT until separately authorized: the pinned platform account id below is a PLACEHOLDER (the guard step fails closed on it) and the environment secret
-# D24_PROVISION_STRIPE_KEY does not exist. Nothing here has ever run. Both are changed only under the owner's code-owner review / by the owner in the browser.
+# INERT until separately authorized: the environment secret
+# D24_PROVISION_STRIPE_KEY does not exist (live.ts refuses without a restricted test key, before any request). Nothing here has ever run. The owner enters the secret in the browser, and each run needs the owner's approval.
 #
 # Same protected environment as the proof (`d24-stripe-test`: owner is the only required reviewer, no self-review, administrator bypass off, main only), but a SEPARATE secret:
 # this workflow reads D24_PROVISION_STRIPE_KEY only; it never references D24_PROOF_STRIPE_KEY, and the proof workflow never references this secret (tests enforce both).
@@ -47,8 +47,8 @@ jobs:
       BASH_ENV: ""
       ENV: ""
       D24_WORKFLOW_REF_EXPECTED: "genxttech/danceflow-app/.github/workflows/d24-provision-account.yml@refs/heads/main"
-      # PLACEHOLDER until the owner supplies the sandbox platform id in a reviewed PR; the guard step fails closed while it contains PLACEHOLDER.
-      D24_PROVISION_EXPECT_PLATFORM_ACCT: "acct_PLACEHOLDERPLATFORM"
+      # The isolated D24 Stripe TEST sandbox platform, supplied by the owner (2026-11-08). A TEST id, not a credential. It must never be the D7, DEV or live account (a unit test refuses those).
+      D24_PROVISION_EXPECT_PLATFORM_ACCT: "acct_1UZ320IPJs53nwt7"
       # The owner's approval click IS the authorization; the tool's approval sentence is a constant supplied by this reviewed file.
       D24_PROVISION_AUTHORIZATION: "Approved: D24 TEST account provisioning as written"
       TSX: node_modules/tsx/dist/cli.mjs
