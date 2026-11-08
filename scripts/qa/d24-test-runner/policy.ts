@@ -25,10 +25,14 @@ export type Policy = {
   anchorFingerprint: string;
   runAsAccount: string;
   ownerAccount: string;
+  /** the SIDs the ACL gate and the identity gate compare (names are display only) */
+  runAsSid: string;
+  ownerSid: string;
 };
-const KEYS = ["v", "stripeMode", "keyKind", "credentialStore", "platformAcct", "connectedAcct", "maxCallsPerRun", "maxRunsPerEnvelope", "maxEnvelopeValidityDays", "maxRunsPerDay", "allowListSha256", "amountCeilingMinor", "anchorFingerprint", "runAsAccount", "ownerAccount"];
+const KEYS = ["v", "stripeMode", "keyKind", "credentialStore", "platformAcct", "connectedAcct", "maxCallsPerRun", "maxRunsPerEnvelope", "maxEnvelopeValidityDays", "maxRunsPerDay", "allowListSha256", "amountCeilingMinor", "anchorFingerprint", "runAsAccount", "ownerAccount", "runAsSid", "ownerSid"];
 const ACCT = /^acct_[A-Za-z0-9]{6,64}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
+const LOCAL_SID = /^S-1-5-21(-\d+){4}$/;
 const WIN_NAME = /^[A-Za-z0-9._-]{1,20}$/;
 
 export function parsePolicy(raw: unknown, proofHardCap: number): { ok: true; policy: Policy } | { ok: false; problems: string[] } {
@@ -55,6 +59,8 @@ export function parsePolicy(raw: unknown, proofHardCap: number): { ok: true; pol
   if (typeof r.anchorFingerprint !== "string" || !HEX64.test(r.anchorFingerprint)) p.push("anchorFingerprint must be 64 hex");
   for (const k of ["runAsAccount", "ownerAccount"]) if (typeof r[k] !== "string" || !WIN_NAME.test(r[k] as string)) p.push(`${k} must be a plain Windows account name`);
   if (typeof r.runAsAccount === "string" && typeof r.ownerAccount === "string" && r.runAsAccount.toLowerCase() === r.ownerAccount.toLowerCase()) p.push("the run-as account must differ from the owner account");
+  for (const k of ["runAsSid", "ownerSid"]) if (typeof r[k] !== "string" || !LOCAL_SID.test(r[k] as string)) p.push(`${k} must be a local-account SID (S-1-5-21-...)`);
+  if (r.runAsSid === r.ownerSid) p.push("the run-as SID must differ from the owner SID");
   return p.length > 0 ? { ok: false, problems: p } : { ok: true, policy: r as unknown as Policy };
 }
 export const policySha256 = (p: Policy) => jsonSha256(p);

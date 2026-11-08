@@ -3,10 +3,11 @@
 // envelope. It has no authority: the verifier in execinbox.ts re-checks everything from the install root. The authenticator call itself is injected
 // (the real WebAuthn ceremony is the owner-enrollment work in OWNER-AUTH section 7 and cannot be exercised offline).
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Envelope } from "./envelope";
 import { confirmFirstGroup, fingerprintOfFile, firstGroup, termsLines } from "./fingerprint";
+import { readFileNoFollow } from "./safefs";
 import type { HardwareApprovalDoc } from "./webauthn";
 
 export const ENVELOPE_FILE = "envelope.json";
@@ -25,15 +26,10 @@ export type LauncherDeps = {
 };
 export type LaunchResult = { ok: boolean; runId?: string; fingerprint?: string; why?: string };
 
-/** A regular, non-link, size-capped file read; null otherwise. */
+/** A regular, non-link, size-capped file read from the opened handle; null otherwise. */
 export function readInboxFile(file: string): string | null {
-  try {
-    const st = lstatSync(file);
-    if (!st.isFile() || st.isSymbolicLink() || st.size > MAX_INBOX_FILE_BYTES) return null;
-    return readFileSync(file, "utf8");
-  } catch {
-    return null;
-  }
+  const b = readFileNoFollow(file, MAX_INBOX_FILE_BYTES);
+  return b === null ? null : b.toString("utf8");
 }
 
 /** Run directories that have an envelope and no assertion yet. */

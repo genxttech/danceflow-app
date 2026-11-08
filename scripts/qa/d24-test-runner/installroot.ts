@@ -1,22 +1,30 @@
 // The admin-owned install root (see docs/billing/D24-TEST-RUNNER-TRUST-ANCHOR.md). Everything that decides whether a live run may happen lives under
-// INSTALL_ROOT, a CONSTANT here (never read from an environment variable, argument or config). This module is pure apart from the injected providers:
-// it parses `icacls` output, evaluates it against a per-directory role (fail closed), and verifies the installed tree against the release record.
+// INSTALL_ROOT, a CONSTANT here (never read from an environment variable, argument or config). This module is pure apart from the injected providers.
 //
-// What it can prove offline: the parsing and the decision rules, with captured/crafted icacls text. What it cannot: that the real OS enforces those
-// ACLs against a non-admin process (Windows test plan T7/T8/T13).
+// ACL model (review of PR 423): protection is judged from SDDL (owner SID + DACL with trustee SIDs and access masks) of EVERY directory and file under
+// the root, never from names and never from the DACL alone. The owner of an object holds WRITE_DAC implicitly, so an object owned by anyone but
+// Administrators/SYSTEM (or, for the data directories, the run-as account) is a violation whatever its DACL says. Anything not understood fails closed.
+//
+// What it can prove offline: the parsing and decision rules on crafted/captured SDDL. What it cannot: that the real OS enforces them against a
+// non-admin process, and the real SDDL of a real install (Windows test plan).
 
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { join, relative, resolve, sep } from "node:path";
 import { manifest } from "../d24-m3d-proof/manifest";
 import { canonicalJson } from "./canon";
 import { runnerManifest } from "./runnerpin";
+import { verifiedInstalledSet } from "./installmint";
 
 export const INSTALL_ROOT = String.raw`C:\ProgramData\d24-runner`;
+/** the only node binary a live run may execute under (admin-writable only); checked by execinbox, not taken from PATH */
+export const ADMIN_NODE = String.raw`C:\Program Files\nodejs\node.exe`;
 export const RUN_AS_ACCOUNT = "d24run";
-export const INSTALLER_VERSION = 1;
+export const INSTALLER_VERSION = 2;
 export const RUNNER_REL = "scripts/qa/d24-test-runner";
 export const PROOF_REL = "scripts/qa/d24-m3d-proof";
+/** installer-written constant: stops tsx from walking up to a user-creatable C:\ProgramData\tsconfig.json or C:\tsconfig.json */
+export const RELEASE_TSCONFIG = `${JSON.stringify({ compilerOptions: { target: "ES2022", module: "ESNext", moduleResolution: "Bundler", strict: true, skipLibCheck: true } }, null, 2)}\n`;
 
 export type Layout = ReturnType<typeof layout>;
 export const layout = (root: string) => ({
@@ -26,6 +34,7 @@ export const layout = (root: string) => ({
   policyJson: join(root, "policy.json"),
   anchorJson: join(root, "anchor.json"),
   state: join(root, "state"),
+  tmp: join(root, "state", "tmp"),
   cred: join(root, "cred"),
   inbox: join(root, "inbox"),
   evidence: join(root, "evidence"),
@@ -34,6 +43,29 @@ export const layout = (root: string) => ({
 });
 
 export type Gate = { id: string; ok: boolean; detail: string };
+
+// ---------------------------------------------------------------- hashing
+export const fileSha256 = (text: string) => createHash("sha256").update(text.replace(/\r\n/g, "\n")).digest("hex");
+export const jsonSha256 = (v: unknown) => createHash("sha256").update(canonicalJson(v)).digest("hex");
+
+/** Raw-byte hash of a whole directory tree (sorted relative paths; no line-ending normalisation; a link or special file is an error). */
+export function rawTreeSha256(dir: string): { sha256: string; fileCount: number } {
+  const files: string[] = [];
+  const walk = (d: string) => {
+    for (const name of readdirSync(d).sort()) {
+      const p = join(d, name);
+      const st = lstatSync(p);
+      if (st.isSymbolicLink()) throw new Error(`link in hashed tree: ${relative(dir, p)}`);
+      if (st.isDirectory()) walk(p);
+      else if (st.isFile()) files.push(p);
+      else throw new Error(`special file in hashed tree: ${relative(dir, p)}`);
+    }
+  };
+  walk(dir);
+  const roll = createHash("sha256");
+  for (const f of files) roll.update(`${relative(dir, f).split(sep).join("/")}\0${createHash("sha256").update(readFileSync(f)).digest("hex")}\n`);
+  return { sha256: roll.digest("hex"), fileCount: files.length };
+}
 
 // ---------------------------------------------------------------- release record
 export type Release = {
@@ -46,141 +78,161 @@ export type Release = {
   proofManifestSha256: string;
   proofFileCount: number;
   lockfileSha256: string;
+  packageJsonSha256: string;
+  tsconfigSha256: string;
+  /** raw-byte hash of release/node_modules (installed by the elevated, scrubbed `npm ci --ignore-scripts`) */
+  nodeModulesSha256: string;
+  nodeModulesFileCount: number;
   policySha256: string;
   anchorSha256: string;
   installerVersion: number;
   installedAtUtc: string;
 };
 const HEX = (n: number) => new RegExp(`^[0-9a-f]{${n}}$`);
+const RELEASE_KEYS = ["v", "commit", "prNumber", "treeSha256", "treeFileCount", "proofManifestSha256", "proofFileCount", "lockfileSha256", "packageJsonSha256", "tsconfigSha256", "nodeModulesSha256", "nodeModulesFileCount", "policySha256", "anchorSha256", "installerVersion", "installedAtUtc"];
 export function parseRelease(raw: unknown): { ok: true; release: Release } | { ok: false; problem: string } {
   const r = raw as Record<string, unknown> | null;
   if (!r || typeof r !== "object" || Array.isArray(r)) return { ok: false, problem: "release.json is not an object" };
-  const keys = ["v", "commit", "prNumber", "treeSha256", "treeFileCount", "proofManifestSha256", "proofFileCount", "lockfileSha256", "policySha256", "anchorSha256", "installerVersion", "installedAtUtc"];
-  if (Object.keys(r).length !== keys.length || !keys.every((k) => k in r)) return { ok: false, problem: "release.json has missing or unknown fields" };
+  if (Object.keys(r).length !== RELEASE_KEYS.length || !RELEASE_KEYS.every((k) => k in r)) return { ok: false, problem: "release.json has missing or unknown fields" };
   const sha = (k: string) => typeof r[k] === "string" && HEX(64).test(r[k] as string);
   const int = (k: string) => Number.isInteger(r[k]) && (r[k] as number) > 0;
   const bad =
-    r.v !== 1 || typeof r.commit !== "string" || !HEX(40).test(r.commit) || !int("prNumber") || !sha("treeSha256") || !int("treeFileCount") || !sha("proofManifestSha256") || !int("proofFileCount") || !sha("lockfileSha256") || !sha("policySha256") || !sha("anchorSha256") || r.installerVersion !== INSTALLER_VERSION || typeof r.installedAtUtc !== "string" || !/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(r.installedAtUtc);
+    r.v !== 1 || typeof r.commit !== "string" || !HEX(40).test(r.commit) || !int("prNumber") || !sha("treeSha256") || !int("treeFileCount") || !sha("proofManifestSha256") || !int("proofFileCount") || !sha("lockfileSha256") || !sha("packageJsonSha256") || !sha("tsconfigSha256") || !sha("nodeModulesSha256") || !int("nodeModulesFileCount") || !sha("policySha256") || !sha("anchorSha256") || r.installerVersion !== INSTALLER_VERSION || typeof r.installedAtUtc !== "string" || !/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(r.installedAtUtc);
   return bad ? { ok: false, problem: "release.json has an invalid field" } : { ok: true, release: r as unknown as Release };
 }
 export const releaseText = (r: Release) => `${JSON.stringify(r, null, 2)}\n`;
 
-/** CRLF-normalised sha256 of a file's text (the same normalisation as the folder manifests). */
-export const fileSha256 = (text: string) => createHash("sha256").update(text.replace(/\r\n/g, "\n")).digest("hex");
-export const jsonSha256 = (v: unknown) => createHash("sha256").update(canonicalJson(v)).digest("hex");
-
-/** Re-hashes the installed runner + proof folders from disk and compares them with the release record. */
+/** Re-hashes everything the release record pins, from disk: runner + proof folders, lockfile, package.json, tsconfig.json, node_modules. */
 export function verifyInstalledTree(l: Layout, rel: Release): Gate {
   try {
     const rm = runnerManifest(l.runnerDir);
     const pm = manifest(l.proofDir);
-    const ok = rm.sha256 === rel.treeSha256 && rm.files.length === rel.treeFileCount && pm.sha256 === rel.proofManifestSha256 && pm.files.length === rel.proofFileCount;
-    return { id: "tree-hash", ok, detail: ok ? `installed runner ${rm.sha256.slice(0, 12)} (${rm.files.length} files) and proof ${pm.sha256.slice(0, 12)} (${pm.files.length} files) equal the release record` : `installed tree differs from release.json (runner ${rm.sha256.slice(0, 12)} vs ${rel.treeSha256.slice(0, 12)}, proof ${pm.sha256.slice(0, 12)} vs ${rel.proofManifestSha256.slice(0, 12)})` };
+    const lock = fileSha256(readFileSync(join(l.release, "package-lock.json"), "utf8"));
+    const pkg = fileSha256(readFileSync(join(l.release, "package.json"), "utf8"));
+    const ts = fileSha256(readFileSync(join(l.release, "tsconfig.json"), "utf8"));
+    const nm = rawTreeSha256(join(l.release, "node_modules"));
+    const parts: string[] = [];
+    if (rm.sha256 !== rel.treeSha256 || rm.files.length !== rel.treeFileCount) parts.push("runner folder");
+    if (pm.sha256 !== rel.proofManifestSha256 || pm.files.length !== rel.proofFileCount) parts.push("proof folder");
+    if (lock !== rel.lockfileSha256) parts.push("package-lock.json");
+    if (pkg !== rel.packageJsonSha256) parts.push("package.json");
+    if (ts !== rel.tsconfigSha256 || ts !== fileSha256(RELEASE_TSCONFIG)) parts.push("tsconfig.json");
+    if (nm.sha256 !== rel.nodeModulesSha256 || nm.fileCount !== rel.nodeModulesFileCount) parts.push("node_modules");
+    return parts.length === 0 ? { id: "tree-hash", ok: true, detail: `installed runner ${rm.sha256.slice(0, 12)} (${rm.files.length} files), proof ${pm.sha256.slice(0, 12)}, lockfile, package.json, tsconfig and node_modules (${nm.fileCount} files) equal the release record` } : { id: "tree-hash", ok: false, detail: `installed tree differs from release.json: ${parts.join(", ")}` };
   } catch {
     return { id: "tree-hash", ok: false, detail: "the installed tree could not be read and hashed" };
   }
 }
 
-// ---------------------------------------------------------------- ACL parsing and rules
-export type AclEntry = { principal: string; rights: string[]; deny: boolean };
-/** Reads the ACL text (icacls output) of one path. The real provider spawns icacls by absolute path; tests inject text. */
+// ---------------------------------------------------------------- SDDL model
+export const SID_ADMINS = "S-1-5-32-544";
+export const SID_SYSTEM = "S-1-5-18";
+export type Who = { runAsSid: string; ownerSid: string };
+export type AclRole = "locked" | "state" | "secret" | "inbox" | "evidence";
+export type TreeEntry = { path: string; kind: "dir" | "file" | "link"; /** `GetSecurityDescriptorSddlForm('Owner,Access')` */ sddl: string };
+/** Reads owner+DACL SDDL for a path (and, with recurse, EVERY directory and file below it, links reported as kind "link"). One call, not one per file. */
 export interface AclReader {
-  read(path: string): Promise<string>;
+  readTree(path: string, recurse: boolean): Promise<TreeEntry[]>;
 }
-/** Applies the install-time ACLs. Used only by the elevated installer. */
 export interface AclApplier extends AclReader {
+  /** sets the OWNER to Administrators and the DACL for the role (inheritance removed) on the path and everything below it */
   apply(path: string, role: AclRole, who: Who): Promise<void>;
 }
-export type Who = { runAs: string; owner: string };
-export type AclRole = "locked" | "state" | "secret" | "inbox" | "evidence";
 
-const FLAGS = new Set(["I", "OI", "CI", "IO", "NP"]);
-/** Parses `icacls <path>` output. Returns null when no entry can be read (the caller fails closed). */
-export function parseIcacls(output: string, path: string): AclEntry[] | null {
-  const out: AclEntry[] = [];
-  for (const raw of output.split(/\r?\n/)) {
-    let line = raw.trim();
-    if (/^successfully processed/i.test(line)) continue;
-    if (line.toLowerCase().startsWith(path.toLowerCase())) line = line.slice(path.length).trim();
-    const at = line.indexOf(":(");
-    if (at <= 0) continue;
-    const principal = line.slice(0, at).trim();
-    const groups = [...line.slice(at).matchAll(/\(([A-Za-z0-9,]+)\)/g)].map((m) => m[1]);
-    const deny = groups.includes("DENY");
-    const rights = groups.flatMap((g) => g.split(",")).filter((t) => t !== "DENY" && !FLAGS.has(t));
-    if (rights.length === 0) continue;
-    out.push({ principal, rights, deny });
+const ALIAS_SID: Record<string, string> = { BA: SID_ADMINS, SY: SID_SYSTEM, BU: "S-1-5-32-545", BG: "S-1-5-32-546", PU: "S-1-5-32-547", WD: "S-1-1-0", AU: "S-1-5-11", CO: "S-1-3-0", OW: "S-1-3-4", IU: "S-1-5-4", NU: "S-1-5-2", LS: "S-1-5-19", NS: "S-1-5-20", AN: "S-1-5-7", AC: "S-1-15-2-1", SU: "S-1-5-6" };
+const RIGHT_ALIAS: Record<string, number> = { GA: 0x10000000, GR: 0x80000000, GW: 0x40000000, GX: 0x20000000, FA: 0x1f01ff, FR: 0x120089, FW: 0x120116, FX: 0x1200a0, SD: 0x10000, RC: 0x20000, WD: 0x40000, WO: 0x80000 };
+const WRITE_BITS = 0x2 | 0x4 | 0x10 | 0x40 | 0x100 | 0x10000 | 0x40000 | 0x80000 | 0x10000000 | 0x40000000;
+const READ_BITS = 0x1 | 0x8 | 0x20 | 0x80 | 0x20000 | 0x100000 | 0x20000000 | 0x80000000;
+const CREATE_BITS = 0x2 | 0x4;
+
+export type Ace = { type: "A" | "D"; mask: number; sid: string };
+const sidOf = (t: string) => ALIAS_SID[t] ?? t;
+function maskOf(s: string): number | null {
+  if (/^0x[0-9a-fA-F]{1,8}$/.test(s)) return Number.parseInt(s, 16) >>> 0;
+  if (/^\d{1,10}$/.test(s)) return Number(s) >>> 0;
+  if (s.length === 0 || s.length % 2 !== 0) return null;
+  let m = 0;
+  for (let i = 0; i < s.length; i += 2) {
+    const v = RIGHT_ALIAS[s.slice(i, i + 2)];
+    if (v === undefined) return null;
+    m |= v;
   }
-  return out.length > 0 ? out : null;
+  return m >>> 0;
+}
+/** Strict SDDL parser: any ACE type, field or token it does not understand returns null (the caller fails closed). A missing DACL (everyone full control) is null too. */
+export function parseSddl(sddl: string): { owner: string; aces: Ace[] } | null {
+  const m = /^O:(S-[\d-]+|[A-Z]{2})(?:G:(?:S-[\d-]+|[A-Z]{2}))?D:([A-Z]*)((?:\([^()]*\))*)$/.exec(sddl.trim());
+  if (!m) return null;
+  const aces: Ace[] = [];
+  for (const a of m[3].matchAll(/\(([^()]*)\)/g)) {
+    const f = a[1].split(";");
+    if (f.length !== 6 || (f[0] !== "A" && f[0] !== "D") || f[4] !== "" || f[3] !== "" || !/^(?:OI|CI|IO|NP|ID|SA|FA)*$/.test(f[1])) return null;
+    const mask = maskOf(f[2]);
+    if (mask === null || !/^(S-[\d-]+|[A-Z]{2})$/.test(f[5])) return null;
+    aces.push({ type: f[0], mask, sid: sidOf(f[5]) });
+  }
+  return { owner: sidOf(m[1]), aces };
 }
 
-const WRITE = new Set(["F", "M", "W", "D", "DE", "WD", "AD", "WA", "WEA", "DC", "WDAC", "WO", "GA", "GW", "MA"]);
-const CREATE_ONLY_OK = new Set(["WD", "AD"]);
-const short = (p: string) => (p.split("\\").pop() ?? p).toLowerCase();
-const isAdminish = (p: string) => ["administrators", "system"].includes(short(p));
-
-/** Every reason the entries are not acceptable for `role`. Empty = acceptable. Deny entries are ignored (a grant that a deny cancels is still reported). */
-export function aclViolations(entries: AclEntry[], role: AclRole, who: Who): string[] {
+const ADMINISH = new Set([SID_ADMINS, SID_SYSTEM]);
+/** Every reason this one object is not acceptable for `role`. Empty = acceptable. DENY ACEs are ignored (a grant a deny cancels is still reported). */
+export function entryViolations(e: TreeEntry, role: AclRole, who: Who): string[] {
   const out: string[] = [];
-  const runAs = who.runAs.toLowerCase();
-  const owner = who.owner.toLowerCase();
-  for (const e of entries) {
-    if (e.deny) continue;
-    const p = short(e.principal);
-    const writes = e.rights.filter((t) => WRITE.has(t));
-    const name = e.principal;
-    if (isAdminish(e.principal)) continue;
-    if (role === "locked" && writes.length > 0) out.push(`${name} has write-class right(s) ${writes.join(",")} on a locked path`);
-    if ((role === "state" || role === "evidence") && writes.length > 0 && p !== runAs) out.push(`${name} has write-class right(s) ${writes.join(",")} (only ${who.runAs} may write here)`);
-    if (role === "secret" && p !== runAs) out.push(`${name} has any right (${e.rights.join(",")}) on the credential directory (only ${who.runAs} may read it)`);
-    if (role === "inbox") {
-      if (p === owner) {
-        const extra = writes.filter((t) => !CREATE_ONLY_OK.has(t));
-        if (extra.length > 0) out.push(`${name} has more than create rights (${extra.join(",")}) on the inbox`);
-      } else if (writes.length > 0) out.push(`${name} has write-class right(s) ${writes.join(",")} on the inbox`);
+  if (e.kind === "link") return [`${e.path}: is a link or reparse point`];
+  const p = parseSddl(e.sddl);
+  if (!p) return [`${e.path}: security descriptor not understood or has no DACL (fail closed)`];
+  const owners = new Set<string>([...ADMINISH, ...(role === "locked" ? [] : [who.runAsSid]), ...(role === "inbox" ? [who.ownerSid] : [])]);
+  if (!owners.has(p.owner)) out.push(`${e.path}: owned by ${p.owner} (an object's owner can rewrite its permissions; only ${[...owners].join(", ")} may own it)`);
+  const writers = new Set<string>([...ADMINISH, ...(role === "state" || role === "evidence" ? [who.runAsSid] : [])]);
+  for (const a of p.aces) {
+    if (a.type !== "A") continue;
+    if (role === "secret") {
+      if (![...ADMINISH, who.runAsSid].includes(a.sid)) out.push(`${e.path}: ${a.sid} holds access mask 0x${a.mask.toString(16)} on the credential area (only ${who.runAsSid} may)`);
+      continue;
     }
+    if (role === "inbox" && a.sid === who.ownerSid) {
+      const extra = a.mask & ~(READ_BITS | CREATE_BITS) & WRITE_BITS;
+      if (extra !== 0) out.push(`${e.path}: owner has more than create rights on the inbox (0x${extra.toString(16)})`);
+      continue;
+    }
+    if ((a.mask & WRITE_BITS) !== 0 && !writers.has(a.sid)) out.push(`${e.path}: ${a.sid} holds write-class access 0x${(a.mask & WRITE_BITS).toString(16)}`);
   }
+  if (role !== "secret" && !p.aces.some((a) => a.type === "A" && ADMINISH.has(a.sid) && (a.mask & 0x1f01ff) === 0x1f01ff)) out.push(`${e.path}: no full-control entry for Administrators/SYSTEM (descriptor not as installed)`);
   return out;
 }
 
-/** The role of each protected path. */
-export function roles(l: Layout): Array<{ path: string; role: AclRole }> {
-  return [
-    { path: l.root, role: "locked" },
-    { path: l.release, role: "locked" },
-    { path: join(l.root, "release", "scripts"), role: "locked" },
-    { path: join(l.root, "release", "scripts", "qa"), role: "locked" },
-    { path: l.runnerDir, role: "locked" },
-    { path: l.proofDir, role: "locked" },
-    { path: l.releaseJson, role: "locked" },
-    { path: l.policyJson, role: "locked" },
-    { path: l.anchorJson, role: "locked" },
-    { path: l.state, role: "state" },
-    { path: l.cred, role: "secret" },
-    { path: l.inbox, role: "inbox" },
-    { path: l.evidence, role: "evidence" },
-  ];
+/** Role of a path inside the root: by its first segment under the root. */
+export function roleOfPath(l: Layout, path: string): AclRole {
+  const rel = relative(l.root, path).split(sep)[0];
+  return rel === "state" ? "state" : rel === "cred" ? "secret" : rel === "inbox" ? "inbox" : rel === "evidence" ? "evidence" : "locked";
 }
 
 export async function aclGate(l: Layout, reader: AclReader, who: Who): Promise<Gate> {
-  const problems: string[] = [];
-  for (const { path, role } of roles(l)) {
-    let text: string;
-    try {
-      text = await reader.read(path);
-    } catch {
-      problems.push(`${path}: ACL could not be read`);
-      continue;
-    }
-    const entries = parseIcacls(text, path);
-    if (!entries) {
-      problems.push(`${path}: ACL output not understood (fail closed)`);
-      continue;
-    }
-    if (!entries.some((e) => !e.deny && isAdminish(e.principal))) problems.push(`${path}: no Administrators/SYSTEM entry (output not understood)`);
-    for (const v of aclViolations(entries, role, who)) problems.push(`${path}: ${v}`);
+  let entries: TreeEntry[];
+  try {
+    entries = await reader.readTree(l.root, true);
+  } catch {
+    return { id: "install-root-acl", ok: false, detail: "the security descriptors under the install root could not be read" };
   }
-  return { id: "install-root-acl", ok: problems.length === 0, detail: problems.length === 0 ? `ACLs on ${roles(l).length} protected paths match their roles` : problems.slice(0, 6).join(" | ") };
+  const norm = (p: string) => resolve(p).toLowerCase();
+  const have = new Set(entries.map((e) => norm(e.path)));
+  const problems: string[] = [];
+  for (const e of entries) problems.push(...entryViolations(e, roleOfPath(l, e.path), who));
+  for (const need of [l.root, l.release, l.releaseJson, l.policyJson, l.anchorJson, l.state, l.cred, l.inbox, l.evidence]) if (!have.has(norm(need))) problems.push(`${need}: missing from the security-descriptor listing`);
+  return { id: "install-root-acl", ok: problems.length === 0, detail: problems.length === 0 ? `owner and DACL of ${entries.length} directories and files under the root match their roles` : `${problems.length} problem(s): ${problems.slice(0, 5).join(" | ")}` };
+}
+
+/** Owner/DACL check of an arbitrary tree or single file that must be administrator-only (the elevated installer's source clone, node.exe). */
+export async function lockedTreeGate(id: string, path: string, recurse: boolean, reader: AclReader, who: Who): Promise<Gate> {
+  let entries: TreeEntry[];
+  try {
+    entries = await reader.readTree(path, recurse);
+  } catch {
+    return { id, ok: false, detail: `${path}: security descriptors could not be read` };
+  }
+  if (entries.length === 0) return { id, ok: false, detail: `${path}: nothing was listed` };
+  const problems = entries.flatMap((e) => entryViolations(e, "locked", who));
+  return { id, ok: problems.length === 0, detail: problems.length === 0 ? `${entries.length} object(s) under ${path} are administrator-owned and not writable by anyone else` : `${problems.length} problem(s): ${problems.slice(0, 4).join(" | ")}` };
 }
 
 const norm = (p: string) => resolve(p).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
@@ -202,7 +254,7 @@ export function rootPathGate(l: Layout, runningFile: string, realpath: (p: strin
 
 export const readJson = (file: string): unknown => JSON.parse(readFileSync(file, "utf8"));
 
-// ---------------------------------------------------------------- the verified-install brand
+// ---------------------------------------------------------------- the verified-install brand (minted only by execinbox via installmint.ts)
 export type InstalledRun = {
   layout: Layout;
   release: Release;
@@ -213,10 +265,4 @@ export type InstalledRun = {
   /** re-verifies the installed tree from disk (used again just before the key is released) */
   verifyTree: () => Gate;
 };
-const verified = new WeakSet<object>();
-/** Only code in the hashed runner folder can reach this; the brand says "execinbox's gates passed for this object". */
-export function markVerifiedInstalled(i: InstalledRun): InstalledRun {
-  verified.add(i);
-  return i;
-}
-export const isVerifiedInstalled = (i: unknown): i is InstalledRun => typeof i === "object" && i !== null && verified.has(i);
+export const isVerifiedInstalled = (i: unknown): i is InstalledRun => typeof i === "object" && i !== null && verifiedInstalledSet.has(i);

@@ -10,7 +10,7 @@ const POL: Policy = {
   platformAcct: "acct_UNITPLATFORM1", connectedAcct: "acct_UNITCONNECTED1",
   maxCallsPerRun: 40, maxRunsPerEnvelope: 2, maxEnvelopeValidityDays: 7, maxRunsPerDay: 2,
   allowListSha256: PM, amountCeilingMinor: 20_000, anchorFingerprint: testAuth.anchor.fingerprintSha256,
-  runAsAccount: "d24run", ownerAccount: "ownerperson",
+  runAsAccount: "d24run", ownerAccount: "ownerperson", runAsSid: "S-1-5-21-111-222-333-1001", ownerSid: "S-1-5-21-111-222-333-1000",
 };
 const CTX: ClampCtx = { proofManifestSha256: PM, proofMaxLineCents: 20_000, evidenceRootAllowed: () => true, runsToday: 0 };
 const ev = (over = {}) => makeEnvelope({ credential: { store: "dpapi-file", label: "d24-unit", keyKind: "rk_test", keyFingerprintSha256Prefix: "a".repeat(16), keyExpiresUtc: "2026-11-20T10:00:00Z" }, ...over });
@@ -30,6 +30,9 @@ describe("parsePolicy", () => {
     expect(bad({ runAsAccount: "ownerperson" }).ok).toBe(false);
     expect(bad({ anchorFingerprint: "xyz" }).ok).toBe(false);
     expect(bad({ extra: 1 }).ok).toBe(false);
+    expect(bad({ runAsSid: "S-1-5-32-544" }).ok).toBe(false); // must be a local-account SID, never Administrators
+    expect(bad({ runAsSid: POL.ownerSid }).ok).toBe(false);
+    expect(bad({ ownerSid: "ownerperson" }).ok).toBe(false);
     expect(parsePolicy({ ...POL, amountCeilingMinor: undefined }, 40).ok).toBe(false);
     expect(parsePolicy(null, 40).ok).toBe(false);
   });
