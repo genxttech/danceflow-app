@@ -350,12 +350,15 @@ export function canManageEventRegistrations(
   return canManageEventTickets(role, isPlatformAdmin);
 }
 
+// CI-B: door check-in is front desk work, so front_desk is added to the
+// ticket-manager roles here (it still cannot manage tickets or
+// registrations). Instructors are not included.
 export function canCheckInEventAttendees(
   role: string | null | undefined,
   isPlatformAdmin = false,
 ) {
   if (isPlatformAdmin) return true;
-  return canManageEventTickets(role, isPlatformAdmin);
+  return role === "front_desk" || canManageEventTickets(role, isPlatformAdmin);
 }
 
 export function canManageOrganizerContacts(

@@ -7,7 +7,7 @@ import { isOrganizerWorkspaceRole } from "@/lib/auth/permissions";
 import {
   checkInEventRegistrationAction,
   checkInEventTicketCodeAction,
-} from "../registrations/actions";
+} from "./actions";
 import {
   publishEventGroupLessonRecapAction,
   saveEventGroupLessonRecapAction,
@@ -322,6 +322,13 @@ function getBanner(search: {
     return {
       kind: "error" as const,
       message: "No matching ticket code was found for this event.",
+    };
+  }
+
+  if (search.error === "checkin_unauthorized") {
+    return {
+      kind: "error" as const,
+      message: "Your role cannot check in attendees. Ask a studio owner, admin or front desk staff member.",
     };
   }
 
