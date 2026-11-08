@@ -7,8 +7,9 @@ and it fails closed while the account ids or the evidence key are placeholders.
 Owner-approved intent: engineering operates the Stripe TEST-mode proof; the owner only approves each run, and the restricted TEST key
 never needs to sit on a developer machine or in this conversation.
 
-**Read section 3 first.** Every control below depends on the engineering agent acting as a *different GitHub identity with write access only*.
-If the agent acts as the owner's account (for example through a fine-grained token created by the owner), there is no separation and none of the approvals mean anything.
+Facts this design rests on: `genxttech/danceflow-app` is a **public** repository owned by a **personal** user account (not an organization), on the free plan.
+Engineering will act as a dedicated GitHub account, `danceflow-engineering-bot` (2FA by authenticator app), never as the owner.
+**Everything below that says "engineering cannot" is true only after section 3 is completed and verified.** Until then nothing here is a control.
 
 ## 1. How a run works
 
@@ -37,7 +38,7 @@ pinned `Stripe-Version`, environment hardening, redaction, cleanup, exclusive-cr
 | Pin | Where | Enforced by |
 |---|---|---|
 | Harness git tree id | `D24_PROOF_PINNED_TREE` | the job, in plain shell **before any node runs** (`git rev-parse HEAD:scripts/qa/d24-m3d-proof`); a unit test (equals the real tree) |
-| Harness manifest SHA-256 | `D24_PROOF_PINNED_SHA256` | the job (`--print-hash` must equal it; note this is computed by the harness itself, so it is a consistency check, the tree id is the independent one) and a unit test |
+| Harness manifest SHA-256 | `D24_PROOF_PINNED_SHA256` | the job (`--print-hash` must equal it; computed by the harness itself, so a consistency check; the tree id is the independent one) and a unit test |
 | `package.json`, `package-lock.json`, `tsconfig.json` SHA-256 | `D24_PIN_*_SHA256` | the job (`sha256sum`, before `npm ci`); unit tests. A changed lockfile breaks the run until the pin is updated under code-owner review |
 | Workflow identity | `D24_WORKFLOW_REF_EXPECTED` vs `github.workflow_ref` | the job's guard step. This protects only the real file; the control against a *rogue* file is CODEOWNERS on all of `/.github/` |
 | Platform and connected account ids | `D24_PROOF_EXPECT_PLATFORM_ACCT` / `_CONNECTED_ACCT` | the harness identity gate; the guard step refuses `PLACEHOLDER` (substring check; the owner must compare real ids to the sandbox dashboard during code-owner review) |
@@ -46,93 +47,195 @@ pinned `Stripe-Version`, environment hardening, redaction, cleanup, exclusive-cr
 | Actions | two official actions, each pinned to a full commit SHA | unit test (no tag, no short SHA, nothing else) |
 | Node | exact version in `actions/setup-node`, and the same version in the tool-cache path | unit test |
 
-The unit tests make the pins equal to the repository content at the same commit, so changing any pinned input forces a reviewed update of the workflow file **only if the tests run and are required** (section 3, step 3).
+The unit tests make the pins equal to the repository content at the same commit, so changing any pinned input forces a reviewed update of the workflow file **only if the tests run and are required** (3.E).
 
 **Placeholders currently in the PR:** the two account ids (`acct_PLACEHOLDER...`) and the evidence public key. Real values arrive in a
-later, code-owner-reviewed PR after the corrected test sandbox exists and the keypair has been generated offline.
+later, code-owner-reviewed PR after a **new production-equivalent Express connected account** exists (section 5) and the keypair has been generated offline.
 
-## 3. Owner steps (browser; the agent identity does none of these)
+## 3. Owner setup sequence (one sequence, in this order)
 
-About five browser actions. They only work if step 1 is done properly.
+Owner-only actions are marked **[OWNER]**. Engineering does the rest locally and never touches GitHub settings. Run section 3.H after each stage that changes something.
 
-1. **Give the agent its own identity with WRITE only.** A fine-grained personal access token **always acts as the user who created it.** A token the owner (`genxttech`) creates is still `genxttech`:
-   the repository owner, the sole admin, the code owner and the environment's required reviewer. It would let the agent approve its own run, use the admin ruleset bypass, and author PRs that the
-   code owner cannot approve (an author cannot approve their own PR). So:
-   - Create a **separate identity**: a second GitHub account / machine user added as a collaborator, or a GitHub App installation. In a personal-account repository a collaborator has a fixed role; give it **Write** only (not Maintain, not Admin).
-   - The agent identity must **not** be a required reviewer on the environment, must **not** be a code owner, and must **not** be in any ruleset bypass list.
-   - The agent uses that identity's own fine-grained token (repository contents / pull requests / issues / workflows as needed for normal PRs; **no** Administration, Environments, Secrets, Deployments).
-   - **Remove the owner's `genxttech` token / `gh` login from this machine** (sign the CLI out, revoke the OAuth grant and any PATs) before the agent is relied on. Until that is done, nothing in this document is a control.
-   - **What the owner verifies in the browser:** Settings -> Collaborators shows the agent identity with **Write**; Settings -> Environments -> `d24-stripe-test` lists only the owner as reviewer; the ruleset bypass list does not contain the agent identity;
-     Settings -> Developer settings / Applications shows no live token for `genxttech` on the agent's machine; and, as a negative test the owner can run, that the agent identity gets 403/404 on the environment settings and secrets pages.
-     Collaborator powers in a personal repository are UNVERIFIED (section 6): check that a Write collaborator cannot edit environments, rulesets or secrets.
-2. **Create the environment** `d24-stripe-test` (Settings -> Environments): *Required reviewers* = the owner; **Prevent self-review** on; **Allow administrators to bypass configured protection rules = OFF**;
-   *Deployment branches and tags* = **Selected branches: `main` only**; add the **environment secret** `D24_PROOF_STRIPE_KEY` = the restricted `rk_test_...` key (Invoices=Write, Customers=Write, connected-account Read; everything else None).
-   The key is an environment secret, **not** a repository secret.
-3. **Ruleset for `main`** (the current "Protect main" ruleset has: Admin bypass `always`, 0 required approvals, code-owner review off, last-push approval off, no required status checks; that is not enough). Set:
-   - *Require a pull request before merging* with **at least 1 approval**, **Require review from Code Owners ON**, **Require approval of the most recent reviewable push ON**, dismiss stale approvals ON;
-   - **no bypass for the agent identity**; bypass for the repository admin (the owner) only, and preferably "pull request only" rather than `always`;
-   - a **required status check** that includes these workflow tests (the CI job "Typecheck, build, lint, unit/integration tests"; it must run for every PR, see the path-filter note below).
-   Without these, CODEOWNERS is advisory only. `.github/CODEOWNERS` (in this PR) lists the owner for **all of `/.github/`** (any workflow file could reference the environment or the secret),
-   `package.json`, `package-lock.json`, `tsconfig.json`, `scripts/qa/d24-m3d-proof/`, `scripts/qa/d24-gh-proof/` (tooling and the evidence public key), this document and `vitest.config.mts`. (This PR changes no ruleset.)
-   The only existing CI workflow has a path filter; this PR adds the d24 workflow, CODEOWNERS, `docs/billing/D24-*`, `vitest.config.mts` and `tsconfig.json` to it so those PRs run the tests. Making the check *required* means it must be reachable for every PR, or the owner must accept that PRs outside the filter are not gated.
-4. **Verify before merge** (see Merge ordering below), then **approve each run** only after comparing the workflow path and commit SHA on the approval screen with the chat message from engineering.
+### 3.A [OWNER] Invite the bot as a collaborator
 
-### Merge ordering (one rule)
+1. github.com -> `genxttech/danceflow-app` -> **Settings** -> **Collaborators** (left menu: *Access* -> *Collaborators*) -> **Add people**.
+2. Type `danceflow-engineering-bot`, choose it, **Add**. (On a personal repository there is normally **no role dropdown**: a collaborator gets read/write access. UNVERIFIED, see section 6; if a dropdown does appear, choose **Write**, never Maintain or Admin.)
 
-**Do not merge this PR until the environment (step 2), its secret, and the ruleset (step 3) exist and the owner has checked them in the browser.** Reason: a workflow that references an environment that does not exist makes GitHub
-**create it automatically, unprotected**, on first use, and after merge anyone with write access can dispatch the workflow on `main` (the job's `if:` is true on `main`). The run would fail at the guard step (placeholders), but the unprotected environment would
-then exist, and a secret added later in the UI would be released without approval. Order: owner steps 1, 2 and 3 -> owner checks the environment shows the required reviewer, the `main`-only policy and administrator bypass OFF -> then merge ->
-then engineering supplies real account ids and the real evidence key in a follow-up PR -> then a dispatch.
+What a collaborator on a personal repository **can** do (expected, UNVERIFIED): clone, fetch, push branches, open and update pull requests, comment, merge a pull request **when the ruleset allows it**, dispatch and re-run workflows, read Actions logs.
+What a collaborator **cannot** do (expected, UNVERIFIED): open **Settings**, read or write secrets or variables, create or edit environments or rulesets, change Actions settings, change collaborators, delete the repository.
+Two things a collaborator can still do and that matter here: **dispatch the workflow** (a reference to a missing environment would auto-create it unprotected, hence the merge-order rule below) and **edit any workflow in a PR branch** (hence CODEOWNERS on all of `/.github/`).
+`danceflow-engineering-bot` must **not** be a required reviewer on the environment, must **not** be a code owner, and must **not** be in any ruleset bypass list.
+
+### 3.B [OWNER] Bot accepts, and the bot's credential
+
+A token created by `genxttech` **always acts as the user who created it**, so it can never be the agent's credential: it would be the repository owner, the only admin, the code owner and the environment's reviewer. The agent needs a **separate identity**; this is it.
+
+1. Sign in as `danceflow-engineering-bot` (authenticator app) in a private browser window -> github.com notifications or the invitation e-mail -> **Accept invitation**.
+2. As the bot: avatar -> **Settings** -> **Developer settings** -> **Personal access tokens** -> **Fine-grained tokens** -> **Generate new token**.
+   - **Resource owner:** the bot is a collaborator on a repository **owned by another user**. Fine-grained tokens are created for a resource owner that is the user or an organization; whether a collaborator on someone else's *personal* repository can select it is **UNVERIFIED and may not be possible** (GitHub has documented limits here). If `danceflow-app` does not appear under *Only select repositories* for any resource owner, **do not widen anything**; use the fallback below.
+   - **Expiration:** 90 days (put the date in the calendar; rotate before it).
+   - **Repository access:** *Only select repositories* -> `genxttech/danceflow-app` only.
+   - **Permissions:** Contents **Read and write**; Pull requests **Read and write**; Metadata **Read** (automatic); Actions **Read and write** (needed to dispatch the proof workflow and re-run CI); Workflows **Read and write** (see the trade-off below).
+     **No** Administration, Environments, Secrets, Deployments, Variables, Webhooks, or anything else.
+   - Workflows permission trade-off: **without** it the bot cannot push any change under `.github/workflows/` (GitHub refuses), which makes workflow edits impossible for the bot, a useful extra barrier but it blocks legitimate CI maintenance; **with** it the bot can push a workflow change to a branch and open a PR, but it still **cannot merge it to `main`** because `/.github/` is code-owned and the ruleset (3.E) requires owner approval. Recommended: **grant it**, because the real control is the ruleset and an unusable bot invites weakening the ruleset; revisit if the owner prefers the extra barrier.
+3. **Fallbacks if the fine-grained token cannot target this repository** (decide with the owner; each is weaker or heavier): (i) a **classic** personal access token for the bot with scopes `repo` and `workflow` only. Classic tokens cannot be limited to one repository, but the bot can reach only the repositories it was invited to (one), and a Write-level account cannot use admin endpoints; the verifier (3.H) proves this. (ii) A **GitHub App** installed on this repository only (permissions as above), with installation tokens minted from a private key held by engineering; most precise, most work. (iii) An SSH key for push only (no PR creation).
+4. The bot's token is stored only where the agent's tooling reads it (3.G). It is never put in chat, in the repository or in a workflow.
+
+### 3.C [OWNER] Repository Actions settings
+
+Settings -> **Actions** -> **General**:
+- *Actions permissions*: **Allow genxttech, and select non-genxttech, actions and reusable workflows**, tick **Require actions to be pinned to a full-length commit SHA** (leave GitHub-created actions allowed; the proof uses only `actions/setup-node` and `actions/upload-artifact`).
+  **Prerequisite:** `.github/workflows/e2e-public-event-registration.yml` uses unpinned tag references (`@v4`) and would stop running. Engineering opens a separate PR that pins them to SHAs **before** the owner ticks this box.
+- *Fork pull request workflows from outside collaborators*: **Require approval for all external contributors**.
+- *Workflow permissions*: **Read repository contents and packages permissions**; **untick** *Allow GitHub Actions to create and approve pull requests*.
+
+### 3.D [OWNER] Environment `d24-stripe-test`
+
+Settings -> **Environments** -> **New environment** -> name `d24-stripe-test` -> **Configure environment**:
+- **Required reviewers**: tick, search `genxttech`, add **only** the owner. Tick **Prevent self-review**.
+- **Wait timer**: leave unticked (none).
+- **Allow administrators to bypass configured protection rules = OFF**: untick it.
+- **Deployment branches and tags**: *Selected branches and tags* -> **Add deployment branch or tag rule** -> *Ref type* **Branch**, name pattern `main` -> **Add rule**. Make sure it is the only rule.
+- **Environment secrets** -> **Add environment secret**: Name `D24_PROOF_STRIPE_KEY`, Value the restricted `rk_test_...` key (Invoices=Write, Customers=Write, connected-account Read; everything else None), **Add secret**. **Not** a repository secret, and not entered in chat.
+  Do this only when a real run is about to be authorized (section 5 first); an environment without the secret is harmless.
+- Leave *Environment variables* empty.
+
+### 3.E [OWNER] Ruleset `Protect main`
+
+Today's ruleset has admin bypass `always`, 0 required approvals, code-owner review off, last-push approval off and no required status check. Replace it with the values below.
+Settings -> **Rules** -> **Rulesets**: first rename the existing one to `Protect main (old)`, then **New ruleset** -> **Import a ruleset** and upload this JSON saved as `protect-main.json`, then check the imported ruleset shows **Active**, then delete `Protect main (old)`:
+
+<!-- RULESET-JSON-BEGIN -->
+```json
+{
+  "name": "Protect main",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
+  "bypass_actors": [{ "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request" }],
+  "rules": [
+    { "type": "deletion" },
+    { "type": "non_fast_forward" },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": true,
+        "require_last_push_approval": true,
+        "required_review_thread_resolution": false,
+        "allowed_merge_methods": ["squash"]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [{ "context": "Typecheck, build, lint, unit/integration tests" }]
+      }
+    }
+  ]
+}
+```
+<!-- RULESET-JSON-END -->
+
+What each value does and why:
+- **Squash only**, **pull request required**, **at least 1 approval**, **Require review from Code Owners ON**, **require approval of the most recent reviewable push** ON, stale approvals dismissed on push.
+  *Why the count is 1 and not 0:* with the bot authoring every pull request, the owner can approve them (an author cannot approve their own PR, so while the owner authored the PRs this setting would have been unusable). One required approval means **no change reaches `main` without the owner**, code-owned or not, which matches the standing rule that merges need the owner's authorization. With a count of 0, code-owner review would still apply to code-owned paths but the bot could merge any non-code-owned change (all of `src/`) alone once checks pass. The cost of 1 is one browser click per PR; if that is too heavy, 0 is the fallback, and the owner accepts that the bot can merge non-code-owned changes unilaterally. (Whether code-owner review is enforced when the count is 0 is UNVERIFIED.)
+- **Bypass**: only the repository **admin role** (id 5, the owner), and only in **pull-request** mode. The bot has no bypass actor, so there is **no bypass for the agent identity**. (Role id 5 = Admin is what the current ruleset uses.)
+- **Block force pushes and deletions** (`non_fast_forward`, `deletion`).
+- **Required status check** `Typecheck, build, lint, unit/integration tests`, the CI job that runs these workflow tests. **Prerequisite:** that job lives in a workflow with a `pull_request.paths` filter, so a PR outside the filter never reports the check and could never merge (the owner's admin bypass would be the only way). Engineering opens a separate PR to remove the filter (or add a trivial always-running job under the same name) **before** this ruleset is imported.
+- **Restrict updates** (`update`) is deliberately **not** in the JSON: the pull-request rule already blocks direct pushes, and `update` is reported by GitHub as blocking everyone without bypass, possibly including pull-request merges (UNVERIFIED). The owner may add it as extra hardening after the harmless test in section 6.
+
+CODEOWNERS (`.github/CODEOWNERS`, in this PR) lists the owner for **all of `/.github/`** (any workflow file could reference the environment or the secret), `package.json`, `package-lock.json`, `tsconfig.json`,
+`scripts/qa/d24-m3d-proof/`, `scripts/qa/d24-gh-proof/` (tooling, verifier and the evidence public key), this document and `vitest.config.mts`. It only bites because of the code-owner setting above.
+
+### 3.F Merge ordering (one rule)
+
+**Do not merge this PR until the environment (3.D), its protection rules and the ruleset (3.E) exist and the owner has checked them in the browser** (and `--as-owner-readonly`, 3.H, is clean except the secret name, which is added last).
+Reason: a workflow that references an environment that does not exist makes GitHub **create it automatically, unprotected**, on first use, and after merge anyone with write access can dispatch the workflow on `main` (the job's `if:` is true on `main`).
+The run would fail at the guard step (placeholders), but the unprotected environment would then exist, and a secret added later in the UI would be released without approval.
+Order: 3.A -> 3.B -> 3.C -> 3.D (without the secret) -> 3.E -> 3.G token transition -> 3.H verification -> owner approves and merges this PR -> new Express sandbox and real ids/key in a follow-up PR (section 5) -> add the secret (3.D last bullet) -> dispatch.
+
+### 3.G Token transition on the engineering machine
+
+Facts: the GitHub CLI keeps the owner's token in the OS keyring (`gh auth status` shows account `genxttech`, scopes repo, workflow, gist, read:org); `git push` goes through Git Credential Manager (`credential.helper=manager`) whose stored GitHub login must **also** be identified and replaced; no `GH_*` / `GITHUB_*` environment variables are set; no repository script calls `gh`.
+The agent and the owner share one OS user, so separation is achieved by **removing** the owner's credentials, not by hiding them.
+
+1. **Inventory (read-only).** `gh auth status`; Windows Credential Manager -> Windows Credentials -> entries starting `git:https://github.com` (and `gh:github.com`); `git config --show-origin --get-all credential.helper`; any IDE, extension or scheduled task signed in to GitHub. **Also: the Chrome/browser sessions the agent can drive are the owner's signed-in sessions.** Do not give the agent a browser that is signed in as `genxttech`; use a separate profile.
+2. **Add the bot (owner types the token; it never passes through chat).** In a terminal: `gh auth login --hostname github.com --git-protocol https --with-token` then paste the bot token. `gh auth status` now lists both accounts. Run `gh auth switch --user danceflow-engineering-bot`, then `gh auth setup-git` so `git` uses `gh` for credentials.
+3. **Verify ordinary development works as the bot:** `gh api user --jq .login` prints the bot; clone/fetch; push a throwaway branch `bot-verify/<date>`; open a **draft** PR; close it; delete the branch. All must work.
+4. **Verify admin operations are refused:** run the read-only verifier (3.H, `--as-bot`). Every settings, secrets, environment and webhook endpoint must be refused.
+5. **Remove the owner's `genxttech` token / `gh` login and every other owner credential from agent-accessible stores:** `gh auth logout --hostname github.com --user genxttech`; delete the `git:https://github.com` Credential Manager entry that holds the owner's login (`git credential-manager github logout genxttech`, or delete it in the Credential Manager UI); re-run step 1 to confirm nothing for `genxttech` remains. From here the machine can no longer act as the owner.
+6. **Then, after dependencies have been found, recommend revoking or rotating** the owner's old `gho_` token (GitHub -> Settings -> Applications) and any owner PATs. This is a **separate approval**: other tools may depend on that grant, and revoking it too early breaks them.
+7. Owner actions from now on happen **in the owner's own browser**: approving and merging PRs, approving proof runs, changing settings.
+
+### 3.H Read-only verification (`scripts/qa/d24-gh-proof/verify-github-config.ts`)
+
+Sends only `GET` requests, through a default-deny allow-list of exact paths; reads its token from `D24_GH_VERIFY_TOKEN`; prints fixed ids and enumerated values only (never the token, never a secret value).
+- `--as-bot` (token = the bot's): the token is the bot; the bot is `write`, not `admin`/`maintain`; repository secrets, Actions permissions, workflow permissions, environment secrets and webhooks are **refused** (403/404).
+- `--as-owner-readonly` (a token able to read settings; the owner's, used from the owner's own machine or session, never stored on the agent machine): compares the ruleset (above JSON), the environment (reviewer = owner only, prevent self-review, admin bypass off, branch policy `main` only, no wait timer, secret **name** present), the repository Actions settings and the list of direct collaborators.
+Any deviation or any inconclusive answer exits 1 (fail closed). Example: `D24_GH_VERIFY_TOKEN=<token> node --import tsx scripts/qa/d24-gh-proof/verify-github-config.ts --as-bot`.
 
 ## 4. What is and is not a security boundary
 
-Is:
-- The restricted TEST key lives only in a GitHub environment secret. It is released only to a job on `main` that a required reviewer approved.
-- The workflow file, all of `/.github/`, the harness, the tooling and the node inputs (`package*.json`, `tsconfig.json`) are code-owned; **with a separate agent identity and the code-owner rule on**, changing them needs the owner.
+Is (after 3.A-3.H):
+- The restricted TEST key lives only in a GitHub environment secret. It is released only to a job on `main` that a required reviewer (the owner) approved.
+- The workflow file, all of `/.github/`, the harness, the tooling and the node inputs (`package*.json`, `tsconfig.json`) are code-owned and the ruleset requires owner approval for every merge, so changing them needs the owner.
 - The key never appears in logs (masked by GitHub, never echoed, output redirected to a file), and evidence leaves the runner only encrypted.
 - The harness itself bounds blast radius: TEST-mode key only, 40 requests, allow-listed endpoints, pinned accounts.
 
 Is not:
-- **Anything, if the agent acts as the owner (section 3, step 1).** This is the precondition for every other claim. Do not read "engineering cannot do X" in this document as true unless the agent runs under a separate Write-only identity.
+- **Anything, if the agent can still act as the owner (3.G).** This is the precondition for every other claim.
 - **The approval is bound to a commit SHA and a workflow path read by eye, not to a cryptographic envelope.** The owner compares them; GitHub does not verify the pinned manifest for them. The SHA identifies a whole tree, of which the owner has reviewed only the code-owned parts.
 - **Agent-modifiable even with the identity split and the code-owner rule:** dispatching (and therefore auto-creating a missing environment), re-runs, and the private evidence key and everything decrypted with it.
 - **Engineering holds the evidence private key.** Anything the run puts in its output reaches engineering. The terminal output is bundled in full; if the harness's redaction ever failed, or a compromised dependency wrote the key to stdout, the key would reach the agent's machine.
-  This contradicts the aim "the key never sits on a developer machine" in that failure case; the remaining protection is the harness redaction and the pinned inputs. (Dropping `--terminal` from the encrypt step would remove the raw terminal text from the bundle at the cost of diagnostics; the structured evidence pack would remain.)
-- **The runner image and egress.** `ubuntu-24.04` is a moving image label, not a pinned image, and there is no egress restriction: code running in the job can send the key anywhere. The harness's api.stripe.com-only transport does not constrain other code in the job.
-  The scrubbed environment, tool-cache node, pinned inputs and stray-process check narrow this; they do not remove it. Residual risk accepted only because the key is a restricted TEST-mode key.
+  This contradicts the aim "the key never sits on a developer machine" in that failure case; the remaining protection is the harness redaction and the pinned inputs. (Dropping `--terminal` from the encrypt step would remove the raw terminal text from the bundle at the cost of diagnostics.)
+- **The runner image and egress.** `ubuntu-24.04` is a moving image label, not a pinned image, and there is no egress restriction: code running in the job can send the key anywhere. The scrubbed environment, tool-cache node, pinned inputs and stray-process check narrow this; they do not remove it. Accepted only because the key is a restricted TEST-mode key.
 - **A stray process under another name.** The stray-process check only covers `node` and `esbuild`.
 - The runner is GitHub-hosted: GitHub, the two pinned actions and the npm registry are in the trust path. A re-run with debug logging (`ACTIONS_STEP_DEBUG`) can be enabled by anyone with write access; secrets stay masked, but verbose logs are in the trust path.
-- Anyone with write access can dispatch (then the owner approval gates it). A repository admin can edit environment settings, protection rules and secrets.
+- Anyone with write access can dispatch (then the owner approval gates it). A repository admin (the owner) can edit environment settings, protection rules and secrets.
 - The public repository means workflow logs and artifacts are world-readable. The design assumes that: only ciphertext, counts and hashes are public. (The "what was approved" summary is written after approval; before approval only the run title and workflow path are visible.)
 
-## 5. Dashboard request-log reconciliation (still required)
+### Residual P2: repository-level secrets are readable by a write-role bot (outside Stripe scope)
 
-The harness's own count and cleanup are not an independent record. After every run engineering produces, and the owner (or whoever holds the Stripe
-dashboard) confirms, a comparison of: the harness request count and transcript (from the decrypted evidence) against the **Stripe dashboard request log** for the sandbox and
-the pinned connected account for the run's time window, plus "no customers or invoices remain on the connected account". Procedure: see `D24-REQUEST-RECONCILIATION.md` and the README of
-`scripts/qa/d24-m3d-proof`. Who: engineering prepares the expected list; the dashboard holder compares; discrepancies are a failed run.
+`.github/workflows/e2e-public-event-registration.yml` uses **repository-level** secrets (`E2E_SUPABASE_*`) and runs on same-repository `pull_request`. A write-role collaborator can edit that workflow in its PR branch and the run receives those secrets (the file is code-owned, but a `pull_request` run uses the branch's version before any review). This does not touch Stripe, but it is a real exposure of test-environment credentials.
+**Recommended owner action (not done here; that workflow's secret usage is deliberately not edited in this change):** move the `E2E_*` secrets into a protected environment (for example `e2e-test`, required reviewer = owner, deployment branches limited), reference that environment in a reviewed change, then delete the repository-level copies. Until then, treat those credentials as readable by the bot and rotate them if ever abused. The verifier (`--as-owner-readonly`) counts repository-level secrets and fails if any `D24*` secret exists at repository level.
 
-## 6. UNVERIFIED GitHub behaviours (none has been tested)
+## 5. Dashboard request-log reconciliation, and the sandbox that must exist first
 
-Everything below is from memory of GitHub's documentation, not observed on this repository. None of it is relied on silently:
+**Independent reconciliation needs a Dashboard glance.** The harness's own count and cleanup are not an independent record. Stripe offers **no API to read the request log**, and the Events API covers only events caused by writes (not reads, and not rejected requests), so it cannot prove "no other calls were made".
+Owner decision per proof run (pick one and record it before the first run):
+- **(a) Dashboard glance, about 1 minute per proof**: the owner (or whoever holds the sandbox Dashboard) opens Developers -> Logs for the sandbox and the connected account for the run's time window and compares the request count and paths with the expected list engineering produces from the decrypted evidence, plus "no customers or invoices remain on the connected account". Discrepancies are a failed run.
+- **(b) Accept engineering's Events-API plus list-endpoint reconciliation** for the throwaway TEST sandbox: engineering lists events and objects through the API and compares them to the harness transcript. Weaker (blind to reads and to calls that created nothing), acceptable only if the owner explicitly accepts that for a throwaway sandbox with a restricted key.
+Procedure for (a): see `D24-REQUEST-RECONCILIATION.md` and the README of `scripts/qa/d24-m3d-proof`.
 
-- What the **approval screen** shows (commit SHA? workflow file? run name?), including what it shows for a *different* workflow that uses the same environment. The workflow puts the SHA in `run-name`; verify what is visible before approving.
-- **Collaborator powers in a personal-account repository**: that a Write collaborator cannot edit environments, rulesets, secrets or CODEOWNERS enforcement.
-- The **fine-grained token permission names** and whether a token without Administration / Environments / Secrets / Deployments can still open PRs and push branches as needed.
-- **Prevent self-review** semantics, and whether re-running a job requires re-approval.
-- The environment setting **"Allow administrators to bypass configured protection rules"** (and what the repository admin can still do).
-- **`GITHUB_ENV` versus job-level env precedence.** The key steps no longer depend on either (scrubbed `env -i`), but the three plaintext path variables still travel through `GITHUB_ENV`.
-- **Artifact and log visibility** for a public repository (assumed world-readable) and artifact retention behaviour with `retention-days: 3`.
-- **Free-plan limits**: whether required reviewers and environment secrets with deployment-branch restrictions are available for this repository's plan and visibility.
-- That `ubuntu-24.04` has Docker usable by the runner user (the preflight treats "docker not reachable" as MANUAL), that none of the runner's default variables trips the harness's environment hardening (the scrubbed environment makes this less likely), and that the setup-node tool-cache layout is `$RUNNER_TOOL_CACHE/node/24.14.1/x64/{bin/node,lib/node_modules/npm/bin/npm-cli.js}` (a different layout fails closed at the first node step).
-- That `npm ci --ignore-scripts` leaves `tsx` runnable on the runner.
+**A new production-equivalent Express connected account must exist before any proof.** The previous test account failed the harness identity gate (it was not Express-equivalent), so no proof can pass against it. Creating the new sandbox account is itself a Stripe write that needs its **own separately authorized provisioning workflow and key**; it is not part of this change, and the account ids in the workflow stay placeholders until it exists.
+
+## 6. UNVERIFIED GitHub behaviours (none has been tested) and the harmless check for each
+
+Everything below is from memory of GitHub's documentation, not observed on this repository. Each has an exact check that changes nothing.
+
+| Item | Harmless verification |
+|---|---|
+| Personal repositories have only owner and collaborator levels; a collaborator cannot open Settings, secrets, rulesets or environments | As the bot, open `https://github.com/genxttech/danceflow-app/settings` (expect 404) and run `--as-bot` |
+| Whether a collaborator on another user's personal repo can make a fine-grained token that targets it | At the bot's token-creation page, look for `danceflow-app` under *Only select repositories*; if absent, use the fallback in 3.B |
+| What the **approval screen** shows (SHA, workflow path, run name), including for a different workflow that uses the same environment | Create a throwaway environment `d24-verify-throwaway` with a required reviewer and no secret, dispatch a no-op workflow on a branch that references it, look at the approval screen, then delete the environment. Never reference `d24-stripe-test` |
+| **Prevent self-review**, and whether a re-run needs re-approval | In the same throwaway environment, dispatch as the owner and as the bot and observe who can approve; re-run and observe |
+| **Allow administrators to bypass = OFF** and what the admin can still do | Read it back with `--as-owner-readonly` (`environment-admin-bypass-off`) |
+| `sha_pinning_required` field and the *fork-pr-contributor-approval* endpoint names | `--as-owner-readonly` reports INCONCLUSIVE if a field or endpoint is absent |
+| Whether code-owner review is enforced when `required_approving_review_count` is 0 | Open a draft PR that touches only `CODEOWNERS`-listed files with a count of 0 in a throwaway ruleset on a throwaway branch pattern (not `main`); observe the merge box |
+| Whether *Restrict updates* blocks pull-request merges | Same throwaway branch pattern with an `update` rule; observe the merge box |
+| Free-plan availability of rulesets, environment required reviewers and secrets on a public personal repo | Observed while doing 3.D and 3.E (the options simply exist or do not); the verifier then confirms the stored values |
+| Artifact and log visibility on a public repo; artifact retention behaviour with `retention-days: 3` | Secret-free workflow on a branch uploading a dummy artifact; read it logged out |
+| `ubuntu-24.04` Docker availability for the runner user; the setup-node tool-cache layout `$RUNNER_TOOL_CACHE/node/24.14.1/x64/{bin/node,lib/node_modules/npm/bin/npm-cli.js}`; `npm ci --ignore-scripts` leaving `tsx` runnable | Same secret-free workflow: `docker ps`, `ls` of the cache path, `npm ci --ignore-scripts` then `tsx --version`. A different layout fails closed at the first node step |
+| `GITHUB_ENV` versus job-level env precedence (only the three plaintext paths travel through it) | Same secret-free workflow |
+| Fine-grained token permission names (Contents, Pull requests, Actions, Workflows, Metadata) | Read at the token-creation page; the verifier proves what the token cannot do |
 
 Verified (read-only `gh api` against GitHub's tags, by the independent reviewer): `actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020` is v4.4.0 and `actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02` is v4.6.2.
 
-**Plan to verify the rest later (do not run now):** a harmless, secret-free test workflow, dispatched manually on a branch, in a *separate* test environment
-with no secret, that (a) prints the contexts the approval screen would show, (b) lists the token permissions available to a job, (c) uploads a dummy artifact and a dummy log line to
-observe visibility and retention, (d) checks `docker ps`, `node -v`, the tool-cache layout and the harness `--print-hash`, `--dry-run` and `--preflight` (the last with no key, so it reports only local failures).
-Run only after the owner agrees; it must not reference `d24-stripe-test`, and a unit test fails any other workflow that does.
+All secret-free verification workflows run only after the owner agrees, and must not reference `d24-stripe-test` (a unit test fails any other workflow that does).
 
 ## 7. Evidence key lifecycle
 

@@ -334,7 +334,8 @@ describe("review round: the owner doc states the preconditions honestly", () => 
   it("requires a separate Write-only agent identity and removes the owner's token", () => {
     expect(doc).toMatch(/always acts as the user who created it/);
     expect(doc).toMatch(/separate identity/i);
-    expect(doc).toMatch(/\*\*Write\*\* only/);
+    expect(doc).toMatch(/choose \*\*Write\*\*, never Maintain or Admin/);
+    expect(doc).toContain("danceflow-engineering-bot");
     expect(doc).toMatch(/must \*\*not\*\* be a required reviewer/);
     expect(doc).toMatch(/Remove the owner's `genxttech` token/);
   });
@@ -355,6 +356,13 @@ describe("review round: the owner doc states the preconditions honestly", () => 
     expect(doc).toMatch(/Engineering holds the evidence private key/);
     expect(doc).toMatch(/moving image label/);
     expect(doc).toMatch(/proves integrity, not origin/);
+  });
+  it("documents the token transition, the fine-grained-token limit, the repo-secret residual and the reconciliation decision", () => {
+    for (const s of ["credential.helper=manager", "gh auth setup-git", "gh auth logout --hostname github.com --user genxttech", "separate approval", "owner's signed-in sessions", "UNVERIFIED and may not be possible", "Workflows permission trade-off", "Residual P2: repository-level secrets", "E2E_SUPABASE_*", "no API to read the request log", "Dashboard glance", "new production-equivalent Express connected account", "separately authorized provisioning workflow", "Require actions to be pinned to a full-length commit SHA", "Prevent self-review", "verify-github-config.ts"]) expect(doc, s).toContain(s);
+  });
+  it("tells the owner the required status check and SHA pinning each have a prerequisite that would otherwise block merges or CI", () => {
+    expect(doc).toMatch(/pull_request\.paths. filter, so a PR outside the filter never reports the check/);
+    expect(doc).toMatch(/would stop running/);
   });
   it("the workflow header carries the same merge rule", () => {
     expect(text).toContain("must exist BEFORE this file is merged");
