@@ -1,0 +1,103 @@
+import { describe, expect, it } from "vitest";
+import { anchorCode, confirmAnchorCode, confirmFirstGroup, envelopeFingerprint, fingerprintOfFile, firstGroup, termsLines } from "../fingerprint";
+import { clampEnvelopeToPolicy, parsePolicy, type ClampCtx, type Policy } from "../policy";
+import { makeEnvelope, baseSpec } from "./helpers";
+import { testAuth } from "./softauth";
+
+const PM = baseSpec().proof.manifestSha256;
+const POL: Policy = {
+  v: 1, stripeMode: "test", keyKind: "rk_test", credentialStore: "dpapi-file",
+  platformAcct: "acct_UNITPLATFORM1", connectedAcct: "acct_UNITCONNECTED1",
+  maxCallsPerRun: 40, maxRunsPerEnvelope: 2, maxEnvelopeValidityDays: 7, maxRunsPerDay: 2,
+  allowListSha256: PM, amountCeilingMinor: 20_000, anchorFingerprint: testAuth.anchor.fingerprintSha256,
+  runAsAccount: "d24run", ownerAccount: "ownerperson", runAsSid: "S-1-5-21-111-222-333-1001", ownerSid: "S-1-5-21-111-222-333-1000",
+};
+const CTX: ClampCtx = { proofManifestSha256: PM, proofMaxLineCents: 20_000, evidenceRootAllowed: () => true, runsToday: 0 };
+const ev = (over = {}) => makeEnvelope({ credential: { store: "dpapi-file", label: "d24-unit", keyKind: "rk_test", keyFingerprintSha256Prefix: "a".repeat(16), keyExpiresUtc: "2026-11-20T10:00:00Z" }, ...over });
+
+describe("parsePolicy", () => {
+  it("accepts the reference policy", () => expect(parsePolicy(POL, 40).ok).toBe(true));
+  it("refuses anything that widens or changes the contract", () => {
+    const bad = (o: object) => parsePolicy({ ...POL, ...o }, 40);
+    expect(bad({ stripeMode: "live" }).ok).toBe(false);
+    expect(bad({ keyKind: "sk_live" }).ok).toBe(false);
+    expect(bad({ credentialStore: "windows-credential-manager" }).ok).toBe(false);
+    expect(bad({ maxCallsPerRun: 41 }).ok).toBe(false);
+    expect(parsePolicy({ ...POL, maxCallsPerRun: 40 }, 30).ok).toBe(false); // above the proof's own cap
+    expect(bad({ maxRunsPerEnvelope: 6 }).ok).toBe(false);
+    expect(bad({ maxEnvelopeValidityDays: 31 }).ok).toBe(false);
+    expect(bad({ platformAcct: POL.connectedAcct }).ok).toBe(false);
+    expect(bad({ runAsAccount: "ownerperson" }).ok).toBe(false);
+    expect(bad({ anchorFingerprint: "xyz" }).ok).toBe(false);
+    expect(bad({ extra: 1 }).ok).toBe(false);
+    expect(bad({ runAsSid: "S-1-5-32-544" }).ok).toBe(false); // must be a local-account SID, never Administrators
+    expect(bad({ runAsSid: POL.ownerSid }).ok).toBe(false);
+    expect(bad({ ownerSid: "ownerperson" }).ok).toBe(false);
+    expect(parsePolicy({ ...POL, amountCeilingMinor: undefined }, 40).ok).toBe(false);
+    expect(parsePolicy(null, 40).ok).toBe(false);
+  });
+});
+
+describe("clampEnvelopeToPolicy: an envelope may equal or narrow the policy, never widen it", () => {
+  it("a conforming envelope has no issue; a narrower one also passes", () => {
+    expect(clampEnvelopeToPolicy(ev(), POL, CTX)).toEqual([]);
+    expect(clampEnvelopeToPolicy(ev({ maxRuns: 1 }), POL, CTX)).toEqual([]);
+  });
+  it("each ceiling, pin and scope is enforced separately", () => {
+    const one = (e: ReturnType<typeof ev>, pol = POL, ctx = CTX) => clampEnvelopeToPolicy(e, pol, ctx);
+    expect(one(ev({ maxRuns: 3 })).join()).toMatch(/maxRuns 3/);
+    expect(one(ev(), { ...POL, maxCallsPerRun: 30 }).join()).toMatch(/apiCallCeiling 40/);
+    expect(one(ev({ expiresUtc: "2026-11-15T10:00:00Z" })).join()).toMatch(/validity/);
+    expect(one(ev({ accounts: { platformAcct: "acct_OTHERPLAT01", connectedAcct: POL.connectedAcct } })).join()).toMatch(/platform account/);
+    expect(one(ev({ accounts: { platformAcct: POL.platformAcct, connectedAcct: "acct_OTHERCONN01" } })).join()).toMatch(/connected account/);
+    expect(one(ev({ hardwareAnchorFingerprintSha256: "b".repeat(64) })).join()).toMatch(/different hardware anchor/);
+    expect(one(ev(), POL, { ...CTX, runsToday: 2 }).join()).toMatch(/already started today/);
+    expect(one(ev(), POL, { ...CTX, proofManifestSha256: "c".repeat(64) }).join()).toMatch(/installed proof folder/);
+    expect(one(ev({ proof: { manifestSha256: "d".repeat(64), fileCount: 3 } })).join()).toMatch(/envelope's proof manifest/);
+    expect(one(ev(), POL, { ...CTX, proofMaxLineCents: 20_001 }).join()).toMatch(/amount ceiling/);
+    expect(one(ev(), POL, { ...CTX, proofMaxLineCents: null }).join()).toMatch(/unreadable/);
+    expect(one(ev(), POL, { ...CTX, evidenceRootAllowed: () => false }).join()).toMatch(/evidenceRoot/);
+  });
+  it("user-profile credential back ends are refused for installed runs", () => {
+    expect(clampEnvelopeToPolicy(makeEnvelope(), POL, CTX).join()).toMatch(/credential store must be dpapi-file/);
+  });
+});
+
+describe("envelope fingerprint", () => {
+  it("is 12 uppercase hex in three groups, derived from the content, and differs per envelope", () => {
+    const a = ev();
+    const b = ev({ envelopeId: "unit-env-2" });
+    const fa = envelopeFingerprint(a.envelopeSha256);
+    expect(fa).toMatch(/^[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/);
+    expect(envelopeFingerprint(b.envelopeSha256)).not.toBe(fa);
+    expect(() => envelopeFingerprint("short")).toThrow();
+  });
+  it("confirmation needs exactly the first group (case-insensitive), nothing more, nothing less", () => {
+    const fp = "7F3A-91C2-0B5D";
+    expect(firstGroup(fp)).toBe("7F3A");
+    expect(confirmFirstGroup("7f3a", fp)).toBe(true);
+    expect(confirmFirstGroup(" 7F3A ", fp)).toBe(true);
+    for (const t of ["", "7F3", "7F3A-91C2", "91C2", "7F3A7F3A", "yes"]) expect(confirmFirstGroup(t, fp), t).toBe(false);
+  });
+  it("fingerprintOfFile recomputes from content: an edited body with the old hash field is refused", () => {
+    const e = ev();
+    expect(fingerprintOfFile(e).ok).toBe(true);
+    const edited = { ...e, maxRuns: 1 };
+    const r = fingerprintOfFile(edited);
+    expect(r.ok).toBe(false);
+    const t = termsLines(e).join("\n");
+    expect(t).toContain(envelopeFingerprint(e.envelopeSha256));
+    expect(t).toContain(e.accounts.platformAcct);
+  });
+});
+
+describe("anchor confirmation is 64 bits (P1-3)", () => {
+  const fp = "7f3a91c20b5d4e6f8a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6071";
+  it("is 16 hex characters in four groups and rejects the 16-bit first group and any shorter or different input", () => {
+    expect(anchorCode(fp)).toBe("7F3A-91C2-0B5D-4E6F");
+    expect(confirmAnchorCode("7f3a 91c2 0b5d 4e6f", fp)).toBe(true);
+    expect(confirmAnchorCode("7F3A91C20B5D4E6F", fp)).toBe(true);
+    for (const t of ["", "7F3A", "7F3A-91C2", "7F3A-91C2-0B5D", "7F3A-91C2-0B5D-4E6E", "7F3A-91C2-0B5D-4E6F-8A1B"]) expect(confirmAnchorCode(t, fp), t).toBe(false);
+    expect(() => anchorCode("short")).toThrow();
+  });
+});

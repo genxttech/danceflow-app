@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { evidenceDirProblem } from "../d24-m3d-proof/evidence";
 import { checkKeyShape } from "../d24-m3d-proof/identity";
 import { manifest } from "../d24-m3d-proof/manifest";
+import { isVerifiedInstalled, type InstalledRun } from "./installroot";
 import { heldUnchanged, runnerInsideClone, runnerManifest } from "./runnerpin";
 import { processEnvProblems } from "./envguard";
 import { defaultOwnerDir, defaultRunnerHome, verifyOwnerSignature, type OwnerTrust } from "./ownerverify";
@@ -43,6 +44,8 @@ export type RunnerDeps = {
   tsxCli?: string;
   /** absolute git path for live runs (see bins.resolveGit) */
   gitBin?: string;
+  /** INSTALLED mode (docs/billing/D24-TEST-RUNNER-TRUST-ANCHOR.md): produced only by execinbox.ts after the install-root, tree-hash, policy and anchor gates. Supplies the fixed anchor/state/ledger locations and replaces the git clean-clone gates with the installed-tree hash. */
+  installed?: InstalledRun;
   /** LIVE only: the pinned owner trust (null = none registered => refuse) and the parsed detached signature document. Ignored in dry. */
   owner?: {
     trust: OwnerTrust | null;
@@ -62,7 +65,7 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   if (!d.dry && !(d.exec === realExec || isSimulatedLiveExec(d.exec))) throw new Error("refused: a live run requires the real executor");
   // test seams (anchor / counter-state / ledger locations) exist only for the simulated-live fake; the real executor always uses the fixed locations
   const hwSeams = d.owner?.hardware;
-  if (!d.dry && hwSeams && (hwSeams.anchorPath !== undefined || hwSeams.statePath !== undefined || hwSeams.pins !== undefined) && !isSimulatedLiveExec(d.exec)) throw new Error("refused: the anchor/state/ledger test seams are only allowed with the simulated-live test executor");
+  if (!d.dry && hwSeams && (hwSeams.anchorPath !== undefined || hwSeams.statePath !== undefined || hwSeams.pins !== undefined) && !isSimulatedLiveExec(d.exec) && !isVerifiedInstalled(d.installed)) throw new Error("refused: the anchor/state/ledger test seams are only allowed with the simulated-live test executor or a verified installed root");
   const gates: Gate[] = [];
   let literals: string[] = [];
   const say = (s: string) => d.out(sanitize(s, literals));
@@ -76,6 +79,12 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
     say(`BLOCKED at ${at}: nothing was sent to Stripe and no run was consumed.`);
     return { summary: null, status: "BLOCKED", exitCode: 2, reportPath: null, gates };
   };
+
+  // 1d. the real executor goes live ONLY from a verified install root: a checkout that is writable by the agent is not an execution path for the key
+  if (!d.dry && d.exec === realExec && !isVerifiedInstalled(d.installed)) {
+    gate("installed-root", false, "a live run with the real executor requires the verified install root (execinbox); a checkout the agent can edit is not an execution path for the key");
+    return blocked("installed-root");
+  }
 
   // 1. envelope
   let raw: unknown;
@@ -137,7 +146,8 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   }
 
   // 1c. the runner's own code is part of the approval: it must live in the verified clone and match the hash in the envelope
-  const runnerDir = __dirnameOf();
+  // installed mode: the folder that is hashed and held is the installed runner folder (execinbox proved the running code lives there); otherwise the folder this file is in
+  const runnerDir = d.installed ? d.installed.layout.runnerDir : __dirnameOf();
   const inClone = runnerInsideClone(runnerDir, repoDir);
   if (!gate("runner-in-clone", inClone.ok, inClone.detail)) return blocked("runner-in-clone");
   const rm = runnerManifest(runnerDir);
@@ -173,10 +183,17 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
 
   // 4. clean clone, pinned commit, npm ci
   const plain = baseEnv(d.parentEnv);
-  const git = await verifyCleanClone({ repoDir, commitSha: env.code.commitSha, lockfileSha256: env.code.lockfileSha256, env: plain.env, exec: d.exec, runInstall: d.runInstall, gitBin: d.gitBin });
+  if (d.installed) {
+    // installed mode: the release is not a git checkout; the install-root gates (ACL, tree hash against release.json) replace clean-clone/commit-on-main, which the elevated installer ran once
+    const it = d.installed.verifyTree();
+    if (!gate("installed-tree", it.ok, it.detail)) return blocked("installed-tree");
+    const lockOk = env.code.lockfileSha256 === d.installed.release.lockfileSha256 && env.code.commitSha === d.installed.release.commit;
+    if (!gate("installed-release-pin", lockOk, lockOk ? "envelope commit and lockfile equal the installed release record" : "the envelope names a different commit or lockfile than the installed release")) return blocked("installed-release-pin");
+  }
+  const git = d.installed ? [] : await verifyCleanClone({ repoDir, commitSha: env.code.commitSha, lockfileSha256: env.code.lockfileSha256, env: plain.env, exec: d.exec, runInstall: d.runInstall, gitBin: d.gitBin });
   for (const g of git) gate(g.id, g.ok, g.detail);
   if (git.some((g) => !g.ok)) return blocked("clean-clone");
-  if (hwAnchor) {
+  if (hwAnchor && !d.installed) {
     // the anchor bytes parsed above are the bytes the folder hash covered, and every hashed file (anchor included) is tracked by git
     if (resolve(anchorPathUsed) === resolve(runnerDir, ANCHOR_FILE)) {
       const same = anchorMatchesManifest(hwAnchorSha, rm.files);
@@ -262,9 +279,13 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   if (!gate("proof-preflight", pfOk, pfDetail)) return blocked("proof-preflight");
 
   // 10. last TOCTOU check, then consume the run BEFORE going live
-  const again = await verifyCleanClone({ repoDir, commitSha: env.code.commitSha, lockfileSha256: env.code.lockfileSha256, env: plain.env, exec: d.exec, runInstall: false, gitBin: d.gitBin });
+  const again = d.installed ? [] : await verifyCleanClone({ repoDir, commitSha: env.code.commitSha, lockfileSha256: env.code.lockfileSha256, env: plain.env, exec: d.exec, runInstall: false, gitBin: d.gitBin });
   const stillOk = again.filter((g) => g.id !== "npm-ci").every((g) => g.ok);
   if (!gate("recheck-tree", stillOk, stillOk ? "tree still exactly the pinned commit, clean" : "tree changed during the gates")) return blocked("recheck-tree");
+  if (d.installed) {
+    const it2 = d.installed.verifyTree();
+    if (!gate("installed-tree-recheck", it2.ok, it2.detail)) return blocked("installed-tree-recheck");
+  }
   // the last re-hash of what will be executed, straight from disk (no stat cache), immediately before the approval counter is recorded and the proof is spawned
   const heldOk = heldNow();
   if (!gate("held-hashes-recheck", heldOk, heldOk ? "the proof folder and runner folder still hash to the values pinned at the start of the run" : "the proof or runner folder changed on disk since it was hashed at the start of the run")) return blocked("held-hashes-recheck");
