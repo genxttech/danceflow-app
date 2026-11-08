@@ -10,10 +10,14 @@ import { decryptEnvelope, encryptBundle, EvidenceCryptoError, parseBundle, parse
 import { factsFrom, renderSummary } from "../summary";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PLACEHOLDER_FILE = join(HERE, "..", "evidence-public-key.pem");
+const COMMITTED_KEY_FILE = join(HERE, "..", "evidence-public-key.pem");
+// A synthetic placeholder fixture (the repo now holds the real public key); written once to a temp dir.
+const PLACEHOLDER_DIR = mkdtempSync(join(tmpdir(), "d24ghph-"));
+const PLACEHOLDER_FILE = join(PLACEHOLDER_DIR, "evidence-public-key.pem");
+writeFileSync(PLACEHOLDER_FILE, ["-----BEGIN PUBLIC KEY-----", "PLACEHOLDER - NOT A KEY. The D24 evidence public key has not been generated yet.", "-----END PUBLIC KEY-----", ""].join("\n"));
 const tmps: string[] = [];
 const tmp = () => { const d = mkdtempSync(join(tmpdir(), "d24ghproof-")); tmps.push(d); return d; };
-afterAll(() => { for (const d of tmps) rmSync(d, { recursive: true, force: true }); });
+afterAll(() => { rmSync(PLACEHOLDER_DIR, { recursive: true, force: true }); for (const d of tmps) rmSync(d, { recursive: true, force: true }); });
 
 let pubPem = "";
 let privPem = "";
@@ -38,10 +42,18 @@ const tamper = (e: Envelope, over: Partial<Envelope>): Envelope => ({ ...e, ...o
 const flipB64 = (s: string) => { const b = Buffer.from(s, "base64"); b[0] = b[0]! ^ 1; return b.toString("base64"); };
 
 describe("public key handling fails closed", () => {
-  it("the committed key file is the PLACEHOLDER and is refused", () => {
+  it("a PLACEHOLDER key file is refused", () => {
     const txt = readFileSync(PLACEHOLDER_FILE, "utf8");
     expect(txt).toMatch(/PLACEHOLDER/);
     expect(() => parsePublicKey(txt)).toThrow(/PLACEHOLDER/);
+  });
+  it("the committed key file is a real RSA-4096 PUBLIC key (never a private key) and passes --check-key", () => {
+    const txt = readFileSync(COMMITTED_KEY_FILE, "utf8");
+    expect(txt).toMatch(/^-----BEGIN PUBLIC KEY-----/);
+    expect(txt).not.toMatch(/PRIVATE|PLACEHOLDER/);
+    expect(() => parsePublicKey(txt)).not.toThrow();
+    const out: string[] = [];
+    expect(runEncryptCli(["--check-key", COMMITTED_KEY_FILE], { out: (s) => void out.push(s) })).toBe(0);
   });
   it("a placeholder is refused even if the rest looks like a real key", () => {
     expect(() => parsePublicKey(`${pubPem}\nPLACEHOLDER`)).toThrow(EvidenceCryptoError);

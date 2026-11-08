@@ -88,10 +88,9 @@ describe("provisioning workflow: inert until separately authorized", () => {
   it("without the secret it cannot reach Stripe: the tool refuses a missing or non-restricted key before building a transport", () => {
     expect(readFileSync(join(REPO, "scripts/qa/d24-test-provision/live.ts"), "utf8")).toContain("checkKeyShape(env[ENV.key])");
   });
-  it("it is one-shot: it refuses once the proof workflow records a real connected account id", () => {
+  it("it is one-shot: its guard refuses once the proof workflow records a real connected account id (as it now does)", () => {
     const f = step("Fetch exactly").run as string;
     expect(f).toContain('grep -q \'D24_PROOF_EXPECT_CONNECTED_ACCT: "acct_PLACEHOLDERCONNECTED"\' .github/workflows/d24-stripe-test-proof.yml');
-    expect(readFileSync(join(WF_DIR, "d24-stripe-test-proof.yml"), "utf8")).toContain('D24_PROOF_EXPECT_CONNECTED_ACCT: "acct_PLACEHOLDERCONNECTED"');
   });
 });
 
@@ -169,5 +168,28 @@ describe("provisioning workflow: the create request is the production Express co
     const nonMarker = Object.entries(body).filter(([k]) => !k.startsWith("metadata["));
     expect(Object.fromEntries(nonMarker)).toEqual({ type: "express", "capabilities[card_payments][requested]": "true", "capabilities[transfers][requested]": "true" });
     expect(Object.keys(body).filter((k) => k.startsWith("metadata[")).sort()).toEqual(["metadata[d24_envelope_ref]", "metadata[d24_fixture_role]", "metadata[d24_proof_fixture]"]);
+  });
+});
+
+describe("recorded proof ids (provisioning run 42530005438, 2026-11-08)", () => {
+  const proof = yaml.load(readFileSync(join(WF_DIR, "d24-stripe-test-proof.yml"), "utf8")) as Wf;
+  const penv = (proof.jobs.proof as Job).env as Record<string, string>;
+  const PLATFORM = "acct_1UZ320IPJs53nwt7";
+  const CONNECTED = "acct_1UZeX9RPIxrr5yG6";
+  const FORBIDDEN = ["acct_1UWz98RESPl6zEVj", "acct_1TKgLCEYYNmPuFIX", "acct_1TKgL3EY0sTayNiS"]; // D7 sandbox, DEV sandbox, live
+  it("the proof pins exactly the D24 sandbox platform and the newly provisioned connected account", () => {
+    expect(penv.D24_PROOF_EXPECT_PLATFORM_ACCT).toBe(PLATFORM);
+    expect(penv.D24_PROOF_EXPECT_CONNECTED_ACCT).toBe(CONNECTED);
+    expect(penv.D24_PROOF_EXPECT_PLATFORM_ACCT).not.toBe(penv.D24_PROOF_EXPECT_CONNECTED_ACCT);
+  });
+  it("neither is the D7, DEV or live account, and the platform equals the provisioning workflow's pin", () => {
+    for (const bad of FORBIDDEN) {
+      expect(penv.D24_PROOF_EXPECT_PLATFORM_ACCT).not.toBe(bad);
+      expect(penv.D24_PROOF_EXPECT_CONNECTED_ACCT).not.toBe(bad);
+    }
+    expect(penv.D24_PROOF_EXPECT_PLATFORM_ACCT).toBe(job.env?.D24_PROVISION_EXPECT_PLATFORM_ACCT);
+  });
+  it("the provisioning guard now refuses (the proof workflow no longer holds the placeholder connected id)", () => {
+    expect(readFileSync(join(WF_DIR, "d24-stripe-test-proof.yml"), "utf8")).not.toContain("acct_PLACEHOLDERCONNECTED");
   });
 });

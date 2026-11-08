@@ -50,7 +50,7 @@ pinned `Stripe-Version`, environment hardening, redaction, cleanup, exclusive-cr
 
 The unit tests make the pins equal to the repository content at the same commit, so changing any pinned input forces a reviewed update of the workflow file **only if the tests run and are required** (3.E).
 
-**Placeholders currently in the PR:** the two account ids (`acct_PLACEHOLDER...`) and the evidence public key. Real values arrive in a
+**Real values recorded 2026-11-08 (this change):** platform `acct_1UZ320IPJs53nwt7` (owner-supplied D24 sandbox), connected `acct_1UZeX9RPIxrr5yG6` (created by the one-shot provisioning run 42530005438, identity gate passed), and the real RSA-4096 evidence PUBLIC key (the private half is held by engineering outside the repository). These are TEST identifiers, not credentials. The proof key `D24_PROOF_STRIPE_KEY` does not exist yet and each run still needs the owner's approval.
 later, code-owner-reviewed PR after a **new production-equivalent Express connected account** exists (section 5) and the keypair has been generated offline.
 
 ## 3. Owner setup sequence (one sequence, in this order)
