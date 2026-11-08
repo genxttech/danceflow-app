@@ -44,8 +44,9 @@ export type ToolchainInput = {
   gitBin: string | null;
   adminGit: string;
   /** the binary `cmd\git.exe` actually launches, and npm's entry point: both run ELEVATED during the install */
-  realGit: string;
-  npmCli: string;
+  realGitDir: string;
+  gitCoreDir: string;
+  npmDir: string;
   reader: AclReader;
   who: Who;
 };
@@ -64,8 +65,10 @@ export async function toolchainGates(t: ToolchainInput): Promise<Gate[]> {
   const gitOk = t.gitBin !== null && lc(t.gitBin) === lc(t.adminGit);
   out.push({ id: "elevated-git", ok: gitOk, detail: gitOk ? `git is ${t.adminGit}` : "git was not found at its fixed administrator-only location" });
   if (gitOk) out.push(await lockedTreeGate("elevated-git-acl", t.adminGit, false, t.reader, t.who));
-  out.push(await lockedTreeGate("elevated-real-git-acl", t.realGit, false, t.reader, t.who));
-  out.push(await lockedTreeGate("elevated-npm-acl", t.npmCli, false, t.reader, t.who));
+  // owner+DACL of the WHOLE trees that run elevated (npm loads node_modules\npm\lib; git loads DLLs from mingw64\bin and helpers from libexec\git-core). This is an ACL check, not a content hash: Program Files integrity is otherwise trusted.
+  out.push(await lockedTreeGate("elevated-real-git-acl", t.realGitDir, true, t.reader, t.who));
+  out.push(await lockedTreeGate("elevated-git-core-acl", t.gitCoreDir, true, t.reader, t.who));
+  out.push(await lockedTreeGate("elevated-npm-acl", t.npmDir, true, t.reader, t.who));
   const tsxOk = (t.env.TSX_DISABLE_CACHE ?? "1") === "1";
   out.push({ id: "elevated-tsx-cache", ok: tsxOk && t.env.TSX_DISABLE_CACHE === "1", detail: t.env.TSX_DISABLE_CACHE === "1" ? "TSX_DISABLE_CACHE=1: tsx compiles in memory, nothing is read from a TEMP cache" : "TSX_DISABLE_CACHE=1 must be set for the elevated installer (tsx's compile cache lives in the owner's TEMP, which the agent can write)" });
   return out;

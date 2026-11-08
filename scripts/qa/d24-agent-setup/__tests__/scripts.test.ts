@@ -37,14 +37,44 @@ function stripBlocks(text: string, marker: RegExp): string {
 const codeLines = (t: string) => t.split(/\r?\n/).filter((l) => !/^\s*(#|\.)/.test(l));
 
 describe("Setup-D24StandardUserAgent.ps1 (administrator, run once)", () => {
-  it("module/binary hygiene comes FIRST: PSModulePath reduced to the inbox modules before any command resolves; fixed System32 binaries; inbox module imported by full path", () => {
-    const body = setup.slice(setup.indexOf("[CmdletBinding()]"));
-    const firstCode = codeLines(body).find((l) => /^\s*(\$|Set-|function)/.test(l) && !/^\s*(param|\[)/.test(l)) ?? "";
-    expect(firstCode).toMatch(/\$env:PSModulePath = Join-Path \$PSHOME 'Modules'/);
+  it("module/binary hygiene comes FIRST: the first statement after param is a PLAIN STRING assignment of PSModulePath (no cmdlet resolved before it), in both scripts; fixed System32 binaries; inbox module imported by full path", () => {
+    for (const [name, text] of [["setup", setup], ["verify", verify]] as const) {
+      const noComments = noBlockComments(text);
+      const afterParam = noComments.slice(noComments.search(/\n\)\s*\n/) + 1);
+      const first = codeLines(afterParam).find((l) => l.trim().length > 1 && !/^\s*\)\s*$/.test(l)) ?? "";
+      expect(first, name).toBe('$env:PSModulePath = "$PSHOME\\Modules"');
+      expect(text, name).not.toMatch(/PSModulePath = Join-Path/);
+    }
     expect(setup).toMatch(/\$SystemDir = 'C:\\Windows\\System32'/);
     expect(setup).toMatch(/Import-Module -Name \$lam/);
-    expect(setup).not.toMatch(/\$env:SystemRoot|%SystemRoot%|\$env:windir/i);
+    expect(noBlockComments(setup)).not.toMatch(/\$env:SystemRoot|%SystemRoot%|\$env:windir/i);
     expect(noBlockComments(setup)).not.toMatch(/Get-CimInstance|Get-WmiObject|Get-Acl\b/);
+  });
+  it("any unexpected error in phase 1/2 exits 2 (trap), and the apply phase has its own catch", () => {
+    expect(setup).toMatch(/trap \{[^}]*Nothing was changed \(phase 1\/2\)[^}]*exit 2 \}/);
+  });
+  it("account names are validated against wildcards (Get-LocalUser would expand them) and the agent may not resolve to the owner", () => {
+    expect(setup).toMatch(/\^\[A-Za-z0-9\._-\]\{1,20\}\$/);
+    expect(setup).toMatch(/wildcards are refused/);
+    expect(setup).toMatch(/AgentUser resolves to the owner account/);
+  });
+  it("plan order: accounts BEFORE the workspace, and C:\\Dev tightening (opt-in) before the workspace; the workspace descriptor is compared by parsed SID and mask, order-independent", () => {
+    const iAcc = setup.indexOf("create local standard user");
+    const iDev = setup.indexOf("tighten $devRoot ITSELF");
+    const iWs = setup.indexOf("create the NEW workspace folder");
+    expect(iAcc).toBeGreaterThan(0);
+    expect(iDev).toBeGreaterThan(iAcc);
+    expect(iWs).toBeGreaterThan(iDev);
+    expect(setup).toMatch(/\[switch\]\$TightenDevRoot/);
+    expect(setup).toMatch(/function Test-WorkspaceDescriptor[\s\S]*AreAccessRulesProtected[\s\S]*\$want\.Remove\(\$sid\)/);
+    expect(setup).not.toMatch(/\$expected = '\^O:/);
+    expect(setup).not.toMatch(/-match \$expected/);
+  });
+  it("the workspace path checks: every ancestor for reparse points, 8.3 short names refused, an empty pre-existing folder is a documented recovery state re-checked at apply time", () => {
+    expect(setup).toMatch(/ancestor folder .* is a junction\/symlink/);
+    expect(setup).toMatch(/~\\d/);
+    expect(setup).toMatch(/is no longer empty/);
+    expect(setup).toMatch(/RECOVERY:/);
   });
   it("fails closed in three phases: all checks and the full plan BEFORE the first change; a failed check exits 2 with nothing changed; an aborted apply lists what was done", () => {
     const iCheck = setup.indexOf("PHASE 1: CHECK");
@@ -110,7 +140,6 @@ describe("Setup-D24StandardUserAgent.ps1 (administrator, run once)", () => {
 
 describe("Verify-D24StandardUserAgent.ps1 (standard user, probes)", () => {
   it("fails closed, same module hygiene, fixed binaries, and exit 0 is REACHABLE (no always-SKIP row)", () => {
-    expect(verify).toMatch(/\$env:PSModulePath = Join-Path \$PSHOME 'Modules'/);
     expect(verify).not.toMatch(/\$env:SystemRoot/);
     expect(verify).toMatch(/if \(\$fail -gt 0\) \{ exit 1 \}/);
     expect(verify).toMatch(/if \(\$skip -gt 0\)[\s\S]*exit 3/);
@@ -119,7 +148,7 @@ describe("Verify-D24StandardUserAgent.ps1 (standard user, probes)", () => {
   });
   it("detects a deny-only Administrators SID from `whoami /groups` (IsInRole and Groups cannot), on ANY attribute", () => {
     expect(verify).toMatch(/whoami\.exe" \/groups \/fo csv \| ConvertFrom-Csv/);
-    expect(verify).toMatch(/\$_\.SID -eq 'S-1-5-32-544'/);
+    expect(verify).toMatch(/\$privSids -contains \$_\.SID/);
     expect(verify).toMatch(/no-administrators-sid-even-deny-only/);
   });
   it("only access-denied is a PASS: other errors are FAIL, and a probe that landed is removed and FAILs", () => {
@@ -143,10 +172,27 @@ describe("Verify-D24StandardUserAgent.ps1 (standard user, probes)", () => {
     expect(verify).toMatch(/C:\\Program Files\\Git\\mingw64\\bin/);
     expect(verify).toMatch(/C:\\Program Files\\nodejs\\node_modules\\npm/);
   });
-  it("states that it is self-attesting when the agent runs it", () => {
+  it("states that it is ADVISORY only, even when the owner starts it inside the agent's session; the authoritative checks are administrator-side", () => {
     expect(verify).toMatch(/SELF-ATTESTING/);
     expect(verify).toMatch(/ADVISORY/i);
-    expect(verify).toMatch(/AUTHORITATIVE/);
+    expect(verify).toMatch(/NOT\s+authoritative/);
+    expect(verify).toMatch(/ADMINISTRATOR-SIDE/);
+    expect(verify).not.toMatch(/the owner-run copy[^\n]*is authoritative/i);
+  });
+  it("token coverage: Administrators, 'Local account and member of Administrators' (S-1-5-114) and the operator groups, any attribute", () => {
+    for (const sid of ["S-1-5-32-544", "S-1-5-114", "S-1-5-32-551", "S-1-5-32-548", "S-1-5-32-549", "S-1-5-32-550", "S-1-5-32-552"]) expect(verify, sid).toContain(sid);
+  });
+  it("handle-based probes for write-DAC, write-owner, delete and delete-child on root/release/node_modules/state: only ERROR_ACCESS_DENIED (5) is a PASS; node_modules and state\\tmp creation are probed", () => {
+    expect(verify).toMatch(/Add-Type -TypeDefinition/);
+    expect(verify).toMatch(/CreateFileW/);
+    expect(verify).toMatch(/\$code -eq 5\) \{ Row \$rid 'PASS'/);
+    for (const m of ["write-dac", "write-owner", "delete", "delete-child"]) expect(verify, m).toContain(m);
+    expect(verify).toContain("release\\node_modules");
+    expect(verify).toContain("state\\tmp");
+  });
+  it("open-cred-file passes ONLY on access-denied", () => {
+    expect(verify).toMatch(/catch \[UnauthorizedAccessException\] \{ \$outcome = 'denied' \}/);
+    expect(verify).toMatch(/\$outcome -eq 'denied'\) \{ 'PASS' \} else \{ 'FAIL' \}/);
   });
   it("only ever creates an empty uniquely named probe (removed if it landed); no other mutation, no network, no secret read", () => {
     const offenders = codeLines(noBlockComments(verify)).filter((l) => MUTATING.test(l) && !/Remove-Item -LiteralPath \$probe/.test(l));

@@ -4,9 +4,10 @@
 
 .DESCRIPTION
   *** SELF-ATTESTING WHEN THE AGENT RUNS IT. *** This script lives where the agent can write and runs as the agent: if the agent runs it, its output proves nothing (the agent
-  could edit it, or report any result). Engineering reads agent-run output as ADVISORY only. The AUTHORITATIVE run is the one the OWNER performs: copy this file from the
-  administrator-owned bootstrap clone (docs section 14.6), compare the printed script sha256 with the reviewed commit, run it in the agent's own logon session, and read
-  the console personally.
+  could edit it, or report any result). Engineering reads agent-run output as ADVISORY only. ***Even an OWNER-started run inside the agent's logon session is NOT
+  authoritative***: the agent controls that session's HKCU\Environment, Run keys and every process of that account (same-user processes can modify each other), so a clean hash
+  proves which file was started, not what ran. The AUTHORITATIVE evidence is ADMINISTRATOR-SIDE: the Setup script's dry run from the fresh administrator account (group membership,
+  UAC values, ACLs, C:\Dev) plus the owner's own observation (docs 14.4). This script remains useful as an advisory in-session probe.
 
   Probes are non-destructive in the correct configuration: "write" probes try to create ONE empty, uniquely named file or folder and delete it if (wrongly) it was created;
   pinned files are opened for writing (nothing is written). Only Windows' "access denied" counts as a PASS; any other error is reported as FAIL (the result is unknown).
@@ -21,7 +22,7 @@ param(
   [string]$OwnerProfileRoot = 'C:\Users',
   [string]$AdminClone = ''
 )
-$env:PSModulePath = Join-Path $PSHOME 'Modules'
+$env:PSModulePath = "$PSHOME\Modules"
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $SystemDir = 'C:\Windows\System32'
@@ -30,7 +31,7 @@ function Row([string]$Id, [string]$Status, [string]$Detail) { $script:Rows.Add([
 
 $self = $MyInvocation.MyCommand.Path
 if ($self) { Write-Host ("script sha256: " + [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([IO.File]::ReadAllBytes($self))).Replace('-', '').ToLower()) }
-Write-Host 'REMINDER: run by the agent, this output is self-attesting and advisory only; the owner-run copy from the administrator-owned clone is authoritative.'
+Write-Host 'REMINDER: this output is ADVISORY only, whoever started it: it runs inside the agent''s session. Authoritative evidence is the administrator-side Setup dry run (docs 14.4).'
 
 # 'denied' only for Windows' access-denied; 'created' when the probe landed (and is removed again); 'error:<type>' for anything else (result unknown)
 function Test-Create([string]$dir, [ValidateSet('file', 'folder')][string]$kind) {
@@ -62,14 +63,30 @@ function Row-ReadDenied([string]$Id, [string]$path, [string]$why) {
   switch -Wildcard ($r) { 'denied' { Row $Id 'PASS' "$path : listing refused ($why)" } 'readable' { Row $Id 'FAIL' "$path IS readable: $why" } default { Row $Id 'FAIL' "unexpected result '$r' for $path" } }
 }
 
+# Win32 CreateFile on a DIRECTORY with a specific desired access (FILE_FLAG_BACKUP_SEMANTICS); returns 0 when the open SUCCEEDED (the handle is closed at once), else the Win32 error
+Add-Type -TypeDefinition @"
+using System; using System.Runtime.InteropServices;
+public static class D24Probe {
+  [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)] static extern IntPtr CreateFileW(string f, uint access, uint share, IntPtr sa, uint disp, uint flags, IntPtr tmpl);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+  public static int TryOpen(string path, uint access) {
+    IntPtr h = CreateFileW(path, access, 7, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero);
+    if (h == new IntPtr(-1)) return Marshal.GetLastWin32Error();
+    CloseHandle(h); return 0;
+  }
+}
+"@
+
 # ---------------------------------------------------------------- identity and token (works for a SPLIT administrator token too)
 $id = [Security.Principal.WindowsIdentity]::GetCurrent()
 $prin = New-Object Security.Principal.WindowsPrincipal($id)
 Row 'not-administrator-member' $(if ($prin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { 'FAIL' } else { 'PASS' }) 'IsInRole(Administrator) must be false (necessary, NOT sufficient: a filtered administrator token also answers false)'
 # whoami lists deny-only groups; WindowsIdentity.Groups and IsInRole do NOT
 $grp = @(& "$SystemDir\whoami.exe" /groups /fo csv | ConvertFrom-Csv)
-$hasAdminSid = @($grp | Where-Object { $_.SID -eq 'S-1-5-32-544' }).Count -gt 0
-Row 'no-administrators-sid-even-deny-only' $(if ($hasAdminSid) { 'FAIL' } else { 'PASS' }) 'S-1-5-32-544 must not appear in `whoami /groups` with ANY attribute; "Group used for deny only" means this is a split administrator token (a member of Administrators)'
+$privSids = @('S-1-5-32-544', 'S-1-5-114', 'S-1-5-32-551', 'S-1-5-32-548', 'S-1-5-32-549', 'S-1-5-32-550', 'S-1-5-32-552')   # Administrators, Local account and member of Administrators, Backup/Account/Server/Print Operators, Replicator
+$present = @($grp | Where-Object { $privSids -contains $_.SID } | ForEach-Object { $_.SID })
+$hasAdminSid = ($present.Count -gt 0)
+Row 'no-administrators-sid-even-deny-only' $(if ($hasAdminSid) { 'FAIL' } else { 'PASS' }) $(if ($hasAdminSid) { "present in the token: $($present -join ', ') (S-1-5-32-544 with `"Group used for deny only`" is a split administrator token; S-1-5-114 means a local account that is an Administrators member)" } else { 'none of S-1-5-32-544, S-1-5-114, Backup/Account/Server/Print Operators, Replicator appears in `whoami /groups` with any attribute' })
 $high = @($grp | Where-Object { $_.SID -match '^S-1-16-(12288|16384)$' }).Count -gt 0
 Row 'integrity-not-high' $(if ($high) { 'FAIL' } else { 'PASS' }) 'must run at Medium integrity or lower'
 $priv = (& "$SystemDir\whoami.exe" /priv) -join "`n"
@@ -88,12 +105,22 @@ Row 'uac-builtin-admin-filtered' $(if ($fat -eq 1) { 'PASS' } else { 'FAIL' }) "
 
 # ---------------------------------------------------------------- the install root
 if (-not (Test-Path -LiteralPath $InstallRoot)) {
-  foreach ($n in 'create-in-root', 'create-in-release', 'create-in-release-runner', 'create-in-release-proof', 'create-in-state', 'create-in-evidence', 'create-in-inbox', 'mkdir-in-root', 'write-pinned-files', 'read-cred', 'open-cred-file') { Row $n 'SKIP' "install root $InstallRoot does not exist yet: run again after the elevated install" }
+  foreach ($n in 'open-root-for-write-dac', 'open-release-for-write-dac', 'create-in-root', 'create-in-release', 'create-in-release-node_modules', 'create-in-release-runner', 'create-in-release-proof', 'create-in-state', 'create-in-state-tmp', 'create-in-evidence', 'create-in-inbox', 'mkdir-in-root', 'write-pinned-files', 'read-cred', 'open-cred-file') { Row $n 'SKIP' "install root $InstallRoot does not exist yet: run again after the elevated install" }
 } else {
-  foreach ($sub in @('', 'release', 'release\scripts\qa\d24-test-runner', 'release\scripts\qa\d24-m3d-proof', 'state', 'evidence', 'inbox')) {
+  foreach ($sub in @('', 'release', 'release\node_modules', 'release\scripts\qa\d24-test-runner', 'release\scripts\qa\d24-m3d-proof', 'state', 'state\tmp', 'evidence', 'inbox')) {
     $d = if ($sub) { Join-Path $InstallRoot $sub } else { $InstallRoot }
-    $name = 'create-in-' + $(if ($sub) { ($sub -replace '^release\\scripts\\qa\\d24-test-runner$', 'release-runner' -replace '^release\\scripts\\qa\\d24-m3d-proof$', 'release-proof') } else { 'root' })
+    $name = 'create-in-' + $(if ($sub) { ($sub -replace '^release\\scripts\\qa\\d24-test-runner$', 'release-runner' -replace '^release\\scripts\\qa\\d24-m3d-proof$', 'release-proof' -replace '\\', '-') } else { 'root' })
     Row-Create $name $d 'file' 'a standard user must not write the install root'
+  }
+  # handle-based probes: open the DIRECTORY with each dangerous access right. Nothing is modified; the handle is closed at once. Only ERROR_ACCESS_DENIED (5) is a PASS.
+  foreach ($pr in @(@('', 'root'), @('release', 'release'), @('release\node_modules', 'node_modules'), @('state', 'state'))) {
+    $dir = if ($pr[0]) { Join-Path $InstallRoot $pr[0] } else { $InstallRoot }
+    foreach ($m in @(@(0x40000, 'write-dac'), @(0x80000, 'write-owner'), @(0x10000, 'delete'), @(0x40, 'delete-child'))) {
+      $rid = 'open-' + $pr[1] + '-for-' + $m[1]
+      if (-not (Test-Path -LiteralPath $dir)) { Row $rid 'SKIP' "$dir missing"; continue }
+      $code = [D24Probe]::TryOpen($dir, [uint32]$m[0])
+      if ($code -eq 5) { Row $rid 'PASS' "opening $dir with $($m[1]) access was refused" } elseif ($code -eq 0) { Row $rid 'FAIL' "$dir CAN be opened with $($m[1]) access (handle closed, nothing changed)" } else { Row $rid 'FAIL' "unexpected Win32 error $code opening $dir (not access-denied, so nothing is proven)" }
+    }
   }
   Row-Create 'mkdir-in-root' $InstallRoot 'folder' 'creating a sub-folder (a junction/planting vector) must be refused as well'
   $pinned = @('anchor.json', 'policy.json', 'release.json') | ForEach-Object { Join-Path $InstallRoot $_ }
@@ -109,12 +136,13 @@ if (-not (Test-Path -LiteralPath $InstallRoot)) {
   $cred = Join-Path $InstallRoot 'cred'
   if (Test-Path -LiteralPath $cred) {
     Row-ReadDenied 'read-cred' $cred 'cred\ is d24run-only'
-    $opened = $false; $err = $null; $listed = $null
+    $err = $null; $listed = $null
     try { $listed = @(Get-ChildItem -LiteralPath $cred -Force -ErrorAction Stop) } catch [UnauthorizedAccessException] { } catch { $err = $_.Exception.GetType().Name }
     if ($err) { Row 'open-cred-file' 'FAIL' "unexpected error ($err)" }
     elseif ($listed -and $listed.Count -gt 0) {
-      try { $s = [IO.File]::Open($listed[0].FullName, 'Open', 'Read', 'ReadWrite'); $s.Close(); $opened = $true } catch { }
-      Row 'open-cred-file' $(if ($opened) { 'FAIL' } else { 'PASS' }) 'opening a cred\ file for reading must be refused (no content is read)'
+      $outcome = 'opened'
+      try { $s = [IO.File]::Open($listed[0].FullName, 'Open', 'Read', 'ReadWrite'); $s.Close() } catch [UnauthorizedAccessException] { $outcome = 'denied' } catch { $outcome = ('error:' + $_.Exception.GetType().Name) }
+      Row 'open-cred-file' $(if ($outcome -eq 'denied') { 'PASS' } else { 'FAIL' }) "opening a cred\ file for reading: $outcome (only access-denied passes; no content is read)"
     } else { Row 'open-cred-file' 'PASS' 'cred\ cannot be listed, so no file inside it is reachable' }
   } else { Row 'read-cred' 'SKIP' 'cred\ missing'; Row 'open-cred-file' 'SKIP' 'cred\ missing' }
 }
@@ -143,7 +171,7 @@ Write-Host 'that the scheduled task cannot be edited by this account; that the o
 $fail = @($script:Rows | Where-Object Status -eq 'FAIL').Count
 $skip = @($script:Rows | Where-Object Status -eq 'SKIP').Count
 Write-Host ("Result: {0} PASS, {1} FAIL, {2} SKIP" -f @($script:Rows | Where-Object Status -eq 'PASS').Count, $fail, $skip)
-Write-Host 'Self-attesting if run by the agent; authoritative only when the owner runs a hash-checked copy in the agent''s logon session and reads this console.'
+Write-Host 'ADVISORY only: this ran inside the agent''s own session. The authoritative checks are administrator-side (Setup dry run, docs 14.4).'
 if ($fail -gt 0) { exit 1 }
 if ($skip -gt 0) { Write-Host 'NOT FULLY VERIFIED (some checks were skipped).' -ForegroundColor Yellow; exit 3 }
 exit 0

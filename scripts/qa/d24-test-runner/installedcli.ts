@@ -109,13 +109,16 @@ function realInstallProviders(sourceRepo: string, who: Who): InstallProviders {
     confirm: ask,
     out: (l) => console.log(l),
     now: () => new Date(),
-    toolchainGates: () => toolchainGates({ env: process.env, execArgv: process.execArgv, execPath: process.execPath, adminNode: ADMIN_NODE, runningFile: fileURLToPath(import.meta.url), sourceRepo, gitBin: resolveGit(undefined), adminGit: GIT_FALLBACK_PATH, realGit: String.raw`C:\Program Files\Git\mingw64\bin\git.exe`, npmCli: join(dirname(ADMIN_NODE), 'node_modules', 'npm', 'bin', 'npm-cli.js'), reader: realAcl, who }),
+    toolchainGates: () => toolchainGates({ env: process.env, execArgv: process.execArgv, execPath: process.execPath, adminNode: ADMIN_NODE, runningFile: fileURLToPath(import.meta.url), sourceRepo, gitBin: resolveGit(undefined), adminGit: GIT_FALLBACK_PATH, realGitDir: String.raw`C:\Program Files\Git\mingw64\bin`, gitCoreDir: String.raw`C:\Program Files\Git\mingw64\libexec\git-core`, npmDir: join(dirname(ADMIN_NODE), 'node_modules', 'npm'), reader: realAcl, who }),
     verifyPr: (o) => verifyMergedPr(defaultGet, o),
     // the anchor comes from an owner-present enrollment OUTPUT on an ADMINISTRATOR-OWNED path; being inside the clone proves nothing (the pins cover only the runner and proof folders)
-    anchorSourceGate: (file) => lockedTreeGate('anchor-source', file, false, realAcl, who),
+    anchorSourceGate: async (file) => {
+      const f = await lockedTreeGate('anchor-source', file, false, realAcl, who);
+      return f.ok ? lockedTreeGate('anchor-source', dirname(file), false, realAcl, who) : f; // the folder too: a swap between the gate and the read needs write access to it
+    },
     async isAncestor({ repoDir, ancestor, descendant }) {
       const r = await realExec(GIT_FALLBACK_PATH, ['-c', 'core.fsmonitor=false', 'merge-base', '--is-ancestor', ancestor, descendant], { cwd: repoDir, env: baseEnv({ SystemRoot: WINDOWS_DIR, PATH: dirname(GIT_FALLBACK_PATH) }).env, timeoutMs: 60_000 });
-      return r.code === 0;
+      return r.code === 0 ? "yes" : r.code === 1 ? "no" : "error";
     },
     async verifyRelease({ repoDir, commit, pins }) {
       const env = baseEnv({ SystemRoot: WINDOWS_DIR, PATH: `${dirname(GIT_FALLBACK_PATH)}` }).env;

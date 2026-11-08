@@ -49,7 +49,7 @@ export type InstallProviders = {
   /** the anchor file is pinned inside the verified tree or is administrator-owned and not writable by anyone else */
   anchorSourceGate(file: string): Promise<Gate>;
   /** `git merge-base --is-ancestor ancestor descendant` in the administrator-owned clone (releases are ordered by history, never by PR number) */
-  isAncestor(o: { repoDir: string; ancestor: string; descendant: string }): Promise<boolean>;
+  isAncestor(o: { repoDir: string; ancestor: string; descendant: string }): Promise<"yes" | "no" | "error">;
   acl: AclApplier;
   /** prints the question and returns what the owner typed */
   confirm(question: string): Promise<string>;
@@ -138,8 +138,9 @@ export async function install(i: InstallInputs, p: InstallProviders): Promise<In
     }
     if (oldRelease) {
       const same = i.commit === oldRelease.commit;
-      const forward = same || (await p.isAncestor({ repoDir: i.sourceRepo, ancestor: oldRelease.commit, descendant: i.commit }));
-      if (!gate("no-downgrade", forward, forward ? (same ? "re-installing the installed commit" : `${i.commit.slice(0, 12)} descends from the installed ${oldRelease.commit.slice(0, 12)}`) : `${i.commit.slice(0, 12)} does not descend from the installed release ${oldRelease.commit.slice(0, 12)} (PR #${oldRelease.prNumber}): releases are ordered by git history, not PR number`)) return fail();
+      const anc = same ? "yes" : await p.isAncestor({ repoDir: i.sourceRepo, ancestor: oldRelease.commit, descendant: i.commit });
+      const forward = anc === "yes";
+      if (!gate("no-downgrade", forward, forward ? (same ? "re-installing the installed commit" : `${i.commit.slice(0, 12)} descends from the installed ${oldRelease.commit.slice(0, 12)}`) : anc === "error" ? `git could not decide whether ${i.commit.slice(0, 12)} descends from the installed ${oldRelease.commit.slice(0, 12)} (git error, e.g. the installed commit is missing from the clone): refusing` : `${i.commit.slice(0, 12)} does not descend from the installed release ${oldRelease.commit.slice(0, 12)} (PR #${oldRelease.prNumber}): releases are ordered by git history, not PR number`)) return fail();
     }
   }
 

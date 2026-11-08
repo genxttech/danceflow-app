@@ -6,24 +6,29 @@
 
 .DESCRIPTION
   Three phases, strictly in this order:
-    1. CHECK   read-only. Every precondition and the full set of intended changes are evaluated first. Any failure -> exit 2, NOTHING has been changed.
+    1. CHECK   read-only. Every precondition and the full set of intended changes are evaluated first. Any failure, and any unexpected error, -> exit 2, NOTHING has been changed.
     2. PLAN    the exact list of changes is printed ("WOULD ..." in a dry run).
-    3. APPLY   only with -Apply AND only if phase 1 found no failure. Each change is idempotent (it is planned only when the current state differs). If an action throws, the
-               script stops, lists what was done and what was not, and exits 2; re-running is safe.
-  DEFAULT IS A DRY RUN. A dry run exits 10 (never 0). Every state-changing command is on a visible "Add-Plan '<description>' ({ ... }" line.
+    3. APPLY   only with -Apply AND only if phase 1 found no failure. A change is planned only when the current state differs. If an action throws, the script stops, lists
+               what was done and what was not, and exits 2. RECOVERY: every step is re-checked by phase 1 of a re-run, so a re-run plans exactly what is still missing;
+               the one documented intermediate state is "workspace folder exists, empty": a re-run applies the ACL to it (it is never left with data in it by this script).
+  DEFAULT IS A DRY RUN. A dry run exits 10 (never 0). Every state-changing command is inside an "Add-Plan '<description>' ({ ... })" block (visible to a reviewer and a static test).
 
-  Hardening of the script itself: PSModulePath is reduced to the Windows PowerShell inbox modules BEFORE anything is resolved; the LocalAccounts module is imported from its
-  full System32 path; all binaries are fixed paths (never taken from environment variables); registry values are read defensively (StrictMode-safe); security descriptors are read with .NET, not
-  Get-Acl/CIM; the script file AND its folder must be administrator-owned and not writable by anyone else.
+  Plan order (so no step needs something a later step creates): accounts -> demotions -> UAC values -> C:\Dev tightening (only with -TightenDevRoot) -> workspace.
 
-  It NEVER: recurses ACL changes over a tree (no recursive icacls switch anywhere; a reparse point in the workspace cannot redirect it), touches the owner's repositories or profile,
-  prints or stores a password, changes user-rights assignments (reported as MANUAL), installs the runner, creates the scheduled task, or handles the Stripe key.
+  Hardening of the script itself: PSModulePath is reduced to the inbox modules by a plain string assignment BEFORE any cmdlet is resolved; the LocalAccounts module is imported from its
+  full System32 path; all binaries are fixed paths (never taken from environment variables); registry values are read defensively (StrictMode-safe); security descriptors are read with
+  .NET, not Get-Acl/CIM; the script file AND its folder must be administrator-owned and not writable by anyone else.
 
-.PARAMETER AgentUser   Standard account the agent will run as (default agentdev). Must NOT be the account running this script.
-.PARAMETER RunAsUser   The runner's service account (default d24run).
-.PARAMETER OwnerUser   The owner's enabled administrator account (mandatory).
-.PARAMETER Workspace   The agent's folder. Fixed default C:\Dev\agent-work; must be a new, non-existing folder (or already carry exactly the expected descriptor).
+  It NEVER: recurses an ACL change over a tree (no recursive icacls switch anywhere; a reparse point in the workspace cannot redirect it), touches the owner's repositories except C:\Dev
+  itself and only with -TightenDevRoot, prints or stores a password, changes user-rights assignments (reported as MANUAL), installs the runner, creates the scheduled task, or handles the Stripe key.
+
+.PARAMETER AgentUser   Standard account the agent will run as (default agentdev). Letters, digits, . _ - only (no wildcards). Must NOT be the account running this script.
+.PARAMETER RunAsUser   The runner's service account (default d24run). Same character rule.
+.PARAMETER OwnerUser   The owner's enabled administrator account (mandatory). Same character rule.
+.PARAMETER Workspace   The agent's folder. Fixed default C:\Dev\agent-work; must be a new folder (or empty, or already carry exactly the expected descriptor).
 .PARAMETER CreateAccounts  Allow creating missing AgentUser/RunAsUser (AgentUser's password is read as a SecureString prompt during APPLY; d24run gets a random one nobody keeps).
+.PARAMETER TightenDevRoot  Also change the ACL of the folder C:\Dev ITSELF (non-recursive command; Windows then propagates the inheritable change to everything below that inherits it, including the
+               owner's checkouts): inheritance off, remove Authenticated Users / Users / Everyone, grant the owner Modify, Administrators and SYSTEM Full. Without it the problem is reported as MANUAL.
 .PARAMETER Apply       Make the changes. Without it: dry run.
 #>
 [CmdletBinding()]
@@ -33,18 +38,21 @@ param(
   [Parameter(Mandatory = $true)][string]$OwnerUser,
   [string]$Workspace = 'C:\Dev\agent-work',
   [switch]$CreateAccounts,
+  [switch]$TightenDevRoot,
   [switch]$Apply
 )
-# --- module / environment hygiene BEFORE anything else is resolved --------------------------------------------------------------------------
-$env:PSModulePath = Join-Path $PSHOME 'Modules'
+# FIRST statement after param (param must come first in a script): a plain string assignment, so no cmdlet has been resolved yet and no module from an agent-writable PSModulePath can load
+$env:PSModulePath = "$PSHOME\Modules"
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+# any unexpected error in phase 1/2 is a failed check, never a half state: nothing has been changed yet. Phase 3 has its own try/catch.
+trap { Write-Host "UNEXPECTED ERROR: $($_.Exception.Message). Nothing was changed (phase 1/2)." -ForegroundColor Red; exit 2 }
 $SystemDir = 'C:\Windows\System32'
 $Icacls = "$SystemDir\icacls.exe"
 $script:Failures = New-Object System.Collections.Generic.List[string]
 $script:Manual = New-Object System.Collections.Generic.List[string]
 $script:Plan = New-Object System.Collections.Generic.List[object]
-$ADMINS = 'S-1-5-32-544'; $SYSTEM = 'S-1-5-18'
+$ADMINS = 'S-1-5-32-544'; $SYSTEM = 'S-1-5-18'; $AUTHUSERS = 'S-1-5-11'; $USERS = 'S-1-5-32-545'; $EVERYONE = 'S-1-1-0'
 
 function Say([string]$m) { Write-Host $m }
 function Fail([string]$m) { $script:Failures.Add($m); Write-Host "FAIL   $m" -ForegroundColor Red }
@@ -60,14 +68,11 @@ function Get-RegValue([string]$Path, [string]$Name) {
   if ($null -eq $p) { return $null }
   return $p.Value
 }
-function Get-Sddl([string]$Path) { (Get-Item -LiteralPath $Path -Force).GetAccessControl().GetSecurityDescriptorSddlForm('Owner,Access') }
 function Test-Reparse([string]$Path) { return [bool]((Get-Item -LiteralPath $Path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) }
-function Get-OwnerSid([string]$Path) { (Get-Item -LiteralPath $Path -Force).GetAccessControl().GetOwner([Security.Principal.SecurityIdentifier]).Value }
 # problems if the path is not administrator-owned or is writable by anyone but Administrators/SYSTEM
 function Test-AdminOnly([string]$Path) {
   $problems = @()
-  $item = Get-Item -LiteralPath $Path -Force
-  $acl = $item.GetAccessControl()
+  $acl = (Get-Item -LiteralPath $Path -Force).GetAccessControl()
   $ownerSid = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
   if (@($ADMINS, $SYSTEM) -notcontains $ownerSid) { $problems += "owned by $ownerSid, not Administrators/SYSTEM" }
   $writeMask = 0x2 -bor 0x4 -bor 0x10 -bor 0x40 -bor 0x100 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x10000000 -bor 0x40000000
@@ -78,14 +83,30 @@ function Test-AdminOnly([string]$Path) {
   }
   return $problems
 }
+# true when the folder carries EXACTLY: owner Administrators, protected DACL, allow-only, Administrators Full, SYSTEM Full, <agent> Modify with container+object inherit. Order-independent, by SID and mask.
+function Test-WorkspaceDescriptor([string]$Path, [string]$AgentSid) {
+  $acl = (Get-Item -LiteralPath $Path -Force).GetAccessControl()
+  if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $ADMINS) { return $false }
+  if (-not $acl.AreAccessRulesProtected) { return $false }
+  $rules = @($acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
+  if ($rules.Count -ne 3) { return $false }
+  $want = @{ $ADMINS = 0x1f01ff; $SYSTEM = 0x1f01ff; $AgentSid = 0x1301bf }
+  $inh = [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit
+  foreach ($r in $rules) {
+    if ($r.AccessControlType -ne 'Allow' -or $r.InheritanceFlags -ne $inh -or $r.PropagationFlags -ne 'None') { return $false }
+    $sid = $r.IdentityReference.Value
+    if (-not $want.ContainsKey($sid) -or (([int64]$r.FileSystemRights -band 0x1f01ff) -ne $want[$sid])) { return $false }
+    $want.Remove($sid)
+  }
+  return ($want.Count -eq 0)
+}
 function Get-LocalUserOrNull([string]$n) { try { Get-LocalUser -Name $n -ErrorAction Stop } catch { $null } }
 
 Say "Mode: $(if ($Apply) { 'APPLY' } else { 'DRY RUN (nothing will be changed; add -Apply to change)' })"
 
 # ================================================================ PHASE 1: CHECK (read-only)
 if ($PSVersionTable.PSEdition -eq 'Core') { Fail 'run this under Windows PowerShell 5.1 (powershell.exe), not PowerShell 7' }
-$cmdArgs = [Environment]::GetCommandLineArgs()
-if (-not ($cmdArgs | Where-Object { $_ -like '-nop*' })) { Fail 'PowerShell was not started with -NoProfile (an elevated shell would load a profile the agent can edit)' } else { Ok '-NoProfile' }
+if (-not ([Environment]::GetCommandLineArgs() | Where-Object { $_ -imatch '^[-/]nop(r(o(f(i(l(e)?)?)?)?)?)?$' })) { Fail 'PowerShell was not started with -NoProfile (an elevated shell would load a profile the agent can edit)' } else { Ok '-NoProfile' }
 $id = [Security.Principal.WindowsIdentity]::GetCurrent()
 $me = $id.User.Value
 if (-not (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { Fail 'not running elevated' } else { Ok 'elevated' }
@@ -94,18 +115,18 @@ if (-not (Test-Path -LiteralPath $lam)) { Fail "inbox LocalAccounts module not f
 $self = $MyInvocation.MyCommand.Path
 if (-not $self) { Fail 'cannot determine this script''s own path' } else {
   $sha = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([IO.File]::ReadAllBytes($self))).Replace('-', '').ToLower()
-  Say "script sha256: $sha  (compare with the hash of this file in the reviewed commit)"
+  Say "script sha256: $sha  (compare with the hash of this file computed from the administrator-owned clone)"
   foreach ($p in @($self, (Split-Path -Parent $self))) { $pr = Test-AdminOnly $p; if ($pr.Count -gt 0) { Fail "$p : $($pr -join '; ') (copy the script to an administrator-only folder, e.g. from the bootstrap clone)" } else { Ok "$p is administrator-only" } }
 }
+foreach ($pair in @(@('AgentUser', $AgentUser), @('RunAsUser', $RunAsUser), @('OwnerUser', $OwnerUser))) { if ($pair[1] -notmatch '^[A-Za-z0-9._-]{1,20}$') { Fail "$($pair[0]) '$($pair[1])' must be 1-20 of letters, digits, . _ - (wildcards are refused: Get-LocalUser would expand them)" } }
 if (@($AgentUser, $RunAsUser, $OwnerUser | ForEach-Object { $_.ToLower() } | Select-Object -Unique).Count -ne 3) { Fail 'AgentUser, RunAsUser and OwnerUser must be three different accounts' }
 
-$owner = if ($script:Failures.Count -eq 0) { Get-LocalUserOrNull $OwnerUser } else { $null }
-$agent = $null; $runas = $null
-$adminSids = @()
+$owner = $null; $agent = $null; $runas = $null; $adminSids = @()
 if ($script:Failures.Count -eq 0) {
+  $owner = Get-LocalUserOrNull $OwnerUser
   $adminGroup = Get-LocalGroup -SID $ADMINS
   $adminSids = @(Get-LocalGroupMember -Group $adminGroup | ForEach-Object { $_.SID.Value })
-  if (-not $owner) { Fail "owner account '$OwnerUser' is not a local account (domain/Microsoft-account owners are not handled here: stop and ask engineering)" }
+  if (-not $owner) { Fail "owner account '$OwnerUser' is not a local account (a Microsoft-account owner is a local account of source MicrosoftAccount and is accepted; a domain or Azure AD owner is not handled here: stop and ask engineering)" }
   elseif (-not $owner.Enabled) { Fail "owner account '$OwnerUser' is disabled" }
   elseif ($adminSids -notcontains $owner.SID.Value) { Fail "owner account '$OwnerUser' is not a member of Administrators" }
   else { Ok "owner '$OwnerUser' is an enabled administrator" }
@@ -114,6 +135,8 @@ if ($script:Failures.Count -eq 0) {
   # lockout guard
   if ($agent -and ($agent.SID.Value -eq $me)) { Fail "AgentUser '$AgentUser' is the account running this script: refusing (it would be demoted and you would lock yourself out)" }
   if ($runas -and ($runas.SID.Value -eq $me)) { Fail "RunAsUser '$RunAsUser' is the account running this script: refusing" }
+  if ($agent -and $owner -and ($agent.SID.Value -eq $owner.SID.Value)) { Fail 'AgentUser resolves to the owner account' }
+  if ($runas -and $owner -and ($runas.SID.Value -eq $owner.SID.Value)) { Fail 'RunAsUser resolves to the owner account' }
   foreach ($u in @($agent, $runas)) { if ($u -and $u.SID.Value.EndsWith('-500')) { Fail "'$($u.Name)' is the built-in Administrator (RID 500): refusing" } }
   $remaining = @($adminSids | Where-Object { ($null -eq $agent -or $_ -ne $agent.SID.Value) -and ($null -eq $runas -or $_ -ne $runas.SID.Value) })
   $enabledRemaining = @($remaining | Where-Object { $s = $_; $lu = Get-LocalUser -SID $s -ErrorAction SilentlyContinue; $lu -and $lu.Enabled })
@@ -135,7 +158,19 @@ if ($script:Failures.Count -eq 0) {
     }
   }
 }
-# UAC policy: read defensively, plan only what differs
+# plan 1: accounts (BEFORE anything that needs the agent's SID)
+if ($script:Failures.Count -eq 0) {
+  if (-not $agent -and $CreateAccounts) {
+    $n = $AgentUser
+    Add-Plan "create local standard user '$n' (password prompted as a SecureString of at least 12 characters, never stored)" ({ $pw = Read-Host -AsSecureString "Password for the new standard user '$n'"; if ($pw.Length -lt 12) { throw 'password shorter than 12 characters' }; New-LocalUser -Name $n -Password $pw -AccountNeverExpires -Description 'D24 engineering agent (standard user)' | Out-Null; Add-LocalGroupMember -Group (Get-LocalGroup -SID 'S-1-5-32-545') -Member $n }.GetNewClosure())
+  }
+  if (-not $runas -and $CreateAccounts) {
+    $n = $RunAsUser
+    Add-Plan "create local service user '$n' with a random password that is discarded (never shown or stored)" ({ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); $p = ConvertTo-SecureString ([Convert]::ToBase64String($b) + 'aA1!') -AsPlainText -Force; New-LocalUser -Name $n -Password $p -PasswordNeverExpires -UserMayNotChangePassword -Description 'D24 runner service account' | Out-Null }.GetNewClosure())
+  }
+  foreach ($u in @($agent, $runas)) { if ($u -and ($adminSids -contains $u.SID.Value)) { $nm = $u.Name; Add-Plan "REMOVE '$nm' from the local Administrators group" ({ Remove-LocalGroupMember -Group (Get-LocalGroup -SID 'S-1-5-32-544') -Member $nm }.GetNewClosure()) } }
+}
+# plan 2: UAC policy, read defensively, only what differs
 $pol = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
 $want = [ordered]@{
   EnableLUA = 1                     # UAC on (a change needs a restart)
@@ -151,20 +186,45 @@ foreach ($k in $want.Keys) {
     Add-Plan "set HKLM $keyName = $val (was $(if ($null -eq $have) { 'not set' } else { $have }))" ({ if (-not (Test-Path -LiteralPath $pol)) { throw "policy key $pol is missing" }; Set-ItemProperty -LiteralPath $pol -Name $keyName -Value $val -Type DWord }.GetNewClosure())
   } else { Ok "$k = $have" }
 }
-# the agent workspace: a NEW folder, never recursed over
+# the agent's SIDs as far as they are knowable now (a not-yet-created agent contributes nothing but the well-known groups)
+$agentSidKnown = if ($agent) { $agent.SID.Value } else { $null }
+function Get-AgentSids {
+  $set = @($agentSidKnown, $EVERYONE, $AUTHUSERS, 'S-1-5-4', 'S-1-2-1', $USERS, 'S-1-5-113') | Where-Object { $_ }
+  if ($agent) { foreach ($g in @(Get-LocalGroup)) { if (@(Get-LocalGroupMember -Group $g -ErrorAction SilentlyContinue | ForEach-Object { $_.SID.Value }) -contains $agentSidKnown) { $set += $g.SID.Value } } }
+  return @($set | Select-Object -Unique)
+}
+# plan 3: C:\Dev (inherits Authenticated Users:Modify from C:\ on this class of machine): the agent could plant a junction at the workspace path and could read the owner's checkouts
+$devRoot = 'C:\Dev'
+if ((Test-Path -LiteralPath $devRoot) -and $owner -and $script:Failures.Count -eq 0) {
+  if (Test-Reparse $devRoot) { Fail "$devRoot is a junction/symlink" } else {
+    $broad = @(); $sidsHeld = @($AUTHUSERS, $USERS, $EVERYONE)
+    foreach ($r in (Get-Item -LiteralPath $devRoot -Force).GetAccessControl().GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
+      if ($r.AccessControlType -eq 'Allow' -and ($sidsHeld -contains $r.IdentityReference.Value) -and (([int64]$r.FileSystemRights -band (0x2 -bor 0x4 -bor 0x1 -bor 0x80000000 -bor 0x40000000 -bor 0x10000000)) -ne 0)) { $broad += $r.IdentityReference.Value }
+    }
+    $broad = @($broad | Select-Object -Unique)
+    if ($broad.Count -eq 0) { Ok "$devRoot grants no read or write to Authenticated Users / Users / Everyone" }
+    elseif ($TightenDevRoot) {
+      $ownerSid = $owner.SID.Value
+      Add-Plan "tighten $devRoot ITSELF (non-recursive command; Windows propagates the inheritable change below): inheritance off, remove $($broad -join ', '), grant owner Modify, Administrators+SYSTEM Full" ({ & $Icacls $devRoot /inheritance:d | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'icacls /inheritance:d failed' }; & $Icacls $devRoot /grant:r "*${ownerSid}:(OI)(CI)M" "*${ADMINS}:(OI)(CI)F" "*${SYSTEM}:(OI)(CI)F" | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'icacls /grant failed' }; & $Icacls $devRoot /remove:g "*${AUTHUSERS}" "*${USERS}" "*${EVERYONE}" | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'icacls /remove failed' } }.GetNewClosure())
+    } else { Manual "$devRoot grants read/write to $($broad -join ', '): the agent can plant a junction at the workspace path and read the owner's checkouts. Re-run with -TightenDevRoot (the plan shows the exact change and that it propagates to inheriting children), or tighten it yourself. Verify cannot exit 0 until this is done." }
+  }
+}
+# plan 4: the agent workspace: a NEW folder, never recursed over, created AFTER the accounts
 $wsFull = $null
 try { $wsFull = [IO.Path]::GetFullPath($Workspace).TrimEnd('\') } catch { Fail "Workspace '$Workspace' is not a valid path" }
 if ($wsFull) {
   $drive = [IO.Path]::GetPathRoot($wsFull)
   if ($wsFull -ne $Workspace.TrimEnd('\') -or $wsFull -eq $drive.TrimEnd('\') -or $wsFull -notmatch '^[A-Za-z]:\\[^\\]+(\\[^\\]+)*$') { Fail "Workspace must be a normalised absolute folder path below a drive root (got '$Workspace')" }
+  if ($wsFull -match '~\d') { Fail "Workspace '$wsFull' contains an 8.3 short-name segment: use the long name" }
   foreach ($bad in @('C:\Windows', 'C:\Program Files', 'C:\Program Files (x86)', 'C:\ProgramData', 'C:\Users', 'C:\Dev\studioapp')) {
     if ($wsFull -eq $bad -or $wsFull.StartsWith("$bad\", [StringComparison]::OrdinalIgnoreCase) -or $bad.StartsWith("$wsFull\", [StringComparison]::OrdinalIgnoreCase)) { Fail "Workspace '$wsFull' overlaps protected location '$bad'" }
   }
   $parent = Split-Path -Parent $wsFull
   if (-not (Test-Path -LiteralPath $parent)) { Fail "parent folder '$parent' does not exist" }
-  elseif (Test-Reparse $parent) { Fail "parent folder '$parent' is a junction/symlink" }
+  else {
+    for ($anc = $parent; $anc -and ($anc -ne [IO.Path]::GetPathRoot($anc)); $anc = Split-Path -Parent $anc) { if (Test-Reparse $anc) { Fail "ancestor folder '$anc' is a junction/symlink" } }
+  }
 }
-$agentSidKnown = if ($agent) { $agent.SID.Value } else { $null }
 if ($wsFull -and $script:Failures.Count -eq 0) {
   $aclApply = {
     param($ws, $sid)
@@ -173,13 +233,14 @@ if ($wsFull -and $script:Failures.Count -eq 0) {
   }
   if (Test-Path -LiteralPath $wsFull) {
     if (Test-Reparse $wsFull) { Fail "Workspace '$wsFull' is a junction/symlink: remove it (as an administrator) and re-run" }
-    elseif ($agentSidKnown) {
-      $sddl = Get-Sddl $wsFull
-      $expected = '^O:BAG:[A-Z]{2}D:P(AI)?\(A;OICI;FA;;;BA\)\(A;OICI;FA;;;SY\)\(A;OICI;0x1301bf;;;' + [regex]::Escape($agentSidKnown) + '\)$'
-      if ($sddl -match $expected) { Ok "Workspace '$wsFull' already has exactly the expected owner and ACL" }
-      elseif (@(Get-ChildItem -LiteralPath $wsFull -Force).Count -eq 0) { $w = $wsFull; $s = $agentSidKnown; Add-Plan "set owner Administrators and the ACL on the EMPTY existing folder '$w' (this folder only, no recursion)" ({ & $aclApply $w $s }.GetNewClosure()) }
-      else { Fail "Workspace '$wsFull' exists, is not empty and does not carry the expected descriptor: this script will not touch agent-controlled content (inspect it as an administrator)" }
-    } else { Fail "Workspace '$wsFull' exists but the agent account does not: remove the folder or create the account first" }
+    elseif ($agentSidKnown -and (Test-WorkspaceDescriptor $wsFull $agentSidKnown)) { Ok "Workspace '$wsFull' already has exactly the expected owner and ACL" }
+    elseif (@(Get-ChildItem -LiteralPath $wsFull -Force).Count -eq 0 -and ($agentSidKnown -or $CreateAccounts)) {
+      # recovery state: an empty folder left by an interrupted run, or pre-existing and empty
+      $w = $wsFull; $ag = $AgentUser
+      Add-Plan "set owner Administrators and the ACL on the EMPTY existing folder '$w' (this folder only, no recursion; re-checks empty and not-a-link at apply time)" ({ if (Test-Reparse $w) { throw "'$w' is a link" }; if (@(Get-ChildItem -LiteralPath $w -Force).Count -ne 0) { throw "'$w' is no longer empty" }; $sid = (Get-LocalUser -Name $ag).SID.Value; & $aclApply $w $sid }.GetNewClosure())
+    }
+    elseif (-not $agentSidKnown -and -not $CreateAccounts) { Fail "Workspace '$wsFull' exists but the agent account does not (re-run with -CreateAccounts)" }
+    else { Fail "Workspace '$wsFull' exists, is not empty and does not carry the expected descriptor: this script will not touch agent-controlled content (inspect it as an administrator)" }
   } else {
     $w = $wsFull; $ag = $AgentUser
     Add-Plan "create the NEW workspace folder '$w', then set owner Administrators and ACL (Administrators+SYSTEM full, '$AgentUser' modify, no inheritance) on that folder only" ({
@@ -191,24 +252,7 @@ if ($wsFull -and $script:Failures.Count -eq 0) {
     }.GetNewClosure())
   }
 }
-# accounts to create / demote (planned only when they differ)
-if ($script:Failures.Count -eq 0) {
-  if (-not $agent -and $CreateAccounts) {
-    $n = $AgentUser
-    Add-Plan "create local standard user '$n' (password prompted as a SecureString of at least 12 characters, never stored)" ({ $pw = Read-Host -AsSecureString "Password for the new standard user '$n'"; if ($pw.Length -lt 12) { throw 'password shorter than 12 characters' }; New-LocalUser -Name $n -Password $pw -AccountNeverExpires -Description 'D24 engineering agent (standard user)' | Out-Null; Add-LocalGroupMember -Group (Get-LocalGroup -SID 'S-1-5-32-545') -Member $n }.GetNewClosure())
-  }
-  if (-not $runas -and $CreateAccounts) {
-    $n = $RunAsUser
-    Add-Plan "create local service user '$n' with a random password that is discarded (never shown or stored)" ({ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); $p = ConvertTo-SecureString ([Convert]::ToBase64String($b) + 'aA1!') -AsPlainText -Force; New-LocalUser -Name $n -Password $p -PasswordNeverExpires -UserMayNotChangePassword -Description 'D24 runner service account' | Out-Null }.GetNewClosure())
-  }
-  foreach ($u in @($agent, $runas)) { if ($u -and ($adminSids -contains $u.SID.Value)) { $nm = $u.Name; Add-Plan "REMOVE '$nm' from the local Administrators group" ({ Remove-LocalGroupMember -Group (Get-LocalGroup -SID 'S-1-5-32-544') -Member $nm }.GetNewClosure()) } }
-}
 # read-only reachability report
-function Get-AgentSids {
-  $set = @($agentSidKnown, 'S-1-1-0', 'S-1-5-11', 'S-1-5-4', 'S-1-2-1', 'S-1-5-32-545') | Where-Object { $_ }
-  if ($agent) { foreach ($g in @(Get-LocalGroup)) { if (@(Get-LocalGroupMember -Group $g -ErrorAction SilentlyContinue | ForEach-Object { $_.SID.Value }) -contains $agentSidKnown) { $set += $g.SID.Value } } }
-  return @($set | Select-Object -Unique)
-}
 function Test-AgentCannotRead([string]$path, [string]$what) {
   if (-not (Test-Path -LiteralPath $path)) { Say "SKIP   $what ($path does not exist)"; return }
   try {
@@ -251,7 +295,7 @@ try {
   Write-Host ''
   Write-Host "ABORTED: $($_.Exception.Message)" -ForegroundColor Red
   Write-Host "Completed ($($done.Count) of $($script:Plan.Count)):"; $done | ForEach-Object { Write-Host "  - $_" }
-  Write-Host 'The remaining changes were NOT applied. Fix the cause and re-run: only differing state is planned again.'
+  Write-Host 'The remaining changes were NOT applied. RECOVERY: fix the cause and re-run; phase 1 plans exactly what is still missing. If a workspace folder was created but its ACL was not applied it is EMPTY and is handled by the re-run (never put anything in it by hand).'
   exit 2
 }
 Write-Host ''

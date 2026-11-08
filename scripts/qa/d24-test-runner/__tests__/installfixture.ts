@@ -97,7 +97,7 @@ export function providers(l: Layout, over: Partial<InstallProviders> = {}, answe
     verifyRelease: async () => [{ id: "commit-on-main", ok: true, detail: "fake: ancestry and blobs verified" }],
     verifyPr: async () => ({ id: "pr-merge-commit", ok: true, detail: "fake: merged PR whose merge commit is the release" }),
     anchorSourceGate: async () => ({ id: "anchor-source", ok: true, detail: "fake: pinned in the verified tree" }),
-    isAncestor: async () => true,
+    isAncestor: async () => "yes" as const,
     acl,
     confirm: async (q) => {
       questions.push(q);

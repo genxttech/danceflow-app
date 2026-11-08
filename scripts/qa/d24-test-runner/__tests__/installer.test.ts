@@ -255,7 +255,7 @@ describe("installer: updates, downgrade protection, anchor rotation", () => {
   it("releases are ordered by GIT HISTORY, not PR number: a descendant commit is accepted whatever its PR number; a non-descendant is refused even with a higher PR number", async () => {
     const { root, l } = await installed();
     const calls: Array<[string, string]> = [];
-    const asked = (ok: boolean) => providers(l, { isAncestor: async (o) => (calls.push([o.ancestor, o.descendant]), ok) });
+    const asked = (ok: boolean | "error") => providers(l, { isAncestor: async (o) => (calls.push([o.ancestor, o.descendant]), ok === "error" ? ("error" as const) : ok ? ("yes" as const) : ("no" as const)) });
     expect((await install(inputs(root), asked(false))).ok).toBe(true); // same commit: an update, no ancestry needed
     expect(calls).toEqual([]);
     const newer = "d".repeat(40);
@@ -264,6 +264,9 @@ describe("installer: updates, downgrade protection, anchor rotation", () => {
     const older = await install(inputs(root, { prNumber: 999, commit: "e".repeat(40) }), asked(false)); // HIGHER PR number, not a descendant: refused
     expect(older.gates.at(-1)).toMatchObject({ id: "no-downgrade", ok: false });
     expect(older.gates.at(-1)?.detail).toMatch(/not PR number/);
+    const err = await install(inputs(root, { prNumber: 1000, commit: "f".repeat(40) }), asked("error")); // a git failure is reported as such, not as "older"
+    expect(err.gates.at(-1)).toMatchObject({ id: "no-downgrade", ok: false });
+    expect(err.gates.at(-1)?.detail).toMatch(/git could not decide/);
     expect(((readJson(l.releaseJson) as { commit: string }).commit)).toBe(newer);
   });
   it("a different anchor without rotateAnchor is refused and the installed anchor is unchanged", async () => {
