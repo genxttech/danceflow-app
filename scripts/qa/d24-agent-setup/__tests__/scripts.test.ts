@@ -128,6 +128,11 @@ describe("Verify-D24StandardUserAgent.ps1 (standard user, probes)", () => {
     expect(verify).toMatch(/default \{ Row \$Id 'FAIL' "unexpected result/);
     expect(verify).toMatch(/'created' \{ Row \$Id 'FAIL'/);
   });
+  it("the CREATE probe itself: only access-denied returns denied; every other failure returns an error result", () => {
+    const fn = /function Test-Create[\s\S]*?\n}\n/.exec(verify)?.[0] ?? "";
+    expect(fn.match(/return 'denied'/g)).toHaveLength(1);
+    expect(fn).toMatch(/catch \[UnauthorizedAccessException\] \{ return 'denied' \}\s*\n\s*catch \{ return \('error:'/);
+  });
   it("UAC check requires ConsentPromptBehaviorUser = 0 and the other values", () => {
     expect(verify).toMatch(/\$cpu -eq 0/);
     expect(verify).not.toMatch(/\$cpu -eq 1/);
