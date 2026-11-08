@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { callbackTargetReport, CALLBACK_SCORING_METHOD, type CallbackRoundRow } from "@/lib/competition/callbackTarget";
 import { createClient } from "@/lib/supabase/server";
 import {
   addRecommendedConstraintsAction,
@@ -12,8 +13,8 @@ import {
 type Version = { id: string; version_number: number; name: string; status: string };
 type Constraint = { id: string; name: string; constraint_type: string; enforcement: string; configuration: Record<string, unknown> };
 type Contest = { id: string };
-type Division = { id: string; contest_id: string | null };
-type Round = { id: string; division_id: string };
+type Division = { id: string; contest_id: string | null; program_id: string | null; name: string };
+type Round = CallbackRoundRow;
 type Block = { id: string; block_type: string };
 type Assignment = { id: string; block_id: string };
 type Run = { id: string; run_number: number; status: string; engine_version: string; initiated_at: string };
@@ -71,11 +72,11 @@ export default async function CompetitionReadinessPage({
   const selectedVersion = versions.find((item) => item.id === query.version) ?? versions.find((item) => item.status === "draft") ?? versions[0] ?? null;
 
   const [programResult, contestResult, divisionResult, roundResult, entryResult, floorResult] = await Promise.all([
-    supabase.from("event_competition_programs").select("id", { count: "exact", head: true }).eq("event_id", id),
+    supabase.from("event_competition_programs").select("id, scoring_method", { count: "exact" }).eq("event_id", id),
     supabase.from("event_competition_contests").select("id").eq("event_id", id).neq("status", "cancelled"),
-    supabase.from("event_competition_divisions").select("id, contest_id").eq("event_id", id).neq("status", "cancelled"),
-    supabase.from("event_competition_rounds").select("id, division_id").eq("event_id", id).neq("status", "cancelled"),
-    supabase.from("event_competition_entries").select("id, status, eligibility_status").eq("event_id", id),
+    supabase.from("event_competition_divisions").select("id, contest_id, program_id, name").eq("event_id", id).neq("status", "cancelled"),
+    supabase.from("event_competition_rounds").select("id, division_id, name, round_type, scoring_method, target_advancement_count").eq("event_id", id).neq("status", "cancelled"),
+    supabase.from("event_competition_entries").select("id, division_id, status, eligibility_status").eq("event_id", id),
     supabase.from("event_competition_schedule_floors").select("id", { count: "exact", head: true }).eq("event_id", id).eq("active", true),
   ]);
   const baseError = programResult.error || contestResult.error || divisionResult.error || roundResult.error || entryResult.error || floorResult.error;
@@ -106,7 +107,18 @@ export default async function CompetitionReadinessPage({
   const contests = (contestResult.data ?? []) as Contest[];
   const divisions = (divisionResult.data ?? []) as Division[];
   const rounds = (roundResult.data ?? []) as Round[];
-  const entries = (entryResult.data ?? []) as Array<{ id: string; status: string; eligibility_status: string }>;
+  const entries = (entryResult.data ?? []) as Array<{ id: string; division_id: string | null; status: string; eligibility_status: string }>;
+  const entriesByDivision = new Map<string, number>();
+  for (const entry of entries) {
+    if (entry.status === "confirmed" && entry.division_id) entriesByDivision.set(entry.division_id, (entriesByDivision.get(entry.division_id) ?? 0) + 1);
+  }
+  const callbackReport = callbackTargetReport({
+    rounds,
+    divisions,
+    callbackProgramIds: new Set(((programResult.data ?? []) as Array<{ id: string; scoring_method: string }>).filter((program) => program.scoring_method === CALLBACK_SCORING_METHOD).map((program) => program.id)),
+    entriesByDivision,
+  });
+  const callbackTargetsReady = callbackReport.unset.length === 0;
   const contestsWithoutDivisions = contests.filter((contest) => !divisions.some((division) => division.contest_id === contest.id)).length;
   const divisionsWithoutRounds = divisions.filter((division) => !rounds.some((round) => round.division_id === division.id)).length;
   const competitionBlocks = blocks.filter((block) => block.block_type === "competition");
@@ -119,6 +131,7 @@ export default async function CompetitionReadinessPage({
     (programResult.count ?? 0) > 0,
     contests.length > 0 && contestsWithoutDivisions === 0,
     divisions.length > 0 && divisionsWithoutRounds === 0,
+    callbackTargetsReady,
     readyEntries > 0,
     reviewEntries === 0,
     (floorResult.count ?? 0) > 0,
@@ -135,7 +148,7 @@ export default async function CompetitionReadinessPage({
     <section className="border-b border-slate-200 py-5"><div className="flex flex-wrap gap-2">{versions.map((version) => <Link key={version.id} href={`?version=${version.id}`} className={`rounded border px-3 py-2 text-sm ${selectedVersion?.id === version.id ? "border-slate-950 bg-slate-950 text-white" : "border-slate-300 text-slate-700"}`}>v{version.version_number} · {version.name} · {label(version.status)}</Link>)}</div></section>
 
     {!selectedVersion ? <div className="mt-8 rounded border border-dashed border-slate-300 px-5 py-12 text-center text-sm text-slate-600">Create a schedule draft before configuring generation readiness.</div> : <>
-      <section className="grid gap-8 py-7 lg:grid-cols-2"><div><h2 className="text-lg font-semibold text-slate-950">Configuration checks</h2><div className="mt-3 border-y border-slate-200"><CheckRow ready={(programResult.count ?? 0) > 0} title="Competition programs" detail={`${programResult.count ?? 0} configured`} /><CheckRow ready={contests.length > 0 && contestsWithoutDivisions === 0} title="Competition events and divisions" detail={`${contests.length} events · ${contestsWithoutDivisions} without divisions`} /><CheckRow ready={divisions.length > 0 && divisionsWithoutRounds === 0} title="Round structures" detail={`${divisions.length} divisions · ${divisionsWithoutRounds} without rounds`} /><CheckRow ready={(floorResult.count ?? 0) > 0} title="Floors and capacity" detail={`${floorResult.count ?? 0} active floors`} /><CheckRow ready={sessionCount > 0} title="Sessions" detail={`${sessionCount} scheduled`} /></div></div>
+      <section className="grid gap-8 py-7 lg:grid-cols-2"><div><h2 className="text-lg font-semibold text-slate-950">Configuration checks</h2><div className="mt-3 border-y border-slate-200"><CheckRow ready={(programResult.count ?? 0) > 0} title="Competition programs" detail={`${programResult.count ?? 0} configured`} /><CheckRow ready={contests.length > 0 && contestsWithoutDivisions === 0} title="Competition events and divisions" detail={`${contests.length} events · ${contestsWithoutDivisions} without divisions`} /><CheckRow ready={divisions.length > 0 && divisionsWithoutRounds === 0} title="Round structures" detail={`${divisions.length} divisions · ${divisionsWithoutRounds} without rounds`} /><CheckRow ready={callbackTargetsReady} title="Callback targets" detail={callbackTargetsReady ? "Every callback round has a target" : `Callback target not set: ${callbackReport.unset.map((item) => `${item.divisionName} · ${item.roundName}`).join(", ")}. Set it in Advanced settings.`} />{callbackReport.notBelowEntries.length > 0 ? <CheckRow ready={false} title="Callback target review" detail={`${callbackReport.notBelowEntries.map((item) => `${item.divisionName}: ${item.detail}`).join("; ")}. Review the target before the callback round runs.`} /> : null}{callbackReport.unscoredFinals.length > 0 ? <CheckRow ready={false} title="Final scoring method (warning)" detail={`${callbackReport.unscoredFinals.map((item) => item.divisionName).join(", ")}: the Final has no scoring method. Existing rows are not changed automatically; review it before scoring.`} /> : null}<CheckRow ready={(floorResult.count ?? 0) > 0} title="Floors and capacity" detail={`${floorResult.count ?? 0} active floors`} /><CheckRow ready={sessionCount > 0} title="Sessions" detail={`${sessionCount} scheduled`} /></div></div>
       <div><h2 className="text-lg font-semibold text-slate-950">Operational checks</h2><div className="mt-3 border-y border-slate-200"><CheckRow ready={readyEntries > 0} title="Eligible entries" detail={`${readyEntries} confirmed and eligible`} /><CheckRow ready={reviewEntries === 0} title="Eligibility review" detail={`${reviewEntries} entries still need review`} /><CheckRow ready={competitionBlocks.length > 0 && unassignedBlocks === 0} title="Contest blocks" detail={`${competitionBlocks.length} competition blocks · ${unassignedBlocks} unassigned`} /><CheckRow ready={missingRequiredRules.length === 0} title="Core conflict rules" detail={missingRequiredRules.length === 0 ? "Capacity, dancer, instructor, and partner rules configured" : `${missingRequiredRules.length} required rules missing`} /></div></div></section>
 
       <section className="border-t border-slate-200 py-7"><div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="text-lg font-semibold text-slate-950">Generation rules</h2><p className="mt-1 text-sm text-slate-600">Hard rules block an invalid schedule. Soft rules produce warnings for organizer review.</p></div>{editable && missingRequiredRules.length > 0 ? <form action={addRecommendedConstraintsAction}><input type="hidden" name="eventId" value={id} /><input type="hidden" name="scheduleVersionId" value={selectedVersion.id} /><button className={buttonClass}>Add recommended rules</button></form> : null}</div>
