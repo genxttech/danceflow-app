@@ -24,7 +24,7 @@ concurrency:
 
 defaults:
   run:
-    shell: bash --noprofile --norc -euo pipefail {0}
+    shell: /usr/bin/bash --noprofile --norc -euo pipefail {0}
 
 jobs:
   proof:
@@ -44,6 +44,11 @@ jobs:
       D24_PIN_PACKAGE_JSON_SHA256: "1512d22af91872aff89098f30735da03d1831d8532e0be95887df66410b30f4d"
       D24_PIN_PACKAGE_LOCK_SHA256: "57523eb298e97ada0974ad6c39473dca0ba389f33500b5bb99b505fb45106d13"
       D24_PIN_TSCONFIG_SHA256: "b0ca828ffe4497f6ee194e695f25d4105b1545d76872ab8cbd6689a080efe066"
+      # SHA-256 of the "sha256sum" listing of the files this job executes from scripts/qa/d24-gh-proof (encrypt-cli.ts evidence-crypto.ts summary.ts evidence-public-key.pem).
+      D24_PIN_TOOLING_SHA256: "83d1beca9063de066a05952ee49d3fd94ab7fff033b5ac3b96804a32d96ecd23"
+      # bash startup files from the environment are not honoured in non-interactive shells when these are empty (a BASH_ENV written through GITHUB_ENV by an earlier step is the known route).
+      BASH_ENV: ""
+      ENV: ""
       # The only workflow file allowed to run this job (a rogue file on main cannot satisfy this; CODEOWNERS on /.github/ is the real control).
       D24_WORKFLOW_REF_EXPECTED: "genxttech/danceflow-app/.github/workflows/d24-stripe-test-proof.yml@refs/heads/main"
       # PLACEHOLDERS until the corrected test sandbox exists; the first guard step fails closed while either contains PLACEHOLDER.
@@ -114,6 +119,14 @@ jobs:
           [ "$(sha256sum package-lock.json | cut -d' ' -f1)" = "$D24_PIN_PACKAGE_LOCK_SHA256" ] || { echo "FAIL: package-lock.json differs from the pin"; exit 1; }
           [ "$(sha256sum tsconfig.json | cut -d' ' -f1)" = "$D24_PIN_TSCONFIG_SHA256" ] || { echo "FAIL: tsconfig.json differs from the pin"; exit 1; }
           echo "harness tree, package.json, package-lock.json and tsconfig.json equal their pins"
+          # files that would silently change how npm or node resolve things must not exist (none exist today; adding one needs a reviewed change to this file)
+          for f in .npmrc scripts/package.json scripts/qa/package.json scripts/qa/d24-gh-proof/package.json; do
+            [ ! -e "$f" ] || { echo "FAIL: unexpected file $f"; exit 1; }
+          done
+          # the tooling this job executes (the files that handle the evidence and the public key)
+          tooling="$(cd scripts/qa/d24-gh-proof && sha256sum encrypt-cli.ts evidence-crypto.ts summary.ts evidence-public-key.pem | sha256sum | cut -d' ' -f1)"
+          [ "$tooling" = "$D24_PIN_TOOLING_SHA256" ] || { echo "FAIL: the d24-gh-proof tooling differs from the pin"; exit 1; }
+          echo "no stray npm/node config files; tooling equals its pin"
 
       - name: Paths for plaintext (outside the checkout, wiped at the end)
         run: |
@@ -168,10 +181,10 @@ jobs:
 
       - name: No stray processes before the key is used
         run: |
-          me="$(id -u)"
-          pkill -u "$me" -x node || true
-          pkill -u "$me" -x esbuild || true
-          if pgrep -u "$me" -x node > /dev/null || pgrep -u "$me" -x esbuild > /dev/null; then
+          me="$(/usr/bin/id -u)"
+          /usr/bin/pkill -u "$me" -x node || true
+          /usr/bin/pkill -u "$me" -x esbuild || true
+          if /usr/bin/pgrep -u "$me" -x node > /dev/null || /usr/bin/pgrep -u "$me" -x esbuild > /dev/null; then
             echo "FAIL: a node or esbuild process is still running"
             exit 1
           fi

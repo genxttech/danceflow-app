@@ -1,10 +1,12 @@
 // READ-ONLY verification of the GitHub-side configuration that the D24 Stripe TEST proof depends on.
-//   verify-github-config.ts --as-bot              run with the BOT's fine-grained token: it must be the bot, hold WRITE (not admin) and be REFUSED on settings/secrets endpoints
+//   verify-github-config.ts --as-bot              run with the bot account's (classic) token: it must be the bot, hold WRITE (not admin), be unable to bypass the ruleset, and be REFUSED on five settings/secrets endpoints
+//   verify-github-config.ts --as-app              run with a GitHub App INSTALLATION token: it must be installed on exactly this repository, be unable to bypass the ruleset, and be refused on the same five endpoints
 //   verify-github-config.ts --as-owner-readonly   run with a token that can read repository settings: compares the ruleset, environment, Actions settings and collaborators to the expected values
 // The token comes ONLY from the environment variable D24_GH_VERIFY_TOKEN. It is never printed, never put in a path, and never leaves api.github.com.
 // This tool sends GET requests only, through a default-deny allow-list of exact paths. It cannot change anything. Output lines contain fixed ids and enumerated values only.
 
 import { request } from "node:https";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const OWNER = "genxttech";
@@ -15,6 +17,7 @@ export const SECRET_NAME = "D24_PROOF_STRIPE_KEY";
 export const TOKEN_ENV = "D24_GH_VERIFY_TOKEN";
 export const RULESET_NAME = "Protect main";
 export const REQUIRED_CHECK = "Typecheck, build, lint, unit/integration tests";
+export const ACTIONS_APP_ID = 15368; // the GitHub Actions app: pins the required check to checks that GitHub Actions itself reports
 
 // The ruleset the owner imports (the doc embeds exactly this object; a test keeps them equal).
 export const EXPECTED_RULESET = {
@@ -33,13 +36,13 @@ export const EXPECTED_RULESET = {
         dismiss_stale_reviews_on_push: true,
         require_code_owner_review: true,
         require_last_push_approval: true,
-        required_review_thread_resolution: false,
+        required_review_thread_resolution: true,
         allowed_merge_methods: ["squash"],
       },
     },
     {
       type: "required_status_checks",
-      parameters: { strict_required_status_checks_policy: false, do_not_enforce_on_create: false, required_status_checks: [{ context: REQUIRED_CHECK }] },
+      parameters: { strict_required_status_checks_policy: false, do_not_enforce_on_create: false, required_status_checks: [{ context: REQUIRED_CHECK, integration_id: ACTIONS_APP_ID }] },
     },
   ],
 };
@@ -55,6 +58,9 @@ const EXACT = new Set<string>([
   `${R}/actions/permissions/workflow`,
   `${R}/actions/permissions/fork-pr-contributor-approval`,
   `${R}/hooks`,
+  `${R}/invitations`,
+  `${R}/codeowners/errors`,
+  "/installation/repositories",
   `${R}/rulesets?includes_parents=false&per_page=100`,
   E,
   `${E}/secrets`,
@@ -78,7 +84,7 @@ export class ReadOnlyClient {
 }
 
 export type Finding = { id: string; status: "PASS" | "FAIL" | "INCONCLUSIVE"; detail: string };
-const TOKEN_RE = /^[A-Za-z0-9_.:@~-]{1,64}$/;
+const TOKEN_RE = /^[A-Za-z0-9_.:@~/-]{1,64}$/;
 const tok = (v: unknown): string => (typeof v === "string" ? (TOKEN_RE.test(v) ? v : "unrecognised") : v === undefined ? "absent" : v === null ? "null" : typeof v === "boolean" || typeof v === "number" ? String(v) : `unexpected_type:${Array.isArray(v) ? "array" : typeof v}`);
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
@@ -122,15 +128,48 @@ export async function verifyAsBot(c: ReadOnlyClient): Promise<Finding[]> {
   if (perm) {
     const b = obj(perm.body);
     if (perm.status !== 200) r.add("bot-permission", false, `status ${tok(perm.status)}`);
-    else r.add("bot-permission", b.permission === "write" && (b.role_name === undefined || b.role_name === "write"), `permission=${tok(b.permission)} role_name=${tok(b.role_name)} (expected write / write)`);
+    else r.add("bot-permission", b.permission === "write" && b.role_name === "write", `permission=${tok(b.permission)} role_name=${tok(b.role_name)} (expected write / write; a missing role_name fails because the legacy field reports maintain as write)`);
   }
+  await refusals(r);
+  await bypassIsNever(r);
+  return r.out;
+}
+
+// Refusal checks. These show that these five GETs fail for THIS token; they are not a proof that no other privileged operation is possible.
+async function refusals(r: Run) {
+  // a missing environment also answers 404, which would make the refusal vacuous: the environment must exist first (run after the owner has created it)
+  const envOk = await r.get("environment-exists", E);
+  if (envOk) r.add("environment-exists", envOk.status === 200, envOk.status === 200 ? "the environment exists, so a refusal on its secrets is meaningful" : `environment answers ${tok(envOk.status)}: a refusal on its secrets would be vacuous (create the environment first)`);
   for (const [id, path] of REFUSED) {
     const res = await r.get(id, path);
     if (!res) continue;
-    if (res.status === 403 || res.status === 404) r.add(id, true, `refused with ${res.status}`);
-    else if (res.status === 200) r.add(id, false, "READABLE by the bot (must be refused)");
+    if (res.status === 403 || res.status === 404) r.add(id, id !== "refused-environment-secrets" || envOk?.status === 200, `refused with ${res.status}`);
+    else if (res.status === 200) r.add(id, false, "READABLE by this token (must be refused)");
     else r.add(id, false, `unexpected status ${tok(res.status)} (neither a clear refusal nor a clear success)`);
   }
+}
+
+// The caller must never be able to bypass the ruleset: GitHub reports this per caller.
+async function bypassIsNever(r: Run) {
+  const list = await r.get("ruleset-bypass-as-caller", `${R}/rulesets?includes_parents=false&per_page=100`);
+  if (!list) return;
+  const m = arr(list.body).filter((x) => obj(x).name === RULESET_NAME);
+  const id = m.length === 1 ? obj(m[0]).id : undefined;
+  if (list.status !== 200 || typeof id !== "number" || !Number.isInteger(id) || id <= 0) return void r.add("ruleset-bypass-as-caller", false, "could not find exactly one ruleset to read");
+  const rs = await r.get("ruleset-bypass-as-caller", `${R}/rulesets/${id}`);
+  if (rs) r.add("ruleset-bypass-as-caller", rs.status === 200 && obj(rs.body).current_user_can_bypass === "never", `current_user_can_bypass=${tok(obj(rs.body).current_user_can_bypass)} (expected never)`);
+}
+
+// An installation access token (GitHub App): it is not a user, so /user does not apply; it must be scoped to exactly this repository.
+export async function verifyAsApp(c: ReadOnlyClient): Promise<Finding[]> {
+  const r = new Run(c);
+  const inst = await r.get("app-installation-repos", "/installation/repositories");
+  if (inst) {
+    const names = arr(obj(inst.body).repositories).map((x) => tok(obj(x).full_name));
+    r.add("app-installation-repos", inst.status === 200 && names.length === 1 && names[0] === `${OWNER}/${REPO}`, `installation repositories [${names.join(", ")}] (expected only [${OWNER}/${REPO}])`);
+  }
+  await refusals(r);
+  await bypassIsNever(r);
   return r.out;
 }
 
@@ -171,14 +210,18 @@ export async function verifyAsOwnerReadonly(c: ReadOnlyClient): Promise<Finding[
             continue;
           }
           if (exp.type === "required_status_checks") {
-            const wantCtx = (exp.parameters as { required_status_checks: { context: string }[] }).required_status_checks.map((x) => x.context);
-            const gotCtx = arr(obj(got.parameters).required_status_checks).map((x) => obj(x).context);
+            const want = (exp.parameters as { required_status_checks: { context: string; integration_id: number }[] }).required_status_checks;
+            const gotChecks = arr(obj(got.parameters).required_status_checks).map(obj);
+            const present = want.every((w) => gotChecks.some((g) => g.context === w.context && g.integration_id === w.integration_id));
             const { required_status_checks: _ignored, ...rest } = exp.parameters as Record<string, unknown>;
             void _ignored;
-            r.add("ruleset-rule-required_status_checks", wantCtx.every((x) => gotCtx.includes(x)) && subsetEq(rest, got.parameters), `required check present=${wantCtx.every((x) => gotCtx.includes(x))}`);
+            r.add("ruleset-rule-required_status_checks", present && subsetEq(rest, got.parameters), `required check present with its source pinned to the GitHub Actions app=${present}`);
           } else if (exp.parameters) {
             const bad = Object.keys(exp.parameters).filter((k) => !subsetEq((exp.parameters as Record<string, unknown>)[k], obj(got.parameters)[k]));
             r.add(`ruleset-rule-${exp.type}`, bad.length === 0, bad.length ? `differs: ${bad.map(tok).join(", ")}` : "as expected");
+            // parameters GitHub returns that this verifier does not know: reported, never silently accepted (their meaning may weaken the rule)
+            const unknown = Object.keys(obj(got.parameters)).filter((k) => !(k in (exp.parameters as object)));
+            if (unknown.length) r.add(`ruleset-rule-${exp.type}-unknown-params`, true, `INFO parameters not covered by this verifier: ${unknown.map(tok).join(", ")}`);
           } else r.add(`ruleset-rule-${exp.type}`, true, "present");
         }
         const extra = rules.map((x) => tok(x.type)).filter((t) => !EXPECTED_RULESET.rules.some((e) => e.type === t));
@@ -226,6 +269,7 @@ export async function verifyAsOwnerReadonly(c: ReadOnlyClient): Promise<Finding[
     else {
       const b = obj(perms.body);
       r.add("actions-enabled", b.enabled === true, `enabled=${tok(b.enabled)}`);
+      r.add("actions-allowed-selected", b.allowed_actions === "selected", `allowed_actions=${tok(b.allowed_actions)} (expected selected; sha pinning alone does not restrict which actions may be used)`);
       if (b.sha_pinning_required === undefined) r.inconclusive("actions-sha-pinning", "field sha_pinning_required absent (UNVERIFIED field name or plan)");
       else r.add("actions-sha-pinning", b.sha_pinning_required === true, `sha_pinning_required=${tok(b.sha_pinning_required)}`);
     }
@@ -264,6 +308,13 @@ export async function verifyAsOwnerReadonly(c: ReadOnlyClient): Promise<Finding[
       const want = [`${BOT}:write`, `${OWNER}:admin`].sort();
       r.add("collaborators", same(got, want), `direct collaborators [${got.join(", ")}] (expected only [${want.join(", ")}])`);
     }
+  }
+  const inv = await r.get("invitations", `${R}/invitations`);
+  if (inv) r.add("invitations", inv.status === 200 && arr(inv.body).length === 0, inv.status === 200 ? `${arr(inv.body).length} pending invitation(s) (expected none after the bot accepted)` : `status ${tok(inv.status)}`);
+  const co = await r.get("codeowners-errors", `${R}/codeowners/errors`);
+  if (co) {
+    if (co.status !== 200) r.inconclusive("codeowners-errors", `status ${tok(co.status)} (the file exists on the default branch only after this PR is merged)`);
+    else r.add("codeowners-errors", arr(obj(co.body).errors).length === 0, `${arr(obj(co.body).errors).length} CODEOWNERS error(s) on the default branch`);
   }
   return r.out;
 }
@@ -307,8 +358,8 @@ export function httpsTransport(): Transport {
 }
 
 export async function main(argv: string[], env: Record<string, string | undefined>, io: { out: (s: string) => void }, transport: Transport = httpsTransport()): Promise<number> {
-  if (argv.length !== 1 || (argv[0] !== "--as-bot" && argv[0] !== "--as-owner-readonly")) {
-    io.out("usage: verify-github-config.ts --as-bot | --as-owner-readonly   (token in $D24_GH_VERIFY_TOKEN; GET requests only)");
+  if (argv.length !== 1 || (argv[0] !== "--as-bot" && argv[0] !== "--as-app" && argv[0] !== "--as-owner-readonly")) {
+    io.out("usage: verify-github-config.ts --as-bot | --as-app | --as-owner-readonly   (token in $D24_GH_VERIFY_TOKEN; GET requests only)");
     return 2;
   }
   const token = env[TOKEN_ENV];
@@ -317,12 +368,14 @@ export async function main(argv: string[], env: Record<string, string | undefine
     return 2;
   }
   const c = new ReadOnlyClient(transport, token);
-  const findings = argv[0] === "--as-bot" ? await verifyAsBot(c) : await verifyAsOwnerReadonly(c);
+  const findings = argv[0] === "--as-bot" ? await verifyAsBot(c) : argv[0] === "--as-app" ? await verifyAsApp(c) : await verifyAsOwnerReadonly(c);
   const { lines, code } = render(findings);
   for (const l of lines) io.out(l);
   return code;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+// Windows-safe entry test (drive-letter case, separators). If this ever fails to run, the tool prints nothing: the absence of a RESULT: line must be treated as a FAILURE.
+const isEntry = !!process.argv[1] && resolve(process.argv[1]).toLowerCase() === resolve(fileURLToPath(import.meta.url)).toLowerCase();
+if (isEntry) {
   main(process.argv.slice(2), process.env, { out: (s) => void process.stdout.write(`${s}\n`) }).then((c) => void (process.exitCode = c));
 }

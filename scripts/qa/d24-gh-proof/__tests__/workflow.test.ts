@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -135,7 +135,7 @@ describe("secrets and logs", () => {
     expect(run).not.toMatch(/\bcat\b/);
   });
   it("the shell fails fast", () => {
-    expect(doc.defaults?.run?.shell).toBe("bash --noprofile --norc -euo pipefail {0}");
+    expect(doc.defaults?.run?.shell).toBe("/usr/bin/bash --noprofile --norc -euo pipefail {0}");
     for (const s of job.steps) expect(s.shell).toBeUndefined();
   });
   it("only the three plaintext path variables are exported to later steps through GITHUB_ENV", () => {
@@ -305,6 +305,41 @@ describe("review round: workflow identity, input pins, clean environment", () =>
   });
 });
 
+describe("review round 3: host-independent hardening of the runner side", () => {
+  const listing = (names: string[]) => {
+    let s = "";
+    for (const n of names) s += `${createHash("sha256").update(readFileSync(join(REPO, "scripts", "qa", "d24-gh-proof", n), "utf8").replace(/\r\n/g, "\n")).digest("hex")}  ${n}\n`;
+    return createHash("sha256").update(s).digest("hex");
+  };
+  it("the tooling this job executes is pinned (sha256 of the sha256sum listing) and the pin equals the repo", () => {
+    const names = ["encrypt-cli.ts", "evidence-crypto.ts", "summary.ts", "evidence-public-key.pem"];
+    expect(job.env?.D24_PIN_TOOLING_SHA256).toBe(listing(names));
+    const f = stepByName("Fetch exactly").run as string;
+    expect(f).toContain("sha256sum encrypt-cli.ts evidence-crypto.ts summary.ts evidence-public-key.pem | sha256sum");
+    expect(f).toContain('[ "$tooling" = "$D24_PIN_TOOLING_SHA256" ]');
+  });
+  it("the fetch step refuses stray npm/node config files", () => {
+    const f = stepByName("Fetch exactly").run as string;
+    expect(f).toContain("for f in .npmrc scripts/package.json scripts/qa/package.json scripts/qa/d24-gh-proof/package.json");
+    expect(f).toContain('[ ! -e "$f" ]');
+  });
+  it("no such file exists in the repository (so the guard is satisfiable)", () => {
+    for (const f of [".npmrc", "scripts/package.json", "scripts/qa/package.json", "scripts/qa/d24-gh-proof/package.json"]) expect(existsSync(join(REPO, f)), f).toBe(false);
+  });
+  it("bash startup variables are neutralised at job level and the shell and helper binaries are absolute", () => {
+    expect(job.env?.BASH_ENV).toBe("");
+    expect(job.env?.ENV).toBe("");
+    expect(doc.defaults?.run?.shell?.startsWith("/usr/bin/bash ")).toBe(true);
+    const r = stepByName("No stray processes").run as string;
+    for (const bin of ["/usr/bin/id", "/usr/bin/pkill", "/usr/bin/pgrep"]) expect(r).toContain(bin);
+    expect(r).not.toMatch(/(^|[\s(`$])(pkill|pgrep|id)\s/m);
+  });
+  it("CODEOWNERS also covers .npmrc and the nested package.json locations", () => {
+    const co = readFileSync(join(REPO, ".github", "CODEOWNERS"), "utf8");
+    for (const p of ["/.npmrc", "/scripts/package.json", "/scripts/qa/package.json"]) expect(co, p).toContain(`${p} @genxttech`);
+  });
+});
+
 describe("review round: no other workflow may reach the environment or the secret", () => {
   const dir = join(REPO, ".github", "workflows");
   const others = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f) && f !== "d24-stripe-test-proof.yml");
@@ -358,7 +393,7 @@ describe("review round: the owner doc states the preconditions honestly", () => 
     expect(doc).toMatch(/proves integrity, not origin/);
   });
   it("documents the token transition, the fine-grained-token limit, the repo-secret residual and the reconciliation decision", () => {
-    for (const s of ["credential.helper=manager", "gh auth setup-git", "gh auth logout --hostname github.com --user genxttech", "separate approval", "owner's signed-in sessions", "UNVERIFIED and may not be possible", "Workflows permission trade-off", "Residual P2: repository-level secrets", "E2E_SUPABASE_*", "no API to read the request log", "Dashboard glance", "new production-equivalent Express connected account", "separately authorized provisioning workflow", "Require actions to be pinned to a full-length commit SHA", "Prevent self-review", "verify-github-config.ts"]) expect(doc, s).toContain(s);
+    for (const s of ["credential.helper=manager", "gh auth setup-git", "gh auth logout --hostname github.com --user genxttech", "separate approval", "Option A (recommended): a GitHub App", "Option B: a classic personal access token", "3.0 [OWNER] Where owner GitHub actions happen", "never signed in to GitHub in any browser or app on this Windows account", "credential.interactive never", "GCM_INTERACTIVE=never", "3.A0", "Preview", "no 0 fallback", "If the output has no final `RESULT:` line", "cannot be used by a collaborator on another user's repository", "Workflows permission trade-off", "Residual P2 (future risk, not present today)", "0 repository-level Actions secrets", "no API to read the request log", "Dashboard glance", "new production-equivalent Express connected account", "separately authorized provisioning workflow", "Require actions to be pinned to a full-length commit SHA", "Prevent self-review", "verify-github-config.ts"]) expect(doc, s).toContain(s);
   });
   it("tells the owner the required status check and SHA pinning each have a prerequisite that would otherwise block merges or CI", () => {
     expect(doc).toMatch(/pull_request\.paths. filter, so a PR outside the filter never reports the check/);

@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   BOT, ENV_NAME, EXPECTED_RULESET, OWNER, REPO, REQUIRED_CHECK, RULESET_NAME, SECRET_NAME, TOKEN_ENV,
-  ReadOnlyClient, isAllowedPath, main, render, verifyAsBot, verifyAsOwnerReadonly, type Res, type Transport,
+  ACTIONS_APP_ID, ReadOnlyClient, isAllowedPath, main, render, verifyAsApp, verifyAsBot, verifyAsOwnerReadonly, type Res, type Transport,
 } from "../verify-github-config";
 
 // Offline only: a fake transport answers from a table. Nothing here touches the network.
@@ -18,6 +18,10 @@ type Table = Record<string, Res>;
 const botWorld = (): Table => ({
   "/user": { status: 200, body: { login: BOT } },
   [`${R}/collaborators/${BOT}/permission`]: { status: 200, body: { permission: "write", role_name: "write" } },
+  [E]: { status: 200, body: { name: ENV_NAME } },
+  [`${R}/rulesets?includes_parents=false&per_page=100`]: { status: 200, body: [{ id: 77, name: RULESET_NAME }] },
+  [`${R}/rulesets/77`]: { status: 200, body: { id: 77, current_user_can_bypass: "never" } },
+  "/installation/repositories": { status: 200, body: { repositories: [{ full_name: `${OWNER}/${REPO}` }] } },
   [`${R}/actions/secrets`]: { status: 403, body: { message: "Resource not accessible" } },
   [`${R}/actions/permissions`]: { status: 403, body: {} },
   [`${R}/actions/permissions/workflow`]: { status: 403, body: {} },
@@ -37,11 +41,13 @@ const ownerWorld = (): Table => ({
   },
   [`${E}/deployment-branch-policies`]: { status: 200, body: { branch_policies: [{ name: "main", type: "branch" }] } },
   [`${E}/secrets`]: { status: 200, body: { secrets: [{ name: SECRET_NAME }] } },
-  [`${R}/actions/permissions`]: { status: 200, body: { enabled: true, sha_pinning_required: true } },
+  [`${R}/actions/permissions`]: { status: 200, body: { enabled: true, allowed_actions: "selected", sha_pinning_required: true } },
   [`${R}/actions/permissions/workflow`]: { status: 200, body: { default_workflow_permissions: "read", can_approve_pull_request_reviews: false } },
   [`${R}/actions/permissions/fork-pr-contributor-approval`]: { status: 200, body: { approval_policy: "all_external_contributors" } },
   [`${R}/actions/secrets`]: { status: 200, body: { secrets: [{ name: "E2E_SUPABASE_URL" }] } },
   [`${R}/collaborators?affiliation=direct&per_page=100`]: { status: 200, body: [{ login: OWNER, role_name: "admin" }, { login: BOT, role_name: "write" }] },
+  [`${R}/invitations`]: { status: 200, body: [] },
+  [`${R}/codeowners/errors`]: { status: 200, body: { errors: [] } },
 });
 
 function harness(table: Table) {
@@ -136,6 +142,52 @@ describe("--as-bot", () => {
   });
 });
 
+describe("--as-bot / --as-app: review round additions", () => {
+  it("a missing role_name fails closed (the legacy permission field reports maintain as write)", async () => {
+    const w = botWorld();
+    w[`${R}/collaborators/${BOT}/permission`] = { status: 200, body: { permission: "write" } };
+    expect(fails(await verifyAsBot(harness(w).client))).toEqual(["bot-permission"]);
+  });
+  it("a missing environment makes the secrets refusal vacuous: both the existence check and the refusal FAIL", async () => {
+    const w = botWorld();
+    w[E] = { status: 404, body: {} };
+    expect(fails(await verifyAsBot(harness(w).client)).sort()).toEqual(["environment-exists", "refused-environment-secrets"]);
+  });
+  it.each(["always", "pull_request", "exempt", "unknown"])("fails when the caller can bypass the ruleset (%s)", async (v) => {
+    const w = botWorld();
+    (w[`${R}/rulesets/77`] as any).body.current_user_can_bypass = v;
+    expect(fails(await verifyAsBot(harness(w).client))).toEqual(["ruleset-bypass-as-caller"]);
+  });
+  it("fails when the ruleset cannot be found for the bypass check", async () => {
+    const w = botWorld();
+    w[`${R}/rulesets?includes_parents=false&per_page=100`] = { status: 200, body: [] };
+    expect(fails(await verifyAsBot(harness(w).client))).toEqual(["ruleset-bypass-as-caller"]);
+  });
+  it("the app mode passes for an installation scoped to exactly this repository", async () => {
+    const w = botWorld();
+    expect(fails(await verifyAsApp(harness(w).client))).toEqual([]);
+  });
+  it.each([[[]], [[{ full_name: `${OWNER}/${REPO}` }, { full_name: `${OWNER}/other` }]], [[{ full_name: `${OWNER}/other` }]]])("the app mode fails for installation repositories %j", async (repos) => {
+    const w = botWorld();
+    w["/installation/repositories"] = { status: 200, body: { repositories: repos } };
+    expect(fails(await verifyAsApp(harness(w).client))).toEqual(["app-installation-repos"]);
+  });
+  it("the app mode also fails when a settings endpoint is readable or the app can bypass", async () => {
+    const w = botWorld();
+    w[`${R}/actions/secrets`] = { status: 200, body: {} };
+    (w[`${R}/rulesets/77`] as any).body.current_user_can_bypass = "always";
+    expect(fails(await verifyAsApp(harness(w).client)).sort()).toEqual(["refused-repo-secrets", "ruleset-bypass-as-caller"]);
+  });
+  it("the CLI accepts --as-app and sends only GETs", async () => {
+    const lines: string[] = [];
+    const h = harness(botWorld());
+    const code = await main(["--as-app"], { [TOKEN_ENV]: SENTINEL }, { out: (s) => lines.push(s) }, h.transport);
+    expect(code).toBe(0);
+    expect(h.seen.every((s) => s.method === "GET")).toBe(true);
+    expect(lines.at(-1)).toMatch(/^RESULT: /);
+  });
+});
+
 describe("--as-owner-readonly", () => {
   const edit = (mut: (w: Table) => void) => {
     const w = ownerWorld();
@@ -183,6 +235,12 @@ describe("--as-owner-readonly", () => {
     ["deployment branch is not main", (w) => { (w[`${E}/deployment-branch-policies`] as any).body.branch_policies = [{ name: "release/*", type: "branch" }]; }, "environment-branches-main-only"],
     ["environment secret missing", (w) => { (w[`${E}/secrets`] as any).body.secrets = []; }, "environment-secret"],
     ["environment has an extra secret", (w) => { (w[`${E}/secrets`] as any).body.secrets.push({ name: "OTHER" }); }, "environment-secret"],
+    ["thread resolution switched off", (w) => { rule(w, "pull_request").parameters.required_review_thread_resolution = false; }, "ruleset-rule-pull_request"],
+    ["required check source not pinned", (w) => { rule(w, "required_status_checks").parameters.required_status_checks = [{ context: REQUIRED_CHECK }]; }, "ruleset-rule-required_status_checks"],
+    ["required check from another app", (w) => { rule(w, "required_status_checks").parameters.required_status_checks = [{ context: REQUIRED_CHECK, integration_id: ACTIONS_APP_ID + 1 }]; }, "ruleset-rule-required_status_checks"],
+    ["all actions allowed", (w) => { (w[`${R}/actions/permissions`] as any).body.allowed_actions = "all"; }, "actions-allowed-selected"],
+    ["a pending invitation", (w) => { (w[`${R}/invitations`] as any).body = [{ id: 1 }]; }, "invitations"],
+    ["codeowners errors present", (w) => { (w[`${R}/codeowners/errors`] as any).body = { errors: [{ line: 1 }] }; }, "codeowners-errors"],
     ["actions disabled", (w) => { (w[`${R}/actions/permissions`] as any).body.enabled = false; }, "actions-enabled"],
     ["sha pinning not required", (w) => { (w[`${R}/actions/permissions`] as any).body.sha_pinning_required = false; }, "actions-sha-pinning"],
     ["default token is write", (w) => { (w[`${R}/actions/permissions/workflow`] as any).body.default_workflow_permissions = "write"; }, "actions-default-token-read"],
@@ -211,6 +269,19 @@ describe("--as-owner-readonly", () => {
     delete (w[`${R}/actions/permissions`] as any).body.sha_pinning_required;
     const f = await verifyAsOwnerReadonly(harness(w).client);
     expect(f.find((x) => x.id === "actions-sha-pinning")?.status).toBe("INCONCLUSIVE");
+  });
+  it("codeowners errors endpoint unavailable (file not on main yet) is INCONCLUSIVE, never PASS", async () => {
+    const w = ownerWorld();
+    w[`${R}/codeowners/errors`] = { status: 404, body: {} };
+    const f = await verifyAsOwnerReadonly(harness(w).client);
+    expect(f.find((x) => x.id === "codeowners-errors")?.status).toBe("INCONCLUSIVE");
+  });
+  it("unknown pull-request parameters returned by GitHub are reported, not silently accepted", async () => {
+    const w = ownerWorld();
+    rule(w, "pull_request").parameters.require_extra_approval_for_unattributed_changes = false;
+    const f = await verifyAsOwnerReadonly(harness(w).client);
+    expect(fails(f)).toEqual([]);
+    expect(f.find((x) => x.id === "ruleset-rule-pull_request-unknown-params")?.detail).toContain("require_extra_approval_for_unattributed_changes");
   });
   it("additional stricter rule types are reported as INFO, not as a deviation", async () => {
     const w = ownerWorld();
