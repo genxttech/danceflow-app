@@ -393,7 +393,7 @@ describe("review round: the owner doc states the preconditions honestly", () => 
     expect(doc).toMatch(/proves integrity, not origin/);
   });
   it("documents the token transition, the fine-grained-token limit, the repo-secret residual and the reconciliation decision", () => {
-    for (const s of ["credential.helper=manager", "gh auth setup-git", "gh auth logout --hostname github.com --user genxttech", "separate approval", "Option A (recommended): a GitHub App", "Option B: a classic personal access token", "3.0 [OWNER] ACCEPTED RESIDUAL", "deliberately hostile agent", "TEST-only", "When this must be re-opened", "Standing rule (record of the owner's decision)", "Hardware security key on the owner's GitHub account", "sudo-mode", "Notification e-mails to a different device or account the agent cannot read", "does not claim an independent boundary", "credential.interactive never", "GCM_INTERACTIVE=never", "3.A0", "Preview", "no 0 fallback", "If the output has no final `RESULT:` line", "cannot be used by a collaborator on another user's repository", "Workflows permission trade-off", "Residual P2 (future risk, not present today)", "0 repository-level Actions secrets", "no API to read the request log", "Dashboard glance", "new production-equivalent Express connected account", "separately authorized provisioning workflow", "Require actions to be pinned to a full-length commit SHA", "Prevent self-review", "verify-github-config.ts"]) expect(doc, s).toContain(s);
+    for (const s of ["credential.helper=manager", "gh auth setup-git", "gh auth logout --hostname github.com --user genxttech", "separate approval", "Option A (recommended): a GitHub App", "Option B: a classic personal access token", "3.0 [OWNER] ACCEPTED RESIDUAL", "deliberately hostile agent", "TEST-only", "When this must be re-opened", "Standing rule (record of the owner's decision)", "Hardware security key on the owner's GitHub account", "sudo-mode", "After-the-fact audit from another device or account the agent cannot read", "does **not** notify you of your **own** actions", "deployment review history", "Security log", "two hours", "delete every saved github.com password", "The agent identity can never satisfy the approval requirement", "Who merges this PR", "re-opens this branch as a new pull request authored by the agent identity", "recorded one-time owner bypass", "legacy triage", "prerequisite PR 1", "prerequisite PR 2", "Expected non-PASS results", "exit code 3", "By eye, because", "--option a|b", "verified_allowed", "Allow Marketplace actions by verified creators", "does not claim an independent boundary", "credential.interactive never", "GCM_INTERACTIVE=never", "3.A0", "Preview", "no 0 fallback", "If the output has no final `RESULT:` line", "cannot be used by a collaborator on another user's repository", "Workflows permission trade-off", "Residual P2 (future risk, not present today)", "0 repository-level Actions secrets", "no API to read the request log", "Dashboard glance", "new production-equivalent Express connected account", "separately authorized provisioning workflow", "Require actions to be pinned to a full-length commit SHA", "Prevent self-review", "verify-github-config.ts"]) expect(doc, s).toContain(s);
   });
   it("records the owner's accepted-residual decision instead of requiring a separate device, and does not claim an independent boundary", () => {
     expect(doc).not.toMatch(/Every owner GitHub action happens on a separate device/);
@@ -402,6 +402,10 @@ describe("review round: the owner doc states the preconditions honestly", () => 
     expect(doc).toMatch(/never uses\*\* the owner's browser sessions/);
     expect(doc).toMatch(/gh` keyring token, the Git Credential Manager login, SSH keys/);
     expect(doc).toMatch(/live-mode key/);
+    expect(doc).not.toContain("generates a notification the owner receives elsewhere");
+    expect(doc).not.toContain("which a browser-driving agent cannot supply");
+    expect(doc).not.toContain("so a stolen cookie alone cannot reach settings");
+    expect(doc).not.toMatch(/means \*\*no change reaches `main` without the owner\*\*, code-owned or not/);
     expect(doc).toContain("accepted for **TEST-only proofs**");
     expect(doc).toContain("is **not** removed");
     expect(doc).toContain("An independent boundary against a deliberately hostile agent on the owner's Windows account.");
@@ -452,8 +456,11 @@ describe("review round: CODEOWNERS coverage (every boundary path resolves to the
   ])("%s is owned by @genxttech", (f) => {
     expect(ownersOf(f)).toEqual(["@genxttech"]);
   });
-  it("an unrelated source file is not claimed (the matcher is not vacuous)", () => {
-    expect(ownersOf("src/app/page.tsx")).toBeNull();
+  it("the catch-all is the FIRST rule, so every path (including an unrelated source file) is owned and no agent review can satisfy code-owner review alone", () => {
+    expect(rules[0]).toEqual(["*", "@genxttech"]);
+    expect(ownersOf("src/app/page.tsx")).toEqual(["@genxttech"]);
+    expect(ownersOf("docs/anything.md")).toEqual(["@genxttech"]);
+    expect(rules.every((r) => r.length === 2 && r[1] === "@genxttech")).toBe(true);
   });
 });
 

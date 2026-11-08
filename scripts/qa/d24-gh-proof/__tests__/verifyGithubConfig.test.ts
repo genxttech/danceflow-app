@@ -43,6 +43,7 @@ const ownerWorld = (): Table => ({
   [`${E}/secrets`]: { status: 200, body: { secrets: [{ name: SECRET_NAME }] } },
   [`${R}/actions/permissions`]: { status: 200, body: { enabled: true, allowed_actions: "selected", sha_pinning_required: true } },
   [`${R}/actions/permissions/workflow`]: { status: 200, body: { default_workflow_permissions: "read", can_approve_pull_request_reviews: false } },
+  [`${R}/actions/permissions/selected-actions`]: { status: 200, body: { github_owned_allowed: true, verified_allowed: false, patterns_allowed: [] } },
   [`${R}/actions/permissions/fork-pr-contributor-approval`]: { status: 200, body: { approval_policy: "all_external_contributors" } },
   [`${R}/actions/secrets`]: { status: 200, body: { secrets: [{ name: "E2E_SUPABASE_URL" }] } },
   [`${R}/collaborators?affiliation=direct&per_page=100`]: { status: 200, body: [{ login: OWNER, role_name: "admin" }, { login: BOT, role_name: "write" }] },
@@ -65,7 +66,7 @@ describe("allow-list and read-only guarantees", () => {
     const b = harness(botWorld());
     await verifyAsBot(b.client);
     const o = harness(ownerWorld());
-    await verifyAsOwnerReadonly(o.client);
+    await verifyAsOwnerReadonly(o.client, "b");
     for (const s of [...b.seen, ...o.seen]) {
       expect(s.method).toBe("GET");
       expect(isAllowedPath(s.path), s.path).toBe(true);
@@ -96,7 +97,7 @@ describe("allow-list and read-only guarantees", () => {
     const f = await verifyAsBot(c);
     expect(f.every((x) => x.status === "INCONCLUSIVE")).toBe(true);
     expect(JSON.stringify(f)).not.toContain(SENTINEL);
-    expect(render(f).code).toBe(1);
+    expect(render(f).code).toBe(3); // inconclusive only: not a pass, not a failure
   });
 });
 
@@ -198,7 +199,7 @@ describe("--as-owner-readonly", () => {
   const rule = (w: Table, type: string) => (rsBody(w).rules as Record<string, any>[]).find((r) => r.type === type) as Record<string, any>;
 
   it("passes against the expected configuration", async () => {
-    const f = await verifyAsOwnerReadonly(harness(ownerWorld()).client);
+    const f = await verifyAsOwnerReadonly(harness(ownerWorld()).client, "b");
     expect(fails(f)).toEqual([]);
     expect(render(f).code).toBe(0);
     expect(f.length).toBeGreaterThanOrEqual(20);
@@ -252,7 +253,7 @@ describe("--as-owner-readonly", () => {
     ["the bot is an admin", (w) => { (w[`${R}/collaborators?affiliation=direct&per_page=100`] as any).body[1].role_name = "admin"; }, "collaborators"],
   ];
   it.each(cases)("detects: %s", async (_name, mut, id) => {
-    const f = await verifyAsOwnerReadonly(harness(edit(mut)).client);
+    const f = await verifyAsOwnerReadonly(harness(edit(mut)).client, "b");
     expect(fails(f), _name).toContain(id);
     expect(render(f).code).toBe(1);
   });
@@ -260,46 +261,73 @@ describe("--as-owner-readonly", () => {
     const w = ownerWorld();
     w[`${E}/secrets`] = { status: 404, body: {} };
     w[`${R}/actions/permissions`] = { status: 403, body: {} };
-    const f = await verifyAsOwnerReadonly(harness(w).client);
+    const f = await verifyAsOwnerReadonly(harness(w).client, "b");
     expect(f.filter((x) => x.status === "INCONCLUSIVE").map((x) => x.id)).toEqual(expect.arrayContaining(["environment-secret", "actions-permissions"]));
-    expect(render(f).code).toBe(1);
+    expect(render(f).code).toBe(3);
+  });
+  it("exit codes: 0 all passed, 1 when any FAIL (even with inconclusive), 3 inconclusive only", () => {
+    expect(render([{ id: "a", status: "PASS", detail: "" }]).code).toBe(0);
+    expect(render([{ id: "a", status: "PASS", detail: "" }, { id: "b", status: "INCONCLUSIVE", detail: "" }]).code).toBe(3);
+    expect(render([{ id: "a", status: "FAIL", detail: "" }, { id: "b", status: "INCONCLUSIVE", detail: "" }]).code).toBe(1);
+    expect(render([{ id: "b", status: "INCONCLUSIVE", detail: "" }]).lines.at(-1)).toContain("only \"all passed\" is success");
+  });
+  it("option a (GitHub App) expects the owner as the only direct collaborator; option b expects the owner and the bot", async () => {
+    const w = ownerWorld();
+    expect(fails(await verifyAsOwnerReadonly(harness(w).client, "a"))).toEqual(["collaborators"]);
+    const onlyOwner = ownerWorld();
+    (onlyOwner[`${R}/collaborators?affiliation=direct&per_page=100`] as any).body = [{ login: OWNER, role_name: "admin" }];
+    expect(fails(await verifyAsOwnerReadonly(harness(onlyOwner).client, "a"))).toEqual([]);
+    expect(fails(await verifyAsOwnerReadonly(harness(onlyOwner).client, "b"))).toEqual(["collaborators"]);
+  });
+  it("the selected-actions list is read: Marketplace verified creators, a wildcard-all pattern or a non-GitHub-owned-only list fail", async () => {
+    for (const body of [{ github_owned_allowed: true, verified_allowed: true, patterns_allowed: [] }, { github_owned_allowed: true, verified_allowed: false, patterns_allowed: ["*"] }, { github_owned_allowed: true, verified_allowed: false, patterns_allowed: ["*/*"] }, { github_owned_allowed: false, verified_allowed: false, patterns_allowed: [] }, { github_owned_allowed: true, verified_allowed: false, patterns_allowed: [{}] }]) {
+      const w = ownerWorld();
+      (w[`${R}/actions/permissions/selected-actions`] as any).body = body;
+      expect(fails(await verifyAsOwnerReadonly(harness(w).client, "b")), JSON.stringify(body)).toEqual(["actions-selected-list"]);
+    }
+    const w = ownerWorld();
+    (w[`${R}/actions/permissions/selected-actions`] as any).body.patterns_allowed = ["actions/setup-node@*"];
+    expect(fails(await verifyAsOwnerReadonly(harness(w).client, "b"))).toEqual([]);
+    const w2 = ownerWorld();
+    w2[`${R}/actions/permissions/selected-actions`] = { status: 404, body: {} };
+    expect((await verifyAsOwnerReadonly(harness(w2).client, "b")).find((x) => x.id === "actions-selected-list")?.status).toBe("INCONCLUSIVE");
   });
   it("an absent sha_pinning_required field is INCONCLUSIVE, never a silent pass", async () => {
     const w = ownerWorld();
     delete (w[`${R}/actions/permissions`] as any).body.sha_pinning_required;
-    const f = await verifyAsOwnerReadonly(harness(w).client);
+    const f = await verifyAsOwnerReadonly(harness(w).client, "b");
     expect(f.find((x) => x.id === "actions-sha-pinning")?.status).toBe("INCONCLUSIVE");
   });
   it("codeowners errors endpoint unavailable (file not on main yet) is INCONCLUSIVE, never PASS", async () => {
     const w = ownerWorld();
     w[`${R}/codeowners/errors`] = { status: 404, body: {} };
-    const f = await verifyAsOwnerReadonly(harness(w).client);
+    const f = await verifyAsOwnerReadonly(harness(w).client, "b");
     expect(f.find((x) => x.id === "codeowners-errors")?.status).toBe("INCONCLUSIVE");
   });
   it("unknown pull-request parameters returned by GitHub are reported, not silently accepted", async () => {
     const w = ownerWorld();
     rule(w, "pull_request").parameters.require_extra_approval_for_unattributed_changes = false;
-    const f = await verifyAsOwnerReadonly(harness(w).client);
+    const f = await verifyAsOwnerReadonly(harness(w).client, "b");
     expect(fails(f)).toEqual([]);
     expect(f.find((x) => x.id === "ruleset-rule-pull_request-unknown-params")?.detail).toContain("require_extra_approval_for_unattributed_changes");
   });
   it("additional stricter rule types are reported as INFO, not as a deviation", async () => {
     const w = ownerWorld();
     (rsBody(w).rules as any[]).push({ type: "required_linear_history" });
-    const f = await verifyAsOwnerReadonly(harness(w).client);
+    const f = await verifyAsOwnerReadonly(harness(w).client, "b");
     expect(fails(f)).toEqual([]);
     expect(f.find((x) => x.id === "ruleset-extra-rules")?.detail).toContain("required_linear_history");
   });
   it("only names of environment secrets are compared; secret values never appear (no value field is read)", async () => {
     const w = ownerWorld();
     (w[`${E}/secrets`] as any).body.secrets = [{ name: SECRET_NAME, value: "SHOULD-NEVER-APPEAR", created_at: "x" }];
-    const f = await verifyAsOwnerReadonly(harness(w).client);
+    const f = await verifyAsOwnerReadonly(harness(w).client, "b");
     expect(JSON.stringify(f)).not.toContain("SHOULD-NEVER-APPEAR");
   });
   it("hostile free text in responses is never echoed (unrecognised tokens only)", async () => {
     const w = ownerWorld();
     (w[`${R}/actions/permissions/workflow`] as any).body.default_workflow_permissions = "ghp_ABC \n injected line";
-    const f = await verifyAsOwnerReadonly(harness(w).client);
+    const f = await verifyAsOwnerReadonly(harness(w).client, "b");
     const out = render(f).lines.join("\n");
     expect(out).not.toContain("injected line");
     expect(out).toContain("unrecognised");
@@ -314,7 +342,7 @@ describe("CLI", () => {
     return { code, lines, seen: h.seen };
   };
   it("refuses bad usage with exit 2 and sends nothing", async () => {
-    for (const argv of [[], ["--as-bot", "--as-owner-readonly"], ["--post"], ["--as-bot", "extra"], ["--as-owner"]]) {
+    for (const argv of [[], ["--as-bot", "--as-owner-readonly"], ["--as-owner-readonly"], ["--as-owner-readonly", "--option"], ["--as-owner-readonly", "--option", "c"], ["--as-owner-readonly", "--opt", "a"], ["--as-bot", "--option", "a"], ["--post"], ["--as-bot", "extra"], ["--as-owner"]]) {
       const r = await run(argv, { [TOKEN_ENV]: SENTINEL });
       expect(r.code, argv.join(" ")).toBe(2);
       expect(r.seen).toEqual([]);
@@ -334,7 +362,7 @@ describe("CLI", () => {
     expect(r.lines.at(-1)).toMatch(/^RESULT: all \d+ checks passed$/);
     expect(r.lines.join("\n")).not.toContain(SENTINEL);
     expect(r.seen.every((s) => s.token === SENTINEL && s.method === "GET")).toBe(true);
-    const o = await run(["--as-owner-readonly"], { [TOKEN_ENV]: SENTINEL }, ownerWorld());
+    const o = await run(["--as-owner-readonly", "--option", "b"], { [TOKEN_ENV]: SENTINEL }, ownerWorld());
     expect(o.code).toBe(0);
     expect(o.lines.join("\n")).not.toContain(SENTINEL);
   });

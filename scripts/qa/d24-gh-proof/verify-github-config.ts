@@ -56,6 +56,7 @@ const EXACT = new Set<string>([
   `${R}/actions/secrets`,
   `${R}/actions/permissions`,
   `${R}/actions/permissions/workflow`,
+  `${R}/actions/permissions/selected-actions`,
   `${R}/actions/permissions/fork-pr-contributor-approval`,
   `${R}/hooks`,
   `${R}/invitations`,
@@ -181,7 +182,9 @@ function subsetEq(expected: unknown, actual: unknown): boolean {
   return same(expected, actual);
 }
 
-export async function verifyAsOwnerReadonly(c: ReadOnlyClient): Promise<Finding[]> {
+// option "a": the agent identity is a GitHub App (no collaborator besides the owner); option "b": the agent identity is the bot account (a write collaborator).
+export type AgentOption = "a" | "b";
+export async function verifyAsOwnerReadonly(c: ReadOnlyClient, option: AgentOption): Promise<Finding[]> {
   const r = new Run(c);
 
   // 1. ruleset
@@ -274,6 +277,16 @@ export async function verifyAsOwnerReadonly(c: ReadOnlyClient): Promise<Finding[
       else r.add("actions-sha-pinning", b.sha_pinning_required === true, `sha_pinning_required=${tok(b.sha_pinning_required)}`);
     }
   }
+  const sel = await r.get("actions-selected-list", `${R}/actions/permissions/selected-actions`);
+  if (sel) {
+    if (sel.status !== 200) r.inconclusive("actions-selected-list", `status ${tok(sel.status)} (only available when allowed_actions is selected)`);
+    else {
+      const b = obj(sel.body);
+      const pats = arr(b.patterns_allowed).map((x) => (typeof x === "string" ? x : "unrecognised"));
+      const wide = pats.filter((x) => x === "*" || x === "*/*" || x === "unrecognised");
+      r.add("actions-selected-list", b.github_owned_allowed === true && b.verified_allowed === false && wide.length === 0, `github_owned_allowed=${tok(b.github_owned_allowed)} verified_allowed=${tok(b.verified_allowed)} patterns_allowed=${pats.length} entr${pats.length === 1 ? "y" : "ies"}${wide.length ? ", including an all-matching pattern" : ""} (expected GitHub-owned only, no Marketplace verified creators, no wildcard-all pattern)`);
+    }
+  }
   const wf = await r.get("actions-workflow-permissions", `${R}/actions/permissions/workflow`);
   if (wf) {
     if (wf.status !== 200) r.inconclusive("actions-workflow-permissions", `status ${tok(wf.status)}`);
@@ -305,7 +318,7 @@ export async function verifyAsOwnerReadonly(c: ReadOnlyClient): Promise<Finding[
     else {
       const rows = arr(col.body).map(obj);
       const got = rows.map((x) => `${tok(x.login)}:${tok(x.role_name)}`).sort();
-      const want = [`${BOT}:write`, `${OWNER}:admin`].sort();
+      const want = (option === "b" ? [`${BOT}:write`, `${OWNER}:admin`] : [`${OWNER}:admin`]).sort();
       r.add("collaborators", same(got, want), `direct collaborators [${got.join(", ")}] (expected only [${want.join(", ")}])`);
     }
   }
@@ -322,8 +335,11 @@ export async function verifyAsOwnerReadonly(c: ReadOnlyClient): Promise<Finding[
 export function render(findings: Finding[]): { lines: string[]; code: number } {
   const lines = findings.map((f) => `${f.status} ${f.id}: ${f.detail}`);
   const bad = findings.filter((f) => f.status !== "PASS").length;
-  lines.push(bad === 0 ? `RESULT: all ${findings.length} checks passed` : `RESULT: ${bad} of ${findings.length} checks did not pass (FAIL and INCONCLUSIVE both count: fail closed)`);
-  return { lines, code: bad === 0 ? 0 : 1 };
+  const failed = findings.filter((f) => f.status === "FAIL").length;
+  const inconclusive = bad - failed;
+  lines.push(bad === 0 ? `RESULT: all ${findings.length} checks passed` : `RESULT: ${failed} FAIL and ${inconclusive} INCONCLUSIVE of ${findings.length} checks (only "all passed" is success)`);
+  // exit 0 = everything passed; 1 = at least one FAIL; 3 = no FAIL but at least one INCONCLUSIVE (not a pass and not a failure: list them and decide)
+  return { lines, code: failed > 0 ? 1 : inconclusive > 0 ? 3 : 0 };
 }
 
 export function httpsTransport(): Transport {
@@ -358,8 +374,9 @@ export function httpsTransport(): Transport {
 }
 
 export async function main(argv: string[], env: Record<string, string | undefined>, io: { out: (s: string) => void }, transport: Transport = httpsTransport()): Promise<number> {
-  if (argv.length !== 1 || (argv[0] !== "--as-bot" && argv[0] !== "--as-app" && argv[0] !== "--as-owner-readonly")) {
-    io.out("usage: verify-github-config.ts --as-bot | --as-app | --as-owner-readonly   (token in $D24_GH_VERIFY_TOKEN; GET requests only)");
+  const owner = argv[0] === "--as-owner-readonly" && argv.length === 3 && argv[1] === "--option" && (argv[2] === "a" || argv[2] === "b");
+  if (!owner && (argv.length !== 1 || (argv[0] !== "--as-bot" && argv[0] !== "--as-app"))) {
+    io.out("usage: verify-github-config.ts --as-bot | --as-app | --as-owner-readonly --option a|b   (a = GitHub App agent identity, b = bot account; token in $D24_GH_VERIFY_TOKEN; GET requests only; exit 0 all passed, 1 a check failed, 2 usage, 3 inconclusive only)");
     return 2;
   }
   const token = env[TOKEN_ENV];
@@ -368,7 +385,7 @@ export async function main(argv: string[], env: Record<string, string | undefine
     return 2;
   }
   const c = new ReadOnlyClient(transport, token);
-  const findings = argv[0] === "--as-bot" ? await verifyAsBot(c) : argv[0] === "--as-app" ? await verifyAsApp(c) : await verifyAsOwnerReadonly(c);
+  const findings = argv[0] === "--as-bot" ? await verifyAsBot(c) : argv[0] === "--as-app" ? await verifyAsApp(c) : await verifyAsOwnerReadonly(c, argv[2] as AgentOption);
   const { lines, code } = render(findings);
   for (const l of lines) io.out(l);
   return code;
