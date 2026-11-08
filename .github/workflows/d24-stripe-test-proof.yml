@@ -1,0 +1,188 @@
+# D24 M3-D Stripe TEST proof, run as a GitHub Actions job behind a protected environment.
+#
+# DO NOT MERGE OR DISPATCH THIS WORKFLOW until the environment `d24-stripe-test` exists with a required reviewer, a main-only deployment branch policy and the
+# ENVIRONMENT secret D24_PROOF_STRIPE_KEY, and until code-owner review is enforced on main (see docs/billing/D24-GITHUB-ENVIRONMENT-PROOF.md).
+# GitHub creates a missing environment UNPROTECTED the first time a workflow references it.
+#
+# Repository logs and artifacts are PUBLIC: this job prints no evidence, and uploads the evidence only after encrypting it to the committed engineering public key.
+# Nothing in this file is run, created or configured by the agent that wrote it.
+
+name: D24 Stripe TEST proof
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d24-stripe-test-proof
+  cancel-in-progress: false
+
+env:
+  # --- pinned by code review; changing any of these is a reviewed change to this file -------------------------------------------------------------
+  # SHA-256 of scripts/qa/d24-m3d-proof as printed by its own --print-hash (31 files). Any change to that directory changes this value.
+  D24_PINNED_MANIFEST_SHA256: "1454d3984babf1f47fd7d8fc23bb27f2739922ad3a5cbd135df7f4e32c2b316c"
+  # The owner supplies these two ids later. While either still contains PLACEHOLDER the job fails closed before any secret is used.
+  D24_PLATFORM_ACCT_PIN: "acct_PLACEHOLDER_PLATFORM"
+  D24_CONNECTED_ACCT_PIN: "acct_PLACEHOLDER_CONNECTED"
+  # The harness approval sentence (scripts/qa/d24-m3d-proof/identity.ts AUTHORIZATION_PHRASE).
+  D24_APPROVAL_PHRASE: "Approved: D24 M3-D Stripe TEST proof as written"
+  EXPECTED_REPOSITORY: "genxttech/danceflow-app"
+
+jobs:
+  proof:
+    name: Stripe TEST proof
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'genxttech/danceflow-app' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: d24-stripe-test
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Show what is being approved
+        env:
+          RUN_SHA: ${{ github.sha }}
+          RUN_ACTOR: ${{ github.triggering_actor }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## D24 Stripe TEST proof: what this run executes"
+            echo ""
+            echo "- commit SHA: \`${RUN_SHA}\`"
+            echo "- pinned harness manifest SHA-256: \`${D24_PINNED_MANIFEST_SHA256}\`"
+            echo "- dispatched by: ${RUN_ACTOR} (run ${RUN_ID})"
+            echo ""
+            echo "Compare the commit SHA and manifest hash with the message you were sent before approving."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guards (fail closed)
+        env:
+          RUN_REPOSITORY: ${{ github.repository }}
+          RUN_REF: ${{ github.ref }}
+          RUN_EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          [ "$RUN_EVENT" = "workflow_dispatch" ] || { echo "refused: event is not workflow_dispatch"; exit 1; }
+          [ "$RUN_REPOSITORY" = "$EXPECTED_REPOSITORY" ] || { echo "refused: wrong repository"; exit 1; }
+          [ "$RUN_REF" = "refs/heads/main" ] || { echo "refused: ref is not refs/heads/main"; exit 1; }
+          case "$D24_PLATFORM_ACCT_PIN$D24_CONNECTED_ACCT_PIN" in
+            *PLACEHOLDER*) echo "refused: the pinned platform/connected account ids are still placeholders (the owner supplies them in a reviewed change)"; exit 1;;
+          esac
+          [[ "$D24_PLATFORM_ACCT_PIN" =~ ^acct_[A-Za-z0-9]{6,64}$ ]] || { echo "refused: platform account pin is not an acct_ id"; exit 1; }
+          [[ "$D24_CONNECTED_ACCT_PIN" =~ ^acct_[A-Za-z0-9]{6,64}$ ]] || { echo "refused: connected account pin is not an acct_ id"; exit 1; }
+          [ "$D24_PLATFORM_ACCT_PIN" != "$D24_CONNECTED_ACCT_PIN" ] || { echo "refused: platform and connected pins are equal"; exit 1; }
+          [[ "$D24_PINNED_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "refused: manifest pin is not a SHA-256"; exit 1; }
+          echo "guards passed"
+
+      - name: Check out the dispatched commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (SHA to be verified by the reviewer)
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install the fixed Node version
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 (SHA to be verified by the reviewer)
+        with:
+          node-version: "24.14.1"
+          package-manager-cache: false
+
+      - name: Verify checkout, Node version and evidence public key
+        env:
+          RUN_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [ "$(git rev-parse HEAD)" = "$RUN_SHA" ] || { echo "refused: HEAD is not the dispatched commit"; exit 1; }
+          [ -z "$(git status --porcelain)" ] || { echo "refused: working tree is not clean"; exit 1; }
+          [ "$(node -v)" = "v24.14.1" ] || { echo "refused: unexpected Node version"; exit 1; }
+          if grep -q "D24-EVIDENCE-PUBLIC-KEY-PLACEHOLDER" scripts/qa/d24-github-proof/evidence-public-key.pem; then
+            echo "refused: the evidence public key is still the PLACEHOLDER (engineering must commit the real public key first)"; exit 1
+          fi
+
+      - name: Install dependencies (no lifecycle scripts)
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Validate the evidence public key
+        run: |
+          set -euo pipefail
+          node_modules/.bin/tsx scripts/qa/d24-github-proof/cli.ts check-key --key scripts/qa/d24-github-proof/evidence-public-key.pem
+
+      - name: Verify the pinned harness hash
+        run: |
+          set -euo pipefail
+          node_modules/.bin/tsx scripts/qa/d24-m3d-proof/run.ts --print-hash > "$RUNNER_TEMP/d24-hash.txt"
+          actual="$(sed -n 's/^script manifest SHA-256: //p' "$RUNNER_TEMP/d24-hash.txt")"
+          files="$(sed -n 's/^files: //p' "$RUNNER_TEMP/d24-hash.txt")"
+          [ "$actual" = "$D24_PINNED_MANIFEST_SHA256" ] || { echo "refused: harness manifest hash differs from the pin in this workflow"; exit 1; }
+          echo "manifest hash matches the pin ($files files)"
+          echo "- harness manifest verified against the pin ($files files)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dry run (fake client, no network)
+        run: |
+          set -euo pipefail
+          node_modules/.bin/tsx scripts/qa/d24-m3d-proof/run.ts --dry-run > "$RUNNER_TEMP/d24-dryrun.txt" 2>&1 || { echo "dry run failed"; exit 1; }
+          echo "dry run passed"
+
+      - name: Preflight (local checks, no Stripe call)
+        env:
+          D24_PROOF_STRIPE_KEY: ${{ secrets.D24_PROOF_STRIPE_KEY }}
+          D24_PROOF_EXPECT_PLATFORM_ACCT: ${{ env.D24_PLATFORM_ACCT_PIN }}
+          D24_PROOF_EXPECT_CONNECTED_ACCT: ${{ env.D24_CONNECTED_ACCT_PIN }}
+          D24_PROOF_PINNED_SHA256: ${{ env.D24_PINNED_MANIFEST_SHA256 }}
+          D24_PROOF_AUTHORIZATION: ${{ env.D24_APPROVAL_PHRASE }}
+          D24_PROOF_EVIDENCE_DIR: ${{ runner.temp }}/d24-evidence
+        run: |
+          set -euo pipefail
+          echo "::add-mask::${D24_PROOF_STRIPE_KEY}"
+          rc=0
+          node_modules/.bin/tsx scripts/qa/d24-m3d-proof/run.ts --preflight > "$RUNNER_TEMP/d24-preflight.txt" 2>&1 || rc=$?
+          # only the status and check id of each line reach the public log, never the detail
+          awk '/^(OK|FAIL|MANUAL)/ {print $1, $2}' "$RUNNER_TEMP/d24-preflight.txt"
+          [ "$rc" -eq 0 ] || { echo "preflight failed (exit $rc)"; exit 1; }
+
+      - name: Live Stripe TEST proof
+        id: live
+        env:
+          D24_PROOF_STRIPE_KEY: ${{ secrets.D24_PROOF_STRIPE_KEY }}
+          D24_PROOF_EXPECT_PLATFORM_ACCT: ${{ env.D24_PLATFORM_ACCT_PIN }}
+          D24_PROOF_EXPECT_CONNECTED_ACCT: ${{ env.D24_CONNECTED_ACCT_PIN }}
+          D24_PROOF_PINNED_SHA256: ${{ env.D24_PINNED_MANIFEST_SHA256 }}
+          D24_PROOF_AUTHORIZATION: ${{ env.D24_APPROVAL_PHRASE }}
+          D24_PROOF_EVIDENCE_DIR: ${{ runner.temp }}/d24-evidence
+        run: |
+          set -euo pipefail
+          echo "::add-mask::${D24_PROOF_STRIPE_KEY}"
+          rc=0
+          node_modules/.bin/tsx scripts/qa/d24-m3d-proof/run.ts --live > "$RUNNER_TEMP/d24-live-stdout.txt" 2>&1 || rc=$?
+          echo "live run finished with exit code $rc (output is not printed: it is encrypted into the evidence artifact)"
+          exit "$rc"
+
+      - name: Encrypt the evidence
+        if: ${{ always() && steps.live.conclusion != 'skipped' }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/d24-out"
+          node_modules/.bin/tsx scripts/qa/d24-github-proof/cli.ts encrypt \
+            --key scripts/qa/d24-github-proof/evidence-public-key.pem \
+            --evidence-dir "$RUNNER_TEMP/d24-evidence" \
+            --extra "live-stdout.txt=$RUNNER_TEMP/d24-live-stdout.txt" \
+            --extra "preflight.txt=$RUNNER_TEMP/d24-preflight.txt" \
+            --extra "dryrun.txt=$RUNNER_TEMP/d24-dryrun.txt" \
+            --out "$RUNNER_TEMP/d24-out/d24-evidence.enc.json" \
+            --summary "$RUNNER_TEMP/d24-summary.md"
+          cat "$RUNNER_TEMP/d24-summary.md" >> "$GITHUB_STEP_SUMMARY"
+          rm -rf "$RUNNER_TEMP/d24-evidence" "$RUNNER_TEMP/d24-live-stdout.txt" "$RUNNER_TEMP/d24-preflight.txt" "$RUNNER_TEMP/d24-dryrun.txt"
+
+      - name: Upload the encrypted evidence only
+        if: ${{ always() && steps.live.conclusion != 'skipped' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2 (SHA to be verified by the reviewer)
+        with:
+          name: d24-evidence-encrypted-${{ github.run_id }}
+          path: ${{ runner.temp }}/d24-out/d24-evidence.enc.json
+          retention-days: 3
+          if-no-files-found: error

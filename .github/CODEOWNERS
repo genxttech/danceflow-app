@@ -1,0 +1,7 @@
+# Code owners for the D24 Stripe TEST proof infrastructure. These paths run with a real (TEST-mode) Stripe key behind a protected GitHub environment,
+# so changes need the owner's review. The branch/ruleset setting that ENFORCES code-owner review is an owner step (docs/billing/D24-GITHUB-ENVIRONMENT-PROOF.md).
+/.github/CODEOWNERS @genxttech
+/.github/workflows/d24-* @genxttech
+/scripts/qa/d24-m3d-proof/ @genxttech
+/scripts/qa/d24-github-proof/ @genxttech
+/docs/billing/D24-GITHUB-ENVIRONMENT-PROOF.md @genxttech
