@@ -271,4 +271,75 @@ Options to make the boundary real, with the disruption of each:
 | **3. Move the runner and the key to another host or a VM the agent cannot administer** | The scheduled task, the install root, `d24run` (or equivalent), the key and the ledger live on a different machine/VM; the owner's tap and the envelope inbox reach it over a narrow channel. | Strongest: the agent's session does not share an operating system with the key. | Highest: a second machine, a transport for envelopes and evidence, and its own patching. |
 | **4. Accept the current configuration** | Nothing changes. | The runner remains defense in depth against mistakes and unprivileged tampering; **not** a boundary against an agent that can elevate. Any claim of independence must be withheld. | None. |
 
-Recommendation: do not describe the installed runner as independent of the agent until option 1, 2 or 3 is in place and the Windows test plan items U1 to U6 have been run on the real machine. Until then treat each run as supervised and the Dashboard check (D24-REQUEST-RECONCILIATION.md) as the control.
+Owner decision (recorded): the agent will run as a standard user; section 14 is the setup. Recommendation: do not describe the installed runner as independent of the agent until option 1, 2 or 3 is in place and the Windows test plan items U1 to U6 have been run on the real machine. Until then treat each run as supervised and the Dashboard check (D24-REQUEST-RECONCILIATION.md) as the control.
+
+## 14. Standard-user agent setup (owner decision: the engineering agent runs as a non-administrator)
+
+Status: **nothing here has been executed.** The two scripts in `scripts/qa/d24-agent-setup/` are reviewed text; the setup script is a dry run unless the administrator adds `-Apply`. Both parse cleanly under the PowerShell 5.1 parser (parse only, not run), and a static test (`scripts.test.ts`) pins their safety properties. This section replaces option 1 of section 13 with concrete steps; it does not change what section 13 says about the current configuration.
+
+### 14.1 The three accounts
+
+| Account | Kind | Rights | Used for |
+|---|---|---|---|
+| **Owner** (existing, `genx01\mcurt`) | local **Administrator** (UAC split token) | full | the one-time elevated install and enrollment (sections 12.3, 14.3), reviewing and merging, the hardware tap, approvals; **not** used to run the agent |
+| **Agent** (new, for example `agentdev`) | local **standard user** (Users group only; no Administrators, Backup Operators, Power Users, Remote Management Users, Event Log Readers) | modify on its own profile and `C:\Dev\agent-work` only | Claude Code/Desktop, git, node, the repository clones the agent edits and tests |
+| **d24run** (new) | local standard service user, **no interactive or remote logon**, random password nobody keeps, batch-logon right | owns nothing but `state\`, `evidence\`, and the DPAPI blob in `cred\` | the scheduled task that runs `installedcli.ts exec` and holds the Stripe test key |
+
+Three different accounts are required (the setup script refuses otherwise). The owner's account must not be the agent's account, and `d24run` must not be usable to sign in by anyone.
+
+### 14.2 What moves to the agent's profile, and what must NOT be reachable from it
+
+**Moves to the agent account** (done by the owner at the keyboard; engineering prepares no automation for it):
+* repository clones: create fresh clones under `C:\Dev\agent-work\...` (ACL set by the setup script: Administrators and SYSTEM full, the agent modify, nobody else). The owner's existing `C:\Dev\studioapp` and its worktrees stay where they are and must become **unreadable** to the agent (14.4 checks it; the setup script only reports, it never rewrites the owner's ACLs);
+* Claude Code / Claude Desktop sign-in: the agent signs in as itself; the owner's session and its token store (`%APPDATA%`, `%LOCALAPPDATA%` of the owner) stay in the owner's profile;
+* git and `gh` credentials: new credentials created **for the agent account** with the narrowest scope that works (a fine-grained token limited to this repository with no admin, no merge-bypass, no environment/secrets access, no workflow permission unless needed); the owner's `gh` login and any personal access token with wider scope must not be copied;
+* node toolchain: the agent needs its own user-level installs (nvm/volta/portable node or the machine-wide `C:\Program Files\nodejs`, which the installer's pinned `ADMIN_NODE` already uses read-only), and its own `npm`/`tsx` caches in its profile.
+
+**Must NOT be reachable from the agent account:**
+* the owner's profile (`C:\Users\<owner>`), including `AppData\Local\DanceFlow\d24-owner` (owner trust files, hardware anchor state) and `d24-runner`, `.ssh`, `.config\gh`, browser profiles and password stores, Windows Credential Manager of the owner;
+* the owner's repository checkouts (`.env` files, local secrets);
+* write access to `C:\ProgramData\d24-runner` (all of it) and **any** access to `cred\`;
+* the hardware key and the owner's session (the agent cannot tap; only the owner can);
+* a path to administrator rights: no saved administrator credentials, no `runas /savecred`, no membership in a group that can start the installer, and no administrator password in any file or environment the agent can read.
+
+### 14.3 Engineering-prepared artifacts (nothing executed)
+
+* `scripts/qa/d24-agent-setup/Setup-D24StandardUserAgent.ps1` — the owner copies it to an **administrator-owned folder**, starts an elevated `powershell -NoProfile`, and runs it **first without `-Apply`** (a dry run that checks and prints `WOULD ...`; it exits with code 10, never 0), then with `-Apply`. It fails closed (any precondition it cannot evaluate stops it with exit 2 and nothing further changes), is idempotent (it acts only on what differs), puts every change on a visible `Do-Change` line, and refuses to run unless elevated, started with `-NoProfile`, and the script file itself is administrator-owned and not writable by anyone else. It: checks or creates the agent and `d24run` accounts (`-CreateAccounts`; it reads the agent's password as a prompt and generates a random discarded one for `d24run`; it never prints or stores a password), checks that neither is an administrator or a member of the privileged groups and removes an unexpected administrator membership, sets the UAC values of 14.4, creates `C:\Dev\agent-work` with the ACL above, and **reports** (does not change) whether the agent's groups can read the owner's profile, the owner's checkout and `cred\`. It lists as **MANUAL** what it deliberately does not do: the user-rights assignments (deny interactive and remote logon for `d24run`, allow batch logon), the scheduled task, a restart for `EnableLUA`, and moving the agent's work.
+* `scripts/qa/d24-agent-setup/Verify-D24StandardUserAgent.ps1` — run **by the agent account, not elevated**. It exits 0 only if every check ran and passed, 1 on any failure, **3 if it could not evaluate something** (so a missing install root is never reported as a pass).
+* Minimal owner-only steps, in order: (1) read the two scripts (and run `scripts.test.ts`); (2) log in as the owner and run the dry run, read the output; (3) run with `-Apply -CreateAccounts`, enter the agent's password when prompted; (4) apply the MANUAL items; (5) restart if told to; (6) sign in as the agent, set up the clones and credentials of 14.2, run the verification script and send its output; (7) only then follow section 12.3 (bootstrap, install, key entry, enrollment).
+
+### 14.4 UAC setting and the negative tests the verification script runs
+
+Required policy values (`HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System`):
+
+| Value | Required | Meaning |
+|---|---|---|
+| `EnableLUA` | `1` | UAC on |
+| `ConsentPromptBehaviorUser` | **`1`** (or `0`) | standard users are asked for **administrator credentials on the secure desktop** (`1`); `0` automatically denies every elevation request and is stricter. `3` prompts for credentials but **not** on the secure desktop and is not acceptable |
+| `PromptOnSecureDesktop` | `1` | the prompt runs on the secure desktop, where the agent's processes cannot synthesize input into it |
+| `ConsentPromptBehaviorAdmin` | `2` (or `1`) | an administrator session is asked on the secure desktop; `0` (silent) and `5` (non-Windows binaries without prompt on some builds) are not acceptable |
+| `FilterAdministratorToken` | `1` | the built-in Administrator account is also filtered |
+
+Negative tests (the verification script performs the ones marked ●; the others are owner/administrator checks, because they need a second session or administrator rights):
+* ● the token has no Administrators SID **even as deny-only**, runs at Medium integrity or lower, and lacks `SeDebug`, `SeTakeOwnership`, `SeLoadDriver`, `SeBackup`, `SeRestore`, `SeImpersonate`, `SeTcb`;
+* ● the UAC values above;
+* ● create a file in `<root>`, `release\`, `state\`, `evidence\`: refused; open `anchor.json`, `policy.json`, `release.json` for writing: refused;
+* ● list `cred\` and open a file in it: refused;
+* ● list the owner's profile, `AppData\Local\DanceFlow\d24-owner`, `d24-runner`, `.ssh`, `.config\gh`, and the owner's repository checkout: refused;
+* ● no D24 credential in the agent's own Credential Manager; no `NODE_OPTIONS`, CA, or Stripe variables in its session;
+* ○ (owner, as the agent) trigger any UAC prompt and confirm it asks for **administrator credentials on the secure desktop**, then cancel; confirm `runas /user:<owner>` cannot be completed without the password;
+* ○ (administrator) `d24run` cannot log on interactively or over Remote Desktop; its profile is unreadable by the agent;
+* ○ (administrator) the scheduled task's security descriptor lets the owner **start** but not edit/delete it, and the agent neither;
+* ○ (owner) the inbox accepts a new run directory from the owner's account but the agent account cannot create in it;
+* ○ (owner) a deliberate attempt to start the installer as the agent fails at the UAC credential prompt.
+
+### 14.5 Honest list of remaining residuals
+
+1. **The owner's tap and the owner's session are still the trust anchor.** Anything that persuades the owner to type a fingerprint group, tap, or enter administrator credentials (a rogue prompt, a look-alike launcher in the agent's session) is the R1/R2 residual and is only **bounded** by the policy ceilings, TEST-only keys and the Dashboard check.
+2. **The agent can still harm what it legitimately owns:** its clones, branches and PRs on GitHub (with the narrow token), and anything the owner later copies from the agent's folders into an elevated context. The bootstrap rule (12.3 step 0) exists so the elevated installer never runs agent-written code.
+3. **Windows privilege-escalation vulnerabilities.** A standard-user-to-SYSTEM bug defeats everything; the mitigation is patching, which this design does not provide.
+4. **Same-machine side channels** that standard users share: the clipboard, the `Public` profile, `%TEMP%` shared locations, world-writable folders on `C:\`, named pipes and COM objects of the owner's session if the owner is **also logged in** at the same time (fast user switching leaves the owner's processes running; the agent could target them). Log the owner out, or keep the owner's session locked and idle, while the agent works.
+5. **GitHub and Anthropic accounts are separate trust domains:** a token the agent holds is only as safe as its scope; the repository's branch protection (and not this design) stops an unreviewed merge to `main`.
+6. **Untested on the real machine:** every ACL, policy and account behaviour above. The verification script is the first real evidence and its result belongs in the PR before anything depends on the boundary. Items it cannot test are listed in 14.4.
+7. **A domain, Microsoft-account, or Azure AD-joined owner** changes how accounts and SIDs resolve; the setup script stops (fail closed) rather than guessing.
+8. **The owner's convenience cost** is real (two sign-ins, separate credentials, file hand-offs); if it is judged too high, option 3 of section 13 (a separate host) is the next-strongest alternative, and option 4 (accept the current configuration) must be recorded explicitly with its weaker claim.
