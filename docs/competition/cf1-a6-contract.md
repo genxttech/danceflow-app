@@ -1,0 +1,97 @@
+# CF1 package A6 — contract (withdrawal and reinstatement of an advanced couple)
+
+Migration `20270120095000_competition_cf1_a6_withdrawal.sql` (rollback in `rollback/`, suites `sql-tests/test_T_competition_cf1_a6_withdrawal.sql` and `test_T_competition_cf1_a6_concurrency.sh`).
+Design: `callback-to-final-advancement-design.md` (rev 21) §4.3–§4.6, §5 (I7/I8), A.2, A.3, A.9. Stack: HL1 → A1 (`…085000`) → A0 (`…090000`) → **A6 (`…095000`)**. A6 is the **first** CF1 rollback.
+A6 changes **no existing function** (no pins). It adds one table, eleven functions and one trigger.
+
+## What A6 owns / does not own
+
+| Owns | Does not own |
+|---|---|
+| every **writer** of `event_competition_final_withdrawals` (A0 created the table and only reads it); the request table; the four RPCs; `cf1_guard_withdrawn_heat_entry` | the withdrawal table itself, apply's carried-withdrawal handling, the start guard, the correction pre-check (A0); the exclusion action (A5); the app (B) |
+
+## Ownership decision: two halves (read this first)
+
+A0's table requires `requested_by`, `cosigned_by` (`<>` each other, NOT NULL) and `cosigned_role` in **one** row, and an authenticated function can only ever prove one identity (`auth.uid()`). The design allows "a co-sign row **or a two-step request**" (§4.3). A6 therefore keeps A0's table untouched and adds a small insert-only **request** table:
+
+1. **Requester's half** — `withdraw_advanced_entry_from_final` / `reinstate_withdrawn_entry_to_final`: a verified manager records a pending request (early refusal of anything already impossible). **No heat entry or advancement row is touched.**
+2. **Co-signer's half** — `cosign_final_withdrawal_request`: a different person (chair or verified manager) co-signs. Only this call writes `event_competition_final_withdrawals` and changes a heat entry, under the full lock order, with every precondition re-checked.
+
+The co-sign reuses the requester's `request_id` as the withdrawal row's `request_id` (unique in both tables), which is also the idempotency key.
+A pending request has no expiry and no cancellation in A6 (it is harmless: it grants nothing until a co-sign revalidates). An expiry/cancel is a follow-up if B wants one.
+
+## Grants
+
+| Object | Grant |
+|---|---|
+| `withdraw_advanced_entry_from_final(uuid, uuid, text, uuid)`, `reinstate_withdrawn_entry_to_final(uuid, uuid, text, uuid)`, `cosign_final_withdrawal_request(uuid)`, `competition_final_withdrawal_state(uuid)` | `authenticated` only (revoked from `public`, `anon`, `service_role`) |
+| `_cf1_a6_request`, `_cf1_a6_precheck`, `_cf1_a6_pair_state`, `_cf1_a6_current_roster`, `_cf1_a6_on_roster`, `_cf1_a6_active_heat`, `cf1_guard_withdrawn_heat_entry` | **none** |
+| `event_competition_final_withdrawal_requests` | **none** (RLS on, no policy; history triggers `ENABLE ALWAYS`) |
+
+All functions are `SECURITY DEFINER`, `set search_path = public, pg_temp`. The two RPCs that take a lock budget carry `set lock_timeout = '5s'` (request half, co-sign half).
+
+## RPCs
+
+| Signature | Returns | Meaning |
+|---|---|---|
+| `withdraw_advanced_entry_from_final(p_round_id uuid, p_entry_id uuid, p_reason text, p_request_id uuid)` | `jsonb {replayed, state: 'pending'\|'completed', request_id, kind}` | `p_round_id` is the **Final** round. Requester must be `_compe2_round_role = 'manager'` **and** have a verified email. Locks: event lock → Final round `FOR UPDATE`. Replay (before any state check): same round/entry/kind/requester → `replayed: true`; otherwise `COMP_REQUEST_REUSED`. Reason must pass `_cf1_reason_is_substantive` (`COMP_WITHDRAWAL_REASON_WEAK`). Then the shared precheck. |
+| `reinstate_withdrawn_entry_to_final(p_round_id uuid, p_entry_id uuid, p_reason text, p_request_id uuid)` | same | Same authorization/locks/replay; kind `reinstate`. |
+| `cosign_final_withdrawal_request(p_request_id uuid)` | `jsonb {replayed, withdrawal_id, kind, seq, entry_id, heat_entry_id, prior_heat_entry_status}` | Co-signer: `_compe2_round_role` in (`manager`, `chair`) **and** verified email; a different person from the requester (`COMP_WITHDRAWAL_COSIGN_SAME_PERSON`, `42501`). Replay by the same co-signer → `replayed: true`; by anyone else → `COMP_REQUEST_REUSED`. Lock order (A.3): event lock → Final round `FOR UPDATE` → **all** Final heats `FOR UPDATE NOWAIT` (id order) → their heat entries `FOR UPDATE` (id order) → the entry `FOR SHARE`; then the precheck in fresh statements; `seq = coalesce(max(seq),0)+1` read under the round lock; the row; then the heat entry status. `55P03`/`40P01` → `COMP_ADVANCEMENT_CONCURRENT_CHANGE` (`55P03`, retryable). |
+| `competition_final_withdrawal_state(p_round_id uuid)` | `jsonb {withdrawn: [{entry_id, withdrawal_id}], pending: [{request_id, kind, entry_id, requested_by, reason, at}]}` | Read only, no locks; manager or chair with a verified email. Added so B can list pending requests (without it a co-signer cannot find the request id). |
+
+### What a completed withdrawal does
+
+* Writes **one** `event_competition_final_withdrawals` row (`kind='withdraw'`, `cosigned_role` = the co-signer's role, `heat_entry_id`/`prior_heat_entry_status` from the Final's **active** (non-cancelled) heat while an advancement is active, else null).
+* If the couple has a `scheduled`/`checked_in` heat entry in the active heat: sets **only** that row to `scratched` (status-only update). An already `scratched` row is left as is and recorded with `prior_heat_entry_status = 'scratched'` (U49). A row in any other status (`danced`, `disqualified`) is refused `COMP_WITHDRAWAL_PRIOR_STATUS`.
+* Never touches the callback heat entries, the advancement rows, `entries.status` / `eligibility_status`, or the registration. Allowed with **no** advancement (between a revoke and the next apply): the row is written alone (§4.4).
+
+### What a completed reinstatement does
+
+* Refused unless the pair's effective state is `withdraw` (`COMP_WITHDRAWAL_NOT_ACTIVE`), and refused `COMP_ADVANCEMENT_REINSTATE_PRIOR_SCRATCH` when the withdrawal's `prior_heat_entry_status = 'scratched'` (the earlier scratch is not undone).
+* Refused `COMP_WITHDRAWAL_ENTRY_UNAVAILABLE` when predicate P (`_cf1_entry_unavailable`) is true or the entry is not in the Final's `(event, program, division)`.
+* **OD-18 A, no heat entry is ever inserted.** While an **active Final heat** exists the couple must still have its scratched row there (it is un-scratched to the stored prior status), else `COMP_ADVANCEMENT_REINSTATE_NO_HEAT_ENTRY` (carried couple of generation 2: U48 a). With **no** active advancement/heat (after a revoke) the reinstatement writes **only its row** (`heat_entry_id` null, prior null) and touches nothing in the cancelled earlier-generation heat (U62); the next apply includes the couple only if the corrected callback still advances them (U48 b).
+* The row is inserted **before** the un-scratch, so it is the highest `seq` and the guard no longer treats the pair as withdrawn.
+
+### Shared preconditions (request half and co-sign half, in this order)
+
+`COMP_WITHDRAWAL_NOT_CALLBACK_FINAL` · entry not of the event → `COMP_WITHDRAWAL_NOT_ON_ROSTER` · Final not `draft`/`scheduled`, or any Final heat `staging/active/complete` → `COMP_ADVANCEMENT_FINAL_STARTED` · any ballot on the Final → `COMP_WITHDRAWAL_BALLOTS` · any non-cancelled Final heat with `lock_state <> 'open'` → `COMP_ADVANCEMENT_FINAL_LOCKED` · then kind-specific. Withdraw: `COMP_WITHDRAWAL_ALREADY`; on the roster (some advancement of the round, or the latest callback result's advanced rows) else `COMP_WITHDRAWAL_NOT_ON_ROSTER`; heat-entry status; **OD-15 A minimum**: `_cf1_count_available_entries(current roster − effective withdrawals − this couple) < 2` → `COMP_ADVANCEMENT_BELOW_MINIMUM`. "Current roster" = the active advancement's list, else the latest callback result version's `advanced = true` rows (between a revoke and the next apply the roster is not final; apply re-checks the minimum and is authoritative).
+
+## Guard `cf1_guard_withdrawn_heat_entry` (I8)
+
+`BEFORE INSERT OR UPDATE OF status, entry_id, heat_id OR DELETE ON event_competition_heat_entries FOR EACH ROW`, **`ENABLE ALWAYS`**, **`VOLATILE`**, definer, no error swallowing. The round of a row is the round of its heat. A pair is **withdrawn** when its highest-`seq` row is `withdraw`. Refuses (`COMP_WITHDRAWAL_GUARD`, `42501`), at any time, before and after the start, for every role:
+
+* UPDATE moving a withdrawn pair's row **out of `scratched`**; UPDATE of `entry_id`/`heat_id` of a withdrawn pair's row; UPDATE re-pointing a row **at** a withdrawn entry;
+* INSERT of a heat entry for a withdrawn pair into **any** heat of that round (also defence in depth against apply);
+* DELETE of a withdrawn pair's row, except when the event or the heat is going away (cascade; the FK `final_withdrawals.heat_entry_id` NO ACTION backstops a direct heat delete).
+
+The only way out is the pair's effective state ceasing to be `withdraw`, i.e. a reinstatement row of the same transaction being the highest `seq` (an authorized reinstatement). A status change **into** `scratched` is always allowed (it is the withdrawal's own write). A0's `cf1_guard_final_heat_entry` (insert / `heat_id`, `entry_id`) fires first alphabetically for those columns; both must pass.
+
+Residuals (unchanged by A6, recorded): table owner / superuser can `DISABLE TRIGGER`; `TRUNCATE` is not seen by a row trigger (U46 is A1's hosted-privilege gate); `session_replication_role = replica` **is** covered (`ENABLE ALWAYS`, U52).
+
+## Request table `event_competition_final_withdrawal_requests`
+
+`id`, `event_id` (→ `events` cascade), `target_round_id`, `entry_id`, `kind` (`withdraw`/`reinstate`), `reason` (3–500), `requested_by`, `request_id` (unique), `transaction_id` (default `txid_current()`), `at`. Composite FKs `(target_round_id, event_id)` → rounds and `(entry_id, event_id)` → entries, both `NO ACTION`. Insert-only (`protect_competition_history_evidence`, row + truncate, `ENABLE ALWAYS`), RLS on, no policies, no grants. Index `(target_round_id, entry_id)`.
+
+## Error codes (SQLSTATE `P0001` unless stated)
+
+New: `COMP_WITHDRAWAL_NOT_CALLBACK_FINAL`, `COMP_WITHDRAWAL_NOT_ON_ROSTER`, `COMP_WITHDRAWAL_ALREADY`, `COMP_WITHDRAWAL_NOT_ACTIVE`, `COMP_WITHDRAWAL_BALLOTS`, `COMP_WITHDRAWAL_PRIOR_STATUS`, `COMP_WITHDRAWAL_ENTRY_UNAVAILABLE`, `COMP_WITHDRAWAL_REASON_WEAK`, `COMP_WITHDRAWAL_REQUEST_NOT_FOUND`, `COMP_WITHDRAWAL_COSIGN_SAME_PERSON` (`42501`), `COMP_WITHDRAWAL_GUARD` (`42501`).
+Reused: `COMP_FORBIDDEN` (`42501`), `COMP_REQUEST_ID_REQUIRED`, `COMP_REQUEST_REUSED`, `COMP_ADVANCEMENT_FINAL_STARTED`, `COMP_ADVANCEMENT_FINAL_LOCKED`, `COMP_ADVANCEMENT_BELOW_MINIMUM`, `COMP_ADVANCEMENT_REINSTATE_NO_HEAT_ENTRY`, `COMP_ADVANCEMENT_REINSTATE_PRIOR_SCRATCH`, `COMP_ADVANCEMENT_CONCURRENT_CHANGE` (`55P03`, retryable; also raised for `40P01`).
+
+## Rollback
+
+`rollback/…095000_…_rollback.sql` is the **first** CF1 rollback. It locks both tables, **refuses if any withdrawal row or request row exists** (roll forward), refuses if another function still references an A6 object, then drops the trigger, the eleven functions and the request table. It leaves A0's table and apply untouched.
+
+## Verified against the real SQL (not the design text)
+
+A0 table columns, checks and FKs, `_cf1_withdrawn_entries`, `_cf1_active_advancement`, apply's carried handling and the start guard's roster/minimum, `_compe2_round_role` (manager before the verified-email check, chair/scorer need it), `can_manage_event_competition`, `protect_competition_history_evidence`'s event-gone exception, A1's `_cf1_count_available_entries` / `_cf1_entry_unavailable(_reason)` / `_cf1_is_callback_final`, `open_competition_round_correction` (F2) as the revoke trigger. Re-check this file if A0's contract changes: the names `event_competition_final_withdrawals` columns, `_cf1_withdrawn_entries`, `_cf1_active_advancement`, `_cf1_callback_source`, `_cf1_reason_is_substantive` are load-bearing.
+
+## Not delivered / follow-ups
+
+* "Not anyone who files a replacement ballot" (OD-19 D's inherited clause) is **vacuous** here: a withdrawal is refused once the Final has any ballot (`COMP_WITHDRAWAL_BALLOTS`). It matters for the OD-13 judge-entry correction (A0b / A5).
+* Pending-request expiry/cancel, a UI list beyond `competition_final_withdrawal_state`, an audit-log projection of withdrawals (`competition_audit_log`): not in A6.
+* The `lock_competition_round_ballots` cross-check for a withdrawn pair on the roster (OD-17 D third leg, §4.5) belongs to A2.
+
+## Independent review (read-only subagent): no P0/P1
+
+Fixed: reinstate precheck now also requires the active heat entry to be the row the withdrawal recorded, with a restorable prior status (no stuck-pending request).
+Accepted and recorded (P2/P3): requester authority is not re-checked at co-sign and requests do not expire or cancel (follow-up with B); the guard reads in the caller's snapshot, so REPEATABLE READ/SERIALIZABLE writers are outside its guarantee (PostgREST is READ COMMITTED; U51 covers that); the DELETE "heat gone" exemption relies on the withdrawals FK, which does not fire under `session_replication_role = replica`; withdrawn rows in cancelled heats cannot be cleaned up; co-sign returns REQUEST_NOT_FOUND before the role check (uuid probe, negligible).

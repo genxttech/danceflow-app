@@ -10,7 +10,7 @@
  * `STUDIO_ENGINES_BY_ID.map((id) => adaptStudioEngine(STUDIO_ENGINES[id]))`. Until then the action reports
  * COMP_ENGINE_NOT_AVAILABLE. A test-only stub lives in __tests__/stubEngine.ts and is never imported by application code.
  */
-import type { EvidenceInput } from "./evidence";
+import type { EvidenceExclusionReason, EvidenceInput } from "./evidence";
 
 export type EngineRow = {
   entryId: string;
@@ -53,7 +53,7 @@ export type StudioEngineInputShape = {
   judges: Array<{ officialId: string; letter: string }>;
   marks: Array<{ officialId: string; entryId: string; role?: "leader" | "follower" | null; value: unknown }>;
   context: {
-    excludedEntries: Array<{ entryId: string; reason: "scratched" | "no_show" }>;
+    excludedEntries: Array<{ entryId: string; reason: EvidenceExclusionReason }>;
     heats: Array<{ heatId: string; officialIds: string[]; entryIds: string[] }>;
     danceIds: string[];
     chiefJudgeTiebreak: boolean;
