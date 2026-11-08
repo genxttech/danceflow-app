@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { createClient } from "@/lib/supabase/server";
 import { signOutAction } from "@/app/(auth)/actions";
+import { safePlatformReturnPath, stepUpMessage } from "@/lib/auth/platform-assurance";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -49,12 +50,16 @@ export default async function PlatformMfaChallengePage({
 
   const resolvedSearchParams = (await searchParams) ?? {};
   const error = getSingleSearchParam(resolvedSearchParams.error);
+  // step-up: an action was refused for assurance. An already-aal2 session must still be allowed to verify again (the 15-minute window).
+  const stepUp = getSingleSearchParam(resolvedSearchParams.stepup) === "1";
+  const returnTo = stepUp ? safePlatformReturnPath(getSingleSearchParam(resolvedSearchParams.next)) : "/platform";
+  const stepUpNotice = stepUp ? stepUpMessage(getSingleSearchParam(resolvedSearchParams.reason)) : null;
 
   const supabase = await createClient();
 
   const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
 
-  if (aalData?.currentLevel === "aal2") {
+  if (aalData?.currentLevel === "aal2" && !stepUp) {
     redirect("/platform");
   }
 
@@ -78,9 +83,13 @@ export default async function PlatformMfaChallengePage({
 
     const factorId = String(formData.get("factorId") ?? "").trim();
     const code = normalizeCode(formData.get("code"));
+    const stepUpForm = String(formData.get("stepup") ?? "") === "1";
+    const nextPath = stepUpForm ? safePlatformReturnPath(formData.get("next")) : "/platform";
+    const back = (errorCode: string) =>
+      `/platform-mfa/challenge?error=${errorCode}&stepup=${stepUpForm ? "1" : "0"}&next=${encodeURIComponent(nextPath)}`;
 
     if (!factorId || !code) {
-      redirect("/platform-mfa/challenge?error=missing_code");
+      redirect(back("missing_code"));
     }
 
     const supabase = await createClient();
@@ -91,10 +100,10 @@ export default async function PlatformMfaChallengePage({
     });
 
     if (error) {
-      redirect("/platform-mfa/challenge?error=invalid_code");
+      redirect(back("invalid_code"));
     }
 
-    redirect("/platform");
+    redirect(nextPath);
   }
 
   return (
@@ -110,6 +119,12 @@ export default async function PlatformMfaChallengePage({
           Enter the current 6-digit code from your authenticator app to continue to the platform admin portal.
         </p>
 
+        {stepUpNotice && !error ? (
+          <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-900" role="status">
+            {stepUpNotice}
+          </div>
+        ) : null}
+
         {error ? (
           <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-800">
             {error === "missing_code"
@@ -120,6 +135,8 @@ export default async function PlatformMfaChallengePage({
 
         <form action={verifyMfaChallengeAction} className="mt-8 space-y-4">
           <input type="hidden" name="factorId" value={defaultFactor.id} />
+          <input type="hidden" name="stepup" value={stepUp ? "1" : "0"} />
+          <input type="hidden" name="next" value={returnTo} />
           <div>
             <label htmlFor="code" className="block text-sm font-semibold text-slate-800">
               Authenticator Code
@@ -144,7 +161,7 @@ export default async function PlatformMfaChallengePage({
             type="submit"
             className="w-full rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
           >
-            Verify and open platform admin
+            {stepUp ? "Verify and continue" : "Verify and open platform admin"}
           </button>
         </form>
 
