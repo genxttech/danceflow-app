@@ -37,7 +37,6 @@ const SENDER_B = "+15550108888";
 const SERVICE_A = `MG${"a1".repeat(16)}`;
 const SERVICE_B = `MG${"b2".repeat(16)}`;
 const EMPTY_TWIML = "<Response></Response>";
-const ORDINARY_REPLY = "Thanks for your message. Please contact the studio directly if you need help.";
 
 function createFakeSupabase(seed: Record<string, FakeRow[]> = {}) {
   const registration = (studioId: string, sid: string, sender: string): FakeRow => ({
@@ -49,7 +48,7 @@ function createFakeSupabase(seed: Record<string, FakeRow[]> = {}) {
     registration_status: "approved",
   });
 
-  return createBaseFake({
+  const db = createBaseFake({
     studios: [
       { id: STUDIO_A, name: "Harbor Dance Studio" },
       { id: STUDIO_B, name: "Lakeside Ballroom" },
@@ -60,6 +59,9 @@ function createFakeSupabase(seed: Record<string, FakeRow[]> = {}) {
     ],
     ...seed,
   });
+  // TW-4F D3/D2: the per-sender reply counter answers "allowed" unless a test overrides it
+  db.overrideRpc("tw4_inbound_reply_allowed", () => ({ data: true, error: null }));
+  return db;
 }
 
 const ENV_KEYS = ["TWILIO_AUTH_TOKEN", "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"] as const;
@@ -124,6 +126,10 @@ function byId() {
   return Object.fromEntries(
     fake.current!.rows("sms_contact_permissions").map((row) => [String(row.id), row]),
   );
+}
+
+function consentCalls() {
+  return fake.current!.rpcCalls.filter((call) => call.name === "record_sms_inbound_opt_event");
 }
 
 function consentMutations() {
@@ -316,7 +322,7 @@ describe("Twilio-handled keywords never produce a second message on any path", (
 
     const response = await POST(inboundRequest("hello", { optOutType: "SOMETHING_NEW" }));
 
-    expect(await response.text()).toContain(ORDINARY_REPLY);
+    expect(await response.text()).toBe(EMPTY_TWIML);
     expect(consentMutations()).toHaveLength(0);
   });
 });
@@ -342,13 +348,13 @@ describe("fallback parsing without OptOutType (Advanced Opt-Out absent or miscon
   });
 
   it.each(["please stop", "STOP NOW", "stop texting me", "I want to cancel my lesson", "end of class?"])(
-    "%j is an ordinary message (exact-message semantics)",
+    "%j is an ordinary message (exact-message semantics) and gets no automatic reply",
     async (body) => {
       fake.current = createFakeSupabase({ sms_contact_permissions: [permission({ id: "a" })] });
 
       const response = await POST(inboundRequest(body));
 
-      expect(await response.text()).toBe(`<Response><Message>${ORDINARY_REPLY}</Message></Response>`);
+      expect(await response.text()).toBe(EMPTY_TWIML);
       expect(consentMutations()).toHaveLength(0);
     },
   );
@@ -371,7 +377,7 @@ describe("fallback parsing without OptOutType (Advanced Opt-Out absent or miscon
     expect(consentMutations()).toHaveLength(0);
   });
 
-  it("an unrouted fallback keyword keeps the truthful unrouted reply", async () => {
+  it("an unrouted fallback keyword keeps the truthful unrouted reply when the counter allows it", async () => {
     fake.current = createFakeSupabase({ sms_contact_permissions: [permission({ id: "a" })] });
 
     const response = await POST(inboundRequest("STOP", { to: "+15550107777" }));
@@ -381,14 +387,14 @@ describe("fallback parsing without OptOutType (Advanced Opt-Out absent or miscon
   });
 });
 
-describe("ordinary inbound messages are not silenced", () => {
-  it("a non-keyword reply still gets the truthful contact-the-studio response", async () => {
+describe("ordinary inbound messages get no automatic reply", () => {
+  it("an ordinary message gets no automatic reply but is still logged for the studio", async () => {
     fake.current = createFakeSupabase({ sms_contact_permissions: [permission({ id: "a" })] });
 
     const response = await POST(inboundRequest("Can I move my lesson to Friday?"));
     const xml = await response.text();
 
-    expect(xml).toBe(`<Response><Message>${ORDINARY_REPLY}</Message></Response>`);
+    expect(xml).toBe(EMPTY_TWIML);
     expect(consentMutations()).toHaveLength(0);
     expect(fake.current.rows("sms_message_logs")).toMatchObject([
       { studio_id: STUDIO_A, direction: "inbound", message_type: "message" },
@@ -447,7 +453,7 @@ describe("TW-2: inbound consent goes through the canonical consent function", ()
     const response = await POST(inboundRequest("STOP", { to: SENDER_A, serviceSid: SERVICE_A }));
 
     expect(await response.text()).toContain(xmlEscape(buildSmsStopReply("Harbor Dance Studio")));
-    expect(fake.current.rpcCalls).toEqual([
+    expect(consentCalls()).toEqual([
       { name: "record_sms_inbound_opt_event", args: { p_studio_id: STUDIO_A, p_phone_e164: PHONE, p_event: "stop" } },
     ]);
     expect(fake.current.rows("sms_contact_permissions")).toMatchObject([
@@ -483,7 +489,7 @@ describe("TW-2: inbound consent goes through the canonical consent function", ()
     const response = await POST(inboundRequest("START"));
 
     expect(await response.text()).toContain(xmlEscape(buildSmsStartNoPriorConsentReply("Harbor Dance Studio")));
-    expect(fake.current.rpcCalls.map((call) => call.args.p_event)).toEqual(["stop", "start"]);
+    expect(consentCalls().map((call) => call.args.p_event)).toEqual(["stop", "start"]);
     expect(fake.current.rows("sms_contact_permissions")).toMatchObject([
       { client_id: null, consent_status: "unknown", opted_out_at: null },
     ]);
@@ -509,7 +515,7 @@ describe("TW-2: inbound consent goes through the canonical consent function", ()
 
     await POST(inboundRequest(body, options));
 
-    expect(fake.current.rpcCalls).toHaveLength(0);
+    expect(consentCalls()).toHaveLength(0);
     expect(consentMutations()).toHaveLength(0);
   });
 

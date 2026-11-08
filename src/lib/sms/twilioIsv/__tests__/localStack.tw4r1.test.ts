@@ -12,6 +12,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+// real SQL over HTTP and a multi-pass admin journey: more than the 5 s default per test
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
+
 const state = vi.hoisted(() => ({ ctx: null as null | { supabase: unknown; user: { id: string }; studioId: string; studioRole: string | null; isPlatformAdmin: boolean }, admin: null as unknown }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/auth/serverRoleGuard", () => ({ getCurrentUserStudioContext: async () => state.ctx }));
@@ -21,8 +24,9 @@ import { saveSmsSetupAction, submitSmsSetupAction } from "@/app/app/settings/sms
 import { getStudioSmsStatus, setPilotAccess } from "@/lib/sms/onboarding/client";
 import type { IsvConfig } from "../config";
 import { FakeIsvAdapter } from "../fake";
-import { refreshBrandStatus, runBrandSubmission, STEPS } from "../runner";
+import { refreshBrandStatus, runBrandSubmission, STEPS, type RunResult } from "../runner";
 import { SupabaseRunnerStore } from "../store";
+import { LegacyAccountStore } from "./legacyAccountStore";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -56,7 +60,7 @@ function sign(payload: Record<string, unknown>) {
 }
 const anonKey = () => (enabled ? sign({ iss: "supabase-demo", role: "anon", exp: 1983812996 }) : "");
 const serviceKey = () => (enabled ? sign({ iss: "supabase-demo", role: "service_role", exp: 1983812996 }) : "");
-const userToken = (sub: string) => sign({ sub, role: "authenticated", aud: "authenticated", exp: Math.floor(Date.now() / 1000) + 3600 });
+const userToken = (sub: string) => sign({ sub, role: "authenticated", aud: "authenticated", aal: "aal2", exp: Math.floor(Date.now() / 1000) + 3600 });
 function client(token: string | null, key = anonKey()): SupabaseClient {
   return createClient(URL_, key, { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: token ? { Authorization: `Bearer ${token}` } : {} } });
 }
@@ -99,7 +103,7 @@ describe.skipIf(!enabled)("TW-4 R1 runner against the local QA stack (real SQL f
     process.env.SMS_EIN_ENCRYPTION_KEY = randomBytes(32).toString("base64");
     delete process.env.SMS_EIN_ENCRYPTION_KEY_ID;
     state.admin = client(null, serviceKey());
-    store = new SupabaseRunnerStore(state.admin as SupabaseClient);
+    store = new LegacyAccountStore(state.admin as SupabaseClient);
     psqlFile(readFileSync(join(__dirname, "localStackFixturesR1.sql"), "utf8"));
     await setPilotAccess(as("padmin") as never, A, true, "R1 local e2e");
     await store.setWindow(A, U.padmin, 24, "R1 local e2e");
@@ -116,8 +120,18 @@ describe.skipIf(!enabled)("TW-4 R1 runner against the local QA stack (real SQL f
     delete process.env.SMS_EIN_ENCRYPTION_KEY;
   });
 
-  const run = (over: { confirmFee?: boolean; actor?: string; studio?: string } = {}) =>
-    runBrandSubmission({ store, adapter, config, studioId: over.studio ?? A, actorId: over.actor ?? U.padmin, confirmFee: over.confirmFee ?? true });
+  // The production runner stops once at each submission (TW-4F-1) so the admin can read the evaluation: this helper plays the admin,
+  // re-running with the same confirmations after every ":review" stop and merging the steps run.
+  const run = async (over: { confirmFee?: boolean; actor?: string; studio?: string } = {}) => {
+    const merged: RunResult["stepsRun"] = [];
+    let result!: RunResult;
+    for (let pass = 0; pass < 4; pass++) {
+      result = await runBrandSubmission({ store, adapter, config, studioId: over.studio ?? A, actorId: over.actor ?? U.padmin, confirmFee: over.confirmFee ?? true, confirmSubmit: ["S11", "T6"] });
+      merged.push(...result.stepsRun);
+      if (result.outcome !== "waiting_submission_confirmation" || !String(result.detail).endsWith(":review")) break;
+    }
+    return { ...result, stepsRun: merged };
+  };
 
   it("the runner functions are service-role only: the API roles cannot call them", async () => {
     for (const c of [client(null), as("owner_a"), as("padmin")]) {

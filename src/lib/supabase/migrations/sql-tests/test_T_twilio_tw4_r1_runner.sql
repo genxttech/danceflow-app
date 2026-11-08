@@ -28,7 +28,7 @@ begin begin execute p_sql; return 'ok'; exception when others then return sqlsta
 create or replace function pg_temp.run_as(p_role text, p_user uuid, p_sql text) returns text language plpgsql as $$
 declare v text;
 begin
-  perform set_config('request.jwt.claims', case when p_user is null then '' else json_build_object('sub', p_user, 'role', p_role)::text end, true);
+  perform set_config('request.jwt.claims', case when p_user is null then '' else json_build_object('sub', p_user, 'role', p_role, 'aal', 'aal2')::text end, true);
   begin execute format('set local role %I', p_role); execute p_sql; v := 'ok';
   exception when others then v := sqlstate || ' ' || sqlerrm; end;
   execute 'reset role';
@@ -39,7 +39,7 @@ end $$;
 create or replace function pg_temp.val_as(p_role text, p_user uuid, p_sql text) returns text language plpgsql as $$
 declare v text;
 begin
-  perform set_config('request.jwt.claims', case when p_user is null then '' else json_build_object('sub', p_user, 'role', p_role)::text end, true);
+  perform set_config('request.jwt.claims', case when p_user is null then '' else json_build_object('sub', p_user, 'role', p_role, 'aal', 'aal2')::text end, true);
   begin execute format('set local role %I', p_role); execute p_sql into v;
   exception when others then v := 'ERR ' || sqlstate || ' ' || sqlerrm; end;
   execute 'reset role';

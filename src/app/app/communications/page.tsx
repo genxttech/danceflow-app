@@ -18,6 +18,7 @@ import CommunicationsWorkspaceHeader from "@/components/app/communications/Commu
 import CommunicationsWorkspaceEmptyState from "@/components/app/communications/CommunicationsWorkspaceEmptyState";
 import CommunicationsWorkspaceFeedback from "@/components/app/communications/CommunicationsWorkspaceFeedback";
 import { describeDeliveryNoteForStaff } from "@/lib/notifications/deliveryOutcome";
+import { STAFF_VISIBLE_DELIVERY_OR_FILTER, isStaffVisibleDeliveryTemplate } from "@/lib/sms/providerFeeAlerts/staffVisibility";
 
 type SearchParams = Promise<{ view?: string; success?: string; error?: string }>;
 
@@ -227,6 +228,7 @@ export default async function CommunicationsPage({
         "id, recipient_email, subject, status, error_message, template_key, created_at, sent_at",
       )
       .eq("studio_id", studioId)
+      .or(STAFF_VISIBLE_DELIVERY_OR_FILTER)
       .order("created_at", { ascending: false })
       .limit(150),
   ]);
@@ -255,7 +257,7 @@ export default async function CommunicationsPage({
   const smsMessages = (smsResult.data ?? []) as SmsMessageRow[];
   const consents = (consentResult.data ?? []) as SmsPermissionRow[];
   const campaigns = (campaignsResult.data ?? []) as CampaignRow[];
-  const deliveries = (deliveriesResult.data ?? []) as DeliveryRow[];
+  const deliveries = ((deliveriesResult.data ?? []) as DeliveryRow[]).filter((row) => isStaffVisibleDeliveryTemplate(row.template_key));
 
   const clientsById = new Map(clients.map((client) => [client.id, client]));
   const latestConsentByClientId = new Map<string, SmsPermissionRow>();

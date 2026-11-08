@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { RunnerInputs } from "./payloads";
 import type { IsvStepKey } from "./types";
+import { parseLocationFeeKinds, type LocationFeeKinds } from "./registrationPath";
 
 /**
  * TW-4 R1: the runner's persistence boundary. The Supabase implementation calls ONLY the service-role `tw4_runner_*`
@@ -22,6 +23,8 @@ export type BeginResult = { action: "skip" | "reconcile" | "execute"; provider_s
 
 export type RunnerTransitionState = "profile_review" | "brand_pending" | "needs_info" | "exception";
 
+export type EvaluationVerdictName = "compliant" | "noncompliant" | "unrecognized";
+
 export type RunnerStatus = {
   onboarding_id: string;
   state: string;
@@ -29,8 +32,13 @@ export type RunnerStatus = {
   submission_seq: number;
   ein_on_file: boolean;
   leased: boolean;
+  window_open?: boolean;
   brand_status: string | null;
-  steps: { step_key: string; status: string; fee_bearing: boolean; fee_confirmed: boolean; error_code: string | null }[];
+  steps: { step_key: string; status: string; fee_bearing: boolean; fee_confirmed: boolean; error_code: string | null; evaluation_verdict?: EvaluationVerdictName | null; finished_at?: string | null }[];
+  /** Platform-admin confirmations of S11 / T6 in the current generation (who is an id, never a name). */
+  confirmations?: { step_key: string; confirmed_by: string; confirmed_at: string; consumed: boolean }[];
+  /** The newest evaluation events (audit note format: step=S10;verdict=compliant;context=step;seq=1). */
+  evaluations?: { at: string; note: string }[];
 } | null;
 
 export interface RunnerStore {
@@ -50,8 +58,25 @@ export interface RunnerStore {
   transition(onboardingId: string, leaseOwner: string, to: RunnerTransitionState, step: string, errorCode: string | null, errorField: string | null): Promise<string>;
   recordBrand(onboardingId: string, leaseOwner: string, brandSid: string, status: "in_review" | "approved" | "rejected" | "suspended"): Promise<void>;
   brandApproved(onboardingId: string, leaseOwner: string): Promise<string>;
+  /** Records a platform admin's confirmation of ONE irreversible submission (S11 / T6) for this lease. The database refuses a stale or unverdicted evaluation (TW002) and consumes the confirmation when the step begins (TW003 without it). */
+  confirmSubmission(onboardingId: string, leaseOwner: string, step: "S11" | "T6", actorId: string): Promise<void>;
+  /** Records an evaluation verdict: on the open S10 / T5 ledger row (context "step") or as audit evidence of the fresh re-check (context "preverify"). */
+  recordEvaluation(onboardingId: string, leaseOwner: string, step: "S10" | "T5", verdict: EvaluationVerdictName, context: "step" | "preverify"): Promise<void>;
   status(studioId: string, actorId: string): Promise<RunnerStatus>;
+  /** TW-4F-3a: the Twilio account this onboarding's studio may use (its legal entity's active subaccount). All nulls = no entity / no subaccount yet. */
+  getAccount(onboardingId: string, leaseOwner: string): Promise<RunnerAccount>;
+  /** TW-4F-3a: reserves the owner-approved spend for ONE fee step (idempotent for the same onboarding, generation and kind). TW004 = nothing authorized within the cap. */
+  reserveSpend(onboardingId: string, leaseOwner: string, kind: SpendKind): Promise<{ spendEventId: string; amountCents: number }>;
+  /** TW-4F-3b-0: closes the reservation of a fee step: `captured` charges the studio's credit (the operation happened), `released` frees it (it definitely did not). Idempotent. */
+  settleSpend(onboardingId: string, leaseOwner: string, kind: SpendKind, outcome: "captured" | "released", ref: string): Promise<void>;
+  /** TW-4F provider integration: the registration tier chosen for this onboarding by a platform admin ("standard" when none was chosen). */
+  getTier(onboardingId: string, leaseOwner: string): Promise<{ tier: string; chosen: boolean }>;
+  /** TW-4F financial integrity: the fee path the DATABASE derives for this onboarding's location (verified tier, price kinds, published prices). */
+  getFeeKinds(onboardingId: string, leaseOwner: string): Promise<LocationFeeKinds>;
 }
+
+export type SpendKind = "brand" | "brand_low_volume" | "campaign_vetting" | "number" | "monthly" | "monthly_low_volume" | "sms_usage";
+export type RunnerAccount = { legalEntityId: string | null; accountSid: string | null; status: string | null };
 
 type Client = Pick<SupabaseClient, "rpc">;
 
@@ -114,7 +139,38 @@ export class SupabaseRunnerStore implements RunnerStore {
     return String(row?.state ?? "");
   }
 
+  async confirmSubmission(onboardingId: string, leaseOwner: string, step: "S11" | "T6", actorId: string): Promise<void> {
+    await this.call("tw4_runner_confirm_submission", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner, p_step_key: step, p_actor: actorId });
+  }
+
+  async recordEvaluation(onboardingId: string, leaseOwner: string, step: "S10" | "T5", verdict: EvaluationVerdictName, context: "step" | "preverify"): Promise<void> {
+    await this.call("tw4_runner_record_evaluation", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner, p_step_key: step, p_verdict: verdict, p_context: context });
+  }
+
   async status(studioId: string, actorId: string): Promise<RunnerStatus> {
     return this.call<RunnerStatus>("tw4_runner_status", { p_studio_id: studioId, p_actor: actorId });
+  }
+
+  async getAccount(onboardingId: string, leaseOwner: string): Promise<RunnerAccount> {
+    const row = await this.call<{ legal_entity_id: string | null; account_sid: string | null; status: string | null }>("tw4_runner_account", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner });
+    return { legalEntityId: row?.legal_entity_id ?? null, accountSid: row?.account_sid ?? null, status: row?.status ?? null };
+  }
+
+  async settleSpend(onboardingId: string, leaseOwner: string, kind: SpendKind, outcome: "captured" | "released", ref: string) {
+    await this.call("tw4_spend_settle", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner, p_kind: kind, p_outcome: outcome, p_ref: ref });
+  }
+
+  async getTier(onboardingId: string, leaseOwner: string) {
+    const row = await this.call<{ tier: string; chosen: boolean }>("tw4_runner_tier", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner });
+    return { tier: String(row?.tier ?? ""), chosen: row?.chosen === true };
+  }
+
+  async getFeeKinds(onboardingId: string, leaseOwner: string) {
+    return parseLocationFeeKinds(await this.call("tw4_runner_fee_kinds", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner }));
+  }
+
+  async reserveSpend(onboardingId: string, leaseOwner: string, kind: SpendKind) {
+    const row = await this.call<{ spend_event_id: string; amount_cents: number }>("tw4_spend_reserve", { p_onboarding_id: onboardingId, p_lease_owner: leaseOwner, p_kind: kind });
+    return { spendEventId: row.spend_event_id, amountCents: Number(row.amount_cents) };
   }
 }

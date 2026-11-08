@@ -107,8 +107,9 @@ describe("admin action", () => {
 
   it("requires a platform admin before anything else", () => {
     const body = action.slice(action.indexOf("export async function saveStudioSmsRegistrationAction"));
-    expect(body.indexOf("requirePlatformAdmin()")).toBeGreaterThan(-1);
-    expect(body.indexOf("requirePlatformAdmin()")).toBeLessThan(body.indexOf("createClient()"));
+    // the shared step-up guard runs the platform-admin role check first, then the verified-claims check (TW-4F AAL2)
+    expect(body.indexOf('requirePlatformStepUp("aal2")')).toBeGreaterThan(-1);
+    expect(body.indexOf('requirePlatformStepUp("aal2")')).toBeLessThan(body.indexOf("createClient()"));
   });
 
   it("writes through the RLS-bound user client, never the admin client", () => {

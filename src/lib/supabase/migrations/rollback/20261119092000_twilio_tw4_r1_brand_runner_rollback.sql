@@ -7,6 +7,13 @@ begin;
 
 set local lock_timeout = '5s';
 
+do $$
+begin
+  if to_regclass('public.studio_sms_submission_confirmations') is not null then
+    raise exception 'R1 rollback refused: TW-4F-1b (20261120090000) is applied; roll that back first (it replaces functions this script would overwrite)' using errcode = '55000';
+  end if;
+end $$;
+
 lock table public.studio_sms_provisioning_steps in access exclusive mode;
 lock table public.studio_sms_onboarding_audit in access exclusive mode;
 lock table public.studio_sms_runner_windows in access exclusive mode;

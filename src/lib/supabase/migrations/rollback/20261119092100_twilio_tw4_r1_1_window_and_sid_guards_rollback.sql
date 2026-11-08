@@ -5,6 +5,13 @@ begin;
 
 set local lock_timeout = '5s';
 
+do $$
+begin
+  if to_regclass('public.studio_sms_submission_confirmations') is not null then
+    raise exception 'R1.1 rollback refused: TW-4F-1b (20261120090000) is applied; roll that back first (it replaces functions this script would overwrite)' using errcode = '55000';
+  end if;
+end $$;
+
 create or replace function public.tw4_runner_begin_step(p_onboarding_id uuid, p_lease_owner text, p_step_key text, p_friendly_name text,
   p_fee_bearing boolean, p_fee_confirmed_by uuid, p_mock boolean default false)
 returns jsonb language plpgsql security definer

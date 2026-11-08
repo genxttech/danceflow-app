@@ -23,6 +23,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
     rpc: async (fn: string) => {
       rpcCalls.push(fn);
+      if (fn.startsWith("sms_credit") || fn === "sms_price_list") return { data: null, error: { code: "42883" } }; // credit is covered by page.tw4f3bui.test.ts
       return fn === "get_studio_sms_status" ? statusResult : draftResult;
     },
     from: () => ({
@@ -49,7 +50,7 @@ const draft = (over: Record<string, unknown> = {}) => ({
   error: null,
 });
 async function render() {
-  return renderToStaticMarkup(await SmsSettingsPage());
+  return renderToStaticMarkup(await SmsSettingsPage({}));
 }
 
 beforeEach(() => {
@@ -123,7 +124,7 @@ describe("Settings -> Texting page", () => {
     expect(html).toContain("Cancel setup");
     expect(html).not.toContain("Business identity");
     expect(html).not.toContain("Save draft");
-    expect(rpcCalls).toEqual(["get_studio_sms_status"]);
+    expect(rpcCalls.filter((fn) => !fn.startsWith("sms_credit"))).toEqual(["get_studio_sms_status"]); // the credit read is not part of the switch-gated setup
   });
   it("paused and past the cancellation window: banner only, no cancel", async () => {
     statusResult = status({ paused: true, state: "campaign_pending", can_edit: false, can_cancel: false });

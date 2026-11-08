@@ -74,7 +74,7 @@ select 'no secret-shaped column on the table',
 -- Platform admin -------------------------------------------------------------
 set local role authenticated;
 select set_config('request.jwt.claims',
-  '{"sub":"00000000-0000-0000-0000-0000c0a70002","role":"authenticated"}', true);
+  '{"sub":"00000000-0000-0000-0000-0000c0a70002","role":"authenticated","aal":"aal2"}', true);
 
 select pg_temp.expect_ok('admin creates registration with defaults',
   $q$insert into public.studio_sms_registrations (studio_id) values ('00000000-0000-0000-0000-0000c0a7a0a1')$q$);

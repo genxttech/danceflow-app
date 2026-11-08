@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
@@ -6,9 +7,20 @@ import { canManageSettings } from "@/lib/auth/permissions";
 import { getOnboardingDraft, getStudioSmsStatus, type OnboardingDraft, type StudioSmsStatus } from "@/lib/sms/onboarding/client";
 import { emptyDraft, prefillDraft, type DraftFields } from "@/lib/sms/onboarding/fields";
 import { buildCampaignPackage } from "@/lib/sms/onboarding/campaignTemplate";
+import { getSmsCreditView } from "@/lib/billing/smsCreditView";
+import { smsCreditPurchasesEnabled } from "@/lib/billing/smsCreditPurchases";
 import SmsCancelSetup from "./SmsCancelSetup";
+import { getRecurringOverview, smsRecurringAuthorizationEnabled } from "@/lib/billing/smsRecurring";
+import SmsCreditPanel from "./SmsCreditPanel";
+import { getMonthlyLimitOverview, smsMonthlyLimitsEnabled } from "@/lib/billing/smsMonthlyLimits";
+import SmsLimitPanel from "./SmsLimitPanel";
+import SmsRecurringPanel from "./SmsRecurringPanel";
 import SmsSetupWizard from "./SmsSetupWizard";
-import SmsStatusTracker from "./SmsStatusTracker";
+import SmsJourney from "./SmsJourney";
+import { hasLiveCampaignAuthorization, type FinanceFacts } from "@/lib/sms/provisioning/journey";
+import { getOwnerNumberOffers, getOwnerProvisioning, getOwnerTextingStatus, mergeOwnerFacts, withNumberChoice } from "@/lib/sms/provisioning/ownerRead";
+import SmsServiceCoverage from "./SmsServiceCoverage";
+import NumberSelection from "./NumberSelection";
 
 const EDIT_STATES = new Set(["not_started", "draft", "needs_info"]);
 
@@ -16,7 +28,9 @@ function appOrigin() {
   return (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com").replace(/\/$/, "");
 }
 
-export default async function SmsSettingsPage() {
+export default async function SmsSettingsPage({ searchParams }: { searchParams?: Promise<Record<string, string | undefined>> }) {
+  const query = (await searchParams) ?? {};
+  const returned = query.credit === "success" || query.credit === "cancelled" ? query.credit : null;
   const context = await getCurrentStudioContext();
 
   // Settings managers only; the page does not exist for anyone else, nor for studios the pilot flag is off for.
@@ -32,6 +46,31 @@ export default async function SmsSettingsPage() {
   if (!status.available) redirect("/app/settings");
 
   const isOwner = status.role === "studio_owner";
+  // Prepaid credit: the database returns it only to an owner or administrator of this studio, and only for this studio's legal business.
+  let creditView: Awaited<ReturnType<typeof getSmsCreditView>> = null;
+  try {
+    creditView = await getSmsCreditView(supabase, context.studioId);
+  } catch {
+    creditView = null;
+  }
+  // Recurring service charges: read through the same user session; a failure only hides the card
+  let recurringView: Awaited<ReturnType<typeof getRecurringOverview>> = null;
+  if (creditView) {
+    try {
+      recurringView = await getRecurringOverview(supabase, context.studioId);
+    } catch {
+      recurringView = null;
+    }
+  }
+  // Monthly spending limit: read through the same user session; a failure only hides the card
+  let limitView: Awaited<ReturnType<typeof getMonthlyLimitOverview>> = null;
+  if (creditView) {
+    try {
+      limitView = await getMonthlyLimitOverview(supabase, context.studioId);
+    } catch {
+      limitView = null;
+    }
+  }
   // Paused: a platform admin switched the pilot off after this setup started. The setup stays visible (status only) and the
   // owner can still cancel; the draft RPC is switch-gated, so nothing else is fetched.
   const paused = status.paused;
@@ -61,6 +100,31 @@ export default async function SmsSettingsPage() {
   const displayName = String(studio?.public_name || studio?.name || "Your dance studio");
   const campaign = buildCampaignPackage({ displayName, origin: appOrigin(), slug: String(studio?.slug ?? "") });
   const canEdit = isOwner && !paused && status.canEdit && EDIT_STATES.has(status.state);
+  // TW-4F: an owner of a location not yet linked to a legal business can attest it belongs to an existing one (the location page and the database
+  // re-check the owner role and refuse a linked location or a second pending request)
+  const offerLocationLink = isOwner && !paused && creditView?.overview.legalBusiness !== true;
+
+  // R2c-I2: campaign / Messaging Service status; J2: number, sender, compliance, activation checklist and service coverage. Both are bound to this user's
+  // session and the database allows only this studio's owner (null = unreadable or not installed: the journey then says "not available yet")
+  // J3: the owner number choice (offers, the owner's open approval, the published price), also owner-only in the database
+  const [ownerProvisioning, textingStatus, numberOffers] = !paused && isOwner
+    ? await Promise.all([getOwnerProvisioning(supabase, context.studioId), getOwnerTextingStatus(supabase, context.studioId), getOwnerNumberOffers(supabase, context.studioId)])
+    : [null, null, null];
+  const provisioning = withNumberChoice(mergeOwnerFacts(ownerProvisioning, textingStatus), numberOffers);
+  const campaignKind = recurringView?.campaignMonthlyKind ?? null;
+  const finance: FinanceFacts | null = creditView
+    ? {
+        legalBusiness: creditView.overview.legalBusiness,
+        availableCents: creditView.overview.availableCents,
+        onHold: creditView.overview.onHold,
+        pilotBusiness: recurringView?.pilotBusiness ?? creditView.overview.pilotCeilingCents != null,
+        campaignMonthlyKind: campaignKind,
+        hasActiveAuthorization: hasLiveCampaignAuthorization(recurringView?.authorizations, campaignKind),
+        prices: creditView.prices.map((p) => ({ kind: p.kind, customerPriceCents: p.customerPriceCents })),
+        purchasesOpen: smsCreditPurchasesEnabled(),
+        authorizationOpen: smsRecurringAuthorizationEnabled() && recurringView != null,
+      }
+    : null;
 
   const wizard = (
     <SmsSetupWizard
@@ -98,7 +162,44 @@ export default async function SmsSettingsPage() {
         <Link href="/app/settings" className="text-sm font-semibold text-violet-700 hover:text-violet-900">Back to settings</Link>
       </div>
 
-      <SmsStatusTracker state={status.state} textingOn={status.textingOn} />
+      <SmsJourney
+        state={status.state}
+        textingOn={status.textingOn}
+        paused={paused}
+        isOwner={isOwner}
+        finance={finance}
+        canEditForm={canEdit}
+        // campaign, number, sender and compliance come from the session-bound owner reads; any of them unreadable stays "not available yet"
+        provisioning={provisioning}
+      />
+
+      {isOwner && numberOffers && (numberOffers.stepOpen || numberOffers.approval?.status === "open") ? (
+        // an open approval stays withdrawable even when the step has closed; the key resets the component's result state whenever the facts change
+        <NumberSelection key={`${numberOffers.approval?.selectionId ?? "none"}:${numberOffers.offer?.offerId ?? "none"}`} offers={numberOffers} />
+      ) : null}
+
+      {provisioning?.fees ? <SmsServiceCoverage fees={provisioning.fees} unexpectedResourceReview={provisioning.unexpectedResourceReview === true} /> : null}
+
+      {offerLocationLink ? (
+        <section aria-labelledby="sms-location-link-heading" className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between" data-testid="sms-location-link">
+          <div>
+            <h2 id="sms-location-link-heading" className="text-sm font-semibold text-slate-900">Another location of a business already texting with DanceFlow?</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Link this studio to that legal business instead of starting a new setup. Locations share one texting registration, setup budget and prepaid balance. DanceFlow verifies it first.
+            </p>
+          </div>
+          <Link href="/app/settings/sms/location" className="inline-flex shrink-0 items-center justify-center gap-1 rounded-xl border border-violet-300 px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-50">
+            Link this location
+            <ChevronRight aria-hidden="true" className="h-4 w-4" />
+          </Link>
+        </section>
+      ) : null}
+
+      {creditView ? <div id="sms-credit"><SmsCreditPanel view={creditView} purchasesEnabled={smsCreditPurchasesEnabled()} returned={returned} /></div> : null}
+
+      {creditView && limitView ? <SmsLimitPanel overview={limitView} isOwner={isOwner} enabled={smsMonthlyLimitsEnabled()} /> : null}
+
+      {creditView && recurringView ? <div id="sms-recurring"><SmsRecurringPanel overview={recurringView} prices={creditView.prices} isOwner={isOwner} enabled={smsRecurringAuthorizationEnabled()} /></div> : null}
 
       {paused ? (
         <p role="status" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -113,10 +214,13 @@ export default async function SmsSettingsPage() {
 
       {!paused && (isOwner || draft) ? (
         canEdit ? (
-          wizard
+          <div id="sms-setup">{wizard}</div>
         ) : (
-          <details className="rounded-2xl border border-slate-200 bg-white p-4">
-            <summary className="cursor-pointer text-sm font-semibold text-violet-800">View the information on file</summary>
+          <details className="group/onfile rounded-2xl border border-slate-200 bg-white p-4">
+            <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-semibold text-violet-800 [&::-webkit-details-marker]:hidden">
+              <ChevronDown aria-hidden="true" className="h-4 w-4 transition-transform group-open/onfile:rotate-180" />
+              View the information on file
+            </summary>
             <div className="mt-4">{wizard}</div>
           </details>
         )

@@ -116,6 +116,7 @@ describe("resolveStudioSmsSender", () => {
 
   it("a lookup error fails closed with a distinct reason", async () => {
     const failing = {
+      rpc: async () => ({ data: "legacy", error: null }),
       from: () => ({
         select: () => ({
           eq: () => ({ maybeSingle: async () => ({ data: null, error: { message: "boom" } }) }),

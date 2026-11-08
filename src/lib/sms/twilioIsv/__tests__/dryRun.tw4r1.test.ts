@@ -14,6 +14,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+// real SQL over HTTP and a multi-pass admin journey: more than the 5 s default per test
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
+
 const blockedRequests: string[] = [];
 const allowedRequests = { count: 0 };
 const realFetch = globalThis.fetch;
@@ -40,8 +43,9 @@ import { fakeAdapterAllowed, realCallsAllowed, type IsvConfig } from "../config"
 import { buildRunnerRuntime } from "../factory";
 import { FakeIsvAdapter } from "../fake";
 import { createRealIsvAdapter } from "../real";
-import { refreshBrandStatus, runBrandSubmission, STEPS } from "../runner";
+import { refreshBrandStatus, runBrandSubmission, STEPS, type RunResult } from "../runner";
 import { RunnerStoreError, SupabaseRunnerStore } from "../store";
+import { LegacyAccountStore } from "./legacyAccountStore";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -78,7 +82,7 @@ function sign(payload: Record<string, unknown>) {
 }
 const anonKey = () => (enabled ? sign({ iss: "supabase-demo", role: "anon", exp: 1983812996 }) : "");
 const serviceKey = () => (enabled ? sign({ iss: "supabase-demo", role: "service_role", exp: 1983812996 }) : "");
-const userToken = (sub: string) => sign({ sub, role: "authenticated", aud: "authenticated", exp: Math.floor(Date.now() / 1000) + 3600 });
+const userToken = (sub: string) => sign({ sub, role: "authenticated", aud: "authenticated", aal: "aal2", exp: Math.floor(Date.now() / 1000) + 3600 });
 function client(token: string | null, key = anonKey()): SupabaseClient {
   return createClient(URL_, key, { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: token ? { Authorization: `Bearer ${token}` } : {} } });
 }
@@ -122,8 +126,18 @@ const stateOf = (studio: string) => psql(`select state from public.studio_sms_on
 describe.skipIf(!enabled)("TW-4 R1 dry run (fake Twilio, real SQL, synthetic non-pilot studios, loopback only)", () => {
   let store: SupabaseRunnerStore;
 
-  const run = (studio: string, adapter: FakeIsvAdapter, over: { confirmFee?: boolean; config?: IsvConfig; actor?: string } = {}) =>
-    runBrandSubmission({ store, adapter, config: over.config ?? baseConfig, studioId: studio, actorId: over.actor ?? U.padmin, confirmFee: over.confirmFee ?? true });
+  // The production runner stops once at each submission (TW-4F-1) so the admin can read the evaluation: this helper plays the admin,
+  // re-running with the same confirmations after every ":review" stop and merging the steps run.
+  const run = async (studio: string, adapter: FakeIsvAdapter, over: { confirmFee?: boolean; config?: IsvConfig; actor?: string } = {}) => {
+    const merged: RunResult["stepsRun"] = [];
+    let result!: RunResult;
+    for (let pass = 0; pass < 4; pass++) {
+      result = await runBrandSubmission({ store, adapter, config: over.config ?? baseConfig, studioId: studio, actorId: over.actor ?? U.padmin, confirmFee: over.confirmFee ?? true, confirmSubmit: ["S11", "T6"] });
+      merged.push(...result.stepsRun);
+      if (result.outcome !== "waiting_submission_confirmation" || !String(result.detail).endsWith(":review")) break;
+    }
+    return { ...result, stepsRun: merged };
+  };
   const refresh = (studio: string, adapter: FakeIsvAdapter) => refreshBrandStatus({ store, adapter, studioId: studio, actorId: U.padmin });
   const onboard = async (studio: string, who: "owner_x" | "owner_z" | "owner_e" | "owner_f" | "owner_g", ein: string) => {
     await setPilotAccess(as("padmin") as never, studio, true, "dry run synthetic studio");
@@ -136,7 +150,7 @@ describe.skipIf(!enabled)("TW-4 R1 dry run (fake Twilio, real SQL, synthetic non
     process.env.SMS_EIN_ENCRYPTION_KEY = randomBytes(32).toString("base64");
     delete process.env.SMS_EIN_ENCRYPTION_KEY_ID;
     state.admin = client(null, serviceKey());
-    store = new SupabaseRunnerStore(state.admin as SupabaseClient);
+    store = new LegacyAccountStore(state.admin as SupabaseClient);
     psqlFile(readFileSync(join(__dirname, "dryRunFixtures.sql"), "utf8"));
   });
   afterAll(() => {

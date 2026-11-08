@@ -1,0 +1,47 @@
+{
+  "_comment": "Known ENVIRONMENT failures only (load sensitivity or harness image gaps), each with evidence. A suite is KNOWN only when every failing test matches a listed phrase. Mirrors the explained items in PR #266 expected-results.json; add nothing here without a reproduction. Chain coverage: the runner derives the chain from every migration above the image cutoff at --base, so it handles 20261206..20261227 (21 files, all with rollbacks, no CRLF, verified statically on origin/main 84f52048). r2b refuses the merged chain by design and must not be run on it.",
+  "known": [
+    {
+      "suite": "src/lib/billing/__tests__/localStack.tw4recexec.test.ts",
+      "failing": [
+        "the entity row is locked before the account row"
+      ],
+      "reason": "wall-clock assertion (expected N > 900 ms) fails when the host CPU is saturated; passes 20/20 on an idle host (PR #266 notes). Observed 180 ms here under 100% CPU."
+    },
+    {
+      "suite": "src/lib/billing/__tests__/localStack.tw4payhardening.test.ts",
+      "failing": [
+        "refund and dispute accounting property"
+      ],
+      "reason": "property test pinned at 90 s times out under CPU saturation; passes on an idle host (PR #266 notes). Cascades to later assertions in the file; the match requires every failing test to be listed."
+    },
+    {
+      "suite": "src/lib/sms/onboarding/__tests__/localStack.tw4a.test.ts",
+      "failing": [
+        "TW-1/2 code is untouched"
+      ],
+      "reason": "pins that no pre-existing '%sms%' function references studio_sms_onboarding; a later TW-4F function legitimately does (PR #266)."
+    },
+    {
+      "suite": "src/lib/sms/twilioIsv/__tests__/localStack.tw4f1b.test.ts",
+      "failing": [
+        "the status shows only the current attempt's evaluation events"
+      ],
+      "reason": "pins exactly 14 tw4_runner_* functions; main has 16 (PR #266)."
+    },
+    {
+      "suite": "src/lib/sms/twilioIsv/__tests__/localStack.r2a.test.ts",
+      "failing": [
+        "rollback parses and completes where there is no evidence"
+      ],
+      "reason": "R2b objects depend on the R2a ledger (2BP01): R2a's rollback cannot run until R2b is rolled back first (PR #266)."
+    },
+    {
+      "suite": "src/lib/sms/twilioIsv/__tests__/localStack.r2bp2.rfl.test.ts",
+      "failing": [
+        "the real outbox's own runner can claim and finish what P2 raised"
+      ],
+      "reason": "KI-3: run 2 (main 78bc699c) failed twice on an idle host with 'expected +0 to be 2'; probable cause (unconfirmed): tw4_rfl_alerts_claim returns nothing while the delivery kill switch is off (fail closed since migration 20261211) and the test does not turn delivery on. Reported as a known item, not a pass."
+    }
+  ]
+}

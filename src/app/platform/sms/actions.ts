@@ -3,11 +3,11 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { requirePlatformStepUp } from "@/lib/auth/platform-assurance";
 import { setPilotAccess } from "@/lib/sms/onboarding/client";
 import { buildRunnerRuntime, buildRunnerStore } from "@/lib/sms/twilioIsv/factory";
 import { describeOutcome } from "@/lib/sms/twilioIsv/outcomes";
-import { refreshBrandStatus, runBrandSubmission } from "@/lib/sms/twilioIsv/runner";
+import { checkRegistrationStatus, runBrandSubmission, type SubmissionStepKey } from "@/lib/sms/twilioIsv/runner";
 import {
   SMS_CAMPAIGN_USE_CASES,
   SMS_PROVIDER_REVIEW_STATUSES,
@@ -43,7 +43,7 @@ function done(params: { saved?: boolean; error?: string }): never {
  * table (profiles.platform_role = 'platform_admin'). It does not enable sending.
  */
 export async function saveStudioSmsRegistrationAction(formData: FormData) {
-  await requirePlatformAdmin();
+  await requirePlatformStepUp("aal2");
 
   const studioIdResult = normalizeOptionalUuid(rawFormString(formData, "studioId"), "Studio");
   const statusResult = normalizeRequiredEnum(
@@ -145,7 +145,7 @@ export async function saveStudioSmsRegistrationAction(formData: FormData) {
  * re-checks platform_role inside `set_sms_onboarding_access`, so this is the second check, not the only one.
  */
 export async function setSmsOnboardingAccessAction(formData: FormData) {
-  await requirePlatformAdmin();
+  await requirePlatformStepUp("aal2");
 
   const studioIdResult = normalizeOptionalUuid(rawFormString(formData, "studioId"), "Studio");
   const reasonResult = cleanTextValue(rawFormString(formData, "reason"), { fieldLabel: "Reason", maxLength: 500, allowNewlines: false });
@@ -173,31 +173,65 @@ export async function setSmsOnboardingAccessAction(formData: FormData) {
 /**
  * TW-4 R1: a platform admin runs the brand submission steps for ONE studio ("Run next steps"), or checks the brand's status
  * ("Check brand status", GET-only). Nothing runs on a schedule. The paid brand step needs the fee confirmation ticked on every
- * run. The database re-checks the platform-admin actor and the pilot switch inside the claim. In DEV/preview the real adapter
+ * run, and each irreversible submission (profile for review, A2P trust product) needs its OWN confirmation plus the typed word SUBMIT,
+ * also on every run: a box left unticked means the run stops before that submission. The database re-checks the platform-admin actor and the pilot switch inside the claim. In DEV/preview the real adapter
  * cannot be built (only the fake, if TW4_ISV_FAKE=on); in production it needs TW4_ISV_REAL_CALLS=on.
  */
 export async function runSmsOnboardingAction(formData: FormData) {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("recent");
 
   const studioIdResult = normalizeOptionalUuid(rawFormString(formData, "studioId"), "Studio");
   const intent = rawFormString(formData, "intent") === "refresh" ? "refresh" : "run";
   const confirmFee = rawFormString(formData, "confirmFee") === "on";
+  const confirmSubmit: SubmissionStepKey[] = [];
+  if (intent === "run" && rawFormString(formData, "confirmSubmitProfile") === "on") confirmSubmit.push("S11");
+  if (intent === "run" && rawFormString(formData, "confirmSubmitTrustProduct") === "on") confirmSubmit.push("T6");
   const back = (query: string): never => redirect(`${RETURN_PATH}?${query}#onboarding-pilot`);
 
   if (!studioIdResult.ok || !studioIdResult.value) back(`runner_error=${encodeURIComponent("Choose a studio.")}`);
   const studioId = String(studioIdResult.ok ? studioIdResult.value : "");
+  // An irreversible submission needs a deliberate second act: the typed word, checked before any runtime is built.
+  if (confirmSubmit.length > 0 && rawFormString(formData, "submitPhrase").trim() !== "SUBMIT") {
+    back(`runner_error=${encodeURIComponent("To submit to Twilio, tick the submission and type SUBMIT exactly. Nothing was run.")}`);
+  }
 
   const runtime = buildRunnerRuntime();
   if (!runtime.ok) back(`runner_error=${encodeURIComponent(runtime.reason)}`);
   if (!runtime.ok) return;
 
+  if (confirmSubmit.length > 0) {
+    // Interim trail until a ledger column exists (needs a migration, tracked as a 4F follow-up): who confirmed which submission, for which studio.
+    console.info(JSON.stringify({ event: "sms_runner_submission_requested", studioId, actorId: admin.id, steps: confirmSubmit }));
+  }
+  // TW-4F-3a (D2): everything runs in the studio's own Twilio subaccount. The SID comes from the database (the studio's legal entity); with none,
+  // no adapter is built and nothing is called. (Resolved before the run's try block: a redirect inside it would be swallowed by the catch.)
+  let accountSid: string | null = null;
+  let noAccountDetail = "no_legal_entity";
+  try {
+    const entity = await runtime.entities.entityForStudio(studioId, admin.id);
+    if (entity.legal_entity_id) noAccountDetail = "no_subaccount";
+    if (entity.legal_entity_id && entity.account_status === "active" && entity.account_sid) accountSid = entity.account_sid;
+  } catch {
+    back(`runner_error=${encodeURIComponent("The studio's Twilio account could not be looked up. Nothing was run.")}`);
+    return;
+  }
+  if (!accountSid) {
+    revalidatePath(RETURN_PATH);
+    back(`runner=${encodeURIComponent(describeOutcome("needs_subaccount", noAccountDetail))}`);
+    return;
+  }
   let message: string;
   try {
+    const adapter = await runtime.adapterFor(accountSid);
     const result =
       intent === "refresh"
-        ? await refreshBrandStatus({ store: runtime.store, adapter: runtime.adapter, studioId, actorId: admin.id })
-        : await runBrandSubmission({ store: runtime.store, adapter: runtime.adapter, config: runtime.config, studioId, actorId: admin.id, confirmFee });
+        ? await checkRegistrationStatus({ store: runtime.store, adapter, studioId, actorId: admin.id })
+        : await runBrandSubmission({ store: runtime.store, adapter, primary: runtime.parent, config: runtime.config, studioId, actorId: admin.id, confirmFee, confirmSubmit });
     message = describeOutcome(result.outcome, result.detail);
+    if (confirmSubmit.length > 0) {
+      const done = (result.stepsRun ?? []).filter((step): step is SubmissionStepKey => step === "S11" || step === "T6");
+      console.info(JSON.stringify({ event: "sms_runner_submission_result", studioId, actorId: admin.id, requested: confirmSubmit, submitted: done, outcome: result.outcome }));
+    }
   } catch {
     back(`runner_error=${encodeURIComponent("The run failed unexpectedly. Nothing was repeated; check the step list before running again.")}`);
     return;
@@ -211,7 +245,7 @@ export async function runSmsOnboardingAction(formData: FormData) {
  * action refuses to create anything outside an open window. The database re-checks the platform-admin actor.
  */
 export async function setSmsRunnerWindowAction(formData: FormData) {
-  const admin = await requirePlatformAdmin();
+  const admin = await requirePlatformStepUp("recent");
 
   const studioIdResult = normalizeOptionalUuid(rawFormString(formData, "studioId"), "Studio");
   const reasonResult = cleanTextValue(rawFormString(formData, "reason"), { fieldLabel: "Reason", maxLength: 300, allowNewlines: false });

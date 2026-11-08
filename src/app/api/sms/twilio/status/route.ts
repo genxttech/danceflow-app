@@ -2,10 +2,16 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { sanitizedSmsProviderError } from "@/lib/sms/compliance";
 import { mapTwilioStatusToSmsLogStatus } from "@/lib/sms/twilio";
-import { twilioFormParams, verifyTwilioWebhook } from "@/lib/sms/twilioWebhook";
+import { buildWebhookAccountDeps, recordWebhookReceipt } from "@/lib/sms/twilioIsv/webhookRuntime";
+import { twilioFormHasDuplicateKeys, twilioFormParams } from "@/lib/sms/twilioWebhook";
+import { verifyTwilioWebhookAccount, webhookMayActForStudio, webhookReceiptKey } from "@/lib/sms/twilioWebhookAccount";
 import { cleanTextValue } from "@/lib/validation/forms";
 import { hasValidSecret } from "@/lib/security/cron";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** PostgREST PGRST202 / Postgres 42883: the usage-billing functions are not installed in this environment. */
+const USAGE_NOT_INSTALLED = new Set(["PGRST202", "42883"]);
 
 function getServiceSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -50,12 +56,21 @@ export async function POST(request: Request) {
 
   // 1) Twilio request signature, then 2) the existing callback secret. Both are required
   // before any delivery-log mutation.
-  const verification = verifyTwilioWebhook(request, twilioFormParams(formData));
+  // TW-4F: a callback for a message sent from a studio legal business's subaccount is signed with that subaccount's own token.
+  // a repeated form key would let the signed values (last) differ from the values the route reads (first)
+  if (twilioFormHasDuplicateKeys(formData)) {
+    console.warn("twilio_form_duplicate_key");
+    return rejectUnverified(request, 403);
+  }
+  const params = twilioFormParams(formData);
+  const supabase = getServiceSupabase();
+  const verification = await verifyTwilioWebhookAccount(request, params, buildWebhookAccountDeps(supabase));
 
   if (!verification.ok) {
     console.warn(verification.reason);
     return rejectUnverified(request, verification.status);
   }
+  const signer = verification.account;
 
   const url = new URL(request.url);
   const expectedSecret = process.env.TWILIO_STATUS_CALLBACK_SECRET ?? "";
@@ -96,11 +111,40 @@ export async function POST(request: Request) {
   const errorCode = errorCodeResult.value;
   const errorMessage = errorMessageResult.value;
 
-  const supabase = getServiceSupabase();
-
   if (!supabase) {
     console.error("Twilio status callback service client is not configured.");
     return NextResponse.json({ ok: false, error: "Status callback is temporarily unavailable." }, { status: 503 });
+  }
+
+  // TW-4F usage billing: a billed text's callback carries its attempt id (the StatusCallback URL). The signer must be the attempt's own subaccount; the callback
+  // binds the provider SID when the send's own record of it was lost, and records the status. It never moves money (the reconciler settles from evidence).
+  const attemptParam = url.searchParams.get("attempt");
+  const attemptId = attemptParam && UUID.test(attemptParam) ? attemptParam : null;
+  if (attemptParam !== null && !attemptId) {
+    return NextResponse.json({ ok: false, error: "Invalid status payload." }, { status: 400 });
+  }
+  let billedVerified = false;
+  const usage = await supabase.rpc("tw4_usage_record_callback", {
+    p_attempt_id: attemptId,
+    p_provider_sid: messageSid,
+    p_signer_account: signer.kind === "subaccount" ? signer.accountSid : null,
+    p_status: messageStatus,
+    p_error_code: errorCode || null,
+  });
+  if (usage.error) {
+    const code = String(usage.error.code ?? "");
+    if (code === "42501") {
+      console.warn("sms_status_usage_account_mismatch");
+      return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    }
+    // a legacy message (no attempt id) is unaffected when billing is not installed or its SID is not a billable one
+    const legacyUnaffected = !attemptId && (USAGE_NOT_INSTALLED.has(code) || code === "22023");
+    if (!legacyUnaffected) {
+      console.error("Twilio status callback usage record failed", code || "unknown");
+      return NextResponse.json({ ok: false, error: "Status callback could not be processed." }, { status: code === "22023" ? 400 : 500 });
+    }
+  } else {
+    billedVerified = Boolean(usage.data && typeof usage.data === "object" && (usage.data as { billed?: unknown }).billed === true);
   }
 
   const mappedStatus = mapTwilioStatusToSmsLogStatus(messageStatus);
@@ -145,7 +189,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  if (logRow.studio_id) {
+  // TW-4F tenant isolation: a subaccount-signed callback may only update a message of that subaccount's own legal business.
+  if (!webhookMayActForStudio(signer, logRow.studio_id)) {
+    console.warn("sms_status_account_studio_mismatch");
+    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  }
+
+  // a billed text was already tied to its subaccount above; its sender is that subaccount's own service, not a legacy registration
+  if (logRow.studio_id && !billedVerified) {
     const { data: registration, error: registrationError } = await supabase
       .from("studio_sms_registrations")
       .select("messaging_service_sid")
@@ -163,6 +214,16 @@ export async function POST(request: Request) {
       console.warn("sms_status_sender_mismatch");
       return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
     }
+  }
+
+  // TW-4F replay protection: each (MessageSid, MessageStatus) is applied once, so an exact replay of an earlier callback changes nothing.
+  // (A genuine out-of-order callback, e.g. sent after delivered, still applies: there is no status ranking yet.)
+  // If the ledger is unreachable the callback is applied anyway (status updates are idempotent; the signature is already verified).
+  const receiptKey = webhookReceiptKey("status", params);
+  if (receiptKey) {
+    const receipt = await recordWebhookReceipt(supabase, "status", receiptKey, signer.kind === "subaccount" ? signer.accountSid : null);
+    if (receipt === "duplicate") return NextResponse.json({ ok: true, duplicate: true });
+    if (receipt === "unavailable") console.warn("sms_status_receipt_unavailable");
   }
 
   let update = supabase.from("sms_message_logs").update(updatePayload).eq("id", logRow.id);

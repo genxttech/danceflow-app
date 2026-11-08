@@ -3,6 +3,27 @@ import { createClient } from "@/lib/supabase/server";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { getSmsPlatformReadiness } from "@/lib/sms/compliance";
 import SmsOnboardingPilot from "./SmsOnboardingPilot";
+import SmsCreditAdmin from "./SmsCreditAdmin";
+import UsageReconciliation from "./UsageReconciliation";
+import RecurringFeesPanel from "./RecurringFeesPanel";
+import PriceChangesPanel from "./PriceChangesPanel";
+import RecoveryPanel from "./RecoveryPanel";
+import ActivationPanel from "./ActivationPanel";
+import { loadReconcileOverview } from "@/lib/sms/usageReconcileView";
+import { loadReconcilerReadiness } from "@/lib/sms/usageReconcilerReadiness";
+import SmsSubaccountPanel from "./SmsSubaccountPanel";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { SupabasePanelStore, buildStudioPanels, type PanelOverview } from "@/lib/sms/twilioIsv/panel";
+import { PANEL_FLASH_COOKIE, panelRenderContext, readPanelFlash } from "@/lib/sms/twilioIsv/panelFlash";
+import { loadPanelMonthlyLimits, type PanelMonthlyLimits } from "@/lib/billing/smsPanelMonthlyLimits";
+import { cookies } from "next/headers";
+import { getAdminCreditOverview } from "@/lib/billing/smsCreditView";
+import { getRecurringAdminOverview } from "@/lib/billing/smsRecurring";
+import { buildRunnerStore } from "@/lib/sms/twilioIsv/factory";
+import { loadLedgers, ProvisioningLedgerStore, type LedgerSnapshot } from "@/lib/sms/provisioning/provisionLedger";
+import { PROV_FLASH_COOKIE } from "@/lib/sms/provisioning/provisionFlash";
+import { loadSenderHealth, loadSenderOverview } from "@/lib/sms/senderVerification";
+import type { RunnerStatus } from "@/lib/sms/twilioIsv/store";
 import { listOnboardings, type PlatformOnboardingRow } from "@/lib/sms/onboarding/client";
 import StudioSmsRegistrations, {
   type StudioOption,
@@ -156,10 +177,12 @@ function firstParam(value: string | string[] | undefined) {
 }
 
 export default async function PlatformSmsPage({ searchParams }: { searchParams: SearchParams }) {
-  await requirePlatformAdmin();
+  const admin = await requirePlatformAdmin();
 
   const params = await searchParams;
   const supabase = await createClient();
+  const creditOverview = await getAdminCreditOverview(supabase).catch(() => null);
+  const recurringOverview = await getRecurringAdminOverview(supabase).catch(() => null);
 
   const [logsResult, consentResult, registrationsResult, studiosResult] = await Promise.all([
     supabase
@@ -181,7 +204,7 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
       )
       .order("updated_at", { ascending: false })
       .limit(500),
-    supabase.from("studios").select("id, name").order("name", { ascending: true }).limit(1000),
+    supabase.from("studios").select("id, name, slug, public_name").order("name", { ascending: true }).limit(1000),
   ]);
 
   let onboardingRows: PlatformOnboardingRow[] = [];
@@ -191,6 +214,63 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
   } catch {
     onboardingUnavailable = true; // migration not applied in this environment yet
   }
+
+  // TW-4F-1b: read-only run evidence for studios whose setup is in flight (never throws: the panel works without it)
+  const evidence: Record<string, RunnerStatus> = {};
+  if (!onboardingUnavailable) {
+    const live = onboardingRows.filter((row) => row.accessEnabled && row.state && row.state !== "draft").slice(0, 20);
+    try {
+      const store = buildRunnerStore();
+      await Promise.all(
+        live.map(async (row) => {
+          try {
+            const status = await store.status(row.studioId, admin.id);
+            if (status) evidence[row.studioId] = status;
+          } catch {
+            /* evidence is optional */
+          }
+        }),
+      );
+    } catch {
+      /* evidence is optional */
+    }
+  }
+
+  // TW-4F: the supervised-pilot subaccount panel (read through a platform-admin-only definer function; never throws: the page works without it)
+  let panelOverview: PanelOverview | null = null;
+  try {
+    panelOverview = await new SupabasePanelStore(createAdminClient()).overview(admin.id);
+  } catch {
+    panelOverview = null; // migration not applied in this environment yet
+  }
+  // monthly spending limits per legal business (read-only, platform-admin-only definer function; null = not readable here, shown as "not available")
+  const panelMonthlyLimits: PanelMonthlyLimits | null = panelOverview && panelOverview.entities.length > 0 ? await loadPanelMonthlyLimits(createAdminClient(), admin.id) : null;
+
+  // sender readiness per linked studio (platform-admin-only definer function; null = not installed here, the block is then hidden)
+  const panelSenders = panelOverview && panelOverview.entities.length > 0 ? await loadSenderOverview(createAdminClient(), admin.id).catch(() => null) : null;
+
+  // sender state machine + re-check scheduler status (null = not installed here; the block then falls back to the overview and says so)
+  const panelSenderHealth = panelOverview && panelOverview.entities.length > 0 ? await loadSenderHealth(createAdminClient(), admin.id).catch(() => null) : null;
+
+  // TW-4F R2c-I1: platform-admin provisioning ledger for studios that have reached (or fallen out of) Messaging Service / campaign provisioning.
+  // Loaded whether or not pilot access is currently on: a held fee or unknown outcome must stay visible and resolvable. A read that fails is shown as unreadable (never as an empty ledger); a studio past the cap is simply not loaded.
+  const LEDGER_STATES = new Set(["service_setup", "campaign_pending", "ready_for_activation", "active", "suspended", "exception", "blocked"]);
+  let ledgerByStudio: Record<string, LedgerSnapshot | "unreadable" | "none"> | null = null;
+  if (!onboardingUnavailable) {
+    const ids = onboardingRows.filter((row) => row.state && LEDGER_STATES.has(row.state)).slice(0, 30).map((row) => row.studioId);
+    try {
+      ledgerByStudio = await loadLedgers(new ProvisioningLedgerStore(createAdminClient()), admin.id, ids);
+    } catch {
+      ledgerByStudio = Object.fromEntries(ids.map((id) => [id, "unreadable" as const]));
+    }
+  }
+  const provFlash = readPanelFlash((await cookies()).get(PROV_FLASH_COOKIE)?.value, { panel: firstParam(params.prov), panelError: firstParam(params.prov_error) });
+
+  // billed-text reconciliation (platform-admin-only definer function; null = not installed here, the panel is then hidden)
+  const usageOverview = await loadReconcileOverview(createAdminClient(), admin.id);
+  const usageReadiness = usageOverview ? await loadReconcilerReadiness(createAdminClient()) : null;
+
+  const panelContext = panelRenderContext(panelOverview ? [...new Set([...panelOverview.onboardings.map((o) => o.studioId), ...panelOverview.entities.flatMap((e) => e.studios.map((s) => s.studioId))])] : []);
 
   const logs = (logsResult.data ?? []) as SmsMessageLogRow[];
   const consentRows = (consentResult.data ?? []) as SmsConsentRow[];
@@ -368,6 +448,28 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
         </section>
       ) : null}
 
+      <SmsCreditAdmin overview={creditOverview} recurring={recurringOverview} />
+
+      <UsageReconciliation overview={usageOverview} readiness={usageReadiness} notice={firstParam(params.usage) === "resolved"} error={firstParam(params.usage_error)} />
+
+      <RecurringFeesPanel adminId={admin.id} prices={panelOverview?.prices} notice={firstParam(params.rfl)} error={firstParam(params.rfl_error)} />
+      <PriceChangesPanel adminId={admin.id} notice={firstParam(params.price)} error={firstParam(params.price_error)} />
+      <RecoveryPanel adminId={admin.id} notice={firstParam(params.recovery)} error={firstParam(params.recovery_error)} />
+      <ActivationPanel adminId={admin.id} notice={firstParam(params.activation)} error={firstParam(params.activation_error)} />
+
+      <SmsSubaccountPanel
+        overview={panelOverview}
+        panels={panelOverview ? buildStudioPanels(panelOverview, panelContext.now) : []}
+        now={panelContext.now}
+        requestKeys={panelContext.requestKeys}
+        monthlyLimits={panelMonthlyLimits}
+        senders={panelSenders}
+        senderHealth={panelSenderHealth}
+        unavailable={!panelOverview}
+        {...readPanelFlash((await cookies()).get(PANEL_FLASH_COOKIE)?.value, { panel: firstParam(params.panel), panelError: firstParam(params.panel_error) })}
+        focusStudioId={firstParam(params.studio)}
+      />
+
       <SmsOnboardingPilot
         studios={studios}
         rows={onboardingRows}
@@ -376,6 +478,12 @@ export default async function PlatformSmsPage({ searchParams }: { searchParams: 
         error={firstParam(params.pilot_error)}
         runnerNotice={firstParam(params.runner)}
         runnerError={firstParam(params.runner_error)}
+        evidence={evidence}
+        senderRows={panelSenders}
+        ledgerByStudio={ledgerByStudio}
+        provNotice={provFlash.notice}
+        provError={provFlash.error}
+        origin={(process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://www.idanceflow.com").replace(/\/+$/, "")}
       />
 
       <StudioSmsRegistrations

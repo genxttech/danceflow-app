@@ -4,6 +4,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/auth/platform-assurance", async () => (await import("@/lib/auth/__tests__/stepUpDouble")).stepUpDouble());
+
 /** TW-3: platform SMS registration UI + save action (platform-admin only, no secrets). */
 
 const mocks = vi.hoisted(() => ({
@@ -225,7 +227,8 @@ describe("save action", () => {
 
   it("only the platform page and action write the table (source scan)", () => {
     const src = readFileSync(join(process.cwd(), "src", "app", "platform", "sms", "actions.ts"), "utf8");
-    expect(src).toContain("await requirePlatformAdmin();");
-    expect(src.indexOf("requirePlatformAdmin()")).toBeLessThan(src.indexOf("createClient()"));
+    // the step-up guard runs the platform-admin role check first (platformAssurance.test.ts), then verifies the session's MFA claims
+    expect(src).toContain('await requirePlatformStepUp("aal2");');
+    expect(src.indexOf("requirePlatformStepUp(")).toBeLessThan(src.indexOf("createClient()"));
   });
 });

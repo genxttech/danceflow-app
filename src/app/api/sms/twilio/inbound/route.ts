@@ -8,8 +8,11 @@ import {
   normalizeSmsPhone,
 } from "@/lib/sms/compliance";
 import { resolveInboundKeyword } from "@/lib/sms/inboundKeywords";
+import { inboundReplyAllowed, parseInboundCounts, recordInboundUsage, type InboundReplyKind } from "@/lib/sms/inboundUsage";
 import { resolveStudioFromInboundSender } from "@/lib/sms/studioSender";
-import { twilioFormParams, verifyTwilioWebhook } from "@/lib/sms/twilioWebhook";
+import { buildWebhookAccountDeps, recordWebhookReceipt } from "@/lib/sms/twilioIsv/webhookRuntime";
+import { twilioFormHasDuplicateKeys, twilioFormParams } from "@/lib/sms/twilioWebhook";
+import { verifyTwilioWebhookAccount, webhookMayActForStudio, webhookReceiptKey } from "@/lib/sms/twilioWebhookAccount";
 import { cleanTextValue } from "@/lib/validation/forms";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
@@ -86,13 +89,22 @@ export async function POST(request: Request) {
     return rejectUnverified(request, 403);
   }
 
-  // The Twilio signature is verified before any database access or consent mutation.
-  const verification = verifyTwilioWebhook(request, twilioFormParams(formData));
+  // The Twilio signature is verified before any consent mutation. TW-4F: a message received by a studio legal business's
+  // subaccount is signed with that subaccount's own token; resolving which token applies is the only read before it.
+  // a repeated form key would let the signed values (last) differ from the values the route reads (first)
+  if (twilioFormHasDuplicateKeys(formData)) {
+    console.warn("twilio_form_duplicate_key");
+    return rejectUnverified(request, 403);
+  }
+  const params = twilioFormParams(formData);
+  const supabase = getServiceSupabase();
+  const verification = await verifyTwilioWebhookAccount(request, params, buildWebhookAccountDeps(supabase));
 
   if (!verification.ok) {
     console.warn(verification.reason);
     return rejectUnverified(request, verification.status);
   }
+  const signer = verification.account;
 
   // TW-1: Twilio Advanced Opt-Out is authoritative. A recognized OptOutType beats the
   // body, and once Twilio has handled the keyword every response below stays silent.
@@ -101,14 +113,24 @@ export async function POST(request: Request) {
     body: String(formData.get("Body") ?? ""),
   });
   const reply = (message: string) => (twilioHandled ? emptyTwiml() : twiml(message));
+  const signerAccountSid = signer.kind === "subaccount" ? signer.accountSid : null;
+  const rawFrom = String(formData.get("From") ?? "");
 
-  const supabase = getServiceSupabase();
+  // TW-4F D3: an error reply is a cost, not an obligation: at most one per sender per day, and none when that cannot be checked (fail closed).
+  // D2: when the text was a fallback STOP / START / HELP, the answer is a compliance reply instead: a STOP is always answered, HELP / START follow the
+  // confirmation limit, and both are sent when the count cannot be checked (fail open), so a keyword never meets silence during an outage.
+  const errorReply = async (kind: InboundReplyKind, message: string) => {
+    if (twilioHandled) return emptyTwiml();
+    if (keyword === "stop") return twiml(message);
+    const asKind: InboundReplyKind = keyword === "help" || keyword === "start" ? keyword : kind;
+    return (await inboundReplyAllowed(supabase, { accountSid: signerAccountSid, sender: rawFrom, kind: asKind })) ? twiml(message) : emptyTwiml();
+  };
 
   if (!supabase) {
-    return reply("Text messaging is temporarily unavailable. Please contact the studio directly.");
+    return errorReply("error_unavailable", "Text messaging is temporarily unavailable. Please contact the studio directly.");
   }
 
-  const from = normalizeSmsPhone(String(formData.get("From") ?? ""));
+  const from = normalizeSmsPhone(rawFrom);
   const bodyResult = cleanTextValue(String(formData.get("Body") ?? ""), {
     fieldLabel: "Message",
     maxLength: 1600,
@@ -120,14 +142,14 @@ export async function POST(request: Request) {
   });
 
   if (!bodyResult.ok || !sidResult.ok) {
-    return reply("We could not process that message. Please contact the studio directly.");
+    return errorReply("error_invalid", "We could not process that message. Please contact the studio directly.");
   }
 
   const body = bodyResult.value;
   const messageSid = sidResult.value;
 
   if (!from) {
-    return reply("We could not recognize your phone number. Please contact the studio directly.");
+    return errorReply("error_unrecognized", "We could not recognize your phone number. Please contact the studio directly.");
   }
 
   // SMS-A2P-2: tie the message to exactly one studio via the receiving sender
@@ -136,11 +158,27 @@ export async function POST(request: Request) {
   const routing = await resolveStudioFromInboundSender(supabase, {
     messagingServiceSid: String(formData.get("MessagingServiceSid") ?? ""),
     to: String(formData.get("To") ?? ""),
+    accountSid: signerAccountSid,
   });
 
   if (!routing.ok) {
     console.warn(`sms_inbound_unrouted:${routing.reason}`);
-    return reply(SMS_UNROUTED_REPLY);
+    return errorReply("error_unrouted", SMS_UNROUTED_REPLY);
+  }
+
+  // TW-4F tenant isolation: a subaccount-signed message may only affect a studio of that subaccount's own legal business.
+  if (!webhookMayActForStudio(signer, routing.studioId)) {
+    console.warn("sms_inbound_account_studio_mismatch");
+    return rejectUnverified(request, 403);
+  }
+
+  // TW-4F replay protection: each inbound MessageSid is processed once. A replayed (or retried) delivery gets an empty
+  // response: no second reply and no second consent change. If the ledger is unreachable the message is processed anyway.
+  const receiptKey = webhookReceiptKey("inbound", params);
+  if (receiptKey) {
+    const receipt = await recordWebhookReceipt(supabase, "inbound", receiptKey, signer.kind === "subaccount" ? signer.accountSid : null);
+    if (receipt === "duplicate") return emptyTwiml();
+    if (receipt === "unavailable") console.warn("sms_inbound_receipt_unavailable");
   }
 
   const studioId = routing.studioId;
@@ -185,6 +223,36 @@ export async function POST(request: Request) {
     });
   }
 
+  // TW-4F usage recording: AFTER the signature, tenant and replay checks (a duplicate delivery returned above) and after this message's own effects, so it
+  // can never gate a received text or a STOP/START/HELP. Compliance traffic is recorded but never charged; an ordinary text is charged within the
+  // business's negative-balance ceiling. A failure is logged (code only) and recovered later by the reconciler from the provider's records.
+  const counts = parseInboundCounts(String(formData.get("NumSegments") ?? ""), String(formData.get("NumMedia") ?? ""));
+  const isCompliance = keyword === "stop" || keyword === "start" || keyword === "help";
+  // a STOP / START whose consent change failed is NOT recorded here: the reconciler then recovers it and applies the opt-out (fail closed)
+  let consentFailed = false;
+  const finish = async (response: Response, replyBody: string | null) => {
+    if (!consentFailed && /^(SM|MM)[0-9a-fA-F]{32}$/.test(messageSid)) {
+      const recorded = await recordInboundUsage(supabase, {
+        studioId,
+        signerAccountSid,
+        providerSid: messageSid,
+        segments: counts.segments,
+        media: counts.media,
+        classification: isCompliance ? "compliance" : "ordinary",
+        replyBody: twilioHandled ? null : replyBody,
+      });
+      if (!recorded.recorded && recorded.reason === "failed") console.warn(`sms_inbound_record_failed:${recorded.code ?? "unknown"}`);
+    }
+    return response;
+  };
+  // TW-4F D2: HELP / START confirmations are compliance replies: sent unless the same sender already received five today (the opt-in or opt-out
+  // itself is never limited, and a STOP confirmation is always sent). The check fails open.
+  const complianceReply = async (kind: "help" | "start", message: string) => {
+    if (twilioHandled) return finish(emptyTwiml(), null);
+    const allowed = await inboundReplyAllowed(supabase, { accountSid: signerAccountSid, sender: from, kind });
+    return allowed ? finish(twiml(message), message) : finish(emptyTwiml(), null);
+  };
+
   if (keyword === "stop" || keyword === "start") {
     // TW-2: one canonical database call, scoped to the resolved studio, updates current
     // consent and appends consumer history atomically.
@@ -202,20 +270,23 @@ export async function POST(request: Request) {
     if (consentError) {
       // Code only. Twilio Advanced Opt-Out still enforces the carrier-level block.
       console.error("sms_inbound_consent_update_failed", consentError.code ?? "unknown");
+      consentFailed = true;
     }
 
     if (keyword === "stop") {
-      return reply(buildSmsStopReply(studioName));
+      const stopReply = buildSmsStopReply(studioName);
+      return finish(reply(stopReply), stopReply);
     }
 
     const restored = Number((outcome as { rows_changed?: unknown } | null)?.rows_changed ?? 0) > 0;
 
-    return reply(restored ? buildSmsStartReply(studioName) : buildSmsStartNoPriorConsentReply(studioName));
+    return complianceReply("start", restored ? buildSmsStartReply(studioName) : buildSmsStartNoPriorConsentReply(studioName));
   }
 
   if (keyword === "help") {
-    return reply(buildSmsHelpReply(studioName));
+    return complianceReply("help", buildSmsHelpReply(studioName));
   }
 
-  return reply("Thanks for your message. Please contact the studio directly if you need help.");
+  // TW-4F D3: no automatic reply to an ordinary message (the studio sees it in its inbox); it used to cost an outgoing text per incoming one
+  return finish(emptyTwiml(), null);
 }

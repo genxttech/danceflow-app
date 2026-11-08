@@ -2,6 +2,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/auth/platform-assurance", async () => (await import("@/lib/auth/__tests__/stepUpDouble")).stepUpDouble());
+
 const redirects: string[] = [];
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => {
@@ -24,8 +26,12 @@ vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({ rpc: async (fn: string, args: Record<string, unknown>) => { adminRpc.push({ fn, args }); return { data: "2026-10-16T00:00:00Z", error: adminRpcError }; } }),
 }));
 
-type RuntimeResult = { ok: true; adapter: object; config: object; store: object; mode: "fake" } | { ok: false; reason: string };
-let runtime: RuntimeResult = { ok: true, adapter: {}, config: {}, store: {}, mode: "fake" };
+const SUB = `AC${"7".repeat(32)}`;
+let entity: Record<string, unknown> = { legal_entity_id: "ent-1", account_status: "active", account_sid: SUB };
+const adapterRequests: string[] = [];
+const okRuntime = () => ({ ok: true as const, adapter: undefined, config: {}, store: {}, mode: "fake" as const, entities: { entityForStudio: async () => entity }, adapterFor: async (sid: string) => { adapterRequests.push(sid); return { accountSid: sid }; } });
+type RuntimeResult = ReturnType<typeof okRuntime> | { ok: false; reason: string };
+let runtime: RuntimeResult = okRuntime();
 let built = 0;
 vi.mock("@/lib/sms/twilioIsv/factory", async () => {
   const { SupabaseRunnerStore } = await import("@/lib/sms/twilioIsv/store");
@@ -40,7 +46,7 @@ const refreshCalls: Record<string, unknown>[] = [];
 let runImpl: () => Promise<{ outcome: string; detail?: string }> = async () => ({ outcome: "brand_submitted" });
 vi.mock("@/lib/sms/twilioIsv/runner", () => ({
   runBrandSubmission: async (input: Record<string, unknown>) => { runCalls.push(input); return runImpl(); },
-  refreshBrandStatus: async (input: Record<string, unknown>) => { refreshCalls.push(input); return { outcome: "brand_in_review" }; },
+  checkRegistrationStatus: async (input: Record<string, unknown>) => { refreshCalls.push(input); return { outcome: "brand_in_review" }; },
 }));
 
 import { runSmsOnboardingAction, setSmsRunnerWindowAction } from "../actions";
@@ -69,7 +75,9 @@ beforeEach(() => {
   refreshCalls.length = 0;
   built = 0;
   platformAdmin = true;
-  runtime = { ok: true, adapter: {}, config: {}, store: {}, mode: "fake" };
+  runtime = okRuntime();
+  entity = { legal_entity_id: "ent-1", account_status: "active", account_sid: SUB };
+  adapterRequests.length = 0;
   runImpl = async () => ({ outcome: "brand_submitted" });
 });
 
@@ -128,18 +136,18 @@ describe("registration controls on the platform panel", () => {
     const html = render([{ ...base, accessEnabled: true, state: "submitted_for_checks" }]);
     expect(html).toContain("Run next steps");
     expect(html).toContain("I confirm the Twilio brand fee");
-    expect(html).not.toContain("Check brand status");
+    expect(html).toContain("Check status"); // the read-only status check sits beside it
   });
   it("a brand in review offers only the GET-only status check", () => {
     const html = render([{ ...base, accessEnabled: true, state: "brand_pending" }]);
-    expect(html).toContain("Check brand status");
+    expect(html).toContain("Check status");
     expect(html).not.toContain("I confirm the Twilio brand fee");
   });
   it("offers nothing when the pilot switch is off or the setup is not in a runnable state", () => {
     for (const row of [{ ...base, accessEnabled: false, state: "submitted_for_checks" }, { ...base, accessEnabled: true, state: "draft" }, { ...base, accessEnabled: true, state: "exception" }, { ...base, accessEnabled: true, state: "service_setup" }]) {
       const html = render([row]);
       expect(html).not.toContain("Run next steps");
-      expect(html).not.toContain("Check brand status");
+      expect(html).not.toContain("Check status");
     }
   });
   it("shows the run result and errors, and still never an EIN or SID", () => {
@@ -195,5 +203,132 @@ describe("the runner window form on the platform panel", () => {
     expect(html).toContain('name="hours"');
     expect(html).toContain('max="72"');
     expect(html).toContain("does nothing outside an open window");
+  });
+});
+
+describe("TW-4F-1: the run action passes explicit submission confirmations only", () => {
+  const logs: string[] = [];
+  beforeEach(() => {
+    logs.length = 0;
+    vi.spyOn(console, "info").mockImplementation((line: unknown) => { logs.push(String(line)); });
+  });
+  const confirmations = () => (runCalls[0]?.confirmSubmit ?? null) as string[] | null;
+
+  it("without any submission box nothing is confirmed", async () => {
+    await go({ studioId: STUDIO, confirmFee: "on" });
+    expect(runCalls).toHaveLength(1);
+    expect(confirmations()).toEqual([]);
+    expect(runCalls[0].confirmFee).toBe(true);
+    expect(logs).toEqual([]);
+  });
+  it("the fee confirmation does not confirm any submission", async () => {
+    await go({ studioId: STUDIO, confirmFee: "on", submitPhrase: "SUBMIT" });
+    expect(confirmations()).toEqual([]);
+  });
+  it("each box confirms only its own submission, and the trail records who and which", async () => {
+    await go({ studioId: STUDIO, confirmSubmitProfile: "on", submitPhrase: "SUBMIT" });
+    expect(confirmations()).toEqual(["S11"]);
+    expect(JSON.parse(logs[0])).toEqual({ event: "sms_runner_submission_requested", studioId: STUDIO, actorId: "padmin-1", steps: ["S11"] });
+    expect(JSON.parse(logs[1])).toEqual({ event: "sms_runner_submission_result", studioId: STUDIO, actorId: "padmin-1", requested: ["S11"], submitted: [], outcome: "brand_submitted" });
+    runCalls.length = 0;
+    await go({ studioId: STUDIO, confirmSubmitTrustProduct: "on", submitPhrase: "SUBMIT" });
+    expect(confirmations()).toEqual(["T6"]);
+    runCalls.length = 0;
+    await go({ studioId: STUDIO, confirmSubmitProfile: "on", confirmSubmitTrustProduct: "on", submitPhrase: "SUBMIT" });
+    expect(confirmations()).toEqual(["S11", "T6"]);
+  });
+  it.each([[""], ["submit"], ["Submit"], ["SUBMIT NOW"], ["YES"]])("a ticked submission with the phrase %j runs nothing and builds no runtime", async (phrase) => {
+    const message = await go({ studioId: STUDIO, confirmSubmitProfile: "on", submitPhrase: phrase });
+    expect(message).toContain("type SUBMIT exactly");
+    expect(runCalls).toHaveLength(0);
+    expect(built).toBe(0);
+    expect(logs).toEqual([]);
+  });
+  it("surrounding spaces around the phrase are tolerated, nothing else", async () => {
+    await go({ studioId: STUDIO, confirmSubmitProfile: "on", submitPhrase: "  SUBMIT " });
+    expect(confirmations()).toEqual(["S11"]);
+  });
+  it("the typed phrase alone confirms nothing", async () => {
+    await go({ studioId: STUDIO, submitPhrase: "SUBMIT" });
+    expect(confirmations()).toEqual([]);
+  });
+  it("a status check ignores submission boxes entirely", async () => {
+    await go({ studioId: STUDIO, intent: "refresh", confirmSubmitProfile: "on", confirmSubmitTrustProduct: "on", submitPhrase: "SUBMIT" });
+    expect(refreshCalls).toHaveLength(1);
+    expect(runCalls).toHaveLength(0);
+    expect(logs).toEqual([]);
+  });
+  it("a platform-admin refusal still happens first", async () => {
+    platformAdmin = false;
+    await expect(runSmsOnboardingAction(form({ studioId: STUDIO, confirmSubmitProfile: "on", submitPhrase: "SUBMIT" }))).rejects.toThrow("NOT_PLATFORM_ADMIN");
+    expect(runCalls).toHaveLength(0);
+  });
+  it("the result trail says what was actually submitted, not just what was requested", async () => {
+    runImpl = async () => ({ outcome: "waiting_submission_confirmation", detail: "T6", stepsRun: ["S11", "T1"] } as never);
+    await go({ studioId: STUDIO, confirmSubmitProfile: "on", confirmSubmitTrustProduct: "on", submitPhrase: "SUBMIT" });
+    expect(JSON.parse(logs[1])).toMatchObject({ event: "sms_runner_submission_result", requested: ["S11", "T6"], submitted: ["S11"], outcome: "waiting_submission_confirmation" });
+  });
+  it("the waiting outcome is explained in plain words", async () => {
+    runImpl = async () => ({ outcome: "waiting_submission_confirmation", detail: "S11" });
+    const message = await go({ studioId: STUDIO });
+    expect(message).toContain("irreversible submission");
+    expect(message).toContain("type SUBMIT");
+    expect(message).toContain("Nothing was submitted");
+    expect(message).toContain("the evaluation passed");
+  });
+});
+
+describe("TW-4F-1: the platform panel shows the irreversible-submission confirmations", () => {
+  const html = renderToStaticMarkup(createElement(SmsOnboardingPilot, {
+    studios: [{ id: STUDIO, name: "Harbor Dance" }],
+    rows: [{ studioId: STUDIO, studioName: "Harbor Dance", submissionSeq: 1, submittedAt: "2026-10-15T12:00:00Z", updatedAt: null, einStored: true, accessEnabled: true, state: "submitted_for_checks" }] as never,
+    unavailable: false, notice: false, error: null,
+  }));
+  it("offers a separate unticked box for each submission and a typed phrase", () => {
+    expect(html).toContain('name="confirmSubmitProfile"');
+    expect(html).toContain('name="confirmSubmitTrustProduct"');
+    expect(html).toContain('name="submitPhrase"');
+    expect(html).toContain("Irreversible submissions");
+    expect(html).not.toMatch(/name="confirmSubmit(Profile|TrustProduct)"[^>]*checked/);
+  });
+  it("keeps the fee confirmation separate", () => {
+    expect(html).toContain('name="confirmFee"');
+  });
+  it("a brand already in review offers none of the submission controls", () => {
+    const review = renderToStaticMarkup(createElement(SmsOnboardingPilot, {
+      studios: [{ id: STUDIO, name: "Harbor Dance" }],
+      rows: [{ studioId: STUDIO, studioName: "Harbor Dance", submissionSeq: 1, submittedAt: null, updatedAt: null, einStored: false, accessEnabled: true, state: "brand_pending" }] as never,
+      unavailable: false, notice: false, error: null,
+    }));
+    expect(review).not.toContain("confirmSubmitProfile");
+  });
+});
+
+describe("TW-4F-3a (D2): the run action only ever uses the studio's own Twilio subaccount", () => {
+  it("builds the adapter for the subaccount recorded for the studio's legal entity", async () => {
+    await go({ studioId: STUDIO });
+    expect(adapterRequests).toEqual([SUB]);
+    expect(runCalls).toHaveLength(1);
+    expect((runCalls[0].adapter as { accountSid: string }).accountSid).toBe(SUB);
+  });
+  it("without a legal entity or an active subaccount nothing is built or run, for both intents", async () => {
+    for (const shape of [{ legal_entity_id: null }, { legal_entity_id: "ent-1", account_status: null, account_sid: null }, { legal_entity_id: "ent-1", account_status: "creating", account_sid: null }, { legal_entity_id: "ent-1", account_status: "unknown", account_sid: SUB }]) {
+      entity = shape;
+      for (const intent of ["run", "refresh"]) {
+        runCalls.length = 0;
+        refreshCalls.length = 0;
+        const message = await go({ studioId: STUDIO, intent, confirmFee: "on" });
+        expect(message).toMatch(/no Twilio subaccount yet/i);
+        expect(adapterRequests).toEqual([]);
+        expect(runCalls).toHaveLength(0);
+        expect(refreshCalls).toHaveLength(0);
+      }
+    }
+  });
+  it("a failing account lookup runs nothing", async () => {
+    runtime = { ...okRuntime(), entities: { entityForStudio: async () => { throw new Error("db down"); } } };
+    const message = await go({ studioId: STUDIO });
+    expect(message).toMatch(/could not be looked up/i);
+    expect(runCalls).toHaveLength(0);
   });
 });

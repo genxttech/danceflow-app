@@ -1,11 +1,24 @@
+import { Fragment } from "react";
 import type { PlatformOnboardingRow } from "@/lib/sms/onboarding/client";
+import type { RunnerStatus } from "@/lib/sms/twilioIsv/store";
 import { STATE_LABELS, type OnboardingDisplayState } from "@/lib/sms/onboarding/stateMachine";
 import { runSmsOnboardingAction, setSmsOnboardingAccessAction, setSmsRunnerWindowAction } from "./actions";
+import SmsCampaignPackage from "./SmsCampaignPackage";
+import SmsStepEvidence from "./SmsStepEvidence";
+import ProvisioningSummary from "./ProvisioningSummary";
+import type { SenderOverviewRow } from "@/lib/sms/senderVerification";
+import ProvisioningLedger from "./ProvisioningLedger";
+import type { LedgerSnapshot } from "@/lib/sms/provisioning/provisionLedger";
 
 const RUNNABLE_STATES = new Set(["submitted_for_checks", "profile_review", "brand_pending"]);
 const ATTENTION_STATES = new Set(["needs_info", "blocked", "exception", "suspended"]);
 
-type StudioOption = { id: string; name: string | null };
+type StudioOption = { id: string; name: string | null; slug?: string | null; public_name?: string | null };
+
+function ledgerOperations(entry: LedgerSnapshot | "unreadable" | "none" | undefined) {
+  if (entry === undefined || entry === "unreadable") return null;
+  return entry === "none" ? [] : entry.operations;
+}
 
 /** TW-4A: pilot switch for self-service SMS onboarding (default OFF for every studio) and a read-only status list. */
 export default function SmsOnboardingPilot({
@@ -16,6 +29,12 @@ export default function SmsOnboardingPilot({
   error,
   runnerNotice = null,
   runnerError = null,
+  evidence = {},
+  origin = "https://www.idanceflow.com",
+  senderRows = null,
+  ledgerByStudio = null,
+  provNotice = null,
+  provError = null,
 }: {
   studios: StudioOption[];
   rows: PlatformOnboardingRow[];
@@ -24,6 +43,16 @@ export default function SmsOnboardingPilot({
   error: string | null;
   runnerNotice?: string | null;
   runnerError?: string | null;
+  /** Read-only run evidence per studio id (ledger, verdicts, confirmations); absent when nothing has run or it could not be loaded. */
+  evidence?: Record<string, RunnerStatus>;
+  /** Public origin used to build the studio links in the campaign package. */
+  origin?: string;
+  /** Sender overview (null when not loaded). */
+  senderRows?: SenderOverviewRow[] | null;
+  /** R2a provisioning ledger per studio id (platform-admin read). A studio with no key was not queried: shown as not loaded, never as "no operations". */
+  ledgerByStudio?: Record<string, LedgerSnapshot | "unreadable" | "none"> | null;
+  provNotice?: string | null;
+  provError?: string | null;
 }) {
   return (
     <section id="onboarding-pilot" className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
@@ -35,6 +64,8 @@ export default function SmsOnboardingPilot({
       {notice ? <p role="status" className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">Saved.</p> : null}
       {error ? <p role="alert" className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800">{error}</p> : null}
       {runnerNotice ? <p role="status" className="mt-3 rounded-xl bg-sky-50 px-3 py-2 text-sm font-medium text-sky-900">{runnerNotice}</p> : null}
+      {provNotice ? <p role="status" className="mt-3 rounded-xl bg-sky-50 px-3 py-2 text-sm font-medium text-sky-900">{provNotice}</p> : null}
+      {provError ? <p role="alert" className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800">{provError}</p> : null}
       {runnerError ? <p role="alert" className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800">{runnerError}</p> : null}
       {unavailable ? (
         <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">The onboarding tables are not available in this environment yet.</p>
@@ -97,7 +128,8 @@ export default function SmsOnboardingPilot({
                   <tr><td colSpan={6} className="py-3 text-slate-500">No studio has pilot access yet.</td></tr>
                 ) : (
                   rows.map((row) => (
-                    <tr key={row.studioId}>
+                    <Fragment key={row.studioId}>
+                    <tr id={`onboarding-row-${row.studioId}`}>
                       <td className="py-2 pr-4 font-medium text-slate-900">{row.studioName}</td>
                       <td className="py-2 pr-4">{row.accessEnabled ? "On" : row.state ? "Off (setup paused)" : "Off"}</td>
                       <td className="py-2 pr-4">
@@ -113,14 +145,28 @@ export default function SmsOnboardingPilot({
                             {row.state === "brand_pending" ? (
                               <>
                                 <input type="hidden" name="intent" value="refresh" />
-                                <button type="submit" className="rounded-lg border border-violet-300 px-3 py-1 text-xs font-semibold text-violet-800 hover:bg-violet-50">Check brand status</button>
+                                <button type="submit" className="rounded-lg border border-violet-300 px-3 py-1 text-xs font-semibold text-violet-800 hover:bg-violet-50">Check status</button>
                               </>
                             ) : (
                               <>
                                 <label className="flex items-center gap-1 text-xs text-slate-700">
                                   <input type="checkbox" name="confirmFee" /> I confirm the Twilio brand fee
                                 </label>
+                                <fieldset className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1">
+                                  <legend className="px-1 text-[11px] font-semibold uppercase tracking-wide text-rose-800">Irreversible submissions (each run)</legend>
+                                  <label className="flex items-center gap-1 text-xs text-slate-800">
+                                    <input type="checkbox" name="confirmSubmitProfile" /> Submit the business profile for Twilio review
+                                  </label>
+                                  <label className="flex items-center gap-1 text-xs text-slate-800">
+                                    <input type="checkbox" name="confirmSubmitTrustProduct" /> Submit the A2P trust product
+                                  </label>
+                                  <label className="flex items-center gap-1 text-xs text-slate-800">
+                                    Type SUBMIT
+                                    <input name="submitPhrase" autoComplete="off" aria-label="Type SUBMIT to confirm the submissions ticked" className="w-24 rounded border border-slate-300 px-1 py-0.5 text-xs" />
+                                  </label>
+                                </fieldset>
                                 <button type="submit" className="rounded-lg bg-violet-700 px-3 py-1 text-xs font-semibold text-white hover:bg-violet-800">Run next steps</button>
+                                <button type="submit" name="intent" value="refresh" className="rounded-lg border border-violet-300 px-3 py-1 text-xs font-semibold text-violet-800 hover:bg-violet-50" title="Read-only: asks Twilio where the review stands; nothing is created, submitted or paid">Check status</button>
                               </>
                             )}
                           </form>
@@ -129,6 +175,32 @@ export default function SmsOnboardingPilot({
                         )}
                       </td>
                     </tr>
+                    <tr>
+                      <td colSpan={6} className="space-y-2 pb-3">
+                        <ProvisioningSummary
+                          studioId={row.studioId}
+                          state={row.state}
+                          accessEnabled={row.accessEnabled}
+                          evidence={evidence[row.studioId]}
+                          sendersLoaded={senderRows !== null}
+                          sender={senderRows?.find((r) => r.studioId === row.studioId) ?? null}
+                          operations={ledgerOperations(ledgerByStudio?.[row.studioId])}
+                          ledgerUnreadable={ledgerByStudio?.[row.studioId] === "unreadable"}
+                        />
+                        <ProvisioningLedger studioId={row.studioId} ledger={ledgerByStudio?.[row.studioId] ?? null} />
+                      </td>
+                    </tr>
+                    {evidence[row.studioId] || row.accessEnabled ? (
+                      <tr>
+                        <td colSpan={6} className="space-y-2 pb-3">
+                          {evidence[row.studioId] ? <SmsStepEvidence status={evidence[row.studioId]!} /> : null}
+                          {row.accessEnabled ? (
+                            <SmsCampaignPackage studioName={studios.find((studio) => studio.id === row.studioId)?.name ?? row.studioName} publicName={studios.find((studio) => studio.id === row.studioId)?.public_name ?? null} slug={studios.find((studio) => studio.id === row.studioId)?.slug ?? null} origin={origin} />
+                          ) : null}
+                        </td>
+                      </tr>
+                    ) : null}
+                    </Fragment>
                   ))
                 )}
               </tbody>
