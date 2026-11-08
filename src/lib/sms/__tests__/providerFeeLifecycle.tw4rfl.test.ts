@@ -73,6 +73,7 @@ describe("runProviderFeeLifecycleScan", () => {
         if (id === "e2") throw new Error("boom");
         return { opened: 1, closed: 2, alerts: 3 };
       }),
+      inboundAllowanceCheck: vi.fn(async () => 0),
       inventoryGaps: vi.fn(async () => 4),
       claimAlerts: vi.fn(async () => [] as ProviderFeeAlert[]),
       finishAlert: vi.fn(async (id: string, _t: string, delivered: boolean, error: string | null) => {
@@ -108,7 +109,7 @@ describe("runProviderFeeLifecycleScan", () => {
     const { store, raw } = makeStore();
     const { ops } = makeOps();
     const out = await runProviderFeeLifecycleScan(store, null, ops);
-    expect(out).toEqual({ ran: true, ranReason: null, entities: 2, opened: 2, closed: 4, alertsCreated: 6, inventoryGaps: 4, escalated: 2, delivered: 0, failed: 0, errors: 1, deliveryEnabled: false, truncated: 0, deferred: 0, deliverySkipped: 0 });
+    expect(out).toEqual({ ran: true, ranReason: null, entities: 2, opened: 2, closed: 4, alertsCreated: 6, inventoryGaps: 4, inboundAlerts: 0, escalated: 2, delivered: 0, failed: 0, errors: 1, deliveryEnabled: false, truncated: 0, deferred: 0, deliverySkipped: 0 });
     expect(raw.claimAlerts).not.toHaveBeenCalled();
   });
 
@@ -290,7 +291,7 @@ describe("runProviderFeeLifecycleScan", () => {
       const rows = Array.from({ length: count }, (_, i) => ({ id: `a${i}`, attempts: 0, status: "pending", token: "" }));
       let n = 0;
       const store = {
-        scanEntities: async () => { onScan(); return []; }, scanEntity: vi.fn(), inventoryGaps: async () => 0,
+        scanEntities: async () => { onScan(); return []; }, scanEntity: vi.fn(), inboundAllowanceCheck: async () => 0, inventoryGaps: async () => 0,
         claimAlerts: vi.fn(async (limit: number) => {
           const picked = rows.filter((r) => (r.status === "pending" || r.status === "failed") && r.attempts < 5).slice(0, limit);
           return picked.map((r) => { r.status = "sending"; r.attempts += 1; r.token = `t${n++}`; return { ...a(0), id: r.id, claimToken: r.token }; });
