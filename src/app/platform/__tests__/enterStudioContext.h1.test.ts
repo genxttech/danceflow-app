@@ -200,11 +200,12 @@ describe("clearStudioContextAction", () => {
     expect(auditRows.filter((r) => r.route === "platform_support:exit")).toHaveLength(1);
   });
 
-  it("clears the cookie even when the exit audit write fails", async () => {
+  it("when the revoking exit write fails it is reported as failed and the live cookie is kept (not a completed exit)", async () => {
     seedContext(S1);
     auditOk = false;
-    await expect(clearStudioContextAction()).rejects.toThrow(/NEXT_REDIRECT:\/platform$/);
-    expect(cookieDeletes).toEqual(["platform_selected_studio_id"]);
+    await expect(clearStudioContextAction()).rejects.toThrow("NEXT_REDIRECT:/platform/studios?exit=failed");
+    expect(cookieDeletes).toEqual([]);
+    expect(jar.has("platform_selected_studio_id")).toBe(true);
   });
 
   it("writes no audit row when there is no active support context", async () => {

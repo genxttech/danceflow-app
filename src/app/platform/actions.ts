@@ -116,8 +116,11 @@ export async function clearStudioContextAction() {
   const current = (await resolveCurrentSupportStudio(rawCookie, admin.id)) ?? supportCookieStudioHint(rawCookie);
   if (current) {
     // The exit row is what REVOKES the cookie (it makes the entry row no longer the latest), so retry once before giving up.
-    const recorded = await recordPlatformSupportEvent({ event: "exit", studioId: current, userId: admin.id });
-    if (!recorded) await recordPlatformSupportEvent({ event: "exit", studioId: current, userId: admin.id });
+    let recorded = await recordPlatformSupportEvent({ event: "exit", studioId: current, userId: admin.id });
+    if (!recorded) recorded = await recordPlatformSupportEvent({ event: "exit", studioId: current, userId: admin.id });
+    // Without the revoking row a copied cookie stays valid, so never present this as a completed exit: keep the (still live) context, say so, and let the
+    // admin retry. Signing out also ends it, because the cookie is bound to the auth session.
+    if (!recorded) redirect("/platform/studios?exit=failed");
   }
   cookieStore.delete(PLATFORM_STUDIO_COOKIE);
 
