@@ -67,7 +67,7 @@ export async function verifyInstalled(runId: string, d: ExecInboxDeps): Promise<
     return stop();
   }
   const pp = parsePolicy(polRaw, cap);
-  if (!gate("policy", pp.ok, pp.ok ? "policy.json parses and every ceiling is within the proof's hard cap" : pp.problems.join(" | "))) return stop();
+  if (!gate("policy", pp.ok, pp.ok ? "policy.json parses and every ceiling is within the proof's hard cap" : pp.problems.join(" | ")) || !pp.ok) return stop();
   const policy = pp.policy;
   if (!gate("policy-run-as", policy.runAsAccount.toLowerCase() === RUN_AS_ACCOUNT.toLowerCase(), `policy run-as account is ${RUN_AS_ACCOUNT}`)) return stop();
 
@@ -127,7 +127,7 @@ export async function verifyInstalled(runId: string, d: ExecInboxDeps): Promise<
     return stop();
   }
   const fp = fingerprintOfFile(envRaw);
-  if (!gate("envelope", fp.ok, fp.ok ? `envelope ${fp.fingerprint} valid, canonical hash recomputed` : fp.why)) return stop();
+  if (!gate("envelope", fp.ok, fp.ok ? `envelope ${fp.fingerprint} valid, canonical hash recomputed` : fp.why) || !fp.ok) return stop();
   const env = fp.envelope;
   const win = checkEnvelopeWindow(env, d.now());
   if (!gate("envelope-window", win.length === 0, win.length === 0 ? `valid until ${env.expiresUtc}` : win.map((i) => `${i.code}: ${i.detail}`).join(" | "))) return stop();

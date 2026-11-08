@@ -1,6 +1,6 @@
 # D24 TEST runner: an execution-path trust anchor the same-user agent cannot rewrite
 
-Status: **design only.** No code, no enrollment, no Stripe call, no SQL, no deploy. Written against PR #417 (`claude/d24-test-runner`, head `5d28e341`) and PR #419 (`claude/d24-owner-auth`, head `5199f3f7`, stacked). Related: `D24-TEST-RUNNER-DESIGN.md`, `D24-TEST-RUNNER-OWNER-AUTH.md`.
+Status: **design (sections 1-11) plus an as-built record (section 12).** The build is local code only, inactive, offline-tested: no elevated install, no enrollment, no Stripe call, no SQL, no deploy. Written against PR #417 (`claude/d24-test-runner`, head `5d28e341`) and PR #419 (`claude/d24-owner-auth`, head `5199f3f7`, stacked). Related: `D24-TEST-RUNNER-DESIGN.md`, `D24-TEST-RUNNER-OWNER-AUTH.md`.
 
 Evidence legend: **[code]** read from those branches; **[design]** proposed here; **[unverified]** depends on Windows or GitHub behaviour not checked in this work and to be observed in the test plan (section 8), never assumed.
 
@@ -162,7 +162,7 @@ Legend: **E** = engineering can do alone (offline/software authenticator, throwa
 
 Unavoidable extras, named honestly: creating the Stripe restricted key in the dashboard and expiring it afterwards (existing owner steps), and recording the anchor fingerprint out of band. Updates to the runner or policy repeat action 1.
 
-## 10. Minimal implementation delta against #417/#419 (not implemented here)
+## 10. Minimal implementation delta against #417/#419 (as planned; section 12 records what was built)
 
 Paths are under `scripts/qa/d24-test-runner/` unless stated. Files are hash-pinned by `runnerpin.ts`, so any change after the owner's approval changes the tree hash by design.
 
@@ -194,3 +194,56 @@ Paths are under `scripts/qa/d24-test-runner/` unless stated. Files are hash-pinn
 2. DPAPI-under-`d24run` versus an ACL-only file for the key (decided by T14).
 3. Whether to require a GitHub-"Verified" signed tag in the installer now or later.
 4. Who may run the installer's clean-clone step (the owner at a keyboard; the agent never elevates).
+
+## 12. As built (owner-authorized build, local code only)
+
+Status of this section: the code below exists in `scripts/qa/d24-test-runner/` and is covered by offline tests on throwaway temp directories with injected ACL text, a software authenticator and a simulated executor. **Nothing has been run on a real machine: no elevated install, no `C:\ProgramData\d24-runner`, no `d24run` account, no scheduled task, no enrollment, no Credential Manager, no Stripe call.** The runner stays inactive.
+
+### 12.1 What was built, versus section 10
+
+| Planned (section 10) | Built | Note |
+|---|---|---|
+| `trustroot.ts` (install root) | **`installroot.ts`** | `trustroot.ts` already exists on main (pinned repo/branch constants), so the new module has another name. Holds `INSTALL_ROOT`, the release-record parser, the `icacls` parser and per-role ACL rules, the root-path gate, the installed-tree check and the "verified installed" brand. |
+| `policy.ts` | `policy.ts` | Strict parse (no unknown fields; ceilings bounded by the proof's own `HARD_CALL_CAP`), `clampEnvelopeToPolicy`. An envelope that exceeds a ceiling is **refused**, never silently narrowed. |
+| `fingerprint.ts` | `fingerprint.ts` | `7F3A-91C2-0B5D` form, recomputed from content, first-group confirmation, terms lines. |
+| `execinbox.ts` | `execinbox.ts` | Gate order: identity, run id, install-root path, policy parse, ACLs, release record, tree hash, policy hash, anchor, inbox copy, envelope, window, policy clamp; then `runEnvelope`. |
+| `launcher.ts` | `launcher.ts` | Exactly one pending envelope; terms shown before the question; typed first group before the tap; assertion written `wx` beside the envelope. The authenticator call is **injected**; the real ceremony is not implemented (OWNER-AUTH section 7). |
+| `install/Install-D24Runner.ps1` | **`installer.ts` + `installedcli.ts`** | The installer logic is TypeScript with injected providers so it is testable; `installedcli.ts` holds the real providers (`icacls`, `fltmc`, `npm ci`, git) and is never executed by tests. Creating the `d24run` account and the scheduled task stay documented manual steps (12.3), not code. |
+| `runner.ts` edits | **minimal** (see 12.2) | |
+| `envelope.ts`, `cli.ts`, `ownercli.ts`, `ownersig.ts`, `ownerverify.ts`, `credstore.ts`, `webauthn.ts`, `gitverify.ts`, `runnerpin.ts` | **unchanged** | The existing checks are reused as-is. The d24run-only credential back end is the existing `DpapiFileStore` constructed by `execinbox`/`installedcli` over `<root>\cred` and run as `d24run` (DPAPI CurrentUser = `d24run`); the policy pins `credentialStore: dpapi-file` and the clamp refuses any envelope that names Credential Manager. |
+| `vitest.config.mts` | unchanged | The existing include glob already covers `d24-test-runner/__tests__`. |
+
+### 12.2 The edit to `runner.ts` (the only merged file touched)
+
+* `RunnerDeps.installed?: InstalledRun`, a branded object only `execinbox.verifyInstalled` can produce (`markVerifiedInstalled`; a structural copy or JSON round trip loses the brand).
+* **`installed-root` gate (first gate):** a live run with the real executor is `BLOCKED` unless the verified brand is present. The previous behaviour (`cli.ts run` live from a checkout) is therefore closed; live runs go through `execinbox`.
+* The anchor/state/ledger test seams are additionally allowed for a verified installed root (they point at `<root>\anchor.json` and `<root>\state\`).
+* Installed mode replaces the git clean-clone, `runner-tracked`, `commit-on-main` and `committed-content` gates with `installed-tree` (+ `installed-release-pin`: the envelope's commit and lockfile equal the release record) and `installed-tree-recheck` (the tree is hashed again immediately before the approval counter is recorded). The git checks were run once, by the elevated installer, at the moment the tree entered the root.
+* The runner folder that is hashed and held is the installed one (`installed.layout.runnerDir`); `execinbox` has already proved the running code lives under `<root>\release`.
+
+### 12.3 Owner/administrator manual steps that are not code (all unverified until run)
+
+1. Create the local account `d24run` (no interactive logon, random password not kept) and the scheduled task that runs `node release\node_modules\tsx\dist\cli.mjs release\scripts\qa\d24-test-runner\installedcli.ts exec <runId>` as `d24run`, whose security descriptor lets the owner user start but not edit it.
+2. `install` (elevated) with `--source`, `--commit`, `--pr`, accounts, `--anchor` (a file produced by owner enrollment) and `--owner`. The installer prints commit, PR number, runner tree hash, proof hash, lockfile hash and anchor fingerprint, then requires the first group of the tree fingerprint to be typed.
+3. Enter the restricted key into `<root>\cred` as `d24run` (a `DpapiFileStore.write` run as that account; the existing hidden-prompt helper). The installer deliberately never handles the key.
+4. Hardware enrollment of the anchor (OWNER-AUTH section 7) before step 2; the WebAuthn tap ceremony is the missing piece behind `launcher.ts`.
+
+### 12.4 What the offline tests prove
+
+Each threat-table row that code can prove has a test that fails when the guarding line is removed (mutation evidence is in the PR description): tree edit (including the `REQUIRE_HARDWARE_FOR_LIVE` constant and a proof file), anchor swap, a consistent rewrite of anchor+policy+release (stopped by the ACL gate), policy edit/widening, release-record edit, code running outside the root or via a redirected root, owner-writable or owner-readable `state\`/`cred\`, wrong run-as identity, each envelope-vs-policy widening, the daily cap, expiry, envelope swap after the copy, an assertion for another envelope or by another key (existing #419 verifier against the INSTALLED anchor, before any key read), the real-executor refusal and the forged-brand cases, the second tree hash, installer refusals (not elevated, unverified release, wrong confirmation, bad inputs), ACL read-back failure, and anchor rotation rules.
+
+### 12.5 What cannot be proven offline (Windows test plan, owner or admin involvement)
+
+* **U1** the OS enforces the real ACLs against a non-admin process (writing `release\`, `policy.json`, `anchor.json`, `state\`, `cred\`; creating in `inbox\` but not modifying) (T7, T13);
+* **U2** `icacls` real output shape, SID/localised names, and `/inheritance:r`/`/T` application order (the parser is tested on captured-shape text only);
+* **U3** `d24run` isolation: cannot be read from, signalled by or have its memory read by the owner's user; non-interactive DPAPI unseal under the task (T8, T14);
+* **U4** the scheduled task: start-by-owner-only, fixed action, no argument injection beyond `<runId>` (the id is validated against `^[A-Za-z0-9-]{6,64}$`);
+* **U5** a real authenticator: enrollment, UV/UP flags, cancel/timeout, counter behaviour, and the launcher-to-authenticator ceremony (T9, T10, T11);
+* **U6** UAC / elevated-session behaviour (`fltmc` as the elevation probe, virtual authenticators against an elevated enrollment page);
+* **U7** per-file ACLs under `release\` are not re-read (only the directory chain is); integrity of the files is the tree-hash re-check immediately before the run is consumed, and `node_modules` (installed by the elevated `npm ci --ignore-scripts`) is **not** hashed, only ACL-protected (toolchain gap noted in OWNER-AUTH section 3);
+* **U8** the "owner-approved PR" half of release provenance: the installer proves the commit is on `main` with the pinned blobs (SHA-1-verified objects) and shows the PR number the administrator typed, but it does not query GitHub for review state; the typed confirmation by the owner at the keyboard is that check;
+* **U9** real `npm ci`, real git object verification against GitHub, and the time-of-check/time-of-use gap between the directory-level ACL read and later file access.
+
+### 12.6 Residuals unchanged by the build
+
+R1 (rogue prompt/race), R2 (rogue UAC prompt), an agent with administrator rights, a compromised device, and the owner's decision whether the day-to-day Windows user is an administrator (section 11) are exactly as in sections 4 and 7.

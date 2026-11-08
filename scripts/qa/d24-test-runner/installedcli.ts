@@ -21,9 +21,10 @@ import { install, type InstallProviders } from "./installer";
 import { INSTALL_ROOT, layout, readJson, RUN_AS_ACCOUNT, type AclApplier, type AclRole, type Who } from "./installroot";
 import { launch } from "./launcher";
 import { mainVerification, pristineGates } from "./gitverify";
-import { makePrompter } from "./ownermain";
+import { createInterface } from "node:readline";
 import { type Policy } from "./policy";
 
+const ask = (q: string): Promise<string> => new Promise((res) => { const rl = createInterface({ input: process.stdin, output: process.stderr, terminal: true }); rl.question(q, (a) => { rl.close(); res(a); }); });
 const ADMINS = "*S-1-5-32-544";
 const SYSTEM = "*S-1-5-18";
 
@@ -68,11 +69,10 @@ export const isElevated = (): boolean => {
 };
 
 function realInstallProviders(): InstallProviders {
-  const prompter = makePrompter(process.stdin);
   return {
     isElevated,
     acl: realAcl,
-    confirm: (q) => prompter.line(q),
+    confirm: ask,
     out: (l) => console.log(l),
     now: () => new Date(),
     async verifyRelease({ repoDir, commit, pins }) {
@@ -108,11 +108,10 @@ export async function main(argv: string[], out: (s: string) => void): Promise<nu
   }
   if (cmd === "launch") {
     const pol = readJson(l.policyJson) as Policy;
-    const prompter = makePrompter(process.stdin);
     const r = await launch({
       inbox: l.inbox,
       expectedAnchorFingerprint: pol.anchorFingerprint,
-      confirm: (q) => prompter.line(q),
+      confirm: ask,
       tap: async () => {
         throw new Error("the WebAuthn ceremony is not implemented here (OWNER-AUTH section 7)");
       },

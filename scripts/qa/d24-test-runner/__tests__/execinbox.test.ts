@@ -40,7 +40,11 @@ async function ready(over: EnvOver = {}) {
   drop(f.l, env);
   return { ...f, env, acl: new FakeAcl(f.l) };
 }
-const failedGate = (g: Array<{ id: string; ok: boolean }>) => g.find((x) => !x.ok)?.id;
+// the failing gate must also be the LAST one: a gate that is recorded as failed but not enforced lets later gates run, and is reported as CONTINUED
+const failedGate = (g: Array<{ id: string; ok: boolean }>) => {
+  const bad = g.find((x) => !x.ok);
+  return bad === undefined ? undefined : g[g.length - 1] === bad ? bad.id : `CONTINUED-PAST-${bad.id}`;
+};
 
 describe("verifyInstalled: the happy path", () => {
   it("passes every gate in the documented order and brands the result", async () => {
@@ -69,6 +73,11 @@ describe("threat table: edits to the execution path", () => {
     const { l, acl } = await ready();
     const evil = makeSoftAuth();
     writeFileSync(l.anchorJson, JSON.stringify(evil.anchor));
+    expect(failedGate((await verifyInstalled(RUN, depsFor(l, acl).d)).gates)).toBe("anchor");
+  });
+  it("anchor.json with the same key but different bytes (reformatted) is refused: the installer-recorded byte hash is what is compared", async () => {
+    const { l, acl } = await ready();
+    writeFileSync(l.anchorJson, JSON.stringify(JSON.parse(readFileSync(l.anchorJson, "utf8"))));
     expect(failedGate((await verifyInstalled(RUN, depsFor(l, acl).d)).gates)).toBe("anchor");
   });
   it("anchor.json, policy.json and release.json ALL rewritten consistently -> the ACL gate is what stops it (the files would only be writable if the ACL were wrong)", async () => {
