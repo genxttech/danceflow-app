@@ -91,7 +91,7 @@ describe("workspace navigation", () => {
   });
 
   it("does not link future areas: they are disabled with an explanation", () => {
-    for (const key of ["officials", "scoring", "results", "awards"]) {
+    for (const key of ["scoring", "results", "awards"]) {
       const item = items.find((candidate) => candidate.key === key)!;
       expect(item.available, key).toBe(false);
       expect(item.href, key).toBeNull();
