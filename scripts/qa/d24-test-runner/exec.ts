@@ -3,7 +3,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { taskkillExe, system32 } from "./bins";
 
-export type ExecOpts = { cwd: string; env: Record<string, string>; input?: string; timeoutMs?: number };
+export type ExecOpts = { cwd: string; env: Record<string, string>; input?: string; timeoutMs?: number; /** "latin1" returns stdout byte-exact (one char per byte), for binary git object streams */ encoding?: "latin1" };
 export type ExecResult = { code: number | null; stdout: string; stderr: string; timedOut?: boolean };
 export type Exec = (cmd: string, args: string[], opts: ExecOpts) => Promise<ExecResult>;
 
@@ -48,6 +48,7 @@ export const realExec: Exec = (cmd, args, opts) =>
           }, KILL_GRACE_MS).unref();
         }, opts.timeoutMs)
       : null;
+    if (opts.encoding) child.stdout?.setEncoding(opts.encoding);
     child.stdout?.on("data", (d) => { if (stdout.length < MAX_OUT) stdout += d; });
     child.stderr?.on("data", (d) => { if (stderr.length < MAX_OUT) stderr += d; });
     child.on("error", (e) => { if (t) clearTimeout(t); if (!done) { done = true; reject(e); } });

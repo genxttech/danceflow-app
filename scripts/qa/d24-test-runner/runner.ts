@@ -9,15 +9,20 @@ import { fileURLToPath } from "node:url";
 import { evidenceDirProblem } from "../d24-m3d-proof/evidence";
 import { checkKeyShape } from "../d24-m3d-proof/identity";
 import { manifest } from "../d24-m3d-proof/manifest";
-import { runnerInsideClone, runnerManifest } from "./runnerpin";
-import { verifyOwnerSignature, type OwnerTrust } from "./ownerverify";
+import { heldUnchanged, runnerInsideClone, runnerManifest } from "./runnerpin";
+import { processEnvProblems } from "./envguard";
+import { defaultOwnerDir, defaultRunnerHome, verifyOwnerSignature, type OwnerTrust } from "./ownerverify";
+import { ANCHOR_FILE, anchorMatchesManifest, checkAgainstState, loadAnchor, type HardwareAnchor } from "./webauthn";
+
+/** Hard-coded policy (part of the runner folder hash that the signed envelope pins): live runs need the hardware-key approval. Tests flip nothing; a dev build that wants the Ed25519 kind must change this line, which changes the runner hash. */
+export const REQUIRE_HARDWARE_FOR_LIVE: boolean = true;
 import { baseEnv, proofEnv } from "./childenv";
 import { sha256 } from "./canon";
 import { checkEnvelopeWindow, KNOWN_RULE_IDS, validateEnvelope } from "./envelope";
 import type { CredentialStore } from "./credstore";
 import { realExec, type Exec } from "./exec";
-import { isDryFakeExec, isSimulatedLiveExec } from "./fakeChild";
-import { verifyCleanClone, type Gate } from "./gitverify";
+import { isDryFakeExec, isSimulatedLiveExec, simulatedMainVerifyFor } from "./fakeChild";
+import { mainVerification, runnerTracked, verifyCleanClone, type Gate } from "./gitverify";
 import type { Ledger, LedgerEntry } from "./ledger";
 import { analyzeEvidence, decide, hashFile, redactionScan, renderReport, type FileHash, type RunSummary } from "./postrun";
 import { proofAllowList, proofDryRun, proofLive, proofPreflight, proofPrintHash, type ProofCall } from "./proofcli";
@@ -39,7 +44,12 @@ export type RunnerDeps = {
   /** absolute git path for live runs (see bins.resolveGit) */
   gitBin?: string;
   /** LIVE only: the pinned owner trust (null = none registered => refuse) and the parsed detached signature document. Ignored in dry. */
-  owner?: { trust: OwnerTrust | null; signature: unknown };
+  owner?: {
+    trust: OwnerTrust | null;
+    signature: unknown;
+    /** the hardware-key approval document (webauthn-es256). seams: anchorPath/statePath/pins default to the fixed locations */
+    hardware?: { doc: unknown; anchorPath?: string; statePath?: string; pins?: { ledgerDir: string; anchorFile: string } };
+  };
 };
 
 export type RunResult = { summary: RunSummary | null; status: RunSummary["status"]; exitCode: number; reportPath: string | null; gates: Gate[] };
@@ -50,6 +60,9 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   // dry is not a trusted caller flag: it must agree with the executor. dry => a dry fake; live => the real executor (or a test-only simulated-live fake).
   if (d.dry && !isDryFakeExec(d.exec)) throw new Error("refused: dry:true requires the dry fake executor (a real executor with dry:true would skip the live gates)");
   if (!d.dry && !(d.exec === realExec || isSimulatedLiveExec(d.exec))) throw new Error("refused: a live run requires the real executor");
+  // test seams (anchor / counter-state / ledger locations) exist only for the simulated-live fake; the real executor always uses the fixed locations
+  const hwSeams = d.owner?.hardware;
+  if (!d.dry && hwSeams && (hwSeams.anchorPath !== undefined || hwSeams.statePath !== undefined || hwSeams.pins !== undefined) && !isSimulatedLiveExec(d.exec)) throw new Error("refused: the anchor/state/ledger test seams are only allowed with the simulated-live test executor");
   const gates: Gate[] = [];
   let literals: string[] = [];
   const say = (s: string) => d.out(sanitize(s, literals));
@@ -85,12 +98,42 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
     return blocked("envelope-window");
   }
   gate("envelope-window", true, `valid until ${env.expiresUtc}`);
+  // the runner's own HTTPS request (branch tip) and the proof traffic must not be steerable through process-wide variables
+  if (!d.dry) {
+    const realProc = d.exec === realExec;
+    const envIssues = processEnvProblems({ ...(realProc ? process.env : {}), ...d.parentEnv }, realProc ? process.execArgv : []);
+    if (!gate("process-environment", envIssues.length === 0, envIssues.length === 0 ? "no proxy, CA, TLS or NODE_OPTIONS override in the process environment" : envIssues.join(" | "))) return blocked("process-environment");
+  }
 
-  // 1b. OWNER signature: the control that the tooling cannot self-approve. Live runs need a registered owner key and a valid detached signature.
-  if (d.dry) gate("owner-signature", true, "DRY: not required (no live call is possible in dry mode); a LIVE run would be refused without a registered owner key and a valid signature");
-  else {
+  // 1b. OWNER APPROVAL. REQUIRE_HARDWARE_FOR_LIVE is a constant in this (runner-hash-pinned) file, not read from any file, environment variable or argument:
+  // a LIVE run needs a valid hardware-key (WebAuthn) approval against the anchor file in this folder. A missing, unparseable, mis-pinned or edited anchor BLOCKS
+  // the run; it never downgrades to another approval kind. The passphrase-sealed Ed25519 kind is not consulted for live runs at all (dry and dev tooling only).
+  let commitApproval: (() => void) | null = null;
+  let hwAnchor: HardwareAnchor | null = null;
+  let hwAnchorSha = "";
+  const anchorPathUsed = d.owner?.hardware?.anchorPath ?? join(__dirnameOf(), ANCHOR_FILE);
+  if (d.dry) gate("owner-signature", true, "DRY: not required (no live call is possible in dry mode); a LIVE run needs a valid hardware-key approval");
+  else if (REQUIRE_HARDWARE_FOR_LIVE) {
+    const hwLoaded = loadAnchor(anchorPathUsed);
+    if (hwLoaded === null) {
+      gate("owner-approval", false, `no hardware anchor (${ANCHOR_FILE}) in the runner folder: live runs require the hardware-key approval and are never downgraded. The owner enrollment is design only, see docs/billing/D24-TEST-RUNNER-OWNER-AUTH.md section 7`);
+      return blocked("owner-approval");
+    }
+    if (!hwLoaded.ok) {
+      gate("owner-approval", false, `hardware anchor is invalid: ${hwLoaded.problems.join("; ")}`);
+      return blocked("owner-approval");
+    }
+    hwAnchor = hwLoaded.anchor;
+    hwAnchorSha = hwLoaded.sha256;
+    // the envelope (covered by the assertion) names the anchor it was written for: a swapped or edited anchor cannot approve an envelope written for another
+    const pinOk = env.hardwareAnchorFingerprintSha256 === hwLoaded.anchor.fingerprintSha256;
+    if (!gate("owner-anchor-pin", pinOk, pinOk ? `envelope pins the same anchor (${hwLoaded.anchor.fingerprintSha256.slice(0, 16)})` : "the anchor fingerprint pinned inside the (hardware-approved) envelope differs from the anchor in this runner folder")) return blocked("owner-anchor-pin");
+    const chk = checkAgainstState(d.owner?.hardware?.statePath ?? join(defaultOwnerDir(), "hw-signcount.json"), { envelopeSha256: env.envelopeSha256, doc: d.owner?.hardware?.doc, anchor: hwLoaded.anchor });
+    if (!gate("owner-approval", chk.result.ok, chk.result.ok ? `HARDWARE-key approval (webauthn-es256) verified against anchor ${hwLoaded.anchor.fingerprintSha256.slice(0, 16)}, counter ${chk.result.signCount} (recorded only when the run is consumed)` : chk.result.reason)) return blocked("owner-approval");
+    commitApproval = chk.commit;
+  } else {
     const sig = verifyOwnerSignature(env.envelopeSha256, d.owner?.signature, d.owner?.trust ?? null);
-    if (!gate("owner-signature", sig.ok, sig.reason)) return blocked("owner-signature");
+    if (!gate("owner-signature", sig.ok, sig.ok ? `DEV KIND (passphrase-sealed Ed25519; same-user, NOT an independent approval): ${sig.reason}` : sig.reason)) return blocked("owner-signature");
   }
 
   // 1c. the runner's own code is part of the approval: it must live in the verified clone and match the hash in the envelope
@@ -101,14 +144,19 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   const runnerOk = rm.sha256 === env.runner.manifestSha256 && rm.files.length === env.runner.fileCount;
   if (!gate("runner-pin", runnerOk, runnerOk ? `runner folder ${sha12(rm.sha256)}, ${rm.files.length} files == envelope` : `runner folder hash ${sha12(rm.sha256)} (${rm.files.length} files) differs from the envelope (${sha12(env.runner.manifestSha256)}): the enforcement code was changed after approval`)) return blocked("runner-pin");
 
+  // The proof folder is hashed NOW, together with the runner folder: these in-memory hashes are what the committed blobs are later compared with (never a
+  // fresh disk read: npm ci runs for minutes in between) and what the last re-hash before going live is compared with.
+  const proofDirAbs = join(repoDir, "scripts", "qa", "d24-m3d-proof");
+  const proofHeld = manifest(proofDirAbs);
+
   // 2. ledger: run count, unfinished runs, lock
   let blockers: string[];
   const bind = { envelopeSha256: env.envelopeSha256, keyFp: env.credential.keyFingerprintSha256Prefix };
   if (!d.dry) {
-    const pinned = d.owner?.trust;
+    const pinned = hwAnchor ? (d.owner?.hardware?.pins ?? { ledgerDir: join(defaultRunnerHome(), "ledger"), anchorFile: join(defaultOwnerDir(), "ledger-anchor.json") }) : d.owner?.trust;
     const same = (a: string, b: string) => resolve(a).toLowerCase() === resolve(b).toLowerCase();
     const okPin = Boolean(pinned) && same(d.ledger.dir, pinned!.ledgerDir) && d.ledger.anchorFile !== undefined && same(d.ledger.anchorFile, pinned!.anchorFile);
-    if (!gate("ledger-pinned", okPin, okPin ? "ledger directory and anchor are the locations pinned in the owner trust file" : "the ledger is not at the location pinned in the owner trust file (a fresh or other ledger would reset the run budget)")) return blocked("ledger-pinned");
+    if (!gate("ledger-pinned", okPin, okPin ? "ledger directory and anchor are the fixed locations (owner trust file / hardware mode defaults)" : "the ledger is not at the pinned location (a fresh or other ledger would reset the run budget)")) return blocked("ledger-pinned");
   }
   try {
     blockers = d.ledger.startBlockers(env.envelopeId, env.maxRuns, bind);
@@ -128,12 +176,28 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   const git = await verifyCleanClone({ repoDir, commitSha: env.code.commitSha, lockfileSha256: env.code.lockfileSha256, env: plain.env, exec: d.exec, runInstall: d.runInstall, gitBin: d.gitBin });
   for (const g of git) gate(g.id, g.ok, g.detail);
   if (git.some((g) => !g.ok)) return blocked("clean-clone");
+  if (hwAnchor) {
+    // the anchor bytes parsed above are the bytes the folder hash covered, and every hashed file (anchor included) is tracked by git
+    if (resolve(anchorPathUsed) === resolve(runnerDir, ANCHOR_FILE)) {
+      const same = anchorMatchesManifest(hwAnchorSha, rm.files);
+      if (!gate("anchor-bytes", same, same ? "the anchor that was parsed is byte-identical to the one the runner-folder hash covers" : "the anchor file changed between being parsed and being hashed")) return blocked("anchor-bytes");
+    }
+    const tr = await runnerTracked({ repoDir, runnerRel: "scripts/qa/d24-test-runner", files: rm.files.map((f) => f.path), env: plain.env, exec: d.exec, gitBin: d.gitBin });
+    if (!gate(tr.id, tr.ok, tr.detail)) return blocked("runner-tracked");
+    // ancestry (decided in node from SHA-1-verified objects) AND the committed blobs against the hashes this run ALREADY HOLDS (runner folder incl. anchor,
+    // proof folder), never against a fresh disk read
+    const heldPins = [...rm.files.map((f) => ({ rel: `scripts/qa/d24-test-runner/${f.path}`, sha256: f.sha256 })), ...proofHeld.files.map((f) => ({ rel: `scripts/qa/d24-m3d-proof/${f.path}`, sha256: f.sha256 }))];
+    const mainVerify = simulatedMainVerifyFor(d.exec) ?? mainVerification;
+    const mv = await mainVerify({ repoDir, commitSha: env.code.commitSha, env: plain.env, exec: d.exec, gitBin: d.gitBin, pins: heldPins });
+    if (!gate(mv.ancestry.id, mv.ancestry.ok, mv.ancestry.detail)) return blocked("commit-on-main");
+    if (mv.content && !gate(mv.content.id, mv.content.ok, mv.content.detail)) return blocked("committed-content");
+  }
 
   // 5. proof manifest: runner recomputation AND the proof's own --print-hash AND the envelope must all agree
   const call: ProofCall = { repoDir, env: plain.env, exec: d.exec, tsxCli: d.tsxCli };
-  const local = manifest(join(repoDir, "scripts", "qa", "d24-m3d-proof"));
+  const local = manifest(proofDirAbs);
   const theirs = await proofPrintHash(call);
-  const agree = theirs.ok && theirs.sha256 === local.sha256 && local.sha256 === env.proof.manifestSha256 && local.files.length === env.proof.fileCount && theirs.fileCount === env.proof.fileCount;
+  const agree = theirs.ok && theirs.sha256 === local.sha256 && local.sha256 === proofHeld.sha256 && local.sha256 === env.proof.manifestSha256 && local.files.length === env.proof.fileCount && theirs.fileCount === env.proof.fileCount;
   if (!gate("proof-manifest", agree, agree ? `manifest ${sha12(local.sha256)}, ${local.files.length} files: runner recomputation == proof --print-hash == envelope` : `manifest mismatch (runner ${sha12(local.sha256)}, proof ${theirs.sha256 ? sha12(theirs.sha256) : "unavailable"}, envelope ${sha12(env.proof.manifestSha256)})`)) return blocked("proof-manifest");
 
   // 5b. the call ceiling: the proof enforces only its own constant (HARD_CALL_CAP), which cannot be lowered without editing the hashed proof folder.
@@ -186,7 +250,10 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   gate("child-environment", true, `allow-listed environment; ${pe.droppedNames.length} inherited variable(s) dropped (names only: ${pe.droppedNames.slice(0, 12).join(", ")}${pe.droppedNames.length > 12 ? ", …" : ""}); passes the proof's own environment check`);
 
   // 9. proof preflight with MANUAL items resolved from the envelope
+  const heldNow = () => heldUnchanged({ proofDir: proofDirAbs, runnerDir }, { proofSha: proofHeld.sha256, runnerSha: rm.sha256 });
+  if (!gate("held-hashes-before-preflight", heldNow(), "proof and runner folders re-hashed from disk immediately before the first spawn that receives the key (preflight)")) return blocked("held-hashes-before-preflight");
   const pf = await proofPreflight({ ...call, env: pe.env });
+  if (!gate("held-hashes-after-preflight", heldNow(), "proof and runner folders re-hashed from disk immediately after the preflight spawn")) return blocked("held-hashes-after-preflight");
   const fails = pf.lines.filter((l) => l.status === "FAIL");
   const manual = pf.lines.filter((l) => l.status === "MANUAL");
   const missing = manual.filter((m) => !env.manualAttestations[m.id]).map((m) => m.id);
@@ -198,9 +265,20 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   const again = await verifyCleanClone({ repoDir, commitSha: env.code.commitSha, lockfileSha256: env.code.lockfileSha256, env: plain.env, exec: d.exec, runInstall: false, gitBin: d.gitBin });
   const stillOk = again.filter((g) => g.id !== "npm-ci").every((g) => g.ok);
   if (!gate("recheck-tree", stillOk, stillOk ? "tree still exactly the pinned commit, clean" : "tree changed during the gates")) return blocked("recheck-tree");
+  // the last re-hash of what will be executed, straight from disk (no stat cache), immediately before the approval counter is recorded and the proof is spawned
+  const heldOk = heldNow();
+  if (!gate("held-hashes-recheck", heldOk, heldOk ? "the proof folder and runner folder still hash to the values pinned at the start of the run" : "the proof or runner folder changed on disk since it was hashed at the start of the run")) return blocked("held-hashes-recheck");
   // expiry is re-checked at the point the run is consumed (npm ci and the gates can take many minutes)
   const win2 = checkEnvelopeWindow(env, d.now());
   if (!gate("envelope-window-recheck", win2.length === 0, win2.length === 0 ? "still inside the approved window at the moment of consumption" : win2.map((i) => `${i.code}: ${i.detail}`).join(" | "))) return blocked("envelope-window-recheck");
+  if (commitApproval) {
+    try {
+      commitApproval(); // the hardware counter is recorded only now, after every gate has passed
+    } catch (e) {
+      gate("owner-approval-record", false, sanitize(String((e as Error).message), literals));
+      return blocked("owner-approval-record");
+    }
+  }
   mkdirSync(env.evidenceRoot, { recursive: true });
   const runId = `${env.envelopeId}-r${runNo}`;
   let start: LedgerEntry;
@@ -225,6 +303,8 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   let status: RunSummary["status"] = "UNVERIFIABLE";
   try {
     const r = await proofLive({ ...call, env: pe.env });
+    const heldAfterLive = heldNow();
+    gate("held-hashes-after-live", heldAfterLive, heldAfterLive ? "proof and runner folders re-hashed from disk immediately after the live spawn: unchanged" : "the proof or runner folder CHANGED on disk during the live spawn: the run is not trustworthy");
     childExit = r.code;
     childOut = r.stdout;
     childErr = r.stderr;
@@ -244,8 +324,10 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
     writeFileSync(join(runDir, "runner-child-output.txt"), childLog, { mode: 0o600, flag: "wx" });
     hashes.push(hashFile("runner-child-output.txt", childLog));
     const dec = decide({ analysis, safetyFindings: findings, childExitCode: childExit, blockedAt: undefined, timedOut });
-    status = dec.status;
-    summary = { status: dec.status, statusReason: dec.reason, envelope: env, runNo, runId, startedUtc, finishedUtc: d.now().toISOString(), childExitCode: childExit, analysis, safetyFindings: findings, fileHashes: hashes, gates, dry: d.dry, runnerManifestSha256: rm.sha256 };
+    const finalStatus: RunSummary["status"] = heldAfterLive ? dec.status : "UNVERIFIABLE";
+    const finalReason = heldAfterLive ? dec.reason : `${dec.reason}; the proof or runner folder changed on disk during the live spawn`;
+    status = finalStatus;
+    summary = { status: finalStatus, statusReason: finalReason, envelope: env, runNo, runId, startedUtc, finishedUtc: d.now().toISOString(), childExitCode: childExit, analysis, safetyFindings: findings, fileHashes: hashes, gates, dry: d.dry, runnerManifestSha256: rm.sha256 };
     const report = renderReport(summary, d.now());
     writeFileSync(join(runDir, "report.md"), report, { mode: 0o600, flag: "wx" });
     say(`REPORT: ${join(runDir, "report.md")} (sha256 ${sha256(report).slice(0, 16)})`);

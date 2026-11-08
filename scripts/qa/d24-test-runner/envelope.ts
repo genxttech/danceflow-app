@@ -31,6 +31,8 @@ export type Envelope = {
   proof: { manifestSha256: string; fileCount: number };
   /** Hash of the runner folder itself (this enforcement code, excluding __tests__): a modified runner cannot run under an approved envelope. */
   runner: { manifestSha256: string; fileCount: number };
+  /** Fingerprint of the hardware anchor (owner-hw-anchor.json) this envelope was written for; the hardware assertion covers it, and the runner cross-checks it. */
+  hardwareAnchorFingerprintSha256: string;
   accounts: { platformAcct: string; connectedAcct: string };
   permittedRuleIds: string[];
   apiCallCeiling: number;
@@ -60,7 +62,7 @@ export const envelopeHash = (e: Omit<Envelope, "envelopeSha256"> | Envelope): st
 };
 
 /** Every security-relevant field the owner approves, in one digest (everything except the approval record itself). */
-const MATERIAL_KEYS = ["envelopeId", "createdUtc", "expiresUtc", "code", "proof", "runner", "accounts", "permittedRuleIds", "apiCallCeiling", "cleanupReserve", "credential", "stopConditions", "maxRuns", "evidenceRoot", "manualAttestations"] as const;
+const MATERIAL_KEYS = ["envelopeId", "createdUtc", "expiresUtc", "code", "proof", "runner", "hardwareAnchorFingerprintSha256", "accounts", "permittedRuleIds", "apiCallCeiling", "cleanupReserve", "credential", "stopConditions", "maxRuns", "evidenceRoot", "manualAttestations"] as const;
 export function materialDigest(e: Record<string, unknown>): string {
   const m: Record<string, unknown> = {};
   for (const k of MATERIAL_KEYS) m[k] = e[k];
@@ -144,7 +146,7 @@ export function validateEnvelope(raw: unknown): { ok: true; envelope: Envelope }
   if (unsafe.length > 0) return { ok: false, issues: [{ code: "control-char", detail: `control, escape, line-break or bidi characters are not allowed in any envelope string (at ${unsafe.slice(0, 5).join(", ")})` }] };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const e = raw as Record<string, any>;
-  const allowedTop = ["schemaVersion", "envelopeId", "mode", "createdUtc", "expiresUtc", "code", "proof", "runner", "accounts", "permittedRuleIds", "apiCallCeiling", "cleanupReserve", "credential", "cleanup", "forbidden", "stopConditions", "maxRuns", "evidenceRoot", "manualAttestations", "ownerApproval", "envelopeSha256"];
+  const allowedTop = ["schemaVersion", "envelopeId", "mode", "createdUtc", "expiresUtc", "code", "proof", "runner", "hardwareAnchorFingerprintSha256", "accounts", "permittedRuleIds", "apiCallCeiling", "cleanupReserve", "credential", "cleanup", "forbidden", "stopConditions", "maxRuns", "evidenceRoot", "manualAttestations", "ownerApproval", "envelopeSha256"];
   for (const k of Object.keys(e)) if (!allowedTop.includes(k)) bad("unknown-field", `unknown top-level field ${JSON.stringify(k.slice(0, 40))}`);
   for (const k of allowedTop) if (!(k in e)) bad("missing-field", `missing ${k}`);
   for (const [obj, keys] of Object.entries(NESTED_KEYS)) {
@@ -168,6 +170,7 @@ export function validateEnvelope(raw: unknown): { ok: true; envelope: Envelope }
   if (!plain(e.runner) || typeof e.runner.manifestSha256 !== "string" || !HEX(64).test(e.runner.manifestSha256) || !(Number.isInteger(e.runner.fileCount) && Number(e.runner.fileCount) > 0)) bad("runner", "runner.manifestSha256 (64 hex) and runner.fileCount are required");
   if (!plain(e.proof) || typeof e.proof.manifestSha256 !== "string" || !HEX(64).test(e.proof.manifestSha256)) bad("manifest", "proof.manifestSha256 must be 64 hex");
   if (plain(e.proof) && !(Number.isInteger(e.proof.fileCount) && Number(e.proof.fileCount) > 0)) bad("manifest", "proof.fileCount must be a positive integer");
+  if (typeof e.hardwareAnchorFingerprintSha256 !== "string" || !HEX(64).test(e.hardwareAnchorFingerprintSha256)) bad("anchor-pin", "hardwareAnchorFingerprintSha256 must be 64 hex (the fingerprint of the owner hardware anchor this envelope is written for)");
   if (!plain(e.accounts) || !ACCT.test(String(e.accounts.platformAcct)) || !ACCT.test(String(e.accounts.connectedAcct))) bad("accounts", "accounts.platformAcct and accounts.connectedAcct must be acct_ ids");
   else if (e.accounts.platformAcct === e.accounts.connectedAcct) bad("accounts", "platform and connected account ids must differ");
 
