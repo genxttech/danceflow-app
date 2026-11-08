@@ -69,6 +69,8 @@ describe("Setup-D24StandardUserAgent.ps1 (administrator, run once)", () => {
     expect(setup).toMatch(/function Test-WorkspaceDescriptor[\s\S]*AreAccessRulesProtected[\s\S]*\$want\.Remove\(\$sid\)/);
     expect(setup).not.toMatch(/\$expected = '\^O:/);
     expect(setup).not.toMatch(/-match \$expected/);
+    const fn = /function Test-WorkspaceDescriptor[\s\S]*?\n}\n/.exec(setup)?.[0] ?? "";
+    expect(fn).not.toMatch(/GetSecurityDescriptorSddlForm|-match|-notmatch/);
   });
   it("the workspace path checks: every ancestor for reparse points, 8.3 short names refused, an empty pre-existing folder is a documented recovery state re-checked at apply time", () => {
     expect(setup).toMatch(/ancestor folder .* is a junction\/symlink/);
@@ -180,15 +182,17 @@ describe("Verify-D24StandardUserAgent.ps1 (standard user, probes)", () => {
     expect(verify).not.toMatch(/the owner-run copy[^\n]*is authoritative/i);
   });
   it("token coverage: Administrators, 'Local account and member of Administrators' (S-1-5-114) and the operator groups, any attribute", () => {
-    for (const sid of ["S-1-5-32-544", "S-1-5-114", "S-1-5-32-551", "S-1-5-32-548", "S-1-5-32-549", "S-1-5-32-550", "S-1-5-32-552"]) expect(verify, sid).toContain(sid);
+    const list = /\$privSids = @\(([^)]*)\)/.exec(verify)?.[1] ?? "";
+    for (const sid of ["S-1-5-32-544", "S-1-5-114", "S-1-5-32-551", "S-1-5-32-548", "S-1-5-32-549", "S-1-5-32-550", "S-1-5-32-552"]) expect(list, sid).toContain(sid);
   });
   it("handle-based probes for write-DAC, write-owner, delete and delete-child on root/release/node_modules/state: only ERROR_ACCESS_DENIED (5) is a PASS; node_modules and state\\tmp creation are probed", () => {
     expect(verify).toMatch(/Add-Type -TypeDefinition/);
     expect(verify).toMatch(/CreateFileW/);
     expect(verify).toMatch(/\$code -eq 5\) \{ Row \$rid 'PASS'/);
     for (const m of ["write-dac", "write-owner", "delete", "delete-child"]) expect(verify, m).toContain(m);
-    expect(verify).toContain("release\\node_modules");
-    expect(verify).toContain("state\\tmp");
+    const createLoop = /foreach \(\$sub in @\(([^)]*)\)\)/.exec(verify)?.[1] ?? "";
+    expect(createLoop).toContain("release\\node_modules");
+    expect(createLoop).toContain("state\\tmp");
   });
   it("open-cred-file passes ONLY on access-denied", () => {
     expect(verify).toMatch(/catch \[UnauthorizedAccessException\] \{ \$outcome = 'denied' \}/);
