@@ -37,7 +37,7 @@ async function go(s: Setup = {}) {
   const deps: RunnerDeps = {
     owner: { trust: null, signature: null, hardware: { doc: hwDoc, anchorPath, statePath: join(hwDir, "state", "hw-signcount.json"), pins } },
     exec,
-    parentEnv: { PATH: "C:\\bin", SystemRoot: "C:\\Windows", NODE_OPTIONS: "--require evil", HTTPS_PROXY: "http://p", DATABASE_URL: "postgres://prod/db" },
+    parentEnv: { PATH: "C:\\bin", SystemRoot: "C:\\Windows", LD_PRELOAD: "/evil.so", GIT_DIR: "C:\evil", DATABASE_URL: "postgres://localhost/db" },
     store: () => {
       storeCalls.n++;
       if (s.dry) throw new Error("store must not be touched in dry");
@@ -72,8 +72,8 @@ describe("runner happy path (fake child)", () => {
     for (const c of calls) {
       expect(c.args.join(" ")).not.toContain(KEY);
       for (const [k, v] of Object.entries(c.env)) if (v === KEY) expect(k).toBe("D24_PROOF_STRIPE_KEY");
-      expect(c.env.NODE_OPTIONS).toBeUndefined();
-      expect(c.env.HTTPS_PROXY).toBeUndefined();
+      expect(c.env.LD_PRELOAD).toBeUndefined();
+      expect(c.env.GIT_DIR).toBeUndefined();
       expect(c.env.DATABASE_URL).toBeUndefined();
     }
     expect(lines.join("\n")).not.toContain(KEY);

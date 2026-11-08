@@ -2,6 +2,7 @@
 // using the same algorithm as the proof's manifest. The envelope carries it, so an edited enforcement module cannot run under an approved envelope.
 
 import { createHash } from "node:crypto";
+import { manifest } from "../d24-m3d-proof/manifest";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 
@@ -32,4 +33,13 @@ export function runnerInsideClone(runnerDir: string, repoDir: string): { ok: boo
   const repo = norm(repoDir);
   const ok = repo === expectedRepo && r.startsWith(`${repo}/`) && r.endsWith("/scripts/qa/d24-test-runner");
   return { ok, detail: ok ? "the runner folder is scripts/qa/d24-test-runner of the verified clean clone" : "the runner is not part of the repository checkout being verified (--repo must be the clone this runner lives in)" };
+}
+
+/** Re-hashes both folders from disk (no stat cache, no git) and compares with the values held since the start of the run. */
+export function heldUnchanged(dirs: { proofDir: string; runnerDir: string }, held: { proofSha: string; runnerSha: string }): boolean {
+  try {
+    return manifest(dirs.proofDir).sha256 === held.proofSha && runnerManifest(dirs.runnerDir).sha256 === held.runnerSha;
+  } catch {
+    return false;
+  }
 }

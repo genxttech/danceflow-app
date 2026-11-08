@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { resolveGit } from "../bins";
-import { realExec } from "../exec";
+import { realExec, type Exec } from "../exec";
 import { isolatedGitEnv, mainVerification, pristineGates, sha256LfText, type MainVerifyOpts, type Pin } from "../gitverify";
 import type { TipResult } from "../remotetip";
 import { tmp } from "./helpers";
@@ -96,7 +96,9 @@ const lookupTipGit = (w: World) => async (_u: string, ref: string): Promise<TipR
 };
 /** The hashes a run would hold right now for these files (read from the working tree). */
 const held = (w: World, files: string[]): Pin[] => files.map((rel) => ({ rel, sha256: sha256LfText(readFileSync(join(w.work, rel))) }));
-const real = (w: World, pin: string, pins?: Pin[], extra: Partial<MainVerifyOpts> = {}) => mainVerification({ repoDir: w.work, commitSha: pin, env: BASE_ENV, exec: realExec, gitBin: gitBin as string, remoteUrl: w.upUrl, lookupTip: lookupTipGit(w), pins, ...extra });
+const real = (w: World, pin: string, pins?: Pin[], extra: Partial<MainVerifyOpts> = {}) => mainVerification({ repoDir: w.work, commitSha: pin, env: BASE_ENV, exec: testExec, gitBin: gitBin as string, remoteUrl: w.upUrl, lookupTip: lookupTipGit(w), pins, ...extra });
+// a wrapper, not realExec itself: mainVerification refuses its test seams when handed the real executor object
+const testExec: Exec = (c, a, o) => realExec(c, a, o);
 const T = 120_000;
 
 describeGit("real git: the commit-on-main gate (F1-F5)", () => {
@@ -245,7 +247,7 @@ describeGit("real git: the commit-on-main gate (F1-F5)", () => {
 
   it("F8: failure to talk to the pinned remote at all is a refusal, not a pass", async () => {
     const w = world();
-    const r = await mainVerification({ repoDir: w.work, commitSha: w.B, env: BASE_ENV, exec: realExec, gitBin: gitBin as string, remoteUrl: pathToFileURL(join(w.dir, "does-not-exist.git")).href, lookupTip: async () => ({ ok: true, sha: w.B }) });
+    const r = await mainVerification({ repoDir: w.work, commitSha: w.B, env: BASE_ENV, exec: testExec, gitBin: gitBin as string, remoteUrl: pathToFileURL(join(w.dir, "does-not-exist.git")).href, lookupTip: async () => ({ ok: true, sha: w.B }) });
     expect(r.ancestry.ok).toBe(false);
     expect(r.content).toBeNull();
   }, T);
@@ -274,3 +276,14 @@ function forgeParent(repo: string, child: string, newParent: string): void {
   chmodSync(p, 0o644);
   writeFileSync(p, b);
 }
+
+describeGit("R5: the mainVerification test seams are refused with the real executor", () => {
+  it("remoteUrl, lookupTip, tmpRoot and testHooks each refuse before anything runs", async () => {
+    const seams: Array<Partial<MainVerifyOpts>> = [{ remoteUrl: "file:///x" }, { lookupTip: async () => ({ ok: true, sha: "a".repeat(40) }) }, { tmpRoot: "." }, { testHooks: {} }];
+    for (const seam of seams) {
+      const r = await mainVerification({ repoDir: ".", commitSha: "a".repeat(40), env: BASE_ENV, exec: realExec, gitBin: gitBin as string, ...seam });
+      expect(r.ancestry.ok, JSON.stringify(Object.keys(seam))).toBe(false);
+      expect(r.ancestry.detail).toMatch(/not allowed with the real executor/);
+    }
+  });
+});

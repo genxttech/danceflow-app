@@ -9,7 +9,8 @@ import { fileURLToPath } from "node:url";
 import { evidenceDirProblem } from "../d24-m3d-proof/evidence";
 import { checkKeyShape } from "../d24-m3d-proof/identity";
 import { manifest } from "../d24-m3d-proof/manifest";
-import { runnerInsideClone, runnerManifest } from "./runnerpin";
+import { heldUnchanged, runnerInsideClone, runnerManifest } from "./runnerpin";
+import { processEnvProblems } from "./envguard";
 import { defaultOwnerDir, defaultRunnerHome, verifyOwnerSignature, type OwnerTrust } from "./ownerverify";
 import { ANCHOR_FILE, anchorMatchesManifest, checkAgainstState, loadAnchor, type HardwareAnchor } from "./webauthn";
 
@@ -97,6 +98,12 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
     return blocked("envelope-window");
   }
   gate("envelope-window", true, `valid until ${env.expiresUtc}`);
+  // the runner's own HTTPS request (branch tip) and the proof traffic must not be steerable through process-wide variables
+  if (!d.dry) {
+    const realProc = d.exec === realExec;
+    const envIssues = processEnvProblems({ ...(realProc ? process.env : {}), ...d.parentEnv }, realProc ? process.execArgv : []);
+    if (!gate("process-environment", envIssues.length === 0, envIssues.length === 0 ? "no proxy, CA, TLS or NODE_OPTIONS override in the process environment" : envIssues.join(" | "))) return blocked("process-environment");
+  }
 
   // 1b. OWNER APPROVAL. REQUIRE_HARDWARE_FOR_LIVE is a constant in this (runner-hash-pinned) file, not read from any file, environment variable or argument:
   // a LIVE run needs a valid hardware-key (WebAuthn) approval against the anchor file in this folder. A missing, unparseable, mis-pinned or edited anchor BLOCKS
@@ -243,7 +250,10 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   gate("child-environment", true, `allow-listed environment; ${pe.droppedNames.length} inherited variable(s) dropped (names only: ${pe.droppedNames.slice(0, 12).join(", ")}${pe.droppedNames.length > 12 ? ", …" : ""}); passes the proof's own environment check`);
 
   // 9. proof preflight with MANUAL items resolved from the envelope
+  const heldNow = () => heldUnchanged({ proofDir: proofDirAbs, runnerDir }, { proofSha: proofHeld.sha256, runnerSha: rm.sha256 });
+  if (!gate("held-hashes-before-preflight", heldNow(), "proof and runner folders re-hashed from disk immediately before the first spawn that receives the key (preflight)")) return blocked("held-hashes-before-preflight");
   const pf = await proofPreflight({ ...call, env: pe.env });
+  if (!gate("held-hashes-after-preflight", heldNow(), "proof and runner folders re-hashed from disk immediately after the preflight spawn")) return blocked("held-hashes-after-preflight");
   const fails = pf.lines.filter((l) => l.status === "FAIL");
   const manual = pf.lines.filter((l) => l.status === "MANUAL");
   const missing = manual.filter((m) => !env.manualAttestations[m.id]).map((m) => m.id);
@@ -256,9 +266,7 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   const stillOk = again.filter((g) => g.id !== "npm-ci").every((g) => g.ok);
   if (!gate("recheck-tree", stillOk, stillOk ? "tree still exactly the pinned commit, clean" : "tree changed during the gates")) return blocked("recheck-tree");
   // the last re-hash of what will be executed, straight from disk (no stat cache), immediately before the approval counter is recorded and the proof is spawned
-  const proofNow = manifest(proofDirAbs);
-  const runnerNow = runnerManifest(runnerDir);
-  const heldOk = proofNow.sha256 === proofHeld.sha256 && runnerNow.sha256 === rm.sha256;
+  const heldOk = heldNow();
   if (!gate("held-hashes-recheck", heldOk, heldOk ? "the proof folder and runner folder still hash to the values pinned at the start of the run" : "the proof or runner folder changed on disk since it was hashed at the start of the run")) return blocked("held-hashes-recheck");
   // expiry is re-checked at the point the run is consumed (npm ci and the gates can take many minutes)
   const win2 = checkEnvelopeWindow(env, d.now());
@@ -295,6 +303,8 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   let status: RunSummary["status"] = "UNVERIFIABLE";
   try {
     const r = await proofLive({ ...call, env: pe.env });
+    const heldAfterLive = heldNow();
+    gate("held-hashes-after-live", heldAfterLive, heldAfterLive ? "proof and runner folders re-hashed from disk immediately after the live spawn: unchanged" : "the proof or runner folder CHANGED on disk during the live spawn: the run is not trustworthy");
     childExit = r.code;
     childOut = r.stdout;
     childErr = r.stderr;
@@ -314,8 +324,10 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
     writeFileSync(join(runDir, "runner-child-output.txt"), childLog, { mode: 0o600, flag: "wx" });
     hashes.push(hashFile("runner-child-output.txt", childLog));
     const dec = decide({ analysis, safetyFindings: findings, childExitCode: childExit, blockedAt: undefined, timedOut });
-    status = dec.status;
-    summary = { status: dec.status, statusReason: dec.reason, envelope: env, runNo, runId, startedUtc, finishedUtc: d.now().toISOString(), childExitCode: childExit, analysis, safetyFindings: findings, fileHashes: hashes, gates, dry: d.dry, runnerManifestSha256: rm.sha256 };
+    const finalStatus: RunSummary["status"] = heldAfterLive ? dec.status : "UNVERIFIABLE";
+    const finalReason = heldAfterLive ? dec.reason : `${dec.reason}; the proof or runner folder changed on disk during the live spawn`;
+    status = finalStatus;
+    summary = { status: finalStatus, statusReason: finalReason, envelope: env, runNo, runId, startedUtc, finishedUtc: d.now().toISOString(), childExitCode: childExit, analysis, safetyFindings: findings, fileHashes: hashes, gates, dry: d.dry, runnerManifestSha256: rm.sha256 };
     const report = renderReport(summary, d.now());
     writeFileSync(join(runDir, "report.md"), report, { mode: 0o600, flag: "wx" });
     say(`REPORT: ${join(runDir, "report.md")} (sha256 ${sha256(report).slice(0, 16)})`);

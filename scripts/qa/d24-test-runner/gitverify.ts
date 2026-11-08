@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Exec } from "./exec";
+import { realExec, type Exec } from "./exec";
 import { nodeTip, type TipResult } from "./remotetip";
 import { PINNED_REF, PINNED_REPO_URL } from "./trustroot";
 
@@ -170,6 +170,7 @@ export function parseTree(body: Buffer): Array<{ mode: string; name: string; sha
  */
 export async function mainVerification(o: MainVerifyOpts): Promise<MainVerifyResult> {
   const no = (detail: string): MainVerifyResult => ({ ancestry: { id: "commit-on-main", ok: false, detail }, content: null });
+  if (o.exec === realExec && (o.remoteUrl !== undefined || o.lookupTip !== undefined || o.tmpRoot !== undefined || o.testHooks !== undefined)) return no("refused: the remoteUrl / lookupTip / tmpRoot / testHooks test seams are not allowed with the real executor");
   const url = o.remoteUrl ?? PINNED_REPO_URL;
   const tipRes = await (o.lookupTip ?? ((u: string, r: string) => nodeTip(u, r)))(url, PINNED_REF);
   if (!tipRes.ok) return no(`could not read ${PINNED_REF} of the pinned repository: ${tipRes.why}. The gate needs ANONYMOUS read access (public repository or mirror); an explicit credential helper is an owner decision`);
