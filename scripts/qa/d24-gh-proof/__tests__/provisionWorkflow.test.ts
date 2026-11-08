@@ -68,15 +68,25 @@ describe("provisioning workflow: trigger, identity, environment", () => {
 });
 
 describe("provisioning workflow: inert until separately authorized", () => {
-  it("the pinned platform id is a placeholder and the guard refuses it", () => {
-    expect(job.env?.D24_PROVISION_EXPECT_PLATFORM_ACCT).toMatch(/^acct_PLACEHOLDER/);
+  const PLATFORM = "acct_1UZ320IPJs53nwt7"; // owner-supplied D24 sandbox platform (2026-11-08)
+  const FORBIDDEN = ["acct_1UWz98RESPl6zEVj" /* D7 sandbox */, "acct_1TKgLCEYYNmPuFIX" /* DEV sandbox */, "acct_1TKgL3EY0sTayNiS" /* live account */];
+  it("the pinned platform id is exactly the owner-supplied D24 sandbox, well-formed, and not the D7, DEV or live account", () => {
+    expect(job.env?.D24_PROVISION_EXPECT_PLATFORM_ACCT).toBe(PLATFORM);
+    expect(PLATFORM).toMatch(/^acct_[A-Za-z0-9]{6,64}$/);
+    for (const bad of FORBIDDEN) expect(code).not.toContain(bad);
+  });
+  it("the guard still refuses a placeholder or malformed platform id and runs before anything is fetched", () => {
     const g = step("Guards").run as string;
     expect(g).toContain("*PLACEHOLDER*");
+    expect(g).toContain("^acct_[A-Za-z0-9]{6,64}$");
     expect(g).toContain("exit 1");
     expect(idx("Guards")).toBeLessThan(idx("Fetch exactly"));
   });
-  it("no real Stripe account id appears anywhere in the file", () => {
-    for (const m of code.match(/acct_[A-Za-z0-9]+/g) ?? []) expect(m).toMatch(/PLACEHOLDER/);
+  it("the only Stripe account id in the file is that platform id", () => {
+    expect([...new Set(code.match(/acct_[A-Za-z0-9]+/g) ?? [])].sort()).toEqual(["acct_PLACEHOLDERCONNECTED", PLATFORM].sort());
+  });
+  it("without the secret it cannot reach Stripe: the tool refuses a missing or non-restricted key before building a transport", () => {
+    expect(readFileSync(join(REPO, "scripts/qa/d24-test-provision/live.ts"), "utf8")).toContain("checkKeyShape(env[ENV.key])");
   });
   it("it is one-shot: it refuses once the proof workflow records a real connected account id", () => {
     const f = step("Fetch exactly").run as string;
