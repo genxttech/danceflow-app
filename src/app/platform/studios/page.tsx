@@ -55,6 +55,7 @@ type SearchParams = Promise<{
   status?: string;
   plan?: string;
   access?: string;
+  exit?: string;
 }>;
 
 const PLAN_LABELS: Record<string, string> = {
@@ -432,6 +433,11 @@ export default async function PlatformStudiosPage({
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.42)_0%,rgba(255,255,255,0)_20%)] p-1">
+      {query.exit === "failed" ? (
+        <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-900">
+          Exit could not be recorded, so your support access to the studio is still active. Try Exit again, or sign out to end it.
+        </div>
+      ) : null}
       <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
         <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
