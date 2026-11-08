@@ -393,7 +393,19 @@ describe("review round: the owner doc states the preconditions honestly", () => 
     expect(doc).toMatch(/proves integrity, not origin/);
   });
   it("documents the token transition, the fine-grained-token limit, the repo-secret residual and the reconciliation decision", () => {
-    for (const s of ["credential.helper=manager", "gh auth setup-git", "gh auth logout --hostname github.com --user genxttech", "separate approval", "Option A (recommended): a GitHub App", "Option B: a classic personal access token", "3.0 [OWNER] Where owner GitHub actions happen", "never signed in to GitHub in any browser or app on this Windows account", "credential.interactive never", "GCM_INTERACTIVE=never", "3.A0", "Preview", "no 0 fallback", "If the output has no final `RESULT:` line", "cannot be used by a collaborator on another user's repository", "Workflows permission trade-off", "Residual P2 (future risk, not present today)", "0 repository-level Actions secrets", "no API to read the request log", "Dashboard glance", "new production-equivalent Express connected account", "separately authorized provisioning workflow", "Require actions to be pinned to a full-length commit SHA", "Prevent self-review", "verify-github-config.ts"]) expect(doc, s).toContain(s);
+    for (const s of ["credential.helper=manager", "gh auth setup-git", "gh auth logout --hostname github.com --user genxttech", "separate approval", "Option A (recommended): a GitHub App", "Option B: a classic personal access token", "3.0 [OWNER] ACCEPTED RESIDUAL", "deliberately hostile agent", "TEST-only", "When this must be re-opened", "Standing rule (record of the owner's decision)", "Hardware security key on the owner's GitHub account", "sudo-mode", "Notification e-mails to a different device or account the agent cannot read", "does not claim an independent boundary", "credential.interactive never", "GCM_INTERACTIVE=never", "3.A0", "Preview", "no 0 fallback", "If the output has no final `RESULT:` line", "cannot be used by a collaborator on another user's repository", "Workflows permission trade-off", "Residual P2 (future risk, not present today)", "0 repository-level Actions secrets", "no API to read the request log", "Dashboard glance", "new production-equivalent Express connected account", "separately authorized provisioning workflow", "Require actions to be pinned to a full-length commit SHA", "Prevent self-review", "verify-github-config.ts"]) expect(doc, s).toContain(s);
+  });
+  it("records the owner's accepted-residual decision instead of requiring a separate device, and does not claim an independent boundary", () => {
+    expect(doc).not.toMatch(/Every owner GitHub action happens on a separate device/);
+    expect(doc).not.toMatch(/never signed in to GitHub in any browser or app on this Windows account/);
+    expect(doc).toMatch(/keeps approving[^.]*on this Windows PC/);
+    expect(doc).toMatch(/never uses\*\* the owner's browser sessions/);
+    expect(doc).toMatch(/gh` keyring token, the Git Credential Manager login, SSH keys/);
+    expect(doc).toMatch(/live-mode key/);
+    expect(doc).toContain("accepted for **TEST-only proofs**");
+    expect(doc).toContain("is **not** removed");
+    expect(doc).toContain("An independent boundary against a deliberately hostile agent on the owner's Windows account.");
+    expect(doc).not.toMatch(/independent boundary against a deliberately hostile agent\.\*\* The ruleset[^.]*do constrain/);
   });
   it("tells the owner the required status check and SHA pinning each have a prerequisite that would otherwise block merges or CI", () => {
     expect(doc).toMatch(/pull_request\.paths. filter, so a PR outside the filter never reports the check/);
