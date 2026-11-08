@@ -123,6 +123,19 @@ describe("installer: P0-1 the root is created by the installer, owner and ACL fi
     expect(r.gates.at(-1)?.detail).toMatch(/owned by/);
     expect(readdirSync(root)).toEqual([]); // nothing was written into it
   });
+  it("P0-1b: staged content that is not Administrators-owned (agent-owned file raced into the staging area) stops the install before the swap", async () => {
+    const root = freshRoot();
+    const p = providers(layout(root));
+    const orig = p.acl.readTree.bind(p.acl);
+    p.acl.readTree = async (path, rec) => {
+      const out = await orig(path, rec);
+      return /staging-[0-9a-f]+$/.test(path) ? out.map((e, i) => (i === out.length - 1 ? { ...e, sddl: sddlFor("locked", WHO, OWNER_SID) } : e)) : out;
+    };
+    const r = await install(inputs(root), p);
+    expect(r.gates.at(-1)).toMatchObject({ id: "staged-acl", ok: false });
+    expect(existsSync(join(root, "release"))).toBe(false);
+    expect(readdirSync(root).filter((n) => /^(staging|rollback)-/.test(n))).toEqual([]);
+  });
   it("if the new root is not Administrators-owned after the apply (apply did not take), the install stops before writing content", async () => {
     const root = freshRoot();
     const p = providers(layout(root));

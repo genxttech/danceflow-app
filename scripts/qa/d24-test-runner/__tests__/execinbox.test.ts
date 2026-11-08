@@ -2,7 +2,7 @@
 // fake security descriptors. What these tests cannot show (the OS actually enforcing the ACLs against a non-admin process, d24run isolation, a real
 // authenticator, UAC) is listed in the document's Windows test plan.
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "../credstore";
@@ -240,6 +240,14 @@ describe("threat table: swapping the envelope or assertion; P2-3 inbox handling"
     writeFileSync(join(f.l.inbox, RUN, "assertion.hw.json"), " ".repeat(300_000));
     expect(failedGate((await verifyInstalled(RUN, depsFor(f.l, acl).d)).gates)).toBe("inbox-copy");
     expect(failedGate((await verifyInstalled("../escape", depsFor(f.l, acl).d)).gates)).toBe("run-id");
+  });
+  it("P2-3a: an inbox run directory that is a link/junction to another directory is refused (not followed)", async () => {
+    const f = await installed();
+    drop(f.l, envFor(f.l), { runId: "real-0001" });
+    symlinkSync(join(f.l.inbox, "real-0001"), join(f.l.inbox, "link-0001"), "junction");
+    const v = await verifyInstalled("link-0001", depsFor(f.l, new FakeAcl(f.l)).d);
+    expect(failedGate(v.gates)).toBe("inbox-copy");
+    expect(workLeft(f.l)).toEqual([]);
   });
   it("P2-3a: the private work copy is removed on EVERY failure path after it was created (bad JSON, invalid envelope, expiry, clamp)", async () => {
     const f = await installed();
