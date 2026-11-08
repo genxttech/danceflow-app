@@ -332,8 +332,8 @@ select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-0a10a00
 select pg_temp.expect_fail('manager cannot forge a history row directly',
   $q$insert into public.event_competition_entry_changes (event_id, entry_id, change_type, reason)
      values ('00000000-0000-0000-0000-0a10a000e001', '00000000-0000-0000-0000-0a10a0007002', 'scratch', 'forged')$q$, '42501');
-select pg_temp.expect_ok('manager scratches an entry through the lifecycle RPC',
-  $q$select public.change_competition_entry_lifecycle('00000000-0000-0000-0000-0a10a0007002', 'scratched', 'Injury', 'retain')$q$);
+select pg_temp.expect_ok('manager scratches an entry through the scratch RPC (SC1 replaced the June lifecycle RPC for API roles)',
+  $q$select public.scratch_competition_entry('00000000-0000-0000-0000-0a10a0007002', '00000000-0000-0000-0000-0a10a00f0001', 'Injury', null)$q$);
 select pg_temp.chk('lifecycle RPC wrote attributed scratch history',
   (select count(*) from public.event_competition_entry_changes
    where entry_id = '00000000-0000-0000-0000-0a10a0007002' and change_type = 'scratch' and reason = 'Injury'
