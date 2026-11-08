@@ -32,9 +32,59 @@ export type ReconcileTransition = {
   noticeAmountCents: number;
   noticeCurrency: string;
   noticeInterval: string;
-  /** Quantity the approved plan carried into the new phase. */
+  /** Quantity the approved plan carried into the new phase (for the target-price item). */
   plannedQuantity: number;
+  /**
+   * Multi-item subscriptions only: the approved item sets from the stored dry run (before = phase 1, after = phase 2) and the
+   * Price id of the one item that moves. Absent for a single-item transition, which keeps the original rules unchanged.
+   */
+  approvedItems?: ApprovedItems;
 };
+
+export type ItemQty = { priceId: string; quantity: number };
+export type ApprovedItems = { before: ItemQty[]; after: ItemQty[]; protectedPriceId: string };
+
+/** Reads the planned quantity and (multi-item) approved item sets from the dry-run snapshot stored with the audit row. */
+export function approvedFromDryRun(dryRun: unknown, targetPriceId: string): { plannedQuantity: number; approvedItems?: ApprovedItems } {
+  const change = (dryRun as { change?: { protectedPriceId?: string; phases?: Array<{ items?: Array<{ price?: string; quantity?: number }> }> } } | null)?.change;
+  const first = change?.phases?.[0]?.items ?? [];
+  const second = change?.phases?.[1]?.items ?? [];
+  if (first.length <= 1 || second.length <= 1 || !change?.protectedPriceId) {
+    return { plannedQuantity: second[0]?.quantity ?? 1 };
+  }
+  const toQty = (items: typeof first): ItemQty[] => items.map((i) => ({ priceId: String(i.price), quantity: Number(i.quantity) }));
+  const after = toQty(second);
+  return {
+    plannedQuantity: after.find((i) => i.priceId === targetPriceId)?.quantity ?? 1,
+    approvedItems: { before: toQty(first), after, protectedPriceId: change.protectedPriceId },
+  };
+}
+
+type ItemDiff = { missing: string[]; unexpected: string[]; quantityChanged: string[] };
+
+/** Order-insensitive comparison of two item sets by Price id. */
+function diffItems(approved: ItemQty[], live: ItemQty[]): ItemDiff {
+  const liveBy = new Map<string, number[]>();
+  for (const i of live) liveBy.set(i.priceId, [...(liveBy.get(i.priceId) ?? []), i.quantity]);
+  const diff: ItemDiff = { missing: [], unexpected: [], quantityChanged: [] };
+  for (const a of approved) {
+    const seen = liveBy.get(a.priceId);
+    if (!seen || seen.length === 0) diff.missing.push(a.priceId);
+    else {
+      const [q, ...rest] = seen;
+      liveBy.set(a.priceId, rest);
+      if (q !== a.quantity) diff.quantityChanged.push(a.priceId);
+    }
+  }
+  for (const [price, rest] of liveBy) for (let n = 0; n < rest.length; n += 1) diff.unexpected.push(price);
+  return diff;
+}
+const itemsEqual = (d: ItemDiff) => d.missing.length + d.unexpected.length + d.quantityChanged.length === 0;
+const itemReasons = (d: ItemDiff): string[] => [
+  ...(d.missing.length ? ["approved_item_missing"] : []),
+  ...(d.unexpected.length ? ["unexpected_item_present"] : []),
+  ...(d.quantityChanged.length ? ["approved_item_quantity_changed"] : []),
+];
 
 export type ReconcileRegistry = {
   id: string;
@@ -105,7 +155,29 @@ export function evaluateReconciliation(input: ReconcileInputs): ReconcileOutcome
 
   if (transition.status === "reconciled") return { state: "already_reconciled" };
   if (!["scheduled", "needs_review"].includes(transition.status)) return { state: "not_applicable", reason: `transition is ${transition.status}` };
-  if (now.getTime() < transition.boundaryAt.getTime()) return { state: "not_due" };
+  if (now.getTime() < transition.boundaryAt.getTime()) {
+    // Multi-item: an item added, removed or changed after scheduling is flagged BEFORE the boundary, while it can still be fixed.
+    // (Whether Stripe carries such an item into the schedule's second phase is unverified; either way a human must look.)
+    const approvedItems = transition.approvedItems;
+    if (approvedItems && subscription && !itemsEqual(diffItems(approvedItems.before, subscription.items))) {
+      const drift = diffItems(approvedItems.before, subscription.items);
+      return {
+        state: "needs_review",
+        reasons: ["items_changed_after_scheduling", ...itemReasons(drift)],
+        milestones: { phaseEntered: false, priceChanged: false },
+        evidence: {
+          subscription_id: subscription.id,
+          price_id: transition.targetPriceId,
+          schedule_id: transition.stripeScheduleId,
+          boundary_at: transition.boundaryAt.toISOString(),
+          observed_at: now.toISOString(),
+          observed_price_ids: subscription.items.map((i) => i.priceId).join(","),
+          observed_item_count: subscription.items.length,
+        },
+      };
+    }
+    return { state: "not_due" };
+  }
 
   const reasons: string[] = [];
   const evidence: ReconcileEvidence = {
@@ -154,8 +226,22 @@ export function evaluateReconciliation(input: ReconcileInputs): ReconcileOutcome
 
   // ---- milestones from Stripe truth ----
   const boundaryMs = transition.boundaryAt.getTime();
-  const onTarget = Boolean(subscription && subscription.items.length === 1 && subscription.items[0].priceId === transition.targetPriceId);
-  if (onTarget && subscription!.items[0].quantity !== transition.plannedQuantity) reasons.push("quantity_changed");
+  const approvedItems = transition.approvedItems;
+  const targetItems = subscription ? subscription.items.filter((i) => i.priceId === transition.targetPriceId) : [];
+  // Multi-item: exactly one item carries the target Price; the rest of the set is compared with the approved plan below.
+  const onTarget = approvedItems
+    ? targetItems.length === 1
+    : Boolean(subscription && subscription.items.length === 1 && subscription.items[0].priceId === transition.targetPriceId);
+  if (onTarget && targetItems[0].quantity !== transition.plannedQuantity) reasons.push("quantity_changed");
+  let itemsMatchPlan: boolean | null = null;
+  if (approvedItems && subscription) {
+    // On the target: the live set must be the approved SECOND phase. Not yet: it must still be the approved FIRST phase.
+    const itemDiff = diffItems(onTarget ? approvedItems.after : approvedItems.before, subscription.items);
+    itemsMatchPlan = itemsEqual(itemDiff);
+    // The target item's own quantity already has its reason above.
+    const rest = { ...itemDiff, quantityChanged: itemDiff.quantityChanged.filter((p) => !(onTarget && p === transition.targetPriceId)) };
+    reasons.push(...itemReasons(rest));
+  }
   const periodStartsAtBoundary = Boolean(subscription && subscription.currentPeriodStart.getTime() === boundaryMs);
   const priceChanged = onTarget && periodStartsAtBoundary;
   const scheduleDone = Boolean(schedule && ["completed", "released"].includes(schedule.status));
@@ -181,6 +267,7 @@ export function evaluateReconciliation(input: ReconcileInputs): ReconcileOutcome
     amount_matches_notice: amountMatches,
     period_start: iso(subscription?.currentPeriodStart),
     schedule_status: schedule?.status ?? null,
+    ...(approvedItems ? { items_match_plan: itemsMatchPlan === true, observed_item_count: subscription?.items.length ?? 0 } : {}),
   });
 
   if (reasons.length > 0) return { state: "needs_review", reasons: [...new Set(reasons)], milestones, evidence };
