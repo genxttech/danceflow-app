@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import { MemoryStore } from "../credstore";
 import { createFakeExec, type FakeOpts } from "../fakeChild";
 import { mainVerification, pristineGates, runnerTracked } from "../gitverify";
+import { manifest as proofManifest } from "../../d24-m3d-proof/manifest";
+import { runnerManifest } from "../runnerpin";
 import { realExec } from "../exec";
 import { runEnvelope, type RunnerDeps } from "../runner";
 import { PINNED_BRANCH, PINNED_REF, PINNED_REPO_URL } from "../trustroot";
@@ -63,17 +65,12 @@ describe("P1-1: the owner-merged location is a runner constant, never taken from
     }
   });
 
-  it("commit-on-main fetches and lists ONLY the constants (no URL or ref from the anchor reaches git)", async () => {
+  it("commit-on-main is asked about the trustroot constants only: no URL or ref from the anchor reaches git or the tip lookup", async () => {
     const t = await go();
     expect(t.r.status).toBe("PASS");
-    const net = gitCalls(t.calls).filter((c) => c.args.includes("fetch") || c.args.includes("ls-remote"));
-    expect(net.length).toBeGreaterThanOrEqual(2);
-    for (const c of net) {
-      expect(c.args).toContain(PINNED_REPO_URL);
-      expect(c.args.join(" ")).toContain(PINNED_REF);
-    }
     const src = readFileSync(join(__dirname, "..", "runner.ts"), "utf8");
-    expect(src).not.toMatch(/hwAnchor\.(repoUrl|branch)/);
+    expect(src).not.toMatch(/hwAnchor.(repoUrl|branch)/);
+    expect(readFileSync(join(__dirname, "..", "gitverify.ts"), "utf8")).toMatch(/PINNED_REPO_URL/);
   });
 });
 
@@ -104,19 +101,19 @@ describe("P2-1: every hashed runner file (and the anchor) must be tracked by git
   });
 });
 
-describe("P2-2 (fix delta): commit-on-main runs in a private temporary repository, never in the working repository", () => {
+describe("P2-2 (round 3): git is only a transport and an object reader; every call is isolated and none touches the working repository", () => {
   const base = { repoDir: REPO, commitSha: SHA, env: { PATH: "x", GIT_DIR: "C:\\agent\\.git", GIT_ALTERNATE_OBJECT_DIRECTORIES: "C:\\agent\\objs" } };
-  const run = async (fake: Partial<FakeOpts> = {}, extra: Partial<Parameters<typeof mainVerification>[0]> = {}) => {
+  const tipOk = async () => ({ ok: true as const, sha: "e".repeat(40) });
+  const run = async () => {
     const calls: NonNullable<FakeOpts["calls"]> = [];
-    const exec = createFakeExec({ commitSha: SHA, repoDir: REPO, calls, ...fake }, { simulateLive: true });
-    const res = await mainVerification({ ...base, exec, ...extra });
-    return { res, gate: res.ancestry, calls };
+    const exec = createFakeExec({ commitSha: SHA, repoDir: REPO, calls }, { simulateLive: true });
+    const res = await mainVerification({ ...base, exec, lookupTip: tipOk });
+    return { res, calls };
   };
 
   it("every git call runs with system and global config disabled, replace objects off, no prompts, and without any inherited GIT_* variable", async () => {
-    const { gate, calls } = await run();
-    expect(gate.ok).toBe(true);
-    expect(calls.length).toBeGreaterThan(4);
+    const { calls } = await run();
+    expect(calls.length).toBeGreaterThanOrEqual(3);
     for (const c of calls) {
       expect(c.env.GIT_CONFIG_NOSYSTEM).toBe("1");
       expect(c.env.GIT_CONFIG_GLOBAL).toBe(process.platform === "win32" ? "NUL" : "/dev/null");
@@ -127,7 +124,7 @@ describe("P2-2 (fix delta): commit-on-main runs in a private temporary repositor
     }
   });
 
-  it("no command runs in, or points at, the working repository: a fresh bare repo is created and used; hooks, commit-graph and worktree config are switched off for every call", async () => {
+  it("no command runs in, or points at, the working repository; a fresh bare repo is used; hooks, commit-graph and worktree config are off for every call", async () => {
     const { calls } = await run();
     for (const c of calls) {
       expect(c.cwd).not.toBe(REPO);
@@ -142,97 +139,94 @@ describe("P2-2 (fix delta): commit-on-main runs in a private temporary repositor
     expect(calls.slice(1).every((c) => c.args.some((a) => a.startsWith("--git-dir=")))).toBe(true);
   });
 
+  it("git is never asked for the branch tip (no ls-remote): the tip comes from the repository-free lookup", async () => {
+    const { calls } = await run();
+    expect(calls.some((c) => c.args.includes("ls-remote"))).toBe(false);
+    const lookups: string[][] = [];
+    const exec = createFakeExec({ commitSha: SHA, repoDir: REPO }, { simulateLive: true });
+    await mainVerification({ ...base, exec, lookupTip: async (u, r) => { lookups.push([u, r]); return { ok: true, sha: "e".repeat(40) }; } });
+    expect(lookups).toEqual([[PINNED_REPO_URL, PINNED_REF]]);
+  });
+
   it("the temporary repository is removed afterwards, also when a step fails", async () => {
     const { calls } = await run();
     const dirOf = (cs: typeof calls) => (cs[0].args.find((a) => /r\.git$/.test(a)) as string).replace(/[\\/]r\.git$/, "");
     expect(existsSync(dirOf(calls))).toBe(false);
-    const bad = await run({ lsRemoteSha: "nothex" });
-    expect(bad.gate.ok).toBe(false);
-    expect(existsSync(dirOf(bad.calls))).toBe(false);
   });
 
-  it("ancestry is checked against the exact SHA from ls-remote, never FETCH_HEAD", async () => {
-    const sha = "e".repeat(40);
-    const { gate, calls } = await run({ lsRemoteSha: sha });
-    expect(gate.ok).toBe(true);
-    const mb = calls.find((c) => c.args.includes("merge-base"));
-    expect(mb?.args[mb.args.length - 1]).toBe(sha);
-    expect(calls.some((c) => c.args.join(" ").includes("FETCH_HEAD"))).toBe(false);
+  it("an unreadable tip refuses before any git command and says what the gate needs (anonymous read access)", async () => {
+    const calls: NonNullable<FakeOpts["calls"]> = [];
+    const exec = createFakeExec({ commitSha: SHA, repoDir: REPO, calls }, { simulateLive: true });
+    const r = await mainVerification({ ...base, exec, lookupTip: async () => ({ ok: false, why: "HTTP 404" }) });
+    expect(r.ancestry.ok).toBe(false);
+    expect(r.ancestry.detail).toMatch(/ANONYMOUS read access/);
+    expect(r.ancestry.detail).toMatch(/owner decision/);
+    expect(calls.length).toBe(0);
   });
 
-  it("a fetched ref that differs from what ls-remote reported is refused", async () => {
-    const { gate } = await run({ lsRemoteSha: "e".repeat(40), fetchedSha: "f".repeat(40) });
-    expect(gate.ok).toBe(false);
-    expect(gate.detail).toMatch(/differs/);
-  });
-
-  it("a failed ls-remote, fetch or ancestry check refuses; a failed init refuses", async () => {
-    expect((await run({ notOnMain: true })).gate.ok).toBe(false);
-    expect((await run({ lsRemoteSha: "zz" })).gate.ok).toBe(false);
-  });
-
-  it("the remote URL is the trustroot constant unless a test passes one explicitly (the runner never does)", async () => {
-    const { calls } = await run();
-    expect(calls.filter((c) => c.args.includes("ls-remote") || c.args.includes("fetch")).every((c) => c.args.includes(PINNED_REPO_URL))).toBe(true);
+  it("the runner never passes a URL, tip lookup, temp location or hook: only the trustroot constants and the held pins", async () => {
+    const mainCalls: NonNullable<FakeOpts["mainCalls"]> = [];
+    const t = await go({ fake: { mainCalls } });
+    expect(t.r.status).toBe("PASS");
+    expect(mainCalls.length).toBe(1);
+    for (const k of ["remoteUrl", "lookupTip", "tmpRoot", "testHooks"]) expect(Object.keys(mainCalls[0])).not.toContain(k);
     const src = readFileSync(join(__dirname, "..", "runner.ts"), "utf8");
-    expect(src).not.toMatch(/remoteUrl/);
+    expect(src).not.toMatch(/remoteUrl|lookupTip|testHooks/);
   });
 });
 
-describe("F4 (fix delta): the on-disk bytes of every runner, anchor and proof file are compared with the blobs of the pinned commit", () => {
-  const files = ["scripts/qa/d24-test-runner/owner-hw-anchor.json", "scripts/qa/d24-test-runner/webauthn.ts"];
-  const run = async (fake: Partial<FakeOpts>, over: { readFile?: (rel: string) => Buffer } = {}) => {
-    const dir = tmp();
-    mkdirSync(join(dir, "scripts", "qa", "d24-test-runner"), { recursive: true });
-    for (const f of files) writeFileSync(join(dir, f), `content of ${f}\r\n`);
-    const exec = createFakeExec({ commitSha: SHA, repoDir: dir, ...fake }, { simulateLive: true });
-    return mainVerification({ repoDir: dir, commitSha: SHA, env: {}, exec, contentFiles: files, ...over });
-  };
-
-  it("matching bytes (CRLF-normalised) pass", async () => {
-    const r = await run({});
-    expect(r.ancestry.ok).toBe(true);
-    expect(r.content?.ok).toBe(true);
+describe("N2/N3 (round 3): committed blobs are compared with the hashes the run ALREADY HOLDS, and what will be executed is re-hashed just before going live", () => {
+  it("the pins passed to the committed-content check are exactly the runner-folder hashes and the proof-folder hashes taken at the start (no readFile, no disk read at the call)", async () => {
+    const mainCalls: NonNullable<FakeOpts["mainCalls"]> = [];
+    const t = await go({ fake: { mainCalls } });
+    expect(t.r.status).toBe("PASS");
+    const rm = runnerManifest(join(REPO, "scripts", "qa", "d24-test-runner"));
+    const pm = proofManifest(join(REPO, "scripts", "qa", "d24-m3d-proof"));
+    const pins = mainCalls[0].pins ?? [];
+    expect(pins.length).toBe(rm.files.length + pm.files.length);
+    for (const f of rm.files) expect(pins).toContainEqual({ rel: `scripts/qa/d24-test-runner/${f.path}`, sha256: f.sha256 });
+    for (const f of pm.files) expect(pins).toContainEqual({ rel: `scripts/qa/d24-m3d-proof/${f.path}`, sha256: f.sha256 });
+    expect(Object.keys(mainCalls[0])).not.toContain("readFile");
   });
 
-  it("a file whose bytes differ from the committed blob is refused and named", async () => {
-    const r = await run({ tamperedContent: ["owner-hw-anchor.json"] });
-    expect(r.content?.ok).toBe(false);
-    expect(r.content?.detail).toMatch(/owner-hw-anchor\.json/);
+  it("structure: the content check uses the held values only, and the proof folder is hashed before the ledger, npm ci and the content check", () => {
+    const src = readFileSync(join(__dirname, "..", "runner.ts"), "utf8");
+    const iHeld = src.indexOf("const proofHeld = manifest(");
+    const iLedger = src.indexOf("d.ledger.startBlockers(");
+    const iInstall = src.indexOf("await verifyCleanClone(");
+    const iMain = src.indexOf("await mainVerify(");
+    expect(iHeld).toBeGreaterThan(0);
+    expect(iHeld).toBeLessThan(iLedger);
+    expect(iHeld).toBeLessThan(iInstall);
+    expect(iInstall).toBeLessThan(iMain);
+    const callLine = src.slice(iMain, src.indexOf("\n", iMain));
+    expect(callLine).toContain("pins: heldPins");
+    expect(src.slice(src.indexOf("const heldPins"), iMain)).not.toMatch(/readFileSync|manifest\(/);
   });
 
-  it("a file absent from the pinned commit's tree is refused", async () => {
-    const r = await run({ missingFromTree: ["webauthn.ts"] });
-    expect(r.content?.ok).toBe(false);
-    expect(r.content?.detail).toMatch(/webauthn\.ts/);
+  it("the held-hashes-recheck gate runs after every child-process gate and BEFORE the approval counter is recorded and the run consumed", async () => {
+    const t = await go();
+    const ids = t.r.gates.map((g) => g.id);
+    expect(ids).toContain("held-hashes-recheck");
+    expect(t.r.gates.find((g) => g.id === "held-hashes-recheck")?.ok).toBe(true);
+    expect(ids.indexOf("held-hashes-recheck")).toBeGreaterThan(ids.indexOf("proof-preflight"));
+    expect(ids.indexOf("held-hashes-recheck")).toBeGreaterThan(ids.indexOf("recheck-tree"));
+    expect(ids.indexOf("held-hashes-recheck")).toBeLessThan(ids.indexOf("envelope-window-recheck"));
   });
 
-  it("a file that cannot be read from disk is refused", async () => {
-    const r = await run({}, { readFile: () => { throw new Error("EACCES"); } });
-    expect(r.content?.ok).toBe(false);
-  });
-
-  it("content is not checked (null) when the ancestry check already failed", async () => {
-    const r = await run({ notOnMain: true });
-    expect(r.ancestry.ok).toBe(false);
-    expect(r.content).toBeNull();
-  });
-
-  it("through runEnvelope: an altered runner file, a runner file missing from the commit, or a proof file is BLOCKED at committed-content before the credential", async () => {
+  it("through runEnvelope: a held hash that differs from the committed blob (altered file, a file missing from the commit, a proof file) is BLOCKED at committed-content before the credential", async () => {
     const t = await go({ fake: { tamperedContent: ["webauthn.ts"] } });
     expect(t.r.status).toBe("BLOCKED");
     expect(failed(t.r)).toBe("committed-content");
     expect(t.r.gates.some((g) => g.id === "credential")).toBe(false);
     expect(t.ledger.runsStarted(t.env.envelopeId)).toBe(0);
-    const t2 = await go({ fake: { tamperedContent: ["d24-m3d-proof/guarded.ts"] } });
-    expect(failed(t2.r)).toBe("committed-content");
-    const t3 = await go({ fake: { missingFromTree: ["runner.ts"] } });
-    expect(failed(t3.r)).toBe("committed-content");
-    expect(gateDetail((await go()).r, "committed-content")).toMatch(/byte-identical/);
+    expect(failed((await go({ fake: { tamperedContent: ["d24-m3d-proof/guarded.ts"] } })).r)).toBe("committed-content");
+    expect(failed((await go({ fake: { missingFromTree: ["runner.ts"] } })).r)).toBe("committed-content");
+    expect(gateDetail((await go()).r, "committed-content")).toMatch(/held hashes equal/);
   });
 });
 
-describe("F8 (fix delta): the clean-tree gates also run with the isolated git environment", () => {
+describe("F8: the clean-tree gates also run with the isolated git environment", () => {
   it("pristineGates passes no system/global config and no inherited GIT_* to git", async () => {
     const calls: NonNullable<FakeOpts["calls"]> = [];
     const exec = createFakeExec({ commitSha: SHA, repoDir: REPO, calls }, { simulateLive: true });
@@ -242,9 +236,11 @@ describe("F8 (fix delta): the clean-tree gates also run with the isolated git en
     for (const c of calls) {
       expect(c.env.GIT_CONFIG_NOSYSTEM).toBe("1");
       expect(c.env.GIT_NO_REPLACE_OBJECTS).toBe("1");
+      expect(c.env.GIT_DIR).toBeUndefined();
     }
   });
 });
+
 
 describe("P3-1: test seams are refused on anything but a simulated-live executor", () => {
   it("anchorPath / statePath / pins with the real executor throw before any gate", async () => {

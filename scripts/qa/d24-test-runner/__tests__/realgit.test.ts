@@ -10,7 +10,8 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { resolveGit } from "../bins";
 import { realExec } from "../exec";
-import { isolatedGitEnv, mainVerification, pristineGates } from "../gitverify";
+import { isolatedGitEnv, mainVerification, pristineGates, sha256LfText, type MainVerifyOpts, type Pin } from "../gitverify";
+import type { TipResult } from "../remotetip";
 import { tmp } from "./helpers";
 
 const gitBin = resolveGit(process.env.PATH);
@@ -87,7 +88,15 @@ function legacy(w: World, pin: string): { ok: boolean; why: string } {
   return { ok: a.code === 0, why: a.code === 0 ? "ancestor" : "not-ancestor" };
 }
 
-const real = (w: World, pin: string, contentFiles?: string[]) => mainVerification({ repoDir: w.work, commitSha: pin, env: BASE_ENV, exec: realExec, gitBin: gitBin as string, remoteUrl: w.upUrl, contentFiles });
+/** The tip lookup of these tests: git ls-remote against the local upstream (the runner uses the repository-free node lookup instead), exact ref match. */
+const lookupTipGit = (w: World) => async (_u: string, ref: string): Promise<TipResult> => {
+  const r = sh(w.dir, ["ls-remote", w.upUrl, ref]);
+  const hits = r.out.split("\n").map((l) => l.split(/\s+/)).filter((p) => p[1] === ref);
+  return hits.length === 1 && /^[0-9a-f]{40}$/.test(hits[0][0]) ? { ok: true, sha: hits[0][0] } : { ok: false, why: "ls-remote" };
+};
+/** The hashes a run would hold right now for these files (read from the working tree). */
+const held = (w: World, files: string[]): Pin[] => files.map((rel) => ({ rel, sha256: sha256LfText(readFileSync(join(w.work, rel))) }));
+const real = (w: World, pin: string, pins?: Pin[], extra: Partial<MainVerifyOpts> = {}) => mainVerification({ repoDir: w.work, commitSha: pin, env: BASE_ENV, exec: realExec, gitBin: gitBin as string, remoteUrl: w.upUrl, lookupTip: lookupTipGit(w), pins, ...extra });
 const T = 120_000;
 
 describeGit("real git: the commit-on-main gate (F1-F5)", () => {
@@ -157,7 +166,7 @@ describeGit("real git: the commit-on-main gate (F1-F5)", () => {
     expect(existsSync(grafts2)).toBe(false); // the hook was never executed
   }, T);
 
-  it("F4: a TRACKED anchor rewritten with the same length and its mtime restored passes git status/diff-index (stat cache); the content check catches it", async () => {
+  it("F4: a TRACKED anchor rewritten with the same length and its mtime restored passes git status/diff-index (stat cache); the committed-content check catches it", async () => {
     const w = world();
     sh(w.work, ["config", "core.trustctime", "false"]);
     sh(w.work, ["config", "core.checkStat", "minimal"]);
@@ -165,25 +174,78 @@ describeGit("real git: the commit-on-main gate (F1-F5)", () => {
     const files = [ANCHOR, OTHER];
     for (const f of files) utimesSync(join(w.work, f), old, old);
     g(w.work, "update-index", "--really-refresh");
-    const before = await real(w, w.B, files);
+    const before = await real(w, w.B, held(w, files));
     expect(before.content?.ok, before.content?.detail).toBe(true);
     writeFileSync(join(w.work, ANCHOR), EVIL);
     expect(EVIL.length).toBe(GOOD.length);
     utimesSync(join(w.work, ANCHOR), old, old);
     const pristine = await pristineGates({ repoDir: w.work, commitSha: w.B, env: BASE_ENV, exec: realExec, gitBin: gitBin as string });
     expect(pristine.map((x) => `${x.id}:${x.ok}`).join(" ")).not.toContain("false"); // EVERY stat-cache based gate is clean
-    const after = await real(w, w.B, files);
+    const after = await real(w, w.B, held(w, files));
     expect(after.ancestry.ok).toBe(true); // honest: HEAD really is on main
     expect(after.content?.ok).toBe(false);
     expect(after.content?.detail).toContain(ANCHOR);
     // a CRLF checkout of the same text still matches (normalised)
     writeFileSync(join(w.work, ANCHOR), GOOD.replace(/\n/g, "\r\n"));
-    expect((await real(w, w.B, files)).content?.ok).toBe(true);
+    expect((await real(w, w.B, held(w, files))).content?.ok).toBe(true);
   }, T);
+
+  it("N2: the hash taken when the file was PARSED is what is compared: a fake anchor parsed, then the genuine bytes swapped back before the check, is refused", async () => {
+    const w = world();
+    writeFileSync(join(w.work, ANCHOR), EVIL); // the agent's anchor is what the run parses and hashes
+    const heldAtParse = held(w, [ANCHOR, OTHER]);
+    writeFileSync(join(w.work, ANCHOR), GOOD); // ...and the genuine bytes are put back while npm ci runs: the DISK now equals the commit
+    expect(sha256LfText(readFileSync(join(w.work, ANCHOR)))).toBe(sha256LfText(Buffer.from(GOOD)));
+    const r = await real(w, w.B, heldAtParse);
+    expect(r.ancestry.ok).toBe(true);
+    expect(r.content?.ok).toBe(false);
+    expect(r.content?.detail).toContain(ANCHOR);
+    expect((await real(w, w.B, held(w, [ANCHOR, OTHER]))).content?.ok).toBe(true); // sanity: genuinely held genuine bytes pass
+  }, T);
+
+  it("N1: files planted INSIDE the temporary repository (alternates, info/grafts, url.insteadOf, a redirected fetch) right after init and right after the fetch cannot make an unmerged commit pass", async () => {
+    const w = world();
+    const agent = join(w.dir, "agent.git");
+    g(w.dir, "init", "--bare", "-b", "main", agent);
+    g(w.work, "push", "-q", pathToFileURL(agent).href, `${w.C}:refs/heads/main`);
+    const plantAll = (repo: string) => {
+      const objs = join(w.work, ".git", "objects").replace(/\\/g, "/");
+      mkdirSync(join(repo, "objects", "info"), { recursive: true });
+      mkdirSync(join(repo, "info"), { recursive: true });
+      writeFileSync(join(repo, "objects", "info", "alternates"), `${objs}
+`); // the agent's objects (C and its tree) become readable
+      writeFileSync(join(repo, "info", "grafts"), `${w.B} ${w.M} ${w.C}
+`); // B now "has" C as a parent
+      writeFileSync(join(repo, "config"), readFileSync(join(repo, "config"), "utf8") + `[url "${pathToFileURL(agent).href}"]
+	insteadOf = ${w.upUrl}
+`);
+    };
+    for (const when of ["afterInit", "afterFetch"] as const) {
+      const r = await real(w, w.C, held(w, [ANCHOR]), { testHooks: { [when]: plantAll } });
+      expect(r.ancestry.ok, when).toBe(false);
+      expect(r.content, when).toBeNull();
+    }
+  }, T);
+
+  it("N1b: forged git output cannot pass: an object whose SHA-1 does not match is dropped, so a made-up history is a refusal", async () => {
+    const pin = "a".repeat(40);
+    const tipSha = "b".repeat(40);
+    // a made-up tip commit that claims the pin as its parent, and a made-up pin commit: both well-formed, neither hashes to the id it is served under
+    const forgedTip = ["tree " + "c".repeat(40), "parent " + pin, "author x", "", "forged", ""].join("\n");
+    const forgedPin = ["tree " + "d".repeat(40), "author y", "", "root", ""].join("\n");
+    const exec = async (_c: string, args: string[]) => {
+      if (args.includes("rev-list")) return { code: 0, stdout: [tipSha, pin, ""].join("\n"), stderr: "" };
+      if (args.includes("cat-file")) return { code: 0, stdout: [tipSha + " commit " + forgedTip.length, forgedTip, pin + " commit " + forgedPin.length, forgedPin, ""].join("\n"), stderr: "" };
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const r = await mainVerification({ repoDir: ".", commitSha: pin, env: {}, exec, lookupTip: async () => ({ ok: true, sha: tipSha }) });
+    expect(r.ancestry.ok).toBe(false);
+    expect(r.ancestry.detail).toMatch(/could not be verified/);
+  });
 
   it("F8: failure to talk to the pinned remote at all is a refusal, not a pass", async () => {
     const w = world();
-    const r = await mainVerification({ repoDir: w.work, commitSha: w.B, env: BASE_ENV, exec: realExec, gitBin: gitBin as string, remoteUrl: pathToFileURL(join(w.dir, "does-not-exist.git")).href });
+    const r = await mainVerification({ repoDir: w.work, commitSha: w.B, env: BASE_ENV, exec: realExec, gitBin: gitBin as string, remoteUrl: pathToFileURL(join(w.dir, "does-not-exist.git")).href, lookupTip: async () => ({ ok: true, sha: w.B }) });
     expect(r.ancestry.ok).toBe(false);
     expect(r.content).toBeNull();
   }, T);

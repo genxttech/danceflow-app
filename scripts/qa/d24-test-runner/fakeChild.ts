@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { manifest } from "../d24-m3d-proof/manifest";
 import type { Exec, ExecResult } from "./exec";
-import { blobSha } from "./gitverify";
+import { sha256LfText, type MainVerifyOpts, type MainVerifyResult } from "./gitverify";
 import { runnerManifest } from "./runnerpin";
 import { KNOWN_RULE_IDS } from "./envelope";
 
@@ -38,6 +38,8 @@ export type FakeOpts = {
   /** what `git ls-remote` reports for the pinned branch, and what the fetched private ref then resolves to */
   lsRemoteSha?: string;
   fetchedSha?: string;
+  /** captures the options of every simulated mainVerification call (what the runner passed) */
+  mainCalls?: MainVerifyOpts[];
   /** captures every call (cmd + args + env) for assertions. Env values are kept so tests can check key placement. */
   calls?: Array<{ cmd: string; args: string[]; env: Record<string, string>; cwd: string }>;
 };
@@ -50,6 +52,9 @@ const dryFakes = new WeakSet<Exec>();
 const simulatedLiveFakes = new WeakSet<Exec>();
 export const isDryFakeExec = (e: Exec) => dryFakes.has(e);
 export const isSimulatedLiveExec = (e: Exec) => simulatedLiveFakes.has(e);
+const simulatedMainVerify = new WeakMap<Exec, (o: MainVerifyOpts) => Promise<MainVerifyResult>>();
+/** The simulated-live fake answers commit-on-main / committed-content itself (real git object walking is covered by realgit.test.ts). Only fakes have one. */
+export const simulatedMainVerifyFor = (e: Exec) => simulatedMainVerify.get(e);
 
 /** `simulateLive` is for tests of the LIVE gate path: still no process and no network, but accepted by runEnvelope with dry:false. */
 export function createFakeExec(o: FakeOpts, hooks: { tap?: (cmd: string, args: string[]) => void; simulateLive?: boolean } = {}): Exec {
@@ -66,26 +71,6 @@ export function createFakeExec(o: FakeOpts, hooks: { tap?: (cmd: string, args: s
       const mainSha = o.lsRemoteSha ?? "d".repeat(40);
       if (a[0] === "fetch") return ok();
       if (a[0] === "ls-remote") return ok(`${mainSha}\trefs/heads/main\n`);
-      if (a[0] === "init") return ok();
-      if (a[0] === "ls-tree") {
-        const dd = a.indexOf("--");
-        const paths = dd >= 0 ? a.slice(dd + 1) : [];
-        return ok(
-          paths
-            .filter((p) => !(o.missingFromTree ?? []).some((m) => p.endsWith(m)))
-            .map((p) => {
-              let sha = "0".repeat(40);
-              try {
-                sha = blobSha(readFileSync(join(o.repoDir, p)));
-              } catch {
-                /* not on disk: a wrong id */
-              }
-              if ((o.tamperedContent ?? []).some((m) => p.endsWith(m))) sha = "1".repeat(40);
-              return `100644 blob ${sha}\t${p}\0`;
-            })
-            .join(""),
-        );
-      }
       if (a[0] === "rev-parse" && a[a.length - 1].startsWith("refs/")) return ok(`${o.fetchedSha ?? mainSha}\n`);
       if (a[0] === "ls-files" && a[1] === "-z") {
         const dir = a[a.length - 1];
@@ -146,6 +131,23 @@ export function createFakeExec(o: FakeOpts, hooks: { tap?: (cmd: string, args: s
     }
     return { code: 1, stdout: "", stderr: "unknown flag" };
   };
+  if (hooks.simulateLive) {
+    simulatedMainVerify.set(fn, async (mo) => {
+      o.mainCalls?.push(mo);
+      if (o.notOnMain) return { ancestry: { id: "commit-on-main", ok: false, detail: "SIMULATED: the pinned commit is not on the owner-merged branch" }, content: null };
+      const ancestry = { id: "commit-on-main", ok: true, detail: "SIMULATED: the pinned commit is contained in the owner-merged branch" };
+      if (!mo.pins) return { ancestry, content: null };
+      const differ = mo.pins.filter((p) => {
+        if ((o.tamperedContent ?? []).some((m) => p.rel.endsWith(m)) || (o.missingFromTree ?? []).some((m) => p.rel.endsWith(m))) return true;
+        try {
+          return sha256LfText(readFileSync(join(o.repoDir, p.rel))) !== p.sha256;
+        } catch {
+          return true;
+        }
+      });
+      return { ancestry, content: { id: "committed-content", ok: differ.length === 0, detail: differ.length === 0 ? "SIMULATED: the held hashes equal the committed blobs" : `SIMULATED: ${differ.length} file(s) differ: ${differ.map((d) => d.rel).slice(0, 8).join(", ")}` } };
+    });
+  }
   (hooks.simulateLive ? simulatedLiveFakes : dryFakes).add(fn);
   return fn;
 }

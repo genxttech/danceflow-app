@@ -20,7 +20,7 @@ import { sha256 } from "./canon";
 import { checkEnvelopeWindow, KNOWN_RULE_IDS, validateEnvelope } from "./envelope";
 import type { CredentialStore } from "./credstore";
 import { realExec, type Exec } from "./exec";
-import { isDryFakeExec, isSimulatedLiveExec } from "./fakeChild";
+import { isDryFakeExec, isSimulatedLiveExec, simulatedMainVerifyFor } from "./fakeChild";
 import { mainVerification, runnerTracked, verifyCleanClone, type Gate } from "./gitverify";
 import type { Ledger, LedgerEntry } from "./ledger";
 import { analyzeEvidence, decide, hashFile, redactionScan, renderReport, type FileHash, type RunSummary } from "./postrun";
@@ -137,6 +137,11 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   const runnerOk = rm.sha256 === env.runner.manifestSha256 && rm.files.length === env.runner.fileCount;
   if (!gate("runner-pin", runnerOk, runnerOk ? `runner folder ${sha12(rm.sha256)}, ${rm.files.length} files == envelope` : `runner folder hash ${sha12(rm.sha256)} (${rm.files.length} files) differs from the envelope (${sha12(env.runner.manifestSha256)}): the enforcement code was changed after approval`)) return blocked("runner-pin");
 
+  // The proof folder is hashed NOW, together with the runner folder: these in-memory hashes are what the committed blobs are later compared with (never a
+  // fresh disk read: npm ci runs for minutes in between) and what the last re-hash before going live is compared with.
+  const proofDirAbs = join(repoDir, "scripts", "qa", "d24-m3d-proof");
+  const proofHeld = manifest(proofDirAbs);
+
   // 2. ledger: run count, unfinished runs, lock
   let blockers: string[];
   const bind = { envelopeSha256: env.envelopeSha256, keyFp: env.credential.keyFingerprintSha256Prefix };
@@ -172,18 +177,20 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
     }
     const tr = await runnerTracked({ repoDir, runnerRel: "scripts/qa/d24-test-runner", files: rm.files.map((f) => f.path), env: plain.env, exec: d.exec, gitBin: d.gitBin });
     if (!gate(tr.id, tr.ok, tr.detail)) return blocked("runner-tracked");
-    // ancestry AND on-disk bytes == the blobs of the pinned commit, both checked in a private temporary repository (not the stat cache, not the working repo)
-    const contentFiles = [...rm.files.map((f) => `scripts/qa/d24-test-runner/${f.path}`), ...manifest(join(repoDir, "scripts", "qa", "d24-m3d-proof")).files.map((f) => `scripts/qa/d24-m3d-proof/${f.path}`)];
-    const mv = await mainVerification({ repoDir, commitSha: env.code.commitSha, env: plain.env, exec: d.exec, gitBin: d.gitBin, contentFiles });
+    // ancestry (decided in node from SHA-1-verified objects) AND the committed blobs against the hashes this run ALREADY HOLDS (runner folder incl. anchor,
+    // proof folder), never against a fresh disk read
+    const heldPins = [...rm.files.map((f) => ({ rel: `scripts/qa/d24-test-runner/${f.path}`, sha256: f.sha256 })), ...proofHeld.files.map((f) => ({ rel: `scripts/qa/d24-m3d-proof/${f.path}`, sha256: f.sha256 }))];
+    const mainVerify = simulatedMainVerifyFor(d.exec) ?? mainVerification;
+    const mv = await mainVerify({ repoDir, commitSha: env.code.commitSha, env: plain.env, exec: d.exec, gitBin: d.gitBin, pins: heldPins });
     if (!gate(mv.ancestry.id, mv.ancestry.ok, mv.ancestry.detail)) return blocked("commit-on-main");
     if (mv.content && !gate(mv.content.id, mv.content.ok, mv.content.detail)) return blocked("committed-content");
   }
 
   // 5. proof manifest: runner recomputation AND the proof's own --print-hash AND the envelope must all agree
   const call: ProofCall = { repoDir, env: plain.env, exec: d.exec, tsxCli: d.tsxCli };
-  const local = manifest(join(repoDir, "scripts", "qa", "d24-m3d-proof"));
+  const local = manifest(proofDirAbs);
   const theirs = await proofPrintHash(call);
-  const agree = theirs.ok && theirs.sha256 === local.sha256 && local.sha256 === env.proof.manifestSha256 && local.files.length === env.proof.fileCount && theirs.fileCount === env.proof.fileCount;
+  const agree = theirs.ok && theirs.sha256 === local.sha256 && local.sha256 === proofHeld.sha256 && local.sha256 === env.proof.manifestSha256 && local.files.length === env.proof.fileCount && theirs.fileCount === env.proof.fileCount;
   if (!gate("proof-manifest", agree, agree ? `manifest ${sha12(local.sha256)}, ${local.files.length} files: runner recomputation == proof --print-hash == envelope` : `manifest mismatch (runner ${sha12(local.sha256)}, proof ${theirs.sha256 ? sha12(theirs.sha256) : "unavailable"}, envelope ${sha12(env.proof.manifestSha256)})`)) return blocked("proof-manifest");
 
   // 5b. the call ceiling: the proof enforces only its own constant (HARD_CALL_CAP), which cannot be lowered without editing the hashed proof folder.
@@ -248,6 +255,11 @@ export async function runEnvelope(envelopePath: string, repoDir: string, d: Runn
   const again = await verifyCleanClone({ repoDir, commitSha: env.code.commitSha, lockfileSha256: env.code.lockfileSha256, env: plain.env, exec: d.exec, runInstall: false, gitBin: d.gitBin });
   const stillOk = again.filter((g) => g.id !== "npm-ci").every((g) => g.ok);
   if (!gate("recheck-tree", stillOk, stillOk ? "tree still exactly the pinned commit, clean" : "tree changed during the gates")) return blocked("recheck-tree");
+  // the last re-hash of what will be executed, straight from disk (no stat cache), immediately before the approval counter is recorded and the proof is spawned
+  const proofNow = manifest(proofDirAbs);
+  const runnerNow = runnerManifest(runnerDir);
+  const heldOk = proofNow.sha256 === proofHeld.sha256 && runnerNow.sha256 === rm.sha256;
+  if (!gate("held-hashes-recheck", heldOk, heldOk ? "the proof folder and runner folder still hash to the values pinned at the start of the run" : "the proof or runner folder changed on disk since it was hashed at the start of the run")) return blocked("held-hashes-recheck");
   // expiry is re-checked at the point the run is consumed (npm ci and the gates can take many minutes)
   const win2 = checkEnvelopeWindow(env, d.now());
   if (!gate("envelope-window-recheck", win2.length === 0, win2.length === 0 ? "still inside the approved window at the moment of consumption" : win2.map((i) => `${i.code}: ${i.detail}`).join(" | "))) return blocked("envelope-window-recheck");
