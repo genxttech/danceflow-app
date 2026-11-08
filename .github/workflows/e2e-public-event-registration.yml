@@ -53,6 +53,12 @@ on:
       - "src/lib/e2e/**"
       - "playwright.config.ts"
       - ".github/workflows/e2e-public-event-registration.yml"
+      # D24 Stripe TEST proof boundary: its tests (scripts/qa/d24-gh-proof) must gate PRs that touch only these files.
+      - ".github/workflows/d24-*"
+      - ".github/CODEOWNERS"
+      - "docs/billing/D24-*"
+      - "vitest.config.mts"
+      - "tsconfig.json"
   workflow_dispatch: {}
 
 # Never grant this workflow more than it needs.

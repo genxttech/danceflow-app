@@ -1,5 +1,7 @@
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -112,7 +114,11 @@ describe("secrets and logs", () => {
   it("no script echoes, prints or traces the key or the environment", () => {
     for (const s of job.steps) {
       if (!s.run) continue;
-      expect(s.run, s.name).not.toContain(KEY_NAME);
+      // the key is only ever forwarded by name into the scrubbed environment of the two key steps, never echoed
+      const forwarded = `${KEY_NAME}="$${KEY_NAME}"`;
+      const rest = (s.run ?? "").split(forwarded).join("");
+      expect(rest, s.name).not.toContain(KEY_NAME);
+      if (s.run?.includes(forwarded)) expect(["Preflight", "Live run"].some((n) => (s.name ?? "").includes(n)), s.name).toBe(true);
       expect(s.run, s.name).not.toMatch(/\bset\s+-[a-z]*x|xtrace|\bprintenv\b|\benv\s*$|\benv\s*\||\bdeclare -p\b|\bexport -p\b/m);
       expect(s.run, s.name).not.toMatch(/::add-mask|::set-output|::save-state/);
     }
@@ -159,7 +165,7 @@ describe("fail-closed guards", () => {
     expect(stepByName("Fetch exactly").env).toEqual({ SHA: "${{ github.sha }}" });
   });
   it("dependencies install without lifecycle scripts", () => {
-    expect(stepByName("Install dependencies").run).toBe("npm ci --ignore-scripts --no-audit --no-fund");
+    expect(stepByName("Install dependencies").run).toContain("ci --ignore-scripts --no-audit --no-fund");
   });
   it("the evidence public key is checked (fail closed on the placeholder) BEFORE the live step and before the key is used anywhere", () => {
     const run = stepByName("Evidence public key must be real").run as string;
@@ -168,7 +174,7 @@ describe("fail-closed guards", () => {
     expect(idx("Evidence public key must be real")).toBeLessThan(idx("Live run"));
   });
   it("order: guards < fetch < paths < node < npm ci < key gate < hash pin < dry run < preflight < live < encrypt < upload < cleanup", () => {
-    const order = ["Commit and pins", "Guards", "Fetch exactly", "Paths for plaintext", "Set up Node", "Install dependencies", "Evidence public key must be real", "Harness manifest hash", "Dry run", "Preflight", "Live run", "Encrypt evidence", "Upload the ENCRYPTED", "Remove plaintext"].map(idx);
+    const order = ["Commit and pins", "Guards", "Fetch exactly", "Paths for plaintext", "Set up Node", "Install dependencies", "Evidence public key must be real", "Harness manifest hash", "Dry run", "No stray processes", "Preflight", "Live run", "Encrypt evidence", "Upload the ENCRYPTED", "Remove plaintext"].map(idx);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(new Set(order).size).toBe(order.length);
   });
@@ -180,7 +186,9 @@ describe("fail-closed guards", () => {
   it("the dry run happens without an evidence dir and without the key", () => {
     const s = stepByName("Dry run");
     expect(s.env).toBeUndefined();
-    expect(s.run).toContain("env -u D24_PROOF_EVIDENCE_DIR");
+    expect(s.run).not.toContain("D24_PROOF_EVIDENCE_DIR");
+    expect(s.run).not.toContain(KEY_NAME);
+    expect(s.run).toContain("/usr/bin/env -i");
     expect(s.run).toContain("--dry-run");
   });
 });
@@ -243,12 +251,163 @@ describe("evidence leaves the runner only encrypted", () => {
   });
 });
 
+const gitOut = (...args: string[]) => execFileSync("git", args, { cwd: REPO, encoding: "utf8" }).trim();
+const sha256Lf = (rel: string) => createHash("sha256").update(readFileSync(join(REPO, rel), "utf8").replace(/\r\n/g, "\n")).digest("hex");
+
+describe("review round: workflow identity, input pins, clean environment", () => {
+  it("a guard binds github.workflow_ref to this file on main", () => {
+    expect(job.env?.D24_WORKFLOW_REF_EXPECTED).toBe("genxttech/danceflow-app/.github/workflows/d24-stripe-test-proof.yml@refs/heads/main");
+    const g = stepByName("Guards");
+    expect(g.env).toEqual({ WORKFLOW_REF: "${{ github.workflow_ref }}" });
+    expect(g.run).toContain('[ "$WORKFLOW_REF" = "$D24_WORKFLOW_REF_EXPECTED" ]');
+  });
+  it("the harness git TREE id is pinned, equals the real tree, and is checked in plain shell before any node runs", () => {
+    const pin = job.env?.D24_PROOF_PINNED_TREE;
+    expect(pin).toMatch(/^[0-9a-f]{40}$/);
+    expect(gitOut("rev-parse", "HEAD:scripts/qa/d24-m3d-proof")).toBe(pin);
+    const f = stepByName("Fetch exactly").run as string;
+    expect(f).toContain('[ "$(git rev-parse HEAD:scripts/qa/d24-m3d-proof)" = "$D24_PROOF_PINNED_TREE" ]');
+  });
+  it("package.json, package-lock.json and tsconfig.json are pinned by sha256, equal the repo, and verified before npm ci", () => {
+    const e = job.env ?? {};
+    expect(e.D24_PIN_PACKAGE_JSON_SHA256).toBe(sha256Lf("package.json"));
+    expect(e.D24_PIN_PACKAGE_LOCK_SHA256).toBe(sha256Lf("package-lock.json"));
+    expect(e.D24_PIN_TSCONFIG_SHA256).toBe(sha256Lf("tsconfig.json"));
+    const f = stepByName("Fetch exactly").run as string;
+    for (const [file, v] of [["package.json", "D24_PIN_PACKAGE_JSON_SHA256"], ["package-lock.json", "D24_PIN_PACKAGE_LOCK_SHA256"], ["tsconfig.json", "D24_PIN_TSCONFIG_SHA256"]]) {
+      expect(f).toContain(`[ "$(sha256sum ${file} | cut -d' ' -f1)" = "$${v}" ]`);
+    }
+    expect(idx("Fetch exactly")).toBeLessThan(idx("Install dependencies"));
+  });
+  it("every step that runs node or npm uses a scrubbed environment with an explicit PATH (env -i)", () => {
+    for (const frag of ["Install dependencies", "Evidence public key must be real", "Harness manifest hash", "Dry run", "Preflight", "Live run", "Encrypt evidence"]) {
+      const r = stepByName(frag).run as string;
+      expect(r, frag).toContain("/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin");
+      expect(r, frag).not.toMatch(/^\s*(node|npm)\s/m);
+      // never a bare `node`/`npm` word used as a command argument (it would resolve through PATH): only the absolute "$NODE"
+      expect(r.replace(/\$NODE\b/g, ""), frag).not.toMatch(/(^|[\s"}\]])(node|npm)\s+("|\$)/m);
+    }
+  });
+  it("stray processes are checked for (and refused) right before the key is used, and the node binary is the toolcache one", () => {
+    const i = idx("No stray processes");
+    expect(i).toBeLessThan(idx("Preflight"));
+    expect(i).toBeGreaterThan(idx("Dry run"));
+    const r = job.steps[i]?.run as string;
+    expect(r).toContain("pgrep");
+    expect(r).toContain("exit 1");
+    for (const frag of ["Preflight", "Live run"]) expect(stepByName(frag).run).toContain('NODE="$RUNNER_TOOL_CACHE/node/24.14.1/x64/bin/node"');
+  });
+  it("the key steps do not rely on GITHUB_ENV values other than the three plaintext paths", () => {
+    for (const frag of ["Preflight", "Live run"]) {
+      const s = stepByName(frag);
+      expect(Object.keys(s.env ?? {})).toEqual([KEY_NAME]);
+    }
+  });
+});
+
+describe("review round: no other workflow may reach the environment or the secret", () => {
+  const dir = join(REPO, ".github", "workflows");
+  const others = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f) && f !== "d24-stripe-test-proof.yml");
+  it("there is at least one other workflow (so this scan is not vacuous)", () => {
+    expect(others.length).toBeGreaterThan(0);
+  });
+  it("no other workflow mentions the d24-stripe-test environment, the key secret, or any d24 proof secret", () => {
+    for (const f of others) {
+      const t = readFileSync(join(dir, f), "utf8");
+      expect(t, f).not.toMatch(/d24-stripe-test/i);
+      expect(t, f).not.toContain("D24_PROOF_STRIPE_KEY");
+      expect(t, f).not.toMatch(/secrets\.D24/i);
+      expect(t, f).not.toMatch(/secrets:\s*inherit/);
+    }
+  });
+  it("the scan covers every workflow file in the directory, including other extensions", () => {
+    for (const f of readdirSync(dir)) expect(f, f).toMatch(/\.ya?ml$/);
+  });
+  it("the one CI workflow runs its gate for PRs that touch this boundary", () => {
+    const t = readFileSync(join(dir, "e2e-public-event-registration.yml"), "utf8");
+    for (const p of [".github/workflows/d24-*", ".github/CODEOWNERS", "docs/billing/D24-*", "vitest.config.mts", "tsconfig.json"]) expect(t, p).toContain(`"${p}"`);
+  });
+});
+
+describe("review round: the owner doc states the preconditions honestly", () => {
+  const doc = readFileSync(join(REPO, "docs", "billing", "D24-GITHUB-ENVIRONMENT-PROOF.md"), "utf8");
+  it("requires a separate Write-only agent identity and removes the owner's token", () => {
+    expect(doc).toMatch(/always acts as the user who created it/);
+    expect(doc).toMatch(/separate identity/i);
+    expect(doc).toMatch(/\*\*Write\*\* only/);
+    expect(doc).toMatch(/must \*\*not\*\* be a required reviewer/);
+    expect(doc).toMatch(/Remove the owner's `genxttech` token/);
+  });
+  it("does not claim that engineering cannot do the owner steps", () => {
+    expect(doc).not.toMatch(/Engineering must not and cannot do them/);
+    expect(doc).not.toMatch(/forces a reviewed workflow update\b(?! \*\*only)/);
+  });
+  it("specifies the full ruleset and environment settings", () => {
+    for (const s of ["Require review from Code Owners ON", "most recent reviewable push", "at least 1 approval", "no bypass for the agent identity", "required status check", "Allow administrators to bypass configured protection rules = OFF"]) expect(doc, s).toContain(s);
+  });
+  it("has one merge-ordering rule and tells the owner to check the workflow path", () => {
+    expect(doc).toContain("Do not merge this PR until the environment");
+    expect(doc).not.toMatch(/Merging the file alone is harmless/);
+    expect(doc).toMatch(/workflow path is exactly `\.github\/workflows\/d24-stripe-test-proof\.yml`/);
+  });
+  it("says the approval sentence is a constant, that engineering holds the evidence key, and lists the runner residual", () => {
+    expect(doc).toMatch(/constant supplied by this reviewed file/);
+    expect(doc).toMatch(/Engineering holds the evidence private key/);
+    expect(doc).toMatch(/moving image label/);
+    expect(doc).toMatch(/proves integrity, not origin/);
+  });
+  it("the workflow header carries the same merge rule", () => {
+    expect(text).toContain("must exist BEFORE this file is merged");
+  });
+});
+
+describe("review round: CODEOWNERS coverage (every boundary path resolves to the owner)", () => {
+  // simplified gitignore-style matcher sufficient for these patterns; the LAST matching rule wins, as on GitHub
+  const rules = readFileSync(join(REPO, ".github", "CODEOWNERS"), "utf8")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#"))
+    .map((l) => l.split(/\s+/) as [string, ...string[]]);
+  const toRe = (pat: string) => {
+    let p = pat.replace(/^\//, "");
+    const dirOnly = p.endsWith("/");
+    p = p.replace(/\/$/, "");
+    const re = p.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*\*/g, "\u0001").replace(/\*/g, "[^/]*").replace(/\u0001/g, ".*");
+    return new RegExp(`^${re}${dirOnly ? "/.*" : "(/.*)?"}$`);
+  };
+  const ownersOf = (file: string) => {
+    let hit: string[] | null = null;
+    for (const [pat, ...own] of rules) if (toRe(pat).test(file)) hit = own;
+    return hit;
+  };
+  it.each([
+    ".github/CODEOWNERS",
+    ".github/workflows/d24-stripe-test-proof.yml",
+    ".github/workflows/ci-extra.yml",
+    ".github/workflows/e2e-public-event-registration.yml",
+    ".github/actions/anything/action.yml",
+    "package.json",
+    "package-lock.json",
+    "tsconfig.json",
+    "vitest.config.mts",
+    "scripts/qa/d24-m3d-proof/run.ts",
+    "scripts/qa/d24-m3d-proof/__tests__/x.test.ts",
+    "scripts/qa/d24-gh-proof/evidence-public-key.pem",
+    "docs/billing/D24-GITHUB-ENVIRONMENT-PROOF.md",
+  ])("%s is owned by @genxttech", (f) => {
+    expect(ownersOf(f)).toEqual(["@genxttech"]);
+  });
+  it("an unrelated source file is not claimed (the matcher is not vacuous)", () => {
+    expect(ownersOf("src/app/page.tsx")).toBeNull();
+  });
+});
+
 describe("code owners and test registration", () => {
   const owners = readFileSync(join(REPO, ".github", "CODEOWNERS"), "utf8")
     .split("\n")
     .filter((l) => l.trim() && !l.startsWith("#"));
   it("the workflow, the harness, the proof tooling, the evidence key, the docs and the test config are owned by the repository owner", () => {
-    for (const p of ["/.github/workflows/d24-*", "/scripts/qa/d24-m3d-proof/", "/scripts/qa/d24-gh-proof/", "/docs/billing/D24-GITHUB-ENVIRONMENT-PROOF.md", "/.github/CODEOWNERS", "/vitest.config.mts"]) {
+    for (const p of ["/.github/", "/package.json", "/package-lock.json", "/tsconfig.json", "/scripts/qa/d24-m3d-proof/", "/scripts/qa/d24-gh-proof/", "/docs/billing/D24-GITHUB-ENVIRONMENT-PROOF.md", "/vitest.config.mts"]) {
       expect(owners, p).toContain(`${p} @genxttech`);
     }
   });
