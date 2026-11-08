@@ -709,6 +709,194 @@ select pg_temp.chk('S: no scratch path can reach the refund writers (static: no 
               and p.proname not in ('request_competition_order_refund', 'observe_competition_stripe_refund')));
 
 -- ============================================================================
+-- H. Hardening (reviewer findings on the R2 candidate)
+-- ============================================================================
+reset role;
+-- P2-pin: the four bodies the R2 rollback pins are exactly what the migration installed
+select pg_temp.chk('H/pin: the installed bodies equal the rollback pins (cascade 3a19d4b4, accounting 4577dc12, money state 5469516f, resolver dd85d688)',
+  (select count(*) = 4 from pg_proc p where p.pronamespace = 'public'::regnamespace
+     and ((p.proname = 'sync_competition_entries_from_registration' and md5(replace(p.prosrc, E'\r', '')) = '3a19d4b44ecf7d78e74bee5527caf512')
+       or (p.proname = 'sync_event_payment_accounting_entry' and md5(replace(p.prosrc, E'\r', '')) = '4577dc12f2193f7beb63dd47f5e798e9')
+       or (p.proname = '_paywh1_exception_money_state' and md5(replace(p.prosrc, E'\r', '')) = '5469516fd431fe5bdbf6b8c5c0a6859e')
+       or (p.proname = 'resolve_event_order_settlement_exception' and md5(replace(p.prosrc, E'\r', '')) = 'dd85d688d2423eb26aa1873d18852100'))));
+
+-- Two fee-only competition orders (fee lines need no competition entry rows), 100.00 captured each.
+insert into public.event_orders (id, event_id, studio_id, buyer_name, buyer_email, subtotal_amount, discount_amount, total_amount,
+  currency, status, payment_status, settlement_state, paid_at, stripe_payment_intent_id, stripe_checkout_session_id, metadata) values
+  (pg_temp.u('00b005'), pg_temp.u('00e001'), pg_temp.u('00a001'), 'Buyer Five', 't-r2-o5@example.test', 100, 0, 100, 'USD', 'confirmed', 'paid', 'paid', now(), 'pi_r2_o5', 'cs_r2_o5', '{}'),
+  (pg_temp.u('00b006'), pg_temp.u('00e001'), pg_temp.u('00a001'), 'Buyer Six', 't-r2-o6@example.test', 100, 0, 100, 'USD', 'confirmed', 'paid', 'paid', now(), 'pi_r2_o6', 'cs_r2_o6', '{}');
+insert into public.event_registrations (id, order_id, event_id, studio_id, attendee_first_name, attendee_last_name, attendee_email, status, payment_status, total_price, currency) values
+  (pg_temp.u('00f105'), pg_temp.u('00b005'), pg_temp.u('00e001'), pg_temp.u('00a001'), 'Buyer', 'Five', 't-r2-o5@example.test', 'confirmed', 'paid', 100, 'USD'),
+  (pg_temp.u('00f106'), pg_temp.u('00b006'), pg_temp.u('00e001'), pg_temp.u('00a001'), 'Buyer', 'Six', 't-r2-o6@example.test', 'confirmed', 'paid', 100, 'USD');
+insert into public.event_order_items (id, order_id, event_id, item_type, description, quantity, unit_price, total_price, currency, metadata) values
+  (pg_temp.u('00c501'), pg_temp.u('00b005'), pg_temp.u('00e001'), 'add_on', 'Fee five', 1, 100, 100, 'USD', jsonb_build_object('revenue_class', 'competition_entry', 'line_type', 'fee')),
+  (pg_temp.u('00c601'), pg_temp.u('00b006'), pg_temp.u('00e001'), 'add_on', 'Fee six a', 1, 60, 60, 'USD', jsonb_build_object('revenue_class', 'competition_entry', 'line_type', 'fee')),
+  (pg_temp.u('00c602'), pg_temp.u('00b006'), pg_temp.u('00e001'), 'add_on', 'Fee six b', 1, 40, 40, 'USD', jsonb_build_object('revenue_class', 'competition_entry', 'line_type', 'fee'));
+insert into public.event_payments (registration_id, amount, currency, payment_method, status, source, stripe_payment_intent_id, stripe_checkout_session_id, stripe_account_id) values
+  (pg_temp.u('00f105'), 100, 'USD', 'card', 'paid', 'stripe', 'pi_r2_o5', 'cs_r2_o5', 'acct_r2test1'),
+  (pg_temp.u('00f106'), 100, 'USD', 'card', 'paid', 'stripe', 'pi_r2_o6', 'cs_r2_o6', 'acct_r2test1');
+
+-- P2-1: a refund recorded on the payment BEFORE R2 (older pro-rata webhook path, no ledger row) must keep refusing new refund requests,
+-- whatever ledger rows appear later. (When the cutover gate is installed the legacy write is made with the gate trigger disabled for this one statement.)
+do $$ begin
+  if to_regprocedure('public._r2g_guard_event_payment_refund()') is not null then alter table public.event_payments disable trigger r2g_guard_event_payment_refund_upd; end if;
+end $$;
+update public.event_payments set refund_amount = 20, refunded_at = now(), stripe_refund_id = 're_h_legacy' where stripe_payment_intent_id = 'pi_r2_o5';
+do $$ begin
+  if to_regprocedure('public._r2g_guard_event_payment_refund()') is not null then alter table public.event_payments enable always trigger r2g_guard_event_payment_refund_upd; end if;
+end $$;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('H/P2-1a: legacy refund on the payment and NO ledger row: request refused',
+  $q$select pg_temp.request('00b005', '00ad01', jsonb_build_array(pg_temp.line('00c501', 1000, false)))$q$, 'COMP_REFUND_ORDER_NOT_PAID');
+reset role;
+-- a FAILED ledger row (a Stripe refund that never moved money) must not switch the guard off
+insert into public.event_order_refunds (event_id, order_id, registration_id, stripe_refund_id, stripe_account_id, stripe_payment_intent_id, amount_cents, currency, status, source)
+values (pg_temp.u('00e001'), pg_temp.u('00b005'), pg_temp.u('00f105'), 're_h_failed', 'acct_r2test1', 'pi_r2_o5', 500, 'USD', 'failed', 'stripe_dashboard');
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('H/P2-1b: legacy refund + a FAILED ledger row: request still refused',
+  $q$select pg_temp.request('00b005', '00ad02', jsonb_build_array(pg_temp.line('00c501', 1000, false)))$q$, 'COMP_REFUND_ORDER_NOT_PAID');
+reset role;
+-- a SUCCEEDED ledger row smaller than the legacy refund (5.00 < 20.00): the difference is money outside the ledger
+insert into public.event_order_refunds (event_id, order_id, registration_id, stripe_refund_id, stripe_account_id, stripe_payment_intent_id, amount_cents, currency, status, source, succeeded_at)
+values (pg_temp.u('00e001'), pg_temp.u('00b005'), pg_temp.u('00f105'), 're_h_ok', 'acct_r2test1', 'pi_r2_o5', 500, 'USD', 'succeeded', 'stripe_dashboard', now());
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('H/P2-1c: legacy refund 20.00 > succeeded ledger 5.00: request refused',
+  $q$select pg_temp.request('00b005', '00ad03', jsonb_build_array(pg_temp.line('00c501', 1000, false)))$q$, 'COMP_REFUND_ORDER_NOT_PAID');
+reset role;
+-- once the ledger covers the payment's recorded refund the order is refundable again (ledger 20.00 = payment 20.00)
+insert into public.event_order_refunds (event_id, order_id, registration_id, stripe_refund_id, stripe_account_id, stripe_payment_intent_id, amount_cents, currency, status, source, succeeded_at)
+values (pg_temp.u('00e001'), pg_temp.u('00b005'), pg_temp.u('00f105'), 're_h_ok2', 'acct_r2test1', 'pi_r2_o5', 1500, 'USD', 'succeeded', 'stripe_dashboard', now());
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('H/P2-1d: ledger (5.00 + 15.00) equals the payment''s recorded 20.00: request accepted again',
+  $q$select pg_temp.request('00b005', '00ad04', jsonb_build_array(pg_temp.line('00c501', 1000, false)))$q$);
+reset role;
+
+-- P2-1 no false positives: ordinary R2 flows on a pristine order (pending, partial, failed, reversal) never trip the guard
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('H/P2-1e: request A (30.00 on line a)', $q$select pg_temp.request('00b006', '00ad11', jsonb_build_array(pg_temp.line('00c601', 3000, false)))$q$);
+select pg_temp.as_service();
+select pg_temp.expect_ok('H/P2-1e: A pending', $q$select pg_temp.observe('pi_r2_o6', 'acct_r2test1', 're_h6a', pg_temp.u('00ad11'), 3000, 'pending')$q$);
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('H/P2-1e: request B (10.00 on line b) while A is pending', $q$select pg_temp.request('00b006', '00ad12', jsonb_build_array(pg_temp.line('00c602', 1000, false)))$q$);
+select pg_temp.as_service();
+select pg_temp.expect_ok('H/P2-1e: A succeeded', $q$select pg_temp.observe('pi_r2_o6', 'acct_r2test1', 're_h6a', null, 3000, 'succeeded')$q$);
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('H/P2-1e: request C (5.00 more on line a) after a succeeded partial refund (payment 30.00 = ledger 30.00)', $q$select pg_temp.request('00b006', '00ad13', jsonb_build_array(pg_temp.line('00c601', 500, false)))$q$);
+select pg_temp.as_service();
+select pg_temp.expect_ok('H/P2-1e: B observed as failed', $q$select pg_temp.observe('pi_r2_o6', 'acct_r2test1', 're_h6b', pg_temp.u('00ad12'), 1000, 'failed')$q$);
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('H/P2-1e: request D (10.00 on line b) after a failed refund', $q$select pg_temp.request('00b006', '00ad14', jsonb_build_array(pg_temp.line('00c602', 1000, false)))$q$);
+select pg_temp.as_service();
+select pg_temp.expect_ok('H/P2-1e: A reversed (succeeded -> failed): payment drops back to 0', $q$select pg_temp.observe('pi_r2_o6', 'acct_r2test1', 're_h6a', null, 3000, 'failed')$q$);
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('H/P2-1e: request E (30.00 on line a) after the reversal', $q$select pg_temp.request('00b006', '00ad15', jsonb_build_array(pg_temp.line('00c601', 3000, false)))$q$);
+reset role;
+select pg_temp.chk('H/P2-1e: payment of the pristine order equals its succeeded ledger sum (0) after the reversal',
+  (select coalesce(refund_amount, 0) = 0 from public.event_payments where stripe_payment_intent_id = 'pi_r2_o6'));
+
+-- P2-3a (pins SC1 design intent, no behaviour change): a scratched placement in a LOCKED heat does not hold the entry; an entry that is
+-- scratched there and scheduled in an open heat classifies 'open' and can be withdrawn; the withdrawal scratches only the open placement.
+update public.event_competition_heat_entries set status = 'scratched' where entry_id = pg_temp.u('008006') and heat_id = pg_temp.id('heat_b');
+insert into t_ids select 'heat_h9', gen_random_uuid();
+insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, status)
+select pg_temp.id('heat_h9'), h.event_id, h.division_id, h.round_id, 9, 'scheduled' from public.event_competition_heats h where h.id = pg_temp.id('heat_b');
+insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, status)
+select h.event_id, h.division_id, h.id, pg_temp.u('008006'), 'scheduled' from public.event_competition_heats h where h.id = pg_temp.id('heat_h9');
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('H/P2-3a: lock heat B (holding only a scratched placement of the entry)',
+  $q$select public.set_competition_heat_lock_state(pg_temp.id('heat_b'), 'locked', 'pin test')$q$);
+reset role;
+select pg_temp.chk('H/P2-3a: scratched placement in a locked heat + scheduled placement in an open heat classifies open',
+  (select lock_state from public.event_competition_heats where id = pg_temp.id('heat_b')) = 'locked'
+  and public._r2_entry_participation_class(pg_temp.u('008006')) = 'open', public._r2_entry_participation_class(pg_temp.u('008006')));
+select pg_temp.keep('h3a_w', to_jsonb(public._r2_withdraw_entry(pg_temp.u('008006'), 'pin', 'refund')));
+select pg_temp.chk('H/P2-3a: withdrawal succeeds and scratches only the open placement; the locked-heat placement is untouched',
+  pg_temp.out('h3a_w') = 'true'::jsonb
+  and pg_temp.entry_status('008006') = 'withdrawn'
+  and (select status from public.event_competition_heat_entries where entry_id = pg_temp.u('008006') and heat_id = pg_temp.id('heat_h9')) = 'scratched'
+  and (select status from public.event_competition_heat_entries where entry_id = pg_temp.u('008006') and heat_id = pg_temp.id('heat_b')) = 'scratched');
+
+-- ============================================================================
+-- H2. Gate enforcement (owner decision, GATE_ENFORCEMENT_PROPOSAL A): request_competition_order_refund is fail-closed unless BOTH r2g triggers exist on
+-- event_payments and are enabled ALWAYS. This suite therefore runs on R2 + the gate (20270103091000); the tests below flip trigger states inside the
+-- suite transaction (DDL is transactional) and restore them.
+-- ============================================================================
+reset role;
+select pg_temp.chk('H2/pre: the suite runs on R2 + gate (both r2g triggers ENABLE ALWAYS)',
+  (select count(*) from pg_trigger where tgrelid = 'public.event_payments'::regclass and not tgisinternal and tgenabled = 'A'
+     and tgname in ('r2g_guard_event_payment_refund_upd', 'r2g_guard_event_payment_refund_ins')) = 2);
+insert into public.event_orders (id, event_id, studio_id, buyer_name, buyer_email, subtotal_amount, discount_amount, total_amount,
+  currency, status, payment_status, settlement_state, paid_at, stripe_payment_intent_id, stripe_checkout_session_id, metadata) values
+  (pg_temp.u('00b007'), pg_temp.u('00e001'), pg_temp.u('00a001'), 'Buyer Seven', 't-r2-o7@example.test', 100, 0, 100, 'USD', 'confirmed', 'paid', 'paid', now(), 'pi_r2_o7', 'cs_r2_o7', '{}');
+insert into public.event_registrations (id, order_id, event_id, studio_id, attendee_first_name, attendee_last_name, attendee_email, status, payment_status, total_price, currency) values
+  (pg_temp.u('00f107'), pg_temp.u('00b007'), pg_temp.u('00e001'), pg_temp.u('00a001'), 'Buyer', 'Seven', 't-r2-o7@example.test', 'confirmed', 'paid', 100, 'USD');
+insert into public.event_order_items (id, order_id, event_id, item_type, description, quantity, unit_price, total_price, currency, metadata) values
+  (pg_temp.u('00c701'), pg_temp.u('00b007'), pg_temp.u('00e001'), 'add_on', 'Fee seven', 1, 100, 100, 'USD', jsonb_build_object('revenue_class', 'competition_entry', 'line_type', 'fee'));
+insert into public.event_payments (registration_id, amount, currency, payment_method, status, source, stripe_payment_intent_id, stripe_checkout_session_id, stripe_account_id) values
+  (pg_temp.u('00f107'), 100, 'USD', 'card', 'paid', 'stripe', 'pi_r2_o7', 'cs_r2_o7', 'acct_r2test1');
+
+-- (1) upd trigger DISABLED
+alter table public.event_payments disable trigger r2g_guard_event_payment_refund_upd;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('H2/A1 update trigger DISABLED: request refused COMP_REFUND_GATE_MISSING',
+  $q$select pg_temp.request('00b007', '00ba01', jsonb_build_array(pg_temp.line('00c701', 1000, false)))$q$, 'COMP_REFUND_GATE_MISSING');
+reset role;
+alter table public.event_payments enable always trigger r2g_guard_event_payment_refund_upd;
+-- (2) ins trigger DISABLED
+alter table public.event_payments disable trigger r2g_guard_event_payment_refund_ins;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('H2/A2 insert trigger DISABLED: request refused COMP_REFUND_GATE_MISSING',
+  $q$select pg_temp.request('00b007', '00ba02', jsonb_build_array(pg_temp.line('00c701', 1000, false)))$q$, 'COMP_REFUND_GATE_MISSING');
+reset role;
+alter table public.event_payments enable always trigger r2g_guard_event_payment_refund_ins;
+-- (3) enabled as ORIGIN (fires only when session_replication_role = origin)
+alter table public.event_payments enable trigger r2g_guard_event_payment_refund_upd;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('H2/A3 update trigger ENABLE (origin) instead of ALWAYS: request refused',
+  $q$select pg_temp.request('00b007', '00ba03', jsonb_build_array(pg_temp.line('00c701', 1000, false)))$q$, 'COMP_REFUND_GATE_MISSING');
+reset role;
+alter table public.event_payments enable always trigger r2g_guard_event_payment_refund_upd;
+-- (4) enabled as REPLICA
+alter table public.event_payments enable replica trigger r2g_guard_event_payment_refund_ins;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('H2/A4 insert trigger ENABLE REPLICA instead of ALWAYS: request refused',
+  $q$select pg_temp.request('00b007', '00ba04', jsonb_build_array(pg_temp.line('00c701', 1000, false)))$q$, 'COMP_REFUND_GATE_MISSING');
+reset role;
+alter table public.event_payments enable always trigger r2g_guard_event_payment_refund_ins;
+-- (5) a trigger of the right name that does not call the gate function is not the gate
+create function public._h2_noop_trg() returns trigger language plpgsql as $$ begin return new; end $$;
+alter trigger r2g_guard_event_payment_refund_upd on public.event_payments rename to r2g_h2_renamed;
+create trigger r2g_guard_event_payment_refund_upd before update on public.event_payments for each row execute function public._h2_noop_trg();
+alter table public.event_payments enable always trigger r2g_guard_event_payment_refund_upd;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('H2/A5 a trigger named r2g_..._upd that calls another function is not the gate: request refused',
+  $q$select pg_temp.request('00b007', '00ba05', jsonb_build_array(pg_temp.line('00c701', 1000, false)))$q$, 'COMP_REFUND_GATE_MISSING');
+reset role;
+drop trigger r2g_guard_event_payment_refund_upd on public.event_payments;
+drop function public._h2_noop_trg();
+alter trigger r2g_h2_renamed on public.event_payments rename to r2g_guard_event_payment_refund_upd;
+-- (6) healthy again: accepted
+select pg_temp.chk('H2/A6 gate healthy again (both triggers ENABLE ALWAYS on the gate function)',
+  (select count(*) from pg_trigger t where t.tgrelid = 'public.event_payments'::regclass and not t.tgisinternal and t.tgenabled = 'A'
+     and t.tgname in ('r2g_guard_event_payment_refund_upd', 'r2g_guard_event_payment_refund_ins')
+     and t.tgfoid = 'public._r2g_guard_event_payment_refund()'::regprocedure) = 2);
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('H2/A7 gate healthy: the same request is accepted', $q$select pg_temp.request('00b007', '00ba06', jsonb_build_array(pg_temp.line('00c701', 1000, false)))$q$);
+-- (7) an unauthorized caller still gets the authorization error, not the gate error (no information about the gate leaks)
+reset role;
+alter table public.event_payments disable trigger r2g_guard_event_payment_refund_ins;
+select pg_temp.as_user(pg_temp.u('000002'));
+select pg_temp.expect_msg('H2/A8 unauthorized caller with a broken gate gets COMP_REFUND_NOT_AUTHORIZED first',
+  $q$select pg_temp.request('00b007', '00ba07', jsonb_build_array(pg_temp.line('00c701', 1000, false)))$q$, 'COMP_REFUND_NOT_AUTHORIZED');
+reset role;
+-- (8) webhook evidence capture is never blocked by the gate check: with a trigger disabled the observe RPC still records a dashboard refund
+select pg_temp.as_service();
+select pg_temp.chk('H2/A9 observe_competition_stripe_refund still records evidence while the gate is broken',
+  pg_temp.observe('pi_r2_o7', 'acct_r2test1', 're_h2_dash', null, 500, 'succeeded')->>'outcome' = 'applied');
+reset role;
+alter table public.event_payments enable always trigger r2g_guard_event_payment_refund_ins;
+
+-- ============================================================================
 -- Verdict
 -- ============================================================================
 do $$

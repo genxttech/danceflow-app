@@ -31,7 +31,8 @@ begin
       raise exception 'R2 rollback preflight: % is not the R2 definition.', v_pin.sig;
     end if;
   end loop;
-  if to_regprocedure('public.scratch_competition_entry(uuid, uuid, text, text)') is not null then
+  -- any function named scratch_competition_entry (SC1), whatever its signature: fail closed
+  if exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'scratch_competition_entry') then
     raise exception 'R2 rollback refused: SC1 (scratch workflow) is still applied; roll SC1 back first (the 10A cascade this rollback restores does not know scratched entries).';
   end if;
   if exists (select 1 from public.event_order_refunds) then

@@ -14,11 +14,11 @@ create or replace function pg_temp.o1_lines(p_only_first_cents bigint default nu
   from (select c.order_item_id,
                case when p_only_first_cents is null then c.cap_cents - coalesce((select sum(a.amount_cents) from public.event_order_refund_allocations a where a.order_item_id = c.order_item_id), 0)
                     else p_only_first_cents end as rem,
-               row_number() over (order by c.order_item_id) rn
+               row_number() over (order by c.cap_cents desc, c.order_item_id) rn
         from public._r2_order_line_caps(pg_temp.o1()) c) x
   where x.rem > 0 and (p_only_first_cents is null or x.rn = 1)
 $$;
-create or replace function pg_temp.o1_item() returns uuid language sql stable security definer as $$ select order_item_id from public._r2_order_line_caps(pg_temp.o1()) order by 1 limit 1 $$;
+create or replace function pg_temp.o1_item() returns uuid language sql stable security definer as $$ select order_item_id from public._r2_order_line_caps(pg_temp.o1()) order by cap_cents desc, order_item_id limit 1 $$;
 grant execute on all functions in schema pg_temp to authenticated, anon, service_role;
 
 select pg_temp.chk('R2CO: the checkout-built order is paid and has NO settlement_state (the production shape)',

@@ -568,3 +568,16 @@ scratch is not inherently financial. A scratch must never automatically cause a 
   change R2's migration.
 - New pin: `sync_competition_entries_from_registration` = md5 `3a19d4b4…` (was `95e9cd2a…` before the W1 integration review: disqualified placements count as danced) (supersedes `4c8592ee…`). The rollback is
   regenerated from verbatim prior bodies.
+
+### 8.6 Refund-write gate (migration 20270103091000), 2026-11-08
+
+- **Separate migration** `20270103091000_competition_r2_refund_write_gate.sql` (rollback in `rollback/`, suite
+  `sql-tests/test_T_competition_r2_refund_write_gate.sql`). It closes the refund-write path for pre-R2 app code during
+  cutover, so an old app cannot write refund state that R2's ledger does not know about.
+- **R2 requires the gate.** `request_competition_order_refund` fails closed with `COMP_REFUND_GATE_MISSING` unless the
+  gate objects are intact. The gate rollback refuses while R2 is applied.
+- **Apply order:** R2 (`20270103090000`) then the gate (`20270103091000`). **Rollback order:** R2 rollback first, then the
+  gate rollback (the gate is removed after R2).
+- **Residual:** a superuser (or any role that can run DDL) can still drop or alter the gate objects; the enforcement
+  guards against omission and ordering mistakes, not against a privileged operator.
+- Nothing is applied to any hosted database. The CF1 foundation is a dependency and is not part of this PR.

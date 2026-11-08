@@ -895,6 +895,16 @@ begin
   if auth.uid() is null or not public._paywh1_actor_can_manage_event(p_event_id) then
     raise exception 'COMP_REFUND_NOT_AUTHORIZED: only studio or organizer owners and admins can refund.' using errcode = '42501';
   end if;
+  -- Fail closed unless the refund write gate (20270103091000) is intact: BOTH r2g triggers exist on event_payments, are BEFORE UPDATE / BEFORE INSERT row triggers that call the gate
+  -- function, and are enabled ALWAYS (tgenabled = 'A', so session_replication_role cannot bypass them). Checked before any state change. The gate is what keeps non-ledger writers from
+  -- putting refund state on a competition payment; without it _r2_recompute_order could later overwrite such an amount. Webhook evidence capture (observe_competition_stripe_refund) is not gated.
+  if (select count(*) from pg_trigger t
+        where t.tgrelid = 'public.event_payments'::regclass and not t.tgisinternal and t.tgenabled = 'A'
+          and t.tgfoid = to_regprocedure('public._r2g_guard_event_payment_refund()')
+          and ((t.tgname = 'r2g_guard_event_payment_refund_upd' and t.tgtype = 19)
+            or (t.tgname = 'r2g_guard_event_payment_refund_ins' and t.tgtype = 7))) <> 2 then
+    raise exception 'COMP_REFUND_GATE_MISSING: the refund write gate (20270103091000) is not installed, is disabled, or is not enabled ALWAYS; refunds are refused until it is restored.' using errcode = '55000';
+  end if;
   if p_request_id is null then
     raise exception 'COMP_REFUND_REQUEST_ID_REQUIRED' using errcode = '22023';
   end if;
@@ -938,10 +948,13 @@ begin
      or not exists (select 1 from public.event_payments ep join public.event_registrations er on er.id = ep.registration_id
                     where er.order_id = p_order_id and ep.stripe_payment_intent_id = v_order.stripe_payment_intent_id
                       and ep.status = 'paid')
-     -- a refund that went through the older pro-rata webhook path (before R2) is not in the R2 ledger: caps would be wrong
-     or (exists (select 1 from public.event_payments ep join public.event_registrations er on er.id = ep.registration_id
-                 where er.order_id = p_order_id and coalesce(ep.refund_amount, 0) > 0)
-         and not exists (select 1 from public.event_order_refunds r where r.order_id = p_order_id)) then
+     -- Refund money recorded on the payments that the R2 ledger does not hold (the older pro-rata webhook path, before R2, or any writer outside the ledger)
+     -- makes the caps wrong: refuse while the payments' recorded refunds (cents) exceed the SUCCEEDED ledger refunds of the order. _r2_recompute_order writes
+     -- refund_amount = the succeeded ledger sum, so pending, failed and reversed refunds and ordinary partial refunds never trip this, and a ledger row of any other
+     -- status (or a smaller succeeded one) never switches it off.
+     or (select coalesce(sum(round(coalesce(ep.refund_amount, 0) * 100)), 0)::bigint
+           from public.event_payments ep join public.event_registrations er on er.id = ep.registration_id where er.order_id = p_order_id)
+         > (select coalesce(sum(r.amount_cents), 0)::bigint from public.event_order_refunds r where r.order_id = p_order_id and r.status = 'succeeded') then
     raise exception 'COMP_REFUND_ORDER_NOT_PAID: only a settled, paid order can be refunded.' using errcode = '22023';
   end if;
   -- PAY-DC-2A: the stored owner is authoritative; missing or conflicting owners refuse (no proof path here).
