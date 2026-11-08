@@ -10,9 +10,10 @@ import { renderRflAlertEmail } from "./templates";
  *    Rows are re-checked here (verified flag, audience, address shape) and anything doubtful is recorded `invalid_recipient`, never sent.
  *  - The recipient reference is `<kind>:<user_id>` (never an address). The queue dedupe key is `rfl:<alert-id>:<recipient-ref>`: replays and concurrent
  *    workers collapse to ONE queued email per recipient (the queue's unique conflict returns `duplicate`).
- *  - Studio for the queue row: the studio the recipient row names (owners). A recipient row without one (an administrator) uses the alert's own studio. When
- *    neither exists (an entity-level alert for an administrator) the recipient is recorded `invalid_recipient` and NOT sent (conservative: the queue row needs a
- *    studio and none is named by the database), so the alert fails visibly if nobody else could be reached.
+ *  - Studio for the queue row: the studio the recipient row names. The database names one for EVERY recipient row: an owner's own location, and for an
+ *    administrator the alert's location or, for an entity-level alert (no location, e.g. the absorbed-inbound allowance), the earliest-linked location of the alert's
+ *    own legal business (tw4_rfl_alert_recipients, 20261211). A row with no studio at all (a business with no linked location, which the database cannot return for a real
+ *    alert) falls back to the alert's own studio and, when neither exists, is recorded `invalid_recipient` and NOT sent (fail closed), so the alert fails visibly.
  *  - Every outcome is recorded with the claim token. `recorded: false` means the claim is stale (another worker owns it): stop at once.
  *  - It throws (the runner marks the alert failed and the database bounds the attempts) when no verified recipient exists, when a queue or record call fails,
  *    or when no recipient could be reached. A failing recipient never blocks the others, and queued ones are not repeated on retry (dedupe).
