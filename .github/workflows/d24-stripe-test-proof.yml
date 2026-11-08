@@ -45,15 +45,15 @@ jobs:
       D24_PIN_PACKAGE_LOCK_SHA256: "57523eb298e97ada0974ad6c39473dca0ba389f33500b5bb99b505fb45106d13"
       D24_PIN_TSCONFIG_SHA256: "b0ca828ffe4497f6ee194e695f25d4105b1545d76872ab8cbd6689a080efe066"
       # SHA-256 of the "sha256sum" listing of the files this job executes from scripts/qa/d24-gh-proof (encrypt-cli.ts evidence-crypto.ts summary.ts evidence-public-key.pem).
-      D24_PIN_TOOLING_SHA256: "83d1beca9063de066a05952ee49d3fd94ab7fff033b5ac3b96804a32d96ecd23"
+      D24_PIN_TOOLING_SHA256: "90695a745e1bffd07e9e0bf879f7d1b1b599256f10545719245ba4e8a543aaeb"
       # bash startup files from the environment are not honoured in non-interactive shells when these are empty (a BASH_ENV written through GITHUB_ENV by an earlier step is the known route).
       BASH_ENV: ""
       ENV: ""
       # The only workflow file allowed to run this job (a rogue file on main cannot satisfy this; CODEOWNERS on /.github/ is the real control).
       D24_WORKFLOW_REF_EXPECTED: "genxttech/danceflow-app/.github/workflows/d24-stripe-test-proof.yml@refs/heads/main"
-      # PLACEHOLDERS until the corrected test sandbox exists; the first guard step fails closed while either contains PLACEHOLDER.
-      D24_PROOF_EXPECT_PLATFORM_ACCT: "acct_PLACEHOLDERPLATFORM"
-      D24_PROOF_EXPECT_CONNECTED_ACCT: "acct_PLACEHOLDERCONNECTED"
+      # Real TEST ids (owner-supplied platform 2026-11-08; connected account created by the one-shot provisioning run 42530005438). Not credentials. The guard step still refuses PLACEHOLDER values.
+      D24_PROOF_EXPECT_PLATFORM_ACCT: "acct_1UZ320IPJs53nwt7"
+      D24_PROOF_EXPECT_CONNECTED_ACCT: "acct_1UZeX9RPIxrr5yG6"
       # The owner's approval click IS the authorization; the harness's approval sentence is a constant supplied by this reviewed file.
       D24_PROOF_AUTHORIZATION: "Approved: D24 M3-D Stripe TEST proof as written"
       D24_EVIDENCE_PUBLIC_KEY: scripts/qa/d24-gh-proof/evidence-public-key.pem
