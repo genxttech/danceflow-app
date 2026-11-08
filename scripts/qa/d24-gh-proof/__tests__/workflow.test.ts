@@ -342,7 +342,7 @@ describe("review round 3: host-independent hardening of the runner side", () => 
 
 describe("review round: no other workflow may reach the environment or the secret", () => {
   const dir = join(REPO, ".github", "workflows");
-  const others = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f) && f !== "d24-stripe-test-proof.yml");
+  const others = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f) && f !== "d24-stripe-test-proof.yml" && f !== "d24-provision-account.yml");
   it("there is at least one other workflow (so this scan is not vacuous)", () => {
     expect(others.length).toBeGreaterThan(0);
   });

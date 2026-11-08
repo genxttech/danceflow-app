@@ -17,3 +17,5 @@
 /scripts/qa/d24-gh-proof/ @genxttech
 /docs/billing/D24-GITHUB-ENVIRONMENT-PROOF.md @genxttech
 /vitest.config.mts @genxttech
+/scripts/qa/d24-test-provision/ @genxttech
+/docs/billing/D24-TEST-ACCOUNT-PROVISIONING.md @genxttech

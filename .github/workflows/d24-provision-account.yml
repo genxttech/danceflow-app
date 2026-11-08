@@ -1,0 +1,176 @@
+name: D24 TEST account provisioning
+
+# ONE-SHOT, owner-approved creation of the production-equivalent Express connected account in the isolated D24 Stripe TEST sandbox (scripts/qa/d24-test-provision).
+# Design, requests, permissions, cost and cleanup: docs/billing/D24-TEST-ACCOUNT-PROVISIONING.md section 9.
+#
+# INERT until separately authorized: the pinned platform account id below is a PLACEHOLDER (the guard step fails closed on it) and the environment secret
+# D24_PROVISION_STRIPE_KEY does not exist. Nothing here has ever run. Both are changed only under the owner's code-owner review / by the owner in the browser.
+#
+# Same protected environment as the proof (`d24-stripe-test`: owner is the only required reviewer, no self-review, administrator bypass off, main only), but a SEPARATE secret:
+# this workflow reads D24_PROVISION_STRIPE_KEY only; it never references D24_PROOF_STRIPE_KEY, and the proof workflow never references this secret (tests enforce both).
+# The provisioning key has Accounts Write and nothing else; it is entered by the owner just before the run and expired / deleted right after.
+#
+# Trigger: workflow_dispatch ONLY. This file, all of /.github/ and the provisioning tooling are code-owned (.github/CODEOWNERS).
+run-name: D24 TEST account provisioning @ ${{ github.sha }}
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d24-provision-account
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: /usr/bin/bash --noprofile --norc -euo pipefail {0}
+
+jobs:
+  provision:
+    name: D24 TEST account provisioning (owner-approved, one-shot)
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'genxttech/danceflow-app' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: d24-stripe-test
+    permissions:
+      contents: read
+    env:
+      # Same pins as the proof workflow (same npm ci / tsx loader / harness code that runs next to the key); a unit test keeps them equal to the repository.
+      D24_PROOF_PINNED_TREE: "04f989c2704e2e0002155926e1654d65d9b68278"
+      D24_PIN_PACKAGE_JSON_SHA256: "1512d22af91872aff89098f30735da03d1831d8532e0be95887df66410b30f4d"
+      D24_PIN_PACKAGE_LOCK_SHA256: "57523eb298e97ada0974ad6c39473dca0ba389f33500b5bb99b505fb45106d13"
+      D24_PIN_TSCONFIG_SHA256: "b0ca828ffe4497f6ee194e695f25d4105b1545d76872ab8cbd6689a080efe066"
+      # SHA-256 of the "sha256sum" listing of the files this job executes from scripts/qa/d24-test-provision (live.ts provision.ts run.ts).
+      D24_PIN_PROVISION_TOOLING_SHA256: "c8d095a5f4f9681578919fe28fb8f76cc7b549f107bf03781d9161a22c1d2c18"
+      BASH_ENV: ""
+      ENV: ""
+      D24_WORKFLOW_REF_EXPECTED: "genxttech/danceflow-app/.github/workflows/d24-provision-account.yml@refs/heads/main"
+      # PLACEHOLDER until the owner supplies the sandbox platform id in a reviewed PR; the guard step fails closed while it contains PLACEHOLDER.
+      D24_PROVISION_EXPECT_PLATFORM_ACCT: "acct_PLACEHOLDERPLATFORM"
+      # The owner's approval click IS the authorization; the tool's approval sentence is a constant supplied by this reviewed file.
+      D24_PROVISION_AUTHORIZATION: "Approved: D24 TEST account provisioning as written"
+      TSX: node_modules/tsx/dist/cli.mjs
+    steps:
+      - name: Commit and request plan under approval
+        env:
+          SHA: ${{ github.sha }}
+          REF: ${{ github.ref }}
+          ACTOR: ${{ github.actor }}
+          RUN_ID: ${{ github.run_id }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          {
+            echo "## D24 TEST account provisioning - what was approved"
+            echo
+            echo "- workflow: \`$WORKFLOW_REF\`"
+            echo "- commit: \`$SHA\`"
+            echo "- ref: \`$REF\`"
+            echo "- dispatched by: $ACTOR"
+            echo "- run id: $RUN_ID"
+            echo "- pinned harness git tree: \`$D24_PROOF_PINNED_TREE\`"
+            echo
+            echo "Exactly three Stripe requests, no retries: GET /v1/account (must be the pinned sandbox platform), ONE POST /v1/accounts (type express, card_payments + transfers requested, three marker metadata keys), GET /v1/accounts/<new id>."
+            echo "Compare the workflow path and the commit with the values in the approval message before trusting this run."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guards (fail closed)
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || { echo "FAIL: not a manual dispatch"; exit 1; }
+          [ "$GITHUB_REPOSITORY" = "genxttech/danceflow-app" ] || { echo "FAIL: wrong repository"; exit 1; }
+          [ "$GITHUB_REF" = "refs/heads/main" ] || { echo "FAIL: not main"; exit 1; }
+          [ "$WORKFLOW_REF" = "$D24_WORKFLOW_REF_EXPECTED" ] || { echo "FAIL: this is not the reviewed workflow file on main"; exit 1; }
+          case "$D24_PROVISION_EXPECT_PLATFORM_ACCT" in
+            *PLACEHOLDER*) echo "FAIL: the pinned sandbox platform account id is still a placeholder"; exit 1 ;;
+          esac
+          [[ "$D24_PROVISION_EXPECT_PLATFORM_ACCT" =~ ^acct_[A-Za-z0-9]{6,64}$ ]] || { echo "FAIL: platform account id shape"; exit 1; }
+          [[ "$D24_PROOF_PINNED_TREE" =~ ^[0-9a-f]{40}$ ]] || { echo "FAIL: tree pin shape"; exit 1; }
+          [[ "$D24_PIN_PROVISION_TOOLING_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "FAIL: tooling pin shape"; exit 1; }
+          echo "guards passed"
+
+      - name: Fetch exactly the dispatched commit and verify the pinned inputs (plain git and sha256sum, no node yet)
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          git init -q "$GITHUB_WORKSPACE"
+          cd "$GITHUB_WORKSPACE"
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git fetch -q --no-tags --depth=1 origin "$SHA"
+          git checkout -q --detach FETCH_HEAD
+          [ "$(git rev-parse HEAD)" = "$SHA" ] || { echo "FAIL: HEAD is not the dispatched commit"; exit 1; }
+          git fetch -q --no-tags --depth=1 origin refs/heads/main
+          [ "$(git rev-parse FETCH_HEAD)" = "$SHA" ] || { echo "FAIL: main has moved since the dispatch; dispatch again"; exit 1; }
+          echo "checked out the dispatched commit, which is the tip of main"
+          # ONE-SHOT: once a real connected account id is recorded in the proof workflow, this account already exists and this workflow must not create another
+          grep -q 'D24_PROOF_EXPECT_CONNECTED_ACCT: "acct_PLACEHOLDERCONNECTED"' .github/workflows/d24-stripe-test-proof.yml || { echo "FAIL: a connected account id is already recorded; provisioning is one-shot"; exit 1; }
+          [ "$(git rev-parse HEAD:scripts/qa/d24-m3d-proof)" = "$D24_PROOF_PINNED_TREE" ] || { echo "FAIL: harness git tree differs from the pin"; exit 1; }
+          [ "$(sha256sum package.json | cut -d' ' -f1)" = "$D24_PIN_PACKAGE_JSON_SHA256" ] || { echo "FAIL: package.json differs from the pin"; exit 1; }
+          [ "$(sha256sum package-lock.json | cut -d' ' -f1)" = "$D24_PIN_PACKAGE_LOCK_SHA256" ] || { echo "FAIL: package-lock.json differs from the pin"; exit 1; }
+          [ "$(sha256sum tsconfig.json | cut -d' ' -f1)" = "$D24_PIN_TSCONFIG_SHA256" ] || { echo "FAIL: tsconfig.json differs from the pin"; exit 1; }
+          echo "harness tree, package.json, package-lock.json and tsconfig.json equal their pins"
+          for f in .npmrc scripts/package.json scripts/qa/package.json scripts/qa/d24-test-provision/package.json; do
+            [ ! -e "$f" ] || { echo "FAIL: unexpected file $f"; exit 1; }
+          done
+          tooling="$(cd scripts/qa/d24-test-provision && sha256sum live.ts provision.ts run.ts | sha256sum | cut -d' ' -f1)"
+          [ "$tooling" = "$D24_PIN_PROVISION_TOOLING_SHA256" ] || { echo "FAIL: the d24-test-provision tooling differs from the pin"; exit 1; }
+          echo "no stray npm/node config files; provisioning tooling equals its pin"
+
+      - name: Home directory (outside the checkout, wiped at the end)
+        run: |
+          mkdir -p "$RUNNER_TEMP/home"
+
+      - name: Set up Node (fixed version)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24.14.1"
+
+      # From here on every step that runs node or npm uses the toolcache binary by absolute path and a scrubbed environment (env -i, explicit PATH).
+      - name: Install dependencies (no lifecycle scripts)
+        run: |
+          NODE="$RUNNER_TOOL_CACHE/node/24.14.1/x64/bin/node"
+          NPM_CLI="$RUNNER_TOOL_CACHE/node/24.14.1/x64/lib/node_modules/npm/bin/npm-cli.js"
+          [ -x "$NODE" ] && [ -f "$NPM_CLI" ] || { echo "FAIL: pinned node/npm not found in the tool cache"; exit 1; }
+          RUN=(/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$RUNNER_TEMP/home" LANG=C.UTF-8)
+          "${RUN[@]}" "$NODE" "$NPM_CLI" ci --ignore-scripts --no-audit --no-fund
+
+      - name: Dry run (fake Stripe, no network, no key)
+        run: |
+          NODE="$RUNNER_TOOL_CACHE/node/24.14.1/x64/bin/node"
+          [ -x "$NODE" ] || { echo "FAIL: pinned node not found in the tool cache"; exit 1; }
+          RUN=(/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$RUNNER_TEMP/home" LANG=C.UTF-8)
+          "${RUN[@]}" "$NODE" "$TSX" scripts/qa/d24-test-provision/run.ts --plan
+          "${RUN[@]}" "$NODE" "$TSX" scripts/qa/d24-test-provision/run.ts --dry-run
+
+      - name: No stray processes before the key is used
+        run: |
+          me="$(/usr/bin/id -u)"
+          /usr/bin/pkill -u "$me" -x node || true
+          /usr/bin/pkill -u "$me" -x esbuild || true
+          if /usr/bin/pgrep -u "$me" -x node > /dev/null || /usr/bin/pgrep -u "$me" -x esbuild > /dev/null; then
+            echo "FAIL: a node or esbuild process is still running"
+            exit 1
+          fi
+          echo "no stray node/esbuild process"
+
+      - name: Provision (Stripe TEST mode; three requests; result written to the job summary)
+        env:
+          D24_PROVISION_STRIPE_KEY: ${{ secrets.D24_PROVISION_STRIPE_KEY }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          NODE="$RUNNER_TOOL_CACHE/node/24.14.1/x64/bin/node"
+          [ -x "$NODE" ] || { echo "FAIL: pinned node not found in the tool cache"; exit 1; }
+          RUN=(/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$RUNNER_TEMP/home" LANG=C.UTF-8)
+          REF="D24-ENV-$(/usr/bin/date -u +%Y%m%d)-$RUN_ID"
+          IN=(D24_PROVISION_STRIPE_KEY="$D24_PROVISION_STRIPE_KEY" D24_PROVISION_EXPECT_PLATFORM_ACCT="$D24_PROVISION_EXPECT_PLATFORM_ACCT" D24_PROVISION_AUTHORIZATION="$D24_PROVISION_AUTHORIZATION" D24_PROVISION_ENVELOPE_REF="$REF" D24_PROVISION_SUMMARY_FILE="$GITHUB_STEP_SUMMARY")
+          rc=0
+          "${RUN[@]}" "${IN[@]}" "$NODE" "$TSX" scripts/qa/d24-test-provision/live.ts --live || rc=$?
+          echo "provisioning finished with exit status $rc"
+          exit "$rc"
+
+      - name: Remove the home directory
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/home"

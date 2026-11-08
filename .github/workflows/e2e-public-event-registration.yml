@@ -55,6 +55,7 @@ on:
       - ".github/workflows/e2e-public-event-registration.yml"
       # D24 Stripe TEST proof boundary: its tests (scripts/qa/d24-gh-proof) must gate PRs that touch only these files.
       - ".github/workflows/d24-*"
+      - "scripts/qa/d24-test-provision/**"
       - ".github/CODEOWNERS"
       - "docs/billing/D24-*"
       - "vitest.config.mts"
