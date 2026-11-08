@@ -37,7 +37,7 @@ describe("verifyMergedPr (P2-4): the release is THE merge commit of a merged PR 
 describe("toolchainGates (P0-2): the elevated installer runs administrator-only code with a clean environment", () => {
   const base = async () => {
     const l = layoutOnce;
-    return { env: { SystemRoot: "C:\\Windows", PATH: "C:\\Windows\\System32", TSX_DISABLE_CACHE: "1" } as Record<string, string | undefined>, execArgv: [] as string[], execPath: ADMIN_NODE, adminNode: ADMIN_NODE, runningFile: "C:\\ProgramData\\d24-src\\scripts\\qa\\d24-test-runner\\installedcli.ts", sourceRepo: "C:\\ProgramData\\d24-src", gitBin: "C:\\Program Files\\Git\\cmd\\git.exe" as string | null, adminGit: "C:\\Program Files\\Git\\cmd\\git.exe", realGitDir: "C:\\Program Files\\Git\\mingw64\\bin", gitCoreDir: "C:\\Program Files\\Git\\mingw64\\libexec\\git-core", npmDir: "C:\\Program Files\\nodejs\\node_modules\\npm", reader: new FakeAcl(l), who: WHO };
+    return { env: { SystemRoot: "C:\\Windows", PATH: "C:\\Windows\\System32", TSX_DISABLE_CACHE: "1" } as Record<string, string | undefined>, execArgv: [] as string[], execPath: ADMIN_NODE, adminNode: ADMIN_NODE, runningFile: "C:\\Users\\d24admin\\d24-src\\scripts\\qa\\d24-test-runner\\installedcli.ts", sourceRepo: "C:\\Users\\d24admin\\d24-src", gitBin: "C:\\Program Files\\Git\\cmd\\git.exe" as string | null, adminGit: "C:\\Program Files\\Git\\cmd\\git.exe", realGitDir: "C:\\Program Files\\Git\\mingw64\\bin", gitCoreDir: "C:\\Program Files\\Git\\mingw64\\libexec\\git-core", npmDir: "C:\\Program Files\\nodejs\\node_modules\\npm", reader: new FakeAcl(l), who: WHO };
   };
   it("passes in the clean, administrator-only configuration", async () => {
     const gates = await toolchainGates(await base());
@@ -67,7 +67,7 @@ describe("toolchainGates (P0-2): the elevated installer runs administrator-only 
     await bad({ gitBin: null }, "elevated-git");
     await bad({ gitBin: "C:\\Users\\mcurt\\git.exe" }, "elevated-git");
     const a = new FakeAcl(layoutOnce);
-    a.override("C:\\ProgramData\\d24-src", sddlFor("locked", WHO, OWNER_SID)); // the clone is owned by the owner's user
+    a.override("C:\\Users\\d24admin\\d24-src", sddlFor("locked", WHO, OWNER_SID)); // the clone is owned by the owner's user
     await bad({ reader: a }, "elevated-source-acl");
     const n = new FakeAcl(layoutOnce);
     n.override(ADMIN_NODE, sddlFor("locked", WHO, OWNER_SID));

@@ -13,7 +13,7 @@ describe("parseSddl (strict, fail closed)", () => {
   it("parses owner, flags, hex and alias masks, aliases and SIDs", () => {
     const p = parseSddl("O:BAG:SYD:PAI(A;OICI;FA;;;BA)(A;;0x1200a9;;;S-1-5-21-1-2-3-1000)(D;;WD;;;WD)");
     expect(p?.owner).toBe("S-1-5-32-544");
-    expect(p?.aces).toEqual([{ type: "A", mask: 0x1f01ff, sid: "S-1-5-32-544" }, { type: "A", mask: 0x1200a9, sid: "S-1-5-21-1-2-3-1000" }, { type: "D", mask: 0x40000, sid: "S-1-1-0" }]);
+    expect(p?.aces).toEqual([{ type: "A", mask: 0x1f01ff, sid: "S-1-5-32-544", flags: "OICI" }, { type: "A", mask: 0x1200a9, sid: "S-1-5-21-1-2-3-1000", flags: "" }, { type: "D", mask: 0x40000, sid: "S-1-1-0", flags: "" }]);
   });
   it("returns null for anything not understood: unknown ACE type, odd token, extra fields, object ACEs, no DACL, garbage", () => {
     for (const s of ["", "garbage", "O:BAG:SY", "O:BAG:SYD:PAI(AU;;FA;;;BA)", "O:BAG:SYD:PAI(OA;;FA;;;BA)", "O:BAG:SYD:PAI(A;;Special;;;BA)", "O:BAG:SYD:PAI(A;;0x1200a9;;;Bad Name)", "O:BAG:SYD:PAI(A;;FA;x;;BA)", "O:BAG:SYD:PAI(A;;FA;;;BA", "O:BAG:SYD:PAI(A;;W D;;;BA)", "O:BAG:SYD:PAI(A;;FAXX;;;BA)"]) expect(parseSddl(s), s).toBeNull();
@@ -60,6 +60,30 @@ describe("entryViolations: the review's failing scenarios", () => {
     expect(entryViolations(E(P, withAce(withAce(GOOD_LOCKED, "(A;OICI;0x1301bf;;;BU)"), "(D;OICI;0x1301bf;;;BU)")), "locked", WHO)).toHaveLength(1);
     expect(entryViolations(E(P, GOOD_LOCKED, "link"), "locked", WHO).join()).toMatch(/link or reparse/);
     expect(entryViolations(E(P, "O:BAG:SYD:PAI(A;OICI;0x1200a9;;;BU)"), "locked", WHO).join()).toMatch(/no full-control entry/);
+  });
+});
+
+// Descriptors in the shape stock Windows / Git for Windows gives Program Files content, reconstructed from the ACEs captured read-only on the owner's machine in the PR review
+// (TrustedInstaller owner with FA, CREATOR OWNER GA that is INHERIT-ONLY, SY, BA, BU/AC read-and-execute). The synthetic FakeAcl cannot produce these, which is how the
+// first version of the recursive Git-tree gate shipped unable to pass on a stock install.
+const TI = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
+const REAL_GIT_DIR = `O:${TI}G:${TI}D:PAI(A;ID;FA;;;${TI})(A;OICIIOID;GA;;;CO)(A;ID;FA;;;SY)(A;OICIIOID;GA;;;SY)(A;ID;FA;;;BA)(A;OICIIOID;GA;;;BA)(A;ID;0x1200a9;;;BU)(A;OICIIOID;GXGR;;;BU)(A;ID;0x1200a9;;;AC)(A;OICIIOID;GXGR;;;AC)`;
+const REAL_GIT_FILE = `O:${TI}G:${TI}D:AI(A;ID;FA;;;${TI})(A;ID;FA;;;SY)(A;ID;FA;;;BA)(A;ID;0x1200a9;;;BU)(A;ID;0x1200a9;;;AC)`;
+describe("real Program Files descriptors (Git for Windows / Windows Installer shape)", () => {
+  const P = "C:\\Program Files\\Git\\mingw64\\bin";
+  it("a stock Git directory and file pass the locked-tree rules: TrustedInstaller is administrator-equivalent and an inherit-only CREATOR OWNER ACE grants nobody anything", () => {
+    expect(entryViolations(E(P, REAL_GIT_DIR, "dir"), "locked", WHO)).toEqual([]);
+    expect(entryViolations(E(P + "\\git.exe", REAL_GIT_FILE), "locked", WHO)).toEqual([]);
+  });
+  it("it is NOT a blanket exemption: a CREATOR OWNER write ACE that is not inherit-only still fails, as does any other trustee's inherit-only write, a non-TrustedInstaller owner, and the owner's user", () => {
+    expect(entryViolations(E(P, REAL_GIT_DIR.replace("(A;OICIIOID;GA;;;CO)", "(A;OICIID;GA;;;CO)"), "dir"), "locked", WHO).join()).toMatch(/S-1-3-0 holds write-class/);
+    expect(entryViolations(E(P, withAce(REAL_GIT_DIR, "(A;OICIIOID;GA;;;BU)"), "dir"), "locked", WHO).join()).toMatch(/S-1-5-32-545 holds write-class/);
+    expect(entryViolations(E(P, REAL_GIT_FILE.replace(`O:${TI}`, "O:S-1-5-21-6-6-6-1234")), "locked", WHO).join()).toMatch(/owned by S-1-5-21-6-6-6-1234/);
+    expect(entryViolations(E(P, withAce(REAL_GIT_FILE, `(A;ID;0x1301bf;;;${OWNER_SID})`)), "locked", WHO).join()).toMatch(/holds write-class/);
+    expect(entryViolations(E(P, REAL_GIT_FILE.replace(/\(A;ID;FA;;;[^)]*\)/g, "(A;ID;0x1200a9;;;SY)")), "locked", WHO).join()).toMatch(/no full-control entry/);
+  });
+  it("parseSddl keeps the ACE flags (inherit-only is visible to the rules)", () => {
+    expect(parseSddl(REAL_GIT_DIR)?.aces.find((a) => a.sid === "S-1-3-0")?.flags).toBe("OICIIOID");
   });
 });
 

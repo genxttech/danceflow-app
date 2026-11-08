@@ -145,7 +145,7 @@ const WRITE_BITS = 0x2 | 0x4 | 0x10 | 0x40 | 0x100 | 0x10000 | 0x40000 | 0x80000
 const READ_BITS = 0x1 | 0x8 | 0x20 | 0x80 | 0x20000 | 0x100000 | 0x20000000 | 0x80000000;
 const CREATE_BITS = 0x2 | 0x4;
 
-export type Ace = { type: "A" | "D"; mask: number; sid: string };
+export type Ace = { type: "A" | "D"; mask: number; sid: string; /** ACE flags such as OICIIOID; IO = inherit-only */ flags: string };
 const sidOf = (t: string) => ALIAS_SID[t] ?? t;
 function maskOf(s: string): number | null {
   if (/^0x[0-9a-fA-F]{1,8}$/.test(s)) return Number.parseInt(s, 16) >>> 0;
@@ -169,12 +169,14 @@ export function parseSddl(sddl: string): { owner: string; aces: Ace[] } | null {
     if (f.length !== 6 || (f[0] !== "A" && f[0] !== "D") || f[4] !== "" || f[3] !== "" || !/^(?:OI|CI|IO|NP|ID|SA|FA)*$/.test(f[1])) return null;
     const mask = maskOf(f[2]);
     if (mask === null || !/^(S-[\d-]+|[A-Z]{2})$/.test(f[5])) return null;
-    aces.push({ type: f[0], mask, sid: sidOf(f[5]) });
+    aces.push({ type: f[0], mask, sid: sidOf(f[5]), flags: f[1] });
   }
   return { owner: sidOf(m[1]), aces };
 }
 
-const ADMINISH = new Set([SID_ADMINS, SID_SYSTEM]);
+/** NT SERVICE\TrustedInstaller owns and has full control of Program Files content on stock Windows: administrator-equivalent (it is the service that installs updates). */
+export const SID_TRUSTED_INSTALLER = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
+const ADMINISH = new Set([SID_ADMINS, SID_SYSTEM, SID_TRUSTED_INSTALLER]);
 /** Every reason this one object is not acceptable for `role`. Empty = acceptable. DENY ACEs are ignored (a grant a deny cancels is still reported). */
 export function entryViolations(e: TreeEntry, role: AclRole, who: Who): string[] {
   const out: string[] = [];
@@ -186,6 +188,8 @@ export function entryViolations(e: TreeEntry, role: AclRole, who: Who): string[]
   const writers = new Set<string>([...ADMINISH, ...(role === "state" || role === "evidence" ? [who.runAsSid] : [])]);
   for (const a of p.aces) {
     if (a.type !== "A") continue;
+    // an INHERIT-ONLY ACE for CREATOR OWNER does not apply to the directory it is on, only to objects created in it (which their creators own): it grants nobody anything today
+    if (a.sid === "S-1-3-0" && a.flags.includes("IO")) continue;
     if (role === "secret") {
       if (![...ADMINISH, who.runAsSid].includes(a.sid)) out.push(`${e.path}: ${a.sid} holds access mask 0x${a.mask.toString(16)} on the credential area (only ${who.runAsSid} may)`);
       continue;

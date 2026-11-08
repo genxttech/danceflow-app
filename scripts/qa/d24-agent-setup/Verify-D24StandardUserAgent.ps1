@@ -149,7 +149,8 @@ if (-not (Test-Path -LiteralPath $InstallRoot)) {
 
 # ---------------------------------------------------------------- the toolchain and places a junction/plant could come from
 foreach ($p in @('C:\Program Files\nodejs', 'C:\Program Files\nodejs\node_modules\npm', 'C:\Program Files\Git', 'C:\Program Files\Git\mingw64\bin')) { Row-Create ('create-in-' + ($p -replace '[^A-Za-z0-9]+', '-').Trim('-').ToLower()) $p 'file' 'the elevated installer runs this binary tree' }
-Row-Create 'create-in-dev-root' 'C:\Dev' 'folder' 'C:\Dev is where an agent could plant a junction at the workspace path; tighten it to administrators (the setup script only reports it)'
+Row-ReadDenied 'read-dev-root' 'C:\Dev' "C:\Dev must not even be listable by the agent once tightened (the owner's ~150 checkouts and their .env* files live below it)"
+Row-Create 'create-in-dev-root' 'C:\Dev' 'folder' 'C:\Dev is where an agent could plant a junction at the workspace path; tighten it (the Setup script reports it and, with -TightenDevRoot, plans the change; run Setup from the administrator account)'
 if ($AdminClone) { Row-Create 'create-in-admin-clone' $AdminClone 'file' 'the administrator-owned bootstrap clone' } else { Row 'create-in-admin-clone' 'SKIP' 'pass -AdminClone <path> to test the bootstrap clone' }
 
 # ---------------------------------------------------------------- the owner's data

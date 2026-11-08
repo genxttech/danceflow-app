@@ -105,7 +105,11 @@ describe("Setup-D24StandardUserAgent.ps1 (administrator, run once)", () => {
   });
   it("P0: NEVER recurses an ACL change: no icacls /T, no /L-less recursion, no setowner over a tree; a reparse point in the workspace is refused", () => {
     expect(setup).not.toMatch(/\/T\b/);
-    expect(setup).not.toMatch(/-Recurse/);
+    // the only recursion is the READ-ONLY, depth-limited listing of .env* files (Get-ChildItem), never combined with an ACL command or a mutation
+    const recurseLines = codeLines(noBlockComments(setup)).filter((l) => /-Recurse/.test(l));
+    expect(recurseLines).toHaveLength(1);
+    expect(recurseLines[0]).toMatch(/Get-ChildItem[^\n]*-Recurse -Depth 2 -Filter '\.env\*' -File/);
+    expect(recurseLines[0]).not.toMatch(MUTATING);
     expect(setup).toMatch(/Test-Reparse \$wsFull/);
     expect(setup).toMatch(/\/setowner/);
     expect(setup).toMatch(/is not empty after creation/);
@@ -120,6 +124,21 @@ describe("Setup-D24StandardUserAgent.ps1 (administrator, run once)", () => {
     expect(setup).toMatch(/would leave NO enabled administrator/);
     expect(setup).toMatch(/is not a member of Administrators/);
     expect(setup).toMatch(/must be three different accounts/);
+  });
+  it("C:\\Dev propagation is verified, read-only and resumable: every child folder and every .env* file (two levels) is checked each run; still-permissive inheriting children are re-propagated with a non-recursive /inheritance:e; protected objects are never touched; a post-check follows the apply", () => {
+    expect(setup).toMatch(/function Get-DevPropagationProblems/);
+    expect(setup).toMatch(/-Recurse -Depth 2 -Filter '\.env\*' -File/);
+    expect(setup).toMatch(/Get-ChildItem -LiteralPath \$devRoot -Force -Directory/);
+    expect(setup).toMatch(/re-propagate inheritance from \$devRoot/);
+    expect(setup).toMatch(/\/inheritance:e \| Out-Null/);
+    expect(setup).toMatch(/Protected objects \(explicit ACE\) are never touched/);
+    expect(setup).toMatch(/POST-CHECK:/);
+    expect(setup).not.toMatch(/\/T\b/);
+  });
+  it("privileged-group list includes Hyper-V Administrators (S-1-5-32-578) and docker-users, and a failed Users-group add is re-planned on a re-run", () => {
+    expect(setup).toContain("'S-1-5-32-578'");
+    expect(setup).toContain("'docker-users'");
+    expect(setup).toMatch(/add '\$nm' to the local Users group \(it is not a member\)/);
   });
   it("UAC: standard users AUTOMATICALLY DENY elevation (ConsentPromptBehaviorUser = 0), secure desktop on, admin consent on the secure desktop, built-in Administrator filtered", () => {
     expect(setup).toMatch(/ConsentPromptBehaviorUser = 0/);
@@ -173,6 +192,11 @@ describe("Verify-D24StandardUserAgent.ps1 (standard user, probes)", () => {
     for (const id of ["not-administrator-member", "integrity-not-high", "no-dangerous-privileges", "create-in-root", "mkdir-in-root", "write-pinned-files", "read-cred", "open-cred-file", "create-in-dev-root", "create-in-admin-clone", "read-owner-profile", "read-owner-repository", "no-d24-credential-in-this-profile", "no-sensitive-env"]) expect(verify, id).toContain(id);
     expect(verify).toMatch(/C:\\Program Files\\Git\\mingw64\\bin/);
     expect(verify).toMatch(/C:\\Program Files\\nodejs\\node_modules\\npm/);
+  });
+  it("C:\\Dev must not be listable by the agent, and the text no longer claims that Setup only reports it", () => {
+    expect(verify).toMatch(/Row-ReadDenied 'read-dev-root' 'C:\\Dev'/);
+    expect(verify).not.toMatch(/the setup script only reports it/i);
+    expect(verify).toMatch(/-TightenDevRoot/);
   });
   it("states that it is ADVISORY only, even when the owner starts it inside the agent's session; the authoritative checks are administrator-side", () => {
     expect(verify).toMatch(/SELF-ATTESTING/);

@@ -151,8 +151,8 @@ if ($script:Failures.Count -eq 0) {
     } else {
       Ok "account '$n' exists"
       if ($adminSids -contains $u.SID.Value) { Say "NOTE   '$n' is currently an administrator: will be removed from Administrators" }
-      foreach ($g in @('S-1-5-32-551', 'S-1-5-32-547', 'S-1-5-32-580', 'S-1-5-32-573')) {   # Backup Operators, Power Users, Remote Management Users, Event Log Readers
-        $grp = Get-LocalGroup -SID $g -ErrorAction SilentlyContinue
+      foreach ($g in @('S-1-5-32-551', 'S-1-5-32-547', 'S-1-5-32-580', 'S-1-5-32-573', 'S-1-5-32-578', 'docker-users')) {   # Backup Operators, Power Users, Remote Management Users, Event Log Readers, Hyper-V Administrators, docker-users (the last two are administrator-equivalent)
+        $grp = if ($g -like 'S-1-*') { Get-LocalGroup -SID $g -ErrorAction SilentlyContinue } else { Get-LocalGroup -Name $g -ErrorAction SilentlyContinue }
         if ($grp -and (@(Get-LocalGroupMember -Group $grp | ForEach-Object { $_.SID.Value }) -contains $u.SID.Value)) { Fail "'$n' is a member of privileged group $($grp.Name): remove it by hand" }
       }
     }
@@ -168,6 +168,8 @@ if ($script:Failures.Count -eq 0) {
     $n = $RunAsUser
     Add-Plan "create local service user '$n' with a random password that is discarded (never shown or stored)" ({ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); $p = ConvertTo-SecureString ([Convert]::ToBase64String($b) + 'aA1!') -AsPlainText -Force; New-LocalUser -Name $n -Password $p -PasswordNeverExpires -UserMayNotChangePassword -Description 'D24 runner service account' | Out-Null }.GetNewClosure())
   }
+  # the group add can fail after the account was created: a re-run re-plans it
+  if ($agent) { $usersGrp = Get-LocalGroup -SID $USERS; if (@(Get-LocalGroupMember -Group $usersGrp | ForEach-Object { $_.SID.Value }) -notcontains $agent.SID.Value) { $nm = $agent.Name; Add-Plan "add '$nm' to the local Users group (it is not a member)" ({ Add-LocalGroupMember -Group (Get-LocalGroup -SID 'S-1-5-32-545') -Member $nm }.GetNewClosure()) } }
   foreach ($u in @($agent, $runas)) { if ($u -and ($adminSids -contains $u.SID.Value)) { $nm = $u.Name; Add-Plan "REMOVE '$nm' from the local Administrators group" ({ Remove-LocalGroupMember -Group (Get-LocalGroup -SID 'S-1-5-32-544') -Member $nm }.GetNewClosure()) } }
 }
 # plan 2: UAC policy, read defensively, only what differs
@@ -207,6 +209,43 @@ if ((Test-Path -LiteralPath $devRoot) -and $owner -and $script:Failures.Count -e
       $ownerSid = $owner.SID.Value
       Add-Plan "tighten $devRoot ITSELF (non-recursive command; Windows propagates the inheritable change below): inheritance off, remove $($broad -join ', '), grant owner Modify, Administrators+SYSTEM Full" ({ & $Icacls $devRoot /inheritance:d | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'icacls /inheritance:d failed' }; & $Icacls $devRoot /grant:r "*${ownerSid}:(OI)(CI)M" "*${ADMINS}:(OI)(CI)F" "*${SYSTEM}:(OI)(CI)F" | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'icacls /grant failed' }; & $Icacls $devRoot /remove:g "*${AUTHUSERS}" "*${USERS}" "*${EVERYONE}" | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'icacls /remove failed' } }.GetNewClosure())
     } else { Manual "$devRoot grants read/write to $($broad -join ', '): the agent can plant a junction at the workspace path and read the owner's checkouts. Re-run with -TightenDevRoot (the plan shows the exact change and that it propagates to inheriting children), or tighten it yourself. Verify cannot exit 0 until this is done." }
+  }
+}
+# propagation check: C:\Dev's own descriptor can be clean while its ~150 children still inherit Authenticated Users / Users (an interrupted or failed propagation).
+# READ-ONLY: every immediate child folder and every .env* file up to two levels below must not grant read to the agent's SIDs. Resumable: every run recomputes it.
+function Get-DevPropagationProblems {
+  $sids = @($AUTHUSERS, $USERS, $EVERYONE, 'S-1-5-4', 'S-1-5-113')
+  $readMask = 0x1 -bor 0x80000000 -bor 0x10000000
+  $bad = New-Object System.Collections.Generic.List[object]
+  foreach ($c in @(Get-ChildItem -LiteralPath $devRoot -Force -Directory -ErrorAction SilentlyContinue)) {
+    if ($c.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+    $acl = $c.GetAccessControl()
+    $hit = @($acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]) | Where-Object { $_.AccessControlType -eq 'Allow' -and ($sids -contains $_.IdentityReference.Value) -and (([int64]$_.FileSystemRights -band $readMask) -ne 0) })
+    if ($hit.Count -gt 0) { $bad.Add([pscustomobject]@{ Path = $c.FullName; Protected = $acl.AreAccessRulesProtected; Kind = 'folder' }) }
+  }
+  foreach ($e in @(Get-ChildItem -LiteralPath $devRoot -Force -Recurse -Depth 2 -Filter '.env*' -File -ErrorAction SilentlyContinue)) {
+    $acl = $e.GetAccessControl()
+    $hit = @($acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]) | Where-Object { $_.AccessControlType -eq 'Allow' -and ($sids -contains $_.IdentityReference.Value) -and (([int64]$_.FileSystemRights -band $readMask) -ne 0) })
+    if ($hit.Count -gt 0) { $bad.Add([pscustomobject]@{ Path = $e.FullName; Protected = $acl.AreAccessRulesProtected; Kind = 'env file' }) }
+  }
+  return $bad
+}
+if ((Test-Path -LiteralPath $devRoot) -and $owner -and $script:Failures.Count -eq 0 -and -not (Test-Reparse $devRoot)) {
+  $rootClean = ($broad.Count -eq 0)
+  $devProblems = @(Get-DevPropagationProblems)
+  $envBad = @($devProblems | Where-Object { $_.Kind -eq 'env file' })
+  $foldersBad = @($devProblems | Where-Object { $_.Kind -eq 'folder' })
+  if ($devProblems.Count -eq 0) { Ok "$devRoot children: no folder and no .env* file (two levels) grants read to Authenticated Users / Users / Everyone / INTERACTIVE / Local account" }
+  elseif (-not $rootClean) { Say "NOTE   $($foldersBad.Count) folder(s) and $($envBad.Count) .env* file(s) below $devRoot are still readable by the agent's SIDs; the $devRoot change above is planned first. Re-run the DRY RUN afterwards: it must report none." }
+  else {
+    $unprot = @($foldersBad | Where-Object { -not $_.Protected })
+    $prot = @($devProblems | Where-Object { $_.Protected })
+    Manual "$devRoot itself is clean but $($foldersBad.Count) child folder(s) and $($envBad.Count) .env* file(s) still grant read to the agent's SIDs (an interrupted or incomplete propagation, or explicit ACEs). Protected objects (explicit ACE) are never touched by this script: $($prot.Count)."
+    if ($TightenDevRoot -and $unprot.Count -gt 0) {
+      $paths = @($unprot | Where-Object { $_.Kind -eq 'folder' } | ForEach-Object { $_.Path })
+      if ($paths.Count -gt 0) { Add-Plan "re-propagate inheritance from $devRoot to $($paths.Count) child folder(s) that still inherit the old permissive ACEs (icacls <child> /inheritance:e, no recursive switch; resumable: only children still permissive are listed on every run)" ({ foreach ($p in $paths) { if (Test-Reparse $p) { throw "'$p' is a link" }; & $Icacls $p /inheritance:e | Out-Null; if ($LASTEXITCODE -ne 0) { throw "icacls /inheritance:e failed for $p" } } }.GetNewClosure()) }
+    }
+    foreach ($b in @($devProblems | Select-Object -First 12)) { Say "       still readable ($($b.Kind), protected=$($b.Protected)): $($b.Path)" }
   }
 }
 # plan 4: the agent workspace: a NEW folder, never recursed over, created AFTER the accounts
@@ -300,4 +339,5 @@ try {
 }
 Write-Host ''
 Write-Host "Applied $($done.Count) change(s); $($script:Manual.Count) manual step(s) remain (listed above)."
+if (Test-Path -LiteralPath $devRoot) { $post = @(Get-DevPropagationProblems); Write-Host "POST-CHECK: $($post.Count) folder(s)/.env* file(s) under $devRoot still grant read to the agent's SIDs (propagation may still be running: wait, then re-run the dry run until it reports none)." }
 exit 0
