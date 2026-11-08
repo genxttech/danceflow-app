@@ -1,6 +1,6 @@
 # D24 TEST connected-account provisioning (workstream C, part 1)
 
-Status: **design + offline tooling only (plan + dry-run). Nothing here has called Stripe, and `--live` is permanently disabled in this PR (exits 3, reads nothing, sends nothing).** Live provisioning is re-enabled only later, through the test-runner's owner-signed envelope, ledger and credential store, in a separate reviewed change.
+Status: **tooling built; the owner-approved GitHub workflow for the live run is built and INERT (section 9). Nothing here has called Stripe.** `run.ts --live` stays permanently disabled (exits 3, reads nothing, sends nothing); the only live entry point is `live.ts`, run by `.github/workflows/d24-provision-account.yml` after the owner approves that run in the protected `d24-stripe-test` environment. The workflow does nothing while the pinned platform id is a placeholder and the secret `D24_PROVISION_STRIPE_KEY` does not exist. (Sections 5 and 8 below describe the original, superseded plan to use the test-runner; section 9 replaces them.)
 Scope: a production-equivalent Express connected account in the dedicated D24 Stripe TEST sandbox, for the M3-D proof (`scripts/qa/d24-m3d-proof`, main `b1a91b58`).
 Code: `scripts/qa/d24-test-provision/` (new; the proof folder is untouched and still hashed).
 
@@ -80,3 +80,28 @@ Unchanged: the proof's S0 reads `GET /v1/account` (pinned platform) and `GET /v1
 2. Create the separate provisioning RAK (Accounts Write only) only when the later, test-runner-based live path exists; the owner issues the signed envelope there (the earlier envelope-reference/phrase scheme in this tool is retired).
 3. After the run: expire the provisioning key at once; check its request log shows exactly 3 requests; (optional) complete hosted onboarding with test data if the proof shows draft invoices need active capabilities.
 4. Record the negative-fixture label; decide whether to delete the old account.
+
+## 9. Live provisioning through the protected GitHub environment (built, inert)
+
+Owner decision 2026-11-08: the Stripe TEST proof runs through the protected GitHub environment (`docs/billing/D24-GITHUB-ENVIRONMENT-PROOF.md`), so provisioning uses the same gate instead of the test-runner. Owner authorization for this build: Stage 1 only (the files, no Stripe contact).
+
+**What was added.** `scripts/qa/d24-test-provision/live.ts` (the only file in the folder that imports the proof's pinned-origin transport; `run.ts` and `provision.ts` still have no path to a network) and `.github/workflows/d24-provision-account.yml`. Everything that decides what may be sent is unchanged: `provision.ts`'s default-deny allow-list, hard cap 3, no retry, and the proof's unchanged `checkConnectedAccount` identity gate.
+
+**The three requests** (`Stripe-Version 2026-03-25.dahlia`, no `Stripe-Account`, no retry):
+1. `GET /v1/account`: must be the pinned sandbox platform, else abort before the create.
+2. ONE `POST /v1/accounts` with exactly `type=express`, `capabilities[card_payments][requested]=true`, `capabilities[transfers][requested]=true` and the markers `metadata[d24_proof_fixture]`, `metadata[d24_fixture_role]`, `metadata[d24_envelope_ref]`. This is the production onboarding route's `accounts.create` (`src/app/api/stripe/connect/onboarding/route.ts`) plus only the markers; a unit test compares the two.
+3. `GET /v1/accounts/<new id>`: independent readback; both responses are judged by the identity gate and the markers must be present.
+
+**Key and permissions.** A separate `rk_test_` key with Accounts **Write** only (if `GET /v1/account` is refused, Stripe's error names the one extra read permission to add; re-run needs a new run). It is the environment secret `D24_PROVISION_STRIPE_KEY`. The proof key is `D24_PROOF_STRIPE_KEY`; neither workflow references the other's secret, and `live.ts` refuses if the proof key is present in its process. The provisioning key must never carry Customers, Invoices, Balance, Transfers or Account Links permissions.
+
+**Controls kept from the proof workflow.** `workflow_dispatch` only; protected environment (owner approval per run, main only); read-only token; actions pinned to commit SHAs; fetch of exactly the dispatched commit that must still be the tip of `main`; harness git tree, `package.json`, `package-lock.json`, `tsconfig.json` and the provisioning tooling pinned and verified in plain shell before any node process; `npm ci --ignore-scripts`; scrubbed environment and toolcache node for the step that holds the key; no artifact upload.
+
+**One-shot.** The workflow refuses unless `.github/workflows/d24-stripe-test-proof.yml` still has the placeholder connected id, so it cannot create a second account once the real id is recorded. Each run's account also carries the run reference in its metadata.
+
+**Output.** The job summary shows the new account id (a TEST id, which a later reviewed PR pins in this public repository anyway), the three request ids and statuses, the observed Express enums, capabilities, `charges_enabled`, and the idempotency-key hash. Never the key.
+
+**Cost.** Three API requests in test mode. No customers, invoices, transfers, payouts or any money movement. No fee is expected in test mode; that is unconfirmed, and the three-request cap with an Accounts-Write-only key bounds it.
+
+**Owner steps (Stage 2, only after separate authorization).** Supply the sandbox platform `acct_` id for a reviewed PR; create the provisioning key (Accounts Write only) and enter it as the environment secret `D24_PROVISION_STRIPE_KEY` in the browser; approve the one run after comparing workflow path and commit; check the sandbox's Developers > Logs shows exactly the three requests; expire the key and delete the secret.
+
+**Known unknown.** Whether Stripe permits draft invoices on an account whose capabilities are still inactive is answered only by the proof's first scenario call (it aborts safely on a 4xx). Fallback: the owner completes hosted onboarding once with test data.
