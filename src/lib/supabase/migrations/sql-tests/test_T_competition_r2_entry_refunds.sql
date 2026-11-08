@@ -531,6 +531,58 @@ select pg_temp.expect_msg('E: keep_entry does not apply to a certified heat',
 select pg_temp.expect_msg('E/K0: k0_correction needs a K0 result event (F2 not present)',
   $q$select public.resolve_competition_refund_scope((select id from public.event_competition_refund_exception_scopes where entry_id = pg_temp.u('008104')), 'k0_correction', 'x')$q$,
   'COMP_REFUND_K0_CORRECTION_UNAVAILABLE');
+-- E/K0b: the k0_correction path against the REAL F2 table (public.event_competition_result_events: occurred_at, refs, round_id). Runs only where F2 exists
+-- (the existing E/K0 check above covers the table-absent case). Probes run in a sub-transaction that is rolled back, so the E-C scope stays unresolved for the checks that follow.
+select to_regclass('public.event_competition_result_events') is not null as has_f2 \gset
+\if :has_f2
+reset role;
+create or replace function pg_temp.k0_probe(p_scope uuid) returns text language plpgsql as $$
+declare r boolean;
+begin
+  begin
+    r := public.resolve_competition_refund_scope(p_scope, 'k0_correction', 'k0 test');
+    raise exception 'PROBE_RESULT %', r;
+  exception when others then
+    return sqlstate || ' ' || sqlerrm;
+  end;
+end $$;
+-- one K0-style result event for the scoped event: p_offset after (+) or before (-) the scope was created; p_x = refs.refund_exception_id; p_round = its round
+create or replace function pg_temp.k0_ins(p_offset interval, p_x text, p_round uuid) returns void language sql security definer as $$
+  insert into public.event_competition_result_events (event_id, round_id, kind, actor_user_id, request_id, refs, occurred_at)
+  select s.event_id, p_round, 'round_state_changed', pg_temp.u('000001'), gen_random_uuid(), jsonb_build_object('refund_exception_id', p_x), s.created_at + p_offset
+  from public.event_competition_refund_exception_scopes s where s.entry_id = pg_temp.u('008104') and s.kind = 'competition_refund_entry_certified_heat' $$;
+create temp table t_k0 as
+  select s.id as sid, s.exception_id::text as xid, s.round_id as rid from public.event_competition_refund_exception_scopes s
+  where s.entry_id = pg_temp.u('008104') and s.kind = 'competition_refund_entry_certified_heat' and s.resolved_at is null;
+grant select on t_k0 to authenticated;
+grant execute on function pg_temp.k0_probe(uuid), pg_temp.k0_ins(interval, text, uuid) to authenticated, service_role;
+select pg_temp.chk('E/K0b setup: exactly one unresolved E-C scope for 008104', (select count(*) from t_k0) = 1);
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.chk('E/K0b-1 no result event at all for the round: UNAVAILABLE (fail closed, no column error)',
+  pg_temp.k0_probe((select sid from t_k0)) like '22023 COMP_REFUND_K0_CORRECTION_UNAVAILABLE%', pg_temp.k0_probe((select sid from t_k0)));
+reset role;
+select pg_temp.k0_ins(interval '-1 second', (select xid from t_k0), (select rid from t_k0));
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.chk('E/K0b-2 a matching event OLDER than the scope: UNAVAILABLE',
+  pg_temp.k0_probe((select sid from t_k0)) like '22023 COMP_REFUND_K0_CORRECTION_UNAVAILABLE%', pg_temp.k0_probe((select sid from t_k0)));
+reset role;
+select pg_temp.k0_ins(interval '1 second', gen_random_uuid()::text, (select rid from t_k0));
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.chk('E/K0b-3 an event after the scope but for ANOTHER exception: UNAVAILABLE',
+  pg_temp.k0_probe((select sid from t_k0)) like '22023 COMP_REFUND_K0_CORRECTION_UNAVAILABLE%', pg_temp.k0_probe((select sid from t_k0)));
+reset role;
+select pg_temp.k0_ins(interval '1 second', (select xid from t_k0), pg_temp.u('006001'));
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.chk('E/K0b-4 a matching event after the scope but on ANOTHER round: UNAVAILABLE',
+  pg_temp.k0_probe((select sid from t_k0)) like '22023 COMP_REFUND_K0_CORRECTION_UNAVAILABLE%', pg_temp.k0_probe((select sid from t_k0)));
+reset role;
+select pg_temp.k0_ins(interval '1 second', (select xid from t_k0), (select rid from t_k0));
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.chk('E/K0b-5 a K0 event on the scoped round, after the scope, referencing this exception: the correction RESOLVES the scope',
+  pg_temp.k0_probe((select sid from t_k0)) = 'P0001 PROBE_RESULT t', pg_temp.k0_probe((select sid from t_k0)));
+select pg_temp.chk('E/K0b-6 the probe rolled back: the scope is still unresolved for the checks that follow',
+  (select resolved_at is null from public.event_competition_refund_exception_scopes where id = (select sid from t_k0)));
+\endif
 select pg_temp.expect_msg('E: a note is required',
   $q$select public.resolve_competition_refund_scope((select id from public.event_competition_refund_exception_scopes where entry_id = pg_temp.u('008104')), 'result_stands', ' ')$q$,
   'COMP_REFUND_REASON_REQUIRED');

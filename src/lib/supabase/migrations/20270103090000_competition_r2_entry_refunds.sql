@@ -1315,7 +1315,7 @@ begin
       raise exception 'COMP_REFUND_K0_CORRECTION_UNAVAILABLE: no K0 correction record exists for this round.' using errcode = '22023';
     end if;
     execute 'select exists (select 1 from public.event_competition_result_events
-                            where round_id = $1 and "at" > $2 and refs->>''refund_exception_id'' = $3)'
+                            where round_id = $1 and occurred_at > $2 and refs->>''refund_exception_id'' = $3)'
       into v_k0 using v_s.round_id, v_s.created_at, v_x.id::text;
     if not v_k0 then
       raise exception 'COMP_REFUND_K0_CORRECTION_UNAVAILABLE: no K0 correction record exists for this round.' using errcode = '22023';
