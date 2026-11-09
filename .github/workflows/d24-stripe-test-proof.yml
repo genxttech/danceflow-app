@@ -51,9 +51,9 @@ jobs:
       ENV: ""
       # The only workflow file allowed to run this job (a rogue file on main cannot satisfy this; CODEOWNERS on /.github/ is the real control).
       D24_WORKFLOW_REF_EXPECTED: "genxttech/danceflow-app/.github/workflows/d24-stripe-test-proof.yml@refs/heads/main"
-      # Real TEST ids (owner-supplied platform 2026-11-08; connected account created by the one-shot provisioning run 42530005438). Not credentials. The guard step still refuses PLACEHOLDER values.
+      # Real TEST ids (owner-supplied platform 2026-11-08; connected account created by the controller-model provisioning run 42551592046 (replaces the legacy fixture acct_1UZeX9RPIxrr5yG6)). Not credentials. The guard step still refuses PLACEHOLDER values.
       D24_PROOF_EXPECT_PLATFORM_ACCT: "acct_1UZ320IPJs53nwt7"
-      D24_PROOF_EXPECT_CONNECTED_ACCT: "acct_1UZeX9RPIxrr5yG6"
+      D24_PROOF_EXPECT_CONNECTED_ACCT: "acct_1UZibNRCFiaIzL1V"
       # The owner's approval click IS the authorization; the harness's approval sentence is a constant supplied by this reviewed file.
       D24_PROOF_AUTHORIZATION: "Approved: D24 M3-D Stripe TEST proof as written"
       D24_EVIDENCE_PUBLIC_KEY: scripts/qa/d24-gh-proof/evidence-public-key.pem
