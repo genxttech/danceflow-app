@@ -1,8 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
 import { loadE2EConfig, type E2EConfig } from "@/lib/e2e/config";
 import { e2eAdminClient } from "../helpers/competitionFixture";
-import { cleanupScheduleAcceptanceFixture, createScheduleAcceptanceFixture, signedIn, stepShots, type ScheduleAcceptanceFixture } from "../helpers/competitionScheduleHeats";
-import { createDraftEvent, leftoverAnyCompetitionRows, psqlJson, type Journey } from "../helpers/cf1Acceptance";
+import { verifyEmailAndBindPassword } from "../helpers/competitionFullEvent";
+import { useUniqueE2ESourceIp as assignUniqueSourceIp } from "../helpers/rateLimitBypass";
+import { cleanupScheduleAcceptanceFixture, createScheduleAcceptanceFixture, openHeat, signedIn, stepShots, type ScheduleAcceptanceFixture } from "../helpers/competitionScheduleHeats";
+import { createDraftEvent, leftoverAnyCompetitionRows, psqlJson, publishAndOpen, registerAndPay, type Journey } from "../helpers/cf1Acceptance";
 
 /**
  * CF1 dark smoke (SCN-DARK). Run ONLY against an app started WITHOUT COMPETITION_FINALS_ENABLED (and without
@@ -12,6 +14,7 @@ import { createDraftEvent, leftoverAnyCompetitionRows, psqlJson, type Journey } 
  *          day-of, results, results/[round], /app/judging, judge ballot, judge desk)
  *   DARK-3 the public results page answers 404 for an anonymous visitor
  *   DARK-4 the live pages CF1 modified show no CF1 control: Advanced settings (studio scoring, callback target)
+ *   DARK-6 heat-size hotfix: the reason field is shown, the change is saved and one audit row with a request id is written
  *   DARK-5 the live pages still work: Overview, Divisions, Schedule, Advanced, Readiness render for the owner (HTTP 200)
  * UI-driven, read-only evidence, zero leftover rows (same rules as the CF1-C specs).
  */
@@ -51,6 +54,11 @@ test.describe("CF1 dark smoke: Competition Finals is invisible with the flag off
   }
 
   test("SCN-DARK setup: a studio competition with rounds, created through the live wizard", async ({ browser }) => {
+    // Like the CF1-C specs (SCN-0c): the owner proves their mailbox first; audited RPCs such as the heat size require a verified email.
+    const verify = await (await browser.newContext()).newPage();
+    await assignUniqueSourceIp(verify);
+    await verifyEmailAndBindPassword(verify, fixture.owner);
+    await verify.context().close();
     const page = await signedIn(browser, fixture.owner);
     const event = await createDraftEvent(j, page, `E2E CF1 dark ${fixture.runId}`, "2027-03-14");
     created.push(event.id);
@@ -121,6 +129,33 @@ test.describe("CF1 dark smoke: Competition Finals is invisible with the flag off
     await expect(page.getByText(/Callback target for /)).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Apply to (all divisions|this division)/ })).toHaveCount(0);
     await shot(page, "advanced-no-cf1");
+    await page.context().close();
+  });
+
+  test("SCN-DARK-6 heat-size hotfix (ac902c28): with the flag off, 'Max entries per heat' takes a reason and is saved and audited", async ({ browser }, testInfo) => {
+    const shot = stepShots(testInfo);
+    const page = await signedIn(browser, fixture.owner);
+    await publishAndOpen(page, eventId);
+    const event = { id: eventId, slug } as Parameters<typeof registerAndPay>[2];
+    await registerAndPay(j, browser, event, "dark", 2);
+    await page.goto(`/app/events/${eventId}/competition/schedule`);
+    await page.getByRole("button", { name: "Generate heats" }).click();
+    await expect(page.getByRole("status")).toContainText(/Created \d+ heats? for 2 entries/, { timeout: 60_000 });
+    await openHeat(page, eventId, 1);
+    await expect(page.getByText(/^Final heat size/)).toHaveCount(0); // the CF1 Final heat-size section stays dark
+    const reason = "Smaller heats keep the floor readable for judges";
+    await page.getByLabel("Max entries per heat for this division").first().fill("2");
+    await page.getByLabel("Reason (required, kept in the audit history)").first().fill(reason);
+    await page.locator("aside").getByRole("button", { name: "Save", exact: true }).first().click();
+    await expect(page.getByRole("status")).toContainText("Heat size saved", { timeout: 30_000 });
+    await shot(page, "heat-size-saved");
+    const audit = psqlJson<Array<{ new_capacity: number; reason: string; request_id: string | null }>>(
+      `select coalesce(json_agg(json_build_object('new_capacity', c.new_capacity, 'reason', c.reason, 'request_id', c.request_id)), '[]'::json) from public.event_competition_round_capacity_events c where c.event_id = '${eventId}'`,
+    );
+    testInfo.annotations.push({ type: "evidence", description: JSON.stringify({ capacityEvents: audit }) });
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({ new_capacity: 2, reason });
+    expect(audit[0].request_id).toMatch(/^[0-9a-f-]{36}$/);
     await page.context().close();
   });
 

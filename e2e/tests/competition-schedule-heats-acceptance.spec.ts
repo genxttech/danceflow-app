@@ -334,6 +334,8 @@ test.describe("Schedule & Heats acceptance (QA-A)", () => {
     const heats = await readHeatEvidence(config, event.id);
     await openHeat(page, event.id, heats.floorLayout[0].floorNumber);
     await page.getByLabel("Max entries per heat for this division").first().fill("2");
+    // Heat-size hotfix (ac902c28): every capacity change carries a reason (20-500 characters, audited).
+    await page.getByLabel("Reason (required, kept in the audit history)").first().fill("Smaller heats keep the floor readable for judges");
     await page.locator("aside").getByRole("button", { name: "Save", exact: true }).first().click();
     await expect(status(page)).toContainText("Heat size saved", { timeout: 30_000 });
     await shot(page, "capacity-saved");
