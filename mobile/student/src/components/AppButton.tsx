@@ -52,9 +52,7 @@ export function AppButton({
         variant === "ghost" && styles.ghost,
         pressed && styles.pressed,
         (disabled || loading) && styles.disabled,
-        typeof style === "function"
-          ? style({ pressed, hovered: false })
-          : style,
+        typeof style === "function" ? style({ pressed }) : style,
       ]}
     >
       {isPrimary ? (

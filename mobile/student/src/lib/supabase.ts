@@ -1,7 +1,7 @@
 import "react-native-url-polyfill/auto";
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient } from "@supabase/supabase-js";
+import { clearPersistedSessions, secureSessionStorage } from "@/lib/secureSessionStorage";
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
@@ -12,12 +12,21 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
+// The same value the Supabase client derives by default, so sessions saved by
+// older builds are still found; stated here because it cannot be enumerated in SecureStore.
+const storageKey = `sb-${new URL(supabaseUrl).hostname.split(".")[0]}-auth-token`;
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    storage: AsyncStorage,
+    storage: secureSessionStorage,
+    storageKey,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
     flowType: "pkce"
   }
 });
+
+export function clearPersistedSupabaseSessions() {
+  return clearPersistedSessions([storageKey, `${storageKey}-code-verifier`]);
+}

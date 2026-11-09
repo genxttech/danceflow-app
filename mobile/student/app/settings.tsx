@@ -3,6 +3,7 @@ import { Alert, Share, StyleSheet, TextInput, useColorScheme, View } from "react
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LegalLinks } from "@/components/LegalLinks";
 import { NotificationPreferencesCard } from "@/components/NotificationPreferencesCard";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
@@ -258,6 +259,8 @@ export default function SettingsScreen() {
           onPress={shareAccountData}
           variant="secondary"
         />
+        <AppText variant="eyebrow">Legal</AppText>
+        <LegalLinks prefix="Read the DanceFlow" />
         </View>
       </View>
 

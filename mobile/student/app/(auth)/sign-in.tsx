@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
+import { LegalLinks } from "@/components/LegalLinks";
 import { Screen } from "@/components/Screen";
 import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -97,6 +98,8 @@ export default function SignInScreen() {
             onPress={handleContinue}
             variant="secondary"
           />
+
+          <LegalLinks prefix="By continuing you agree to the DanceFlow" />
         </View>
       </KeyboardAvoidingView>
     </Screen>
