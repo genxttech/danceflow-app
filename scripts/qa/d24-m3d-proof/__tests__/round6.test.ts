@@ -19,7 +19,7 @@ function world(handler: (r: ProofRequest) => ProofResponse | Promise<ProofRespon
   return createGuardedClient({ transport, apiKey: "rk_test_FAKEFAKE", connectedAcct: CONNECTED, paceMs: 0 });
 }
 const ready = async (c: ReturnType<typeof createGuardedClient>) => { await runIdentityGate(c, { platformAcct: PLATFORM, connectedAcct: CONNECTED }); return c; };
-const cust = (key: string): Omit<ProofRequest, "stripeVersion"> => ({ method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: key, body: { name: "n" } });
+const cust = (key: string): Omit<ProofRequest, "stripeVersion"> => ({ method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: key, body: { name: "n", email: "d24-proof-abc123-a@example.com" } });
 
 describe("P2-A an unverified delete answer never removes the id from remaining*", () => {
   const run = async (deleteAnswer: ProofResponse) => {

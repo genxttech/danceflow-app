@@ -39,7 +39,7 @@ function client(handler: (r: ProofRequest) => ProofResponse | Promise<ProofRespo
   return { c, calls };
 }
 const gateIt = (c: ReturnType<typeof createGuardedClient>) => runIdentityGate(c, { platformAcct: PLATFORM, connectedAcct: CONNECTED });
-const cust = (n: string): Omit<ProofRequest, "stripeVersion"> => ({ method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: `d24proof-rf-${n}`, body: { name: "n" } });
+const cust = (n: string): Omit<ProofRequest, "stripeVersion"> => ({ method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: `d24proof-rf-${n}`, body: { name: "n", email: "d24-proof-abc123-a@example.com" } });
 
 describe("P1-1 a POST that ends in a gateway error / unparseable body / id-less 2xx is unverifiable, never 'empty'", () => {
   for (const [label, res] of [

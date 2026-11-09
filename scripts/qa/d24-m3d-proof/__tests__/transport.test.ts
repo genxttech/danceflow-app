@@ -15,7 +15,7 @@ afterEach(async () => { while (open.length) await open.pop()!.close(); });
 const srv = async (b?: Parameters<typeof startLoopback>[0]) => { const s = await startLoopback(b); open.push(s); return s; };
 const get = (path = "/v1/account"): ProofRequest => ({ method: "GET", path, stripeVersion: STRIPE_API_VERSION });
 const post: ProofRequest = {
-  method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, stripeVersion: STRIPE_API_VERSION, idempotencyKey: "d24proof-lb-1", body: { name: "n", "metadata[d24_intent_id]": "i1" },
+  method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, stripeVersion: STRIPE_API_VERSION, idempotencyKey: "d24proof-lb-1", body: { name: "n", email: "d24-proof-abc123-a@example.com", "metadata[d24_intent_id]": "i1" },
 };
 
 describe("node transport: what leaves the client", () => {
@@ -33,7 +33,7 @@ describe("node transport: what leaves the client", () => {
     const r = s.requests[0];
     expect(r.method).toBe("POST");
     expect(r.url).toBe("/v1/customers");
-    expect(r.body).toBe("name=n&metadata%5Bd24_intent_id%5D=i1");
+    expect(r.body).toBe("name=n&email=d24-proof-abc123-a%40example.com&metadata%5Bd24_intent_id%5D=i1");
     expect(r.headers.authorization).toBe(`Bearer ${KEY}`);
     expect(r.headers["stripe-version"]).toBe(STRIPE_API_VERSION);
     expect(r.headers["stripe-account"]).toBe(CONNECTED);
@@ -83,7 +83,7 @@ describe("node transport: failures are surfaced once and never retried", () => {
     const s = await srv(() => "reset");
     const client = createGuardedClient({ transport: createNodeTransport({ origin: s.origin }), apiKey: KEY, connectedAcct: CONNECTED, paceMs: 0 });
     client.markIdentityVerified();
-    await expect(pinned(client, { method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: "d24proof-lb-2", body: { name: "n" } })).rejects.toBeTruthy();
+    await expect(pinned(client, { method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: "d24proof-lb-2", body: { name: "n", email: "d24-proof-abc123-a@example.com" } })).rejects.toBeTruthy();
     expect(client.uncertain).toHaveLength(1);
     expect(s.requests).toHaveLength(1);
   });
