@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { priceAuthzBegin, priceAuthzFinish } from "./priceChangeActions";
-import type { AuthzChallenge } from "@/lib/sms/priceChange";
+import { microsToUsd, type AuthzChallenge } from "@/lib/sms/priceChange";
 
 /**
  * Final authorization of ONE single-owner price proposal with the owner's hardware authenticator (WebAuthn). The steps:
@@ -27,6 +27,8 @@ const bufToB64u = (b: ArrayBuffer): string => {
   return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 };
 const dollars = (c: number | null) => (c === null ? "none" : `$${(c / 100).toFixed(2)}`);
+// a per-segment price is read in exact micro-dollars ($0.017), never as the rounded-up whole cents the database also stores
+const amount = (cents: number | null, micros: number | null) => (micros !== null ? microsToUsd(micros) : dollars(cents));
 
 export default function PriceAuthorize({ requestId }: { requestId: string }) {
   const [challenge, setChallenge] = useState<AuthzChallenge | null>(null);
@@ -88,8 +90,8 @@ export default function PriceAuthorize({ requestId }: { requestId: string }) {
           <p className="font-semibold">You are about to sign exactly this change (read from the database):</p>
           <ul className="list-disc pl-5 text-xs">
             <li>Scope: {challenge.summary.scope}; price: {challenge.summary.kind}; proposal version {challenge.summary.proposalVersion}</li>
-            <li>Customer price: {dollars(challenge.summary.oldCustomerCents)} to <strong>{dollars(challenge.summary.newCustomerCents)}</strong></li>
-            <li>DanceFlow provider cost: {dollars(challenge.summary.oldProviderCents)} to <strong>{dollars(challenge.summary.newProviderCents)}</strong></li>
+            <li>Customer price: {amount(challenge.summary.oldCustomerCents, challenge.summary.oldPriceMicros)} to <strong>{amount(challenge.summary.newCustomerCents, challenge.summary.newPriceMicros)}</strong></li>
+            <li>DanceFlow provider cost: {amount(challenge.summary.oldProviderCents, challenge.summary.oldCostMicros)} to <strong>{amount(challenge.summary.newProviderCents, challenge.summary.newCostMicros)}</strong></li>
             <li>Description: {challenge.summary.description}</li>
             <li>Fingerprint: {challenge.summary.hash.slice(0, 16)}</li>
           </ul>
