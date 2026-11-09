@@ -1,3 +1,4 @@
+import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
 import Link from "next/link";
 import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
 
@@ -11,6 +12,7 @@ const RESULT_STATES = new Set(["ballots_locked", "calculated", "approved", "publ
 
 /** Results overview (F2). Manager only: lists rounds whose ballots are locked or later. Nothing here is visible to entrants or the public. */
 export default async function CompetitionResultsPage({ params }: { params: Promise<{ id: string }> }) {
+  requireCompetitionFinals();
   const { id } = await params;
   const { supabase } = await requireCompetitionWorkspace(id);
 

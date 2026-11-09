@@ -1,5 +1,7 @@
 "use server";
 
+import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
+
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireCompetitionManager } from "@/lib/competition/workspaceServer";
@@ -31,6 +33,7 @@ async function prepare(formData: FormData) {
 }
 
 export async function roundTransitionAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const { eventId, requestId, targetId, supabase } = await prepare(formData);
   const kind = text(formData, "kind");
   if (kind === "schedule" || kind === "start") {
@@ -52,6 +55,7 @@ export async function roundTransitionAction(formData: FormData): Promise<void> {
 }
 
 export async function heatTransitionAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const { eventId, requestId, targetId, supabase } = await prepare(formData);
   const to = text(formData, "to");
   if (!["staging", "active", "complete"].includes(to)) back(eventId, { error: "Unknown heat action." });
@@ -64,6 +68,7 @@ export async function heatTransitionAction(formData: FormData): Promise<void> {
 
 /** NS1: mark or void a heat no-show. The reason is mandatory; the database checks authority, window and idempotency. */
 export async function noShowAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const { eventId, requestId, targetId, supabase } = await prepare(formData);
   const kind = text(formData, "kind");
   const reason = text(formData, "reason");

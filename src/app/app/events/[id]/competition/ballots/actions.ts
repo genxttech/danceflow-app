@@ -1,5 +1,7 @@
 "use server";
 
+import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
+
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -81,6 +83,7 @@ const INVALID = Promise.resolve({ error: { message: "COMP_BALLOT_INCOMPLETE" } }
 
 /** A judge submits or corrects their own ballot for one heat. */
 export async function submitJudgeBallotAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
   const callback = text(formData, "callback") === "1";
   const heatId = callback ? null : uuid(formData, "heatId");
@@ -104,6 +107,7 @@ export async function submitJudgeBallotAction(formData: FormData): Promise<void>
 
 /** A scorer (or manager) enters a paper ballot on behalf of a named judge. */
 export async function enterPaperBallotAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
   const callback = text(formData, "callback") === "1";
   const heatId = callback ? null : uuid(formData, "heatId");
@@ -129,6 +133,7 @@ export async function enterPaperBallotAction(formData: FormData): Promise<void> 
 
 /** A callback judge saves selections across heats without submitting (mutable draft, never a ballot). */
 export async function saveCallbackDraftAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
   await run(
     formData,
@@ -142,6 +147,7 @@ export async function saveCallbackDraftAction(formData: FormData): Promise<void>
 }
 
 export async function recordAttendanceAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
   const officialId = uuid(formData, "officialId");
   const requestId = uuid(formData, "requestId");
@@ -164,6 +170,7 @@ export async function recordAttendanceAction(formData: FormData): Promise<void> 
 }
 
 export async function lockBallotsAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
   const requestId = uuid(formData, "requestId");
   await run(
@@ -178,6 +185,7 @@ export async function lockBallotsAction(formData: FormData): Promise<void> {
 }
 
 export async function reopenBallotsAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
   const requestId = uuid(formData, "requestId");
   await run(
@@ -217,6 +225,7 @@ const HEAT_REFUSED = "This heat cannot be changed right now. Reload the page.";
 
 /** A manager locks one heat: a danced heat of an active round, or (HL1b) an undanced heat so officials can still scratch. */
 export async function lockHeatAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const returnTo = safeReturnPath(text(formData, "returnTo"), "/app/events");
   const heatId = uuid(formData, "heatId");
   const heatNumber = text(formData, "heatNumber").replace(/[^0-9]/g, "");
@@ -240,6 +249,7 @@ export async function lockHeatAction(formData: FormData): Promise<void> {
 
 /** A manager reopens a locked, never-certified, undanced heat. A reason is required here and by the RPC; certified heats are refused. */
 export async function reopenHeatAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const returnTo = safeReturnPath(text(formData, "returnTo"), "/app/events");
   const heatId = uuid(formData, "heatId");
   const heatNumber = text(formData, "heatNumber").replace(/[^0-9]/g, "");

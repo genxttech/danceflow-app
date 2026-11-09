@@ -1,3 +1,4 @@
+import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
 import Link from "next/link";
 import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
 
@@ -12,6 +13,7 @@ function label(value: string) {
  * board and the lock / reopen / attendance / paper-entry controls. Manager only (workspace layout + RPC authority).
  */
 export default async function CompetitionBallotsPage({ params }: { params: Promise<{ id: string }> }) {
+  requireCompetitionFinals();
   const { id } = await params;
   const { supabase } = await requireCompetitionWorkspace(id);
 

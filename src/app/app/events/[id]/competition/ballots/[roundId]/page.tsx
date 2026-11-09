@@ -1,3 +1,4 @@
+import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
 import Link from "next/link";
 import { shouldNotFound } from "@/lib/competition/pageLoadError";
 import { notFound } from "next/navigation";
@@ -15,6 +16,7 @@ export default async function CompetitionRoundBallotsPage({
   params: Promise<{ id: string; roundId: string }>;
   searchParams: Promise<{ saved?: string; error?: string }>;
 }) {
+  requireCompetitionFinals();
   const { id, roundId } = await params;
   const query = await searchParams;
   if (!UUID.test(roundId)) notFound();

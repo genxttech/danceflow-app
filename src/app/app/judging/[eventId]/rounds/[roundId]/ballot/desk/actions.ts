@@ -1,5 +1,7 @@
 "use server";
 
+import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
+
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { safeReturnPath } from "@/lib/competition/ballots/messages";
@@ -19,6 +21,7 @@ function back(returnTo: string, params: Record<string, string>): never {
 }
 
 export async function deskNoShowAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const returnTo = safeReturnPath(text(formData, "returnTo"), "/app/judging");
   const heatEntryId = text(formData, "heatEntryId");
   const requestId = text(formData, "requestId");

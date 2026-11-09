@@ -1,5 +1,7 @@
 "use server";
 
+import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
+
 import { revalidatePath } from "next/cache";
 import { requireCompetitionManager } from "@/lib/competition/workspaceServer";
 import { planStudioScoring, type SetupOp, type SetupRound } from "@/lib/competition/scoring/studioSetup";
@@ -35,6 +37,7 @@ function refresh(eventId: string) {
  * and skips none silently: a division that cannot be configured is reported.
  */
 export async function configureStudioScoringAction(_previous: ScoringActionState, formData: FormData): Promise<ScoringActionState> {
+  requireCompetitionFinals();
   const eventId = text(formData, "eventId");
   const programId = text(formData, "programId");
   const divisionId = text(formData, "divisionId");

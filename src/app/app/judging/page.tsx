@@ -1,3 +1,4 @@
+import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { OFFICIAL_ROLE_LABELS, type OfficialRole } from "@/lib/competition/officials/contract";
@@ -13,6 +14,7 @@ function label(value: string) {
  * added by E2 under /app/judging/[eventId]/rounds/[roundId]/ballot.
  */
 export default async function JudgingHomePage() {
+  requireCompetitionFinals();
   const supabase = await createClient();
   const {
     data: { user },

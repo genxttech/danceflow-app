@@ -3,6 +3,7 @@ import Link from "next/link";
 import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
 import { checkScoringHeatMove, DEFAULT_SCORING_HEAT_CAPACITY, isSchedulableEntry, scoringHeatCapacity } from "@/lib/competition/floorPlanner";
 import { finalCapacityTargets, type FinalCapacityRound } from "@/lib/competition/finalCapacity";
+import { competitionFinalsEnabled } from "@/lib/competition/finalsGate";
 import { loadFloorSchedule, loadPlannerInput, loadScheduleVersions, pickWorkingVersion } from "@/lib/competition/floorScheduleServer";
 import {
   clearHeatsAction,
@@ -54,7 +55,10 @@ export default async function SchedulePage({
   const publishedDraftExists = versions.some((item) => item.status === "draft") && version?.status !== "draft";
 
   // CF1 B5/B6: a callback Final has no heat until advancement, so its heat size is set here, per round (the database decides if it is allowed).
-  const { data: roundRows } = await supabase
+  // Competition Finals is dark by default: with the flag off no Final heat-size section is loaded or shown and the heat-size form is the
+  // live release form (the action then takes the live release path too).
+  const finalsEnabled = competitionFinalsEnabled();
+  const { data: roundRows } = !finalsEnabled ? { data: [] } : await supabase
     .from("event_competition_rounds")
     .select("id, name, division_id, sequence_number, round_type, scoring_method, status, configuration, target_advancement_count")
     .eq("event_id", id);
@@ -263,10 +267,15 @@ export default async function SchedulePage({
                             Max entries per heat for this division
                             <input name="capacity" type="number" min={1} max={100} defaultValue={scoringHeatCapacity(round)} className={`${selectClass} mt-1 w-24`} />
                           </label>
-                          <label className="text-xs font-medium text-slate-600">
-                            Reason (required, kept in the audit history)
-                            <input name="reason" required minLength={20} maxLength={500} className={`${selectClass} mt-1 w-64`} />
-                          </label>
+                          {finalsEnabled ? (
+                            <>
+                              <input type="hidden" name="requestId" value={randomUUID()} />
+                              <label className="text-xs font-medium text-slate-600">
+                                Reason (required, kept in the audit history)
+                                <input name="reason" required minLength={20} maxLength={500} className={`${selectClass} mt-1 w-64`} />
+                              </label>
+                            </>
+                          ) : null}
                           <button className={secondaryButton}>Save</button>
                         </form>
                       ) : null}

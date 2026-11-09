@@ -7,6 +7,7 @@ import { buildFloorPlan, toApplyPayload } from "@/lib/competition/floorPlanner";
 import { loadPlannerInput, loadScheduleVersions } from "@/lib/competition/floorScheduleServer";
 import { isRetryableError, withRetryOnce, errorText } from "@/lib/competition/results/advancement";
 import { hasResultMessage } from "@/lib/competition/results/messages";
+import { competitionFinalsEnabled } from "@/lib/competition/finalsGate";
 
 /* 10D: Schedule & Heats operations. Every change goes through the database authority
    (apply/move/insert/delete RPCs + deferred integrity checks); nothing here is trusted. */
@@ -26,10 +27,12 @@ function friendly(error: { message?: string; code?: string | null } | null | und
   const message = error?.message ?? "";
   // CF1: a deadlock (40P01) or refused lock wait (55P03) is not a failure of the request; nothing was saved. The schedule RPCs carry no
   // request id, so they are not repeated automatically: the organizer is told to try again.
-  if (error && isRetryableError({ message, code: error.code })) return errorText({ message, code: error.code });
+  // Competition Finals is dark by default: with the flag off the organizer copy is exactly the live release copy.
+  const finalsEnabled = competitionFinalsEnabled();
+  if (finalsEnabled && error && isRetryableError({ message, code: error.code })) return errorText({ message, code: error.code });
   const match = message.match(/COMP10D_[A-Z_]+:\s*([\s\S]+)$/);
   if (match) return match[1].replace(/\s+/g, " ").trim();
-  if (hasResultMessage(message)) return errorText({ message, code: error?.code });
+  if (finalsEnabled && hasResultMessage(message)) return errorText({ message, code: error?.code });
   if (message.includes("Locked or certified")) return "A locked heat can only change through the correction workflow.";
   if (message.includes("Add at least one session")) return "Generate heats before publishing.";
   return "That change could not be saved. Refresh and try again.";
@@ -103,6 +106,12 @@ export async function deleteFloorHeatAction(formData: FormData): Promise<void> {
 
 export async function setHeatCapacityAction(formData: FormData): Promise<void> {
   const { eventId, supabase } = await manager(formData);
+  if (!competitionFinalsEnabled()) {
+    // Competition Finals OFF: exactly the live release path (two-argument RPC). Since the PROD S3 migrations that RPC refuses with
+    // COMP_CAPACITY_REASON_REQUIRED, which the live release already shows as a generic refusal; changing that is an owner decision.
+    const { error } = await supabase.rpc("set_competition_round_heat_capacity", { p_round_id: text(formData, "roundId"), p_capacity: Number(text(formData, "capacity")) });
+    back(eventId, error ? { error: friendly(error), heat: text(formData, "floorHeatId") } : { notice: "Heat size saved. It applies the next time heats are generated.", heat: text(formData, "floorHeatId") });
+  }
   // CF1 A0: the two-argument RPC always refuses (COMP_CAPACITY_REASON_REQUIRED). The reasoned RPC has a request id, so one retry is safe.
   const reason = text(formData, "reason");
   if (!reason) back(eventId, { error: errorText({ message: "COMP_CAPACITY_REASON_REQUIRED" }), heat: text(formData, "floorHeatId") });

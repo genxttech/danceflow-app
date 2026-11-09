@@ -1,5 +1,7 @@
 "use server";
 
+import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
+
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -51,6 +53,7 @@ async function session(formData: FormData): Promise<Session> {
 
 /** Loads the locked ballots, runs the round's pinned engine through the narrow interface and records a new result version. */
 export async function calculateRoundResultAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
   const requestId = uuid(formData, "requestId");
   const { rpc, returnTo } = await session(formData);
@@ -63,6 +66,7 @@ export async function calculateRoundResultAction(formData: FormData): Promise<vo
 
 /** A manager approves a calculated version. The calculator may approve only with an override reason, which is audited. */
 export async function approveRoundResultAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
   const versionId = uuid(formData, "versionId");
   const requestId = uuid(formData, "requestId");
@@ -85,6 +89,7 @@ export async function approveRoundResultAction(formData: FormData): Promise<void
  * chosen explicitly; an unknown value is refused here and again by the database (it never defaults to public).
  */
 export async function publishRoundResultAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
   const versionId = uuid(formData, "versionId");
   const requestId = uuid(formData, "requestId");
@@ -106,6 +111,7 @@ export async function publishRoundResultAction(formData: FormData): Promise<void
 
 /** F3: withdraw the CURRENT publication (reason required). It hides the result from entrants and the public at once; it never edits the result. */
 export async function withdrawRoundResultAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
   const publicationId = uuid(formData, "publicationId");
   const requestId = uuid(formData, "requestId");
@@ -125,6 +131,7 @@ export async function withdrawRoundResultAction(formData: FormData): Promise<voi
 
 /** Reopens an approved, calculated or published round for a ballot correction. Reason required; refused once a later round has ballots. */
 export async function openRoundCorrectionAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
   const requestId = uuid(formData, "requestId");
   const { rpc, returnTo } = await session(formData);
@@ -144,6 +151,7 @@ export async function openRoundCorrectionAction(formData: FormData): Promise<voi
  * Until this is recorded the database refuses any replacement judge ballot (COMP_CORRECTION_COSIGN_REQUIRED).
  */
 export async function cosignCorrectionAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const causeId = uuid(formData, "causeId");
   const requestId = uuid(formData, "requestId");
   const { rpc, returnTo } = await session(formData);
@@ -157,6 +165,7 @@ export async function cosignCorrectionAction(formData: FormData): Promise<void> 
 
 /** published -> complete. Needs a current publication (F3). */
 export async function completeRoundAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
   const requestId = uuid(formData, "requestId");
   const { rpc, returnTo } = await session(formData);
@@ -172,6 +181,7 @@ export async function completeRoundAction(formData: FormData): Promise<void> {
  * email). There is no override: a blocked tie or an unavailable couple is refused by the database and shown as copy.
  */
 export async function applyAdvancementAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
   const versionId = uuid(formData, "versionId");
   const requestId = uuid(formData, "requestId");
@@ -193,6 +203,7 @@ export async function applyAdvancementAction(formData: FormData): Promise<void> 
 
 /** A manager requests an exclusion. Nothing takes effect until a second person co-signs. */
 export async function requestExclusionAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
   const entryId = uuid(formData, "entryId");
   const requestId = uuid(formData, "requestId");
@@ -216,6 +227,7 @@ export async function requestExclusionAction(formData: FormData): Promise<void> 
 
 /** A chair or a different manager co-signs a pending exclusion request (`decisionId` is the request row). */
 export async function cosignExclusionAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const decisionId = uuid(formData, "decisionId");
   const requestId = uuid(formData, "requestId");
   const { rpc, returnTo } = await session(formData);
@@ -228,6 +240,7 @@ export async function cosignExclusionAction(formData: FormData): Promise<void> {
 
 /** After the cause is corrected, a manager requests that the exclusion be reversed. */
 export async function requestExclusionReversalAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
   const entryId = uuid(formData, "entryId");
   const requestId = uuid(formData, "requestId");
@@ -247,6 +260,7 @@ export async function requestExclusionReversalAction(formData: FormData): Promis
 }
 
 export async function cosignExclusionReversalAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const decisionId = uuid(formData, "decisionId");
   const requestId = uuid(formData, "requestId");
   const { rpc, returnTo } = await session(formData);
@@ -261,6 +275,7 @@ export async function cosignExclusionReversalAction(formData: FormData): Promise
 
 /** A manager requests a withdrawal or a reinstatement. `roundId` is the Final round. A second person co-signs. */
 export async function requestFinalWithdrawalAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
   const entryId = uuid(formData, "entryId");
   const requestId = uuid(formData, "requestId");
@@ -282,6 +297,7 @@ export async function requestFinalWithdrawalAction(formData: FormData): Promise<
 
 /** The co-signer names the requester's `requestId`. Only this call changes the Final's heat. */
 export async function cosignFinalWithdrawalAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const requestId = uuid(formData, "requestId");
   const { rpc, returnTo } = await session(formData);
   if (!requestId) back(returnTo, { error: resultErrorMessage("COMP_REQUEST_ID_REQUIRED") });
@@ -294,6 +310,7 @@ export async function cosignFinalWithdrawalAction(formData: FormData): Promise<v
 
 /** A6 D-B: the requester (while still a manager) or any manager/chair cancels a pending request. Reason required, no expiry. */
 export async function cancelFinalWithdrawalAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const requestId = uuid(formData, "requestId");
   const reason = text(formData, "reason");
   const { rpc, returnTo } = await session(formData);

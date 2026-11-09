@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { isCallbackRound, parseCallbackTarget } from "@/lib/competition/callbackTarget";
+import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
 
 const DISCIPLINES = ["showcase", "ballroom", "country", "west_coast_swing", "collegiate_amateur", "custom"];
 const MODES = ["relative", "proficiency", "feedback_only", "exhibition"];
@@ -329,6 +330,7 @@ export async function createCompetitionRoundAction(formData: FormData): Promise<
  * table for round edits, so none is written; updated_at records the change.
  */
 export async function updateCompetitionCallbackTargetAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const eventId = text(formData, "eventId");
   const roundId = text(formData, "roundId");
   if (!eventId || !roundId) throw new Error("Round is required.");

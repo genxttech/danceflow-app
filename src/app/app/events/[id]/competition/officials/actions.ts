@@ -1,5 +1,7 @@
 "use server";
 
+import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
+
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
@@ -41,6 +43,7 @@ async function run(
 }
 
 export async function addOfficialAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const userId = uuid(formData, "userId");
   const requestId = uuid(formData, "requestId");
   const role = text(formData, "role");
@@ -55,6 +58,7 @@ export async function addOfficialAction(formData: FormData): Promise<void> {
 }
 
 export async function deactivateOfficialAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const officialId = uuid(formData, "officialId");
   const requestId = uuid(formData, "requestId");
   await run(
@@ -68,6 +72,7 @@ export async function deactivateOfficialAction(formData: FormData): Promise<void
 }
 
 export async function setChairAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const officialId = uuid(formData, "officialId");
   const requestId = uuid(formData, "requestId");
   await run(
@@ -81,6 +86,7 @@ export async function setChairAction(formData: FormData): Promise<void> {
 }
 
 export async function clearChairAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const requestId = uuid(formData, "requestId");
   await run(
     formData,
@@ -93,6 +99,7 @@ export async function clearChairAction(formData: FormData): Promise<void> {
 }
 
 export async function assignPanelMemberAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
   const officialId = uuid(formData, "officialId");
   const requestId = uuid(formData, "requestId");
@@ -108,6 +115,7 @@ export async function assignPanelMemberAction(formData: FormData): Promise<void>
 }
 
 export async function unassignPanelMemberAction(formData: FormData): Promise<void> {
+  requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
   const officialId = uuid(formData, "officialId");
   const requestId = uuid(formData, "requestId");

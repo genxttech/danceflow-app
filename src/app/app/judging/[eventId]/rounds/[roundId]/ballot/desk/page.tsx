@@ -1,3 +1,4 @@
+import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -20,6 +21,7 @@ export default async function BallotDeskPage({
   params: Promise<{ eventId: string; roundId: string }>;
   searchParams: Promise<{ saved?: string; error?: string }>;
 }) {
+  requireCompetitionFinals();
   const { eventId, roundId } = await params;
   const query = await searchParams;
   if (!UUID.test(eventId) || !UUID.test(roundId)) notFound();

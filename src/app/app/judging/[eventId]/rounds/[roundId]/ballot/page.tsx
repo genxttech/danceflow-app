@@ -1,3 +1,4 @@
+import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
 import { randomUUID } from "crypto";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -26,6 +27,7 @@ export default async function JudgeBallotPage({
   params: Promise<{ eventId: string; roundId: string }>;
   searchParams: Promise<{ saved?: string; error?: string }>;
 }) {
+  requireCompetitionFinals();
   const { eventId, roundId } = await params;
   const query = await searchParams;
   if (!UUID.test(eventId) || !UUID.test(roundId)) notFound();

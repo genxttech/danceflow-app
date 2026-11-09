@@ -1,3 +1,4 @@
+import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
 import { randomUUID } from "crypto";
 import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
 import {
@@ -40,6 +41,7 @@ export default async function CompetitionOfficialsPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ saved?: string; error?: string }>;
 }) {
+  requireCompetitionFinals();
   const { id } = await params;
   const query = await searchParams;
   const { supabase } = await requireCompetitionWorkspace(id);

@@ -6,6 +6,7 @@ import { randomUUID } from "crypto";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
 import { isCallbackRound } from "@/lib/competition/callbackTarget";
+import { competitionFinalsEnabled } from "@/lib/competition/finalsGate";
 import { buildHeatPlan, HEAT_PLANNER_VERSION, type HeatPlannerInput } from "@/lib/competition/heatPlanner";
 
 const CONSTRAINT_TYPES = [
@@ -185,8 +186,11 @@ export async function generateHeatPlanAction(formData: FormData): Promise<void> 
   ]);
   const loadError = contestResult.error || divisionResult.error || roundResult.error || danceResult.error || offeringResult.error || entryResult.error || entryDanceResult.error || participantResult.error || blockResult.error || assignmentResult.error || constraintResult.error;
   if (loadError) throw new Error(`Could not load heat-planning inputs: ${loadError.message}`);
+  // Competition Finals is dark by default: with the flag off heat planning is exactly the live release (no CF1 callback-target
+  // refusal, and the planner does not see scoring_method, so its CF1 single-heat ordinal check cannot fire).
+  const finalsEnabled = competitionFinalsEnabled();
   // Fail closed: a callback round without an organizer-set target (D-CT-5 is open; no default exists) cannot be planned.
-  if ((roundResult.data ?? []).some((round) => isCallbackRound(round as { scoring_method: string }) && round.target_advancement_count == null)) {
+  if (finalsEnabled && (roundResult.data ?? []).some((round) => isCallbackRound(round as { scoring_method: string }) && round.target_advancement_count == null)) {
     throw new Error("Callback target not set. Set it in Advanced settings before generating heats.");
   }
 
@@ -197,7 +201,7 @@ export async function generateHeatPlanAction(formData: FormData): Promise<void> 
     seed,
     contests: contestResult.data ?? [],
     divisions: divisionResult.data ?? [],
-    rounds: roundResult.data ?? [],
+    rounds: finalsEnabled ? roundResult.data ?? [] : (roundResult.data ?? []).map(({ scoring_method: _scoringMethod, ...round }) => round),
     dances: danceResult.data ?? [],
     offerings: offeringResult.data ?? [],
     entries: entryResult.data ?? [],

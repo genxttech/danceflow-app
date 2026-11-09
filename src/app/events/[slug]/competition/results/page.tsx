@@ -1,3 +1,4 @@
+import { requireCompetitionPublicResults } from "@/lib/competition/finalsGate";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -20,6 +21,7 @@ type Params = Promise<{ slug: string }>;
 export const metadata: Metadata = { title: "Competition results", robots: { index: false, follow: false } };
 
 export default async function CompetitionResultsPage({ params }: { params: Params }) {
+  requireCompetitionPublicResults();
   const { slug } = await params;
   const supabase = await createClient();
   const { data: event } = await supabase.from("events").select("id, name, slug").eq("slug", slug).eq("status", "published").maybeSingle();

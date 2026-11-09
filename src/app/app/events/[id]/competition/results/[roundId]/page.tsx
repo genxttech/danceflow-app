@@ -1,3 +1,4 @@
+import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
 import { randomUUID } from "node:crypto";
 import { secondaryData, shouldNotFound } from "@/lib/competition/pageLoadError";
 import Link from "next/link";
@@ -61,6 +62,7 @@ export default async function CompetitionRoundResultsPage({
   params: Promise<{ id: string; roundId: string }>;
   searchParams: Promise<{ saved?: string; error?: string }>;
 }) {
+  requireCompetitionFinals();
   const { id, roundId } = await params;
   const query = await searchParams;
   if (!UUID.test(roundId)) notFound();

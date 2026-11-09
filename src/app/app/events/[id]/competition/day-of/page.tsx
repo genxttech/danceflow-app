@@ -1,3 +1,4 @@
+import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
@@ -39,6 +40,7 @@ export default async function DayOfPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ notice?: string; error?: string }>;
 }) {
+  requireCompetitionFinals();
   const { id } = await params;
   const query = await searchParams;
   const { supabase } = await requireCompetitionWorkspace(id);
