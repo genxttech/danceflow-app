@@ -4,7 +4,7 @@ import { LegalLinks, legalUrl } from "@/components/LegalLinks";
 import { AppButton } from "@/components/AppButton";
 
 jest.mock("@react-native-async-storage/async-storage", () =>
-  require("@react-native-async-storage/async-storage/jest/async-storage-mock"),
+  jest.requireActual("@react-native-async-storage/async-storage/jest/async-storage-mock"),
 );
 
 describe("LegalLinks", () => {

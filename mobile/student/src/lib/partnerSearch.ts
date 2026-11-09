@@ -1,6 +1,8 @@
 import { danceflowApiFetch } from "@/lib/danceflowApi";
 import { supabase } from "@/lib/supabase";
 
+// Partner messaging tables are not in the generated client types.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const partnerMessagingDb = supabase as any;
 
 export type PartnerListingIntent = "practice" | "social" | "showcase" | "competition";
