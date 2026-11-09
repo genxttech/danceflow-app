@@ -1,10 +1,11 @@
 ﻿<#
 .SYNOPSIS
-  TW-4 Stage B launcher: seeds a LOCAL test studio, asks YOU to authorize, then runs the real adapter for steps S1-S10 ONLY
+  TW-4 Stage B launcher (LEGACY; only -DryRun runs): seeds a LOCAL test studio and runs the FAKE adapter for steps S1-S10 ONLY. Its former real mode is retired. Originally: asked YOU to authorize, then ran the real adapter for steps S1-S10 ONLY
   (draft Trust Hub resources + profile evaluation; nothing is submitted to Twilio review; no brand; no fee).
 
 .DESCRIPTION
-  REAL mode (no -DryRun) makes WRITE calls to Twilio. Do not run it until Stage B has been authorized in writing by the owner.
+  RETIRED: real mode (no -DryRun) is refused with exit code 2 and never contacts Twilio (see the guard below). Only -DryRun and -DryRun -Interactive run.
+  The text below describes the retired real flow and is kept as the record of what the harness did.
   What it does, in order, asking before each consequential step:
     1  checks the local Supabase stack (Docker) and that nothing here can reach shared DEV/PROD (loopback only);
     2  prompts for: Account SID, Standard API key SID and secret (hidden; Ctrl+V, right-click paste or Enter-from-clipboard all work), the
@@ -19,12 +20,12 @@
   The Standard API key is the ONLY credential used: the account auth token is never read, not even as a fallback.
   Credentials live in this process and its child processes only, are never written to disk or printed, and are cleared in a finally block.
   -DryRun is a COMPLETE NON-INTERACTIVE self-test of this whole flow with built-in synthetic values and the FAKE adapter against the
-  local database: no prompts, no network, no Twilio contact. It also checks that the real authorization refuses non-interactive use.
+  local database: no prompts, no network, no Twilio contact. It also checks that the harness CLI refuses the retired real mode.
   -DryRun -Interactive uses the real prompts (any synthetic values) with the fake adapter.
 
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tw4-validation\run-stage-b.ps1 -DryRun
-  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tw4-validation\run-stage-b.ps1 -BusinessFile C:\path\business.json
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\tw4-validation\run-stage-b.ps1 -DryRun -Interactive
 #>
 [CmdletBinding()]
 param(
@@ -45,6 +46,18 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $script:ClipboardTextUsed = $null
 if ($Interactive -and -not $DryRun) { Write-Host "REFUSED (exit code 2): -Interactive is only meaningful together with -DryRun." -ForegroundColor Yellow; exit 2 }
 $UseDryRunDefaults = $DryRun -and -not $Interactive
+# Real mode of this legacy launcher is RETIRED. It writes to the one account whose SID and key it is given (the parent account), while every studio now
+# has its own Twilio subaccount, and it cannot verify which account a credential belongs to. There is deliberately no switch, flag or environment variable
+# that re-enables it (the same refusal is in stage-bc.ts, scripts/tw4-validation/legacyGuard.ts). -DryRun (fake adapter, local database) is unaffected.
+if (-not $DryRun) {
+  Write-Host "REFUSED (exit code 2): real mode of the legacy Stage B launcher is retired. Nothing was sent to Twilio." -ForegroundColor Yellow
+  Write-Host "Why: this launcher writes to the single account whose Account SID and API key it is given (the parent account). Each studio legal business now has its own"
+  Write-Host "Twilio subaccount, and the launcher cannot verify which account a credential belongs to, so it could put a studio's identity data in the wrong account."
+  Write-Host "Use instead: the production onboarding runner (platform panel): create the studio's subaccount (G-SUB), then the runner's steps S1-S10 run inside it with the"
+  Write-Host "subaccount's own credentials. See docs/twilio/TW-4_StageB_Execution_Runbook.md section 0 and docs/twilio/TW-4F_Production_Onboarding_Plan.md section 13."
+  Write-Host "Still available: -DryRun (fake adapter, local database, no network) and -DryRun -Interactive."
+  exit 2
+}
 
 # Test seam: honoured ONLY in the non-interactive dry run, so it can never feed values to a real run.
 function Get-TestInput([string]$Name) {
@@ -280,11 +293,13 @@ try {
 
   Write-Step "5/7 Authorization"
   if ($DryRun) {
-    # The real authorization must refuse a non-interactive caller. Checked with closed stdin: it must fail and issue NO token.
+    # The harness CLI must refuse the retired real mode before any command runs: exit 2, NO token, nothing sent. (This replaces the old check that the real
+    # authorization refused a non-interactive caller; real mode can no longer reach the authorization at all.)
     $probe = Invoke-Harness @("authorize-b", "--adapter", "real", "--minutes", "5") $realEnv -ClosedStdin -CaptureStderr
-    if ($probe.Code -eq 0 -or (Get-LastJson $probe)) { throw "SELF-TEST FAILED: the real authorization did not refuse a non-interactive caller." }
-    if ((($probe.Err -replace '\s+', ' ')) -notlike "*interactive terminal*") { throw "SELF-TEST FAILED: the real authorization refused, but not for the expected reason (a person at an interactive terminal is required)." }
-    Write-Host "  Check passed: the real Stage B authorization refuses a non-interactive caller (a person must type the phrase)."
+    if ($probe.Code -ne 2 -or (Get-LastJson $probe)) { throw "SELF-TEST FAILED: the harness did not refuse the retired real mode (exit $($probe.Code))." }
+    $probeErr = ($probe.Err -replace '\s+', ' ')
+    if ($probeErr -notlike "*is retired*" -or $probeErr -notlike "*Nothing was sent to Twilio*") { throw "SELF-TEST FAILED: the harness refused the real mode, but not with the retirement explanation." }
+    Write-Host "  Check passed: the harness refuses the retired real mode and issues no authorization (exit 2, no token, nothing sent)."
     $runArgs = @("run", "--stages", "B", "--confirm-studio", $studio, "--out", $reportPath)
     $runEnv = $LocalEnv.Clone(); $runEnv["TW4_ISV_FAKE"] = "on"; $runEnv["TW4_ISV_MOCK_BRAND"] = "on"
   }

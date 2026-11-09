@@ -1,4 +1,5 @@
 import { formatPlanMoney, type BillingPlan } from "./plans";
+import { resolveRegularMonthlyCents } from "./regularPricing";
 
 /**
  * Server-only. Single shared source for whether Founder promotional
@@ -29,7 +30,18 @@ export function isFounderPricingActive(): boolean {
  */
 export function resolveDisplayedMonthlyPriceCents(plan: BillingPlan): number {
   if (isFounderPricingActive()) return plan.amountMonthlyCents;
-  return plan.regularAmountMonthlyCents ?? plan.amountMonthlyCents;
+  return resolveRegularMonthlyCents(plan) ?? plan.amountMonthlyCents;
+}
+
+/**
+ * The regular price to reference next to a Founder price ("regularly $X/mo"),
+ * or undefined when none is publishable. Studio plans return undefined until
+ * regular pricing is activated (PRICING-P1).
+ */
+export function resolveReferenceRegularPriceCents(
+  plan: BillingPlan,
+): number | undefined {
+  return resolveRegularMonthlyCents(plan);
 }
 
 /**
@@ -44,11 +56,10 @@ export function resolveTransparentPricingNote(
 ): string | undefined {
   if (!plan.feeStructureNote) return undefined;
 
-  const regularPrice = formatPlanMoney(
-    plan.regularAmountMonthlyCents ?? plan.amountMonthlyCents,
-  );
+  const regularCents = resolveRegularMonthlyCents(plan);
+  const regularPrice = formatPlanMoney(regularCents ?? plan.amountMonthlyCents);
 
-  if (isFounderPricingActive() && plan.regularAmountMonthlyCents) {
+  if (isFounderPricingActive() && regularCents) {
     const founderPrice = formatPlanMoney(plan.amountMonthlyCents);
     return `Transparent pricing: founder pricing is ${founderPrice}/month, regularly ${regularPrice}/month, ${plan.feeStructureNote}`;
   }

@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ProviderFeeOpsRpc } from "./providerFeeAlerts/rpc";
+import type { PilotEvidence } from "./pilotApprovalEvidence";
 
 /**
  * TW-4F recurring provider-fee lifecycle (migration 20261209090000): the application side.
@@ -38,7 +39,14 @@ export type RegisterInput = {
 };
 
 export type CancelDecision = "owner_written" | "founder_written" | "policy_lapse";
-export type CancelBegin = { action: "execute"; providerSid: string; resourceKind: Resource } | { action: "in_progress" } | { action: "reconcile" } | { action: "skip"; status: string };
+/**
+ * `unknown_claim` (TW-4F F5, review P2-4): the database answered execute, so the operation IS claimed, but the reply carried no usable provider identity.
+ * The caller records it unknown (operator resolution); it is never treated as "nothing to do" and never acted on. It carries no provider value.
+ */
+export type CancelBegin =
+  | { action: "execute"; providerSid: string; resourceKind: Resource } | { action: "in_progress" } | { action: "reconcile" } | { action: "skip"; status: string } | { action: "unknown_claim" };
+
+const SID_FOR_KIND: Record<Resource, RegExp> = { messaging_service: /^MG[0-9a-fA-F]{32}$/, campaign: /^QE[0-9a-fA-F]{32}$/, number: /^PN[0-9a-fA-F]{32}$/ };
 
 export class ProviderFeeLifecycleStore {
   constructor(private readonly admin: Client) {}
@@ -57,9 +65,14 @@ export class ProviderFeeLifecycleStore {
     return { resourceId: row.resource_id, feeKind: row.fee_kind ?? null, replayed: Boolean(row.replayed) };
   }
 
-  async pilotCover(resourceId: string, periodKey: string, approvalRef: string, actorId: string): Promise<{ coverId: string; replayed: boolean }> {
-    const row = await this.call<{ cover_id: string; replayed?: boolean }>("tw4_rfl_pilot_cover", { p_resource_id: resourceId, p_period_key: periodKey, p_approval_ref: approvalRef, p_actor: actorId });
-    return { coverId: row.cover_id, replayed: Boolean(row.replayed) };
+  async pilotCover(resourceId: string, periodKey: string, approvalRef: string, evidence: PilotEvidence, actorId: string): Promise<{ coverId: string; evidenceId: string | null; replayed: boolean }> {
+    // 20261229: the cover is recorded WITH structured evidence (hash and reference only, never the text); the database re-checks every field, the amount against the published price
+    const row = await this.call<{ cover_id: string; evidence_id?: string; replayed?: boolean }>("tw4_rfl_pilot_cover", {
+      p_resource_id: resourceId, p_period_key: periodKey, p_approval_ref: approvalRef, p_actor: actorId,
+      p_authorized_on: evidence.authorizedOn, p_authorized_by_role: evidence.authorizedByRole, p_scope: evidence.scope, p_amount_cents: evidence.amountCents,
+      p_evidence_period_key: evidence.periodKey, p_document_ref: evidence.documentRef, p_document_sha256: evidence.documentSha256,
+    });
+    return { coverId: row.cover_id, evidenceId: row.evidence_id ?? null, replayed: Boolean(row.replayed) };
   }
 
   async observeProviderBill(resourceId: string, periodKey: string, providerRef: string, costCents: number, actorId: string): Promise<{ exposure: boolean; replayed: boolean }> {
@@ -93,8 +106,13 @@ export class ProviderFeeLifecycleStore {
 
   /** The single claim. Only `execute` permits the console step; `reconcile` means look the resource up first (an earlier outcome is unknown). */
   async beginCancel(operationId: string, actorId: string): Promise<CancelBegin> {
-    const row = await this.call<{ action: string; provider_sid?: string; resource_kind?: Resource; status?: string }>("tw4_rfl_cancel_begin", { p_operation_id: operationId, p_actor: actorId });
-    if (row.action === "execute" && row.provider_sid && row.resource_kind) return { action: "execute", providerSid: row.provider_sid, resourceKind: row.resource_kind };
+    const row = await this.call<{ action: string; provider_sid?: unknown; resource_kind?: unknown; status?: string }>("tw4_rfl_cancel_begin", { p_operation_id: operationId, p_actor: actorId });
+    if (row.action === "execute") {
+      // the claim is taken either way: only a provider identity that is well formed and consistent with its kind is usable
+      const kind = typeof row.resource_kind === "string" && Object.hasOwn(SID_FOR_KIND, row.resource_kind) ? (row.resource_kind as Resource) : null;
+      if (kind && typeof row.provider_sid === "string" && SID_FOR_KIND[kind].test(row.provider_sid)) return { action: "execute", providerSid: row.provider_sid, resourceKind: kind };
+      return { action: "unknown_claim" };
+    }
     if (row.action === "in_progress" || row.action === "reconcile") return { action: row.action };
     return { action: "skip", status: String(row.status ?? "unknown") };
   }

@@ -15,6 +15,7 @@ import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { spendEvidenceApplied } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -143,9 +144,9 @@ describe.skipIf(!enabled)("TW-4F-3b-0 prepaid credit: one balance per legal busi
     const admin = [
       "tw4_price_set(text, int, int, text, uuid)", "tw4_credit_topup_pending(uuid, uuid, text, int, timestamptz)", "tw4_credit_settle_topup(uuid, uuid, text, int, text, text, boolean)",
       "tw4_credit_apply_refund(text, int, text, text)", "tw4_credit_apply_dispute(text, text, int, text, text)", "tw4_credit_topup_failed(text, text)", "tw4_credit_adjust(uuid, bigint, text, text, uuid)",
-      "tw4_pilot_exception_create(uuid, int, text, uuid)", "tw4_credit_set_hold(uuid, boolean, text, uuid)", "tw4_credit_set_threshold(uuid, int, uuid)",
+      (spendEvidenceApplied(psql) ? "tw4_pilot_exception_create(uuid, int, text, uuid, date, text, text, int, text, text)" : "tw4_pilot_exception_create(uuid, int, text, uuid)"), "tw4_credit_set_hold(uuid, boolean, text, uuid)", "tw4_credit_set_threshold(uuid, int, uuid)",
       "tw4_credit_debit_usage(uuid, uuid, int, text, text)", "tw4_credit_refund_usage(uuid, int, text, text)", "tw4_credit_record_provider_charge(uuid, uuid, text, text, int, uuid)",
-      "tw4_credit_verify(uuid)", "tw4_spend_settle(uuid, text, text, text, text)", "tw4_spend_reserve(uuid, text, text)", "tw4_spend_authorize(uuid, text, int, text, uuid, text, uuid)",
+      "tw4_credit_verify(uuid)", "tw4_spend_settle(uuid, text, text, text, text)", "tw4_spend_reserve(uuid, text, text)", (spendEvidenceApplied(psql) ? "tw4_spend_authorize(uuid, text, int, text, uuid, text, uuid, date, text, text, int, text, text, text)" : "tw4_spend_authorize(uuid, text, int, text, uuid, text, uuid)"),
       "tw4_credit_resolve_reservation(uuid, text, uuid, text)", "tw4_credit_open_reservations(uuid, uuid)", "tw4_spend_withdraw(uuid, uuid, text)",
       "_tw4c_lock(uuid)", "_tw4c_post(uuid, uuid, text, bigint, bigint, text, uuid, text, uuid, text)", "_tw4c_admin(uuid)", "_tw4c_any_location(uuid)", "_tw4c_immutable_guard()",
     ];

@@ -15,6 +15,8 @@ import { CREATE_PHRASE } from "@/lib/sms/twilioIsv/panelCommands";
 import type { PanelMonthlyLimits } from "@/lib/billing/smsPanelMonthlyLimits";
 import { ChevronDown } from "lucide-react";
 import PanelMonthlyLimit from "./PanelMonthlyLimit";
+import PilotEvidenceFields from "./PilotEvidenceFields";
+import { scopesForKind } from "@/lib/sms/pilotApprovalEvidence";
 import SenderIdentity, { SenderSchedulerLine } from "./SenderIdentity";
 import type { SenderHealth, SenderOverviewRow } from "@/lib/sms/senderVerification";
 import {
@@ -301,6 +303,7 @@ function BudgetForms({ panel, overview }: { panel: StudioPanel; overview: PanelO
           <p className="text-xs font-semibold text-fuchsia-900">ConfiDance pilot ceiling (one time, founder-authorized)</p>
           <label className="text-xs font-medium text-slate-800">Ceiling ($, at most 150)<input name="ceilingDollars" defaultValue="150.00" className={input} /></label>
           <label className="text-xs font-medium text-slate-800">Founder&apos;s written authorization<input name="approvalRef" required minLength={10} maxLength={200} className={input} /></label>
+          <PilotEvidenceFields scopes={["pilot_exception"]} inputClass={input} />
           <label className="flex items-center gap-2 text-xs"><input type="checkbox" name="understood" /> Non-spendable, cumulative, never resets; each fee still needs its own owner approval</label>
           <button type="submit" className={`${secondary} w-fit`}>Record pilot ceiling</button>
         </form>
@@ -355,6 +358,12 @@ function BudgetForms({ panel, overview }: { panel: StudioPanel; overview: PanelO
                   <input name="approvalRef" required minLength={10} maxLength={120} className={input} />
                 </label>
                 <label className="flex items-center gap-2 pb-2 text-xs"><input type="checkbox" name="ownerApproved" /> Owner approved this operation and amount</label>
+                {entity.pilot ? (
+                  <details className="sm:col-span-4">
+                    <summary className="cursor-pointer text-xs font-medium text-fuchsia-900">Pilot ceiling only: the owner&apos;s written authorization (required when paid from the pilot ceiling)</summary>
+                    <PilotEvidenceFields scopes={scopesForKind(kind)} inputClass={input} required={false} />
+                  </details>
+                ) : null}
                 <button type="submit" disabled={!price} className={`${secondary} disabled:opacity-40`}>Record approval</button>
               </form>
             );

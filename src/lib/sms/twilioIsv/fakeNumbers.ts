@@ -1,5 +1,6 @@
 import { IsvApiError } from "./types";
 import type { AvailableNumber, CampaignComplianceFacts, CreationHistoryFacts, IsvNumberAdapter, OwnedNumberFacts, ServiceNumbersFacts, ServiceRouteFacts } from "./numberTypes";
+import type { NumberReleaseAdapter, ProviderPresence, ReleaseResult } from "./releaseTypes";
 
 /**
  * TW-4F R2b: an in-memory Twilio stand-in for phone-number provisioning. The ONLY implementation used by tests and non-production environments. Like Twilio:
@@ -8,7 +9,7 @@ import type { AvailableNumber, CampaignComplianceFacts, CreationHistoryFacts, Is
  * caller sees a transient error (`lostResponse`), which the runner must reconcile instead of repeating.
  */
 
-type Method = keyof IsvNumberAdapter;
+type Method = keyof IsvNumberAdapter | keyof NumberReleaseAdapter;
 type Failure = { kind: "validation" | "transient" | "account" | "unexpected"; lostResponse?: boolean; code?: string; status?: number };
 
 let sidCounter = 0;
@@ -25,7 +26,7 @@ export class FakeNumberUniverse {
   readonly catalogue: AvailableNumber[] = [];
 }
 
-export class FakeNumberAdapter implements IsvNumberAdapter {
+export class FakeNumberAdapter implements IsvNumberAdapter, NumberReleaseAdapter {
   readonly calls: { method: Method; input: unknown }[] = [];
   readonly services = new Map<string, ServiceRow>();
   readonly campaigns = new Map<string, CampaignComplianceFacts>();
@@ -205,6 +206,33 @@ export class FakeNumberAdapter implements IsvNumberAdapter {
       const service = this.services.get(messagingServiceSid);
       if (!service || service.account_sid !== this.accountSid) throw new IsvApiError("validation", 404, "20404", "fake: not found");
       return { sid: service.sid, account_sid: service.account_sid, inbound_request_url: service.inbound_request_url, use_inbound_webhook_on_number: service.use_inbound_webhook_on_number };
+    });
+  }
+
+  // ---- TW-4F F5: release (like Twilio: a number of another account is "not found", so it reads as already absent here) ---------------------
+  async releaseNumber(phoneNumberSid: string): Promise<ReleaseResult> {
+    return this.guarded("releaseNumber", { phoneNumberSid }, () => {
+      const row = this.universe.owned.get(phoneNumberSid);
+      if (!row || row.account_sid !== this.accountSid) return "already_absent" as const;
+      this.universe.owned.delete(phoneNumberSid);
+      // a released number leaves every sender pool with it
+      for (const service of this.services.values()) service.numbers.delete(phoneNumberSid);
+      return "released" as const;
+    });
+  }
+
+  async detachNumber(input: { messagingServiceSid: string; phoneNumberSid: string }): Promise<ReleaseResult> {
+    return this.guarded("detachNumber", input, () => {
+      const service = this.services.get(input.messagingServiceSid);
+      if (!service || service.account_sid !== this.accountSid || !service.numbers.delete(input.phoneNumberSid)) return "already_absent" as const;
+      return "released" as const;
+    });
+  }
+
+  async numberPresence(phoneNumberSid: string): Promise<ProviderPresence> {
+    return this.guarded("numberPresence", { phoneNumberSid }, () => {
+      const row = this.universe.owned.get(phoneNumberSid);
+      return row && row.account_sid === this.accountSid ? ("present" as const) : ("absent" as const);
     });
   }
 }

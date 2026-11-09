@@ -520,7 +520,7 @@ export async function repairStudioPortalLinksAction(formData: FormData) {
       id: matchingAuthUser.id,
       full_name: displayName || String(matchingAuthUser.user_metadata?.full_name ?? "").trim() || null,
       email: matchingAuthUser.email ?? client.email,
-      platform_role: null,
+      // platform_role is deliberately never written here: omitting it leaves an existing value (a platform admin who is also a client) untouched and never grants one
       updated_at: new Date().toISOString(),
     }, { onConflict: "id" });
 

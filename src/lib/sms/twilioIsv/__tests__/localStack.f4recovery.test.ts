@@ -14,6 +14,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { pilotCoverArgs, pilotExceptionArgs } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 300_000 });
 
@@ -92,7 +93,7 @@ insert into public.studio_sms_entity_studios (studio_id, legal_entity_id, link_k
 insert into public.studio_sms_twilio_accounts (legal_entity_id, twilio_account_sid, friendly_name, environment, status, created_by) values ('${w.entity}', '${w.account}', 'f4-${hex(3)}', 'test', 'active', '${P}');
 commit;`);
     call("tw4_credit_adjust", w.entity, 200_000, `f4-fund-${hex(4)}`, "fixture funding for the recovery suite", P);
-    if (w.pilot) call("tw4_pilot_exception_create", w.entity, 15000, `Founder written pilot approval ${RUN}`, P);
+    if (w.pilot) call("tw4_pilot_exception_create", ...pilotExceptionArgs(psql, w.entity, 15000, `Founder written pilot approval ${RUN}`, P));
   }
   const brand = sid("BN");
   replica(`insert into public.studio_sms_onboarding (id, studio_id, state, legal_name, entity_type, ein_last4, submission_seq, submitted_at, lease_owner, lease_expires_at)
@@ -126,6 +127,14 @@ function campaign(w: World, o: { status?: "succeeded" | "unknown_outcome" | "in_
   }
   return c;
 }
+/** The spend event that makes a pilot reservation settleable by tw4_prov_observe (R2a: settlement goes through the spend event). */
+const spendEvent = (w: World, c: Campaign, ago: string) =>
+  replica(`insert into public.studio_sms_spend_events (legal_entity_id, studio_id, kind, amount_cents, status, approval_ref, authorized_by, authorized_at, reservation_key, reserved_at, credit_reservation_id, funding)
+    values ('${w.entity}', '${w.studio}', 'monthly', 1500, 'reserved', 'Written approval ${RUN} first month ${hex(3)}', '${P}', now() - interval '${ago}', 'prov:${c.op}:monthly', now() - interval '${ago}',
+            (select id from public.studio_sms_credit_reservations where reservation_key = 'prov:${c.op}:monthly'), 'pilot');`);
+/** The pilot ceiling's usage, exactly as tw4_rfl_pilot_cover computes it (reserved + captured pilot reservations of the business). */
+const pilotUsed = (w: World) => Number(psql(`select coalesce(sum(amount_cents), 0) from public.studio_sms_credit_reservations where legal_entity_id = '${w.entity}' and funding = 'pilot' and status in ('reserved', 'captured')`));
+const ledgerSum = (w: World) => Number(psql(`select coalesce(sum(balance_delta_cents), 0) from public.studio_sms_credit_ledger where legal_entity_id = '${w.entity}'`));
 const campaignFacts = (w: World, c: Campaign, status = "VERIFIED", over: Record<string, unknown> = {}) => ({
   sid: c.qe, account_sid: w.account, messaging_service_sid: c.ms, brand_registration_sid: brandOf(w), us_app_to_person_usecase: "MIXED", campaign_status: status, mock: false, errors: "", ...over,
 });
@@ -260,26 +269,116 @@ commit;`);
       expect(count(`select 1 from public.studio_sms_provider_cover where resource_id = '${rows[0].id}'`)).toBe(0);
       // the remedy works (no "already covered"): one written approval for the registration month
       if (!psql(`select 1 from public.studio_sms_price_list where kind = 'monthly' and active`)) call("tw4_price_set", "monthly", 1000, 150, "fixture monthly price", P);
-      const cover = call<{ cover_id: string; replayed: boolean }>("tw4_rfl_pilot_cover", rows[0].id, psql(`select public._tw4ml_month_key('${w.entity}', now())`), `Written approval ${RUN} campaign month ${hex(3)}`, P);
+      const cover = call<{ cover_id: string; replayed: boolean }>("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, rows[0].id, psql(`select public._tw4ml_month_key('${w.entity}', now())`), `Written approval ${RUN} campaign month ${hex(3)}`, P));
       expect(cover.replayed).toBe(false);
       expect(psql(`select basis from public.studio_sms_provider_cover where resource_id = '${rows[0].id}'`)).toBe("pilot_approval");
     });
 
-    it("D5 on the REAL path: a monthly pilot reservation still held from last month is captured by R2a on approval, binds no cover, and the month's written approval is a second pilot capture (open owner decision, see PR)", () => {
+    it("KI-1 (20261228) on the REAL path: a monthly pilot reservation still held from LAST month is RELEASED on approval; the month's written approval is the ONE capture, and the ceiling and ledger sums are exact", () => {
       const w = world({ pilot: true });
       const c = campaign(w, { pilotReservation: "reserved", startedAgo: "40 days", reservedAgo: "40 days" });
-      replica(`insert into public.studio_sms_spend_events (legal_entity_id, studio_id, kind, amount_cents, status, approval_ref, authorized_by, authorized_at, reservation_key, reserved_at, credit_reservation_id, funding)
-        values ('${w.entity}', '${w.studio}', 'monthly', 1500, 'reserved', 'Written approval ${RUN} first month ${hex(3)}', '${P}', now() - interval '40 days', 'prov:${c.op}:monthly', now() - interval '40 days',
-                (select id from public.studio_sms_credit_reservations where reservation_key = 'prov:${c.op}:monthly'), 'pilot');`);
+      spendEvent(w, c, "40 days");
+      const before = { used: pilotUsed(w), ledger: ledgerSum(w) };
       observeCampaign(w, c);
-      expect(psql(`select status from public.studio_sms_credit_reservations where reservation_key = 'prov:${c.op}:monthly'`)).toBe("captured");   // R2a 20261207: the first month is captured on approval
+      const key = `prov:${c.op}:monthly`;
+      expect(psql(`select status from public.studio_sms_credit_reservations where reservation_key = '${key}'`)).toBe("released");
+      expect(psql(`select status from public.studio_sms_spend_events where reservation_key = '${key}'`)).toBe("void");
+      expect(psql(`select disposition || ':' || note from public.studio_sms_prov_dispositions where operation_id = '${c.op}' and fee_kind = 'monthly'`)).toBe("reservation_released:pilot");
+      expect(audits(w, "prov_observed").some((a) => /;ki1_released=monthly/.test(a.note))).toBe(true);
+      // an ADMIN alert names the reservation's month (the provider may have billed it); never an owner request
+      const alert = psql(`select audience || '|' || severity || '|' || summary from public.studio_sms_provider_alerts where kind = 'pilot_approval_needed' and dedupe_key = 'ki1:${c.op}:monthly'`);
+      expect(alert.startsWith("admin|warning|")).toBe(true);
+      expect(alert).toContain(psql(`select public._tw4ml_month_key('${w.entity}', now() - interval '40 days')`));
+      expect(pilotUsed(w)).toBe(before.used - 1500);   // the headroom returns
       const rows = resourcesOf(w);
       expect(rows).toHaveLength(1);
-      expect(count(`select 1 from public.studio_sms_provider_cover where resource_id = '${rows[0].id}'`)).toBe(0);   // D5: not this month's cover
+      expect(count(`select 1 from public.studio_sms_provider_cover where resource_id = '${rows[0].id}'`)).toBe(0);   // D5: no cover from a released reservation
       if (!psql(`select 1 from public.studio_sms_price_list where kind = 'monthly' and active`)) call("tw4_price_set", "monthly", 1000, 150, "fixture monthly price", P);
-      call("tw4_rfl_pilot_cover", rows[0].id, psql(`select public._tw4ml_month_key('${w.entity}', now())`), `Written approval ${RUN} campaign month ${hex(3)}`, P);
-      // pinned so the open decision stays visible: one provider month, two pilot captures for this location's campaign fee
-      expect(Number(psql(`select count(*) from public.studio_sms_credit_reservations where studio_id = '${w.studio}' and funding = 'pilot' and status = 'captured' and kind = 'monthly'`))).toBe(2);
+      const price = Number(psql(`select customer_price_cents from public.studio_sms_price_list where kind = 'monthly' and active`));
+      call("tw4_rfl_pilot_cover", ...pilotCoverArgs(psql, rows[0].id, psql(`select public._tw4ml_month_key('${w.entity}', now())`), `Written approval ${RUN} campaign month ${hex(3)}`, P));
+      // one provider month, ONE pilot capture
+      expect(Number(psql(`select count(*) from public.studio_sms_credit_reservations where studio_id = '${w.studio}' and funding = 'pilot' and status = 'captured' and kind = 'monthly'`))).toBe(1);
+      expect(pilotUsed(w)).toBe(before.used - 1500 + price);
+      expect(ledgerSum(w)).toBe(before.ledger);   // pilot funding posts nothing to the prepaid credit ledger
+      // replay: a second approval observation releases or captures nothing more
+      observeCampaign(w, c);
+      expect(pilotUsed(w)).toBe(before.used - 1500 + price);
+      expect(audits(w, "prov_observed").filter((a) => /;ki1_released=/.test(a.note))).toHaveLength(1);
+    });
+
+    it("KI-1: a SAME-month pilot approval is unchanged (captured on approval, and it is the registration month's cover)", () => {
+      const w = world({ pilot: true });
+      const c = campaign(w, { pilotReservation: "reserved" });
+      spendEvent(w, c, "0 minutes");
+      const used = pilotUsed(w);
+      observeCampaign(w, c);
+      expect(psql(`select status from public.studio_sms_credit_reservations where reservation_key = 'prov:${c.op}:monthly'`)).toBe("captured");
+      const rows = resourcesOf(w);
+      expect(count(`select 1 from public.studio_sms_provider_cover where resource_id = '${rows[0].id}' and basis = 'initial_reservation'`)).toBe(1);
+      expect(pilotUsed(w)).toBe(used);   // a capture keeps the reservation counted; nothing released
+      expect(audits(w, "prov_observed").some((a) => /ki1_released/.test(a.note))).toBe(false);
+    });
+
+    it("KI-1: a non-pilot (credit-funded) reservation from last month is still captured on approval, posting to the prepaid ledger as before", () => {
+      const w = world();
+      const c = campaign(w);
+      replica(`insert into public.studio_sms_credit_reservations (legal_entity_id, studio_id, kind, amount_cents, funding, status, reservation_key, created_at)
+        values ('${w.entity}', '${w.studio}', 'monthly', 1500, 'credit', 'reserved', 'prov:${c.op}:monthly', now() - interval '40 days');
+        update public.studio_sms_credit_accounts set reserved_cents = reserved_cents + 1500 where legal_entity_id = '${w.entity}';`);
+      replica(`insert into public.studio_sms_spend_events (legal_entity_id, studio_id, kind, amount_cents, status, approval_ref, authorized_by, authorized_at, reservation_key, reserved_at, credit_reservation_id, funding)
+        values ('${w.entity}', '${w.studio}', 'monthly', 1500, 'reserved', 'Written approval ${RUN} credit month ${hex(3)}', '${P}', now() - interval '40 days', 'prov:${c.op}:monthly', now() - interval '40 days',
+                (select id from public.studio_sms_credit_reservations where reservation_key = 'prov:${c.op}:monthly'), 'credit');`);
+      const ledger = ledgerSum(w);
+      observeCampaign(w, c);
+      expect(psql(`select status from public.studio_sms_credit_reservations where reservation_key = 'prov:${c.op}:monthly'`)).toBe("captured");
+      expect(ledgerSum(w)).toBe(ledger - 1500);
+      expect(audits(w, "prov_observed").some((a) => /ki1_released/.test(a.note))).toBe(false);
+    });
+
+    it("KI-1: a pending (IN_PROGRESS) observation releases or captures no monthly reservation, whatever its month", () => {
+      const w = world({ pilot: true });
+      const c = campaign(w, { pilotReservation: "reserved", startedAgo: "40 days", reservedAgo: "40 days" });
+      spendEvent(w, c, "40 days");
+      observeCampaign(w, c, "IN_PROGRESS");
+      expect(psql(`select status from public.studio_sms_credit_reservations where reservation_key = 'prov:${c.op}:monthly'`)).toBe("reserved");
+    });
+
+    it("KI-1: a cross-month VETTING reservation is still captured, and a cross-month REJECTION still releases as campaign_rejected (no KI-1 marker)", () => {
+      const w = world({ pilot: true });
+      const c = campaign(w, { startedAgo: "40 days" });
+      const vet = (key: string) => replica(`insert into public.studio_sms_credit_reservations (legal_entity_id, studio_id, kind, amount_cents, funding, status, reservation_key, created_at)
+          values ('${w.entity}', '${w.studio}', 'campaign_vetting', 1500, 'pilot', 'reserved', '${key}', now() - interval '40 days');
+        insert into public.studio_sms_spend_events (legal_entity_id, studio_id, kind, amount_cents, status, approval_ref, authorized_by, authorized_at, reservation_key, reserved_at, credit_reservation_id, funding)
+          values ('${w.entity}', '${w.studio}', 'campaign_vetting', 1500, 'reserved', 'Written approval ${RUN} vetting ${hex(3)}', '${P}', now() - interval '40 days', '${key}', now() - interval '40 days',
+                  (select id from public.studio_sms_credit_reservations where reservation_key = '${key}'), 'pilot');`);
+      vet(`prov:${c.op}:campaign_vetting`);
+      observeCampaign(w, c);
+      expect(psql(`select status from public.studio_sms_credit_reservations where reservation_key = 'prov:${c.op}:campaign_vetting'`)).toBe("captured");
+      const r = world({ pilot: true });
+      const rej = campaign(r, { pilotReservation: "reserved", startedAgo: "40 days", reservedAgo: "40 days" });
+      spendEvent(r, rej, "40 days");
+      observeCampaign(r, rej, "FAILED");
+      expect(psql(`select status from public.studio_sms_credit_reservations where reservation_key = 'prov:${rej.op}:monthly'`)).toBe("released");
+      expect(audits(r, "prov_observed").some((a) => /ki1_released/.test(a.note))).toBe(false);
+      expect(count(`select 1 from public.studio_sms_provider_alerts where dedupe_key like 'ki1:${rej.op}:%'`)).toBe(0);
+    });
+
+    it("KI-1 rollback refuses once a release was recorded, and otherwise restores the 20261221 body exactly (in rolled-back transactions)", () => {
+      const rb = readFileSync(join(MIG, "rollback/20261228090000_twilio_ki1_cross_month_release_rollback.sql"), "utf8").replace(/^begin;/m, "").replace(/^commit;/m, "");
+      // the refusal is tested against a release row this test seeds itself (inside the rolled-back transaction), not one an earlier test happened to leave
+      const w = world();
+      expect(psqlError(`begin;
+        set local session_replication_role = replica;
+        insert into public.studio_sms_onboarding_audit (studio_id, onboarding_id, actor_type, action, note) values ('${w.studio}', '${w.onboarding}', 'system', 'prov_observed', 'op=x;kind=campaign;status=verified;src=fake;ki1_released=monthly');
+        set local session_replication_role = origin;
+        ${rb} rollback;`)).toMatch(/55000: KI-1 rollback refused/);
+      const out = psql(`begin;
+        set local session_replication_role = replica; delete from public.studio_sms_onboarding_audit where action = 'prov_observed' and note like '%;ki1_released=%'; set local session_replication_role = origin;
+        ${rb}
+        select left(md5(replace(prosrc, chr(13), '')), 8) from pg_proc where oid = 'public.tw4_prov_observe(uuid,text,uuid,jsonb,text,text,text)'::regprocedure;
+        rollback;`);
+      expect(out.split("\n").pop()).toBe("fcb78bdc");
+      expect(psql(`select position('ki1_cross_month' in prosrc) > 0 from pg_proc where oid = 'public.tw4_prov_observe(uuid,text,uuid,jsonb,text,text,text)'::regprocedure`)).toBe("t");
     });
 
     it("a pilot reservation made AND captured in an earlier month never pays the month the campaign is registered in", () => {

@@ -942,6 +942,8 @@ async function sendBilledDelivery(
       return { ok: false, error: `sms_send_failed:${result.code}` };
     case "refused": {
       if (result.reason === "unavailable") return { ok: false, retry: true, code: "sms_billing_unavailable" };
+      // 20261218: the usage reconciler is briefly not ready. Nothing was reserved or sent; the retry is the same source (a replay if it ever got further)
+      if (result.reason === "paused") return { ok: false, retry: true, code: "sms_billing_paused" };
       const skip = BILLED_SKIP[result.reason];
       return skip ? skipSms(skip) : { ok: false, error: `sms_billed_${result.reason}` };
     }

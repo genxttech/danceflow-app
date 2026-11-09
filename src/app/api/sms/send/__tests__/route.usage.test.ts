@@ -238,6 +238,7 @@ describe("billed path outcomes", () => {
     ["no_billed_sender", 503],
     ["suspended", 503],
     ["switched_off", 503],
+    ["paused", 503],
     ["no_price", 503],
     ["not_billed", 503],
     ["invalid", 400],

@@ -10,7 +10,7 @@ export default function CompetitionNav({ eventId }: { eventId: string }) {
   const items = competitionNav(eventId);
 
   return (
-    <nav aria-label="Competition workspace" className="lg:sticky lg:top-4 lg:self-start">
+    <nav aria-label="Competition workspace" className="min-w-0 lg:sticky lg:top-4 lg:self-start">
       <ul className="flex gap-1 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
         {items.map((item) => {
           const isActive = item.key === active;

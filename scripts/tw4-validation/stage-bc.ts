@@ -8,15 +8,15 @@
  *   seed      --business <json>       create the local test studio + owner + platform admin, pilot switch on (LOCAL db only), save the
  *                                     wizard fields from the JSON file, store the EIN (encrypted with a throwaway local key) and submit.
  *                                     The EIN comes from TW4_VALIDATION_EIN or a hidden prompt; it is never printed or written in clear.
- *   run       --stages B | C        --confirm-studio <studio uuid printed by seed> [--adapter fake|real] [--forbid <uuid,..>] [--hours 1|2] [--out file]
- *   authorize-b [--minutes 30]       REAL adapter only: the explicit Stage B authorization (binds studio, expiry, mailbox, key SID, Primary profile)
+ *   run       --stages B | C        --confirm-studio <studio uuid printed by seed> [--adapter fake]   (real is RETIRED: refused by legacyGuard.ts) [--forbid <uuid,..>] [--hours 1|2] [--out file]
+ *   authorize-b [--minutes 30]       RETIRED (real adapter only, now always refused): was the explicit Stage B authorization (binds studio, expiry, mailbox, key SID, Primary profile)
  *   authorize-c [--minutes 60]       after READING the stage B report: prints the short-lived stage C authorization (needs S1-S10 succeeded)
  *   evidence                          print the ledger (step, status, provider sid, mock flag) for the test studio: the cleanup inventory
  *   cleanup                           cancel the onboarding (erases the EIN), delete the local fixtures and the throwaway key
  *
  * Local stack variables (same as the R1 dry run): TW4A_LOCAL_URL, TW4A_LOCAL_JWT_SECRET, TW4A_LOCAL_DB_CONTAINER.
- * Adapter `fake` (default) is in-process and needs TW4_ISV_FAKE=on. Adapter `real` additionally needs, in YOUR shell for that run only:
- *   NODE_ENV=production VERCEL_ENV=production TW4_ISV_REAL_CALLS=on TW4_ISV_MOCK_BRAND=on  and the TWILIO_* / TWILIO_ISV_* variables.
+ * Adapter `fake` (default) is in-process and needs TW4_ISV_FAKE=on. Adapter `real` is RETIRED (parent-account harness; studios use subaccounts): any other
+ * `--adapter` value is refused before every command (legacyGuard.ts).
  * NOTE: one stage per invocation. The fake adapter keeps its Twilio state in memory, so a fake stage C started in a new process cannot find
  * stage B's fake resources (it stops with a harmless exception); the Stage C gate itself is covered by the unit tests.
  * Stage C additionally needs --stage-c-token and --stage-c-expires from `authorize-c`; without them it is refused (src/.../validation/stage.ts).
@@ -39,6 +39,7 @@ import { loadIsvConfig, type IsvConfig } from "@/lib/sms/twilioIsv/config";
 import { isLoopbackHost } from "@/lib/sms/twilioIsv/loopback";
 import { FakeIsvAdapter } from "@/lib/sms/twilioIsv/fake";
 import { createRealIsvAdapter } from "@/lib/sms/twilioIsv/real";
+import { legacyRealModeRefusal } from "./legacyGuard";
 import { SupabaseRunnerStore } from "@/lib/sms/twilioIsv/store";
 import { issueStageBAuthorization, issueStageCAuthorization, runValidationStage, type LedgerRow, type StageName, type StageReport } from "@/lib/sms/twilioIsv/validation/stage";
 
@@ -228,7 +229,7 @@ function stageBAuthorization(): { token: string; expiresAt: string } | undefined
 
 async function authorizeB() {
   requireLocalStack();
-  if (ADAPTER_KIND !== "real") throw new Error("authorize-b is only for the real adapter (pass --adapter real); the fake adapter needs no authorization.");
+  if (ADAPTER_KIND !== "real") throw new Error("authorize-b is only for the real adapter, which is retired; the fake adapter needs no authorization.");
   const STUDIO = studioId();
   const secret = readFileSync(KEY_FILE, "utf8").trim();
   const loaded = loadIsvConfig(process.env);
@@ -370,6 +371,9 @@ async function cleanup() {
 }
 
 async function main() {
+  // Real mode of this legacy harness is retired (legacyGuard.ts): refuse before ANY command, including the ones that only prepare a real run.
+  const refusal = legacyRealModeRefusal(process.argv.slice(2));
+  if (refusal) throw new Error(refusal);
   const command = process.argv[2];
   if (command === "seed") await seed();
   else if (command === "run") await run();

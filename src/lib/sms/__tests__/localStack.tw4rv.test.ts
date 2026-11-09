@@ -18,7 +18,7 @@ vi.setConfig({ testTimeout: 120_000, hookTimeout: 1_000_000 });
 
 import { FakeSenderReadProvider, SenderReadError, runScheduledSenderReverify, reverifyDueSenders, type SenderReadProvider } from "@/lib/sms/senderVerification";
 import { SupabaseCreditStore } from "@/lib/sms/twilioIsv/creditStore";
-import { LOCAL_QA_MARKER, newSenderIds, readySender, type SenderIds } from "./senderFixtures";
+import { LOCAL_QA_MARKER, newSenderIds, reconcilerReadySql, readySender, type SenderIds } from "./senderFixtures";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -161,6 +161,7 @@ describe.skipIf(!enabled)("TW-4F automated sender re-verification (real schema, 
     await credits.topupPending(e, studio, ref, 2_500, new Date(Date.now() + 20 * 60_000).toISOString());
     await credits.settleTopup(e, studio, ref, 2_500, `evt_rv_${RUN}_${n}`, `pi_rv_${RUN}_${n}`, true);
     expect((await rpc("tw4_monthly_limit_set_admin", { p_entity_id: e, p_actor: U.padmin, p_limit_cents: 5_000, p_effective_month: null, p_reason: "fixture: monthly texting limit" })).error).toBeNull();
+    aged(reconcilerReadySql(`tw4rv:ready:${RUN}`)); // 20261218: switching on (and every begin) needs a fresh reconcile run; cleaned with tw4rv:% runs
     expect((await rpc("tw4_usage_set_switch", { p_enabled: true, p_actor: U.padmin, p_reason: "fixture: switch on for tests" })).error).toBeNull();
   };
 

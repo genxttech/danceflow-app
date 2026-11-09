@@ -21,6 +21,15 @@ export const newSenderIds = (e164: string, shared: Partial<Pick<SenderIds, "mg" 
 
 export const LOCAL_QA_MARKER = "create table if not exists public.tw4_local_qa_only (note text); revoke all on public.tw4_local_qa_only from public, anon, authenticated, service_role;";
 
+/** a just-finished usage reconcile run that read provider evidence: billed texting can be switched on / begun (20261218090000 readiness gate). No-op before 20261205. */
+export const reconcilerReadySql = (runner: string) =>
+  `do $f3$ begin if to_regclass('public.studio_sms_reconcile_runs') is not null then
+     insert into public.studio_sms_reconcile_runs (job, runner, status, started_at, lease_expires_at, finished_at, summary)
+     values ('usage_reconcile', '${runner}', 'completed', clock_timestamp() - interval '1 minute', clock_timestamp() + interval '4 minutes', clock_timestamp(), '{"evidence_read": true, "due": 0}'::jsonb);
+   end if; end $f3$`;
+export const reconcilerRunsCleanupSql = (runner: string) =>
+  `do $f3$ begin if to_regclass('public.studio_sms_reconcile_runs') is not null then delete from public.studio_sms_reconcile_runs where runner = '${runner}'; end if; end $f3$`;
+
 /** the business's own brand, registered by the runner on this subaccount (what the judge looks for) */
 export const brandStepSql = (studio: string, account: string, bn: string) =>
   `insert into public.studio_sms_provisioning_steps (onboarding_id, studio_id, step_key, submission_seq, status, provider_sid, mock, twilio_account_sid)

@@ -31,8 +31,15 @@ export type BillingPlan = {
   code: PlanCode;
   label: string;
   audience: PlanAudience;
+  /** Currently offered monthly price. For studio plans this is the Founder promotional price. */
   amountMonthlyCents: number;
+  /** Organizer plan only. Studio plans use `provisionalRegularAmountMonthlyCents` behind an explicit activation gate. */
   regularAmountMonthlyCents?: number;
+  /**
+   * PRICING-P1: provisional regular monthly price (not yet approved for customers). Never read by display or
+   * checkout unless `isRegularPricingActivated()` (regularPricing.ts) is true.
+   */
+  provisionalRegularAmountMonthlyCents?: number;
   description: string;
   trialDays: number;
   feeStructureNote?: string;
@@ -50,8 +57,8 @@ export const BILLING_PLANS: BillingPlan[] = [
     code: "starter",
     label: "Starter",
     audience: "studio",
-    amountMonthlyCents: 4900,
-    regularAmountMonthlyCents: 5900,
+    amountMonthlyCents: 5900,
+    provisionalRegularAmountMonthlyCents: 8900,
     description:
       "Core CRM, scheduling, client portals, and simple studio operations for independent instructors and smaller studios.",
     trialDays: STUDIO_TRIAL_DAYS,
@@ -77,8 +84,8 @@ export const BILLING_PLANS: BillingPlan[] = [
     code: "growth",
     label: "Growth",
     audience: "studio",
-    amountMonthlyCents: 7900,
-    regularAmountMonthlyCents: 9900,
+    amountMonthlyCents: 9900,
+    provisionalRegularAmountMonthlyCents: 14900,
     description:
       "Growth tools for studios that want stronger retention, packages, memberships, reporting, marketing, and AI assistance.",
     trialDays: STUDIO_TRIAL_DAYS,
@@ -111,8 +118,8 @@ export const BILLING_PLANS: BillingPlan[] = [
     code: "pro",
     label: "Pro",
     audience: "studio",
-    amountMonthlyCents: 12900,
-    regularAmountMonthlyCents: 15900,
+    amountMonthlyCents: 15900,
+    provisionalRegularAmountMonthlyCents: 24900,
     description:
       "Advanced studio growth with stronger reporting, automations, documents, marketing, ARIA insights, and larger AI usage without forcing full event-commerce tools.",
     trialDays: STUDIO_TRIAL_DAYS,

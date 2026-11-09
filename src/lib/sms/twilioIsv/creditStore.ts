@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { RunnerStoreError, type SpendKind } from "./store";
+import { exceptionEvidenceParams, type PilotEvidence } from "@/lib/sms/pilotApprovalEvidence";
 
 /**
  * TW-4F-3b-0: persistence for the prepaid SMS credit ledger (see migration 20261122090000). Service-role `tw4_credit_*` / `tw4_price_set` functions only;
@@ -29,7 +30,7 @@ export interface CreditStore {
    * It posts nothing to the ledger; it only lets a fee-bearing reservation proceed without settled credit, cumulatively up to the ceiling. Every such operation
    * still needs its own authorization at the published price, and it can never pay for messaging usage.
    */
-  createPilotException(entityId: string, ceilingCents: number, approvalRef: string, actorId: string): Promise<{ replayed: boolean }>;
+  createPilotException(entityId: string, ceilingCents: number, approvalRef: string, actorId: string, evidence?: PilotEvidence | null): Promise<{ replayed: boolean }>;
   setHold(entityId: string, hold: boolean, reason: string, actorId: string): Promise<void>;
   setThreshold(entityId: string, cents: number, actorId: string): Promise<void>;
   /** Debits the business balance for one location messaging; refuses (TW007) when the settled balance is short. Replays by `key` change nothing. */
@@ -81,8 +82,8 @@ export class SupabaseCreditStore implements CreditStore {
   async adjust(entityId: string, amountCents: number, key: string, note: string, actorId: string) {
     return this.replayed(await this.call("tw4_credit_adjust", { p_entity_id: entityId, p_amount_cents: amountCents, p_key: key, p_note: note, p_actor: actorId }));
   }
-  async createPilotException(entityId: string, ceilingCents: number, approvalRef: string, actorId: string) {
-    return this.replayed(await this.call("tw4_pilot_exception_create", { p_entity_id: entityId, p_ceiling_cents: ceilingCents, p_approval_ref: approvalRef, p_actor: actorId }));
+  async createPilotException(entityId: string, ceilingCents: number, approvalRef: string, actorId: string, evidence?: PilotEvidence | null) {
+    return this.replayed(await this.call("tw4_pilot_exception_create", { p_entity_id: entityId, p_ceiling_cents: ceilingCents, p_approval_ref: approvalRef, p_actor: actorId, ...exceptionEvidenceParams(evidence) }));
   }
   async setHold(entityId: string, hold: boolean, reason: string, actorId: string) {
     await this.call("tw4_credit_set_hold", { p_entity_id: entityId, p_hold: hold, p_reason: reason, p_actor: actorId });

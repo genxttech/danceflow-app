@@ -9,6 +9,8 @@ import { getStripe } from "@/lib/payments/stripe";
 import { resolveMembershipStripeAccount } from "@/lib/payments/membershipStripeAccount";
 import { verifyStripeWebhook } from "@/lib/payments/webhookVerification";
 import { handleSmsCreditStripeEvent } from "@/lib/billing/smsCreditPurchases";
+import { resolvePlanCodeFromEnvPriceIds } from "@/lib/billing/subscriptionPlanResolution";
+
 import {
   handleChargeDisputeEvent,
   resolveStudioIdForStripeAccount,
@@ -926,6 +928,32 @@ async function upsertStudioSubscription(params: {
       .or(
         `stripe_price_id_monthly.eq.${stripePriceId},stripe_price_id_yearly.eq.${stripePriceId}`,
       )
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    planRow = data;
+  }
+
+  // PRICING-P1: the subscription's Price is the authority. Resolve it through the
+  // checkout Price ID env vars before trusting metadata.planCode, which is only
+  // written at checkout and goes stale after a Billing Portal plan change.
+  const envPlanCode = planRow
+    ? null
+    : resolvePlanCodeFromEnvPriceIds(
+        subscription.items.data.map((item) => getString(item.price?.id)),
+        process.env,
+      );
+
+  if (!planRow && envPlanCode) {
+    const { data, error } = await supabase
+      .from("subscription_plans")
+      .select("id, code, stripe_price_id_monthly, stripe_price_id_yearly")
+      .eq("code", envPlanCode)
+      .eq("active", true)
       .limit(1)
       .maybeSingle();
 

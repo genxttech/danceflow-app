@@ -12,6 +12,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { pilotExceptionEvidenceFor, pilotSpendEvidenceFor, spendEvidenceApplied } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -191,7 +192,7 @@ describe.skipIf(!enabled)("TW-4F-3a subaccounts, legal entities and spend agains
     // Asserted from the catalog on purpose: a permission-denied call by anon / authenticated crashes the supautils hint hook of this local image.
     const fns = [
       "tw4_entity_create_for_studio(uuid, uuid, text)", "tw4_entity_decide_link(uuid, uuid, uuid, boolean, text)", "tw4_entity_set_spend_cap(uuid, int, uuid)",
-      "tw4_spend_authorize(uuid, text, int, text, uuid, text, uuid)", "tw4_spend_reserve(uuid, text, text)", "tw4_subaccount_confirm(uuid, uuid)",
+      (spendEvidenceApplied(psql) ? "tw4_spend_authorize(uuid, text, int, text, uuid, text, uuid, date, text, text, int, text, text, text)" : "tw4_spend_authorize(uuid, text, int, text, uuid, text, uuid)"), "tw4_spend_reserve(uuid, text, text)", "tw4_subaccount_confirm(uuid, uuid)",
       "tw4_subaccount_begin(uuid, uuid, text, text)", "tw4_subaccount_finish(uuid, uuid, text, text)", "tw4_runner_account(uuid, text)", "tw4_entity_for_studio(uuid, uuid)",
       "_tw4f3a_name_key(text)", "_tw4f3a_steps_account_guard()", "_tw4f3a_audit(uuid, uuid, text, text)", "_tw4f3a_committed(uuid)", "_tw4f3a_evidence_guard()",
     ];
@@ -459,9 +460,9 @@ describe.skipIf(!enabled)("TW-4F-3a subaccounts, legal entities and spend agains
     expect(await code(credits.createPilotException(entityTwo, 2_000, refText, U.owner_c))).toBe("42501");
     expect(await code(credits.createPilotException(entityTwo, 15_001, refText, U.padmin))).toBe("22023");
     expect(await code(credits.createPilotException(entityTwo, 2_000, "short", U.padmin))).toBe("22023");
-    expect(await credits.createPilotException(entityTwo, 2_000, refText, U.padmin)).toEqual({ replayed: false });
-    expect(await credits.createPilotException(entityTwo, 2_000, refText, U.padmin)).toEqual({ replayed: true });
-    expect(await code(credits.createPilotException(entityTwo, 3_000, refText, U.padmin))).toBe("23505");
+    expect(await credits.createPilotException(entityTwo, 2_000, refText, U.padmin, pilotExceptionEvidenceFor(entityTwo, 2_000))).toEqual({ replayed: false });
+    expect(await credits.createPilotException(entityTwo, 2_000, refText, U.padmin, pilotExceptionEvidenceFor(entityTwo, 2_000))).toEqual({ replayed: true });
+    expect(await code(credits.createPilotException(entityTwo, 3_000, refText, U.padmin, pilotExceptionEvidenceFor(entityTwo, 3_000)))).toBe("23505");
     // it is NOT credit: no ledger entry, no balance, no payment, and messaging can never be paid from it
     const balanceRows = () => count(`select count(*) from public.studio_sms_credit_accounts where legal_entity_id = '${entityTwo}' and (balance_cents <> 0 or reserved_cents <> 0)`);
     const ledgerRows = () => count(`select count(*) from public.studio_sms_credit_ledger where legal_entity_id = '${entityTwo}'`);
@@ -484,12 +485,12 @@ describe.skipIf(!enabled)("TW-4F-3a subaccounts, legal entities and spend agains
     expect(await code(entities.authorizeSpend(entityTwo, "brand", 1000, "owner approved the real brand registration in writing", U.padmin, "pilot", null))).toBe("22023");
     expect(await code(entities.authorizeSpend(entityTwo, "brand", 1000, "owner approved the real brand registration in writing", U.padmin, "pilot", A))).not.toBe("ok"); // a location of another business
     expect(await code(entities.authorizeSpend(entityOne, "brand", 1000, "owner approved the real brand registration in writing", U.padmin, "pilot", A))).toBe("22023"); // no exception for that business
-    await entities.authorizeSpend(entityTwo, "brand", 1000, "owner approved the real brand registration in writing", U.padmin, "pilot", C);
+    await entities.authorizeSpend(entityTwo, "brand", 1000, "owner approved the real brand registration in writing", U.padmin, "pilot", C, pilotSpendEvidenceFor("brand", entityTwo, C, 1000));
     // the same approval twice: an identical resubmission returns the SAME unused authorization (20261202 replay), never a second one ...
-    expect(await code(entities.authorizeSpend(entityTwo, "brand", 1000, "Owner approved the REAL brand registration in writing", U.padmin, "pilot", C))).toBe("ok");
+    expect(await code(entities.authorizeSpend(entityTwo, "brand", 1000, "Owner approved the REAL brand registration in writing", U.padmin, "pilot", C, pilotSpendEvidenceFor("brand", entityTwo, C, 1000)))).toBe("ok");
     expect(count(`select count(*) from public.studio_sms_spend_events where legal_entity_id = '${entityTwo}' and lower(approval_ref) = 'owner approved the real brand registration in writing'`)).toBe(1);
     // ... and any other use of the reference (another location, amount or kind) is refused
-    expect(await code(entities.authorizeSpend(entityTwo, "campaign_vetting", 1_500, "Owner approved the REAL brand registration in writing", U.padmin, "pilot", C))).toBe("TW019");
+    expect(await code(entities.authorizeSpend(entityTwo, "campaign_vetting", 1_500, "Owner approved the REAL brand registration in writing", U.padmin, "pilot", C, pilotSpendEvidenceFor("campaign_vetting", entityTwo, C, 1_500)))).toBe("TW019");
     // the pilot business spend cap can never be raised above the $150 maximum
     expect(await code(entities.setSpendCap(entityTwo, 20_000, U.padmin))).toBe("22023");
     const done = await journey(C, sidTwo, true);
@@ -503,7 +504,7 @@ describe.skipIf(!enabled)("TW-4F-3a subaccounts, legal entities and spend agains
     expect(await credits.verify(entityTwo)).toMatchObject({ ok: true, pilot_used_cents: 1_000 });
     // cumulative: 1000 captured + 1500 requested > 2000 ceiling, however many concurrent attempts
     await credits.setPrice("campaign_vetting", 1_500, 1_500, "Campaign vetting (test)", U.padmin);
-    await entities.authorizeSpend(entityTwo, "campaign_vetting", 1_500, "owner approved campaign vetting in writing", U.padmin, "pilot", C);
+    await entities.authorizeSpend(entityTwo, "campaign_vetting", 1_500, "owner approved campaign vetting in writing", U.padmin, "pilot", C, pilotSpendEvidenceFor("campaign_vetting", entityTwo, C, 1_500));
     const claim = await store.claim(C, U.padmin, "f3b-pilot", 120, "run");
     try {
       const attempts = await Promise.all(Array.from({ length: 5 }, () => code(store.reserveSpend(claim.onboarding_id, "f3b-pilot", "campaign_vetting"))));

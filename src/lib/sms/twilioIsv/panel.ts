@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isRegistrationTier, registrationPath, type RegistrationTier } from "./registrationPath";
 import { RunnerStoreError } from "./store";
+import { exceptionEvidenceParams, spendEvidenceParams, type PilotEvidence } from "@/lib/sms/pilotApprovalEvidence";
 
 /**
  * TW-4F platform-admin subaccount onboarding panel (supervised pilot): the read model, the stage/blocker derivation and the panel's persistence.
@@ -288,9 +289,10 @@ export interface PanelStore {
   createEntity(studioId: string, actorId: string, verificationNote: string): Promise<string>;
   decideLink(requestId: string, entityId: string, actorId: string, approve: boolean, note: string): Promise<string>;
   setSpendCap(entityId: string, cents: number, actorId: string): Promise<void>;
-  authorizeSpend(input: { entityId: string; kind: string; cents: number; approvalRef: string; actorId: string; funding: "credit" | "pilot"; studioId: string }): Promise<{ spendEventId: string; replayed: boolean }>;
+  /** `evidence` is required by the database for a pilot-funded approval (20261230) and refused for a credit-funded one. */
+  authorizeSpend(input: { entityId: string; kind: string; cents: number; approvalRef: string; actorId: string; funding: "credit" | "pilot"; studioId: string; evidence?: PilotEvidence | null }): Promise<{ spendEventId: string; replayed: boolean }>;
   withdrawSpend(spendEventId: string, actorId: string, note: string): Promise<void>;
-  createPilotException(entityId: string, ceilingCents: number, approvalRef: string, actorId: string): Promise<{ replayed: boolean }>;
+  createPilotException(entityId: string, ceilingCents: number, approvalRef: string, actorId: string, evidence?: PilotEvidence | null): Promise<{ replayed: boolean }>;
   /** The confirmation for the STUDIO's legal business: the database derives the entity; it never comes from the form. */
   confirmSubaccount(requestKey: string, studioId: string, actorId: string): Promise<{ replayed: boolean; reused: boolean; legalEntityId: string | null }>;
   decideTier(studioId: string, actorId: string, tier: RegistrationTier, reason: string, eligibility: Record<string, boolean> | null): Promise<{ changed: boolean }>;
@@ -319,17 +321,18 @@ export class SupabasePanelStore implements PanelStore {
   async setSpendCap(entityId: string, cents: number, actorId: string) {
     await this.call("tw4_entity_set_spend_cap", { p_entity_id: entityId, p_cents: cents, p_actor: actorId });
   }
-  async authorizeSpend(input: { entityId: string; kind: string; cents: number; approvalRef: string; actorId: string; funding: "credit" | "pilot"; studioId: string }) {
+  async authorizeSpend(input: { entityId: string; kind: string; cents: number; approvalRef: string; actorId: string; funding: "credit" | "pilot"; studioId: string; evidence?: PilotEvidence | null }) {
     const row = obj(await this.call("tw4_spend_authorize", {
       p_entity_id: input.entityId, p_kind: input.kind, p_amount_cents: input.cents, p_approval_ref: input.approvalRef, p_actor: input.actorId, p_funding: input.funding, p_studio_id: input.studioId,
+      ...spendEvidenceParams(input.evidence),
     }));
     return { spendEventId: String(row.spend_event_id ?? ""), replayed: row.replayed === true };
   }
   async withdrawSpend(spendEventId: string, actorId: string, note: string) {
     await this.call("tw4_spend_withdraw", { p_spend_event_id: spendEventId, p_actor: actorId, p_note: note });
   }
-  async createPilotException(entityId: string, ceilingCents: number, approvalRef: string, actorId: string) {
-    return { replayed: obj(await this.call("tw4_pilot_exception_create", { p_entity_id: entityId, p_ceiling_cents: ceilingCents, p_approval_ref: approvalRef, p_actor: actorId })).replayed === true };
+  async createPilotException(entityId: string, ceilingCents: number, approvalRef: string, actorId: string, evidence?: PilotEvidence | null) {
+    return { replayed: obj(await this.call("tw4_pilot_exception_create", { p_entity_id: entityId, p_ceiling_cents: ceilingCents, p_approval_ref: approvalRef, p_actor: actorId, ...exceptionEvidenceParams(evidence) })).replayed === true };
   }
   async confirmSubaccount(requestKey: string, studioId: string, actorId: string) {
     const row = obj(await this.call("tw4_panel_subaccount_confirm", { p_request_key: requestKey, p_studio_id: studioId, p_actor: actorId }));
@@ -362,5 +365,9 @@ export function panelErrorMessage(action: string, error: unknown): string {
       "55000": "Refused: a brand attempt exists (the path is frozen), or an open fee approval or recurring authorization priced for the other path must be withdrawn or revoked first.", "55P03": "A registration run is in progress for this studio; try again in a few minutes." },
   };
   if (code === "42501") return "Only a platform admin can do this.";
+  // U-4: a pilot approval (or the pilot exception) needs the owner's dated written authorization as evidence, consistent with what is being approved
+  if (code === "TW052" && (action === "spend" || action === "pilot")) {
+    return "Refused: the written-authorization evidence is missing or inconsistent (date, who authorized it, scope, amount, document reference and its sha256). Nothing was recorded.";
+  }
   return byAction[action]?.[code] ?? "The change could not be saved. Nothing was changed.";
 }

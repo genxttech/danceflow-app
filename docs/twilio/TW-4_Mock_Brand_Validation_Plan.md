@@ -1,5 +1,7 @@
 # TW-4 mock-brand validation: execution plan and authorization boundaries
 
+> **Update 2026-10-24 (architecture):** This is the historical plan for the parent-account Stage A/B/C harness; Stage C's mock-brand strategy for a real studio still needs its own design decision. Twilio's confirmation (ticket #29647095) that the Primary profile can be assigned into a Secondary profile in a subaccount, and owner decision D2 (revised 2026-10-18: one subaccount per studio legal business, starting with ConfiDance Unlimited, LLC), supersede every parent-account and GenX-as-test-entity statement below. See `TW-4_StageB_Execution_Runbook.md` section 0 for the replacement procedure.
+
 Date 2026-10-16. Status: harness built and tested with the FAKE adapter only. **No Twilio contact has happened.** Nothing here is authorized to run against Twilio yet.
 
 ## 1. What was built (all local, uncommitted)

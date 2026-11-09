@@ -16,7 +16,7 @@ describe("ProviderFeeLifecycleStore", () => {
       calls.push({ fn, args });
       const data: Record<string, unknown> = {
         tw4_rfl_register: { resource_id: "r1", fee_kind: "number", replayed: false },
-        tw4_rfl_cancel_begin: { action: "execute", provider_sid: "PNx", resource_kind: "number" },
+        tw4_rfl_cancel_begin: { action: "execute", provider_sid: `PN${"a".repeat(32)}`, resource_kind: "number" },
         tw4_rfl_studio_ready: { ready: false, blockers: ["open_exposure", 7] },
         tw4_rfl_scan_entities: [{ legal_entity_id: "e1" }, { legal_entity_id: "e2" }],
         tw4_rfl_alerts_claim: [alertRow(1)],
@@ -25,7 +25,7 @@ describe("ProviderFeeLifecycleStore", () => {
     });
     expect(await store.register({ studioId: "s", actorId: "a", kind: "number", providerSid: "PNx", accountSid: "ACx", e164: "+1555", source: "r2b" })).toEqual({ resourceId: "r1", feeKind: "number", replayed: false });
     expect(calls[0]).toEqual({ fn: "tw4_rfl_register", args: { p_studio_id: "s", p_actor: "a", p_kind: "number", p_provider_sid: "PNx", p_account_sid: "ACx", p_e164: "+1555", p_source: "r2b", p_source_operation: null, p_initial_reservation: null } });
-    expect(await store.beginCancel("o1", "a")).toEqual({ action: "execute", providerSid: "PNx", resourceKind: "number" });
+    expect(await store.beginCancel("o1", "a")).toEqual({ action: "execute", providerSid: `PN${"a".repeat(32)}`, resourceKind: "number" });
     expect(await store.studioReady("s")).toEqual({ ready: false, blockers: ["open_exposure"] });
     expect(await store.scanEntities()).toEqual(["e1", "e2"]);
     expect((await store.claimAlerts(5))[0]).toMatchObject({ id: "a1", claimToken: "t1", audience: "both", severity: "critical" });
@@ -40,9 +40,19 @@ describe("ProviderFeeLifecycleStore", () => {
     }
     const skip = storeWith(async () => ({ data: { action: "skip", status: "withdrawn" }, error: null }));
     expect(await skip.beginCancel("o", "a")).toEqual({ action: "skip", status: "withdrawn" });
-    // an 'execute' without the identity it needs is not an execute
+    // an 'execute' without the identity it needs is not an execute; the database has claimed it, so it is an UNKNOWN claim, never skip (TW-4F F5, P2-4)
     const broken = storeWith(async () => ({ data: { action: "execute" }, error: null }));
-    expect(await broken.beginCancel("o", "a")).toEqual({ action: "skip", status: "unknown" });
+    expect(await broken.beginCancel("o", "a")).toEqual({ action: "unknown_claim" });
+    for (const data of [
+      { action: "execute", resource_kind: "number" },
+      { action: "execute", provider_sid: `PN${"1".repeat(32)}` },
+      { action: "execute", provider_sid: 7, resource_kind: ["number"] },
+      { action: "execute", provider_sid: `QE${"1".repeat(32)}`, resource_kind: "number" },
+    ]) {
+      expect(await storeWith(async () => ({ data, error: null })).beginCancel("o", "a")).toEqual({ action: "unknown_claim" });
+    }
+    // a genuine non-execute reply stays skip
+    expect(await storeWith(async () => ({ data: { action: "skip" }, error: null })).beginCancel("o", "a")).toEqual({ action: "skip", status: "unknown" });
   });
 
   it("errors carry the SQLSTATE and never the database message", async () => {

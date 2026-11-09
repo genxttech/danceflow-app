@@ -209,6 +209,15 @@ describe("billed refusals map to skips", () => {
     expect(String(delivery().error_message)).toMatch(/^retry:sms_billing_unavailable:\d{13}/);
     expect(fakeProvider().sent).toHaveLength(0);
   });
+
+  it("the usage reconciler not being ready (TW024) pauses the text: the row stays queued for a retry, never skipped, nothing sent", async () => {
+    seed({ begin: { data: null, error: { code: "TW024" } } });
+    const result = await dispatchQueuedOutboundDeliveries(25);
+    expect(result).toMatchObject({ sent: 0, failed: 0, skipped: 0, retrying: 1 });
+    expect(delivery().status).toBe("queued");
+    expect(String(delivery().error_message)).toMatch(/^retry:sms_billing_paused:\d{13}:n$/); // ":n": provably nothing sent (requeue-able, never "outcome unknown")
+    expect(fakeProvider().sent).toHaveLength(0);
+  });
 });
 
 describe("billed outcomes", () => {

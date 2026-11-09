@@ -19,7 +19,7 @@ vi.setConfig({ testTimeout: 120_000, hookTimeout: 1_000_000 });
 import { FakeBilledSmsProvider, type InboundMessageEvidence } from "@/lib/sms/usageProvider";
 import { reconcileSmsUsage, recoverInboundUsage, runScheduledUsageReconciliation } from "@/lib/sms/usageReconciler";
 import { SupabaseCreditStore } from "@/lib/sms/twilioIsv/creditStore";
-import { LOCAL_QA_MARKER, newSenderIds, readySender } from "./senderFixtures";
+import { LOCAL_QA_MARKER, newSenderIds, reconcilerReadySql, readySender } from "./senderFixtures";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -150,6 +150,7 @@ describe.skipIf(!enabled)("TW-4F scheduled usage reconciliation (real schema, fa
     resetMoney(e);
     if (funds > 0) await fund(e, studio, funds);
     expect((await rpc("tw4_monthly_limit_set_admin", { p_entity_id: e, p_actor: U.padmin, p_limit_cents: 10_000, p_effective_month: null, p_reason: "fixture: monthly texting limit" })).error).toBeNull();
+    aged(reconcilerReadySql(`tw4recon:ready:${RUN}`)); // cleaned with the suite's runs (runner tw4recon:%)
     expect((await rpc("tw4_usage_set_switch", { p_enabled: true, p_actor: U.padmin, p_reason: "fixture: switch on for tests" })).error).toBeNull();
   };
   const begun = async (studio: string, body = "Your lesson is tomorrow at 6pm. Reply STOP to opt out.") => {

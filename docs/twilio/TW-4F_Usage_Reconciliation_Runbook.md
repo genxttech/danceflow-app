@@ -15,6 +15,24 @@ Operations for the scheduled SMS usage reconciler (design: `TW-4F_Usage_Reconcil
    - the token-read parent credentials (see sender readiness §9).
 4. Register the schedule: add `{ "path": "/api/cron/sms-usage-reconcile", "schedule": "*/5 * * * *" }` to `vercel.json` in its own reviewed PR. The unit test that pins "not registered" must be updated in that PR.
 5. Watch two completed runs in the panel (Platform → SMS → Usage reconciliation) before turning on `SMS_BILLED_REAL_SEND` or the database usage switch.
+6. From `20261218090000_twilio_usage_reconciler_readiness.sql` (F3) on, the database enforces this gate through `public._tw4usage_reconciler_ready()` (`{ok, detail, last_success_at}`).
+   - **Ready** means a completed `usage_reconcile` run that *proved it can settle* finished within 30 minutes, and no expired lease has been left unclosed for 10 minutes. Proved means `evidence_read` is true, and either nothing was due or at least one text was settled or read as pending.
+   - The newest run in that window that had texts due must also have proved it. A failed read backs its text off, so a later idle run proves nothing.
+   - One pending or settled text is enough to prove a run, even alongside errors. Texts that keep failing are covered by backoff, review and escalation, not by this gate.
+   - The not-ready details and `last_success_at` look back 7 days.
+   - `tw4_usage_set_switch` refuses to switch billed texting **on** (`TW024`) unless the reconciler is ready and the usage gaps are 0. Switching **off** always works.
+   - `tw4_usage_begin` refuses every **new** billed text with `TW024` while the reconciler is not ready. Nothing is reserved or logged. Automated deliveries stay queued and retry (`sms_billing_paused`). Manual sends answer 503 with a "try again shortly" message.
+   - The panel shows the reason:
+
+     | `detail` | Meaning |
+     |---|---|
+     | `no_completed_run` | No run has completed yet |
+     | `no_evidence_reads` | Evidence reads are off |
+     | `evidence_failing` | Reads or settlement are failing |
+     | `stale` | No proved run in 30 minutes |
+     | `stuck_lease` | The schedule stopped |
+
+   - The rollback `rollback/20261218090000_…` restores the previous bodies byte-exactly. It refuses while billed texting is on, and while another function (F1's activation checklist) calls the helper.
 
 ## 2. Reading the panel
 
