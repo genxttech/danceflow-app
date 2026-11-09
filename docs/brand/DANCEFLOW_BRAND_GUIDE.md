@@ -231,7 +231,7 @@ Navy / violet / orange may be used deliberately in richer branded moments (hero,
 - New and touched code uses the `--brand-*` variables (or a Tailwind alias to them), not raw hex.
 - Existing hard-coded colours are migrated progressively in BR-2 (shell), BR-3 (email/PDF palettes) and BR-7 (sweep). BR-1 makes no repo-wide replacement.
 - Measured drift at audit time (raw hex in `src`): `#5b197a` ≈ 115 uses (near-miss of `--brand-primary`), `#7c2d92` ≈ 95, `#a64ac9` ≈ 43, `#4b2e83` ≈ 65 (undefined), `#806f89` ≈ 53 and `#6f5a7a` ≈ 23 (near-misses of `--brand-muted`), plus the email purples (`#2e1065`, `#4c1d95`, `#6d28d9`) and PDF RGB purples. Each is mapped to a token or explicitly retired during the slice that touches it.
-- Existing non-token colours already in use, recorded for the record: mobile splash navy `#071427`; dark navy `#0b1226` used only for logo-on-dark checks in this guide. Neither is a token. **No new dark-surface brand token is established in BR-1/BR-2** (deferred).
+- Existing non-token colours already in use, recorded for the record: mobile splash navy `#071427`; dark navy `#0b1226` used only for logo-on-dark checks in this guide. Neither is a token. **No new dark-surface brand token is established in BR-1/BR-2** (deferred). **Mobile apps only (owner-approved 2026-11-09):** dark tokens are defined in [`docs/mobile/Mobile_Design_Direction.md`](../mobile/Mobile_Design_Direction.md); web remains deferred.
 
 ---
 
@@ -241,7 +241,7 @@ Navy / violet / orange may be used deliberately in richer branded moments (hero,
 
 **Policy for BR-1:** document the state; introduce no font. Conceptual hierarchy: a clear display/heading style (semibold, tight tracking) for headings and a neutral sans for body and UI, on the system stack until a font decision is made. The wordmark is never typeset.
 
-**No new production font is selected during BR-1 or BR-2.** Sora, Inter or any other family is not adopted. If a font decision is ever taken it will be a separate, explicit owner decision followed by a single `next/font` load; until then the system stack stands.
+**No new production font is selected during BR-1 or BR-2.** Sora, Inter or any other family is not adopted. If a font decision is ever taken it will be a separate, explicit owner decision followed by a single `next/font` load; until then the system stack stands. **Mobile apps only (owner-approved 2026-11-09):** Bricolage Grotesque and Hanken Grotesk, per [`docs/mobile/Mobile_Design_Direction.md`](../mobile/Mobile_Design_Direction.md); the web stays on the system stack.
 
 ---
 
@@ -290,7 +290,7 @@ Reusable, app-agnostic rules only. The number, names and boundaries of apps are 
 2. **Facebook inventory** (page URL, handle, current avatar, cover, bio) — external owner follow-up.
 3. **ARIA acronym expansion and pronoun cleanup** — deferred to a later copy review; ARIA stays the canonical visible assistant name.
 4. **Mobile app icons** (legacy `DF` monogram) — not modified until mobile branding is planned.
-5. **Dark-surface token** and **production font family** — deliberately not decided (see §6.4, §7).
+5. **Dark-surface token** and **production font family** — decided for the mobile apps on 2026-11-09; deliberately not decided for the web (see §6.4, §7).
 6. **Legal line placement** in the product (footer, legal pages, emails, structured data) — implemented in BR-2/BR-3/BR-4. Public surfaces use the A2P-1C wording "DanceFlow is a software platform owned and operated by GenX TotalTech LLC."; since PAY-DC-3 email footers (HTML and plain text) use the same wording (§1.1).
 
 ---
