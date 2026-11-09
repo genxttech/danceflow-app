@@ -121,6 +121,53 @@ describe("allow-list is default deny", () => {
   });
 });
 
+describe("controller-model variant (legacy Express direct charges are blocked for new platforms)", () => {
+  const ctl = () => buildCreateRequest({ envelopeRef: ENVREF, idempotencyKey: IDEM, variant: "controller_express" });
+  const st = { platformId: PLATFORM as string | null, createdId: null as string | null, createSent: false };
+  type Body = Record<string, string>;
+  it("sends the Stripe-documented Express-dashboard controller properties and no type", () => {
+    const b = ctl().body as Body;
+    expect(b).not.toHaveProperty("type");
+    expect(Object.fromEntries(Object.entries(b).filter(([k]) => k.startsWith("controller[")))).toEqual({ "controller[stripe_dashboard][type]": "express", "controller[requirement_collection]": "stripe", "controller[losses][payments]": "application", "controller[fees][payer]": "application" });
+    expect(b["capabilities[card_payments][requested]"]).toBe("true");
+    expect(b["capabilities[transfers][requested]"]).toBe("true");
+    expect(b["metadata[d24_fixture_role]"]).toBe("express_controller_equivalent");
+  });
+  it("is permitted, and the original legacy body is still permitted", () => {
+    expect(allowProblem(ctl(), st)).toBeNull();
+    expect(allowProblem(buildCreateRequest({ envelopeRef: ENVREF, idempotencyKey: IDEM }), st)).toBeNull();
+  });
+  it.each([
+    ["type mixed with controller keys", (b: Body) => ({ ...b, type: "express" })],
+    ["fees payer account", (b: Body) => ({ ...b, "controller[fees][payer]": "account" })],
+    ["losses stripe", (b: Body) => ({ ...b, "controller[losses][payments]": "stripe" })],
+    ["dashboard full", (b: Body) => ({ ...b, "controller[stripe_dashboard][type]": "full" })],
+    ["an extra key (country)", (b: Body) => ({ ...b, country: "US" })],
+    ["an extra controller key", (b: Body) => ({ ...b, "controller[fees][include_stripe_fees]": "x" })],
+  ])("refuses %s", (_n, mut) => {
+    const r = ctl();
+    expect(allowProblem({ ...r, body: mut(r.body as Body) }, st)).not.toBeNull();
+  });
+  it("refuses a controller body carrying the legacy role marker (and vice versa)", () => {
+    const r = ctl();
+    expect(allowProblem({ ...r, body: { ...(r.body as Body), "metadata[d24_fixture_role]": "express_prod_equivalent" } }, st)).not.toBeNull();
+    const l = buildCreateRequest({ envelopeRef: ENVREF, idempotencyKey: IDEM });
+    expect(allowProblem({ ...l, body: { ...(l.body as Body), "metadata[d24_fixture_role]": "express_controller_equivalent" } }, st)).not.toBeNull();
+  });
+  it("the whole flow against the faithful fake: three calls, a controller-model (type none) account, accepted by the unchanged proof gate", async () => {
+    const f = createFakeProvisionTransport({ platformId: PLATFORM });
+    const r = await runProvision({ transport: f.transport, apiKey: KEY, expectPlatformAcct: PLATFORM, envelopeRef: ENVREF, idempotencyKey: IDEM, variant: "controller_express" });
+    expect(f.calls).toHaveLength(3);
+    expect(r.facts.model).toBe("controller_express");
+    expect(r.observedController["account.type"]).toBe("none");
+    expect(r.observedController["controller.fees.payer"]).toBe("application");
+  });
+  it("rejects a legacy express account coming back from a controller-variant request", async () => {
+    const f = createFakeProvisionTransport({ platformId: PLATFORM, accountType: "express" });
+    await expect(runProvision({ transport: f.transport, apiKey: KEY, expectPlatformAcct: PLATFORM, envelopeRef: ENVREF, idempotencyKey: IDEM, variant: "controller_express" })).rejects.toThrow(/legacy Express/);
+  });
+});
+
 describe("--live is permanently disabled", () => {
   const everything = { [ENV.key]: KEY, [ENV.platform]: PLATFORM, [ENV.envelope]: ENVREF, [ENV.phrase]: AUTHORIZATION_PHRASE, [ENV.evidenceDir]: "/somewhere" };
   it("exits 3 and never touches any transport, even with every variable set and a transport injected", async () => {
