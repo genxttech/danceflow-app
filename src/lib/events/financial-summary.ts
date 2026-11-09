@@ -190,6 +190,7 @@ export type EventAccountingFinancialInput = {
   refund_amount?: number | string | null;
   netAmount?: number | string | null;
   net_amount?: number | string | null;
+  direction?: string | null;
 };
 
 export function buildEventProfitabilityByEventId(
@@ -232,6 +233,16 @@ export function buildEventProfitabilityByEventId(
       current.net_ticket_revenue =
         eventFinancialNumber(current.net_ticket_revenue) +
         eventFinancialNumber(entry.netAmount ?? entry.net_amount);
+    } else if (
+      (sourceTable === "event_order_refunds" || sourceTable === "event_order_refund_reversals") &&
+      category === "competition_entry_refund"
+    ) {
+      // CI-D R2 / C1: competition refunds are separate dated entries (debit); a Stripe reversal is a credit.
+      const direction = entry.direction ?? (sourceTable === "event_order_refund_reversals" ? "credit" : "debit");
+      const amount = Math.abs(eventFinancialNumber(entry.refundAmount ?? entry.refund_amount));
+      const signed = direction === "credit" ? -amount : amount;
+      current.refunds = eventFinancialNumber(current.refunds) + signed;
+      current.net_ticket_revenue = eventFinancialNumber(current.net_ticket_revenue) - signed;
     } else if (
       sourceTable === "event_labor_costs" &&
       category === "event_labor_expense"

@@ -89,8 +89,9 @@ export function normalizeWavePaymentMethod(
 
 function refundCategory(category: string) {
   if (category === "event_ticket_revenue") return "event_ticket_refund";
-  // No dedicated competition refund category yet (Event / Competition Refund Integrity follow-up).
-  if (category === "competition_entry_revenue") return "event_ticket_refund";
+  // CI-D R2: competition refunds post as their own dated competition_entry_refund entries; this maps legacy
+  // embedded refunds on pre-R2 competition revenue rows.
+  if (category === "competition_entry_revenue") return "competition_entry_refund";
   if (category === "package_revenue") return "package_refund";
   if (category === "membership_revenue") return "membership_refund";
   if (category === "floor_rental_revenue") return "floor_rental_refund";
