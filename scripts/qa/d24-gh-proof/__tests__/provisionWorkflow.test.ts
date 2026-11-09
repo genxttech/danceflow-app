@@ -172,11 +172,12 @@ describe("provisioning workflow: the create request is the production Express co
   });
 });
 
-describe("recorded proof ids (provisioning run 42530005438, 2026-11-08)", () => {
+describe("recorded proof ids (controller-model provisioning run 42551592046, 2026-11-09)", () => {
   const proof = yaml.load(readFileSync(join(WF_DIR, "d24-stripe-test-proof.yml"), "utf8")) as Wf;
   const penv = (proof.jobs.proof as Job).env as Record<string, string>;
   const PLATFORM = "acct_1UZ320IPJs53nwt7";
-  const CONNECTED = "acct_1UZeX9RPIxrr5yG6";
+  const CONNECTED = "acct_1UZibNRCFiaIzL1V";
+  const LEGACY_FIXTURE = "acct_1UZeX9RPIxrr5yG6"; // type=express; Stripe blocks direct charges on it for this new platform (proof run 2)
   const FORBIDDEN = ["acct_1UWz98RESPl6zEVj", "acct_1TKgLCEYYNmPuFIX", "acct_1TKgL3EY0sTayNiS"]; // D7 sandbox, DEV sandbox, live
   it("the proof pins exactly the D24 sandbox platform and the newly provisioned connected account", () => {
     expect(penv.D24_PROOF_EXPECT_PLATFORM_ACCT).toBe(PLATFORM);
@@ -190,8 +191,17 @@ describe("recorded proof ids (provisioning run 42530005438, 2026-11-08)", () => 
     }
     expect(penv.D24_PROOF_EXPECT_PLATFORM_ACCT).toBe(job.env?.D24_PROVISION_EXPECT_PLATFORM_ACCT);
   });
-  it("the proof still pins the legacy fixture, so the guarded replacement run is allowed; a follow-up PR that pins the replacement closes the guard", () => {
+  it("the legacy fixture is no longer pinned, so the provisioning one-shot guard now refuses a second replacement", () => {
+    const text = readFileSync(join(WF_DIR, "d24-stripe-test-proof.yml"), "utf8");
     expect(penv.D24_PROOF_EXPECT_CONNECTED_ACCT).toBe(CONNECTED);
-    expect(readFileSync(join(WF_DIR, "d24-stripe-test-proof.yml"), "utf8")).not.toContain("acct_PLACEHOLDERCONNECTED");
+    expect(penv.D24_PROOF_EXPECT_CONNECTED_ACCT).not.toBe(LEGACY_FIXTURE);
+    expect(text).not.toContain(`D24_PROOF_EXPECT_CONNECTED_ACCT: "${LEGACY_FIXTURE}"`);
+    expect(text).not.toContain("acct_PLACEHOLDERCONNECTED");
+    // the guard in the provisioning workflow greps for exactly that line
+    expect(step("Fetch exactly").run).toContain(`D24_PROOF_EXPECT_CONNECTED_ACCT: "${LEGACY_FIXTURE}"`);
+  });
+  it("the new connected account is well-formed and is not the platform, the legacy fixture, or any known account", () => {
+    expect(CONNECTED).toMatch(/^acct_[A-Za-z0-9]{6,64}$/);
+    for (const other of [PLATFORM, LEGACY_FIXTURE, ...FORBIDDEN]) expect(CONNECTED).not.toBe(other);
   });
 });
