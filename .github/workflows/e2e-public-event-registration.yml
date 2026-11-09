@@ -26,6 +26,8 @@ on:
       # additions to this directory.
       - "src/lib/documents/**"
       - "src/lib/events/event-order-payment.ts"
+      # CI-A early-bird source guard (src/lib/events/__tests__/ticketPricingGuards.ciA.test.ts) lives here: a PR touching it must run the full Vitest gate.
+      - "src/lib/events/**"
       - "src/lib/payments/**"
       # Payment webhook/routes, credit/billing code and the SMS (Twilio ISV) stack and their migrations move money or tenant access:
       # they must run the typecheck/build/full-Vitest gate too (a PR touching only these paths previously got no check at all).
