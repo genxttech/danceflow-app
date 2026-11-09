@@ -33,6 +33,12 @@ function friendly(error: { message?: string; code?: string | null } | null | und
   const match = message.match(/COMP10D_[A-Z_]+:\s*([\s\S]+)$/);
   if (match) return match[1].replace(/\s+/g, " ").trim();
   if (finalsEnabled && hasResultMessage(message)) return errorText({ message, code: error?.code });
+  // Heat-size refusals from set_competition_round_heat_capacity(round, capacity, reason, request id) are plain sentences.
+  const capacity = message.match(/^COMP_CAPACITY_[A-Z0-9_]+:\s*([\s\S]+)$/);
+  if (capacity && !message.startsWith("COMP_CAPACITY_FORBIDDEN")) {
+    const sentence = capacity[1].replace(/\s+/g, " ").trim();
+    return sentence.charAt(0).toUpperCase() + sentence.slice(1);
+  }
   if (message.includes("Locked or certified")) return "A locked heat can only change through the correction workflow.";
   if (message.includes("Add at least one session")) return "Generate heats before publishing.";
   return "That change could not be saved. Refresh and try again.";
@@ -104,34 +110,34 @@ export async function deleteFloorHeatAction(formData: FormData): Promise<void> {
   back(eventId, error ? { error: friendly(error) } : { notice: "Empty heat removed." });
 }
 
+/**
+ * Heat size ("Max entries per heat"). Since the CF1 S3 migrations the two-argument RPC always refuses
+ * (COMP_CAPACITY_REASON_REQUIRED): every change carries a reason and a request id and is audited (owner decisions OD-3/OD-14).
+ * Nothing from the form is trusted: the request id must be a UUID (never replaced by a fresh one, which would turn a retry into a
+ * second request) and the round must belong to the event of the URL. The database re-checks everything.
+ */
 export async function setHeatCapacityAction(formData: FormData): Promise<void> {
   const { eventId, supabase } = await manager(formData);
-  if (!competitionFinalsEnabled()) {
-    // Competition Finals OFF: exactly the live release path (two-argument RPC). Since the PROD S3 migrations that RPC refuses with
-    // COMP_CAPACITY_REASON_REQUIRED, which the live release already shows as a generic refusal; changing that is an owner decision.
-    const { error } = await supabase.rpc("set_competition_round_heat_capacity", { p_round_id: text(formData, "roundId"), p_capacity: Number(text(formData, "capacity")) });
-    back(eventId, error ? { error: friendly(error), heat: text(formData, "floorHeatId") } : { notice: "Heat size saved. It applies the next time heats are generated.", heat: text(formData, "floorHeatId") });
-  }
-  // CF1 A0: the two-argument RPC always refuses (COMP_CAPACITY_REASON_REQUIRED). The reasoned RPC has a request id, so one retry is safe.
-  const reason = text(formData, "reason");
-  if (!reason) back(eventId, { error: errorText({ message: "COMP_CAPACITY_REASON_REQUIRED" }), heat: text(formData, "floorHeatId") });
-  // Review P3: the round id and the request id come from the form; neither is trusted. A request id that is not a UUID is refused (never replaced by a
-  // fresh one: that would turn a retry into a second request), and the round must belong to the event of the URL.
+  const heat = text(formData, "floorHeatId");
   const roundId = text(formData, "roundId");
   const requestId = text(formData, "requestId");
-  const heat = text(formData, "floorHeatId");
+  const reason = text(formData, "reason");
+  if (!reason) back(eventId, { error: "Enter a reason for the heat size change (20-500 characters). It is kept in the audit history.", heat });
   if (!UUID.test(requestId)) back(eventId, { error: "That change could not be saved. Refresh and try again.", heat });
   if (!UUID.test(roundId)) back(eventId, { error: "That round could not be found. Refresh and try again.", heat });
   const { data: ownRound, error: ownRoundError } = await supabase.from("event_competition_rounds").select("id").eq("id", roundId).eq("event_id", eventId).maybeSingle();
   if (ownRoundError || !ownRound) back(eventId, { error: "That round could not be found. Refresh and try again.", heat });
-  const rpc = withRetryOnce((name, args) => supabase.rpc(name, args));
+  // With Competition Finals on, a deadlock or lock-wait refusal is retried once (safe: the request id makes the call idempotent).
+  // Off, this is exactly the live heat-size hotfix (ac902c28): one call.
+  const call = (name: string, args: Record<string, unknown>) => supabase.rpc(name, args);
+  const rpc = competitionFinalsEnabled() ? withRetryOnce(call) : call;
   const { error } = await rpc("set_competition_round_heat_capacity", {
     p_round_id: roundId,
     p_capacity: Number(text(formData, "capacity")),
     p_reason: reason,
     p_request_id: requestId,
   });
-  back(eventId, error ? { error: friendly(error), heat: text(formData, "floorHeatId") } : { notice: "Heat size saved. It applies the next time heats are generated.", heat: text(formData, "floorHeatId") });
+  back(eventId, error ? { error: friendly(error), heat } : { notice: "Heat size saved. It applies the next time heats are generated.", heat });
 }
 
 export async function publishRunningOrderAction(formData: FormData): Promise<void> {

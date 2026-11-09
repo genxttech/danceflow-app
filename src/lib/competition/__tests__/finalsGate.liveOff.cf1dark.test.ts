@@ -75,18 +75,24 @@ afterEach(() => {
 });
 
 describe("setHeatCapacityAction", () => {
-  it("off: the live two-argument call, no reason or request id required", async () => {
+  // Since hotfix ac902c28 (owner-approved, OD-3/OD-14) the live baseline is the reasoned four-argument call, flag or no flag.
+  it("off: the hotfix baseline, one four-argument call", async () => {
     const { setHeatCapacityAction } = await import("@/app/app/events/[id]/competition/schedule/actions");
-    const url = await redirected(() => setHeatCapacityAction(form({ eventId: EVENT, roundId: ROUND, capacity: "6", floorHeatId: "h1" })));
-    expect(rpcCalls).toEqual([{ name: "set_competition_round_heat_capacity", args: { p_round_id: ROUND, p_capacity: 6 } }]);
+    const requestId = "33333333-3333-4333-8333-333333333333";
+    const url = await redirected(() => setHeatCapacityAction(form({ eventId: EVENT, roundId: ROUND, capacity: "6", floorHeatId: "h1", reason: "Final floor fits six couples only", requestId })));
+    expect(rpcCalls).toEqual([{ name: "set_competition_round_heat_capacity", args: { p_round_id: ROUND, p_capacity: 6, p_reason: "Final floor fits six couples only", p_request_id: requestId } }]);
     expect(url).toContain("notice=Heat size saved");
   });
 
-  it("off: a database refusal keeps the live generic copy", async () => {
-    rpcResult = { error: { message: "COMP_CAPACITY_REASON_REQUIRED: a capacity change needs a recorded reason.", code: "P0001" } };
+  it("off: a deadlock is not retried (the hotfix makes one call) and a capacity refusal is shown as a plain sentence", async () => {
     const { setHeatCapacityAction } = await import("@/app/app/events/[id]/competition/schedule/actions");
-    const url = await redirected(() => setHeatCapacityAction(form({ eventId: EVENT, roundId: ROUND, capacity: "6", floorHeatId: "h1" })));
-    expect(url).toContain("error=That change could not be saved. Refresh and try again.");
+    const requestId = "33333333-3333-4333-8333-333333333333";
+    rpcResult = { error: { message: "deadlock detected", code: "40P01" } };
+    await redirected(() => setHeatCapacityAction(form({ eventId: EVENT, roundId: ROUND, capacity: "6", reason: "Final floor fits six couples only", requestId })));
+    expect(rpcCalls).toHaveLength(1);
+    rpcResult = { error: { message: "COMP_CAPACITY_RANGE: choose between 1 and 100 entries per scoring heat.", code: "P0001" } };
+    const url = await redirected(() => setHeatCapacityAction(form({ eventId: EVENT, roundId: ROUND, capacity: "600", reason: "Final floor fits six couples only", requestId })));
+    expect(url).toContain("error=Choose between 1 and 100 entries per scoring heat.");
   });
 
   it("on: the reasoned four-argument call; a missing reason is refused before any RPC", async () => {
