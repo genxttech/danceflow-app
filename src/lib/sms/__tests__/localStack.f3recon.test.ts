@@ -351,14 +351,27 @@ describe.skipIf(!enabled)("TW-4F F3 usage-reconciler readiness gate (real schema
   });
 
   const EXPECTED_LATER_CALLER = "_tw4act_items(uuid)";
+  // 20261231130000 (sub-cent prices) replaces public.tw4_usage_begin after this migration: on a stack that has it the current fingerprint is its own, and rolling this migration back
+  // first needs that later layer rolled back (inside the rolled-back transaction below), exactly like the _tw4act_items layers.
+  const MICROS_APPLIED = () => psql("select to_regprocedure('public._tw4pm_cents(bigint)') is not null") === "t";
+  const BEGIN_NOW = () => (MICROS_APPLIED() ? "7d5b9675" : "7e85d636");
   const externalCallers = () => psql(`select coalesce(string_agg(p.oid::regprocedure::text, ',' order by p.oid::regprocedure::text), '') from pg_proc p
     where (p.prosrc like '%\_tw4usage\_reconciler\_ready%' or p.prosrc like '%\_tw4usage\_run\_proved%')
       and p.oid not in ('public._tw4usage_reconciler_ready()'::regprocedure, '${BEGIN_SIG}'::regprocedure, '${SWITCH_SIG}'::regprocedure)`);
 
+  const PM_MIGRATION = join(process.cwd(), "src/lib/supabase/migrations/20261231130000_twilio_sms_price_micros.sql");
+  const PM_ROLLBACK = join(process.cwd(), "src/lib/supabase/migrations/rollback/20261231130000_twilio_sms_price_micros_rollback.sql");
+  let hadMicros = false;
+  it("F3-09 (d0) a stack with the later sub-cent layer (20261231130000) rolls that layer back first, so the next two legs see this migration as the latest replacement of tw4_usage_begin", () => {
+    hadMicros = MICROS_APPLIED();
+    if (hadMicros) psqlFile(readFileSync(PM_ROLLBACK, "utf8"));
+    expect(fp(BEGIN_SIG)).toBe("7e85d636");
+  });
+
   it("F3-09 (d) rollback: refused while billed texting is on or another function calls the helper (a true dependency of later migrations)", () => {
     const migration = readFileSync(MIGRATION, "utf8");
     const rollback = readFileSync(ROLLBACK, "utf8");
-    expect([fp(BEGIN_SIG), fp(SWITCH_SIG), fp("public._tw4usage_reconciler_ready()")]).toEqual(["7e85d636", "8adf296c", "39b0ad11"]);
+    expect([fp(BEGIN_SIG), fp(SWITCH_SIG), fp("public._tw4usage_reconciler_ready()")]).toEqual([BEGIN_NOW(), "8adf296c", "39b0ad11"]);
     expect(psqlError(migration)).toContain("already applied");
 
     forceSwitch(true);
@@ -378,7 +391,7 @@ describe.skipIf(!enabled)("TW-4F F3 usage-reconciler readiness gate (real schema
     expect(["", EXPECTED_LATER_CALLER]).toContain(callers);
     if (callers !== "") {
       expect(psqlError(rollback)).toContain("another function calls");
-      expect([fp(BEGIN_SIG), fp(SWITCH_SIG), fp("public._tw4usage_reconciler_ready()")]).toEqual(["7e85d636", "8adf296c", "39b0ad11"]);
+      expect([fp(BEGIN_SIG), fp(SWITCH_SIG), fp("public._tw4usage_reconciler_ready()")]).toEqual([BEGIN_NOW(), "8adf296c", "39b0ad11"]);
       expect(psql("select to_regprocedure('public._tw4usage_run_proved(jsonb)') is not null")).toBe("t");
     }
   });
@@ -395,7 +408,8 @@ describe.skipIf(!enabled)("TW-4F F3 usage-reconciler readiness gate (real schema
     const aclSql = (tag: string) => `select '${tag}.acl=' || (select string_agg(p.proname || ':' || array_to_string(p.proacl, ','), ' ' order by p.proname) from pg_proc p where p.oid in ('${BEGIN_SIG}'::regprocedure, '${SWITCH_SIG}'::regprocedure));`;
     const anonSql = "select 'anon=' || (has_function_privilege('anon', 'public._tw4usage_reconciler_ready()', 'execute') or has_function_privilege('authenticated', 'public._tw4usage_reconciler_ready()', 'execute'))::text;";
     const gone = "select 'gone=' || (to_regprocedure('public._tw4usage_run_proved(jsonb)') is null and to_regclass('public.studio_sms_reconcile_runs_completed') is null)::text;";
-    const out = psqlFile(`begin; ${stub}
+    const pmRollback = MICROS_APPLIED() ? strip(readFileSync(join(process.cwd(), "src/lib/supabase/migrations/rollback/20261231130000_twilio_sms_price_micros_rollback.sql"), "utf8")) : "";
+    const out = psqlFile(`begin; ${stub} ${pmRollback}
       ${aclSql("before")}
       ${strip(rollback)}
       ${fps("rolled")} ${aclSql("rolled")} ${gone}
@@ -410,8 +424,16 @@ describe.skipIf(!enabled)("TW-4F F3 usage-reconciler readiness gate (real schema
     expect(v("reapplied.acl")).toBe(v("before.acl"));
     expect(v("anon")).toBe("false");
     // a second rollback in the same state is refused as not applied
-    expect(psqlError(`begin; ${stub} ${strip(rollback)} ${strip(rollback)} rollback;`)).toContain("the migration is not applied");
+    expect(psqlError(`begin; ${stub} ${pmRollback} ${strip(rollback)} ${strip(rollback)} rollback;`)).toContain("the migration is not applied");
     // nothing leaked out of the rolled-back transaction
-    expect([fp(BEGIN_SIG), fp(SWITCH_SIG), fp("public._tw4usage_reconciler_ready()")]).toEqual(["7e85d636", "8adf296c", "39b0ad11"]);
+    expect([fp(BEGIN_SIG), fp(SWITCH_SIG), fp("public._tw4usage_reconciler_ready()")]).toEqual([BEGIN_NOW(), "8adf296c", "39b0ad11"]);
+  });
+
+  it("F3-09 (d3) the later sub-cent layer is re-applied (the stack is back to its full state)", () => {
+    if (hadMicros) {
+      psqlFile(readFileSync(PM_MIGRATION, "utf8"));
+      expect(MICROS_APPLIED()).toBe(true);
+      expect(fp(BEGIN_SIG)).toBe("7d5b9675");
+    }
   });
 });
