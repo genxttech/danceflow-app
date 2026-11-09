@@ -17,8 +17,8 @@
 -- PERIOD: cumulative from the pilot exception's created_at (the allowance is part of a cumulative ceiling, not a monthly figure). The alert is raised ONCE per threshold
 -- per period; a new pilot exception (a new period) re-arms it. Only a business with a pilot exception is checked for the allowance.
 -- THRESHOLDS: warning at 80% (1600 of 2000), critical at 100%. Only the highest newly crossed threshold is raised in a pass. The allowance is ONE constant:
--- _tw4ia_allowance_cents(). VOLUME: any business whose inbound segments in the last 24 hours exceed 200 (the same condition as sms_inbound_admin_overview.alert_volume),
--- once per business per UTC day.
+-- _tw4ia_allowance_cents(). VOLUME: a PILOT business (one with a pilot exception; owner decision 2026-11-08: pilot-only for the initial rollout) whose inbound segments in the last 24 hours exceed 200
+-- (the same condition as sms_inbound_admin_overview.alert_volume), once per business per UTC day.
 -- Audience is the verified platform administrator only (never the studio owner); the alert has no location (entity level): tw4_rfl_alert_recipients already supplies
 -- the business's earliest-linked location for administrator rows so the existing delivery sink can queue the mail (unchanged).
 -- Summaries carry no amounts. Requires 20261211090000 (alert outbox, kind constraint) and 20261203090000 (inbound usage). Rollback: rollback/20261231140000_twilio_inbound_absorbed_alert_rollback.sql
@@ -106,6 +106,7 @@ begin
     end if;
   end loop;
   for z in select u.legal_entity_id from public.studio_sms_inbound_usage u where u.received_at >= now() - interval '1 day'
+            and exists (select 1 from public.studio_sms_pilot_exceptions y where y.legal_entity_id = u.legal_entity_id)
             group by u.legal_entity_id having sum(u.segments) > public._tw4ia_daily_segment_limit() order by u.legal_entity_id loop
     if public._tw4rfl_alert(z.legal_entity_id, null, null, 'inbound_volume_high', 'inb-vol:' || z.legal_entity_id || ':' || to_char(now() at time zone 'UTC', 'YYYYMMDD'), 'admin', 'warning',
          'Inbound text volume for a business passed the daily threshold. Nothing has been blocked; review inbound traffic.') then v_v := v_v + 1; end if;

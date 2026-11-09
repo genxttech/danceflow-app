@@ -246,21 +246,23 @@ commit;`);
       expect(alertsOf(other, "inbound_absorbed_allowance")).toHaveLength(0);
     });
 
-    it("the daily-volume exception (over 200 segments in 24 hours): once per business per day, never for a quiet business", () => {
-      const today = () => Number(psql(`select coalesce(sum(segments), 0) from public.studio_sms_inbound_usage where legal_entity_id = '${other.entity}' and received_at >= now() - interval '1 day'`));
+    it("the daily-volume exception (over 200 segments in 24 hours): PILOT-ONLY, once per business per day, never for a quiet business, never for a non-pilot business", () => {
+      const today = () => Number(psql(`select coalesce(sum(segments), 0) from public.studio_sms_inbound_usage where legal_entity_id = '${pilot.entity}' and received_at >= now() - interval '1 day'`));
       expect(check().volume).toBe(0);                                        // earlier tests left this business well under the limit
-      for (let missing = 200 - today(); missing > 0; missing -= 20) inbound(other, { seg: Math.min(20, missing) });   // exactly 200 segments: not over
+      for (let missing = 200 - today(); missing > 0; missing -= 20) inbound(pilot, { seg: Math.min(20, missing) });   // exactly 200 segments: not over
       expect(today()).toBe(200);
       expect(check().volume).toBe(0);
-      inbound(other, { seg: 1 });                                            // 201
+      inbound(pilot, { seg: 1 });                                            // 201
       expect(check().volume).toBe(1);
-      const rows = alertsOf(other, "inbound_volume_high");
+      const rows = alertsOf(pilot, "inbound_volume_high");
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ audience: "admin", severity: "warning", studio_id: null });
       expect(check().volume).toBe(0);
-      expect(alertsOf(other, "inbound_volume_high")).toHaveLength(1);
-      expect(alertsOf(pilot, "inbound_volume_high")).toHaveLength(0);
-      inbound(other, { seg: 20, ago: "3 days" });                            // old traffic does not count toward today
+      expect(alertsOf(pilot, "inbound_volume_high")).toHaveLength(1);
+      inbound(other, { seg: 250 });                                          // a NON-pilot business over the limit raises nothing (pilot-only)
+      check();
+      expect(alertsOf(other, "inbound_volume_high")).toHaveLength(0);
+      inbound(pilot, { seg: 20, ago: "3 days" });                            // old traffic does not count toward today
     });
   });
 
