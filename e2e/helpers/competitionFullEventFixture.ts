@@ -124,6 +124,27 @@ export async function createCompetitionFullEventFixture(config: E2EConfig, optio
  * database container with replication triggers off (the documented pattern for this repo's other append-only test evidence).
  * Needs E2E_LOCAL_DB_CONTAINER=supabase_db_cf1c-qa (the dedicated QA stack, pinned by name); refuses anything else. Only this run's event ids (UUIDs) are touched.
  */
+/**
+ * D7 (20270203090000/20270203100000) made entitlements least-privilege for service_role (no DELETE) and added the append-only audit table
+ * usage_addon_entitlement_events. On the dedicated LOCAL QA stack a run clears its own studio's rows through the pinned database container,
+ * audit rows first, with replication triggers off for this transaction only. Where the chain predates D7 the plain API delete is used.
+ */
+async function purgeEntitlementsLocal(studioId: string): Promise<{ error: { message: string } | null }> {
+  if (!/^[0-9a-f-]{36}$/.test(studioId)) return { error: { message: "refusing: malformed studio id" } };
+  const container = pinnedQaDbContainer();
+  if (!container) {
+    return { error: { message: `entitlement rows cannot be deleted through the API after D7; set E2E_LOCAL_DB_CONTAINER=${CF1_QA_DB_CONTAINER} (the dedicated QA stack; no other container is accepted)` } };
+  }
+  const sql = `begin; set local session_replication_role = replica; do $$ begin if to_regclass('public.usage_addon_entitlement_events') is not null then delete from public.usage_addon_entitlement_events where studio_id = '${studioId}'; end if; end $$; delete from public.usage_addon_entitlements where studio_id = '${studioId}'; commit;`;
+  try {
+    execFileSync("docker", ["exec", "-i", container, "psql", "-U", "postgres", "-v", "ON_ERROR_STOP=1", "-q", "-c", sql], { stdio: "pipe" });
+    return { error: null };
+  } catch (error) {
+    const text = String((error as { stderr?: Buffer }).stderr ?? (error as Error).message);
+    return { error: { message: `local entitlement cleanup failed: ${text.split(String.fromCharCode(10)).slice(0, 3).join(" / ")}` } };
+  }
+}
+
 async function purgeRefundLedgerLocal(eventIds: string[]): Promise<{ error: { message: string } | null }> {
   const container = pinnedQaDbContainer();
   if (!container) {
@@ -180,7 +201,7 @@ export async function cleanupCompetitionFullEventFixture(config: E2EConfig, fixt
   await step("notifications", () => admin.from("notifications").delete().eq("studio_id", fixture.studioId));
   await step("payment exceptions", () => admin.from("event_order_settlement_exceptions").delete().eq("studio_id", fixture.studioId));
   await step("outbound_deliveries", () => admin.from("outbound_deliveries").delete().eq("studio_id", fixture.studioId));
-  await step("usage_addon_entitlements", () => admin.from("usage_addon_entitlements").delete().eq("studio_id", fixture.studioId));
+  await step("usage_addon_entitlements", () => purgeEntitlementsLocal(fixture.studioId));
   for (const studioId of [fixture.studioId, fixture.otherStudioId]) {
     await step("studio_subscriptions", () => admin.from("studio_subscriptions").delete().eq("studio_id", studioId));
     await step("user_studio_roles", () => admin.from("user_studio_roles").delete().eq("studio_id", studioId));
