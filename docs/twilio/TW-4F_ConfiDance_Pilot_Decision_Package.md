@@ -12,16 +12,32 @@ Status: decision package only. Nothing here is approved or executed. No price is
 | Price publication mechanism | Built in PR #441, not merged or applied. Needs the `20270210*` chain on PROD first (section 5). |
 | Pilot spending | Not authorized. The $150 ceiling is a safety limit, not a budget (section 6). |
 
-## 2. Per-segment rates: margin reality
+## 2. Per-segment rates: reconciliation against Twilio's October 2026 price page
 
-Provider cost (Twilio US SMS page "October 2026", read directly; Verizon and "other" inbound cells are ambiguous on the page): outbound blended about $0.012695, worst carrier $0.0133; inbound blended about $0.010205, AT&T $0.0118, and Verizon inbound reads $0.0083 + $0.007 = $0.0153.
+Source: `https://www.twilio.com/en-us/sms/pricing/us` ("Pricing current as of October 2026"), fetched 2026-11-09 and read cell by cell from the page HTML (the earlier text extraction merged blank cells, which is how a wrong figure entered the first version of this package).
 
-| Rate | Gross margin at blended cost | Worst case |
+**Correction.** The first version of this package said Verizon inbound can cost $0.0153 (base $0.0083 + $0.007). That is wrong. In the long-code carrier-fee table the columns are SMS Outbound, SMS Inbound, MMS Outbound, MMS Inbound. The Verizon row reads `$0.005 | (blank) | $0.007 | (blank)`: the $0.007 is the **MMS outbound** fee and the SMS inbound cell is **blank**. "All other carriers" reads `$0.0042 | (blank) | $0.01 | (blank)`. Where Twilio means zero it says so (the RCS table lists Verizon inbound as an explicit `$0`), so a blank means no inbound carrier fee is published on this page, not a stated $0. Treat Verizon and other inbound as base rate only ($0.0083) until the first invoice confirms it.
+
+**Incoming messages (what a studio member's reply costs DanceFlow):** base $0.0083 per segment plus the inbound carrier fee.
+
+| Carrier | Inbound carrier fee | Inbound cost per segment |
 |---|---|---|
-| Outbound $0.017 | about 25% (about 17% after Stripe and the 5% variance reserve) | $0.0133 cost still leaves $0.0037 |
-| Inbound $0.013 | about 21% (about 13% after Stripe and reserve) | **Verizon inbound can cost $0.0153: a loss of about $0.0023 per segment** |
+| AT&T | $0.0035 | $0.0118 |
+| T-Mobile | $0.0025 | $0.0108 |
+| US Cellular | $0.0025 | $0.0108 |
+| Verizon | blank (none published) | $0.0083 |
+| All other | blank (none published) | $0.0083 |
 
-The inbound rate is below the earlier 20% target and loses money on Verizon-terminated replies. Bounded by pilot size (the 200 segments per day inbound alert, the burned-ceiling guard); owner has already accepted the rate as provisional, so this is a disclosure, not a new question. Confirm against the first Twilio invoice.
+Blended with the recorded carrier mix (AT&T 28, T-Mobile 37, Verizon 35): 0.28 x 0.0118 + 0.37 x 0.0108 + 0.35 x 0.0083 = **$0.010205**. Worst case is AT&T at **$0.0118**. At $0.013 the inbound rate leaves about $0.0012 (9%) on the worst carrier and about $0.0028 (21%) blended, before Stripe and the variance reserve. There is no loss scenario on the published figures.
+
+**Automated outgoing replies (what DanceFlow's own responses cost):** these are outbound messages and are priced as outbound, not as the inbound message that triggered them. Outbound cost per segment: base $0.0083 plus the outbound carrier fee, AT&T $0.0118, T-Mobile $0.0128, Verizon and US Cellular $0.0133, other $0.0125 (blended about $0.012695). Replies Twilio sends itself under its Advanced Opt-Out configuration (STOP, START and HELP keyword handling) are, according to Twilio's support articles, not billed. A reply DanceFlow sends through the API (for example a custom confirmation) is a normal billed outbound segment, about $0.0127 each, and DanceFlow absorbs it rather than charging the studio (already accounted in the pricing recommendation). The price page itself says nothing about opt-out replies, so this rests on Twilio's support articles and should be confirmed by the first invoice.
+
+| Rate | Blended cost | Gross margin at blended cost | Worst carrier |
+|---|---|---|---|
+| Outbound $0.017 | $0.012695 | about 25% | $0.0133 cost leaves $0.0037 (22%) |
+| Inbound $0.013 | $0.010205 | about 21% | $0.0118 cost leaves $0.0012 (9%) |
+
+Margins are before Stripe fees (2.9% + $0.30 per top-up), the 5% variance reserve and absorbed compliance replies. The planning rates stand as provisional; they are not financial authorization.
 
 ## 3. Fixed fees (Twilio cost unconfirmed; candidate customer prices)
 

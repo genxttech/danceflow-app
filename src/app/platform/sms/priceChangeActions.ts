@@ -87,7 +87,7 @@ export async function pricePropose(formData: FormData) {
     if (isMicroPriceKind(kind)) {
       const priceMicros = usdToMicros(field(formData, "customerUsd"));
       const costRaw = field(formData, "providerUsd");
-      const costMicros = costRaw === "0" ? 0 : usdToMicros(costRaw);
+      const costMicros = /^0(\.0{1,6})?$/.test(costRaw) ? 0 : usdToMicros(costRaw); // a zero provider cost is allowed
       if (priceMicros === null || costMicros === null || !description || !reason) {
         return fail("Give the per-segment customer price and DanceFlow's expected provider cost in dollars (up to six decimals, for example 0.017), a description (3 to 200 characters) and a written reason (10 to 500). Nothing changed.");
       }
