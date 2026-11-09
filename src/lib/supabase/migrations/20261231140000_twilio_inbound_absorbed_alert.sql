@@ -10,7 +10,7 @@
 -- DEFINITION (one place: _tw4ia_absorbed_cents). The cost DanceFlow absorbs for ONE inbound record is its estimated provider cost that the studio was not charged for,
 -- plus the estimated cost of the reply sent for it:
 --     est_reply_cost_cents                                                            (always DanceFlow's: compliance confirmations and error replies)
---   + est_provider_cost_cents                                                          when billable_cents = 0 (compliance STOP/START/HELP, MMS, no inbound price)
+--   + est_provider_cost_cents                                                          when billable_cents = 0 and no micro-priced exact charge (compliance STOP/START/HELP, MMS, no inbound price); a carry-deferred micro-priced text (billable 0, exact_micros > 0) adds 0
 --   + ceil(est_provider_cost_cents * uncollected_cents / billable_cents)               when billable_cents > 0 (the part of an ordinary text beyond the ceiling/credit)
 -- A text charged in full contributes only its reply cost. Rows without a cost estimate (no inbound price was published when recorded) contribute 0: publishing an
 -- inbound price is a pilot precondition (checklist section 6 item 3). MMS is estimated at the SMS rate (the recorded estimate), so it can be slightly understated.
@@ -74,7 +74,8 @@ set search_path = pg_catalog, public, pg_temp
 as $$
   select coalesce(sum(coalesce(u.est_reply_cost_cents, 0)
     + case when u.est_provider_cost_cents is null then 0
-           when u.billable_cents = 0 then u.est_provider_cost_cents
+           when u.billable_cents = 0 and coalesce(u.exact_micros, 0) = 0 then u.est_provider_cost_cents
+           when u.billable_cents = 0 then 0
            else ceil(u.est_provider_cost_cents::numeric * u.uncollected_cents / u.billable_cents)::int end), 0)::bigint
     from public.studio_sms_inbound_usage u where u.legal_entity_id = p_entity and u.received_at >= p_since;
 $$;

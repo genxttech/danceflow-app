@@ -81,15 +81,15 @@ commit;`);
   return w;
 }
 
-type Row = { cls?: "ordinary" | "compliance"; seg?: number; billable?: number; charged?: number; est?: number | null; reply?: number | null; sidPrefix?: "SM" | "MM"; ago?: string };
+type Row = { cls?: "ordinary" | "compliance"; seg?: number; billable?: number; charged?: number; est?: number | null; reply?: number | null; sidPrefix?: "SM" | "MM"; ago?: string; deferredMicros?: number };
 /** One inbound record written directly (fixture only: the recording RPC needs a published inbound price and a signed webhook). */
 function inbound(w: World, r: Row = {}) {
   const billable = r.billable ?? 0;
   const charged = r.charged ?? 0;
   replica(`insert into public.studio_sms_inbound_usage (legal_entity_id, studio_id, provider_sid, account_sid, source, classification, segments, media, unit_price_cents, billable_cents, charged_cents,
-      uncollected_cents, ceiling_cents, est_provider_cost_cents, reply_segments, est_reply_cost_cents, received_at)
+      uncollected_cents, ceiling_cents, est_provider_cost_cents, reply_segments, est_reply_cost_cents, received_at${r.deferredMicros ? ", unit_price_micros, exact_micros, carry_before_micros, carry_after_micros" : ""})
     values ('${w.entity}', '${w.studios[0]}', '${r.sidPrefix ?? "SM"}${hex(16)}', '${w.account}', 'webhook', '${r.cls ?? "ordinary"}', ${r.seg ?? 1}, 0, null, ${billable}, ${charged}, ${billable - charged}, 0,
-      ${r.est === undefined || r.est === null ? "null" : r.est}, null, ${r.reply === undefined || r.reply === null ? "null" : r.reply}, now() - interval '${r.ago ?? "0 seconds"}');`);
+      ${r.est === undefined || r.est === null ? "null" : r.est}, null, ${r.reply === undefined || r.reply === null ? "null" : r.reply}, now() - interval '${r.ago ?? "0 seconds"}'${r.deferredMicros ? `, ${r.deferredMicros}, ${r.deferredMicros}, 0, ${r.deferredMicros}` : ""});`);
 }
 const check = () => JSON.parse(psql("select public.tw4_rfl_inbound_allowance_check()::text")) as { allowance_warnings: number; allowance_critical: number; volume: number };
 const absorbed = (w: World, since = "'-infinity'::timestamptz") => Number(psql(`select public._tw4ia_absorbed_cents('${w.entity}', ${since})`));
@@ -187,7 +187,8 @@ commit;`);
       inbound(w, { cls: "compliance", est: 3, reply: 2 });                   // STOP/HELP: 3 + 2
       inbound(w, { reply: 4 });                                              // no estimate, a reply cost only: 4
       inbound(w, { billable: 5, charged: 5, est: null });                    // no estimate: 0
-      expect(absorbed(w)).toBe(0 + 5 + 7 + 5 + 4 + 0);
+      inbound(w, { billable: 0, est: 9, deferredMicros: 3000 });             // micro-priced text whose cost went into the carry (billable 0, exact > 0): 0, not 9
+      expect(absorbed(w)).toBe(0 + 5 + 7 + 5 + 4 + 0 + 0);
       expect(absorbed(w, "now() + interval '1 minute'")).toBe(0);            // the period start excludes earlier texts
     });
   });
@@ -259,7 +260,7 @@ commit;`);
       expect(rows[0]).toMatchObject({ audience: "admin", severity: "warning", studio_id: null });
       expect(check().volume).toBe(0);
       expect(alertsOf(pilot, "inbound_volume_high")).toHaveLength(1);
-      inbound(other, { seg: 250 });                                          // a NON-pilot business over the limit raises nothing (pilot-only)
+      for (let i = 0; i < 13; i++) inbound(other, { seg: 20 });                                        // a NON-pilot business over the limit raises nothing (pilot-only)
       check();
       expect(alertsOf(other, "inbound_volume_high")).toHaveLength(0);
       inbound(pilot, { seg: 20, ago: "3 days" });                            // old traffic does not count toward today
@@ -299,10 +300,10 @@ commit;`);
       expect(mine[0]).toMatchObject({ recipient_kind: "admin", studio_id: pilot.studios[0], email_verified: true });
       expect(rows.every((r) => r.recipient_kind === "admin")).toBe(true);    // an administrator-audience alert has NO owner recipient
       expect(pilot.studios).not.toContain(other.studios[0]);
-      const b = alertsOf(other, "inbound_volume_high")[0];
+      const b = alertsOf(pilot, "inbound_volume_high")[0];
       const rowsB = JSON.parse(psql(`select coalesce(jsonb_agg(to_jsonb(t)), '[]'::jsonb)::text from public.tw4_rfl_alert_recipients('${b.id}') t where t.user_id = '${ADMIN}'`)) as Array<{ studio_id: string }>;
       expect(rowsB).toHaveLength(1);
-      expect(rowsB[0].studio_id).toBe(other.studios[0]);                     // never a location of another legal business
+      expect(rowsB[0].studio_id).toBe(pilot.studios[0]);                     // never a location of another legal business
     });
 
     it("the sink queues ONE mail to the verified administrator with a studio-scoped queue row, the admin template key and no amounts; nobody else is mailed; the outcome is recorded", async () => {
@@ -328,7 +329,7 @@ commit;`);
   // ---------------------------------------------------------------------------------------------------------------------------------------------
   describe("escalation when delivery is exhausted", () => {
     it("an allowance or volume alert whose delivery failed 5 times raises ONE alert_delivery_exhausted (administrator, critical); repeated runs add none", () => {
-      const ids = [alertsOf(pilot, "inbound_absorbed_allowance")[0].id, alertsOf(other, "inbound_volume_high")[0].id];
+      const ids = [alertsOf(pilot, "inbound_absorbed_allowance")[0].id, alertsOf(pilot, "inbound_volume_high")[0].id];
       for (const id of ids) replica(`update public.studio_sms_provider_alerts set status = 'failed', attempts = 5, last_error = 'RflAlert_unreachable' where id = '${id}';`);
       const first = JSON.parse(psql("select public.tw4_rfl_escalate_delivery()::text")) as { escalated: number };
       expect(first.escalated).toBeGreaterThanOrEqual(2);
