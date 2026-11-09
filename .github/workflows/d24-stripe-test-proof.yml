@@ -37,9 +37,9 @@ jobs:
       contents: read
     env:
       # Pinned in this reviewed file. tests assert each pin equals the repository content at this commit.
-      D24_PROOF_PINNED_SHA256: "21c4d60e8b6e53e1e3421d9685d0b7751b15e68e793f37aaceef30e22345e668"
+      D24_PROOF_PINNED_SHA256: "c77d33c73d98dc6470bfb47c78cb92d0e4f5aafc40c592067c3ccbc342bac326"
       # Git tree id of scripts/qa/d24-m3d-proof, verified in plain shell BEFORE any node/npm process runs (the manifest hash above is computed by the harness itself).
-      D24_PROOF_PINNED_TREE: "4596e0fbf737330132f9703131a0396d41929a88"
+      D24_PROOF_PINNED_TREE: "c86216f1155f56bc0cf6a779c9072534dfcc7b84"
       # Inputs to npm ci and the tsx loader that run in the same job as the key. A changed file breaks the run until these pins are updated under code-owner review.
       D24_PIN_PACKAGE_JSON_SHA256: "1512d22af91872aff89098f30735da03d1831d8532e0be95887df66410b30f4d"
       D24_PIN_PACKAGE_LOCK_SHA256: "57523eb298e97ada0974ad6c39473dca0ba389f33500b5bb99b505fb45106d13"

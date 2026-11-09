@@ -115,7 +115,7 @@ describe("proof allow-list: path and parameter hygiene", () => {
     const good = "d24-proof-a1b2c3d4-a@example.com";
     expect(post({ name: "n", email: good })).toBe(true);
     expect(post({ name: "n" })).toBe(false); // email is required now
-    for (const bad of ["a@b.co", "real.person@gmail.com", "d24-proof-a1b2c3d4-a@example.org", "d24-proof-a1b2c3d4-a@sub.example.com", "d24-proof-A1B2C3D4-a@example.com", "D24-PROOF-a1b2c3d4-a@example.com", "d24-proof-a1b2c3d4-a@example.com ", "x+d24-proof-a1b2c3d4-a@example.com", "d24-proof-ab-a@example.com", "d24-proof-a1b2c3d4-a@example.com,b@example.com"]) {
+    for (const bad of ["a@b.co", "real.person@gmail.com", "d24-proof-a1b2c3d4-a@example.org", "d24-proof-a1b2c3d4-a@gmail.com", "d24-proof-a1b2c3d4-a@notexample.com", "d24-proof-a1b2c3d4-a@sub.example.com", "d24-proof-A1B2C3D4-a@example.com", "D24-PROOF-a1b2c3d4-a@example.com", "d24-proof-a1b2c3d4-a@example.com ", "x+d24-proof-a1b2c3d4-a@example.com", "d24-proof-ab-a@example.com", "d24-proof-a1b2c3d4-a@example.com,b@example.com"]) {
       expect(post({ name: "n", email: bad }), bad).toBe(false);
     }
     expect(post({ name: "n", email: good, phone: "1" })).toBe(false);
