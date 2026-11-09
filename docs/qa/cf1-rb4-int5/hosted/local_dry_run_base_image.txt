@@ -1,0 +1,25 @@
+BEGIN
+SET
+Q1|0|0|0|f
+Q2|_comp10d_copy_floor_plan(uuid,uuid)|8162a7341b7bcd00a141e81392c8c602|MATCH_PRE_BASE|postgres|{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}|t|{"search_path=public, pg_temp"}
+Q2|_comp10d_guard_floor_heat()|bd20973caffce985813daadde8be947a|MATCH_PRE_BASE|postgres|{postgres=X/postgres,service_role=X/postgres}|t|{"search_path=public, pg_temp"}
+Q2|_comp10d_guard_heat_child()|9bb78230385387a3c6a39e66f2d9f8d0|MATCH_PRE_BASE|postgres|{postgres=X/postgres,service_role=X/postgres}|t|{"search_path=public, pg_temp"}
+Q2|_compe2_guard_mark_insert()|786bdf3604fa36e5f8328ecc0d5385ad|MATCH_PRE_BASE|postgres|{postgres=X/postgres,service_role=X/postgres}|t|{"search_path=public, pg_temp"}
+Q2|_compe2_heat_entries(uuid)|f275ced91a3b319aaf0835f67bfe174d|MATCH_PRE_BASE|postgres|{postgres=X/postgres,service_role=X/postgres}|t|{"search_path=public, pg_temp"}
+Q2|_compe2_insert_ballot(uuid,uuid,uuid,uuid,text,uuid,jsonb,text,uuid)|4e16740112345ac0c306e841b82ac473|MATCH_PRE_BASE|postgres|{postgres=X/postgres,service_role=X/postgres}|t|{"search_path=public, pg_temp"}
+Q2|_compe2_round_entries(uuid)|f0da6935a3dcc04320f7636da6655a3b|MATCH_PRE_BASE|postgres|{postgres=X/postgres,service_role=X/postgres}|t|{"search_path=public, pg_temp"}
+Q2|_compe2_round_heats(uuid)|1e75e888142ed1727eb6b2d6c8c0a906|MATCH_PRE_BASE|postgres|{postgres=X/postgres,service_role=X/postgres}|t|{"search_path=public, pg_temp"}
+Q2|_compf2_evidence(uuid,text,text)|2b1c9a22be4a4c4a4e5ba43adee37306|MATCH_PRE_BASE|postgres|{postgres=X/postgres}|t|{"search_path=public, pg_temp"}
+Q2|approve_competition_round_result(uuid,uuid,text,uuid)|0650367be64e3d1b4387a3dbceba3d4a|MATCH_PRE_BASE|postgres|{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}|t|{"search_path=public, pg_temp"}
+Q2|calculate_competition_round(uuid,text,text,text,text,jsonb,jsonb,jsonb,uuid)|ddaa45cbb518f7592f5ca6dd0ba00176|MATCH_PRE_BASE|postgres|{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}|t|{"search_path=public, pg_temp"}
+Q2|competition_audit_log(uuid,uuid,integer)|d38b87512d066907b37702addc6cd116|MATCH_PRE_BASE|postgres|{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}|t|{"search_path=public, pg_temp"}
+Q2|competition_judge_ballot_sheet(uuid)|21cd3df42b8789e3b1baade47a0231d0|MATCH_PRE_BASE|postgres|{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}|t|{"search_path=public, pg_temp"}
+Q2|competition_round_ballot_status(uuid)|a3f5226acc9a40cdedd83d9c0a0fee24|MATCH_PRE_BASE|postgres|{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}|t|{"search_path=public, pg_temp"}
+Q2|competition_round_results_review(uuid)|c842be1dafce548cd279f1d2d6f6f1d0|MATCH_PRE_BASE|postgres|{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}|t|{"search_path=public, pg_temp"}
+Q2|complete_competition_round(uuid,uuid)|dd0e1cd4c02bb51bbd75471c113a1f9f|MATCH_PRE_BASE|postgres|{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}|t|{"search_path=public, pg_temp"}
+Q2|lock_competition_round_ballots(uuid,uuid)|6e4175342d51ffe274d70ce413bae8c3|MATCH_PRE_BASE|postgres|{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}|t|{"search_path=public, pg_temp"}
+Q2|set_competition_round_heat_capacity(uuid,integer)|4fbc864079928710917ea67d7968d8bb|MATCH_PRE_BASE|postgres|{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}|t|{"search_path=public, pg_temp"}
+Q2|validate_competition_heat_schedule_placement()|f2079401a3a92c3289405547d2fe511b|MATCH_PRE_BASE|postgres|{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}|f|{"search_path=public, pg_temp"}
+Q3|f|f|f|8fd8184a82861cbc43cb3d33ea88e54b
+Q4|f
+ROLLBACK

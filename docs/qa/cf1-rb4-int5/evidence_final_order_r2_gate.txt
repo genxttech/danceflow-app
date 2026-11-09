@@ -1,0 +1,64 @@
+OD-17 runner mode=r2 image=cf1host:found head=a5d6a089 2026-11-08T02:54:52Z
+R2 20270103090000 applied (branch competition-r2-entry-refunds): PASS
+R2 refund write gate 20270103091000_competition_r2_refund_write_gate.sql applied: PASS
+R2 ledger tables present before CF1: t
+COMPOSED APPLY without OD-17 (A1..RB3R): PASS
+OD-17 20270120105000 apply (preflight + postflight inside): PASS
+OD-17 additive-only: 0 existing fingerprint lines removed/changed, 26 lines added PASS
+OD-17 second apply refused (ERROR:  CF1-OD17 preflight: an OD-17 enforcement object already exists.): PASS
+OD-17 rollback exactness (fingerprint equals pre-OD-17): 0 diff lines PASS
+OD-17 re-apply fingerprint equals first apply: 0 diff lines PASS
+F3 20270122090000 applied: PASS
+REVERSE ROLLBACK (F3, OD-17, RB3R..A0, A1) fingerprint diff vs pre-CF1: 0 lines PASS
+RE-APPLY (sorted order) fingerprint diff vs first composed apply: 0 lines PASS
+EXPECTED MODE (r2_ledger): catalog ledger=t, _cf1_refund_evidence_mode()=r2_ledger PASS
+SUITE (with OD-17) hl1: COMPETITION HL1 HEAT GUARDS SQL SUITE PASS (42 checks)
+SUITE (with OD-17) e2: COMPETITION E2 SQL SUITE PASS (211 checks)
+SUITE (with OD-17) e2p1: COMPETITION E2 P1FIX SQL SUITE PASS (10 checks)
+SUITE (with OD-17) f2: COMPETITION F2 SQL SUITE PASS (198 checks)
+SUITE (with OD-17) o1: COMPETITION O1 SQL SUITE PASS (95 checks)
+SUITE (with OD-17) ss1adv: COMPETITION SS1 ADVANCEMENT FREEZE SQL SUITE PASS (13 checks)
+SUITE (with OD-17) ss1lock: COMPETITION SS1 SQL SUITE PASS (36 checks)
+SUITE (with OD-17) ns1: COMPETITION NS1 SQL SUITE PASS (152 checks)
+SUITE (with OD-17) cx1: COMPETITION CX1 SQL SUITE PASS (15 checks)
+SUITE (with OD-17) k1: COMPETITION K1 SQL SUITE PASS (23 checks)
+SUITE (with OD-17) reg: COMPETITION REG SQL SUITE PASS (80 checks)
+SUITE (with OD-17) p10d: PHASE 10D SQL SUITE PASS (79 checks)
+SUITE (with OD-17) p10d1: PHASE 10D.1 SQL SUITE PASS (22 checks)
+SUITE (with OD-17) a1: COMPETITION CF1 A1 SQL SUITE PASS (136 checks, 5 blocked: apply/start guards, A2/A3 insertions, A5 functions are other packages)
+SUITE (with OD-17) a0: COMPETITION CF1 A0 SQL SUITE PASS (199 checks, 5 blocked)
+SUITE (with OD-17) a2: COMPETITION CF1 A2 LOCK CHECK SQL SUITE PASS (35 checks, 0 blocked)
+SUITE (with OD-17) a3: COMPETITION CF1 A3 SQL SUITE PASS (119 checks, 4 blocked)
+SUITE (with OD-17) a4a: COMPETITION CF1 A4a SQL SUITE PASS (63 checks, 2 blocked)
+SUITE (with OD-17) a5: COMPETITION CF1 A5 SQL SUITE PASS (186 checks, 4 blocked: A3-dependent lock refusal, cancel exit, multi-session probe, other suites)
+SUITE (with OD-17) a6: COMPETITION CF1 A6 SQL SUITE PASS (247 checks, 3 blocked)
+SUITE (with OD-17) a7: COMPETITION CF1 A7 SQL SUITE PASS (81 checks, 1 blocked: two-session races are in the .sh script)
+SUITE (with OD-17) a4: COMPETITION CF1 A4 SQL SUITE PASS (55 checks, 3 blocked)
+SUITE (with OD-17) a0tie: COMPETITION CF1 A0 TIE POLICY SUITE PASS (96 checks, 1 blocked)
+SUITE (with OD-17) a5u38: COMPETITION CF1 A5 U38 SQL SUITE PASS (14 checks)
+SUITE (with OD-17) rb3: COMPETITION CF1 RB3 SQL SUITE PASS (76 checks, 4 blocked)
+SUITE (with OD-17) rb3r: NO VERDICT (see /c/Dev/cf1od17-run/runs_r2/rb3r.with.out)
+SUITE (with OD-17) f3: COMPETITION CF1 F3 SQL SUITE PASS (191 checks)
+SUITE (with OD-17) u66: COMPETITION CF1 U66 SQL SUITE PASS (57 checks, 1 blocked: two-session races are in the .sh script)
+OFF IDENTITY: verdicts of the existing suites with vs without the OD-17 objects: 0 differing lines (check counts included) PASS
+NO VERDICT: rb3r: NO VERDICT (see /c/Dev/cf1od17-run/runs_r2/rb3r.with.out)
+SUITE od17: od17: COMPETITION CF1 OD17 SQL SUITE PASS (59 checks, r2=true)
+CONC A3: PASS (9/9 probe values)
+CONC A0: PASS R5 correction vs a held Final heat: 55P03, correction not opened, advancement still active|PASS U20/U24 a floor-heat insert at the next number in a LATER transaction (after the apply committed) is refused|PASS U20 a Final heat insert in a LATER transaction (after the apply committed) is refused|PASS U8 the retry of an apply that committed (the client lost the answer) is a replay: replayed true, no second advancement (1)|PASS U54 apply behind a held round row is bounded by the function-level lock_timeout (5s), writes nothing, and the session's lock_timeout reads 0 afterwards|PASS U8 the re
+CONC A6: PASS R4 U51: the direct un-scratch waited on the row lock, the guard re-fired on the newest row version, saw the committed withdrawal and refused|PASS R4: the withdrawn couple is still scratched|PASS R5 control: with the guard and its pair-state reader STABLE the same race lets the un-scratch through (a withdrawn couple un-scratched), which is why the guard is VOLATILE (restored to VOLATILE)|PASS the guard is VOLATILE again|PASS R6a: co-sign first, the concurrent cancel waited and then got COMP_WITHDRAWAL_REQUEST_COMPLETED (one withdrawal, no cancellation row)|PASS R6b: cancel first, the concu
+CONC A2: CF1 A2 CONCURRENCY PASS (19 checks)|
+CONC A5: PASS  P2 request waited for the lifecycle writer (4101 ms), then saw the scratched heat entry (NOT_DANCED), no deadlock|PASS  P3 exclusion waited for the reopen (4452 ms) and ran against the active round|PASS  P4 reopen waited (4133 ms); the exclusion row is committed once, the round ended active|PASS  P5 request waited for the lock-order holder (4536 ms), no deadlock (emulation, not the real A2 lock function)|PASS  P6 one row, exactly one replayed result, no error|PASS  P7 seq values distinct and gap-free in the round|PASS  P8 one co-sign row; the loser was refused COMP_EXCLUSION_DECISION_COM
+CONC A7: PASS  concurrent filings: each correction ballot has its record (2 rows)|PASS  the co-signer's filing waited for the co-sign and was refused (COSIGNER_CONFLICT)|PASS  the ballot waited for the round lock, landed in the correction with its record|PASS  the request waited for the open, then was refused (no row written)|PASS  the open waited for the exclusion's round lock and then derived entry_exclusion|PASS  the opener's filing is refused (before and after the co-sign); another judge's lands|== done: 0 failure(s) ==|
+CONC A4: PASS R1 two co-signs that would leave one couple: exactly one refused BELOW_MINIMUM, two couples remain (D4)|PASS R2 start || co-sign: the Final started with the post-withdrawal roster (2 couples, 1 withdrawal row)|COMPETITION CF1 A4 CONCURRENCY PASS|
+CONC A0tie: PASS  iii three concurrent applies queued behind a held round row are all refused; nothing written (advancement, Final heat, floor heat, approval, versions unchanged)|PASS  e a row written for the blocked version outside its creating transaction is refused COMPF2_ROW_IMMUTABLE (rows unchanged)|PASS  e an UPDATE of the blocked version's rows from a later transaction is refused (append-only evidence)|PASS  S4 first corrected ballot (J13 {1,2,5}) still leaves a tie: v2 blocked (8/8 NULL), v1 superseded|PASS  S4 the still-blocked v2 cannot be approved (COMP_ADVANCEMENT_BLOCKED)|PASS  S4 the second
+CONC F3: PASS  6 withdraw then publish: v1 withdrawn (not superseded), v2 current|PASS  7 two withdraws: one wins, one audit row, the other is refused|PASS  8 complete round, two withdraws: one wins, one audit row, round stays complete, the other is refused|PASS  9 complete round, same request id: one write, the second session replays|PASS  10 complete then withdraw: the round completes, the late withdraw succeeds on the complete round (audit says complete)|PASS  11 withdraw then complete: the complete is refused (no current publication), round stays published|== done: 0 failure(s) ==|CONCURRENCY PASS|
+CONC U66: PASS  2b recovery then ballot: the filer waited, was refused (round not active), no replacement ballot exists|PASS  3a co-sign then recovery: refused with the existing code (cosign), the co-sign stands|PASS  3b recovery then co-sign: the co-sign waited and was refused (not open), no co-sign row|PASS  4a recovery then publish: the publish waited and was refused (round not approved), no publication row|PASS  4b current publication blocks the recovery; once the withdraw commits the recovery proceeds and the publication row is kept|PASS  5 recovery vs plain exclusion request: serialised on the rou
+CONC RB3R: PASS  C1 same request id from two sessions: one row, the second session is a replay (RES1 false / RES2 true)|PASS  C2 two managers co-sign concurrently: exactly one release_cosigned row, the other refused DECISION_COMPLETED|PASS  C2b entry released after the single co-sign (effective reason null)|PASS  C3 concurrent distinct requests: both recorded (serialised), the older one is stale at co-sign|RB3R CONCURRENCY TALLY: 4 passed, 0 failed|
+CONC OD17: PASS  C1 enable vs placement: the placement waited (4s) and was refused under ON; the couple is not placed|PASS  C6 disable vs placement: the placement waited (5s) and succeeded once OFF|PASS  C2 placement vs enable: the enable waited (4s), saw the committed placement and was refused (roster_clean); the switch stays OFF|PASS  C3 two enables: both audited, exactly one changed the state, the switch is ON|PASS  C4 same request id from two sessions: one audit row, the second session replays|PASS  C5 enable vs round start: the start ran under the committed ON (clean roster) and succeeded (waited 4s
+events with the switch ON after the concurrency probes: 1
+OD-17 rollback refused while an event is ON (ERROR:  CF1-OD17 rollback refused: at least one event has OD-17 enforcement ON; disable it first (cf1_od17_set_enforcement).): PASS
+refused rollback (ON) changed nothing: 0 diff lines PASS
+OD-17 rollback refused while audit rows exist (ERROR:  CF1-OD17 rollback refused: audit rows exist (evidence); roll forward instead.): PASS
+refused rollback (audit) changed nothing: 0 diff lines PASS
+SUITE SUMMARY (r2): PASS 40 (suites 28, concurrency 12) | FAIL 0 (suites 0, concurrency 0) | NO VERDICT 1 (suites 1, concurrency 0) | NOT APPLICABLE 0 | NOT VERIFIED 0
+DONE 2026-11-08T03:35:35Z

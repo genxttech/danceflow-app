@@ -1,0 +1,18 @@
+RESULT p1_entry_for_update_ranking_set=BLOCKED
+RESULT p1_entry_for_key_share=NOT_BLOCKED
+RESULT p1_entry_for_update_other_round=NOT_BLOCKED
+RESULT p1_round_for_update=BLOCKED
+RESULT p2_entry_for_update_ranking_set=BLOCKED
+RESULT p2_entry_for_key_share=NOT_BLOCKED
+RESULT p2_heat_for_update_certified=BLOCKED
+RESULT p2_round_for_update=BLOCKED
+WRITER_COMMITTED
+RESULT p3_calc=ERROR P0001 COMP_ROSTER_ENTRY_UNAVAILABLE: 1 couple(s) in the ranking se
+PHASE1
+  p1_calc   
+PHASE2
+ p2_approve 
+PHASE3
+DONE
+outputs kept in /tmp/tmp.oXobUXiDdR
+CONC A3: PASS (9/9 probe values)   [verify_cf1_a3_locks.sh on a fresh R2 chain (R2 + A1..RB3R + F3, OD-17 not applied), 2026-11-07]

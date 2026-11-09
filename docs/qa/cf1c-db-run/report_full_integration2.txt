@@ -1,0 +1,44 @@
+integration head  (detached worktree, not merged further)
+CHAIN: full chain built (clean, uniformly postgres-owned): 271 applied, 4 skipped, 0 failed
+COMPOSED APPLY (full chain): PASS
+REVERSE ROLLBACK fingerprint diff vs pre-CF1: 0 lines PASS
+RE-APPLY fingerprint diff vs first apply: 0 lines PASS
+SUITE hl1: COMPETITION HL1 HEAT GUARDS SQL SUITE PASS (42 checks)
+SUITE e2: COMPETITION E2 SQL SUITE PASS (211 checks)
+SUITE e2p1: COMPETITION E2 P1FIX SQL SUITE PASS (10 checks)
+SUITE f2: COMPETITION F2 SQL SUITE PASS (198 checks)
+SUITE o1: COMPETITION O1 SQL SUITE PASS (95 checks)
+SUITE ss1adv: COMPETITION SS1 ADVANCEMENT FREEZE SQL SUITE PASS (13 checks)
+SUITE ss1lock: COMPETITION SS1 SQL SUITE PASS (36 checks)
+SUITE ns1: COMPETITION NS1 SQL SUITE PASS (152 checks)
+SUITE cx1: COMPETITION CX1 SQL SUITE PASS (15 checks)
+SUITE k1: COMPETITION K1 SQL SUITE PASS (23 checks)
+SUITE reg: COMPETITION REG SQL SUITE PASS (80 checks)
+SUITE p10d: PHASE 10D SQL SUITE PASS (79 checks)
+SUITE p10d1: PHASE 10D.1 SQL SUITE PASS (22 checks)
+SUITE a1: COMPETITION CF1 A1 SQL SUITE PASS (132 checks, 5 blocked: apply/start guards, A2/A3 insertions, A5 functions are other packages)
+SUITE a0: COMPETITION CF1 A0 SQL SUITE PASS (198 checks, 5 blocked)
+SUITE a2: COMPETITION CF1 A2 LOCK CHECK SQL SUITE PASS (32 checks)
+SUITE a3: COMPETITION CF1 A3 SQL SUITE PASS (113 checks, 4 blocked)
+SUITE a4a: COMPETITION CF1 A4a SQL SUITE PASS (63 checks, 2 blocked)
+SUITE a5: COMPETITION CF1 A5 SQL SUITE PASS (187 checks, 4 blocked: A3-dependent lock refusal, cancel exit, multi-session probe, other suites)
+SUITE a6: COMPETITION CF1 A6 SQL SUITE PASS (230 checks, 3 blocked)
+SUITE a7: COMPETITION CF1 A7 SQL SUITE PASS (74 checks, 1 blocked: two-session races are in the .sh script)
+SUITE a4: COMPETITION CF1 A4 SQL SUITE PASS (55 checks, 3 blocked)
+CONC A3 expected missing: p1_entry_for_key_share=NOT_BLOCKED
+CONC A3 expected missing: p1_entry_for_update_other_round=NOT_BLOCKED
+CONC A3 expected missing: p1_entry_for_update_ranking_set=BLOCKED
+CONC A3 expected missing: p1_round_for_update=BLOCKED
+CONC A3 expected missing: p2_entry_for_key_share=NOT_BLOCKED
+CONC A3 expected missing: p2_entry_for_update_ranking_set=BLOCKED
+CONC A3 expected missing: p2_heat_for_update_certified=BLOCKED
+CONC A3 expected missing: p2_round_for_update=BLOCKED
+CONC A3 expected missing: p3_calc=ERROR P0001 COMP_ROSTER_ENTRY_UNAVAILABLE
+CONC A3: NOT VERIFIED (see a3_conc.out / a3_conc_all.out)
+CONC A0: PASS U54 apply behind a held round row is bounded by the function-level lock_timeout (6s), writes nothing, and the session's lock_timeout reads 0 afterwards|PASS U8 the retry with the same request id after the lock timeout applies once (replayed false)|PASS U8 a further retry is a replay (replayed true), still one advancement|COMPETITION CF1 A0 CONCURRENCY PASS|
+CONC A6: PASS R6a: co-sign first, the concurrent cancel waited and then got COMP_WITHDRAWAL_REQUEST_COMPLETED (one withdrawal, no cancellation row)|PASS R6b: cancel first, the concurrent co-sign waited and then got COMP_WITHDRAWAL_REQUEST_CANCELLED (exactly one winner)|PASS R7: two concurrent cancels by the same person: the second waited and replayed; exactly one evidence row|COMPETITION CF1 A6 CONCURRENCY PASS|
+CONC A2: CF1 A2 CONCURRENCY PASS (19 checks)|
+CONC A5: PASS  P6 one row, exactly one replayed result, no error|PASS  P7 seq values distinct and gap-free in the round|PASS  P8 one co-sign row; the loser was refused COMP_EXCLUSION_DECISION_COMPLETED|COMPETITION CF1 A5 CONCURRENCY PASS|
+CONC A7: PASS  the request waited for the open, then was refused (no row written)|PASS  the open waited for the exclusion's round lock and then derived entry_exclusion|PASS  the opener's filing is refused (before and after the co-sign); another judge's lands|== done: 0 failure(s) ==|
+CONC A4: PASS R1 two co-signs that would leave one couple: exactly one refused BELOW_MINIMUM, two couples remain (D4)|PASS R2 start || co-sign: the Final started with the post-withdrawal roster (2 couples, 1 withdrawal row)|COMPETITION CF1 A4 CONCURRENCY PASS|
+DONE 2026-10-31T20:55:10Z

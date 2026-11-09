@@ -6,6 +6,8 @@ import { getEventTimeZone } from "@/lib/events/eventTiming";
 import { competitionWorkspaceHref } from "@/lib/competition/workspaceLink";
 import type { createClient as createServerClient } from "@/lib/supabase/server";
 import { requireCompetitionManager } from "@/lib/competition/workspaceServer";
+import { publishScoringBlockers } from "@/lib/competition/scoring/studioReadiness";
+import { loadStudioScoringReadiness } from "@/lib/competition/scoring/studioReadinessServer";
 import type { SetupProfileDefaults } from "@/lib/competition/setup/types";
 import { STUDIO_CUSTOM_PROFILE } from "@/lib/competition/setup/studioCustomV3";
 import { SETUP_STEPS, deriveDraft, parsePrice, restoreAnswers, setupProfileProblems } from "@/lib/competition/setup/draft";
@@ -173,6 +175,19 @@ export async function publishCompetitionAction(_previous: ActionState, formData:
   const programId = text(formData, "programId");
   if (!eventId || !programId) return { ok: false, error: "Competition is required." };
   const { supabase } = await requireCompetitionManager(eventId);
+
+  // SS1: scoring is pinned at publish and cannot change afterwards, so a draft whose selected scoring is inconsistent or not
+  // approved is refused here instead of being published into a state that can never calculate.
+  let scoring;
+  try {
+    scoring = await loadStudioScoringReadiness(supabase, eventId);
+  } catch {
+    return { ok: false, error: GENERIC_ERROR };
+  }
+  const scoringBlockers = publishScoringBlockers(scoring, programId);
+  if (scoringBlockers.length > 0) {
+    return { ok: false, error: `Fix the scoring setup before publishing: ${scoringBlockers.map((item) => `${item.divisionName} · ${item.detail}`).slice(0, 3).join(" ")}${scoringBlockers.length > 3 ? ` (+${scoringBlockers.length - 3} more)` : ""}` };
+  }
 
   const { error } = await supabase.rpc("publish_competition_program", { target_program_id: programId });
   if (error) return { ok: false, error: friendly(error) };
