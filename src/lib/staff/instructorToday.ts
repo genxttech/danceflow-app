@@ -208,6 +208,7 @@ export async function loadAppointmentDetail(params: {
           capacity: row.roster_capacity ?? null,
           includeFunding: false,
           canManage: false,
+          assignedInstructorView: access.scope === "own-instructor",
         })
       : null,
     row.appointment_type === "private_lesson" ? loadLessonRecap(supabase, studioId, row.id) : null,
@@ -227,19 +228,13 @@ export async function loadAppointmentDetail(params: {
           capacity: row.roster_capacity ?? null,
           attendees: roster.entries.map((entry) => ({
             clientId: entry.clientId,
-            name: access.scope === "broad" ? entry.name : teachingDisplayName(names.get(entry.clientId)),
+            name: entry.nameKnown ? entry.name : null,
             attendanceStatus: entry.attendanceStatus,
           })),
         }
       : null,
     recap,
   };
-}
-
-// clients RLS hides the roster's name embed from an instructor, and the roster's "Unnamed dancer" placeholder must not reach the app as if it were a name. Until an instructor
-// roster RPC exists, a name comes from the teaching relationship or is null. The service role is deliberately not used to get around this.
-function teachingDisplayName(client: ClientName | undefined) {
-  return client ? `${client.firstName} ${client.lastName}`.trim() || null : null;
 }
 
 type LessonRecapRow = {

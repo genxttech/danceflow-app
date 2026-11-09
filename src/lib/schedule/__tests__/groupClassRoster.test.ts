@@ -25,8 +25,22 @@ import {
 
 type Row = Record<string, unknown>;
 
-function makeFakeSupabase(tables: Record<string, Row[]>) {
+function makeFakeSupabase(tables: Record<string, Row[]>, rpcRows?: Record<string, Row[]>) {
   return {
+    // get_class_roster_names_for_instructor: unless a test overrides it, answers from the attendee fixtures' own embedded names. Who may call it (the
+    // assigned instructor only) is the database's rule and is proven by the real-RLS suite, not here.
+    async rpc(name: string, args: { target_appointment_id: string }) {
+      if (name !== "get_class_roster_names_for_instructor") throw new Error(`Unexpected rpc: ${name}`);
+      const rows =
+        rpcRows?.[args.target_appointment_id] ??
+        (tables.appointment_attendees ?? [])
+          .filter((row) => row.appointment_id === args.target_appointment_id && row.clients)
+          .map((row) => {
+            const client = row.clients as Row;
+            return { client_id: row.client_id, first_name: client.first_name, last_name: client.last_name, attendee_status: row.status ?? "booked" };
+          });
+      return { data: rows, error: null };
+    },
     from(table: string) {
       const rows = tables[table] ?? [];
       let filtered = [...rows];
@@ -322,6 +336,35 @@ const PAST_STARTS_AT = "2026-09-01T10:00:00.000Z";
 const PAST_ENDS_AT = "2026-09-01T11:00:00.000Z";
 const PRE_START_CANCELLED_AT = "2026-08-25T00:00:00.000Z"; // before either starts_at above
 const POST_START_CANCELLED_AT = "2026-09-01T10:30:00.000Z"; // after PAST_STARTS_AT, before NOW_ISO
+
+describe("getClassRosterForInstructor names (clients RLS hides the embed from instructors)", () => {
+  it("takes names from the roster RPC, not the clients embed RLS hides", async () => {
+    const supabase = makeFakeSupabase(
+      {
+        appointment_attendees: [
+          { appointment_id: APPOINTMENT_ID, studio_id: STUDIO_ID, client_id: "client-1", status: "booked", clients: null },
+        ],
+        appointments: [],
+      },
+      { [APPOINTMENT_ID]: [{ client_id: "client-1", first_name: "Ada", last_name: "Lovelace", attendee_status: "booked" }] },
+    );
+
+    const roster = await getClassRosterForInstructor({ supabase: supabase as never, appointmentId: APPOINTMENT_ID, studioId: STUDIO_ID });
+
+    expect(roster).toEqual([{ clientId: "client-1", firstName: "Ada", lastName: "Lovelace", source: "roster" }]);
+  });
+
+  it("fails loudly when the roster RPC errors, instead of showing an empty class", async () => {
+    const supabase = {
+      ...makeFakeSupabase({ appointment_attendees: [], appointments: [] }),
+      rpc: async () => ({ data: null, error: { message: "boom" } }),
+    };
+
+    await expect(
+      getClassRosterForInstructor({ supabase: supabase as never, appointmentId: APPOINTMENT_ID, studioId: STUDIO_ID }),
+    ).rejects.toThrow("Failed to load class roster");
+  });
+});
 
 describe("getClassEnrollmentAppointmentsForClient (upcoming/recent, staff + portal shared read)", () => {
   const CLIENT_ID = "client-1";

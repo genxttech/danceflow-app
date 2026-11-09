@@ -165,10 +165,10 @@ const client_account_links: Row[] = [
   { id: "link-1", studio_id: STUDIO_A, client_id: "cli-rental", user_id: TOKENS.renterInstructorA, status: "linked" },
 ];
 
-const appointment_attendees: Row[] = [
+export const appointment_attendees: Row[] = [
   { id: "att-1", studio_id: STUDIO_A, appointment_id: APPT_OWN_CLASS, client_id: "cli-a1", status: "booked", billing_type: "package_credit", payment_status: "paid", clients: clientName("cli-a1") },
   { id: "att-2", studio_id: STUDIO_A, appointment_id: APPT_OWN_CLASS, client_id: "cli-a3", status: "cancelled", clients: clientName("cli-a3") },
-  // Enrolled, with no lesson in the instructor's teaching relationship. Real clients RLS returns a null embed for an instructor here.
+  // Enrolled, with no lesson in the instructor's teaching relationship. Real clients RLS returns a null embed for an instructor here, so the name must come from the roster RPC.
   { id: "att-3", studio_id: STUDIO_A, appointment_id: APPT_OWN_CLASS, client_id: "cli-rental", status: "booked", clients: null },
 ];
 
@@ -277,9 +277,30 @@ export function createWorldClient(token: string, options: { failures?: Failures;
       if (!rows) throw new Error(`Unexpected table read: ${table}`);
       return new FakeQuery(rows, options.failures?.table === table ? { message: `${table} down` } : null);
     },
-    async rpc(name: string, args: { target_studio_id: string }) {
-      if (name !== "get_teaching_clients_for_instructor") throw new Error(`Unexpected rpc: ${name}`);
+    async rpc(name: string, args: { target_studio_id: string; target_appointment_id: string }) {
       if (options.failures?.rpc === name) return { data: null, error: { message: "rpc down" } };
+      if (name === "get_class_roster_names_for_instructor") {
+        // Mirrors the migration: only the class's current, active, same-studio instructor, with an active membership; zero rows otherwise.
+        const appointmentRow = appointments.find((row) => row.id === args.target_appointment_id);
+        const assigned =
+          appointmentRow?.appointment_type === "group_class" &&
+          instructors.some(
+            (row) => row.id === appointmentRow.instructor_id && row.user_id === token && row.studio_id === appointmentRow.studio_id && row.active,
+          ) &&
+          user_studio_roles.some((row) => row.user_id === token && row.studio_id === appointmentRow?.studio_id && row.active);
+        if (!assigned) return { data: [], error: null };
+        return {
+          data: appointment_attendees
+            .filter((row) => row.appointment_id === appointmentRow.id && row.studio_id === appointmentRow.studio_id)
+            .map((row) => {
+              const client = clients.find((c) => c.id === row.client_id && c.studio_id === appointmentRow.studio_id);
+              return client ? { client_id: client.id, first_name: client.first_name, last_name: client.last_name, attendee_status: row.status } : null;
+            })
+            .filter(Boolean),
+          error: null,
+        };
+      }
+      if (name !== "get_teaching_clients_for_instructor") throw new Error(`Unexpected rpc: ${name}`);
       // Mirrors the real RPC's shape: only the caller's own students at that studio, in a current state.
       const own = new Set(
         instructors

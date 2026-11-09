@@ -827,6 +827,8 @@ export default async function AppointmentDetailPage({
         capacity: typedAppointment.roster_capacity ?? null,
         includeFunding: isBroadRosterStaff,
         canManage: !rosterClosed,
+        // The page already scoped an instructor to their own appointment; clients RLS hides attendee names from them.
+        assignedInstructorView: isInstructorRole && !isBroadRosterStaff,
       })
     : null;
 

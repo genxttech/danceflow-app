@@ -124,7 +124,7 @@ The response is the same shape as a Today row, plus:
 ```
 
 - `roster` is present only for `group_class`, and lists enrolled dancers only. `capacity: null` means no limit. `attendanceStatus` is `null` until attendance is recorded.
-- An attendee's `name` can be `null` for an instructor (see Known limits). Keep the row and show a neutral label such as "Dancer". Owners, admins and front desk always get a name.
+- An attendee's `name` comes from `get_class_roster_names_for_instructor` for the assigned instructor and from the client record for owners, admins and front desk. It is `null` only when no name is readable (for example, a client row with an empty name). Keep the row and show a neutral label such as "Dancer".
 - `recap` is present only for `private_lesson` and is `null` if none has been written.
 
 ## Not in v1
@@ -137,7 +137,7 @@ The response is the same shape as a Today row, plus:
 
 ## Known limits
 
-- **Class roster names for instructors:** `clients` RLS does not let an instructor read client rows, and the teaching RPC only covers an appointment's primary client. So an instructor sees the name of a class attendee only if that person is also in their private-lesson teaching relationship. A dedicated instructor roster RPC would remove this limit and needs a SQL migration.
+- **Class roster names depend on migration `20270212090000`:** until it is applied to a database, a detail request for a group class by its assigned instructor returns `503`. Apply the SQL before deploying the app.
 - **Instructor lookup failures:** `resolveViewerInstructorId` returns null on a read error as well as on no match, so a transient failure can show as `instructorId: null` with an empty day rather than a `503`. It fails closed, but it can look like an unlinked account.
 - **Workspace activity:** these routes do not write `last_workspace_access_at` or `workspace_access_logs` as the web layout does, so mobile-only activity does not count as workspace access.
 - **Rate limiting:** none is applied yet.
