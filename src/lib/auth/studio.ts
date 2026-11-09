@@ -276,6 +276,40 @@ export async function getAccessibleStudioRolesForUser(
   });
 }
 
+/**
+ * The caller's workspaces for a bearer-authenticated surface, which has no selected-workspace cookie. One entry per studio, and the role is the one
+ * getStudioContextForStudio would resolve for that studio: the first matching row, normalized the same way.
+ */
+export async function getWorkspacesForUserWithClient(
+  userId: string,
+  supabase: Awaited<ReturnType<typeof createClient>>,
+) {
+  const roles = await getAccessibleStudioRolesForUser(userId, supabase);
+  const seen = new Set<string>();
+  const workspaces: {
+    studioId: string;
+    role: string;
+    studioName: string;
+    studioSlug: string | null;
+    studioPublicName: string | null;
+  }[] = [];
+
+  for (const row of roles) {
+    const studio = getStudioFromJoin(row.studios);
+    if (!studio || seen.has(row.studio_id)) continue;
+    seen.add(row.studio_id);
+    workspaces.push({
+      studioId: row.studio_id,
+      role: normalizeWorkspaceRole(row),
+      studioName: studio.name,
+      studioSlug: studio.slug,
+      studioPublicName: studio.public_name,
+    });
+  }
+
+  return workspaces;
+}
+
 function pickSelectedWorkspace(
   roles: StudioRoleRow[],
   selectedStudioId: string | null
