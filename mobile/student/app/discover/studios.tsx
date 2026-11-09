@@ -290,7 +290,7 @@ export default function DiscoverStudiosScreen() {
                 pressed && styles.cardPressed
               ]}
             >
-              <Ionicons color="#EF4444" name="heart" size={22} />
+              <Ionicons color={colors.danger} name="heart" size={22} />
             </Pressable>
             <AppButton
               label="Open"
@@ -418,8 +418,8 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   },
   cardImageFallback: {
     alignItems: "center",
-    backgroundColor: "rgba(244, 63, 142, 0.12)",
-    borderColor: "rgba(244, 63, 142, 0.25)",
+    backgroundColor: colors.surfaceGlow,
+    borderColor: colors.borderStrong,
     borderRadius: 16,
     borderWidth: 1,
     height: 72,
@@ -555,7 +555,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     fontWeight: "700"
   },
   radiusTextActive: {
-    color: colors.white
+    color: colors.onPrimary
   },
   sectionHeading: {
     gap: 4,

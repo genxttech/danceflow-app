@@ -16,7 +16,7 @@ import {
   type StudentScheduleOverview
 } from "@/lib/studentSchedule";
 
-const danceFlowLogo = require("../../assets/danceflow-logo.png");
+const danceFlowLogo = require("../../assets/danceflow-logo-primary.png");
 const lumiAvatar = require("../../assets/lumi-avatar.png");
 
 function displayNameFromSession(session: ReturnType<typeof useAuth>["session"]) {
@@ -93,7 +93,7 @@ function HomeActionCard({
       ]}
     >
       <View style={[styles.actionIcon, { backgroundColor: colors.primary }]}>
-        <Ionicons color="#fff" name={icon} size={22} />
+        <Ionicons color={colors.onPrimary} name={icon} size={22} />
       </View>
       <View style={{ flex: 1 }}>
         <AppText variant="eyebrow">{label}</AppText>

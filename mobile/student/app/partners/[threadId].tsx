@@ -306,11 +306,12 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     backgroundColor: colors.primary
   },
   myMessageMeta: {
-    color: "rgba(255,255,255,0.72)",
+    color: colors.onPrimary,
+    opacity: 0.8,
     fontSize: 11
   },
   myMessageText: {
-    color: "#fff",
+    color: colors.onPrimary,
     fontSize: 15,
     lineHeight: 21
   },

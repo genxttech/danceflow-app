@@ -25,8 +25,9 @@
         "POST_NOTIFICATIONS"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#071427",
-        "foregroundImage": "./assets/danceflow-adaptive-foreground.png"
+        "backgroundColor": "#0E1028",
+        "foregroundImage": "./assets/danceflow-adaptive-foreground-symbol.png",
+        "monochromeImage": "./assets/danceflow-adaptive-monochrome-symbol.png"
       },
       "versionCode": 1
     },
@@ -52,17 +53,17 @@
       },
       "router": {}
     },
-    "icon": "./assets/danceflow-app-icon.png",
+    "icon": "./assets/danceflow-app-icon-1024.png",
     "splash": {
-      "image": "./assets/danceflow-logo.png",
+      "image": "./assets/danceflow-logo-primary.png",
       "resizeMode": "contain",
-      "backgroundColor": "#071427"
+      "backgroundColor": "#180C1B"
     },
     "description": "DanceFlow helps dancers discover studios and events, keep tickets handy, view their schedule, track their learning, and get support from LUMI.",
     "privacy": "unlisted",
     "notification": {
-      "icon": "./assets/danceflow-logo.png",
-      "color": "#FF4FA3",
+      "icon": "./assets/danceflow-notification-symbol.png",
+      "color": "#5B145E",
       "iosDisplayInForeground": true
     },
     "owner": "idanceflow"

@@ -1,12 +1,12 @@
 import { Link, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
@@ -33,6 +33,8 @@ function SectionHeader({
   title: string;
   count: number;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.sectionHeader}>
       <View>
@@ -53,6 +55,8 @@ function LessonCard({
   item: StudentScheduleItem;
   muted?: boolean;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const router = useRouter();
   const subtitle = displayScheduleSubtitle(item);
 
@@ -82,7 +86,7 @@ function LessonCard({
       <View style={styles.lessonBody}>
         <View style={styles.lessonTopRow}>
           <View style={styles.lessonIcon}>
-            <Ionicons color="#6D28D9" name="person-outline" size={18} />
+            <Ionicons color={colors.primary} name="person-outline" size={18} />
           </View>
 
           <View style={{ flex: 1 }}>
@@ -92,7 +96,7 @@ function LessonCard({
             <AppText style={styles.lessonStudio}>{item.studioName}</AppText>
           </View>
 
-          <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
+          <Ionicons color={colors.muted} name="chevron-forward" size={18} />
         </View>
 
         <AppText style={styles.lessonTitle}>
@@ -100,7 +104,7 @@ function LessonCard({
         </AppText>
 
         <View style={styles.metaRow}>
-          <Ionicons color="#64748B" name="time-outline" size={15} />
+          <Ionicons color={colors.muted} name="time-outline" size={15} />
           <AppText style={styles.metaText}>
             {formatScheduleTimeRange(
               item.startsAt,
@@ -112,7 +116,7 @@ function LessonCard({
 
         {subtitle ? (
           <View style={styles.metaRow}>
-            <Ionicons color="#64748B" name="location-outline" size={15} />
+            <Ionicons color={colors.muted} name="location-outline" size={15} />
             <AppText style={styles.metaText}>{subtitle}</AppText>
           </View>
         ) : null}
@@ -150,10 +154,12 @@ function BookingRequestCard({
 }: {
   request: StudentBookingRequest;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.requestCard}>
       <View style={styles.requestIcon}>
-        <Ionicons color="#B45309" name="hourglass-outline" size={18} />
+        <Ionicons color={colors.accent} name="hourglass-outline" size={18} />
       </View>
 
       <View style={{ flex: 1 }}>
@@ -179,6 +185,8 @@ function BookingRequestCard({
 }
 
 export default function ScheduleLessonsScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { session } = useAuth();
   const [loading, setLoading] = useState(true);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
@@ -235,7 +243,7 @@ export default function ScheduleLessonsScreen() {
     <Screen>
       <View style={styles.hero}>
         <View style={styles.heroIcon}>
-          <Ionicons color="#FFFFFF" name="person-outline" size={24} />
+          <Ionicons color={colors.onPrimary} name="person-outline" size={24} />
         </View>
 
         <View style={{ flex: 1 }}>
@@ -257,7 +265,7 @@ export default function ScheduleLessonsScreen() {
             ]}
           >
             <View style={styles.primaryActionIcon}>
-              <Ionicons color="#FFFFFF" name="add-outline" size={22} />
+              <Ionicons color={colors.onPrimary} name="add-outline" size={22} />
             </View>
             <View style={{ flex: 1 }}>
               <AppText style={styles.primaryActionTitle}>
@@ -267,7 +275,7 @@ export default function ScheduleLessonsScreen() {
                 Choose an available studio, instructor, date, and time.
               </AppText>
             </View>
-            <Ionicons color="#FFFFFF" name="chevron-forward" size={18} />
+            <Ionicons color={colors.onPrimary} name="chevron-forward" size={18} />
           </Pressable>
         </Link>
       ) : null}
@@ -362,7 +370,7 @@ export default function ScheduleLessonsScreen() {
             pressed && styles.pressed
           ]}
         >
-          <Ionicons color="#64748B" name="refresh-outline" size={16} />
+          <Ionicons color={colors.muted} name="refresh-outline" size={16} />
           <AppText style={styles.refreshLinkText}>Refresh lessons</AppText>
         </Pressable>
       ) : null}
@@ -370,249 +378,252 @@ export default function ScheduleLessonsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  cardActions: {
-    borderTopColor: "#F1F5F9",
-    borderTopWidth: 1,
-    flexDirection: "row",
-    gap: 16,
-    marginTop: 4,
-    paddingTop: 12
-  },
-  countBadge: {
-    alignItems: "center",
-    backgroundColor: "#F5F3FF",
-    borderRadius: 999,
-    minWidth: 32,
-    paddingHorizontal: 10,
-    paddingVertical: 6
-  },
-  countBadgeText: {
-    color: "#6D28D9",
-    fontSize: 13,
-    fontWeight: "900"
-  },
-  hero: {
-    alignItems: "center",
-    backgroundColor: "#17112B",
-    borderRadius: 28,
-    flexDirection: "row",
-    gap: 14,
-    padding: 20
-  },
-  heroDetail: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 6
-  },
-  heroEyebrow: {
-    color: "#C4B5FD",
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 1,
-    textTransform: "uppercase"
-  },
-  heroIcon: {
-    alignItems: "center",
-    backgroundColor: "#6D28D9",
-    borderRadius: 18,
-    height: 54,
-    justifyContent: "center",
-    width: 54
-  },
-  heroTitle: {
-    color: "#FFFFFF",
-    fontSize: 23,
-    fontWeight: "900",
-    marginTop: 3
-  },
-  lessonAccent: {
-    alignSelf: "stretch",
-    backgroundColor: "#6D28D9",
-    borderBottomLeftRadius: 20,
-    borderTopLeftRadius: 20,
-    width: 5
-  },
-  lessonAccentConfirmed: {
-    backgroundColor: "#06B6D4"
-  },
-  lessonBody: {
-    flex: 1,
-    gap: 8,
-    padding: 16
-  },
-  lessonCard: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#DDD6FE",
-    borderRadius: 20,
-    borderWidth: 1,
-    elevation: 1,
-    flexDirection: "row",
-    overflow: "hidden"
-  },
-  lessonCardMuted: {
-    borderColor: "#E2E8F0",
-    opacity: 0.78
-  },
-  lessonIcon: {
-    alignItems: "center",
-    backgroundColor: "#F5F3FF",
-    borderRadius: 12,
-    height: 36,
-    justifyContent: "center",
-    width: 36
-  },
-  lessonStatus: {
-    color: "#6D28D9",
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 0.7,
-    textTransform: "uppercase"
-  },
-  lessonStudio: {
-    color: "#64748B",
-    fontSize: 12,
-    marginTop: 2
-  },
-  lessonTitle: {
-    color: "#0F172A",
-    fontSize: 18,
-    fontWeight: "900"
-  },
-  lessonTopRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10
-  },
-  list: {
-    gap: 12
-  },
-  metaRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 7
-  },
-  metaText: {
-    color: "#64748B",
-    flex: 1,
-    fontSize: 13,
-    lineHeight: 19
-  },
-  pressed: {
-    opacity: 0.75
-  },
-  primaryAction: {
-    alignItems: "center",
-    backgroundColor: "#6D28D9",
-    borderRadius: 22,
-    flexDirection: "row",
-    gap: 12,
-    padding: 16
-  },
-  primaryActionDetail: {
-    color: "rgba(255,255,255,0.76)",
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 3
-  },
-  primaryActionIcon: {
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.14)",
-    borderRadius: 999,
-    height: 42,
-    justifyContent: "center",
-    width: 42
-  },
-  primaryActionTitle: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "900"
-  },
-  refreshLink: {
-    alignItems: "center",
-    alignSelf: "center",
-    flexDirection: "row",
-    gap: 7,
-    paddingVertical: 8
-  },
-  refreshLinkText: {
-    color: "#64748B",
-    fontSize: 13,
-    fontWeight: "800"
-  },
-  requestCard: {
-    alignItems: "center",
-    backgroundColor: "#FFFBEB",
-    borderColor: "#FDE68A",
-    borderRadius: 18,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    padding: 15
-  },
-  requestDetail: {
-    color: "#64748B",
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 5
-  },
-  requestIcon: {
-    alignItems: "center",
-    backgroundColor: "#FEF3C7",
-    borderRadius: 12,
-    height: 38,
-    justifyContent: "center",
-    width: 38
-  },
-  requestStatus: {
-    color: "#B45309",
-    fontSize: 10,
-    fontWeight: "900",
-    textTransform: "uppercase"
-  },
-  requestStudio: {
-    color: "#92400E",
-    fontSize: 12,
-    marginTop: 2
-  },
-  requestTitle: {
-    color: "#0F172A",
-    fontSize: 15,
-    fontWeight: "900"
-  },
-  requestTopRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between"
-  },
-  section: {
-    gap: 12
-  },
-  sectionEyebrow: {
-    color: "#6D28D9",
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 1,
-    textTransform: "uppercase"
-  },
-  sectionHeader: {
-    alignItems: "flex-end",
-    flexDirection: "row",
-    justifyContent: "space-between"
-  },
-  sectionTitle: {
-    color: "#0F172A",
-    fontSize: 21,
-    fontWeight: "900",
-    marginTop: 3
-  },
-  textAction: {
-    paddingVertical: 2
-  },
-  textActionLabel: {
-    color: "#6D28D9",
-    fontSize: 13,
-    fontWeight: "900"
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    cardActions: {
+      borderTopColor: colors.border,
+      borderTopWidth: 1,
+      flexDirection: "row",
+      gap: 16,
+      marginTop: 4,
+      paddingTop: 12
+    },
+    countBadge: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 999,
+      minWidth: 32,
+      paddingHorizontal: 10,
+      paddingVertical: 6
+    },
+    countBadgeText: {
+      color: colors.primary,
+      fontSize: 13,
+      fontWeight: "900"
+    },
+    hero: {
+      alignItems: "center",
+      backgroundColor: colors.primaryDark,
+      borderRadius: 28,
+      flexDirection: "row",
+      gap: 14,
+      padding: 20
+    },
+    heroDetail: {
+      color: "rgba(255,255,255,0.7)",
+      fontSize: 13,
+      lineHeight: 19,
+      marginTop: 6
+    },
+    heroEyebrow: {
+      color: "rgba(255,255,255,0.78)",
+      fontSize: 11,
+      fontWeight: "900",
+      letterSpacing: 1,
+      textTransform: "uppercase"
+    },
+    heroIcon: {
+      alignItems: "center",
+      backgroundColor: colors.primary,
+      borderRadius: 18,
+      height: 54,
+      justifyContent: "center",
+      width: 54
+    },
+    heroTitle: {
+      color: "#FFFFFF",
+      fontSize: 23,
+      fontWeight: "900",
+      marginTop: 3
+    },
+    lessonAccent: {
+      alignSelf: "stretch",
+      backgroundColor: colors.primary,
+      borderBottomLeftRadius: 20,
+      borderTopLeftRadius: 20,
+      width: 5
+    },
+    lessonAccentConfirmed: {
+      backgroundColor: "#06B6D4"
+    },
+    lessonBody: {
+      flex: 1,
+      gap: 8,
+      padding: 16
+    },
+    lessonCard: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 20,
+      borderWidth: 1,
+      elevation: 1,
+      flexDirection: "row",
+      overflow: "hidden"
+    },
+    lessonCardMuted: {
+      borderColor: colors.border,
+      opacity: 0.78
+    },
+    lessonIcon: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 12,
+      height: 36,
+      justifyContent: "center",
+      width: 36
+    },
+    lessonStatus: {
+      color: colors.primary,
+      fontSize: 11,
+      fontWeight: "900",
+      letterSpacing: 0.7,
+      textTransform: "uppercase"
+    },
+    lessonStudio: {
+      color: colors.muted,
+      fontSize: 12,
+      marginTop: 2
+    },
+    lessonTitle: {
+      color: colors.text,
+      fontSize: 18,
+      fontWeight: "900"
+    },
+    lessonTopRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 10
+    },
+    list: {
+      gap: 12
+    },
+    metaRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 7
+    },
+    metaText: {
+      color: colors.muted,
+      flex: 1,
+      fontSize: 13,
+      lineHeight: 19
+    },
+    pressed: {
+      opacity: 0.75
+    },
+    primaryAction: {
+      alignItems: "center",
+      backgroundColor: colors.primary,
+      borderRadius: 22,
+      flexDirection: "row",
+      gap: 12,
+      padding: 16
+    },
+    primaryActionDetail: {
+      color: colors.onPrimary,
+      opacity: 0.8,
+      fontSize: 12,
+      lineHeight: 18,
+      marginTop: 3
+    },
+    primaryActionIcon: {
+      alignItems: "center",
+      backgroundColor: "rgba(255,255,255,0.14)",
+      borderRadius: 999,
+      height: 42,
+      justifyContent: "center",
+      width: 42
+    },
+    primaryActionTitle: {
+      color: colors.onPrimary,
+      fontSize: 16,
+      fontWeight: "900"
+    },
+    refreshLink: {
+      alignItems: "center",
+      alignSelf: "center",
+      flexDirection: "row",
+      gap: 7,
+      paddingVertical: 8
+    },
+    refreshLinkText: {
+      color: colors.muted,
+      fontSize: 13,
+      fontWeight: "800"
+    },
+    requestCard: {
+      alignItems: "center",
+      backgroundColor: colors.accentSoft,
+      borderColor: colors.border,
+      borderRadius: 18,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 12,
+      padding: 15
+    },
+    requestDetail: {
+      color: colors.muted,
+      fontSize: 12,
+      lineHeight: 18,
+      marginTop: 5
+    },
+    requestIcon: {
+      alignItems: "center",
+      backgroundColor: colors.accentSoft,
+      borderRadius: 12,
+      height: 38,
+      justifyContent: "center",
+      width: 38
+    },
+    requestStatus: {
+      color: colors.accent,
+      fontSize: 10,
+      fontWeight: "900",
+      textTransform: "uppercase"
+    },
+    requestStudio: {
+      color: colors.accent,
+      fontSize: 12,
+      marginTop: 2
+    },
+    requestTitle: {
+      color: colors.text,
+      fontSize: 15,
+      fontWeight: "900"
+    },
+    requestTopRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "space-between"
+    },
+    section: {
+      gap: 12
+    },
+    sectionEyebrow: {
+      color: colors.primary,
+      fontSize: 11,
+      fontWeight: "900",
+      letterSpacing: 1,
+      textTransform: "uppercase"
+    },
+    sectionHeader: {
+      alignItems: "flex-end",
+      flexDirection: "row",
+      justifyContent: "space-between"
+    },
+    sectionTitle: {
+      color: colors.text,
+      fontSize: 21,
+      fontWeight: "900",
+      marginTop: 3
+    },
+    textAction: {
+      paddingVertical: 2
+    },
+    textActionLabel: {
+      color: colors.primary,
+      fontSize: 13,
+      fontWeight: "900"
+    }
+  });
+}

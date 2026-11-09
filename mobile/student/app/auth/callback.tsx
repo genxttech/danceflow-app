@@ -1,10 +1,10 @@
 import { router, useLocalSearchParams, type Href } from "expo-router";
-import { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 
 function cleanParam(value: string | string[] | null | undefined) {
@@ -13,6 +13,8 @@ function cleanParam(value: string | string[] | null | undefined) {
 }
 
 export default function AuthCallbackScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { session, loading, identityCheckPending, emailBindingRequired } = useAuth();
   const routeParams = useLocalSearchParams<{
     error?: string | string[];
@@ -80,11 +82,13 @@ export default function AuthCallbackScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  wrap: {
-    alignItems: "center",
-    flex: 1,
-    gap: 12,
-    justifyContent: "center",
-  },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    wrap: {
+      alignItems: "center",
+      flex: 1,
+      gap: 12,
+      justifyContent: "center",
+    },
+  });
+}

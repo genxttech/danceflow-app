@@ -400,7 +400,7 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
           ]}
         >
           <Ionicons
-            color={studio.favorited ? colors.white : colors.primary}
+            color={studio.favorited ? colors.onPrimary : colors.primary}
             name={studio.favorited ? "heart" : "heart-outline"}
             size={20}
           />
@@ -667,7 +667,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     fontWeight: "900"
   },
   choiceChipTextActive: {
-    color: colors.white
+    color: colors.onPrimary
   },
   description: {
     color: colors.text,

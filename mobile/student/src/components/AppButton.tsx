@@ -61,12 +61,12 @@ export function AppButton({
 
       <View style={styles.content}>
         {loading ? (
-          <ActivityIndicator color={isPrimary ? colors.white : colors.primary} />
+          <ActivityIndicator color={isPrimary ? colors.onPrimary : colors.primary} />
         ) : (
           <AppText
             style={[
               styles.label,
-              { color: isPrimary ? colors.white : colors.text },
+              { color: isPrimary ? colors.onPrimary : colors.text },
             ]}
           >
             {label}

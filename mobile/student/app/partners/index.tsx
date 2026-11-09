@@ -904,7 +904,7 @@ export default function PartnerSearchScreen() {
 
       <View style={styles.safetyCard}>
         <View style={styles.safetyIcon}>
-          <Ionicons color="#fff" name="shield-checkmark-outline" size={22} />
+          <Ionicons color={colors.white} name="shield-checkmark-outline" size={22} />
         </View>
         <View style={{ flex: 1 }}>
           <AppText style={styles.safetyTitle}>Safety and listing rules</AppText>
@@ -982,7 +982,7 @@ export default function PartnerSearchScreen() {
           style={({ pressed }) => [styles.listingButton, pressed && styles.cardPressed]}
         >
           <View style={styles.listingButtonIcon}>
-            <Ionicons color="#fff" name="create-outline" size={22} />
+            <Ionicons color={colors.onPrimary} name="create-outline" size={22} />
           </View>
           <View style={{ flex: 1 }}>
             <View style={styles.editorHeader}>
@@ -1329,7 +1329,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     fontWeight: "800"
   },
   optionTextActive: {
-    color: "#fff"
+    color: colors.onPrimary
   },
   partnerCard: {
     backgroundColor: colors.surface,
@@ -1426,7 +1426,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     lineHeight: 19
   },
   safetyTitle: {
-    color: "#fff",
+    color: colors.white,
     fontSize: 16,
     fontWeight: "900",
     marginBottom: 4

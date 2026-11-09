@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
-import { Linking, StyleSheet, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Linking, StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
@@ -25,6 +25,8 @@ function paymentTypeLabel(value: string | null | undefined) {
 }
 
 function PaymentRequestCard({ payment }: { payment: StudentPaymentRequest }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const amount = formatCurrency(payment.amount);
 
   return (
@@ -41,6 +43,8 @@ function PaymentRequestCard({ payment }: { payment: StudentPaymentRequest }) {
 }
 
 export default function PaymentRequestsScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { session } = useAuth();
   const [loading, setLoading] = useState(true);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
@@ -114,16 +118,18 @@ export default function PaymentRequestsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  paymentRequestCard: {
-    backgroundColor: "#fff4e7",
-    borderColor: "#fed7aa",
-    borderRadius: 18,
-    borderWidth: 1,
-    gap: 8,
-    padding: 14
-  },
-  section: {
-    gap: 10
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    paymentRequestCard: {
+      backgroundColor: colors.accentSoft,
+      borderColor: colors.border,
+      borderRadius: 18,
+      borderWidth: 1,
+      gap: 8,
+      padding: 14
+    },
+    section: {
+      gap: 10
+    }
+  });
+}

@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { StyleSheet, useColorScheme, View } from "react-native";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
@@ -16,6 +16,8 @@ import {
 } from "@/lib/studentWallet";
 
 function PackageCard({ item }: { item: StudentPackage }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const price = formatCurrency(item.price);
 
   return (
@@ -41,6 +43,8 @@ function PackageCard({ item }: { item: StudentPackage }) {
 }
 
 export default function PackagesScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { session } = useAuth();
   const [loading, setLoading] = useState(true);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
@@ -117,26 +121,28 @@ export default function PackagesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  chip: {
-    backgroundColor: colors.surface,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6
-  },
-  chipWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 4
-  },
-  itemCard: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 18,
-    gap: 7,
-    padding: 14
-  },
-  section: {
-    gap: 10
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    chip: {
+      backgroundColor: colors.surface,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 6
+    },
+    chipWrap: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 8,
+      marginTop: 4
+    },
+    itemCard: {
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 18,
+      gap: 7,
+      padding: 14
+    },
+    section: {
+      gap: 10
+    }
+  });
+}

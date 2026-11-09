@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
-import { Pressable, Share, StyleSheet, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Pressable, Share, StyleSheet, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import {
   getPublicEventsForMobile,
@@ -17,6 +17,8 @@ import {
 } from "@/lib/publicDiscovery";
 
 export default function FavoritesScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { session } = useAuth();
   const router = useRouter();
   const [studios, setStudios] = useState<PublicStudioItem[]>([]);
@@ -140,7 +142,7 @@ export default function FavoritesScreen() {
                     onPress={() => toggleFavorite("studio", studio.id)}
                     style={[styles.iconButton, styles.iconButtonActive]}
                   >
-                    <Ionicons color="#fff" name="heart" size={20} />
+                    <Ionicons color={colors.onPrimary} name="heart" size={20} />
                   </Pressable>
                   <Pressable
                     accessibilityLabel="Share studio"
@@ -184,7 +186,7 @@ export default function FavoritesScreen() {
                     onPress={() => toggleFavorite("event", event.id)}
                     style={[styles.iconButton, styles.iconButtonActive]}
                   >
-                    <Ionicons color="#fff" name="heart" size={20} />
+                    <Ionicons color={colors.onPrimary} name="heart" size={20} />
                   </Pressable>
                   <Pressable
                     accessibilityLabel="Share event"
@@ -203,32 +205,34 @@ export default function FavoritesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  cardPressed: {
-    opacity: 0.78
-  },
-  iconButton: {
-    alignItems: "center",
-    backgroundColor: colors.surfaceAlt,
-    borderColor: colors.border,
-    borderRadius: 999,
-    borderWidth: 1,
-    height: 42,
-    justifyContent: "center",
-    width: 42
-  },
-  iconButtonActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary
-  },
-  iconRow: {
-    flexDirection: "row",
-    gap: 10
-  },
-  item: {
-    gap: 8
-  },
-  section: {
-    gap: 10
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    cardPressed: {
+      opacity: 0.78
+    },
+    iconButton: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceAlt,
+      borderColor: colors.border,
+      borderRadius: 999,
+      borderWidth: 1,
+      height: 42,
+      justifyContent: "center",
+      width: 42
+    },
+    iconButtonActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary
+    },
+    iconRow: {
+      flexDirection: "row",
+      gap: 10
+    },
+    item: {
+      gap: 8
+    },
+    section: {
+      gap: 10
+    }
+  });
+}

@@ -205,7 +205,7 @@ export default function ProfileScreen() {
           style={({ pressed }) => [styles.partnerCard, pressed && styles.cardPressed]}
         >
           <View style={styles.partnerIcon}>
-            <Ionicons color="#fff" name="people-outline" size={22} />
+            <Ionicons color={themeColors.white} name="people-outline" size={22} />
           </View>
           <View style={{ flex: 1 }}>
             <AppText style={styles.partnerTitle}>Partner Search profile</AppText>
@@ -238,7 +238,7 @@ export default function ProfileScreen() {
                     active && { backgroundColor: themeColors.primary, borderColor: themeColors.primary }
                   ]}
                 >
-                  <AppText style={[styles.appearancePillText, { color: active ? "#fff" : themeColors.text }]}>
+                  <AppText style={[styles.appearancePillText, { color: active ? themeColors.onPrimary : themeColors.text }]}>
                     {option.label}
                   </AppText>
                 </Pressable>
@@ -477,7 +477,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     fontWeight: "800"
   },
   choicePillTextActive: {
-    color: "#fff"
+    color: colors.onPrimary
   },
   choiceSection: {
     gap: 10
@@ -522,7 +522,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     width: 42
   },
   partnerTitle: {
-    color: "#fff",
+    color: colors.white,
     fontSize: 16,
     fontWeight: "900",
     marginBottom: 4

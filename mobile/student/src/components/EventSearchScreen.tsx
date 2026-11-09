@@ -467,8 +467,8 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   },
   cardImageFallback: {
     alignItems: "center",
-    backgroundColor: "rgba(244, 63, 142, 0.12)",
-    borderColor: "rgba(244, 63, 142, 0.25)",
+    backgroundColor: colors.surfaceGlow,
+    borderColor: colors.borderStrong,
     borderRadius: 16,
     borderWidth: 1,
     height: 72,
@@ -482,8 +482,8 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   },
   categoryBadge: {
     alignSelf: "flex-start",
-    backgroundColor: "rgba(244, 63, 142, 0.14)",
-    borderColor: "rgba(244, 63, 142, 0.28)",
+    backgroundColor: colors.surfaceGlow,
+    borderColor: colors.borderStrong,
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 10,
@@ -636,7 +636,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     fontWeight: "700"
   },
   radiusTextActive: {
-    color: colors.white
+    color: colors.onPrimary
   },
   sectionHeading: {
     gap: 4,

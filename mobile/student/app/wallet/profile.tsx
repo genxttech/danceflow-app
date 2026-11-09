@@ -52,7 +52,7 @@ function ProfileActionCard({
       style={({ pressed }) => [styles.actionCard, pressed && styles.cardPressed]}
     >
       <View style={styles.actionIcon}>
-        <Ionicons color="#fff" name={icon} size={22} />
+        <Ionicons color={colors.onPrimary} name={icon} size={22} />
       </View>
       <View style={{ flex: 1 }}>
         <AppText variant="subtitle">{title}</AppText>

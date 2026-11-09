@@ -1,10 +1,10 @@
 import { router } from "expo-router";
-import { useState } from "react";
-import { KeyboardAvoidingView, Platform, StyleSheet, TextInput, View } from "react-native";
+import { useMemo, useState } from "react";
+import { KeyboardAvoidingView, Platform, StyleSheet, TextInput, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { bindAccountPassword } from "@/lib/emailVerification";
 
@@ -16,6 +16,8 @@ const MIN_PASSWORD_LENGTH = 8;
   device, so the student signs in again with a fresh email link.
 */
 export default function SecureAccountScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { signOut, clearEmailBindingRequired } = useAuth();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -119,25 +121,27 @@ export default function SecureAccountScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  wrap: {
-    flex: 1,
-    justifyContent: "center"
-  },
-  form: {
-    gap: 12
-  },
-  input: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 12,
-    borderWidth: 1,
-    color: colors.text,
-    fontSize: 16,
-    minHeight: 52,
-    paddingHorizontal: 14
-  },
-  error: {
-    color: colors.danger
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    wrap: {
+      flex: 1,
+      justifyContent: "center"
+    },
+    form: {
+      gap: 12
+    },
+    input: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 12,
+      borderWidth: 1,
+      color: colors.text,
+      fontSize: 16,
+      minHeight: 52,
+      paddingHorizontal: 14
+    },
+    error: {
+      color: colors.danger
+    }
+  });
+}

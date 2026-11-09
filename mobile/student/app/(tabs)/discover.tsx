@@ -48,7 +48,7 @@ function DiscoverCard({ accent, countLabel, detail, icon, onPress, title, width 
           { backgroundColor: accent ? colors.accent : colors.primary },
         ]}
       >
-        <Ionicons color="#fff" name={icon} size={24} />
+        <Ionicons color={colors.onPrimary} name={icon} size={24} />
       </View>
       <View style={{ flex: 1 }}>
         <View style={styles.cardHeader}>

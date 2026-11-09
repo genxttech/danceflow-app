@@ -6,7 +6,7 @@ import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colorsForScheme } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
@@ -89,20 +89,20 @@ function dayNumber(dateKey: string) {
   return dateFromKey(dateKey).getDate();
 }
 
-function entryTone(kind: CalendarEntry["kind"]) {
+function entryTone(kind: CalendarEntry["kind"], colors: ThemeColors) {
   return kind === "lesson"
     ? {
         icon: "person-outline" as const,
-        accent: "#6D28D9",
-        soft: "#F5F3FF",
-        border: "#DDD6FE",
+        accent: colors.primary,
+        soft: colors.surfaceAlt,
+        border: colors.border,
         label: "Private lesson"
       }
     : {
         icon: "people-outline" as const,
-        accent: "#0F766E",
-        soft: "#F0FDFA",
-        border: "#99F6E4",
+        accent: colors.accent,
+        soft: colors.surfaceAlt,
+        border: colors.border,
         label: "Class"
       };
 }
@@ -115,7 +115,8 @@ function CalendarEntryCard({
   styles: ReturnType<typeof createStyles>;
 }) {
   const router = useRouter();
-  const tone = entryTone(entry.kind);
+  const colors = colorsForScheme(useColorScheme());
+  const tone = entryTone(entry.kind, colors);
   const subtitle = displayScheduleSubtitle(entry.item);
 
   return (
@@ -149,7 +150,7 @@ function CalendarEntryCard({
             </AppText>
           </View>
 
-          <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
+          <Ionicons color={colors.muted} name="chevron-forward" size={18} />
         </View>
 
         <AppText style={styles.entryTitle}>
@@ -157,7 +158,7 @@ function CalendarEntryCard({
         </AppText>
 
         <View style={styles.metaRow}>
-          <Ionicons color="#64748B" name="time-outline" size={15} />
+          <Ionicons color={colors.muted} name="time-outline" size={15} />
           <AppText style={styles.metaText}>
             {formatScheduleTimeRange(
               entry.item.startsAt,
@@ -168,13 +169,13 @@ function CalendarEntryCard({
         </View>
 
         <View style={styles.metaRow}>
-          <Ionicons color="#64748B" name="business-outline" size={15} />
+          <Ionicons color={colors.muted} name="business-outline" size={15} />
           <AppText style={styles.metaText}>{entry.item.studioName}</AppText>
         </View>
 
         {subtitle ? (
           <View style={styles.metaRow}>
-            <Ionicons color="#64748B" name="location-outline" size={15} />
+            <Ionicons color={colors.muted} name="location-outline" size={15} />
             <AppText style={styles.metaText}>{subtitle}</AppText>
           </View>
         ) : null}
@@ -332,7 +333,7 @@ export default function ScheduleScreen() {
                 pressed && styles.pressed
               ]}
             >
-              <Ionicons color="#FFFFFF" name="refresh-outline" size={20} />
+              <Ionicons color={colors.primary} name="refresh-outline" size={20} />
             </Pressable>
           ) : null}
         </View>
@@ -411,7 +412,7 @@ export default function ScheduleScreen() {
                   pressed && styles.pressed
                 ]}
               >
-                <Ionicons color="#334155" name="chevron-back" size={20} />
+                <Ionicons color={colors.text} name="chevron-back" size={20} />
               </Pressable>
 
               <View style={styles.calendarHeading}>
@@ -436,7 +437,7 @@ export default function ScheduleScreen() {
                   pressed && styles.pressed
                 ]}
               >
-                <Ionicons color="#334155" name="chevron-forward" size={20} />
+                <Ionicons color={colors.text} name="chevron-forward" size={20} />
               </Pressable>
             </View>
 
@@ -509,7 +510,7 @@ export default function ScheduleScreen() {
             <View style={styles.emptyDayCard}>
               <View style={styles.emptyDayIcon}>
                 <Ionicons
-                  color="#64748B"
+                  color={colors.muted}
                   name="sparkles-outline"
                   size={22}
                 />
@@ -539,7 +540,7 @@ export default function ScheduleScreen() {
               ]}
             >
               <View style={styles.eventActivityIcon}>
-                <Ionicons color="#FFFFFF" name="ticket-outline" size={18} />
+                <Ionicons color={colors.onPrimary} name="ticket-outline" size={18} />
               </View>
               <View style={{ flex: 1 }}>
                 <AppText style={styles.eventActivityLabel}>Event activity</AppText>
@@ -558,7 +559,7 @@ export default function ScheduleScreen() {
             <View style={styles.nextCard}>
               <View style={styles.nextIcon}>
                 <Ionicons
-                  color="#FFFFFF"
+                  color={colors.onPrimary}
                   name="arrow-forward-outline"
                   size={18}
                 />
@@ -588,19 +589,19 @@ export default function ScheduleScreen() {
           <View style={styles.secondaryLinks}>
             <Link href="/schedule/lessons" asChild>
               <Pressable style={styles.secondaryLink}>
-                <Ionicons color="#6D28D9" name="person-outline" size={18} />
+                <Ionicons color={colors.primary} name="person-outline" size={18} />
                 <AppText style={styles.secondaryLinkText}>All lessons</AppText>
               </Pressable>
             </Link>
             <Link href="/schedule/classes" asChild>
               <Pressable style={styles.secondaryLink}>
-                <Ionicons color="#0F766E" name="people-outline" size={18} />
+                <Ionicons color={colors.success} name="people-outline" size={18} />
                 <AppText style={styles.secondaryLinkText}>All classes</AppText>
               </Pressable>
             </Link>
             <Link href="/schedule/events" asChild>
               <Pressable style={styles.secondaryLink}>
-                <Ionicons color="#C2410C" name="ticket-outline" size={18} />
+                <Ionicons color={colors.accent} name="ticket-outline" size={18} />
                 <AppText style={styles.secondaryLinkText}>All events</AppText>
               </Pressable>
             </Link>
@@ -611,7 +612,7 @@ export default function ScheduleScreen() {
   );
 }
 
-function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
   agendaCount: {
     color: colors.muted,
@@ -694,7 +695,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     backgroundColor: colors.primary
   },
   dayDotSelected: {
-    backgroundColor: colors.white
+    backgroundColor: colors.onPrimary
   },
   dayName: {
     color: colors.muted,
@@ -703,7 +704,8 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     textTransform: "uppercase"
   },
   dayNameSelected: {
-    color: "rgba(255,255,255,0.78)"
+    color: colors.onPrimary,
+    opacity: 0.8
   },
   dayNumber: {
     color: colors.text,
@@ -711,7 +713,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     fontWeight: "900"
   },
   dayNumberSelected: {
-    color: colors.white
+    color: colors.onPrimary
   },
   dayNumberToday: {
     color: colors.primary
@@ -723,7 +725,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   },
   emptyDayCard: {
     alignItems: "center",
-    backgroundColor: colors.white,
+    backgroundColor: colors.surface,
     borderColor: colors.borderStrong,
     borderRadius: 24,
     borderStyle: "dashed",
@@ -763,7 +765,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     padding: 16
   },
   entryCard: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.surface,
     borderRadius: 22,
     borderWidth: 1,
     elevation: 1,

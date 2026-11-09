@@ -1,11 +1,11 @@
 import { Link, type Href } from "expo-router";
-import { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
@@ -33,6 +33,8 @@ function lessonRecapHref(lessonId: string): Href {
 }
 
 function GroupRecapCard({ recap }: { recap: StudentGroupLessonRecap }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const detail = [
     recap.studioName,
     recap.summary,
@@ -65,6 +67,8 @@ function GroupRecapCard({ recap }: { recap: StudentGroupLessonRecap }) {
 }
 
 function LessonRecapCard({ lesson, label = "Lesson Recap" }: { lesson: StudentLearnLesson; label?: string }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.itemCard}>
       <AppText variant="eyebrow">{label}</AppText>
@@ -83,6 +87,8 @@ function LessonRecapCard({ lesson, label = "Lesson Recap" }: { lesson: StudentLe
 }
 
 export default function LatestRecapsScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { session } = useAuth();
   const [loading, setLoading] = useState(true);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
@@ -167,16 +173,18 @@ export default function LatestRecapsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  itemCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 6,
-    padding: 14
-  },
-  section: {
-    gap: 10
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    itemCard: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 16,
+      borderWidth: 1,
+      gap: 6,
+      padding: 14
+    },
+    section: {
+      gap: 10
+    }
+  });
+}

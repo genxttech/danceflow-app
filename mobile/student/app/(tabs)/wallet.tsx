@@ -112,7 +112,7 @@ function WalletCategoryCard({
       ]}
     >
       <View style={[styles.categoryIcon, active && styles.categoryIconActive]}>
-        <Ionicons color="#fff" name={icon} size={24} />
+        <Ionicons color={colors.onPrimary} name={icon} size={24} />
       </View>
       <View style={{ flex: 1 }}>
         <View style={styles.cardHeader}>
@@ -743,8 +743,8 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     gap: 7
   },
   paymentRequestCard: {
-    backgroundColor: "#fff4e7",
-    borderColor: "#fed7aa",
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.border,
     borderRadius: 18,
     borderWidth: 1,
     gap: 8,
@@ -777,8 +777,8 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     padding: 16
   },
   syncCard: {
-    backgroundColor: "#ecfeff",
-    borderColor: "#67e8f9",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
     borderRadius: 18,
     borderWidth: 1,
     gap: 8,

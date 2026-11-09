@@ -490,7 +490,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   return StyleSheet.create({
   bookingHero: {
     alignItems: "center",
-    backgroundColor: "#17112B",
+    backgroundColor: colors.primaryDark,
     borderRadius: 26,
     flexDirection: "row",
     gap: 14,
@@ -503,7 +503,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     marginTop: 5,
   },
   bookingHeroEyebrow: {
-    color: "#C4B5FD",
+    color: "rgba(255,255,255,0.78)",
     fontSize: 11,
     fontWeight: "900",
     letterSpacing: 1,
@@ -518,7 +518,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     width: 52,
   },
   bookingHeroIconText: {
-    color: "#fff",
+    color: colors.onPrimary,
     fontSize: 28,
     fontWeight: "500",
     lineHeight: 30,
@@ -553,7 +553,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     fontWeight: "800",
   },
   instructorPillTextSelected: {
-    color: "#fff",
+    color: colors.onPrimary,
   },
   pressed: {
     opacity: 0.72,
@@ -579,7 +579,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     backgroundColor: colors.primary,
   },
   daySelectedText: {
-    color: "#fff",
+    color: colors.onPrimary,
     fontWeight: "900",
   },
   dayText: {
@@ -671,7 +671,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     textAlign: "center",
   },
   timeSlotTextSelected: {
-    color: "#fff",
+    color: colors.onPrimary,
   },
   weekLabel: {
     color: colors.muted,

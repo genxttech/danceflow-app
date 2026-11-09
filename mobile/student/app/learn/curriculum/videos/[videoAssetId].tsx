@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, useColorScheme, View } from "react-native";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { loadStudentCurriculumVideo } from "@/lib/studentCurriculum";
 
 function normalizeParam(value: string | string[] | undefined) {
@@ -23,6 +23,8 @@ type VideoAccess = {
 };
 
 export default function CurriculumVideoScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const {
     assignmentId: rawAssignmentId,
     videoAssetId: rawVideoAssetId,
@@ -130,14 +132,16 @@ export default function CurriculumVideoScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  video: {
-    aspectRatio: 16 / 9,
-    width: "100%",
-  },
-  videoShell: {
-    backgroundColor: "#000",
-    borderRadius: 18,
-    overflow: "hidden",
-  },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    video: {
+      aspectRatio: 16 / 9,
+      width: "100%",
+    },
+    videoShell: {
+      backgroundColor: "#000",
+      borderRadius: 18,
+      overflow: "hidden",
+    },
+  });
+}

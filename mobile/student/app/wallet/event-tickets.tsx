@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
-import { Image, StyleSheet, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Image, StyleSheet, useColorScheme, View } from "react-native";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
@@ -20,6 +20,8 @@ function locationLine(ticket: StudentTicket) {
 }
 
 function TicketCard({ ticket }: { ticket: StudentTicket }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const checkedIn = Boolean(ticket.checkedInAt);
   const location = locationLine(ticket);
 
@@ -56,6 +58,8 @@ function TicketCard({ ticket }: { ticket: StudentTicket }) {
 }
 
 export default function EventTicketsScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { session } = useAuth();
   const [loading, setLoading] = useState(true);
   const [wallet, setWallet] = useState<StudentWallet | null>(null);
@@ -129,33 +133,35 @@ export default function EventTicketsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  codeBox: {
-    backgroundColor: colors.surface,
-    borderRadius: 14,
-    gap: 3,
-    marginTop: 4,
-    padding: 10
-  },
-  qrImage: {
-    backgroundColor: "white",
-    borderRadius: 12,
-    height: 104,
-    width: 104
-  },
-  section: {
-    gap: 10
-  },
-  ticketCard: {
-    alignItems: "center",
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 18,
-    flexDirection: "row",
-    gap: 14,
-    padding: 14
-  },
-  ticketMain: {
-    flex: 1,
-    gap: 7
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    codeBox: {
+      backgroundColor: colors.surface,
+      borderRadius: 14,
+      gap: 3,
+      marginTop: 4,
+      padding: 10
+    },
+    qrImage: {
+      backgroundColor: "white",
+      borderRadius: 12,
+      height: 104,
+      width: 104
+    },
+    section: {
+      gap: 10
+    },
+    ticketCard: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 18,
+      flexDirection: "row",
+      gap: 14,
+      padding: 14
+    },
+    ticketMain: {
+      flex: 1,
+      gap: 7
+    }
+  });
+}

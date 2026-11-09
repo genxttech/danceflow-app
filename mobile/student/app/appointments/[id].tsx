@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Linking, Pressable, StyleSheet, View } from "react-native";
+import { Linking, Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess } from "@/lib/studentAccess";
 import {
@@ -53,6 +53,8 @@ function DetailRow({
   label: string;
   value: string;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.detailRow}>
       <View style={styles.detailIcon}>
@@ -67,6 +69,8 @@ function DetailRow({
 }
 
 export default function AppointmentDetailScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { id, action } = useLocalSearchParams<{
     id: string;
     action?: string;
@@ -224,7 +228,7 @@ export default function AppointmentDetailScreen() {
           pressed && styles.pressed
         ]}
       >
-        <Ionicons color="#334155" name="chevron-back" size={20} />
+        <Ionicons color={colors.text} name="chevron-back" size={20} />
         <AppText style={styles.backText}>Schedule</AppText>
       </Pressable>
 
@@ -253,7 +257,7 @@ export default function AppointmentDetailScreen() {
 
             <View style={styles.heroTimeCard}>
               <View style={styles.heroCalendarIcon}>
-                <Ionicons color="#FFFFFF" name="calendar-outline" size={22} />
+                <Ionicons color={colors.onPrimary} name="calendar-outline" size={22} />
               </View>
               <View style={{ flex: 1 }}>
                 <AppText style={styles.heroDate}>
@@ -300,7 +304,7 @@ export default function AppointmentDetailScreen() {
             <View style={styles.confirmationCard}>
               <View style={styles.checkinHeader}>
                 <View style={styles.confirmationIcon}>
-                  <Ionicons color="#0891B2" name="checkmark-circle-outline" size={22} />
+                  <Ionicons color={colors.accent} name="checkmark-circle-outline" size={22} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <AppText style={styles.checkinTitle}>Confirm attendance</AppText>
@@ -322,7 +326,7 @@ export default function AppointmentDetailScreen() {
             <View style={styles.confirmationCompleteCard}>
               <View style={styles.checkinHeader}>
                 <View style={styles.confirmationCompleteIcon}>
-                  <Ionicons color="#0E7490" name="checkmark-circle" size={24} />
+                  <Ionicons color={colors.accent} name="checkmark-circle" size={24} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <AppText style={styles.checkinTitle}>Appointment confirmed</AppText>
@@ -349,7 +353,7 @@ export default function AppointmentDetailScreen() {
                   ]}
                 >
                   <Ionicons
-                    color={checkinStatus.checkedIn ? "#047857" : colors.primary}
+                    color={checkinStatus.checkedIn ? colors.success : colors.primary}
                     name={
                       checkinStatus.checkedIn
                         ? "checkmark-circle-outline"
@@ -432,232 +436,234 @@ export default function AppointmentDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  actionRow: {
-    gap: 10,
-    marginTop: 18
-  },
-  backButton: {
-    alignItems: "center",
-    alignSelf: "flex-start",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
-    borderRadius: 14,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 9
-  },
-  backText: {
-    color: "#334155",
-    fontSize: 14,
-    fontWeight: "800"
-  },
-  checkinCard: {
-    backgroundColor: "#F5F3FF",
-    borderColor: "#DDD6FE",
-    borderRadius: 22,
-    borderWidth: 1,
-    gap: 14,
-    padding: 18
-  },
-  checkinCardComplete: {
-    backgroundColor: "#ECFDF5",
-    borderColor: "#A7F3D0"
-  },
-  checkinDetail: {
-    color: "#64748B",
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 3
-  },
-  checkinHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12
-  },
-  checkinIcon: {
-    alignItems: "center",
-    backgroundColor: "#EDE9FE",
-    borderRadius: 999,
-    height: 44,
-    justifyContent: "center",
-    width: 44
-  },
-  checkinIconComplete: {
-    backgroundColor: "#D1FAE5"
-  },
-  checkinMessage: {
-    color: "#334155",
-    fontSize: 13,
-    fontWeight: "700"
-  },
-  checkinTitle: {
-    color: "#0F172A",
-    fontSize: 17,
-    fontWeight: "900"
-  },
-  confirmationCard: {
-    backgroundColor: "#ECFEFF",
-    borderColor: "#A5F3FC",
-    borderRadius: 22,
-    borderWidth: 1,
-    gap: 14,
-    padding: 18
-  },
-  confirmationCompleteCard: {
-    backgroundColor: "#CFFAFE",
-    borderColor: "#67E8F9",
-    borderRadius: 22,
-    borderWidth: 1,
-    padding: 18
-  },
-  confirmationIcon: {
-    alignItems: "center",
-    backgroundColor: "#CFFAFE",
-    borderRadius: 999,
-    height: 44,
-    justifyContent: "center",
-    width: 44
-  },
-  confirmationCompleteIcon: {
-    alignItems: "center",
-    backgroundColor: "#A5F3FC",
-    borderRadius: 999,
-    height: 44,
-    justifyContent: "center",
-    width: 44
-  },
-  detailIcon: {
-    alignItems: "center",
-    backgroundColor: "#F5F3FF",
-    borderRadius: 12,
-    height: 38,
-    justifyContent: "center",
-    width: 38
-  },
-  detailLabel: {
-    color: "#94A3B8",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-    textTransform: "uppercase"
-  },
-  detailRow: {
-    alignItems: "center",
-    borderBottomColor: "#F1F5F9",
-    borderBottomWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    paddingVertical: 13
-  },
-  detailValue: {
-    color: "#0F172A",
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20,
-    marginTop: 3
-  },
-  detailsCard: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
-    borderRadius: 22,
-    borderWidth: 1,
-    padding: 18
-  },
-  hero: {
-    backgroundColor: "#17112B",
-    borderRadius: 28,
-    padding: 20
-  },
-  heroBadge: {
-    alignSelf: "flex-start",
-    backgroundColor: "rgba(255,255,255,0.12)",
-    borderRadius: 999,
-    paddingHorizontal: 11,
-    paddingVertical: 6
-  },
-  heroBadgeText: {
-    color: "#DDD6FE",
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 0.8,
-    textTransform: "uppercase"
-  },
-  heroCalendarIcon: {
-    alignItems: "center",
-    backgroundColor: colors.primary,
-    borderRadius: 14,
-    height: 46,
-    justifyContent: "center",
-    width: 46
-  },
-  heroDate: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "900"
-  },
-  heroStudio: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 14,
-    marginTop: 7
-  },
-  heroTime: {
-    color: "rgba(255,255,255,0.68)",
-    fontSize: 13,
-    marginTop: 4
-  },
-  heroTimeCard: {
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderRadius: 18,
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 20,
-    padding: 14
-  },
-  heroTitle: {
-    color: "#FFFFFF",
-    fontSize: 28,
-    fontWeight: "900",
-    lineHeight: 34,
-    marginTop: 16
-  },
-  manageCard: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E2E8F0",
-    borderRadius: 22,
-    borderWidth: 1,
-    padding: 18
-  },
-  manageDetail: {
-    color: "#64748B",
-    fontSize: 14,
-    lineHeight: 21,
-    marginTop: 7
-  },
-  manageTitle: {
-    color: "#0F172A",
-    fontSize: 20,
-    fontWeight: "900",
-    marginTop: 6
-  },
-  portalNote: {
-    color: "#94A3B8",
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 12,
-    textAlign: "center"
-  },
-  pressed: {
-    opacity: 0.75
-  },
-  sectionEyebrow: {
-    color: colors.primary,
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 1.1,
-    textTransform: "uppercase"
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    actionRow: {
+      gap: 10,
+      marginTop: 18
+    },
+    backButton: {
+      alignItems: "center",
+      alignSelf: "flex-start",
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 14,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 9
+    },
+    backText: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: "800"
+    },
+    checkinCard: {
+      backgroundColor: colors.surfaceAlt,
+      borderColor: colors.border,
+      borderRadius: 22,
+      borderWidth: 1,
+      gap: 14,
+      padding: 18
+    },
+    checkinCardComplete: {
+      backgroundColor: colors.surfaceAlt,
+      borderColor: colors.border
+    },
+    checkinDetail: {
+      color: colors.muted,
+      fontSize: 13,
+      lineHeight: 19,
+      marginTop: 3
+    },
+    checkinHeader: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 12
+    },
+    checkinIcon: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 999,
+      height: 44,
+      justifyContent: "center",
+      width: 44
+    },
+    checkinIconComplete: {
+      backgroundColor: colors.surfaceAlt
+    },
+    checkinMessage: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: "700"
+    },
+    checkinTitle: {
+      color: colors.text,
+      fontSize: 17,
+      fontWeight: "900"
+    },
+    confirmationCard: {
+      backgroundColor: colors.surfaceAlt,
+      borderColor: colors.border,
+      borderRadius: 22,
+      borderWidth: 1,
+      gap: 14,
+      padding: 18
+    },
+    confirmationCompleteCard: {
+      backgroundColor: colors.surfaceAlt,
+      borderColor: colors.border,
+      borderRadius: 22,
+      borderWidth: 1,
+      padding: 18
+    },
+    confirmationIcon: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 999,
+      height: 44,
+      justifyContent: "center",
+      width: 44
+    },
+    confirmationCompleteIcon: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 999,
+      height: 44,
+      justifyContent: "center",
+      width: 44
+    },
+    detailIcon: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 12,
+      height: 38,
+      justifyContent: "center",
+      width: 38
+    },
+    detailLabel: {
+      color: colors.muted,
+      fontSize: 11,
+      fontWeight: "800",
+      letterSpacing: 0.8,
+      textTransform: "uppercase"
+    },
+    detailRow: {
+      alignItems: "center",
+      borderBottomColor: colors.border,
+      borderBottomWidth: 1,
+      flexDirection: "row",
+      gap: 12,
+      paddingVertical: 13
+    },
+    detailValue: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: "700",
+      lineHeight: 20,
+      marginTop: 3
+    },
+    detailsCard: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 22,
+      borderWidth: 1,
+      padding: 18
+    },
+    hero: {
+      backgroundColor: colors.primaryDark,
+      borderRadius: 28,
+      padding: 20
+    },
+    heroBadge: {
+      alignSelf: "flex-start",
+      backgroundColor: "rgba(255,255,255,0.12)",
+      borderRadius: 999,
+      paddingHorizontal: 11,
+      paddingVertical: 6
+    },
+    heroBadgeText: {
+      color: "rgba(255,255,255,0.78)",
+      fontSize: 11,
+      fontWeight: "900",
+      letterSpacing: 0.8,
+      textTransform: "uppercase"
+    },
+    heroCalendarIcon: {
+      alignItems: "center",
+      backgroundColor: colors.primary,
+      borderRadius: 14,
+      height: 46,
+      justifyContent: "center",
+      width: 46
+    },
+    heroDate: {
+      color: "#FFFFFF",
+      fontSize: 15,
+      fontWeight: "900"
+    },
+    heroStudio: {
+      color: "rgba(255,255,255,0.7)",
+      fontSize: 14,
+      marginTop: 7
+    },
+    heroTime: {
+      color: "rgba(255,255,255,0.68)",
+      fontSize: 13,
+      marginTop: 4
+    },
+    heroTimeCard: {
+      alignItems: "center",
+      backgroundColor: "rgba(255,255,255,0.08)",
+      borderRadius: 18,
+      flexDirection: "row",
+      gap: 12,
+      marginTop: 20,
+      padding: 14
+    },
+    heroTitle: {
+      color: "#FFFFFF",
+      fontSize: 28,
+      fontWeight: "900",
+      lineHeight: 34,
+      marginTop: 16
+    },
+    manageCard: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 22,
+      borderWidth: 1,
+      padding: 18
+    },
+    manageDetail: {
+      color: colors.muted,
+      fontSize: 14,
+      lineHeight: 21,
+      marginTop: 7
+    },
+    manageTitle: {
+      color: colors.text,
+      fontSize: 20,
+      fontWeight: "900",
+      marginTop: 6
+    },
+    portalNote: {
+      color: colors.muted,
+      fontSize: 12,
+      lineHeight: 18,
+      marginTop: 12,
+      textAlign: "center"
+    },
+    pressed: {
+      opacity: 0.75
+    },
+    sectionEyebrow: {
+      color: colors.primary,
+      fontSize: 11,
+      fontWeight: "900",
+      letterSpacing: 1.1,
+      textTransform: "uppercase"
+    }
+  });
+}
