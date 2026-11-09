@@ -82,15 +82,16 @@ describe("provisioning workflow: inert until separately authorized", () => {
     expect(g).toContain("exit 1");
     expect(idx("Guards")).toBeLessThan(idx("Fetch exactly"));
   });
-  it("the only Stripe account id in the file is that platform id", () => {
-    expect([...new Set(code.match(/acct_[A-Za-z0-9]+/g) ?? [])].sort()).toEqual(["acct_PLACEHOLDERCONNECTED", PLATFORM].sort());
+  it("the only Stripe account ids in the file are that platform id and the legacy fixture the guard replaces", () => {
+    expect([...new Set(code.match(/acct_[A-Za-z0-9]+/g) ?? [])].sort()).toEqual(["acct_1UZeX9RPIxrr5yG6", PLATFORM].sort());
   });
   it("without the secret it cannot reach Stripe: the tool refuses a missing or non-restricted key before building a transport", () => {
     expect(readFileSync(join(REPO, "scripts/qa/d24-test-provision/live.ts"), "utf8")).toContain("checkKeyShape(env[ENV.key])");
   });
-  it("it is one-shot: its guard refuses once the proof workflow records a real connected account id (as it now does)", () => {
+  it("it is one-shot: it only runs while the proof workflow still pins the LEGACY fixture, and refuses once any replacement is pinned", () => {
     const f = step("Fetch exactly").run as string;
-    expect(f).toContain('grep -q \'D24_PROOF_EXPECT_CONNECTED_ACCT: "acct_PLACEHOLDERCONNECTED"\' .github/workflows/d24-stripe-test-proof.yml');
+    expect(f).toContain('grep -q \'D24_PROOF_EXPECT_CONNECTED_ACCT: "acct_1UZeX9RPIxrr5yG6"\' .github/workflows/d24-stripe-test-proof.yml');
+    expect(f).toContain("provisioning is one-shot");
   });
 });
 
@@ -189,7 +190,8 @@ describe("recorded proof ids (provisioning run 42530005438, 2026-11-08)", () => 
     }
     expect(penv.D24_PROOF_EXPECT_PLATFORM_ACCT).toBe(job.env?.D24_PROVISION_EXPECT_PLATFORM_ACCT);
   });
-  it("the provisioning guard now refuses (the proof workflow no longer holds the placeholder connected id)", () => {
+  it("the proof still pins the legacy fixture, so the guarded replacement run is allowed; a follow-up PR that pins the replacement closes the guard", () => {
+    expect(penv.D24_PROOF_EXPECT_CONNECTED_ACCT).toBe(CONNECTED);
     expect(readFileSync(join(WF_DIR, "d24-stripe-test-proof.yml"), "utf8")).not.toContain("acct_PLACEHOLDERCONNECTED");
   });
 });

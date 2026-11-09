@@ -78,13 +78,15 @@ describe("live entry: the happy path through the fake", () => {
     expect(text).toContain("losses.payments");
     for (const secret of [KEY, "d24prov-0123456789abcdef0123456789", "Bearer"]) expect(text + lines.join("\n")).not.toContain(secret);
   });
-  it("the create it sends is the production Express body plus the three markers, carrying the run reference", async () => {
+  it("the create it sends is the controller-model Express-dashboard body plus the three markers, carrying the run reference", async () => {
     const { e } = env();
     const fake = createFakeProvisionTransport({ platformId: PLATFORM });
     await main(["--live"], e, io().io, { transport: fake.transport });
     const create = fake.calls.find((c) => c.method === "POST") as ProofRequest;
     expect(create.stripeVersion).toBe(PROVISION_API_VERSION);
-    expect(create.body).toEqual(buildCreateRequest({ envelopeRef: REF, idempotencyKey: "x" }).body);
+    expect(create.body).toEqual(buildCreateRequest({ envelopeRef: REF, idempotencyKey: "x", variant: "controller_express" }).body);
+    expect(create.body).not.toHaveProperty("type"); // NOT legacy type=express
+    expect(create.body?.["controller[stripe_dashboard][type]"]).toBe("express");
     expect(create.stripeAccount).toBeUndefined();
   });
 });
@@ -112,6 +114,12 @@ describe("live entry: aborts are reported, never retried", () => {
     const fake = createFakeProvisionTransport({ platformId: PLATFORM, accountType: "none", controller: old });
     const code = await main(["--live"], e, io().io, { transport: fake.transport });
     expect(code).toBe(1);
+    expect(readFileSync(summary, "utf8")).toContain("observed_mismatch");
+  });
+  it("a LEGACY express account coming back (the blocked type) is rejected: the point of this variant is a non-legacy account", async () => {
+    const { e, summary } = env();
+    const fake = createFakeProvisionTransport({ platformId: PLATFORM, accountType: "express" });
+    expect(await main(["--live"], e, io().io, { transport: fake.transport })).toBe(1);
     expect(readFileSync(summary, "utf8")).toContain("observed_mismatch");
   });
   it("livemode:true aborts", async () => {

@@ -54,7 +54,7 @@ export function successSummary(r: ProvisionResult, envelopeRef: string): string 
     `- Stripe-Version: \`${PROVISION_API_VERSION}\`; hard cap ${PROVISION_HARD_CALL_CAP} requests; no retries`,
     `- requests sent: ${r.calls.length}`,
     ...r.calls.map((c) => `  - ${c.atUtc} ${c.method} ${c.path.replace(/acct_[A-Za-z0-9]+/, "acct_<new>")} -> ${c.status} (${safeReq(c.requestId)})`),
-    `- observed Express configuration: \`${JSON.stringify(r.observedController)}\``,
+    `- observed Express (controller-model) configuration: \`${JSON.stringify(r.observedController)}\``,
     `- capabilities as returned: \`${JSON.stringify(r.capabilities)}\`; charges_enabled: \`${String(r.chargesEnabled)}\``,
     `- idempotency key SHA-256: \`${r.idempotencyKeySha256}\``,
     "",
@@ -94,6 +94,7 @@ export async function main(argv: string[], env: Record<string, string | undefine
       envelopeRef,
       idempotencyKey: (deps.newIdempotencyKey ?? (() => `d24prov-${randomBytes(12).toString("hex")}`))(),
       now: deps.now,
+      variant: "controller_express", // legacy type=express direct charges are blocked for new platforms; see provision.ts
     });
     write(successSummary(result, envelopeRef));
     io.out(`PROVISIONED and verified; ${result.calls.length} requests; details in the job summary`);

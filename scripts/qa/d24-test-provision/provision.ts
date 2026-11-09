@@ -14,6 +14,15 @@ export const PROVISION_API_VERSION = "2026-03-25.dahlia";
 export const PROVISION_HARD_CALL_CAP = 3;
 export const FIXTURE_METADATA_KEY = "d24_proof_fixture";
 export const FIXTURE_ROLE_POSITIVE = "express_prod_equivalent";
+/** Role marker for the controller-model fixture (Express dashboard via controller properties, NOT legacy type=express). */
+export const FIXTURE_ROLE_CONTROLLER = "express_controller_equivalent";
+/**
+ * Why two variants: Stripe blocks DIRECT charges on LEGACY (type=express / type=custom) accounts for NEW platforms, and this sandbox is a new platform
+ * ("Creating direct charges with type=express or type=custom is not supported for new platforms", proof run 2, req_WrGBjRBi8gz5xi). The controller variant creates the
+ * same Express-dashboard experience through controller properties, which is not the legacy type, so direct invoices on the account are allowed. The legacy variant is kept
+ * as the record of the production create call and is never used by live.ts.
+ */
+export type CreateVariant = "legacy_express" | "controller_express";
 
 export const ENV = Object.freeze({
   key: "D24_PROVISION_STRIPE_KEY",
@@ -37,24 +46,35 @@ export class ProvisionAbort extends Error {
 }
 
 /** The exact production create call (route.ts:69-77), with only the metadata replaced: no country, no business_type, no email, capabilities card_payments + transfers. */
-export function buildCreateRequest(opts: { envelopeRef: string; idempotencyKey: string }): ProofRequest {
+export function buildCreateRequest(opts: { envelopeRef: string; idempotencyKey: string; variant?: CreateVariant }): ProofRequest {
+  const controller = opts.variant === "controller_express";
   return {
     method: "POST",
     path: "/v1/accounts",
     stripeVersion: PROVISION_API_VERSION,
     idempotencyKey: opts.idempotencyKey,
     body: {
-      type: "express",
+      ...(controller ? CONTROLLER_PROPERTIES : { type: "express" }),
       "capabilities[card_payments][requested]": "true",
       "capabilities[transfers][requested]": "true",
       [`metadata[${FIXTURE_METADATA_KEY}]`]: "true",
-      "metadata[d24_fixture_role]": FIXTURE_ROLE_POSITIVE,
+      "metadata[d24_fixture_role]": controller ? FIXTURE_ROLE_CONTROLLER : FIXTURE_ROLE_POSITIVE,
       "metadata[d24_envelope_ref]": opts.envelopeRef,
     },
   };
 }
 
-const CREATE_KEYS = new Set(["type", "capabilities[card_payments][requested]", "capabilities[transfers][requested]", `metadata[${FIXTURE_METADATA_KEY}]`, "metadata[d24_fixture_role]", "metadata[d24_envelope_ref]"]);
+/** Express dashboard via controller properties (Stripe docs: controller.stripe_dashboard.type=express, requirement_collection=stripe, losses.payments=application, fees.payer=application). `type` is NOT sent. */
+export const CONTROLLER_PROPERTIES: Readonly<Record<string, string>> = Object.freeze({
+  "controller[stripe_dashboard][type]": "express",
+  "controller[requirement_collection]": "stripe",
+  "controller[losses][payments]": "application",
+  "controller[fees][payer]": "application",
+});
+
+const COMMON_KEYS = ["capabilities[card_payments][requested]", "capabilities[transfers][requested]", `metadata[${FIXTURE_METADATA_KEY}]`, "metadata[d24_fixture_role]", "metadata[d24_envelope_ref]"];
+const CREATE_KEYS = new Set(["type", ...COMMON_KEYS]);
+const CONTROLLER_CREATE_KEYS = new Set([...Object.keys(CONTROLLER_PROPERTIES), ...COMMON_KEYS]);
 const ACCT = /^acct_[A-Za-z0-9]{6,64}$/;
 
 /** Why a request is not allowed (null = allowed). Pure; used before the transport is ever called. */
@@ -74,9 +94,16 @@ export function allowProblem(req: ProofRequest, state: { platformId: string | nu
     if (state.createSent) return "exactly one create per run";
     if (!req.idempotencyKey || !/^d24prov-[A-Za-z0-9-]{16,64}$/.test(req.idempotencyKey)) return "create requires a d24prov-… idempotency key";
     const b = req.body ?? {};
-    for (const k of Object.keys(b)) if (!CREATE_KEYS.has(k)) return `form key ${k.slice(0, 40)} is not on the allow-list`;
-    if (b.type !== "express" || b["capabilities[card_payments][requested]"] !== "true" || b["capabilities[transfers][requested]"] !== "true") return "create must be the production Express shape";
-    if (b[`metadata[${FIXTURE_METADATA_KEY}]`] !== "true" || b["metadata[d24_fixture_role]"] !== FIXTURE_ROLE_POSITIVE) return "create must carry the fixture markers";
+    // exactly one of two closed shapes; a body that mixes `type` with controller keys (or adds any other key) is refused
+    const controller = !("type" in b) && Object.keys(b).some((k) => k.startsWith("controller["));
+    const allowed = controller ? CONTROLLER_CREATE_KEYS : CREATE_KEYS;
+    for (const k of Object.keys(b)) if (!allowed.has(k)) return `form key ${k.slice(0, 40)} is not on the allow-list`;
+    if (Object.keys(b).length !== allowed.size) return "create body is missing a required key";
+    if (b["capabilities[card_payments][requested]"] !== "true" || b["capabilities[transfers][requested]"] !== "true") return "create must request card_payments and transfers";
+    if (controller) {
+      for (const [k, v] of Object.entries(CONTROLLER_PROPERTIES)) if (b[k] !== v) return `controller property ${k.slice(0, 50)} must be ${v}`;
+    } else if (b.type !== "express") return "create must be the production Express shape";
+    if (b[`metadata[${FIXTURE_METADATA_KEY}]`] !== "true" || b["metadata[d24_fixture_role]"] !== (controller ? FIXTURE_ROLE_CONTROLLER : FIXTURE_ROLE_POSITIVE)) return "create must carry the fixture markers";
     if (!ENVELOPE_REF_RE.test(b["metadata[d24_envelope_ref]"] ?? "")) return "create must carry a well-formed envelope reference";
     return null;
   }
@@ -111,7 +138,8 @@ export function observedController(j: Record<string, unknown> | null | undefined
 }
 
 /** The whole flow against an injected transport. Pure of I/O apart from the transport. */
-export async function runProvision(args: { transport: Transport; apiKey: string; expectPlatformAcct: string; envelopeRef: string; idempotencyKey: string; now?: () => Date }): Promise<ProvisionResult> {
+export async function runProvision(args: { transport: Transport; apiKey: string; expectPlatformAcct: string; envelopeRef: string; idempotencyKey: string; now?: () => Date; variant?: CreateVariant }): Promise<ProvisionResult> {
+  const variant: CreateVariant = args.variant ?? "legacy_express";
   const keyProblem = checkKeyShape(args.apiKey);
   if (!keyProblem.ok) throw new ProvisionAbort("blocked_request", keyProblem.reason);
   if (!ACCT.test(args.expectPlatformAcct)) throw new ProvisionAbort("identity_mismatch", "pinned platform account id is malformed");
@@ -146,7 +174,7 @@ export async function runProvision(args: { transport: Transport; apiKey: string;
   if (platform.status !== 200 || String(platform.json?.id ?? "") !== args.expectPlatformAcct) throw new ProvisionAbort("identity_mismatch", "GET /v1/account is not the pinned sandbox platform account");
   state.platformId = args.expectPlatformAcct;
 
-  const created = await send(buildCreateRequest({ envelopeRef: args.envelopeRef, idempotencyKey: args.idempotencyKey }));
+  const created = await send(buildCreateRequest({ envelopeRef: args.envelopeRef, idempotencyKey: args.idempotencyKey, variant }));
   const createdId = String(created.json?.id ?? "");
   if (created.status !== 200 || !ACCT.test(createdId) || createdId === args.expectPlatformAcct) throw new ProvisionAbort("unexpected_status", `create answered ${created.status} without a usable new account id; do NOT retry`);
   state.createdId = createdId;
@@ -162,7 +190,13 @@ export async function runProvision(args: { transport: Transport; apiKey: string;
   const verdict = checkConnectedAccount(read.json);
   if (!verdict.ok) throw new ProvisionAbort("observed_mismatch", verdict.reason);
   const md = read.json?.metadata as Record<string, unknown> | undefined;
-  if (md?.[FIXTURE_METADATA_KEY] !== "true" || md?.d24_fixture_role !== FIXTURE_ROLE_POSITIVE) throw new ProvisionAbort("observed_mismatch", "readback metadata does not carry the fixture markers");
+  if (md?.[FIXTURE_METADATA_KEY] !== "true" || md?.d24_fixture_role !== (variant === "controller_express" ? FIXTURE_ROLE_CONTROLLER : FIXTURE_ROLE_POSITIVE)) throw new ProvisionAbort("observed_mismatch", "readback metadata does not carry the fixture markers");
+  if (variant === "controller_express") {
+    // the whole point of this variant: the account must NOT be legacy Express (Stripe blocks direct charges on legacy Express for new platforms), and must carry exactly what was asked for
+    if (verdict.facts.model !== "controller_express") throw new ProvisionAbort("observed_mismatch", "the account came back as a legacy Express account, not a controller-model account");
+    const obs = observedController(read.json);
+    if (obs["controller.fees.payer"] !== "application" || obs["controller.losses.payments"] !== "application") throw new ProvisionAbort("observed_mismatch", "controller fees.payer / losses.payments are not application");
+  }
 
   const caps: Record<string, string> = {};
   const rc = read.json?.capabilities;
@@ -198,7 +232,12 @@ export function createFakeProvisionTransport(o: { platformId: string; createdId?
       if (o.createStatus && o.createStatus !== 200) return { ...base, status: o.createStatus, json: { error: { type: "api_error" } } };
       const md: Record<string, string> = {};
       for (const [k, v] of Object.entries(req.body ?? {})) { const m = /^metadata\[(.+)\]$/.exec(k); if (m) md[m[1]] = v; }
-      stored = { id: createdId, object: "account", livemode: o.livemode ?? false, type: o.accountType ?? "express", controller: o.controller === undefined ? prodEquivalent : o.controller, metadata: md, capabilities: { card_payments: "inactive", transfers: "inactive" }, charges_enabled: false };
+      // a faithful fake: a controller-variant request yields a controller-model account (type "none") carrying exactly the requested properties
+      const b = req.body ?? {};
+      const asked = Object.keys(b).some((k) => k.startsWith("controller["))
+        ? { type: "application", is_controller: true, stripe_dashboard: { type: b["controller[stripe_dashboard][type]"] }, requirement_collection: b["controller[requirement_collection]"], losses: { payments: b["controller[losses][payments]"] }, fees: { payer: b["controller[fees][payer]"] } }
+        : undefined;
+      stored = { id: createdId, object: "account", livemode: o.livemode ?? false, type: o.accountType ?? (asked ? "none" : "express"), controller: o.controller === undefined ? (asked ?? prodEquivalent) : o.controller, metadata: md, capabilities: { card_payments: "inactive", transfers: "inactive" }, charges_enabled: false };
       return { ...base, status: 200, json: stored };
     }
     if (req.method === "GET" && stored && req.path === `/v1/accounts/${createdId}`) return { ...base, status: 200, json: stored };

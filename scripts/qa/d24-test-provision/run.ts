@@ -34,7 +34,7 @@ export async function main(argv: string[], _env: Record<string, string | undefin
   const dryEnvelope = "D24-ENV-00000000-DRYRUN000";
 
   if (mode === "--plan") {
-    const req = buildCreateRequest({ envelopeRef: dryEnvelope, idempotencyKey: "d24prov-<random>" });
+    const req = buildCreateRequest({ envelopeRef: dryEnvelope, idempotencyKey: "d24prov-<random>", variant: "controller_express" });
     io.out(`Stripe-Version ${PROVISION_API_VERSION}; hard cap ${PROVISION_HARD_CALL_CAP} calls; no retry. PLAN ONLY: this tool cannot run live.`);
     io.out("1. GET  /v1/account                      (platform identity, must equal the pinned id)");
     io.out(`2. POST /v1/accounts ${JSON.stringify(req.body)}`);
@@ -43,7 +43,7 @@ export async function main(argv: string[], _env: Record<string, string | undefin
   }
   const platformId = "acct_FAKEPLATFORM01";
   const fake = createFakeProvisionTransport({ platformId });
-  const res = await runProvision({ transport: fake.transport, apiKey: "rk_test_dryrunonly000000", expectPlatformAcct: platformId, envelopeRef: dryEnvelope, idempotencyKey: idemKey, now: deps.now });
+  const res = await runProvision({ transport: fake.transport, apiKey: "rk_test_dryrunonly000000", expectPlatformAcct: platformId, envelopeRef: dryEnvelope, idempotencyKey: idemKey, now: deps.now, variant: "controller_express" });
   io.out(`dry-run OK against the fake: ${res.calls.map((c) => `${c.method} ${c.path} -> ${c.status}`).join(" | ")}; observed ${JSON.stringify(res.observedController)}`);
   return 0;
 }

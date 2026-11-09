@@ -1,6 +1,6 @@
 name: D24 TEST account provisioning
 
-# ONE-SHOT, owner-approved creation of the production-equivalent Express connected account in the isolated D24 Stripe TEST sandbox (scripts/qa/d24-test-provision).
+# ONE-SHOT, owner-approved creation of the controller-model Express-dashboard connected account (NOT legacy type=express: Stripe blocks direct charges on legacy Express for new platforms) in the isolated D24 Stripe TEST sandbox (scripts/qa/d24-test-provision).
 # Design, requests, permissions, cost and cleanup: docs/billing/D24-TEST-ACCOUNT-PROVISIONING.md section 9.
 #
 # INERT until separately authorized: the environment secret
@@ -43,7 +43,7 @@ jobs:
       D24_PIN_PACKAGE_LOCK_SHA256: "57523eb298e97ada0974ad6c39473dca0ba389f33500b5bb99b505fb45106d13"
       D24_PIN_TSCONFIG_SHA256: "b0ca828ffe4497f6ee194e695f25d4105b1545d76872ab8cbd6689a080efe066"
       # SHA-256 of the "sha256sum" listing of the files this job executes from scripts/qa/d24-test-provision (live.ts provision.ts run.ts).
-      D24_PIN_PROVISION_TOOLING_SHA256: "c8d095a5f4f9681578919fe28fb8f76cc7b549f107bf03781d9161a22c1d2c18"
+      D24_PIN_PROVISION_TOOLING_SHA256: "009d1384b6a9a26601dc23c779e7da06b1a272ea12dfba8006b2ca717503e4fc"
       BASH_ENV: ""
       ENV: ""
       D24_WORKFLOW_REF_EXPECTED: "genxttech/danceflow-app/.github/workflows/d24-provision-account.yml@refs/heads/main"
@@ -71,7 +71,7 @@ jobs:
             echo "- run id: $RUN_ID"
             echo "- pinned harness git tree: \`$D24_PROOF_PINNED_TREE\`"
             echo
-            echo "Exactly three Stripe requests, no retries: GET /v1/account (must be the pinned sandbox platform), ONE POST /v1/accounts (type express, card_payments + transfers requested, three marker metadata keys), GET /v1/accounts/<new id>."
+            echo "Exactly three Stripe requests, no retries: GET /v1/account (must be the pinned sandbox platform), ONE POST /v1/accounts (controller properties stripe_dashboard=express, requirement_collection=stripe, losses.payments=application, fees.payer=application; no `type`; card_payments + transfers requested; three marker metadata keys), GET /v1/accounts/<new id>."
             echo "Compare the workflow path and the commit with the values in the approval message before trusting this run."
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -104,8 +104,8 @@ jobs:
           git fetch -q --no-tags --depth=1 origin refs/heads/main
           [ "$(git rev-parse FETCH_HEAD)" = "$SHA" ] || { echo "FAIL: main has moved since the dispatch; dispatch again"; exit 1; }
           echo "checked out the dispatched commit, which is the tip of main"
-          # ONE-SHOT: once a real connected account id is recorded in the proof workflow, this account already exists and this workflow must not create another
-          grep -q 'D24_PROOF_EXPECT_CONNECTED_ACCT: "acct_PLACEHOLDERCONNECTED"' .github/workflows/d24-stripe-test-proof.yml || { echo "FAIL: a connected account id is already recorded; provisioning is one-shot"; exit 1; }
+          # ONE-SHOT: this replaces the LEGACY fixture acct_1UZeX9RPIxrr5yG6 (direct charges on legacy type=express are blocked for new platforms). Once the proof workflow pins any other connected account, the replacement exists and this workflow must not create another
+          grep -q 'D24_PROOF_EXPECT_CONNECTED_ACCT: "acct_1UZeX9RPIxrr5yG6"' .github/workflows/d24-stripe-test-proof.yml || { echo "FAIL: the legacy fixture has already been replaced; provisioning is one-shot"; exit 1; }
           [ "$(git rev-parse HEAD:scripts/qa/d24-m3d-proof)" = "$D24_PROOF_PINNED_TREE" ] || { echo "FAIL: harness git tree differs from the pin"; exit 1; }
           [ "$(sha256sum package.json | cut -d' ' -f1)" = "$D24_PIN_PACKAGE_JSON_SHA256" ] || { echo "FAIL: package.json differs from the pin"; exit 1; }
           [ "$(sha256sum package-lock.json | cut -d' ' -f1)" = "$D24_PIN_PACKAGE_LOCK_SHA256" ] || { echo "FAIL: package-lock.json differs from the pin"; exit 1; }
