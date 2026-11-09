@@ -1,4 +1,4 @@
--- Rollback of 20261231120000_twilio_ki1_activation_lift.sql: restores the 20261226 _tw4act_items body (the KI-1 gate returns for the pilot business).
+-- Rollback of 20261231150000_twilio_ki1_activation_lift.sql: restores the 20261226 _tw4act_items body (the KI-1 gate returns for the pilot business).
 begin;
 set local lock_timeout = '5s';
 create or replace function public._tw4act_items(p_studio_id uuid)

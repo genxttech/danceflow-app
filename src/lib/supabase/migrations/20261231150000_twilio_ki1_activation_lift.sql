@@ -1,9 +1,9 @@
--- 20261231120000_twilio_ki1_activation_lift.sql
+-- 20261231150000_twilio_ki1_activation_lift.sql
 -- TW-4F KI-1 activation lift (dark; Git-only; apply ONLY with the owner's bounded activation approval, after 20261231110000 is applied and verified).
 -- Lifts the activation checklist item 'pilot_ki1_redecided' (20261226) for the pilot business, and ONLY while the burned-ceiling protection of 20261231110000 is installed
 -- and enabled (the item fails closed with 'ki1_ceiling_protection_missing' otherwise, e.g. if that trigger is dropped or disabled). Nothing else in _tw4act_items changes:
 -- the body below is the 20261226 definition with that one item and one declared variable replaced. Non-pilot businesses are unaffected ('not_pilot').
--- Requires 20261226090000 and 20261231110000. Rollback: rollback/20261231120000_twilio_ki1_activation_lift_rollback.sql restores the 20261226 body.
+-- Requires 20261226090000 and 20261231110000 (applied after 20261231130000 and 20261231140000 in the monitoring release). Rollback: rollback/20261231150000_twilio_ki1_activation_lift_rollback.sql restores the 20261226 body.
 -- NOT APPLIED to any shared environment by this file's authoring.
 
 begin;
