@@ -222,7 +222,7 @@ describe("CF1 dark gate: every page and server action answers notFound() with th
           await expectNotFound(() => fn(...callArgs(name)));
         }
         expect(touched, file).toEqual([]);
-      });
+      }, 60_000); // the first import of a page compiles its whole module graph; slow under a full parallel suite
     }
   }
 

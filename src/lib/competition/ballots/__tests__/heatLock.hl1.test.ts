@@ -1,4 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// These actions are Competition Finals entry points: they run only with the flag on (finalsGate.cf1dark.test.ts proves the off state).
+const savedFinalsFlag = process.env.COMPETITION_FINALS_ENABLED;
+beforeAll(() => {
+  process.env.COMPETITION_FINALS_ENABLED = "true";
+});
+afterAll(() => {
+  if (savedFinalsFlag === undefined) delete process.env.COMPETITION_FINALS_ENABLED;
+  else process.env.COMPETITION_FINALS_ENABLED = savedFinalsFlag;
+});
 import { ballotErrorMessage } from "../messages";
 import { canLockHeat, canReopenHeat, heatIsDanced, heatLockErrorMessage, lockHeatConfirm, lockHeatHint, lockHeatKind, reopenHeatConfirm } from "../heatLock";
 

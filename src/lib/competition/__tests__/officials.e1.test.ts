@@ -74,7 +74,7 @@ describe("E1 judging shell grouping", () => {
 
 describe("E1 navigation", () => {
   it("links Officials into the competition workspace and marks it active", () => {
-    const item = competitionNav(EVENT).find((candidate) => candidate.key === "officials")!;
+    const item = competitionNav(EVENT, true).find((candidate) => candidate.key === "officials")!;
     expect(item.available).toBe(true);
     expect(item.href).toBe(`/app/events/${EVENT}/competition/officials`);
     expect(activeNavKey(EVENT, `/app/events/${EVENT}/competition/officials`)).toBe("officials");

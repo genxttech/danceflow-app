@@ -98,7 +98,7 @@ describe("messages and links", () => {
 
 describe("workspace nav", () => {
   it("adds one Day-of entry", () => {
-    const items = competitionNav("e1");
+    const items = competitionNav("e1", true); // CF1 navigation is shown only with Competition Finals on (finalsGate.cf1dark.test.ts covers off)
     expect(items.filter((item) => item.key === "day_of")).toEqual([{ key: "day_of", label: "Day-of", href: "/app/events/e1/competition/day-of", available: true }]);
     expect(activeNavKey("e1", "/app/events/e1/competition/day-of")).toBe("day_of");
   });

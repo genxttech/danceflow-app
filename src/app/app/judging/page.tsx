@@ -1,8 +1,9 @@
 import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { OFFICIAL_ROLE_LABELS, type OfficialRole } from "@/lib/competition/officials/contract";
-import { groupJudgingAssignments, type JudgingAssignmentRow } from "@/lib/competition/officials/judging";
+import { groupJudgingAssignments, judgingRoundLinks, type JudgingAssignmentRow } from "@/lib/competition/officials/judging";
 
 function label(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
@@ -47,16 +48,23 @@ export default async function JudgingHomePage() {
                 <p className="mt-3 text-sm text-slate-600">No rounds assigned yet.</p>
               ) : (
                 <ul className="mt-3 divide-y divide-slate-100">
-                  {event.rounds.map((round) => (
+                  {event.rounds.map((round) => {
+                    const links = judgingRoundLinks(event.eventId, round, event.officialRole);
+                    return (
                     <li key={round.roundId} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
                       <span>
                         <span className="mr-2 inline-block min-w-6 rounded bg-slate-100 px-1.5 py-0.5 text-center text-xs font-bold text-slate-800">{round.judgeLetter ?? "-"}</span>
                         {round.divisionName ? `${round.divisionName} - ` : ""}
                         {round.roundName}
                       </span>
-                      <span className="text-xs text-slate-600">{label(round.roundStatus)}</span>
+                      <span className="flex items-center gap-3 text-xs text-slate-600">
+                        {label(round.roundStatus)}
+                        {links.ballot ? <Link href={links.ballot} className="font-semibold text-slate-900 underline">Open ballot</Link> : null}
+                        {links.desk ? <Link href={links.desk} className="font-semibold text-slate-900 underline">Open desk</Link> : null}
+                      </span>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               )}
             </section>
