@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { priceAuthzBegin, priceAuthzFinish } from "./priceChangeActions";
-import { microsToUsd, type AuthzChallenge } from "@/lib/sms/priceChange";
+import { microsToUsd } from "@/lib/sms/priceMicros";
+import type { AuthzChallenge } from "@/lib/sms/priceChange";
 
 /**
  * Final authorization of ONE single-owner price proposal with the owner's hardware authenticator (WebAuthn). The steps:
