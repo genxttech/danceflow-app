@@ -1,0 +1,64 @@
+{
+  "status": "PROPOSED_NOT_APPROVED",
+  "note": "Six price proposals for the single-studio ConfiDance pilot (Low Volume path). Data only: entering these through the price form is a separate, owner-authorized act and each one still needs its own proposal, the 24 hour cooling-off and a hardware-key authorization from a separate session. Amounts are the owner's provisional per-segment rates plus candidate fixed-fee customer prices. Nothing here is financial authorization and the $150 ceiling is a safety limit, not a budget.",
+  "prices": [
+    {
+      "order": 1,
+      "kind": "sms_usage",
+      "unit": "micro-dollars",
+      "priceMicros": 17000,
+      "costMicros": 12695,
+      "priceUsd": "0.017",
+      "costUsd": "0.012695",
+      "description": "Outbound text message, per segment (carrier fees included)",
+      "reason": "Owner-approved provisional outbound rate for the ConfiDance pilot; expected provider cost is the blended Twilio base rate plus carrier fees (28/37/35 carrier mix, October 2026 price page)."
+    },
+    {
+      "order": 2,
+      "kind": "sms_inbound",
+      "unit": "micro-dollars",
+      "priceMicros": 13000,
+      "costMicros": 10205,
+      "priceUsd": "0.013",
+      "costUsd": "0.010205",
+      "description": "Inbound text message, per segment (carrier fees included)",
+      "reason": "Owner-approved provisional inbound rate for the ConfiDance pilot; expected provider cost is the blended Twilio base rate plus published inbound carrier fees (Verizon and other inbound carrier fees are blank on the October 2026 price page)."
+    },
+    {
+      "order": 3,
+      "kind": "brand_low_volume",
+      "unit": "cents",
+      "priceCents": 700,
+      "costCents": 450,
+      "description": "Brand registration, Low Volume Standard (one time)",
+      "reason": "Candidate pass-through price for the Low Volume Standard brand registration; Twilio list cost $4.50 is unconfirmed pending ticket 29647095."
+    },
+    {
+      "order": 4,
+      "kind": "campaign_vetting",
+      "unit": "cents",
+      "priceCents": 2100,
+      "costCents": 1500,
+      "description": "Campaign vetting (one time, non-refundable)",
+      "reason": "Candidate pass-through price for campaign vetting; Twilio list cost $15.00, treated as non-refundable until Twilio confirms otherwise."
+    },
+    {
+      "order": 5,
+      "kind": "monthly_low_volume",
+      "unit": "cents",
+      "priceCents": 225,
+      "costCents": 150,
+      "description": "Campaign, Low Volume Mixed (monthly)",
+      "reason": "Candidate pass-through price for the Low Volume Mixed campaign monthly fee; Twilio list cost $1.50 per month is unconfirmed pending ticket 29647095."
+    },
+    {
+      "order": 6,
+      "kind": "number",
+      "unit": "cents",
+      "priceCents": 165,
+      "costCents": 115,
+      "description": "Local phone number (monthly)",
+      "reason": "Candidate pass-through price for one Twilio local number; Twilio list cost $1.15 per month read directly from the October 2026 price page."
+    }
+  ]
+}
