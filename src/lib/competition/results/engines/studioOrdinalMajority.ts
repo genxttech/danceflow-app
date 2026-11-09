@@ -78,7 +78,7 @@ function body(input: StudioEngineInput, trace: TraceRecord[], v: ValidationLog):
 
   // V3 / X-3 / V11 (X-7) / V12 (X-6). Structural checks run before the per-mark checks: a multi-heat round carries one
   // ballot per heat, which per-mark checks would misreport as incomplete ballots.
-  checkPanelStructure(input, ordered, v, { x3: "V3", x3Flags: "V3a", x7: "V11", x6: "V12" });
+  const structureWarnings = checkPanelStructure(input, ordered, v, { x3: "V3", x3Flags: "V3a", x7: "V11", x6: "V12" });
   if (input.context.heats.length > 1) {
     // X-7 fixes the panel but not how rankings of different heats combine: NOT SPECIFIED, fail closed.
     v.fail("V11", "one heat per run (combination across heats not specified)", UC, "multi_heat_combination_unspecified", input.context.heats.map((h) => h.heatId));
@@ -227,6 +227,7 @@ function body(input: StudioEngineInput, trace: TraceRecord[], v: ValidationLog):
   });
 
   const warnings = excluded.length > 0 ? [`excluded_entries:${sortedUnique(excluded).join(",")}`] : [];
+  warnings.push(...structureWarnings);
   return { rows, warnings };
 }
 

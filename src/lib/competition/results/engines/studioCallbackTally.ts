@@ -120,7 +120,7 @@ function body(input: StudioEngineInput, trace: TraceRecord[], v: ValidationLog):
   }
 
   // V6 (X-3, X-7)
-  checkPanelStructure(input, ordered, v, { x3: "V6", x3Flags: "V6a", x7: "V6b", x6: "V14b" });
+  warnings.push(...checkPanelStructure(input, ordered, v, { x3: "V6", x3Flags: "V6a", x7: "V6b", x6: "V14b" }));
 
   // V7, V8, V9, V10 over all marks
   const panelIds = new Set(ordered.map((j) => j.officialId));

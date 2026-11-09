@@ -166,6 +166,46 @@ describe("cross-heat exclusion (X-5 entry-level; A3 precedence scratched > no_sh
   });
 });
 
+describe("INT5-SECFIX P3: an excluded entry listed on two heats is surfaced as a warning naming the heats (exclusion unchanged)", () => {
+  const cb = () => callbackInput(F01, ENTRIES, 4, 8);
+  const twoHeats = (input: ReturnType<typeof cb>) => {
+    const rest = input.context.heats[0].entryIds.filter((id) => id !== e(18));
+    return {
+      ...input,
+      context: {
+        ...input.context,
+        excludedEntries: [{ entryId: e(18), reason: "scratched" as const }],
+        heats: [{ ...input.context.heats[0], entryIds: [...rest, e(18)] }, { ...input.context.heats[0], heatId: "heat-2", entryIds: [e(18)] }],
+      },
+    };
+  };
+  it("the entry is excluded as a whole and the warning names it and both heats", () => {
+    const input = cb();
+    const run = runStudioCallbackTally(twoHeats(input));
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.warnings).toContain(`excluded_entry_in_multiple_heats:${e(18)}@${input.context.heats[0].heatId}+heat-2`);
+    expect(run.warnings).toContain(`excluded_entries:${e(18)}`);
+    expect(run.rows.map((r) => r.entryId)).not.toContain(e(18));
+  });
+  it("the warning is deterministic, sorted, and does not change the input hash of the same input", () => {
+    const input = cb();
+    const a = runStudioCallbackTally(twoHeats(input));
+    const b = runStudioCallbackTally(twoHeats(input));
+    expect(a.ok && b.ok).toBe(true);
+    if (!a.ok || !b.ok) return;
+    expect(a.inputHash).toBe(b.inputHash);
+    expect(a.outputHash).toBe(b.outputHash);
+    expect([...a.warnings]).toEqual([...a.warnings].sort());
+  });
+  it("an excluded entry on ONE heat, or off every roster, raises no such warning", () => {
+    const input = cb();
+    const one = runStudioCallbackTally({ ...input, context: { ...input.context, excludedEntries: [{ entryId: e(18), reason: "no_show" }] } });
+    expect(one.ok).toBe(true);
+    if (one.ok) expect(one.warnings.some((w) => w.startsWith("excluded_entry_in_multiple_heats"))).toBe(false);
+  });
+});
+
 describe("input caps cover a realistic large competition round", () => {
   it("documents the headroom: 300 couples, 15 judges, 12 dances, 60 heats of 10 are far below every cap, and honest marks (judges x couples) fit", () => {
     const c = ENGINE_INPUT_CAPS;

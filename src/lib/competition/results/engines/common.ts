@@ -258,7 +258,12 @@ export function checkProfileAndTieChain(input: StudioEngineInput, validation: Va
 }
 
 /** X-3 option flags, X-3 panel size, X-7 same panel in every heat, X-6 one dance. Shared by both engines. */
-export function checkPanelStructure(input: StudioEngineInput, judges: readonly PanelJudge[], validation: ValidationLog, ids: { x3: string; x3Flags: string; x7: string; x6: string }): void {
+export function checkPanelStructure(
+  input: StudioEngineInput,
+  judges: readonly PanelJudge[],
+  validation: ValidationLog,
+  ids: { x3: string; x3Flags: string; x7: string; x6: string },
+): string[] {
   if (input.context.chiefJudgeTiebreak || input.context.scoreRolesSeparately) {
     validation.fail(ids.x3Flags, "no chief-judge tiebreak / per-role scoring (X-3)", "COMP_ENGINE_UNSPECIFIED_CASE", "x3_option_unsupported");
   }
@@ -316,6 +321,16 @@ export function checkPanelStructure(input: StudioEngineInput, judges: readonly P
       inNoHeat: sortedUnique(inNoHeat),
     });
   }
+  // INT5-SECFIX P3: the entry-level exclusion above is silent about WHICH heats still list an excluded entry. When it is listed on more than one heat
+  // (scratched on one, no-show on the other, ...) the whole entry is excluded (A3 precedence, unchanged) and a warning names the heats, so the
+  // trace-side output shows the entry was dropped everywhere. A warning is derived from the input, so it changes neither the input hash nor the
+  // exclusion; it is part of the output hash like the other warnings.
+  const heatsOf = new Map<string, Set<string>>();
+  for (const h of heats) for (const id of h.entryIds) if (excludedIds.has(id)) heatsOf.set(id, (heatsOf.get(id) ?? new Set<string>()).add(h.heatId));
+  return [...heatsOf]
+    .filter(([, hs]) => hs.size > 1)
+    .map(([id, hs]) => `excluded_entry_in_multiple_heats:${id}@${[...hs].sort(cmp).join("+")}`)
+    .sort(cmp);
 }
 
 /** Mark table for the `inputs` trace record: fully ordered, so duplicate marks with different values trace identically. */
