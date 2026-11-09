@@ -19,6 +19,7 @@ type EventAccountingRow = {
   event_id: string | null;
   source_table: string | null;
   category: string | null;
+  direction: string | null;
   gross_amount: number | string | null;
   fee_amount: number | string | null;
   refund_amount: number | string | null;
@@ -112,12 +113,12 @@ export async function GET(request: Request) {
   // with tickets sold or labor/expenses recorded during the range.
   const { data: accountingRows, error: accountingError } = await supabase
     .from("accounting_entries")
-    .select("event_id, source_table, category, gross_amount, fee_amount, refund_amount, net_amount")
+    .select("event_id, source_table, category, direction, gross_amount, fee_amount, refund_amount, net_amount")
     .eq("studio_id", context.studioId)
     .not("event_id", "is", null)
     .gte("entry_date", rangeStartDateOnly)
     .lt("entry_date", rangeEndDateOnly)
-    .in("source_table", ["event_payments", "expenses", "event_labor_costs"])
+    .in("source_table", ["event_payments", "expenses", "event_labor_costs", "event_order_refunds", "event_order_refund_reversals"])
     .limit(10000);
 
   if (accountingError) {
