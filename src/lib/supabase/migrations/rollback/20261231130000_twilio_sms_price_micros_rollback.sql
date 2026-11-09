@@ -12,17 +12,23 @@ begin
   if to_regprocedure('public._tw4pm_cents(bigint)') is null then
     raise exception 'price-micros rollback precondition failed: the migration is not applied';
   end if;
-  if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4us_charge(public.studio_sms_usage_attempts,integer,text)'::regprocedure), chr(13), '')), 8) <> '78ec1e44' then
+  if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4us_charge(public.studio_sms_usage_attempts,integer,text)'::regprocedure), chr(13), '')), 8) <> '69170960' then
     raise exception 'price-micros rollback precondition failed: public._tw4us_charge(public.studio_sms_usage_attempts,integer,text) was changed after this migration (roll back the later migration first)';
   end if;
   if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_usage_begin(text,uuid,uuid,uuid,text,text,text,text,uuid,uuid)'::regprocedure), chr(13), '')), 8) <> '7d5b9675' then
     raise exception 'price-micros rollback precondition failed: public.tw4_usage_begin(text,uuid,uuid,uuid,text,text,text,text,uuid,uuid) was changed after this migration (roll back the later migration first)';
   end if;
-  if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_inbound_record(uuid,text,text,integer,integer,text,text,timestamp with time zone,text)'::regprocedure), chr(13), '')), 8) <> '9b948318' then
+  if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_inbound_record(uuid,text,text,integer,integer,text,text,timestamp with time zone,text)'::regprocedure), chr(13), '')), 8) <> '46d448c4' then
     raise exception 'price-micros rollback precondition failed: public.tw4_inbound_record(uuid,text,text,integer,integer,text,text,timestamp with time zone,text) was changed after this migration (roll back the later migration first)';
   end if;
   if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.sms_price_list()'::regprocedure), chr(13), '')), 8) <> '5f8ea9e8' then
     raise exception 'price-micros rollback precondition failed: public.sms_price_list() was changed after this migration (roll back the later migration first)';
+  end if;
+  if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_credit_verify(uuid)'::regprocedure), chr(13), '')), 8) <> '740206bf' then
+    raise exception 'price-micros rollback precondition failed: public.tw4_credit_verify(uuid) was changed after this migration (roll back the later migration first)';
+  end if;
+  if exists (select 1 from public.studio_sms_credit_accounts where usage_carry_micros <> 0) then
+    raise exception 'price-micros rollback refused: a business carries a non-zero sub-cent remainder (usage_carry_micros); micro-priced history exists';
   end if;
   if exists (select 1 from public.studio_sms_price_list where unit_price_micros is not null or unit_cost_micros is not null)
      or exists (select 1 from public.studio_sms_usage_attempts where unit_price_micros is not null or unit_cost_micros is not null or exact_micros is not null or charged_micros is not null)
@@ -30,7 +36,7 @@ begin
     raise exception 'price-micros rollback refused: micro-priced rows exist (price rows, attempts or inbound records); no automatic rollback loses sub-cent amounts';
   end if;
   if exists (select 1 from pg_proc p where p.prosrc like '%\_tw4pm\_cents%'
-               and p.oid not in ('public._tw4pm_cents(bigint)'::regprocedure, 'public._tw4pm_attempt_guard()'::regprocedure, 'public.tw4_price_set_micros(text,integer,integer,text,uuid)'::regprocedure,
+               and p.oid not in ('public._tw4pm_cents(bigint)'::regprocedure, 'public._tw4pm_carry(uuid,bigint)'::regprocedure, 'public._tw4pm_attempt_guard()'::regprocedure, 'public.tw4_price_set_micros(text,integer,integer,text,uuid)'::regprocedure,
                                  'public._tw4us_charge(public.studio_sms_usage_attempts,integer,text)'::regprocedure, 'public.tw4_usage_begin(text,uuid,uuid,uuid,text,text,text,text,uuid,uuid)'::regprocedure,
                                  'public.tw4_inbound_record(uuid,text,text,integer,integer,text,text,timestamp with time zone,text)'::regprocedure)) then
     raise exception 'price-micros rollback refused: another function calls public._tw4pm_cents (roll that migration back first)';
@@ -256,19 +262,41 @@ begin
                      from public.studio_sms_price_list p where p.active), '[]'::jsonb);
 end $$;
 
+create or replace function public.tw4_credit_verify(p_entity_id uuid)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  a public.studio_sms_credit_accounts;
+  v_b bigint;
+  v_r bigint;
+  v_open bigint;
+begin
+  select * into a from public.studio_sms_credit_accounts x where x.legal_entity_id = p_entity_id;
+  select coalesce(sum(balance_delta_cents), 0), coalesce(sum(reserved_delta_cents), 0) into v_b, v_r from public.studio_sms_credit_ledger where legal_entity_id = p_entity_id;
+  select coalesce(sum(amount_cents), 0) into v_open from public.studio_sms_credit_reservations where legal_entity_id = p_entity_id and status = 'reserved' and funding = 'credit';
+  return jsonb_build_object('pilot_used_cents', (select coalesce(sum(r.amount_cents), 0) from public.studio_sms_credit_reservations r where r.legal_entity_id = p_entity_id and r.funding = 'pilot' and r.status in ('reserved', 'captured')),'balance_cents', coalesce(a.balance_cents, 0), 'reserved_cents', coalesce(a.reserved_cents, 0), 'ledger_balance_cents', v_b, 'ledger_reserved_cents', v_r,
+    'open_reservations_cents', v_open, 'ok', coalesce(a.balance_cents, 0) = v_b and coalesce(a.reserved_cents, 0) = v_r and v_r = v_open);
+end $$;
+
 drop function public.tw4_price_set_micros(text, int, int, text, uuid);
 drop function public._tw4pm_attempt_guard();
+drop function public._tw4pm_carry(uuid, bigint);
 drop function public._tw4pm_cents(bigint);
 
 alter table public.studio_sms_usage_attempts drop constraint studio_sms_usage_attempts_micros_charged, drop constraint studio_sms_usage_attempts_micros_shape;
 alter table public.studio_sms_inbound_usage drop constraint studio_sms_inbound_usage_micros;
 alter table public.studio_sms_price_list drop constraint studio_sms_price_list_micros;
-alter table public.studio_sms_usage_attempts drop column unit_price_micros, drop column unit_cost_micros, drop column exact_micros, drop column charged_micros;
-alter table public.studio_sms_inbound_usage drop column unit_price_micros, drop column exact_micros;
+alter table public.studio_sms_usage_attempts drop column unit_price_micros, drop column unit_cost_micros, drop column exact_micros, drop column charged_micros, drop column carry_before_micros, drop column carry_after_micros;
+alter table public.studio_sms_inbound_usage drop column unit_price_micros, drop column exact_micros, drop column carry_before_micros, drop column carry_after_micros;
+alter table public.studio_sms_credit_accounts drop column usage_carry_micros;
 alter table public.studio_sms_price_list drop column unit_price_micros, drop column unit_cost_micros;
 
 do $$
 begin
+  if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_credit_verify(uuid)'::regprocedure), chr(13), '')), 8) <> '61da0813' then
+    raise exception 'price-micros rollback failed: public.tw4_credit_verify(uuid) was not restored byte-exactly';
+  end if;
   if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4us_charge(public.studio_sms_usage_attempts,integer,text)'::regprocedure), chr(13), '')), 8) <> 'fec36e86' then
     raise exception 'price-micros rollback failed: public._tw4us_charge(public.studio_sms_usage_attempts,integer,text) was not restored byte-exactly';
   end if;
