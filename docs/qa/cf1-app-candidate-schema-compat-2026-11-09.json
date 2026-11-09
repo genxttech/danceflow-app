@@ -1,0 +1,4334 @@
+{
+  "summary": {
+    "base": "a965f477",
+    "files": 70,
+    "rpcs": 83,
+    "tables": 32,
+    "columns": 222,
+    "problems": 0
+  },
+  "problems": [],
+  "rpc": [
+    {
+      "name": "restart_event_competition_setup",
+      "keys": [
+        "target_event_id",
+        "confirmation_text"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20260622_competition_setup_restart_v1.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "apply_competition_configuration_template",
+      "keys": [
+        "target_event_id",
+        "selected_template_key"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20260622_west_coast_swing_foundation_v1.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "competition_round_ballot_status",
+      "keys": [
+        "p_round_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/ballots/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/actions.ts",
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx",
+        "src/app/app/judging/[eventId]/rounds/[roundId]/ballot/desk/page.tsx"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270102090000_competition_e2_ballots.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "submit_competition_ballot",
+      "keys": [
+        "p_round_id",
+        "p_heat_id",
+        "p_marks",
+        "p_request_id",
+        "p_correction_reason"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/ballots/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid,jsonb,uuid,text"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270102090000_competition_e2_ballots.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "enter_competition_paper_ballot",
+      "keys": [
+        "p_round_id",
+        "p_heat_id",
+        "p_official_id",
+        "p_marks",
+        "p_request_id",
+        "p_correction_reason"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/ballots/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid,uuid,jsonb,uuid,text"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270102090000_competition_e2_ballots.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "save_competition_callback_draft",
+      "keys": [
+        "p_round_id",
+        "p_entry_ids"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/ballots/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid[]"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270102090000_competition_e2_ballots.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "record_competition_judge_attendance",
+      "keys": [
+        "p_round_id",
+        "p_official_id",
+        "p_status",
+        "p_reason",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/ballots/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid,text,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270102090000_competition_e2_ballots.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "lock_competition_round_ballots",
+      "keys": [
+        "p_round_id",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/ballots/actions.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270102090000_competition_e2_ballots.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "reopen_competition_round_ballots",
+      "keys": [
+        "p_round_id",
+        "p_reason",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/ballots/actions.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270102090000_competition_e2_ballots.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "set_competition_heat_lock_state",
+      "keys": [
+        "selected_heat_id",
+        "selected_state",
+        "selected_reason"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/ballots/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text,text"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "schedule_competition_round",
+      "keys": [
+        "p_round_id",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/day-of/actions.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270106090000_competition_o1_day_of.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "cancel_competition_round",
+      "keys": [
+        "p_round_id",
+        "p_reason",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/day-of/actions.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270106090000_competition_o1_day_of.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "advance_competition_floor_heat",
+      "keys": [
+        "p_floor_heat_id",
+        "p_to_status",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/day-of/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270106090000_competition_o1_day_of.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "mark_competition_heat_no_show",
+      "keys": null,
+      "files": [
+        "src/app/app/events/[id]/competition/day-of/actions.ts",
+        "src/app/app/judging/[eventId]/rounds/[roundId]/ballot/desk/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": null,
+      "definedIn": "20270115090000_competition_ns1_heat_no_shows.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "void_competition_heat_no_show",
+      "keys": null,
+      "files": [
+        "src/app/app/events/[id]/competition/day-of/actions.ts",
+        "src/app/app/judging/[eventId]/rounds/[roundId]/ballot/desk/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": null,
+      "definedIn": "20270115090000_competition_ns1_heat_no_shows.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "add_competition_official",
+      "keys": [
+        "p_event_id",
+        "p_user_id",
+        "p_role",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/officials/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "deactivate_competition_official",
+      "keys": [
+        "p_official_id",
+        "p_reason",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/officials/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "set_competition_chair",
+      "keys": [
+        "p_event_id",
+        "p_official_id",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/officials/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "clear_competition_chair",
+      "keys": [
+        "p_event_id",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/officials/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "assign_competition_panel_member",
+      "keys": [
+        "p_round_id",
+        "p_official_id",
+        "p_judge_letter",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/officials/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "unassign_competition_panel_member",
+      "keys": [
+        "p_round_id",
+        "p_official_id",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/officials/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "list_competition_official_candidates",
+      "keys": [
+        "p_event_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/officials/page.tsx"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "competition_round_panel_status",
+      "keys": [
+        "p_round_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/officials/page.tsx"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "create_competition_heat_plan_run",
+      "keys": [
+        "selected_event_id",
+        "selected_schedule_version_id",
+        "selected_engine_version",
+        "selected_randomization_seed",
+        "selected_input_snapshot"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid,text,text,jsonb"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20260621_competition_heat_proposal_runs_v1.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "save_competition_heat_plan",
+      "keys": [
+        "selected_run_id",
+        "selected_proposals",
+        "selected_conflicts",
+        "selected_summary"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,jsonb,jsonb,jsonb"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20260621_competition_heat_proposal_runs_v1.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "fail_competition_heat_plan_run",
+      "keys": [
+        "selected_run_id",
+        "selected_failure_message"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20260621_competition_heat_proposal_runs_v1.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "competition_round_results_review",
+      "keys": [
+        "p_round_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270114090000_competition_f2_results_lifecycle.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "competition_round_advancement_preview",
+      "keys": [
+        "p_round_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270120090000_competition_cf1_callback_final_advancement.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "competition_round_exclusions",
+      "keys": [
+        "p_round_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270120094000_competition_cf1_a5_exclusion_action.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "competition_final_withdrawal_state",
+      "keys": [
+        "p_round_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270120095000_competition_cf1_a6_withdrawal.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "competition_round_correction",
+      "keys": [
+        "p_round_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270120095500_competition_cf1_a7_od13_correction_integrity.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "competition_round_publications",
+      "keys": [
+        "p_round_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270122090000_competition_f3_publication.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "approve_competition_round_result",
+      "keys": [
+        "p_round_id",
+        "p_result_version_id",
+        "p_override_reason",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270114090000_competition_f2_results_lifecycle.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "publish_competition_round_result",
+      "keys": [
+        "p_round_id",
+        "p_result_version_id",
+        "p_visibility",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270122090000_competition_f3_publication.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "withdraw_competition_round_result",
+      "keys": [
+        "p_round_id",
+        "p_publication_id",
+        "p_reason",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270122090000_competition_f3_publication.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "open_competition_round_correction",
+      "keys": [
+        "p_round_id",
+        "p_reason",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270114090000_competition_f2_results_lifecycle.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "cosign_competition_correction",
+      "keys": [
+        "p_cause_id",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270120095500_competition_cf1_a7_od13_correction_integrity.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "complete_competition_round",
+      "keys": [
+        "p_round_id",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270114090000_competition_f2_results_lifecycle.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "apply_competition_round_advancement",
+      "keys": [
+        "p_round_id",
+        "p_result_version_id",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270120090000_competition_cf1_callback_final_advancement.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "request_round_exclusion",
+      "keys": [
+        "p_round_id",
+        "p_entry_id",
+        "p_reason_kind",
+        "p_reason",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid,text,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270120094000_competition_cf1_a5_exclusion_action.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "cosign_round_exclusion",
+      "keys": [
+        "p_decision_id",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270120094000_competition_cf1_a5_exclusion_action.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "request_round_exclusion_reversal",
+      "keys": [
+        "p_round_id",
+        "p_entry_id",
+        "p_reason",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270120094000_competition_cf1_a5_exclusion_action.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "cosign_round_exclusion_reversal",
+      "keys": [
+        "p_decision_id",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270120094000_competition_cf1_a5_exclusion_action.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "cosign_final_withdrawal_request",
+      "keys": [
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270120095000_competition_cf1_a6_withdrawal.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "cancel_final_withdrawal_request",
+      "keys": [
+        "p_request_id",
+        "p_reason"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270120095000_competition_cf1_a6_withdrawal.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "withdraw_advanced_entry_from_final",
+      "keys": null,
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": null,
+      "definedIn": "20270120095000_competition_cf1_a6_withdrawal.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "reinstate_withdrawn_entry_to_final",
+      "keys": null,
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": null,
+      "definedIn": "20270120095000_competition_cf1_a6_withdrawal.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "create_competition_schedule_version",
+      "keys": [
+        "selected_event_id",
+        "selected_name",
+        "source_version_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/schedule/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20261111090000_phase10d_heats_floor_schedule.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "apply_competition_floor_plan",
+      "keys": [
+        "p_version_id",
+        "p_plan"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/schedule/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,jsonb"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20261111090000_phase10d_heats_floor_schedule.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "clear_competition_floor_plan",
+      "keys": [
+        "p_version_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/schedule/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20261111090000_phase10d_heats_floor_schedule.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "move_competition_scoring_heat_to_new_floor_heat",
+      "keys": [
+        "p_heat_id",
+        "p_at_number"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/schedule/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,integer"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20261111090000_phase10d_heats_floor_schedule.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "move_competition_scoring_heat",
+      "keys": [
+        "p_heat_id",
+        "p_target_floor_heat_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/schedule/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20261111090000_phase10d_heats_floor_schedule.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "move_competition_floor_heat",
+      "keys": [
+        "p_floor_heat_id",
+        "p_new_number"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/schedule/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,integer"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20261111090000_phase10d_heats_floor_schedule.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "insert_competition_floor_heat",
+      "keys": [
+        "p_version_id",
+        "p_at_number"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/schedule/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,integer"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20261111090000_phase10d_heats_floor_schedule.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "delete_competition_floor_heat",
+      "keys": [
+        "p_floor_heat_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/schedule/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20261111090000_phase10d_heats_floor_schedule.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "set_competition_round_heat_capacity",
+      "keys": [
+        "p_round_id",
+        "p_capacity",
+        "p_reason",
+        "p_request_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/schedule/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,integer",
+        "uuid,integer,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270120090000_competition_cf1_callback_final_advancement.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "publish_competition_schedule_version",
+      "keys": [
+        "selected_version_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/schedule/actions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20261111090000_phase10d_heats_floor_schedule.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "apply_competition_scoring_setup",
+      "keys": [
+        "p_program_id",
+        "p_ops"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/scoringActions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,jsonb"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270116090000_competition_ss1_round_scoring_lock.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "create_competition_draft",
+      "keys": [
+        "p_event_id",
+        "p_spec"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/simpleActions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,jsonb"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20261115090000_phase10c5_registration_isolation.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "set_competition_category_pricing",
+      "keys": [
+        "p_contest_id",
+        "p_model",
+        "p_amount"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/simpleActions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text,numeric"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20261113090000_phase10c5_competition_draft.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "publish_competition_program",
+      "keys": [
+        "target_program_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/simpleActions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20261108090000_phase10b_competition_profiles.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "add_competition_division",
+      "keys": [
+        "target_contest_id",
+        "division_name",
+        "skill_label",
+        "age_label"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/simpleActions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text,text,text"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270110090000_competition_k1_setup_fixes.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "remove_competition_division",
+      "keys": [
+        "target_division_id"
+      ],
+      "files": [
+        "src/app/app/events/[id]/competition/simpleActions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20261108090000_phase10b_competition_profiles.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "open_competition_registration",
+      "keys": null,
+      "files": [
+        "src/app/app/events/[id]/competition/simpleActions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": null,
+      "definedIn": "20261115090000_phase10c5_registration_isolation.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "close_competition_registration",
+      "keys": null,
+      "files": [
+        "src/app/app/events/[id]/competition/simpleActions.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": null,
+      "definedIn": "20261109090000_phase10c_competitor_registration.sql",
+      "definedInManifest": false
+    },
+    {
+      "name": "competition_round_floor_entries",
+      "keys": [
+        "p_round_id"
+      ],
+      "files": [
+        "src/app/app/judging/[eventId]/rounds/[roundId]/ballot/desk/page.tsx"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270115090000_competition_ns1_heat_no_shows.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "competition_judge_ballot_sheet",
+      "keys": [
+        "p_round_id"
+      ],
+      "files": [
+        "src/app/app/judging/[eventId]/rounds/[roundId]/ballot/page.tsx"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270102090000_competition_e2_ballots.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "competition_round_no_shows",
+      "keys": [
+        "p_round_id"
+      ],
+      "files": [
+        "src/app/app/judging/[eventId]/rounds/[roundId]/ballot/page.tsx",
+        "src/lib/competition/dayOfServer.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270115090000_competition_ns1_heat_no_shows.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "my_competition_judging_assignments",
+      "keys": [],
+      "files": [
+        "src/app/app/judging/page.tsx"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        ""
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "competition_my_results",
+      "keys": [
+        "p_event_id"
+      ],
+      "files": [
+        "src/app/events/[slug]/competition/results/page.tsx"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270122090000_competition_f3_publication.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "competition_event_results_public",
+      "keys": [
+        "p_event_id"
+      ],
+      "files": [
+        "src/app/events/[slug]/competition/results/page.tsx"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270122090000_competition_f3_publication.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "start_competition_round",
+      "keys": null,
+      "files": [
+        "src/lib/competition/dayOf.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": null,
+      "definedIn": "20270106090000_competition_o1_day_of.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "competition_round_calculation_input",
+      "keys": [
+        "p_round_id"
+      ],
+      "files": [
+        "src/lib/competition/results/calculate.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270114090000_competition_f2_results_lifecycle.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "calculate_competition_round",
+      "keys": [
+        "p_round_id",
+        "p_engine_key",
+        "p_engine_version",
+        "p_input_hash",
+        "p_trace_hash",
+        "p_trace",
+        "p_rows",
+        "p_warnings",
+        "p_request_id"
+      ],
+      "files": [
+        "src/lib/competition/results/calculate.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text,text,text,text,jsonb,jsonb,jsonb,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": true,
+      "definedIn": "20270114090000_competition_f2_results_lifecycle.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "schedule_competition_round",
+      "keys": null,
+      "files": [
+        "src/app/app/events/[id]/competition/day-of/actions.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": null,
+      "definedIn": "20270106090000_competition_o1_day_of.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "lock_competition_round_ballots",
+      "keys": null,
+      "files": [
+        "src/app/app/events/[id]/competition/ballots/actions.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": null,
+      "definedIn": "20270102090000_competition_e2_ballots.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "reopen_competition_round_ballots",
+      "keys": null,
+      "files": [
+        "src/app/app/events/[id]/competition/ballots/actions.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": null,
+      "definedIn": "20270102090000_competition_e2_ballots.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "calculate_competition_round",
+      "keys": null,
+      "files": [
+        "src/lib/competition/results/calculate.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text,text,text,text,jsonb,jsonb,jsonb,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": null,
+      "definedIn": "20270114090000_competition_f2_results_lifecycle.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "approve_competition_round_result",
+      "keys": null,
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": null,
+      "definedIn": "20270114090000_competition_f2_results_lifecycle.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "publish_competition_round_result",
+      "keys": null,
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": null,
+      "definedIn": "20270122090000_competition_f3_publication.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "complete_competition_round",
+      "keys": null,
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": null,
+      "definedIn": "20270114090000_competition_f2_results_lifecycle.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "open_competition_round_correction",
+      "keys": null,
+      "files": [
+        "src/app/app/events/[id]/competition/results/actions.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": null,
+      "definedIn": "20270114090000_competition_f2_results_lifecycle.sql",
+      "definedInManifest": true
+    },
+    {
+      "name": "cancel_competition_round",
+      "keys": null,
+      "files": [
+        "src/app/app/events/[id]/competition/day-of/actions.ts",
+        "src/lib/competition/results/contract.ts"
+      ],
+      "inProd": true,
+      "prodOverloads": [
+        "uuid,text,uuid"
+      ],
+      "authenticatedExecute": true,
+      "argNamesMatch": null,
+      "definedIn": "20270106090000_competition_o1_day_of.sql",
+      "definedInManifest": true
+    }
+  ],
+  "table": [
+    {
+      "table": "competition_configuration_templates",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "competition_rules_profiles",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/simpleActions.ts"
+      ]
+    },
+    {
+      "table": "competition_scoring_methods",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_contest_registration_rules",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contests",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_dances",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_division_dances",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_divisions",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/page.tsx",
+        "src/app/app/events/[id]/competition/officials/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/results/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/app/app/events/[id]/competition/simpleActions.ts",
+        "src/lib/competition/dayOfServer.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entries",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entry_dances",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entry_participants",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_fee_rules",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_floor_heats",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_generation_constraints",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_generation_runs",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_heat_entries",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/ballots/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/actions.ts",
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_heats",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/actions.ts",
+        "src/lib/competition/dayOfServer.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_officials",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/officials/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_panel_assignments",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/officials/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_programs",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/app/app/events/[id]/competition/simpleActions.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_result_rows",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_result_versions",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_rounds",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/page.tsx",
+        "src/app/app/events/[id]/competition/officials/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/results/page.tsx",
+        "src/app/app/events/[id]/competition/schedule/actions.ts",
+        "src/app/app/events/[id]/competition/schedule/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/lib/competition/dayOfServer.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_block_contests",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_blocks",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_floors",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_sessions",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_versions",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_scoring_pins",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_wsdc_program_profiles",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "events",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/events/[slug]/competition/results/page.tsx"
+      ]
+    },
+    {
+      "table": "organizer_users",
+      "inProd": true,
+      "kind": "r",
+      "authenticatedGrant": true,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    }
+  ],
+  "column": [
+    {
+      "table": "events",
+      "column": "id",
+      "definedIn": null,
+      "liveQueried": true,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/events/[slug]/competition/results/page.tsx"
+      ]
+    },
+    {
+      "table": "events",
+      "column": "studio_id",
+      "definedIn": null,
+      "liveQueried": true,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "events",
+      "column": "organizer_id",
+      "definedIn": null,
+      "liveQueried": true,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "organizer_users",
+      "column": "role",
+      "definedIn": null,
+      "liveQueried": true,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "organizer_users",
+      "column": "organizer_id",
+      "definedIn": null,
+      "liveQueried": true,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "organizer_users",
+      "column": "user_id",
+      "definedIn": null,
+      "liveQueried": true,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "organizer_users",
+      "column": "active",
+      "definedIn": null,
+      "liveQueried": true,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_programs",
+      "column": "id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/app/app/events/[id]/competition/simpleActions.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_programs",
+      "column": "event_id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/app/app/events/[id]/competition/simpleActions.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_programs",
+      "column": "discipline_family",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_wsdc_program_profiles",
+      "column": "event_id",
+      "definedIn": "20260622_west_coast_swing_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_wsdc_program_profiles",
+      "column": "program_id",
+      "definedIn": "20260622_west_coast_swing_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contests",
+      "column": "id",
+      "definedIn": "20260620_competition_contests_and_templates_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contests",
+      "column": "event_id",
+      "definedIn": "20260620_competition_contests_and_templates_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contests",
+      "column": "program_id",
+      "definedIn": "20260620_competition_contests_and_templates_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contests",
+      "column": "configuration",
+      "definedIn": "20260620_competition_contests_and_templates_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_fee_rules",
+      "column": "id",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_fee_rules",
+      "column": "event_id",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_fee_rules",
+      "column": "contest_id",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_fee_rules",
+      "column": "configuration",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_rounds",
+      "column": "id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/page.tsx",
+        "src/app/app/events/[id]/competition/officials/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/results/page.tsx",
+        "src/app/app/events/[id]/competition/schedule/actions.ts",
+        "src/app/app/events/[id]/competition/schedule/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/lib/competition/dayOfServer.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_rounds",
+      "column": "program_id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_rounds",
+      "column": "division_id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/page.tsx",
+        "src/app/app/events/[id]/competition/officials/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/results/page.tsx",
+        "src/app/app/events/[id]/competition/schedule/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/lib/competition/dayOfServer.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_rounds",
+      "column": "scoring_method",
+      "definedIn": "20260622_west_coast_swing_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/results/page.tsx",
+        "src/app/app/events/[id]/competition/schedule/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_rounds",
+      "column": "status",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/ballots/page.tsx",
+        "src/app/app/events/[id]/competition/officials/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/results/page.tsx",
+        "src/app/app/events/[id]/competition/schedule/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/lib/competition/dayOfServer.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_rounds",
+      "column": "event_id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/page.tsx",
+        "src/app/app/events/[id]/competition/officials/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/results/page.tsx",
+        "src/app/app/events/[id]/competition/schedule/actions.ts",
+        "src/app/app/events/[id]/competition/schedule/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/lib/competition/dayOfServer.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_programs",
+      "column": "status",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/app/app/events/[id]/competition/simpleActions.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entries",
+      "column": "id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entries",
+      "column": "event_id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entries",
+      "column": "division_id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entries",
+      "column": "status",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_programs",
+      "column": "rules_profile_key",
+      "definedIn": "20261108090000_phase10b_competition_profiles.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_programs",
+      "column": "profile_locked_at",
+      "definedIn": "20261108090000_phase10b_competition_profiles.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_divisions",
+      "column": "id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/page.tsx",
+        "src/app/app/events/[id]/competition/officials/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/results/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/app/app/events/[id]/competition/simpleActions.ts",
+        "src/lib/competition/dayOfServer.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_divisions",
+      "column": "event_id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/actions.ts",
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/page.tsx",
+        "src/app/app/events/[id]/competition/officials/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/results/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/app/app/events/[id]/competition/simpleActions.ts",
+        "src/lib/competition/dayOfServer.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "events",
+      "column": "name",
+      "definedIn": null,
+      "liveQueried": true,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/events/[slug]/competition/results/page.tsx"
+      ]
+    },
+    {
+      "table": "events",
+      "column": "competition_sanctioning",
+      "definedIn": "20270113090000_competition_scoring_registry.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "competition_configuration_templates",
+      "column": "template_key",
+      "definedIn": "20260620_competition_contests_and_templates_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "competition_configuration_templates",
+      "column": "name",
+      "definedIn": "20260620_competition_contests_and_templates_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "competition_configuration_templates",
+      "column": "discipline_family",
+      "definedIn": "20260620_competition_contests_and_templates_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "competition_configuration_templates",
+      "column": "version",
+      "definedIn": "20260620_competition_contests_and_templates_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "competition_configuration_templates",
+      "column": "description",
+      "definedIn": "20260620_competition_contests_and_templates_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "competition_configuration_templates",
+      "column": "status",
+      "definedIn": "20260620_competition_contests_and_templates_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_programs",
+      "column": "name",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_programs",
+      "column": "competition_mode",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_programs",
+      "column": "scoring_method",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_programs",
+      "column": "advancement_method",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_programs",
+      "column": "feedback_policy",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_programs",
+      "column": "rules_edition",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_programs",
+      "column": "rules_profile_version",
+      "definedIn": "20261108090000_phase10b_competition_profiles.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_programs",
+      "column": "sort_order",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_programs",
+      "column": "created_at",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contests",
+      "column": "name",
+      "definedIn": "20260620_competition_contests_and_templates_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_contests",
+      "column": "contest_type",
+      "definedIn": "20260620_competition_contests_and_templates_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_contests",
+      "column": "entry_format",
+      "definedIn": "20260620_competition_contests_and_templates_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contests",
+      "column": "status",
+      "definedIn": "20260620_competition_contests_and_templates_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contests",
+      "column": "sort_order",
+      "definedIn": "20260620_competition_contests_and_templates_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_contests",
+      "column": "created_at",
+      "definedIn": "20260620_competition_contests_and_templates_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_dances",
+      "column": "id",
+      "definedIn": "20260620_competition_dance_catalog_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_dances",
+      "column": "program_id",
+      "definedIn": "20260620_competition_dance_catalog_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_dances",
+      "column": "dance_key",
+      "definedIn": "20260620_competition_dance_catalog_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_dances",
+      "column": "name",
+      "definedIn": "20260620_competition_dance_catalog_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_dances",
+      "column": "category_label",
+      "definedIn": "20260620_competition_dance_catalog_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_dances",
+      "column": "event_id",
+      "definedIn": "20260620_competition_dance_catalog_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_dances",
+      "column": "active",
+      "definedIn": "20260620_competition_dance_catalog_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_dances",
+      "column": "sort_order",
+      "definedIn": "20260620_competition_dance_catalog_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_divisions",
+      "column": "program_id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/app/app/events/[id]/competition/simpleActions.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_divisions",
+      "column": "contest_id",
+      "definedIn": "20260620_competition_contests_and_templates_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/simpleActions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_divisions",
+      "column": "name",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/page.tsx",
+        "src/app/app/events/[id]/competition/officials/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/results/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/app/app/events/[id]/competition/simpleActions.ts",
+        "src/lib/competition/dayOfServer.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_divisions",
+      "column": "age_label",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_divisions",
+      "column": "skill_label",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_divisions",
+      "column": "role_label",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_divisions",
+      "column": "status",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_divisions",
+      "column": "scoring_method_key",
+      "definedIn": "20270113090000_competition_scoring_registry.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_divisions",
+      "column": "scoring_method_version",
+      "definedIn": "20270113090000_competition_scoring_registry.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_divisions",
+      "column": "sort_order",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/scoringActions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_divisions",
+      "column": "created_at",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_division_dances",
+      "column": "id",
+      "definedIn": "20260620_competition_dance_catalog_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_division_dances",
+      "column": "division_id",
+      "definedIn": "20260620_competition_dance_catalog_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_division_dances",
+      "column": "dance_id",
+      "definedIn": "20260620_competition_dance_catalog_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_division_dances",
+      "column": "entry_fee",
+      "definedIn": "20260620_competition_dance_catalog_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_division_dances",
+      "column": "currency",
+      "definedIn": "20260620_competition_dance_catalog_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_division_dances",
+      "column": "required",
+      "definedIn": "20260620_competition_dance_catalog_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_division_dances",
+      "column": "event_id",
+      "definedIn": "20260620_competition_dance_catalog_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_division_dances",
+      "column": "active",
+      "definedIn": "20260620_competition_dance_catalog_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_division_dances",
+      "column": "sort_order",
+      "definedIn": "20260620_competition_dance_catalog_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_rounds",
+      "column": "name",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/page.tsx",
+        "src/app/app/events/[id]/competition/officials/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/results/page.tsx",
+        "src/app/app/events/[id]/competition/schedule/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/lib/competition/dayOfServer.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_rounds",
+      "column": "round_type",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/officials/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/schedule/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/lib/competition/dayOfServer.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_rounds",
+      "column": "sequence_number",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/page.tsx",
+        "src/app/app/events/[id]/competition/officials/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/results/page.tsx",
+        "src/app/app/events/[id]/competition/schedule/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/lib/competition/dayOfServer.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_rounds",
+      "column": "target_advancement_count",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/app/app/events/[id]/competition/schedule/page.tsx",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_rounds",
+      "column": "pairing_mode",
+      "definedIn": "20260622_west_coast_swing_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_rounds",
+      "column": "scoring_override_key",
+      "definedIn": "20270113090000_competition_scoring_registry.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_rounds",
+      "column": "scoring_override_version",
+      "definedIn": "20270113090000_competition_scoring_registry.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/scoringActions.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_contest_registration_rules",
+      "column": "id",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contest_registration_rules",
+      "column": "contest_id",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contest_registration_rules",
+      "column": "registration_open",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contest_registration_rules",
+      "column": "dance_selection_mode",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contest_registration_rules",
+      "column": "pricing_method",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contest_registration_rules",
+      "column": "base_entry_fee",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contest_registration_rules",
+      "column": "currency",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contest_registration_rules",
+      "column": "minimum_dances",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contest_registration_rules",
+      "column": "maximum_dances",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contest_registration_rules",
+      "column": "minimum_participants",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contest_registration_rules",
+      "column": "maximum_participants",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contest_registration_rules",
+      "column": "requires_routine_title",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contest_registration_rules",
+      "column": "requires_music",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contest_registration_rules",
+      "column": "requires_duration",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contest_registration_rules",
+      "column": "public_description",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_contest_registration_rules",
+      "column": "event_id",
+      "definedIn": "20260621_competition_registration_cart_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_wsdc_program_profiles",
+      "column": "rules_edition",
+      "definedIn": "20260622_west_coast_swing_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_wsdc_program_profiles",
+      "column": "registry_status",
+      "definedIn": "20260622_west_coast_swing_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_wsdc_program_profiles",
+      "column": "registry_event_name",
+      "definedIn": "20260622_west_coast_swing_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_wsdc_program_profiles",
+      "column": "competitor_surcharge",
+      "definedIn": "20260622_west_coast_swing_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_wsdc_program_profiles",
+      "column": "surcharge_currency",
+      "definedIn": "20260622_west_coast_swing_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_wsdc_program_profiles",
+      "column": "results_reporting_required",
+      "definedIn": "20260622_west_coast_swing_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_heats",
+      "column": "id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/actions.ts",
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_heats",
+      "column": "event_id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/advanced/page.tsx",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_heats",
+      "column": "status",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/ballots/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/actions.ts",
+        "src/lib/competition/dayOfServer.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_heats",
+      "column": "lock_state",
+      "definedIn": "20260620_competition_generation_operations_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/ballots/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/actions.ts",
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_heat_entries",
+      "column": "heat_id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/ballots/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/actions.ts",
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_heat_entries",
+      "column": "status",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/ballots/[roundId]/page.tsx",
+        "src/app/app/events/[id]/competition/ballots/actions.ts",
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_heat_entries",
+      "column": "id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/ballots/actions.ts",
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_officials",
+      "column": "id",
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/officials/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_officials",
+      "column": "user_id",
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/officials/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_officials",
+      "column": "role",
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/officials/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_officials",
+      "column": "status",
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/officials/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_officials",
+      "column": "deactivation_reason",
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/officials/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_officials",
+      "column": "event_id",
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/officials/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_officials",
+      "column": "created_at",
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/officials/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_panel_assignments",
+      "column": "id",
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/officials/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_panel_assignments",
+      "column": "round_id",
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/officials/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_panel_assignments",
+      "column": "official_id",
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/officials/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_panel_assignments",
+      "column": "judge_letter",
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/officials/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_panel_assignments",
+      "column": "event_id",
+      "definedIn": "20270101090000_competition_e1_officials.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/officials/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_generation_constraints",
+      "column": "constraint_type",
+      "definedIn": "20260620_competition_generation_operations_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_generation_constraints",
+      "column": "event_id",
+      "definedIn": "20260620_competition_generation_operations_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_generation_constraints",
+      "column": "schedule_version_id",
+      "definedIn": "20260620_competition_generation_operations_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_generation_constraints",
+      "column": "active",
+      "definedIn": "20260620_competition_generation_operations_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_generation_constraints",
+      "column": "id",
+      "definedIn": "20260620_competition_generation_operations_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_entries",
+      "column": "display_name",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entries",
+      "column": "entry_number",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entries",
+      "column": "eligibility_status",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_entries",
+      "column": "sort_order",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entry_dances",
+      "column": "entry_id",
+      "definedIn": "20260620_competition_registration_bridge_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entry_dances",
+      "column": "dance_key",
+      "definedIn": "20260620_competition_registration_bridge_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entry_dances",
+      "column": "status",
+      "definedIn": "20260620_competition_registration_bridge_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entry_dances",
+      "column": "event_id",
+      "definedIn": "20260620_competition_registration_bridge_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entry_participants",
+      "column": "entry_id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entry_participants",
+      "column": "client_id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entry_participants",
+      "column": "instructor_id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entry_participants",
+      "column": "registration_attendee_id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entry_participants",
+      "column": "participant_role",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entry_participants",
+      "column": "dance_role",
+      "definedIn": "20261110090000_phase10c4_participant_role_integrity.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entry_participants",
+      "column": "display_name",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_entry_participants",
+      "column": "event_id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_blocks",
+      "column": "id",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_blocks",
+      "column": "name",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_blocks",
+      "column": "starts_at",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_blocks",
+      "column": "ends_at",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_blocks",
+      "column": "floor_id",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_blocks",
+      "column": "floor_name_snapshot",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_blocks",
+      "column": "floor_capacity_snapshot",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_blocks",
+      "column": "schedule_version_id",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_blocks",
+      "column": "block_type",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_block_contests",
+      "column": "block_id",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_block_contests",
+      "column": "contest_id",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_block_contests",
+      "column": "planned_round_type",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_block_contests",
+      "column": "sort_order",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_block_contests",
+      "column": "schedule_version_id",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_generation_constraints",
+      "column": "enforcement",
+      "definedIn": "20260620_competition_generation_operations_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_generation_constraints",
+      "column": "configuration",
+      "definedIn": "20260620_competition_generation_operations_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_generation_constraints",
+      "column": "created_at",
+      "definedIn": "20260620_competition_generation_operations_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/actions.ts",
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_versions",
+      "column": "id",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_versions",
+      "column": "version_number",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_versions",
+      "column": "name",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_versions",
+      "column": "status",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_versions",
+      "column": "event_id",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx",
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_floors",
+      "column": "id",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_floors",
+      "column": "event_id",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_floors",
+      "column": "active",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_sessions",
+      "column": "id",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_sessions",
+      "column": "schedule_version_id",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_block_contests",
+      "column": "id",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_generation_constraints",
+      "column": "name",
+      "definedIn": "20260620_competition_generation_operations_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_generation_runs",
+      "column": "id",
+      "definedIn": "20260620_competition_generation_operations_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_generation_runs",
+      "column": "run_number",
+      "definedIn": "20260620_competition_generation_operations_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_generation_runs",
+      "column": "status",
+      "definedIn": "20260620_competition_generation_operations_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_generation_runs",
+      "column": "engine_version",
+      "definedIn": "20260620_competition_generation_operations_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_generation_runs",
+      "column": "initiated_at",
+      "definedIn": "20260620_competition_generation_operations_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_generation_runs",
+      "column": "schedule_version_id",
+      "definedIn": "20260620_competition_generation_operations_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/readiness/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_result_versions",
+      "column": "trace",
+      "definedIn": "20270114090000_competition_f2_results_lifecycle.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_result_versions",
+      "column": "id",
+      "definedIn": "20270114090000_competition_f2_results_lifecycle.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_result_rows",
+      "column": "entry_id",
+      "definedIn": "20270114090000_competition_f2_results_lifecycle.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_result_rows",
+      "column": "output",
+      "definedIn": "20270114090000_competition_f2_results_lifecycle.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_result_rows",
+      "column": "result_version_id",
+      "definedIn": "20270114090000_competition_f2_results_lifecycle.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/app/app/events/[id]/competition/results/[roundId]/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_rounds",
+      "column": "configuration",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/schedule/page.tsx"
+      ]
+    },
+    {
+      "table": "competition_rules_profiles",
+      "column": "defaults",
+      "definedIn": "20261108090000_phase10b_competition_profiles.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/simpleActions.ts"
+      ]
+    },
+    {
+      "table": "competition_rules_profiles",
+      "column": "status",
+      "definedIn": "20261108090000_phase10b_competition_profiles.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/simpleActions.ts"
+      ]
+    },
+    {
+      "table": "competition_rules_profiles",
+      "column": "profile_key",
+      "definedIn": "20261108090000_phase10b_competition_profiles.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/simpleActions.ts"
+      ]
+    },
+    {
+      "table": "competition_rules_profiles",
+      "column": "version",
+      "definedIn": "20261108090000_phase10b_competition_profiles.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/app/app/events/[id]/competition/simpleActions.ts"
+      ]
+    },
+    {
+      "table": "events",
+      "column": "slug",
+      "definedIn": null,
+      "liveQueried": true,
+      "definedInManifest": false,
+      "files": [
+        "src/app/events/[slug]/competition/results/page.tsx"
+      ]
+    },
+    {
+      "table": "events",
+      "column": "status",
+      "definedIn": null,
+      "liveQueried": true,
+      "definedInManifest": false,
+      "files": [
+        "src/app/events/[slug]/competition/results/page.tsx"
+      ]
+    },
+    {
+      "table": "event_competition_schedule_versions",
+      "column": "published_at",
+      "definedIn": "20261107090000_phase10a_competition_foundation_reconcile.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_floor_heats",
+      "column": "id",
+      "definedIn": "20261111090000_phase10d_heats_floor_schedule.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_floor_heats",
+      "column": "heat_number",
+      "definedIn": "20261111090000_phase10d_heats_floor_schedule.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_floor_heats",
+      "column": "schedule_version_id",
+      "definedIn": "20261111090000_phase10d_heats_floor_schedule.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_heats",
+      "column": "floor_heat_id",
+      "definedIn": "20261111090000_phase10d_heats_floor_schedule.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_heats",
+      "column": "round_id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/lib/competition/dayOfServer.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_heats",
+      "column": "division_id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_heats",
+      "column": "name",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_heats",
+      "column": "schedule_version_id",
+      "definedIn": "20260621_competition_heat_planning_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/lib/competition/dayOfServer.ts",
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_heat_entries",
+      "column": "entry_id",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_heat_entries",
+      "column": "floor_order",
+      "definedIn": "20260620_competition_foundation_v1.sql",
+      "liveQueried": false,
+      "definedInManifest": false,
+      "files": [
+        "src/lib/competition/dayOfServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_scoring_pins",
+      "column": "round_id",
+      "definedIn": "20270113090000_competition_scoring_registry.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_scoring_pins",
+      "column": "method_key",
+      "definedIn": "20270113090000_competition_scoring_registry.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_scoring_pins",
+      "column": "method_version",
+      "definedIn": "20270113090000_competition_scoring_registry.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_scoring_pins",
+      "column": "registry_status",
+      "definedIn": "20270113090000_competition_scoring_registry.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "event_competition_scoring_pins",
+      "column": "event_id",
+      "definedIn": "20270113090000_competition_scoring_registry.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "competition_scoring_methods",
+      "column": "method_key",
+      "definedIn": "20270113090000_competition_scoring_registry.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "competition_scoring_methods",
+      "column": "method_version",
+      "definedIn": "20270113090000_competition_scoring_registry.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "competition_scoring_methods",
+      "column": "status",
+      "definedIn": "20270113090000_competition_scoring_registry.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    },
+    {
+      "table": "competition_scoring_methods",
+      "column": "engine_id",
+      "definedIn": "20270113090000_competition_scoring_registry.sql",
+      "liveQueried": false,
+      "definedInManifest": true,
+      "files": [
+        "src/lib/competition/scoring/studioReadinessServer.ts"
+      ]
+    }
+  ]
+}
