@@ -5,32 +5,43 @@
 --   provider cost in MICRO-DOLLARS (1 dollar = 1,000,000; 1 cent = 10,000; $0.013 = 13,000; $0.017 = 17,000), the unit already used by
 --   studio_sms_usage_attempts.evidence_price_micros and docs/twilio/TW-4F_Pricing_Recommendation.md section 6. It publishes NO price: no row is inserted.
 --
--- THE ONE ROUNDING RULE (single definition: public._tw4pm_cents)
---   * exact amount of a text  = segments x unit_price_micros          (integer, never rounded; recorded as exact_micros / charged_micros)
---   * money moved on the credit ledger is WHOLE CENTS: cents = CEIL(exact_micros / 10000), applied ONCE PER ATTEMPT (one outbound text, one inbound text), NEVER
---     per segment. 1 segment at 17,000 = 2 cents; 3 segments (51,000) = 6 cents; 7 segments (119,000) = 12 cents; 1 inbound segment at 13,000 = 2 cents.
---   * the RESERVATION of an outbound text uses the same rule on the estimated segments, so it is always >= the eventual charge at the same segment count
---     (an actual count above the estimate may charge more than was reserved, exactly as today: the message went out; the balance may go below zero).
---   * a whole-cent price row (unit_price_micros null) is cents x 10,000 micros, so segments x cents is reproduced EXACTLY: nothing changes for existing rows.
---   * the rule favors DanceFlow by less than one cent per text (the sub-cent remainder is not carried). The docs design section 6.3 R2 "carried remainder" would
---     be exact in total but needs a per-business carry register; it is NOT built here (smallest safe change). Replacing the rule later means changing
---     _tw4pm_cents (and adding the register); every caller goes through it.
---   * ceilings, reservations, monthly limits, pilot ceilings, the credit ledger and refunds (tw4_credit_refund_usage, in cents against the posted charge) stay
---     whole cents; refunds are exact in cents and idempotent by their existing keys; they never touch micros.
+-- THE ONE ACCOUNTING RULE: CARRIED REMAINDER (docs/twilio/TW-4F_Pricing_Recommendation.md section 6.3, option R2; owner decision, final)
+--   * exact amount of a text = segments x unit_price_micros (integer, never rounded; recorded as exact_micros / charged_micros).
+--   * the ledger, balance, reservations, limits and ceilings stay WHOLE CENTS. The sub-cent remainder lives in ONE register per legal business:
+--     studio_sms_credit_accounts.usage_carry_micros (0..9999), shared by outbound and inbound texts. At the moment a text is SETTLED (outbound) or RECORDED (inbound):
+--         total = carry + exact_micros;  cents = floor(total / 10000);  new carry = total mod 10000.
+--     The cents are what the text posts to the ledger (nothing is posted for 0 cents). Over any sequence of texts the studio is charged exactly
+--     floor(sum(exact) / 10000) cents and the carry holds the rest: 17,000 micros, one-segment texts post 1, 2, 2, 1, 2 cents (carry 7000, 4000, 1000, 8000, 5000).
+--   * the rule lives in ONE function, public._tw4pm_carry(entity, exact_micros) -> (cents, carry_before, carry_after); settlement and inbound recording both call it, only
+--     inside the transition that creates the outcome (attempt -> settled; first record of a provider SID), under the business's account lock. A settle or inbound
+--     replay returns before reaching it, so a replay never carries twice. Failed / canceled / released / not-charged attempts and STOP/START/HELP / MMS texts never
+--     touch the carry.
+--   * RESERVATION (outbound) = ceil(segments x unit micros / 10000) cents (public._tw4pm_cents). A charge at the same segment count is at most that, because
+--     carry < 10000: floor((carry + exact) / 10000) <= ceil(exact / 10000). An actual segment count above the estimate may charge more, exactly as today.
+--   * a whole-cent price row (unit_price_micros null) is untouched: segments x cents, no carry, null micro columns.
+--   * REFUNDS (tw4_credit_refund_usage) stay whole cents against the posted charge and do not move the carry; the cents they return were really posted. A text that
+--     posted 0 cents has nothing to refund (its micros sit in the carry; the studio was never debited for it).
+--   * EXACTNESS: per business, sum(micros of settled micro-priced texts) = 10000 x sum(cents they released) + carry. tw4_credit_verify checks it ('usage_micros_ok',
+--     part of 'ok'); every settled attempt and inbound record also stores carry_before / carry_after with a row check (before + exact = after + 10000 x cents).
+--   * INBOUND billable_cents (changed meaning for micro-priced texts, whole-cent rows unchanged): the cents RELEASED by this text after the carry, so an ordinary text can
+--     have billable_cents = 0 with exact_micros > 0 (its micros went into the carry). charged_cents + uncollected_cents = billable_cents still holds, and the D1 ceiling,
+--     recurring-fee protection, pilot zero ceiling and per-SID idempotency are applied to those cents exactly as before. est_provider_cost_cents stays a per-text estimate.
 --
 -- CHANGES
---   studio_sms_price_list     + unit_price_micros, unit_cost_micros (both null for fixed-fee kinds and for existing rows). For a micro row customer_price_cents =
---                               ceil(unit_price_micros / 10000) and provider_cost_cents = ceil(unit_cost_micros / 10000) (informational, keeps old readers valid).
---   studio_sms_usage_attempts + unit_price_micros, unit_cost_micros, exact_micros (frozen at begin), charged_micros (set once, only when state = 'settled').
---   studio_sms_inbound_usage  + unit_price_micros, exact_micros (billable_cents = ceil(exact_micros / 10000) is enforced).
---   _tw4pm_cents(bigint)      the rounding rule. _tw4pm_attempt_guard + trigger studio_sms_usage_attempts_micros: frozen price, charged_micros = segments x
---                               unit micros and ceil(charged_micros / 10000) = charged_cents (fails closed otherwise).
+--   studio_sms_price_list     + unit_price_micros, unit_cost_micros (null for fixed-fee kinds and existing rows). Micro row: customer_price_cents = ceil(micros / 10000),
+--                               provider_cost_cents = ceil(cost micros / 10000) (informational).
+--   studio_sms_credit_accounts + usage_carry_micros (the register).
+--   studio_sms_usage_attempts + unit_price_micros, unit_cost_micros, exact_micros (frozen at begin), charged_micros, carry_before_micros, carry_after_micros (set once at settle).
+--   studio_sms_inbound_usage  + unit_price_micros, exact_micros, carry_before_micros, carry_after_micros.
+--   _tw4pm_cents (reservation bound / informational cents), _tw4pm_carry (the rule), _tw4pm_attempt_guard + trigger studio_sms_usage_attempts_micros (frozen price,
+--                               write-once charge record).
 --   tw4_price_set_micros      stores a micro price for the two per-segment kinds. EXECUTE IS GRANTED TO NO ROLE: publication needs a path through the price
---                               dual-control migrations (20270210*; propose/approve take cents only today), which is a separate, unbuilt slice. Owner/superuser only.
---   replaced (md5-pinned): _tw4us_charge, tw4_usage_begin (20261218 body), tw4_inbound_record (20261203 body), sms_price_list (adds a 'unit_price_micros' key).
---   unchanged: tw4_usage_settle / tw4_usage_resolve (they call _tw4us_charge), the reconciler, tw4_credit_verify and the reconciliation gap checks (cents), monthly
---   limits, pilot ceilings, price dual control (20270210*, untouched; this applies cleanly before or after it).
--- Rollback: rollback/20261231130000_twilio_sms_price_micros_rollback.sql (refuses if ANY micro-priced row exists in any of the three tables).
+--                               dual-control migrations (20270210*; propose/approve take cents only today), a separate, unbuilt slice. Owner/superuser only.
+--   replaced (md5-pinned): _tw4us_charge, tw4_usage_begin (20261218 body), tw4_inbound_record (20261203 body), sms_price_list (adds a 'unit_price_micros' key),
+--                               tw4_credit_verify (adds the carry equation).
+--   unchanged: tw4_usage_settle / tw4_usage_resolve (they call _tw4us_charge), the reconciler, the cents reconciliation gap checks, monthly limits, pilot ceilings,
+--   price dual control (20270210*, untouched; this applies cleanly before or after it).
+-- Rollback: rollback/20261231130000_twilio_sms_price_micros_rollback.sql (refuses if ANY micro-priced row exists or ANY business carries a non-zero remainder).
 -- Requires 20261218090000 (usage reconciler readiness) and its predecessors.
 
 begin;
@@ -61,7 +72,10 @@ begin
   if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.sms_price_list()'::regprocedure), chr(13), '')), 8) <> 'ed9f57d9' then
     raise exception 'price-micros precondition failed: public.sms_price_list() differs from its main definition';
   end if;
-  select set_config('tw4pm.acl', (select coalesce(string_agg(p.oid::regprocedure::text || '=' || coalesce(p.proacl::text, 'default'), ';' order by p.oid::regprocedure::text), '') from pg_proc p where p.oid in ('public._tw4us_charge(public.studio_sms_usage_attempts,integer,text)'::regprocedure, 'public.tw4_usage_begin(text,uuid,uuid,uuid,text,text,text,text,uuid,uuid)'::regprocedure, 'public.tw4_inbound_record(uuid,text,text,integer,integer,text,text,timestamp with time zone,text)'::regprocedure, 'public.sms_price_list()'::regprocedure)), true) into v_acl;
+  if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_credit_verify(uuid)'::regprocedure), chr(13), '')), 8) <> '61da0813' then
+    raise exception 'price-micros precondition failed: public.tw4_credit_verify(uuid) differs from its main definition';
+  end if;
+  select set_config('tw4pm.acl', (select coalesce(string_agg(p.oid::regprocedure::text || '=' || coalesce(p.proacl::text, 'default'), ';' order by p.oid::regprocedure::text), '') from pg_proc p where p.oid in ('public._tw4us_charge(public.studio_sms_usage_attempts,integer,text)'::regprocedure, 'public.tw4_usage_begin(text,uuid,uuid,uuid,text,text,text,text,uuid,uuid)'::regprocedure, 'public.tw4_inbound_record(uuid,text,text,integer,integer,text,text,timestamp with time zone,text)'::regprocedure, 'public.sms_price_list()'::regprocedure, 'public.tw4_credit_verify(uuid)'::regprocedure)), true) into v_acl;
 end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -75,29 +89,42 @@ alter table public.studio_sms_price_list add constraint studio_sms_price_list_mi
   or (kind in ('sms_usage', 'sms_inbound') and unit_price_micros is not null and unit_cost_micros is not null and unit_price_micros > 0 and unit_cost_micros >= 0
       and customer_price_cents = (unit_price_micros + 9999) / 10000 and provider_cost_cents = (unit_cost_micros + 9999) / 10000));
 
+-- the carry register: one per legal business, shared by outbound and inbound micro-priced texts (see the header)
+alter table public.studio_sms_credit_accounts add column usage_carry_micros int not null default 0 check (usage_carry_micros between 0 and 9999);
+
 alter table public.studio_sms_usage_attempts
   add column unit_price_micros int null,
   add column unit_cost_micros int null,
   add column exact_micros bigint null,
-  add column charged_micros bigint null;
+  add column charged_micros bigint null,
+  add column carry_before_micros int null,
+  add column carry_after_micros int null;
 alter table public.studio_sms_usage_attempts add constraint studio_sms_usage_attempts_micros_shape check (
   ((unit_price_micros is null) = (unit_cost_micros is null)) and ((unit_price_micros is null) = (exact_micros is null))
   and (unit_price_micros is null or (unit_price_micros > 0 and unit_cost_micros >= 0 and exact_micros = estimated_segments::bigint * unit_price_micros
                                      and reserved_cents = (exact_micros + 9999) / 10000)));
+-- settled micro-priced attempt: either closed with no charge (0 micros, no carry movement) or charged through the carry: before + exact = after + 10000 x cents
 alter table public.studio_sms_usage_attempts add constraint studio_sms_usage_attempts_micros_charged check (
-  (charged_micros is null and not (state = 'settled' and unit_price_micros is not null))
-  or (charged_micros >= 0 and state = 'settled' and unit_price_micros is not null and charged_cents = (charged_micros + 9999) / 10000));
+  (charged_micros is null and carry_before_micros is null and carry_after_micros is null and not (state = 'settled' and unit_price_micros is not null))
+  or (charged_micros >= 0 and state = 'settled' and unit_price_micros is not null and (
+        (carry_before_micros is null and carry_after_micros is null and charged_micros = 0 and charged_cents = 0)
+        or (carry_before_micros between 0 and 9999 and carry_after_micros between 0 and 9999
+            and carry_before_micros + charged_micros = carry_after_micros + 10000::bigint * charged_cents))));
 
 alter table public.studio_sms_inbound_usage
   add column unit_price_micros int null,
-  add column exact_micros bigint null;
+  add column exact_micros bigint null,
+  add column carry_before_micros int null,
+  add column carry_after_micros int null;
 alter table public.studio_sms_inbound_usage add constraint studio_sms_inbound_usage_micros check (
-  ((unit_price_micros is null) = (exact_micros is null))
-  and (unit_price_micros is null or (unit_price_micros > 0 and exact_micros >= 0 and billable_cents = (exact_micros + 9999) / 10000)));
+  (unit_price_micros is null and exact_micros is null and carry_before_micros is null and carry_after_micros is null)
+  or (unit_price_micros > 0 and exact_micros >= 0 and carry_before_micros between 0 and 9999 and carry_after_micros between 0 and 9999
+      and carry_before_micros + exact_micros = carry_after_micros + 10000::bigint * billable_cents));
 
 -- ---------------------------------------------------------------------------------------------------------------
--- 2. the rounding rule, the attempt guard and the (ungranted) micro price setter
+-- 2. the rule, the attempt guard and the (ungranted) micro price setter
 -- ---------------------------------------------------------------------------------------------------------------
+-- CEIL(micros / 10000): the size of an outbound RESERVATION and the informational cents of a micro price. Never used to charge.
 create or replace function public._tw4pm_cents(p_micros bigint)
 returns int language plpgsql immutable
 set search_path = pg_catalog, public, pg_temp
@@ -106,14 +133,36 @@ begin
   if p_micros is null or p_micros < 0 then
     raise exception 'an amount in micro-dollars must be zero or more' using errcode = '22023';
   end if;
-  return ((p_micros + 9999) / 10000)::int;   -- CEIL(micros / 10000), once per attempt
+  return ((p_micros + 9999) / 10000)::int;
+end $$;
+
+-- THE carried-remainder rule. The caller holds the business's account lock and calls this once, in the transition that creates the outcome.
+create or replace function public._tw4pm_carry(p_entity uuid, p_exact bigint, out cents int, out carry_before int, out carry_after int)
+language plpgsql
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare v_total bigint;
+begin
+  if p_exact is null or p_exact < 0 then
+    raise exception 'an amount in micro-dollars must be zero or more' using errcode = '22023';
+  end if;
+  select a.usage_carry_micros into carry_before from public.studio_sms_credit_accounts a where a.legal_entity_id = p_entity for update;
+  if carry_before is null then
+    raise exception 'no credit account for the business' using errcode = '22023';
+  end if;
+  v_total := carry_before + p_exact;
+  cents := (v_total / 10000)::int;
+  carry_after := (v_total % 10000)::int;
+  if carry_after <> carry_before then
+    update public.studio_sms_credit_accounts set usage_carry_micros = carry_after where legal_entity_id = p_entity;
+  end if;
 end $$;
 
 create or replace function public._tw4pm_attempt_guard()
 returns trigger language plpgsql
 set search_path = pg_catalog, public, pg_temp
 as $$
-declare v_seg int;
+declare v_g text[];
 begin
   if tg_op = 'INSERT' then
     return new;   -- the table checks hold the insert shape (exact = estimated segments x unit, reserved = ceil)
@@ -122,24 +171,25 @@ begin
      or new.exact_micros is distinct from old.exact_micros then
     raise exception 'a usage attempt''s frozen micro-dollar price cannot change' using errcode = '42501';
   end if;
-  if old.charged_micros is not null and new.charged_micros is distinct from old.charged_micros then
+  if old.charged_micros is not null and (new.charged_micros is distinct from old.charged_micros or new.carry_before_micros is distinct from old.carry_before_micros
+                                        or new.carry_after_micros is distinct from old.carry_after_micros) then
     raise exception 'a settled micro-dollar charge is final' using errcode = '42501';
   end if;
   if new.state = 'settled' and old.state <> 'settled' and new.unit_price_micros is not null then
-    if new.charged_cents = 0 then
-      new.charged_micros := 0;
+    -- _tw4us_charge hands over 'attempt|segments|carry before|carry after' for THIS attempt; a close with no charge (failed / canceled / not charged) has none
+    v_g := string_to_array(coalesce(nullif(current_setting('tw4.usage_carry', true), ''), ''), '|');
+    if cardinality(v_g) = 4 and v_g[1] = new.id::text then
+      perform set_config('tw4.usage_carry', '', true);
+      new.charged_micros := v_g[2]::bigint * new.unit_price_micros;
+      new.carry_before_micros := v_g[3]::int;
+      new.carry_after_micros := v_g[4]::int;
+    elsif new.charged_cents = 0 then
+      new.charged_micros := 0;   -- closed with no charge: no carry movement
     else
-      v_seg := nullif(current_setting('tw4.usage_charged_segments', true), '')::int;
-      if v_seg is null or v_seg < 1 then
-        raise exception 'a micro-priced attempt settles only through the charge function' using errcode = '42501';
-      end if;
-      new.charged_micros := v_seg::bigint * new.unit_price_micros;
-    end if;
-    if public._tw4pm_cents(new.charged_micros) <> new.charged_cents then
-      raise exception 'charged cents must be the rounded-up exact amount' using errcode = '23514';
+      raise exception 'a micro-priced attempt settles only through the charge function' using errcode = '42501';
     end if;
   end if;
-  return new;
+  return new;   -- the table check then proves before + exact = after + 10000 x charged cents
 end $$;
 create trigger studio_sms_usage_attempts_micros before insert or update on public.studio_sms_usage_attempts for each row execute function public._tw4pm_attempt_guard();
 
@@ -171,14 +221,23 @@ create or replace function public._tw4us_charge(a public.studio_sms_usage_attemp
 returns int language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
-declare v_cents int := case when a.unit_price_micros is null then p_segments * a.unit_price_cents
-                            else public._tw4pm_cents(p_segments::bigint * a.unit_price_micros) end;
+declare
+  v_cents int;
+  v_c record;
 begin
-  -- 20261231130000: a micro-priced attempt is charged ceil(segments x unit micros / 10000) cents ONCE per attempt (the same rule that sized its reservation);
-  -- the segment count is handed to the attempt trigger (_tw4pm_attempt_guard), which records charged_micros = segments x unit micros when the attempt settles.
-  perform set_config('tw4.usage_charged_segments', p_segments::text, true);
+  if a.unit_price_micros is null then
+    v_cents := p_segments * a.unit_price_cents;   -- whole-cent price: exactly as before
+  else
+    -- 20261231130000: carried remainder (public._tw4pm_carry): the cents this text releases after adding its micros to the business's carry. The attempt trigger
+    -- (_tw4pm_attempt_guard) records charged_micros and the carry before / after from the hand-over below when the attempt settles.
+    select * into v_c from public._tw4pm_carry(a.legal_entity_id, p_segments::bigint * a.unit_price_micros);
+    v_cents := v_c.cents;
+    perform set_config('tw4.usage_carry', a.id::text || '|' || p_segments || '|' || v_c.carry_before || '|' || v_c.carry_after, true);
+  end if;
   perform public._tw4us_release_reservation(a, p_ref);
-  perform public._tw4c_post(a.legal_entity_id, a.studio_id, 'usage_charge', -v_cents, 0, 'usage:sms:' || a.id, a.reservation_id, p_ref, null, null);
+  if v_cents > 0 then   -- a 0-cent charge cannot be posted: those micros sit in the carry
+    perform public._tw4c_post(a.legal_entity_id, a.studio_id, 'usage_charge', -v_cents, 0, 'usage:sms:' || a.id, a.reservation_id, p_ref, null, null);
+  end if;
   return v_cents;
 end $$;
 
@@ -300,6 +359,9 @@ declare
   v_received timestamptz := coalesce(p_received_at, now());
   v_billable int := 0;
   v_exact bigint := 0;
+  v_carry record;
+  v_cb int;
+  v_ca int;
   v_charged int := 0;
   v_ceiling int;
   v_protected bigint;
@@ -336,9 +398,17 @@ begin
   select * into v_out_price from public.studio_sms_price_list p where p.kind = 'sms_usage' and p.active;
   -- only an ordinary SMS (not multimedia) with a published inbound price is billable
   if p_classification = 'ordinary' and p_provider_sid like 'SM%' and coalesce(p_media, 0) = 0 and v_price.id is not null then
-    -- 20261231130000: exact = segments x unit micros (a whole-cent row is cents x 10000); billable cents = that rounded UP once per text (public._tw4pm_cents)
+    -- 20261231130000: exact = segments x unit micros (a whole-cent row is cents x 10000); a micro-priced row's billable cents come from the carried remainder below
     v_exact := p_segments::bigint * coalesce(v_price.unit_price_micros, v_price.customer_price_cents::bigint * 10000);
     v_billable := public._tw4pm_cents(v_exact);
+  end if;
+  -- 20261231130000: a micro-priced inbound price releases floor((carry + exact) / 10000) cents (public._tw4pm_carry); exact is 0 for MMS / compliance / unpriced texts, which leave the carry
+  -- unchanged. This runs once per message SID (the replay above returned). billable_cents = the cents released by THIS text (it can be 0 for an ordinary text whose micros went into the carry).
+  if v_price.unit_price_micros is not null then
+    select * into v_carry from public._tw4pm_carry(v_entity, v_exact);
+    v_billable := v_carry.cents;
+    v_cb := v_carry.carry_before;
+    v_ca := v_carry.carry_after;
   end if;
   perform public._tw4ml_ensure_tz(v_entity);   -- the month this text counts in must not move later
   -- the pilot business carries NO inbound debt: its pilot-funded setup operations require a non-negative balance (and the pilot ceiling never funds texting)
@@ -376,12 +446,13 @@ begin
   v_reply := case when p_reply_body is null or char_length(p_reply_body) = 0 then null else public._tw4us_segments(p_reply_body) end;
   insert into public.studio_sms_inbound_usage (legal_entity_id, studio_id, provider_sid, account_sid, source, classification, segments, media, price_list_id,
                                                unit_price_cents, billable_cents, charged_cents, uncollected_cents, ceiling_cents, est_provider_cost_cents,
-                                               reply_segments, est_reply_cost_cents, received_at, unit_price_micros, exact_micros)
+                                               reply_segments, est_reply_cost_cents, received_at, unit_price_micros, exact_micros, carry_before_micros, carry_after_micros)
   values (v_entity, p_studio_id, p_provider_sid, v_account, p_source, p_classification, p_segments, coalesce(p_media, 0), v_price.id,
           v_price.customer_price_cents, v_billable, v_charged, v_billable - v_charged, v_ceiling,
           case when v_price.id is null then null when v_price.unit_cost_micros is not null then public._tw4pm_cents(p_segments::bigint * v_price.unit_cost_micros) else p_segments * v_price.provider_cost_cents end,
           v_reply, case when v_reply is null or v_out_price.id is null then null when v_out_price.unit_cost_micros is not null then public._tw4pm_cents(v_reply::bigint * v_out_price.unit_cost_micros) else v_reply * v_out_price.provider_cost_cents end, v_received,
-          v_price.unit_price_micros, case when v_price.unit_price_micros is null then null else v_exact end)
+          v_price.unit_price_micros, case when v_price.unit_price_micros is null then null else v_exact end,
+          v_cb, v_ca)
   returning * into u;
   return jsonb_build_object('recorded', true, 'replayed', false, 'classification', u.classification, 'charged_cents', u.charged_cents, 'uncollected_cents', u.uncollected_cents);
 end $$;
@@ -398,29 +469,57 @@ begin
                      from public.studio_sms_price_list p where p.active), '[]'::jsonb);
 end $$;
 
-revoke all on function public._tw4pm_cents(bigint), public._tw4pm_attempt_guard() from public, anon, authenticated, service_role;
+create or replace function public.tw4_credit_verify(p_entity_id uuid)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  a public.studio_sms_credit_accounts;
+  v_b bigint;
+  v_r bigint;
+  v_open bigint;
+  v_um boolean;
+begin
+  select * into a from public.studio_sms_credit_accounts x where x.legal_entity_id = p_entity_id;
+  select coalesce(sum(balance_delta_cents), 0), coalesce(sum(reserved_delta_cents), 0) into v_b, v_r from public.studio_sms_credit_ledger where legal_entity_id = p_entity_id;
+  select coalesce(sum(amount_cents), 0) into v_open from public.studio_sms_credit_reservations where legal_entity_id = p_entity_id and status = 'reserved' and funding = 'credit';
+  -- 20261231130000 (carried remainder): the micro-dollars of every micro-priced text (settled outbound attempts, recorded inbound texts) equal 10,000 x the cents they
+  -- released plus the business's carry. Whole-cent rows are outside the equation (they never touch the carry).
+  v_um := (coalesce((select sum(t.charged_micros) from public.studio_sms_usage_attempts t where t.legal_entity_id = p_entity_id and t.charged_micros is not null), 0)
+           + coalesce((select sum(u.exact_micros) from public.studio_sms_inbound_usage u where u.legal_entity_id = p_entity_id and u.exact_micros is not null), 0))
+          = 10000 * (coalesce((select sum(t.charged_cents) from public.studio_sms_usage_attempts t where t.legal_entity_id = p_entity_id and t.charged_micros is not null), 0)
+                     + coalesce((select sum(u.billable_cents) from public.studio_sms_inbound_usage u where u.legal_entity_id = p_entity_id and u.exact_micros is not null), 0))
+            + coalesce(a.usage_carry_micros, 0);
+  return jsonb_build_object('pilot_used_cents', (select coalesce(sum(r.amount_cents), 0) from public.studio_sms_credit_reservations r where r.legal_entity_id = p_entity_id and r.funding = 'pilot' and r.status in ('reserved', 'captured')),'balance_cents', coalesce(a.balance_cents, 0), 'reserved_cents', coalesce(a.reserved_cents, 0), 'ledger_balance_cents', v_b, 'ledger_reserved_cents', v_r,
+    'open_reservations_cents', v_open, 'usage_micros_ok', v_um, 'ok', v_um and coalesce(a.balance_cents, 0) = v_b and coalesce(a.reserved_cents, 0) = v_r and v_r = v_open);
+end $$;
+
+revoke all on function public._tw4pm_cents(bigint), public._tw4pm_carry(uuid, bigint), public._tw4pm_attempt_guard() from public, anon, authenticated, service_role;
 revoke all on function public.tw4_price_set_micros(text, int, int, text, uuid) from public, anon, authenticated, service_role;
 
 do $$
 begin
-  if coalesce(current_setting('tw4pm.acl', true), '') <> (select coalesce(string_agg(p.oid::regprocedure::text || '=' || coalesce(p.proacl::text, 'default'), ';' order by p.oid::regprocedure::text), '') from pg_proc p where p.oid in ('public._tw4us_charge(public.studio_sms_usage_attempts,integer,text)'::regprocedure, 'public.tw4_usage_begin(text,uuid,uuid,uuid,text,text,text,text,uuid,uuid)'::regprocedure, 'public.tw4_inbound_record(uuid,text,text,integer,integer,text,text,timestamp with time zone,text)'::regprocedure, 'public.sms_price_list()'::regprocedure)) then
+  if coalesce(current_setting('tw4pm.acl', true), '') <> (select coalesce(string_agg(p.oid::regprocedure::text || '=' || coalesce(p.proacl::text, 'default'), ';' order by p.oid::regprocedure::text), '') from pg_proc p where p.oid in ('public._tw4us_charge(public.studio_sms_usage_attempts,integer,text)'::regprocedure, 'public.tw4_usage_begin(text,uuid,uuid,uuid,text,text,text,text,uuid,uuid)'::regprocedure, 'public.tw4_inbound_record(uuid,text,text,integer,integer,text,text,timestamp with time zone,text)'::regprocedure, 'public.sms_price_list()'::regprocedure, 'public.tw4_credit_verify(uuid)'::regprocedure)) then
     raise exception 'price-micros postcondition failed: function privileges changed';
   end if;
-  if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4us_charge(public.studio_sms_usage_attempts,integer,text)'::regprocedure), chr(13), '')), 8) <> '78ec1e44' then
+  if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._tw4us_charge(public.studio_sms_usage_attempts,integer,text)'::regprocedure), chr(13), '')), 8) <> '69170960' then
     raise exception 'price-micros postcondition failed: public._tw4us_charge(public.studio_sms_usage_attempts,integer,text) was not replaced as intended (line endings?)';
   end if;
   if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_usage_begin(text,uuid,uuid,uuid,text,text,text,text,uuid,uuid)'::regprocedure), chr(13), '')), 8) <> '7d5b9675' then
     raise exception 'price-micros postcondition failed: public.tw4_usage_begin(text,uuid,uuid,uuid,text,text,text,text,uuid,uuid) was not replaced as intended (line endings?)';
   end if;
-  if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_inbound_record(uuid,text,text,integer,integer,text,text,timestamp with time zone,text)'::regprocedure), chr(13), '')), 8) <> '9b948318' then
+  if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_inbound_record(uuid,text,text,integer,integer,text,text,timestamp with time zone,text)'::regprocedure), chr(13), '')), 8) <> '46d448c4' then
     raise exception 'price-micros postcondition failed: public.tw4_inbound_record(uuid,text,text,integer,integer,text,text,timestamp with time zone,text) was not replaced as intended (line endings?)';
   end if;
   if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.sms_price_list()'::regprocedure), chr(13), '')), 8) <> '5f8ea9e8' then
     raise exception 'price-micros postcondition failed: public.sms_price_list() was not replaced as intended (line endings?)';
   end if;
+  if left(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_credit_verify(uuid)'::regprocedure), chr(13), '')), 8) <> '740206bf' then
+    raise exception 'price-micros postcondition failed: public.tw4_credit_verify(uuid) was not replaced as intended (line endings?)';
+  end if;
   if has_function_privilege('service_role', 'public.tw4_price_set_micros(text,integer,integer,text,uuid)', 'execute')
      or has_function_privilege('authenticated', 'public.tw4_price_set_micros(text,integer,integer,text,uuid)', 'execute')
-     or has_function_privilege('service_role', 'public._tw4pm_cents(bigint)', 'execute') then
+     or has_function_privilege('service_role', 'public._tw4pm_cents(bigint)', 'execute') or has_function_privilege('service_role', 'public._tw4pm_carry(uuid,bigint)', 'execute') then
     raise exception 'price-micros postcondition failed: unexpected function privileges';
   end if;
 end $$;
