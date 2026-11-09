@@ -361,6 +361,26 @@ commit;`);
       expect(psql(`select has_function_privilege('anon', 'public._tw4pbc_burned(uuid)', 'execute') or has_function_privilege('authenticated', 'public._tw4pbc_burned(uuid)', 'execute')`)).toBe("f");
     });
 
+    // 20261231150000 (the held KI-1 activation lift): everything runs in rolled-back transactions
+    const liftSql = () => readFileSync(join(MIG, "20261231150000_twilio_ki1_activation_lift.sql"), "utf8").replace(/^begin;/m, "").replace(/^commit;/m, "");
+    const liftRollbackSql = () => readFileSync(join(MIG, "rollback/20261231150000_twilio_ki1_activation_lift_rollback.sql"), "utf8").replace(/^begin;/m, "").replace(/^commit;/m, "");
+    const kiItem = (w: World) => `select (i ->> 'ok') || ' ' || (i ->> 'detail') from jsonb_array_elements(public._tw4act_items('${w.studio}'::uuid)) i where i ->> 'id' = 'pilot_ki1_redecided';`;
+
+    it("KI-1 lift: before it the pilot item is blocked; after it the item passes only while the burned-ceiling trigger is installed AND enabled; the rollback restores the block", () => {
+      const w = world({ pilot: true });
+      expect(psql(kiItem(w))).toBe("false ki1_owner_redecision_pending:lifted_only_by_migration");
+      const inTx = (body: string) => psql(`begin; ${liftSql()} ${body} rollback;`).split("\n").filter(Boolean).pop();
+      expect(inTx(kiItem(w))).toBe("true ki1_ceiling_protected");
+      expect(inTx(`alter table public.studio_sms_credit_reservations disable trigger studio_sms_credit_reservations_pilot_burned_ceiling; ${kiItem(w)}`)).toBe("false ki1_ceiling_protection_missing");
+      expect(inTx(`drop trigger studio_sms_credit_reservations_pilot_burned_ceiling on public.studio_sms_credit_reservations; ${kiItem(w)}`)).toBe("false ki1_ceiling_protection_missing");
+      expect(inTx(`${liftRollbackSql()} ${kiItem(w)}`)).toBe("false ki1_owner_redecision_pending:lifted_only_by_migration");
+      // a non-pilot business is untouched by the lift
+      const plain = world({});
+      expect(psql(`begin; ${liftSql()} ${kiItem(plain)} rollback;`).split("\n").filter(Boolean).pop()).toBe("true not_pilot");
+      // the lift refuses to apply twice
+      expect(psqlError(`begin; ${liftSql()} ${liftSql()} rollback;`)).toMatch(/KI-1 lift precondition failed/);
+    });
+
     it("KI-1: a SAME-month pilot approval is unchanged (captured on approval, and it is the registration month's cover)", () => {
       const w = world({ pilot: true });
       const c = campaign(w, { pilotReservation: "reserved" });
