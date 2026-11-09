@@ -3,15 +3,15 @@
     "base": "a965f477",
     "int5": "28a7722e",
     "hotfix": "ac902c28",
-    "files": 332,
+    "files": 341,
     "byChange": {
-      "added": 317,
+      "added": 326,
       "changed": 15
     },
     "byArea": {
-      "docs": 82,
+      "docs": 90,
       "e2e harness": 20,
-      "QA script": 1,
+      "QA script": 2,
       "app route/page/action": 31,
       "unit test": 41,
       "library": 39,
@@ -20,9 +20,10 @@
       "SQL test": 68
     },
     "byOrigin": {
-      "int5 28a7722e, byte-identical": 292,
-      "int5 28a7722e, edited here": 30,
-      "new in this candidate": 7,
+      "int5 28a7722e, byte-identical": 291,
+      "new in this candidate": 16,
+      "int5 28a7722e, edited here": 29,
+      "live release file, edited here (dark gate)": 2,
       "hotfix ac902c28 (+ candidate gate edits)": 3
     },
     "excluded": 10
@@ -146,6 +147,62 @@
       "change": "added",
       "area": "docs",
       "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-acceptance-dark-2026-11-09.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-acceptance-on-2026-11-09.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-inventory-2026-11-09.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-inventory-2026-11-09.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-qa-2026-11-09.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-qa-2026-11-09.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-qa-stack-baseline-2026-11-09.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-schema-compat-2026-11-09.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
     },
     {
       "status": "A",
@@ -705,7 +762,7 @@
       "path": "e2e/tests/competition-schedule-heats-acceptance.spec.ts",
       "change": "added",
       "area": "e2e harness",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -744,6 +801,13 @@
     },
     {
       "status": "A",
+      "path": "scripts/qa/cf1-candidate-inventory.mjs",
+      "change": "added",
+      "area": "QA script",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
       "path": "scripts/qa/cf1-schema-compat.mjs",
       "change": "added",
       "area": "QA script",
@@ -754,7 +818,7 @@
       "path": "src/app/app/events/[id]/competition/CompetitionNav.tsx",
       "change": "changed",
       "area": "app route/page/action",
-      "origin": "int5 28a7722e, edited here"
+      "origin": "live release file, edited here (dark gate)"
     },
     {
       "status": "M",
@@ -838,7 +902,7 @@
       "path": "src/app/app/events/[id]/competition/layout.tsx",
       "change": "changed",
       "area": "app route/page/action",
-      "origin": "int5 28a7722e, edited here"
+      "origin": "live release file, edited here (dark gate)"
     },
     {
       "status": "A",
