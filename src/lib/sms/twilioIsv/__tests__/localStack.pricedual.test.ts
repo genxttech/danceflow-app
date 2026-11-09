@@ -56,7 +56,8 @@ const noTx = (s: string) => s.replace(/^begin;\s*$/gm, "").replace(/^commit;\s*$
 const clearAuthEvidence = `
   alter table public.studio_sms_price_audit disable trigger studio_sms_price_audit_guard; delete from public.studio_sms_price_audit; alter table public.studio_sms_price_audit enable always trigger studio_sms_price_audit_guard;
   alter table public.studio_sms_price_auth_challenges disable trigger studio_sms_price_auth_challenges_guard; delete from public.studio_sms_price_auth_challenges; alter table public.studio_sms_price_auth_challenges enable always trigger studio_sms_price_auth_challenges_guard;`;
-const rollbackSql = () => clearAuthEvidence + noTx(mig("rollback/20270210100000_twilio_price_owner_authorization_rollback.sql")) + noTx(mig("rollback/20270210090000_twilio_price_dual_control_rollback.sql"));
+// 20270212090000 (micro-dollar publication) sits on top of 20270210100000: its rollback runs first
+const rollbackSql = () => clearAuthEvidence + noTx(mig("rollback/20270212090000_twilio_price_micros_publication_rollback.sql")) + noTx(mig("rollback/20270210100000_twilio_price_owner_authorization_rollback.sql")) + noTx(mig("rollback/20270210090000_twilio_price_dual_control_rollback.sql"));
 
 describe.skipIf(!enabled)("D4-1 SMS price dual control (real schema, synthetic administrators)", () => {
   beforeAll(() => {
