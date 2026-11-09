@@ -163,6 +163,26 @@ describe.skipIf(!enabled)("TW-4F micro-dollar price publication through the sing
     expect(psql(`select (public.tw4_price_verify() ->> 'ok')`)).toBe("true");
   });
 
+  it("MP-12 production setting: with monitoring expected, the micro proposal, the challenge and the publication all emit their monitoring events (with the micro amounts) and succeed", () => {
+    clear();
+    ownerSql(`alter table public.studio_sms_price_auth_config disable trigger studio_sms_price_auth_config_guard; update public.studio_sms_price_auth_config set monitoring_expected = true; alter table public.studio_sms_price_auth_config enable always trigger studio_sms_price_auth_config_guard;`);
+    try {
+      const head = num(`select coalesce(max(seq), 0) from public.studio_sms_price_security_events`);
+      const p = proposeMicros(claims(A, S1), "sms_usage", 21000, 12695);
+      ready(p.request_id);
+      const b = begin(claims(A, S2), p.request_id) as unknown as { nonce: string; challenge: string };
+      expect(finish(claims(A, S2), p.request_id, b.nonce, K1.assert(b.challenge)).status).toBe("applied");
+      const ev = rows<{ kind: string; micros: string | null }>(`select kind, detail ->> 'new_price_micros' micros from public.studio_sms_price_security_events where seq > ${head} order by seq`);
+      const kinds = ev.map((e) => e.kind);
+      expect(kinds).toContain("price_proposed");
+      expect(kinds).toContain("price_authorization_started");
+      expect(ev.filter((e) => e.kind === "price_proposed" || e.kind === "price_authorization_started").every((e) => e.micros === "21000")).toBe(true);
+      expect(active("sms_usage")[0].pm).toBe(21000);
+    } finally {
+      ownerSql(`alter table public.studio_sms_price_auth_config disable trigger studio_sms_price_auth_config_guard; update public.studio_sms_price_auth_config set monitoring_expected = false; alter table public.studio_sms_price_auth_config enable always trigger studio_sms_price_auth_config_guard;`);
+    }
+  });
+
   it("MP-11 a published micro price is what the usage engine reads (sms_price_list carries unit_price_micros)", () => {
     const j = psql(`select pg_get_functiondef('public.sms_price_list()'::regprocedure)`);
     expect(j).toContain("unit_price_micros");
