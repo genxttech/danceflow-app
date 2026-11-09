@@ -12,7 +12,7 @@ jest.mock("expo-secure-store", () => ({
 }));
 
 jest.mock("@react-native-async-storage/async-storage", () =>
-  require("@react-native-async-storage/async-storage/jest/async-storage-mock"),
+  jest.requireActual("@react-native-async-storage/async-storage/jest/async-storage-mock"),
 );
 
 const secure = SecureStore as jest.Mocked<typeof SecureStore>;

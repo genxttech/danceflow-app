@@ -16,7 +16,9 @@ import {
   type StudentScheduleOverview
 } from "@/lib/studentSchedule";
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro asset
 const danceFlowLogo = require("../../assets/danceflow-logo-primary.png");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro asset
 const lumiAvatar = require("../../assets/lumi-avatar.png");
 
 function displayNameFromSession(session: ReturnType<typeof useAuth>["session"]) {

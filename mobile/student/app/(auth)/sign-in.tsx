@@ -16,6 +16,7 @@ import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro asset
 const danceFlowLogo = require("../../assets/danceflow-logo-primary.png");
 
 export default function SignInScreen() {

@@ -14,6 +14,7 @@ import {
   type StudentLearnOverview,
 } from "@/lib/studentLearn";
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro asset
 const lumiAvatar = require("../../assets/lumi-avatar.png");
 
 type StudentSyllabusSummary = {

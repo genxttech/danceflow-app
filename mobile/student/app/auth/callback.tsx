@@ -35,6 +35,7 @@ export default function AuthCallbackScreen() {
       cleanParam(routeParams.error);
 
     if (routeError) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- route params arrive once per navigation
       setError(routeError);
       return;
     }

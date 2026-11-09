@@ -33,14 +33,18 @@ const auth = supabase.auth as jest.Mocked<typeof supabase.auth>;
 
 async function renderAuth() {
   let value: ReturnType<typeof useAuth> | undefined;
-  function Capture() {
-    value = useAuth();
+  function Capture({ onValue }: { onValue: (next: ReturnType<typeof useAuth>) => void }) {
+    onValue(useAuth());
     return <Text>ready</Text>;
   }
 
   render(
     <AuthProvider>
-      <Capture />
+      <Capture
+        onValue={(next) => {
+          value = next;
+        }}
+      />
     </AuthProvider>,
   );
   await waitFor(() => expect(value?.loading).toBe(false));

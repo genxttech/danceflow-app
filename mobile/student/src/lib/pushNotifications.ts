@@ -103,10 +103,13 @@ function isExpoGo() {
   return Constants.appOwnership === "expo";
 }
 
+// expo-notifications' published types lag the runtime API used below, so the module is untyped here.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getNotificationsModule(): Promise<any | null> {
   if (isExpoGo()) return null;
 
   const notificationsModule = await import("expo-notifications");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const Notifications = notificationsModule as any;
 
   if (!notificationHandlerConfigured) {
@@ -339,6 +342,7 @@ export function usePushNotificationBootstrap(userId: string | null | undefined) 
         if (!Notifications || cancelled) return;
 
         responseSubscription =
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           Notifications.addNotificationResponseReceivedListener((response: any) => {
             routeFromNotificationData(
               (response.notification.request.content.data ?? {}) as Record<string, unknown>,

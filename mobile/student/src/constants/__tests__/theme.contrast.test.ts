@@ -1,4 +1,4 @@
-jest.mock("@react-native-async-storage/async-storage", () => require("@react-native-async-storage/async-storage/jest/async-storage-mock"));
+jest.mock("@react-native-async-storage/async-storage", () => jest.requireActual("@react-native-async-storage/async-storage/jest/async-storage-mock"));
 
 import { darkColors, lightColors, type ThemeColors } from "@/constants/theme";
 
