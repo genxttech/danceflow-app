@@ -25,7 +25,7 @@ const tmps: string[] = [];
 const tmp = () => { const d = mkdtempSync(join(tmpdir(), "d24proof-sr-")); tmps.push(d); return d; };
 afterAll(() => { for (const d of tmps) rmSync(d, { recursive: true, force: true }); });
 const gate = (c: ReturnType<typeof createGuardedClient>) => runIdentityGate(c, { platformAcct: PLATFORM, connectedAcct: CONNECTED });
-const custReq = (n: string): Omit<ProofRequest, "stripeVersion"> => ({ method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: `d24proof-sr-${n}`, body: { name: "n" } });
+const custReq = (n: string): Omit<ProofRequest, "stripeVersion"> => ({ method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: `d24proof-sr-${n}`, body: { name: "n", email: "d24-proof-abc123-a@example.com" } });
 const listReq = (cus: string): Omit<ProofRequest, "stripeVersion"> => ({ method: "GET", path: "/v1/invoices", stripeAccount: CONNECTED, query: { customer: cus, limit: "100" } });
 
 /** Fake Stripe with an override hook for chosen requests. */

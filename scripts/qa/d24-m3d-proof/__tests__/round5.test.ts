@@ -34,7 +34,7 @@ function world(handler: (r: ProofRequest) => ProofResponse | Promise<ProofRespon
   return createGuardedClient({ transport, apiKey: "rk_test_FAKEFAKE", connectedAcct: CONNECTED, paceMs: 0 });
 }
 const ready = async (c: ReturnType<typeof createGuardedClient>) => { await runIdentityGate(c, { platformAcct: PLATFORM, connectedAcct: CONNECTED }); return c; };
-const cust = (n: string): Omit<ProofRequest, "stripeVersion"> => ({ method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: `d24proof-r5-${n}`, body: { name: "n" } });
+const cust = (n: string): Omit<ProofRequest, "stripeVersion"> => ({ method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: `d24proof-r5-${n}`, body: { name: "n", email: "d24-proof-abc123-a@example.com" } });
 const ok = (json: Record<string, unknown>): ProofResponse => ({ status: 200, json, stripeVersion: V });
 const evInput = (runId: string, outcome: "OK" | "FAILED" = "OK") => ({ runId, mode: "dry-run" as const, outcome, scriptSha256: "a".repeat(64), apiVersionPinned: "v", apiVersionsReported: [], callsUsed: 1, blocked: 0, scenarios: [], verdicts: {}, cleanup: {}, abort: null, transcriptText: "t", finishedUtc: "t" });
 const outcomeOf = (file: string) => JSON.parse(readFileSync(file, "utf8")).outcome as string;

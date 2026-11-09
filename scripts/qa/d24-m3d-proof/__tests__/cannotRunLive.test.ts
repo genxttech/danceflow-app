@@ -60,7 +60,7 @@ describe("pinned platform AND connected ids must match before any other call", (
   });
   it("until the gate passes, every non-identity request is refused before the transport is called", async () => {
     const reqs: ProofRequest[] = [
-      { method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: "d24proof-x-1", body: { name: "n" } },
+      { method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: "d24proof-x-1", body: { name: "n", email: "d24-proof-abc123-a@example.com" } },
       { method: "POST", path: "/v1/invoices", stripeAccount: CONNECTED, idempotencyKey: "d24proof-x-2", body: { customer: "cus_ABC123", collection_method: "send_invoice", days_until_due: "14", currency: "usd", auto_advance: "false" } },
       { method: "GET", path: "/v1/invoices", stripeAccount: CONNECTED, query: { customer: "cus_ABC123", limit: "100" } },
       { method: "GET", path: "/v1/transfers", stripeAccount: CONNECTED, query: { limit: "1" } },
@@ -81,7 +81,7 @@ describe("pinned platform AND connected ids must match before any other call", (
 
 describe("every non-identity request carries Stripe-Account = the pinned connected id", () => {
   const withAcct = (acct: string | undefined): ProofRequest[] => [
-    { method: "POST", path: "/v1/customers", stripeAccount: acct, idempotencyKey: "d24proof-x-1", body: { name: "n" } },
+    { method: "POST", path: "/v1/customers", stripeAccount: acct, idempotencyKey: "d24proof-x-1", body: { name: "n", email: "d24-proof-abc123-a@example.com" } },
     { method: "GET", path: "/v1/invoices/in_ABC123", stripeAccount: acct },
     { method: "GET", path: "/v1/invoices", stripeAccount: acct, query: { customer: "cus_ABC123", limit: "100" } },
     { method: "DELETE", path: "/v1/customers/cus_ABC123", stripeAccount: acct },
@@ -117,7 +117,7 @@ describe("livemode:true anywhere aborts", () => {
       const t: Transport = async (r) => (r.method === "POST" && r.path === "/v1/customers" ? { status: 200, json: { id: "cus_ABC123", object: "customer", livemode: false }, stripeVersion: STRIPE_API_VERSION } : r.path === "/v1/account" ? { status: 200, json: { id: PLATFORM, object: "account", livemode: false }, stripeVersion: STRIPE_API_VERSION } : r.path.startsWith("/v1/accounts/") ? { status: 200, json: { id: CONNECTED, object: "account", type: "express" }, stripeVersion: STRIPE_API_VERSION } : { status: 200, json, stripeVersion: STRIPE_API_VERSION });
       const { client } = spyClient(t);
       await runIdentityGate(client, { platformAcct: PLATFORM, connectedAcct: CONNECTED });
-      await pinned(client, { method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: "d24proof-x-lm", body: { name: "n" } });
+      await pinned(client, { method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: "d24proof-x-lm", body: { name: "n", email: "d24-proof-abc123-a@example.com" } });
       await expect(pinned(client, { method: "GET", path: "/v1/invoices", stripeAccount: CONNECTED, query: { customer: "cus_ABC123", limit: "100" } }, { expectStatus: [200, 400] })).rejects.toMatchObject({ code: "livemode_true" });
     }
   });
