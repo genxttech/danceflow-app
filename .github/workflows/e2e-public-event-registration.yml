@@ -15,42 +15,16 @@ name: Public Event Registration E2E
 on:
   pull_request:
     paths:
-      - "src/app/events/**"
-      - "src/app/discover/events/**"
-      - "src/app/sign/**"
-      - "src/app/api/events/cart/**"
-      # Whole directory, not individual files: every file here (PDF
-      # rendering, signing-token/storage-path helpers, checkpoint
-      # advancement, rate limiting) is load-bearing for the signing flow
-      # this harness tests, and a per-file list silently misses new
-      # additions to this directory.
-      - "src/lib/documents/**"
-      - "src/lib/events/event-order-payment.ts"
-      - "src/lib/payments/**"
-      # Payment webhook/routes, credit/billing code and the SMS (Twilio ISV) stack and their migrations move money or tenant access:
-      # they must run the typecheck/build/full-Vitest gate too (a PR touching only these paths previously got no check at all).
-      - "src/app/api/payments/**"
-      - "src/app/api/billing/**"
-      - "src/lib/billing/**"
-      # BILLING-QA: billing QA tools, platform admin endpoints, QA scripts, auth helpers and dependency changes
-      # (a PR touching only these previously got Vercel checks but no typecheck/build/test).
-      - "src/lib/billing-qa/**"
-      - "src/app/api/platform/**"
+      # All web application source. The static-checks job (typecheck, build, lint, full Vitest) is the only CI gate for web code, so any
+      # PR that changes src/ must run it. A per-directory allow-list let PRs touching only unlisted directories (for example
+      # src/app/app/reports, src/lib/schedule, src/lib/reports, src/components) merge with Vercel checks alone; PR #446 hit exactly that.
+      # Every directory previously listed here (events, sign, documents, payments, billing, platform, auth, memberships, accounting,
+      # sms, migrations, competition, e2e helpers) is inside src/ and stays covered. The browser-e2e job still gates itself on secrets.
+      - "src/**"
       - "scripts/qa/**"
-      - "src/lib/auth/**"
       - "package.json"
       - "package-lock.json"
-      - "src/lib/payment-harness/**"
-      - "src/lib/memberships/**"
-      - "src/lib/accounting/**"
-      - "src/lib/sms/**"
-      - "src/lib/supabase/migrations/**"
-      # Phase 10C.5: Competition setup wizard / registration isolation browser coverage
-      # (e2e/tests/competition-setup-registration-isolation.spec.ts).
-      - "src/app/app/events/*/competition/**"
-      - "src/lib/competition/**"
       - "e2e/**"
-      - "src/lib/e2e/**"
       - "playwright.config.ts"
       - ".github/workflows/e2e-public-event-registration.yml"
       # D24 Stripe TEST proof boundary: its tests (scripts/qa/d24-gh-proof) must gate PRs that touch only these files.
