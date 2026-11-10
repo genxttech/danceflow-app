@@ -209,6 +209,13 @@ insert into public.event_competition_officials (id, event_id, user_id, role, sta
   (pg_temp.id('off', 4), pg_temp.id('evt', 1), pg_temp.id('user', 4), 'chair', 'active'),
   (pg_temp.id('off', 7), pg_temp.id('evt', 1), pg_temp.id('user', 7), 'judge', 'active');
 
+-- OJ-1 (20270215091000, owner decision 2026-11-10): officials are team members of the event's studio, as add_competition_official (E1) requires;
+-- E2's chair / scorer / judge authority now applies that rule. 'instructor' is a team role that is not a manager (can_manage_event_competition).
+insert into public.user_studio_roles (user_id, studio_id, role, active)
+select distinct o.user_id, e.studio_id, 'instructor'::public.app_role, true
+from public.event_competition_officials o join public.events e on e.id = o.event_id
+where e.slug like 't-cf1a6-%' and not exists (select 1 from public.user_studio_roles r where r.user_id = o.user_id and r.studio_id = e.studio_id);
+
 -- Scenario builder (as A0's): division n of event e: approved callback round (src), a Final (fin) in status p_fin, p_entries entries (the first p_adv advanced),
 -- a certified callback heat on floor heat n of the live version, one dance, and an approved result version with a matching input hash.
 create or replace function pg_temp.mk(p_n int, p_e int default 1, p_entries int default 4, p_adv int default 3, p_fin text default 'scheduled') returns void

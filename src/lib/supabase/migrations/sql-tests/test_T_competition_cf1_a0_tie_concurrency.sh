@@ -60,6 +60,37 @@ B=$(grep -n '^-- @@SHARED-BEGIN' "$SUITE" | head -1 | cut -d: -f1); E=$(grep -n 
 U1=$(Q "select cf1tie.id('user', 1)"); U2=$(Q "select cf1tie.id('user', 2)")
 [ -n "$U1" ] || { echo "BLOCKED: fixtures missing"; cleanup; exit 3; }
 
+# PV-1 / OJ-1 alignment (20270215090000 / 20270215091000, owner decisions 2026-11-10). These sessions COMMIT, so the suite's in-transaction PV-1
+# neutralizer cannot be used here. Instead the fixture is made real: officials are team members of the event's studio (as add_competition_official
+# requires; 'instructor' is not a manager), the program carries its locked studio_simple @1 rules profile (the engines are specified for it), and the
+# calculate call carries the database's OWN result for the current ballots (rows and warnings from the PV-1 port), never the suite's row model.
+if [ "$(Q "select to_regprocedure('public._comppv1_run(text,jsonb)') is not null")" = "t" ]; then
+psq -v ON_ERROR_STOP=1 >/dev/null <<'SQL' || { echo "BLOCKED: PV-1/OJ-1 fixture alignment"; cleanup; exit 3; }
+insert into public.user_studio_roles (user_id, studio_id, role, active)
+select o.user_id, e.studio_id, 'instructor', true from public.event_competition_officials o join public.events e on e.id = o.event_id
+where o.event_id = cf1tie.id('evt', 1) and not exists (select 1 from public.user_studio_roles r where r.user_id = o.user_id and r.studio_id = e.studio_id);
+insert into public.event_competition_program_locks (program_id, event_id, rules_profile_key, rules_profile_version, snapshot, locked_at)
+select cf1tie.id('prg', 1), cf1tie.id('evt', 1), 'studio_simple', 1, '{}'::jsonb, now()
+where not exists (select 1 from public.event_competition_program_locks l where l.program_id = cf1tie.id('prg', 1));
+create or replace function cf1tie.calc_sql(p_n int, p_cap int, p_req uuid default gen_random_uuid()) returns text language plpgsql as $$
+declare
+  v_in jsonb;
+  v_res jsonb;
+begin
+  execute 'set constraints all immediate';
+  execute 'set constraints all deferred';
+  v_in := cf1tie.run_as(cf1tie.id('user', 1), format($q$select public.competition_round_calculation_input(%L)$q$, cf1tie.id('src', p_n)));
+  v_res := public._comppv1_run('callback', v_in -> 'evidence');
+  if not coalesce((v_res ->> 'ok')::boolean, false) then
+    raise exception 'PV-1 alignment: the database refuses this fixture (%)', v_res ->> 'reason';
+  end if;
+  return format($q$select public.calculate_competition_round(%L, %L, %L, %L, %L, '[{"step":1}]'::jsonb, %L::jsonb, %L::jsonb, %L)$q$,
+    cf1tie.id('src', p_n), v_in ->> 'engine_key', v_in ->> 'engine_version', v_in ->> 'input_hash', cf1tie.th(), (v_res -> 'rows')::text, (v_res -> 'warnings')::text, p_req);
+end $$;
+SQL
+note "PV-1/OJ-1 alignment: officials are team members, profile studio_simple@1 locked, calculate sends the database's own rows"
+fi
+
 # A7 helpers (also defined in the suite inside its \if block)
 psq -v ON_ERROR_STOP=1 >/dev/null <<'SQL' || { echo "BLOCKED: A7 helpers"; cleanup; exit 3; }
 create function cf1tie.open_corr(p_n int, p_user int default 1, p_req int default 1) returns jsonb language plpgsql as $$

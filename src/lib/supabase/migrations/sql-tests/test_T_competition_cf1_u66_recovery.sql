@@ -112,6 +112,13 @@ insert into public.event_competition_schedule_versions (id, event_id, version_nu
 insert into public.event_competition_officials (id, event_id, user_id, role)
 select pg_temp.id('off', u), pg_temp.id('evt', 1), pg_temp.id('user', u), case when u = 4 then 'chair' else 'judge' end from unnest(array[4, 11, 12, 13, 14]) u;
 
+-- OJ-1 (20270215091000, owner decision 2026-11-10): officials are team members of the event's studio, as add_competition_official (E1) requires;
+-- E2's chair / scorer / judge authority now applies that rule. 'instructor' is a team role that is not a manager (can_manage_event_competition).
+insert into public.user_studio_roles (user_id, studio_id, role, active)
+select distinct o.user_id, e.studio_id, 'instructor'::public.app_role, true
+from public.event_competition_officials o join public.events e on e.id = o.event_id
+where e.slug like 't-cf1u66-%' and not exists (select 1 from public.user_studio_roles r where r.user_id = o.user_id and r.studio_id = e.studio_id);
+
 -- Scenario n of event 1: a callback round (T = 3, 8 entries, one danced heat, judges 11/12/13 on the panel as A/B/C), status active, v1 ballots filed:
 -- J11 {1,2,3}, J12 {1,2,4}, J13 {1,3,4}. Entries 1..8.
 create or replace function pg_temp.mk(p_n int, p_judges int[] default array[11, 12, 13], p_scoring text default 'callback_tally') returns void

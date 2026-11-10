@@ -829,6 +829,20 @@ declare
 
   update public.event_competition_rounds set status = 'approved', updated_at = now() where id = p_round_id;$n$;
 begin
+  -- PV-1 (20270215090000) inserts its verify call into both texts after A3; take it out first so the reconstruction is the pre-A3 text again.
+  v_calc := replace(v_calc, $p$  -- PV-1 (owner decision 2026-11-10): the database recomputes the result from its own evidence (the same document the input hash covers) and
+  -- refuses rows, placements, advancement, tie status or warnings that differ from its own calculation. Fingerprints alone are not proof.
+  perform public._comppv1_verify(v_evidence, p_rows, v_warnings);
+
+$p$, '');
+  v_appr := replace(v_appr, $p$  -- PV-1 (owner decision 2026-11-10): re-verify the stored rows and warnings against the database's own calculation of the stored evidence
+  -- (the input hash above proves that evidence is still current). Also covers any version stored before PV-1.
+  perform public._comppv1_verify(v_ver.input,
+    (select coalesce(jsonb_agg(jsonb_build_object('entry_id', rr.entry_id, 'placement', rr.placement, 'tie_group', rr.tie_group, 'advanced', rr.advanced,
+                                                  'rating_band', rr.rating_band, 'output', rr.output)), '[]'::jsonb)
+     from public.event_competition_result_rows rr where rr.result_version_id = v_ver.id),
+    v_ver.warnings);
+$p$, '');
   v_calc := replace(v_calc, v_cb, '-- Method must be approved and pinned; anything else fails closed.');
   v_appr := replace(v_appr, v_ab, $o$update public.event_competition_rounds set status = 'approved', updated_at = now() where id = p_round_id;$o$);
   perform pg_temp.chk('U53: the reconstructed pre-A3 calculate / approve texts match the pre-A3 md5 pins (ddaa45cb..., 0650367b...)',
