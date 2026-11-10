@@ -7,15 +7,18 @@
 --   @@OWNER_UID@@  the auth.users id of the platform administrator (the sole owner)
 --   @@CRED_HEX@@ @@X_HEX@@ @@Y_HEX@@   the NEW key's credential id and P-256 public key (hex), from /platform/sms/key-setup
 --   @@LABEL@@      3 to 60 characters, same charset as the ticket
+--   @@INCIDENT_START@@  when the device was lost or the incident began, ISO 8601 with offset (for example 2026-11-10T08:00:00Z); recorded in the audit. The freeze must be at or after this time OR carry the ticket
+--                  in its reason (an existing freeze, such as the recovery key's fixed-text freeze, cannot be rewritten while pricing is frozen).
 --
--- What it does: refuses unless pricing has been frozen for at least 72 hours with the ticket in the freeze reason; serialises against credential changes; cancels every pending credential change;
+-- What it does: refuses unless pricing has been frozen for at least 72 hours and the freeze belongs to this incident (ticket in its reason, or frozen at or after the incident start); serialises against credential changes (the same advisory lock the credential functions take, then both tables); cancels every pending credential change;
 -- revokes EVERY active credential (the lost one, any spare, any recovery key); clears a recovery hold; installs the new key as the only primary (enrolled as an ordinary bootstrap key, NOT as a
--- recovery-enrolled key, so it can never lift a freeze it was enrolled after); RE-STARTS the freeze clock after the new key is installed (so the new key may lift this freeze, and a later unrelated
--- freeze can only be lifted by a key that already existed when it was set); writes an immutable audit row per revoked credential and for the new one (ticket, database session user, transaction id, the
+-- recovery-enrolled key, so there is no permanent thaw bypass); RE-STARTS the freeze clock after the new key is installed (so the new key may lift THIS freeze; like any primary key it can also lift a LATER freeze,
+-- because it exists by then: that is inherent to having a primary key, not a property of the reset); writes an immutable audit row per revoked credential and for the new one (ticket, database session user, transaction id, the
 -- previous freeze time); emits a monitoring event. Published prices are untouched; pending price proposals are NOT touched (reject them first, runbook G step 4).
 -- Pricing stays frozen: the new key must prove itself (_tw4price_attest_begin / _tw4price_attest_finish) and then lift the freeze with its own thaw ceremony.
 begin;
 set local lock_timeout = '5s';
+select pg_advisory_xact_lock(hashtext('tw4price:cred'));
 lock table public.studio_sms_price_credentials, public.studio_sms_price_credential_changes in exclusive mode;
 
 do $$
@@ -31,8 +34,8 @@ begin
   if not cfg.frozen or cfg.frozen_at is null or cfg.frozen_at > clock_timestamp() - interval '72 hours' then
     raise exception 'lost-device reset refused: pricing must have been frozen for at least 72 hours (frozen_at = %)', cfg.frozen_at using errcode = '55000';
   end if;
-  if position('@@TICKET@@' in coalesce(cfg.freeze_reason, '')) = 0 then
-    raise exception 'lost-device reset refused: the freeze reason must contain the verification reference (the freeze must have been set for this incident)' using errcode = '55000';
+  if position('@@TICKET@@' in coalesce(cfg.freeze_reason, '')) = 0 and cfg.frozen_at < '@@INCIDENT_START@@'::timestamptz then
+    raise exception 'lost-device reset refused: the freeze must belong to this incident (the verification reference in its reason, or set at or after the incident start); freeze set at %', cfg.frozen_at using errcode = '55000';
   end if;
   if not public._tw4price_admin_active('@@OWNER_UID@@'::uuid) then
     raise exception 'lost-device reset refused: the owner is not an active registered platform administrator' using errcode = '42501';
@@ -71,7 +74,7 @@ begin
   select * into c from _tw4_reset_ctx;
   for r in select credential_id from _tw4_reset_revoked loop
     perform public._tw4price_audit('credential_revoked', '@@OWNER_UID@@'::uuid, null, null, r.credential_id,
-      jsonb_build_object('via', 'owner_level_reset', 'ticket', '@@TICKET@@', 'db_session_user', session_user::text, 'txid', txid_current(), 'previous_frozen_at', c.prev_frozen_at, 'previous_recovery_hold', c.prev_recovery_hold));
+      jsonb_build_object('via', 'owner_level_reset', 'ticket', '@@TICKET@@', 'incident_start', '@@INCIDENT_START@@', 'db_session_user', session_user::text, 'txid', txid_current(), 'previous_frozen_at', c.prev_frozen_at, 'previous_recovery_hold', c.prev_recovery_hold));
   end loop;
 end $$;
 select public._tw4price_audit('credential_bootstrapped', '@@OWNER_UID@@'::uuid, null, null, decode('@@CRED_HEX@@', 'hex'),
