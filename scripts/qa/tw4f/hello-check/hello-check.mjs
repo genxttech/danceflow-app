@@ -18,6 +18,9 @@ const container = argv[0];
 const flag = (n, d) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : d);
 const PORT = Number(flag("--port", "5173"));
 const ROUNDS = Number(flag("--assertions", "4"));
+// OBSERVE mode (default): the database policy is unchanged (synced / backup-eligible credentials refused). --allow-synced flips allow_backup_eligible in THIS local QA database only, to see what a
+// synced passkey (for example an Android phone) would do end to end: user verification, counter behaviour, proof. It never touches any hosted database.
+const ALLOW_SYNCED = argv.includes("--allow-synced");
 if (!container || !/^[A-Za-z0-9_.-]+$/.test(container)) {
   console.error("usage: hello-check.mjs <qa-container> [--port n] [--assertions n]");
   process.exit(2);
@@ -30,7 +33,7 @@ if (psql("select to_regclass('public.tw4_local_qa_only') is not null") !== "t") 
 const ORIGIN = `http://localhost:${PORT}`;
 const RP = "localhost";
 const hex = (b64u) => Buffer.from(b64u, "base64url").toString("hex");
-const results = { startedAt: new Date().toISOString(), origin: ORIGIN, rp: RP, registration: null, assertions: [] };
+const results = { startedAt: new Date().toISOString(), origin: ORIGIN, rp: RP, policyAllowSynced: ALLOW_SYNCED, registration: null, assertions: [] };
 let cred = null;
 
 function resetAndBootstrap(credId, spkiB64u) {
@@ -44,7 +47,7 @@ function resetAndBootstrap(credId, spkiB64u) {
     alter table public.studio_sms_price_credentials disable trigger studio_sms_price_credentials_guard;
     alter table public.studio_sms_price_auth_config disable trigger studio_sms_price_auth_config_guard;
     delete from public.studio_sms_price_credentials;
-    update public.studio_sms_price_auth_config set rp_id = null, rp_origins = null, allow_backup_eligible = false where singleton;
+    update public.studio_sms_price_auth_config set rp_id = null, rp_origins = null, allow_backup_eligible = ${ALLOW_SYNCED} where singleton;
     alter table public.studio_sms_price_credentials enable always trigger studio_sms_price_credentials_guard;
     alter table public.studio_sms_price_auth_config enable always trigger studio_sms_price_auth_config_guard;
     select public._tw4price_bootstrap('${RP}', array['${ORIGIN}'], decode('${hex(credId)}', 'hex'), decode('${x}', 'hex'), decode('${y}', 'hex'), 'real authenticator check');
@@ -123,7 +126,7 @@ createServer(async (req, res) => {
       const increasing = counters.every((c, i) => i === 0 || c > counters[i - 1]);
       const deviceBound = results.assertions.every((a) => !a.flags.be && !a.flags.bs) && results.registration && !results.registration.flags.be && !results.registration.flags.bs;
       results.summary = {
-        assertions: results.assertions.length, acceptedByDatabase: accepted, userVerifiedEveryTime: results.assertions.every((a) => a.flags.uv && a.flags.up), notReportedSynced: !!deviceBound,
+        assertions: results.assertions.length, acceptedByDatabase: accepted, userVerifiedEveryTime: results.assertions.every((a) => a.flags.uv && a.flags.up), notReportedSynced: !!deviceBound, policyAllowSynced: ALLOW_SYNCED,
         counters, counterBehaviour: allZero ? "always 0 (no clone detection by counter; accepted, documented)" : increasing ? "increasing (clone detection active)" : "NOT monotonic (investigate)",
         storedCounterInDatabase: Number(psql(`select sign_count from public.studio_sms_price_credentials where credential_id = decode('${cred.hex}', 'hex')`)),
         proofRecorded: psql(`select proof_verified_at is not null from public.studio_sms_price_credentials where credential_id = decode('${cred.hex}', 'hex')`) === "t",
@@ -138,4 +141,4 @@ createServer(async (req, res) => {
     res.writeHead(500, { "content-type": "application/json" });
     res.end(JSON.stringify({ error: String(e.message).slice(0, 200) }));
   }
-}).listen(PORT, "127.0.0.1", () => console.log(`hello-check listening on ${ORIGIN} (database container ${container})`));
+}).listen(PORT, "127.0.0.1", () => console.log(`hello-check listening on ${ORIGIN} (database container ${container}); policy: ${ALLOW_SYNCED ? "synced credentials ALLOWED (local QA experiment)" : "synced credentials REFUSED (production policy)"}`));
