@@ -87,6 +87,8 @@ node scripts/qa/iso-qa.mjs down --name my-auth
 
 `stack.json` holds the anon and service-role keys for that disposable stack: keep it out of the repo. Helpers for other scripts are in `scripts/qa/auth-profile/lib.mjs` (`loadStack`, `createUser`, `latestAuthLink`, `psql`). The DanceFlow Business walkthrough is in `scripts/qa/auth-profile/business-shell/` (see its README).
 
+The TW-4F Q1 runner `scripts/qa/tw4f/run-chain.mjs` has its own separate `--auth` (GoTrue only, same v2.188.1, no Mailpit). The two profiles are independent: use run-chain for migration chain/rollback proofs and real-token suites, and iso-qa `--auth` for signed-in flows and email links.
+
 ## 4. Known limits (read before trusting a PASS)
 
 - Local / developer tool: the July dump is git-ignored, so CI cannot build the baseline. The CI check is limited to typecheck and lint of the harness-adjacent TypeScript.
