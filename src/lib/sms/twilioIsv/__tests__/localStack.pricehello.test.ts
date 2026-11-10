@@ -42,7 +42,7 @@ const setFrozenHoursAgo = (h: number) =>
   ownerSql(unguard("studio_sms_price_auth_config", "studio_sms_price_auth_config_guard", `set local tw4.priceauth_write = 'on'; update public.studio_sms_price_auth_config set frozen = true, frozen_at = clock_timestamp() - interval '${h} hours', freeze_reason = 'lost device verified by call and email 2026-11-10' where singleton;`));
 const resetSql = (k: SoftAuthenticator, over: Record<string, string> = {}) => {
   let s = readFileSync(join(process.cwd(), "scripts", "hosted", "tw4f", "lost_device_reset.sql"), "utf8");
-  const v: Record<string, string> = { TICKET: "verified by call and email 2026-11-10", OWNER_UID: A, CRED_HEX: k.hex.cred, X_HEX: k.hex.x, Y_HEX: k.hex.y, LABEL: "replacement device key", ...over };
+  const v: Record<string, string> = { TICKET: "verified by call and email 2026-11-10", OWNER_UID: A, INCIDENT_START: new Date(Date.now() - 100 * 3600 * 1000).toISOString(), CRED_HEX: k.hex.cred, X_HEX: k.hex.x, Y_HEX: k.hex.y, LABEL: "replacement device key", ...over };
   for (const [name, value] of Object.entries(v)) s = s.split(`@@${name}@@`).join(value);
   return s;
 };
@@ -104,7 +104,8 @@ describe.skipIf(!enabled)("single-owner device-bound passkey: counter compatibil
     setFrozenHoursAgo(73);
     expect(superRun(resetSql(Knew, { TICKET: "short" }))).toMatch(/written verification reference/);
     // the freeze must have been set for THIS incident: the reference has to be in the freeze reason
-    expect(superRun(resetSql(Knew, { TICKET: "a different reference 99" }))).toMatch(/freeze reason must contain the verification reference/);
+    // the freeze must belong to this incident: neither the reference in its reason nor set after the incident start
+    expect(superRun(resetSql(Knew, { TICKET: "a different reference 99", INCIDENT_START: new Date(Date.now() + 3600 * 1000).toISOString() }))).toMatch(/freeze must belong to this incident/);
     // unsubstituted placeholders are refused
     expect(superRun(readFileSync(join(process.cwd(), "scripts", "hosted", "tw4f", "lost_device_reset.sql"), "utf8"))).toMatch(/written verification reference|invalid input|decode|hex/i);
     expect(superRun(resetSql(Knew, { OWNER_UID: "00000000-0000-4000-8000-000000000001" }))).toMatch(/not an active registered platform administrator/);
@@ -146,12 +147,12 @@ describe.skipIf(!enabled)("single-owner device-bound passkey: counter compatibil
     expect(authOut(claims(A, S2), `select public.tw4_price_authz_finish('${p.request_id}', '${b2.nonce}', '${a2.credId}', '${a2.auth}', '${a2.client}', '${a2.sig}')::text;`).status).toBe("applied");
   });
 
-  it("HR-4 a recovery hold (set by a recovery key's freeze) does not strand the reset: it is cleared, the freeze clock restarts, and the new key lifts the freeze", () => {
+  it("HR-4 a recovery hold (set by a recovery key's freeze, whose reason is fixed text without the reference) does not strand the reset: it is cleared, the freeze clock restarts, and the new key lifts the freeze", () => {
     const Krec = new SoftAuthenticator();
     const Knew2 = new SoftAuthenticator();
     // owner-level, visible test setup: an installed recovery key whose freeze left recovery_hold set, long enough ago
     psql(`select public._tw4price_install_recovery(decode('${Krec.hex.cred}', 'hex'), decode('${Krec.hex.x}', 'hex'), decode('${Krec.hex.y}', 'hex'), 'recovery test key')`);
-    ownerSql(unguard("studio_sms_price_auth_config", "studio_sms_price_auth_config_guard", `set local tw4.priceauth_write = 'on'; update public.studio_sms_price_auth_config set recovery_hold = true, frozen = true, frozen_at = clock_timestamp() - interval '80 hours', freeze_reason = 'recovery key freeze verified by call and email 2026-11-10' where singleton;`));
+    ownerSql(unguard("studio_sms_price_auth_config", "studio_sms_price_auth_config_guard", `set local tw4.priceauth_write = 'on'; update public.studio_sms_price_auth_config set recovery_hold = true, frozen = true, frozen_at = clock_timestamp() - interval '80 hours', freeze_reason = 'frozen with the recovery credential' where singleton;`));
     expect(psql(`select recovery_hold from public.studio_sms_price_auth_config`)).toBe("t");
     expect(superRun(resetSql(Knew2))).toBe("");
     expect(psql(`select recovery_hold from public.studio_sms_price_auth_config`)).toBe("f");
