@@ -12,6 +12,7 @@ Date: 2026-11-09. Git-only candidate. **Nothing was merged, deployed, promoted, 
 | Inventory | `cf1-app-candidate-inventory-2026-11-09.md` / `.json` |
 | Schema compatibility | `cf1-app-candidate-schema-compat-2026-11-09.json` |
 | QA stack baseline | `cf1-app-candidate-qa-stack-baseline-2026-11-09.json` |
+| OJ-1 / PV-1 (2026-11-10) | section 10 |
 | Browser results | `cf1-app-candidate-acceptance-on-2026-11-09.json`, `cf1-app-candidate-acceptance-dark-2026-11-09.json` (traces and screenshots stay outside the repository under `<scratchpad>/runs/`) |
 
 ## 0. Rebase onto the new live code (2026-11-10)
@@ -149,6 +150,8 @@ The review was run by a separate Opus agent with no anchoring. It received the d
 | P3-b: a direct URL hit on a CF1 route runs the existing `/app` layouts before the 404 (a paused studio is redirected to billing) | P3 | Accepted: no link leads there; not a visible change. |
 | P3: callback target 1 shows the error boundary instead of a friendly message; Results stays "Later" in the nav; readiness badge ignores two warning rows; `HEAT_PLANNER_VERSION` not bumped; scoring setup is two writes | P3 | Recorded for the CF1 follow-up backlog (flag-on only). |
 
+**Update 2026-11-10:** the owner decided both open items. P2-2 is resolved by **OJ-1**: organizer-team judges may use the judging pages only with an active official assignment for that event. The P2 trust-model item is resolved by **PV-1**: the database recomputes every result and refuses any other rows. See section 10.
+
 ## 8. Live regression found and fixed (separately shippable)
 
 - **The regression:** since the PROD S3 migrations, `set_competition_round_heat_capacity(round, capacity)` always raises `COMP_CAPACITY_REASON_REQUIRED` (OD-14). The live app called only that form, so **"Max entries per heat" cannot be saved on www today**.
@@ -179,5 +182,129 @@ The review was run by a separate Opus agent with no anchoring. It received the d
    - set `COMPETITION_FINALS_ENABLED=true` (a Production env change; global, no per-studio allowlist);
    - optionally `COMPETITION_PUBLIC_RESULTS_ENABLED=true`;
    - OD-17 switch rows; result publication;
-   - decisions on review P2-2 and the P2 trust-model question.
+   - review P2-2 and the P2 trust-model question: decided 2026-11-10 (OJ-1 and PV-1, section 10).
 5. **Still prohibited and not requested:** registration flag, director outreach, Stripe operations, hosted SQL.
+6. **PV-1 and OJ-1 PROD SQL (owner decisions 2026-11-10), before the candidate app:**
+   - apply `20270215090000` (PV-1), then `20270215091000` (OJ-1), through the approved ops path; files, sha256s, rollbacks and postflight pins are in section 10.6;
+   - rollback order: app first, then OJ-1, then PV-1.
+
+## 10. OJ-1 and PV-1 (owner decisions 2026-11-10)
+
+Git-only; the Finals flag stays off by default. Nothing was applied to a hosted database.
+
+Specs:
+- OJ-1: `docs/competition/e1-officials-judging-access.md`.
+- PV-1: `docs/competition/scoring-results-contract.md` §5 and §11a, plus both engine specs.
+
+### 10.1 What changed
+
+**OJ-1: organizer-team judges.**
+- **Rule:** a user with no studio role may open `/app/judging`, the ballot page and the desk page only with an active E1 official assignment (judge, chair or scorer) for that event. The desk also needs E2 to resolve them as chair or scorer.
+- **Where it is enforced (server side):**
+  - the `/app` layout, flag on, `/app/judging` paths only;
+  - both page loaders;
+  - all nine judging actions.
+
+  The code is in `src/lib/competition/officials/judgingAccess.ts`.
+- **Studio staff:** unchanged.
+- **Scope ruling: judging only.**
+  - The 10A manager authority (`can_manage_event_competition`) is unchanged, and its SQL is untouched.
+  - A manager without an assignment cannot act as a judge (proof P8).
+
+**OJ-1 SQL fix, from review P2 (`20270215091000`).**
+- E2's round role and the four judge functions now also require E1's `_comp_e1_is_team_member`.
+- So an official removed from the team loses access at once, even if their official row stays active.
+
+**PV-1: the database recomputes results (`20270215090000`).**
+- **The port:** both engines are ported to plpgsql over the stored evidence: callback tally, and ordinal majority under the studio_simple@1 rules profile.
+- **`calculate_competition_round`:**
+  - refuses any row set or warning list that differs from the database's own result, with `COMP_RESULT_RECOMPUTE_MISMATCH`;
+  - fails closed on anything the port does not support, with `COMP_RESULT_RECOMPUTE_UNSUPPORTED`.
+- **`approve_competition_round_result`:** re-verifies the stored rows.
+- **App changes:**
+  - the two new error codes get plain copy;
+  - the unresolved-tie panel reads verified rows only, never an app-built trace.
+
+### 10.2 Evidence
+
+| Check | Result |
+|---|---|
+| OJ-1 unit tests (failing first) | 10/10 |
+| OJ-1 SQL proof, `scripts/qa/oj1/oj1-sql-proof.sql` | P1–P8 as expected (see the E1 doc) |
+| PV-1 SQL suite, `test_T_competition_pv1_recompute.sql` (fails first without the migration) | 30/30 |
+| TS↔SQL equivalence, golden fixtures | 1,904 cases, **0 disagreements**. 2 cases differ only in the reason, both on malformed input, and both engines refuse them. |
+| TS↔SQL equivalence, random corpus (seeds 20261110, 7, 424242) | 7,500 cases, **0 disagreements**; every refusal reason equal |
+| Fabricated rows sent through PostgREST as `authenticated` | refused (SQL suite, and browser SCN-PV1-1/2 below) |
+| Composed chain (PROD order, then PV-1 + OJ-1) | Calculate and approve pins match. PV-1/OJ-1 rollback and re-apply, and full reverse and re-apply: all 0-line diffs. Suites: PASS 40, FAIL 0. |
+| A3 lock probe on the PV-1 chain | **CONC A3 PASS (9/9 probe values)**, `verify_cf1_a3_locks.sh` as shipped. An earlier "cannot create a3probe" came from an old local sed patch, not from the suite. |
+| Control: baseline chain without PV-1/OJ-1 | PASS 38. FAIL 1: CONC F3, classified in 10.3 as a harness timing flake. A3 not verified. |
+| CONC F3, original script (git HEAD, sha `748037e1…`), fresh baseline, twice | 11/11 and 11/11 |
+| CONC F3, hardened script (proven ordering, sha `cca18ac6…`), fresh baseline | **11/11, order proven for every probe**: B was seen waiting on `Lock/transactionid` while A held the round lock |
+| CONC F3, hardened script, PV-1 chain (calculate `167529ba`) | **11/11, order proven for every probe** |
+| Fault injection, `scripts/qa/pv1/fault-injection.sh` | **PASS.** F1: error after the calculate redefinition, client stops (exit 3). F2: same point, client keeps sending (3 ERROR lines; the commit became a rollback). F3: error before any function. Each injected error was confirmed raised, and each left calculate/approve at the pre pins with no PV-1 function. F4 then applied the real PV-1 (pins `167529ba` / `3cf63c3b`, 10 functions) and OJ-1 (`a7d7a235`). |
+| Browser SCN-PV1-1 (ordinal swap) and SCN-PV1-2 (callback flip, forged warnings); flag on, dev mode | **3/3 PASS** (Playwright exit 0, 27.3 min, system Chrome, `cf1c-qa`): SCN-0c setup 1.7 min; SCN-PV1-1 14.0 min; SCN-PV1-2 7.5 min |
+| tsc (`.next` deleted) / ESLint on the 23 lintable files changed since `d3ca629a` / full vitest `--maxWorkers=4` | tsc **0 errors**. ESLint **0 errors, 0 warnings**. Vitest: 604 files passed, 1 failed, 59 skipped; 9,699 tests passed, 1 failed, 1,290 skipped (407 s). The one failure is the known `closeout.phase8d` 5 s timeout (section 0); re-run alone it passes **39/39**. |
+
+### 10.3 CONC F3 baseline failure: a harness timing flake (coordinator verdict 2026-11-10)
+
+- **Symptom:** the baseline chain run reported CONC F3 "1 failure". Its wrapper kept only the last 4 lines, so the failing case's name was lost.
+- **Cause:** the original script ordered every race with a bare `sleep 1`, and nothing checked that session A held the round lock before B started. On a loaded host, B can start first. That inverts the ordered probes (3–6, 10, 11).
+- **Evidence:**
+  - The original script passed 11/11 twice on a fresh baseline.
+  - The hardened script passed 11/11 on a fresh baseline and 11/11 on the PV-1 chain.
+  - In each hardened run, every probe ran only after A was seen inside its lock-holding transaction and B was seen waiting on that lock.
+- **The test change is test-only:** `test_T_competition_cf1_f3_concurrency.sh` now uses `race()` with in-database polling of `pg_stat_activity` and a 15 s hold. A probe whose ordering cannot be established is NO VERDICT, never PASS or FAIL. The F3 SQL is unchanged.
+- **Run hygiene:**
+  - The host rebooted at 14:57Z and killed the background runs. Every result above either finished before the reboot or was re-run after it.
+  - One stopped job outlived its stop and overlapped a run on the same container. Both the job and that run were voided and are not counted.
+
+### 10.4 Test-only neutralizer and partial apply
+
+**Confinement.**
+- Six SQL suites feed hand-built rows. Each installs a no-op `_comppv1_verify` inside its own transaction, which is never committed.
+- The no-op occurs only in `sql-tests`. It appears zero times in the migrations and rollbacks.
+- Each neutralizer block now refuses under per-statement autocommit (`now() = statement_timestamp()`). Proven on `cf1c-qa`:
+  - under autocommit, the block is refused;
+  - inside an explicit transaction, the no-op is present;
+  - after `rollback`, the real verifier is back.
+
+**Partial PROD apply.** No restructuring was needed:
+- `20270215090000` is one explicit `begin` … `commit`.
+- It creates and revokes the real verifier before either redefinition.
+- Each redefinition re-reads its installed text and raises unless the text equals the post pin.
+- The preflight refuses if any `_comppv1_` function already exists, so a leftover no-op blocks the apply.
+- Any error aborts the transaction, and the final `commit` becomes a rollback. This holds whether the client stops on the first error or keeps sending statements. The fault-injection run above proves both cases.
+
+### 10.5 Review disposition (independent Opus security review)
+
+| Finding | Disposition |
+|---|---|
+| P0 | none |
+| P1: organizer managers can use desk, paper-ballot, attendance and no-show powers without an assignment | Out of scope per the coordinator ruling: this is 10A manager authority, unchanged and documented. |
+| P2: the E2 role ignored team membership | **Fixed** (`20270215091000`) |
+| P2: the unresolved-tie panel read the app-built trace | **Fixed**: it reads verified rows only |
+| P2: approve did not re-verify | **Fixed**: approve re-verifies the stored rows |
+| Follow-up review | The three P2s are confirmed closed; no new P0–P2 |
+| P3: `_compe2_round_judges` still counts a removed judge | Recorded, out of scope |
+| Caveat: an autocommit runner would leave the neutralizer installed | **Fixed** by the guard in 10.3 |
+
+### 10.6 PROD SQL (future; NOT applied; owner authorization required)
+
+Apply the SQL before the app: PV-1 first, then OJ-1. Each file goes through the approved ops path on its own, as the postgres role.
+
+| Step | File | sha256 | Rollback (sha256) |
+|---|---|---|---|
+| 1 | `20270215090000_competition_pv1_result_recompute.sql` | `69123627e47e7966a42d6671c0f1ef7ec13472eaf309b25dc2fce7b9b4af1462` | `rollback/20270215090000_competition_pv1_result_recompute_rollback.sql` (`b8226d278e196e3e80ee612a9394ead4cfdbf7475bcecb3695df5ab4ff4c4402`) |
+| 2 | `20270215091000_competition_oj1_official_team_member.sql` | `4a30f5e22abc9abf2330191aace170cc07ab6f94c4ab9179b208f8847e007a19` | `rollback/20270215091000_competition_oj1_official_team_member_rollback.sql` (`979ea0129ff9e8574ebb2b02de8c656e2fd2dccd535d20476138878af2a4292f`) |
+
+**Rollback order:** the app first, then the OJ-1 rollback, then the PV-1 rollback.
+
+**Postflight pins:**
+
+| Function | md5 |
+|---|---|
+| calculate | `167529bada8ca5a4dd98e22d4d0a3252` |
+| approve | `3cf63c3bb00a78142ea2c8e70a8b4a0c` |
+| `_compe2_round_role` | `a7d7a235d9522a073312807df3ff11f9` |
+
+These steps are added to the owner authorizations in section 9 (item 6).

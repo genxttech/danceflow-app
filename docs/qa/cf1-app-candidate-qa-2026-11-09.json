@@ -268,5 +268,87 @@
     "cf1cAcceptanceFlagOn": "NOT RE-RUN (CF1 code unchanged; incoming code outside CF1)",
     "schemaCompat": "NOT RE-RUN (PR 441 SQL is TW-4F only)",
     "memoryNote": "tsc started after a 1.5 GB reading without recheck; later heavy runs >= 6 GB"
+  },
+  "oj1pv1_2026_11_10": {
+    "section": "section 10 of cf1-app-candidate-qa-2026-11-09.md",
+    "gitOnly": true,
+    "migrations": [
+      {
+        "file": "20270215090000_competition_pv1_result_recompute.sql",
+        "sha256": "69123627e47e7966a42d6671c0f1ef7ec13472eaf309b25dc2fce7b9b4af1462",
+        "rollbackSha256": "b8226d278e196e3e80ee612a9394ead4cfdbf7475bcecb3695df5ab4ff4c4402",
+        "postPins": {
+          "calculate": "167529bada8ca5a4dd98e22d4d0a3252",
+          "approve": "3cf63c3bb00a78142ea2c8e70a8b4a0c"
+        },
+        "applied": "NOT applied hosted"
+      },
+      {
+        "file": "20270215091000_competition_oj1_official_team_member.sql",
+        "sha256": "4a30f5e22abc9abf2330191aace170cc07ab6f94c4ab9179b208f8847e007a19",
+        "rollbackSha256": "979ea0129ff9e8574ebb2b02de8c656e2fd2dccd535d20476138878af2a4292f",
+        "postPins": {
+          "_compe2_round_role": "a7d7a235d9522a073312807df3ff11f9"
+        },
+        "applied": "NOT applied hosted"
+      }
+    ],
+    "evidence": {
+      "oj1Unit": "10/10",
+      "oj1SqlProof": "P1-P8 as expected",
+      "pv1SqlSuite": "30/30",
+      "equivalenceGolden": {
+        "cases": 1904,
+        "disagreements": 0
+      },
+      "equivalenceRandom": {
+        "cases": 7500,
+        "seeds": [
+          20261110,
+          7,
+          424242
+        ],
+        "disagreements": 0
+      },
+      "composedChain": {
+        "pass": 40,
+        "fail": 0
+      },
+      "a3Probe": "CONC A3 PASS 9/9",
+      "faultInjection": "PASS (F1-F4, every injected error confirmed raised)",
+      "f3": {
+        "classification": "harness timing flake (coordinator verdict 2026-11-10)",
+        "originalScriptBaseline": [
+          "11/11",
+          "11/11"
+        ],
+        "hardenedBaseline": "11/11 order proven",
+        "hardenedPv1Chain": "11/11 order proven",
+        "hardenedScriptSha256Prefix": "cca18ac69a30d1a9"
+      },
+      "browser": "3/3 PASS (cf1-app-candidate-acceptance-pv1-2026-11-10.json)",
+      "tsc": "0 errors",
+      "eslint": {
+        "files": 23,
+        "errors": 0,
+        "warnings": 0
+      },
+      "vitest": {
+        "filesPassed": 604,
+        "filesFailed": 1,
+        "filesSkipped": 59,
+        "testsPassed": 9699,
+        "testsFailed": 1,
+        "testsSkipped": 1290,
+        "failure": "closeout.phase8d 5 s timeout (known, section 0); alone 39/39 PASS"
+      }
+    },
+    "review": {
+      "p0": 0,
+      "p1": "organizer managers: out of scope per coordinator ruling (10A, unchanged)",
+      "p2": "3 fixed (E2 team-member rule, trace-free tie panel, approve re-verify); follow-up review confirmed closed",
+      "p3": "_compe2_round_judges counts a removed judge: recorded, out of scope",
+      "neutralizerAutocommitGuard": "added and proven"
+    }
   }
 }
