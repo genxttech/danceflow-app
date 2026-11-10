@@ -5,7 +5,8 @@
 --   P3 the official is deactivated (revoked): no rows at once
 --   P4 the organizer membership ends while the official row stays active: no rows (team-member rule)
 -- Usage: psql -v ev_a=<event uuid> -v ev_b=<event uuid of another studio> -v round_a=<draft round of ev_a> -f oj1-sql-proof.sql
---   P5 E2 round role and judge ballot sheet refuse an official whose team membership ended (P7 control: restored => allowed)
+--   P5 E2 round role and judge ballot sheet refuse an official whose team membership ended (P7 control: restored => manager, 10A)
+--   P8 a manager (organizer_admin) without a panel assignment cannot submit a judge ballot or save a callback draft
 \set ON_ERROR_STOP 1
 begin;
 select set_config('oj1.ev_a', :'ev_a', true), set_config('oj1.ev_b', :'ev_b', true);
@@ -84,6 +85,34 @@ where o.event_id = current_setting('oj1.ev_a')::uuid and o.user_id = current_set
 select pg_temp.oj1_e2('P5 E2 role + sheet, membership ended', :'round_a'::uuid);
 update public.organizer_users set active = true where user_id = current_setting('oj1.user')::uuid;
 select pg_temp.oj1_e2('P7 E2 role + sheet, membership restored (control)', :'round_a'::uuid);
+
+-- P8 (coordinator ruling 2026-11-10): a MANAGER (organizer_admin, 10A authority) without an official panel assignment does not become a judge:
+-- the judge-only write paths derive the judge from the caller's own panel assignment and refuse.
+delete from public.event_competition_panel_assignments where round_id = :'round_a'::uuid
+  and official_id in (select id from public.event_competition_officials where user_id = current_setting('oj1.user')::uuid);
+create function pg_temp.oj1_judge_paths(p_step text, p_round uuid) returns void language plpgsql as $g$
+declare v_submit text; v_draft text; v_role text;
+begin
+  perform set_config('request.jwt.claim.sub', current_setting('oj1.user'), true);
+  perform set_config('request.jwt.claims', json_build_object('sub', current_setting('oj1.user'), 'role', 'authenticated')::text, true);
+  v_role := public._compe2_round_role(p_round);
+  begin
+    execute 'set local role authenticated';
+    perform public.submit_competition_ballot(p_round, null, '[]'::jsonb, gen_random_uuid(), null);
+    v_submit := 'accepted';
+    execute 'reset role';
+  exception when others then v_submit := split_part(sqlerrm, ':', 1); execute 'reset role';
+  end;
+  begin
+    execute 'set local role authenticated';
+    perform public.save_competition_callback_draft(p_round, array[]::uuid[]);
+    v_draft := 'accepted';
+    execute 'reset role';
+  exception when others then v_draft := split_part(sqlerrm, ':', 1); execute 'reset role';
+  end;
+  insert into oj1_out values (p_step, case when v_submit = 'accepted' or v_draft = 'accepted' then 1 else 0 end, coalesce(v_role, 'no role') || ' / submit ' || v_submit || ' / draft ' || v_draft);
+end $g$;
+select pg_temp.oj1_judge_paths('P8 manager without assignment: judge-only writes', :'round_a'::uuid);
 
 select json_agg(json_build_object('step', step, 'rows', rows, 'events', events,
                                   'onlyEventA', events in ('', current_setting('oj1.ev_a')),
