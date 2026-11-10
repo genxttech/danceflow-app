@@ -27,6 +27,19 @@ export function parseAuthDataFlags(authData: Uint8Array): AuthFlags {
   return { userPresent: (f & 0x01) !== 0, userVerified: (f & 0x04) !== 0, backupEligible: (f & 0x08) !== 0, backedUp: (f & 0x10) !== 0, attestedCredentialData: (f & 0x40) !== 0 };
 }
 
+/** authenticatorData signCount: 4 bytes big endian after the flags byte. Many platform authenticators (including some Windows Hello builds) always report 0. */
+export function parseSignCount(authData: Uint8Array): number {
+  if (authData.length < 37) throw new Error("authenticator data too short");
+  return authData[33] * 16777216 + authData[34] * 65536 + authData[35] * 256 + authData[36];
+}
+
+/** Plain-language meaning of a counter value for the owner (the database accepts a counter that stays 0 forever, but refuses any regression once it has moved). */
+export function counterNote(count: number): string {
+  return count === 0
+    ? "Counter 0: this authenticator does not count signatures, so cloning cannot be detected by the counter. The key is device-bound and non-exportable, which is why this is accepted; it is a recorded, accepted limitation."
+    : "Counter " + count + ": the database will refuse any signature whose counter does not increase (clone detection stays on for this key).";
+}
+
 /**
  * What the database requires of a hardware credential (user presence and verification, NOT backup eligible and NOT backed up: a synced passkey is refused).
  * Returns null when acceptable, otherwise the reason in plain language.
