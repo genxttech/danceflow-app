@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * CF1 dark gate, live pages CF1 modified: with COMPETITION_FINALS_ENABLED unset the server actions behave exactly as the live
@@ -60,6 +60,13 @@ async function redirected(fn: () => Promise<unknown>) {
   }
   throw new Error("expected a redirect");
 }
+
+// The first import of these server-action modules compiles a large module graph (several seconds on a loaded machine); warm them
+// once so each test measures behaviour, not compilation, and a slow import can never leak calls into the next test.
+beforeAll(async () => {
+  await import("@/app/app/events/[id]/competition/schedule/actions");
+  await import("@/app/app/events/[id]/competition/simpleActions");
+}, 120_000);
 
 let saved: string | undefined;
 beforeEach(() => {

@@ -1,11 +1,11 @@
 {
   "summary": {
-    "base": "a965f477",
+    "base": "ab940288",
     "int5": "28a7722e",
-    "hotfix": "ac902c28",
-    "files": 341,
+    "hotfix": "ab940288",
+    "files": 340,
     "byChange": {
-      "added": 326,
+      "added": 325,
       "changed": 15
     },
     "byArea": {
@@ -13,7 +13,7 @@
       "e2e harness": 20,
       "QA script": 2,
       "app route/page/action": 31,
-      "unit test": 41,
+      "unit test": 40,
       "library": 39,
       "migration (Git-only copy)": 25,
       "migration rollback (Git-only copy)": 25,
@@ -22,9 +22,8 @@
     "byOrigin": {
       "int5 28a7722e, byte-identical": 291,
       "new in this candidate": 16,
-      "int5 28a7722e, edited here": 29,
-      "live release file, edited here (dark gate)": 2,
-      "hotfix ac902c28 (+ candidate gate edits)": 3
+      "int5 28a7722e, edited here": 31,
+      "live release file, edited here (dark gate)": 2
     },
     "excluded": 10
   },
@@ -961,25 +960,18 @@
       "origin": "int5 28a7722e, edited here"
     },
     {
-      "status": "A",
-      "path": "src/app/app/events/[id]/competition/schedule/__tests__/heatCapacity.hotfix.test.ts",
-      "change": "added",
-      "area": "unit test",
-      "origin": "hotfix ac902c28 (+ candidate gate edits)"
-    },
-    {
       "status": "M",
       "path": "src/app/app/events/[id]/competition/schedule/actions.ts",
       "change": "changed",
       "area": "app route/page/action",
-      "origin": "hotfix ac902c28 (+ candidate gate edits)"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "M",
       "path": "src/app/app/events/[id]/competition/schedule/page.tsx",
       "change": "changed",
       "area": "app route/page/action",
-      "origin": "hotfix ac902c28 (+ candidate gate edits)"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
