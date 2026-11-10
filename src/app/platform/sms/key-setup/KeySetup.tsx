@@ -34,8 +34,7 @@ export default function KeySetup() {
     try {
       if (!navigator.credentials) throw new Error("no WebAuthn");
       const name = label.trim() || "price key";
-      const cred = (await navigator.credentials.create({
-        publicKey: {
+      const createOptions: PublicKeyCredentialCreationOptions & { hints?: string[] } = {
           challenge: crypto.getRandomValues(new Uint8Array(32)),
           rp: { name: "DanceFlow", id: host },
           user: { id: crypto.getRandomValues(new Uint8Array(16)), name, displayName: name },
@@ -43,8 +42,9 @@ export default function KeySetup() {
           authenticatorSelection: { ...(attachment === "any" ? {} : { authenticatorAttachment: attachment }), userVerification: "required", residentKey: "discouraged" },
           attestation: "none",
           timeout: 120000,
-        },
-      })) as PublicKeyCredential | null;
+          ...(attachment === "platform" ? { hints: ["client-device"] } : {}),
+      };
+      const cred = (await navigator.credentials.create({ publicKey: createOptions })) as PublicKeyCredential | null;
       const resp = cred?.response as AuthenticatorAttestationResponse | undefined;
       const spki = resp?.getPublicKey?.();
       const authData = resp?.getAuthenticatorData?.();
@@ -76,15 +76,16 @@ export default function KeySetup() {
     setSigned(null);
     try {
       const idBytes = b64uToBytes(credId.trim());
-      const got = (await navigator.credentials.get({
-        publicKey: {
-          challenge: b64uToBytes(challenge.trim()),
-          rpId: host,
-          allowCredentials: [{ type: "public-key", id: idBytes }],
-          userVerification: "required",
-          timeout: 120000,
-        },
-      })) as PublicKeyCredential | null;
+      const getOptions: PublicKeyCredentialRequestOptions & { hints?: string[] } = {
+        challenge: b64uToBytes(challenge.trim()),
+        rpId: host,
+        // a key created on this device (Windows Hello) is steered to the platform authenticator instead of offering a phone or a security key
+        allowCredentials: [{ type: "public-key", id: idBytes, ...(attachment === "platform" ? { transports: ["internal" as AuthenticatorTransport] } : {}) }],
+        userVerification: "required",
+        timeout: 120000,
+        ...(attachment === "platform" ? { hints: ["client-device"] } : {}),
+      };
+      const got = (await navigator.credentials.get({ publicKey: getOptions })) as PublicKeyCredential | null;
       const r = got?.response as AuthenticatorAssertionResponse | undefined;
       if (!got || !r) throw new Error("cancelled");
       const ad = new Uint8Array(r.authenticatorData);
