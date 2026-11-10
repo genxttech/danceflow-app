@@ -8,23 +8,31 @@
 | `origin/main` | `ab257f59` | first parent of the first merge (D24 proof harness work) |
 | `origin/release/tw4f-monitoring-r2-cib` | `a965f477` | merged first (`f7fe1483`): the live line up to CI-B, where all the conflicts were |
 | PR 441 head | `ebeef20d` | merged second (`ef75c408`): **the code www serves since 2026-11-09 21:17Z** (dpl_8MyCL3nT…), which is a965f477 plus the TW-4F micro-dollar price publication |
+| `release/cf1-hotfix-heat-schedulepush` | `ab940288` | merged third: **the code www serves since 2026-11-10 02:12:50Z** (dpl_6rhE7gAq…), which is ebeef20d + heat-size bbadbf13 + PR 444 schedule-push 81363467/ab940288. The branch was not on origin at merge time; the commit came from the local object store. |
 | merge base | `2cc05d9e` | PROD sync point of 2026-10-19 |
 
 Live lineage: `release/pricing-p1` 81263ad8 → H1 `release/h1-aal2-candidate-v2` 42df27cd → `release/tw4f-candidate` e17db5e7 → R2 app `release/competition-r2-app` b82dba27 → TW-4F monitoring ffdf9258 → + CI-B 05660a46 = a965f477 → TW-4F pricing release (PR 441) ebeef20d.
 
 None of the 17 files that ebeef20d changes on top of a965f477 changed on main, so the second merge was conflict-free. Its migration `20270212090000_twilio_price_micros_publication.sql` (applied on PROD 21:05–21:07Z) comes in byte-identical.
 
+The third merge (ab940288) adds 6 files and no migrations, none of which changed on main, so it was also conflict-free:
+
+- heat-size reason + audited four-argument RPC: competition schedule `actions.ts`, `page.tsx`, `heatCapacity.hotfix.test.ts`;
+- schedule-push client embed fix: `src/lib/notifications/schedulePush.ts` and two tests.
+
+**Overlap with PR 444:** PR 444 (`claude/fix-schedule-push-client-embed`, head 47bdf732, draft) targets `claude/tw4f-price-micros-publication`, not main. Its three schedule-push files are byte-identical to the copies this branch now carries. If it is later retargeted at main after this PR lands, it adds nothing for those files; close it or rebase it to whatever it has beyond them.
+
 ## 1. Bottom line
 
-- **After this merge, main is a superset of live (ebeef20d):**
-  - Every one of the 751 files that live changed since the merge base is present.
-  - 739 of them are byte-identical to live.
+- **After this merge, main is a superset of live (ab940288):**
+  - Every one of the 757 files that live changed since the merge base is present.
+  - 745 of them are byte-identical to live.
   - 9 take main's newer copy, which descends from the live copy.
   - 3 were resolved by hand (section 4).
   - No live file is missing.
   - No migration that exists on live has different bytes.
   - No migration timestamp collides.
-  - These figures come from `scripts/release/main-vs-live-inventory.mjs --live ebeef20d` (section 9).
+  - These figures come from `scripts/release/main-vs-live-inventory.mjs --live ab940288` (section 9). Against ebeef20d the figures were 751 / 739.
 - **main is still NOT promotable to PROD after this merge.** main's own newer billing code calls schema that PROD does not have (section 6). That gap existed before this merge; the merge neither creates nor closes it.
 
 ## 2. Inventory: live-only commits (29) and where main stands
@@ -142,7 +150,7 @@ Main-only runtime surface beyond live (312 files and ~76k lines, mostly `scripts
 1. **Gate the RPC dependency.** Either apply `20270202090000` + `20270202100000` to PROD (with the preflight/postflight pattern used for D7), or put the RPC path behind a flag that falls back to the live upsert path. This is a decision.
 2. **Client invoices.** Apply `20270209090000` (it depends on the D24 chain `20270203110000` → `0208`), or hide `/app/payments/invoices` behind a flag until it is applied.
 3. **Rest of the chain.** Decide whether `20270201`, `0204` and `0206`–`0208` go to PROD now (additive; their code is dark or degrades) or stay held. If held, record that main carries schema-dependent dark code.
-4. **Release-only work not on this live line.** If `release/cf1-hotfix-heat-schedulepush` (ebeef20d + heat-size bbadbf13 + PR 444 schedule-push) or the CF1 app candidate (draft #443) is promoted, main must take that head too. Follow the procedure in section 9.
+4. **Release-only work not on this live line.** `release/cf1-hotfix-heat-schedulepush` ab940288 is now merged. If the CF1 app candidate (draft #443) or any later hotfix is promoted, main must take that head too. Follow the procedure in section 9.
 5. **Before any promotion from main:** staged build, prod-schema compatibility check against PROD's function fingerprints (R2, gate, CI-B md5 f7ff0735…), and the usual 30-minute observation. Each step needs owner approval.
 
 ## 6a. Independent review of the merge resolutions
@@ -184,7 +192,8 @@ Run on this branch, at the ebeef20d merge plus the doc/script/test commit, on 20
 | eslint on the 46 `.ts`/`.tsx`/`.mjs` files the merge adds or changes vs main, plus the new script and test | **PASS** (exit 0, no findings) |
 | Targeted suites: `competitionRefunds.r2`, `competitionRefundRules`, `entryRefunds.r2`, `checkinBalance.cib`, `deskBalance.cib`, all of `api/payments/webhook/__tests__` (R2 routing, refund reconciliation wiring, package refund, D7 conflict target) and `entitlementWriters.d7` | **PASS**: 26 files, 349 tests. The first run caught the adapted D7 test matching `ON CONFLICT` inside a SQL comment; fixed by stripping comments before the assertion. |
 | Full `vitest run --maxWorkers=4` | 639 files passed, 59 skipped (local-stack/DB suites), 2 files failed with 3 tests. All 3 failures are `Test timed out in 5000ms` under full-suite load, in `scripts/qa/d24-test-runner/__tests__/runner.test.ts` and `src/app/app/documents/__tests__/closeout.phase8d.test.ts`. Both files are byte-identical to main, and both pass in isolation (88/88). **Not caused by the merge.** |
-| Inventory/proof script vs ebeef20d | exit 0 (section 1 numbers) |
+| Inventory/proof script vs ebeef20d, then vs ab940288 | exit 0 both times (section 1 numbers) |
+| After the ab940288 merge: competition schedule tests (`heatCapacity.hotfix`) and `schedulePush.clientEmbed` / `localStack.schedulepush` | **PASS**: 2 files, 10 tests. The local-stack file skips (3 tests) without a database. eslint passes on all 6 files. tsc was not re-run because free RAM was under 6 GB; the 6 files are byte-identical to the live build. |
 | **Not run** | SQL sql-tests (`test_T_competition_r2_*`, `test_T_competition_checkin_balance`) and the TW-4F local-stack suites, which need a dedicated Postgres. The SQL files are byte-identical to the live line, where they were proven before the PROD apply. No `next build` and no e2e. |
 
 ## 9. Re-running when live moves
