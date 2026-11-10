@@ -59,7 +59,8 @@ function RootNavigator() {
       <Stack.Protected guard={signedIn}>
         <Stack.Screen name="index" />
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="appointments/[id]" options={{ headerShown: true, title: "Appointment", headerBackTitle: "Today" }} />
+        <Stack.Screen name="appointments/[id]" options={{ headerShown: true, title: "Appointment", headerBackTitle: "Back" }} />
+        <Stack.Screen name="clients/[id]" options={{ headerShown: true, title: "Client", headerBackTitle: "Clients" }} />
       </Stack.Protected>
       <Stack.Protected guard={!signedIn}>
         <Stack.Screen name="sign-in" />

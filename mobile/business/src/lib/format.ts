@@ -85,3 +85,30 @@ export function statusTone(status: string): StatusTone {
   if (status === "rescheduled") return "warning";
   return "neutral";
 }
+
+const CLIENT_STATUS_LABELS: Record<string, string> = {
+  active: "Active",
+  inactive: "Inactive",
+  lead: "Lead",
+  prospect: "Prospect",
+  archived: "Archived",
+};
+
+/** Client status in words, or null when the server sent none. */
+export function clientStatusLabel(status: string | null | undefined) {
+  if (!status) return null;
+  return CLIENT_STATUS_LABELS[status] ?? humanize(status);
+}
+
+export const ATTENDANCE_LABELS: Record<string, string> = {
+  attended: "Present",
+  absent: "Absent",
+  no_show: "No-show",
+  late_cancel: "Late cancel",
+  excused: "Excused",
+};
+
+export function attendanceLabel(status: string | null | undefined) {
+  if (!status) return "Not recorded";
+  return ATTENDANCE_LABELS[status] ?? humanize(status);
+}

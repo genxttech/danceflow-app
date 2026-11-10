@@ -6,6 +6,8 @@ import { Screen } from "@/components/Screen";
 import { ScheduleSkeleton } from "@/components/Skeleton";
 import { StaffErrorState } from "@/components/StaffErrorState";
 import { StatusBadge } from "@/components/StatusBadge";
+import { RosterAttendance } from "@/components/RosterAttendance";
+import { isStaffFeatureEnabled } from "@/lib/features";
 import { appointmentTypeLabel, formatDayHeading, formatTimeRange, personName } from "@/lib/format";
 import { useStaffApi, useStaffSession } from "@/lib/staff";
 import type { AppointmentDetail } from "@/lib/staffApi";
@@ -48,17 +50,13 @@ function Field({ label, value }: { label: string; value: string | null | undefin
   );
 }
 
-const ATTENDANCE_LABELS: Record<string, string> = {
-  attended: "Attended",
-  absent: "Absent",
-  no_show: "No-show",
-  late_cancel: "Late cancel",
-  excused: "Excused",
-};
-
 export function AppointmentScreen({ appointmentId, studioId, timeZone }: { appointmentId: string; studioId: string; timeZone?: string }) {
   const api = useStaffApi();
-  const { reload: reloadWorkspaces, signOut } = useStaffSession();
+  const { me, reload: reloadWorkspaces, signOut } = useStaffSession();
+  // The capability of the studio this appointment belongs to, not of whichever studio is selected.
+  const studio = me?.workspaces.find((w) => w.studioId === studioId);
+  const canMarkAttendance =
+    isStaffFeatureEnabled("attendance") && studio?.accessAllowed === true && studio.capabilities?.markAttendance === true;
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
   const load = useCallback(async () => {
@@ -137,19 +135,16 @@ export function AppointmentScreen({ appointmentId, studioId, timeZone }: { appoi
       ) : null}
 
       {roster ? (
-        <Section title="Roster">
+        <Section title={canMarkAttendance ? "Roster and attendance" : "Roster"}>
           <AppText tone="muted" style={tabularNums}>
             {roster.capacity === null ? `${roster.bookedCount} booked` : `${roster.bookedCount} of ${roster.capacity} booked`}
           </AppText>
-          {roster.attendees.length === 0 ? <AppText tone="muted">No one is enrolled yet.</AppText> : null}
-          {roster.attendees.map((attendee) => (
-            <View key={attendee.clientId} style={styles.attendee} accessible>
-              <AppText style={styles.attendeeName}>{attendee.name ?? "Dancer"}</AppText>
-              <AppText variant="caption" tone="muted">
-                {attendee.attendanceStatus ? ATTENDANCE_LABELS[attendee.attendanceStatus] ?? attendee.attendanceStatus : "Not recorded"}
-              </AppText>
-            </View>
-          ))}
+          <RosterAttendance
+            studioId={studioId}
+            appointmentId={appointment.id}
+            attendees={roster.attendees}
+            canMark={canMarkAttendance && appointment.status !== "cancelled"}
+          />
         </Section>
       ) : null}
 
@@ -184,14 +179,4 @@ const styles = StyleSheet.create({
     backgroundColor: colors.raised,
   },
   field: { gap: 2 },
-  attendee: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    gap: space.sm,
-    paddingVertical: space.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  attendeeName: { flexShrink: 1 },
 });

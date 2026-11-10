@@ -179,37 +179,114 @@ export type StaffApiOptions = {
   fetchImpl?: typeof fetch;
 };
 
+/*
+  PROPOSED SHAPES (v2: client lookup and attendance). Not served yet: the Staff API session is building these
+  endpoints. Everything that depends on the final wire format is in this section and in the adapters below, so
+  a different final shape changes only this file. Screens use these types, never raw JSON.
+*/
+
+export type ClientSummary = {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  /** e.g. active, inactive, lead. Displayed as words; unknown values pass through. */
+  status: string | null;
+};
+
+export type ClientPage = { clients: ClientSummary[]; nextCursor: string | null };
+
+export type ClientDetail = ClientSummary & {
+  /** The next lesson or class this client is booked into at this studio, if any. No money, no contact details. */
+  nextAppointment: { id: string; startsAt: string; appointmentType: string } | null;
+};
+
+export type AttendanceMark = "attended" | "absent";
+
+export type AttendanceResult = { clientId: string; attendanceStatus: string | null };
+
 export type StaffApi = {
   me: () => Promise<StaffMe>;
   today: (studioId: string, date?: string) => Promise<StaffToday>;
   appointment: (studioId: string, appointmentId: string) => Promise<AppointmentDetail>;
+  /** PROPOSED: GET /workspaces/{id}/clients?q=&cursor= */
+  searchClients: (studioId: string, params: { q?: string; cursor?: string | null }) => Promise<ClientPage>;
+  /** PROPOSED: GET /workspaces/{id}/clients/{clientId} */
+  client: (studioId: string, clientId: string) => Promise<ClientDetail>;
+  /** PROPOSED: PUT /workspaces/{id}/appointments/{appointmentId}/attendance/{clientId}, with an Idempotency-Key header. */
+  setAttendance: (
+    studioId: string,
+    appointmentId: string,
+    clientId: string,
+    status: AttendanceMark,
+    idempotencyKey: string,
+  ) => Promise<AttendanceResult>;
 };
+
+const str = (value: unknown) => (typeof value === "string" ? value : null);
+
+function toClientSummary(raw: unknown): ClientSummary {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  return { id: String(r.id ?? ""), firstName: str(r.firstName), lastName: str(r.lastName), status: str(r.status) };
+}
+
+/** Adapters: the only place that knows the proposed wire format. */
+export function toClientPage(raw: unknown): ClientPage {
+  const r = (raw ?? {}) as { clients?: unknown; nextCursor?: unknown };
+  const clients = Array.isArray(r.clients) ? r.clients.map(toClientSummary).filter((c) => c.id) : [];
+  return { clients, nextCursor: str(r.nextCursor) };
+}
+
+export function toClientDetail(raw: unknown): ClientDetail {
+  const r = (raw ?? {}) as { nextAppointment?: unknown };
+  const next = (r.nextAppointment ?? null) as Record<string, unknown> | null;
+  return {
+    ...toClientSummary(raw),
+    nextAppointment:
+      next && typeof next.id === "string" && typeof next.startsAt === "string"
+        ? { id: next.id, startsAt: next.startsAt, appointmentType: str(next.appointmentType) ?? "appointment" }
+        : null,
+  };
+}
+
+export function toAttendanceResult(raw: unknown, clientId: string): AttendanceResult {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  return { clientId: str(r.clientId) ?? clientId, attendanceStatus: str(r.attendanceStatus) };
+}
+
+type RequestOptions = { method?: "GET" | "PUT"; body?: unknown; headers?: Record<string, string> };
 
 export function createStaffApi(options: StaffApiOptions): StaffApi {
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
   const doFetch = options.fetchImpl ?? ((input, init) => fetch(input, init));
 
-  async function send(path: string, token: string) {
+  async function send(path: string, token: string, request: RequestOptions) {
     try {
       return await doFetch(`${baseUrl}/api/staff${path}`, {
-        method: "GET",
-        headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+        method: request.method ?? "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+          ...(request.body !== undefined ? { "Content-Type": "application/json" } : {}),
+          ...request.headers,
+        },
+        ...(request.body !== undefined ? { body: JSON.stringify(request.body) } : {}),
       });
     } catch {
       throw new StaffApiError(0, "network_error", "We could not reach DanceFlow.");
     }
   }
 
-  async function get<T>(path: string): Promise<T> {
+  /** A retry after a 401 refresh resends the same request, including its Idempotency-Key, so a write can never apply twice. */
+  async function call<T>(path: string, request: RequestOptions = {}): Promise<T> {
     const token = await options.getAccessToken();
     if (!token) throw new StaffApiError(401, "unauthenticated", "Sign in to continue.");
 
-    let response = await send(path, token);
+    let response = await send(path, token, request);
 
     if (response.status === 401) {
       const refreshed = await options.refreshAccessToken().catch(() => null);
       if (!refreshed) throw new StaffApiError(401, "unauthenticated", "Sign in to continue.");
-      response = await send(path, refreshed);
+      response = await send(path, refreshed, request);
     }
 
     let body: unknown = null;
@@ -232,15 +309,29 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
     return body as T;
   }
 
+  const ws = (studioId: string) => `/workspaces/${encodeURIComponent(studioId)}`;
+
   return {
-    me: () => get<StaffMe>("/me"),
-    today: (studioId, date) =>
-      get<StaffToday>(
-        `/workspaces/${encodeURIComponent(studioId)}/today${date ? `?date=${encodeURIComponent(date)}` : ""}`,
-      ),
+    me: () => call<StaffMe>("/me"),
+    today: (studioId, date) => call<StaffToday>(`${ws(studioId)}/today${date ? `?date=${encodeURIComponent(date)}` : ""}`),
     appointment: (studioId, appointmentId) =>
-      get<AppointmentDetail>(
-        `/workspaces/${encodeURIComponent(studioId)}/appointments/${encodeURIComponent(appointmentId)}`,
+      call<AppointmentDetail>(`${ws(studioId)}/appointments/${encodeURIComponent(appointmentId)}`),
+    searchClients: async (studioId, { q, cursor }) => {
+      const query = new URLSearchParams();
+      if (q?.trim()) query.set("q", q.trim());
+      if (cursor) query.set("cursor", cursor);
+      const suffix = query.toString() ? `?${query.toString()}` : "";
+      return toClientPage(await call<unknown>(`${ws(studioId)}/clients${suffix}`));
+    },
+    client: async (studioId, clientId) =>
+      toClientDetail(await call<unknown>(`${ws(studioId)}/clients/${encodeURIComponent(clientId)}`)),
+    setAttendance: async (studioId, appointmentId, clientId, status, idempotencyKey) =>
+      toAttendanceResult(
+        await call<unknown>(
+          `${ws(studioId)}/appointments/${encodeURIComponent(appointmentId)}/attendance/${encodeURIComponent(clientId)}`,
+          { method: "PUT", body: { status }, headers: { "Idempotency-Key": idempotencyKey } },
+        ),
+        clientId,
       ),
   };
 }

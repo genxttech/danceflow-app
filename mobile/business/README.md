@@ -36,6 +36,24 @@ npx expo export --platform android
 - **Today** (`src/screens/TodayScreen.tsx`): the caller's own appointments for one studio day, rendered in the studio's time zone, with skeleton, empty, not-linked and distinct error states. Rows open `app/appointments/[id].tsx`.
 - **Design** (`src/theme.ts`): Business tokens from `docs/mobile/Mobile_Design_Direction.md`: paper surface, plum for actions only, 4–48 spacing with a 20 gutter. System font until the Bricolage / Hanken licences are confirmed.
 
+## Client lookup and attendance (dark until the API serves them)
+
+The Clients tab (front-desk search, paging, client summary) and class-roster attendance (Present / Absent) are built against **proposed** Staff API shapes. Those endpoints don't exist yet, so both features are off in every build. Turn them on for local QA against a stack or mock that serves them:
+
+```bash
+EXPO_PUBLIC_STAFF_FEATURES=clients,attendance npx expo start --clear
+```
+
+The proposed wire format lives only in `src/lib/staffApi.ts` (the "PROPOSED SHAPES" section and its `to…` adapters). When the real contract lands, change those adapters and flip the default in `src/lib/features.ts`. The screens and tests use the typed results, so they don't change.
+
+| Proposed endpoint | Used by |
+| --- | --- |
+| `GET /workspaces/{id}/clients?q=&cursor=` → `{ clients: [{ id, firstName, lastName, status }], nextCursor }` | Clients tab (`viewClients` only; instructors keep "My clients") |
+| `GET /workspaces/{id}/clients/{clientId}` → summary + `nextAppointment`, no money or contact details | Client screen |
+| `PUT /workspaces/{id}/appointments/{appointmentId}/attendance/{clientId}` with `{ status: "attended" \| "absent" }` and an `Idempotency-Key` header | Roster (`markAttendance` on the appointment's own studio; not for cancelled classes) |
+
+Each Present or Absent tap is one action with its own idempotency key. A 401 refresh-and-retry resends the same key, so a write never applies twice. A failed save puts the previous mark back and says why on that row.
+
 ## Sign-in links
 
 Email links come back to `danceflow-business://auth/callback`. That URL has to be on the Supabase project's redirect allow list before email-link sign-in works on a device. Password sign-in needs nothing extra.
