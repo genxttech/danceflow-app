@@ -5,8 +5,8 @@
 #
 # The database must already carry the chain through CF1 A7 and F3 (20270122090000). The script COMMITS synthetic fixtures (UUID block
 # ...-<run tag>XXXXXX, a random 6-hex tag per run so a re-run never collides) and leaves them: run it only on a disposable container. Never against a shared or hosted DB.
-# Every race is deterministic: session A holds the round row lock inside an open transaction (pg_sleep), session B starts after A has the lock and
-# must wait for it. Probes:
+# Every race is deterministic and PROVEN: session A holds the round row lock inside an open transaction (pg_sleep), session B starts only after A
+# is seen holding it, and B must be seen waiting on it (see race()); otherwise the probe is NO VERDICT. Probes:
 #   1  two managers publish the same approved round with different request ids     -> exactly one publication; the loser is refused
 #   2  the same request id from two sessions                                        -> one write, the other replays
 #   3  publish vs open_correction (publish first)                                   -> the publication exists, the correction follows, the version is stale
@@ -80,118 +80,109 @@ pub() {
 }
 PUB() { echo "select public.publish_competition_round_result('$(u "00600$1")', '$(u "007$1"0"$2")', 'entrants', '$3');"; }
 WD() { echo "select public.withdraw_competition_round_result('$(u "00600$1")', '$(u "00a$1"0"$2")', 'raced withdraw', '$3');"; }
-# hold USER SQL SECONDS: runs SQL in a transaction that keeps the round lock for SECONDS
-hold() { { as_sql "$1" "begin;"; echo "$2"; echo "select pg_sleep($3);"; echo "commit;"; } | psq -v ON_ERROR_STOP=0 2>&1; }
 run() { as_sql "$1" "$2" | psq -v ON_ERROR_STOP=0 2>&1; }
+# Proven ordering (coordinator 2026-11-10; a bare 'sleep 1' flipped ordered probes on a loaded host). race N UA SQLA UB SQLB:
+#   session A (application_name f3a_<tag>_N) runs SQLA, then pg_sleep(HOLD) in the SAME open transaction. A only reaches the sleep if SQLA succeeded,
+#   so "A active in pg_sleep" proves A holds the round row lock until its commit. B (f3b_<tag>_N) starts only then, and must be SEEN waiting on a
+#   lock (wait_event_type = 'Lock') while A still sleeps. If either cannot be established the probe is NO VERDICT (never PASS or FAIL).
+#   Both waits poll INSIDE the database (one psql call each, pg_stat_clear_snapshot every 0.1 s), so a slow docker exec cannot hide the window.
+HOLD=${F3_HOLD_SECONDS:-15}; BARRIER=${F3_BARRIER_SECONDS:-90}; NOVERDICT=0
+apsq() { a=$1; shift; docker exec -i -e PGAPPNAME="$a" "$C" psql -U "$DBUSER" -h localhost -d postgres -At -q "$@"; }
+nov() { echo "NO VERDICT  $1"; NOVERDICT=$((NOVERDICT + 1)); }
+# a_sleeping APP: the pg_stat_activity predicate "APP is active inside its pg_sleep"
+a_sleeping() { echo "exists (select 1 from pg_stat_activity where application_name = '$1' and state = 'active' and query like 'select pg_sleep(%')"; }
+# wait_held APP: returns 0 once APP is inside its lock-holding sleep, 1 after BARRIER seconds
+wait_held() {
+  q "do \$w\$ declare d timestamptz := clock_timestamp() + interval '$BARRIER seconds'; begin
+       loop perform pg_stat_clear_snapshot(); exit when $(a_sleeping "$1");
+         if clock_timestamp() > d then raise exception 'F3 barrier: % not holding', '$1'; end if; perform pg_sleep(0.1); end loop; end \$w\$;" >/dev/null 2>&1
+}
+# wait_blocked A B: prints B's wait event once B waits on a lock while A still sleeps; prints nothing (and fails) if A finished first
+wait_blocked() {
+  q "do \$w\$ declare e text; begin
+       loop perform pg_stat_clear_snapshot();
+         select wait_event into e from pg_stat_activity where application_name = '$2' and wait_event_type = 'Lock' limit 1;
+         if e is not null and $(a_sleeping "$1") then raise notice 'BWAIT %', e; return; end if;
+         if not $(a_sleeping "$1") then raise exception 'F3 barrier: % finished before % was seen waiting', '$1', '$2'; end if;
+         perform pg_sleep(0.1); end loop; end \$w\$;" 2>&1 | sed -n 's/.*BWAIT //p'
+}
+race() {
+  n=$1; aa="f3a_${TAG}_$n"; ab="f3b_${TAG}_$n"
+  { as_sql "$2" "begin;"; echo "$3"; echo "select pg_sleep($HOLD);"; echo "commit;"; } | apsq "$aa" -v ON_ERROR_STOP=0 > $TMPD/f3c${n}a.out 2>&1 &
+  if ! wait_held "$aa"; then wait; nov "$n: session A never reached its lock-holding sleep within ${BARRIER}s ($(head -c 200 $TMPD/f3c${n}a.out))"; return 1; fi
+  as_sql "$4" "$5" | apsq "$ab" -v ON_ERROR_STOP=0 > $TMPD/f3c${n}b.out 2>&1 &
+  ev=$(wait_blocked "$aa" "$ab")
+  wait
+  if [ -z "$ev" ]; then nov "$n: session B was not observed waiting on A's lock while A held it (order not proven)"; return 1; fi
+  echo "      $n: order proven (A held the lock in its open transaction; B waited on it: Lock/$ev)"
+  return 0
+}
 pubs() { q "select count(*) from public.event_competition_result_publications where round_id = '$(u "00600$1")'"; }
 cur() { q "select count(*) from public.event_competition_result_publications where round_id = '$(u "00600$1")' and withdrawn_at is null and superseded_by is null"; }
 rst() { q "select status from public.event_competition_rounds where id = '$(u "00600$1")'"; }
 
 # --- 1 two publishers, different request ids
 mk 1; ver 1 1 approved
-hold "$M1" "$(PUB 1 1 $(u 0e0001))" 3 > $TMPD/f3c1a.out &
-sleep 1
-run "$M2" "$(PUB 1 1 $(u 0e0002))" > $TMPD/f3c1b.out
-wait
-if [ "$(pubs 1)" = 1 ] && [ "$(cur 1)" = 1 ] && [ "$(rst 1)" = published ] && grep -q 'COMP_RESULT_INVALID_TRANSITION' $TMPD/f3c1b.out && [ "$(q "select count(*) from public.event_competition_result_events where kind = 'result_published' and round_id = '$(u 006001)'")" = 1 ]; then
+race 1 "$M1" "$(PUB 1 1 $(u 0e0001))" "$M2" "$(PUB 1 1 $(u 0e0002))" && if [ "$(pubs 1)" = 1 ] && [ "$(cur 1)" = 1 ] && [ "$(rst 1)" = published ] && grep -q 'COMP_RESULT_INVALID_TRANSITION' $TMPD/f3c1b.out && [ "$(q "select count(*) from public.event_competition_result_events where kind = 'result_published' and round_id = '$(u 006001)'")" = 1 ]; then
   ok "1 two publishers: exactly one publication, one audit row; the loser is refused"; else bad "1 two publishers" "pubs=$(pubs 1) cur=$(cur 1) status=$(rst 1) $(head -c 200 $TMPD/f3c1b.out)"; fi
 
 # --- 2 same request id from two sessions
 mk 2; ver 2 1 approved
-hold "$M1" "$(PUB 2 1 $(u 0e0003))" 3 > $TMPD/f3c2a.out &
-sleep 1
-run "$M1" "$(PUB 2 1 $(u 0e0003))" > $TMPD/f3c2b.out
-wait
-if [ "$(pubs 2)" = 1 ] && grep -q '"replayed": true' $TMPD/f3c2b.out && [ "$(q "select count(*) from public.event_competition_result_events where request_id = '$(u 0e0003)'")" = 1 ]; then
+race 2 "$M1" "$(PUB 2 1 $(u 0e0003))" "$M1" "$(PUB 2 1 $(u 0e0003))" && if [ "$(pubs 2)" = 1 ] && grep -q '"replayed": true' $TMPD/f3c2b.out && [ "$(q "select count(*) from public.event_competition_result_events where request_id = '$(u 0e0003)'")" = 1 ]; then
   ok "2 same request id: one write, the second session replays"; else bad "2 same request id" "pubs=$(pubs 2) $(head -c 200 $TMPD/f3c2b.out)"; fi
 
 # --- 3 publish first, then open_correction waits and follows
 mk 3; ver 3 1 approved
-hold "$M1" "$(PUB 3 1 $(u 0e0004))" 3 > $TMPD/f3c3a.out &
-sleep 1
-run "$M1" "select public.open_competition_round_correction('$(u 006003)', 'raced correction', '$(u 0e0005)');" > $TMPD/f3c3b.out
-wait
-if [ "$(pubs 3)" = 1 ] && [ "$(cur 3)" = 1 ] && [ "$(rst 3)" = ballots_locked ] && [ "$(q "select status from public.event_competition_result_versions where id = '$(u 007301)'")" = stale ]; then
+race 3 "$M1" "$(PUB 3 1 $(u 0e0004))" "$M1" "select public.open_competition_round_correction('$(u 006003)', 'raced correction', '$(u 0e0005)');" && if [ "$(pubs 3)" = 1 ] && [ "$(cur 3)" = 1 ] && [ "$(rst 3)" = ballots_locked ] && [ "$(q "select status from public.event_competition_result_versions where id = '$(u 007301)'")" = stale ]; then
   ok "3 publish then correction: publication current, round in correction, version stale"; else bad "3 publish then correction" "pubs=$(pubs 3) cur=$(cur 3) status=$(rst 3) $(head -c 300 $TMPD/f3c3b.out)"; fi
 
 # --- 4 correction first, then publish is refused
 mk 4; ver 4 1 approved
-hold "$M1" "select public.open_competition_round_correction('$(u 006004)', 'raced correction', '$(u 0e0006)');" 3 > $TMPD/f3c4a.out &
-sleep 1
-run "$M1" "$(PUB 4 1 $(u 0e0007))" > $TMPD/f3c4b.out
-wait
-if [ "$(pubs 4)" = 0 ] && [ "$(rst 4)" = ballots_locked ] && grep -q 'COMP_RESULT_INVALID_TRANSITION' $TMPD/f3c4b.out; then
+race 4 "$M1" "select public.open_competition_round_correction('$(u 006004)', 'raced correction', '$(u 0e0006)');" "$M1" "$(PUB 4 1 $(u 0e0007))" && if [ "$(pubs 4)" = 0 ] && [ "$(rst 4)" = ballots_locked ] && grep -q 'COMP_RESULT_INVALID_TRANSITION' $TMPD/f3c4b.out; then
   ok "4 correction then publish: nothing published, the publish is refused"; else bad "4 correction then publish" "pubs=$(pubs 4) status=$(rst 4) $(head -c 300 $TMPD/f3c4b.out)"; fi
 
 # --- 5 publish v2 (supersede) first, then withdraw v1 is refused
 mk 5; ver 5 1 stale; pub 5 1 1; ver 5 2 approved
-hold "$M1" "$(PUB 5 2 $(u 0e0008))" 3 > $TMPD/f3c5a.out &
-sleep 1
-run "$M2" "$(WD 5 1 $(u 0e0009))" > $TMPD/f3c5b.out
-wait
-if [ "$(pubs 5)" = 2 ] && [ "$(cur 5)" = 1 ] && [ "$(q "select superseded_by is not null and withdrawn_at is null from public.event_competition_result_publications where id = '$(u 00a501)'")" = t ] && grep -q 'COMP_PUBLICATION_NOT_CURRENT' $TMPD/f3c5b.out; then
+race 5 "$M1" "$(PUB 5 2 $(u 0e0008))" "$M2" "$(WD 5 1 $(u 0e0009))" && if [ "$(pubs 5)" = 2 ] && [ "$(cur 5)" = 1 ] && [ "$(q "select superseded_by is not null and withdrawn_at is null from public.event_competition_result_publications where id = '$(u 00a501)'")" = t ] && grep -q 'COMP_PUBLICATION_NOT_CURRENT' $TMPD/f3c5b.out; then
   ok "5 supersede then withdraw: v1 superseded, the late withdraw is refused, one current publication"; else bad "5 supersede vs withdraw" "pubs=$(pubs 5) cur=$(cur 5) $(head -c 300 $TMPD/f3c5b.out)"; fi
 
 # --- 6 withdraw v1 first, then publish v2 (no supersede stamp)
 mk 6; ver 6 1 stale; pub 6 1 1; ver 6 2 approved
-hold "$M2" "$(WD 6 1 $(u 0e000a))" 3 > $TMPD/f3c6a.out &
-sleep 1
-run "$M1" "$(PUB 6 2 $(u 0e000b))" > $TMPD/f3c6b.out
-wait
-if [ "$(pubs 6)" = 2 ] && [ "$(cur 6)" = 1 ] && [ "$(q "select withdrawn_at is not null and superseded_by is null from public.event_competition_result_publications where id = '$(u 00a601)'")" = t ] && [ "$(rst 6)" = published ]; then
+race 6 "$M2" "$(WD 6 1 $(u 0e000a))" "$M1" "$(PUB 6 2 $(u 0e000b))" && if [ "$(pubs 6)" = 2 ] && [ "$(cur 6)" = 1 ] && [ "$(q "select withdrawn_at is not null and superseded_by is null from public.event_competition_result_publications where id = '$(u 00a601)'")" = t ] && [ "$(rst 6)" = published ]; then
   ok "6 withdraw then publish: v1 withdrawn (not superseded), v2 current"; else bad "6 withdraw vs supersede" "pubs=$(pubs 6) cur=$(cur 6) status=$(rst 6) $(head -c 300 $TMPD/f3c6b.out)"; fi
 
 # --- 7 two withdraws of the same publication
 mk 7; ver 7 1 approved; pub 7 1 1
 psq -v ON_ERROR_STOP=1 -c "set session_replication_role = replica; update public.event_competition_rounds set status = 'published' where id = '$(u 006007)';"
-hold "$M1" "$(WD 7 1 $(u 0e000c))" 3 > $TMPD/f3c7a.out &
-sleep 1
-run "$M2" "$(WD 7 1 $(u 0e000d))" > $TMPD/f3c7b.out
-wait
-if [ "$(cur 7)" = 0 ] && [ "$(q "select count(*) from public.event_competition_result_events where kind = 'result_withdrawn' and round_id = '$(u 006007)'")" = 1 ] && grep -q 'COMP_PUBLICATION_NOT_CURRENT' $TMPD/f3c7b.out; then
+race 7 "$M1" "$(WD 7 1 $(u 0e000c))" "$M2" "$(WD 7 1 $(u 0e000d))" && if [ "$(cur 7)" = 0 ] && [ "$(q "select count(*) from public.event_competition_result_events where kind = 'result_withdrawn' and round_id = '$(u 006007)'")" = 1 ] && grep -q 'COMP_PUBLICATION_NOT_CURRENT' $TMPD/f3c7b.out; then
   ok "7 two withdraws: one wins, one audit row, the other is refused"; else bad "7 double withdraw" "cur=$(cur 7) $(head -c 300 $TMPD/f3c7b.out)"; fi
 
 # --- 8 owner decision: withdraw on a COMPLETE round; two withdraws with different request ids
 mk 8; ver 8 1 approved; pub 8 1 1
 psq -v ON_ERROR_STOP=1 -c "set session_replication_role = replica; update public.event_competition_rounds set status = 'complete' where id = '$(u 006008)';"
-hold "$M1" "$(WD 8 1 $(u 0e000e))" 3 > $TMPD/f3c8a.out &
-sleep 1
-run "$M2" "$(WD 8 1 $(u 0e000f))" > $TMPD/f3c8b.out
-wait
-if [ "$(cur 8)" = 0 ] && [ "$(rst 8)" = complete ] && [ "$(pubs 8)" = 1 ] && [ "$(q "select count(*) from public.event_competition_result_events where kind = 'result_withdrawn' and round_id = '$(u 006008)'")" = 1 ] && grep -q 'COMP_PUBLICATION_NOT_CURRENT' $TMPD/f3c8b.out; then
+race 8 "$M1" "$(WD 8 1 $(u 0e000e))" "$M2" "$(WD 8 1 $(u 0e000f))" && if [ "$(cur 8)" = 0 ] && [ "$(rst 8)" = complete ] && [ "$(pubs 8)" = 1 ] && [ "$(q "select count(*) from public.event_competition_result_events where kind = 'result_withdrawn' and round_id = '$(u 006008)'")" = 1 ] && grep -q 'COMP_PUBLICATION_NOT_CURRENT' $TMPD/f3c8b.out; then
   ok "8 complete round, two withdraws: one wins, one audit row, round stays complete, the other is refused"; else bad "8 complete double withdraw" "cur=$(cur 8) status=$(rst 8) $(head -c 300 $TMPD/f3c8b.out)"; fi
 
 # --- 9 complete round, same request id from two sessions: one write, one replay
 mk 9; ver 9 1 approved; pub 9 1 1
 psq -v ON_ERROR_STOP=1 -c "set session_replication_role = replica; update public.event_competition_rounds set status = 'complete' where id = '$(u 006009)';"
-hold "$M1" "$(WD 9 1 $(u 0e0010))" 3 > $TMPD/f3c9a.out &
-sleep 1
-run "$M1" "$(WD 9 1 $(u 0e0010))" > $TMPD/f3c9b.out
-wait
-if [ "$(cur 9)" = 0 ] && [ "$(q "select count(*) from public.event_competition_result_events where request_id = '$(u 0e0010)'")" = 1 ] && grep -q '"replayed": true' $TMPD/f3c9b.out; then
+race 9 "$M1" "$(WD 9 1 $(u 0e0010))" "$M1" "$(WD 9 1 $(u 0e0010))" && if [ "$(cur 9)" = 0 ] && [ "$(q "select count(*) from public.event_competition_result_events where request_id = '$(u 0e0010)'")" = 1 ] && grep -q '"replayed": true' $TMPD/f3c9b.out; then
   ok "9 complete round, same request id: one write, the second session replays"; else bad "9 complete same request" "cur=$(cur 9) $(head -c 300 $TMPD/f3c9b.out)"; fi
 
 # --- 10 complete first (from published), then the withdraw follows on the now-complete round
 mk a; ver a 1 approved; pub a 1 1
 psq -v ON_ERROR_STOP=1 -c "set session_replication_role = replica; update public.event_competition_rounds set status = 'published' where id = '$(u 00600a)';"
 COMPL() { echo "select public.complete_competition_round('$(u "00600$1")', '$2');"; }
-hold "$M1" "$(COMPL a $(u 0e0011))" 3 > $TMPD/f3c10a.out &
-sleep 1
-run "$M2" "$(WD a 1 $(u 0e0012))" > $TMPD/f3c10b.out
-wait
-if [ "$(rst a)" = complete ] && [ "$(cur a)" = 0 ] && [ "$(q "select count(*) from public.event_competition_result_events where kind = 'result_withdrawn' and round_id = '$(u 00600a)' and refs ->> 'round_status' = 'complete'")" = 1 ]; then
+race 10 "$M1" "$(COMPL a $(u 0e0011))" "$M2" "$(WD a 1 $(u 0e0012))" && if [ "$(rst a)" = complete ] && [ "$(cur a)" = 0 ] && [ "$(q "select count(*) from public.event_competition_result_events where kind = 'result_withdrawn' and round_id = '$(u 00600a)' and refs ->> 'round_status' = 'complete'")" = 1 ]; then
   ok "10 complete then withdraw: the round completes, the late withdraw succeeds on the complete round (audit says complete)"; else bad "10 complete then withdraw" "status=$(rst a) cur=$(cur a) $(head -c 300 $TMPD/f3c10b.out)"; fi
 
 # --- 11 withdraw first (from published), then complete is refused (no current publication)
 mk b; ver b 1 approved; pub b 1 1
 psq -v ON_ERROR_STOP=1 -c "set session_replication_role = replica; update public.event_competition_rounds set status = 'published' where id = '$(u 00600b)';"
-hold "$M2" "$(WD b 1 $(u 0e0013))" 3 > $TMPD/f3c11a.out &
-sleep 1
-run "$M1" "$(COMPL b $(u 0e0014))" > $TMPD/f3c11b.out
-wait
-if [ "$(rst b)" = published ] && [ "$(cur b)" = 0 ] && grep -q 'COMP_PUBLICATION_REQUIRES_APPROVAL' $TMPD/f3c11b.out; then
+race 11 "$M2" "$(WD b 1 $(u 0e0013))" "$M1" "$(COMPL b $(u 0e0014))" && if [ "$(rst b)" = published ] && [ "$(cur b)" = 0 ] && grep -q 'COMP_PUBLICATION_REQUIRES_APPROVAL' $TMPD/f3c11b.out; then
   ok "11 withdraw then complete: the complete is refused (no current publication), round stays published"; else bad "11 withdraw then complete" "status=$(rst b) cur=$(cur b) $(head -c 300 $TMPD/f3c11b.out)"; fi
 
-echo "== done: $FAILS failure(s) =="
-[ "$FAILS" = 0 ] && echo "CONCURRENCY PASS" || echo "CONCURRENCY FAIL"
-exit "$FAILS"
+echo "== done: $FAILS failure(s), $NOVERDICT no verdict =="
+if [ "$FAILS" != 0 ]; then echo "CONCURRENCY FAIL"; exit "$FAILS"; fi
+if [ "$NOVERDICT" != 0 ]; then echo "CONCURRENCY NO VERDICT (ordering not proven for $NOVERDICT probe(s))"; exit 2; fi
+echo "CONCURRENCY PASS"; exit 0
