@@ -1,0 +1,78 @@
+{
+  "startedAt": "2026-11-10T16:15:10.612Z",
+  "origin": "http://localhost:5173",
+  "rp": "localhost",
+  "policyAllowSynced": false,
+  "registration": {
+    "flags": {
+      "up": true,
+      "uv": true,
+      "be": false,
+      "bs": false
+    },
+    "attachment": "platform",
+    "transports": [
+      "internal"
+    ],
+    "counterAtRegistration": 0
+  },
+  "assertions": [
+    {
+      "verdict": "attested",
+      "counter": 1,
+      "flags": {
+        "up": true,
+        "uv": true,
+        "be": false,
+        "bs": false
+      }
+    },
+    {
+      "verdict": "attested",
+      "counter": 2,
+      "flags": {
+        "up": true,
+        "uv": true,
+        "be": false,
+        "bs": false
+      }
+    },
+    {
+      "verdict": "attested",
+      "counter": 3,
+      "flags": {
+        "up": true,
+        "uv": true,
+        "be": false,
+        "bs": false
+      }
+    },
+    {
+      "verdict": "attested",
+      "counter": 4,
+      "flags": {
+        "up": true,
+        "uv": true,
+        "be": false,
+        "bs": false
+      }
+    }
+  ],
+  "summary": {
+    "assertions": 4,
+    "acceptedByDatabase": 4,
+    "userVerifiedEveryTime": true,
+    "notReportedSynced": true,
+    "policyAllowSynced": false,
+    "counters": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "counterBehaviour": "increasing (clone detection active)",
+    "storedCounterInDatabase": 4,
+    "proofRecorded": true
+  },
+  "finishedAt": "2026-11-10T16:47:54.391Z"
+}
