@@ -17,6 +17,8 @@ npx expo start
 | `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY` | The same Supabase project the web uses |
 | `EXPO_PUBLIC_DANCEFLOW_WEB_URL` | The origin that serves `/api/staff/*` |
 
+These values are inlined into the bundle and Metro caches them: after changing any of them, start or export with `--clear` (for example `npx expo export --clear --platform web`), or the old values ship.
+
 ## Checks
 
 ```bash
