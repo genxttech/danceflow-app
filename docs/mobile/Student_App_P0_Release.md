@@ -68,8 +68,28 @@ These are functional gaps, not leaks: the app shows less than intended. Fixing t
 
 **Validated without a device:** jest-expo (52 tests), mobile and root typecheck, `expo install --check`, Android JS bundle (`expo export`), SQL suites for both migrations on a disposable database (fail before, pass after, fail after rollback, pass after reapply), push user switch through real PostgREST and RLS, signup and magic-link flows on a local GoTrue with real email.
 
+**Local device QA feasibility (2026-11-10, this machine):**
+
+| Requirement | Measured | OK? |
+|---|---|---|
+| Free disk | C: 108.4 GB free (only drive) | Yes |
+| Free RAM for an emulator (~4 GB) | 3.9 GB free of 31.5 GB. Chrome uses ~4.2 GB, Claude ~4.0 GB, WSL ~1.6 GB, Docker ~1.2 GB with 7 containers | No, borderline |
+| CPU virtualization for the emulator | Hypervisor running (WSL2 Virtual Machine Platform on). **Windows Hypervisor Platform (WHPX) is disabled**; the emulator needs WHPX when a hypervisor is active. Enabling it needs an administrator and a reboot | No |
+| JDK, Android SDK | Neither installed | Installable, but sdkmanager requires accepting the Android SDK licence |
+
+| Matrix item | Result | Reason |
+|---|---|---|
+| Sign-in, and session surviving app restart (Keystore-backed SecureStore) | **BLOCKED** | No emulator or device. Web can't stand in: expo-secure-store has no web implementation |
+| Sign-out clears the session | **BLOCKED** | Same. Logic covered by jest (`clearPersistedSessions`, sign-out unbind) |
+| Deep links via `adb shell am start -d`; raw-token link ignored | **BLOCKED** | No emulator or device. Route and scheme mapping covered by `linkingConfig.test.ts`; raw-token removal covered by `authLink` and `auth` tests |
+| #442 screens, light and dark | **PASS (web)** | Rendered web export, contrast measured from pixels (#442 comment 6762156752). Native rendering not checked |
+| Partner profile save doesn't send `moderation_status` | **PASS (unit + DEV)** | jest payload test. On DEV, the rolled-back behavior check shows the guard refuses self-approval (#438 comment 6757076211). An end-to-end save from the app needs a signed-in DEV session |
+| Account deletion | **BLOCKED** | Needs a signed-in session on a device or DEV. DEV sign-in needs a magic-link email the agent can't receive, and minting a session needs the service-role key, which the agent doesn't handle |
+| Payment sheet | **BLOCKED** | No emulator or device, and no Stripe TEST publishable key or test connected account in the repo's example env |
+| Push delivery | **BLOCKED** | Needs FCM/EAS credentials and a device build |
+
 **Smallest routes to unblock, each needing the owner's OK:**
 
-1. **Android, no cost:** install the Android SDK and an emulator on this machine (about 10 GB) and run a local debug build (`npx expo run:android`). No EAS. Covers Keystore, deep links and the app shell; PaymentSheet also needs item 3.
+1. **Android, no cost:** turn on Windows Hypervisor Platform (Windows Features, administrator, reboot) and free about 4 GB of RAM. Then the agent installs JDK 17, the Android SDK (licence acceptance needs the owner's OK), platform 36, build-tools 36.0.0, NDK 27.1 and an API 35/36 x86_64 image, about 10 GB in all. It builds a debug APK locally with no EAS and runs the matrix above. An Android phone with USB debugging needs neither the hypervisor change nor the RAM; it only needs the SDK licence OK. Covers Keystore, deep links, sign-in/out, the app shell and account deletion, but only if the owner supplies a magic-link sign-in on the device. PaymentSheet also needs item 3.
 2. **One EAS development build** per platform (Expo account usage) for push delivery and iOS Keychain. iOS also needs a physical device or a Mac.
 3. **Stripe TEST:** a TEST publishable key plus a controller-model connected account, so the sheet can present a direct charge. Legacy Express direct charges are blocked for new Stripe platforms.
