@@ -14,6 +14,6 @@ export default function AppointmentRoute() {
     );
   }
 
-  // The detail response has no time zone, so Today passes the studio's along (see the PR's API notes).
+  // Slice 2 detail carries the studio zone; the tz param (from Today or the client screen) covers a server without it.
   return <AppointmentScreen appointmentId={id} studioId={studioId} timeZone={tz || undefined} />;
 }

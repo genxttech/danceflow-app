@@ -171,14 +171,36 @@ describe("every screen passes the audit", () => {
           firstName: "Ana",
           lastName: "Rivera",
           status: "active",
-          activePackages: [{ name: "10 privates", remaining: 4 }],
-          nextAppointment: { id: "a1", startsAt: "2026-11-12T15:00:00Z", appointmentType: "private_lesson" },
+          activePackages: [
+            { id: "p1", name: "10 Private Lessons", expiresOn: "2027-01-31", items: [{ usageType: "private_lesson", remaining: 4, unlimited: false }] },
+          ],
+          nextAppointment: { id: "a1", appointmentType: "private_lesson", title: null, startsAt: "2026-11-12T15:00:00.000Z", endsAt: "2026-11-12T15:45:00.000Z" },
           timeZone: "America/New_York",
         })),
       }),
     );
     await flush();
-    expect(screen.getByText("4 remaining")).toBeTruthy();
+    expect(screen.getByText("Private lesson: 4 remaining")).toBeTruthy();
+    expectClean();
+  });
+
+  it("client summary for an instructor (no status, no packages)", async () => {
+    withProviders(
+      <ClientDetailScreen clientId="c1" studioId={STUDIO_ID} />,
+      fakeApi({
+        client: jest.fn(async () => ({
+          id: "c1",
+          firstName: "Ana",
+          lastName: "Rivera",
+          status: null,
+          activePackages: null,
+          nextAppointment: null,
+          timeZone: "America/New_York",
+        })),
+      }),
+    );
+    await flush();
+    expect(screen.getByText("Nothing booked.")).toBeTruthy();
     expectClean();
   });
 

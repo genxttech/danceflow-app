@@ -94,6 +94,8 @@ export function AppointmentScreen({ appointmentId, studioId, timeZone }: { appoi
   }
 
   const appointment = state.appointment;
+  // Slice 2 puts the studio zone on the detail itself; the route param (from Today) and /me cover a server without it.
+  const zone = appointment.timeZone ?? timeZone ?? studio?.timeZone ?? undefined;
   const instructor = personName(appointment.instructor);
   const client = personName(appointment.client);
   const partner = personName(appointment.partner);
@@ -110,9 +112,9 @@ export function AppointmentScreen({ appointmentId, studioId, timeZone }: { appoi
           {appointmentHeadline(appointment)}
         </AppText>
         <AppText variant="lead" style={tabularNums}>
-          {formatTimeRange(appointment.startsAt, appointment.endsAt, timeZone)}
+          {formatTimeRange(appointment.startsAt, appointment.endsAt, zone)}
         </AppText>
-        <AppText tone="muted">{formatDayHeading(localDate(appointment.startsAt, timeZone))}</AppText>
+        <AppText tone="muted">{formatDayHeading(localDate(appointment.startsAt, zone))}</AppText>
         <StatusBadge status={appointment.status} />
       </View>
 

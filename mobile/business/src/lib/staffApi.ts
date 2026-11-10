@@ -30,6 +30,8 @@ export type StaffWorkspace = {
   accessAllowed: boolean;
   subscriptionStatus: string | null;
   capabilities: StaffCapabilities;
+  /** Slice 2: the studio's IANA zone. Optional so a server without slice 2 still parses. */
+  timeZone?: string | null;
 };
 
 export type StaffMe = {
@@ -62,6 +64,8 @@ export type StaffToday = {
 
 export type AppointmentDetail = TodayAppointment & {
   studioId: string;
+  /** Slice 2: the studio's IANA zone. Optional so a server without slice 2 still parses. */
+  timeZone?: string | null;
   accessScope: "own-instructor" | "broad";
   notes: string | null;
   instructor: PersonName | null;
@@ -148,8 +152,8 @@ function codeFor(status: number, raw: unknown): StaffApiErrorCode {
 }
 
 /**
- * #439 answers `{ error: "<message>", code: "<code>" }`. The provisional v2 contract describes `{ error: { code, message } }`.
- * Both are read, so the app does not break whichever one the v2 routes end up using.
+ * The contract's error shape is flat: `{ error: "<message>", code: "<code>" }`. A nested `{ error: { code, message } }` is still
+ * read defensively, because an unknown body must never crash the error path.
  */
 export function readErrorBody(body: unknown): { code: unknown; message: string | null } {
   const record = (body ?? {}) as { code?: unknown; error?: unknown; message?: unknown };
@@ -203,34 +207,38 @@ export type StaffApiOptions = {
 };
 
 /*
-  PROPOSED SHAPES (v2: client lookup and attendance). Not served yet: the Staff API session is building these
-  endpoints. Everything that depends on the final wire format is in this section and in the adapters below, so
-  a different final shape changes only this file. Screens use these types, never raw JSON.
+  SLICE 2 (client lookup and attendance), final contract: docs/mobile/Staff_API_Contract.md on claude/staff-api-slice2
+  (2b071403). Not served yet, so the features stay dark (src/lib/features.ts). The wire format is known only to this
+  section and the adapters below; screens use these types, never raw JSON.
 */
 
 export type ClientSummary = {
   id: string;
   firstName: string | null;
   lastName: string | null;
-  /** e.g. active, inactive, lead. Displayed as words; unknown values pass through. */
+  /** CRM status (lead, contacted, consultation_booked, converted, lost, active, inactive, archived). Always active for front desk; null for instructors: hide it. */
   status: string | null;
 };
 
 export type ClientPage = { clients: ClientSummary[]; nextCursor: string | null };
 
+export type ClientPackageItem = { usageType: string; remaining: number | null; unlimited: boolean };
+
+export type ClientPackage = { id: string; name: string; expiresOn: string | null; items: ClientPackageItem[] };
+
 export type ClientDetail = ClientSummary & {
-  /** Active packages as names and remaining counts only. Never prices or balances. */
-  activePackages: { name: string; remaining: number | null }[];
-  /** The next lesson or class this client is booked into at this studio, if any. `id`/`appointmentType` may be absent if only a time is sent. */
-  nextAppointment: { id: string | null; startsAt: string; appointmentType: string | null } | null;
-  /** The studio's IANA zone, when the server sends it (promised by the Staff session); otherwise the device zone is used. */
+  /** Remaining counts only, never prices or payments. `null` for instructors, who can't see package balances: hide the section, don't show it empty. */
+  activePackages: ClientPackage[] | null;
+  /** Earliest upcoming scheduled / confirmed / rescheduled appointment. For instructors only their own lessons with this client. */
+  nextAppointment: { id: string; appointmentType: string; title: string | null; startsAt: string; endsAt: string | null } | null;
+  /** The studio's IANA zone, for rendering nextAppointment. */
   timeZone: string | null;
 };
 
 /**
  * The attendance values the app can write. They must be values of the existing roster attendance set
  * (registered | checked_in | attended | no_show | cancelled, src/lib/schedule/groupClassRosterPanel.ts); attended and
- * no_show are the recorded outcomes the web uses. The Staff session confirms the final list in the contract doc:
+ * no_show are the recorded outcomes the web uses. The slice-2 contract accepts exactly these two (anything else is 400):
  * change it here only.
  */
 export const ATTENDANCE_MARKS = ["attended", "no_show"] as const;
@@ -242,11 +250,11 @@ export type StaffApi = {
   me: () => Promise<StaffMe>;
   today: (studioId: string, date?: string) => Promise<StaffToday>;
   appointment: (studioId: string, appointmentId: string) => Promise<AppointmentDetail>;
-  /** PROVISIONAL: GET /workspaces/{id}/clients?q=&cursor=&limit=. Role-scoped by the server: all active clients for front desk and admins, own clients for instructors. */
+  /** Slice 2: GET /workspaces/{id}/clients?q=&cursor=&limit= (limit 1–50). Front desk and admins: active clients. Instructors: the clients they teach. */
   searchClients: (studioId: string, params: { q?: string; cursor?: string | null; limit?: number }) => Promise<ClientPage>;
-  /** PROPOSED: GET /workspaces/{id}/clients/{clientId} */
+  /** Slice 2: GET /workspaces/{id}/clients/{clientId}. An instructor gets 404 for a client they don't teach. */
   client: (studioId: string, clientId: string) => Promise<ClientDetail>;
-  /** PROPOSED: PUT /workspaces/{id}/appointments/{appointmentId}/attendance/{clientId}, with an Idempotency-Key header. */
+  /** Slice 2: PUT /workspaces/{id}/appointments/{appointmentId}/attendance/{clientId}. Idempotency-Key required (400 without); idempotent by state. */
   setAttendance: (
     studioId: string,
     appointmentId: string,
@@ -263,40 +271,53 @@ function toClientSummary(raw: unknown): ClientSummary {
   return { id: String(r.id ?? ""), firstName: str(r.firstName), lastName: str(r.lastName), status: str(r.status) };
 }
 
-/** Adapters: the only place that knows the proposed wire format. */
+/** Adapters: the only place that knows the wire format. */
 export function toClientPage(raw: unknown): ClientPage {
   const r = (raw ?? {}) as { clients?: unknown; nextCursor?: unknown };
   const clients = Array.isArray(r.clients) ? r.clients.map(toClientSummary).filter((c) => c.id) : [];
   return { clients, nextCursor: str(r.nextCursor) };
 }
 
-function toNextAppointment(r: Record<string, unknown>): ClientDetail["nextAppointment"] {
-  const next = r.nextAppointment;
-  if (next && typeof next === "object") {
-    const n = next as Record<string, unknown>;
-    const startsAt = str(n.startsAt);
-    return startsAt ? { id: str(n.id), startsAt, appointmentType: str(n.appointmentType) } : null;
-  }
-  // a bare time is also accepted ("next appointment time")
-  const at = str(next) ?? str(r.nextAppointmentAt);
-  return at ? { id: null, startsAt: at, appointmentType: null } : null;
+function toNextAppointment(next: unknown): ClientDetail["nextAppointment"] {
+  if (!next || typeof next !== "object") return null;
+  const n = next as Record<string, unknown>;
+  const id = str(n.id);
+  const startsAt = str(n.startsAt);
+  if (!id || !startsAt) return null;
+  return { id, appointmentType: str(n.appointmentType) ?? "appointment", title: str(n.title), startsAt, endsAt: str(n.endsAt) };
 }
 
+function toPackage(raw: unknown): ClientPackage | null {
+  const p = (raw ?? {}) as Record<string, unknown>;
+  const id = str(p.id);
+  const name = str(p.name);
+  if (!id || !name) return null;
+  const items = (Array.isArray(p.items) ? p.items : []).map((item) => {
+    const i = (item ?? {}) as Record<string, unknown>;
+    return {
+      usageType: str(i.usageType) ?? "other",
+      remaining: typeof i.remaining === "number" && Number.isFinite(i.remaining) ? i.remaining : null,
+      unlimited: i.unlimited === true,
+    };
+  });
+  return { id, name, expiresOn: str(p.expiresOn), items };
+}
+
+/** Slice 2: `{ client: {...}, timeZone, activePackages, nextAppointment }`. */
 export function toClientDetail(raw: unknown): ClientDetail {
   const r = (raw ?? {}) as Record<string, unknown>;
-  const packages = Array.isArray(r.activePackages) ? r.activePackages : [];
   return {
-    ...toClientSummary(raw),
-    activePackages: packages
-      .map((p) => (p ?? {}) as Record<string, unknown>)
-      .filter((p) => typeof p.name === "string" && p.name)
-      .map((p) => ({ name: p.name as string, remaining: typeof p.remaining === "number" && Number.isFinite(p.remaining) ? p.remaining : null })),
-    nextAppointment: toNextAppointment(r),
+    ...toClientSummary(r.client),
+    // null (instructor) stays null so the screen can hide the section; an array is filtered to well-formed packages
+    activePackages: Array.isArray(r.activePackages)
+      ? r.activePackages.map(toPackage).filter((p): p is ClientPackage => p !== null)
+      : null,
+    nextAppointment: toNextAppointment(r.nextAppointment),
     timeZone: str(r.timeZone),
   };
 }
 
-/** Provisional response: `{ attendee: { clientId, displayName, status, updatedAt } }`. A flat object is also read. */
+/** Slice 2: `{ attendee: { clientId, displayName, status, updatedAt } }`. */
 export function toAttendanceResult(raw: unknown, clientId: string): AttendanceResult {
   const outer = (raw ?? {}) as Record<string, unknown>;
   const r = (outer.attendee && typeof outer.attendee === "object" ? outer.attendee : outer) as Record<string, unknown>;
@@ -374,7 +395,8 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
       const query = new URLSearchParams();
       if (q?.trim()) query.set("q", q.trim());
       if (cursor) query.set("cursor", cursor);
-      if (limit && Number.isInteger(limit) && limit > 0) query.set("limit", String(limit));
+      // the contract accepts 1–50
+      if (limit && Number.isInteger(limit) && limit > 0) query.set("limit", String(Math.min(limit, 50)));
       const suffix = query.toString() ? `?${query.toString()}` : "";
       return toClientPage(await call<unknown>(`${ws(studioId)}/clients${suffix}`));
     },

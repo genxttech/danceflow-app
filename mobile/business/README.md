@@ -36,26 +36,26 @@ npx expo export --platform android
 - **Today** (`src/screens/TodayScreen.tsx`): the caller's own appointments for one studio day, rendered in the studio's time zone, with skeleton, empty, not-linked and distinct error states. Rows open `app/appointments/[id].tsx`.
 - **Design** (`src/theme.ts`): Business tokens from `docs/mobile/Mobile_Design_Direction.md`: paper surface, plum for actions only, 4–48 spacing with a 20 gutter. System font until the Bricolage / Hanken licences are confirmed.
 
-## Client lookup and attendance (dark until the API serves them)
+## Client lookup and attendance (staff API slice 2, dark until it ships)
 
-The Clients tab (front-desk search, paging, client summary) and class-roster attendance (Present / Absent) are built against **proposed** Staff API shapes. Those endpoints don't exist yet, so both features are off in every build. Turn them on for local QA against a stack or mock that serves them:
+The Clients tab (search, paging, client summary) and class-roster attendance (Present / No-show) follow the **final slice-2 contract** in `docs/mobile/Staff_API_Contract.md` (branch `claude/staff-api-slice2`, 2b071403). The endpoints aren't served yet, so both features are off in every build. Turn them on for local QA against a stack or mock that serves them:
 
 ```bash
 EXPO_PUBLIC_STAFF_FEATURES=clients,attendance npx expo start --clear
 ```
 
-The provisional contract (adopted by the APPS coordinator 2026-11-10; the Staff session is implementing it) lives only in `src/lib/staffApi.ts` (the "PROPOSED SHAPES" section and its `to…` adapters). When the real contract lands, change those adapters and flip the default in `src/lib/features.ts`. The screens and tests use the typed results, so they don't change.
+The wire format lives only in `src/lib/staffApi.ts` (the "SLICE 2" section and its `to…` adapters). When the endpoints ship, flip the default in `src/lib/features.ts`.
 
-| Proposed endpoint | Used by |
+| Endpoint | Used by |
 | --- | --- |
-| `GET /workspaces/{id}/clients?q=&cursor=&limit=` → `{ clients: [{ id, firstName, lastName, status }], nextCursor }` | Clients tab: server-scoped (all active clients for front desk and admins, own clients for instructors as "My clients"); 403 = no client lookup for this role |
-| `GET /workspaces/{id}/clients/{clientId}` → summary, active packages (names and remaining counts only), next appointment, `timeZone` (promised); no money or contact details | Client screen |
-| `PUT /workspaces/{id}/appointments/{appointmentId}/attendance/{clientId}` with `{ status }` (values from `ATTENDANCE_MARKS`: `attended`, `no_show`) and an `Idempotency-Key` header → `{ attendee: { clientId, displayName, status, updatedAt } }`; 409 = not markable now | Roster (`markAttendance` on the appointment's own studio; not for cancelled classes) |\| "absent" }` and an `Idempotency-Key` header | Roster (`markAttendance` on the appointment's own studio; not for cancelled classes) |
+| `GET /workspaces/{id}/clients?q=&cursor=&limit=` (limit 1–50; the app asks for 25) → `{ clients: [{ id, firstName, lastName, status }], nextCursor }` | Clients tab. Front desk and admins search active clients. Instructors get "My clients" (the teaching relationship), and their `status` is `null`, so it is hidden. 403 = no client lookup for this role |
+| `GET /workspaces/{id}/clients/{clientId}` → `{ client, timeZone, activePackages, nextAppointment }` | Client screen. `activePackages` (id, name, `expiresOn`, items with remaining counts or unlimited) is `null` for instructors, so the section is hidden rather than shown empty. `nextAppointment` renders in `timeZone` |
+| `PUT /workspaces/{id}/appointments/{appointmentId}/attendance/{clientId}` with `{ status }` (`ATTENDANCE_MARKS`: `attended`, `no_show`) and an `Idempotency-Key` header → `{ attendee: { clientId, displayName, status, updatedAt } }` | The roster in appointment detail (there is no separate roster route). Shown for `markAttendance` on the appointment's own studio, not for cancelled classes. 409 = not markable, 404 = not on the roster, 400 = missing key |
 
-Each Present or Absent tap is one action with its own idempotency key. A 401 refresh-and-retry resends the same key, so a write never applies twice. A failed save puts the previous mark back and says why on that row.
+Each Present or No-show tap is one action with its own idempotency key (8–128 characters of `[A-Za-z0-9-_:.]`). A 401 refresh-and-retry resends the same key, and the server is idempotent by state, so a repeated mark is a 200. A failed save puts the previous mark back and says why on that row.
+
+Times render in the studio's `timeZone` from `/me`, appointment detail and client detail. The device zone is used only if a server without slice 2 omits it. Errors are the flat `{ error, code }` shape; a nested body is still read defensively.
 
 ## Sign-in links
 
 Email links come back to `danceflow-business://auth/callback`. That URL has to be on the Supabase project's redirect allow list before email-link sign-in works on a device. Password sign-in needs nothing extra.
-
-Error bodies are read in both shapes: #439's `{ error: "<message>", code }` and the provisional `{ error: { code, message } }`.

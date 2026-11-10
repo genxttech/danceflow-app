@@ -84,6 +84,20 @@
     "offscreen": []
   },
   {
+    "screen": "instructor-my-clients",
+    "ok": true,
+    "pageOverflow": 0,
+    "clipped": [],
+    "offscreen": []
+  },
+  {
+    "screen": "instructor-client-detail",
+    "ok": true,
+    "pageOverflow": 0,
+    "clipped": [],
+    "offscreen": []
+  },
+  {
     "screen": "more",
     "ok": true,
     "pageOverflow": 0,
