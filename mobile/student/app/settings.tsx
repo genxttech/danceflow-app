@@ -142,11 +142,12 @@ export default function SettingsScreen() {
                     try {
                       await deleteDanceFlowAccount();
                       await signOut();
-                    } catch {
-                      Alert.alert(
-                        "Account deletion failed",
-                        "Your account was not deleted. Try again or contact DanceFlow support.",
-                      );
+                    } catch (error) {
+                      // The server explains a refusal (for example a login that also manages a studio).
+                      const reason = error instanceof Error && error.message.includes("can't be deleted here")
+                        ? error.message
+                        : "Your account was not deleted. Try again or contact DanceFlow support.";
+                      Alert.alert("Account deletion failed", reason);
                     }
                   },
                 },

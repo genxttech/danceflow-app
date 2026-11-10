@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
+  AccountDeletionBlockedError,
   deleteDanceFlowAccount,
   leaveStudioRelationship,
 } from "@/lib/student-identity/account-controls";
@@ -60,6 +61,9 @@ export async function deleteAccountAction(formData: FormData) {
   try {
     await deleteDanceFlowAccount(user);
   } catch (error) {
+    if (error instanceof AccountDeletionBlockedError) {
+      redirect("/account?error=account_delete_managed_access");
+    }
     console.error("Account deletion failed", error);
     redirect("/account?error=account_delete_failed");
   }

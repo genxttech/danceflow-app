@@ -77,16 +77,30 @@ These are functional gaps, not leaks: the app shows less than intended. Fixing t
 | CPU virtualization for the emulator | Hypervisor running (WSL2 Virtual Machine Platform on). **Windows Hypervisor Platform (WHPX) is disabled**; the emulator needs WHPX when a hypervisor is active. Enabling it needs an administrator and a reboot | No |
 | JDK, Android SDK | Neither installed | Installable, but sdkmanager requires accepting the Android SDK licence |
 
-| Matrix item | Result | Reason |
+**Local-stack web QA (2026-11-10):** run against a disposable local stack built from the `df-isoqa` baseline plus every later migration in this PR (43 applied, no failures) plus the 1C-A email proof. The stack had GoTrue 2.188.1 with Mailpit, PostgREST, and the #438 Next dev server for `/api/student/*`. The Student web export of #442 was driven by Playwright through one local origin. The magic links came from Mailpit, so no inbox or service-role key was needed.
+
+Two QA-only web stand-ins, never committed: `expo-secure-store` maps to `localStorage` (it has no web build; the app itself keeps web sessions in AsyncStorage by design), and native-only modules (PDF, Stripe, WebView, video) are stubbed.
+
+| Matrix item | Result | Evidence |
 |---|---|---|
-| Sign-in, and session surviving app restart (Keystore-backed SecureStore) | **BLOCKED** | No emulator or device. Web can't stand in: expo-secure-store has no web implementation |
-| Sign-out clears the session | **BLOCKED** | Same. Logic covered by jest (`clearPersistedSessions`, sign-out unbind) |
-| Deep links via `adb shell am start -d`; raw-token link ignored | **BLOCKED** | No emulator or device. Route and scheme mapping covered by `linkingConfig.test.ts`; raw-token removal covered by `authLink` and `auth` tests |
-| #442 screens, light and dark | **PASS (web)** | Rendered web export, contrast measured from pixels (#442 comment 6762156752). Native rendering not checked |
-| Partner profile save doesn't send `moderation_status` | **PASS (unit + DEV)** | jest payload test. On DEV, the rolled-back behavior check shows the guard refuses self-approval (#438 comment 6757076211). An end-to-end save from the app needs a signed-in DEV session |
-| Account deletion | **BLOCKED** | Needs a signed-in session on a device or DEV. DEV sign-in needs a magic-link email the agent can't receive, and minting a session needs the service-role key, which the agent doesn't handle |
-| Payment sheet | **BLOCKED** | No emulator or device, and no Stripe TEST publishable key or test connected account in the repo's example env |
+| Sign-in with a magic link | **PASS (web, local stack)** | A new address got a `signup` token, verified with amr `otp`, and `record_email_proof_mobile` was called. The app moved on to the secure-account step |
+| Session survives restart | **PASS (web, local stack)**; native Keystore **not verified** | After a full reload the session key is present and Settings shows the signed-in email |
+| Sign-out clears the session | **PASS (web, local stack)**; native **not verified** | The session key is removed, the email is no longer shown, and 0 active refresh tokens remain on the server |
+| Partner profile save | **PASS (web, local stack)** | The app's POST to `dancer_partner_profiles` has 19 fields and no `moderation_status`. The row stays `pending`, and the guard trigger is enabled |
+| Forged self-approval through PostgREST | **PASS (web, local stack)** | PATCH `moderation_status=approved` gets 403 / `42501`, and the row stays `pending` |
+| Account deletion, dancer | **PASS (web, local stack)**; the native two-step confirmation is **not verified** (react-native-web's `Alert` is a no-op) | The app's request (`DELETE /api/student/account`, `confirmation: DELETE`) gets 200; the auth user and profile are removed |
+| Account deletion, login that is also studio staff | **FAIL before the fix, PASS after** | **Defect found:** it returned 200 and the profiles delete cascaded away the `studio_owner` role. It is now refused with 409 and changes nothing (fix below) |
+| Push claim RPC | **NOT REACHED (web)**: device only | Registration stops at the notification-permission check on web, so no token and no claim. The server function is verified on DEV and PROD and in unit tests |
+| Deep links via `adb shell am start -d` | **BLOCKED** | No emulator or device. Mapping and raw-token removal are covered by jest |
+| #442 screens, light and dark | **PASS (web)** | Contrast measured from pixels (#442 comment 6762156752); native not checked |
+| Payment sheet | **BLOCKED** | No device, and no Stripe TEST key or test connected account in the repo |
 | Push delivery | **BLOCKED** | Needs FCM/EAS credentials and a device build |
+
+**Fixed here: self-service deletion of a login that also manages something.** `deleteDanceFlowAccount` now refuses, before any write, when the login has an active `user_studio_roles` row, an active `organizer_users` row, or `platform_role = 'platform_admin'`:
+- The app's API returns 409 with the reason, and the app shows it.
+- The web account page shows the same message.
+
+Unit tests cover all three cases plus inactive roles, and fail when the guard is removed. **Owner decision:** whether such users should instead be able to delete only their dancer data while keeping the staff login. Today they are refused and pointed to support.
 
 **Smallest routes to unblock, each needing the owner's OK:**
 
