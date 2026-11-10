@@ -128,7 +128,7 @@ export async function setHeatCapacityAction(formData: FormData): Promise<void> {
   const { data: ownRound, error: ownRoundError } = await supabase.from("event_competition_rounds").select("id").eq("id", roundId).eq("event_id", eventId).maybeSingle();
   if (ownRoundError || !ownRound) back(eventId, { error: "That round could not be found. Refresh and try again.", heat });
   // With Competition Finals on, a deadlock or lock-wait refusal is retried once (safe: the request id makes the call idempotent).
-  // Off, this is exactly the live heat-size hotfix (ac902c28): one call.
+  // Off, this is exactly the live heat-size fix (bbadbf13, the same patch as ac902c28): one call.
   const call = (name: string, args: Record<string, unknown>) => supabase.rpc(name, args);
   const rpc = competitionFinalsEnabled() ? withRetryOnce(call) : call;
   const { error } = await rpc("set_competition_round_heat_capacity", {
