@@ -4,8 +4,8 @@ Date: 2026-11-09. Git-only candidate. **Nothing was merged, deployed, promoted, 
 
 | Item | Value |
 |---|---|
-| Candidate branch | `release/competition-cf1-app-candidate` (draft PR against `release/tw4f-monitoring-r2-cib`) |
-| Base (live www code) | `release/tw4f-monitoring-r2-cib` `a965f477` (deployed as dpl_6cCoRGWg…) |
+| Candidate branch | `release/competition-cf1-app-candidate` (draft PR #443, base retargeted to `release/cf1-hotfix-heat-schedulepush` on 2026-11-10) |
+| Base (live www code) | **since 2026-11-10:** `release/cf1-hotfix-heat-schedulepush` `ab940288` (tree 640ba2ab, live as dpl_6rhE7gAq…). Originally `release/tw4f-monitoring-r2-cib` `a965f477` (dpl_6cCoRGWg…); sections 2–8 below were written against that base, and section 0 records the rebase. |
 | CF1 source | `cf1/integration-5` `400cce2b`, engine-spec wording from `28a7722e`; F1 engines byte-identical to `competition-f1-studio-engines` `ee6bd401` |
 | Heat-size hotfix | `hotfix/competition-heat-capacity-reason` `ac902c28` (parent `a965f477`, standalone; merged into the candidate) |
 | App code under browser test | `4ffdede9` (app code byte-identical to the final head; later commits touch e2e, docs and scripts only) |
@@ -13,6 +13,31 @@ Date: 2026-11-09. Git-only candidate. **Nothing was merged, deployed, promoted, 
 | Schema compatibility | `cf1-app-candidate-schema-compat-2026-11-09.json` |
 | QA stack baseline | `cf1-app-candidate-qa-stack-baseline-2026-11-09.json` |
 | Browser results | `cf1-app-candidate-acceptance-on-2026-11-09.json`, `cf1-app-candidate-acceptance-dark-2026-11-09.json` (traces and screenshots stay outside the repository under `<scratchpad>/runs/`) |
+
+## 0. Rebase onto the new live code (2026-11-10)
+
+- **New live base:** `ab940288` = `a965f477`, then PR 441 (TW-4F pricing release, `ebeef20d`), then `bbadbf13` (this branch's heat-size fix `ac902c28` cherry-picked; identical patch-id), then PR 444 (schedule-push fix `81363467` and its tests `ab940288`).
+- **Merge:** a real merge `63c83cf1`, with no force-push. `ac902c28` stays in this branch's history because removing it would need a rewrite. It and `bbadbf13` are the same patch, so the tree carries one heat-size change.
+- **Conflict:** one, in `src/app/app/events/[id]/competition/schedule/actions.ts` (`friendly()` and the heat-size RPC call). It is the same overlap resolved in `de1a8d80`. I kept the candidate side: flag off = the live fix (one call), flag on adds the CF1 idempotent retry. No other file conflicted.
+- **Preservation against `ab940288`: 0 changed files** in every area of section 3, plus the two new protected areas:
+  - **PR 441 pricing release:** all 17 files.
+  - **PR 444 schedule-push:** `src/lib/notifications/schedulePush.ts` and its 2 tests.
+  - Against live, the schedule files differ only by the flag-gated CF1 additions (Final heat-size section, CF1 retry and error copy). The heat-size test file is identical to live.
+- **Static schema check:** not re-run. PR 441's SQL (20270210*, 20270212) changes only TW-4F price objects, which no CF1 file references. The CF1 references are unchanged since section 4.
+- **Tests on `15ca8098`** (app code = the merge plus a test-only warm-up fix):
+
+  | Check | Result |
+  |---|---|
+  | tsc | PASS |
+  | ESLint on 130 changed files | 0 errors, 5 warnings |
+  | Full vitest, `--maxWorkers=4` | 597 files passed, 6 failed, 59 skipped; 9,684 tests passed, 6 failed, 1,290 skipped. **All 6 failures were 5 s timeouts**: five whole-source scan guards and `closeout.phase8d`. |
+  | Those 6 files re-run sequentially | 138/138 PASS |
+
+  - **`closeout.phase8d`:** it also fails alone on the unchanged live code (`a965f477` worktree; the documents area is identical in all three trees), so it's a machine-speed issue, not a candidate regression.
+  - **Fix in my own test:** an earlier run exposed a cold-import timeout in `finalsGate.liveOff.cf1dark`. That file now warms its modules once.
+- **Dark smoke, flag off, on `15ca8098`:** 7/7 PASS (dev mode, `cf1c-qa`, 6.5 GB free at start). Evidence: `cf1-app-candidate-acceptance-dark-rebase-2026-11-10.json`.
+- **Flag-on CF1-C acceptance:** not re-run after the rebase. The only incoming code is TW-4F pricing and schedule push, outside the CF1 surface. The section 6 Q8 result stands for the CF1 code, which is unchanged.
+- **Memory:** free RAM read 1.5 GB at 02:44Z and tsc was started without rechecking (it completed). Every later heavy run started at ≥ 6 GB.
 
 ## 1. Verdict
 

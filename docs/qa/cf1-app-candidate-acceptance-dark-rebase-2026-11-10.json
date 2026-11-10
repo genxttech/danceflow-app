@@ -1,0 +1,203 @@
+{
+  "generatedAt": "2026-11-10T03:36:42.345Z",
+  "source": "results.json",
+  "stats": {
+    "startTime": "2026-11-10T03:25:38.762Z",
+    "duration": 637518.666,
+    "expected": 7,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "counts": {
+    "PASS": 7
+  },
+  "scenarios": [
+    {
+      "id": "SCN-DARK setup: a studio competition with rounds, created through the live wizard",
+      "title": "SCN-DARK setup: a studio competition with rounds, created through the live wizard",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 170182,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-dark-smoke-d3eda-ted-through-the-live-wizard-chrome/test-finished-1.png",
+        "artifacts/competition-cf1-dark-smoke-d3eda-ted-through-the-live-wizard-chrome/test-finished-2.png"
+      ],
+      "trace": "artifacts/competition-cf1-dark-smoke-d3eda-ted-through-the-live-wizard-chrome/trace.zip",
+      "evidence": [
+        {
+          "eventId": "e40e8a2b-b8a2-47ce-bf64-9fe457bffdda",
+          "roundId": "cb9929ae-68c1-4789-9e54-f1d1877911ff",
+          "slug": "e2e-cf1-dark-4a605296",
+          "rounds": 1
+        },
+        {
+          "eventId": "e40e8a2b-b8a2-47ce-bf64-9fe457bffdda",
+          "roundId": "cb9929ae-68c1-4789-9e54-f1d1877911ff",
+          "slug": "e2e-cf1-dark-4a605296",
+          "rounds": 1
+        }
+      ]
+    },
+    {
+      "id": "SCN-DARK-1 workspace navigation is the live release navigation",
+      "title": "SCN-DARK-1 workspace navigation is the live release navigation",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 20987,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-dark-smoke-239df-the-live-release-navigation-chrome/attachments/01-workspace-nav-00562a0dba52d412aebb6f0088fc25bcf6c91653.png",
+        "artifacts/competition-cf1-dark-smoke-239df-the-live-release-navigation-chrome/test-finished-1.png"
+      ],
+      "trace": "artifacts/competition-cf1-dark-smoke-239df-the-live-release-navigation-chrome/trace.zip",
+      "evidence": []
+    },
+    {
+      "id": "SCN-DARK-2 every CF1 page answers 404 for the studio owner",
+      "title": "SCN-DARK-2 every CF1 page answers 404 for the studio owner",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 120767,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-dark-smoke-f8ca6-rs-404-for-the-studio-owner-chrome/attachments/01-last-cf1-page-404-3d5109bd0453af8291ea41efa1f689b7174d914e.png",
+        "artifacts/competition-cf1-dark-smoke-f8ca6-rs-404-for-the-studio-owner-chrome/test-finished-1.png"
+      ],
+      "trace": "artifacts/competition-cf1-dark-smoke-f8ca6-rs-404-for-the-studio-owner-chrome/trace.zip",
+      "evidence": [
+        {
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/officials": 404,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/ballots": 404,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/ballots/cb9929ae-68c1-4789-9e54-f1d1877911ff": 404,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/day-of": 404,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/results": 404,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/results/cb9929ae-68c1-4789-9e54-f1d1877911ff": 404,
+          "/app/judging": 404,
+          "/app/judging/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/rounds/cb9929ae-68c1-4789-9e54-f1d1877911ff/ballot": 404,
+          "/app/judging/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/rounds/cb9929ae-68c1-4789-9e54-f1d1877911ff/ballot/desk": 404
+        },
+        {
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/officials": 404,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/ballots": 404,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/ballots/cb9929ae-68c1-4789-9e54-f1d1877911ff": 404,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/day-of": 404,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/results": 404,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/results/cb9929ae-68c1-4789-9e54-f1d1877911ff": 404,
+          "/app/judging": 404,
+          "/app/judging/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/rounds/cb9929ae-68c1-4789-9e54-f1d1877911ff/ballot": 404,
+          "/app/judging/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/rounds/cb9929ae-68c1-4789-9e54-f1d1877911ff/ballot/desk": 404
+        }
+      ]
+    },
+    {
+      "id": "SCN-DARK-3 the public results page answers 404 for an anonymous visitor",
+      "title": "SCN-DARK-3 the public results page answers 404 for an anonymous visitor",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 7068,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-dark-smoke-dace7-04-for-an-anonymous-visitor-chrome/test-finished-1.png"
+      ],
+      "trace": "artifacts/competition-cf1-dark-smoke-dace7-04-for-an-anonymous-visitor-chrome/trace.zip",
+      "evidence": [
+        {
+          "path": "/events/e2e-cf1-dark-4a605296/competition/results",
+          "status": 404
+        },
+        {
+          "path": "/events/e2e-cf1-dark-4a605296/competition/results",
+          "status": 404
+        }
+      ]
+    },
+    {
+      "id": "SCN-DARK-4 Advanced settings shows no studio scoring or callback-target control",
+      "title": "SCN-DARK-4 Advanced settings shows no studio scoring or callback-target control",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 27180,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-dark-smoke-f8f97--or-callback-target-control-chrome/attachments/01-advanced-no-cf1-f5808872ee2764f9453e2ea928a26ee1c368287f.png",
+        "artifacts/competition-cf1-dark-smoke-f8f97--or-callback-target-control-chrome/test-finished-1.png"
+      ],
+      "trace": "artifacts/competition-cf1-dark-smoke-f8f97--or-callback-target-control-chrome/trace.zip",
+      "evidence": []
+    },
+    {
+      "id": "SCN-DARK-6 heat-size hotfix (ac902c28): with the flag off, 'Max entries per heat' takes a reason and is saved and audited",
+      "title": "SCN-DARK-6 heat-size hotfix (ac902c28): with the flag off, 'Max entries per heat' takes a reason and is saved and audited",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 113231,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-dark-smoke-d85db-on-and-is-saved-and-audited-chrome/attachments/01-heat-size-saved-6bfc515d869bc68228611f77b54a5f67311bb916.png",
+        "artifacts/competition-cf1-dark-smoke-d85db-on-and-is-saved-and-audited-chrome/test-finished-1.png"
+      ],
+      "trace": "artifacts/competition-cf1-dark-smoke-d85db-on-and-is-saved-and-audited-chrome/trace.zip",
+      "evidence": [
+        {
+          "capacityEvents": [
+            {
+              "new_capacity": 2,
+              "reason": "Smaller heats keep the floor readable for judges",
+              "request_id": "e41d8cbe-16da-4638-8a97-b454316b7b1c"
+            }
+          ]
+        },
+        {
+          "capacityEvents": [
+            {
+              "new_capacity": 2,
+              "reason": "Smaller heats keep the floor readable for judges",
+              "request_id": "e41d8cbe-16da-4638-8a97-b454316b7b1c"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "SCN-DARK-5 the live competition pages still render for the owner",
+      "title": "SCN-DARK-5 the live competition pages still render for the owner",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 68762,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-dark-smoke-14c0f--still-render-for-the-owner-chrome/test-finished-1.png"
+      ],
+      "trace": "artifacts/competition-cf1-dark-smoke-14c0f--still-render-for-the-owner-chrome/trace.zip",
+      "evidence": [
+        {
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition": 200,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/divisions": 200,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/schedule": 200,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/advanced": 200,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/registrations": 200,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/checkin": 200,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/readiness": 200
+        },
+        {
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition": 200,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/divisions": 200,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/schedule": 200,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/advanced": 200,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/registrations": 200,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/checkin": 200,
+          "/app/events/e40e8a2b-b8a2-47ce-bf64-9fe457bffdda/competition/readiness": 200
+        }
+      ]
+    }
+  ]
+}
