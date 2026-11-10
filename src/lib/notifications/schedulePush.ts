@@ -245,7 +245,7 @@ export async function sendAppointmentSchedulePush(params: {
       starts_at,
       ends_at,
       status,
-      clients (
+      clients:clients!appointments_client_id_fkey (
         first_name,
         last_name
       ),
@@ -384,7 +384,7 @@ export async function sendGroupClassCancellationPush(params: {
       starts_at,
       ends_at,
       status,
-      clients (
+      clients:clients!appointments_client_id_fkey (
         first_name,
         last_name
       ),
