@@ -276,26 +276,28 @@ export async function unbindPushTokenForSignOut() {
   }
 }
 
+const PREFERENCE_COLUMNS =
+  "push_enabled, schedule_updates, event_updates, favorite_updates, learning_updates, account_updates, partner_updates";
+
+function readNotificationPreferences(userId: string) {
+  return supabase.from("mobile_notification_preferences").select(PREFERENCE_COLUMNS).eq("user_id", userId).maybeSingle();
+}
+
 export async function loadNotificationPreferences(userId: string) {
-  const { data, error } = await supabase
-    .from("mobile_notification_preferences")
-    .select("push_enabled, schedule_updates, event_updates, favorite_updates, learning_updates, account_updates, partner_updates")
-    .eq("user_id", userId)
-    .maybeSingle();
-
+  const { data, error } = await readNotificationPreferences(userId);
   if (error) throw error;
+  if (data) return fromPreferenceRow(data as PreferenceRow);
 
-  if (!data) {
-    const { error: insertError } = await supabase
-      .from("mobile_notification_preferences")
-      .insert(toPreferenceRow(userId, DEFAULT_PREFERENCES));
+  // First use. The push bootstrap and the Settings card can both get here at once, so
+  // create the defaults without failing when the other one already did, then read back.
+  const { error: createError } = await supabase
+    .from("mobile_notification_preferences")
+    .upsert(toPreferenceRow(userId, DEFAULT_PREFERENCES), { onConflict: "user_id", ignoreDuplicates: true });
+  if (createError) throw createError;
 
-    if (insertError) throw insertError;
-
-    return DEFAULT_PREFERENCES;
-  }
-
-  return fromPreferenceRow(data as PreferenceRow);
+  const { data: created, error: rereadError } = await readNotificationPreferences(userId);
+  if (rereadError) throw rereadError;
+  return created ? fromPreferenceRow(created as PreferenceRow) : DEFAULT_PREFERENCES;
 }
 
 export async function saveNotificationPreferences(userId: string, preferences: NotificationPreferences) {
@@ -392,6 +394,8 @@ export function useNotificationPreferences(userId: string | null | undefined) {
 
       setPreferences(nextPreferences);
       setPermissionStatus(status);
+    } catch {
+      setMessage("Notification preferences could not be loaded. Try again.");
     } finally {
       setLoading(false);
     }
