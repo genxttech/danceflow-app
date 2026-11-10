@@ -1,6 +1,6 @@
 # Student App P0: release sequence and device QA
 
-**Scope:** PR #438 (payment sheet account, signup, secure sessions, raw-token links, push ownership, Partner Search moderation guard). Nothing here is applied, deployed or built. Each hosted step needs the owner's approval.
+**Scope:** PR #438 (payment sheet account, signup, secure sessions, raw-token links, push ownership, Partner Search moderation guard). **Status (2026-11-10):** both migrations are applied and verified on DEV only. Nothing is on PROD, nothing is deployed and no app is built. Each further hosted step needs the owner's approval.
 
 ## What ships where
 
@@ -16,29 +16,29 @@ PROD does not equal `main`. The web pieces must ride whatever release branch PRO
 
 ## Order
 
-1. **PROD read-only preflight** (catalog and counts only):
-   - `dancer_partner_profiles` policies, triggers and column grants match DEV (DEV checked 2026-11-09, see below).
-   - Count of `moderation_status = 'approved'` rows. No application path approves a listing, so every approved row is suspect and needs review before or after the guard.
-   - Count of `flagged` / `hidden` rows. Released clients send `pending` when a dancer republishes, which the guard refuses for those two statuses (a save error, not a data change).
-   - `report_partner_profile` and `block_partner_profile` are owned by `postgres` (true on DEV), so the guard does not affect them.
-2. **DEV SQL:** apply `20270211090000`, then `20270213090000`. Both are compatible with the released web and app, so SQL goes first. Postflight: function and trigger present, guard and claim not executable by `anon`, claim executable by `authenticated` only.
-3. **PROD SQL:** same two files, same checks.
-4. **Web:** ship the two web changes in the reconciled release. Before this, the app falls back to hosted checkout on registration and shows an error when resuming a payment.
-5. **App:** EAS build only after steps 3 and 4. Without step 3, push registration fails silently and the Partner Search save sends no status (the trigger is what sends edited approved listings back to review).
+1. ~~**PROD read-only preflight.**~~ Done 2026-11-10 (#438 comment 6757168395):
+   - The self-approval hole is present on PROD: same owner policy, `authenticated` holds UPDATE on `moderation_status`, no trigger.
+   - Not exploited: 1 listing, `pending`. 0 approved, 0 flagged, 0 hidden.
+   - Neither migration is on PROD.
+2. ~~**DEV SQL.**~~ Done 2026-11-10 (#438 comment 6757076211). `20270211090000` at 00:50:13Z, then `20270213090000` at 00:53:29Z, each through a fail-closed wrapper that checks the project ref and SHA-256. Catalog and rolled-back behavior postflight passed, with no residue.
+3. **PROD guard SQL: `20270213090000` now.** PROD has no flagged or hidden listings, so released web and mobile clients keep working with the guard in place. It can go before the web change, and closing the hole doesn't need to wait for an app release.
+4. **PROD push SQL: `20270211090000`** before any app build that uses it. It is additive and safe at any time before step 6.
+5. **Web:** ship the two web changes in the reconciled release. Before this, the app falls back to hosted checkout on registration and shows an error when resuming a payment.
+6. **App:** EAS build only after steps 3 to 5. Without the push SQL, push registration fails silently. Without the guard, the Partner Search save sends no status, and the trigger is what sends edited approved listings back to review.
 
 **Rollback:** app first, then web (both web changes are harmless on their own), then the SQL rollback files in reverse order (`20270213090000`, then `20270211090000`). Rolling back the guard reopens self-approval.
 
-## Hosted read-only evidence (2026-11-09)
+## Hosted read-only evidence
 
-| Check | DEV | PROD |
+| Check | DEV (2026-11-09, before the fix) | PROD (2026-11-10) |
 |---|---|---|
-| `dancer_partner_profiles`: owner policy `FOR ALL` with `auth.uid() = user_id`, no trigger, `authenticated` and `anon` hold UPDATE on `moderation_status` | Confirmed (0 rows in the table) | **Not checked:** the read was refused by the session's permission guard |
-| `event_registrations` | Only staff/organizer policies plus `event_registrations_self_select` (`user_id = auth.uid()`). No public or guest read | Not checked |
-| `attendance_records` | Staff, instructor and platform-admin only. **No student read policy** | Not checked |
-| `commerce_catalog_items` | Studio staff only (`user_studio_roles`). **No student or public read policy** | Not checked |
-| Hosted email templates (Magic Link, Confirm Signup) | **Not checked:** the CLI has no read command; the Management API needs the account token, which the agent does not handle | Not checked |
+| `dancer_partner_profiles`: owner policy `FOR ALL` with `auth.uid() = user_id`, no trigger, `authenticated` and `anon` hold UPDATE on `moderation_status` | Confirmed, 0 rows. Fixed on DEV 2026-11-10 | Confirmed, 1 row (`pending`). Not fixed yet |
+| `event_registrations` | Only staff/organizer policies plus `event_registrations_self_select` (`user_id = auth.uid()`). No public or guest read | Same |
+| `attendance_records` | Staff, instructor and platform-admin only. **No student read policy** | Same |
+| `commerce_catalog_items` | Studio staff only (`user_studio_roles`). **No student or public read policy** | Same |
+| Hosted email templates (Magic Link, Confirm Signup) | **Not checked:** no read-only CLI path; needs the owner's dashboard | Not checked |
 
-What the DEV policies mean for the app (all read through the user's own session):
+What these policies mean for the app (same on DEV and PROD) (all read through the user's own session):
 
 - **`publicDiscovery.ts:384` remaining spots:** a guest or another buyer sees no rows, so the count is the event's full capacity. The server still enforces capacity at checkout; the screen overstates availability.
 - **`studentWallet.ts:405,422` tickets:** the `client_id` read returns nothing unless `user_id` matches; the `attendee_email` read returns only rows with `user_id = auth.uid()`. No other buyer's ticket is exposed. Tickets bought before the account existed (`user_id` null) do not show.
