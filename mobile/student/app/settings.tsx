@@ -3,6 +3,7 @@ import { Alert, Share, StyleSheet, TextInput, useColorScheme, View } from "react
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { ErrorState } from "@/components/ErrorState";
 import { LegalLinks } from "@/components/LegalLinks";
 import { NotificationPreferencesCard } from "@/components/NotificationPreferencesCard";
 import { Screen } from "@/components/Screen";
@@ -203,7 +204,7 @@ export default function SettingsScreen() {
 
       {errorMessage ? (
         <View style={styles.stateBlock}>
-          <FeatureCard title="Settings update" detail={errorMessage} />
+          <ErrorState error={errorMessage} title="Settings update" />
           <AppButton label="Try again" onPress={loadSettings} variant="secondary" />
         </View>
       ) : null}

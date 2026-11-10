@@ -4,6 +4,8 @@ import { StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -144,8 +146,8 @@ export default function LatestRecapsScreen() {
         Review your most recent private lessons and published group class notes.
       </AppText>
 
-      {loading ? <FeatureCard title="Loading recaps" detail="Checking your learning history." /> : null}
-      {errorMessage ? <FeatureCard title="Recaps unavailable" detail={errorMessage} /> : null}
+      {loading ? <LoadingState label="Loading recaps" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Recaps unavailable" /> : null}
 
       {!loading && !hasPortalAccess ? (
         <FeatureCard

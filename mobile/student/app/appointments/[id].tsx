@@ -4,7 +4,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
-import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -233,13 +234,10 @@ export default function AppointmentDetailScreen() {
       </Pressable>
 
       {loading ? (
-        <FeatureCard
-          title="Loading schedule details"
-          detail="Getting the latest information from your studio."
-        />
+        <LoadingState label="Loading schedule details" />
       ) : null}
 
-      {error ? <FeatureCard title="Details unavailable" detail={error} /> : null}
+      {error ? <ErrorState error={error} title="Details unavailable" /> : null}
 
       {appointment ? (
         <>

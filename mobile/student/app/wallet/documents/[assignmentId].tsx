@@ -14,6 +14,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
@@ -433,7 +434,7 @@ export default function StudentDocumentDetailScreen() {
   if (error && !detail) {
     return (
       <Screen>
-        <FeatureCard title="Document unavailable" detail={error} />
+        <ErrorState error={error} title="Document unavailable" />
         <AppButton label="Try again" onPress={load} />
       </Screen>
     );
@@ -456,7 +457,7 @@ export default function StudentDocumentDetailScreen() {
         <AppText variant="caption">{detail.document.description}</AppText>
       ) : null}
 
-      {error ? <FeatureCard title="Signing needs attention" detail={error} /> : null}
+      {error ? <ErrorState error={error} title="Signing needs attention" /> : null}
 
       {pdfLoading ? (
         <View style={styles.pdfLoadingCard}>

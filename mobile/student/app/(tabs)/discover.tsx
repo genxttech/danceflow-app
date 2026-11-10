@@ -3,7 +3,8 @@ import { Pressable, StyleSheet, useColorScheme, useWindowDimensions, View } from
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { AppText } from "@/components/AppText";
-import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import {
@@ -117,8 +118,8 @@ export default function DiscoverScreen() {
         </AppText>
       </View>
 
-      {loading ? <FeatureCard title="Loading discovery" detail="Checking available categories." /> : null}
-      {errorMessage ? <FeatureCard title="Discovery update" detail={errorMessage} /> : null}
+      {loading ? <LoadingState label="Loading discovery" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Discovery update" /> : null}
 
       <View style={styles.sectionHeader}>
         <AppText variant="eyebrow">Explore DanceFlow</AppText>

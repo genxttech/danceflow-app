@@ -4,6 +4,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -54,6 +56,7 @@ export default function EventDetailScreen() {
 
     if (!id) return;
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loading flag for a fetch keyed on the route id
     setLoading(true);
     getPublicEventDetailForMobile(id, session?.user.id)
       .then((detail) => {
@@ -77,7 +80,7 @@ export default function EventDetailScreen() {
   if (loading) {
     return (
       <Screen>
-        <FeatureCard title="Loading event" detail="Checking ticket options and registration details." />
+        <LoadingState label="Loading event" />
       </Screen>
     );
   }
@@ -85,7 +88,7 @@ export default function EventDetailScreen() {
   if (!event || errorMessage) {
     return (
       <Screen>
-        <FeatureCard title="Event unavailable" detail={errorMessage ?? "This event could not be found."} />
+        <ErrorState error={errorMessage} fallback="This event could not be found." title="Event unavailable" />
         <AppButton label="Back to events" onPress={() => router.push("/discover/events" as unknown as RouterPushTarget)} />
       </Screen>
     );

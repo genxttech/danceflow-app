@@ -6,6 +6,8 @@ import { useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -301,11 +303,11 @@ export function EventSearchScreen({ category = "all" }: { category?: EventSearch
         </View>
       ) : null}
 
-      {locationError ? <FeatureCard title="Location" detail={locationError} /> : null}
+      {locationError ? <ErrorState error={locationError} title="Location" /> : null}
 
-      {loading ? <FeatureCard title="Loading events" detail="Finding public dance events." /> : null}
+      {loading ? <LoadingState label="Loading events" /> : null}
       {message ? <FeatureCard title="Events" detail={message} /> : null}
-      {errorMessage ? <FeatureCard title="Events need attention" detail={errorMessage} /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Events need attention" /> : null}
 
       {favoriteEvents.length > 0 ? (
         <View style={styles.sectionHeading}>

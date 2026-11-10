@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, useColorScheme, View } from "react-n
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -303,7 +304,7 @@ export default function ScheduleRequestScreen() {
         />
       ) : null}
 
-      {loading ? <FeatureCard title="Loading calendar" detail="Checking available lesson times." /> : null}
+      {loading ? <LoadingState label="Loading calendar" /> : null}
 
       {decision?.allowed === false ? (
         <FeatureCard title="Booking unavailable" detail={decision.reason ?? "This studio is not accepting self-service bookings."} />

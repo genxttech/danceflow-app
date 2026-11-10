@@ -3,6 +3,8 @@ import { Link, type Href } from "expo-router";
 import { Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import {
@@ -59,14 +61,11 @@ export default function CurriculumAssignmentsScreen() {
       </AppText>
 
       {loading ? (
-        <FeatureCard
-          title="Loading assignments"
-          detail="Checking what your studio wants you to practice next."
-        />
+        <LoadingState label="Loading assignments" />
       ) : null}
 
       {errorMessage ? (
-        <FeatureCard title="Assignments unavailable" detail={errorMessage} />
+        <ErrorState error={errorMessage} title="Assignments unavailable" />
       ) : null}
 
       {!loading && !errorMessage && assignments.length === 0 ? (

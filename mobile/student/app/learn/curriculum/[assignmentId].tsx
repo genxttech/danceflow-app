@@ -3,7 +3,8 @@ import { Link, useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
-import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import {
@@ -81,10 +82,7 @@ export default function CurriculumAssignmentDetailScreen() {
   if (loading) {
     return (
       <Screen>
-        <FeatureCard
-          title="Loading assignment"
-          detail="Preparing your curriculum details."
-        />
+        <LoadingState label="Loading assignment" />
       </Screen>
     );
   }
@@ -92,10 +90,7 @@ export default function CurriculumAssignmentDetailScreen() {
   if (!assignment) {
     return (
       <Screen>
-        <FeatureCard
-          title="Assignment unavailable"
-          detail={errorMessage ?? "This assignment could not be found."}
-        />
+        <ErrorState error={errorMessage} fallback="This assignment could not be found." title="Assignment unavailable" />
         <AppButton
           label="Back to assignments"
           onPress={() => router.replace("/learn/curriculum" as never)}

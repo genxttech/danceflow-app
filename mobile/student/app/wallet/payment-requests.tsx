@@ -3,6 +3,8 @@ import { Linking, StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -97,8 +99,8 @@ export default function PaymentRequestsScreen() {
       <AppText variant="title">Payment Requests</AppText>
       <AppText variant="caption">Review and pay open requests from connected studios.</AppText>
 
-      {loading ? <FeatureCard title="Loading payment requests" detail="Checking open requests." /> : null}
-      {errorMessage ? <FeatureCard title="Payment requests unavailable" detail={errorMessage} /> : null}
+      {loading ? <LoadingState label="Loading payment requests" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Payment requests unavailable" /> : null}
 
       {!loading && hasPortalAccess && paymentRequests.length > 0 ? (
         <View style={styles.section}>

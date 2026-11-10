@@ -5,6 +5,8 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -473,10 +475,7 @@ export default function WalletScreen() {
       ) : null}
 
       {loading ? (
-        <FeatureCard
-          title="Loading wallet..."
-          detail="Checking your tickets, passes, and studio items."
-        />
+        <LoadingState label="Loading wallet" />
       ) : null}
 
       {!loading && showCheckoutSync ? (
@@ -494,7 +493,7 @@ export default function WalletScreen() {
       ) : null}
 
       {!loading && errorMessage ? (
-        <FeatureCard title="Wallet unavailable" detail={errorMessage} />
+        <ErrorState error={errorMessage} onRetry={() => void loadWallet({ force: true })} title="Wallet unavailable" />
       ) : null}
 
       {!loading && isSignedIn ? (

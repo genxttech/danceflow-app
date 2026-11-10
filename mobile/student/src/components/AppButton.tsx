@@ -7,8 +7,10 @@ import {
   type PressableProps,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { useReducedMotion } from "react-native-reanimated";
 import { AppText } from "@/components/AppText";
 import { colorsForScheme } from "@/constants/theme";
+import { pressedTransform } from "@/lib/motion";
 
 type AppButtonProps = PressableProps & {
   label: string;
@@ -26,6 +28,7 @@ export function AppButton({
 }: AppButtonProps) {
   const isPrimary = variant === "primary";
   const colors = colorsForScheme(useColorScheme());
+  const reducedMotion = useReducedMotion();
 
   return (
     <Pressable
@@ -50,7 +53,7 @@ export function AppButton({
           shadowColor: colors.black,
         },
         variant === "ghost" && styles.ghost,
-        pressed && styles.pressed,
+        pressed && [styles.pressed, { transform: pressedTransform(reducedMotion) }],
         (disabled || loading) && styles.disabled,
         typeof style === "function" ? style({ pressed }) : style,
       ]}
@@ -111,7 +114,6 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.88,
-    transform: [{ scale: 0.985 }],
   },
   disabled: {
     opacity: 0.5,

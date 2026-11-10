@@ -5,6 +5,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -369,15 +371,12 @@ export default function ScheduleScreen() {
       </View>
 
       {loading ? (
-        <FeatureCard
-          title="Loading your calendar"
-          detail="Checking connected studios, lessons, classes, and event activity."
-        />
+        <LoadingState label="Loading your calendar" />
       ) : null}
 
       {!loading && errorMessage ? (
         <View style={styles.stateCard}>
-          <FeatureCard title="Schedule unavailable" detail={errorMessage} />
+          <ErrorState error={errorMessage} onRetry={() => void loadSchedule()} title="Schedule unavailable" />
           <AppButton label="Try again" onPress={loadSchedule} variant="secondary" />
         </View>
       ) : null}

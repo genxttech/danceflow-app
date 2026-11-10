@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import { StyleSheet, useColorScheme, View } from "react-native";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -118,8 +120,8 @@ export default function SyllabusDetailScreen() {
       <AppText variant="title">{syllabus?.name ?? "Syllabus"}</AppText>
       {subtitle ? <AppText variant="caption">{subtitle}</AppText> : null}
 
-      {loading ? <FeatureCard title="Loading syllabus" detail="Checking your syllabus steps." /> : null}
-      {errorMessage ? <FeatureCard title="Syllabus unavailable" detail={errorMessage} /> : null}
+      {loading ? <LoadingState label="Loading syllabus" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Syllabus unavailable" /> : null}
 
       {!loading && !hasPortalAccess ? (
         <FeatureCard

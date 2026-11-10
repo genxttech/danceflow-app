@@ -5,6 +5,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import {
   colorsForScheme,
@@ -180,9 +182,9 @@ export default function ProfileScreen() {
         Complete your information so studios can recognize you when you register, request lessons, or connect later.
       </AppText>
 
-      {loading ? <FeatureCard title="Loading your profile..." detail="Loading your profile." /> : null}
+      {loading ? <LoadingState label="Loading your profile" /> : null}
 
-      {!loading && errorMessage ? <FeatureCard title="Profile not available yet" detail={errorMessage} /> : null}
+      {!loading && errorMessage ? <ErrorState error={errorMessage} title="Profile not available yet" /> : null}
       {!loading && message ? <FeatureCard title="Saved" detail={message} /> : null}
 
       {!loading && !session ? (

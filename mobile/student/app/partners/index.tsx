@@ -7,6 +7,8 @@ import { useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -898,9 +900,9 @@ export default function PartnerSearchScreen() {
         Create a dancer-owned listing for practice, social dance, showcase, or competition partners. Contact stays inside DanceFlow.
       </AppText>
 
-      {loading ? <FeatureCard title="Loading Partner Search" detail="Loading dancer listings." /> : null}
+      {loading ? <LoadingState label="Loading Partner Search" /> : null}
       {message ? <FeatureCard title="Partner Search" detail={message} /> : null}
-      {errorMessage ? <FeatureCard title="Partner Search needs attention" detail={errorMessage} /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Partner Search needs attention" /> : null}
 
       <View style={styles.safetyCard}>
         <View style={styles.safetyIcon}>

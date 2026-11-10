@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { StyleSheet, useColorScheme, View } from "react-native";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -97,8 +99,8 @@ export default function PackagesScreen() {
       <AppText variant="title">Packages</AppText>
       <AppText variant="caption">Review lesson packages, credits, and remaining balances.</AppText>
 
-      {loading ? <FeatureCard title="Loading packages" detail="Checking active lesson packages." /> : null}
-      {errorMessage ? <FeatureCard title="Packages unavailable" detail={errorMessage} /> : null}
+      {loading ? <LoadingState label="Loading packages" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Packages unavailable" /> : null}
 
       {!loading && hasPortalAccess && packages.length > 0 ? (
         <View style={styles.section}>

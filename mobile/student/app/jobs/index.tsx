@@ -4,6 +4,8 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import {
@@ -290,8 +292,8 @@ export default function JobsScreen() {
         </Pressable>
       </View>
 
-      {loading ? <FeatureCard title="Loading jobs" detail="Finding studio openings." /> : null}
-      {errorMessage ? <FeatureCard title="Now Hiring needs attention" detail={errorMessage} /> : null}
+      {loading ? <LoadingState label="Loading jobs" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Now Hiring needs attention" /> : null}
 
       {filteredJobs.length ? (
         filteredJobs.map((job) => (

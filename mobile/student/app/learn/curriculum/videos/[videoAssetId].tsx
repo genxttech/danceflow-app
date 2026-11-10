@@ -5,6 +5,7 @@ import { VideoView, useVideoPlayer } from "expo-video";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { loadStudentCurriculumVideo } from "@/lib/studentCurriculum";
@@ -83,10 +84,7 @@ export default function CurriculumVideoScreen() {
   if (!video) {
     return (
       <Screen>
-        <FeatureCard
-          title="Video unavailable"
-          detail={errorMessage ?? "This video could not be opened."}
-        />
+        <ErrorState error={errorMessage} fallback="This video could not be opened." title="Video unavailable" />
         <AppButton
           label="Back to assignment"
           onPress={() =>

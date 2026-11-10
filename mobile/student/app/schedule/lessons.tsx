@@ -5,6 +5,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -281,14 +283,11 @@ export default function ScheduleLessonsScreen() {
       ) : null}
 
       {loading ? (
-        <FeatureCard
-          title="Loading lessons"
-          detail="Checking your connected studios."
-        />
+        <LoadingState label="Loading lessons" />
       ) : null}
 
       {!loading && errorMessage ? (
-        <FeatureCard title="Lessons unavailable" detail={errorMessage} />
+        <ErrorState error={errorMessage} title="Lessons unavailable" />
       ) : null}
 
       {!loading && !session ? (

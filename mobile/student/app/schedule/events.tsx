@@ -5,6 +5,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -298,14 +300,11 @@ export default function ScheduleEventsScreen() {
       </View>
 
       {loading ? (
-        <FeatureCard
-          title="Loading events"
-          detail="Checking registrations and tickets."
-        />
+        <LoadingState label="Loading events" />
       ) : null}
 
       {!loading && errorMessage ? (
-        <FeatureCard title="Events unavailable" detail={errorMessage} />
+        <ErrorState error={errorMessage} title="Events unavailable" />
       ) : null}
 
       {!loading && !session ? (

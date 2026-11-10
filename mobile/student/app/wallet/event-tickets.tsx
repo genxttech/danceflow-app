@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Image, StyleSheet, useColorScheme, View } from "react-native";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -109,8 +111,8 @@ export default function EventTicketsScreen() {
       <AppText variant="title">Event Tickets</AppText>
       <AppText variant="caption">Keep ticket codes and QR check-in details handy.</AppText>
 
-      {loading ? <FeatureCard title="Loading tickets" detail="Checking your event tickets." /> : null}
-      {errorMessage ? <FeatureCard title="Tickets unavailable" detail={errorMessage} /> : null}
+      {loading ? <LoadingState label="Loading tickets" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Tickets unavailable" /> : null}
 
       {!loading && tickets.length > 0 ? (
         <View style={styles.section}>

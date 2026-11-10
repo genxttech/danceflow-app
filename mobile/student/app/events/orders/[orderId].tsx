@@ -4,7 +4,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useStripe } from "@stripe/stripe-react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
-import { FeatureCard } from "@/components/FeatureCard";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import {
@@ -263,7 +263,7 @@ export default function EventOrderStatusScreen() {
         ) : null}
       </View>
 
-      {errorMessage ? <FeatureCard title="Checkout needs attention" detail={errorMessage} /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Checkout needs attention" /> : null}
 
       <View style={styles.actions}>
         <AppButton label="Open Wallet" onPress={() => router.replace("/wallet")} />

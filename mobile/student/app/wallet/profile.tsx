@@ -5,6 +5,8 @@ import { router } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -190,8 +192,8 @@ export default function WalletProfileScreen() {
       <AppText variant="title">Account & Studio Access</AppText>
       <AppText variant="caption">Your DanceFlow identity, settings, and connected studio records.</AppText>
 
-      {loading ? <FeatureCard title="Loading profile" detail="Checking your connected studio details." /> : null}
-      {errorMessage ? <FeatureCard title="Profile unavailable" detail={errorMessage} /> : null}
+      {loading ? <LoadingState label="Loading profile" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Profile unavailable" /> : null}
 
       {!loading ? (
         <View style={styles.section}>

@@ -3,7 +3,8 @@ import { Linking, StyleSheet, useColorScheme, View } from "react-native";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
-import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -104,7 +105,7 @@ export default function GroupRecapDetailScreen() {
   if (loading) {
     return (
       <Screen>
-        <FeatureCard title="Loading recap" detail="Finding your group lesson notes." />
+        <LoadingState label="Loading recap" />
       </Screen>
     );
   }
@@ -112,7 +113,7 @@ export default function GroupRecapDetailScreen() {
   if (!recap) {
     return (
       <Screen>
-        <FeatureCard title="Recap unavailable" detail={errorMessage ?? "This recap could not be found."} />
+        <ErrorState error={errorMessage} fallback="This recap could not be found." title="Recap unavailable" />
         <AppButton label="Back to Learn" onPress={() => router.replace("/(tabs)/learn")} />
       </Screen>
     );

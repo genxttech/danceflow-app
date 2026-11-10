@@ -5,6 +5,8 @@ import { useStripe } from "@stripe/stripe-react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import {
@@ -330,7 +332,7 @@ export default function EventRegisterScreen() {
   if (loading) {
     return (
       <Screen>
-        <FeatureCard title="Loading checkout" detail="Checking ticket options." />
+        <LoadingState label="Loading checkout" />
       </Screen>
     );
   }
@@ -350,7 +352,7 @@ export default function EventRegisterScreen() {
   if (!event) {
     return (
       <Screen>
-        <FeatureCard title="Event unavailable" detail={errorMessage ?? "This event could not be loaded."} />
+        <ErrorState error={errorMessage} fallback="This event could not be loaded." title="Event unavailable" />
       </Screen>
     );
   }
@@ -362,7 +364,7 @@ export default function EventRegisterScreen() {
       <AppText variant="title">{event.name}</AppText>
       <AppText variant="caption">{session.user.email}</AppText>
 
-      {errorMessage ? <FeatureCard title="Checkout needs attention" detail={errorMessage} /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Checkout needs attention" /> : null}
       {checkoutStatusMessage ? (
         <View style={styles.statusCard}>
           <ActivityIndicator color={colors.primary} />

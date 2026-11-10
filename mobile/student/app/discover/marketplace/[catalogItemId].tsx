@@ -4,6 +4,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -55,7 +57,7 @@ export default function MarketplaceDetailScreen() {
   if (loading) {
     return (
       <Screen>
-        <FeatureCard title="Loading content" detail="Checking availability and ownership." />
+        <LoadingState label="Loading content" />
       </Screen>
     );
   }
@@ -63,7 +65,7 @@ export default function MarketplaceDetailScreen() {
   if (!item) {
     return (
       <Screen>
-        <FeatureCard title="Content unavailable" detail={errorMessage ?? "This item could not be found."} />
+        <ErrorState error={errorMessage} fallback="This item could not be found." title="Content unavailable" />
       </Screen>
     );
   }
@@ -119,7 +121,7 @@ export default function MarketplaceDetailScreen() {
       </View>
 
       {errorMessage ? (
-        <FeatureCard title="Content needs attention" detail={errorMessage} />
+        <ErrorState error={errorMessage} title="Content needs attention" />
       ) : null}
 
       {!session ? (

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { StyleSheet, useColorScheme, View } from "react-native";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -98,8 +100,8 @@ export default function MembershipsScreen() {
       <AppText variant="title">Memberships</AppText>
       <AppText variant="caption">Review active memberships, renewal dates, and status.</AppText>
 
-      {loading ? <FeatureCard title="Loading memberships" detail="Checking active memberships." /> : null}
-      {errorMessage ? <FeatureCard title="Memberships unavailable" detail={errorMessage} /> : null}
+      {loading ? <LoadingState label="Loading memberships" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Memberships unavailable" /> : null}
 
       {!loading && hasPortalAccess && memberships.length > 0 ? (
         <View style={styles.section}>

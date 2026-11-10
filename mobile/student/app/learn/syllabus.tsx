@@ -3,6 +3,8 @@ import { Link, type Href } from "expo-router";
 import { Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -135,8 +137,8 @@ export default function SyllabusScreen() {
         </Pressable>
       </Link>
 
-      {loading ? <FeatureCard title="Loading syllabus" detail="Checking your assigned progress." /> : null}
-      {errorMessage ? <FeatureCard title="Syllabus unavailable" detail={errorMessage} /> : null}
+      {loading ? <LoadingState label="Loading syllabus" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Syllabus unavailable" /> : null}
 
       {!loading && !hasPortalAccess ? (
         <FeatureCard

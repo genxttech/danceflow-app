@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -107,7 +108,7 @@ export default function FavoritesScreen() {
         detail="Studios and events you save from Discover appear here."
       />
 
-      {loading ? <FeatureCard title="Loading saved items" detail="Getting your favorites." /> : null}
+      {loading ? <LoadingState label="Loading saved items" /> : null}
       {message ? <FeatureCard title="Saved items" detail={message} /> : null}
 
       {!loading && !hasItems ? (
