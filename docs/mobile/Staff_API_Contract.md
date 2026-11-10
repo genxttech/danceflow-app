@@ -4,7 +4,7 @@ For the Business app (`mobile/business`). Base path: `/api/staff`.
 
 Status of each route:
 - **Live in Git:** `GET /me`, `GET …/today` and `GET …/appointments/{id}` (#439/#440).
-- **Settled, in implementation:** the slice-2 routes and fields below, marked **slice 2**. Their shapes are final; build against them.
+- **Implemented in Git:** the slice-2 routes and fields below, marked **slice 2** (branch `claude/staff-api-slice2`, stacked on #440). They are tested against real RLS and over HTTP with real GoTrue tokens, and not yet merged or deployed.
 - **Planned:** see the end of this doc.
 
 ## Authentication
@@ -19,7 +19,7 @@ There is no cookie fallback, and the student API's `x-danceflow-access-token` he
 
 ## Formats
 
-- **Timestamps** are ISO 8601 UTC with milliseconds, for example `2026-11-09T15:00:00.000Z`. The server normalizes them (**slice 2**). Until slice 2 ships, the live routes may return the database form `2026-11-09T15:00:00+00:00`; both parse as the same instant.
+- **Timestamps** are ISO 8601 UTC with milliseconds, for example `2026-11-09T15:00:00.000Z`. The server normalizes them (**slice 2**). A build without slice 2 returns the database form `2026-11-09T15:00:00+00:00`; both parse as the same instant.
 - **Dates** are `YYYY-MM-DD` in the studio's time zone.
 - **Time zones** are IANA names, for example `America/New_York`. Render studio times in the studio's `timeZone`, never the device's zone.
 
@@ -242,3 +242,5 @@ A client summary with no money and no contact details. Same role rules as the se
 - **Instructor lookup failures:** `resolveViewerInstructorId` returns null on a read error as well as on no match, so a transient failure can show as `instructorId: null` with an empty day rather than a `503`. It fails closed, but it can look like an unlinked account.
 - **Workspace activity:** these routes do not write `last_workspace_access_at` or `workspace_access_logs` as the web layout does, so mobile-only activity does not count as workspace access.
 - **Rate limiting:** none is applied yet.
+- **Idempotency keys** are validated but not stored. Retries are safe because the attendance write is idempotent by state, not because the server remembers the key.
+- **Instructor client scope** follows the teaching relationship window. A student whose last attended lesson with the instructor ended more than 14 days ago, and who has nothing upcoming with them, drops out of the instructor's search and summary.

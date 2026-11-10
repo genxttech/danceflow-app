@@ -24,6 +24,15 @@ export function resolveStudioTimeZone(value: string | null | undefined) {
   }
 }
 
+/** Timestamps leave the API as ISO 8601 UTC with milliseconds (2026-11-09T15:00:00.000Z), whatever form the database returned. */
+export function toIsoUtc(value: string): string;
+export function toIsoUtc(value: string | null): string | null;
+export function toIsoUtc(value: string | null) {
+  if (!value) return value;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+}
+
 export function localDateInTimeZone(now: Date, timeZone: string) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone,
@@ -101,8 +110,8 @@ function toAppointmentSummary(row: AppointmentSummaryRow, names: Map<string, Cli
     title: row.title,
     appointmentType: row.appointment_type,
     status: row.status,
-    startsAt: row.starts_at,
-    endsAt: row.ends_at,
+    startsAt: toIsoUtc(row.starts_at),
+    endsAt: toIsoUtc(row.ends_at),
     room: room ? { id: room.id, name: room.name } : null,
     locationName: row.location_name,
     client: row.client_id ? (names.get(row.client_id) ?? null) : null,
@@ -171,8 +180,9 @@ export async function loadAppointmentDetail(params: {
   studioRole: string;
   userId: string;
   appointmentId: string;
+  timeZone: string;
 }) {
-  const { supabase, studioId, studioRole, userId, appointmentId } = params;
+  const { supabase, studioId, studioRole, userId, appointmentId, timeZone } = params;
 
   const access = await requireAppointmentRelationshipAccess<AppointmentDetailRow>({
     supabase: supabase as never,
@@ -217,6 +227,7 @@ export async function loadAppointmentDetail(params: {
   return {
     ...toAppointmentSummary(row, names),
     studioId,
+    timeZone,
     accessScope: access.scope,
     notes: row.notes,
     instructor: instructor
@@ -261,6 +272,6 @@ async function loadLessonRecap(supabase: SupabaseClient, studioId: string, appoi
     homework: data.homework,
     nextFocus: data.next_focus,
     visibleToClient: data.visible_to_client,
-    updatedAt: data.updated_at,
+    updatedAt: toIsoUtc(data.updated_at),
   };
 }

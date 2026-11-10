@@ -31,6 +31,7 @@ export type StaffApiErrorCode =
   | "workspace_paused"
   | "role_not_permitted"
   | "not_found"
+  | "not_markable"
   | "service_unavailable";
 
 const STAFF_API_HEADERS = { "Cache-Control": "private, no-store" };

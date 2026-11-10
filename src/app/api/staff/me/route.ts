@@ -5,8 +5,9 @@ import {
   staffApiUnavailable,
 } from "@/lib/auth/staffApiAuth";
 import { getWorkspacesForUserWithClient, isWorkspaceAccessAllowedStatus } from "@/lib/auth/studio";
+import { resolveStudioTimeZone } from "@/lib/staff/instructorToday";
 
-type StudioStatusRow = { id: string; subscription_status: string | null };
+type StudioStatusRow = { id: string; subscription_status: string | null; timezone: string | null };
 
 export async function GET(request: Request) {
   const guard = await requireStaffApiUser(request);
@@ -19,31 +20,31 @@ export async function GET(request: Request) {
       (workspace) => workspace.role !== "platform_admin",
     );
 
-    let statusByStudio = new Map<string, string | null>();
+    let studioById = new Map<string, StudioStatusRow>();
     if (workspaces.length > 0) {
       const { data, error } = await supabase
         .from("studios")
-        .select("id, subscription_status")
+        .select("id, subscription_status, timezone")
         .in(
           "id",
           workspaces.map((workspace) => workspace.studioId),
         );
       if (error) throw new Error(`Workspace status lookup failed: ${error.message}`);
-      statusByStudio = new Map(
-        ((data ?? []) as StudioStatusRow[]).map((row) => [row.id, row.subscription_status]),
-      );
+      studioById = new Map(((data ?? []) as StudioStatusRow[]).map((row) => [row.id, row]));
     }
 
     return staffApiJson({
       user: { id: user.id, email: user.email ?? null, fullName },
       workspaces: workspaces.map((workspace) => {
-        const subscriptionStatus = statusByStudio.get(workspace.studioId) ?? null;
+        const studio = studioById.get(workspace.studioId);
+        const subscriptionStatus = studio?.subscription_status ?? null;
         return {
           studioId: workspace.studioId,
           name: workspace.studioName,
           publicName: workspace.studioPublicName,
           slug: workspace.studioSlug,
           role: workspace.role,
+          timeZone: resolveStudioTimeZone(studio?.timezone),
           accessAllowed: isWorkspaceAccessAllowedStatus(subscriptionStatus),
           subscriptionStatus,
           capabilities: staffCapabilitiesForRole(workspace.role),
