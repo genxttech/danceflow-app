@@ -213,6 +213,7 @@ const styles = StyleSheet.create({
   dayNav: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   list: { gap: space.sm },
   row: {
+    minHeight: 44,
     flexDirection: "row",
     flexWrap: "wrap",
     gap: space.lg,

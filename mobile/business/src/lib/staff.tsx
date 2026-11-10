@@ -30,6 +30,8 @@ type StaffSessionValue = {
   reload: () => Promise<void>;
   /** Ends the local session; the root layout then shows sign-in. */
   signOut: () => Promise<void>;
+  /** Ends every session of the account; false when the server could not, in which case this device stays signed in. */
+  signOutEverywhere: () => Promise<boolean>;
 };
 
 const StaffSessionContext = createContext<StaffSessionValue | null>(null);
@@ -37,9 +39,11 @@ const StaffSessionContext = createContext<StaffSessionValue | null>(null);
 export function StaffSessionProvider({
   children,
   signOut,
+  signOutEverywhere,
 }: {
   children: React.ReactNode;
   signOut: () => Promise<void>;
+  signOutEverywhere: () => Promise<boolean>;
 }) {
   const api = useStaffApi();
   const [me, setMe] = useState<StaffMe | null>(null);
@@ -69,8 +73,8 @@ export function StaffSessionProvider({
   );
 
   const value = useMemo(
-    () => ({ me, loading, error, workspace, selectWorkspace: setSelectedId, reload, signOut }),
-    [me, loading, error, workspace, reload, signOut],
+    () => ({ me, loading, error, workspace, selectWorkspace: setSelectedId, reload, signOut, signOutEverywhere }),
+    [me, loading, error, workspace, reload, signOut, signOutEverywhere],
   );
 
   return <StaffSessionContext.Provider value={value}>{children}</StaffSessionContext.Provider>;

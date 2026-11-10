@@ -33,20 +33,29 @@ export function fakeApi(overrides: Partial<StaffApi> = {}): StaffApi & Record<ke
 export function StaffTestProviders({
   api,
   ws = workspace(),
+  workspaces,
+  user = { id: "u1", email: "desk@example.test", fullName: "Desk Person" },
   signOut = jest.fn(async () => undefined),
+  signOutEverywhere = jest.fn(async () => true),
+  selectWorkspace = jest.fn(),
   reload = jest.fn(async () => undefined),
   children,
 }: {
   api: StaffApi;
   ws?: StaffWorkspace;
+  /** All of /me's workspaces; defaults to just `ws`. */
+  workspaces?: StaffWorkspace[];
+  user?: StaffMe["user"];
   signOut?: () => Promise<void>;
+  signOutEverywhere?: () => Promise<boolean>;
+  selectWorkspace?: (studioId: string) => void;
   reload?: () => Promise<void>;
   children: React.ReactNode;
 }) {
-  const me: StaffMe = { user: { id: "u1", email: "desk@example.test", fullName: "Desk Person" }, workspaces: [ws] };
+  const me: StaffMe = { user, workspaces: workspaces ?? [ws] };
   return (
     <StaffApiProvider api={api}>
-      <StaffSessionTestProvider value={{ me, loading: false, error: null, workspace: ws, selectWorkspace: jest.fn(), reload, signOut }}>
+      <StaffSessionTestProvider value={{ me, loading: false, error: null, workspace: ws, selectWorkspace, reload, signOut, signOutEverywhere }}>
         {children}
       </StaffSessionTestProvider>
     </StaffApiProvider>

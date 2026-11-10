@@ -91,7 +91,7 @@ function renderToday(today: StaffApi["today"], overrides: { signOut?: jest.Mock;
   render(
     <StaffApiProvider api={api}>
       <StaffSessionTestProvider
-        value={{ me: null, loading: false, error: null, workspace: WORKSPACE, selectWorkspace: jest.fn(), reload, signOut }}
+        value={{ me: null, loading: false, error: null, workspace: WORKSPACE, selectWorkspace: jest.fn(), reload, signOut, signOutEverywhere: jest.fn(async () => true) }}
       >
         <TodayScreen />
       </StaffSessionTestProvider>

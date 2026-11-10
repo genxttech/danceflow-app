@@ -144,7 +144,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.raised,
   },
-  next: { gap: 2, paddingVertical: space.xs, borderRadius: radius.control },
+  next: { gap: 2, minHeight: 44, justifyContent: "center", paddingVertical: space.xs, borderRadius: radius.control },
   pressed: { backgroundColor: colors.tint },
   pkg: {
     flexDirection: "row",

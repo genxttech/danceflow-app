@@ -5,6 +5,7 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { stackAnimation, useReduceMotion } from "@/lib/motion";
 import { StaffApiProvider, StaffSessionProvider } from "@/lib/staff";
 import { createStaffApi } from "@/lib/staffApi";
 import { colors } from "@/theme";
@@ -16,7 +17,7 @@ if (!webUrl) {
 }
 
 function StaffProviders({ children }: { children: React.ReactNode }) {
-  const { getAccessToken, refreshAccessToken, signOut, session } = useAuth();
+  const { getAccessToken, refreshAccessToken, signOut, signOutEverywhere, session } = useAuth();
   const api = useMemo(
     () => createStaffApi({ baseUrl: webUrl!, getAccessToken, refreshAccessToken }),
     [getAccessToken, refreshAccessToken],
@@ -25,7 +26,7 @@ function StaffProviders({ children }: { children: React.ReactNode }) {
   return (
     <StaffApiProvider api={api}>
       {/* Keyed by user, so a different sign-in never sees the previous person's workspaces. */}
-      <StaffSessionProvider key={session?.user.id ?? "signed-out"} signOut={signOut}>
+      <StaffSessionProvider key={session?.user.id ?? "signed-out"} signOut={signOut} signOutEverywhere={signOutEverywhere}>
         {children}
       </StaffSessionProvider>
     </StaffApiProvider>
@@ -34,6 +35,7 @@ function StaffProviders({ children }: { children: React.ReactNode }) {
 
 function RootNavigator() {
   const { session, loading } = useAuth();
+  const reduceMotion = useReduceMotion();
 
   if (loading) {
     return (
@@ -49,6 +51,7 @@ function RootNavigator() {
     <Stack
       screenOptions={{
         headerShown: false,
+        animation: stackAnimation(reduceMotion),
         contentStyle: { backgroundColor: colors.surface },
         headerStyle: { backgroundColor: colors.surface },
         headerTintColor: colors.plum,

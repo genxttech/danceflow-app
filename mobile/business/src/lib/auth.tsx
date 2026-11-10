@@ -24,6 +24,8 @@ type AuthContextValue = {
   sendSignInLink: (email: string) => Promise<void>;
   handleAuthUrl: (url: string) => Promise<boolean>;
   signOut: () => Promise<void>;
+  /** Ends every session of this account (all phones and browsers). Resolves false, still signed in here, if the server could not do it. */
+  signOutEverywhere: () => Promise<boolean>;
   getAccessToken: () => Promise<string | null>;
   refreshAccessToken: () => Promise<string | null>;
 };
@@ -140,6 +142,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await clearLocalSession();
   }, []);
 
+  const signOutEverywhere = useCallback(async () => {
+    // supabase-js keeps the local session when the global revoke fails, so a failure leaves this device signed in and says so.
+    const { error } = await supabase.auth.signOut({ scope: "global" });
+    if (error) return false;
+    setSession(null);
+    await clearPersistedSupabaseSessions().catch(() => undefined);
+    return true;
+  }, []);
+
   const getAccessToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
     return data.session?.access_token ?? null;
@@ -159,10 +170,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sendSignInLink,
       handleAuthUrl,
       signOut,
+      signOutEverywhere,
       getAccessToken,
       refreshAccessToken,
     }),
-    [session, loading, signInWithPassword, sendSignInLink, handleAuthUrl, signOut, getAccessToken, refreshAccessToken],
+    [session, loading, signInWithPassword, sendSignInLink, handleAuthUrl, signOut, signOutEverywhere, getAccessToken, refreshAccessToken],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
