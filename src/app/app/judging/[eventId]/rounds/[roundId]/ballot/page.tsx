@@ -1,4 +1,5 @@
 import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
+import { requireJudgingEvent, requireJudgingRound } from "@/lib/competition/officials/judgingAccess";
 import { randomUUID } from "crypto";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -31,6 +32,9 @@ export default async function JudgeBallotPage({
   const { eventId, roundId } = await params;
   const query = await searchParams;
   if (!UUID.test(eventId) || !UUID.test(roundId)) notFound();
+  // OJ-1: an official who is not studio staff needs an assignment for this event and the panel assignment for this round.
+  await requireJudgingEvent(eventId);
+  await requireJudgingRound(roundId, "ballot");
   const supabase = await createClient();
   const {
     data: { user },

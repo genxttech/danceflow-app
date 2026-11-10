@@ -22,7 +22,7 @@ export type FloorEntries = {
 };
 
 /** NS1: chair / manager no-show controls on the ballot desk. Mobile first; the database enforces the window and authority. */
-export default function NoShowPanel({ floor, returnTo }: { floor: FloorEntries; returnTo: string }) {
+export default function NoShowPanel({ floor, returnTo, roundId }: { floor: FloorEntries; returnTo: string; roundId: string }) {
   const open = floor.round_status === "active";
   return (
     <section aria-label="No-shows" className="min-w-0 rounded border border-slate-200 bg-white p-3">
@@ -60,6 +60,7 @@ export default function NoShowPanel({ floor, returnTo }: { floor: FloorEntries; 
                           <input type="hidden" name="kind" value={entry.no_show ? "void" : "mark"} />
                           <input type="hidden" name="requestId" value={randomUUID()} />
                           <input type="hidden" name="returnTo" value={returnTo} />
+                          <input type="hidden" name="roundId" value={roundId} />
                           {entry.no_show && entry.no_show_reason ? <p className="break-words text-xs text-slate-600">Reason given: {entry.no_show_reason}</p> : null}
                           <input name="reason" required maxLength={500} placeholder={entry.no_show ? "Why undo this no-show?" : "Reason (required)"} aria-label={entry.no_show ? "Reason for undoing the no-show" : "No-show reason"} className="h-11 min-w-0 rounded border border-slate-300 bg-white px-3 text-sm" />
                           <button className="h-11 rounded border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800 hover:bg-slate-50">

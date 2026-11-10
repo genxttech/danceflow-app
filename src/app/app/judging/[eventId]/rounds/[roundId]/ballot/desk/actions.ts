@@ -1,6 +1,7 @@
 "use server";
 
 import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
+import { requireJudgingRound } from "@/lib/competition/officials/judgingAccess";
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -22,6 +23,8 @@ function back(returnTo: string, params: Record<string, string>): never {
 
 export async function deskNoShowAction(formData: FormData): Promise<void> {
   requireCompetitionFinals();
+  // OJ-1: an official who is not studio staff needs the chair/scorer desk role for this round (the RPC then authorizes the heat entry).
+  await requireJudgingRound(text(formData, "roundId"), "desk");
   const returnTo = safeReturnPath(text(formData, "returnTo"), "/app/judging");
   const heatEntryId = text(formData, "heatEntryId");
   const requestId = text(formData, "requestId");

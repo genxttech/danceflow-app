@@ -26,6 +26,8 @@ const redirect = vi.fn((url: string) => {
   throw new Error(`REDIRECT:${url}`);
 });
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+// OJ-1: these are studio-staff (manager) paths; the official-viewer guard is a no-op for studio staff (judgingAccess.oj1.test.ts covers officials).
+vi.mock("@/lib/competition/officials/judgingAccess", () => ({ requireJudgingRound: async () => undefined, requireJudgingEvent: async () => undefined }));
 vi.mock("next/navigation", () => ({ redirect: (url: string) => redirect(url) }));
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({

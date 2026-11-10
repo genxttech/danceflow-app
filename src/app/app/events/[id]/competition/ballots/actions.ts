@@ -1,6 +1,7 @@
 "use server";
 
 import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
+import { requireJudgingRound } from "@/lib/competition/officials/judgingAccess";
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -85,6 +86,8 @@ const INVALID = Promise.resolve({ error: { message: "COMP_BALLOT_INCOMPLETE" } }
 export async function submitJudgeBallotAction(formData: FormData): Promise<void> {
   requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
+  // OJ-1: an official who is not studio staff needs the round assignment (ballot) or the chair/scorer desk role (desk).
+  await requireJudgingRound(roundId ?? "", "ballot");
   const callback = text(formData, "callback") === "1";
   const heatId = callback ? null : uuid(formData, "heatId");
   const requestId = uuid(formData, "requestId");
@@ -109,6 +112,8 @@ export async function submitJudgeBallotAction(formData: FormData): Promise<void>
 export async function enterPaperBallotAction(formData: FormData): Promise<void> {
   requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
+  // OJ-1: an official who is not studio staff needs the round assignment (ballot) or the chair/scorer desk role (desk).
+  await requireJudgingRound(roundId ?? "", "desk");
   const callback = text(formData, "callback") === "1";
   const heatId = callback ? null : uuid(formData, "heatId");
   const officialId = uuid(formData, "officialId");
@@ -135,6 +140,8 @@ export async function enterPaperBallotAction(formData: FormData): Promise<void> 
 export async function saveCallbackDraftAction(formData: FormData): Promise<void> {
   requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
+  // OJ-1: an official who is not studio staff needs the round assignment (ballot) or the chair/scorer desk role (desk).
+  await requireJudgingRound(roundId ?? "", "ballot");
   await run(
     formData,
     "/app/judging",
@@ -149,6 +156,8 @@ export async function saveCallbackDraftAction(formData: FormData): Promise<void>
 export async function recordAttendanceAction(formData: FormData): Promise<void> {
   requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
+  // OJ-1: an official who is not studio staff needs the round assignment (ballot) or the chair/scorer desk role (desk).
+  await requireJudgingRound(roundId ?? "", "desk");
   const officialId = uuid(formData, "officialId");
   const requestId = uuid(formData, "requestId");
   const status = text(formData, "status");
@@ -172,6 +181,8 @@ export async function recordAttendanceAction(formData: FormData): Promise<void> 
 export async function lockBallotsAction(formData: FormData): Promise<void> {
   requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
+  // OJ-1: an official who is not studio staff needs the round assignment (ballot) or the chair/scorer desk role (desk).
+  await requireJudgingRound(roundId ?? "", "desk");
   const requestId = uuid(formData, "requestId");
   await run(
     formData,
@@ -187,6 +198,8 @@ export async function lockBallotsAction(formData: FormData): Promise<void> {
 export async function reopenBallotsAction(formData: FormData): Promise<void> {
   requireCompetitionFinals();
   const roundId = uuid(formData, "roundId");
+  // OJ-1: an official who is not studio staff needs the round assignment (ballot) or the chair/scorer desk role (desk).
+  await requireJudgingRound(roundId ?? "", "desk");
   const requestId = uuid(formData, "requestId");
   await run(
     formData,
@@ -226,6 +239,8 @@ const HEAT_REFUSED = "This heat cannot be changed right now. Reload the page.";
 /** A manager locks one heat: a danced heat of an active round, or (HL1b) an undanced heat so officials can still scratch. */
 export async function lockHeatAction(formData: FormData): Promise<void> {
   requireCompetitionFinals();
+  // OJ-1: an official who is not studio staff needs the chair/scorer desk role for the round.
+  await requireJudgingRound(uuid(formData, "roundId") ?? "", "desk");
   const returnTo = safeReturnPath(text(formData, "returnTo"), "/app/events");
   const heatId = uuid(formData, "heatId");
   const heatNumber = text(formData, "heatNumber").replace(/[^0-9]/g, "");
@@ -250,6 +265,8 @@ export async function lockHeatAction(formData: FormData): Promise<void> {
 /** A manager reopens a locked, never-certified, undanced heat. A reason is required here and by the RPC; certified heats are refused. */
 export async function reopenHeatAction(formData: FormData): Promise<void> {
   requireCompetitionFinals();
+  // OJ-1: an official who is not studio staff needs the chair/scorer desk role for the round.
+  await requireJudgingRound(uuid(formData, "roundId") ?? "", "desk");
   const returnTo = safeReturnPath(text(formData, "returnTo"), "/app/events");
   const heatId = uuid(formData, "heatId");
   const heatNumber = text(formData, "heatNumber").replace(/[^0-9]/g, "");

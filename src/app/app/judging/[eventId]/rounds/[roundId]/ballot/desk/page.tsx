@@ -1,4 +1,5 @@
 import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
+import { requireJudgingEvent, requireJudgingRound } from "@/lib/competition/officials/judgingAccess";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -25,6 +26,9 @@ export default async function BallotDeskPage({
   const { eventId, roundId } = await params;
   const query = await searchParams;
   if (!UUID.test(eventId) || !UUID.test(roundId)) notFound();
+  // OJ-1: an official who is not studio staff needs an assignment for this event and the chair/scorer desk role for this round.
+  await requireJudgingEvent(eventId);
+  await requireJudgingRound(roundId, "desk");
   const supabase = await createClient();
   const {
     data: { user },
@@ -53,7 +57,7 @@ export default async function BallotDeskPage({
       {floorError ? <p role="alert" className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">Couldn&apos;t load no-shows: {floorError}</p> : null}
       {floorEntries ? (
         <div className="mt-4">
-          <NoShowPanel floor={floorEntries} returnTo={`/app/judging/${eventId}/rounds/${roundId}/ballot/desk`} />
+          <NoShowPanel floor={floorEntries} roundId={roundId} returnTo={`/app/judging/${eventId}/rounds/${roundId}/ballot/desk`} />
         </div>
       ) : null}
     </div>

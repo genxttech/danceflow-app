@@ -1,3 +1,6 @@
+import { competitionFinalsEnabled } from "@/lib/competition/finalsGate";
+import { judgingLayoutDecision, resolveJudgingViewer } from "@/lib/competition/officials/judgingAccess";
+import JudgingShell from "./judging/JudgingShell";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { headers, cookies } from "next/headers";
@@ -916,6 +919,15 @@ export default async function AppLayout({
 
   if (!user) {
     redirect("/login");
+  }
+
+  // OJ-1 (owner decision 2026-11-10, Competition Finals only): an official who is not studio staff (for example an organizer-team judge) may
+  // open /app/judging with an active official assignment for the event in the URL, inside a minimal frame. Studio staff are unchanged; with
+  // the flag off this branch never runs. Pages and actions check again (judgingAccess); the database stays the authority.
+  if (competitionFinalsEnabled() && (pathname === "/app/judging" || pathname.startsWith("/app/judging/"))) {
+    const decision = judgingLayoutDecision(pathname, await resolveJudgingViewer(supabase));
+    if (decision === "refuse") redirect("/account");
+    if (decision === "judging-shell") return <JudgingShell>{children}</JudgingShell>;
   }
 
   const context = await getCurrentStudioContext();
