@@ -33,9 +33,9 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("scheduled usage reconciliation route", () => {
-  it("is not registered on any schedule (a release owner adds it deliberately)", () => {
+  it("is registered by the TW-4F monitoring release on a 15-minute schedule (dark: the route answers 404 until SMS_USAGE_RECONCILER=on)", () => {
     const vercel = JSON.parse(readFileSync(join(process.cwd(), "vercel.json"), "utf8")) as { crons?: Array<{ path: string }> };
-    expect((vercel.crons ?? []).some((c) => c.path.includes("sms-usage-reconcile"))).toBe(false);
+    expect((vercel.crons ?? []).filter((c) => c.path.includes("sms-usage-reconcile"))).toEqual([{ path: "/api/cron/sms-usage-reconcile", schedule: "*/15 * * * *" }]);
   });
 
   it("answers 404 and does nothing unless SMS_USAGE_RECONCILER=on", async () => {

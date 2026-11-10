@@ -285,6 +285,8 @@ commit;`);
 
     it("KI-1 (20261228) on the REAL path: a monthly pilot reservation still held from LAST month is RELEASED on approval; the month's written approval is the ONE capture, and the ceiling and ledger sums are exact", () => {
       const w = world({ pilot: true });
+      // 20261231110000: this suite shares ONE pilot business, so earlier fixtures' cross-month releases would count as burned toward its 15000 ceiling; make them same-month so this scenario (one release + one cover) is measured on its own
+      replica(`update public.studio_sms_credit_reservations set created_at = closed_at where legal_entity_id = '${w.entity}' and funding = 'pilot' and status = 'released';`);
       const c = campaign(w, { pilotReservation: "reserved", startedAgo: "40 days", reservedAgo: "40 days" });
       spendEvent(w, c, "40 days");
       const before = { used: pilotUsed(w), ledger: ledgerSum(w) };
@@ -313,6 +315,70 @@ commit;`);
       observeCampaign(w, c);
       expect(pilotUsed(w)).toBe(before.used - 1500 + price);
       expect(audits(w, "prov_observed").filter((a) => /;ki1_released=/.test(a.note))).toHaveLength(1);
+    });
+
+    // 20261231110000: a pilot reservation released in a LATER month keeps counting toward the cumulative ceiling (the provider may have billed it)
+    const burned = (w: World) => Number(psql(`select public._tw4pbc_burned('${w.entity}')`));
+    const ceilingOf = (w: World) => Number(psql(`select ceiling_cents from public.studio_sms_pilot_exceptions where legal_entity_id = '${w.entity}'`));
+    const tryPilotReserve = (w: World, cents: number) =>
+      psqlError(`begin; insert into public.studio_sms_credit_reservations (legal_entity_id, studio_id, kind, amount_cents, funding, reservation_key)
+        values ('${w.entity}', '${w.studio}', 'monthly', ${cents}, 'pilot', 'pbc-${hex(6)}'); rollback;`);
+
+    it("KI-1 ceiling protection: the headroom a cross-month KI-1 release returns to the ledger does NOT return to the ceiling, and a new pilot reservation beyond burned + held is refused", () => {
+      const w = world({ pilot: true });
+      const c = campaign(w, { pilotReservation: "reserved", startedAgo: "40 days", reservedAgo: "40 days" });
+      spendEvent(w, c, "40 days");
+      const b0 = burned(w);
+      const used0 = pilotUsed(w);
+      observeCampaign(w, c);
+      expect(psql(`select status from public.studio_sms_credit_reservations where reservation_key = 'prov:${c.op}:monthly'`)).toBe("released");
+      expect(pilotUsed(w)).toBe(used0 - 1500);   // the old reserved+captured sum drops...
+      expect(burned(w)).toBe(b0);                 // ...but the protected figure does not
+      const ceiling = ceilingOf(w);
+      const headroom = ceiling - burned(w);
+      expect(hasCode(tryPilotReserve(w, headroom + 1), "TW007")).toBe(true);   // one cent over the burned ceiling is refused
+      if (headroom >= 1) expect(tryPilotReserve(w, headroom)).toBe("");          // exactly the burned headroom is still allowed (rolled back)
+    });
+
+    it("KI-1 ceiling protection: a release in the SAME business month is not burned; a credit-funded reservation is never limited by the pilot ceiling", () => {
+      const w = world({ pilot: true });
+      const b0 = burned(w);
+      const key = `pbc-same-${hex(4)}`;
+      const cross = `pbc-cross-${hex(4)}`;
+      replica(`insert into public.studio_sms_credit_reservations (legal_entity_id, studio_id, kind, amount_cents, funding, status, reservation_key, created_at, closed_at)
+        values ('${w.entity}', '${w.studio}', 'monthly', 700, 'pilot', 'released', '${key}', now(), now());`);
+      expect(burned(w)).toBe(b0);
+      replica(`insert into public.studio_sms_credit_reservations (legal_entity_id, studio_id, kind, amount_cents, funding, status, reservation_key, created_at, closed_at)
+        values ('${w.entity}', '${w.studio}', 'monthly', 700, 'pilot', 'released', '${cross}', now() - interval '40 days', now());`);
+      expect(burned(w)).toBe(b0 + 700);   // the cross-month one is burned
+      const err = psqlError(`begin; insert into public.studio_sms_credit_reservations (legal_entity_id, studio_id, kind, amount_cents, funding, reservation_key)
+        values ('${w.entity}', '${w.studio}', 'monthly', 100, 'credit', 'pbc-credit-${hex(6)}'); rollback;`);
+      expect(hasCode(err, "TW007")).toBe(false);
+      replica(`delete from public.studio_sms_credit_reservations where reservation_key in ('${key}', '${cross}');`);
+    });
+
+    it("KI-1 ceiling protection: the helpers are not callable by the API roles", () => {
+      expect(psql(`select has_function_privilege('anon', 'public._tw4pbc_burned(uuid)', 'execute') or has_function_privilege('authenticated', 'public._tw4pbc_burned(uuid)', 'execute')`)).toBe("f");
+    });
+
+    // 20261231150000 (the held KI-1 activation lift): everything runs in rolled-back transactions
+    const liftSql = () => readFileSync(join(MIG, "20261231150000_twilio_ki1_activation_lift.sql"), "utf8").replace(/^begin;/m, "").replace(/^commit;/m, "");
+    const liftRollbackSql = () => readFileSync(join(MIG, "rollback/20261231150000_twilio_ki1_activation_lift_rollback.sql"), "utf8").replace(/^begin;/m, "").replace(/^commit;/m, "");
+    const kiItem = (w: World) => `select (i ->> 'ok') || ' ' || (i ->> 'detail') from jsonb_array_elements(public._tw4act_items('${w.studio}'::uuid)) i where i ->> 'id' = 'pilot_ki1_redecided';`;
+
+    it("KI-1 lift: before it the pilot item is blocked; after it the item passes only while the burned-ceiling trigger is installed AND enabled; the rollback restores the block", () => {
+      const w = world({ pilot: true });
+      expect(psql(kiItem(w))).toBe("false ki1_owner_redecision_pending:lifted_only_by_migration");
+      const inTx = (body: string) => psql(`begin; ${liftSql()} ${body} rollback;`).split("\n").filter(Boolean).pop();
+      expect(inTx(kiItem(w))).toBe("true ki1_ceiling_protected");
+      expect(inTx(`alter table public.studio_sms_credit_reservations disable trigger studio_sms_credit_reservations_pilot_burned_ceiling; ${kiItem(w)}`)).toBe("false ki1_ceiling_protection_missing");
+      expect(inTx(`drop trigger studio_sms_credit_reservations_pilot_burned_ceiling on public.studio_sms_credit_reservations; ${kiItem(w)}`)).toBe("false ki1_ceiling_protection_missing");
+      expect(inTx(`${liftRollbackSql()} ${kiItem(w)}`)).toBe("false ki1_owner_redecision_pending:lifted_only_by_migration");
+      // a non-pilot business is untouched by the lift
+      const plain = world({});
+      expect(psql(`begin; ${liftSql()} ${kiItem(plain)} rollback;`).split("\n").filter(Boolean).pop()).toBe("true not_pilot");
+      // the lift refuses to apply twice
+      expect(psqlError(`begin; ${liftSql()} ${liftSql()} rollback;`)).toMatch(/KI-1 lift precondition failed/);
     });
 
     it("KI-1: a SAME-month pilot approval is unchanged (captured on approval, and it is the registration month's cover)", () => {

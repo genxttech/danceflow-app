@@ -52,9 +52,9 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("recurring provider-fee lifecycle scan route", () => {
-  it("is not registered on any schedule (a release owner adds it deliberately)", () => {
+  it("is registered by the TW-4F monitoring release on an hourly schedule (dark: the route answers 404 until SMS_FEE_LIFECYCLE_SCAN=on)", () => {
     const vercel = JSON.parse(readFileSync(join(process.cwd(), "vercel.json"), "utf8")) as { crons?: Array<{ path: string }> };
-    expect((vercel.crons ?? []).some((c) => c.path.includes("sms-provider-fee-lifecycle"))).toBe(false);
+    expect((vercel.crons ?? []).filter((c) => c.path.includes("sms-provider-fee-lifecycle"))).toEqual([{ path: "/api/cron/sms-provider-fee-lifecycle", schedule: "7 * * * *" }]);
   });
 
   it("answers 404 and does nothing unless SMS_FEE_LIFECYCLE_SCAN=on", async () => {

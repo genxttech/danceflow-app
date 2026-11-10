@@ -147,6 +147,15 @@ export class ProviderFeeLifecycleStore {
     return { opened: Number(row.opened ?? 0), closed: Number(row.closed ?? 0), alerts: Number(row.alerts ?? 0) };
   }
 
+  /**
+   * Raises the absorbed-inbound allowance and daily-volume exception alerts (migration 20261231140000). Notification only: it blocks, holds and releases nothing.
+   * Returns how many NEW alerts were raised (counts only).
+   */
+  async inboundAllowanceCheck(): Promise<number> {
+    const row = await this.call<{ allowance_warnings?: number; allowance_critical?: number; volume?: number } | null>("tw4_rfl_inbound_allowance_check", {});
+    return Number(row?.allowance_warnings ?? 0) + Number(row?.allowance_critical ?? 0) + Number(row?.volume ?? 0);
+  }
+
   async inventoryGaps(): Promise<number> {
     const row = await this.call<{ gaps?: number }>("tw4_rfl_inventory_gaps", {});
     return Number(row.gaps ?? 0);
@@ -194,6 +203,8 @@ export type ScanSummary = {
   closed: number;
   alertsCreated: number;
   inventoryGaps: number;
+  /** new absorbed-inbound allowance / daily-volume alerts raised this pass */
+  inboundAlerts: number;
   /** alerts newly raised for alert deliveries that exhausted their attempts (administrator audience) */
   escalated: number;
   delivered: number;
@@ -231,7 +242,7 @@ export async function runProviderFeeLifecycleScan(store: ProviderFeeLifecycleSto
   const now = options.now ?? Date.now;
   const startedAt = now();
   const summary: ScanSummary = {
-    ran: false, ranReason: null, entities: 0, opened: 0, closed: 0, alertsCreated: 0, inventoryGaps: 0, escalated: 0, delivered: 0, failed: 0, errors: 0,
+    ran: false, ranReason: null, entities: 0, opened: 0, closed: 0, alertsCreated: 0, inventoryGaps: 0, inboundAlerts: 0, escalated: 0, delivered: 0, failed: 0, errors: 0,
     deliveryEnabled: sink !== null, truncated: 0, deferred: 0, deliverySkipped: 0,
   };
   let runId: string | null = null;
@@ -295,6 +306,11 @@ async function scanAndDeliver(store: ProviderFeeLifecycleStore, sink: ProviderFe
   }
   try {
     summary.inventoryGaps = await store.inventoryGaps();
+  } catch {
+    summary.errors += 1;
+  }
+  try {
+    summary.inboundAlerts = await store.inboundAllowanceCheck();   // before escalation and delivery, so a new alert can be delivered in this same pass
   } catch {
     summary.errors += 1;
   }
