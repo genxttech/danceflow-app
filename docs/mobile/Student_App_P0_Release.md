@@ -57,18 +57,46 @@ These are functional gaps, not leaks: the app shows less than intended. Fixing t
 
 ## Device QA
 
-**Blocked, and why:**
+### Android emulator QA (2026-11-10)
+
+**Setup.** A local debug development build of #442 (which includes #438), built without EAS, ran on an API 35 x86_64 emulator with WHPX acceleration and 2 GB RAM (see `Local_Android_QA.md`). The build loaded its JavaScript from Metro. It ran against a disposable local stack reached at `10.0.2.2`: the baseline plus all later migrations in this PR, GoTrue 2.188.1 with Mailpit, PostgREST, and the #438 Next API. Magic links came from Mailpit. Every write was local; nothing hosted was touched. Screenshots and logs are kept in the shared notes folder.
+
+| Item | Result | Evidence |
+|---|---|---|
+| Sign-in, new address | **PASS** | A `pkce_` signup token was opened as `danceflow://auth/callback?token_hash=…&type=signup` with `adb am start`. Verify returned 200, `record_email_proof_mobile` was called, and the app moved on to the secure-account step |
+| Sign-in, returning address | **PASS** | A `magiclink` token opened the same way. Verify 200 and the session was stored. One earlier attempt got 403 "One-time token not found" and didn't reproduce; a direct GoTrue probe accepts PKCE returning-user tokens as `magiclink`, `email` and `recovery` |
+| Session kept in Keychain/Keystore | **PASS** | `shared_prefs/SecureStore.xml` holds a manifest plus AES-encrypted chunks (`key_v1-sb-10-auth-token.<id>.0..3`). AsyncStorage (`RKStorage`) contains no `access_token` or `refresh_token` |
+| Session survives app kill and relaunch | **PASS** | After `am force-stop` and a relaunch, the home screen shows "Welcome back" with no sign-in. A relaunch with no taps for 60 s made no logout call |
+| Sign-out clears the session | **PASS** | SecureStore session keys went from 5 to 0, 0 active refresh tokens remain on the server, and the relaunched app opens signed out |
+| Raw-token deep links ignored | **PASS** | A real session was minted for another user. Opening `danceflow://auth/callback#access_token=…&refresh_token=…` and the `?` form left the app signed out, with no keys stored and that user's email shown nowhere |
+| Deep links into screens | **PASS** | `danceflow://partners/draft`, `/settings`, `/home`, `/schedule`, `/wallet`, `/discover` and `/sign-in` each opened their screen |
+| #442 screens, light and dark | **PASS** (visual) | Home, Schedule, Wallet and Discover in both modes via `cmd uimode night`. All readable, including the dark schedule empty state that used to be unreadable |
+| Partner profile save | **PASS** | The device's POST to `dancer_partner_profiles` had 19 fields and no `moderation_status`. The row is `pending` / `published` |
+| Account deletion, dancer, through both native dialogs | **PASS** | Delete Account, then "Delete DanceFlow account?" Continue, then "Final confirmation" Permanently Delete. The auth user is removed and the device is signed out |
+| Account deletion, login that is also a studio owner | **PASS** | Same dialogs. The server returned 409, the app showed the refusal reason, and the login, the owner role and the session were all kept |
+| Payment sheet | **BLOCKED** | No Stripe TEST publishable key or test connected account in the repo |
+| Push token claim and delivery | **BLOCKED** | Getting an Expo push token needs real FCM credentials; the local build uses a placeholder `google-services.json`. Notification permission isn't granted, so registration stops before the claim RPC |
+| iOS Keychain | **BLOCKED** | Needs macOS or an iOS device |
+
+**Defects found on the device and fixed in this PR:**
+1. **`mobile_notification_preferences` first-use race.** The push bootstrap and the Settings card both inserted the default row at once. The second insert hit the primary key (`23505`), and `useNotificationPreferences` had no `catch`, so the rejection went unhandled (dev overlay "Uncaught (in promise)"). Creation is now an upsert that ignores an existing row followed by a re-read, and the hook shows a message on failure. A unit test covers it, and the overlay is gone on the device.
+2. **`AppButton` press state.** It rebuilt the press state as `{ pressed }` instead of forwarding it, which fails to typecheck once `expo start` generates `expo-env.d.ts` (react-native-web types add `hovered`). It now forwards the full state.
+
+**Not app defects (environment):**
+- **Account reactivation timeout.** The check timed out once because the local Next dev server spent 8.5 s compiling the route on first use, longer than the HTTP client waited. It answered in under 0.3 s afterwards.
+- **An earlier unexpected sign-out.** It came from my UI automation, not the app.
+
+**Still blocked, and why:**
 
 | Check | Blocker |
 |---|---|
-| PaymentSheet on a direct charge | No device or emulator; no authorized Stripe TEST publishable key and connected account for this app |
-| Keychain / Keystore persistence; migration from an older build | No device; iOS needs macOS |
-| Push delivery and user switch | Needs a development build on a device and Expo push credentials |
-| Deep links and legal links opening from email | No device |
+| PaymentSheet on a direct charge | No authorized Stripe TEST publishable key and connected account for this app |
+| Push delivery and user switch | Needs FCM credentials for a dev build (Firebase project) or an EAS build |
+| iOS Keychain; migration from an older installed build | iOS needs macOS; no older build is installed anywhere to migrate from |
 
 **Validated without a device:** jest-expo (52 tests), mobile and root typecheck, `expo install --check`, Android JS bundle (`expo export`), SQL suites for both migrations on a disposable database (fail before, pass after, fail after rollback, pass after reapply), push user switch through real PostgREST and RLS, signup and magic-link flows on a local GoTrue with real email.
 
-**Local device QA feasibility (2026-11-10, this machine):**
+**Local device QA feasibility (2026-11-10, earlier in the day; superseded):** the owner then enabled Hyper-V and approved the free SDK. WHPX became usable and the emulator QA above ran. Kept for the record:
 
 | Requirement | Measured | OK? |
 |---|---|---|

@@ -36,23 +36,36 @@ Don't use `sdkmanager.bat` from Git Bash: Windows batch parsing splits package n
 
 | Setting | Value |
 |---|---|
-| Name | `df-api35` |
+| Name | `df-api35` (in `%USERPROFILE%\.android\avd`) |
 | Image | `system-images;android-35;google_apis;x86_64` |
-| RAM | 2048 MB |
-| Snapshots | off (`-no-snapshot`) |
-| Run | `emulator -avd df-api35 -no-snapshot -no-boot-anim -gpu swiftshader_indirect -memory 2048` |
+| RAM | 2048 MB, 2 cores, 4 GB data partition |
+| Snapshots | off (cold boot, `-no-snapshot`) |
+| Run | `emulator -avd df-api35 -no-snapshot -no-boot-anim -gpu swiftshader_indirect -memory 2048 -no-audio` |
 
-RAM is tight on this PC. Run one emulator at a time and shut it down after a session.
+`avdmanager.bat` hung with no output from Git Bash, so the AVD was written by hand:
+- `df-api35.ini`: `path` and `target=android-35`
+- `df-api35.avd\config.ini`: `image.sysdir.1=system-images\android-35\google_apis\x86_64\`, `hw.ramSize=2048` and `fastboot.forceColdBoot=yes`
+
+Cold boot takes about 2.5 minutes. RAM is tight on this PC: run one emulator at a time, stop Gradle daemons (`gradlew --stop`) before booting, and shut everything down after a session.
 
 ## Building the Student app without EAS
 
 - **`android/app/google-services.json`:** gitignored, and the build's Google Services plugin requires it. For local QA it holds a placeholder with fake values for `com.idanceflow.student`. Push delivery doesn't work with it; that test needs real FCM credentials.
+- **Path length:** this worktree's path is too long for the native build. CMake object paths pass Windows' 260-character limit (`Filename longer than 260 characters`). Without changing the system long-path setting, map a drive letter to the **worktree root** with `subst W: C:\Dev\studioapp\.claude\worktrees\<worktree>`, then build from `W:\mobile\student`. Map the root, not `mobile\student`: Expo autolinking won't look for `package.json` at a drive root.
+- **`android/local.properties`** (gitignored): `sdk.dir=C:/Android/sdk`, with forward slashes. Backslashes are read as escapes.
 - **Build only for the emulator's ABI:**
 
   ```bash
-  cd mobile/student/android && ./gradlew assembleDebug -PreactNativeArchitectures=x86_64
+  cd W:/mobile/student/android && ./gradlew assembleDebug -PreactNativeArchitectures=x86_64 -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=768m"
   ```
 
+  A clean first build took about 21 minutes. The debug APK is 93 MB, x86_64 only.
 - **APK:** `mobile/student/android/app/build/outputs/apk/debug/app-debug.apk`. Install it with `adb install -r`.
-- **JavaScript:** the debug build loads it from Metro. Run Metro with `EXPO_PUBLIC_*` pointing at the stack under test, then `adb reverse tcp:8081 tcp:8081`.
+- **JavaScript:** the debug build loads it from Metro.
+  - Start Metro with `GOOGLE_SERVICES_JSON=./android/app/google-services.json` plus the `EXPO_PUBLIC_*` values for the stack under test. Without the first, `app.config.js` can't resolve the file and the dev client shows "There was a problem loading the project".
+  - Run `adb reverse tcp:8081 tcp:8081`.
+  - Open the app with `adb shell am start -a android.intent.action.VIEW -d "exp+danceflow-student://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081"`.
+  - The first bundle takes about 2.5 minutes, longer than the dev client waits. Warm it by fetching the bundle URL from the host first.
+  - `expo start` writes `expo-env.d.ts` (gitignored), which adds react-native-web types to local typechecks.
+- **Typing an email with `adb shell input text`:** it drops `@`. Send it as key event 77.
 - **Local QA stack:** the emulator reaches the host as `10.0.2.2`, so `EXPO_PUBLIC_SUPABASE_URL=http://10.0.2.2:<port>`. Debug builds allow plain HTTP. Sign in through the local stack's mail catcher, not DEV: there is no DEV inbox.
