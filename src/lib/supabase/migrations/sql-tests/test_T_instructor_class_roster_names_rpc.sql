@@ -1,4 +1,4 @@
--- get_class_roster_names_for_instructor (20270212090000) regression test.
+-- get_class_roster_names_for_instructor (20270214120000) regression test.
 --
 -- Proves at the Postgres level, as `authenticated` with request.jwt.claims set:
 --   1. the assigned instructor gets exactly id / first_name / last_name / attendee_status for their class's attendees;
