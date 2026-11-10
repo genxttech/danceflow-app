@@ -30,5 +30,10 @@ export function useReduceMotion() {
     };
   }, []);
 
+  useEffect(() => {
+    // Development builds only: lets device QA read the setting from logcat (adb logcat -s ReactNativeJS). Never in release or tests.
+    if (__DEV__ && process.env.NODE_ENV !== "test") console.log(`[DanceFlowBusiness] reduceMotion=${reduce}`);
+  }, [reduce]);
+
   return reduce;
 }
