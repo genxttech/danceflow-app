@@ -7,11 +7,18 @@ type Props = {
   onSignInAgain: () => void;
   /** Re-reads /me, used after not_a_member so the workspace list is current. */
   onRefreshWorkspaces?: () => void;
+  /** Screen-specific wording for a kind (the testID stays the same). */
+  copy?: Partial<Record<StaffErrorKind, { title: string; body: string }>>;
 };
 
 type Copy = { title: string; body: string; testID: string };
 
 const COPY: Record<StaffErrorKind, Copy> = {
+  not_markable: {
+    title: "Can't be changed now",
+    body: "This class can't be updated right now. It may be cancelled or outside the time it can be marked.",
+    testID: "error-not-markable",
+  },
   sign_in_again: {
     title: "Sign in again",
     body: "Your session has ended. Sign in again to see your schedule.",
@@ -59,9 +66,9 @@ const COPY: Record<StaffErrorKind, Copy> = {
   },
 };
 
-export function StaffErrorState({ error, onRetry, onSignInAgain, onRefreshWorkspaces }: Props) {
+export function StaffErrorState({ error, onRetry, onSignInAgain, onRefreshWorkspaces, copy: overrides }: Props) {
   const kind = staffErrorKind(error);
-  const copy = COPY[kind];
+  const copy = { ...COPY[kind], ...overrides?.[kind] };
 
   const actions = (() => {
     switch (kind) {

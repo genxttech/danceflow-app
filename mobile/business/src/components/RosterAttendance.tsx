@@ -4,17 +4,16 @@ import { AppText } from "@/components/AppText";
 import { attendanceLabel } from "@/lib/format";
 import { newIdempotencyKey } from "@/lib/features";
 import { useStaffApi } from "@/lib/staff";
-import { staffErrorKind, type AppointmentDetail, type AttendanceMark } from "@/lib/staffApi";
+import { ATTENDANCE_MARKS, staffErrorKind, type AppointmentDetail, type AttendanceMark } from "@/lib/staffApi";
 import { colors, radius, space } from "@/theme";
 
 type Attendee = NonNullable<AppointmentDetail["roster"]>["attendees"][number];
 
 type RowState = { status: string | null; saving: boolean; error: string | null };
 
-const MARKS: { value: AttendanceMark; label: string }[] = [
-  { value: "attended", label: "Present" },
-  { value: "absent", label: "Absent" },
-];
+// Button order and words; the values themselves come from the adapter's single ATTENDANCE_MARKS list.
+const MARK_LABELS: Record<AttendanceMark, string> = { attended: "Present", no_show: "No-show" };
+const MARKS = ATTENDANCE_MARKS.map((value) => ({ value, label: MARK_LABELS[value] }));
 
 function saveErrorText(error: unknown) {
   switch (staffErrorKind(error)) {
@@ -27,6 +26,8 @@ function saveErrorText(error: unknown) {
       return "Not saved. You no longer have access to this studio.";
     case "not_found":
       return "Not saved. This dancer is no longer on the roster.";
+    case "not_markable":
+      return "Not saved. This class can't be marked right now (cancelled, or outside the marking window).";
     default:
       return "Not saved. Check your connection and try again.";
   }

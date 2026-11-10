@@ -44,16 +44,18 @@ The Clients tab (front-desk search, paging, client summary) and class-roster att
 EXPO_PUBLIC_STAFF_FEATURES=clients,attendance npx expo start --clear
 ```
 
-The proposed wire format lives only in `src/lib/staffApi.ts` (the "PROPOSED SHAPES" section and its `to…` adapters). When the real contract lands, change those adapters and flip the default in `src/lib/features.ts`. The screens and tests use the typed results, so they don't change.
+The provisional contract (adopted by the APPS coordinator 2026-11-10; the Staff session is implementing it) lives only in `src/lib/staffApi.ts` (the "PROPOSED SHAPES" section and its `to…` adapters). When the real contract lands, change those adapters and flip the default in `src/lib/features.ts`. The screens and tests use the typed results, so they don't change.
 
 | Proposed endpoint | Used by |
 | --- | --- |
-| `GET /workspaces/{id}/clients?q=&cursor=` → `{ clients: [{ id, firstName, lastName, status }], nextCursor }` | Clients tab (`viewClients` only; instructors keep "My clients") |
-| `GET /workspaces/{id}/clients/{clientId}` → summary + `nextAppointment`, no money or contact details | Client screen |
-| `PUT /workspaces/{id}/appointments/{appointmentId}/attendance/{clientId}` with `{ status: "attended" \| "absent" }` and an `Idempotency-Key` header | Roster (`markAttendance` on the appointment's own studio; not for cancelled classes) |
+| `GET /workspaces/{id}/clients?q=&cursor=&limit=` → `{ clients: [{ id, firstName, lastName, status }], nextCursor }` | Clients tab: server-scoped (all active clients for front desk and admins, own clients for instructors as "My clients"); 403 = no client lookup for this role |
+| `GET /workspaces/{id}/clients/{clientId}` → summary, active packages (names and remaining counts only), next appointment, `timeZone` (promised); no money or contact details | Client screen |
+| `PUT /workspaces/{id}/appointments/{appointmentId}/attendance/{clientId}` with `{ status }` (values from `ATTENDANCE_MARKS`: `attended`, `no_show`) and an `Idempotency-Key` header → `{ attendee: { clientId, displayName, status, updatedAt } }`; 409 = not markable now | Roster (`markAttendance` on the appointment's own studio; not for cancelled classes) |\| "absent" }` and an `Idempotency-Key` header | Roster (`markAttendance` on the appointment's own studio; not for cancelled classes) |
 
 Each Present or Absent tap is one action with its own idempotency key. A 401 refresh-and-retry resends the same key, so a write never applies twice. A failed save puts the previous mark back and says why on that row.
 
 ## Sign-in links
 
 Email links come back to `danceflow-business://auth/callback`. That URL has to be on the Supabase project's redirect allow list before email-link sign-in works on a device. Password sign-in needs nothing extra.
+
+Error bodies are read in both shapes: #439's `{ error: "<message>", code }` and the provisional `{ error: { code, message } }`.

@@ -29,7 +29,7 @@ describe("RosterAttendance", () => {
     expect(api.setAttendance).not.toHaveBeenCalled();
   });
 
-  it("offers Present / Absent as a labelled radio group per dancer, with the current mark checked", () => {
+  it("offers Present / No-show as a labelled radio group per dancer, with the current mark checked", () => {
     renderRoster();
     expect(screen.getByLabelText("Attendance for Ana Rivera")).toBeTruthy();
     expect(screen.getByLabelText("Attendance for Dancer")).toBeTruthy();
@@ -48,10 +48,10 @@ describe("RosterAttendance", () => {
     expect(api.setAttendance).toHaveBeenCalledWith(STUDIO_ID, "appt-1", "c1", "attended", expect.stringMatching(/^df-bus-/));
 
     // a second tap while saving does nothing
-    fireEvent.press(radio("Absent, Ana Rivera"));
+    fireEvent.press(radio("No-show, Ana Rivera"));
     expect(api.setAttendance).toHaveBeenCalledTimes(1);
 
-    await act(async () => pending.resolve({ clientId: "c1", attendanceStatus: "attended" }));
+    await act(async () => pending.resolve({ clientId: "c1", attendanceStatus: "attended", displayName: null, updatedAt: null }));
     expect(radio("Present, Ana Rivera").props.accessibilityState).toMatchObject({ checked: true, busy: false });
     expect(screen.getByTestId("attendance-summary").props.children.join("")).toBe("2 of 2 marked present");
   });
@@ -66,11 +66,11 @@ describe("RosterAttendance", () => {
     renderRoster(fakeApi({ setAttendance: jest.fn(async () => Promise.reject(new StaffApiError(503, "service_unavailable", "x"))) }));
 
     await act(async () => {
-      fireEvent.press(radio("Absent, Dancer"));
+      fireEvent.press(radio("No-show, Dancer"));
     });
 
     expect(radio("Present, Dancer").props.accessibilityState).toMatchObject({ checked: true });
-    expect(radio("Absent, Dancer").props.accessibilityState).toMatchObject({ checked: false });
+    expect(radio("No-show, Dancer").props.accessibilityState).toMatchObject({ checked: false });
     const error = screen.getByTestId("attendance-error-c2");
     expect(error.props.accessibilityRole).toBe("alert");
     expect(screen.getByText("Not saved. Check your connection and try again.")).toBeTruthy();
@@ -90,15 +90,30 @@ describe("RosterAttendance", () => {
   });
 
   it("uses a new key for each separate action", async () => {
-    const api = renderRoster(fakeApi({ setAttendance: jest.fn(async (_s, _a, clientId: string, status: string) => ({ clientId, attendanceStatus: status })) }));
+    const api = renderRoster(fakeApi({ setAttendance: jest.fn(async (_s, _a, clientId: string, status: string) => ({ clientId, attendanceStatus: status, displayName: null, updatedAt: null })) }));
     await act(async () => {
       fireEvent.press(radio("Present, Ana Rivera"));
     });
     await act(async () => {
-      fireEvent.press(radio("Absent, Ana Rivera"));
+      fireEvent.press(radio("No-show, Ana Rivera"));
     });
     const keys = api.setAttendance.mock.calls.map((c: unknown[]) => c[4]);
     expect(keys).toHaveLength(2);
     expect(keys[0]).not.toBe(keys[1]);
+  });
+});
+
+describe("RosterAttendance 409", () => {
+  it("explains a class that cannot be marked now", async () => {
+    render(
+      <StaffTestProviders api={fakeApi({ setAttendance: jest.fn(async () => Promise.reject(new StaffApiError(409, "not_markable", "x"))) })}>
+        <RosterAttendance studioId={STUDIO_ID} appointmentId="appt-1" attendees={ATTENDEES} canMark />
+      </StaffTestProviders>,
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByRole("radio", { name: "Present, Ana Rivera" }));
+    });
+    expect(screen.getByText("Not saved. This class can't be marked right now (cancelled, or outside the marking window).")).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Present, Ana Rivera" }).props.accessibilityState).toMatchObject({ checked: false });
   });
 });

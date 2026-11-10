@@ -61,12 +61,29 @@ describe("ClientsScreen", () => {
     expect(api.searchClients).not.toHaveBeenCalled();
   });
 
-  it("keeps instructors on My clients without studio-wide lookup", async () => {
-    const api = renderClients(fakeApi(), workspace({ role: "instructor", capabilities: { viewStudioSchedule: true, viewClients: false } }));
+  it("gives instructors My clients, searched through the same route (the server scopes it to their own clients)", async () => {
+    const api = renderClients(
+      fakeApi({ searchClients: jest.fn(async () => ({ clients: [], nextCursor: null })) }),
+      workspace({ role: "instructor", capabilities: { viewStudioSchedule: true, viewClients: false } }),
+    );
     await settle();
     expect(screen.getByText("My clients")).toBeTruthy();
+    expect(api.searchClients).toHaveBeenCalledWith(STUDIO_ID, { q: "", limit: 25 });
+    expect(screen.getByText("Dancers booked into your lessons and classes appear here.")).toBeTruthy();
+  });
+
+  it("keeps the placeholder for a role with neither clients nor schedule", async () => {
+    const api = renderClients(fakeApi(), workspace({ role: "something", capabilities: {} }));
+    await settle();
     expect(screen.getByTestId("clients-placeholder")).toBeTruthy();
     expect(api.searchClients).not.toHaveBeenCalled();
+  });
+
+  it("explains a 403 as no access to client lookup for this role", async () => {
+    renderClients(fakeApi({ searchClients: jest.fn(async () => Promise.reject(new StaffApiError(403, "role_not_permitted", "No."))) }));
+    await settle();
+    expect(screen.getByTestId("error-not-permitted")).toBeTruthy();
+    expect(screen.getByText("No access to client lookup")).toBeTruthy();
   });
 
   it("shows a labelled skeleton, then the first page", async () => {
@@ -74,7 +91,7 @@ describe("ClientsScreen", () => {
     const api = renderClients(fakeApi({ searchClients: jest.fn(() => pending.promise) }));
     await settle();
     expect(screen.getByLabelText("Loading clients")).toBeTruthy();
-    expect(api.searchClients).toHaveBeenCalledWith(STUDIO_ID, { q: "" });
+    expect(api.searchClients).toHaveBeenCalledWith(STUDIO_ID, { q: "", limit: 25 });
 
     await act(async () => pending.resolve(PAGE_1));
     expect(screen.getByTestId("clients-list")).toBeTruthy();
@@ -97,7 +114,7 @@ describe("ClientsScreen", () => {
     await settle();
 
     expect(api.searchClients).toHaveBeenCalledTimes(1);
-    expect(api.searchClients).toHaveBeenCalledWith(STUDIO_ID, { q: "ana" });
+    expect(api.searchClients).toHaveBeenCalledWith(STUDIO_ID, { q: "ana", limit: 25 });
   });
 
   it("ignores a slower answer for an older query", async () => {
@@ -139,7 +156,7 @@ describe("ClientsScreen", () => {
     fireEvent.press(screen.getByRole("button", { name: "Load more clients" }));
     await settle(0);
 
-    expect(api.searchClients).toHaveBeenLastCalledWith(STUDIO_ID, { q: "", cursor: "cursor-2" });
+    expect(api.searchClients).toHaveBeenLastCalledWith(STUDIO_ID, { q: "", cursor: "cursor-2", limit: 25 });
     expect(screen.getAllByText("Sam Okafor")).toHaveLength(1);
     expect(screen.getByText("Client")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Load more clients" })).toBeNull();

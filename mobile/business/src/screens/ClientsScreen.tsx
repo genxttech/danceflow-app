@@ -14,6 +14,14 @@ import type { ClientSummary } from "@/lib/staffApi";
 import { colors, radius, space, type } from "@/theme";
 
 export const SEARCH_DEBOUNCE_MS = 300;
+export const CLIENT_PAGE_SIZE = 25;
+
+const LOOKUP_ERROR_COPY = {
+  not_permitted: {
+    title: "No access to client lookup",
+    body: "Your role at this studio can't search clients. Ask the studio owner if you need it.",
+  },
+};
 
 type LoadState =
   | { status: "loading" }
@@ -44,7 +52,7 @@ function ClientRow({ client, onPress }: { client: ClientSummary; onPress: () => 
   );
 }
 
-function ClientLookup({ studioId }: { studioId: string }) {
+function ClientLookup({ studioId, ownOnly }: { studioId: string; ownOnly: boolean }) {
   const api = useStaffApi();
   const { reload: reloadWorkspaces, signOut } = useStaffSession();
   const [query, setQuery] = useState("");
@@ -61,7 +69,7 @@ function ClientLookup({ studioId }: { studioId: string }) {
     const id = ++requestId.current;
     setState({ status: "loading" });
     try {
-      const page = await api.searchClients(studioId, { q: debounced });
+      const page = await api.searchClients(studioId, { q: debounced, limit: CLIENT_PAGE_SIZE });
       if (id === requestId.current) {
         setState({ status: "ready", clients: page.clients, nextCursor: page.nextCursor, loadingMore: false, moreError: null });
       }
@@ -80,7 +88,7 @@ function ClientLookup({ studioId }: { studioId: string }) {
     const cursor = state.nextCursor;
     setState({ ...state, loadingMore: true, moreError: null });
     try {
-      const page = await api.searchClients(studioId, { q: debounced, cursor });
+      const page = await api.searchClients(studioId, { q: debounced, cursor, limit: CLIENT_PAGE_SIZE });
       if (id !== requestId.current) return;
       setState((current) =>
         current.status === "ready"
@@ -130,6 +138,7 @@ function ClientLookup({ studioId }: { studioId: string }) {
           onRetry={() => void load()}
           onSignInAgain={() => void signOut()}
           onRefreshWorkspaces={() => void reloadWorkspaces()}
+          copy={LOOKUP_ERROR_COPY}
         />
       ) : null}
 
@@ -137,7 +146,13 @@ function ClientLookup({ studioId }: { studioId: string }) {
         <StateMessage
           testID="clients-empty"
           title={debounced ? "No clients match" : "No clients yet"}
-          body={debounced ? `Nobody at this studio matches "${debounced}". Check the spelling or try a last name.` : "Clients added on the web appear here."}
+          body={
+            debounced
+              ? `${ownOnly ? "None of your clients" : "Nobody at this studio"} matches "${debounced}". Check the spelling or try a last name.`
+              : ownOnly
+                ? "Dancers booked into your lessons and classes appear here."
+                : "Clients added on the web appear here."
+          }
         />
       ) : null}
 
@@ -167,7 +182,9 @@ function ClientLookup({ studioId }: { studioId: string }) {
 export function ClientsScreen() {
   const { workspace } = useStaffSession();
   const studioWide = workspace?.capabilities?.viewClients === true;
-  const lookup = studioWide && !!workspace && isStaffFeatureEnabled("clients");
+  // The server scopes results by role: studio-wide for viewClients, own clients for instructors (schedule only).
+  const ownOnly = !studioWide && workspace?.capabilities?.viewStudioSchedule === true;
+  const lookup = (studioWide || ownOnly) && !!workspace && isStaffFeatureEnabled("clients");
 
   return (
     <Screen>
@@ -175,7 +192,7 @@ export function ClientsScreen() {
         {studioWide ? "Clients" : "My clients"}
       </AppText>
       {lookup && workspace ? (
-        <ClientLookup key={workspace.studioId} studioId={workspace.studioId} />
+        <ClientLookup key={workspace.studioId} studioId={workspace.studioId} ownOnly={ownOnly} />
       ) : (
         <StateMessage
           testID="clients-placeholder"

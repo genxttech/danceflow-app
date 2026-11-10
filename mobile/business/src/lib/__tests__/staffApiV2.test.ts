@@ -1,4 +1,4 @@
-import { createStaffApi, staffErrorKind, StaffApiError, toClientDetail, toClientPage } from "@/lib/staffApi";
+import { ATTENDANCE_MARKS, createStaffApi, readErrorBody, staffErrorKind, StaffApiError, toClientDetail, toClientPage } from "@/lib/staffApi";
 import { newIdempotencyKey, parseStaffFeatures } from "@/lib/features";
 
 function jsonResponse(status: number, body: unknown) {
@@ -77,7 +77,9 @@ describe("adapters keep screens safe from an unexpected payload", () => {
 
 describe("attendance (proposed v2 shape)", () => {
   it("PUTs the mark as JSON with the idempotency key and bearer", async () => {
-    const { api, call } = setup([jsonResponse(200, { clientId: "c1", attendanceStatus: "attended" })]);
+    const { api, call } = setup([
+      jsonResponse(200, { attendee: { clientId: "c1", displayName: "Ana R.", status: "attended", updatedAt: "2026-11-10T20:00:00Z" } }),
+    ]);
 
     const result = await api.setAttendance("studio-1", "appt-1", "c1", "attended", "key-1");
 
@@ -91,16 +93,32 @@ describe("attendance (proposed v2 shape)", () => {
       "Content-Type": "application/json",
       "Idempotency-Key": "key-1",
     });
-    expect(result).toEqual({ clientId: "c1", attendanceStatus: "attended" });
+    expect(result).toEqual({ clientId: "c1", attendanceStatus: "attended", displayName: "Ana R.", updatedAt: "2026-11-10T20:00:00Z" });
+  });
+
+  it("sends only values from the single ATTENDANCE_MARKS list, which are values of the DB roster attendance set", () => {
+    const dbSet = ["registered", "checked_in", "attended", "no_show", "cancelled"];
+    expect([...ATTENDANCE_MARKS]).toEqual(["attended", "no_show"]);
+    for (const mark of ATTENDANCE_MARKS) expect(dbSet).toContain(mark);
+  });
+
+  it("maps 409 (not markable) to its own kind, from the code or from the status alone", async () => {
+    const coded = setup([jsonResponse(409, { error: { code: "not_markable", message: "Class is cancelled." } })]);
+    const e1 = await coded.api.setAttendance("s", "a", "c", "attended", "k").catch((e: unknown) => e as StaffApiError);
+    expect(staffErrorKind(e1)).toBe("not_markable");
+    expect((e1 as StaffApiError).message).toBe("Class is cancelled.");
+
+    const bare = setup([jsonResponse(409, { error: { code: "attendance_window_closed", message: "Too late." } })]);
+    expect(staffErrorKind(await bare.api.setAttendance("s", "a", "c", "attended", "k").catch((e: unknown) => e))).toBe("not_markable");
   });
 
   it("retries a 401 once with the SAME idempotency key, so the write cannot apply twice", async () => {
     const { api, call, refreshAccessToken } = setup([
       jsonResponse(401, { code: "unauthenticated" }),
-      jsonResponse(200, { clientId: "c1", attendanceStatus: "absent" }),
+      jsonResponse(200, { attendee: { clientId: "c1", displayName: "Ana R.", status: "no_show", updatedAt: "2026-11-10T20:00:00Z" } }),
     ]);
 
-    await api.setAttendance("studio-1", "appt-1", "c1", "absent", "key-9");
+    await api.setAttendance("studio-1", "appt-1", "c1", "no_show", "key-9");
 
     expect(refreshAccessToken).toHaveBeenCalledTimes(1);
     expect(call(0)[1].headers["Idempotency-Key"]).toBe("key-9");
@@ -110,8 +128,66 @@ describe("attendance (proposed v2 shape)", () => {
   });
 
   it("falls back to the requested client when the response omits it", async () => {
-    const { api } = setup([jsonResponse(200, { attendanceStatus: "attended" })]);
-    expect(await api.setAttendance("s", "a", "c7", "attended", "k")).toEqual({ clientId: "c7", attendanceStatus: "attended" });
+    const { api } = setup([jsonResponse(200, { attendee: { status: "attended" } })]);
+    expect(await api.setAttendance("s", "a", "c7", "attended", "k")).toEqual({
+      clientId: "c7",
+      attendanceStatus: "attended",
+      displayName: null,
+      updatedAt: null,
+    });
+  });
+});
+
+describe("error bodies: both shapes are read", () => {
+  it("reads #439's flat { error, code }", () => {
+    expect(readErrorBody({ error: "Paused.", code: "workspace_paused" })).toEqual({ code: "workspace_paused", message: "Paused." });
+  });
+
+  it("reads the provisional nested { error: { code, message } }", () => {
+    expect(readErrorBody({ error: { code: "role_not_permitted", message: "No." } })).toEqual({ code: "role_not_permitted", message: "No." });
+  });
+
+  it("maps a nested 403 role_not_permitted on client lookup to not_permitted", async () => {
+    const { api } = setup([jsonResponse(403, { error: { code: "role_not_permitted", message: "No client lookup for your role." } })]);
+    const error = await api.searchClients("s", {}).catch((e: unknown) => e as StaffApiError);
+    expect(staffErrorKind(error)).toBe("not_permitted");
+    expect((error as StaffApiError).message).toBe("No client lookup for your role.");
+  });
+});
+
+describe("client detail (provisional)", () => {
+  it("keeps package names and remaining counts only, and the studio zone", () => {
+    const detail = toClientDetail({
+      id: "c1",
+      firstName: "Ana",
+      lastName: "Rivera",
+      status: "active",
+      activePackages: [{ name: "10 privates", remaining: 4, priceCents: 90000 }, { name: "Unlimited classes", remaining: null }, { remaining: 2 }],
+      nextAppointment: { id: "a1", startsAt: "2026-11-12T15:00:00Z", appointmentType: "private_lesson" },
+      timeZone: "America/New_York",
+    });
+    expect(detail.activePackages).toEqual([
+      { name: "10 privates", remaining: 4 },
+      { name: "Unlimited classes", remaining: null },
+    ]);
+    expect(JSON.stringify(detail)).not.toContain("price");
+    expect(detail.timeZone).toBe("America/New_York");
+  });
+
+  it("accepts the next appointment as a bare time", () => {
+    expect(toClientDetail({ id: "c1", nextAppointment: "2026-11-12T15:00:00Z" }).nextAppointment).toEqual({
+      id: null,
+      startsAt: "2026-11-12T15:00:00Z",
+      appointmentType: null,
+    });
+  });
+
+  it("sends limit only when it is a positive integer", async () => {
+    const { api, call } = setup([jsonResponse(200, { clients: [] }), jsonResponse(200, { clients: [] })]);
+    await api.searchClients("s", { limit: 25 });
+    await api.searchClients("s", { limit: 0 });
+    expect(call(0)[0]).toBe("https://danceflow.test/api/staff/workspaces/s/clients?limit=25");
+    expect(call(1)[0]).toBe("https://danceflow.test/api/staff/workspaces/s/clients");
   });
 });
 

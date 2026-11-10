@@ -89,6 +89,8 @@ export type StaffApiErrorCode =
   | "role_not_permitted"
   | "not_found"
   | "service_unavailable"
+  /** 409: the record is not in a state that allows this write (e.g. a cancelled class, or outside the marking window). */
+  | "not_markable"
   /** Client-side: no response at all (offline, DNS, TLS). */
   | "network_error"
   /** Client-side: a response that is not the contract's JSON. */
@@ -114,6 +116,7 @@ export type StaffErrorKind =
   | "paused"
   | "not_permitted"
   | "not_found"
+  | "not_markable"
   | "unavailable"
   | "client_bug";
 
@@ -127,6 +130,7 @@ const KNOWN_CODES: readonly StaffApiErrorCode[] = [
   "role_not_permitted",
   "not_found",
   "service_unavailable",
+  "not_markable",
 ];
 
 /** The server's `code` decides; the status is only a fallback for a body without one. */
@@ -138,8 +142,25 @@ function codeFor(status: number, raw: unknown): StaffApiErrorCode {
   if (status === 404) return "not_found";
   if (status === 400) return "invalid_request";
   if (status === 403) return "not_a_member";
+  if (status === 409) return "not_markable";
   if (status >= 500) return "service_unavailable";
   return "unexpected_response";
+}
+
+/**
+ * #439 answers `{ error: "<message>", code: "<code>" }`. The provisional v2 contract describes `{ error: { code, message } }`.
+ * Both are read, so the app does not break whichever one the v2 routes end up using.
+ */
+export function readErrorBody(body: unknown): { code: unknown; message: string | null } {
+  const record = (body ?? {}) as { code?: unknown; error?: unknown; message?: unknown };
+  if (record.error && typeof record.error === "object") {
+    const nested = record.error as { code?: unknown; message?: unknown };
+    return { code: nested.code ?? record.code, message: typeof nested.message === "string" ? nested.message : null };
+  }
+  return {
+    code: record.code,
+    message: typeof record.error === "string" ? record.error : typeof record.message === "string" ? record.message : null,
+  };
 }
 
 export function staffErrorKind(error: unknown): StaffErrorKind {
@@ -160,6 +181,8 @@ export function staffErrorKind(error: unknown): StaffErrorKind {
       return "not_permitted";
     case "not_found":
       return "not_found";
+    case "not_markable":
+      return "not_markable";
     case "invalid_request":
       return "client_bug";
     case "service_unavailable":
@@ -196,20 +219,31 @@ export type ClientSummary = {
 export type ClientPage = { clients: ClientSummary[]; nextCursor: string | null };
 
 export type ClientDetail = ClientSummary & {
-  /** The next lesson or class this client is booked into at this studio, if any. No money, no contact details. */
-  nextAppointment: { id: string; startsAt: string; appointmentType: string } | null;
+  /** Active packages as names and remaining counts only. Never prices or balances. */
+  activePackages: { name: string; remaining: number | null }[];
+  /** The next lesson or class this client is booked into at this studio, if any. `id`/`appointmentType` may be absent if only a time is sent. */
+  nextAppointment: { id: string | null; startsAt: string; appointmentType: string | null } | null;
+  /** The studio's IANA zone, when the server sends it (promised by the Staff session); otherwise the device zone is used. */
+  timeZone: string | null;
 };
 
-export type AttendanceMark = "attended" | "absent";
+/**
+ * The attendance values the app can write. They must be values of the existing roster attendance set
+ * (registered | checked_in | attended | no_show | cancelled, src/lib/schedule/groupClassRosterPanel.ts); attended and
+ * no_show are the recorded outcomes the web uses. The Staff session confirms the final list in the contract doc:
+ * change it here only.
+ */
+export const ATTENDANCE_MARKS = ["attended", "no_show"] as const;
+export type AttendanceMark = (typeof ATTENDANCE_MARKS)[number];
 
-export type AttendanceResult = { clientId: string; attendanceStatus: string | null };
+export type AttendanceResult = { clientId: string; attendanceStatus: string | null; displayName: string | null; updatedAt: string | null };
 
 export type StaffApi = {
   me: () => Promise<StaffMe>;
   today: (studioId: string, date?: string) => Promise<StaffToday>;
   appointment: (studioId: string, appointmentId: string) => Promise<AppointmentDetail>;
-  /** PROPOSED: GET /workspaces/{id}/clients?q=&cursor= */
-  searchClients: (studioId: string, params: { q?: string; cursor?: string | null }) => Promise<ClientPage>;
+  /** PROVISIONAL: GET /workspaces/{id}/clients?q=&cursor=&limit=. Role-scoped by the server: all active clients for front desk and admins, own clients for instructors. */
+  searchClients: (studioId: string, params: { q?: string; cursor?: string | null; limit?: number }) => Promise<ClientPage>;
   /** PROPOSED: GET /workspaces/{id}/clients/{clientId} */
   client: (studioId: string, clientId: string) => Promise<ClientDetail>;
   /** PROPOSED: PUT /workspaces/{id}/appointments/{appointmentId}/attendance/{clientId}, with an Idempotency-Key header. */
@@ -236,21 +270,42 @@ export function toClientPage(raw: unknown): ClientPage {
   return { clients, nextCursor: str(r.nextCursor) };
 }
 
+function toNextAppointment(r: Record<string, unknown>): ClientDetail["nextAppointment"] {
+  const next = r.nextAppointment;
+  if (next && typeof next === "object") {
+    const n = next as Record<string, unknown>;
+    const startsAt = str(n.startsAt);
+    return startsAt ? { id: str(n.id), startsAt, appointmentType: str(n.appointmentType) } : null;
+  }
+  // a bare time is also accepted ("next appointment time")
+  const at = str(next) ?? str(r.nextAppointmentAt);
+  return at ? { id: null, startsAt: at, appointmentType: null } : null;
+}
+
 export function toClientDetail(raw: unknown): ClientDetail {
-  const r = (raw ?? {}) as { nextAppointment?: unknown };
-  const next = (r.nextAppointment ?? null) as Record<string, unknown> | null;
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const packages = Array.isArray(r.activePackages) ? r.activePackages : [];
   return {
     ...toClientSummary(raw),
-    nextAppointment:
-      next && typeof next.id === "string" && typeof next.startsAt === "string"
-        ? { id: next.id, startsAt: next.startsAt, appointmentType: str(next.appointmentType) ?? "appointment" }
-        : null,
+    activePackages: packages
+      .map((p) => (p ?? {}) as Record<string, unknown>)
+      .filter((p) => typeof p.name === "string" && p.name)
+      .map((p) => ({ name: p.name as string, remaining: typeof p.remaining === "number" && Number.isFinite(p.remaining) ? p.remaining : null })),
+    nextAppointment: toNextAppointment(r),
+    timeZone: str(r.timeZone),
   };
 }
 
+/** Provisional response: `{ attendee: { clientId, displayName, status, updatedAt } }`. A flat object is also read. */
 export function toAttendanceResult(raw: unknown, clientId: string): AttendanceResult {
-  const r = (raw ?? {}) as Record<string, unknown>;
-  return { clientId: str(r.clientId) ?? clientId, attendanceStatus: str(r.attendanceStatus) };
+  const outer = (raw ?? {}) as Record<string, unknown>;
+  const r = (outer.attendee && typeof outer.attendee === "object" ? outer.attendee : outer) as Record<string, unknown>;
+  return {
+    clientId: str(r.clientId) ?? clientId,
+    attendanceStatus: str(r.status) ?? str(r.attendanceStatus),
+    displayName: str(r.displayName),
+    updatedAt: str(r.updatedAt),
+  };
 }
 
 type RequestOptions = { method?: "GET" | "PUT"; body?: unknown; headers?: Record<string, string> };
@@ -297,9 +352,8 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
     }
 
     if (!response.ok) {
-      const record = (body ?? {}) as { code?: unknown; error?: unknown };
-      const message = typeof record.error === "string" ? record.error : "Something went wrong.";
-      throw new StaffApiError(response.status, codeFor(response.status, record.code), message);
+      const { code, message } = readErrorBody(body);
+      throw new StaffApiError(response.status, codeFor(response.status, code), message ?? "Something went wrong.");
     }
 
     if (body === null || typeof body !== "object") {
@@ -316,10 +370,11 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
     today: (studioId, date) => call<StaffToday>(`${ws(studioId)}/today${date ? `?date=${encodeURIComponent(date)}` : ""}`),
     appointment: (studioId, appointmentId) =>
       call<AppointmentDetail>(`${ws(studioId)}/appointments/${encodeURIComponent(appointmentId)}`),
-    searchClients: async (studioId, { q, cursor }) => {
+    searchClients: async (studioId, { q, cursor, limit }) => {
       const query = new URLSearchParams();
       if (q?.trim()) query.set("q", q.trim());
       if (cursor) query.set("cursor", cursor);
+      if (limit && Number.isInteger(limit) && limit > 0) query.set("limit", String(limit));
       const suffix = query.toString() ? `?${query.toString()}` : "";
       return toClientPage(await call<unknown>(`${ws(studioId)}/clients${suffix}`));
     },
