@@ -1812,6 +1812,8 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
     ].join(" ");
     const run = (violate = "") => superRun(`begin; ${compliant} ${violate} ${script} rollback;`);
     expect(run()).toBe("");   // a compliant chain passes
+    // single-owner design: a separate recovery credential is optional, so a chain WITHOUT one still passes (informational line only)
+    expect(run(unguard("studio_sms_price_credentials", "studio_sms_price_credentials_guard", "update public.studio_sms_price_credentials set status = 'revoked', revoked_at = clock_timestamp() where role = 'recovery';"))).toBe("");
     const cases: [string, string, RegExp][] = [
       ["the QA marker exists", "create table public.tw4_local_qa_only (x int);", /tw4_local_qa_only exists/],
       ["authenticated can CREATE in schema public", "grant create on schema public to authenticated;", /authenticated can CREATE in schema public/],
@@ -1823,7 +1825,6 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
       ["monitoring_expected is false", unguard("studio_sms_price_auth_config", "studio_sms_price_auth_config_guard", "update public.studio_sms_price_auth_config set monitoring_expected = false where singleton;"), /monitoring_expected is not true/],
       ["the monitoring table is missing", "drop table public.studio_sms_price_security_events;", /monitoring events table is missing/],
       ["backup-eligible credentials allowed", unguard("studio_sms_price_auth_config", "studio_sms_price_auth_config_guard", "update public.studio_sms_price_auth_config set allow_backup_eligible = true where singleton;"), /allow_backup_eligible is true/],
-      ["no recovery credential", unguard("studio_sms_price_credentials", "studio_sms_price_credentials_guard", "update public.studio_sms_price_credentials set status = 'revoked', revoked_at = clock_timestamp() where role = 'recovery';"), /exactly one active recovery credential/],
       ["an active credential without proof", unguard("studio_sms_price_credentials", "studio_sms_price_credentials_guard", "update public.studio_sms_price_credentials set proof_verified_at = null where role = 'recovery';"), /no enrolment proof/],
       ["the relying party is not configured", unguard("studio_sms_price_auth_config", "studio_sms_price_auth_config_guard", "update public.studio_sms_price_auth_config set rp_id = null, rp_origins = null where singleton;"), /relying party is not configured/],
       ["auth.sessions is missing", "alter table auth.sessions rename to sessions_hidden;", /auth\.sessions does not exist/],
