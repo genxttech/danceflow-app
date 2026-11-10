@@ -1,6 +1,6 @@
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { b64uToBytes, bootstrapStatement, keyRefusal, parseAuthDataFlags, spkiToXY, toHex } from "@/lib/sms/keySetup";
+import { b64uToBytes, bootstrapStatement, counterNote, keyRefusal, parseAuthDataFlags, parseSignCount, spkiToXY, toHex } from "@/lib/sms/keySetup";
 
 const authData = (flags: number) => {
   const b = new Uint8Array(37);
@@ -34,6 +34,18 @@ describe("hardware key setup helpers", () => {
     expect(keyRefusal(parseAuthDataFlags(authData(0x01 | 0x04 | 0x08 | 0x40)))).toMatch(/synced passkey/); // backup eligible
     expect(keyRefusal(parseAuthDataFlags(authData(0x01 | 0x04 | 0x08 | 0x10 | 0x40)))).toMatch(/synced passkey/); // backed up
     expect(() => parseAuthDataFlags(new Uint8Array(10))).toThrow();
+  });
+
+  it("reads the signature counter (big endian) and explains zero versus counting authenticators", () => {
+    const ad = new Uint8Array(37);
+    ad.set([0x01, 0x02, 0x03, 0x04], 33);
+    expect(parseSignCount(ad)).toBe(0x01020304);
+    expect(parseSignCount(new Uint8Array(37))).toBe(0);
+    ad.set([0xff, 0xff, 0xff, 0xff], 33);
+    expect(parseSignCount(ad)).toBe(4294967295);
+    expect(counterNote(0)).toMatch(/cannot be detected by the counter/);
+    expect(counterNote(7)).toMatch(/clone detection stays on/);
+    expect(() => parseSignCount(new Uint8Array(5))).toThrow();
   });
 
   it("round-trips base64url", () => {
