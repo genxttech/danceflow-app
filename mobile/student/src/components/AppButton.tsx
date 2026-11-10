@@ -41,7 +41,7 @@ export function AppButton({
       }}
       disabled={disabled || loading}
       hitSlop={props.hitSlop ?? 4}
-      style={({ pressed }) => [
+      style={(state) => [
         styles.button,
         isPrimary && {
           borderColor: "rgba(255,255,255,0.24)",
@@ -53,9 +53,9 @@ export function AppButton({
           shadowColor: colors.black,
         },
         variant === "ghost" && styles.ghost,
-        pressed && [styles.pressed, { transform: pressedTransform(reducedMotion) }],
+        state.pressed && [styles.pressed, { transform: pressedTransform(reducedMotion) }],
         (disabled || loading) && styles.disabled,
-        typeof style === "function" ? style({ pressed }) : style,
+        typeof style === "function" ? style(state) : style,
       ]}
     >
       {isPrimary ? (
