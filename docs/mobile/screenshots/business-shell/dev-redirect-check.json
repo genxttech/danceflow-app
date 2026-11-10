@@ -1,0 +1,12 @@
+{
+  "check": "DEV GoTrue accepts danceflow-business://auth/callback as redirect_to",
+  "result": "PASS",
+  "when": "2026-11-10T15:14:38Z",
+  "method": "GET https://<DEV ref epdrtzcydvnoidwrepqz>.supabase.co/auth/v1/verify?token=<invalid probe token>&type=magiclink&redirect_to=<url>, redirects not followed. An invalid token is a failed lookup only: no email is sent and no user is created. GoTrue sends the error to redirect_to only when it passes the allow list, otherwise to the site URL.",
+  "probes": [
+    { "redirect_to": "danceflow-business://auth/callback", "status": 303, "location": "danceflow-business://auth/callback#error=access_denied&error_code=otp_expired&...", "meaning": "accepted (exact match)" },
+    { "redirect_to": "danceflow-business://auth/callback/x", "status": 303, "location": "http://localhost:3000#error=access_denied&...", "meaning": "refused, falls back to the DEV site URL (the entry is exact-match)" },
+    { "redirect_to": "https://not-allowed.example/cb", "status": 303, "location": "http://localhost:3000#error=access_denied&...", "meaning": "refused (negative control)" }
+  ],
+  "not_verified": "A full DEV PKCE sign-in (needs a QA inbox): BLOCKED."
+}
