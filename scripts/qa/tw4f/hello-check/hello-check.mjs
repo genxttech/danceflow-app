@@ -76,16 +76,17 @@ const b64u=b=>btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\\+/g,'-'
 const unb=s=>{s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return Uint8Array.from(atob(s),c=>c.charCodeAt(0)).buffer};
 const log=t=>{out.textContent+=t+'\\n'};
 const post=(p,b)=>fetch(p,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json());
-go.onclick=async()=>{go.disabled=true;out.textContent='';
+const ATT=new URLSearchParams(location.search).get('attachment')||'platform';let TRANSPORTS=[];
+go.onclick=async()=>{go.disabled=true;out.textContent='';log('requested authenticator type: '+ATT+' (platform = Windows Hello on this PC; hint client-device)');
  try{
   log('1. registering a device-bound passkey (approve Windows Hello)...');
-  const c=await navigator.credentials.create({publicKey:{challenge:crypto.getRandomValues(new Uint8Array(32)),rp:{name:'TW-4F check',id:'${RP}'},user:{id:crypto.getRandomValues(new Uint8Array(16)),name:'tw4f-check',displayName:'tw4f-check'},pubKeyCredParams:[{type:'public-key',alg:-7}],authenticatorSelection:{userVerification:'required',residentKey:'discouraged'},attestation:'none',timeout:120000}});
-  const r=c.response;const reg=await post('/register',{credId:b64u(c.rawId),spki:b64u(r.getPublicKey()),auth:b64u(r.getAuthenticatorData()),attachment:c.authenticatorAttachment||null,transports:r.getTransports?r.getTransports():[]});
+  const c=await navigator.credentials.create({publicKey:{challenge:crypto.getRandomValues(new Uint8Array(32)),rp:{name:'TW-4F check',id:'${RP}'},user:{id:crypto.getRandomValues(new Uint8Array(16)),name:'tw4f-check',displayName:'tw4f-check'},pubKeyCredParams:[{type:'public-key',alg:-7}],authenticatorSelection:{authenticatorAttachment:ATT,userVerification:'required',residentKey:'discouraged'},hints:ATT=='platform'?['client-device']:[],attestation:'none',timeout:120000}});
+  const r=c.response;TRANSPORTS=r.getTransports?r.getTransports():[];const reg=await post('/register',{credId:b64u(c.rawId),spki:b64u(r.getPublicKey()),auth:b64u(r.getAuthenticatorData()),attachment:c.authenticatorAttachment||null,transports:r.getTransports?r.getTransports():[]});
   log('   registered; flags: '+JSON.stringify(reg.flags)+'; attachment: '+reg.attachment);
   for(let i=1;i<=${ROUNDS};i++){
    const b=await post('/begin',{});
    log('2.'+i+' signing challenge '+i+' (approve Windows Hello)...');
-   const g=await navigator.credentials.get({publicKey:{challenge:unb(b.challenge),rpId:'${RP}',allowCredentials:[{type:'public-key',id:unb(b.credentialId)}],userVerification:'required',timeout:120000}});
+   const g=await navigator.credentials.get({publicKey:{challenge:unb(b.challenge),rpId:'${RP}',allowCredentials:[{type:'public-key',id:unb(b.credentialId),transports:TRANSPORTS.length?TRANSPORTS:(ATT=='platform'?['internal']:undefined)}],userVerification:'required',hints:ATT=='platform'?['client-device']:[],timeout:120000}});
    const a=g.response;const res=await post('/finish',{nonce:b.nonce,auth:b64u(a.authenticatorData),client:b64u(a.clientDataJSON),sig:b64u(a.signature)});
    log('   database verdict (attested = accepted): '+res.verdict+'; counter '+res.counter+'; flags '+JSON.stringify(res.flags));
   }
