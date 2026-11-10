@@ -31,6 +31,7 @@ describe("Organizer Suite item entitlement write target", () => {
   it("the RPC locates Suite rows by stripe_subscription_item_id and uses no ON CONFLICT target", () => {
     expect(rpc).toMatch(/from public\.usage_addon_entitlements where stripe_subscription_item_id = v_item_id/);
     expect(rpc).toMatch(/where stripe_subscription_item_id = v_item_id and studio_id = p_studio_id/);
-    expect(rpc.toLowerCase()).not.toContain("on conflict");
+    const code = rpc.replace(/--[^\n]*/g, "").toLowerCase();
+    expect(code).not.toMatch(/on\s+conflict/);
   });
 });
