@@ -27,6 +27,10 @@ begin;
 -- meaning. PV-1 itself is proven by test_T_competition_pv1_recompute.sql, the TS<->SQL equivalence corpus and the PV-1 e2e scenarios.
 do $pv1n$
 begin
+  -- Refuse under per-statement autocommit (then now() equals the statement start): the no-op must never outlive this suite's own transaction.
+  if now() = statement_timestamp() then
+    raise exception 'PV-1 neutralizer refused: run this suite inside one explicit transaction (no per-statement autocommit), on a local QA database only';
+  end if;
   if to_regprocedure('public._comppv1_verify(jsonb,jsonb,jsonb)') is not null then
     execute 'create or replace function public._comppv1_verify(p_ev jsonb, p_rows jsonb, p_warnings jsonb) returns void language plpgsql as $b$ begin null; end $b$';
   end if;
