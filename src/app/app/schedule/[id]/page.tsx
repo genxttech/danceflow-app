@@ -711,8 +711,8 @@ export default async function AppointmentDetailPage({
   }
 
   const packageHealth = pkg ? getPackageHealth(pkg, otherPackagesForHealth) : null;
-  const partnerName = getClientName(typedAppointment.partner_client as any);
-  const partnerId = getClientId(typedAppointment.partner_client as any);
+  const partnerName = getClientName(typedAppointment.partner_client);
+  const partnerId = getClientId(typedAppointment.partner_client);
   const instructorName = getInstructorName(typedAppointment.instructors);
   const roomName = getRoomName(typedAppointment.rooms);
   const locationName = typedAppointment.location_name?.trim() || null;
