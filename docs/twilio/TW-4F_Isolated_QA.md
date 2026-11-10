@@ -67,6 +67,26 @@ node scripts/qa/iso-qa.mjs down --all                                 # remove i
 
 Requires Docker, the images `public.ecr.aws/supabase/{postgres:17.6.1.106,postgrest:v14.8,kong:2.8.1}`, Node 20+. No network access to Twilio or any hosted database. Evidence per run: `<QA home>/runs/<time>-<instance>/` (vitest.log, postgres.log, result.json with provenance and failed-test names).
 
+### Auth profile (`--auth`, opt-in)
+
+`up` and `run` accept `--auth`. It adds a real **GoTrue** (`gotrue:v2.188.1`) and **Mailpit** (`mailpit:v1.22.3`) to the instance, reachable only through the instance's own Kong at `/auth/v1/` and `/mail/`. Kong stays the only published port, and Kong gets a CORS plugin so a browser app can call auth. Use it for signed-in flows and email links (magic link, recovery) without any hosted project. Without `--auth`, nothing changes: same three containers, same Kong config, same database steps.
+
+What the profile does, per stack only (the baseline image is never touched):
+
+- It hands the dump's 2018 GoTrue `auth` schema to `supabase_auth_admin`, so GoTrue can run its own migrations. It also drops the three `auth.users` columns the default path pre-adds (`email_confirmed_at`, `banned_until`, `deleted_at`), because GoTrue adds them itself.
+- GoTrue signs with the stack's JWT secret, so PostgREST, `auth.uid()` and GoTrue all agree. `up` also prints `ISO_QA_AUTH_URL`, `ISO_QA_MAIL_URL`, `ISO_QA_ANON_KEY` and `ISO_QA_SERVICE_ROLE_KEY`.
+- Mail goes to Mailpit (`$ISO_QA_MAIL_URL/api/v1/messages`). Email confirmation is on, and users created through the admin API with `email_confirm: true` are confirmed.
+- Redirects default to `http://localhost:*/**`, `http://127.0.0.1:*/**`, `danceflow://**` and `danceflow-business://**`. Override them with `ISO_QA_AUTH_REDIRECTS` and `ISO_QA_AUTH_SITE_URL`, and the images with `ISO_QA_AUTH_IMAGE` and `ISO_QA_MAIL_IMAGE`.
+- `down` and `run` cleanup remove the auth and mail containers along with the rest.
+
+```bash
+node scripts/qa/iso-qa.mjs up baseline --auth --name my-auth > stack.json
+node scripts/qa/auth-profile/auth-smoke.mjs stack.json        # password grant, auth.uid() via PostgREST, magic link via Mailpit, revoke, CORS
+node scripts/qa/iso-qa.mjs down --name my-auth
+```
+
+`stack.json` holds the anon and service-role keys for that disposable stack: keep it out of the repo. Helpers for other scripts are in `scripts/qa/auth-profile/lib.mjs` (`loadStack`, `createUser`, `latestAuthLink`, `psql`). The DanceFlow Business walkthrough is in `scripts/qa/auth-profile/business-shell/` (see its README).
+
 ## 4. Known limits (read before trusting a PASS)
 
 - Local / developer tool: the July dump is git-ignored, so CI cannot build the baseline. The CI check is limited to typecheck and lint of the harness-adjacent TypeScript.
