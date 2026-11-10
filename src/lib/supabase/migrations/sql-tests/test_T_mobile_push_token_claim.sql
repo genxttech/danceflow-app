@@ -1,4 +1,4 @@
--- Suite for 20270211090000_mobile_push_token_claim.sql. LOCAL / DISPOSABLE databases only.
+-- Suite for 20270213080000_mobile_push_token_claim.sql. LOCAL / DISPOSABLE databases only.
 -- Runs in one transaction and rolls back. Any failed check raises and stops psql (ON_ERROR_STOP=1).
 \set ON_ERROR_STOP 1
 begin;
