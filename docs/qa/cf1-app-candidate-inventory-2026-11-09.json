@@ -1,29 +1,29 @@
 {
   "summary": {
-    "base": "ab940288",
+    "base": "03297304",
     "int5": "28a7722e",
-    "hotfix": "ab940288",
-    "files": 340,
+    "hotfix": "03297304",
+    "files": 361,
     "byChange": {
-      "added": 325,
-      "changed": 15
+      "added": 345,
+      "changed": 16
     },
     "byArea": {
-      "docs": 90,
-      "e2e harness": 20,
-      "QA script": 2,
-      "app route/page/action": 31,
-      "unit test": 40,
-      "library": 39,
-      "migration (Git-only copy)": 25,
-      "migration rollback (Git-only copy)": 25,
-      "SQL test": 68
+      "docs": 94,
+      "e2e harness": 21,
+      "QA script": 8,
+      "app route/page/action": 33,
+      "unit test": 42,
+      "library": 40,
+      "migration (Git-only copy)": 27,
+      "migration rollback (Git-only copy)": 27,
+      "SQL test": 69
     },
     "byOrigin": {
-      "int5 28a7722e, byte-identical": 291,
-      "new in this candidate": 16,
-      "int5 28a7722e, edited here": 31,
-      "live release file, edited here (dark gate)": 2
+      "int5 28a7722e, byte-identical": 269,
+      "new in this candidate": 36,
+      "int5 28a7722e, edited here": 53,
+      "live release file, edited here (dark gate)": 3
     },
     "excluded": 10
   },
@@ -107,17 +107,24 @@
     },
     {
       "status": "A",
+      "path": "docs/competition/e1-officials-judging-access.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
       "path": "docs/competition/engine-spec-callback-tally.md",
       "change": "added",
       "area": "docs",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
       "path": "docs/competition/engine-spec-ordinal-majority.md",
       "change": "added",
       "area": "docs",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -138,7 +145,7 @@
       "path": "docs/competition/scoring-results-contract.md",
       "change": "added",
       "area": "docs",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -156,7 +163,21 @@
     },
     {
       "status": "A",
+      "path": "docs/qa/cf1-app-candidate-acceptance-dark-rebase-2026-11-10.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
       "path": "docs/qa/cf1-app-candidate-acceptance-on-2026-11-09.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-acceptance-pv1-2026-11-10.json",
       "change": "added",
       "area": "docs",
       "origin": "new in this candidate"
@@ -237,6 +258,13 @@
       "change": "added",
       "area": "docs",
       "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-pv1-equivalence-2026-11-10.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
     },
     {
       "status": "A",
@@ -516,7 +544,7 @@
       "path": "docs/qa/cf1-release-manifest-2026-11-08.tsv",
       "change": "added",
       "area": "docs",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -726,7 +754,7 @@
       "path": "e2e/playwright.cf1.config.ts",
       "change": "added",
       "area": "e2e harness",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -738,6 +766,13 @@
     {
       "status": "A",
       "path": "e2e/tests/competition-cf1-dark-smoke.spec.ts",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "e2e/tests/competition-cf1-pv1-recompute-acceptance.spec.ts",
       "change": "added",
       "area": "e2e harness",
       "origin": "new in this candidate"
@@ -808,6 +843,48 @@
     {
       "status": "A",
       "path": "scripts/qa/cf1-schema-compat.mjs",
+      "change": "added",
+      "area": "QA script",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "scripts/qa/oj1/oj1-sql-proof.sql",
+      "change": "added",
+      "area": "QA script",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "scripts/qa/pv1/capture.setup.ts",
+      "change": "added",
+      "area": "QA script",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "scripts/qa/pv1/capture.vitest.mts",
+      "change": "added",
+      "area": "QA script",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "scripts/qa/pv1/compare.mjs",
+      "change": "added",
+      "area": "QA script",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "scripts/qa/pv1/fault-injection.sh",
+      "change": "added",
+      "area": "QA script",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "scripts/qa/pv1/random-corpus.ts",
       "change": "added",
       "area": "QA script",
       "origin": "new in this candidate"
@@ -989,10 +1066,17 @@
     },
     {
       "status": "A",
+      "path": "src/app/app/judging/JudgingShell.tsx",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
       "path": "src/app/app/judging/[eventId]/rounds/[roundId]/ballot/desk/NoShowPanel.tsx",
       "change": "added",
       "area": "app route/page/action",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -1021,6 +1105,13 @@
       "change": "added",
       "area": "app route/page/action",
       "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "M",
+      "path": "src/app/app/layout.tsx",
+      "change": "changed",
+      "area": "app route/page/action",
+      "origin": "live release file, edited here (dark gate)"
     },
     {
       "status": "A",
@@ -1220,6 +1311,13 @@
     },
     {
       "status": "A",
+      "path": "src/lib/competition/officials/__tests__/judgingAccess.oj1.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
       "path": "src/lib/competition/officials/__tests__/judgingLinks.cf1review.test.ts",
       "change": "added",
       "area": "unit test",
@@ -1238,6 +1336,13 @@
       "change": "added",
       "area": "library",
       "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/officials/judgingAccess.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "new in this candidate"
     },
     {
       "status": "A",
@@ -1311,6 +1416,13 @@
     },
     {
       "status": "A",
+      "path": "src/lib/competition/results/__tests__/recompute.pv1.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
       "path": "src/lib/competition/results/__tests__/results.f2.test.ts",
       "change": "added",
       "area": "unit test",
@@ -1328,7 +1440,7 @@
       "path": "src/lib/competition/results/__tests__/unresolvedTie.cf1b.test.ts",
       "change": "added",
       "area": "unit test",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -1342,7 +1454,7 @@
       "path": "src/lib/competition/results/__tests__/wiring.cf1b.test.ts",
       "change": "added",
       "area": "unit test",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -1363,7 +1475,7 @@
       "path": "src/lib/competition/results/contract.ts",
       "change": "added",
       "area": "library",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -1475,7 +1587,7 @@
       "path": "src/lib/competition/results/messages.ts",
       "change": "added",
       "area": "library",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -1496,7 +1608,7 @@
       "path": "src/lib/competition/results/unresolvedTie.ts",
       "change": "added",
       "area": "library",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -1759,6 +1871,20 @@
     },
     {
       "status": "A",
+      "path": "src/lib/supabase/migrations/20270215090000_competition_pv1_result_recompute.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270215091000_competition_oj1_official_team_member.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
       "path": "src/lib/supabase/migrations/rollback/20270101090000_competition_e1_officials_rollback.sql",
       "change": "added",
       "area": "migration rollback (Git-only copy)",
@@ -1931,6 +2057,20 @@
       "change": "added",
       "area": "migration rollback (Git-only copy)",
       "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270215090000_competition_pv1_result_recompute_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270215091000_competition_oj1_official_team_member_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "new in this candidate"
     },
     {
       "status": "A",
@@ -2119,14 +2259,14 @@
       "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a0_tie_concurrency.sh",
       "change": "added",
       "area": "SQL test",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
       "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a0_tie_policy.sql",
       "change": "added",
       "area": "SQL test",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -2147,7 +2287,7 @@
       "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a3_results.sql",
       "change": "added",
       "area": "SQL test",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -2161,7 +2301,7 @@
       "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a4_minimum_integration.sql",
       "change": "added",
       "area": "SQL test",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -2203,7 +2343,7 @@
       "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a6_withdrawal.sql",
       "change": "added",
       "area": "SQL test",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -2217,7 +2357,7 @@
       "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a7_od13.sql",
       "change": "added",
       "area": "SQL test",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -2238,14 +2378,14 @@
       "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_f3_concurrency.sh",
       "change": "added",
       "area": "SQL test",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
       "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_f3_publication.sql",
       "change": "added",
       "area": "SQL test",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -2294,7 +2434,7 @@
       "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_u66_recovery.sql",
       "change": "added",
       "area": "SQL test",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -2329,7 +2469,7 @@
       "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_f2_results.sql",
       "change": "added",
       "area": "SQL test",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -2350,7 +2490,7 @@
       "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_ns1_no_show.sql",
       "change": "added",
       "area": "SQL test",
-      "origin": "int5 28a7722e, byte-identical"
+      "origin": "int5 28a7722e, edited here"
     },
     {
       "status": "A",
@@ -2365,6 +2505,13 @@
       "change": "added",
       "area": "SQL test",
       "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_pv1_recompute.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "new in this candidate"
     },
     {
       "status": "A",

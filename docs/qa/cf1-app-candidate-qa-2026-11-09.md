@@ -4,8 +4,8 @@ Date: 2026-11-09. Git-only candidate. **Nothing was merged, deployed, promoted, 
 
 | Item | Value |
 |---|---|
-| Candidate branch | `release/competition-cf1-app-candidate` (draft PR #443, base retargeted to `release/cf1-hotfix-heat-schedulepush` on 2026-11-10) |
-| Base (live www code) | **since 2026-11-10:** `release/cf1-hotfix-heat-schedulepush` `ab940288` (tree 640ba2ab, live as dpl_6rhE7gAq…). Originally `release/tw4f-monitoring-r2-cib` `a965f477` (dpl_6cCoRGWg…); sections 2–8 below were written against that base, and section 0 records the rebase. |
+| Candidate branch | `release/competition-cf1-app-candidate` (draft PR #443; base retargeted to `release/cf1-hotfix-heat-schedulepush`, then to `release/tw4f-key-setup` on 2026-11-10) |
+| Base (live www code) | **since 2026-11-10 18:02Z:** `release/tw4f-key-setup` `03297304` (tree 51640920, www dpl_AYaUyuLF…) = `ab940288` + 12 TW-4F key-setup files; merged in section 10.7. **Before that,** `release/cf1-hotfix-heat-schedulepush` `ab940288` (tree 640ba2ab, live as dpl_6rhE7gAq…). Originally `release/tw4f-monitoring-r2-cib` `a965f477` (dpl_6cCoRGWg…); sections 2–8 below were written against that base, and section 0 records the rebase. |
 | CF1 source | `cf1/integration-5` `400cce2b`, engine-spec wording from `28a7722e`; F1 engines byte-identical to `competition-f1-studio-engines` `ee6bd401` |
 | Heat-size hotfix | `hotfix/competition-heat-capacity-reason` `ac902c28` (parent `a965f477`, standalone; merged into the candidate) |
 | App code under browser test | `4ffdede9` (app code byte-identical to the final head; later commits touch e2e, docs and scripts only) |
@@ -308,3 +308,20 @@ Apply the SQL before the app: PV-1 first, then OJ-1. Each file goes through the 
 | `_compe2_round_role` | `a7d7a235d9522a073312807df3ff11f9` |
 
 These steps are added to the owner authorizations in section 9 (item 6).
+
+### 10.7 Merge of the new live code `03297304` (2026-11-10, after 10.2)
+
+- **Merge:** live moved at 18:02:40Z to `release/tw4f-key-setup` `03297304` (tree 51640920, www dpl_AYaUyuLF…). That is `ab940288` plus 12 TW-4F key-setup files. A real merge (`7e183053`), no force-push.
+- **No conflicts.** None of the 12 files overlap any candidate file.
+- **Preservation:** all 12 key-setup files are byte-identical to `03297304`. The candidate's own diff against `03297304` has the same patch-id as its diff against `ab940288` before the merge, so nothing else moved.
+- **Re-run on the merge** (coordinator scope):
+
+  | Check | Result |
+  |---|---|
+  | tsc (`.next` deleted) | **0 errors** |
+  | `src/lib/sms/__tests__/keySetup.test.ts` | **6/6** |
+  | The two TW-4F `localStack` suites (`localStack.priceauth`, `localStack.pricehello`) | not run: TWILIO-owned, verified by the TW-4F release; byte-identical to live `03297304`. Standing rule: TW-4F localStack suites never run on a shared database. |
+
+  The full suite was not re-run, because the merge had no conflict.
+- **Inventory** regenerated against `03297304`: 361 paths; the same 10 deliberate exclusions.
+- **Manifest:** unchanged. The four PV-1 / OJ-1 file sha256s match its rows.
