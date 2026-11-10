@@ -22,7 +22,7 @@ assertRunDirOutsideRepo(runDir, path.resolve(__dirname, ".."));
 
 export default defineConfig({
   testDir: "./tests",
-  testMatch: /competition-cf1-(advancement|regression)-acceptance.spec.ts/,
+  testMatch: /competition-cf1-(advancement|regression|pv1-recompute)-acceptance.spec.ts/,
   fullyParallel: false,
   workers: 1,
   retries: 0,

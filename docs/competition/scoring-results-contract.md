@@ -146,8 +146,8 @@ EngineOutput = { rows[{entry_id, placement?, tie_group?, advanced?, rating_band?
 - Engines are pure TypeScript in `src/lib/competition/scoring/**`: no database, network, clock or randomness.
 - `canonicalJson(input)` (sorted keys, entries sorted by entry_id, marks by (official_id, entry_id, role)) is the
   only serialization that is hashed. `input_hash = sha256(canonicalJson(input))`,
-  `trace_hash = sha256(canonicalJson(trace))`. The server computes and stores both; the calculate RPC stores the
-  output and refuses a version whose input hash differs from the one it rebuilds from current ballots.
+  `trace_hash = sha256(canonicalJson(trace))`. The server computes and stores both; the calculate RPC refuses a version whose input hash differs from the one it rebuilds from
+  current ballots, and (PV-1, owner decision 2026-11-10, section 11a) recomputes the output itself and refuses rows that differ from it.
 - The engine key comes from `event_competition_rounds.scoring_method` as locked at publish. v1 keys:
   `ordinal_majority`, `proficiency_rating`, `callback_tally`. Any other key, or a key whose K1 spec is not
   owner-approved, makes `calculate` fail closed with `COMP_ENGINE_NOT_AVAILABLE`.
@@ -226,6 +226,26 @@ fixed in the contract (`RESULT_EVENT_KINDS`), not supplied by callers — this c
 | O5 | Relaxing §6 (correcting an earlier round after the next round has ballots) | Blocked |
 
 Owner words (2026-10-24): "K0 O1–O5: Accept all five proposed fail-safe defaults, including complete assigned ballots before locking, manager/designated-chair locking, hidden public judge identities, generic under-review notices, and blocking earlier-round corrections once later-round ballots exist." `contract.ts` already encodes these (lock actors `manager`/`chair`; no pending flags), so it is unchanged.
+
+## 11a. PV-1: the database recomputes every result (owner decision 2026-11-10)
+
+Fingerprint comparison alone is **not** sufficient proof of placements. `calculate_competition_round` is SECURITY DEFINER and granted to `authenticated`. Before 20270215090000 it stored caller-supplied `p_rows` after checking only the evidence hash, the trace hash and the row shape.
+
+**Rule.** The database computes the result itself, from its own evidence (`_compf2_evidence`, the document the input hash covers), using a plpgsql port of the pinned Studio engine. It refuses the call when its result differs from the caller's:
+
+- `COMP_RESULT_RECOMPUTE_MISMATCH`: the caller's rows differ from the database's own result in any of the entry set, placement, tie group, advanced flag, rating band or output (including `tie_status`), or the warnings differ.
+- `COMP_RESULT_RECOMPUTE_UNSUPPORTED`: the pinned engine has no SQL port, or the port itself refuses the round. Unsupported cases fail closed.
+
+**Engines covered.** `studio_callback_tally@1` and `studio_ordinal_majority@1`, with exactly the TypeScript checks, rows and warnings: X-1..X-7, D-CT-1..10 and D-OM-1..5, OD-F1-1/2/3, the input caps, and the unresolved tie at the cut over capacity.
+
+**What is not changed.**
+- The app path is unchanged, except that the two codes have plain messages.
+- The replay branch is unchanged: a replay re-sends identical, already verified rows.
+- The trace is still verified by its hash only. It is evidence of the run, not recomputed.
+
+**Equivalence.** Every golden input the F1/F2 engine suites pass to the engines, plus a seeded random corpus, produce identical results in TypeScript and SQL (`scripts/qa/pv1/`; results in docs/qa).
+
+**Migration.** `20270215090000_competition_pv1_result_recompute.sql`, an additive pinned redefinition (md5 `bc3cc439…` → `167529ba…`), with a rollback. Apply SQL before the app.
 
 ## 12. Ownership and migration slots
 

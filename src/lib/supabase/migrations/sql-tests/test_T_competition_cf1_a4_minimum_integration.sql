@@ -9,6 +9,16 @@
 
 
 begin;
+-- PV-1 (20270215090000, owner decision 2026-11-10): this suite exercises the result LIFECYCLE with stub engine rows (placements by entry id and a
+-- stub trace), not engine correctness, so the database's own recompute would refuse its fixtures by design. Inside this suite's own transaction
+-- (it never commits: it ends with the SUITE PASS/FAIL exception) the PV-1 verifier is replaced by a no-op so the lifecycle checks keep their
+-- meaning. PV-1 itself is proven by test_T_competition_pv1_recompute.sql, the TS<->SQL equivalence corpus and the PV-1 e2e scenarios.
+do $pv1n$
+begin
+  if to_regprocedure('public._comppv1_verify(jsonb,jsonb,jsonb)') is not null then
+    execute 'create or replace function public._comppv1_verify(p_ev jsonb, p_rows jsonb, p_warnings jsonb) returns void language plpgsql as $b$ begin null; end $b$';
+  end if;
+end $pv1n$;
 
 create temp table t_results (name text, ok boolean, detail text, status text) on commit drop;
 grant all on t_results to authenticated, anon, service_role;

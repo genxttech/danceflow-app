@@ -19,6 +19,16 @@
 --   r15      every couple excluded: the heat drops out of the ranking set, participation stays
 
 begin;
+-- PV-1 (20270215090000, owner decision 2026-11-10): this suite exercises the result LIFECYCLE with stub engine rows (placements by entry id and a
+-- stub trace), not engine correctness, so the database's own recompute would refuse its fixtures by design. Inside this suite's own transaction
+-- (it never commits: it ends with the SUITE PASS/FAIL exception) the PV-1 verifier is replaced by a no-op so the lifecycle checks keep their
+-- meaning. PV-1 itself is proven by test_T_competition_pv1_recompute.sql, the TS<->SQL equivalence corpus and the PV-1 e2e scenarios.
+do $pv1n$
+begin
+  if to_regprocedure('public._comppv1_verify(jsonb,jsonb,jsonb)') is not null then
+    execute 'create or replace function public._comppv1_verify(p_ev jsonb, p_rows jsonb, p_warnings jsonb) returns void language plpgsql as $b$ begin null; end $b$';
+  end if;
+end $pv1n$;
 
 create temp table t_results (name text, ok boolean, detail text, status text) on commit drop;
 grant all on t_results to authenticated, anon, service_role;
@@ -367,15 +377,17 @@ select pg_temp.prep(n) from unnest(array[1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 16]) n
 -- ============================================================================
 -- 1. U79 / U61: pins, privileges, anchors, lock order (static) -- on the installed definitions
 -- ============================================================================
-select pg_temp.chk('U79: the ten redefined functions match the post-A3 md5 pins (CRs removed)',
+select pg_temp.chk('U79: the ten redefined functions match the post-A3 md5 pins (CRs removed; or the pinned PV-1 / OJ-1 successor)',
   (select count(*) = 10 from (values
     ('public._compe2_round_heats(uuid)', '7a5a1563a9450e2ec3b807a69737f9f4'), ('public._compe2_heat_entries(uuid)', 'fdcb8728dde030c8d9772fdaf2963524'),
     ('public._compe2_round_entries(uuid)', '64859bac497c22fd7472b9e7ae6fc986'), ('public._compe2_guard_mark_insert()', '055adcc12d8f903a7570c93008f303a9'),
-    ('public.competition_round_ballot_status(uuid)', '7d3bebe922fed33604666009d3a593a5'), ('public.competition_judge_ballot_sheet(uuid)', '2506cb2f466d1738fb1a8f298e805b5f'),
+    ('public.competition_round_ballot_status(uuid)', '7d3bebe922fed33604666009d3a593a5'),
+    ('public.competition_judge_ballot_sheet(uuid)', '2506cb2f466d1738fb1a8f298e805b5f|8e129175282c88ed3590e3d162fbb47c'),
     ('public._compf2_evidence(uuid,text,text)', '415a823b4a689cae26b8a20187af58e7'), ('public.competition_round_results_review(uuid)', 'c9d747907caad0a88b75da1c53862f43'),
-    ('public.calculate_competition_round(uuid,text,text,text,text,jsonb,jsonb,jsonb,uuid)', 'bc3cc4397e740444a4d4a53d93b499cc'),
-    ('public.approve_competition_round_result(uuid,uuid,text,uuid)', 'ac33e456925e64665db1ea0547bae18b')) t(sig, pin)
-    where md5(replace(pg_get_functiondef(t.sig::regprocedure), E'\r', '')) = t.pin));
+    ('public.calculate_competition_round(uuid,text,text,text,text,jsonb,jsonb,jsonb,uuid)', 'bc3cc4397e740444a4d4a53d93b499cc|167529bada8ca5a4dd98e22d4d0a3252'),
+    ('public.approve_competition_round_result(uuid,uuid,text,uuid)', 'ac33e456925e64665db1ea0547bae18b|3cf63c3bb00a78142ea2c8e70a8b4a0c')) t(sig, pin)
+    -- A pin may list the post-A3 text and its pinned successor (PV-1 20270215090000 / OJ-1 20270215091000), separated by |.
+    where md5(replace(pg_get_functiondef(t.sig::regprocedure), E'\r', '')) = any (string_to_array(t.pin, '|'))));
 select pg_temp.chk('U61: lock_competition_round_ballots is NOT touched by A3 (still the HL1 text 6e417534...; A2 owns it)',
   md5(replace(pg_get_functiondef('public.lock_competition_round_ballots(uuid,uuid)'::regprocedure), E'\r', '')) in ('6e4175342d51ffe274d70ce413bae8c3')
   or position('_cf1_require_roster_eligible' in pg_get_functiondef('public.lock_competition_round_ballots(uuid,uuid)'::regprocedure)) > 0);

@@ -13,6 +13,9 @@ const MESSAGES: Record<string, string> = {
   COMP_ENGINE_NOT_AVAILABLE: "No approved scoring engine is available for this round's scoring method yet, so results cannot be calculated.",
   COMP_ENGINE_UNSPECIFIED_CASE: "The scoring method does not define what to do in this case, so no result was produced.",
   COMP_ENGINE_INVALID_INPUT: "The calculation was refused because its input or output was not valid.",
+  // PV-1: the database recomputes every result from the locked ballots before saving it.
+  COMP_RESULT_RECOMPUTE_MISMATCH: "The result did not match the system's own check of the locked ballots, so nothing was saved. Recalculate the round; if it happens again, contact support.",
+  COMP_RESULT_RECOMPUTE_UNSUPPORTED: "The system could not independently check this round's result, so nothing was saved. The round's setup or ballots need review before it can be calculated.",
   COMP_CORRECTION_LATER_ROUND_BALLOTS: "A later round of this division already has ballots, so this round can no longer be corrected.",
   COMP_BALLOT_ROUND_NOT_ACTIVE: "This round is not accepting ballots right now.",
   COMP_CORRECTION_EARLIER_ROUND_OPEN: "An earlier round of this division is being corrected, so this round cannot take ballots yet.",

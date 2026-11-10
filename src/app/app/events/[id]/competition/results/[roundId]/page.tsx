@@ -131,14 +131,15 @@ export default async function CompetitionRoundResultsPage({
   for (const heat of (boardData as { heats?: Array<{ entries?: Candidate[] }> } | null)?.heats ?? []) {
     for (const entry of heat.entries ?? []) if (!candidates.some((c) => c.entry_id === entry.entry_id)) candidates.push(entry);
   }
-  // An unresolved callback tie is read from the stored latest version only (its row outputs and cut trace); nothing is recomputed.
+  // An unresolved callback tie is read from VERIFIED stored data only: the latest version's rows (recomputed and compared by the database, PV-1)
+  // and the Final's capacity from its stored evidence. The caller-authored trace is not read (security review PV-1-1).
   let unresolvedTie: UnresolvedTie | null = null;
   if (isManager && isCallbackPreliminary && latest && (latest.status === "calculated" || latest.status === "approved")) {
-    const [traceResult, rowsResult] = await Promise.all([
-      supabase.from("event_competition_result_versions").select("trace").eq("id", latest.id).maybeSingle(),
+    const [evidenceResult, rowsResult] = await Promise.all([
+      supabase.from("event_competition_result_versions").select("finalCapacity:input->finalCapacity").eq("id", latest.id).maybeSingle(),
       supabase.from("event_competition_result_rows").select("entry_id, output").eq("result_version_id", latest.id),
     ]);
-    const traceRow = secondaryData("stored trace", traceResult);
+    const evidenceRow = secondaryData("stored evidence", evidenceResult);
     const outputRows = secondaryData("stored rows", rowsResult);
     const outputs = new Map((outputRows ?? []).map((r) => [r.entry_id as string, r.output as unknown]));
     unresolvedTie = deriveUnresolvedTie({
@@ -148,7 +149,7 @@ export default async function CompetitionRoundResultsPage({
         advanced: r.advanced,
         output: outputs.get(r.entry_id) ?? null,
       })),
-      trace: (traceRow as { trace?: unknown } | null)?.trace ?? null,
+      finalCapacity: (evidenceRow as { finalCapacity?: unknown } | null)?.finalCapacity ?? null,
     });
   }
   const publication = publicationControls({

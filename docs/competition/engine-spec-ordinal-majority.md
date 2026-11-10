@@ -330,3 +330,13 @@ Cross-cutting X-1…X-7 (same IDs in all three specs): **APPROVED by the owner 2
 - Feedback (critique, grade, score) never enters the calculation (S9).
 - Approval (second person), publication (portal always, public page opt-in per program) and corrections are the
   K0 lifecycle, not engine behaviour.
+
+## PV-1: database recompute (owner decision 2026-11-10)
+
+The database implements this spec a second time, in SQL (`_comppv1_ordinal` in `20270215090000_competition_pv1_result_recompute.sql`). It does so over the stored evidence, with the same validation checks in the same order, the same rows and the same warnings as the TypeScript `studio_ordinal_majority@1`.
+
+`calculate_competition_round` stores a result only when the caller's rows and warnings equal the database's own result. Otherwise it refuses:
+- `COMP_RESULT_RECOMPUTE_MISMATCH` when they differ;
+- `COMP_RESULT_RECOMPUTE_UNSUPPORTED` when the port refuses the round. Fail closed: no fallback to the caller's rows.
+
+Any change to this spec or to the TypeScript engine must change the SQL port in the same release. Prove it again with the TS↔SQL equivalence corpus (`scripts/qa/pv1/`: a golden capture of the engine suites plus a seeded random corpus; zero disagreements required).
