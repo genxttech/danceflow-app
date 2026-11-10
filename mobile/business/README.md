@@ -36,15 +36,16 @@ npx expo export --platform android
 - **Today** (`src/screens/TodayScreen.tsx`): the caller's own appointments for one studio day, rendered in the studio's time zone, with skeleton, empty, not-linked and distinct error states. Rows open `app/appointments/[id].tsx`.
 - **Design** (`src/theme.ts`): Business tokens from `docs/mobile/Mobile_Design_Direction.md`: paper surface, plum for actions only, 4–48 spacing with a 20 gutter. System font until the Bricolage / Hanken licences are confirmed.
 
-## Client lookup and attendance (staff API slice 2, dark until it ships)
+## Client lookup and attendance (staff API slice 2, on)
 
-The Clients tab (search, paging, client summary) and class-roster attendance (Present / No-show) follow the **final slice-2 contract** in `docs/mobile/Staff_API_Contract.md` (branch `claude/staff-api-slice2`, 2b071403). The endpoints aren't served yet, so both features are off in every build. Turn them on for local QA against a stack or mock that serves them:
+The Clients tab (search, paging, client summary) and class-roster attendance (Present / No-show) follow the **final slice-2 contract** in `docs/mobile/Staff_API_Contract.md` (branch `claude/staff-api-slice2`, 2b071403). Both features are **on by default** since 2026-11-10. The owner's gate was an integration walk against the real endpoints (#453), which passed 27 of 27; see `docs/mobile/screenshots/business-shell/s2-walk-evidence.json`. A server must serve slice 2 before a build reaches it. To turn the features off for one build:
 
 ```bash
-EXPO_PUBLIC_STAFF_FEATURES=clients,attendance npx expo start --clear
+EXPO_PUBLIC_STAFF_FEATURES=none npx expo start --clear          # both off
+EXPO_PUBLIC_STAFF_FEATURES=-attendance npx expo start --clear   # client lookup only
 ```
 
-The wire format lives only in `src/lib/staffApi.ts` (the "SLICE 2" section and its `to…` adapters). When the endpoints ship, flip the default in `src/lib/features.ts`.
+The wire format lives only in `src/lib/staffApi.ts` (the "SLICE 2" section and its `to…` adapters). The default lives in `src/lib/features.ts`.
 
 | Endpoint | Used by |
 | --- | --- |

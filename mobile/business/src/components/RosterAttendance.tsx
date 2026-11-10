@@ -98,6 +98,9 @@ export function RosterAttendance({
                       accessibilityRole="radio"
                       accessibilityLabel={`${option.label}, ${name}`}
                       accessibilityState={{ checked: selected, selected, disabled: row.saving, busy: row.saving }}
+                      aria-checked={selected}
+                      aria-disabled={row.saving}
+                      aria-busy={row.saving}
                       disabled={row.saving}
                       onPress={() => void mark(attendee.clientId, option.value)}
                       style={({ pressed }) => [styles.mark, selected && styles.markSelected, pressed && styles.markPressed, row.saving && styles.markSaving]}

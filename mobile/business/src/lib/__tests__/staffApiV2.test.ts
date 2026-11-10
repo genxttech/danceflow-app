@@ -233,13 +233,20 @@ describe("client detail (slice 2)", () => {
 });
 
 describe("feature flags", () => {
-  it("are off unless named", () => {
-    expect([...parseStaffFeatures(undefined)]).toEqual([]);
-    expect([...parseStaffFeatures("")]).toEqual([]);
+  it("are on by default since the integration walk passed", () => {
+    expect([...parseStaffFeatures(undefined)].sort()).toEqual(["attendance", "clients"]);
+    expect([...parseStaffFeatures("")].sort()).toEqual(["attendance", "clients"]);
+  });
+
+  it("can be turned off per build", () => {
+    expect([...parseStaffFeatures("none")]).toEqual([]);
+    expect([...parseStaffFeatures("-attendance")]).toEqual(["clients"]);
+    expect([...parseStaffFeatures("none,attendance")]).toEqual(["attendance"]);
   });
 
   it("accept only known features", () => {
-    expect([...parseStaffFeatures(" clients , attendance,payments ")].sort()).toEqual(["attendance", "clients"]);
+    expect([...parseStaffFeatures("none, clients , attendance,payments ")].sort()).toEqual(["attendance", "clients"]);
+    expect([...parseStaffFeatures("-payments")].sort()).toEqual(["attendance", "clients"]);
   });
 
   it("make a fresh idempotency key per action", () => {

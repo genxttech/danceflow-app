@@ -84,6 +84,7 @@ export function MoreScreen() {
                   key={item.studioId}
                   accessibilityRole="radio"
                   accessibilityState={{ selected, checked: selected }}
+                  aria-checked={selected}
                   accessibilityLabel={`${studioName(item)}, ${studioStatus(item)}`}
                   accessibilityHint={selected ? undefined : "Switches the app to this studio"}
                   onPress={() => selectWorkspace(item.studioId)}

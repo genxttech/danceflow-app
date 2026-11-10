@@ -117,3 +117,18 @@ describe("RosterAttendance 409", () => {
     expect(screen.getByRole("radio", { name: "Present, Ana Rivera" }).props.accessibilityState).toMatchObject({ checked: false });
   });
 });
+
+describe("RosterAttendance on the web", () => {
+  it("exposes the checked state as aria-checked (React Native Web ignores accessibilityState)", () => {
+    render(
+      <StaffTestProviders api={fakeApi()}>
+        <RosterAttendance studioId={STUDIO_ID} appointmentId="appt-1" attendees={ATTENDEES} canMark />
+      </StaffTestProviders>,
+    );
+    // the jest host tree folds aria-* into native props, so read what the Pressable is given (the web export is checked in the walk)
+    const ariaChecked = (label: string) => screen.UNSAFE_getByProps({ accessibilityRole: "radio", accessibilityLabel: label }).props["aria-checked"];
+    expect(ariaChecked("Present, Dancer")).toBe(true);
+    expect(ariaChecked("No-show, Dancer")).toBe(false);
+    expect(ariaChecked("Present, Ana Rivera")).toBe(false);
+  });
+});

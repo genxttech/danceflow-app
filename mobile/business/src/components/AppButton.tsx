@@ -22,6 +22,9 @@ export function AppButton({ label, onPress, variant = "primary", disabled, loadi
       accessibilityLabel={label}
       accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled: !!inactive, busy: !!loading }}
+      // React Native Web ignores accessibilityState; the aria props reach browser screen readers too (and work on native)
+      aria-disabled={!!inactive}
+      aria-busy={!!loading}
       disabled={inactive}
       onPress={onPress}
       style={({ pressed }) => [
