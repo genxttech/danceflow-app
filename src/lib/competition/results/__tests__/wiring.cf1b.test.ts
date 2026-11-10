@@ -89,7 +89,7 @@ describe("CF1 B review fixes (static)", () => {
   const schedule = read("schedule", "actions.ts");
 
   it("P2-A: every secondary read on the round page goes through secondaryData; none is read as a bare .data", () => {
-    for (const label of ["correction", "advancement preview", "exclusions", "withdrawal state", "ballot board", "source advancement preview", "stored trace", "stored rows", "source round"]) {
+    for (const label of ["correction", "advancement preview", "exclusions", "withdrawal state", "ballot board", "source advancement preview", "stored evidence", "stored rows", "source round"]) {
       expect(page, label).toContain(`secondaryData("${label}"`);
     }
     for (const bare of ["correctionResult.data", "previewResult.data", "exclusionResult.data", "withdrawalResult.data", "boardResult.data"]) {
