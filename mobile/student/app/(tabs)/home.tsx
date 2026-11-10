@@ -8,6 +8,7 @@ import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
+import { initialsFor } from "@/lib/initials";
 import { getPublicEventsForMobile, getPublicStudiosForMobile, type PublicEventItem, type PublicStudioItem } from "@/lib/publicDiscovery";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
@@ -45,6 +46,29 @@ function firstNameFromSession(session: ReturnType<typeof useAuth>["session"]) {
   const displayName = metadataNameCandidates[0]?.trim() || displayNameFromSession(session);
   if (displayName.includes("@")) return "Dancer";
   return displayName.split(" ")[0] || "Dancer";
+}
+
+function todayLabel(now = new Date()) {
+  return now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+}
+
+function TodayHeader({ initials, styles }: { initials: string; styles: ReturnType<typeof createStyles> }) {
+  return (
+    <View style={styles.todayHeader}>
+      <AppText style={styles.todayDate}>{todayLabel()}</AppText>
+      <Pressable
+        accessibilityHint="Opens your profile, settings and more"
+        accessibilityLabel="Profile and settings"
+        accessibilityRole="button"
+        hitSlop={4}
+        onPress={() => router.push("/(tabs)/more")}
+        style={({ pressed }) => [styles.profileButton, pressed && styles.cardPressed]}
+        testID="today-profile-button"
+      >
+        <AppText style={styles.profileInitials}>{initials}</AppText>
+      </Pressable>
+    </View>
+  );
 }
 
 function HomeSummaryChip({
@@ -192,6 +216,12 @@ export default function HomeScreen() {
 
   return (
     <Screen>
+      {!isGuest ? (
+        <TodayHeader
+          initials={initialsFor(primaryStudio ? [primaryStudio.clientFirstName, primaryStudio.clientLastName].filter(Boolean).join(" ") : displayNameFromSession(session), session?.user.email)}
+          styles={styles}
+        />
+      ) : null}
       <View style={styles.hero}>
         <Image accessibilityIgnoresInvertColors resizeMode="contain" source={danceFlowLogo} style={styles.logo} />
         <AppText style={styles.heroEyebrow}>
@@ -320,6 +350,7 @@ export default function HomeScreen() {
           <Link href="/(tabs)/discover" asChild>
             <AppButton label="Find studios and events" variant="secondary" />
           </Link>
+          <AppButton label="Full schedule" onPress={() => router.push("/(tabs)/schedule")} variant="ghost" />
         </>
       )}
 
@@ -379,6 +410,32 @@ export default function HomeScreen() {
 
 function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   return StyleSheet.create({
+  todayHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 44
+  },
+  todayDate: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "600"
+  },
+  profileButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.borderStrong,
+    borderRadius: 22,
+    borderWidth: 1,
+    height: 44,
+    justifyContent: "center",
+    width: 44
+  },
+  profileInitials: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "700"
+  },
   hero: {
     backgroundColor: colors.backgroundSoft,
     borderColor: colors.border,

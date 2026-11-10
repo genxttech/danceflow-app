@@ -5,13 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 
-type TabIconName =
-  | "home-outline"
-  | "calendar-outline"
-  | "school-outline"
-  | "compass-outline"
-  | "wallet-outline"
-  | "menu-outline";
+type TabIconName = "today-outline" | "compass-outline" | "school-outline" | "wallet-outline";
 
 function tabIcon(name: TabIconName) {
   return function Icon({ color, size }: { color: ColorValue; size: number }) {
@@ -66,34 +60,29 @@ export default function TabsLayout() {
         ]
       }}
     >
+      {/*
+        Approved navigation (docs/mobile/Mobile_Design_Direction.md): Today, Discover, Learn, Wallet.
+        Schedule lives inside Today (its "Full schedule" link) and More behind Today's profile
+        button. Both stay routes so links and deep links keep working; they just leave the tab bar.
+      */}
       <Tabs.Screen
         name="home"
-        options={{ title: "Home", tabBarIcon: tabIcon("home-outline") }}
-      />
-      <Tabs.Screen
-        name="schedule"
-        options={{ title: "Schedule", tabBarIcon: tabIcon("calendar-outline") }}
-      />
-      <Tabs.Screen
-        name="learn"
-        options={{ title: "Learn", tabBarIcon: tabIcon("school-outline") }}
+        options={{ title: "Today", tabBarIcon: tabIcon("today-outline"), tabBarAccessibilityLabel: "Today" }}
       />
       <Tabs.Screen
         name="discover"
-        options={{ title: "Discover", tabBarIcon: tabIcon("compass-outline") }}
+        options={{ title: "Discover", tabBarIcon: tabIcon("compass-outline"), tabBarAccessibilityLabel: "Discover" }}
+      />
+      <Tabs.Screen
+        name="learn"
+        options={{ title: "Learn", tabBarIcon: tabIcon("school-outline"), tabBarAccessibilityLabel: "Learn" }}
       />
       <Tabs.Screen
         name="wallet"
-        options={{
-          href: null,
-          title: "Wallet",
-          tabBarIcon: tabIcon("wallet-outline"),
-        }}
+        options={{ title: "Wallet", tabBarIcon: tabIcon("wallet-outline"), tabBarAccessibilityLabel: "Wallet" }}
       />
-      <Tabs.Screen
-        name="more"
-        options={{ title: "More", tabBarIcon: tabIcon("menu-outline") }}
-      />
+      <Tabs.Screen name="schedule" options={{ href: null, title: "Schedule" }} />
+      <Tabs.Screen name="more" options={{ href: null, title: "More" }} />
     </Tabs>
   );
 }

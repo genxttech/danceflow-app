@@ -1,0 +1,61 @@
+import { render } from "@testing-library/react-native";
+import { initialsFor } from "@/lib/initials";
+
+const mockScreens: Array<{ name: string; options: Record<string, unknown> }> = [];
+
+jest.mock("expo-router", () => {
+  const React = jest.requireActual("react");
+  function Tabs({ children }: { children: React.ReactNode }) {
+    return React.createElement(React.Fragment, null, children);
+  }
+  function TabsScreen(props: { name: string; options: Record<string, unknown> }) {
+    mockScreens.push(props);
+    return null;
+  }
+  Tabs.Screen = TabsScreen;
+  return { Tabs, Redirect: () => null };
+});
+jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
+jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
+jest.mock("@/lib/auth", () => ({ useAuth: () => ({ loading: false, session: { user: { id: "u1" } } }) }));
+jest.mock("@react-native-async-storage/async-storage", () =>
+  jest.requireActual("@react-native-async-storage/async-storage/jest/async-storage-mock"),
+);
+
+// eslint-disable-next-line import/first
+import TabsLayout from "../../../app/(tabs)/_layout";
+
+describe("tab bar", () => {
+  beforeAll(() => {
+    render(<TabsLayout />);
+  });
+
+  it("shows Today, Discover, Learn and Wallet, in that order", () => {
+    const visible = mockScreens.filter((screen) => screen.options.href !== null);
+    expect(visible.map((screen) => [screen.name, screen.options.title])).toEqual([
+      ["home", "Today"],
+      ["discover", "Discover"],
+      ["learn", "Learn"],
+      ["wallet", "Wallet"]
+    ]);
+    for (const screen of visible) expect(screen.options.tabBarAccessibilityLabel).toBe(screen.options.title);
+  });
+
+  it("keeps Schedule and More as routes outside the tab bar", () => {
+    const hidden = mockScreens.filter((screen) => screen.options.href === null).map((screen) => screen.name);
+    expect(hidden.sort()).toEqual(["more", "schedule"]);
+  });
+});
+
+describe("profile button initials", () => {
+  it.each([
+    ["Riley Moss", null, "RM"],
+    ["Jordan Avery Parker", null, "JA"],
+    ["mara", null, "M"],
+    ["", "dev@example.test", "D"],
+    ["dev@example.test", "dev@example.test", "D"],
+    ["", null, "D"]
+  ])("%p -> %s", (name, email, initials) => {
+    expect(initialsFor(name, email)).toBe(initials);
+  });
+});
