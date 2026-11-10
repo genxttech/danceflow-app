@@ -2,7 +2,7 @@ import { StyleSheet, Text, useColorScheme, type TextProps } from "react-native";
 import { colorsForScheme } from "@/constants/theme";
 
 type AppTextProps = TextProps & {
-  variant?: "title" | "subtitle" | "body" | "caption" | "eyebrow";
+  variant?: "display" | "title" | "subtitle" | "body" | "caption" | "eyebrow";
 };
 
 export function AppText({ variant = "body", style, ...props }: AppTextProps) {
@@ -20,6 +20,14 @@ export function AppText({ variant = "body", style, ...props }: AppTextProps) {
 const styles = StyleSheet.create({
   base: {
     includeFontPadding: false,
+  },
+  // Names, dates and moments (design direction: display type). System font until the
+  // approved display face's licence is confirmed.
+  display: {
+    fontSize: 36,
+    fontWeight: "800",
+    letterSpacing: -0.7,
+    lineHeight: 40,
   },
   title: {
     fontSize: 28,

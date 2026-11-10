@@ -10,11 +10,16 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useReducedMotion } from "react-native-reanimated";
 import { AppText } from "@/components/AppText";
 import { colorsForScheme } from "@/constants/theme";
+import { EVENT_ART_ACCENT } from "@/lib/eventArt";
 import { pressedTransform } from "@/lib/motion";
+
+/** Ground, on the gold onArt button. */
+const ON_ART_TEXT = "#180C1B";
 
 type AppButtonProps = PressableProps & {
   label: string;
-  variant?: "primary" | "secondary" | "ghost";
+  /** onArt: gold with dark text, for buttons on event art or photos (same in both themes). */
+  variant?: "primary" | "secondary" | "ghost" | "onArt";
   loading?: boolean;
 };
 
@@ -27,6 +32,7 @@ export function AppButton({
   ...props
 }: AppButtonProps) {
   const isPrimary = variant === "primary";
+  const isOnArt = variant === "onArt";
   const colors = colorsForScheme(useColorScheme());
   const reducedMotion = useReducedMotion();
 
@@ -53,6 +59,7 @@ export function AppButton({
           shadowColor: colors.black,
         },
         variant === "ghost" && styles.ghost,
+        isOnArt && { backgroundColor: EVENT_ART_ACCENT, borderColor: EVENT_ART_ACCENT, shadowColor: colors.black },
         state.pressed && [styles.pressed, { transform: pressedTransform(reducedMotion) }],
         (disabled || loading) && styles.disabled,
         typeof style === "function" ? style(state) : style,
@@ -64,12 +71,12 @@ export function AppButton({
 
       <View style={styles.content}>
         {loading ? (
-          <ActivityIndicator color={isPrimary ? colors.onPrimary : colors.primary} />
+          <ActivityIndicator color={isPrimary ? colors.onPrimary : isOnArt ? ON_ART_TEXT : colors.primary} />
         ) : (
           <AppText
             style={[
               styles.label,
-              { color: isPrimary ? colors.onPrimary : colors.text },
+              { color: isPrimary ? colors.onPrimary : isOnArt ? ON_ART_TEXT : colors.text },
             ]}
           >
             {label}

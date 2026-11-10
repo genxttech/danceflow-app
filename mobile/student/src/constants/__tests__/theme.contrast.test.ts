@@ -55,6 +55,36 @@ describe.each([
   });
 });
 
+describe("event art and photo heroes (same in both themes)", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const art = require("@/lib/eventArt") as typeof import("@/lib/eventArt");
+  const white: Rgb = [255, 255, 255];
+  const scrimEnd = art.PHOTO_SCRIM[1];
+
+  it.each(art.EVENT_ART_TEXT_STOPS.flatMap((stop) =>
+    [art.EVENT_ART_TEXT, art.EVENT_ART_TEXT_MUTED, art.EVENT_ART_ACCENT].map((fg) => [fg, stop] as const)
+  ))("%s on art stop %s", (fg, stop) => {
+    expect(contrast(parse(fg), parse(stop))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each([art.EVENT_ART_TEXT, art.EVENT_ART_TEXT_MUTED, art.EVENT_ART_ACCENT])(
+    "%s on the photo scrim over a white photo (worst case)",
+    (fg) => {
+      expect(contrast(parse(fg), parse(scrimEnd, white))).toBeGreaterThanOrEqual(4.5);
+    }
+  );
+
+  it.each(["text", "muted", "ok"] as const)("ticket pass %s on the white pass body", (key) => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { PASS } = require("@/lib/ticketPass") as typeof import("@/lib/ticketPass");
+    expect(contrast(parse(PASS[key]), parse(PASS.body))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("onArt button text (ground) on gold", () => {
+    expect(contrast(parse("#180C1B"), parse(art.EVENT_ART_ACCENT))).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
 describe("retired colours", () => {
   it("are not in either palette", () => {
     const retired = ["#071427", "#0B1B2E", "#0E2035", "#132A44", "#F43F8E", "#FB923C", "#A64AC9", "#E66A3A", "#FF7A59", "#C53B91"];

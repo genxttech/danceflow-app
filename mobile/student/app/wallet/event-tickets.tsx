@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Image, StyleSheet, useColorScheme, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { EventArt } from "@/components/EventArt";
+import { PASS, ticketAccessibilityLabel } from "@/lib/ticketPass";
+import { EVENT_ART_ACCENT, EVENT_ART_TEXT } from "@/lib/eventArt";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { LoadingState } from "@/components/LoadingState";
@@ -21,40 +25,43 @@ function locationLine(ticket: StudentTicket) {
     .join(" • ");
 }
 
+
 function TicketCard({ ticket }: { ticket: StudentTicket }) {
   const colors = colorsForScheme(useColorScheme());
   const styles = useMemo(() => createStyles(colors), [colors]);
   const checkedIn = Boolean(ticket.checkedInAt);
   const location = locationLine(ticket);
+  const when = [formatWalletDate(ticket.eventDate), ticket.eventTime].filter(Boolean).join(" · ");
 
   return (
-    <View style={styles.ticketCard}>
-      <View style={styles.ticketMain}>
-        <AppText variant="eyebrow">{checkedIn ? "Checked in" : "Ticket"}</AppText>
-        <AppText variant="subtitle">{ticket.eventName}</AppText>
-        <AppText variant="caption">Hosted by {ticket.hostName}</AppText>
-        <AppText variant="caption">{ticket.ticketName}</AppText>
-        <AppText variant="caption">
-          {formatWalletDate(ticket.eventDate)}{ticket.eventTime ? ` • ${ticket.eventTime}` : ""}
-        </AppText>
-        {location ? <AppText variant="caption">{location}</AppText> : null}
+    <View accessible accessibilityLabel={ticketAccessibilityLabel(ticket)} style={styles.pass} testID="ticket-pass">
+      <EventArt height={132} labels={[ticket.eventName]} radius={0}>
+        <AppText style={styles.passWhen}>{when}</AppText>
+        <AppText numberOfLines={2} style={styles.passName}>{ticket.eventName}</AppText>
+      </EventArt>
+      <View style={styles.passBody}>
+        {ticket.qrImageUrl ? (
+          <Image accessibilityIgnoresInvertColors resizeMode="contain" source={{ uri: ticket.qrImageUrl }} style={styles.qrImage} testID="ticket-qr" />
+        ) : null}
         {ticket.ticketCode ? (
-          <View style={styles.codeBox}>
-            <AppText variant="eyebrow">Code</AppText>
-            <AppText variant="subtitle">{ticket.ticketCode}</AppText>
+          <View style={styles.codeBlock}>
+            <AppText style={styles.passMuted}>{ticket.qrImageUrl ? "Or read this code at the door" : "Show this code at the door"}</AppText>
+            <AppText selectable style={styles.code}>{ticket.ticketCode}</AppText>
           </View>
         ) : (
-          <AppText variant="caption">Ticket code will appear when issued.</AppText>
+          <AppText style={styles.passMuted}>Your ticket code appears here when the host issues it.</AppText>
         )}
       </View>
-      {ticket.qrImageUrl ? (
-        <Image
-          accessibilityIgnoresInvertColors
-          resizeMode="contain"
-          source={{ uri: ticket.qrImageUrl }}
-          style={styles.qrImage}
-        />
-      ) : null}
+      <View style={styles.passFooter}>
+        <View style={styles.passFooterCopy}>
+          <AppText style={styles.passStrong}>{ticket.ticketName}</AppText>
+          <AppText style={styles.passMuted}>{[ticket.hostName, location].filter(Boolean).join(" · ")}</AppText>
+        </View>
+        <View style={styles.status}>
+          <Ionicons color={checkedIn ? PASS.ok : PASS.muted} name={checkedIn ? "checkmark-circle" : "time-outline"} size={18} />
+          <AppText style={[styles.passStrong, checkedIn && { color: PASS.ok }]}>{checkedIn ? "Checked in" : "Not yet"}</AppText>
+        </View>
+      </View>
     </View>
   );
 }
@@ -108,8 +115,8 @@ export default function EventTicketsScreen() {
   return (
     <Screen>
       <AppText variant="eyebrow">Wallet</AppText>
-      <AppText variant="title">Event Tickets</AppText>
-      <AppText variant="caption">Keep ticket codes and QR check-in details handy.</AppText>
+      <AppText accessibilityRole="header" variant="display">Your tickets</AppText>
+      <AppText variant="caption">Open this at the door and show the code or QR.</AppText>
 
       {loading ? <LoadingState label="Loading tickets" /> : null}
       {errorMessage ? <ErrorState error={errorMessage} title="Tickets unavailable" /> : null}
@@ -135,35 +142,20 @@ export default function EventTicketsScreen() {
   );
 }
 
-function createStyles(colors: ThemeColors) {
+function createStyles(_colors: ThemeColors) {
   return StyleSheet.create({
-    codeBox: {
-      backgroundColor: colors.surface,
-      borderRadius: 14,
-      gap: 3,
-      marginTop: 4,
-      padding: 10
-    },
-    qrImage: {
-      backgroundColor: "white",
-      borderRadius: 12,
-      height: 104,
-      width: 104
-    },
-    section: {
-      gap: 10
-    },
-    ticketCard: {
-      alignItems: "center",
-      backgroundColor: colors.surfaceAlt,
-      borderRadius: 18,
-      flexDirection: "row",
-      gap: 14,
-      padding: 14
-    },
-    ticketMain: {
-      flex: 1,
-      gap: 7
-    }
+    section: { gap: 16 },
+    pass: { backgroundColor: PASS.body, borderRadius: 24, overflow: "hidden" },
+    passWhen: { color: EVENT_ART_ACCENT, fontSize: 14, fontWeight: "700" },
+    passName: { color: EVENT_ART_TEXT, fontSize: 26, fontWeight: "800", letterSpacing: -0.5, lineHeight: 30 },
+    passBody: { alignItems: "center", gap: 14, paddingHorizontal: 24, paddingVertical: 22 },
+    qrImage: { backgroundColor: PASS.body, height: 216, width: 216 },
+    codeBlock: { alignItems: "center", gap: 2 },
+    code: { color: PASS.text, fontSize: 24, fontVariant: ["tabular-nums"], fontWeight: "800", letterSpacing: 1 },
+    passFooter: { alignItems: "center", borderColor: PASS.rule, borderStyle: "dashed", borderTopWidth: 1, flexDirection: "row", gap: 12, paddingHorizontal: 24, paddingVertical: 16 },
+    passFooterCopy: { flex: 1, gap: 2 },
+    passStrong: { color: PASS.text, fontSize: 15, fontWeight: "700" },
+    passMuted: { color: PASS.muted, fontSize: 13, lineHeight: 18 },
+    status: { alignItems: "center", flexDirection: "row", gap: 6 }
   });
 }
