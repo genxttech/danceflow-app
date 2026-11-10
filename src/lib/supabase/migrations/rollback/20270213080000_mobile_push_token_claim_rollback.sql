@@ -1,4 +1,4 @@
--- Rollback for 20270211090000_mobile_push_token_claim.sql
+-- Rollback for 20270213080000_mobile_push_token_claim.sql
 --
 -- Roll the app back first: builds that register through this function stop
 -- registering push tokens without it. Rows already moved stay with their new

@@ -1,4 +1,4 @@
--- 20270211090000_mobile_push_token_claim.sql
+-- 20270213080000_mobile_push_token_claim.sql
 --
 -- Phase 20-R, Student App: a device's Expo push token follows whoever is signed
 -- in on that device.
@@ -14,7 +14,7 @@
 -- someone's token could only redirect that device to its own notifications.
 --
 -- Release order: apply before any app build that calls it.
--- Rollback: rollback/20270211090000_mobile_push_token_claim_rollback.sql
+-- Rollback: rollback/20270213080000_mobile_push_token_claim_rollback.sql
 
 begin;
 

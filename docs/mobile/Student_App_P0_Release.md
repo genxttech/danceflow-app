@@ -1,12 +1,12 @@
 # Student App P0: release sequence and device QA
 
-**Scope:** PR #438 (payment sheet account, signup, secure sessions, raw-token links, push ownership, Partner Search moderation guard). **Status (2026-11-10):** both migrations are applied and verified on DEV only. Nothing is on PROD, nothing is deployed and no app is built. Each further hosted step needs the owner's approval.
+**Scope:** PR #438 (payment sheet account, signup, secure sessions, raw-token links, push ownership, Partner Search moderation guard). **Status (2026-11-10):** both migrations are applied on DEV and PROD, confirmed by read-only checks. Nothing is deployed and no app is built. Each further hosted step needs the owner's approval.
 
 ## What ships where
 
 | Piece | Kind | Files |
 |---|---|---|
-| Push device claim | SQL | `20270211090000_mobile_push_token_claim.sql` (+ rollback, suite `test_T_mobile_push_token_claim.sql`) |
+| Push device claim | SQL | `20270213080000_mobile_push_token_claim.sql` (+ rollback, suite `test_T_mobile_push_token_claim.sql`) |
 | Partner Search moderation guard | SQL | `20270213090000_partner_profile_moderation_guard.sql` (+ rollback, suite `test_T_partner_profile_moderation_guard.sql`) |
 | `stripeAccountId` in event checkout | Web | `src/lib/events/event-order-payment.ts` |
 | Partner save stops writing `moderation_status` | Web | `src/app/account/partner-search/actions.ts` |
@@ -20,13 +20,15 @@ PROD does not equal `main`. The web pieces must ride whatever release branch PRO
    - The self-approval hole is present on PROD: same owner policy, `authenticated` holds UPDATE on `moderation_status`, no trigger.
    - Not exploited: 1 listing, `pending`. 0 approved, 0 flagged, 0 hidden.
    - Neither migration is on PROD.
-2. ~~**DEV SQL.**~~ Done 2026-11-10 (#438 comment 6757076211). `20270211090000` at 00:50:13Z, then `20270213090000` at 00:53:29Z, each through a fail-closed wrapper that checks the project ref and SHA-256. Catalog and rolled-back behavior postflight passed, with no residue.
-3. **PROD guard SQL: `20270213090000` now.** PROD has no flagged or hidden listings, so released web and mobile clients keep working with the guard in place. It can go before the web change, and closing the hole doesn't need to wait for an app release.
-4. **PROD push SQL: `20270211090000`** before any app build that uses it. It is additive and safe at any time before step 6.
+2. ~~**DEV SQL.**~~ Done 2026-11-10 (#438 comment 6757076211). The push claim at 00:50:13Z (under its old number `20270211090000`), then `20270213090000` at 00:53:29Z, each through a fail-closed wrapper that checks the project ref and SHA-256. Catalog and rolled-back behavior postflight passed, with no residue.
+3. ~~**PROD guard SQL: `20270213090000`.**~~ Present on PROD 2026-11-10 (read-only check). PROD has no flagged or hidden listings, so released web and mobile clients keep working with the guard in place. It can go before the web change, and closing the hole doesn't need to wait for an app release.
+4. ~~**PROD push SQL: `20270213080000`.**~~ Present on PROD 2026-11-10 (read-only check).
 5. **Web:** ship the two web changes in the reconciled release. Before this, the app falls back to hosted checkout on registration and shows an error when resuming a payment.
 6. **App:** EAS build only after steps 3 to 5. Without the push SQL, push registration fails silently. Without the guard, the Partner Search save sends no status, and the trigger is what sends edited approved listings back to review.
 
-**Rollback:** app first, then web (both web changes are harmless on their own), then the SQL rollback files in reverse order (`20270213090000`, then `20270211090000`). Rolling back the guard reopens self-approval.
+**Rollback:** app first, then web (both web changes are harmless on their own), then the SQL rollback files in reverse order (`20270213090000`, then `20270213080000`). Rolling back the guard reopens self-approval.
+
+**Renumbered 2026-11-10:** the push claim was `20270211090000`, which collides with the CI-B desk-balance migration already applied on PROD (`20270211090000_competition_checkin_balance_refund`). It is now `20270213080000`, still ahead of the guard. Only the file name and header comments changed; the SQL is the same. Nothing hosted is affected: DEV and PROD already have `claim_mobile_push_token` (applied 2026-11-10 under the old filename), PROD has no `supabase_migrations` table, and DEV's history table records neither version. Nothing is recorded by version, so nothing gets reapplied.
 
 ## Hosted read-only evidence
 
