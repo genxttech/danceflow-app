@@ -36,7 +36,7 @@ export function parseSignCount(authData: Uint8Array): number {
 /** Plain-language meaning of a counter value for the owner (the database accepts a counter that stays 0 forever, but refuses any regression once it has moved). */
 export function counterNote(count: number): string {
   return count === 0
-    ? "Counter 0: this authenticator does not count signatures, so cloning cannot be detected by the counter. The key is device-bound and non-exportable, which is why this is accepted; it is a recorded, accepted limitation."
+    ? "Counter 0: this authenticator does not count signatures, so cloning cannot be detected by the counter. The key is not reported as synced, which is why this is accepted; it is a recorded, accepted limitation (see the runbook)."
     : "Counter " + count + ": the database will refuse any signature whose counter does not increase (clone detection stays on for this key).";
 }
 
