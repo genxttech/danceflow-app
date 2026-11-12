@@ -1,0 +1,1 @@
+Canary S5: change under src/lib/auth (owned security control).
