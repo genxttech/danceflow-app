@@ -30,7 +30,7 @@ describe("preflight (local checks only)", () => {
   const byId = (cs: Awaited<ReturnType<typeof runPreflight>>) => Object.fromEntries(cs.map((c) => [c.id, c]));
   it("a valid environment with no QA container passes every local check and lists the owner-only items as MANUAL, never as passed", async () => {
     const c = byId(await runPreflight(good(), DIR, dockerNone));
-    for (const id of ["node", "owner-values", "fixture-no-email", "version-pin", "call-cap", "local-postgres"]) expect(c[id].status, id).toBe("ok");
+    for (const id of ["node", "owner-values", "fixture-synthetic-email", "version-pin", "call-cap", "local-postgres"]) expect(c[id].status, id).toBe("ok");
     for (const id of ["sandbox", "connected-account", "key-permissions", "no-webhooks", "api-version"]) expect(c[id].status, id).toBe("manual");
     expect(c.sandbox.detail).toContain("DanceFlow D24-M3 TEST");
   });

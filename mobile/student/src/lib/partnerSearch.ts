@@ -1,6 +1,8 @@
 import { danceflowApiFetch } from "@/lib/danceflowApi";
 import { supabase } from "@/lib/supabase";
 
+// Partner messaging tables are not in the generated client types.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const partnerMessagingDb = supabase as any;
 
 export type PartnerListingIntent = "practice" | "social" | "showcase" | "competition";
@@ -275,7 +277,8 @@ export async function saveMyPartnerProfile(userId: string, profile: DancerPartne
     availability_notes: profile.availabilityNotes.trim() || null,
     photo_url: profile.photoUrl.trim() || null,
     visibility: nextVisibility,
-    moderation_status: nextVisibility === "published" ? "pending" : profile.moderationStatus || "pending",
+    // moderation_status is never written by the app: new rows default to 'pending', and
+    // the database guard (20270213090000) sends an edited approved listing back to review.
     moderation_reason: advertisingRisk
       ? "Listing may include lesson advertising, service promotion, external contact, or booking language."
       : null,

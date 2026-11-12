@@ -358,9 +358,10 @@ describe("review round: no other workflow may reach the environment or the secre
   it("the scan covers every workflow file in the directory, including other extensions", () => {
     for (const f of readdirSync(dir)) expect(f, f).toMatch(/\.ya?ml$/);
   });
-  it("the one CI workflow runs its gate for PRs that touch this boundary", () => {
+  it("the CI gate runs on every pull request (no paths filter), so it also covers PRs that touch this boundary", () => {
     const t = readFileSync(join(dir, "e2e-public-event-registration.yml"), "utf8");
-    for (const p of [".github/workflows/d24-*", ".github/CODEOWNERS", "docs/billing/D24-*", "vitest.config.mts", "tsconfig.json"]) expect(t, p).toContain(`"${p}"`);
+    expect(t).toContain("\n  pull_request: {}\n");
+    expect(t).not.toMatch(/^\s+paths:/m);
   });
 });
 
@@ -456,12 +457,65 @@ describe("review round: CODEOWNERS coverage (every boundary path resolves to the
   ])("%s is owned by @genxttech", (f) => {
     expect(ownersOf(f)).toEqual(["@genxttech"]);
   });
-  it("the catch-all is the FIRST rule, so every path (including an unrelated source file) is owned and no agent review can satisfy code-owner review alone", () => {
-    expect(rules[0]).toEqual(["*", "@genxttech"]);
-    expect(ownersOf("src/app/page.tsx")).toEqual(["@genxttech"]);
-    expect(ownersOf("docs/anything.md")).toEqual(["@genxttech"]);
+  // Governance change 2026-11-12 (docs/ops/GitHub_Governance_Change_Package.md): no catch-all. Routine paths merge on green
+  // required checks; the sensitive areas below must stay owned. Every rule names only the owner, never the agent identity.
+  it("there is no catch-all, and every rule names only @genxttech", () => {
+    expect(rules.some(([p]) => p === "*" || p === "/*" || p === "**")).toBe(false);
     expect(rules.every((r) => r.length === 2 && r[1] === "@genxttech")).toBe(true);
   });
+  it.each([
+    "src/lib/supabase/migrations/20270301000000_x.sql",
+    "src/lib/supabase/admin.ts",
+    "src/proxy.ts",
+    "src/lib/auth/staffApiAuth.ts",
+    "src/app/(auth)/login/page.tsx",
+    "src/lib/payments/stripe.ts",
+    "src/app/api/stripe/webhook/route.ts",
+    "src/app/api/webhooks/x/route.ts",
+    "src/lib/billing/x.ts",
+    "src/lib/usage/x.ts",
+    "src/lib/events/event-order-payment.ts",
+    "src/lib/sms/x.ts",
+    "src/app/platform/sms/page.tsx",
+    "src/app/api/cron/x/route.ts",
+    "src/lib/integrations/gusto.ts",
+    "vercel.json",
+    "next.config.ts",
+    "mobile/student/package.json",
+    "mobile/business/app.json",
+    "mobile/student/eas.json",
+    "scripts/release/x.mjs",
+    "src/lib/supabase/migrations/sql-tests/test_T_x.sql",
+    "src/lib/supabase/migrations/rollback/2027_x_rollback.sql",
+    "src/lib/competition/results/recompute.ts",
+    "src/lib/competition/setup/fees.ts",
+    "src/app/events/[slug]/competition/results/page.tsx",
+    "src/app/api/events/[slug]/competition/release/route.ts",
+    "src/app/app/events/[id]/competition/registrations/refund/actions.ts",
+    "docs/competition/x.md",
+    "e2e/tests/competition.spec.ts",
+    "src/app/app/settings/sms/numberActions.ts",
+    "src/app/app/clients/[id]/sms-actions.ts",
+    "src/app/app/clients/[id]/ClientSmsConsentCard.tsx",
+    "src/app/sms-consent/page.tsx",
+    "src/app/studios/[studioSlug]/sms-terms/page.tsx",
+    "src/app/studios/[studioSlug]/SmsLegalPage.tsx",
+    "src/components/public/SmsConsentCheckbox.tsx",
+    "src/lib/billing/smsCredits.ts",
+    "src/app/api/billing/sms-credit/route.ts",
+    "src/app/api/cron/sms-usage/route.ts",
+    "scripts/hosted/reset.sql",
+    "scripts/qa/tw4f/run.mjs",
+    "scripts/tw4-validation/check.mjs",
+  ])("sensitive path %s is owned by @genxttech", (f) => {
+    expect(ownersOf(f)).toEqual(["@genxttech"]);
+  });
+  it.each(["src/app/api/staff/me/route.ts", "mobile/student/src/screens/Today.tsx", "docs/mobile/x.md", "src/lib/supabase/__tests__/x.test.ts"])(
+    "routine path %s has no code owner",
+    (f) => {
+      expect(ownersOf(f)).toBeNull();
+    },
+  );
 });
 
 describe("code owners and test registration", () => {

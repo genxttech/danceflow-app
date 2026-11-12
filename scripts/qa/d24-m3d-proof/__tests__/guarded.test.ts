@@ -15,7 +15,7 @@ const mk = (opts: Partial<Parameters<typeof createGuardedClient>[0]> = {}, fake:
   client.markIdentityVerified(); // these tests exercise the other guards; the identity-first rule has its own tests (cannotRunLive.test.ts)
   return { f, client };
 };
-const cust = (n: string): ProofRequest => ({ method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: `${KEY}${n}`, body: { name: `proof ${n}` } });
+const cust = (n: string): ProofRequest => ({ method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: `${KEY}${n}`, body: { name: `proof ${n}`, email: "d24-proof-abc123-a@example.com" } });
 const draft = (cus: string, n: string): ProofRequest => ({
   method: "POST", path: "/v1/invoices", stripeAccount: CONNECTED, idempotencyKey: `${KEY}${n}`,
   body: { customer: cus, collection_method: "send_invoice", days_until_due: "14", currency: "usd", auto_advance: "false" },

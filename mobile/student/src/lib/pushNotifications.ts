@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { router } from "expo-router";
 import { Linking, Platform } from "react-native";
 import Constants from "expo-constants";
+import { secureSessionStorage } from "@/lib/secureSessionStorage";
 import { supabase } from "@/lib/supabase";
 
 export type NotificationPreferences = {
@@ -35,6 +36,9 @@ const DEFAULT_PREFERENCES: NotificationPreferences = {
 };
 
 let notificationHandlerConfigured = false;
+
+const PUSH_TOKEN_STORAGE_KEY = "danceflow-expo-push-token";
+const UNBIND_TIMEOUT_MS = 4000;
 
 function routeFromNotificationData(
   data: Record<string, unknown> | null | undefined,
@@ -99,10 +103,13 @@ function isExpoGo() {
   return Constants.appOwnership === "expo";
 }
 
+// expo-notifications' published types lag the runtime API used below, so the module is untyped here.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getNotificationsModule(): Promise<any | null> {
   if (isExpoGo()) return null;
 
   const notificationsModule = await import("expo-notifications");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const Notifications = notificationsModule as any;
 
   if (!notificationHandlerConfigured) {
@@ -208,43 +215,89 @@ export async function registerPushToken(userId: string, askPermission = false) {
 
   const expoPushToken = tokenResponse.data;
 
-  const { error } = await supabase.from("mobile_push_tokens").upsert(
-    {
-      user_id: userId,
-      expo_push_token: expoPushToken,
-      platform: Platform.OS === "ios" || Platform.OS === "android" || Platform.OS === "web" ? Platform.OS : "unknown",
-      app_slug: "danceflow-student",
-      enabled: true,
-      last_registered_at: new Date().toISOString()
-    },
-    { onConflict: "expo_push_token" }
-  );
+  // A device token belongs to whoever is signed in on the device. The row may still
+  // name the previous user (offline sign-out, older build), and RLS rightly stops a
+  // direct upsert from taking it, so the server moves it to the caller.
+  const { error } = await supabase.rpc("claim_mobile_push_token", {
+    p_expo_push_token: expoPushToken,
+    p_platform: Platform.OS === "ios" || Platform.OS === "android" || Platform.OS === "web" ? Platform.OS : "unknown",
+    p_app_slug: "danceflow-student"
+  });
 
   if (error) throw error;
+
+  await secureSessionStorage.setItem(PUSH_TOKEN_STORAGE_KEY, expoPushToken).catch(() => undefined);
 
   return expoPushToken;
 }
 
-export async function loadNotificationPreferences(userId: string) {
-  const { data, error } = await supabase
-    .from("mobile_notification_preferences")
-    .select("push_enabled, schedule_updates, event_updates, favorite_updates, learning_updates, account_updates, partner_updates")
-    .eq("user_id", userId)
-    .maybeSingle();
+async function resolveDevicePushToken() {
+  const stored = await secureSessionStorage.getItem(PUSH_TOKEN_STORAGE_KEY);
+  if (stored) return stored;
 
+  // Registered by a build that did not remember the token.
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return null;
+
+  const status = await Notifications.getPermissionsAsync();
+  if (!status.granted) return null;
+
+  const resolvedProjectId = projectId();
+  const tokenResponse = resolvedProjectId
+    ? await Notifications.getExpoPushTokenAsync({ projectId: resolvedProjectId })
+    : await Notifications.getExpoPushTokenAsync();
+
+  return (tokenResponse.data as string | undefined) ?? null;
+}
+
+async function unbindPushToken() {
+  const token = await resolveDevicePushToken();
+  if (!token) return;
+
+  const { error } = await supabase.from("mobile_push_tokens").delete().eq("expo_push_token", token);
   if (error) throw error;
 
-  if (!data) {
-    const { error: insertError } = await supabase
-      .from("mobile_notification_preferences")
-      .insert(toPreferenceRow(userId, DEFAULT_PREFERENCES));
+  await secureSessionStorage.removeItem(PUSH_TOKEN_STORAGE_KEY);
+}
 
-    if (insertError) throw insertError;
-
-    return DEFAULT_PREFERENCES;
+/**
+ * Stops this device receiving the signed-in user's notifications. Runs before the session ends
+ * because RLS needs it. It never blocks sign-out: if it fails (offline), the next sign-in on this
+ * device moves the row to the new user through claim_mobile_push_token.
+ */
+export async function unbindPushTokenForSignOut() {
+  try {
+    await Promise.race([
+      unbindPushToken(),
+      new Promise<void>((_, reject) => setTimeout(() => reject(new Error("timeout")), UNBIND_TIMEOUT_MS)),
+    ]);
+  } catch (_error) {
+    // Deliberately ignored; see above.
   }
+}
 
-  return fromPreferenceRow(data as PreferenceRow);
+const PREFERENCE_COLUMNS =
+  "push_enabled, schedule_updates, event_updates, favorite_updates, learning_updates, account_updates, partner_updates";
+
+function readNotificationPreferences(userId: string) {
+  return supabase.from("mobile_notification_preferences").select(PREFERENCE_COLUMNS).eq("user_id", userId).maybeSingle();
+}
+
+export async function loadNotificationPreferences(userId: string) {
+  const { data, error } = await readNotificationPreferences(userId);
+  if (error) throw error;
+  if (data) return fromPreferenceRow(data as PreferenceRow);
+
+  // First use. The push bootstrap and the Settings card can both get here at once, so
+  // create the defaults without failing when the other one already did, then read back.
+  const { error: createError } = await supabase
+    .from("mobile_notification_preferences")
+    .upsert(toPreferenceRow(userId, DEFAULT_PREFERENCES), { onConflict: "user_id", ignoreDuplicates: true });
+  if (createError) throw createError;
+
+  const { data: created, error: rereadError } = await readNotificationPreferences(userId);
+  if (rereadError) throw rereadError;
+  return created ? fromPreferenceRow(created as PreferenceRow) : DEFAULT_PREFERENCES;
 }
 
 export async function saveNotificationPreferences(userId: string, preferences: NotificationPreferences) {
@@ -291,6 +344,7 @@ export function usePushNotificationBootstrap(userId: string | null | undefined) 
         if (!Notifications || cancelled) return;
 
         responseSubscription =
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           Notifications.addNotificationResponseReceivedListener((response: any) => {
             routeFromNotificationData(
               (response.notification.request.content.data ?? {}) as Record<string, unknown>,
@@ -340,6 +394,8 @@ export function useNotificationPreferences(userId: string | null | undefined) {
 
       setPreferences(nextPreferences);
       setPermissionStatus(status);
+    } catch {
+      setMessage("Notification preferences could not be loaded. Try again.");
     } finally {
       setLoading(false);
     }

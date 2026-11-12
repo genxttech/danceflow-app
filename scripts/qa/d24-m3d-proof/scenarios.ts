@@ -42,9 +42,12 @@ export async function runScenarios(d: ScenarioDeps): Promise<{ results: Scenario
   const key = (name: string) => `d24proof-${runId}-${name}`;
   const intent = (n: string) => `d24proof-intent-${runId}-${n}`;
 
+  // synthetic, unique per run and per customer, on the reserved example.com (no mail service); drafts are never finalized or sent
+  const alnum = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const email = (ref: string) => `d24-proof-${alnum(runId).slice(0, 16)}-${alnum(ref).slice(0, 16)}@example.com`;
   const createCustomer = (k: string, name: string, ref: string, expectStatus?: number[]) =>
     pinned(client, 
-      { method: "POST", path: "/v1/customers", stripeAccount: acct, idempotencyKey: key(k), body: { name, "metadata[d24_intent_id]": intent(ref), "metadata[d24_client_ref]": `proof-client-${ref}` } },
+      { method: "POST", path: "/v1/customers", stripeAccount: acct, idempotencyKey: key(k), body: { name, email: email(ref), "metadata[d24_intent_id]": intent(ref), "metadata[d24_client_ref]": `proof-client-${ref}` } },
       { expectStatus },
     );
   const draftBody = (cus: string, ref: string, description = "D24-M3 proof invoice"): Record<string, string> => ({
