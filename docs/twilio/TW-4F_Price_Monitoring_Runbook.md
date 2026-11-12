@@ -226,3 +226,25 @@ At the default cap of 12 this means: 15 distinct warning identities send 5 and h
 User-controlled sizes (keys ending `length`, `len`, `size`, `bytes`, such as `note_length`) are removed from the identity, so variants of one report collapse into one alert while every event is still counted in the evidence. Residual: an attacker who can create events with genuinely different details (a different target or credential) still creates distinct identities; the class sub-caps bound what they can consume, and the delay for lower classes is hours at worst, not a loss. Tests: `policy.d42.test.ts` ("priority classes and capacity reservation") reproduces both reviewer scenarios and the ordering rule; the flood test still holds.
 
 **No user-controlled text in the identity, and no identities from unlisted keys (owner decisions).** The identity is built from a KEY ALLOW-LIST of the keys the pricing migrations define: `reason` (mapped to a code from the closed enumeration `compromise_reported`, `recovery_credential`, `sign_counter_regression`, `other`; anything typed by a person is `other`), the token/uuid/hex keys `kind`, `status`, `role`, `change`, `action`, `via`, `lifted_by`, `failed_kind`, `change_id`, `credential_ref`, `fingerprint` (a value that is not a server-defined token, a uuid or a hex reference is `other`), the numeric keys `new_customer_cents`, `new_provider_cents`, `effective_in_hours`, `voided_changes` and the boolean keys `repeat`, `rate_limited`, `stale`. EVERY other key, whatever its name or value, contributes one constant (`unlisted`), so a token or hex string under `memo`, `tag`, `extra` or `memo_<n>` mints no identity; nested values are never part of the identity. Result: 15 different freeze reasons by the same administrator are ONE incident (one alert, the rest coalesced and counted in the evidence chain), while a different administrator, kind, `credential_ref` or `change_id` is a distinct incident and alerts at once. The authorization migration puts a short NON-SECRET `credential_ref` (first 12 hex of the SHA-256 of the credential RECORD id, never a credential id or key) in the revoke, evict and applied-enrolment events, so two different credentials handled by the same administrator inside 5 minutes are two identities. The original text stays in the protected audit record and the events table only; it is in no alert message and no evidence row. Priority classes, the 5-minute window, the hourly caps and the fail-open behavior are unchanged. Residual: one identical incident repeating every 5 minutes can still use the hourly top-class slots, which is the approved window.
+
+## 9. Activation (schedules registered; production stays dark until the owner sets the variables)
+
+`vercel.json` registers the monitor (`/api/cron/sms-price-monitor`, every 15 minutes) and the watchdog (`/api/cron/sms-price-monitor-watchdog`, hourly at minute 37) on the existing routes. Both answer 404 until `SMS_PRICE_MONITOR=on`, then require the cron secret, so a deployment without the variables does nothing.
+
+Owner-only production variables (Vercel, Production scope only, the monitor's own values; a new deployment is needed for them to take effect):
+
+| Variable | Value |
+|---|---|
+| `SMS_PRICE_MONITOR` | `on` (set LAST, after the other variables below, so the first run already has a destination) |
+| `PRICE_MONITOR_RESEND_API_KEY` | a Resend key created only for this monitor (never the application's `RESEND_API_KEY`) |
+| `PRICE_MONITOR_EMAIL_FROM` | a sender on the verified domain |
+| `PRICE_MONITOR_EMAIL_TO` | the owner's own mailbox |
+| `PRICE_MONITOR_HEARTBEAT_URL` | optional but recommended: a dead-man service in the owner's account |
+
+`CRON_SECRET` already exists in production and is reused. The first run reads the security-event feed from sequence 0, so events recorded before activation (for example `approver_added`) are alerted once; the cursor then moves on.
+
+Evidence after promotion: an evidence row within 15 minutes with a verifying chain; the retained `approver_added` and `approver_registry_changed` events delivered to the owner's mailbox; a watchdog run recorded within the hour; `tw4_price_verify` ok.
+
+Rollback: promote the previous deployment. Removing `SMS_PRICE_MONITOR` (and redeploying) switches both routes back to 404; evidence rows are append-only and stay.
+
+Cost: the monitor calls only five database functions and the configured alert channels (the dedicated Resend key, the optional webhook and heartbeat). It imports no Twilio or Stripe code, and the existing source scan test enforces that it touches no table or price mutation function.

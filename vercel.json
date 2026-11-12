@@ -44,6 +44,14 @@
     {
       "path": "/api/cron/sms-provider-fee-lifecycle",
       "schedule": "7 * * * *"
+    },
+    {
+      "path": "/api/cron/sms-price-monitor",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/sms-price-monitor-watchdog",
+      "schedule": "37 * * * *"
     }
   ]
 }
