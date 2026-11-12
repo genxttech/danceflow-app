@@ -59,6 +59,7 @@ export function AppointmentScreen({ appointmentId, studioId, timeZone }: { appoi
     isStaffFeatureEnabled("attendance") && studio?.accessAllowed === true && studio.capabilities?.markAttendance === true;
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
+  // Retry: show the loading state, then fetch again.
   const load = useCallback(async () => {
     setState({ status: "loading" });
     try {
@@ -68,9 +69,23 @@ export function AppointmentScreen({ appointmentId, studioId, timeZone }: { appoi
     }
   }, [api, studioId, appointmentId]);
 
+  // First load: the initial state is already "loading", so the effect only fetches and sets state in the
+  // promise callbacks (no synchronous setState in the effect), ignoring a result that arrives after unmount
+  // or after the ids change.
   useEffect(() => {
-    void load();
-  }, [load]);
+    let active = true;
+    api.appointment(studioId, appointmentId).then(
+      (appointment) => {
+        if (active) setState({ status: "ready", appointment });
+      },
+      (error: unknown) => {
+        if (active) setState({ status: "error", error });
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [api, studioId, appointmentId]);
 
   if (state.status === "loading") {
     return (

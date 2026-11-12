@@ -65,6 +65,7 @@ export function ClientDetailScreen({ clientId, studioId }: { clientId: string; s
   const { reload: reloadWorkspaces, signOut } = useStaffSession();
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
+  // Retry: show the loading state, then fetch again.
   const load = useCallback(async () => {
     setState({ status: "loading" });
     try {
@@ -74,9 +75,23 @@ export function ClientDetailScreen({ clientId, studioId }: { clientId: string; s
     }
   }, [api, studioId, clientId]);
 
+  // First load: the initial state is already "loading", so the effect only fetches and sets state in the
+  // promise callbacks (no synchronous setState in the effect), ignoring a result that arrives after unmount
+  // or after the ids change.
   useEffect(() => {
-    void load();
-  }, [load]);
+    let active = true;
+    api.client(studioId, clientId).then(
+      (client) => {
+        if (active) setState({ status: "ready", client });
+      },
+      (error: unknown) => {
+        if (active) setState({ status: "error", error });
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [api, studioId, clientId]);
 
   if (state.status === "loading") {
     return (
