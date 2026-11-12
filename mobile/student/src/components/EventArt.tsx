@@ -38,6 +38,7 @@ export function EventArt({ imageUrl, labels, height, radius = 20, children, styl
         >
           <AppText
             accessibilityElementsHidden
+            aria-hidden
             importantForAccessibility="no-hide-descendants"
             style={[styles.initials, { fontSize: Math.min(120, Math.round(height * 0.42)) }]}
           >
