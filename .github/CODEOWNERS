@@ -58,6 +58,14 @@
 /src/app/api/commerce/ @genxttech
 /src/app/api/webhooks/ @genxttech
 
+# --- Competition: scoring, results, judge authority, publication, registration pricing and refunds, finals flags ---
+/src/lib/competition/ @genxttech
+/src/app/**/competition/ @genxttech
+/docs/competition/ @genxttech
+
+# --- End-to-end regression suites (they pin money and scoring behaviour) ---
+/e2e/ @genxttech
+
 # --- Messaging provider (Twilio), platform administration, credentials and scheduled jobs ---
 /src/lib/sms/ @genxttech
 /src/app/api/sms/ @genxttech

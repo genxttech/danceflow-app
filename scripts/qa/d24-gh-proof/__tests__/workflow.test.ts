@@ -485,6 +485,15 @@ describe("review round: CODEOWNERS coverage (every boundary path resolves to the
     "mobile/business/app.json",
     "mobile/student/eas.json",
     "scripts/release/x.mjs",
+    "src/lib/supabase/migrations/sql-tests/test_T_x.sql",
+    "src/lib/supabase/migrations/rollback/2027_x_rollback.sql",
+    "src/lib/competition/results/recompute.ts",
+    "src/lib/competition/setup/fees.ts",
+    "src/app/events/[slug]/competition/results/page.tsx",
+    "src/app/api/events/[slug]/competition/release/route.ts",
+    "src/app/app/events/[id]/competition/registrations/refund/actions.ts",
+    "docs/competition/x.md",
+    "e2e/tests/competition.spec.ts",
   ])("sensitive path %s is owned by @genxttech", (f) => {
     expect(ownersOf(f)).toEqual(["@genxttech"]);
   });
