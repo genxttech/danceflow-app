@@ -12,11 +12,13 @@ const ICON_LABEL_GAP = 4;
 const LABEL_LINE_FACTOR = 1.35;
 const BOTTOM_EXTRA = 8;
 const MIN_CONTENT = 48; // touch target
+/** The bar's top border comes out of the content area (measured on the emulator: 47 dp without it). */
+export const TAB_BAR_BORDER_TOP = 1;
 
 export function tabBarMetrics(fontScale: number, insetBottom: number) {
   const scale = Math.max(1, Number.isFinite(fontScale) ? fontScale : 1);
   const label = Math.ceil(TAB_LABEL_FONT_SIZE * LABEL_LINE_FACTOR * scale);
   const content = Math.max(MIN_CONTENT, TAB_ICON_SIZE + ICON_LABEL_GAP + label);
   const paddingBottom = Math.max(0, insetBottom) + BOTTOM_EXTRA;
-  return { height: PADDING_TOP + content + paddingBottom, paddingTop: PADDING_TOP, paddingBottom };
+  return { height: TAB_BAR_BORDER_TOP + PADDING_TOP + content + paddingBottom, paddingTop: PADDING_TOP, paddingBottom };
 }
