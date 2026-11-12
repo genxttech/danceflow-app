@@ -56,3 +56,19 @@ describe("AppText on Android", () => {
     expect(platformTextStyle(style, "web")).toBe(style);
   });
 });
+
+describe("AppText font scaling cap", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { AppText } = require("@/components/AppText") as typeof import("@/components/AppText");
+
+  it("caps scaling at 1.35 by default and lets a caller lower it (the ticket code stays on one line)", () => {
+    const { getByText } = render(
+      <>
+        <AppText>Body</AppText>
+        <AppText maxFontSizeMultiplier={1}>HLD-HM-7Q2K-1842</AppText>
+      </>
+    );
+    expect(getByText("Body").props.maxFontSizeMultiplier).toBe(1.35);
+    expect(getByText("HLD-HM-7Q2K-1842").props.maxFontSizeMultiplier).toBe(1);
+  });
+});

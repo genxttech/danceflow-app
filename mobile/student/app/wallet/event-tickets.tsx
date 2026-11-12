@@ -48,7 +48,12 @@ function TicketCard({ ticket }: { ticket: StudentTicket }) {
         {ticket.ticketCode ? (
           <View style={styles.codeBlock}>
             <AppText style={styles.passMuted}>{ticket.qrImageUrl ? "Or read this code at the door" : "Show this code at the door"}</AppText>
-            <AppText selectable style={styles.code}>{ticket.ticketCode}</AppText>
+            {/* One line, always: a code split across lines is misread at the door (it wrapped at 200% on
+                Android). It is already large (24 bold), so it doesn't grow with the system text size;
+                adjustsFontSizeToFit was tried and clips glyph tops on Android. */}
+            <AppText maxFontSizeMultiplier={1} numberOfLines={1} selectable style={styles.code} testID="ticket-code">
+              {ticket.ticketCode}
+            </AppText>
           </View>
         ) : (
           <AppText style={styles.passMuted}>Your ticket code appears here when the host issues it.</AppText>
@@ -157,8 +162,8 @@ function createStyles(_colors: ThemeColors) {
     passName: { color: EVENT_ART_TEXT, fontSize: 26, fontWeight: "800", letterSpacing: -0.5, lineHeight: 30 },
     passBody: { alignItems: "center", gap: 14, paddingHorizontal: 24, paddingVertical: 22 },
     qrImage: { backgroundColor: PASS.body, height: 216, width: 216 },
-    codeBlock: { alignItems: "center", gap: 2 },
-    code: { color: PASS.text, fontSize: 24, fontVariant: ["tabular-nums"], fontWeight: "800", letterSpacing: 1 },
+    codeBlock: { alignItems: "center", alignSelf: "stretch", gap: 2 },
+    code: { alignSelf: "stretch", color: PASS.text, fontSize: 24, textAlign: "center", fontVariant: ["tabular-nums"], fontWeight: "800", letterSpacing: 1 },
     passFooter: { alignItems: "center", borderColor: PASS.rule, borderStyle: "dashed", borderTopWidth: 1, flexDirection: "row", gap: 12, paddingHorizontal: 24, paddingVertical: 16 },
     passFooterCopy: { flex: 1, gap: 2 },
     passStrong: { color: PASS.text, fontSize: 15, fontWeight: "700" },

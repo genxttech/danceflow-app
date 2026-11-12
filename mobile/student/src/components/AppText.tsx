@@ -15,7 +15,7 @@ export function AppText({ variant = "body", style, ...props }: AppTextProps) {
         : { color: colors.text };
 
   return (
-    <Text {...props} maxFontSizeMultiplier={1.35} style={platformTextStyle([styles.base, styles[variant], dynamicStyle, style])} />
+    <Text maxFontSizeMultiplier={1.35} {...props} style={platformTextStyle([styles.base, styles[variant], dynamicStyle, style])} />
   );
 }
 
