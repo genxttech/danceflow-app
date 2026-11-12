@@ -12,7 +12,7 @@
 | Partner save stops writing `moderation_status` | Web | `src/app/account/partner-search/actions.ts` |
 | Everything under `mobile/student` | App | needs an EAS build |
 
-**Release baseline (2026-11-12, after Competition promoted CF1 at 11:17Z):** PROD does not equal `main`. Live www is `dpl_3Z4vTnmE…`, built from `release/competition-cf1-app-candidate` at `0db5eabe` (24 commits on top of the previous baseline `03297304`). The app rollback is `dpl_AYaUyuLFRzaQ26bfY5iTj6VtzJxm` (the `03297304` build). The #438 web changes must ship on `0db5eabe` or its successor.
+**Release baseline (2026-11-12, latest):** PROD does not equal `main`. Live www is `dpl_813hjGqTNYQm5jXdsZbc238dQi28`, built from `claude/tw4f-key-setup-gate-on-cf1` at `39eaec03`: the CF1 line (`0db5eabe`) plus one TW-4F admin-only commit, with no SQL and nothing mobile. The app rollback is `dpl_3Z4vTnmERqKwq5sUTgqCgiVBG1Ds` (the `0db5eabe` build). The #438 web changes must ship on `39eaec03` or its successor.
 
 Web-side files in #438, in four groups:
 
@@ -23,7 +23,8 @@ Web-side files in #438, in four groups:
 | Self-deletion refused for staff, organizer or admin logins | `src/lib/student-identity/account-controls.ts` and its test, `src/app/api/student/account/route.ts`, `src/app/account/actions.ts`, `src/app/account/page.tsx` |
 | Boundary test for the mobile auth code | `src/lib/auth/__tests__/verifiedEmailBoundaries.launchsec1ca.test.ts` |
 
-- **Dry run on `0db5eabe` (2026-11-12, scratch worktree, removed afterwards; nothing pushed to the release branch):** none of the nine files changed between `03297304` and `0db5eabe`. All nine apply cleanly with `git apply --check`, each on its own and all together.
+- **Dry run on `39eaec03` (2026-11-12, scratch worktree, removed afterwards; nothing pushed to the release branch):** `0db5eabe` is an ancestor, and the one commit in between touches none of the nine files. All nine apply cleanly, each on its own and all together. The suites pass 64/65; the only failure is the expected boundary test. ESLint has no errors. The `src`-walking accessor test timed out once on the cold first run again (27 s) and passed warm.
+- **Dry run on `0db5eabe` (2026-11-12, the CF1 baseline before it; scratch worktree):** none of the nine files changed between `03297304` and `0db5eabe`. All nine apply cleanly with `git apply --check`, each on its own and all together.
 - **Tests on the patched `0db5eabe`:** the event-order-payment, deletion and boundary suites pass 64/65, and the one failure is the expected boundary test (below). ESLint on the six web code files reports no errors. On the first run in a cold scratch directory, the accessor boundary test, which walks all of `src`, also failed after 62 s; on a rerun it passed. That's a timing risk in the web suite, not a #438 issue.
 - **Ship the boundary test with the mobile change, not in a web-only release.** It reads `mobile/student/src/lib/auth.tsx` and asserts the raw-token branch is gone. On `0db5eabe`, without #438's mobile change, that file still has the branch, so the test fails (1 test).
 - **Dry run on `03297304` (2026-11-12, the previous baseline):** all nine applied cleanly; the suites passed apart from the same boundary test.
