@@ -3,7 +3,10 @@ import {
   getStudentApiUser,
   studentApiJsonError,
 } from "@/lib/auth/studentApiAuth";
-import { deleteDanceFlowAccount } from "@/lib/student-identity/account-controls";
+import {
+  AccountDeletionBlockedError,
+  deleteDanceFlowAccount,
+} from "@/lib/student-identity/account-controls";
 
 export async function DELETE(request: Request) {
   const user = await getStudentApiUser(request);
@@ -21,6 +24,9 @@ export async function DELETE(request: Request) {
     const result = await deleteDanceFlowAccount(user);
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof AccountDeletionBlockedError) {
+      return studentApiJsonError(error.message, 409);
+    }
     console.error("Student account deletion failed", error);
     return studentApiJsonError(
       "Your DanceFlow account could not be deleted.",

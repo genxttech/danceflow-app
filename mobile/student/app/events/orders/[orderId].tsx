@@ -14,6 +14,7 @@ import {
   type CreateEventCheckoutResult,
   type StudentEventOrderStatus
 } from "@/lib/eventCheckout";
+import { prepareConnectedPaymentSheet } from "@/lib/stripeConnect";
 
 function formatCurrency(value: number, currency: string) {
   return new Intl.NumberFormat(undefined, {
@@ -129,7 +130,8 @@ export default function EventOrderStatusScreen() {
       }
 
       if (result.clientSecret) {
-        const initialized = await initPaymentSheet({
+        const prepared = await prepareConnectedPaymentSheet(result);
+        const initialized = prepared.error ? prepared : await initPaymentSheet({
           merchantDisplayName: "DanceFlow",
           paymentIntentClientSecret: result.clientSecret,
           returnURL: `danceflow://events/orders/${orderId}?checkout=event`,

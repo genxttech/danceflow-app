@@ -1,21 +1,93 @@
-# Code owners for the D24 Stripe TEST proof boundary.
-# These entries only take effect once the repository owner enables "Require review from Code Owners" in a branch ruleset for main
-# (an OWNER step: docs/billing/D24-GITHUB-ENVIRONMENT-PROOF.md). Nothing here changes any GitHub setting by itself.
-# Everything under /.github/ is owned: ANY workflow file could reference the proof environment or its secret.
-# package.json, package-lock.json, tsconfig.json and the npm/package files that change how node resolves things feed `npm ci` and the tsx loader that run in the same job as the key.
+# DanceFlow code owners: changes that need the repository owner's approval before merging into main.
+# Everything NOT listed here is routine engineering: it merges after the required CI checks pass, without an owner review.
+# GitHub reads this file from the base branch, so editing it is itself owner-reviewed (see /.github/ below).
+# Policy: docs/ops/GitHub_Governance_Change_Package.md. Keep entries broad: an unlisted sensitive file is merged without review.
 
-# Catch-all FIRST (later, more specific entries win but all name the same owner): every pull request needs the owner's code-owner approval, so a review by the agent identity (bot or App) can never satisfy the ruleset on its own.
-* @genxttech
+# --- Governance, CI and supply chain (a change here could weaken every other control) ---
 /.github/ @genxttech
 /package.json @genxttech
 /package-lock.json @genxttech
-/tsconfig.json @genxttech
 /.npmrc @genxttech
+/tsconfig.json @genxttech
+/next.config.ts @genxttech
+/vercel.json @genxttech
+/eslint.config.mjs @genxttech
+/vitest.config.mts @genxttech
+/playwright.config.ts @genxttech
 /scripts/package.json @genxttech
 /scripts/qa/package.json @genxttech
+/scripts/release/ @genxttech
+/mobile/*/package.json @genxttech
+/mobile/*/package-lock.json @genxttech
+/mobile/*/app.json @genxttech
+/mobile/*/app.config.* @genxttech
+/mobile/*/eas.json @genxttech
+
+# --- D24 Stripe TEST proof boundary (unchanged from the D24 design) ---
 /scripts/qa/d24-m3d-proof/ @genxttech
 /scripts/qa/d24-gh-proof/ @genxttech
-/docs/billing/D24-GITHUB-ENVIRONMENT-PROOF.md @genxttech
-/vitest.config.mts @genxttech
 /scripts/qa/d24-test-provision/ @genxttech
+/docs/billing/D24-GITHUB-ENVIRONMENT-PROOF.md @genxttech
 /docs/billing/D24-TEST-ACCOUNT-PROVISIONING.md @genxttech
+
+# --- Database: schema, RLS, functions, grants, and the server database clients ---
+/src/lib/supabase/migrations/ @genxttech
+/src/lib/supabase/*.ts @genxttech
+
+# --- Authentication, authorization, session and request boundary ---
+/src/proxy.ts @genxttech
+/src/lib/auth/ @genxttech
+/src/lib/security/ @genxttech
+/src/app/auth/ @genxttech
+/src/app/(auth)/ @genxttech
+
+# --- Money: payments, billing, payouts, payroll, accounting, usage charges ---
+/src/lib/payments/ @genxttech
+/src/lib/billing/ @genxttech
+/src/lib/billing-qa/ @genxttech
+/src/lib/payment-harness/ @genxttech
+/src/lib/commerce/ @genxttech
+/src/lib/accounting/ @genxttech
+/src/lib/payroll/ @genxttech
+/src/lib/usage/ @genxttech
+/src/lib/events/event-order-payment.ts @genxttech
+/src/lib/events/settlement*.ts @genxttech
+/src/app/api/payments/ @genxttech
+/src/app/api/billing/ @genxttech
+/src/app/api/stripe/ @genxttech
+/src/app/api/commerce/ @genxttech
+/src/app/api/webhooks/ @genxttech
+
+# --- Competition: scoring, results, judge authority, publication, registration pricing and refunds, finals flags ---
+/src/lib/competition/ @genxttech
+/src/app/**/competition/ @genxttech
+/docs/competition/ @genxttech
+
+# --- End-to-end regression suites (they pin money and scoring behaviour) ---
+/e2e/ @genxttech
+
+# --- Messaging provider (Twilio), platform administration, credentials and scheduled jobs ---
+/src/lib/sms/ @genxttech
+/src/app/api/sms/ @genxttech
+/src/app/platform/ @genxttech
+/src/app/api/platform/ @genxttech
+/src/app/api/cron/ @genxttech
+/src/lib/integrations/ @genxttech
+/src/app/api/integrations/ @genxttech
+
+# --- Twilio/SMS surfaces outside src/lib/sms (requested by the TWILIO coordinator): studio SMS setup, number selection,
+# credit, limit and recurring panels, client SMS sending and consent, public carrier-compliance consent and legal text ---
+/src/app/app/settings/sms/ @genxttech
+/src/app/app/clients/*/sms-actions.ts @genxttech
+/src/app/app/clients/*/ClientSendSmsCard.tsx @genxttech
+/src/app/app/clients/*/ClientSmsConsentCard.tsx @genxttech
+/src/app/sms-consent/ @genxttech
+/src/app/studios/*/sms-terms/ @genxttech
+/src/app/studios/*/sms-privacy/ @genxttech
+/src/app/studios/*/SmsLegalPage.tsx @genxttech
+/src/components/public/SmsConsentCheckbox.tsx @genxttech
+
+# --- Hosted-database and provider validation tooling (preflight and reset SQL, Twilio validation harness) ---
+/scripts/hosted/ @genxttech
+/scripts/qa/tw4f/ @genxttech
+/scripts/tw4-validation/ @genxttech
