@@ -72,6 +72,31 @@ case "$cmd" in
     echo "-- SecureStore entries (names only; values are Keystore ciphertext):"
     adbe shell "run-as $APP_ID cat shared_prefs/SecureStore.xml" | tr -d '\r' | grep -oE 'name="[^"]*"' | head -20 || echo "(no SecureStore entries)"
     ;;
+  tabbar)
+    # Regression check for the Android 15 edge-to-edge tab bar collapse (DEVICE_QA_RESULTS.md, E3): every tab must be
+    # at least 44dp tall and sit above the navigation-bar inset. Open a tab screen first.
+    require_emulator
+    density="$(adbe shell wm density | tr -d '\r' | grep -oE '[0-9]+$')"
+    navinset="$(adbe shell dumpsys window | tr -d '\r' | grep -m1 -oE 'type=navigationBars[^}]*insetsSize=Insets\{left=0, top=0, right=0, bottom=[0-9]+' | grep -oE '[0-9]+$' || echo 0)"
+    height="$(adbe shell wm size | tr -d '\r' | grep -oE 'x[0-9]+$' | tr -d x)"
+    adbe exec-out uiautomator dump /dev/tty 2>/dev/null | node -e '
+      let x = ""; process.stdin.on("data", (d) => (x += d)).on("end", () => {
+        const [density, nav, screenH] = process.argv.slice(1).map(Number);
+        const minPx = Math.ceil((44 * density) / 160);
+        const tabs = [...x.matchAll(/<node [^>]*content-desc="(Pulse|Today|Clients|More)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g)]
+          .map((m) => ({ name: m[1], top: +m[3], bottom: +m[5] }))
+          .filter((t, i, all) => all.findIndex((o) => o.name === t.name) === i && t.bottom > screenH * 0.75);
+        if (!tabs.length) { console.log("BLOCKED no tab buttons on screen (open a tab first)"); process.exit(3); }
+        let failed = false;
+        for (const t of tabs) {
+          const h = t.bottom - t.top;
+          const ok = h >= minPx && t.bottom <= screenH - nav;
+          failed ||= !ok;
+          console.log(`${ok ? "PASS" : "FAIL"} ${t.name}: ${h}px tall (min ${minPx}px = 44dp), bottom ${t.bottom} (must be <= ${screenH - nav}, above the ${nav}px nav inset)`);
+        }
+        process.exit(failed ? 1 : 0);
+      });' "$density" "$navinset" "$height"
+    ;;
   restart)
     require_emulator
     adbe shell am force-stop "$APP_ID"

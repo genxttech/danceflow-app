@@ -9,6 +9,7 @@ import { StateMessage } from "@/components/StateMessage";
 import { initialTab, tabsForWorkspace, type TabKey } from "@/lib/navigation";
 import { useStaffSession } from "@/lib/staff";
 import { colors } from "@/theme";
+import { LayoutProbe } from "@/components/LayoutProbe";
 
 /**
  * The tab bar's height for the system text size and the bottom inset. A fixed default clips the labels at 200%, and
@@ -70,6 +71,7 @@ export default function TabsLayout() {
 
   return (
     // Keyed by workspace so switching studios resets each tab's screen state.
+    <LayoutProbe name="tabs">
     <Tabs
       key={workspace?.studioId ?? "none"}
       initialRouteName={initialTab(workspace)}
@@ -102,5 +104,6 @@ export default function TabsLayout() {
         />
       ))}
     </Tabs>
+    </LayoutProbe>
   );
 }
