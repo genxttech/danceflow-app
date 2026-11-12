@@ -111,6 +111,8 @@ export type CreateEventCheckoutResult = {
   orderId: string;
   publishableKey?: string;
   registrationIds: string[];
+  /** Connected account that owns the PaymentIntent; required to present the native payment sheet. */
+  stripeAccountId?: string;
 };
 
 export type StudentEventOrderTicket = {

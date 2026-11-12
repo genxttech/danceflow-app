@@ -127,8 +127,8 @@ export async function savePartnerSearchProfileAction(formData: FormData) {
     listing_intent: listingIntent,
     availability_notes: availabilityNotes,
     visibility,
-    moderation_status:
-      visibility === "published" ? "pending" : existing?.moderation_status || "pending",
+    // moderation_status is never written here: new rows default to 'pending', and the
+    // database guard (20270213090000) sends an edited approved listing back to review.
     moderation_reason: advertisingRisk
       ? "Listing may include lesson advertising, service promotion, external contact, or booking language."
       : null,
