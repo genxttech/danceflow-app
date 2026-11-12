@@ -1,4 +1,8 @@
 jest.mock("@react-native-async-storage/async-storage", () => jest.requireActual("@react-native-async-storage/async-storage/jest/async-storage-mock"));
+// ticketPass imports studentWallet, which imports the Supabase client. A real client starts the
+// auth auto-refresh interval, which outlives this file and fires after teardown ("Cannot log after
+// tests are done", a worker force-exited). Colour checks never need a client.
+jest.mock("@/lib/supabase", () => ({ supabase: {} }));
 
 import { darkColors, lightColors, type ThemeColors } from "@/constants/theme";
 

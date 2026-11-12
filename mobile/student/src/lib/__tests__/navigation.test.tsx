@@ -25,6 +25,11 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 // eslint-disable-next-line import/first
 import TabsLayout from "../../../app/(tabs)/_layout";
 
+import { WARM_UP_TIMEOUT_MS, warmUpRenderer } from "@/test/warmUpRenderer";
+
+// One-off renderer load, outside the tests' own timeouts (see warmUpRenderer).
+beforeAll(warmUpRenderer, WARM_UP_TIMEOUT_MS);
+
 describe("tab bar", () => {
   beforeAll(() => {
     render(<TabsLayout />);

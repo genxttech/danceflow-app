@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import { unbindPushTokenForSignOut } from "@/lib/pushNotifications";
 import { recordMobileEmailProof } from "@/lib/emailVerification";
+import { WARM_UP_TIMEOUT_MS, warmUpRenderer } from "@/test/warmUpRenderer";
 
 jest.mock("expo-router", () => ({ router: { replace: jest.fn() } }));
 jest.mock("expo-linking", () => ({
@@ -30,6 +31,9 @@ jest.mock("@/lib/supabase", () => ({
 }));
 
 const auth = supabase.auth as jest.Mocked<typeof supabase.auth>;
+
+// One-off renderer load, outside the tests' own timeouts (see warmUpRenderer).
+beforeAll(warmUpRenderer, WARM_UP_TIMEOUT_MS);
 
 async function renderAuth() {
   let value: ReturnType<typeof useAuth> | undefined;
