@@ -28,7 +28,17 @@ type AuthContextValue = {
   signOutEverywhere: () => Promise<boolean>;
   getAccessToken: () => Promise<string | null>;
   refreshAccessToken: () => Promise<string | null>;
+  /** The last sign-in link: being exchanged, failed (bad, expired or empty link), or none in flight. Drives app/auth/callback. */
+  linkStatus: LinkStatus;
 };
+
+export type LinkStatus = "idle" | "processing" | "failed";
+
+/** A link the app should treat as a sign-in callback (not, say, the dev client's own expo-development-client URL). */
+export function isAuthCallbackUrl(url: string) {
+  const { code, tokenHash } = parseAuthLink(url);
+  return Boolean(code || tokenHash) || /^danceflow-business:\/\/auth\/callback\b/.test(url) || /\/auth\/callback\b/.test(url);
+}
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -46,6 +56,7 @@ async function clearLocalSession() {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [linkStatus, setLinkStatus] = useState<LinkStatus>("idle");
 
   const handleAuthUrl = useCallback(async (url: string) => {
     const { code, tokenHash, type } = parseAuthLink(url);
@@ -67,19 +78,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return false;
   }, []);
 
+  /** Exchanges a callback link and records the outcome; other links (the dev client's own) are left alone. */
+  const processLink = useCallback(
+    async (url: string) => {
+      if (!isAuthCallbackUrl(url)) return;
+      setLinkStatus("processing");
+      try {
+        const handled = await handleAuthUrl(url);
+        // a callback with no code or token hash (or only raw tokens, which are never read) is a failed link
+        setLinkStatus(handled ? "idle" : "failed");
+      } catch (error) {
+        console.warn("DanceFlow Business could not process a sign-in link:", error instanceof Error ? error.message : error);
+        setLinkStatus("failed");
+      }
+    },
+    [handleAuthUrl],
+  );
+
   useEffect(() => {
     let mounted = true;
 
     const linking = Linking.addEventListener("url", ({ url }) => {
-      void handleAuthUrl(url).catch((error: unknown) => {
-        console.warn("DanceFlow Business could not process a sign-in link:", error instanceof Error ? error.message : error);
-      });
+      void processLink(url);
     });
 
     async function bootstrap() {
       try {
         const initialUrl = await Linking.getInitialURL();
-        if (initialUrl) await handleAuthUrl(initialUrl).catch(() => undefined);
+        if (initialUrl) await processLink(initialUrl);
 
         const { data } = await supabase.auth.getSession();
         if (!mounted) return;
@@ -122,7 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       linking.remove();
       subscription.unsubscribe();
     };
-  }, [handleAuthUrl]);
+  }, [processLink]);
 
   const signInWithPassword = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email: normalizeEmail(email), password });
@@ -173,8 +199,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signOutEverywhere,
       getAccessToken,
       refreshAccessToken,
+      linkStatus,
     }),
-    [session, loading, signInWithPassword, sendSignInLink, handleAuthUrl, signOut, signOutEverywhere, getAccessToken, refreshAccessToken],
+    [session, loading, signInWithPassword, sendSignInLink, handleAuthUrl, signOut, signOutEverywhere, getAccessToken, refreshAccessToken, linkStatus],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

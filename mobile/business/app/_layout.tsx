@@ -68,6 +68,8 @@ function RootNavigator() {
       <Stack.Protected guard={!signedIn}>
         <Stack.Screen name="sign-in" />
       </Stack.Protected>
+      {/* reachable signed in or out: the email link lands here while the code is exchanged */}
+      <Stack.Screen name="auth/callback" />
     </Stack>
   );
 
