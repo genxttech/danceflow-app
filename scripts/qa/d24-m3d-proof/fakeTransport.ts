@@ -58,10 +58,12 @@ export function createFakeTransport(o: FakeOptions): { transport: Transport; cal
       }
       let res: Obj;
       if (path === "/v1/customers") {
-        res = { id: id("cus"), object: "customer", livemode: false, name: req.body?.name ?? null };
+        res = { id: id("cus"), object: "customer", livemode: false, name: req.body?.name ?? null, email: req.body?.email ?? null };
         customers.set(res.id, res);
       } else if (path === "/v1/invoices") {
         if (!customers.has(String(req.body?.customer))) return err(400, "invalid_request_error", "resource_missing");
+        // what Stripe really does (proof run 3, req_TtLV74WY5HVm4g): a send_invoice invoice needs a customer with a valid email
+        if (req.body?.collection_method === "send_invoice" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(customers.get(String(req.body?.customer))?.email ?? ""))) return err(400, "invalid_request_error", "email_invalid");
         res = {
           id: id("in"),
           object: "invoice",

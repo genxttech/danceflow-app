@@ -1,0 +1,42 @@
+name: Student App
+
+# Static checks for the Expo Student App in mobile/student. No secrets, no device,
+# no EAS: typecheck, jest-expo tests and the Expo SDK version check.
+
+on:
+  pull_request:
+    paths:
+      - "mobile/student/**"
+      - ".github/workflows/mobile-student.yml"
+  push:
+    branches: [main]
+    paths:
+      - "mobile/student/**"
+      - ".github/workflows/mobile-student.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: mobile/student
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/student/package-lock.json
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Tests
+        run: npm test -- --ci
+      - name: Expo SDK versions
+        run: npm run check:deps
+        env:
+          CI: "1"

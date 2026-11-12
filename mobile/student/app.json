@@ -59,7 +59,6 @@
       "backgroundColor": "#071427"
     },
     "description": "DanceFlow helps dancers discover studios and events, keep tickets handy, view their schedule, track their learning, and get support from LUMI.",
-    "privacy": "unlisted",
     "notification": {
       "icon": "./assets/danceflow-logo.png",
       "color": "#FF4FA3",

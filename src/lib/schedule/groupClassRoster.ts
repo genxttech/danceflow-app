@@ -217,7 +217,7 @@ async function fetchLegacyFallbackAttendee(params: {
   const { data: appointmentRow, error: appointmentError } = await supabase
     .from("appointments")
     .select(
-      "client_id, billing_type, payment_status, client_package_id, appointment_type, status, cancelled_at, starts_at, clients ( id, first_name, last_name, email, phone )",
+      "client_id, billing_type, payment_status, client_package_id, appointment_type, status, cancelled_at, starts_at, clients:clients!appointments_client_id_fkey ( id, first_name, last_name, email, phone )",
     )
     .eq("id", appointmentId)
     .eq("studio_id", studioId)

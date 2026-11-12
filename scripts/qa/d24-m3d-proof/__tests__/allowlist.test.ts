@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { evaluateRequest } from "../allowlist";
 import { STRIPE_API_VERSION } from "../config";
@@ -21,7 +23,7 @@ describe("proof allow-list: permitted requests", () => {
     const ok: ProofRequest[] = [
       { method: "GET", path: "/v1/account" },
       { method: "GET", path: `/v1/accounts/${ACCT}` },
-      base({ method: "POST", path: "/v1/customers", idempotencyKey: KEY, body: { name: "D24-M3 proof client 1", "metadata[d24_intent_id]": "x1", "metadata[d24_client_ref]": "c1" } }),
+      base({ method: "POST", path: "/v1/customers", idempotencyKey: KEY, body: { name: "D24-M3 proof client 1", email: "d24-proof-abc123-a@example.com", "metadata[d24_intent_id]": "x1", "metadata[d24_client_ref]": "c1" } }),
       base({ method: "DELETE", path: "/v1/customers/cus_ABC123" }),
       validDraft,
       base({ method: "POST", path: "/v1/invoices/in_ABC123/add_lines", idempotencyKey: `${KEY}:lines`, body: { "lines[0][description]": "Line", "lines[0][amount]": "5500", "lines[1][description]": "Line 2", "lines[1][amount]": "2500" } }),
@@ -108,9 +110,16 @@ describe("proof allow-list: path and parameter hygiene", () => {
     delete noAuto.auto_advance;
     expect(ev({ ...validDraft, body: noAuto }).ok).toBe(false);
   });
-  it("customers: no email key, ever (the fixture client has none)", () => {
-    expect(ev(base({ method: "POST", path: "/v1/customers", idempotencyKey: KEY, body: { name: "n", email: "a@b.co" } })).ok).toBe(false);
-    expect(ev(base({ method: "POST", path: "/v1/customers", idempotencyKey: KEY, body: { name: "n", phone: "1" } })).ok).toBe(false);
+  it("customers: the ONLY email allowed is the synthetic per-run example.com address, and it is required (Stripe needs one for send_invoice drafts)", () => {
+    const post = (body: Record<string, string>) => ev(base({ method: "POST", path: "/v1/customers", idempotencyKey: KEY, body })).ok;
+    const good = "d24-proof-a1b2c3d4-a@example.com";
+    expect(post({ name: "n", email: good })).toBe(true);
+    expect(post({ name: "n" })).toBe(false); // email is required now
+    for (const bad of ["a@b.co", "real.person@gmail.com", "d24-proof-a1b2c3d4-a@example.org", "d24-proof-a1b2c3d4-a@gmail.com", "d24-proof-a1b2c3d4-a@notexample.com", "d24-proof-a1b2c3d4-a@sub.example.com", "d24-proof-A1B2C3D4-a@example.com", "D24-PROOF-a1b2c3d4-a@example.com", "d24-proof-a1b2c3d4-a@example.com ", "x+d24-proof-a1b2c3d4-a@example.com", "d24-proof-ab-a@example.com", "d24-proof-a1b2c3d4-a@example.com,b@example.com"]) {
+      expect(post({ name: "n", email: bad }), bad).toBe(false);
+    }
+    expect(post({ name: "n", email: good, phone: "1" })).toBe(false);
+    expect(post({ name: "n", email: good, description: "x" })).toBe(false);
   });
   it("add_lines: at most two lines, positive amount, total capped, both parts present", () => {
     const L = (body: Record<string, string>) => ev(base({ method: "POST", path: "/v1/invoices/in_ABC123/add_lines", idempotencyKey: KEY, body }));
@@ -137,5 +146,24 @@ describe("proof allow-list: path and parameter hygiene", () => {
     expect(ev(base({ method: "GET", path: "/v1/transfers" })).ok).toBe(false);
     expect(ev(base({ method: "GET", path: "/v1/webhook_endpoints", query: { limit: "1" } })).ok).toBe(false);
     expect(ev(base({ method: "GET", path: "/v1/invoices/in_ABC123", body: { a: "b" } })).ok).toBe(false);
+  });
+});
+
+describe("proof run 3 regression: send_invoice drafts need a customer email (req_TtLV74WY5HVm4g)", () => {
+  it("the fake models Stripe: a send_invoice draft for a customer WITHOUT an email is refused with 400, and accepted once the customer has the synthetic email", async () => {
+    const { createFakeTransport } = await import("../fakeTransport");
+    const f = createFakeTransport({ platformId: "acct_PLATFORM0001", connectedId: "acct_CONNECTED001" });
+    const post = (path: string, body: Record<string, string>, idem: string) => f.transport({ method: "POST", path, stripeAccount: "acct_CONNECTED001", stripeVersion: STRIPE_API_VERSION, idempotencyKey: idem, body }, "rk_test_unitonly0000000000");
+    const noEmail = await post("/v1/customers", { name: "n" }, "d24proof-rg-1");
+    const withEmail = await post("/v1/customers", { name: "n", email: "d24-proof-abc123-a@example.com" }, "d24proof-rg-2");
+    const inv = (customer: string) => ({ customer, collection_method: "send_invoice", days_until_due: "30", currency: "usd", auto_advance: "false" });
+    expect((await post("/v1/invoices", inv(String(noEmail.json?.id)), "d24proof-rg-3")).status).toBe(400);
+    expect((await post("/v1/invoices", inv(String(withEmail.json?.id)), "d24proof-rg-4")).status).toBe(200);
+  });
+  it("scenarios.ts builds the email on the reserved example.com from the run id and the customer ref (lower-case alphanumerics only)", () => {
+    const src = readFileSync(join(__dirname, "..", "scenarios.ts"), "utf8");
+    expect(src).toContain("@example.com");
+    expect(src).toContain("d24-proof-");
+    expect(src).not.toMatch(/@(gmail|yahoo|outlook|hotmail)./);
   });
 });

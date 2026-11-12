@@ -38,7 +38,7 @@ jobs:
       contents: read
     env:
       # Same pins as the proof workflow (same npm ci / tsx loader / harness code that runs next to the key); a unit test keeps them equal to the repository.
-      D24_PROOF_PINNED_TREE: "04f989c2704e2e0002155926e1654d65d9b68278"
+      D24_PROOF_PINNED_TREE: "c86216f1155f56bc0cf6a779c9072534dfcc7b84"
       D24_PIN_PACKAGE_JSON_SHA256: "1512d22af91872aff89098f30735da03d1831d8532e0be95887df66410b30f4d"
       D24_PIN_PACKAGE_LOCK_SHA256: "57523eb298e97ada0974ad6c39473dca0ba389f33500b5bb99b505fb45106d13"
       D24_PIN_TSCONFIG_SHA256: "b0ca828ffe4497f6ee194e695f25d4105b1545d76872ab8cbd6689a080efe066"

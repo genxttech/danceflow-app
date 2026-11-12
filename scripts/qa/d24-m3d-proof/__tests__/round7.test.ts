@@ -49,14 +49,14 @@ const rejected = async (fake: Parameters<typeof gate>[0], code = "identity_misma
   // exactly the two identity reads happened; no create can be sent afterwards
   expect(g.f.calls).toHaveLength(2);
   // the run is aborted: any later call is refused with that same abort (before any network I/O)
-  await expect(pinned(g.client, { method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: "d24proof-r7-cus", body: { name: "n" } })).rejects.toMatchObject({ code, message: err?.message });
+  await expect(pinned(g.client, { method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: "d24proof-r7-cus", body: { name: "n", email: "d24-proof-abc123-a@example.com" } })).rejects.toMatchObject({ code, message: err?.message });
   expect(g.f.calls).toHaveLength(2);
   return g;
 };
 
 it("a client that never ran the gate refuses a create with identity_not_verified (before any network I/O)", async () => {
   const g = gate({ accountType: "express" });
-  await expect(pinned(g.client, { method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: "d24proof-r7-cus", body: { name: "n" } })).rejects.toMatchObject({ code: "identity_not_verified" });
+  await expect(pinned(g.client, { method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: "d24proof-r7-cus", body: { name: "n", email: "d24-proof-abc123-a@example.com" } })).rejects.toMatchObject({ code: "identity_not_verified" });
   expect(g.f.calls).toHaveLength(0);
 });
 

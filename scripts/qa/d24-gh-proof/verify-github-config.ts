@@ -17,6 +17,8 @@ export const SECRET_NAME = "D24_PROOF_STRIPE_KEY";
 export const TOKEN_ENV = "D24_GH_VERIFY_TOKEN";
 export const RULESET_NAME = "Protect main";
 export const REQUIRED_CHECK = "Typecheck, build, lint, unit/integration tests";
+// Second required check (governance change 2026-11-12, docs/ops/GitHub_Governance_Change_Package.md): the Expo apps.
+export const MOBILE_CHECK = "Mobile apps typecheck and tests";
 export const ACTIONS_APP_ID = 15368; // the GitHub Actions app: pins the required check to checks that GitHub Actions itself reports
 
 // The ruleset the owner imports (the doc embeds exactly this object; a test keeps them equal).
@@ -32,17 +34,21 @@ export const EXPECTED_RULESET = {
     {
       type: "pull_request",
       parameters: {
-        required_approving_review_count: 1,
+        // 0 general approvals: routine PRs merge on green required checks. Code-owner review stays ON, so every path in
+        // .github/CODEOWNERS (governance, supply chain, D24, database, auth, money, Twilio, platform admin) still needs the owner.
+        required_approving_review_count: 0,
         dismiss_stale_reviews_on_push: true,
         require_code_owner_review: true,
-        require_last_push_approval: true,
+        // off: with 0 approvals it would demand an approval on every PR. A push after the owner's code-owner approval
+        // still dismisses that approval (dismiss_stale_reviews_on_push), so owned changes cannot be swapped after review.
+        require_last_push_approval: false,
         required_review_thread_resolution: true,
         allowed_merge_methods: ["squash"],
       },
     },
     {
       type: "required_status_checks",
-      parameters: { strict_required_status_checks_policy: false, do_not_enforce_on_create: false, required_status_checks: [{ context: REQUIRED_CHECK, integration_id: ACTIONS_APP_ID }] },
+      parameters: { strict_required_status_checks_policy: false, do_not_enforce_on_create: false, required_status_checks: [{ context: REQUIRED_CHECK, integration_id: ACTIONS_APP_ID }, { context: MOBILE_CHECK, integration_id: ACTIONS_APP_ID }] },
     },
   ],
 };

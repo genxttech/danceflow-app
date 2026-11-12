@@ -50,7 +50,7 @@ export async function runPreflight(env: Record<string, string | undefined>, dir:
   const acct = r.expect?.connectedAcct ?? "acct_PREFLIGHTCHECK1";
   const probe = (body: Record<string, string>) =>
     evaluateRequest({ method: "POST", path: "/v1/customers", stripeAccount: acct, idempotencyKey: "d24proof-pf-1", stripeVersion: STRIPE_API_VERSION, body }, { connectedAcct: acct });
-  add("fixture-no-email", !probe({ name: "x", email: "a@b.co" }).ok && probe({ name: "x" }).ok, "the allow-list refuses any customer email; the fixture client sends none");
+  add("fixture-synthetic-email", !probe({ name: "x", email: "a@b.co" }).ok && !probe({ name: "x" }).ok && probe({ name: "x", email: "d24-proof-abc123-a@example.com" }).ok, "the allow-list accepts only the synthetic d24-proof-<run>-<ref>@example.com customer email (required by Stripe for send_invoice drafts) and refuses any other address");
   const noVersion = evaluateRequest({ method: "GET", path: "/v1/account" }, { connectedAcct: acct });
   add("version-pin", !noVersion.ok, `every request must carry Stripe-Version ${STRIPE_API_VERSION}`);
   add("call-cap", HARD_CALL_CAP === 40 && CLEANUP_RESERVE === 8, `hard cap ${HARD_CALL_CAP} calls, ${CLEANUP_RESERVE} reserved for cleanup`);
