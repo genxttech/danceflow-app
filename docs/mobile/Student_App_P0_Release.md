@@ -12,13 +12,24 @@
 | Partner save stops writing `moderation_status` | Web | `src/app/account/partner-search/actions.ts` |
 | Everything under `mobile/student` | App | needs an EAS build |
 
-**Release baseline (2026-11-10):** PROD does not equal `main`. Live www is `dpl_6rhE7gAq7g36rqfgWDbQtiKc8uJp`, built from `release/cf1-hotfix-heat-schedulepush` at `ab940288`. The rollback deployment is `dpl_8MyCL3nT…`. The #438 web changes must ship on `ab940288` or its successor, so the release keeps R2, CI-B, the heat-size fix and TW-4F pricing.
+**Release baseline (2026-11-12, after Competition promoted CF1 at 11:17Z):** PROD does not equal `main`. Live www is `dpl_3Z4vTnmE…`, built from `release/competition-cf1-app-candidate` at `0db5eabe` (24 commits on top of the previous baseline `03297304`). The app rollback is `dpl_AYaUyuLFRzaQ26bfY5iTj6VtzJxm` (the `03297304` build). The #438 web changes must ship on `0db5eabe` or its successor.
 
-- **Dry run (2026-11-10):** the three web diffs from #438 apply cleanly to `ab940288`: `event-order-payment.ts` (`stripeAccountId`), its test, and `partner-search/actions.ts` (stops sending `moderation_status`).
-- **On a scratch checkout of `ab940288` with the diffs applied:** the event-order-payment suite passes (35/35) and ESLint reports no errors on the changed files.
-- The patch also applied cleanly earlier (2026-11-09) to `release/competition-cib`, `release/competition-r2-app` and `release/d7-core-organizer-suite`.
-- **Promotion windows:** promote nothing within 10 minutes of a CI-B checkpoint (2026-11-10 11:03Z and 2026-11-12 11:03Z). Production promotion stays an owner gate.
-- **Migration numbers:** Competition uses 20270215 and up, so `20270213080000` and `20270213090000` stay clear.
+Web-side files in #438, in four groups:
+
+| Group | Files |
+|---|---|
+| Event checkout returns `stripeAccountId` | `src/lib/events/event-order-payment.ts` and its test |
+| Partner save stops sending `moderation_status` | `src/app/account/partner-search/actions.ts` |
+| Self-deletion refused for staff, organizer or admin logins | `src/lib/student-identity/account-controls.ts` and its test, `src/app/api/student/account/route.ts`, `src/app/account/actions.ts`, `src/app/account/page.tsx` |
+| Boundary test for the mobile auth code | `src/lib/auth/__tests__/verifiedEmailBoundaries.launchsec1ca.test.ts` |
+
+- **Dry run on `0db5eabe` (2026-11-12, scratch worktree, removed afterwards; nothing pushed to the release branch):** none of the nine files changed between `03297304` and `0db5eabe`. All nine apply cleanly with `git apply --check`, each on its own and all together.
+- **Tests on the patched `0db5eabe`:** the event-order-payment, deletion and boundary suites pass 64/65, and the one failure is the expected boundary test (below). ESLint on the six web code files reports no errors. On the first run in a cold scratch directory, the accessor boundary test, which walks all of `src`, also failed after 62 s; on a rerun it passed. That's a timing risk in the web suite, not a #438 issue.
+- **Ship the boundary test with the mobile change, not in a web-only release.** It reads `mobile/student/src/lib/auth.tsx` and asserts the raw-token branch is gone. On `0db5eabe`, without #438's mobile change, that file still has the branch, so the test fails (1 test).
+- **Dry run on `03297304` (2026-11-12, the previous baseline):** all nine applied cleanly; the suites passed apart from the same boundary test.
+- **Earlier baselines:** the patch also applied cleanly to `ab940288` (2026-11-10), and to `release/competition-cib`, `release/competition-r2-app` and `release/d7-core-organizer-suite` (2026-11-09).
+- **Promotion windows:** promote nothing within 10 minutes of a CI-B checkpoint. Production promotion stays an owner gate.
+- **Migration numbers:** `20270213080000` (push claim) and `20270213090000` (moderation guard) sort before Competition's `20270215090000` and `20270215091000`, now on PROD, and no number collides. Both of ours are already applied on DEV and PROD.
 
 ## Order
 
