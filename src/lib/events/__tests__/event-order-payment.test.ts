@@ -483,6 +483,8 @@ describe("startEventOrderPayment", () => {
     });
 
     expect(result.clientSecret).toBeDefined();
+    // Direct charge: the native SDK cannot read the PaymentIntent without the account that owns it.
+    expect(result.stripeAccountId).toBe("acct_1");
     expect(currentFakeStripe.createCalls).toHaveLength(1);
     expect(currentFakeStripe.createCalls[0].idempotencyKey).toBe(`event-order:${order.id}:payment-intent:0`);
 
@@ -544,6 +546,7 @@ describe("startEventOrderPayment", () => {
     });
 
     expect(result.clientSecret).toBe("secret_existing");
+    expect(result.stripeAccountId).toBe("acct_1");
     expect(currentFakeStripe.createCalls).toHaveLength(0);
     expect(currentFakeStripe.stripe.paymentIntents.retrieve).toHaveBeenCalledWith(
       "pi_existing",
