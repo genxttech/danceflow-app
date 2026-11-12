@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  BOT, ENV_NAME, EXPECTED_RULESET, OWNER, REPO, REQUIRED_CHECK, RULESET_NAME, SECRET_NAME, TOKEN_ENV,
+  BOT, ENV_NAME, EXPECTED_RULESET, MOBILE_CHECK, OWNER, REPO, REQUIRED_CHECK, RULESET_NAME, SECRET_NAME, TOKEN_ENV,
   ACTIONS_APP_ID, ReadOnlyClient, isAllowedPath, main, render, verifyAsApp, verifyAsBot, verifyAsOwnerReadonly, type Res, type Transport,
 } from "../verify-github-config";
 
@@ -218,8 +218,8 @@ describe("--as-owner-readonly", () => {
     ["force-push rule missing", (w) => { rsBody(w).rules = (rsBody(w).rules as any[]).filter((r) => r.type !== "non_fast_forward"); }, "ruleset-rule-non_fast_forward"],
     ["pull request rule missing", (w) => { rsBody(w).rules = (rsBody(w).rules as any[]).filter((r) => r.type !== "pull_request"); }, "ruleset-rule-pull_request"],
     ["code-owner review off", (w) => { rule(w, "pull_request").parameters.require_code_owner_review = false; }, "ruleset-rule-pull_request"],
-    ["last-push approval off", (w) => { rule(w, "pull_request").parameters.require_last_push_approval = false; }, "ruleset-rule-pull_request"],
-    ["zero required approvals", (w) => { rule(w, "pull_request").parameters.required_approving_review_count = 0; }, "ruleset-rule-pull_request"],
+    ["last-push approval switched on (blocks every routine PR)", (w) => { rule(w, "pull_request").parameters.require_last_push_approval = true; }, "ruleset-rule-pull_request"],
+    ["required approvals changed from the policy", (w) => { rule(w, "pull_request").parameters.required_approving_review_count = 1; }, "ruleset-rule-pull_request"],
     ["stale reviews not dismissed", (w) => { rule(w, "pull_request").parameters.dismiss_stale_reviews_on_push = false; }, "ruleset-rule-pull_request"],
     ["merge commits allowed", (w) => { rule(w, "pull_request").parameters.allowed_merge_methods = ["squash", "merge"]; }, "ruleset-rule-pull_request"],
     ["required check missing", (w) => { rsBody(w).rules = (rsBody(w).rules as any[]).filter((r) => r.type !== "required_status_checks"); }, "ruleset-rule-required_status_checks"],
@@ -383,5 +383,7 @@ describe("the doc embeds exactly the ruleset the verifier expects", () => {
   it("the required check name is the real CI job name", () => {
     const wf = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", ".github", "workflows", "e2e-public-event-registration.yml"), "utf8");
     expect(wf).toContain(REQUIRED_CHECK);
+    const mobile = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", ".github", "workflows", "mobile-apps.yml"), "utf8");
+    expect(mobile).toContain(`name: ${MOBILE_CHECK}`);
   });
 });

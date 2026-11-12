@@ -34,6 +34,9 @@ type Rule = {
 
 const metaVal = re(/^[A-Za-z0-9_.:-]{1,100}$/);
 const textVal = re(/^[A-Za-z0-9 _.:#-]{1,200}$/);
+// The only email the proof may send: a synthetic, per-run, per-customer address on the IANA-reserved example.com (RFC 2606), which has no mail service. Stripe requires a customer email
+// for collection_method=send_invoice (proof run 3, req_TtLV74WY5HVm4g); the invoices stay drafts and are never finalized or sent, so nothing is ever emailed.
+const emailVal = re(/^d24-proof-[a-z0-9]{3,16}-[a-z0-9]{1,16}@example\.com$/);
 
 function rules(connected: string): Rule[] {
   const lineIdx = `[0-${LIMITS.maxLines - 1}]`;
@@ -56,14 +59,15 @@ function rules(connected: string): Rule[] {
       account: "connected",
       query: {},
       requiredQuery: [],
-      // no email key: the proof fixture client has none, so Stripe has nothing to email even if an invoice were ever finalized by mistake
+      // email: ONLY the synthetic example.com address above (required by Stripe for send_invoice drafts); any other address, or any other customer field, is refused
       body: {
         keys: [
           { key: /^name$/, val: textVal },
+          { key: /^email$/, val: emailVal },
           { key: /^metadata\[d24_intent_id\]$/, val: metaVal },
           { key: /^metadata\[d24_client_ref\]$/, val: metaVal },
         ],
-        required: ["name"],
+        required: ["name", "email"],
       },
       idempotency: "required",
     },

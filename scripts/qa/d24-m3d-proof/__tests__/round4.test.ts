@@ -39,7 +39,7 @@ function world(handler: (r: ProofRequest) => ProofResponse | Promise<ProofRespon
   return { c, calls };
 }
 const ready = async (w: ReturnType<typeof world>) => { await runIdentityGate(w.c, { platformAcct: PLATFORM, connectedAcct: CONNECTED }); return w; };
-const cust = (n: string): Omit<ProofRequest, "stripeVersion"> => ({ method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: `d24proof-r4-${n}`, body: { name: "n" } });
+const cust = (n: string): Omit<ProofRequest, "stripeVersion"> => ({ method: "POST", path: "/v1/customers", stripeAccount: CONNECTED, idempotencyKey: `d24proof-r4-${n}`, body: { name: "n", email: "d24-proof-abc123-a@example.com" } });
 const inv = (cus: string, n: string): Omit<ProofRequest, "stripeVersion"> => ({
   method: "POST", path: "/v1/invoices", stripeAccount: CONNECTED, idempotencyKey: `d24proof-r4-${n}`,
   body: { customer: cus, collection_method: "send_invoice", days_until_due: "14", currency: "usd", auto_advance: "false" },
