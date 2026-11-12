@@ -3,6 +3,10 @@ module.exports = function (api) {
 
   return {
     presets: ["babel-preset-expo"],
-    plugins: ["react-native-reanimated/plugin"]
+    plugins: ["react-native-reanimated/plugin"],
+    env: {
+      // Jest runs CommonJS without VM modules; Metro handles import() itself.
+      test: { plugins: ["@babel/plugin-transform-dynamic-import"] }
+    }
   };
 };

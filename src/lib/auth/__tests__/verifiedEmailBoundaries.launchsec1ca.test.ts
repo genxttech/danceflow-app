@@ -143,7 +143,7 @@ describe("LAUNCH-SEC-1C-A application boundaries", () => {
     expect(later).not.toMatch(/bindAccountPassword|rpc\(|danceflowApiFetch/);
   });
 
-  it("mobile records proof only after its own email-link verifyOtp, never after setSession or PKCE", () => {
+  it("mobile records proof only after its own email-link verifyOtp, never after PKCE, and never reads raw tokens from a link", () => {
     const auth = read(join(ROOT, "mobile/student/src/lib/auth.tsx"));
     const tokenBranch = auth.slice(auth.indexOf("if (tokenHash) {"), auth.indexOf("if (code) {"));
     const rest = auth.slice(auth.indexOf("if (code) {"), auth.indexOf("return false;", auth.indexOf("if (code) {")));
@@ -151,7 +151,9 @@ describe("LAUNCH-SEC-1C-A application boundaries", () => {
     expect(tokenBranch).toContain("recordMobileEmailProof()");
     expect(tokenBranch.indexOf("verifyOtp(")).toBeLessThan(tokenBranch.indexOf("recordMobileEmailProof()"));
     expect(rest).toContain("exchangeCodeForSession");
-    expect(rest).toContain("setSession");
+    expect(auth).not.toContain("auth.setSession(");
+    expect(auth).not.toContain('"access_token"');
+    expect(auth).not.toContain('"refresh_token"');
     expect(rest).not.toContain("recordMobileEmailProof");
     expect((auth.match(/recordMobileEmailProof\(\)/g) ?? []).length).toBe(1);
   });

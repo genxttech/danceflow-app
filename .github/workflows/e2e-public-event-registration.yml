@@ -13,27 +13,10 @@ name: Public Event Registration E2E
 #      infrastructure prerequisite this repo doesn't have yet).
 
 on:
-  pull_request:
-    paths:
-      # All web application source. The static-checks job (typecheck, build, lint, full Vitest) is the only CI gate for web code, so any
-      # PR that changes src/ must run it. A per-directory allow-list let PRs touching only unlisted directories (for example
-      # src/app/app/reports, src/lib/schedule, src/lib/reports, src/components) merge with Vercel checks alone; PR #446 hit exactly that.
-      # Every directory previously listed here (events, sign, documents, payments, billing, platform, auth, memberships, accounting,
-      # sms, migrations, competition, e2e helpers) is inside src/ and stays covered. The browser-e2e job still gates itself on secrets.
-      - "src/**"
-      - "scripts/qa/**"
-      - "package.json"
-      - "package-lock.json"
-      - "e2e/**"
-      - "playwright.config.ts"
-      - ".github/workflows/e2e-public-event-registration.yml"
-      # D24 Stripe TEST proof boundary: its tests (scripts/qa/d24-gh-proof) must gate PRs that touch only these files.
-      - ".github/workflows/d24-*"
-      - "scripts/qa/d24-test-provision/**"
-      - ".github/CODEOWNERS"
-      - "docs/billing/D24-*"
-      - "vitest.config.mts"
-      - "tsconfig.json"
+  # No paths filter: the static-checks job is a REQUIRED merge check for main (docs/ops/GitHub_Governance_Change_Package.md),
+  # so it must report on every pull request. A paths filter would leave PRs outside it waiting forever for the check.
+  # The browser-e2e job still gates itself on secrets.
+  pull_request: {}
   workflow_dispatch: {}
 
 # Never grant this workflow more than it needs.
