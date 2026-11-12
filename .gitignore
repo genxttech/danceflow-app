@@ -173,5 +173,5 @@ genx-business*.json
 tw4-stage-*-evidence*.json
 tw4-stage-a-*.json
 
-# Temporary file from scripts/dev/rescan-app-routes.mjs (npm run dev:rescan)
+# Temporary file from scripts/dev/rescan-app-routes.mjs
 src/app/.dev-route-rescan.ts

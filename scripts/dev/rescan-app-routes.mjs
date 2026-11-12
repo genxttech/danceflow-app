@@ -10,8 +10,9 @@
 // What it does: creates, then deletes, one inert file directly under src/app, which the dev watcher reports as a change.
 // It never edits an existing file.
 //
-//   npm run dev        # in one terminal, wait for "Ready"
-//   npm run dev:rescan # in another; then retry the request
+//   npm run dev                                 # in one terminal, wait for "Ready"
+//   node scripts/dev/rescan-app-routes.mjs      # in another; then retry the request
+// (Not an npm script: the root package.json is hash-pinned by the D24 proof workflows.)
 import { existsSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 

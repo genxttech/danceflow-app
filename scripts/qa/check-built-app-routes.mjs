@@ -4,6 +4,7 @@
 // bundler/cache problem), and the symptom is only a 404 at runtime.
 //
 //   npm run build && node scripts/qa/check-built-app-routes.mjs [--dist .next]
+// (Not an npm script: the root package.json is hash-pinned by the D24 proof workflows.)
 //
 // Exit 0: every route is in the manifest. Exit 1: routes are missing (listed). Exit 2: no build output to check.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";

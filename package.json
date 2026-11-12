@@ -4,9 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
-    "dev:rescan": "node scripts/dev/rescan-app-routes.mjs",
     "build": "next build",
-    "check:routes": "node scripts/qa/check-built-app-routes.mjs",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
