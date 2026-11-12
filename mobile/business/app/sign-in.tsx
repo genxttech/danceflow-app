@@ -132,7 +132,7 @@ const styles = StyleSheet.create({
   form: { gap: space.lg },
   field: { gap: space.xs },
   input: {
-    ...type.body,
+    fontSize: type.body.fontSize, // no fixed lineHeight: Android would not scale it with the system text size
     minHeight: 48,
     paddingHorizontal: space.md,
     paddingVertical: space.md,

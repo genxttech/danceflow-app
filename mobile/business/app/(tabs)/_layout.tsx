@@ -1,5 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
+import { useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ScheduleSkeleton } from "@/components/Skeleton";
 import { Screen } from "@/components/Screen";
 import { StaffErrorState } from "@/components/StaffErrorState";
@@ -7,6 +9,16 @@ import { StateMessage } from "@/components/StateMessage";
 import { initialTab, tabsForWorkspace, type TabKey } from "@/lib/navigation";
 import { useStaffSession } from "@/lib/staff";
 import { colors } from "@/theme";
+
+/**
+ * The tab bar's height for the system text size and the bottom inset. A fixed default clips the labels at 200%, and
+ * height "auto" (fine on web) pushed the bar under Android's edge-to-edge gesture area (both found on the emulator).
+ */
+export function tabBarHeight(fontScale: number, bottomInset: number) {
+  const icon = 24;
+  const label = Math.ceil(12 * 1.35 * Math.max(1, fontScale));
+  return 8 + icon + 4 + label + 8 + bottomInset;
+}
 
 const TAB_META: Record<TabKey, { title: string; icon: keyof typeof Feather.glyphMap }> = {
   pulse: { title: "Pulse", icon: "activity" },
@@ -19,6 +31,8 @@ const TAB_ORDER: TabKey[] = ["pulse", "today", "clients", "more"];
 
 export default function TabsLayout() {
   const { me, loading, error, workspace, reload, signOut } = useStaffSession();
+  const { fontScale } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
   if (loading && !me) {
     return (
@@ -63,9 +77,14 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: colors.plum,
         tabBarInactiveTintColor: colors.muted,
-        // No fixed height: the default clips labels with larger system fonts and at 200% text.
-        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border, height: "auto", paddingTop: 4 },
-        tabBarLabelStyle: { fontWeight: "600", paddingBottom: 4 },
+        tabBarStyle: {
+          backgroundColor: colors.surface,
+          borderTopColor: colors.border,
+          height: tabBarHeight(fontScale, insets.bottom),
+          paddingTop: 8,
+          paddingBottom: insets.bottom + 8,
+        },
+        tabBarLabelStyle: { fontWeight: "600" },
         sceneStyle: { backgroundColor: colors.surface },
       }}
     >

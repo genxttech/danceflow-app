@@ -55,12 +55,22 @@ case "$cmd" in
     require_emulator
     # debug builds allow run-as; SecureStore keeps values encrypted under the Android Keystore in its own preferences file
     echo "-- shared_prefs files:"
-    adbe shell run-as "$APP_ID" ls shared_prefs 2>/dev/null | tr -d '\r' || true
-    echo "-- plaintext token search (expect no matches):"
-    hits="$(adbe shell run-as "$APP_ID" sh -c 'grep -rl -e access_token -e refresh_token shared_prefs databases files 2>/dev/null' | tr -d '\r' || true)"
-    if [ -n "$hits" ]; then echo "FAIL plaintext session found in: $hits"; exit 1; else echo "PASS no plaintext access_token/refresh_token in app storage"; fi
-    echo "-- SecureStore entries (names only):"
-    adbe shell run-as "$APP_ID" sh -c 'cat shared_prefs/SecureStore.xml 2>/dev/null' | tr -d '\r' | grep -o 'name="[^"]*"' | head -20 || echo "(no SecureStore.xml: signed out?)"
+    # Pass each remote command as ONE string: `sh -c '…'` quoting does not survive adb shell + run-as (the first version of
+    # this check silently scanned nothing). files/ is skipped: in a dev build it holds the JS bundle, which contains
+    # supabase-js code that mentions access_token without being a token.
+    prefs="$(adbe shell "run-as $APP_ID ls shared_prefs" | tr -d '\r' || true)"
+    [ -n "$prefs" ] || { echo "BLOCKED: cannot read app storage (is this a debug build, installed, and opened once?)"; exit 3; }
+    echo "$prefs"
+    echo "-- positive control: a name that is stored is found (proves the scan reads the files):"
+    control="$(adbe shell "run-as $APP_ID grep -rl auth-token shared_prefs" | tr -d '\r' || true)"
+    echo "${control:-(none: signed out, so there is nothing to protect; sign in first for a meaningful scan)}"
+    echo "-- JWTs (eyJ…) or token field names in shared_prefs and databases (expect none):"
+    # grep exits 1 when nothing matches, which is the passing case: don't let set -e/pipefail end the script there
+    hits="$(adbe shell "run-as $APP_ID grep -rlE 'eyJ|access_token|refresh_token' shared_prefs databases" | tr -d '\r' || true)"
+    if [ -n "$hits" ]; then echo "FAIL plaintext session material in: $hits"; exit 1; fi
+    echo "PASS no plaintext token in app storage"
+    echo "-- SecureStore entries (names only; values are Keystore ciphertext):"
+    adbe shell "run-as $APP_ID cat shared_prefs/SecureStore.xml" | tr -d '\r' | grep -oE 'name="[^"]*"' | head -20 || echo "(no SecureStore entries)"
     ;;
   restart)
     require_emulator
