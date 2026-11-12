@@ -1,1 +1,1 @@
-Canary S1: change under src/lib/payments (owned).
+Canary S1, changed again after approval (S2).
