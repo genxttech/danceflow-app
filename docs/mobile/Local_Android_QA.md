@@ -46,7 +46,7 @@ Don't use `sdkmanager.bat` from Git Bash: Windows batch parsing splits package n
 - `df-api35.ini`: `path` and `target=android-35`
 - `df-api35.avd\config.ini`: `image.sysdir.1=system-images\android-35\google_apis\x86_64\`, `hw.ramSize=2048` and `fastboot.forceColdBoot=yes`
 
-Cold boot takes about 2.5 minutes. RAM is tight on this PC: run one emulator at a time, stop Gradle daemons (`gradlew --stop`) before booting, and shut everything down after a session.
+Cold boot takes about 2.5 minutes. RAM is tight on this PC: run one emulator at a time and shut it down after a session. Don't boot it while another session's Gradle build is running, and never run `gradlew --stop`: it kills every registered daemon on the machine, including other sessions' builds (see "Sharing one PC with another Gradle build").
 
 ## Building the Student app without EAS
 
@@ -56,7 +56,7 @@ Cold boot takes about 2.5 minutes. RAM is tight on this PC: run one emulator at 
 - **Build only for the emulator's ABI:**
 
   ```bash
-  cd W:/mobile/student/android && ./gradlew assembleDebug -PreactNativeArchitectures=x86_64 -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=768m"
+  cd W:/mobile/student/android && ./gradlew assembleDebug --no-daemon -PreactNativeArchitectures=x86_64 -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=768m"
   ```
 
   A clean first build took about 21 minutes. The debug APK is 93 MB, x86_64 only.
@@ -69,3 +69,47 @@ Cold boot takes about 2.5 minutes. RAM is tight on this PC: run one emulator at 
   - `expo start` writes `expo-env.d.ts` (gitignored), which adds react-native-web types to local typechecks.
 - **Typing an email with `adb shell input text`:** it drops `@`. Send it as key event 77.
 - **Local QA stack:** the emulator reaches the host as `10.0.2.2`, so `EXPO_PUBLIC_SUPABASE_URL=http://10.0.2.2:<port>`. Debug builds allow plain HTTP. Sign in through the local stack's mail catcher, not DEV: there is no DEV inbox.
+
+## Building the Business app (and a fallback when `subst` breaks codegen)
+
+The Business app (`mobile/business`) has no Firebase, so it needs **no** `google-services.json`. Its native folders are generated (`expo prebuild --platform android`) and git-ignored. `android/local.properties` takes `sdk.dir=C:/Android/sdk` with forward slashes (backslashes are read as escapes; `C\:\Android\sdk` becomes `C:Androidsdk` and fails in `SdkLocator.validateSdkPath`).
+
+**`subst` didn't work for this app.** With `X:` mapped to the worktree root, the same way as the Student app's `W:`, the build failed in React Native codegen:
+
+```
+Execution failed for task ':react-native-async-storage_async-storage:generateCodegenSchemaFromJavaScript'.
+> this and base files have different roots: X:\mobile\business\node_modules\@react-native\codegen\lib\cli\combine\combine-js-to-schema-cli.js and C:\Dev\studioapp\.claude\worktrees\d24-m2d-acceptance-0e9344\mobile\business\node_modules\@react-native-…
+```
+
+Node resolves `node_modules` to its real `C:\…` path (`fs.realpathSync.native` sees through `subst`), while Gradle runs from `X:\…`. A relative path can't cross drive letters. The Student build didn't hit this, probably because its module resolution happens to stay on one drive. Treat `subst` as fine until this error appears.
+
+**Fallback: a real short-path copy on the same drive.**
+
+```powershell
+robocopy <worktree>\mobile\business C:\dfb /E /MT:8 /XD <...>\android\build <...>\android\app\build <...>\android\.gradle <...>\android\app\.cxx <...>\.expo <...>\dist /XF .env
+```
+
+Robocopy exit codes 0–7 mean success. Then delete stale package build outputs from earlier attempts, which may contain old drive paths:
+
+```bash
+cd /c/dfb/node_modules && find . -maxdepth 6 -type d \( -path "*/android/build" -o -path "*/android/.cxx" -o -path "*/expo-gradle-plugin/*/build" -o -path "*/android/.gradle" \) -prune -exec rm -rf {} +
+```
+
+Build:
+
+```bash
+cd /c/dfb/android && ./gradlew assembleDebug --no-daemon -PreactNativeArchitectures=x86_64 -Pkotlin.compiler.execution.strategy=in-process
+```
+
+That took 33 minutes for a clean build with 480 tasks, giving a 61.6 MB x86_64 APK. Keep running Metro from the worktree; the debug build loads its JavaScript from Metro, so the copy only supplies native code. Delete `C:\dfb` afterwards (293 MB).
+
+**Sharing one PC with another Gradle build:**
+- Use `--no-daemon`. Another session's `gradlew --stop` kills every *registered* daemon on the machine, which ended one Business build mid-way. A single-use build process isn't in that registry.
+- Never run `gradlew --stop` yourself.
+- Start a build only when no other `gradle-wrapper` client is running. When checking from PowerShell, use `-like '*…*'` wildcard matches, not regexes on Windows paths, because `\m` in `X:\mobile` is an invalid regex escape.
+- Compile Kotlin in-process, so the two builds don't share a Kotlin daemon (a stalled build in this run looked like contention on it).
+
+**Driving the emulator for QA** (Business notes from 2026-11-12):
+- The first launch after a cold boot raises "Pixel Launcher / System UI isn't responding", and the Expo dev menu opens. Tap Wait / Continue / Close; they're not app failures.
+- When tapping by label (`uiautomator dump`), prefer **clickable** nodes. A visible field label such as "Password" has the same text as its input, and tapping the label doesn't focus the field.
+- `adb shell "run-as <pkg> <cmd>"` works as one quoted string. `adb shell run-as <pkg> sh -c '…'` loses the inner quoting and can silently do nothing.
