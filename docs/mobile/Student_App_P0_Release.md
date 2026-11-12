@@ -12,13 +12,23 @@
 | Partner save stops writing `moderation_status` | Web | `src/app/account/partner-search/actions.ts` |
 | Everything under `mobile/student` | App | needs an EAS build |
 
-**Release baseline (2026-11-10):** PROD does not equal `main`. Live www is `dpl_6rhE7gAq7g36rqfgWDbQtiKc8uJp`, built from `release/cf1-hotfix-heat-schedulepush` at `ab940288`. The rollback deployment is `dpl_8MyCL3nT…`. The #438 web changes must ship on `ab940288` or its successor, so the release keeps R2, CI-B, the heat-size fix and TW-4F pricing.
+**Release baseline (2026-11-12):** PROD does not equal `main`. Live www is `dpl_AYaUyuLFRzaQ26bfY5iTj6VtzJxm`, built from `release/tw4f-key-setup` at `03297304`. The app rollback is `dpl_6rhE7gAq7g36rqfgWDbQtiKc8uJp` (the `ab940288` build). The #438 web changes must ship on `03297304` or its successor.
 
-- **Dry run (2026-11-10):** the three web diffs from #438 apply cleanly to `ab940288`: `event-order-payment.ts` (`stripeAccountId`), its test, and `partner-search/actions.ts` (stops sending `moderation_status`).
-- **On a scratch checkout of `ab940288` with the diffs applied:** the event-order-payment suite passes (35/35) and ESLint reports no errors on the changed files.
-- The patch also applied cleanly earlier (2026-11-09) to `release/competition-cib`, `release/competition-r2-app` and `release/d7-core-organizer-suite`.
-- **Promotion windows:** promote nothing within 10 minutes of a CI-B checkpoint (2026-11-10 11:03Z and 2026-11-12 11:03Z). Production promotion stays an owner gate.
-- **Migration numbers:** Competition uses 20270215 and up, so `20270213080000` and `20270213090000` stay clear.
+Web-side files in #438, in four groups:
+
+| Group | Files |
+|---|---|
+| Event checkout returns `stripeAccountId` | `src/lib/events/event-order-payment.ts` and its test |
+| Partner save stops sending `moderation_status` | `src/app/account/partner-search/actions.ts` |
+| Self-deletion refused for staff, organizer or admin logins | `src/lib/student-identity/account-controls.ts` and its test, `src/app/api/student/account/route.ts`, `src/app/account/actions.ts`, `src/app/account/page.tsx` |
+| Boundary test for the mobile auth code | `src/lib/auth/__tests__/verifiedEmailBoundaries.launchsec1ca.test.ts` |
+
+- **Dry run on `03297304` (2026-11-12, scratch index and scratch checkout; nothing pushed to the release branch):** all nine files apply cleanly with `git apply --check`, each on its own and all together.
+- **Tests on the patched checkout:** with the eight web code and test files, the event-order-payment, deletion and boundary suites pass 65/65 and ESLint reports no errors.
+- **Ship the boundary test with the mobile change, not in a web-only release.** It reads `mobile/student/src/lib/auth.tsx` and asserts the raw-token branch is gone. On `03297304`, without #438's mobile change, that file still has the branch, so the test fails (1 test).
+- **Earlier baselines:** the patch also applied cleanly to `ab940288` (2026-11-10), and to `release/competition-cib`, `release/competition-r2-app` and `release/d7-core-organizer-suite` (2026-11-09).
+- **Promotion windows:** promote nothing within 10 minutes of a CI-B checkpoint. Production promotion stays an owner gate.
+- **Migration numbers:** `20270213080000` (push claim) and `20270213090000` (moderation guard) sort before Competition's `20270215090000` and `20270215091000`, now on PROD, and no number collides. Both of ours are already applied on DEV and PROD.
 
 ## Order
 
