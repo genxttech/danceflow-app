@@ -16,6 +16,7 @@ import {
   type CreateEventCheckoutInput
 } from "@/lib/eventCheckout";
 import { useAuth } from "@/lib/auth";
+import { prepareConnectedPaymentSheet } from "@/lib/stripeConnect";
 import {
   getPublicEventDetailForMobile,
   type PublicEventDetail,
@@ -247,7 +248,8 @@ export default function EventRegisterScreen() {
       }
 
       if (result.clientSecret) {
-        const initialized = await initPaymentSheet({
+        const prepared = await prepareConnectedPaymentSheet(result);
+        const initialized = prepared.error ? prepared : await initPaymentSheet({
           defaultBillingDetails: {
             email: session.user.email ?? undefined,
             name: [buyerFirstName.trim(), buyerLastName.trim()].filter(Boolean).join(" ")

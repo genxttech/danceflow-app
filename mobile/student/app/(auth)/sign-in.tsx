@@ -10,10 +10,12 @@ import {
 } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
+import { LegalLinks } from "@/components/LegalLinks";
 import { Screen } from "@/components/Screen";
 import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro asset
 const danceFlowLogo = require("../../assets/danceflow-logo.png");
 
 export default function SignInScreen() {
@@ -97,6 +99,8 @@ export default function SignInScreen() {
             onPress={handleContinue}
             variant="secondary"
           />
+
+          <LegalLinks prefix="By continuing you agree to the DanceFlow" />
         </View>
       </KeyboardAvoidingView>
     </Screen>

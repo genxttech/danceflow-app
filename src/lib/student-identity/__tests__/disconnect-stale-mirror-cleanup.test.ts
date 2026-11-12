@@ -40,6 +40,8 @@ let dancerPartnerProfilesTable: FakeTable;
 let dancerProfilesTable: FakeTable;
 let profilesTable: FakeTable;
 let accountDeletionAuditTable: FakeTable;
+let userStudioRolesTable: FakeTable;
+let organizerUsersTable: FakeTable;
 let deleteUserCalls: string[];
 
 function clientRow(overrides: Partial<Row> & { id: string }): Row {
@@ -151,6 +153,12 @@ vi.mock("@/lib/supabase/admin", () => ({
       get account_deletion_audit() {
         return accountDeletionAuditTable;
       },
+      get user_studio_roles() {
+        return userStudioRolesTable;
+      },
+      get organizer_users() {
+        return organizerUsersTable;
+      },
     } as unknown as Record<string, FakeTable>),
     auth: {
       admin: {
@@ -164,7 +172,7 @@ vi.mock("@/lib/supabase/admin", () => ({
 }));
 
 const { disconnectClientAccount } = await import("@/lib/student-identity/lifecycle");
-const { leaveStudioRelationship, deleteDanceFlowAccount } = await import(
+const { leaveStudioRelationship, deleteDanceFlowAccount, AccountDeletionBlockedError } = await import(
   "@/lib/student-identity/account-controls"
 );
 
@@ -182,6 +190,8 @@ beforeEach(() => {
   dancerProfilesTable = new FakeTable();
   profilesTable = new FakeTable();
   accountDeletionAuditTable = new FakeTable();
+  userStudioRolesTable = new FakeTable();
+  organizerUsersTable = new FakeTable();
   deleteUserCalls = [];
 });
 
@@ -433,5 +443,39 @@ describe("deleteDanceFlowAccount -- H2-B3 stale-mirror cleanup", () => {
     await deleteDanceFlowAccount(fakeUser(USER_A));
 
     expect(clientsTable.rows[0].portal_user_id).toBe(USER_OTHER);
+  });
+});
+
+describe("deleteDanceFlowAccount -- logins that also manage something", () => {
+  const fakeUser = (id: string) => ({ id, email: `${id}@example.test` }) as never;
+
+  // Found on a local stack (2026-11-10): deleting a dancer login that is also a
+  // studio owner returned 200 and the profiles delete cascaded away the owner role.
+  it.each([
+    ["an active studio role", () => { userStudioRolesTable.rows = [{ id: "r1", user_id: USER_A, studio_id: STUDIO_A, role: "studio_owner", active: true }]; }, "studio_role"],
+    ["an active organizer role", () => { organizerUsersTable.rows = [{ id: "o1", user_id: USER_A, active: true }]; }, "organizer_role"],
+    ["platform admin", () => { profilesTable.rows = [{ id: USER_A, platform_role: "platform_admin" }]; }, "platform_admin"],
+  ])("refuses a login with %s and changes nothing", async (_label, seed, reason) => {
+    seed();
+    linksTable.rows = [linkRow({ id: "link-a" })];
+
+    const error = await deleteDanceFlowAccount(fakeUser(USER_A)).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(AccountDeletionBlockedError);
+    expect((error as InstanceType<typeof AccountDeletionBlockedError>).reasons).toEqual([reason]);
+    expect(deleteUserCalls).toEqual([]);
+    expect(userAccountStatusTable.rows).toEqual([]);
+    expect(linksTable.rows[0].status).toBe("linked");
+    expect(accountDeletionAuditTable.rows).toEqual([]);
+  });
+
+  it("still deletes a login whose studio and organizer roles are all inactive", async () => {
+    userStudioRolesTable.rows = [{ id: "r1", user_id: USER_A, studio_id: STUDIO_A, role: "instructor", active: false }];
+    organizerUsersTable.rows = [{ id: "o1", user_id: USER_A, active: false }];
+    profilesTable.rows = [{ id: USER_A, platform_role: null }];
+
+    await deleteDanceFlowAccount(fakeUser(USER_A));
+
+    expect(deleteUserCalls).toEqual([USER_A]);
   });
 });
