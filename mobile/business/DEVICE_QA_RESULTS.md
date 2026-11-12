@@ -8,7 +8,7 @@ How each check is run is in [DEVICE_QA.md](DEVICE_QA.md). A check is PASS only w
 | D2 | Full DEV PKCE sign-in from the app | **BLOCKED**: no QA inbox on DEV (the coordinator's decision; no account is created and nobody's mailbox is used) | — |
 | E1 | SecureStore session persistence, plus a scan for plaintext tokens | **PASS** (2026-11-12) | `e1-*.png`, notes below |
 | E2 | PKCE deep link `danceflow-business://auth/callback` on the emulator | **PASS** after a fix (2026-11-12) | `e2-*.png` |
-| E3 | OS text size 2.0 on every screen | **Text: PASS** after a fix. **Tab bar: FAIL**, open (collapsed at every text size) | `e3-*.png` |
+| E3 | OS text size 2.0 on every screen | **PASS** after two fixes: text (2026-11-12) and tab bar (2026-11-13, root cause below) | `e3-*.png`, `device-qa.sh tabbar` |
 | E4 | Reduce Motion (`animator_duration_scale` 0 → `reduceMotion=true`, live) | **PASS** (2026-11-12) | logcat, below |
 
 ## Setup
@@ -64,7 +64,14 @@ After the fix, at 2.0, there was no clipped or overlapping text on any of these 
 
 The day buttons wrap instead of truncating.
 
-**Still FAIL: the tab bar collapses (at 1.0 and at 2.0).** On this Android 15 edge-to-edge build the bottom tab bar is only 74 px (about 28 dp) tall, at `[0,2326][1080,2400]`, and its labels are squashed to 11 px. The bar ignores any `tabBarStyle.height`: the explicit height, `"auto"` and bottom-tabs' own default all gave identical geometry, and the bundle was confirmed to carry each change ([screenshot at 1.0](../../docs/mobile/screenshots/business-shell/device/e3-tabbar-collapsed-at-1.0.png)). Tapping the icons still works, which is how this run navigated. This needs its own investigation of bottom-tabs 7.21 / react-native-screens on edge-to-edge. It's a follow-up, not covered here.
+**Tab bar: root cause found and fixed (re-run 2026-11-13).** On native Android, the bottom tab bar collapsed to 74 px (about 28 dp), with its buttons squashed to 26 px and the labels to 11 px.
+- **Cause:** `tabBarStyle: { height: "auto" }` in `app/(tabs)/_layout.tsx`, added earlier to fix clipped labels on web. Native layout can't size an `"auto"` tab bar from its content, because the tab items are `flex: 1` with no intrinsic height. It shrinks to its padding. Web sizes it from content, which is why it looked fine in the browser.
+- **Reproduced:** re-applying `height: "auto"`, with a fresh Metro and the served bundle checked for the code, gave exactly the failing geometry ([screenshot](../../docs/mobile/screenshots/business-shell/device/e3-tabbar-repro-height-auto.png)). `device-qa.sh tabbar` = **FAIL**.
+- **Fix** (in `7c65990c`): an explicit numeric height from the text size and the bottom inset. `tabBarHeight(fontScale, insets.bottom)` = 8 + 24 (icon) + 4 + ceil(12 × 1.35 × max(1, fontScale)) + 8 + insets.bottom, with `paddingBottom = insets.bottom + 8` (unit-tested in `tabBar.test.ts`).
+- **Proof:** on a cold start with a verified bundle, the tabs are 117 px at font 1.0 ([screenshot](../../docs/mobile/screenshots/business-shell/device/e3-tabbar-fixed-1.0.png)) and 159 px at 2.0 ([screenshot](../../docs/mobile/screenshots/business-shell/device/e3-tabbar-fixed-2.0.png)). Every tab is at least 44 dp and above the 63 px navigation inset, with labels readable. `tabbar` = **PASS** both times, and again after changing the text size while the app was open.
+- **Not the cause:** the redundant `SafeAreaProvider` in `app/_layout.tsx` (Expo Router already provides one). It was left in place as the smallest change.
+- **Process lesson:** Metro's file watcher on this PC sometimes doesn't pick up edits. Readings that seemed to show "an explicit height still collapses" came from stale bundles. Restart Metro with `--clear` and check the served bundle before trusting a device result.
+- **Regression check:** `bash scripts/device-qa.sh tabbar` fails when any tab is under 44 dp or extends past the navigation-bar inset.
 
 Observation (development-only warning): "Looks like you have configured linking in multiple places" appears after the activity is recreated, for example when the font scale changes. `MainActivity` is `singleTask`, and `configChanges` doesn't include `fontScale`, so the activity is recreated and the root mounts a second time. It isn't user-visible in release, but it's worth a look with the tab-bar follow-up.
 
