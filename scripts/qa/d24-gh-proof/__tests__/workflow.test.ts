@@ -494,6 +494,19 @@ describe("review round: CODEOWNERS coverage (every boundary path resolves to the
     "src/app/app/events/[id]/competition/registrations/refund/actions.ts",
     "docs/competition/x.md",
     "e2e/tests/competition.spec.ts",
+    "src/app/app/settings/sms/numberActions.ts",
+    "src/app/app/clients/[id]/sms-actions.ts",
+    "src/app/app/clients/[id]/ClientSmsConsentCard.tsx",
+    "src/app/sms-consent/page.tsx",
+    "src/app/studios/[studioSlug]/sms-terms/page.tsx",
+    "src/app/studios/[studioSlug]/SmsLegalPage.tsx",
+    "src/components/public/SmsConsentCheckbox.tsx",
+    "src/lib/billing/smsCredits.ts",
+    "src/app/api/billing/sms-credit/route.ts",
+    "src/app/api/cron/sms-usage/route.ts",
+    "scripts/hosted/reset.sql",
+    "scripts/qa/tw4f/run.mjs",
+    "scripts/tw4-validation/check.mjs",
   ])("sensitive path %s is owned by @genxttech", (f) => {
     expect(ownersOf(f)).toEqual(["@genxttech"]);
   });

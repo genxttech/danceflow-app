@@ -74,3 +74,20 @@
 /src/app/api/cron/ @genxttech
 /src/lib/integrations/ @genxttech
 /src/app/api/integrations/ @genxttech
+
+# --- Twilio/SMS surfaces outside src/lib/sms (requested by the TWILIO coordinator): studio SMS setup, number selection,
+# credit, limit and recurring panels, client SMS sending and consent, public carrier-compliance consent and legal text ---
+/src/app/app/settings/sms/ @genxttech
+/src/app/app/clients/*/sms-actions.ts @genxttech
+/src/app/app/clients/*/ClientSendSmsCard.tsx @genxttech
+/src/app/app/clients/*/ClientSmsConsentCard.tsx @genxttech
+/src/app/sms-consent/ @genxttech
+/src/app/studios/*/sms-terms/ @genxttech
+/src/app/studios/*/sms-privacy/ @genxttech
+/src/app/studios/*/SmsLegalPage.tsx @genxttech
+/src/components/public/SmsConsentCheckbox.tsx @genxttech
+
+# --- Hosted-database and provider validation tooling (preflight and reset SQL, Twilio validation harness) ---
+/scripts/hosted/ @genxttech
+/scripts/qa/tw4f/ @genxttech
+/scripts/tw4-validation/ @genxttech
