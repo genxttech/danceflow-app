@@ -4,8 +4,11 @@
  * stack instead of the shared `supabase_*_danceflow-e2e-qa` stack, so a crash or leftover fixtures from one session can never contaminate another session's run.
  *
  *   baseline  [--cutoff 20261205090000] [--ref origin/main] [--base <schema.sql>]   build the local image df-isoqa/base:<cutoff> (July production schema + replayed migrations)
- *   up        <scenario> [--name n] [--migration ref:version]... [--cutoff c] [--no-api]   start a stack, apply the scenario's migrations in order, print the env
- *   run       <scenario> [--name n] [--keep] [--tests-ref ref] [--migration ...] -- <vitest args>   up, run vitest, classify, tear down
+ *   up        <scenario> [--name n] [--migration ref:version]... [--cutoff c] [--no-api] [--auth]   start a stack, apply the scenario's migrations in order, print the env
+ *   run       <scenario> [--name n] [--keep] [--tests-ref ref] [--migration ...] [--auth] -- <vitest args>   up, run vitest, classify, tear down
+ *
+ *   --auth (opt-in auth profile): also start a real GoTrue and a Mailpit, reachable only through the stack's own Kong at /auth/v1/ and /mail/, so signed-in flows
+ *   and email links run without any hosted project. Without the flag every step below is unchanged. See "Auth profile" in docs/twilio/TW-4F_Isolated_QA.md.
  *   matrix    <scenario> [--parallel 3] [--tests-ref ref] [--migration ...]          every local-stack suite (files carrying TW4A_LOCAL_URL), each in its OWN fresh database
  *   compare   <scenarioA> <scenarioB>                                                catalog fingerprint diff: does the migration order change the resulting schema?
  *   down      --name n | --all [--force]                                             remove stacks (--all only removes stacks whose owner process is gone, unless --force)
@@ -22,7 +25,7 @@
  * incomplete (never a pass); 6 (matrix only) every failure is a KNOWN, explained pre-existing one from expected-results.json (not green); 2 usage error. compare: 0 identical, 1 different, 3 incomplete / infrastructure.
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
@@ -43,6 +46,15 @@ const LIMITS = {
   db: ["--memory", process.env.ISO_QA_DB_MEMORY ?? "1500m", "--cpus", process.env.ISO_QA_DB_CPUS ?? "2"],
   rest: ["--memory", process.env.ISO_QA_REST_MEMORY ?? "256m", "--cpus", "0.5"],
   kong: ["--memory", process.env.ISO_QA_KONG_MEMORY ?? "1280m", "--cpus", "1"],
+};
+// --auth profile only (opt-in): a real GoTrue and a Mailpit behind the stack's own Kong
+const AUTH_IMAGE = process.env.ISO_QA_AUTH_IMAGE ?? "public.ecr.aws/supabase/gotrue:v2.188.1";
+const MAIL_IMAGE = process.env.ISO_QA_MAIL_IMAGE ?? "public.ecr.aws/supabase/mailpit:v1.22.3";
+const AUTH_SITE_URL = process.env.ISO_QA_AUTH_SITE_URL ?? "http://localhost:8790";
+const AUTH_REDIRECTS = process.env.ISO_QA_AUTH_REDIRECTS ?? "http://localhost:*/**,http://127.0.0.1:*/**,danceflow://**,danceflow-business://**";
+const AUTH_LIMITS = {
+  auth: ["--memory", process.env.ISO_QA_AUTH_MEMORY ?? "256m", "--cpus", "0.5"],
+  mail: ["--memory", process.env.ISO_QA_MAIL_MEMORY ?? "128m", "--cpus", "0.25"],
 };
 /** The supautils extension of image 17.6.1.106 segfaults on any "permission denied for function" error for anon / authenticated / service_role (docs/twilio/TW-4F_Isolated_QA.md).
  *  Emptying its hint feature avoids it; the canary test pins that the stack survives. ISO_QA_UNMITIGATED=1 exists only so the self-test can prove the crash detector. */
@@ -293,6 +305,8 @@ async function cmdBaseline(flags) {
 // up / down / run
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 const names = (instance) => ({ db: `df-isoqa-${instance}-db`, rest: `df-isoqa-${instance}-rest`, kong: `df-isoqa-${instance}-kong` });
+/** --auth profile containers. Kept out of names() so every default code path sees exactly the three containers it always has. */
+const authNames = (instance) => ({ auth: `df-isoqa-${instance}-auth`, mail: `df-isoqa-${instance}-mail` });
 const kongYml = (rest) => `_format_version: "2.1"
 services:
   - name: rest-v1
@@ -302,6 +316,52 @@ services:
         strip_path: true
         paths: ["/rest/v1/"]
 `;
+/** --auth profile: the default config plus GoTrue at /auth/v1/ and Mailpit (served under its /mail webroot) at /mail/, with CORS so a browser app can call them. */
+const kongYmlAuth = (rest, { auth, mail }) => `${kongYml(rest)}  - name: auth-v1
+    url: http://${auth}:9999/
+    routes:
+      - name: auth-v1
+        strip_path: true
+        paths: ["/auth/v1/"]
+  - name: mail
+    url: http://${mail}:8025/mail/
+    routes:
+      - name: mail
+        strip_path: true
+        paths: ["/mail/"]
+plugins:
+  - name: cors
+    config:
+      origins: ["*"]
+      methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+      headers: ["authorization", "apikey", "content-type", "x-client-info", "x-supabase-api-version", "accept", "accept-profile", "content-profile", "prefer", "range"]
+      exposed_headers: ["content-range", "x-total-count"]
+      credentials: false
+`;
+const b64url = (value) => Buffer.from(value).toString("base64url");
+function signHs256(payload, secret) {
+  const head = b64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const body = b64url(JSON.stringify(payload));
+  return `${head}.${body}.${createHmac("sha256", secret).update(`${head}.${body}`).digest("base64url")}`;
+}
+/**
+ * --auth profile, database side. The July dump carries GoTrue's original 2018 auth schema (schema_migrations through 20180125), owned by postgres; a real
+ * GoTrue must own those objects to run its own migrations, and it adds email_confirmed_at / banned_until / deleted_at itself (the default path pre-adds them,
+ * which would make its migrations fail). Per stack only: the shared baseline image is never touched.
+ */
+const AUTH_PREP_SQL = `
+alter table auth.users drop column if exists email_confirmed_at, drop column if exists banned_until, drop column if exists deleted_at;
+do $p$ declare r record; begin
+  for r in select p.oid::regprocedure as f from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'auth' loop
+    execute format('alter function %s owner to supabase_auth_admin', r.f); end loop;
+  for r in select c.relname, c.relkind from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'auth' and c.relkind in ('r', 'v', 'S') loop
+    execute format('alter %s auth.%I owner to supabase_auth_admin', case r.relkind when 'r' then 'table' when 'v' then 'view' else 'sequence' end, r.relname); end loop;
+  for r in select t.typname from pg_type t join pg_namespace n on n.oid = t.typnamespace where n.nspname = 'auth' and t.typtype = 'e' loop
+    execute format('alter type auth.%I owner to supabase_auth_admin', r.typname); end loop;
+end $p$;
+alter schema auth owner to supabase_auth_admin;
+alter role supabase_auth_admin with password 'postgres';
+`;
 function parseMigration(m) { const i = m.indexOf(":"); return [m.slice(0, i), m.slice(i + 1)]; }
 function baselineIdentity(image) {
   const labels = JSON.parse(docker("image", "inspect", image, "--format", "{{json .Config.Labels}}"));
@@ -310,6 +370,8 @@ function baselineIdentity(image) {
 
 async function cmdUp(scenarioName, flags, instance) {
   const noApi = Boolean(flags["no-api"]);
+  const withAuth = Boolean(flags.auth);
+  if (withAuth && noApi) throw Object.assign(new Error("--auth needs the API (it is served through Kong): drop --no-api"), { usage: true });
   const preset = SCENARIOS[scenarioName];
   if (!preset) throw Object.assign(new Error(`unknown scenario ${scenarioName}`), { usage: true });
   const list = [...preset.migrations, ...(flags.migration ?? []).map(parseMigration)];
@@ -335,15 +397,18 @@ async function cmdUp(scenarioName, flags, instance) {
     if (missing.length) throw Object.assign(new Error(`scenario ${scenarioName} omits TW-4F migration(s) that exist at its refs: ${[...new Set(missing)].join(", ")}; add them to scenarios.json (or to "excluded" with a reason) so the result does not certify a schema the ref does not have`), { usage: true });
   }
   const n = names(instance);
-  for (const c of [n.kong, n.rest, n.db]) if (dockerTry("inspect", c).ok) { assertOurs(c); assertNotForeignLive(c); }
+  const an = authNames(instance);
+  // the auth containers are part of the instance whether or not this run asks for them, so a leftover one from an earlier --auth run is never orphaned
+  const stackContainers = [n.kong, n.rest, an.auth, an.mail, n.db];
+  for (const c of stackContainers) if (dockerTry("inspect", c).ok) { assertOurs(c); assertNotForeignLive(c); }
   const jwt = randomBytes(24).toString("hex");
   ensureNetwork();
   const ymlPath = path.join(QA_HOME, `kong-${instance}.yml`);
   mkdirSync(QA_HOME, { recursive: true });
-  writeFileSync(ymlPath, kongYml(n.rest));
+  writeFileSync(ymlPath, withAuth ? kongYmlAuth(n.rest, an) : kongYml(n.rest));
   const apiPort = noApi ? 0 : await claimPort(instance);
   withLockSync("start", () => {
-    for (const c of [n.kong, n.rest, n.db]) if (dockerTry("inspect", c).ok) { assertOurs(c); assertNotForeignLive(c); docker("rm", "-f", c); }
+    for (const c of stackContainers) if (dockerTry("inspect", c).ok) { assertOurs(c); assertNotForeignLive(c); docker("rm", "-f", c); }
     docker("run", "-d", "--name", n.db, ...OWNER(), "--network", NET, ...LIMITS.db, "-e", "POSTGRES_PASSWORD=postgres", image, ...PG_ARGS);
   });
   await waitReady(n.db);
@@ -372,6 +437,20 @@ async function cmdUp(scenarioName, flags, instance) {
   }
   const pw = psqlIn(n.db, "alter role authenticator with password 'postgres';", { user: "supabase_admin" });
   if (pw.code !== 0) throw new Error(`could not set the API role password: ${pw.out.slice(0, 300)}`);
+  if (withAuth) {
+    const prep = psqlIn(n.db, AUTH_PREP_SQL, { user: "supabase_admin", single: true });
+    if (prep.code !== 0 || ERROR_RE.test(prep.out)) throw new Error(`auth profile database step failed: ${prep.out.slice(0, 500)}`);
+    docker("run", "-d", "--name", an.mail, ...OWNER(), "--network", NET, ...AUTH_LIMITS.mail, "-e", "MP_WEBROOT=mail", MAIL_IMAGE);
+    docker("run", "-d", "--name", an.auth, ...OWNER(), "--network", NET, ...AUTH_LIMITS.auth,
+      "-e", "GOTRUE_API_HOST=0.0.0.0", "-e", "GOTRUE_API_PORT=9999", "-e", `API_EXTERNAL_URL=http://127.0.0.1:${apiPort}/auth/v1`,
+      "-e", "GOTRUE_DB_DRIVER=postgres", "-e", `GOTRUE_DB_DATABASE_URL=postgres://supabase_auth_admin:postgres@${n.db}:5432/postgres`,
+      "-e", `GOTRUE_SITE_URL=${AUTH_SITE_URL}`, "-e", `GOTRUE_URI_ALLOW_LIST=${AUTH_REDIRECTS}`, "-e", "GOTRUE_DISABLE_SIGNUP=false",
+      "-e", `GOTRUE_JWT_SECRET=${jwt}`, "-e", "GOTRUE_JWT_EXP=3600", "-e", "GOTRUE_JWT_AUD=authenticated", "-e", "GOTRUE_JWT_DEFAULT_GROUP_NAME=authenticated", "-e", "GOTRUE_JWT_ADMIN_ROLES=service_role",
+      "-e", "GOTRUE_EXTERNAL_EMAIL_ENABLED=true", "-e", "GOTRUE_MAILER_AUTOCONFIRM=false", "-e", `GOTRUE_SMTP_HOST=${an.mail}`, "-e", "GOTRUE_SMTP_PORT=1025",
+      "-e", "GOTRUE_SMTP_ADMIN_EMAIL=noreply@example.test", "-e", "GOTRUE_SMTP_SENDER_NAME=DanceFlow QA",
+      "-e", "GOTRUE_MAILER_URLPATHS_INVITE=/auth/v1/verify", "-e", "GOTRUE_MAILER_URLPATHS_CONFIRMATION=/auth/v1/verify", "-e", "GOTRUE_MAILER_URLPATHS_RECOVERY=/auth/v1/verify", "-e", "GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE=/auth/v1/verify",
+      "-e", "GOTRUE_RATE_LIMIT_EMAIL_SENT=1000", AUTH_IMAGE, "auth");
+  }
   docker("run", "-d", "--name", n.rest, ...OWNER(), "--network", NET, ...LIMITS.rest,
     "-e", `PGRST_DB_URI=postgres://authenticator:postgres@${n.db}:5432/postgres`, "-e", "PGRST_DB_SCHEMAS=public", "-e", "PGRST_DB_ANON_ROLE=anon",
     "-e", `PGRST_JWT_SECRET=${jwt}`, "-e", "PGRST_DB_USE_LEGACY_GUCS=false", REST_IMAGE);
@@ -379,7 +458,7 @@ async function cmdUp(scenarioName, flags, instance) {
     "-e", "KONG_DATABASE=off", "-e", "KONG_NGINX_WORKER_PROCESSES=1", "-e", "KONG_NGINX_HTTP_KEEPALIVE_TIMEOUT=3600s", "-e", "KONG_NGINX_HTTP_KEEPALIVE_REQUESTS=100000", "-e", "KONG_DECLARATIVE_CONFIG=/home/kong/kong.yml", "-e", "KONG_PROXY_LISTEN=0.0.0.0:8000", "-e", "KONG_DNS_ORDER=LAST,A,CNAME", KONG_IMAGE);
   docker("cp", ymlPath, `${n.kong}:/home/kong/kong.yml`);
   docker("start", n.kong);
-  for (const [c, want] of [[n.db, "{}"], [n.rest, "{}"], [n.kong, `{"8000/tcp":[{"HostIp":"127.0.0.1","HostPort":"${apiPort}"}]}`]]) {
+  for (const [c, want] of [[n.db, "{}"], [n.rest, "{}"], ...(withAuth ? [[an.auth, "{}"], [an.mail, "{}"]] : []), [n.kong, `{"8000/tcp":[{"HostIp":"127.0.0.1","HostPort":"${apiPort}"}]}`]]) {
     const got = docker("inspect", c, "--format", "{{json .HostConfig.PortBindings}}");
     if (got !== want) throw new Error(`unexpected host port bindings on ${c}: ${got} (expected ${want})`);
   }
@@ -390,6 +469,28 @@ async function cmdUp(scenarioName, flags, instance) {
     if (Date.now() - t0 > 240_000) throw new Error("the API did not come up");
     await sleep(1500);
   }
+  if (withAuth) {
+    const expires = Math.floor(Date.now() / 1000) + 7 * 86_400;
+    Object.assign(env, {
+      ISO_QA_AUTH: "1",
+      ISO_QA_AUTH_URL: `${env.TW4A_LOCAL_URL}/auth/v1`,
+      ISO_QA_MAIL_URL: `${env.TW4A_LOCAL_URL}/mail`,
+      ISO_QA_ANON_KEY: signHs256({ role: "anon", iss: "supabase", exp: expires }, jwt),
+      ISO_QA_SERVICE_ROLE_KEY: signHs256({ role: "service_role", iss: "supabase", exp: expires }, jwt),
+    });
+    const t1 = Date.now();
+    for (;;) {
+      let authOk = false;
+      let mailOk = false;
+      try { authOk = (await fetch(`${env.ISO_QA_AUTH_URL}/health`, { signal: AbortSignal.timeout(8000) })).status === 200; } catch { /* not yet */ }
+      try { mailOk = (await fetch(`${env.ISO_QA_MAIL_URL}/api/v1/messages`, { signal: AbortSignal.timeout(8000) })).status === 200; } catch { /* not yet */ }
+      if (authOk && mailOk) break;
+      if (!dbState(an.auth).running) throw new Error(`GoTrue exited: ${dockerLogs(an.auth).split("\n").filter((l) => /fatal|error/i.test(l)).slice(-2).join(" | ").slice(0, 600)}`);
+      if (Date.now() - t1 > 180_000) throw new Error(`the auth profile did not come up (auth=${authOk} mail=${mailOk})`);
+      await sleep(1500);
+    }
+    meta.auth = { authImage: AUTH_IMAGE, mailImage: MAIL_IMAGE, siteUrl: AUTH_SITE_URL, redirects: AUTH_REDIRECTS };
+  }
   assertHealthy(n.db, since);
   return { env, meta };
 }
@@ -397,7 +498,8 @@ async function cmdUp(scenarioName, flags, instance) {
 function cmdDown(instance, { force = false, ownOnly = false } = {}) {
   releasePort(instance, ownOnly);
   const n = names(instance);
-  for (const c of [n.kong, n.rest, n.db]) {
+  const an = authNames(instance);
+  for (const c of [n.kong, n.rest, an.auth, an.mail, n.db]) {
     if (!dockerTry("inspect", c).ok) continue;
     assertOurs(c);
     if (ownOnly && Number(labelOf(c, "df.isoqa.owner")) !== process.pid) continue; // never remove a stack another process started
@@ -470,7 +572,7 @@ async function cmdRun(scenarioName, flags, vitestArgs, instance) {
     try { assertHealthy(dbName, up.meta.since); } catch (e) { unhealthy = e.message; }
     if (r.error || r.status === null) unhealthy = `${unhealthy ? unhealthy + "; " : ""}the test process did not exit normally (${r.error ? r.error.code ?? r.error.message : "signal " + r.signal}): timeout, kill or output overflow`;
     // the API containers too: a Kong / PostgREST that died mid-suite shows up as empty-code (network) errors in the tests, never as a database crash
-    for (const c of [names(instance).kong, names(instance).rest]) {
+    for (const c of [names(instance).kong, names(instance).rest, ...(flags.auth ? Object.values(authNames(instance)) : [])]) {
       const st = dbState(c);
       if (!st.running || st.oom || st.restarts > 0) unhealthy = `${unhealthy ? unhealthy + "; " : ""}API container ${c} unhealthy (running=${st.running} oomKilled=${st.oom} restarts=${st.restarts})`;
     }
@@ -719,10 +821,10 @@ const cmdList = () => console.log(dockerTry("ps", "-a", "--filter", `label=${LAB
 // argument parsing with strict validation (an unknown scenario or flag must never silently test the wrong schema)
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 const ALLOWED = {
-  baseline: ["cutoff", "ref", "base"], up: ["name", "migration", "cutoff", "no-api"], run: ["name", "keep", "migration", "cutoff", "tests-ref"],
+  baseline: ["cutoff", "ref", "base"], up: ["name", "migration", "cutoff", "no-api", "auth"], run: ["name", "keep", "migration", "cutoff", "tests-ref", "auth"],
   matrix: ["parallel", "tests-ref", "migration", "cutoff"], compare: ["cutoff"], down: ["name", "all", "force"], list: [], repro: [], selftest: [], scenarios: [],
 };
-const BOOLEAN = new Set(["keep", "all", "force", "no-api"]);
+const BOOLEAN = new Set(["keep", "all", "force", "no-api", "auth"]);
 function parse(argv) {
   const flags = {};
   const rest = [];

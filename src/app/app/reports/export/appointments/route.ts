@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canExportWithOverride } from "@/lib/auth/permissions";
 import { toCsv } from "@/lib/utils/csv";
+import { APPOINTMENTS_EXPORT_SELECT } from "@/lib/reports/appointmentsExportSelect";
 
 
 const DEFAULT_TIME_ZONE = "America/New_York";
@@ -115,17 +116,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("appointments")
-    .select(`
-      title,
-      appointment_type,
-      status,
-      starts_at,
-      ends_at,
-      notes,
-      clients ( first_name, last_name ),
-      instructors ( first_name, last_name ),
-      rooms ( name )
-    `)
+    .select(APPOINTMENTS_EXPORT_SELECT)
     .eq("studio_id", workspace.studioId)
     .order("starts_at", { ascending: false });
 
