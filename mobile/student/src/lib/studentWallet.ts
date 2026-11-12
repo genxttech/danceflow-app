@@ -771,7 +771,16 @@ export async function loadStudentWallet(
 
     if (entitlementsError) throw entitlementsError;
 
-    digitalEntitlements = (entitlementRows ?? []).map((row: any) => {
+    type EntitlementRow = {
+      id: string;
+      studio_id: string;
+      catalog_item_id: string;
+      granted_at: string;
+      expires_at: string | null;
+      status: string | null;
+      commerce_catalog_items: Joined<{ name: string | null; item_type: string | null }>;
+    };
+    digitalEntitlements = ((entitlementRows ?? []) as unknown as EntitlementRow[]).map((row) => {
       const item = firstJoin(row.commerce_catalog_items);
       return {
         id: String(row.id),
