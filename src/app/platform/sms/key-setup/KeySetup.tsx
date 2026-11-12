@@ -17,7 +17,7 @@ const btn = "rounded-lg bg-violet-700 px-3 py-1.5 text-sm font-semibold text-whi
 const input = "mt-1 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm";
 const mono = "break-all rounded-lg bg-slate-50 p-2 font-mono text-xs text-slate-900";
 
-export default function KeySetup() {
+export default function KeySetup({ signingEnabled = false }: { signingEnabled?: boolean }) {
   const [label, setLabel] = useState("");
   const [attachment, setAttachment] = useState<Attachment>("platform");
   const [created, setCreated] = useState<Created[]>([]);
@@ -134,28 +134,35 @@ export default function KeySetup() {
         ))}
       </section>
 
-      <section className={box}>
-        <h2 className="text-sm font-semibold text-slate-900">2. Sign a challenge engineering gives you (proves the key works)</h2>
-        <label className="block text-xs text-slate-700">
-          Credential id (base64url, as engineering gives it)
-          <input value={credId} onChange={(e) => setCredId(e.target.value)} className={input} />
-        </label>
-        <label className="block text-xs text-slate-700">
-          Challenge (base64url, as engineering gives it)
-          <input value={challenge} onChange={(e) => setChallenge(e.target.value)} className={input} />
-        </label>
-        <button type="button" className={btn} onClick={signChallenge} disabled={busy || !credId.trim() || !challenge.trim()}>Sign with the key</button>
-        {signed ? (
-          <div className="space-y-1 border-t border-slate-100 pt-2">
-            <p className="text-xs font-semibold text-slate-900">{signed.refusal ? <span className="text-red-700">NOT ACCEPTABLE. {signed.refusal}</span> : <span className="text-emerald-700">ACCEPTABLE (not reported as synced)</span>}</p>
-            <p className="text-xs text-slate-600">{signed.flagsText}</p>
-            <p className="text-xs text-slate-700">{signed.counterText}</p>
-            <p className="text-xs text-slate-600">authenticator data (hex)</p><p className={mono}>{signed.authHex}</p>
-            <p className="text-xs text-slate-600">client data (hex)</p><p className={mono}>{signed.clientHex}</p>
-            <p className="text-xs text-slate-600">signature (hex)</p><p className={mono}>{signed.sigHex}</p>
-          </div>
-        ) : null}
-      </section>
+      {signingEnabled ? (
+        <section className={box}>
+          <h2 className="text-sm font-semibold text-slate-900">2. Sign a challenge engineering gives you (proves the key works)</h2>
+          <label className="block text-xs text-slate-700">
+            Credential id (base64url, as engineering gives it)
+            <input value={credId} onChange={(e) => setCredId(e.target.value)} className={input} />
+          </label>
+          <label className="block text-xs text-slate-700">
+            Challenge (base64url, as engineering gives it)
+            <input value={challenge} onChange={(e) => setChallenge(e.target.value)} className={input} />
+          </label>
+          <button type="button" className={btn} onClick={signChallenge} disabled={busy || !credId.trim() || !challenge.trim()}>Sign with the key</button>
+          {signed ? (
+            <div className="space-y-1 border-t border-slate-100 pt-2">
+              <p className="text-xs font-semibold text-slate-900">{signed.refusal ? <span className="text-red-700">NOT ACCEPTABLE. {signed.refusal}</span> : <span className="text-emerald-700">ACCEPTABLE (not reported as synced)</span>}</p>
+              <p className="text-xs text-slate-600">{signed.flagsText}</p>
+              <p className="text-xs text-slate-700">{signed.counterText}</p>
+              <p className="text-xs text-slate-600">authenticator data (hex)</p><p className={mono}>{signed.authHex}</p>
+              <p className="text-xs text-slate-600">client data (hex)</p><p className={mono}>{signed.clientHex}</p>
+              <p className="text-xs text-slate-600">signature (hex)</p><p className={mono}>{signed.sigHex}</p>
+            </div>
+          ) : null}
+        </section>
+      ) : (
+        <section className={box}>
+          <h2 className="text-sm font-semibold text-slate-900">2. Challenge signing is switched off</h2>
+          <p className="text-xs text-slate-700">This tool signs whatever challenge it is given, so it stays off. It is needed only for the enrolment proof after a key is installed or replaced; engineering switches it on for that moment and off again.</p>
+        </section>
+      )}
 
       {message ? <p role="status" className="text-sm text-slate-800">{message}</p> : null}
     </div>

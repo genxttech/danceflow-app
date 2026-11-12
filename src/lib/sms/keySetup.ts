@@ -77,3 +77,11 @@ export function bootstrapStatement(p: { rpId: string; origin: string; primary: K
     ");",
   ].join("\n");
 }
+
+/**
+ * The challenge-signing tool signs ANY pasted challenge, so it is OFF unless engineering deliberately switches it on (server setting TW4_KEY_SETUP_SIGNING=on) for the short window of an
+ * enrolment proof (a key installed or replaced). Anything other than the exact string "on" keeps it off. Issue #454.
+ */
+export function signingToolEnabled(env: Record<string, string | undefined>): boolean {
+  return env.TW4_KEY_SETUP_SIGNING === "on";
+}
