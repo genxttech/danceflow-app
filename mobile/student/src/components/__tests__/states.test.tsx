@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react-native";
+import { fireEvent, render, renderHook, screen } from "@testing-library/react-native";
+import { Platform } from "react-native";
 
 let mockReducedMotion = false;
 jest.mock("react-native-reanimated", () => {
@@ -17,7 +18,12 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 
 import { ErrorState } from "@/components/ErrorState";
 import { LoadingState } from "@/components/LoadingState";
-import { enterUp, pressedTransform } from "@/lib/motion";
+import { enterUp, pressedTransform, useEnterUp } from "@/lib/motion";
+
+import { WARM_UP_TIMEOUT_MS, warmUpRenderer } from "@/test/warmUpRenderer";
+
+// One-off renderer load, outside the tests' own timeouts (see warmUpRenderer).
+beforeAll(warmUpRenderer, WARM_UP_TIMEOUT_MS);
 
 describe("LoadingState", () => {
   it("is announced as a busy progress indicator with its label, not as placeholder text", () => {
@@ -80,5 +86,15 @@ describe("motion presets with Reduce Motion", () => {
   it("entering content fades without moving when Reduce Motion is on", () => {
     expect((enterUp(false) as unknown as { preset: string }).preset).toBe("FadeInDown");
     expect((enterUp(true) as unknown as { preset: string }).preset).toBe("FadeIn");
+  });
+
+  it("skips entering animations on web, where Reanimated's cleanup can throw", () => {
+    expect((renderHook(() => useEnterUp()).result.current as unknown as { preset: string }).preset).toBe("FadeInDown");
+    const restore = jest.replaceProperty(Platform, "OS", "web");
+    try {
+      expect(renderHook(() => useEnterUp()).result.current).toBeUndefined();
+    } finally {
+      restore.restore();
+    }
   });
 });

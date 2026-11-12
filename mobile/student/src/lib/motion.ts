@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { Platform } from "react-native";
 import {
   Easing,
   FadeIn,
@@ -27,8 +28,15 @@ export function enterUp(reducedMotion: boolean, delay = 0) {
     : FadeInDown.duration(durations.standard).delay(delay).easing(standardEasing).withInitialValues({ transform: [{ translateY: 8 }] });
 }
 
+/**
+ * No entering animation on web. Reanimated's web layout animations schedule a cleanup that reads
+ * the element's position snapshot, and when the element is replaced first (a list re-rendering)
+ * that snapshot is gone and it throws "reading 'top'". Native uses a different path. Web is only
+ * a QA target, so content there simply appears.
+ */
 export function useEnterUp(delay = 0) {
-  return enterUp(useReducedMotion(), delay);
+  const reducedMotion = useReducedMotion();
+  return Platform.OS === "web" ? undefined : enterUp(reducedMotion, delay);
 }
 
 /** Press feedback: a slight scale while held, or none with Reduce Motion (the opacity change stays). */
