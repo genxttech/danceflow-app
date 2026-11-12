@@ -81,6 +81,11 @@ function orderTicketToWalletTicket(ticket: StudentEventOrderTicket): StudentTick
     studioName: "Event",
     ticketCode: ticket.ticketCode,
     ticketName: ticket.ticketName,
+    // The order API carries none of these; the pass then claims nothing about payment or party size.
+    attendeeName: null,
+    paymentState: null,
+    admitPosition: 1,
+    admitTotal: 1,
     venue: ticket.venue,
     waiverSignedAt: ticket.waiverSignedAt
   };

@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 
 const mockPush = jest.fn();
+const mockSetFavorite = jest.fn();
 const mockEvents = [
   { id: "e1", studioId: "s1", slug: "a", name: "Harvest Moon Social", eventType: "social", imageUrl: null, hostName: "Harbor Lights", categoryLabel: "Social", schedule: "Sat, Nov 14 · 7:30 PM", location: "Port Ellery", latitude: null, longitude: null, summary: null, beginnerFriendly: true, registrationRequired: true, favorited: false, webUrl: "" },
   { id: "e2", studioId: "s1", slug: "b", name: "Bachata Musicality", eventType: "workshop", imageUrl: "https://example.test/b.jpg", hostName: "Harbor Lights", categoryLabel: "Bachata", schedule: "Nov 21", location: "Port Ellery", latitude: null, longitude: null, summary: null, beginnerFriendly: false, registrationRequired: true, favorited: false, webUrl: "" },
@@ -24,12 +25,14 @@ jest.mock("expo-router", () => ({
   router: { push: mockPush },
   Link: ({ children }: { children: React.ReactNode }) => children
 }));
-jest.mock("@/lib/auth", () => ({ useAuth: () => ({ session: { user: { id: "u1", email: "d@example.test" } } }) }));
+let mockSession: { user: { id: string; email: string } } | null = { user: { id: "u1", email: "d@example.test" } };
+jest.mock("@/lib/auth", () => ({ useAuth: () => ({ session: mockSession }) }));
 jest.mock("@/lib/publicDiscovery", () => ({
   getPublicStudiosForMobile: jest.fn(async () => [{}, {}]),
   getPublicEventsForMobile: jest.fn(async () => mockEvents),
   getPublicPartnerProfilesForMobile: jest.fn(async () => [{}]),
   getPublicJobPostingsForMobile: jest.fn(async () => []),
+  setPublicFavoriteForMobile: (...args: unknown[]) => mockSetFavorite(...args),
   getPublicEventDetailForMobile: jest.fn(async () => ({
     ...mockEvents[0],
     summary: "A relaxed Saturday social.",
@@ -54,7 +57,17 @@ import DiscoverScreen from "../../../app/(tabs)/discover";
 // eslint-disable-next-line import/first
 import EventDetailScreen from "../../../app/events/[id]";
 
-beforeEach(() => mockPush.mockClear());
+import { WARM_UP_TIMEOUT_MS, warmUpRenderer } from "@/test/warmUpRenderer";
+
+// One-off renderer load, outside the tests' own timeouts (see warmUpRenderer).
+beforeAll(warmUpRenderer, WARM_UP_TIMEOUT_MS);
+
+beforeEach(() => {
+  mockPush.mockClear();
+  mockSetFavorite.mockReset();
+  mockSetFavorite.mockImplementation(async ({ favorited }: { favorited: boolean }) => favorited);
+  mockSession = { user: { id: "u1", email: "d@example.test" } };
+});
 
 describe("EventArt", () => {
   it("uses the event's own photo when there is one", () => {
@@ -94,6 +107,40 @@ describe("Discover", () => {
     fireEvent.press(screen.getByTestId("discover-search"));
     expect(mockPush).toHaveBeenLastCalledWith("/discover/events");
   });
+
+  it("saves an event from its heart, a labelled toggle that shows its state", async () => {
+    render(<DiscoverScreen />);
+    const heart = await screen.findByRole("togglebutton", { name: "Save Harvest Moon Social" });
+    expect(heart.props.accessibilityState).toMatchObject({ checked: false });
+    await act(async () => {
+      fireEvent.press(heart);
+    });
+    expect(mockSetFavorite).toHaveBeenCalledWith({ favorited: true, targetId: "e1", targetType: "event", userId: "u1" });
+    expect(screen.getByRole("togglebutton", { name: "Save Harvest Moon Social" }).props.accessibilityState).toMatchObject({ checked: true });
+    expect(mockPush).not.toHaveBeenCalled(); // the heart is not the card's open button
+  });
+
+  it("puts the heart back and says so when saving fails", async () => {
+    mockSetFavorite.mockRejectedValueOnce(new Error("offline"));
+    render(<DiscoverScreen />);
+    const heart = await screen.findByRole("togglebutton", { name: "Save Bachata Musicality" });
+    await act(async () => {
+      fireEvent.press(heart);
+    });
+    expect(screen.getByRole("togglebutton", { name: "Save Bachata Musicality" }).props.accessibilityState).toMatchObject({ checked: false });
+    expect(screen.getByText("That event could not be saved. Try again.")).toBeTruthy();
+  });
+
+  it("sends a signed-out dancer to sign-in from the heart, and loads events with no user", async () => {
+    const { getPublicEventsForMobile } = jest.requireMock("@/lib/publicDiscovery") as { getPublicEventsForMobile: jest.Mock };
+    getPublicEventsForMobile.mockClear();
+    mockSession = null;
+    render(<DiscoverScreen />);
+    fireEvent.press(await screen.findByRole("togglebutton", { name: "Save Harvest Moon Social" }));
+    expect(mockPush).toHaveBeenCalledWith("/(auth)/sign-in");
+    expect(mockSetFavorite).not.toHaveBeenCalled();
+    expect(getPublicEventsForMobile).toHaveBeenCalledWith(null);
+  });
 });
 
 describe("Event detail", () => {
@@ -104,6 +151,17 @@ describe("Event detail", () => {
     expect(screen.getByText("Sold out")).toBeTruthy();
     fireEvent.press(screen.getByText("Register in app"));
     expect(mockPush).toHaveBeenCalledWith("/events/e1/register");
+  });
+
+  it("sends a signed-out dancer to sign-in and remembers the event to return to", async () => {
+    mockSession = null;
+    render(<EventDetailScreen />);
+    const button = await screen.findByRole("button", { name: "Sign in to register" });
+    fireEvent.press(button);
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/(auth)/sign-in"));
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { takePostSignInRoute } = require("@/lib/postSignInRoute") as typeof import("@/lib/postSignInRoute");
+    await expect(takePostSignInRoute()).resolves.toBe("/events/e1");
   });
 
   it("has a labelled back button", async () => {

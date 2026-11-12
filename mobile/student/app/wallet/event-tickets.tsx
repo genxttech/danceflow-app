@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Image, StyleSheet, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { EventArt } from "@/components/EventArt";
-import { PASS, ticketAccessibilityLabel } from "@/lib/ticketPass";
+import { admitLine, PASS, ticketAccessibilityLabel, ticketHolder, ticketWhen } from "@/lib/ticketPass";
+import { ticketPaymentLabel } from "@/lib/ticketFacts";
 import { EVENT_ART_ACCENT, EVENT_ART_TEXT } from "@/lib/eventArt";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -13,7 +14,6 @@ import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
-  formatWalletDate,
   loadStudentWallet,
   type StudentTicket,
   type StudentWallet
@@ -31,7 +31,9 @@ function TicketCard({ ticket }: { ticket: StudentTicket }) {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const checkedIn = Boolean(ticket.checkedInAt);
   const location = locationLine(ticket);
-  const when = [formatWalletDate(ticket.eventDate), ticket.eventTime].filter(Boolean).join(" · ");
+  const when = ticketWhen(ticket);
+  const admits = admitLine(ticket);
+  const payment = ticketPaymentLabel(ticket.paymentState);
 
   return (
     <View accessible accessibilityLabel={ticketAccessibilityLabel(ticket)} style={styles.pass} testID="ticket-pass">
@@ -54,7 +56,12 @@ function TicketCard({ ticket }: { ticket: StudentTicket }) {
       </View>
       <View style={styles.passFooter}>
         <View style={styles.passFooterCopy}>
-          <AppText style={styles.passStrong}>{ticket.ticketName}</AppText>
+          <AppText style={styles.passStrong}>{ticketHolder(ticket)}</AppText>
+          {admits || payment ? (
+            <AppText style={styles.passMuted} testID="ticket-admission">
+              {[admits, payment].filter(Boolean).join(" · ")}
+            </AppText>
+          ) : null}
           <AppText style={styles.passMuted}>{[ticket.hostName, location].filter(Boolean).join(" · ")}</AppText>
         </View>
         <View style={styles.status}>

@@ -10,12 +10,14 @@ import { FeatureCard } from "@/components/FeatureCard";
 import { LoadingState } from "@/components/LoadingState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
+import { useAuth } from "@/lib/auth";
 import { EVENT_ART_ACCENT, EVENT_ART_TEXT, EVENT_ART_TEXT_MUTED } from "@/lib/eventArt";
 import {
   getPublicEventsForMobile,
   getPublicJobPostingsForMobile,
   getPublicPartnerProfilesForMobile,
   getPublicStudiosForMobile,
+  setPublicFavoriteForMobile,
   type PublicEventItem
 } from "@/lib/publicDiscovery";
 
@@ -28,8 +30,30 @@ function eventAccessibilityLabel(event: PublicEventItem) {
   return [event.name, event.schedule, event.hostName, event.location].filter(Boolean).join(". ");
 }
 
-function FeaturedEvent({ event, onPress, styles }: { event: PublicEventItem; onPress: () => void; styles: Styles }) {
+type SaveProps = { onToggleSave: () => void; saving: boolean };
+
+/** The save heart on an event's art: a toggle, separate from the card's own button. */
+function SaveHeart({ event, onToggleSave, saving, styles }: SaveProps & { event: PublicEventItem; styles: Styles }) {
   return (
+    <Pressable
+      accessibilityHint={event.favorited ? "Removes it from your saved events" : "Adds it to your saved events"}
+      accessibilityLabel={`Save ${event.name}`}
+      accessibilityRole="togglebutton"
+      accessibilityState={{ busy: saving, checked: event.favorited }}
+      disabled={saving}
+      hitSlop={4}
+      onPress={onToggleSave}
+      style={({ pressed }) => [styles.heart, pressed && styles.pressed]}
+      testID={`discover-save-${event.id}`}
+    >
+      <Ionicons color={event.favorited ? EVENT_ART_ACCENT : EVENT_ART_TEXT} name={event.favorited ? "heart" : "heart-outline"} size={22} />
+    </Pressable>
+  );
+}
+
+function FeaturedEvent({ event, onPress, styles, ...save }: SaveProps & { event: PublicEventItem; onPress: () => void; styles: Styles }) {
+  return (
+    <View>
     <Pressable
       accessibilityHint="Opens the event"
       accessibilityLabel={eventAccessibilityLabel(event)}
@@ -48,17 +72,20 @@ function FeaturedEvent({ event, onPress, styles }: { event: PublicEventItem; onP
         </AppText>
       </EventArt>
     </Pressable>
+    <SaveHeart event={event} styles={styles} {...save} />
+    </View>
   );
 }
 
-function SmallEvent({ event, onPress, styles }: { event: PublicEventItem; onPress: () => void; styles: Styles }) {
+function SmallEvent({ event, onPress, styles, ...save }: SaveProps & { event: PublicEventItem; onPress: () => void; styles: Styles }) {
   return (
+    <View style={styles.small}>
     <Pressable
       accessibilityHint="Opens the event"
       accessibilityLabel={eventAccessibilityLabel(event)}
       accessibilityRole="button"
       onPress={onPress}
-      style={({ pressed }) => [styles.small, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.smallCard, pressed && styles.pressed]}
     >
       <EventArt height={104} imageUrl={event.imageUrl} labels={[event.categoryLabel, event.eventType, event.name]} radius={16} />
       <AppText numberOfLines={2} style={styles.smallName}>
@@ -68,11 +95,15 @@ function SmallEvent({ event, onPress, styles }: { event: PublicEventItem; onPres
         {event.schedule}
       </AppText>
     </Pressable>
+    <SaveHeart event={event} styles={styles} {...save} />
+    </View>
   );
 }
 
 export default function DiscoverScreen() {
   const router = useRouter();
+  const { session } = useAuth();
+  const userId = session?.user.id ?? null;
   const colors = colorsForScheme(useColorScheme());
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [loading, setLoading] = useState(true);
@@ -84,13 +115,15 @@ export default function DiscoverScreen() {
   });
   const [events, setEvents] = useState<PublicEventItem[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
 
     Promise.all([
       getPublicStudiosForMobile(),
-      getPublicEventsForMobile(),
+      getPublicEventsForMobile(userId),
       getPublicPartnerProfilesForMobile(),
       getPublicJobPostingsForMobile()
     ])
@@ -117,10 +150,33 @@ export default function DiscoverScreen() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [userId]);
 
   const go = (href: string) => router.push(href as unknown as RouterPushTarget);
   const openEvent = (event: PublicEventItem) => go(`/events/${event.id}`);
+  const setFavorited = (eventId: string, favorited: boolean) =>
+    setEvents((current) => current.map((item) => (item.id === eventId ? { ...item, favorited } : item)));
+
+  // The existing user_favorites write (setPublicFavoriteForMobile), shown at once and undone if it fails.
+  async function toggleSave(event: PublicEventItem) {
+    setSaveMessage(null);
+    if (!userId) {
+      go("/(auth)/sign-in");
+      return;
+    }
+    const next = !event.favorited;
+    setSavingId(event.id);
+    setFavorited(event.id, next);
+    try {
+      setFavorited(event.id, await setPublicFavoriteForMobile({ favorited: next, targetId: event.id, targetType: "event", userId }));
+    } catch {
+      setFavorited(event.id, !next);
+      setSaveMessage(next ? "That event could not be saved. Try again." : "That event could not be removed. Try again.");
+    } finally {
+      setSavingId(null);
+    }
+  }
+  const saveProps = (event: PublicEventItem) => ({ onToggleSave: () => void toggleSave(event), saving: savingId === event.id });
   const categories: Category[] = [
     { key: "events", label: "Events", count: counts.events, href: "/discover/events" },
     { key: "studios", label: "Studios", count: counts.studios, href: "/discover/studios" },
@@ -172,11 +228,12 @@ export default function DiscoverScreen() {
 
       {!loading && featured ? (
         <>
-          <FeaturedEvent event={featured} onPress={() => openEvent(featured)} styles={styles} />
+          <FeaturedEvent event={featured} onPress={() => openEvent(featured)} styles={styles} {...saveProps(featured)} />
+          {saveMessage ? <ErrorState error={saveMessage} title="Saved events" /> : null}
           {more.length > 0 ? (
             <View style={styles.moreRow}>
               {more.map((event) => (
-                <SmallEvent event={event} key={event.id} onPress={() => openEvent(event)} styles={styles} />
+                <SmallEvent event={event} key={event.id} onPress={() => openEvent(event)} styles={styles} {...saveProps(event)} />
               ))}
             </View>
           ) : null}
@@ -227,7 +284,19 @@ function createStyles(colors: ThemeColors) {
     featuredName: { color: EVENT_ART_TEXT, fontSize: 27, fontWeight: "800", letterSpacing: -0.5, lineHeight: 31 },
     featuredWhere: { color: EVENT_ART_TEXT_MUTED, fontSize: 14 },
     moreRow: { flexDirection: "row", gap: 12 },
-    small: { flex: 1, gap: 6 },
+    small: { flex: 1 },
+    smallCard: { gap: 6 },
+    heart: {
+      alignItems: "center",
+      backgroundColor: "rgba(24,12,27,0.55)",
+      borderRadius: 22,
+      height: 44,
+      justifyContent: "center",
+      position: "absolute",
+      right: 8,
+      top: 8,
+      width: 44
+    },
     smallName: { color: colors.text, fontSize: 15, fontWeight: "700", lineHeight: 20 },
     pressed: { opacity: 0.88 }
   });
