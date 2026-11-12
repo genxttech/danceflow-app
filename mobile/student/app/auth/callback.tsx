@@ -1,11 +1,12 @@
 import { router, useLocalSearchParams, type Href } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { ActivityIndicator, StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
+import { takePostSignInRoute } from "@/lib/postSignInRoute";
 
 function cleanParam(value: string | string[] | null | undefined) {
   const nextValue = Array.isArray(value) ? value[0] : value;
@@ -22,10 +23,17 @@ export default function AuthCallbackScreen() {
     error_description?: string | string[];
   }>();
   const [error, setError] = useState<string | null>(null);
+  // Navigate once: a second run would find the return route already taken and fall back to Today.
+  const navigated = useRef(false);
 
   useEffect(() => {
-    if (session?.access_token && !identityCheckPending) {
-      router.replace(emailBindingRequired ? ("/auth/secure-account" as Href) : "/(tabs)/home");
+    if (session?.access_token && !identityCheckPending && !navigated.current) {
+      navigated.current = true;
+      if (emailBindingRequired) {
+        router.replace("/auth/secure-account" as Href);
+      } else {
+        void takePostSignInRoute().then((route) => router.replace((route ?? "/(tabs)/home") as Href));
+      }
     }
   }, [emailBindingRequired, identityCheckPending, session?.access_token]);
 

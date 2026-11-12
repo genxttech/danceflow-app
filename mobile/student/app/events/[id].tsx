@@ -12,6 +12,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
+import { rememberPostSignInRoute } from "@/lib/postSignInRoute";
 import {
   getPublicEventDetailForMobile,
   type PublicEventDetail
@@ -208,12 +209,15 @@ export default function EventDetailScreen() {
           </View>
         ) : null}
         <AppButton
-          disabled={!session || event.ticketTypes.length === 0}
+          // Signed out: go to sign-in and come back to this event afterwards.
+          disabled={Boolean(session) && event.ticketTypes.length === 0}
           label={session ? "Register in app" : "Sign in to register"}
           onPress={() =>
             session
               ? router.push(`/events/${event.id}/register` as unknown as RouterPushTarget)
-              : router.push("/(auth)/sign-in" as unknown as RouterPushTarget)
+              : void rememberPostSignInRoute(`/events/${event.id}`).then(() =>
+                  router.push("/(auth)/sign-in" as unknown as RouterPushTarget)
+                )
           }
           style={styles.barButton}
         />
