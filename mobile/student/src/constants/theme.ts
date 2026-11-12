@@ -90,6 +90,12 @@ export function colorsForScheme(scheme: ColorSchemeName): ThemeColors {
   return scheme === "light" ? lightColors : darkColors;
 }
 
+/** React Native Web's Appearance has no setColorScheme (web follows the browser), so it is skipped there. */
+function applyColorScheme(mode: AppearanceMode) {
+  if (typeof Appearance.setColorScheme !== "function") return;
+  Appearance.setColorScheme(mode === "system" ? (null as unknown as ColorSchemeName) : mode);
+}
+
 export async function getAppearanceMode(): Promise<AppearanceMode> {
   const value = await AsyncStorage.getItem(APPEARANCE_STORAGE_KEY);
   return value === "light" || value === "dark" || value === "system" ? value : "system";
@@ -97,12 +103,12 @@ export async function getAppearanceMode(): Promise<AppearanceMode> {
 
 export async function setAppearanceMode(mode: AppearanceMode) {
   await AsyncStorage.setItem(APPEARANCE_STORAGE_KEY, mode);
-  Appearance.setColorScheme(mode === "system" ? (null as unknown as ColorSchemeName) : mode);
+  applyColorScheme(mode);
 }
 
 export async function hydrateAppearanceMode() {
   const mode = await getAppearanceMode();
-  Appearance.setColorScheme(mode === "system" ? (null as unknown as ColorSchemeName) : mode);
+  applyColorScheme(mode);
   return mode;
 }
 
