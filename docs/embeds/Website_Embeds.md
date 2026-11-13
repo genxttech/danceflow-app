@@ -61,11 +61,13 @@ Environment: isolated local stack (`iso-qa up baseline`, real Postgres + PostgRE
 | In-frame view switch, history back/forward | actual browser | URL and view follow history | `?view=week` then back to `""` then forward to week | PASS |
 | Register button goes to existing flow, new tab | code review + link href | `/studios/.../register`, `target=_blank` | href verified by markup | PASS (link only) |
 | Real registration and Stripe checkout from the embed | not executed | existing flow unchanged | no Stripe TEST harness used | BLOCKED |
-| Studio builder page (auth, copy, preview) | typecheck + build only | works for owner/admin | needs staff login (auth profile) | BLOCKED |
-| Recurring class display | code only | "Part of a recurring class" + link | no series fixture seeded | BLOCKED |
-| Capacity change reflected | code + data path | live read, no cache | not exercised by changing fixtures | BLOCKED |
+| Studio builder page: owner sees it; instructor and other-studio staff are turned away | actual browser (Playwright, real GoTrue sessions, local stack) | owner/admin only | instructor and other-studio instructor land on /app without the builder; owner sees it | PASS |
+| Builder: class dropdown, options in code, hostile accent, copy, live preview | actual browser | only public upcoming classes; options reflected; hostile accent never reaches the code; clipboard equals the textarea; preview renders | 5 public occurrences listed (private lessons absent); `view=week&theme=dark&accent=cc3366` in the code; `red;</style>` dropped; copy matched; preview rendered classes | PASS |
+| Recurring class display | actual HTTP, 4-week series fixture | "Part of a recurring class" + link to the series page | text shown; link `/studios/<slug>/classes/series/<id>` returns 200 | PASS |
+| Capacity change reflected | actual HTTP, DB update between requests | live read | capacity 3 with 2 booked shows "1 spot left"; set to 2 shows "Class full" and no Register button; the database refuses a capacity below the booked count (`GCSC3_CAPACITY_BELOW_BOOKED`) | PASS |
+| Register link hands off to the existing flow | actual HTTP | login with the destination preserved for a signed-out visitor | 307 to `/login?intent=public&next=/studios/<slug>/classes/<id>/register` | PASS (handoff only) |
 | Month grid on desktop, dark theme, custom accent | actual browser | grid with classes on correct days, today ring | renders (P1/P2 on 17/18, P6 on 21, P9 on 24) | PASS |
-| Week view on desktop; many-classes density | not separately checked | renders | week view checked at mobile only | BLOCKED |
+| Week view on desktop; many-classes density | actual browser + HTTP | renders; busy day lists every class | desktop week screenshot correct; 9 classes on one day all listed in week and month | PASS |
 
 ## Known gaps and follow-ups
 
