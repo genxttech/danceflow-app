@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, useColorScheme, View } from "react-native";
+import { Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
+import { CategoryChips, type Category } from "@/components/CategoryChips";
 import { ErrorState } from "@/components/ErrorState";
 import { EventArt } from "@/components/EventArt";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -11,6 +12,7 @@ import { LoadingState } from "@/components/LoadingState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
+import { rememberPostSignInRoute } from "@/lib/postSignInRoute";
 import { EVENT_ART_ACCENT, EVENT_ART_TEXT, EVENT_ART_TEXT_MUTED } from "@/lib/eventArt";
 import {
   getPublicEventsForMobile,
@@ -23,8 +25,6 @@ import {
 
 type RouterPushTarget = Parameters<ReturnType<typeof useRouter>["push"]>[0];
 type Styles = ReturnType<typeof createStyles>;
-
-type Category = { key: string; label: string; count: number | null; href: string };
 
 function eventAccessibilityLabel(event: PublicEventItem) {
   return [event.name, event.schedule, event.hostName, event.location].filter(Boolean).join(". ");
@@ -121,11 +121,12 @@ export default function DiscoverScreen() {
   useEffect(() => {
     let mounted = true;
 
+    // A guest sees public studios and events only; partner and job listings are for signed-in dancers.
     Promise.all([
       getPublicStudiosForMobile(),
       getPublicEventsForMobile(userId),
-      getPublicPartnerProfilesForMobile(),
-      getPublicJobPostingsForMobile()
+      userId ? getPublicPartnerProfilesForMobile() : Promise.resolve([]),
+      userId ? getPublicJobPostingsForMobile() : Promise.resolve([])
     ])
       .then(([studios, nextEvents, partners, jobs]) => {
         if (!mounted) return;
@@ -153,6 +154,12 @@ export default function DiscoverScreen() {
   }, [userId]);
 
   const go = (href: string) => router.push(href as unknown as RouterPushTarget);
+  const isGuest = !userId;
+  // Sign in, then come back to the screen the visitor was heading for.
+  const signInThen = (returnTo: string) =>
+    void rememberPostSignInRoute(returnTo).then(() => go("/(auth)/sign-in"));
+  const openCategory = (category: Category) =>
+    category.guestAllowed || !isGuest ? go(category.href) : signInThen(category.href);
   const openEvent = (event: PublicEventItem) => go(`/events/${event.id}`);
   const setFavorited = (eventId: string, favorited: boolean) =>
     setEvents((current) => current.map((item) => (item.id === eventId ? { ...item, favorited } : item)));
@@ -161,7 +168,7 @@ export default function DiscoverScreen() {
   async function toggleSave(event: PublicEventItem) {
     setSaveMessage(null);
     if (!userId) {
-      go("/(auth)/sign-in");
+      signInThen("/(tabs)/discover");
       return;
     }
     const next = !event.favorited;
@@ -178,10 +185,10 @@ export default function DiscoverScreen() {
   }
   const saveProps = (event: PublicEventItem) => ({ onToggleSave: () => void toggleSave(event), saving: savingId === event.id });
   const categories: Category[] = [
-    { key: "events", label: "Events", count: counts.events, href: "/discover/events" },
-    { key: "studios", label: "Studios", count: counts.studios, href: "/discover/studios" },
-    { key: "partners", label: "Partners", count: counts.partners, href: "/partners" },
-    { key: "jobs", label: "Jobs", count: counts.jobs, href: "/jobs" },
+    { key: "events", label: "Events", count: counts.events, href: "/discover/events", guestAllowed: true },
+    { key: "studios", label: "Studios", count: counts.studios, href: "/discover/studios", guestAllowed: true },
+    { key: "partners", label: "Partners", count: isGuest ? null : counts.partners, href: "/partners" },
+    { key: "jobs", label: "Jobs", count: isGuest ? null : counts.jobs, href: "/jobs" },
     { key: "marketplace", label: "Marketplace", count: null, href: "/discover/marketplace" }
   ];
   const [featured, ...more] = events;
@@ -207,21 +214,15 @@ export default function DiscoverScreen() {
         <AppText style={styles.searchText}>Events, studios, styles</AppText>
       </Pressable>
 
-      <ScrollView contentContainerStyle={styles.chips} horizontal showsHorizontalScrollIndicator={false}>
-        {categories.map((category) => (
-          <Pressable
-            accessibilityLabel={category.count === null ? category.label : `${category.label}, ${category.count}`}
-            accessibilityRole="button"
-            key={category.key}
-            onPress={() => go(category.href)}
-            style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
-            testID={`discover-chip-${category.key}`}
-          >
-            <AppText style={styles.chipLabel}>{category.label}</AppText>
-            {category.count !== null && !loading ? <AppText style={styles.chipCount}>{category.count}</AppText> : null}
-          </Pressable>
-        ))}
-      </ScrollView>
+      <CategoryChips categories={categories} loading={loading} onOpen={openCategory} />
+
+      {isGuest ? (
+        <FeatureCard
+          detail="Browse public events and studios. Sign in to save events, register, and keep tickets handy."
+          title="You are exploring as a guest"
+        />
+      ) : null}
+      {isGuest ? <AppButton label="Sign in or create account" onPress={() => signInThen("/(tabs)/discover")} variant="secondary" /> : null}
 
       {loading ? <LoadingState label="Loading events" rows={2} /> : null}
       {errorMessage ? <ErrorState error={errorMessage} title="Discovery update" /> : null}
@@ -267,19 +268,6 @@ function createStyles(colors: ThemeColors) {
       paddingHorizontal: 14
     },
     searchText: { color: colors.muted, fontSize: 15 },
-    chips: { gap: 8, paddingRight: 8 },
-    chip: {
-      alignItems: "center",
-      borderColor: colors.borderStrong,
-      borderRadius: 22,
-      borderWidth: 1,
-      flexDirection: "row",
-      gap: 6,
-      minHeight: 44,
-      paddingHorizontal: 16
-    },
-    chipLabel: { color: colors.text, fontSize: 14, fontWeight: "600" },
-    chipCount: { color: colors.muted, fontSize: 13, fontWeight: "600" },
     featuredWhen: { color: EVENT_ART_ACCENT, fontSize: 13, fontWeight: "700" },
     featuredName: { color: EVENT_ART_TEXT, fontSize: 27, fontWeight: "800", letterSpacing: -0.5, lineHeight: 31 },
     featuredWhere: { color: EVENT_ART_TEXT_MUTED, fontSize: 14 },
