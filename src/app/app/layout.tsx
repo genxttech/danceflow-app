@@ -700,6 +700,11 @@ export function buildStudioSections(params: {
                 icon: "settings" as const,
               },
               {
+                label: "Website Embeds",
+                href: "/app/settings/embeds",
+                icon: "settings" as const,
+              },
+              {
                 label: "View Public Profile",
                 href: publicProfileHref ?? "/discover/studios",
                 icon: "clients" as const,
