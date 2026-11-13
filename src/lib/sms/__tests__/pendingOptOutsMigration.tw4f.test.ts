@@ -1,0 +1,29 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const DIR = join(process.cwd(), "src/lib/supabase/migrations");
+const forward = readFileSync(join(DIR, "20270215100000_twilio_pending_opt_outs.sql"), "utf8");
+const rollback = readFileSync(join(DIR, "rollback/20270215100000_twilio_pending_opt_outs_rollback.sql"), "utf8");
+
+describe("20270215100000 pending opt-outs migration shape (Git-only, never applied by this suite)", () => {
+  it("is service-role only: RLS on, no client grants, every function revoked from public/anon/authenticated", () => {
+    expect(forward).toMatch(/enable row level security/);
+    expect(forward).not.toMatch(/^grant .* to (anon|authenticated|public)/im);
+    for (const fn of ["sms_pending_opt_out_record(uuid, text, text)", "sms_pending_opt_out_supersede(uuid, text)", "sms_pending_opt_out_apply(integer)"]) {
+      expect(forward).toContain(`revoke all on function public.${fn} from public, anon, authenticated, service_role`);
+      expect(forward).toContain(`grant execute on function public.${fn} to service_role`);
+    }
+  });
+  it("applies with the canonical STOP only, skips superseded rows, isolates per-row failures", () => {
+    expect(forward).toMatch(/record_sms_inbound_opt_event\(r\.studio_id, r\.phone_e164, 'stop'\)/);
+    expect(forward).toMatch(/applied_at is null and superseded_at is null/);
+    expect(forward).toMatch(/skip locked/);
+    expect(forward).toMatch(/exception when others/);
+    expect(forward).not.toMatch(/'start'/);
+  });
+  it("has a rollback that refuses to drop open opt-outs", () => {
+    expect(rollback).toMatch(/Refusing to drop: open pending opt-outs/);
+    expect(rollback).toMatch(/drop table if exists public\.studio_sms_pending_opt_outs/);
+  });
+});

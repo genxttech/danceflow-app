@@ -10,6 +10,7 @@ import {
 import { resolveInboundKeyword } from "@/lib/sms/inboundKeywords";
 import { inboundReplyAllowed, parseInboundCounts, recordInboundUsage, type InboundReplyKind } from "@/lib/sms/inboundUsage";
 import { resolveStudioFromInboundSender } from "@/lib/sms/studioSender";
+import { recordPendingOptOut, supersedePendingOptOuts } from "@/lib/sms/pendingOptOuts";
 import { buildWebhookAccountDeps, recordWebhookReceipt } from "@/lib/sms/twilioIsv/webhookRuntime";
 import { twilioFormHasDuplicateKeys, twilioFormParams } from "@/lib/sms/twilioWebhook";
 import { verifyTwilioWebhookAccount, webhookMayActForStudio, webhookReceiptKey } from "@/lib/sms/twilioWebhookAccount";
@@ -190,7 +191,7 @@ export async function POST(request: Request) {
         const { error } = await supabase.rpc("record_sms_inbound_opt_event", { p_studio_id: routing.studioId, p_phone_e164: from, p_event: "stop" });
         if (error) {
           console.error("sms_inbound_consent_update_failed", error.code ?? "unknown");
-          return unavailableResponse();
+          if (!(await recordPendingOptOut(supabase, { studioId: routing.studioId, phone: from, messageSid: receiptKey }))) return unavailableResponse();
         }
       }
       return emptyTwiml();
@@ -285,6 +286,8 @@ export async function POST(request: Request) {
     //            number matches no client, so a later client with this phone stays blocked.
     //   START -> restores only rows with recorded prior consent and lifts the studio+phone
     //            block; it never creates consent, even though Twilio has unblocked the number.
+    // A START is the texter's newest intent: any STOP of theirs still waiting in the pending-opt-out queue must not be applied after it.
+    if (keyword === "start" && !(await supersedePendingOptOuts(supabase, { studioId, phone: from }))) console.warn("sms_pending_opt_out_supersede_failed");
     const applyConsent = () => supabase.rpc("record_sms_inbound_opt_event", { p_studio_id: studioId, p_phone_e164: from, p_event: keyword });
     let consent = await applyConsent();
     // one inline retry: a transient failure must not leave a STOP unrecorded (the START direction is fail-safe and is not retried)
@@ -295,8 +298,9 @@ export async function POST(request: Request) {
       // Code only. Twilio Advanced Opt-Out still enforces the carrier-level block.
       console.error("sms_inbound_consent_update_failed", consentError.code ?? "unknown");
       consentFailed = true;
-      // A STOP that could not be recorded is not acknowledged: non-2xx, and a redelivery re-applies it (see the duplicate branch above).
-      if (keyword === "stop") return unavailableResponse();
+      // A STOP that could not be applied is parked durably (applied later by the scheduled sender, before it can text anyone) and answered as handled.
+      // Only when even that cannot be stored is it not acknowledged: non-2xx, and a redelivery re-applies it (see the duplicate branch above).
+      if (keyword === "stop" && !(await recordPendingOptOut(supabase, { studioId, phone: from, messageSid: messageSid || null }))) return unavailableResponse();
     }
 
     if (keyword === "stop") {
