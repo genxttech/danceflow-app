@@ -15,6 +15,8 @@ import {
   unavailableMessage,
 } from "@/lib/public/groupClasses";
 import { canProceedToRegister, classRegisterPath, registerUnavailableMessage } from "@/lib/public/classRegistration";
+import { appearanceDefaults, fetchEmbedGate } from "@/lib/public/embedSettings";
+import { fetchClassExtras } from "@/lib/public/embedClassExtras";
 
 type PageProps = {
   params: Promise<{ appointmentId: string }>;
@@ -33,10 +35,19 @@ export const dynamic = "force-dynamic";
  */
 export default async function EmbedClassPage({ params, searchParams }: PageProps) {
   const { appointmentId } = await params;
-  const options = parseEmbedOptions(await searchParams);
+  const rawParams = await searchParams;
   const supabase = await createClient();
   const item = await fetchPublicGroupClass(supabase, appointmentId);
   if (!item) notFound();
+
+  // The studio's kill switch: switched off (or settings unreadable) means the embed is not served at all.
+  const gate = await fetchEmbedGate(supabase, item.studioSlug);
+  if (gate.state !== "ok") notFound();
+  const options = parseEmbedOptions(rawParams, appearanceDefaults(gate.settings));
+  const extra =
+    gate.settings.showClassDescription || gate.settings.showClassPrice
+      ? (await fetchClassExtras(supabase, item.studioSlug, [item.appointmentId])).get(item.appointmentId)
+      : undefined;
 
   const unavailable = unavailableMessage(item.publicState);
   const dark = options.theme === "dark";
@@ -82,6 +93,12 @@ export default async function EmbedClassPage({ params, searchParams }: PageProps
               <dd className="mt-0.5 font-medium">{item.instructorName}</dd>
             </div>
           ) : null}
+          {extra?.priceLabel ? (
+            <div>
+              <dt className={`font-semibold ${muted}`}>Price</dt>
+              <dd className="mt-0.5 font-medium">{extra.priceLabel}</dd>
+            </div>
+          ) : null}
           {item.capacity !== null && !unavailable ? (
             <div>
               <dt className={`font-semibold ${muted}`}>Class size</dt>
@@ -89,6 +106,8 @@ export default async function EmbedClassPage({ params, searchParams }: PageProps
             </div>
           ) : null}
         </dl>
+
+        {extra?.description ? <p className={`mt-3 whitespace-pre-line text-sm ${muted}`}>{extra.description}</p> : null}
 
         {item.seriesRootId ? (
           <p className={`mt-3 text-sm ${muted}`}>

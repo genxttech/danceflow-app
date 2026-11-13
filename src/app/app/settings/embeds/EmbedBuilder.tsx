@@ -7,6 +7,7 @@ import {
   embedCalendarPath,
   embedClassPath,
   normalizeAccent,
+  type EmbedAppearanceDefaults,
   type EmbedOptions,
   type EmbedTheme,
   type EmbedView,
@@ -17,6 +18,8 @@ type Props = {
   studioSlug: string;
   studioName: string;
   defaultAccent: string | null;
+  /** The studio's stored appearance defaults: an embed that matches them omits the option and follows later changes. */
+  baseline: EmbedAppearanceDefaults;
   classes: { id: string; label: string }[];
   instructors: string[];
 };
@@ -28,11 +31,11 @@ const GUIDES = [
   { name: "Plain HTML", steps: "Paste the code into your page where the schedule should appear." },
 ];
 
-export default function EmbedBuilder({ origin, studioSlug, studioName, defaultAccent, classes, instructors }: Props) {
+export default function EmbedBuilder({ origin, studioSlug, studioName, defaultAccent, baseline, classes, instructors }: Props) {
   const [kind, setKind] = useState<"calendar" | "class">("calendar");
   const [classId, setClassId] = useState(classes[0]?.id ?? "");
-  const [view, setView] = useState<EmbedView>("agenda");
-  const [theme, setTheme] = useState<EmbedTheme>("light");
+  const [view, setView] = useState<EmbedView>(baseline.view ?? "agenda");
+  const [theme, setTheme] = useState<EmbedTheme>(baseline.theme ?? "light");
   const [accentText, setAccentText] = useState(defaultAccent ?? DEFAULT_ACCENT);
   const [instructor, setInstructor] = useState("");
   const [copied, setCopied] = useState<"code" | "link" | null>(null);
@@ -42,12 +45,12 @@ export default function EmbedBuilder({ origin, studioSlug, studioName, defaultAc
 
   const { path, title } = useMemo(() => {
     const o: Partial<EmbedOptions> = { accent, theme };
-    if (kind === "class") return { path: embedClassPath(classId, o), title: "Dance class registration" };
+    if (kind === "class") return { path: embedClassPath(classId, o, baseline), title: "Dance class registration" };
     return {
-      path: embedCalendarPath(studioSlug, { ...o, view, instructor: instructor || null }),
+      path: embedCalendarPath(studioSlug, { ...o, view, instructor: instructor || null }, baseline),
       title: `${studioName} class schedule`,
     };
-  }, [kind, classId, view, theme, accent, instructor, studioSlug, studioName]);
+  }, [kind, classId, view, theme, accent, instructor, studioSlug, studioName, baseline]);
 
   const disabled = kind === "class" && !classId;
   const code = disabled ? "" : buildEmbedCode({ origin, path, title, minHeight: kind === "class" ? 320 : 520 });

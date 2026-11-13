@@ -25,6 +25,12 @@ import {
   type EmbedView,
 } from "@/lib/public/embedOptions";
 import { fetchPublicGroupClasses, formatClassTimeRange, publicClassPath, type PublicGroupClass } from "@/lib/public/groupClasses";
+import { appearanceDefaults, fetchEmbedGate } from "@/lib/public/embedSettings";
+import { eventPublicPath, fetchPublicEmbedEvents, formatEventTimes, groupEventsByDay, type PublicEmbedEvent } from "@/lib/public/embedEvents";
+import { fetchClassExtras, type ClassExtra } from "@/lib/public/embedClassExtras";
+
+type Extras = Map<string, ClassExtra>;
+type EventsByDay = Map<string, PublicEmbedEvent[]>;
 
 type PageProps = {
   params: Promise<{ studioSlug: string }>;
@@ -34,7 +40,7 @@ type PageProps = {
 export const metadata: Metadata = { title: "Class schedule", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
 
-type StudioRow = { slug: string; name: string; public_name: string | null; subscription_status: string | null };
+type StudioRow = { id: string; slug: string; name: string; public_name: string | null; subscription_status: string | null };
 
 const VIEW_LABEL: Record<EmbedView, string> = { agenda: "List", week: "Week", month: "Month" };
 
@@ -45,22 +51,33 @@ const VIEW_LABEL: Record<EmbedView, string> = { agenda: "List", week: "Week", mo
  */
 export default async function EmbedCalendarPage({ params, searchParams }: PageProps) {
   const { studioSlug } = await params;
-  const options = parseEmbedOptions(await searchParams);
+  const rawParams = await searchParams;
   const supabase = await createClient();
 
   const { data: studio } = await supabase
     .from("studios")
-    .select("slug, name, public_name, subscription_status")
+    .select("id, slug, name, public_name, subscription_status")
     .eq("slug", studioSlug)
     .eq("public_directory_enabled", true)
     .maybeSingle<StudioRow>();
   const status = (studio?.subscription_status ?? "").trim().toLowerCase();
   if (!studio || (status !== "active" && status !== "trialing")) notFound();
 
+  // The studio's kill switch. Switched off, or settings unreadable: the embed is not served at all (fails closed).
+  const gate = await fetchEmbedGate(supabase, studio.slug);
+  if (gate.state !== "ok") notFound();
+  const { settings } = gate;
+  const options = parseEmbedOptions(rawParams, appearanceDefaults(settings));
+
   const all = await fetchPublicGroupClasses(supabase, { studioSlug: studio.slug, limit: 100 });
   const instructors = publicInstructorNames(all);
   const items = filterByInstructor(all, options.instructor);
   const byDay = groupByDay(items);
+  // Events have no instructor, so an instructor filter shows classes only. Studio setting can hide events entirely.
+  const events = settings.showEvents && !options.instructor ? await fetchPublicEmbedEvents(supabase, studio.id) : [];
+  const eventsByDay = groupEventsByDay(events);
+  const extras: Extras =
+    settings.showClassDescription || settings.showClassPrice ? await fetchClassExtras(supabase, studio.slug, items.map((c) => c.appointmentId)) : new Map();
   const studioName = studio.public_name?.trim() || studio.name;
   const tz = all[0]?.timeZone ?? "America/New_York";
   const today = dayKeyInZone(new Date(), tz);
@@ -69,7 +86,8 @@ export default async function EmbedCalendarPage({ params, searchParams }: PagePr
   const dark = options.theme === "dark";
   const muted = dark ? "text-slate-300" : "text-slate-600";
   const border = dark ? "border-slate-700" : "border-slate-200";
-  const link = (o: Partial<EmbedOptions>) => embedCalendarPath(studio.slug, { ...options, ...o });
+  // In-frame navigation keeps explicit options; the baseline keeps links short without changing what is shown.
+  const link = (o: Partial<EmbedOptions>) => embedCalendarPath(studio.slug, { ...options, ...o }, appearanceDefaults(settings));
   const pill = (active: boolean) =>
     `rounded-full px-3 py-1.5 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--embed-accent)] ${
       active ? "bg-[var(--embed-accent)] text-[var(--embed-accent-text)]" : dark ? "bg-slate-800 text-slate-100" : "bg-slate-100 text-slate-800"
@@ -82,7 +100,7 @@ export default async function EmbedCalendarPage({ params, searchParams }: PagePr
     <EmbedFrame accent={options.accent} accentText={readableTextOn(options.accent)} theme={options.theme}>
       <header className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">{studioName} classes</h1>
+          <h1 className="text-lg font-semibold tracking-tight">{studioName} {events.length ? "classes and events" : "classes"}</h1>
           <p className={`text-xs ${muted}`}>Times shown in {zoneLabel(new Date().toISOString(), tz) || tz}</p>
         </div>
         <nav aria-label="Calendar view" className="flex gap-1.5">
@@ -123,21 +141,21 @@ export default async function EmbedCalendarPage({ params, searchParams }: PagePr
 
       <div className="mt-4">
         {options.view === "agenda" ? (
-          <Agenda byDay={byDay} dark={dark} muted={muted} border={border} />
+          <Agenda byDay={byDay} eventsByDay={eventsByDay} extras={extras} dark={dark} muted={muted} border={border} />
         ) : options.view === "week" ? (
           <ul className="grid gap-3">
             {weekDays(anchor).map((day) => (
-              <DayBlock key={day} day={day} today={today} classes={byDay.get(day) ?? []} dark={dark} muted={muted} border={border} showEmpty />
+              <DayBlock key={day} day={day} today={today} classes={byDay.get(day) ?? []} events={eventsByDay.get(day) ?? []} extras={extras} dark={dark} muted={muted} border={border} showEmpty />
             ))}
           </ul>
         ) : (
-          <MonthGrid anchor={anchor} today={today} byDay={byDay} dark={dark} muted={muted} border={border} />
+          <MonthGrid anchor={anchor} today={today} byDay={byDay} eventsByDay={eventsByDay} extras={extras} dark={dark} muted={muted} border={border} />
         )}
       </div>
 
-      {items.length === 0 ? (
+      {items.length === 0 && events.length === 0 ? (
         <p role="status" className={`mt-4 rounded-xl border border-dashed p-4 text-center text-sm ${border} ${muted}`}>
-          {options.instructor ? "No upcoming classes for this instructor." : "No upcoming classes are listed right now."}
+          {options.instructor ? "No upcoming classes for this instructor." : "Nothing is scheduled right now."}
         </p>
       ) : null}
 
@@ -156,7 +174,7 @@ export default async function EmbedCalendarPage({ params, searchParams }: PagePr
   );
 }
 
-function ClassRow({ item, dark, muted }: { item: PublicGroupClass; dark: boolean; muted: string }) {
+function ClassRow({ item, extra, dark, muted }: { item: PublicGroupClass; extra?: ClassExtra; dark: boolean; muted: string }) {
   return (
     <li className="flex flex-wrap items-center justify-between gap-2">
       <div className="min-w-0">
@@ -173,9 +191,36 @@ function ClassRow({ item, dark, muted }: { item: PublicGroupClass; dark: boolean
           {formatClassTimeRange(item.startsAt, item.endsAt, item.timeZone)}
           {item.instructorName ? ` · ${item.instructorName}` : ""}
           {item.locationLabel ? ` · ${item.locationLabel}` : ""}
+          {extra?.priceLabel ? ` · ${extra.priceLabel}` : ""}
         </p>
+        {extra?.description ? <p className={`mt-0.5 line-clamp-2 text-xs ${muted}`}>{extra.description}</p> : null}
       </div>
       <AvailabilityBadge item={item} />
+    </li>
+  );
+}
+
+function EventRow({ event, muted }: { event: PublicEmbedEvent; muted: string }) {
+  const times = formatEventTimes(event);
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-2">
+      <div className="min-w-0">
+        <a
+          href={eventPublicPath(event.slug)}
+          target="_blank"
+          rel="noopener"
+          className="font-semibold underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--embed-accent)]"
+        >
+          {event.name}
+          <span className="sr-only"> (event, opens in a new tab)</span>
+        </a>
+        <p className={`text-xs ${muted}`}>
+          {event.typeLabel}
+          {times ? ` · ${times}` : ""}
+          {event.location ? ` · ${event.location}` : ""}
+        </p>
+      </div>
+      <span className="rounded-full border border-current px-2 py-0.5 text-[11px] font-semibold">{event.registrationRequired ? "Register" : "Event"}</span>
     </li>
   );
 }
@@ -184,6 +229,8 @@ function DayBlock({
   day,
   today,
   classes,
+  events,
+  extras,
   dark,
   muted,
   border,
@@ -192,37 +239,56 @@ function DayBlock({
   day: string;
   today: string;
   classes: PublicGroupClass[];
+  events: PublicEmbedEvent[];
+  extras: Extras;
   dark: boolean;
   muted: string;
   border: string;
   showEmpty?: boolean;
 }) {
-  if (!classes.length && !showEmpty) return null;
+  if (!classes.length && !events.length && !showEmpty) return null;
   return (
     <li className={`rounded-xl border p-3 ${border} ${dark ? "bg-slate-800" : "bg-white"}`}>
       <h3 className="text-sm font-semibold">
         {dayHeading(day)}
         {day === today ? <span className={`ml-2 text-xs font-medium ${muted}`}>Today</span> : null}
       </h3>
-      {classes.length ? (
+      {classes.length || events.length ? (
         <ul className="mt-2 grid gap-2">
           {classes.map((c) => (
-            <ClassRow key={c.appointmentId} item={c} dark={dark} muted={muted} />
+            <ClassRow key={c.appointmentId} item={c} extra={extras.get(c.appointmentId)} dark={dark} muted={muted} />
+          ))}
+          {events.map((e) => (
+            <EventRow key={e.id} event={e} muted={muted} />
           ))}
         </ul>
       ) : (
-        <p className={`mt-1 text-xs ${muted}`}>No classes</p>
+        <p className={`mt-1 text-xs ${muted}`}>Nothing scheduled</p>
       )}
     </li>
   );
 }
 
-function Agenda({ byDay, dark, muted, border }: { byDay: Map<string, PublicGroupClass[]>; dark: boolean; muted: string; border: string }) {
-  const days = [...byDay.keys()].sort();
+function Agenda({
+  byDay,
+  eventsByDay,
+  extras,
+  dark,
+  muted,
+  border,
+}: {
+  byDay: Map<string, PublicGroupClass[]>;
+  eventsByDay: EventsByDay;
+  extras: Extras;
+  dark: boolean;
+  muted: string;
+  border: string;
+}) {
+  const days = [...new Set([...byDay.keys(), ...eventsByDay.keys()])].sort();
   return (
     <ul className="grid gap-3">
       {days.map((day) => (
-        <DayBlock key={day} day={day} today="" classes={byDay.get(day) ?? []} dark={dark} muted={muted} border={border} />
+        <DayBlock key={day} day={day} today="" classes={byDay.get(day) ?? []} events={eventsByDay.get(day) ?? []} extras={extras} dark={dark} muted={muted} border={border} />
       ))}
     </ul>
   );
@@ -232,6 +298,8 @@ function MonthGrid({
   anchor,
   today,
   byDay,
+  eventsByDay,
+  extras,
   dark,
   muted,
   border,
@@ -239,6 +307,8 @@ function MonthGrid({
   anchor: string;
   today: string;
   byDay: Map<string, PublicGroupClass[]>;
+  eventsByDay: EventsByDay;
+  extras: Extras;
   dark: boolean;
   muted: string;
   border: string;
@@ -281,6 +351,19 @@ function MonthGrid({
                       <span className="sr-only">, {formatClassTimeRange(c.startsAt, c.endsAt, c.timeZone)}, {c.availability === "full" ? "full" : "open"} (opens in a new tab)</span>
                     </a>
                   ))}
+                  {(eventsByDay.get(day) ?? []).map((e) => (
+                    <a
+                      key={e.id}
+                      href={eventPublicPath(e.slug)}
+                      target="_blank"
+                      rel="noopener"
+                      className="mt-0.5 block truncate rounded border border-[var(--embed-accent)] px-1 py-0.5"
+                      title={`${e.name} (${e.typeLabel})`}
+                    >
+                      {e.name}
+                      <span className="sr-only">, event (opens in a new tab)</span>
+                    </a>
+                  ))}
                 </div>
               );
             })}
@@ -292,9 +375,9 @@ function MonthGrid({
         {weeks
           .flat()
           .filter((d) => d.startsWith(month))
-          .filter((d) => (byDay.get(d) ?? []).length > 0)
+          .filter((d) => (byDay.get(d) ?? []).length > 0 || (eventsByDay.get(d) ?? []).length > 0)
           .map((day) => (
-            <DayBlock key={day} day={day} today={today} classes={byDay.get(day) ?? []} dark={dark} muted={muted} border={border} />
+            <DayBlock key={day} day={day} today={today} classes={byDay.get(day) ?? []} events={eventsByDay.get(day) ?? []} extras={extras} dark={dark} muted={muted} border={border} />
           ))}
       </ul>
     </>

@@ -13,13 +13,20 @@ A studio can show its DanceFlow group classes on its own website with one pasted
 | Calendar math (studio-zone days, month/week grids) | `src/lib/public/embedCalendar.ts` |
 | Framing headers for the two route families | `next.config.ts` (owner-reviewed path) |
 
-Not in v1 (follow-ups, see below): events in the calendar, class description and price, stored per-studio embed settings / kill switch.
+| Public studio events in the calendar | `src/lib/public/embedEvents.ts`, calendar page |
+| Studio kill switch and stored settings | `src/lib/public/embedSettings.ts`, `/app/settings/embeds` settings panel, migration `20270216090000_website_embed_settings.sql` |
+| Class description and price | `src/lib/public/embedClassExtras.ts`, same migration (`public_group_class_extras`) |
+
+**Release requirement:** the migration is Git-only and has NOT been applied to any hosted database. It must be applied (owner-authorized) before the app release that serves embeds publicly. Until then embeds fail closed (see "Studio control").
 
 ## Architecture
 
-- **Stateless iframes.** An embed URL carries only appearance options (`accent`, `theme`, `view`, `instructor`, `date`), each validated against a strict allow-list in `parseEmbedOptions`. No new table, no SQL.
+- **Stateless iframes.** An embed URL carries only appearance options (`accent`, `theme`, `view`, `instructor`, `date`), each validated against a strict allow-list in `parseEmbedOptions`. Stored studio defaults (view, background, button color) apply only where the URL is silent; an explicit option wins. The builder omits an option equal to the stored default, so existing embeds follow later changes.
+- **Studio control and kill switch.** `studio_embed_settings` holds one row per studio. RLS is on with no policies and no table privileges for any API role; everything goes through `SECURITY DEFINER` functions: `public_studio_embed_settings(slug)` (anon, answers only for a public active studio), `get_/set_studio_embed_settings(studio)` (active owner or admin of that studio only; the app derives the studio from the session, never from the form). No row means: embeds on, events on, class description and price off. With embeds off, every embed of the studio returns 404 immediately, and no studio detail appears in that response. If the settings cannot be read (function missing, database error) the embed **fails closed**. Public studio pages are unaffected.
+- **Public events.** Studio-owned events with visibility `public`, listed in the directory, status published, not over, with a usable slug. Multi-day events appear on each day. Only name, type, dates/times, venue/city/state and two yes/no flags are selected; each event links to its public DanceFlow page (new tab), where registration happens. Events are hidden when the studio turns them off, and when an instructor filter is active (events have no instructor).
+- **Class description and price.** Shown only when the studio turns each on. The description is the recurring series description (single classes have no description field; `appointments.notes` is private and never read). The price is `direct_payment_amount` and appears only where the registration flow would charge it (self enrollment on, direct payment accepted, amount above zero). The database enforces both opt-ins, so a direct call to the function cannot bypass them. If the function is absent, embeds simply omit the extras.
 - **One data source.** Both embeds read only through the existing public read model, `public_group_class_occurrences` (see `20261024090000_gc34a_public_group_class_read_model.sql`). A class is public only if its enrollment policy is `publicly_discoverable`, the studio is in the public directory and active/trialing; instructor names appear only for instructors with a public profile. Embeds never read `appointments` directly and use no service-role client.
-- **Studio control.** The existing per-class "publicly discoverable" setting plus the studio's public-directory setting decide what any embed can show. The builder lists exactly what an embed can display.
+- **What is public.** The existing per-class "publicly discoverable" setting plus the studio's public-directory setting decide what any embed can show. The builder lists exactly what an embed can display.
 - **Registration handoff.** The Register button is a link (new tab) to the existing `/studios/[slug]/classes/[id]/register` flow, shown only when `canProceedToRegister` holds. Identity, eligibility, capacity, funding, Stripe checkout, duplicate/replay protection and studio notifications are all the existing code. The iframe has no form and no card field (`form-action 'none'`). Viewing an embed creates no lead and no notification.
 - **Auto-resize.** The embed posts `{type: "danceflow:embed:height", height}` to its parent. The pasted snippet only accepts that message from its own iframe window and the DanceFlow origin, clamps the value, and sizes through the `height` attribute (works even on websites that forbid inline styles).
 - **Time zones.** Days and times are the class's studio time zone, labelled (for example "EST"), never the viewer's.
@@ -66,6 +73,17 @@ Environment: isolated local stack (`iso-qa up baseline`, real Postgres + PostgRE
 | Recurring class display | actual HTTP, 4-week series fixture | "Part of a recurring class" + link to the series page | text shown; link `/studios/<slug>/classes/series/<id>` returns 200 | PASS |
 | Capacity change reflected | actual HTTP, DB update between requests | live read | capacity 3 with 2 booked shows "1 spot left"; set to 2 shows "Class full" and no Register button; the database refuses a capacity below the booked count (`GCSC3_CAPACITY_BELOW_BOOKED`) | PASS |
 | Register link hands off to the existing flow | actual HTTP | login with the destination preserved for a signed-out visitor | 307 to `/login?intent=public&next=/studios/<slug>/classes/<id>/register` | PASS (handoff only) |
+| Authentication return: magic link from the register redirect | actual browser, local GoTrue + mail catcher | visitor lands back on the register page after signing in | link redirect carries `next`; final URL is the register page; page asks "Confirm your email to continue" (existing safeguard) | PASS |
+| Full class cannot be registered, even by direct URL | actual browser | no Register link in the embed; register page refuses | "Registration isn't available. This class is full." with no checkout control | PASS |
+| Public events in the calendar | actual HTTP, seeded events | public published events only, each day of a multi-day event, link to the event page | 2 public events shown (Nov 20; Nov 28-30 on three days); private event, draft event and another studio's event absent; month cells link `/events/<slug>` | PASS |
+| Events off / instructor filter | actual browser + HTTP | events disappear | calendar title and rows drop events; instructor filter shows classes only | PASS |
+| Class description and price (opt-in) | actual browser + HTTP | hidden by default; shown after the studio enables them; price only for direct-payment classes | default hidden; after enabling: "Price $20" and the series description on the class embed and calendar rows; a class with its own direct price shows "$25" | PASS |
+| Stored defaults | actual browser | URL silent: stored view/background/color apply; explicit URL option wins; builder code omits options equal to stored defaults | stored month/dark/#cc3366 applied to a bare URL; `?view=agenda&theme=light` overrides; bad accent rejected with fixed copy and nothing saved | PASS |
+| Kill switch | actual browser + HTTP | embeds off: 404 for calendar and class embeds, no studio detail, public pages unaffected, other studios unaffected, back on after re-enabling | all as expected; builder shows "switched off" notice | PASS |
+| Kill switch fails closed | actual HTTP, settings function renamed | 404 when settings cannot be read | calendar 404, class 404; restored: 200 | PASS |
+| Settings authorization | SQL suite (27 checks) + browser | owner/admin of the studio only; instructors, other studios' owners and signed-out callers refused; table not reachable by API roles | `test_T_website_embed_settings.sql` PASS (27 checks); instructor cannot open the builder | PASS |
+| Unit tests (settings, events, extras, options) | vitest | parsers strict; queries select no private columns; fail closed | `embed.settingsEventsExtras.test.ts` + existing embed tests: 227 passing in `src/lib/public/__tests__` | PASS |
+| Hosted DEV/PROD with the migration | not executed | n/a | no hosted SQL authorized | BLOCKED |
 | Month grid on desktop, dark theme, custom accent | actual browser | grid with classes on correct days, today ring | renders (P1/P2 on 17/18, P6 on 21, P9 on 24) | PASS |
 | Week view on desktop; many-classes density | actual browser + HTTP | renders; busy day lists every class | desktop week screenshot correct; 9 classes on one day all listed in week and month | PASS |
 
@@ -83,8 +101,9 @@ Reviewed against the running app: response headers, the pasted snippet, the fram
 
 ## Known gaps and follow-ups
 
-1. **Class description and price are not shown.** They are not in the public read model's output (`public_group_class_occurrences`) and the existing public class page does not show them either. Adding them needs a small migration of the public function (PROD-SQL-gated, owner approval) or a new public RPC.
-2. **Events in the calendar** (public events table) are not included yet; reuse `eventTiming.ts` and the events embed API logic.
-3. **Stored embed settings / kill switch / allowed origins** would need a table and migration. Today the only controls are making classes non-public or the studio non-public.
-4. **Public listings are future-only and capped at 100 occurrences** (`limit`), so past months are empty and very busy studios see the next 100.
-5. Marketing page: not published; wait for items 1, 2 and the BLOCKED rows above.
+1. **Hosted SQL not applied (release gate).** `20270216090000_website_embed_settings.sql` is Git-only. Class descriptions and prices, the settings panel and the kill switch need it applied to DEV and PROD first (owner-authorized, SQL before app). Rollback file: `rollback/20270216090000_website_embed_settings_rollback.sql`. Without it, embeds fail closed and the settings panel says so.
+2. **Single (non-series) classes have no description.** There is no description column for them; adding one is a separate product decision.
+3. **Allowed origins** (restricting which websites may frame an embed) is not implemented. The kill switch is per studio, not per website. `frame-ancestors *` stays; the embeds carry no state-changing control.
+4. **Public listings are future-only and capped at 100 occurrences** (`limit`), so past months are empty and very busy studios see the next 100. Events are capped at 40.
+5. **Real registration and Stripe checkout from the embed** were not executed (no payment or provider operation is authorized); the handoff up to the existing register page is verified below.
+6. Marketing page: not published; wait for the release requirements and the BLOCKED rows above.

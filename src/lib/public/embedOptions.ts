@@ -48,14 +48,17 @@ export function normalizeDateParam(value: string | null | undefined): string | n
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d ? value : null;
 }
 
-export function parseEmbedOptions(raw: Raw): EmbedOptions {
+/** Appearance defaults a studio stored for its embeds; an explicit, valid URL option always wins over them. */
+export type EmbedAppearanceDefaults = { accent?: string | null; theme?: EmbedTheme; view?: EmbedView };
+
+export function parseEmbedOptions(raw: Raw, defaults: EmbedAppearanceDefaults = {}): EmbedOptions {
   const view = first(raw, "view");
   const theme = first(raw, "theme");
   const instructor = (first(raw, "instructor") ?? "").replace(/[\u0000-\u001f]/g, "").trim().slice(0, 80);
   return {
-    accent: normalizeAccent(first(raw, "accent")) ?? DEFAULT_ACCENT,
-    theme: theme === "dark" ? "dark" : "light",
-    view: (EMBED_VIEWS as readonly string[]).includes(view ?? "") ? (view as EmbedView) : "agenda",
+    accent: normalizeAccent(first(raw, "accent")) ?? normalizeAccent(defaults.accent) ?? DEFAULT_ACCENT,
+    theme: theme === "dark" || theme === "light" ? theme : defaults.theme === "dark" ? "dark" : "light",
+    view: (EMBED_VIEWS as readonly string[]).includes(view ?? "") ? (view as EmbedView) : defaults.view ?? "agenda",
     instructor: instructor || null,
     date: normalizeDateParam(first(raw, "date")),
   };
@@ -72,22 +75,28 @@ export function readableTextOn(accent: string): "#ffffff" | "#0f172a" {
   return lum > 0.4 ? "#0f172a" : "#ffffff";
 }
 
-/** Query string for an embed URL. Defaults are omitted so codes stay short and stable. */
-export function embedQuery(options: Partial<EmbedOptions>): string {
+/**
+ * Query string for an embed URL. A value equal to the baseline (the studio's stored default, else the built-in default) is omitted,
+ * so codes stay short and follow later changes to the stored default; a value that differs is written out explicitly.
+ */
+export function embedQuery(options: Partial<EmbedOptions>, baseline: EmbedAppearanceDefaults = {}): string {
   const q = new URLSearchParams();
-  if (options.accent && options.accent !== DEFAULT_ACCENT) q.set("accent", options.accent.replace("#", ""));
-  if (options.theme === "dark") q.set("theme", "dark");
-  if (options.view && options.view !== "agenda") q.set("view", options.view);
+  const baseAccent = normalizeAccent(baseline.accent) ?? DEFAULT_ACCENT;
+  const baseTheme = baseline.theme ?? "light";
+  const baseView = baseline.view ?? "agenda";
+  if (options.accent && options.accent !== baseAccent) q.set("accent", options.accent.replace("#", ""));
+  if (options.theme && options.theme !== baseTheme) q.set("theme", options.theme);
+  if (options.view && options.view !== baseView) q.set("view", options.view);
   if (options.instructor) q.set("instructor", options.instructor);
   if (options.date) q.set("date", options.date);
   const s = q.toString();
   return s ? `?${s}` : "";
 }
 
-export const embedClassPath = (appointmentId: string, options: Partial<EmbedOptions> = {}) =>
-  `/embed/class/${appointmentId}${embedQuery(options)}`;
-export const embedCalendarPath = (studioSlug: string, options: Partial<EmbedOptions> = {}) =>
-  `/embed/calendar/${encodeURIComponent(studioSlug)}${embedQuery(options)}`;
+export const embedClassPath = (appointmentId: string, options: Partial<EmbedOptions> = {}, baseline: EmbedAppearanceDefaults = {}) =>
+  `/embed/class/${appointmentId}${embedQuery(options, baseline)}`;
+export const embedCalendarPath = (studioSlug: string, options: Partial<EmbedOptions> = {}, baseline: EmbedAppearanceDefaults = {}) =>
+  `/embed/calendar/${encodeURIComponent(studioSlug)}${embedQuery(options, baseline)}`;
 
 /** Message the embed posts to its host page so the iframe can grow to fit. Height only: no data crosses the frame. */
 export const EMBED_HEIGHT_MESSAGE = "danceflow:embed:height";

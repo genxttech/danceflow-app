@@ -2,7 +2,9 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext, requireStudioRole } from "@/lib/auth/studio";
 import { fetchPublicGroupClasses, formatClassWhen } from "@/lib/public/groupClasses";
+import { appearanceDefaults, DEFAULT_EMBED_SETTINGS, parseEmbedSettings } from "@/lib/public/embedSettings";
 import EmbedBuilder from "./EmbedBuilder";
+import EmbedSettingsPanel from "./EmbedSettingsPanel";
 
 export const metadata = { title: "Website embeds" };
 export const dynamic = "force-dynamic";
@@ -32,6 +34,13 @@ export default async function WebsiteEmbedsPage() {
   const status = (studio?.subscription_status ?? "").trim().toLowerCase();
   const isPublic = !!studio?.slug && studio.public_directory_enabled === true && (status === "active" || status === "trialing");
 
+  // Stored embed settings. If they cannot be read (migration not applied) the page still works with defaults and says so,
+  // because public embeds fail closed in that state.
+  const settingsResult = await supabase.rpc("get_studio_embed_settings", { p_studio_id: context.studioId });
+  const rows = Array.isArray(settingsResult.data) ? settingsResult.data : [];
+  const stored = settingsResult.error ? null : parseEmbedSettings(rows[0]);
+  const settings = stored ?? DEFAULT_EMBED_SETTINGS;
+
   // The same public read model the embeds use: what the picker lists is exactly what an embed can show.
   const classes = isPublic && studio?.slug ? await fetchPublicGroupClasses(supabase, { studioSlug: studio.slug, limit: 100 }) : [];
 
@@ -59,23 +68,33 @@ export default async function WebsiteEmbedsPage() {
           </Link>
         </section>
       ) : (
+        <>
+        <EmbedSettingsPanel settings={settings} unavailable={stored === null} />
+        {stored && !stored.embedsEnabled ? (
+          <p role="status" className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+            Your embeds are switched off. Anything already pasted on your website shows nothing until you turn them back on.
+          </p>
+        ) : null}
         <EmbedBuilder
           origin={SITE_ORIGIN}
           studioSlug={studio!.slug!}
           studioName={studio!.public_name?.trim() || studio!.name}
-          defaultAccent={/^#[0-9a-fA-F]{6}$/.test(studio!.public_primary_color ?? "") ? studio!.public_primary_color! : null}
+          baseline={appearanceDefaults(settings)}
+          defaultAccent={settings.defaultAccent ?? (/^#[0-9a-fA-F]{6}$/.test(studio!.public_primary_color ?? "") ? studio!.public_primary_color! : null)}
           classes={classes.map((c) => ({
             id: c.appointmentId,
             label: `${c.title} · ${formatClassWhen(c.startsAt, c.endsAt, c.timeZone)}`,
           }))}
           instructors={[...new Set(classes.map((c) => c.instructorName).filter((n): n is string => !!n))].sort()}
         />
+        </>
       )}
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 text-sm text-slate-700 shadow-sm">
         <h2 className="text-base font-semibold text-slate-950">What shows on your website</h2>
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li>Only classes you have made publicly discoverable. Private lessons, client names and staff notes are never included.</li>
+          <li>Public events you have published to the directory, if you leave that setting on. Descriptions and prices only when you turn them on above.</li>
           <li>Cancelled and full classes are labelled as such; classes that have passed disappear.</li>
           <li>Registration and payment always happen on DanceFlow, in a new tab, never inside your website.</li>
           <li>A class that is not listed in the picker is not public. Make it public in the class&apos;s enrollment settings.</li>
