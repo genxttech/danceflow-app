@@ -86,6 +86,30 @@ Observation (development-only warning): "Looks like you have configured linking 
 
 The mapping `reduceMotion → "fade"` is unit-tested (`motion.test.tsx`).
 
+## Re-verification on main `e28a54c7` (2026-11-13)
+
+The checks above were run on earlier branch heads. They were repeated against the merged code in `main`, on the same debug development build, to confirm the squash merge kept the behavior.
+
+- **Build:** the 2026-11-10 debug APK (`com.idanceflow.business` 0.1.0, x86_64, 61.6 MB) was reused rather than rebuilt (a clean build is about 33 minutes). `package.json`, `package-lock.json` and `app.json` are byte-identical to the ones that APK was built from, so the native layer is unchanged; the JavaScript is the current `main`, served by Metro from a clean checkout.
+- **Backend:** a fresh iso-qa `--auth` stack with `seed-staff.mjs` (fictional data), and the web app's `/api/staff` from a local `next dev`. No hosted access. Password sign-in as the seeded instructor.
+- **Device:** the shared AVD `df-api35`, cold boot. System settings were recorded first (`font_scale=1.0`, animation scales default, night mode no) and restored to exactly those values afterwards.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Sign in, Today with 4 appointments | **PASS** | Today lists the private lessons, the cancelled one struck through, and the group class |
+| E1 `storage` while signed in | **PASS** | no plaintext token; 4 SecureStore entries (manifest key plus 3 chunks) |
+| E1 `restart` | **PASS** | relaunch opens on Today, not sign-in |
+| E1 sign out, then `storage` | **PASS** | no SecureStore entries, no plaintext token |
+| E2 made-up `code` link | **PASS** | "This sign-in link didn't work", no session |
+| E2 raw `#access_token=…&refresh_token=…` link | **PASS** | no session created (SecureStore stays empty). The helper's `deeplink` only accepts `?` links, so this one was sent with `am start`; the screen was the same error card as the previous link, so the empty storage is the evidence |
+| E3 `tabbar` at font 1.0 | **PASS** | 117 px tall, above the navigation inset |
+| E3 `tabbar` at font 2.0, cold relaunch | **PASS** | 159 px tall |
+| E3 text size 2.0: Today, appointment detail, Clients, More | **PASS** | no clipped or overlapping text, all controls reachable |
+| E4 Reduce Motion on, relaunched | **PASS** | `reduceMotion=true` |
+| E4 Reduce Motion off while open | **PASS** | `reduceMotion=false` (live listener) |
+
+**Not covered in this re-run:** the real magic-link sign-in (E2, passed earlier), the group-class and 403 screens at 2.0, dark mode, the visual check that the stack transition fades under Reduce Motion (the mapping is unit-tested), iOS, and DEV sign-in (D2 stays BLOCKED).
+
 ## D1: how it was checked
 
 The check uses DEV GoTrue's email-link endpoint with a deliberately **invalid** token, `GET /auth/v1/verify?token=<invalid>&type=magiclink&redirect_to=<url>`, without following the redirect. An invalid token is a failed lookup, so **no email was sent and no user was created**. GoTrue sends the resulting error to `redirect_to` only if that URL passes the allow list; otherwise it falls back to the site URL.
