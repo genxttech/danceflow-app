@@ -291,6 +291,7 @@ for (let step = 0; step < 5; step += 1) {
     await settle();
   } else if (/Your email is verified/.test(t)) {
     await h.getByRole("link", { name: /^Continue/ }).first().click();
+    await h.waitForURL((u) => !u.pathname.includes("verify-email"), { timeout: 120000 }).catch(() => {});
     await settle();
   } else if (/Sign in again to continue/.test(t)) {
     const again = Date.now();
