@@ -10,8 +10,9 @@
 -- Fix: an AFTER INSERT OR UPDATE row trigger on the heat entries that, for any session role other than the owner roles (postgres, supabase_admin;
 -- SECURITY DEFINER writers run as their owner and are exempt: _r2_withdraw_entry, the R2 refund cascade, sync_competition_entries_from_registration and the
 -- A6 Final withdrawal / reinstatement keep their own audit rows), refuses
---   * a change INTO 'scratched' unless the parent entry is scratched / withdrawn AND an entry_changes row of type scratch / withdraw by the same user
---     exists in THIS transaction AND the workflow marker (app.competition_entry_change_type = scratch / withdraw, set only by the lifecycle RPC) is present;
+--   * a change INTO 'scratched' unless the parent entry is scratched / withdrawn AND an entry_changes row of type scratch / withdraw exists for that entry
+--     (the audit trigger wrote it when the parent entry changed, in this or an earlier transaction: the lifecycle RPC can finish scratching the heat entries of an
+--     entry that was scratched earlier) AND the workflow marker (app.competition_entry_change_type = scratch / withdraw, set only by the lifecycle RPC) is present;
 --   * a change OUT OF 'scratched' (no client workflow un-scratches a placement; A6 reinstatement and corrections run as definers).
 -- The checks read the parent entry and the audit rows as the caller (managers read both through RLS). No data changes. The guard is
 -- AFTER and the privilege on triggers is revoked for clients by the U18 migration (20270215093000); this migration does not depend on it.
@@ -36,12 +37,11 @@ begin
     end if;
   end if;
   if new.status = 'scratched' then
-    -- Evaluated as the caller (a manager reads both tables through RLS). Nested ifs: the checks run only for a change into scratched.
+    -- Evaluated as the caller (a manager reads both tables through RLS); the audit table is append-only and written only by the definer audit trigger.
     if coalesce(nullif(current_setting('app.competition_entry_change_type', true), '') in ('scratch', 'withdraw'), false)
        and exists (select 1 from public.event_competition_entries e where e.id = new.entry_id and e.status in ('scratched', 'withdrawn'))
        and exists (select 1 from public.event_competition_entry_changes c
-                   where c.entry_id = new.entry_id and c.change_type in ('scratch', 'withdraw')
-                     and c.performed_at = now() and c.performed_by is not distinct from auth.uid()) then
+                   where c.entry_id = new.entry_id and c.change_type in ('scratch', 'withdraw')) then
       return new;
     end if;
     raise exception 'COMP_U18S_SCRATCH_UNAUDITED: a heat entry is scratched only through the audited scratch workflow (change_competition_entry_lifecycle).' using errcode = '42501';

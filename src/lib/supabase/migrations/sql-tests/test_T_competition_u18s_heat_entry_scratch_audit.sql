@@ -93,6 +93,25 @@ insert into t_rpc select pg_temp.try_as('authenticated', $q$select public.change
 select pg_temp.chk('lifecycle RPC withdraw works and scratches the heat entry',
   (select count(*) from t_rpc where r = 'OK') = 2 and (select status from public.event_competition_heat_entries where id = '00000000-0000-0000-0000-cf1019900003') = 'scratched');
 
+-- idempotent across transactions: an entry scratched EARLIER (audited then) can still have its heat entries finished through the RPC
+set local session_replication_role = replica;
+insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
+values ('00000000-0000-0000-0000-cf1019800006', '00000000-0000-0000-0000-cf1019e00001', '00000000-0000-0000-0000-cf1019001001', '00000000-0000-0000-0000-cf1019003001', 'e6', 'confirmed', 'eligible', '96');
+insert into public.event_competition_heat_entries (id, event_id, division_id, heat_id, entry_id, floor_order, status)
+values ('00000000-0000-0000-0000-cf1019900007', '00000000-0000-0000-0000-cf1019e00001', '00000000-0000-0000-0000-cf1019003001', '00000000-0000-0000-0000-cf1019d00001', '00000000-0000-0000-0000-cf1019800006', 8, 'scheduled');
+set local session_replication_role = origin;
+create temp table t_old (r text) on commit drop;
+grant all on t_old to authenticated;
+insert into t_old select pg_temp.try_as('authenticated', $q$update public.event_competition_entries set status = 'scratched' where id = '00000000-0000-0000-0000-cf1019800006'$q$);
+set local session_replication_role = replica;
+update public.event_competition_entry_changes set performed_at = now() - interval '2 days' where entry_id = '00000000-0000-0000-0000-cf1019800006';
+set local session_replication_role = origin;
+select set_config('app.competition_entry_change_type', '', true);
+insert into t_old select pg_temp.try_as('authenticated', $q$select public.change_competition_entry_lifecycle('00000000-0000-0000-0000-cf1019800006', 'scratched', 'finish heat entries', 'retain')$q$);
+select pg_temp.chk('RPC on an entry scratched in an EARLIER transaction still scratches its heat entries (reviewer finding 1)',
+  (select count(*) from t_old where r = 'OK') = 2 and (select status from public.event_competition_heat_entries where id = '00000000-0000-0000-0000-cf1019900007') = 'scratched',
+  (select string_agg(r, ' | ') from t_old));
+
 -- un-scratch and neighbours
 select pg_temp.chk('direct un-scratch by a client is refused (42501 UNSCRATCH) and the row stays scratched',
   pg_temp.try_as('authenticated', $q$update public.event_competition_heat_entries set status = 'scheduled' where id = '00000000-0000-0000-0000-cf1019900001'$q$) like '42501 COMP_U18S_UNSCRATCH_WRITER%'
