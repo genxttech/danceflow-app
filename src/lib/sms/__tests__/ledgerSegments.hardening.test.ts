@@ -202,7 +202,7 @@ const input = (id: string): BilledSendInput => ({
 });
 
 /** A stand-in for the database: begin is atomic (one JS turn) over a budget and a per-source attempt table, as the real function is under its locks. */
-function atomicDb(budgetCents: number, priceCents: number) {
+function atomicDb(budgetCents: number, priceCents: number, parkedStop = false) {
   let left = budgetCents;
   const bySource = new Map<string, { id: string; state: string }>();
   let n = 0;
@@ -215,6 +215,9 @@ function atomicDb(budgetCents: number, priceCents: number) {
     client: {
       rpc: async (fn: string, a: Record<string, unknown>) => {
         counts[fn] = (counts[fn] ?? 0) + 1;
+        // sendBilledSms asks the parked-opt-out gate (#472) before it reserves. The gate fails closed on any answer that is not exactly true or false, so this
+        // stand-in must answer it explicitly: true = an open parked STOP exists for the studio + phone, false = none.
+        if (fn === "sms_pending_opt_out_blocks") return { data: parkedStop, error: null };
         if (fn === "tw4_usage_begin") {
           const key = `${a.p_source_kind}:${a.p_source_id}`;
           const prior = bySource.get(key);
@@ -283,6 +286,17 @@ describe("billed send: boundary, retries and refusals", () => {
     const out = await sendBilledSms(db.client, provider, input("p1"));
     expect(out).toEqual({ outcome: "refused", reason: "insufficient_credit" });
     expect(db.counts.tw4_usage_dispatching ?? 0).toBe(0);
+    expect(provider.sent).toHaveLength(0);
+  });
+
+  it("a parked STOP refuses the billed send before anything is reserved: no begin, no marker, no provider call", async () => {
+    const db = atomicDb(100, 2, true);
+    const provider = new FakeBilledSmsProvider();
+    const out = await sendBilledSms(db.client, provider, input("s1"));
+    expect(out).toEqual({ outcome: "refused", reason: "opted_out" });
+    expect(db.counts.tw4_usage_begin ?? 0).toBe(0);
+    expect(db.counts.tw4_usage_dispatching ?? 0).toBe(0);
+    expect(db.left).toBe(100);
     expect(provider.sent).toHaveLength(0);
   });
 });
