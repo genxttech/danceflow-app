@@ -5,7 +5,7 @@ import { classifyInboundKeywordBody, resolveInboundKeyword } from "@/lib/sms/inb
 describe("fallback keyword classification tolerates case, whitespace and trailing punctuation", () => {
   const stopVariants = [
     "STOP", "stop", "Stop", "  stop \n", "\tSTOP\r\n", " STOP ", "STOP.", "stop!", "Stop.  ", "STOP!!",
-    "\"STOP\"", "END.", "Quit!", "UNSUBSCRIBE.", "CANCEL?", "stopall",
+    "\"STOP\"", "END.", "Quit!", "UNSUBSCRIBE.", "stopall",
   ];
   it.each(stopVariants)("%j is an opt-out", (body) => {
     expect(classifyInboundKeywordBody(body)).toBe("stop");
@@ -18,6 +18,11 @@ describe("fallback keyword classification tolerates case, whitespace and trailin
 
   it.each(["START", "start", " Yes ", "UNSTOP", "unstop"])("%j is an opt-in", (body) => {
     expect(classifyInboundKeywordBody(body)).toBe("start");
+  });
+
+  // a question mark makes it a question, not an unsubscribe ("Cancel?" is a reply to an appointment text)
+  it.each(["Cancel?", "CANCEL?", "End?", "stop?", "STOP?", "quit??"])("%j is an ordinary message", (body) => {
+    expect(classifyInboundKeywordBody(body)).toBe("message");
   });
 
   // an opt-in is never inferred from punctuation-decorated chatter: a re-subscribe must be deliberate

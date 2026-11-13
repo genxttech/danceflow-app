@@ -68,6 +68,20 @@ function unavailableResponse() {
   return new Response("Service unavailable", { status: 503, headers: { "Content-Type": "text/plain" } });
 }
 
+/** True when the inbound log shows a START from this texter AFTER this STOP's own log entry. Any doubt (no entry, read failure) is "no": re-applying a STOP is the safe direction. */
+async function startAfterThisStop(supabase: NonNullable<ReturnType<typeof getServiceSupabase>>, studioId: string, phone: string, messageSid: string): Promise<boolean> {
+  try {
+    const base = () => supabase.from("sms_message_logs").select("sent_at").eq("studio_id", studioId).eq("phone_e164", phone).eq("direction", "inbound");
+    const own = await base().eq("provider_message_id", messageSid).eq("message_type", "stop").order("sent_at", { ascending: true }).limit(1);
+    const start = await base().eq("message_type", "start").order("sent_at", { ascending: false }).limit(1);
+    const ownAt = Date.parse(String(own.data?.[0]?.sent_at ?? ""));
+    const startAt = Date.parse(String(start.data?.[0]?.sent_at ?? ""));
+    return !own.error && !start.error && Number.isFinite(ownAt) && Number.isFinite(startAt) && startAt > ownAt;
+  } catch {
+    return false;
+  }
+}
+
 // A2P-1A: only requests that fail verification count against the per-IP limiter, so
 // genuine STOP messages arriving from shared Twilio egress IPs are never throttled.
 function rejectUnverified(request: Request, status: 403 | 503) {
@@ -187,7 +201,9 @@ export async function POST(request: Request) {
       // A redelivery of a STOP re-applies the opt-out (idempotent, and the safe direction), so a first attempt whose consent change failed after the
       // receipt was recorded is healed by the retry. Silent: no second reply, no log, no usage record. A replayed START is never re-applied: an old,
       // captured START must not undo a later STOP.
-      if (keyword === "stop") {
+      // ...but only when no START of the same texter arrived after this STOP (an out-of-order redelivery must not undo a deliberate START): the inbound
+      // log (written before any consent change, for every identified contact) orders them.
+      if (keyword === "stop" && !(await startAfterThisStop(supabase, routing.studioId, from, messageSid))) {
         const { error } = await supabase.rpc("record_sms_inbound_opt_event", { p_studio_id: routing.studioId, p_phone_e164: from, p_event: "stop" });
         if (error) {
           console.error("sms_inbound_consent_update_failed", error.code ?? "unknown");

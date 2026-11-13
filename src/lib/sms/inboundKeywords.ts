@@ -49,18 +49,21 @@ function optOutTypeKeyword(optOutType: string | null | undefined): InboundKeywor
 }
 
 /**
- * Surrounding whitespace, quotes and sentence punctuation ("STOP.", "stop!", "\"STOP\"") around an otherwise exact keyword. Tolerated for opt-out and
+ * Surrounding whitespace, quotes and sentence punctuation ("STOP.", "stop!", "\"STOP\"", never "?" on an opt-out word) around an otherwise exact keyword. Tolerated for opt-out and
  * HELP only: treating "STOP." as a stop is always the safe direction, while an opt-in (START / YES) must stay a deliberate, exact message.
  */
-const KEYWORD_DECORATION = /^[\s"'`.,!?;:()‘’“”-]+|[\s"'`.,!?;:()‘’“”-]+$/g;
+const OPT_OUT_DECORATION = /^[s"'`.,!;:()‘’“”-]+|[s"'`.,!;:()‘’“”-]+$/g;
+/** HELP additionally tolerates "?" ("Help?" is a plain request for help). A "?" is NOT tolerated on an opt-out word: "Cancel?" / "End?" are questions, not an unsubscribe. */
+const HELP_DECORATION = /^[s"'`.,!?;:()‘’“”-]+|[s"'`.,!?;:()‘’“”-]+$/g;
 
 export function classifyInboundKeywordBody(body: string): InboundKeyword {
   const normalized = String(body ?? "").trim().toUpperCase();
-  const stripped = normalized.replace(KEYWORD_DECORATION, "");
+  const strippedOptOut = normalized.replace(OPT_OUT_DECORATION, "");
+  const strippedHelp = normalized.replace(HELP_DECORATION, "");
 
-  if (SMS_FALLBACK_OPT_OUT_KEYWORDS.has(normalized) || SMS_FALLBACK_OPT_OUT_KEYWORDS.has(stripped)) return "stop";
+  if (SMS_FALLBACK_OPT_OUT_KEYWORDS.has(normalized) || SMS_FALLBACK_OPT_OUT_KEYWORDS.has(strippedOptOut)) return "stop";
   if (SMS_FALLBACK_OPT_IN_KEYWORDS.has(normalized)) return "start";
-  if (SMS_FALLBACK_HELP_KEYWORDS.has(normalized) || SMS_FALLBACK_HELP_KEYWORDS.has(stripped)) return "help";
+  if (SMS_FALLBACK_HELP_KEYWORDS.has(normalized) || SMS_FALLBACK_HELP_KEYWORDS.has(strippedHelp)) return "help";
 
   return "message";
 }

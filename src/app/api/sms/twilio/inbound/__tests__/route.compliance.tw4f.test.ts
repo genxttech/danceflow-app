@@ -146,8 +146,13 @@ describe("opt-out is durable and independent of billing", () => {
   it("a failed START stays fail-safe: 200, consent untouched (the texter remains opted out)", async () => {
     fake.current = createFakeSupabase();
     fake.current.overrideRpc("record_sms_inbound_opt_event", dbError);
-    expect((await POST(req("START"))).status).toBe(200);
-    expect(status()).toBe("opted_in"); // fixture row untouched: nothing was restored or created
+    fake.current.rows("sms_contact_permissions")[0].consent_status = "opted_out";
+    const res = await POST(req("START"));
+    expect(res.status).toBe(200);
+    // exactly one consent call, and it failed: nothing was restored, created or written
+    expect(rpc("record_sms_inbound_opt_event")).toHaveLength(1);
+    expect(fake.current.mutations.filter((m) => m.table === "sms_contact_permissions")).toHaveLength(0);
+    expect(status()).toBe("opted_out");
   });
 
   it("redelivery after a failed first attempt re-applies the STOP (the receipt must not swallow it), silently", async () => {
@@ -163,6 +168,36 @@ describe("opt-out is durable and independent of billing", () => {
     expect(retry.status).toBe(200);
     expect(await retry.text()).toBe(EMPTY_TWIML);
     expect(status()).toBe("opted_out");
+  });
+
+  it("out of order: STOP (applied) -> START -> late redelivery of the same STOP leaves the texter opted IN", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      fake.current = createFakeSupabase();
+      const seen = new Set<string>();
+      fake.current.overrideRpc("sms_webhook_receipt_record", (a) => {
+        const first = !seen.has(String(a.p_event_key));
+        seen.add(String(a.p_event_key));
+        return { data: first, error: null };
+      });
+      const stopSid = `SM${"1".repeat(32)}`;
+      const startSid = `SM${"2".repeat(32)}`;
+      vi.setSystemTime(new Date("2026-11-13T10:00:00.000Z"));
+      await POST(req("STOP", { extra: { MessageSid: stopSid } }));
+      expect(status()).toBe("opted_out");
+      vi.setSystemTime(new Date("2026-11-13T10:05:00.000Z"));
+      await POST(req("START", { extra: { MessageSid: startSid } }));
+      expect(status()).toBe("opted_in");
+      const before = rpc("record_sms_inbound_opt_event").length;
+      vi.setSystemTime(new Date("2026-11-13T10:06:00.000Z"));
+      const late = await POST(req("STOP", { extra: { MessageSid: stopSid } })); // out-of-order redelivery of the first STOP
+      expect(late.status).toBe(200);
+      expect(await late.text()).toBe(EMPTY_TWIML);
+      expect(rpc("record_sms_inbound_opt_event")).toHaveLength(before); // never re-applied
+      expect(status()).toBe("opted_in");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("a replayed START never changes consent (an old START must not undo a later STOP)", async () => {
