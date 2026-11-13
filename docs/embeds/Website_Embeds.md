@@ -69,6 +69,18 @@ Environment: isolated local stack (`iso-qa up baseline`, real Postgres + PostgRE
 | Month grid on desktop, dark theme, custom accent | actual browser | grid with classes on correct days, today ring | renders (P1/P2 on 17/18, P6 on 21, P9 on 24) | PASS |
 | Week view on desktop; many-classes density | actual browser + HTTP | renders; busy day lists every class | desktop week screenshot correct; 9 classes on one day all listed in week and month | PASS |
 
+### Security review (2026-11-13)
+
+Reviewed against the running app: response headers, the pasted snippet, the frame wrapper and the builder.
+
+- **Framing:** only `/embed/class/*` and `/embed/calendar/*` send `frame-ancestors *`; other pages still send `X-Frame-Options: SAMEORIGIN` and `frame-ancestors 'self'` (checked on the live responses). Embedding the page is clickjack-safe in practice: it has no form and no state-changing control, only links that open DanceFlow in a new tab (`rel=noopener`).
+- **CSP on embeds:** no `unsafe-eval`; `connect-src 'self'`, `frame-src 'none'`, `form-action 'none'`, `object-src 'none'`, `base-uri 'none'`. Residual: `script-src` keeps `'unsafe-inline'` because Next.js emits inline hydration scripts. Mitigation: all studio-supplied text is rendered by React (escaped) and no embed renders raw HTML. A nonce-based CSP would remove the residual; it is a framework-level change, not part of v1.
+- **Images:** `img-src https:` allows studio logos and instructor photos. Accepted: images cannot run code, and the embed holds no secret a tracking pixel could leak.
+- **postMessage:** the embed sends a height number to `*` (nothing else crosses the frame). The pasted listener ignores any sender that is not its own iframe window or the DanceFlow origin, and clamps the value. The origin in the snippet is a code constant, not a request value, so it cannot be injected through a Host header.
+- **Snippet escaping:** `src` and `title` go through `escapeAttr`; the element id is a hash of the path.
+- **Builder access:** owner and admin only; verified with real sessions that an instructor and another studio's staff cannot open it.
+- **Result:** no defects found; no code change needed.
+
 ## Known gaps and follow-ups
 
 1. **Class description and price are not shown.** They are not in the public read model's output (`public_group_class_occurrences`) and the existing public class page does not show them either. Adding them needs a small migration of the public function (PROD-SQL-gated, owner approval) or a new public RPC.
