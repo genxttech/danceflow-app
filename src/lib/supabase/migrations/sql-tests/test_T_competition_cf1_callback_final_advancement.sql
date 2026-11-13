@@ -508,10 +508,12 @@ select pg_temp.expect_msg('I5 entries: a direct roster insert into the Final hea
 select pg_temp.expect_msg('I5 entries: re-pointing a roster row to another couple is refused',
   format($q$update public.event_competition_heat_entries set entry_id = %L where entry_id = %L and heat_id in (select id from public.event_competition_heats where round_id = %L)$q$,
     pg_temp.id('ent', 18, 4), pg_temp.id('ent', 18, 1), pg_temp.id('fin', 18)), 'COMP_ADVANCEMENT_FINAL_ENTRY_WRITER', '42501');
+reset role; -- U18-S: run as the owner role so this probe still checks that no A0 guard blocks a status-only scratch (client direct scratch is now refused by U18-S)
 select pg_temp.expect_ok('status-only scratch of a roster row still works (A6 owns the withdrawal guard)',
   format($q$update public.event_competition_heat_entries set status = 'scratched' where entry_id = %L and heat_id in (select id from public.event_competition_heats where round_id = %L)$q$, pg_temp.id('ent', 18, 3), pg_temp.id('fin', 18)));
 select pg_temp.expect_ok('and un-scratch it (no withdrawal row exists, so A6 does not guard it)',
   format($q$update public.event_competition_heat_entries set status = 'scheduled' where entry_id = %L and heat_id in (select id from public.event_competition_heats where round_id = %L)$q$, pg_temp.id('ent', 18, 3), pg_temp.id('fin', 18)));
+set role authenticated;
 select pg_temp.expect_msg('I5 dances: a dance cannot be added to the Final heat',
   format($q$insert into public.event_competition_heat_dances (event_id, heat_id, dance_key, dance_label, sequence_number) select %L, h.id, 'tango', 'Tango', 3 from public.event_competition_heats h where h.round_id = %L and h.status = 'scheduled'$q$, pg_temp.id('evt', 1), pg_temp.id('fin', 18)), 'COMP_ADVANCEMENT_', null);
 select pg_temp.expect_msg('I5 dances: the Final heat dance cannot be deleted',
