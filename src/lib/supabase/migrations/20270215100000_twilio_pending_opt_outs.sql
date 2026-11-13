@@ -1,8 +1,13 @@
 -- TW-4F compliance: durable pending opt-outs. GIT-ONLY: not applied anywhere. Roll the app back first (see rollback file).
 --
--- Why: an inbound STOP is claimed in sms_webhook_receipts BEFORE its consent change. If record_sms_inbound_opt_event then fails (twice, inline), Twilio
--- does not retry the 5xx, and the only other recovery (usage reconciler) is unscheduled and gated. The webhook parks the intent here and a scheduled
--- caller applies it with the canonical STOP. A later START supersedes it (latest intent wins), so a recovered STOP never undoes a START.
+-- Why: if record_sms_inbound_opt_event fails (twice, inline) for an inbound STOP, Twilio does not retry the 5xx, and the only other recovery (usage
+-- reconciler) is unscheduled and gated. The webhook parks the intent here and a scheduled caller applies it with the canonical STOP. A later START
+-- supersedes it (latest intent wins), so a recovered STOP never undoes a START. sms_pending_opt_out_blocks() suppresses ordinary outbound texts to the
+-- number while a parked row is open. The webhook claims a STOP in the replay ledger only AFTER it is applied or parked.
+--
+-- RELEASE STEP: apply this SQL and set SMS_PENDING_OPT_OUT_REQUIRED=1 in the app environment together, then smoke-test:
+--   select public.sms_pending_opt_out_blocks('00000000-0000-4000-8000-000000000000', '+15550000000');   -- must return false, not an error
+-- Operators: rows with attempts > 3 or last_error_code not null that stay open mean the canonical STOP keeps failing; alert on them (open = applied_at and superseded_at null).
 --
 -- Service-role only. No client-visible grants. Everything is idempotent.
 
@@ -113,5 +118,8 @@ grant execute on function public.sms_pending_opt_out_record(uuid, text, text) to
 grant execute on function public.sms_pending_opt_out_supersede(uuid, text) to service_role;
 grant execute on function public.sms_pending_opt_out_apply(integer) to service_role;
 grant execute on function public.sms_pending_opt_out_blocks(uuid, text) to service_role;
+
+-- PostgREST caches the schema: reload it so the new functions are callable at once (a stale cache answers PGRST202, which the app treats as "not installed").
+notify pgrst, 'reload schema';
 
 commit;

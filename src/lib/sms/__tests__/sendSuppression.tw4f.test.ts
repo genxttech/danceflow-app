@@ -65,6 +65,35 @@ describe("pendingOptOutState", () => {
   });
 });
 
+describe("SMS_PENDING_OPT_OUT_REQUIRED (set when the migration is applied)", () => {
+  const absent = () => rpcClient(() => ({ data: null, error: { code: "PGRST202" } })).client;
+  it("unset: a missing function is clear (pre-migration); set: PGRST202 / 42883 fail closed, e.g. a stale schema cache after the apply", async () => {
+    expect(await pendingOptOutState(absent(), STUDIO, PHONE, {})).toBe("clear");
+    for (const v of ["1", "on", "true", " ON "]) {
+      expect(await pendingOptOutState(absent(), STUDIO, PHONE, { SMS_PENDING_OPT_OUT_REQUIRED: v })).toBe("unknown");
+      expect(await pendingOptOutState(rpcClient(() => ({ data: null, error: { code: "42883" } })).client, STUDIO, PHONE, { SMS_PENDING_OPT_OUT_REQUIRED: v })).toBe("unknown");
+    }
+    expect(await pendingOptOutState(absent(), STUDIO, PHONE, { SMS_PENDING_OPT_OUT_REQUIRED: "0" })).toBe("clear");
+  });
+  it("set: a working function still answers normally", async () => {
+    const env = { SMS_PENDING_OPT_OUT_REQUIRED: "1" };
+    expect(await pendingOptOutState(rpcClient(parkedFor(STUDIO)).client, STUDIO, PHONE, env)).toBe("blocked");
+    expect(await pendingOptOutState(rpcClient(parkedFor(OTHER)).client, STUDIO, PHONE, env)).toBe("clear");
+  });
+  it("set: a text is not sent through sendTwilioSms or sendBilledSms when the function is missing", async () => {
+    process.env.SMS_PENDING_OPT_OUT_REQUIRED = "1";
+    try {
+      expect(await sendTwilioSms({ studioId: STUDIO, admin: absent(), to: PHONE, body: "Hi", messagingServiceSid: SERVICE })).toMatchObject({ ok: false, errorCode: "sms_consent_check_failed" });
+      const provider = new FakeBilledSmsProvider();
+      expect(await sendBilledSms(absent(), provider, input())).toEqual({ outcome: "refused", reason: "unavailable" });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(provider.sent).toHaveLength(0);
+    } finally {
+      delete process.env.SMS_PENDING_OPT_OUT_REQUIRED;
+    }
+  });
+});
+
 describe("sendTwilioSms (legacy sink backstop)", () => {
   const send = (admin: never, studioId = STUDIO) => sendTwilioSms({ studioId, admin, to: PHONE, body: "Hi", messagingServiceSid: SERVICE });
   it("an open parked STOP: no provider call", async () => {

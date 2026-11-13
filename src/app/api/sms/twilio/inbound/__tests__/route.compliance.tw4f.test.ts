@@ -155,49 +155,71 @@ describe("opt-out is durable and independent of billing", () => {
     expect(status()).toBe("opted_out");
   });
 
-  it("redelivery after a failed first attempt re-applies the STOP (the receipt must not swallow it), silently", async () => {
+  /** a replay ledger with the real semantics: seen() reads it, record() claims it (first caller wins) */
+  function ledger() {
+    const claimed = new Set<string>();
+    fake.current!.overrideRpc("sms_webhook_receipt_seen", (a) => ({ data: claimed.has(String(a.p_event_key)), error: null }));
+    fake.current!.overrideRpc("sms_webhook_receipt_record", (a) => {
+      const first = !claimed.has(String(a.p_event_key));
+      claimed.add(String(a.p_event_key));
+      return { data: first, error: null };
+    });
+    return claimed;
+  }
+  const STOP_SID = "SM" + "1".repeat(32);
+  const START_SID = "SM" + "2".repeat(32);
+
+  it("consent AND park both failed (503): no claim is recorded, so the redelivery is processed afresh and applies the STOP", async () => {
     fake.current = createFakeSupabase();
-    let receipts = 0;
-    fake.current.overrideRpc("sms_webhook_receipt_record", () => ({ data: receipts++ === 0, error: null }));
+    const claimed = ledger();
     let fail = true;
     fake.current.overrideRpc("record_sms_inbound_opt_event", () => (fail ? dbError() : optOutNow()));
-    expect((await POST(req("STOP"))).status).toBe(503);
+    expect((await POST(req("STOP", { extra: { MessageSid: STOP_SID } }))).status).toBe(503);
+    expect(claimed.size).toBe(0); // nothing claimed: the failure is not remembered as handled
     expect(status()).toBe("opted_in");
     fail = false;
-    const retry = await POST(req("STOP"));
+    const retry = await POST(req("STOP", { extra: { MessageSid: STOP_SID } }));
     expect(retry.status).toBe(200);
-    expect(await retry.text()).toBe(EMPTY_TWIML);
     expect(status()).toBe("opted_out");
+    expect(claimed.has(STOP_SID)).toBe(true);
   });
 
-  it("out of order: STOP (applied) -> START -> late redelivery of the same STOP leaves the texter opted IN", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    try {
-      fake.current = createFakeSupabase();
-      const seen = new Set<string>();
-      fake.current.overrideRpc("sms_webhook_receipt_record", (a) => {
-        const first = !seen.has(String(a.p_event_key));
-        seen.add(String(a.p_event_key));
-        return { data: first, error: null };
-      });
-      const stopSid = `SM${"1".repeat(32)}`;
-      const startSid = `SM${"2".repeat(32)}`;
-      vi.setSystemTime(new Date("2026-11-13T10:00:00.000Z"));
-      await POST(req("STOP", { extra: { MessageSid: stopSid } }));
-      expect(status()).toBe("opted_out");
-      vi.setSystemTime(new Date("2026-11-13T10:05:00.000Z"));
-      await POST(req("START", { extra: { MessageSid: startSid } }));
-      expect(status()).toBe("opted_in");
-      const before = rpc("record_sms_inbound_opt_event").length;
-      vi.setSystemTime(new Date("2026-11-13T10:06:00.000Z"));
-      const late = await POST(req("STOP", { extra: { MessageSid: stopSid } })); // out-of-order redelivery of the first STOP
-      expect(late.status).toBe(200);
-      expect(await late.text()).toBe(EMPTY_TWIML);
-      expect(rpc("record_sms_inbound_opt_event")).toHaveLength(before); // never re-applied
-      expect(status()).toBe("opted_in");
-    } finally {
-      vi.useRealTimers();
-    }
+  it("a STOP that was applied is claimed; its redelivery never re-applies (no consent RPC, no reply)", async () => {
+    fake.current = createFakeSupabase();
+    ledger();
+    await POST(req("STOP", { extra: { MessageSid: STOP_SID } }));
+    const before = rpc("record_sms_inbound_opt_event").length;
+    const dup = await POST(req("STOP", { extra: { MessageSid: STOP_SID } }));
+    expect(await dup.text()).toBe(EMPTY_TWIML);
+    expect(rpc("record_sms_inbound_opt_event")).toHaveLength(before);
+  });
+
+  it("out of order, with NO identity/log rows to order them: STOP (applied) -> START -> late redelivery of the STOP leaves the texter opted IN, no consent RPC", async () => {
+    fake.current = createFakeSupabase();
+    fake.current.rows("sms_contact_permissions").length = 0; // an unknown number: no client row, so no inbound log is ever written
+    ledger();
+    await POST(req("STOP", { extra: { MessageSid: STOP_SID } }));
+    await POST(req("START", { extra: { MessageSid: START_SID } }));
+    const before = rpc("record_sms_inbound_opt_event").length;
+    const late = await POST(req("STOP", { extra: { MessageSid: STOP_SID } }));
+    expect(late.status).toBe(200);
+    expect(await late.text()).toBe(EMPTY_TWIML);
+    expect(rpc("record_sms_inbound_opt_event")).toHaveLength(before);
+    expect(fake.current.rows("sms_message_logs")).toHaveLength(0);
+    // the START's effect stands: no phone-level opt-out is left behind
+    expect(fake.current.rows("sms_contact_permissions").filter((r) => r.consent_status === "opted_out")).toHaveLength(0);
+  });
+
+  it("a parked STOP is claimed too (consent failed, park succeeded): the redelivery does nothing", async () => {
+    fake.current = createFakeSupabase();
+    const claimed = ledger();
+    fake.current.overrideRpc("record_sms_inbound_opt_event", dbError);
+    fake.current.overrideRpc("sms_pending_opt_out_record", () => ({ data: true, error: null }));
+    expect((await POST(req("STOP", { extra: { MessageSid: STOP_SID } }))).status).toBe(200);
+    expect(claimed.has(STOP_SID)).toBe(true);
+    const before = rpc("record_sms_inbound_opt_event").length;
+    await POST(req("STOP", { extra: { MessageSid: STOP_SID } }));
+    expect(rpc("record_sms_inbound_opt_event")).toHaveLength(before);
   });
 
   it("a replayed START never changes consent (an old START must not undo a later STOP)", async () => {
@@ -207,13 +229,12 @@ describe("opt-out is durable and independent of billing", () => {
     expect(rpc("record_sms_inbound_opt_event")).toHaveLength(0);
   });
 
-  it("a replayed STOP re-applies the opt-out (idempotent, the safe direction): no reply, no usage record", async () => {
-    process.env.SMS_INBOUND_RECORDING = "on";
+  it("a START whose first supersede call fails is retried once", async () => {
     fake.current = createFakeSupabase();
-    fake.current.overrideRpc("sms_webhook_receipt_record", () => ({ data: false, error: null }));
-    expect(await (await POST(req("STOP"))).text()).toBe(EMPTY_TWIML);
-    expect(rpc("record_sms_inbound_opt_event")).toHaveLength(1);
-    expect(rpc("tw4_inbound_record")).toHaveLength(0);
+    let n = 0;
+    fake.current.overrideRpc("sms_pending_opt_out_supersede", () => (++n === 1 ? dbError() : { data: 1, error: null }));
+    expect((await POST(req("START"))).status).toBe(200);
+    expect(n).toBe(2);
   });
 });
 

@@ -35,6 +35,12 @@ describe("20270215100000 pending opt-outs migration shape (Git-only, never appli
     expect(forward).toContain("grant execute on function public.sms_pending_opt_out_blocks(uuid, text) to service_role;");
     expect(rollback).toContain("drop function if exists public.sms_pending_opt_out_blocks(uuid, text);");
   });
+  it("reloads the PostgREST schema cache before commit and documents the release step and smoke call", () => {
+    expect(forward.indexOf("notify pgrst, 'reload schema';")).toBeGreaterThan(forward.indexOf("grant execute on function public.sms_pending_opt_out_blocks"));
+    expect(forward.indexOf("notify pgrst, 'reload schema';")).toBeLessThan(forward.lastIndexOf("commit;"));
+    expect(forward).toContain("SMS_PENDING_OPT_OUT_REQUIRED=1");
+    expect(forward).toContain("select public.sms_pending_opt_out_blocks(");
+  });
   it("has a re-runnable rollback (dynamic table check) that refuses to drop open opt-outs", () => {
     expect(rollback).toContain("execute 'select exists (select 1 from public.studio_sms_pending_opt_outs");
     expect(rollback).toContain("to_regclass('public.studio_sms_pending_opt_outs') is not null");

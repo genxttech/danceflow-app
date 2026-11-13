@@ -136,7 +136,9 @@ describe.each(["billed", "legacy"] as const)("%s path", (mode) => {
       fetchMock.mockClear();
       seed(mode, check);
       await dispatchQueuedOutboundDeliveries(25);
-      expect(delivery().status).not.toBe("sent");
+      // RETRYABLE, not terminal: the row stays queued (never failed or skipped) and carries the lookup code, so the next run tries again
+      expect(delivery().status).toBe("queued");
+      expect(String(delivery().error_message ?? "")).toContain("sms_consent_lookup_failed");
       sentNothing();
     }
   });

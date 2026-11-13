@@ -813,10 +813,10 @@ async function sendSms(
   }
 
   // TW-4F: checked here at SEND time (a delivery queued or retried before the STOP is claimed and sent now). A parked STOP suppresses the text until it is
-  // applied or a START supersedes it; "cannot establish" is retried, never sent.
+  // applied or a START supersedes it; "cannot establish" is RETRYABLE (stays queued, never sent), not terminal.
   const parked = await pendingOptOutState(supabase, row.studio_id, phoneE164);
   if (parked === "blocked") return skipSms("sms_opted_out");
-  if (parked === "unknown") return { ok: false, error: "sms_consent_lookup_failed" };
+  if (parked === "unknown") return { ok: false, retry: true, code: "sms_consent_lookup_failed" };
 
   const { data: studio } = await supabase
     .from("studios")

@@ -52,9 +52,9 @@ function optOutTypeKeyword(optOutType: string | null | undefined): InboundKeywor
  * Surrounding whitespace, quotes and sentence punctuation ("STOP.", "stop!", "\"STOP\"", never "?" on an opt-out word) around an otherwise exact keyword. Tolerated for opt-out and
  * HELP only: treating "STOP." as a stop is always the safe direction, while an opt-in (START / YES) must stay a deliberate, exact message.
  */
-const OPT_OUT_DECORATION = /^[s"'`.,!;:()‘’“”-]+|[s"'`.,!;:()‘’“”-]+$/g;
+const OPT_OUT_DECORATION = /^[\s"'`.,!;:()\u2018\u2019\u201c\u201d-]+|[\s"'`.,!;:()\u2018\u2019\u201c\u201d-]+$/g;
 /** HELP additionally tolerates "?" ("Help?" is a plain request for help). A "?" is NOT tolerated on an opt-out word: "Cancel?" / "End?" are questions, not an unsubscribe. */
-const HELP_DECORATION = /^[s"'`.,!?;:()‘’“”-]+|[s"'`.,!?;:()‘’“”-]+$/g;
+const HELP_DECORATION = /^[\s"'`.,!?;:()\u2018\u2019\u201c\u201d-]+|[\s"'`.,!?;:()\u2018\u2019\u201c\u201d-]+$/g;
 
 export function classifyInboundKeywordBody(body: string): InboundKeyword {
   const normalized = String(body ?? "").trim().toUpperCase();

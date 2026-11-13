@@ -11,7 +11,7 @@ import { resolveInboundKeyword } from "@/lib/sms/inboundKeywords";
 import { inboundReplyAllowed, parseInboundCounts, recordInboundUsage, type InboundReplyKind } from "@/lib/sms/inboundUsage";
 import { resolveStudioFromInboundSender } from "@/lib/sms/studioSender";
 import { recordPendingOptOut, supersedePendingOptOuts } from "@/lib/sms/pendingOptOuts";
-import { buildWebhookAccountDeps, recordWebhookReceipt } from "@/lib/sms/twilioIsv/webhookRuntime";
+import { buildWebhookAccountDeps, receiptSeen, recordWebhookReceipt } from "@/lib/sms/twilioIsv/webhookRuntime";
 import { twilioFormHasDuplicateKeys, twilioFormParams } from "@/lib/sms/twilioWebhook";
 import { verifyTwilioWebhookAccount, webhookMayActForStudio, webhookReceiptKey } from "@/lib/sms/twilioWebhookAccount";
 import { cleanTextValue } from "@/lib/validation/forms";
@@ -66,20 +66,6 @@ function emptyTwiml() {
 /** Non-2xx: a STOP whose opt-out could not be recorded must never be acknowledged as handled. */
 function unavailableResponse() {
   return new Response("Service unavailable", { status: 503, headers: { "Content-Type": "text/plain" } });
-}
-
-/** True when the inbound log shows a START from this texter AFTER this STOP's own log entry. Any doubt (no entry, read failure) is "no": re-applying a STOP is the safe direction. */
-async function startAfterThisStop(supabase: NonNullable<ReturnType<typeof getServiceSupabase>>, studioId: string, phone: string, messageSid: string): Promise<boolean> {
-  try {
-    const base = () => supabase.from("sms_message_logs").select("sent_at").eq("studio_id", studioId).eq("phone_e164", phone).eq("direction", "inbound");
-    const own = await base().eq("provider_message_id", messageSid).eq("message_type", "stop").order("sent_at", { ascending: true }).limit(1);
-    const start = await base().eq("message_type", "start").order("sent_at", { ascending: false }).limit(1);
-    const ownAt = Date.parse(String(own.data?.[0]?.sent_at ?? ""));
-    const startAt = Date.parse(String(start.data?.[0]?.sent_at ?? ""));
-    return !own.error && !start.error && Number.isFinite(ownAt) && Number.isFinite(startAt) && startAt > ownAt;
-  } catch {
-    return false;
-  }
 }
 
 // A2P-1A: only requests that fail verification count against the per-IP limiter, so
@@ -195,24 +181,22 @@ export async function POST(request: Request) {
   // TW-4F replay protection: each inbound MessageSid is processed once. A replayed (or retried) delivery gets an empty
   // response: no second reply and no second consent change. If the ledger is unreachable the message is processed anyway.
   const receiptKey = webhookReceiptKey("inbound", params);
+  const receiptAccount = signer.kind === "subaccount" ? signer.accountSid : null;
+  // A STOP is claimed only AFTER its opt-out is applied or parked (below): a delivery that finds the claim already there therefore provably succeeded the
+  // first time and is never re-applied (an out-of-order redelivery must not undo a later START), while one whose first attempt could not be applied or
+  // parked (answered 503, no claim) is processed afresh when it is redelivered. Every other message is claimed here, before its effects.
+  let deferStopReceipt = false;
   if (receiptKey) {
-    const receipt = await recordWebhookReceipt(supabase, "inbound", receiptKey, signer.kind === "subaccount" ? signer.accountSid : null);
-    if (receipt === "duplicate") {
-      // A redelivery of a STOP re-applies the opt-out (idempotent, and the safe direction), so a first attempt whose consent change failed after the
-      // receipt was recorded is healed by the retry. Silent: no second reply, no log, no usage record. A replayed START is never re-applied: an old,
-      // captured START must not undo a later STOP.
-      // ...but only when no START of the same texter arrived after this STOP (an out-of-order redelivery must not undo a deliberate START): the inbound
-      // log (written before any consent change, for every identified contact) orders them.
-      if (keyword === "stop" && !(await startAfterThisStop(supabase, routing.studioId, from, messageSid))) {
-        const { error } = await supabase.rpc("record_sms_inbound_opt_event", { p_studio_id: routing.studioId, p_phone_e164: from, p_event: "stop" });
-        if (error) {
-          console.error("sms_inbound_consent_update_failed", error.code ?? "unknown");
-          if (!(await recordPendingOptOut(supabase, { studioId: routing.studioId, phone: from, messageSid: receiptKey }))) return unavailableResponse();
-        }
-      }
-      return emptyTwiml();
+    if (keyword === "stop") {
+      const seen = await receiptSeen(supabase, "inbound", receiptKey);
+      if (seen === "seen") return emptyTwiml();
+      if (seen === "unavailable") console.warn("sms_inbound_receipt_unavailable");
+      deferStopReceipt = true;
+    } else {
+      const receipt = await recordWebhookReceipt(supabase, "inbound", receiptKey, receiptAccount);
+      if (receipt === "duplicate") return emptyTwiml();
+      if (receipt === "unavailable") console.warn("sms_inbound_receipt_unavailable");
     }
-    if (receipt === "unavailable") console.warn("sms_inbound_receipt_unavailable");
   }
 
   const studioId = routing.studioId;
@@ -303,7 +287,9 @@ export async function POST(request: Request) {
     //   START -> restores only rows with recorded prior consent and lifts the studio+phone
     //            block; it never creates consent, even though Twilio has unblocked the number.
     // A START is the texter's newest intent: any STOP of theirs still waiting in the pending-opt-out queue must not be applied after it.
-    if (keyword === "start" && !(await supersedePendingOptOuts(supabase, { studioId, phone: from }))) console.warn("sms_pending_opt_out_supersede_failed");
+    if (keyword === "start" && !(await supersedePendingOptOuts(supabase, { studioId, phone: from })) && !(await supersedePendingOptOuts(supabase, { studioId, phone: from }))) {
+      console.warn("sms_pending_opt_out_supersede_failed"); // safe direction: a waiting STOP may still be applied (the texter can START again)
+    }
     const applyConsent = () => supabase.rpc("record_sms_inbound_opt_event", { p_studio_id: studioId, p_phone_e164: from, p_event: keyword });
     let consent = await applyConsent();
     // one inline retry: a transient failure must not leave a STOP unrecorded (the START direction is fail-safe and is not retried)
@@ -315,9 +301,12 @@ export async function POST(request: Request) {
       console.error("sms_inbound_consent_update_failed", consentError.code ?? "unknown");
       consentFailed = true;
       // A STOP that could not be applied is parked durably (applied later by the scheduled sender, before it can text anyone) and answered as handled.
-      // Only when even that cannot be stored is it not acknowledged: non-2xx, and a redelivery re-applies it (see the duplicate branch above).
+      // Only when even that cannot be stored is it not acknowledged: non-2xx and NO claim is recorded, so a redelivery is processed afresh.
       if (keyword === "stop" && !(await recordPendingOptOut(supabase, { studioId, phone: from, messageSid: messageSid || null }))) return unavailableResponse();
     }
+
+    // the STOP is now applied or parked: claim it. A concurrent first delivery that lost the race stays silent (its opt-out above was idempotent).
+    if (deferStopReceipt && receiptKey && (await recordWebhookReceipt(supabase, "inbound", receiptKey, receiptAccount)) === "duplicate") return emptyTwiml();
 
     if (keyword === "stop") {
       const stopReply = buildSmsStopReply(studioName);

@@ -5,7 +5,7 @@ import { classifyInboundKeywordBody, resolveInboundKeyword } from "@/lib/sms/inb
 describe("fallback keyword classification tolerates case, whitespace and trailing punctuation", () => {
   const stopVariants = [
     "STOP", "stop", "Stop", "  stop \n", "\tSTOP\r\n", " STOP ", "STOP.", "stop!", "Stop.  ", "STOP!!",
-    "\"STOP\"", "END.", "Quit!", "UNSUBSCRIBE.", "stopall",
+    "\"STOP\"", "\"STOP .\"", "STOP  .", "STOP	!", "END.", "Quit!", "UNSUBSCRIBE.", "stopall",
   ];
   it.each(stopVariants)("%j is an opt-out", (body) => {
     expect(classifyInboundKeywordBody(body)).toBe("stop");
