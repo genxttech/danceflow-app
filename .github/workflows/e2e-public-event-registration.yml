@@ -17,6 +17,11 @@ on:
   # so it must report on every pull request. A paths filter would leave PRs outside it waiting forever for the check.
   # The browser-e2e job still gates itself on secrets.
   pull_request: {}
+  # Also run on every merge to main. The required check runs on the pull request's merge ref as of its last push, and the main ruleset does not require
+  # branches to be up to date, so two PRs that are each green alone can break main together (#470 + #472 did, fixed in #476). This run makes such a break visible
+  # on the merge commit itself instead of in the next unrelated PR.
+  push:
+    branches: [main]
   workflow_dispatch: {}
 
 # Never grant this workflow more than it needs.
