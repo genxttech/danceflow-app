@@ -28,6 +28,13 @@ describe("20270215100000 pending opt-outs migration shape (Git-only, never appli
     expect(forward).toContain("or not exists (select 1 from public.studios s where s.id = p_studio_id) then");
     expect(forward).toContain("interval '90 days' limit 100");
   });
+  it("the send gate reads only OPEN rows of the exact studio + phone, and is service-role only", () => {
+    const body = forward.slice(forward.indexOf("function public.sms_pending_opt_out_blocks"), forward.indexOf("-- Applies waiting opt-outs"));
+    expect(body).toContain("studio_id = p_studio_id and phone_e164 = trim(coalesce(p_phone_e164, ''))");
+    expect(body).toContain("applied_at is null and superseded_at is null");
+    expect(forward).toContain("grant execute on function public.sms_pending_opt_out_blocks(uuid, text) to service_role;");
+    expect(rollback).toContain("drop function if exists public.sms_pending_opt_out_blocks(uuid, text);");
+  });
   it("has a re-runnable rollback (dynamic table check) that refuses to drop open opt-outs", () => {
     expect(rollback).toContain("execute 'select exists (select 1 from public.studio_sms_pending_opt_outs");
     expect(rollback).toContain("to_regclass('public.studio_sms_pending_opt_outs') is not null");

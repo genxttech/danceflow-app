@@ -162,6 +162,8 @@ describe("resolveStudioFromInboundSender", () => {
   });
 });
 
+const CLEAR_ADMIN = { rpc: async () => ({ data: false, error: null }) } as never;
+
 describe("no global messaging service fallback", () => {
   it("sendTwilioSms refuses to call Twilio without a valid studio Messaging Service SID", async () => {
     const fetchMock = vi.fn();
@@ -169,7 +171,7 @@ describe("no global messaging service fallback", () => {
     process.env.TWILIO_MESSAGING_SERVICE_SID = SERVICE_A;
 
     for (const messagingServiceSid of ["", "not-a-sid", `QE${"0f".repeat(16)}`]) {
-      const result = await sendTwilioSms({ to: "+15550100123", body: "Hi", messagingServiceSid });
+      const result = await sendTwilioSms({ studioId: "studio-1", admin: CLEAR_ADMIN, to: "+15550100123", body: "Hi", messagingServiceSid });
       expect(result).toMatchObject({ ok: false, errorCode: "sms_studio_not_approved" });
     }
 
@@ -181,7 +183,7 @@ describe("no global messaging service fallback", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ sid: "SM1", status: "queued" })));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await sendTwilioSms({ to: "+15550100123", body: "Hi", messagingServiceSid: SERVICE_B });
+    const result = await sendTwilioSms({ studioId: "studio-1", admin: CLEAR_ADMIN, to: "+15550100123", body: "Hi", messagingServiceSid: SERVICE_B });
 
     expect(result.ok).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);

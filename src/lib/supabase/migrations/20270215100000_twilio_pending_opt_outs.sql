@@ -58,6 +58,18 @@ begin
   return v_rows;
 end $$;
 
+-- The send gate: true while an OPEN parked opt-out exists for this studio + phone (applied_at and superseded_at both null). Applied rows are covered by the
+-- canonical consent; superseded (START) rows never block. Read by every outbound send path just before it reserves or calls the provider.
+create or replace function public.sms_pending_opt_out_blocks(p_studio_id uuid, p_phone_e164 text)
+returns boolean language sql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+  select exists (
+    select 1 from public.studio_sms_pending_opt_outs
+     where studio_id = p_studio_id and phone_e164 = trim(coalesce(p_phone_e164, ''))
+       and applied_at is null and superseded_at is null);
+$$;
+
 -- Applies waiting opt-outs with the canonical STOP. Each row is its own subtransaction: one failure never blocks the others. Rows locked by a
 -- concurrent supersede/apply are skipped and picked up by the next run.
 create or replace function public.sms_pending_opt_out_apply(p_limit integer default 50)
@@ -96,8 +108,10 @@ end $$;
 revoke all on function public.sms_pending_opt_out_record(uuid, text, text) from public, anon, authenticated, service_role;
 revoke all on function public.sms_pending_opt_out_supersede(uuid, text) from public, anon, authenticated, service_role;
 revoke all on function public.sms_pending_opt_out_apply(integer) from public, anon, authenticated, service_role;
+revoke all on function public.sms_pending_opt_out_blocks(uuid, text) from public, anon, authenticated, service_role;
 grant execute on function public.sms_pending_opt_out_record(uuid, text, text) to service_role;
 grant execute on function public.sms_pending_opt_out_supersede(uuid, text) to service_role;
 grant execute on function public.sms_pending_opt_out_apply(integer) to service_role;
+grant execute on function public.sms_pending_opt_out_blocks(uuid, text) to service_role;
 
 commit;
