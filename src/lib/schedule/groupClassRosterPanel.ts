@@ -13,7 +13,10 @@ import { seriesRosterBannerMessage } from "@/lib/schedule/groupClassSeriesRoster
 
 type SupabaseLike = {
   from: (table: string) => any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  rpc?: (fn: string, args: Record<string, unknown>) => any; // eslint-disable-line @typescript-eslint/no-explicit-any
 };
+
+export type RosterClientName = { firstName: string; lastName: string };
 
 export type RosterCapacityState = "unlimited" | "open" | "full" | "over";
 
@@ -79,6 +82,8 @@ export type RosterEntry = {
   attendeeId: string;
   clientId: string;
   name: string;
+  /** False when no name source was readable and `name` is the "Unnamed dancer" placeholder. */
+  nameKnown: boolean;
   enrollment: "enrolled" | "removed";
   attendanceStatus: string | null;
   attendanceLabel: string | null;
@@ -126,19 +131,25 @@ export function buildRosterPanel(params: {
   capacity: number | null;
   includeFunding: boolean;
   canManage: boolean;
+  /** Names for attendees whose `clients` embed RLS hid (the assigned instructor's view), from get_class_roster_names_for_instructor. */
+  namesByClient?: Map<string, RosterClientName>;
 }): RosterPanelData {
   const attendanceByClient = new Map<string, string>();
   for (const row of params.attendance) attendanceByClient.set(row.client_id, row.status);
 
   const toEntry = (row: AttendeeRow): RosterEntry => {
-    const client = one(row.clients);
+    const embedded = one(row.clients);
+    const fallback = params.namesByClient?.get(row.client_id);
+    const first = embedded ? embedded.first_name : fallback?.firstName;
+    const last = embedded ? embedded.last_name : fallback?.lastName;
     const status = attendanceByClient.get(row.client_id) ?? null;
     const terminal = isTerminalAttendance(status);
     const enrolled = row.status === "booked";
     return {
       attendeeId: row.id,
       clientId: row.client_id,
-      name: displayName(client?.first_name, client?.last_name),
+      name: displayName(first, last),
+      nameKnown: Boolean(`${first ?? ""}${last ?? ""}`.trim()),
       enrollment: enrolled ? "enrolled" : "removed",
       attendanceStatus: status,
       attendanceLabel: rosterAttendanceLabel(status),
@@ -175,12 +186,21 @@ export async function loadRosterPanel(params: {
   capacity: number | null;
   includeFunding: boolean;
   canManage: boolean;
+  /**
+   * True only when the viewer reaches this class as its assigned instructor (not broad staff): clients RLS hides attendee names from them, so the names come from
+   * get_class_roster_names_for_instructor, which re-checks the assignment itself.
+   */
+  assignedInstructorView?: boolean;
 }): Promise<RosterPanelData> {
   const attendeeSelect = params.includeFunding
     ? "id, client_id, status, billing_type, payment_status, clients(first_name, last_name), client_packages(name_snapshot), client_memberships(name_snapshot)"
     : "id, client_id, status, clients(first_name, last_name)";
 
-  const [{ data: attendees, error: attendeeError }, { data: attendance, error: attendanceError }] = await Promise.all([
+  const namesPromise: Promise<Map<string, RosterClientName> | undefined> = params.assignedInstructorView
+    ? loadInstructorRosterNames(params.supabase, params.appointmentId)
+    : Promise.resolve(undefined);
+
+  const [{ data: attendees, error: attendeeError }, { data: attendance, error: attendanceError }, namesByClient] = await Promise.all([
     params.supabase
       .from("appointment_attendees")
       .select(attendeeSelect)
@@ -191,6 +211,7 @@ export async function loadRosterPanel(params: {
       .select("client_id, status")
       .eq("studio_id", params.studioId)
       .eq("appointment_id", params.appointmentId),
+    namesPromise,
   ]);
 
   if (attendeeError) throw new Error(`Failed to load the class roster: ${attendeeError.message}`);
@@ -202,7 +223,25 @@ export async function loadRosterPanel(params: {
     capacity: params.capacity,
     includeFunding: params.includeFunding,
     canManage: params.canManage,
+    namesByClient,
   });
+}
+
+type RosterNameRow = { client_id: string; first_name: string | null; last_name: string | null };
+
+/** Names of one class's attendees, for its currently assigned instructor only (zero rows for anyone else). Shared by the web panel and the staff API. */
+export async function loadInstructorRosterNames(supabase: SupabaseLike, appointmentId: string) {
+  if (!supabase.rpc) throw new Error("This client cannot call the roster names function.");
+  const { data, error } = await supabase.rpc("get_class_roster_names_for_instructor", {
+    target_appointment_id: appointmentId,
+  });
+  if (error) throw new Error(`Failed to load class roster names: ${error.message}`);
+  return new Map<string, RosterClientName>(
+    ((data ?? []) as RosterNameRow[]).map((row) => [
+      row.client_id,
+      { firstName: row.first_name ?? "", lastName: row.last_name ?? "" },
+    ]),
+  );
 }
 
 // ---------------------------------------------------------------------------
