@@ -144,7 +144,7 @@ export async function reconcileSmsUsage(
     const result = (settled.data ?? {}) as { outcome?: unknown; charged_cents?: unknown; replayed?: unknown };
     if (result.outcome === "settled") {
       summary.settled += 1;
-      if (result.replayed !== true && typeof result.charged_cents === "number") summary.chargedCents += result.charged_cents;
+      if (result.replayed !== true && typeof result.charged_cents === "number" && Number.isSafeInteger(result.charged_cents) && result.charged_cents >= 0) summary.chargedCents += result.charged_cents;
     } else if (result.outcome === "pending") summary.pending += 1;
     else if (result.outcome === "review") summary.review += 1;
     else summary.errors += 1;
