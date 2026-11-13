@@ -117,6 +117,30 @@ Any website may frame the two embed routes; there is no allowed-origins list in 
 2. Only then deploy the app. The app deployed first (or the SQL rolled back) fails closed: every embed is 404; public pages and the rest of the app are unaffected; the builder says settings are unavailable.
 3. Rollback: roll the app back first, then run `rollback/20270216090000_website_embed_settings_rollback.sql`. Rollback deletes stored settings; a later re-apply starts every studio at the defaults (embeds on, no description/price, events on).
 
+### DEV release preflight (2026-11-13, read-only; nothing applied)
+
+Run through `sb.sh dev-read` against DEV (`epdrtzcydvnoidwrepqz`) at main `07422c62`.
+
+| Check | Result |
+|---|---|
+| Objects the migration creates (table and five functions) | none present: clean first apply |
+| Tables and columns it reads (`studios`, `user_studio_roles.active/role`, `appointments`, `group_class_enrollment_policies`, `group_class_series.description`, `events`) | all present with the expected types; `appointment_type` has `group_class` |
+| Roles `anon`, `authenticated`, `service_role` | present |
+| Existing read model `public_group_class_occurrences` / `_series` | present |
+| `events` RLS | on; `events_public_read_published` lets anon read published public/unlisted events (the embed also requires `visibility='public'` and the directory flag) |
+| Expected DEV effect today | 12 public studios (10 trialing, 2 active); 0 future public classes and 0 future public events, so embeds will be empty until DEV fixtures exist |
+| Migration history table | stale (latest 20261014090519): DEV is not tracked through it, so the apply is by file hash through `sb.sh`, as for other migrations |
+
+Files and hashes (SHA-256, LF only):
+- `20270216090000_website_embed_settings.sql`: `2ddcb78b988b91c955b0dd3cc1cb7891f0343262c68965f3b3b9d50031b53991`
+- `rollback/20270216090000_website_embed_settings_rollback.sql`: `d32a7bca5da22a138600f8421cf5536af9d1d776145ad4dc7e72cbfafa420264`
+
+Sequence once hosted SQL is authorized (not executed yet):
+1. `sb.sh dev-apply` the migration with the hash above.
+2. `sb.sh dev-read scripts/qa/embeds/postflight.sql` must return `"all_ok": true` (privilege matrix, RLS, search_path, no API table access; validated against a disposable database).
+3. Create DEV fixtures for one studio (public class with a policy, one public event) and run the app against DEV before PROD. The acceptance script cannot run against hosted DEV as is (it uses the disposable stack's admin and mail tools), so DEV verification is the postflight check plus manual checks of builder, kill switch and a public embed.
+4. PROD only with separate owner approval of the same file hash; then `prod-read` the same postflight, then the app release.
+
 ## Known gaps and follow-ups
 
 1. **Hosted SQL not applied (release gate).** `20270216090000_website_embed_settings.sql` is Git-only. Class descriptions and prices, the settings panel and the kill switch need it applied to DEV and PROD first (owner-authorized, SQL before app). Rollback file: `rollback/20270216090000_website_embed_settings_rollback.sql`. Without it, embeds fail closed and the settings panel says so.
