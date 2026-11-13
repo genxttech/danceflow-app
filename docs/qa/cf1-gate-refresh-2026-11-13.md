@@ -29,7 +29,7 @@ Still open (unchanged): U18 and U28 (browser/PostgREST), U24 (owner decision), U
 
 | # | Prerequisite | Candidate | Status |
 |---|---|---|---|
-| P1 | **U18 danced/disqualified guard**: client roles cannot set or leave `danced`/`disqualified` on heat entries | PR 483, migration 20270215093000 (+ rollback, 17-check suite) | draft / held for final approval; Git-only; not applied anywhere hosted |
+| P1 | **U18 danced/disqualified guard**: client roles cannot set or leave `danced`/`disqualified` on heat entries | PR 483, migration 20270215093000 (+ rollback, 17-check suite) | Ready for code-owner review (not merged); Git-only; not applied anywhere hosted |
 | P2 | **U18-S scratch audit-integrity guard**: client roles cannot scratch or un-scratch a heat entry except through the audited lifecycle workflow | PR 487, migration 20270215094000 (+ rollback, 16-check suite) | draft; Git-only; not applied anywhere hosted |
 
 Neither is a prerequisite for the current dark state (Finals, registration and public results dark; PROD has 0 danced/disqualified heat entries and 0 competition payments).
