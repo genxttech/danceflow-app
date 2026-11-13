@@ -67,9 +67,10 @@ select pg_temp.chk('authenticated: -> disqualified refused (42501)',
   pg_temp.try_as('authenticated', $q$update public.event_competition_heat_entries set status = 'disqualified' where id = '00000000-0000-0000-0000-cf1018900002'$q$) like '42501 COMP_U18_HEAT_ENTRY_STATUS_WRITER%');
 select pg_temp.chk('service_role: -> danced refused',
   pg_temp.try_as('service_role', $q$update public.event_competition_heat_entries set status = 'danced' where id = '00000000-0000-0000-0000-cf1018900002'$q$) like '%COMP_U18_HEAT_ENTRY_STATUS_WRITER%');
-select pg_temp.chk('authenticated: INSERT of a danced heat entry refused',
+select pg_temp.chk('authenticated: INSERT of a danced heat entry is refused (by this guard or an earlier schedule guard) and no row appears',
   pg_temp.try_as('authenticated', $q$insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order, status)
-    values ('00000000-0000-0000-0000-cf1018e00001', '00000000-0000-0000-0000-cf1018003001', '00000000-0000-0000-0000-cf1018d00001', '00000000-0000-0000-0000-cf1018800005', 9, 'danced')$q$) like '%COMP_U18_HEAT_ENTRY_STATUS_WRITER%');
+    values ('00000000-0000-0000-0000-cf1018e00001', '00000000-0000-0000-0000-cf1018003001', '00000000-0000-0000-0000-cf1018d00001', '00000000-0000-0000-0000-cf1018800005', 9, 'danced')$q$) <> 'OK'
+  and not exists (select 1 from public.event_competition_heat_entries where entry_id = '00000000-0000-0000-0000-cf1018800005'));
 select pg_temp.chk('the refused writes changed nothing (rows 2 and 3 still scheduled)',
   (select count(*) from public.event_competition_heat_entries where id in ('00000000-0000-0000-0000-cf1018900002', '00000000-0000-0000-0000-cf1018900003') and status = 'scheduled') = 2);
 
@@ -91,6 +92,21 @@ select pg_temp.chk('a SECURITY DEFINER function called by a client role can stil
 update public.event_competition_heat_entries set status = 'danced' where id = '00000000-0000-0000-0000-cf1018900001';
 select pg_temp.chk('the migration-owner / superuser session can still write danced',
   (select status from public.event_competition_heat_entries where id = '00000000-0000-0000-0000-cf1018900001') = 'danced');
+
+-- review hardening: a client cannot add its own trigger to rewrite the status; an unknown client-like role is refused (allowlist); the trigger is AFTER
+select pg_temp.chk('TRIGGER privilege on the table is revoked from client roles',
+  not has_table_privilege('authenticated', 'public.event_competition_heat_entries', 'TRIGGER') and not has_table_privilege('anon', 'public.event_competition_heat_entries', 'TRIGGER')
+  and not has_table_privilege('service_role', 'public.event_competition_heat_entries', 'TRIGGER'));
+select pg_temp.chk('authenticated: creating its own trigger on the table is refused',
+  pg_temp.try_as('authenticated', $q$create trigger zz_probe before update on public.event_competition_heat_entries for each row execute function public.cf1_u18_guard_heat_entry_status()$q$) like '42501%',
+  pg_temp.try_as('authenticated', $q$create trigger zz_probe2 before update on public.event_competition_heat_entries for each row execute function public.cf1_u18_guard_heat_entry_status()$q$));
+select pg_temp.chk('the guard is an AFTER row trigger (sees the final status)',
+  (select (tgtype & 2) = 0 from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and tgname = 'cf1_u18_guard_heat_entry_status'));
+create role cf1018_probe nologin;
+grant authenticated to cf1018_probe;
+select pg_temp.chk('an unknown client-like role (member of authenticated) is refused: allowlist, not denylist',
+  pg_temp.try_as('cf1018_probe', $q$update public.event_competition_heat_entries set status = 'danced' where id = '00000000-0000-0000-0000-cf1018900003'$q$) like '%COMP_U18_HEAT_ENTRY_STATUS_WRITER%',
+  pg_temp.try_as('cf1018_probe', $q$update public.event_competition_heat_entries set status = 'danced' where id = '00000000-0000-0000-0000-cf1018900003'$q$));
 
 do $$
 declare v_fail text; v_n integer;

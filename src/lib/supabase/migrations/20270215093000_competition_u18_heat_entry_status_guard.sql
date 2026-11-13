@@ -6,11 +6,13 @@
 -- same statuses as "locked" for refunds. No app code and no migration function writes these two statuses today (verified), so nothing
 -- legitimate depends on a client writing them.
 --
--- Fix: a BEFORE INSERT OR UPDATE OF status trigger refuses a change INTO danced / disqualified when the session role is a client role
--- (authenticated, anon, service_role). SECURITY INVOKER on purpose, so current_user is the caller; a future SECURITY DEFINER writer runs as
--- its owner and is unaffected. Setting the same value again is not a change. Other statuses are untouched. 'scratched' is deliberately NOT
+-- Fix: an AFTER INSERT OR UPDATE row trigger refuses a row that ENDS UP in danced / disqualified (new status differs from the old one) unless the
+-- session role is one of the owner roles (postgres, supabase_admin): an allowlist, so any other role, including a future client-like role, is refused.
+-- AFTER, not BEFORE, so it sees the final status even if another BEFORE trigger rewrites it (a client holding the default TRIGGER privilege could
+-- otherwise add one; that privilege is revoked below as well). SECURITY INVOKER on purpose, so current_user is the caller; a SECURITY DEFINER writer
+-- runs as its owner and is unaffected. Setting the same value again is not a change. Other statuses are untouched. 'scratched' is deliberately NOT
 -- covered here (the scratch RPCs and A6 withdrawal write it, some as invoker); see the U18 note in the QA addendum.
--- No data changes. Rollback: rollback/20270215093000_competition_u18_heat_entry_status_guard_rollback.sql.
+-- Also revokes the table TRIGGER privilege from the client roles (Supabase default grants hand it out; no client use exists). No data changes. Rollback: rollback/20270215093000_competition_u18_heat_entry_status_guard_rollback.sql.
 
 create function public.cf1_u18_guard_heat_entry_status()
 returns trigger
@@ -21,7 +23,7 @@ as $$
 begin
   if new.status in ('danced', 'disqualified')
      and (tg_op = 'INSERT' or old.status is distinct from new.status)
-     and current_user in ('authenticated', 'anon', 'service_role') then
+     and current_user not in ('postgres', 'supabase_admin') then
     raise exception 'COMP_U18_HEAT_ENTRY_STATUS_WRITER: a heat entry cannot be set to % by a direct table write.', new.status
       using errcode = '42501';
   end if;
@@ -31,6 +33,8 @@ $$;
 revoke all on function public.cf1_u18_guard_heat_entry_status() from public, anon, authenticated, service_role;
 
 create trigger cf1_u18_guard_heat_entry_status
-  before insert or update of status on public.event_competition_heat_entries
+  after insert or update on public.event_competition_heat_entries
   for each row execute function public.cf1_u18_guard_heat_entry_status();
 alter table public.event_competition_heat_entries enable always trigger cf1_u18_guard_heat_entry_status;
+
+revoke trigger on public.event_competition_heat_entries from anon, authenticated, service_role;
