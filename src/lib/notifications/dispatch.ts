@@ -16,6 +16,7 @@ import {
 } from "@/lib/sms/compliance";
 import { resolveStudioSmsSender } from "@/lib/sms/studioSender";
 import { estimateSmsSegments, sendTwilioSms } from "@/lib/sms/twilio";
+import { pendingOptOutState } from "@/lib/sms/sendSuppression";
 import { replayMeaning, sendBilledSms, smsUsageBillingEnabled, type BilledSendRefusal } from "@/lib/sms/usageBilling";
 import { billedSmsProviderFromEnv } from "@/lib/sms/usageProvider";
 import {
@@ -811,6 +812,12 @@ async function sendSms(
     return skipSms("sms_no_consent");
   }
 
+  // TW-4F: checked here at SEND time (a delivery queued or retried before the STOP is claimed and sent now). A parked STOP suppresses the text until it is
+  // applied or a START supersedes it; "cannot establish" is RETRYABLE (stays queued, never sent), not terminal.
+  const parked = await pendingOptOutState(supabase, row.studio_id, phoneE164);
+  if (parked === "blocked") return skipSms("sms_opted_out");
+  if (parked === "unknown") return { ok: false, retry: true, code: "sms_consent_lookup_failed" };
+
   const { data: studio } = await supabase
     .from("studios")
     .select("name")
@@ -851,6 +858,7 @@ async function sendSms(
   }
 
   const sendResult = await sendTwilioSms({
+    studioId: row.studio_id,
     to: phoneE164,
     body: finalBody,
     messagingServiceSid: senderResult.sender.messagingServiceSid,
@@ -895,6 +903,7 @@ const BILLED_SKIP: Partial<Record<BilledSendRefusal, SmsSkipReason>> = {
   monthly_limit: "sms_monthly_limit",
   no_billed_sender: "sms_no_billed_sender",
   not_billed: "sms_no_billed_sender",
+  opted_out: "sms_opted_out",
   suspended: "sms_service_suspended",
   switched_off: "sms_billing_unavailable",
   no_price: "sms_billing_unavailable",
