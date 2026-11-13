@@ -4,6 +4,8 @@ import { Image, StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -14,6 +16,7 @@ import {
   type StudentPracticeFocus
 } from "@/lib/studentLearn";
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro asset
 const lumiAvatar = require("../../assets/lumi-avatar.png");
 
 const emptyOverview: StudentLearnOverview = {
@@ -107,8 +110,8 @@ export default function PracticeFocusScreen() {
         Turn recent lessons and recaps into a short list of things to work on next.
       </AppText>
 
-      {loading ? <FeatureCard title="Loading practice focus" detail="Checking your recent lessons." /> : null}
-      {errorMessage ? <FeatureCard title="Practice focus unavailable" detail={errorMessage} /> : null}
+      {loading ? <LoadingState label="Loading practice focus" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Practice focus unavailable" /> : null}
 
       {!loading && !hasPortalAccess ? (
         <FeatureCard

@@ -3,7 +3,8 @@ import { Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
-import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { loadStudentDocuments, type StudentDocument } from "@/lib/studentDocuments";
@@ -198,14 +199,11 @@ export default function StudentDocumentsScreen() {
       </View>
 
       {loading ? (
-        <FeatureCard
-          title="Loading documents"
-          detail="Checking your connected studios."
-        />
+        <LoadingState label="Loading documents" />
       ) : null}
       {error ? (
         <View style={styles.stateBlock}>
-          <FeatureCard title="Documents unavailable" detail={error} />
+          <ErrorState error={error} title="Documents unavailable" />
           <AppButton label="Try again" onPress={refresh} variant="secondary" />
         </View>
       ) : null}

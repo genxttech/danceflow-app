@@ -110,13 +110,17 @@ describe("unbindPushTokenForSignOut", () => {
 
   it("gives up on a hung network", async () => {
     jest.useFakeTimers();
-    storage.getItem.mockResolvedValue(TOKEN);
-    mockEq.mockReturnValue(new Promise(() => undefined));
+    try {
+      storage.getItem.mockResolvedValue(TOKEN);
+      mockEq.mockReturnValue(new Promise(() => undefined));
 
-    const unbinding = unbindPushTokenForSignOut();
-    await jest.advanceTimersByTimeAsync(4000);
+      const unbinding = unbindPushTokenForSignOut();
+      await jest.advanceTimersByTimeAsync(4000);
 
-    await expect(unbinding).resolves.toBeUndefined();
-    jest.useRealTimers();
+      await expect(unbinding).resolves.toBeUndefined();
+    } finally {
+      // A failure above must not leave fake timers on for later tests in this file.
+      jest.useRealTimers();
+    }
   });
 });

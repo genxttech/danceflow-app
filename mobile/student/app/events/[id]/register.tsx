@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Linking, StyleSheet, TextInput, View } from "react-native";
+import { ActivityIndicator, Linking, StyleSheet, TextInput, useColorScheme, View } from "react-native";
 import { type Href, useLocalSearchParams, useRouter } from "expo-router";
 import { useStripe } from "@stripe/stripe-react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import {
   assertSafeEventCheckoutUrl,
   confirmStudentEventOrder,
@@ -75,6 +77,8 @@ function remainingSpotsLabel(ticket: PublicEventTicketType) {
 }
 
 export default function EventRegisterScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
@@ -328,7 +332,7 @@ export default function EventRegisterScreen() {
   if (loading) {
     return (
       <Screen>
-        <FeatureCard title="Loading checkout" detail="Checking ticket options." />
+        <LoadingState label="Loading checkout" />
       </Screen>
     );
   }
@@ -348,7 +352,7 @@ export default function EventRegisterScreen() {
   if (!event) {
     return (
       <Screen>
-        <FeatureCard title="Event unavailable" detail={errorMessage ?? "This event could not be loaded."} />
+        <ErrorState error={errorMessage} fallback="This event could not be loaded." title="Event unavailable" />
       </Screen>
     );
   }
@@ -360,7 +364,7 @@ export default function EventRegisterScreen() {
       <AppText variant="title">{event.name}</AppText>
       <AppText variant="caption">{session.user.email}</AppText>
 
-      {errorMessage ? <FeatureCard title="Checkout needs attention" detail={errorMessage} /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Checkout needs attention" /> : null}
       {checkoutStatusMessage ? (
         <View style={styles.statusCard}>
           <ActivityIndicator color={colors.primary} />
@@ -523,101 +527,103 @@ export default function EventRegisterScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  documentCard: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 12,
-    gap: 6,
-    padding: 12
-  },
-  input: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 12,
-    borderWidth: 1,
-    color: colors.text,
-    fontSize: 16,
-    minHeight: 48,
-    paddingHorizontal: 14,
-    paddingVertical: 10
-  },
-  notes: {
-    minHeight: 92,
-    textAlignVertical: "top"
-  },
-  price: {
-    color: colors.primary,
-    fontSize: 16,
-    fontWeight: "900"
-  },
-  priceBlock: {
-    alignItems: "flex-end",
-    gap: 2
-  },
-  earlyBirdLabel: {
-    color: colors.success,
-    fontSize: 11,
-    fontWeight: "800"
-  },
-  regularPrice: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "700",
-    textDecorationLine: "line-through"
-  },
-  remainingText: {
-    color: colors.success,
-    fontSize: 12,
-    fontWeight: "800",
-    marginTop: 4
-  },
-  soldOutText: {
-    color: colors.danger,
-    fontSize: 12,
-    fontWeight: "800",
-    marginTop: 4
-  },
-  section: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 10,
-    padding: 16
-  },
-  statusCard: {
-    alignItems: "center",
-    backgroundColor: colors.surfaceAlt,
-    borderColor: colors.border,
-    borderRadius: 16,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    padding: 14
-  },
-  ticketCard: {
-    borderColor: colors.border,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 8,
-    padding: 12
-  },
-  ticketName: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "800"
-  },
-  ticketTop: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12
-  },
-  totalCard: {
-    backgroundColor: colors.surfaceAlt,
-    borderColor: colors.border,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 6,
-    padding: 16
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    documentCard: {
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 12,
+      gap: 6,
+      padding: 12
+    },
+    input: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 12,
+      borderWidth: 1,
+      color: colors.text,
+      fontSize: 16,
+      minHeight: 48,
+      paddingHorizontal: 14,
+      paddingVertical: 10
+    },
+    notes: {
+      minHeight: 92,
+      textAlignVertical: "top"
+    },
+    price: {
+      color: colors.primary,
+      fontSize: 16,
+      fontWeight: "900"
+    },
+    priceBlock: {
+      alignItems: "flex-end",
+      gap: 2
+    },
+    earlyBirdLabel: {
+      color: colors.success,
+      fontSize: 11,
+      fontWeight: "800"
+    },
+    regularPrice: {
+      color: colors.muted,
+      fontSize: 12,
+      fontWeight: "700",
+      textDecorationLine: "line-through"
+    },
+    remainingText: {
+      color: colors.success,
+      fontSize: 12,
+      fontWeight: "800",
+      marginTop: 4
+    },
+    soldOutText: {
+      color: colors.danger,
+      fontSize: 12,
+      fontWeight: "800",
+      marginTop: 4
+    },
+    section: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 16,
+      borderWidth: 1,
+      gap: 10,
+      padding: 16
+    },
+    statusCard: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceAlt,
+      borderColor: colors.border,
+      borderRadius: 16,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 12,
+      padding: 14
+    },
+    ticketCard: {
+      borderColor: colors.border,
+      borderRadius: 12,
+      borderWidth: 1,
+      gap: 8,
+      padding: 12
+    },
+    ticketName: {
+      color: colors.text,
+      fontSize: 16,
+      fontWeight: "800"
+    },
+    ticketTop: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 12
+    },
+    totalCard: {
+      backgroundColor: colors.surfaceAlt,
+      borderColor: colors.border,
+      borderRadius: 16,
+      borderWidth: 1,
+      gap: 6,
+      padding: 16
+    }
+  });
+}

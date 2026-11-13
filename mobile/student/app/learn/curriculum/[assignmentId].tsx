@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocalSearchParams, useRouter, type Href } from "expo-router";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
-import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import {
   loadStudentCurriculumAssignment,
   type StudentCurriculumDetail,
@@ -29,6 +30,8 @@ function DetailSection({
   body: string | null;
   title: string;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   if (!body) return null;
 
   return (
@@ -40,6 +43,8 @@ function DetailSection({
 }
 
 export default function CurriculumAssignmentDetailScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { assignmentId: rawAssignmentId } = useLocalSearchParams<{
     assignmentId: string;
   }>();
@@ -77,10 +82,7 @@ export default function CurriculumAssignmentDetailScreen() {
   if (loading) {
     return (
       <Screen>
-        <FeatureCard
-          title="Loading assignment"
-          detail="Preparing your curriculum details."
-        />
+        <LoadingState label="Loading assignment" />
       </Screen>
     );
   }
@@ -88,10 +90,7 @@ export default function CurriculumAssignmentDetailScreen() {
   if (!assignment) {
     return (
       <Screen>
-        <FeatureCard
-          title="Assignment unavailable"
-          detail={errorMessage ?? "This assignment could not be found."}
-        />
+        <ErrorState error={errorMessage} fallback="This assignment could not be found." title="Assignment unavailable" />
         <AppButton
           label="Back to assignments"
           onPress={() => router.replace("/learn/curriculum" as never)}
@@ -219,38 +218,40 @@ export default function CurriculumAssignmentDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  body: {
-    color: colors.text,
-    fontSize: 15,
-    lineHeight: 23,
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    gap: 10,
-    padding: 16,
-  },
-  chartRow: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 14,
-    gap: 5,
-    padding: 12,
-  },
-  practiceCard: {
-    backgroundColor: colors.surfaceAlt,
-    borderColor: colors.primary,
-    borderRadius: 18,
-    borderWidth: 1,
-    gap: 8,
-    padding: 16,
-  },
-  practiceText: {
-    color: colors.primary,
-    fontSize: 15,
-    fontWeight: "700",
-    lineHeight: 23,
-  },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    body: {
+      color: colors.text,
+      fontSize: 15,
+      lineHeight: 23,
+    },
+    card: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 18,
+      borderWidth: 1,
+      gap: 10,
+      padding: 16,
+    },
+    chartRow: {
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 14,
+      gap: 5,
+      padding: 12,
+    },
+    practiceCard: {
+      backgroundColor: colors.surfaceAlt,
+      borderColor: colors.primary,
+      borderRadius: 18,
+      borderWidth: 1,
+      gap: 8,
+      padding: 16,
+    },
+    practiceText: {
+      color: colors.primary,
+      fontSize: 15,
+      fontWeight: "700",
+      lineHeight: 23,
+    },
+  });
+}

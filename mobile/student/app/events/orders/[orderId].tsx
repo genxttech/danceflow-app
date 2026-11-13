@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Linking, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Linking, StyleSheet, useColorScheme, View } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useStripe } from "@stripe/stripe-react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
-import { FeatureCard } from "@/components/FeatureCard";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import {
   assertSafeEventCheckoutUrl,
   getStudentEventOrderStatus,
@@ -63,6 +63,8 @@ function statusText(order: StudentEventOrderStatus | null) {
 }
 
 export default function EventOrderStatusScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const {
     orderId: orderIdParam,
     signing,
@@ -261,7 +263,7 @@ export default function EventOrderStatusScreen() {
         ) : null}
       </View>
 
-      {errorMessage ? <FeatureCard title="Checkout needs attention" detail={errorMessage} /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Checkout needs attention" /> : null}
 
       <View style={styles.actions}>
         <AppButton label="Open Wallet" onPress={() => router.replace("/wallet")} />
@@ -289,29 +291,31 @@ export default function EventOrderStatusScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  actions: {
-    gap: 10
-  },
-  statusCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    gap: 12,
-    padding: 18
-  },
-  summaryGrid: {
-    flexDirection: "row",
-    gap: 10
-  },
-  summaryItem: {
-    backgroundColor: colors.background,
-    borderColor: colors.border,
-    borderRadius: 14,
-    borderWidth: 1,
-    flex: 1,
-    gap: 4,
-    padding: 12
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    actions: {
+      gap: 10
+    },
+    statusCard: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 18,
+      borderWidth: 1,
+      gap: 12,
+      padding: 18
+    },
+    summaryGrid: {
+      flexDirection: "row",
+      gap: 10
+    },
+    summaryItem: {
+      backgroundColor: colors.background,
+      borderColor: colors.border,
+      borderRadius: 14,
+      borderWidth: 1,
+      flex: 1,
+      gap: 4,
+      padding: 12
+    }
+  });
+}

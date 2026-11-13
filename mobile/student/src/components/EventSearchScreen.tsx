@@ -6,6 +6,8 @@ import { useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -301,11 +303,11 @@ export function EventSearchScreen({ category = "all" }: { category?: EventSearch
         </View>
       ) : null}
 
-      {locationError ? <FeatureCard title="Location" detail={locationError} /> : null}
+      {locationError ? <ErrorState error={locationError} title="Location" /> : null}
 
-      {loading ? <FeatureCard title="Loading events" detail="Finding public dance events." /> : null}
+      {loading ? <LoadingState label="Loading events" /> : null}
       {message ? <FeatureCard title="Events" detail={message} /> : null}
-      {errorMessage ? <FeatureCard title="Events need attention" detail={errorMessage} /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Events need attention" /> : null}
 
       {favoriteEvents.length > 0 ? (
         <View style={styles.sectionHeading}>
@@ -467,8 +469,8 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   },
   cardImageFallback: {
     alignItems: "center",
-    backgroundColor: "rgba(244, 63, 142, 0.12)",
-    borderColor: "rgba(244, 63, 142, 0.25)",
+    backgroundColor: colors.surfaceGlow,
+    borderColor: colors.borderStrong,
     borderRadius: 16,
     borderWidth: 1,
     height: 72,
@@ -482,8 +484,8 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   },
   categoryBadge: {
     alignSelf: "flex-start",
-    backgroundColor: "rgba(244, 63, 142, 0.14)",
-    borderColor: "rgba(244, 63, 142, 0.28)",
+    backgroundColor: colors.surfaceGlow,
+    borderColor: colors.borderStrong,
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 10,
@@ -636,7 +638,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     fontWeight: "700"
   },
   radiusTextActive: {
-    color: colors.white
+    color: colors.onPrimary
   },
   sectionHeading: {
     gap: 4,

@@ -1,10 +1,12 @@
 import { useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { StyleSheet, useColorScheme, View } from "react-native";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
@@ -18,7 +20,7 @@ function statusLabel(status: string) {
   return status.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function statusStyle(status: string) {
+function statusStyle(styles: ReturnType<typeof createStyles>, status: string) {
   if (status === "mastered") return styles.statusMastered;
   if (status === "comfortable") return styles.statusComfortable;
   if (status === "practicing") return styles.statusPracticing;
@@ -27,6 +29,8 @@ function statusStyle(status: string) {
 }
 
 function StepCard({ index, step }: { index: number; step: StudentSyllabusStep }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.stepCard}>
       <View style={styles.stepHeader}>
@@ -37,7 +41,7 @@ function StepCard({ index, step }: { index: number; step: StudentSyllabusStep })
           <AppText variant="subtitle">{step.title}</AppText>
           {step.category ? <AppText variant="caption">{step.category}</AppText> : null}
         </View>
-        <View style={[styles.statusPill, statusStyle(step.status)]}>
+        <View style={[styles.statusPill, statusStyle(styles, step.status)]}>
           <AppText style={styles.statusText}>{statusLabel(step.status)}</AppText>
         </View>
       </View>
@@ -58,6 +62,8 @@ function paramValue(value: string | string[] | undefined) {
 }
 
 export default function SyllabusDetailScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { session } = useAuth();
   const params = useLocalSearchParams<{ id?: string }>();
   const assignmentId = paramValue(params.id);
@@ -114,8 +120,8 @@ export default function SyllabusDetailScreen() {
       <AppText variant="title">{syllabus?.name ?? "Syllabus"}</AppText>
       {subtitle ? <AppText variant="caption">{subtitle}</AppText> : null}
 
-      {loading ? <FeatureCard title="Loading syllabus" detail="Checking your syllabus steps." /> : null}
-      {errorMessage ? <FeatureCard title="Syllabus unavailable" detail={errorMessage} /> : null}
+      {loading ? <LoadingState label="Loading syllabus" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Syllabus unavailable" /> : null}
 
       {!loading && !hasPortalAccess ? (
         <FeatureCard
@@ -164,85 +170,87 @@ export default function SyllabusDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  notesBox: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 14,
-    gap: 4,
-    padding: 12
-  },
-  progressFill: {
-    backgroundColor: colors.primary,
-    borderRadius: 999,
-    height: "100%"
-  },
-  progressTrack: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 999,
-    height: 8,
-    marginVertical: 6,
-    overflow: "hidden"
-  },
-  section: {
-    gap: 10
-  },
-  statusComfortable: {
-    backgroundColor: "#dcfce7"
-  },
-  statusIntroduced: {
-    backgroundColor: "#ffedd5"
-  },
-  statusMastered: {
-    backgroundColor: "#d1fae5"
-  },
-  statusNotStarted: {
-    backgroundColor: colors.surfaceAlt
-  },
-  statusPill: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6
-  },
-  statusPracticing: {
-    backgroundColor: "#dbeafe"
-  },
-  statusText: {
-    color: colors.text,
-    fontSize: 11,
-    fontWeight: "900"
-  },
-  stepCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    gap: 10,
-    padding: 16
-  },
-  stepHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10
-  },
-  stepNumber: {
-    alignItems: "center",
-    backgroundColor: colors.primary,
-    borderRadius: 999,
-    height: 34,
-    justifyContent: "center",
-    width: 34
-  },
-  stepNumberText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "900"
-  },
-  summaryCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    gap: 7,
-    padding: 16
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    notesBox: {
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 14,
+      gap: 4,
+      padding: 12
+    },
+    progressFill: {
+      backgroundColor: colors.primary,
+      borderRadius: 999,
+      height: "100%"
+    },
+    progressTrack: {
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 999,
+      height: 8,
+      marginVertical: 6,
+      overflow: "hidden"
+    },
+    section: {
+      gap: 10
+    },
+    statusComfortable: {
+      backgroundColor: colors.surfaceAlt
+    },
+    statusIntroduced: {
+      backgroundColor: colors.accentSoft
+    },
+    statusMastered: {
+      backgroundColor: colors.surfaceAlt
+    },
+    statusNotStarted: {
+      backgroundColor: colors.surfaceAlt
+    },
+    statusPill: {
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 6
+    },
+    statusPracticing: {
+      backgroundColor: colors.surfaceAlt
+    },
+    statusText: {
+      color: colors.text,
+      fontSize: 11,
+      fontWeight: "900"
+    },
+    stepCard: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 18,
+      borderWidth: 1,
+      gap: 10,
+      padding: 16
+    },
+    stepHeader: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 10
+    },
+    stepNumber: {
+      alignItems: "center",
+      backgroundColor: colors.primary,
+      borderRadius: 999,
+      height: 34,
+      justifyContent: "center",
+      width: 34
+    },
+    stepNumberText: {
+      color: colors.onPrimary,
+      fontSize: 13,
+      fontWeight: "900"
+    },
+    summaryCard: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 18,
+      borderWidth: 1,
+      gap: 7,
+      padding: 16
+    }
+  });
+}

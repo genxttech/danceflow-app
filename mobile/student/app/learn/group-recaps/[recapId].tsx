@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
-import { Linking, StyleSheet, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Linking, StyleSheet, useColorScheme, View } from "react-native";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
-import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess } from "@/lib/studentAccess";
 import {
@@ -38,6 +39,8 @@ function formatPublishedAt(value: string | null) {
 }
 
 function RecapSection({ body, title }: { body: string | null; title: string }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   if (!body) return null;
 
   return (
@@ -49,6 +52,8 @@ function RecapSection({ body, title }: { body: string | null; title: string }) {
 }
 
 export default function GroupRecapDetailScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { recapId: recapIdParam } = useLocalSearchParams<{ recapId: string }>();
   const recapId = normalizeParam(recapIdParam);
   const router = useRouter();
@@ -100,7 +105,7 @@ export default function GroupRecapDetailScreen() {
   if (loading) {
     return (
       <Screen>
-        <FeatureCard title="Loading recap" detail="Finding your group lesson notes." />
+        <LoadingState label="Loading recap" />
       </Screen>
     );
   }
@@ -108,7 +113,7 @@ export default function GroupRecapDetailScreen() {
   if (!recap) {
     return (
       <Screen>
-        <FeatureCard title="Recap unavailable" detail={errorMessage ?? "This recap could not be found."} />
+        <ErrorState error={errorMessage} fallback="This recap could not be found." title="Recap unavailable" />
         <AppButton label="Back to Learn" onPress={() => router.replace("/(tabs)/learn")} />
       </Screen>
     );
@@ -181,33 +186,35 @@ export default function GroupRecapDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  actions: {
-    gap: 10
-  },
-  bodyText: {
-    color: colors.text,
-    fontSize: 15,
-    lineHeight: 23
-  },
-  detailCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 8,
-    padding: 16
-  },
-  practiceText: {
-    color: colors.primary,
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 21
-  },
-  stepCard: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 14,
-    gap: 5,
-    padding: 12
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    actions: {
+      gap: 10
+    },
+    bodyText: {
+      color: colors.text,
+      fontSize: 15,
+      lineHeight: 23
+    },
+    detailCard: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 16,
+      borderWidth: 1,
+      gap: 8,
+      padding: 16
+    },
+    practiceText: {
+      color: colors.primary,
+      fontSize: 14,
+      fontWeight: "700",
+      lineHeight: 21
+    },
+    stepCard: {
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 14,
+      gap: 5,
+      padding: 12
+    }
+  });
+}

@@ -3,6 +3,8 @@ import { Image, Pressable, StyleSheet, useColorScheme, View } from "react-native
 import { useFocusEffect, useRouter } from "expo-router";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import {
@@ -55,11 +57,11 @@ export default function MarketplaceScreen() {
       </AppText>
 
       {loading ? (
-        <FeatureCard title="Loading marketplace" detail="Finding published digital content." />
+        <LoadingState label="Loading marketplace" />
       ) : null}
 
       {!loading && errorMessage ? (
-        <FeatureCard title="Marketplace unavailable" detail={errorMessage} />
+        <ErrorState error={errorMessage} title="Marketplace unavailable" />
       ) : null}
 
       {!loading && !errorMessage && items.length === 0 ? (

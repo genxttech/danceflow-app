@@ -5,6 +5,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -286,7 +288,7 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
   if (loading) {
     return (
       <Screen>
-        <FeatureCard title="Loading studio" detail="Checking the public studio profile." />
+        <LoadingState label="Loading studio" />
       </Screen>
     );
   }
@@ -294,7 +296,7 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
   if (!studio || errorMessage) {
     return (
       <Screen>
-        <FeatureCard title="Studio unavailable" detail={errorMessage ?? "This studio could not be found."} />
+        <ErrorState error={errorMessage} fallback="This studio could not be found." title="Studio unavailable" />
         <AppButton label="Back to studios" onPress={() => router.push("/discover/studios" as unknown as RouterPushTarget)} />
       </Screen>
     );
@@ -400,7 +402,7 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
           ]}
         >
           <Ionicons
-            color={studio.favorited ? colors.white : colors.primary}
+            color={studio.favorited ? colors.onPrimary : colors.primary}
             name={studio.favorited ? "heart" : "heart-outline"}
             size={20}
           />
@@ -534,11 +536,11 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
             ) : null}
 
             {session && selfServiceLoading ? (
-              <FeatureCard title="Loading request slots" detail="Checking instructor availability." />
+              <LoadingState label="Loading request slots" />
             ) : null}
 
             {session && selfServiceError ? (
-              <FeatureCard title="Request slots unavailable" detail={selfServiceError} />
+              <ErrorState error={selfServiceError} title="Request slots unavailable" />
             ) : null}
 
             {session && selfServiceMessage ? (
@@ -667,7 +669,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     fontWeight: "900"
   },
   choiceChipTextActive: {
-    color: colors.white
+    color: colors.onPrimary
   },
   description: {
     color: colors.text,

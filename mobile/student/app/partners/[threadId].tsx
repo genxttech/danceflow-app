@@ -5,6 +5,8 @@ import { useLocalSearchParams } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -171,9 +173,9 @@ export default function PartnerThreadScreen() {
         Keep partner communication inside DanceFlow. Do not share phone numbers, links, rates, or lesson advertising.
       </AppText>
 
-      {loading ? <FeatureCard title="Loading messages" detail="Opening your DanceFlow conversation." /> : null}
+      {loading ? <LoadingState label="Loading messages" /> : null}
       {statusMessage ? <FeatureCard title="Partner Messages" detail={statusMessage} /> : null}
-      {errorMessage ? <FeatureCard title="Messages need attention" detail={errorMessage} /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Messages need attention" /> : null}
 
       {thread ? (
         <View style={styles.threadCard}>
@@ -306,11 +308,12 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     backgroundColor: colors.primary
   },
   myMessageMeta: {
-    color: "rgba(255,255,255,0.72)",
+    color: colors.onPrimary,
+    opacity: 0.8,
     fontSize: 11
   },
   myMessageText: {
-    color: "#fff",
+    color: colors.onPrimary,
     fontSize: 15,
     lineHeight: 21
   },
