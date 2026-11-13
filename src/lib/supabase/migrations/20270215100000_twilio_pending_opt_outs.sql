@@ -32,9 +32,14 @@ create or replace function public.sms_pending_opt_out_record(p_studio_id uuid, p
 returns boolean language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
+declare v_phone text := trim(coalesce(p_phone_e164, ''));
 begin
+  -- validated here so a bad input returns false with no database error text (which would echo the number)
+  if p_studio_id is null or v_phone !~ '^\+[1-9][0-9]{9,14}$' or not exists (select 1 from public.studios s where s.id = p_studio_id) then
+    return false;
+  end if;
   insert into public.studio_sms_pending_opt_outs (studio_id, phone_e164, message_sid)
-  values (p_studio_id, trim(coalesce(p_phone_e164, '')), left(p_message_sid, 80))
+  values (p_studio_id, v_phone, left(p_message_sid, 80))
   on conflict (studio_id, phone_e164) where applied_at is null and superseded_at is null do nothing;
   return true;
 end $$;
@@ -64,10 +69,15 @@ declare
   v_applied int := 0;
   v_failed int := 0;
 begin
+  -- bounded retention: finished rows older than 90 days, a small batch per run
+  delete from public.studio_sms_pending_opt_outs
+   where id in (select id from public.studio_sms_pending_opt_outs
+                 where coalesce(applied_at, superseded_at) < now() - interval '90 days' limit 100);
+  -- fewest attempts first, so a row that keeps failing cannot starve newer ones
   for r in
     select id, studio_id, phone_e164 from public.studio_sms_pending_opt_outs
      where applied_at is null and superseded_at is null
-     order by created_at
+     order by attempts, created_at
      limit least(greatest(coalesce(p_limit, 50), 1), 200)
        for update skip locked
   loop

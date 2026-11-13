@@ -22,7 +22,15 @@ describe("20270215100000 pending opt-outs migration shape (Git-only, never appli
     expect(forward).toMatch(/exception when others/);
     expect(forward).not.toMatch(/'start'/);
   });
-  it("has a rollback that refuses to drop open opt-outs", () => {
+  it("orders by attempts (no starvation), validates record() input without echoing it, and purges finished rows in a bounded batch", () => {
+    expect(forward).toContain("order by attempts, created_at");
+    expect(forward).toContain("v_phone !~ '");
+    expect(forward).toContain("or not exists (select 1 from public.studios s where s.id = p_studio_id) then");
+    expect(forward).toContain("interval '90 days' limit 100");
+  });
+  it("has a re-runnable rollback (dynamic table check) that refuses to drop open opt-outs", () => {
+    expect(rollback).toContain("execute 'select exists (select 1 from public.studio_sms_pending_opt_outs");
+    expect(rollback).toContain("to_regclass('public.studio_sms_pending_opt_outs') is not null");
     expect(rollback).toMatch(/Refusing to drop: open pending opt-outs/);
     expect(rollback).toMatch(/drop table if exists public\.studio_sms_pending_opt_outs/);
   });
