@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dispatchQueuedOutboundDeliveries } from "@/lib/notifications/dispatch";
 import { getCronAuthFailure } from "@/lib/security/cron";
+import { applyPendingOptOuts } from "@/lib/sms/pendingOptOuts";
 import { appendEmailLegalText, sanitizeEmailSubject } from "@/lib/email/brand";
 import { resolveOutboundFromEmail } from "@/lib/notifications/outbound";
 import { resolveClientSenderDisplayName } from "@/lib/notifications/senderIdentity";
@@ -183,6 +184,8 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
   if (authFailure) return authFailure;
 
   const supabase = createAdminClient();
+  // TW-4F compliance: apply any inbound STOP whose consent change failed at the webhook BEFORE this run can send anything (best effort, never throws).
+  await applyPendingOptOuts(supabase);
   const nowIso = new Date().toISOString();
 
   const { data: deliveries, error: fetchError } = await supabase
