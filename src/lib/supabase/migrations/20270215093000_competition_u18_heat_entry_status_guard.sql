@@ -6,7 +6,7 @@
 -- same statuses as "locked" for refunds. No app code and no migration function writes these two statuses today (verified), so nothing
 -- legitimate depends on a client writing them.
 --
--- Fix: an AFTER INSERT OR UPDATE row trigger refuses a row that ENDS UP in danced / disqualified (new status differs from the old one) unless the
+-- Fix: an AFTER INSERT OR UPDATE row trigger refuses a row that ENDS UP in danced / disqualified, and a row that LEAVES either status (the status changed) unless the
 -- session role is one of the owner roles (postgres, supabase_admin): an allowlist, so any other role, including a future client-like role, is refused.
 -- AFTER, not BEFORE, so it sees the final status even if another BEFORE trigger rewrites it (a client holding the default TRIGGER privilege could
 -- otherwise add one; that privilege is revoked below as well). SECURITY INVOKER on purpose, so current_user is the caller; a SECURITY DEFINER writer
@@ -21,10 +21,16 @@ security invoker
 set search_path = public, pg_temp
 as $$
 begin
-  if new.status in ('danced', 'disqualified')
-     and (tg_op = 'INSERT' or old.status is distinct from new.status)
-     and current_user not in ('postgres', 'supabase_admin') then
+  if current_user in ('postgres', 'supabase_admin') then
+    return new;
+  end if;
+  if new.status in ('danced', 'disqualified') and (tg_op = 'INSERT' or old.status is distinct from new.status) then
     raise exception 'COMP_U18_HEAT_ENTRY_STATUS_WRITER: a heat entry cannot be set to % by a direct table write.', new.status
+      using errcode = '42501';
+  end if;
+  -- The reverse is refused too: a client could otherwise un-dance a placement and undo the HL1 / R2 "danced" evidence.
+  if tg_op = 'UPDATE' and old.status in ('danced', 'disqualified') and new.status is distinct from old.status then
+    raise exception 'COMP_U18_HEAT_ENTRY_STATUS_WRITER: a % heat entry cannot be changed by a direct table write.', old.status
       using errcode = '42501';
   end if;
   return new;

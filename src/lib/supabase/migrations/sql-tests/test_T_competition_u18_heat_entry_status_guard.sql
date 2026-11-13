@@ -77,8 +77,11 @@ select pg_temp.chk('the refused writes changed nothing (rows 2 and 3 still sched
 -- unaffected behaviour
 select pg_temp.chk('authenticated: re-writing an already-danced row to danced is not a change (allowed)',
   pg_temp.try_as('authenticated', $q$update public.event_competition_heat_entries set status = 'danced' where id = '00000000-0000-0000-0000-cf1018900004'$q$) = 'OK');
-select pg_temp.chk('authenticated: scratched is NOT covered by this guard (unchanged behaviour)',
-  pg_temp.try_as('authenticated', $q$update public.event_competition_heat_entries set status = 'scratched' where id = '00000000-0000-0000-0000-cf1018900003'$q$) = 'OK');
+select pg_temp.chk('authenticated: scratched is NOT refused by THIS guard (U18-S owns the scratch path)',
+  pg_temp.try_as('authenticated', $q$update public.event_competition_heat_entries set status = 'scratched' where id = '00000000-0000-0000-0000-cf1018900003'$q$) not like '%COMP_U18_HEAT_ENTRY_STATUS_WRITER%');
+select pg_temp.chk('authenticated: un-dancing a danced row is refused and the row stays danced',
+  pg_temp.try_as('authenticated', $q$update public.event_competition_heat_entries set status = 'scheduled' where id = '00000000-0000-0000-0000-cf1018900004'$q$) like '42501 COMP_U18_HEAT_ENTRY_STATUS_WRITER%'
+  and (select status from public.event_competition_heat_entries where id = '00000000-0000-0000-0000-cf1018900004') = 'danced');
 
 -- owner and definer paths are unaffected
 create function pg_temp.definer_writer() returns void language plpgsql security definer as $$
