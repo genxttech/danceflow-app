@@ -174,7 +174,7 @@ export default async function EmbedCalendarPage({ params, searchParams }: PagePr
   );
 }
 
-function ClassRow({ item, extra, dark, muted }: { item: PublicGroupClass; extra?: ClassExtra; dark: boolean; muted: string }) {
+function ClassRow({ item, extra, muted }: { item: PublicGroupClass; extra?: ClassExtra; muted: string }) {
   return (
     <li className="flex flex-wrap items-center justify-between gap-2">
       <div className="min-w-0">
@@ -256,7 +256,7 @@ function DayBlock({
       {classes.length || events.length ? (
         <ul className="mt-2 grid gap-2">
           {classes.map((c) => (
-            <ClassRow key={c.appointmentId} item={c} extra={extras.get(c.appointmentId)} dark={dark} muted={muted} />
+            <ClassRow key={c.appointmentId} item={c} extra={extras.get(c.appointmentId)} muted={muted} />
           ))}
           {events.map((e) => (
             <EventRow key={e.id} event={e} muted={muted} />

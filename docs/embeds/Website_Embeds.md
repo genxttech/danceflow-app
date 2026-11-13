@@ -83,6 +83,9 @@ Environment: isolated local stack (`iso-qa up baseline`, real Postgres + PostgRE
 | Kill switch fails closed | actual HTTP, settings function renamed | 404 when settings cannot be read | calendar 404, class 404; restored: 200 | PASS |
 | Settings authorization | SQL suite (27 checks) + browser | owner/admin of the studio only; instructors, other studios' owners and signed-out callers refused; table not reachable by API roles | `test_T_website_embed_settings.sql` PASS (27 checks); instructor cannot open the builder | PASS |
 | Unit tests (settings, events, extras, options) | vitest | parsers strict; queries select no private columns; fail closed | `embed.settingsEventsExtras.test.ts` + existing embed tests: 227 passing in `src/lib/public/__tests__` | PASS |
+| Repeatable acceptance run | `scripts/qa/embeds/acceptance.mjs` (Playwright, real GoTrue sessions, disposable stack; creates its own fixtures) | all builder, settings, events, price/description, kill-switch and handoff checks pass without manual interpretation | 43 of 43 checks PASS in one run | PASS |
+| Registration handoff through the confirmed-email state | same script, local stack with the launch-sec 1C-A migration | signed out → login with `next` → magic link → "Confirm your email" step → confirmed-email link (built as `sendEmailVerificationLink` builds it; the local stack has no email provider) → "Your email is verified" → back on the class register page → existing eligibility check runs | reaches "Online payment isn't available" because the local studio has no connected payment account (correct fail-closed); no checkout started | PASS (checkout itself NOT executed: no Stripe operation authorized) |
+| Migration/application ordering and rollback | disposable DB with the app running | rollback script drops everything and is repeatable; app deployed before the SQL (or SQL rolled back) fails closed; re-apply works and is repeatable | after rollback embeds are 404 and public pages 200; re-apply restores embeds (settings back to defaults: on); both scripts ran twice cleanly | PASS |
 | Hosted DEV/PROD with the migration | not executed | n/a | no hosted SQL authorized | BLOCKED |
 | Month grid on desktop, dark theme, custom accent | actual browser | grid with classes on correct days, today ring | renders (P1/P2 on 17/18, P6 on 21, P9 on 24) | PASS |
 | Week view on desktop; many-classes density | actual browser + HTTP | renders; busy day lists every class | desktop week screenshot correct; 9 classes on one day all listed in week and month | PASS |
@@ -98,6 +101,21 @@ Reviewed against the running app: response headers, the pasted snippet, the fram
 - **Snippet escaping:** `src` and `title` go through `escapeAttr`; the element id is a hash of the path.
 - **Builder access:** owner and admin only; verified with real sessions that an instructor and another studio's staff cannot open it.
 - **Result:** no defects found; no code change needed.
+
+### Decision: unrestricted framing for v1 (2026-11-13)
+
+Any website may frame the two embed routes; there is no allowed-origins list in v1.
+
+- **Why it is acceptable:** the embeds show only data that is already public on DanceFlow's own pages (public classes, public events, and the opt-in description and price). They read no cookie or session, hold no secret, contain no form (`form-action 'none'`) and no state-changing control; every action is a link that opens DanceFlow in a new tab. Framing therefore gives a hostile site nothing it could not already copy from the public pages, and clickjacking has nothing to hijack.
+- **Why not an allowlist now:** studios host on site builders with unpredictable origins (including preview and staging URLs), a wrong or missing entry would silently break a studio's published site, and there is no demonstrated abuse or requirement. An allowlist is also not a data-protection control for public content.
+- **Control we do ship:** the per-studio kill switch (404 everywhere, effective at once) lets a studio revoke every embed if one is misused.
+- **Revisit when:** an embed gains any personalised or state-changing content, a studio reports misuse of its embed on a site it does not control, or a requirement for per-site restriction appears.
+
+### Release ordering and rollback
+
+1. Owner-authorized: apply `20270216090000_website_embed_settings.sql` to DEV, verify, then PROD. (`sql-tests/test_T_website_embed_settings.sql` is for disposable databases only: it refuses to run unless `embedtest.local='on'`.)
+2. Only then deploy the app. The app deployed first (or the SQL rolled back) fails closed: every embed is 404; public pages and the rest of the app are unaffected; the builder says settings are unavailable.
+3. Rollback: roll the app back first, then run `rollback/20270216090000_website_embed_settings_rollback.sql`. Rollback deletes stored settings; a later re-apply starts every studio at the defaults (embeds on, no description/price, events on).
 
 ## Known gaps and follow-ups
 
