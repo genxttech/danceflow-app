@@ -5,13 +5,18 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
   screen that sends a signed-out dancer to sign-in remembers where they were, and the auth
   callback returns them there instead of Today.
 
-  Not sensitive (an in-app route), but still allow-listed: only event pages, only for an hour,
+  Not sensitive (an in-app route), but still allow-listed: only those routes, only for an hour,
   and read once.
 */
 
 const KEY = "danceflow.postSignInRoute";
 const MAX_AGE_MS = 60 * 60 * 1000;
-const ALLOWED = [/^\/events\/[A-Za-z0-9_-]{1,64}$/];
+// Event pages, plus the places a signed-out visitor to Discover is sent to sign in from.
+const ALLOWED = [
+  /^\/events\/[A-Za-z0-9_-]{1,64}$/,
+  /^\/\(tabs\)\/discover$/,
+  /^\/(partners|jobs|discover\/marketplace)$/,
+];
 
 export function isAllowedPostSignInRoute(path: string) {
   return ALLOWED.some((pattern) => pattern.test(path));

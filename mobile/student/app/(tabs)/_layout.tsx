@@ -1,9 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Redirect, Tabs } from "expo-router";
+import { Redirect, Tabs, useSegments } from "expo-router";
 import { ActivityIndicator, StyleSheet, useColorScheme, useWindowDimensions, View, type ColorValue } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
+import { guestMayView } from "@/lib/guestAccess";
 import { TAB_BAR_BORDER_TOP, TAB_ICON_SIZE, TAB_LABEL_FONT_SIZE, tabBarMetrics } from "@/lib/tabBar";
 
 type TabIconName = "today-outline" | "compass-outline" | "school-outline" | "wallet-outline";
@@ -19,6 +20,7 @@ export default function TabsLayout() {
   const colors = colorsForScheme(useColorScheme());
   const insets = useSafeAreaInsets();
   const { fontScale } = useWindowDimensions();
+  const segments = useSegments();
   const tabBar = tabBarMetrics(fontScale, insets.bottom);
 
   if (loading) {
@@ -33,7 +35,9 @@ export default function TabsLayout() {
     );
   }
 
-  if (!session) {
+  // Signed out: only Discover is open (guest discovery). Today, Learn and Wallet need an account.
+  const guest = !session;
+  if (guest && !guestMayView(segments)) {
     return <Redirect href="/(auth)/sign-in" />;
   }
 
@@ -49,6 +53,8 @@ export default function TabsLayout() {
         tabBarAllowFontScaling: true,
         tabBarStyle: [
           styles.tabBar,
+          // A guest has one tab, so there is nothing to switch between: no bar.
+          guest && styles.tabBarHidden,
           {
             backgroundColor: colors.surface,
             borderTopColor: colors.border,
@@ -67,7 +73,7 @@ export default function TabsLayout() {
       */}
       <Tabs.Screen
         name="home"
-        options={{ title: "Today", tabBarIcon: tabIcon("today-outline"), tabBarAccessibilityLabel: "Today" }}
+        options={{ ...(guest ? { href: null } : {}), title: "Today", tabBarIcon: tabIcon("today-outline"), tabBarAccessibilityLabel: "Today" }}
       />
       <Tabs.Screen
         name="discover"
@@ -75,11 +81,11 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="learn"
-        options={{ title: "Learn", tabBarIcon: tabIcon("school-outline"), tabBarAccessibilityLabel: "Learn" }}
+        options={{ ...(guest ? { href: null } : {}), title: "Learn", tabBarIcon: tabIcon("school-outline"), tabBarAccessibilityLabel: "Learn" }}
       />
       <Tabs.Screen
         name="wallet"
-        options={{ title: "Wallet", tabBarIcon: tabIcon("wallet-outline"), tabBarAccessibilityLabel: "Wallet" }}
+        options={{ ...(guest ? { href: null } : {}), title: "Wallet", tabBarIcon: tabIcon("wallet-outline"), tabBarAccessibilityLabel: "Wallet" }}
       />
       <Tabs.Screen name="schedule" options={{ href: null, title: "Schedule" }} />
       <Tabs.Screen name="more" options={{ href: null, title: "More" }} />
@@ -93,6 +99,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center"
   },
+  tabBarHidden: { display: "none" },
   tabBar: {
     borderTopWidth: TAB_BAR_BORDER_TOP,
     elevation: 14,

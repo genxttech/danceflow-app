@@ -137,9 +137,71 @@ describe("Discover", () => {
     mockSession = null;
     render(<DiscoverScreen />);
     fireEvent.press(await screen.findByRole("togglebutton", { name: "Save Harvest Moon Social" }));
-    expect(mockPush).toHaveBeenCalledWith("/(auth)/sign-in");
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/(auth)/sign-in"));
     expect(mockSetFavorite).not.toHaveBeenCalled();
     expect(getPublicEventsForMobile).toHaveBeenCalledWith(null);
+    // After signing in the dancer comes back to Discover.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { takePostSignInRoute } = require("@/lib/postSignInRoute") as typeof import("@/lib/postSignInRoute");
+    await expect(takePostSignInRoute()).resolves.toBe("/(tabs)/discover");
+  });
+
+  describe("guest discovery", () => {
+    beforeEach(() => {
+      mockSession = null;
+    });
+
+    it("shows a guest the public events and studios, and says they are a guest", async () => {
+      render(<DiscoverScreen />);
+      expect(await screen.findByText("You are exploring as a guest")).toBeTruthy();
+      expect(await screen.findByText("Harvest Moon Social")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Sign in or create account" })).toBeTruthy();
+    });
+
+    it("does not load partner or job listings for a guest, and shows no counts for them", async () => {
+      const discovery = jest.requireMock("@/lib/publicDiscovery") as {
+        getPublicPartnerProfilesForMobile: jest.Mock;
+        getPublicJobPostingsForMobile: jest.Mock;
+      };
+      discovery.getPublicPartnerProfilesForMobile.mockClear();
+      discovery.getPublicJobPostingsForMobile.mockClear();
+      render(<DiscoverScreen />);
+      await waitFor(() => expect(screen.getByTestId("discover-chip-events").props.accessibilityLabel).toBe("Events, 4"));
+      expect(discovery.getPublicPartnerProfilesForMobile).not.toHaveBeenCalled();
+      expect(discovery.getPublicJobPostingsForMobile).not.toHaveBeenCalled();
+      expect(screen.getByTestId("discover-chip-partners").props.accessibilityLabel).toBe("Partners");
+      expect(screen.getByTestId("discover-chip-jobs").props.accessibilityLabel).toBe("Jobs");
+    });
+
+    it("opens Events and Studios for a guest directly", async () => {
+      render(<DiscoverScreen />);
+      await waitFor(() => expect(screen.getByTestId("discover-chip-events").props.accessibilityLabel).toBe("Events, 4"));
+      fireEvent.press(screen.getByTestId("discover-chip-events"));
+      expect(mockPush).toHaveBeenCalledWith("/discover/events");
+      fireEvent.press(screen.getByTestId("discover-chip-studios"));
+      expect(mockPush).toHaveBeenCalledWith("/discover/studios");
+    });
+
+    it.each([
+      ["partners", "/partners"],
+      ["jobs", "/jobs"],
+      ["marketplace", "/discover/marketplace"],
+    ])("asks a guest to sign in before %s, and remembers where they were going", async (key, href) => {
+      render(<DiscoverScreen />);
+      await waitFor(() => expect(screen.getByTestId("discover-chip-events").props.accessibilityLabel).toBe("Events, 4"));
+      fireEvent.press(screen.getByTestId(`discover-chip-${key}`));
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/(auth)/sign-in"));
+      expect(mockPush).not.toHaveBeenCalledWith(href);
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { takePostSignInRoute } = require("@/lib/postSignInRoute") as typeof import("@/lib/postSignInRoute");
+      await expect(takePostSignInRoute()).resolves.toBe(href);
+    });
+
+    it("sends a guest to sign-in from the banner button", async () => {
+      render(<DiscoverScreen />);
+      fireEvent.press(await screen.findByRole("button", { name: "Sign in or create account" }));
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/(auth)/sign-in"));
+    });
   });
 });
 
