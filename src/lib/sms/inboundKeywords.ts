@@ -48,12 +48,19 @@ function optOutTypeKeyword(optOutType: string | null | undefined): InboundKeywor
   return null;
 }
 
+/**
+ * Surrounding whitespace, quotes and sentence punctuation ("STOP.", "stop!", "\"STOP\"") around an otherwise exact keyword. Tolerated for opt-out and
+ * HELP only: treating "STOP." as a stop is always the safe direction, while an opt-in (START / YES) must stay a deliberate, exact message.
+ */
+const KEYWORD_DECORATION = /^[\s"'`.,!?;:()‘’“”-]+|[\s"'`.,!?;:()‘’“”-]+$/g;
+
 export function classifyInboundKeywordBody(body: string): InboundKeyword {
   const normalized = String(body ?? "").trim().toUpperCase();
+  const stripped = normalized.replace(KEYWORD_DECORATION, "");
 
-  if (SMS_FALLBACK_OPT_OUT_KEYWORDS.has(normalized)) return "stop";
+  if (SMS_FALLBACK_OPT_OUT_KEYWORDS.has(normalized) || SMS_FALLBACK_OPT_OUT_KEYWORDS.has(stripped)) return "stop";
   if (SMS_FALLBACK_OPT_IN_KEYWORDS.has(normalized)) return "start";
-  if (SMS_FALLBACK_HELP_KEYWORDS.has(normalized)) return "help";
+  if (SMS_FALLBACK_HELP_KEYWORDS.has(normalized) || SMS_FALLBACK_HELP_KEYWORDS.has(stripped)) return "help";
 
   return "message";
 }

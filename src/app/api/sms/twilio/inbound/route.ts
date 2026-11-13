@@ -62,6 +62,11 @@ function emptyTwiml() {
   });
 }
 
+/** Non-2xx: a STOP whose opt-out could not be recorded must never be acknowledged as handled. */
+function unavailableResponse() {
+  return new Response("Service unavailable", { status: 503, headers: { "Content-Type": "text/plain" } });
+}
+
 // A2P-1A: only requests that fail verification count against the per-IP limiter, so
 // genuine STOP messages arriving from shared Twilio egress IPs are never throttled.
 function rejectUnverified(request: Request, status: 403 | 503) {
@@ -177,50 +182,69 @@ export async function POST(request: Request) {
   const receiptKey = webhookReceiptKey("inbound", params);
   if (receiptKey) {
     const receipt = await recordWebhookReceipt(supabase, "inbound", receiptKey, signer.kind === "subaccount" ? signer.accountSid : null);
-    if (receipt === "duplicate") return emptyTwiml();
+    if (receipt === "duplicate") {
+      // A redelivery of a STOP re-applies the opt-out (idempotent, and the safe direction), so a first attempt whose consent change failed after the
+      // receipt was recorded is healed by the retry. Silent: no second reply, no log, no usage record. A replayed START is never re-applied: an old,
+      // captured START must not undo a later STOP.
+      if (keyword === "stop") {
+        const { error } = await supabase.rpc("record_sms_inbound_opt_event", { p_studio_id: routing.studioId, p_phone_e164: from, p_event: "stop" });
+        if (error) {
+          console.error("sms_inbound_consent_update_failed", error.code ?? "unknown");
+          return unavailableResponse();
+        }
+      }
+      return emptyTwiml();
+    }
     if (receipt === "unavailable") console.warn("sms_inbound_receipt_unavailable");
   }
 
   const studioId = routing.studioId;
 
-  const { data: studioRow } = await supabase
-    .from("studios")
-    .select("name")
-    .eq("id", studioId)
-    .maybeSingle<{ name: string | null }>();
-  const studioName = studioRow?.name ?? null;
+  // Nothing in this block (studio name, permission read, inbound log) may stop the consent change below: a failure here only costs the
+  // personalised reply text or the inbox entry.
+  let studioName: string | null = null;
+  try {
+    const { data: studioRow } = await supabase
+      .from("studios")
+      .select("name")
+      .eq("id", studioId)
+      .maybeSingle<{ name: string | null }>();
+    studioName = studioRow?.name ?? null;
 
-  const { data: permissions } = await supabase
-    .from("sms_contact_permissions")
-    .select("*")
-    .eq("studio_id", studioId)
-    .eq("phone_e164", from)
-    .order("updated_at", { ascending: false })
-    .limit(20);
+    const { data: permissions } = await supabase
+      .from("sms_contact_permissions")
+      .select("*")
+      .eq("studio_id", studioId)
+      .eq("phone_e164", from)
+      .order("updated_at", { ascending: false })
+      .limit(20);
 
-  const now = new Date().toISOString();
+    const now = new Date().toISOString();
 
-  // One inbound log per known client/contact; TW-2 phone-level opt-out rows carry no identity.
-  const identifiedPermissions = (permissions ?? []).filter(
-    (permission) => permission.client_id != null || permission.organizer_contact_id != null,
-  );
+    // One inbound log per known client/contact; TW-2 phone-level opt-out rows carry no identity.
+    const identifiedPermissions = (permissions ?? []).filter(
+      (permission) => permission.client_id != null || permission.organizer_contact_id != null,
+    );
 
-  for (const permission of identifiedPermissions) {
-    await supabase.from("sms_message_logs").insert({
-      studio_id: studioId,
-      organizer_id: null,
-      client_id: permission.client_id ?? null,
-      organizer_contact_id: permission.organizer_contact_id ?? null,
-      phone_e164: from,
-      direction: "inbound",
-      message_type: keyword,
-      body,
-      segment_count: 1,
-      status: "received",
-      provider: "twilio",
-      provider_message_id: messageSid || null,
-      sent_at: now,
-    });
+    for (const permission of identifiedPermissions) {
+      await supabase.from("sms_message_logs").insert({
+        studio_id: studioId,
+        organizer_id: null,
+        client_id: permission.client_id ?? null,
+        organizer_contact_id: permission.organizer_contact_id ?? null,
+        phone_e164: from,
+        direction: "inbound",
+        message_type: keyword,
+        body,
+        segment_count: 1,
+        status: "received",
+        provider: "twilio",
+        provider_message_id: messageSid || null,
+        sent_at: now,
+      });
+    }
+  } catch {
+    console.warn("sms_inbound_log_failed");
   }
 
   // TW-4F usage recording: AFTER the signature, tenant and replay checks (a duplicate delivery returned above) and after this message's own effects, so it
@@ -261,16 +285,18 @@ export async function POST(request: Request) {
     //            number matches no client, so a later client with this phone stays blocked.
     //   START -> restores only rows with recorded prior consent and lifts the studio+phone
     //            block; it never creates consent, even though Twilio has unblocked the number.
-    const { data: outcome, error: consentError } = await supabase.rpc("record_sms_inbound_opt_event", {
-      p_studio_id: studioId,
-      p_phone_e164: from,
-      p_event: keyword,
-    });
+    const applyConsent = () => supabase.rpc("record_sms_inbound_opt_event", { p_studio_id: studioId, p_phone_e164: from, p_event: keyword });
+    let consent = await applyConsent();
+    // one inline retry: a transient failure must not leave a STOP unrecorded (the START direction is fail-safe and is not retried)
+    if (consent.error && keyword === "stop") consent = await applyConsent();
+    const { data: outcome, error: consentError } = consent;
 
     if (consentError) {
       // Code only. Twilio Advanced Opt-Out still enforces the carrier-level block.
       console.error("sms_inbound_consent_update_failed", consentError.code ?? "unknown");
       consentFailed = true;
+      // A STOP that could not be recorded is not acknowledged: non-2xx, and a redelivery re-applies it (see the duplicate branch above).
+      if (keyword === "stop") return unavailableResponse();
     }
 
     if (keyword === "stop") {
