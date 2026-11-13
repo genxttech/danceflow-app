@@ -6,7 +6,7 @@ import {
   staffApiJson,
   staffApiUnavailable,
 } from "@/lib/auth/staffApiAuth";
-import { loadAppointmentDetail } from "@/lib/staff/instructorToday";
+import { loadAppointmentDetail, resolveStudioTimeZone } from "@/lib/staff/instructorToday";
 
 export async function GET(
   request: Request,
@@ -32,6 +32,7 @@ export async function GET(
       studioRole: guard.studioRole,
       userId: guard.user.id,
       appointmentId: normalizedAppointmentId,
+      timeZone: resolveStudioTimeZone(guard.studioTimeZone),
     });
 
     if (!appointment) {

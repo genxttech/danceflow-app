@@ -1,13 +1,15 @@
 import { Link } from "expo-router";
-import { useState } from "react";
-import { StyleSheet, TextInput, View } from "react-native";
+import { useMemo, useState } from "react";
+import { StyleSheet, TextInput, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 
 export default function ResetPasswordScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { sendPasswordReset } = useAuth();
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -65,39 +67,41 @@ export default function ResetPasswordScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  wrap: {
-    flex: 1,
-    justifyContent: "center",
-    gap: 28
-  },
-  header: {
-    gap: 10
-  },
-  form: {
-    gap: 12
-  },
-  input: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 12,
-    borderWidth: 1,
-    color: colors.text,
-    fontSize: 16,
-    minHeight: 52,
-    paddingHorizontal: 14
-  },
-  error: {
-    color: colors.danger
-  },
-  success: {
-    color: colors.success
-  },
-  link: {
-    color: colors.primary,
-    fontSize: 15,
-    fontWeight: "700",
-    marginTop: 8,
-    textAlign: "center"
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    wrap: {
+      flex: 1,
+      justifyContent: "center",
+      gap: 28
+    },
+    header: {
+      gap: 10
+    },
+    form: {
+      gap: 12
+    },
+    input: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 12,
+      borderWidth: 1,
+      color: colors.text,
+      fontSize: 16,
+      minHeight: 52,
+      paddingHorizontal: 14
+    },
+    error: {
+      color: colors.danger
+    },
+    success: {
+      color: colors.success
+    },
+    link: {
+      color: colors.primary,
+      fontSize: 15,
+      fontWeight: "700",
+      marginTop: 8,
+      textAlign: "center"
+    }
+  });
+}

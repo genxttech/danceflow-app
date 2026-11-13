@@ -276,10 +276,122 @@ describe.skipIf(!enabled)("staff API against real RLS", () => {
     expect(body.roster.attendees).toEqual(
       expect.arrayContaining([
         { clientId: CLIENT_OWN, name: "Ana Dancer", attendanceStatus: null },
-        // No teaching relationship with this instructor, and clients RLS hides the row: null, never a placeholder.
-        { clientId: CLIENT_COLLEAGUE, name: null, attendanceStatus: null },
+        // No private-lesson relationship and clients RLS hides the row; the name comes from get_class_roster_names_for_instructor.
+        { clientId: CLIENT_COLLEAGUE, name: "Colin Dancer", attendanceStatus: null },
       ]),
     );
+  });
+
+  describe("get_class_roster_names_for_instructor, called directly as each caller", () => {
+    const rosterNames = async (token: string | null, appointmentId: string) => {
+      const response = await fetch(`${URL_}/rest/v1/rpc/get_class_roster_names_for_instructor`, {
+        method: "POST",
+        headers: { apikey: "x", "content-type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ target_appointment_id: appointmentId }),
+      });
+      return { status: response.status, body: (await response.json()) as unknown };
+    };
+
+    it("returns names, and only names and enrollment status, to the assigned instructor", async () => {
+      const { status, body } = await rosterNames(userToken(USERS.instructorA), APPT_CLASS);
+      expect(status).toBe(200);
+      expect(body).toEqual([
+        { client_id: CLIENT_OWN, first_name: "Ana", last_name: "Dancer", attendee_status: "booked" },
+        { client_id: CLIENT_COLLEAGUE, first_name: "Colin", last_name: "Dancer", attendee_status: "booked" },
+      ].sort((a, b) => (a.first_name < b.first_name ? -1 : 1)));
+    });
+
+    it.each([
+      ["a colleague instructor at the same studio", () => USERS.colleagueA],
+      ["an instructor at another studio", () => USERS.instructorB],
+      ["the studio owner, who is not the assigned instructor", () => USERS.ownerA],
+      ["front desk", () => USERS.frontDeskA],
+      ["an independent instructor", () => USERS.independentA],
+      ["an instructor with no instructor row", () => USERS.unlinkedA],
+      ["a student", () => USERS.student],
+      ["a platform admin", () => USERS.platformAdmin],
+    ])("returns zero rows to %s", async (_label, user) => {
+      expect(await rosterNames(userToken(user()), APPT_CLASS)).toEqual({ status: 200, body: [] });
+    });
+
+    it("returns zero rows for a lesson, even the assigned instructor's own", async () => {
+      expect((await rosterNames(userToken(USERS.instructorA), APPT_LESSON)).body).toEqual([]);
+    });
+
+    it("answers a missing appointment exactly like an unauthorized one", async () => {
+      expect(await rosterNames(userToken(USERS.instructorA), randomUUID())).toEqual({ status: 200, body: [] });
+    });
+
+    it("is not executable without a user token", async () => {
+      const { status } = await rosterNames(null, APPT_CLASS);
+      expect([401, 403]).toContain(status);
+    });
+
+    it("follows the live assignment, a deactivated instructor row and a deactivated membership", async () => {
+      const token = userToken(USERS.instructorA);
+      try {
+        psql(`set session_replication_role = replica; update public.appointments set instructor_id = '${INSTRUCTOR_COLLEAGUE}' where id = '${APPT_CLASS}';`);
+        expect((await rosterNames(token, APPT_CLASS)).body).toEqual([]);
+        expect(((await rosterNames(userToken(USERS.colleagueA), APPT_CLASS)).body as unknown[]).length).toBe(2);
+      } finally {
+        psql(`set session_replication_role = replica; update public.appointments set instructor_id = '${INSTRUCTOR_A}' where id = '${APPT_CLASS}';`);
+      }
+
+      try {
+        psql(`set session_replication_role = replica; update public.instructors set active = false where id = '${INSTRUCTOR_A}';`);
+        expect((await rosterNames(token, APPT_CLASS)).body).toEqual([]);
+      } finally {
+        psql(`set session_replication_role = replica; update public.instructors set active = true where id = '${INSTRUCTOR_A}';`);
+      }
+
+      try {
+        psql(`update public.user_studio_roles set active = false where user_id = '${USERS.instructorA}' and studio_id = '${STUDIO_A}';`);
+        expect((await rosterNames(token, APPT_CLASS)).body).toEqual([]);
+      } finally {
+        psql(`update public.user_studio_roles set active = true where user_id = '${USERS.instructorA}' and studio_id = '${STUDIO_A}';`);
+      }
+
+      expect(((await rosterNames(token, APPT_CLASS)).body as unknown[]).length).toBe(2);
+    }, 30_000);
+
+    it("never returns an attendee row whose client belongs to another studio", async () => {
+      try {
+        psql(`set session_replication_role = replica;
+          insert into public.appointment_attendees (studio_id, appointment_id, client_id, source, status) values ('${STUDIO_A}', '${APPT_CLASS}', '${CLIENT_B}', 'staff', 'booked');`);
+        const names = (await rosterNames(userToken(USERS.instructorA), APPT_CLASS)).body as { client_id: string }[];
+        expect(names.map((row) => row.client_id)).not.toContain(CLIENT_B);
+      } finally {
+        psql(`delete from public.appointment_attendees where appointment_id = '${APPT_CLASS}' and client_id = '${CLIENT_B}';`);
+      }
+    }, 30_000);
+  });
+
+  describe("web roster helpers as the assigned instructor (real RLS)", () => {
+    it("the attendance page roster no longer drops attendees whose client rows RLS hides", async () => {
+      const { createBearerScopedClient } = await import("@/lib/auth/studentApiAuth");
+      const { getClassRosterForInstructor } = await import("@/lib/schedule/groupClassRoster");
+      const roster = await getClassRosterForInstructor({
+        supabase: createBearerScopedClient(userToken(USERS.instructorA)) as never,
+        appointmentId: APPT_CLASS,
+        studioId: STUDIO_A,
+      });
+      expect(roster.map((row) => `${row.firstName} ${row.lastName}`).sort()).toEqual(["Ana Dancer", "Colin Dancer"]);
+      expect(roster.every((row) => row.source === "roster")).toBe(true);
+    });
+
+    it("the class detail roster panel shows names, not the placeholder", async () => {
+      const { createBearerScopedClient } = await import("@/lib/auth/studentApiAuth");
+      const { loadRosterPanel } = await import("@/lib/schedule/groupClassRosterPanel");
+      const supabase = createBearerScopedClient(userToken(USERS.instructorA));
+      const panel = (assignedInstructorView: boolean) =>
+        loadRosterPanel({ supabase, studioId: STUDIO_A, appointmentId: APPT_CLASS, capacity: 12, includeFunding: false, canManage: true, assignedInstructorView });
+
+      // Control: without the instructor view, the old embed-only read is what RLS allows.
+      expect((await panel(false)).entries.map((entry) => entry.name)).toEqual(["Unnamed dancer", "Unnamed dancer"]);
+      const fixed = await panel(true);
+      expect(fixed.entries.map((entry) => entry.name)).toEqual(["Ana Dancer", "Colin Dancer"]);
+      expect(fixed.entries.every((entry) => entry.nameKnown && entry.fundingLabel === null)).toBe(true);
+    });
   });
 
   it("detail gives broad staff every name on a class roster", async () => {

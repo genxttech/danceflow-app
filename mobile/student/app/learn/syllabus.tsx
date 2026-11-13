@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, type Href } from "expo-router";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import { loadStudentLearnOverview, type StudentLearnOverview } from "@/lib/studentLearn";
@@ -33,6 +35,8 @@ const emptyOverview: StudentLearnOverview & { syllabi: StudentSyllabusSummary[] 
 };
 
 function SyllabusCard({ syllabus }: { syllabus: StudentSyllabusSummary }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const subtitle = [syllabus.studioName, syllabus.danceStyle, syllabus.level].filter(Boolean).join(" • ");
   const href = `/learn/syllabus/${syllabus.id}` as Href;
 
@@ -61,6 +65,8 @@ function SyllabusCard({ syllabus }: { syllabus: StudentSyllabusSummary }) {
 }
 
 export default function SyllabusScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { session } = useAuth();
   const [loading, setLoading] = useState(true);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
@@ -131,8 +137,8 @@ export default function SyllabusScreen() {
         </Pressable>
       </Link>
 
-      {loading ? <FeatureCard title="Loading syllabus" detail="Checking your assigned progress." /> : null}
-      {errorMessage ? <FeatureCard title="Syllabus unavailable" detail={errorMessage} /> : null}
+      {loading ? <LoadingState label="Loading syllabus" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Syllabus unavailable" /> : null}
 
       {!loading && !hasPortalAccess ? (
         <FeatureCard
@@ -159,71 +165,73 @@ export default function SyllabusScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  focusCard: {
-    alignItems: "center",
-    backgroundColor: colors.surfaceAlt,
-    borderColor: colors.primary,
-    borderRadius: 18,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    padding: 16
-  },
-  openBadge: {
-    backgroundColor: colors.primary,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7
-  },
-  openBadgeText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "800"
-  },
-  cardPressed: {
-    opacity: 0.78
-  },
-  progressBadge: {
-    alignItems: "center",
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 16,
-    minWidth: 82,
-    padding: 10
-  },
-  progressBadgeLabel: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: "800"
-  },
-  progressBadgeValue: {
-    color: colors.primary,
-    fontSize: 22,
-    fontWeight: "900"
-  },
-  progressFill: {
-    backgroundColor: colors.primary,
-    borderRadius: 999,
-    height: "100%"
-  },
-  progressTrack: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 999,
-    height: 8,
-    marginVertical: 6,
-    overflow: "hidden"
-  },
-  section: {
-    gap: 10
-  },
-  syllabusCard: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    padding: 16
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    focusCard: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceAlt,
+      borderColor: colors.primary,
+      borderRadius: 18,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 12,
+      padding: 16
+    },
+    openBadge: {
+      backgroundColor: colors.primary,
+      borderRadius: 999,
+      paddingHorizontal: 12,
+      paddingVertical: 7
+    },
+    openBadgeText: {
+      color: colors.onPrimary,
+      fontSize: 12,
+      fontWeight: "800"
+    },
+    cardPressed: {
+      opacity: 0.78
+    },
+    progressBadge: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 16,
+      minWidth: 82,
+      padding: 10
+    },
+    progressBadgeLabel: {
+      color: colors.muted,
+      fontSize: 11,
+      fontWeight: "800"
+    },
+    progressBadgeValue: {
+      color: colors.primary,
+      fontSize: 22,
+      fontWeight: "900"
+    },
+    progressFill: {
+      backgroundColor: colors.primary,
+      borderRadius: 999,
+      height: "100%"
+    },
+    progressTrack: {
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 999,
+      height: 8,
+      marginVertical: 6,
+      overflow: "hidden"
+    },
+    section: {
+      gap: 10
+    },
+    syllabusCard: {
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 18,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 12,
+      padding: 16
+    }
+  });
+}

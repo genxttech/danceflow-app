@@ -223,7 +223,8 @@ function AppStack() {
         <Stack.Screen
           name="events/[id]"
           options={{
-            headerShown: true,
+            // The redesigned hero is full-bleed with its own back button.
+            headerShown: false,
             title: "Event"
           }}
         />

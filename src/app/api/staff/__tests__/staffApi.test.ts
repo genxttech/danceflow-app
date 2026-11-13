@@ -15,6 +15,7 @@ import {
   STUDIO_ORGANIZER,
   STUDIO_PAUSED,
   TOKENS,
+  appointment_attendees,
   createAdminWorldClient,
   createWorldClient,
   type AuthOutcome,
@@ -436,7 +437,8 @@ describe("GET appointment detail", () => {
     expect(body.roster.attendees).toEqual(
       expect.arrayContaining([
         { clientId: "cli-a1", name: "Ana Own", attendanceStatus: "attended" },
-        { clientId: "cli-rental", name: null, attendanceStatus: null },
+        // Not in the instructor's private-lesson relationship and hidden by clients RLS: the name comes from the roster RPC.
+        { clientId: "cli-rental", name: "Rene Renter", attendanceStatus: null },
       ]),
     );
     expect(body.recap).toBeNull();
@@ -444,6 +446,27 @@ describe("GET appointment detail", () => {
     expect(serialized).not.toContain("package_credit");
     expect(serialized).not.toContain("cli-a3");
     expect(serialized).not.toContain("Unnamed");
+  });
+
+  it("returns null, never the placeholder, when no name source is readable", async () => {
+    harness.failures = {};
+    const embedded = appointment_attendees.find((row) => row.id === "att-1")!;
+    const saved = embedded.clients;
+    embedded.clients = null;
+    try {
+      // The broad view has no RPC fallback, so a hidden embed must surface as null.
+      const body = await (await appointment(TOKENS.ownerA, STUDIO_A, APPT_OWN_CLASS)).json();
+      const entry = body.roster.attendees.find((row: { clientId: string }) => row.clientId === "cli-a1");
+      expect(entry.name).toBeNull();
+      expect(JSON.stringify(body)).not.toContain("Unnamed");
+    } finally {
+      embedded.clients = saved;
+    }
+  });
+
+  it("fails closed when the roster names lookup fails for the assigned instructor", async () => {
+    harness.failures = { rpc: "get_class_roster_names_for_instructor" };
+    await expectRefusal(await appointment(TOKENS.instructorA, STUDIO_A, APPT_OWN_CLASS), 503, "service_unavailable");
   });
 
   it("gives a colleague's appointment, including a class, the same 404 as a missing one", async () => {

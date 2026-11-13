@@ -5,6 +5,7 @@ import { router, useFocusEffect } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -273,7 +274,7 @@ export default function RewardsScreen() {
       </View>
 
       {errorMessage ? (
-        <FeatureCard title="Rewards unavailable" detail={errorMessage} />
+        <ErrorState error={errorMessage} title="Rewards unavailable" />
       ) : null}
 
       {!loading && !hasLinkedStudio ? (
