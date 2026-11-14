@@ -1,0 +1,12 @@
+401  unauthenticated    no token: me
+401  unauthenticated    garbage token: me
+200  ok                 instructor: own class detail
+403  not_a_member       other-studio user: studio A class
+403  not_a_member       other-studio user: studio A today
+403  not_a_member       other-studio user: studio A clients
+403  not_a_member       other-studio user: mark attendance in A
+403  not_a_member       instructor: studio B (not member)
+400  invalid_request    instructor: bad status value
+409  not_markable       instructor: private lesson not markable
+200  ok                 owner: studio today (own lessons)
+200  ok                 owner: clients list
