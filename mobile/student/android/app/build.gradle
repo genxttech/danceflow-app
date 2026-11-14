@@ -224,4 +224,28 @@ gradle.taskGraph.whenReady { graph ->
     }
 }
 
+// Release builds must carry a real google-services.json for this package (never the QA
+// placeholder). -PallowPlaceholderGoogleServices=true is only for local verification builds.
+gradle.taskGraph.whenReady { graph ->
+    def releaseTask = graph.allTasks.find {
+        it.project == project && it.name ==~ /^(bundle|assemble)(.*)Release.*/
+    }
+    if (releaseTask && !project.hasProperty('allowPlaceholderGoogleServices')) {
+        def gs = file('google-services.json')
+        if (!gs.exists()) {
+            throw new GradleException("android/app/google-services.json is missing; release needs the real Firebase file (see docs/mobile/Android_Push_Firebase_Setup.md).")
+        }
+        def parsed = new groovy.json.JsonSlurper().parse(gs)
+        def clients = parsed.client ?: []
+        def mine = clients.find { it.client_info?.android_client_info?.package_name == 'com.idanceflow.student' }
+        if (mine == null) {
+            throw new GradleException("android/app/google-services.json has no client for com.idanceflow.student.")
+        }
+        def keys = (mine.api_key ?: []).collect { it.current_key.toString() }
+        if (parsed.project_info?.project_number == '000000000000' || keys.any { it.toUpperCase().contains('PLACEHOLDER') }) {
+            throw new GradleException("android/app/google-services.json is the QA placeholder; release needs the real Firebase file.")
+        }
+    }
+}
+
 apply plugin: 'com.google.gms.google-services'

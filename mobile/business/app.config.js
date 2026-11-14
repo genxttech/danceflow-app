@@ -1,4 +1,5 @@
 const appJson = require("./app.json");
+const { checkGoogleServices } = require("./scripts/google-services-check");
 
 /*
   Dynamic config for DanceFlow Business.
@@ -12,6 +13,13 @@ const appJson = require("./app.json");
 */
 module.exports = ({ config }) => {
   const googleServicesFile = process.env.GOOGLE_SERVICES_JSON;
+
+  if (googleServicesFile) {
+    const result = checkGoogleServices(googleServicesFile, appJson.expo.android.package, {
+      allowPlaceholder: process.env.EAS_BUILD_PROFILE !== "production",
+    });
+    if (!result.ok) throw new Error(`GOOGLE_SERVICES_JSON rejected: ${result.reason}`);
+  }
 
   return {
     ...config,
