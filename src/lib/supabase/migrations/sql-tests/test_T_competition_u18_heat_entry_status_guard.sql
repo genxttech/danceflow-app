@@ -96,6 +96,26 @@ update public.event_competition_heat_entries set status = 'danced' where id = '0
 select pg_temp.chk('the migration-owner / superuser session can still write danced',
   (select status from public.event_competition_heat_entries where id = '00000000-0000-0000-0000-cf1018900001') = 'danced');
 
+-- reviewer-requested coverage (rows: 1 danced, 2 disqualified, 4 danced at this point)
+select pg_temp.chk('authenticated: un-disqualifying a disqualified row is refused and it stays disqualified',
+  pg_temp.try_as('authenticated', $q$update public.event_competition_heat_entries set status = 'scheduled' where id = '00000000-0000-0000-0000-cf1018900002'$q$) like '42501 COMP_U18_HEAT_ENTRY_STATUS_WRITER%'
+  and (select status from public.event_competition_heat_entries where id = '00000000-0000-0000-0000-cf1018900002') = 'disqualified');
+select pg_temp.chk('authenticated: swapping danced -> disqualified is refused and the row stays danced',
+  pg_temp.try_as('authenticated', $q$update public.event_competition_heat_entries set status = 'disqualified' where id = '00000000-0000-0000-0000-cf1018900001'$q$) like '42501 COMP_U18_HEAT_ENTRY_STATUS_WRITER%'
+  and (select status from public.event_competition_heat_entries where id = '00000000-0000-0000-0000-cf1018900001') = 'danced');
+select pg_temp.chk('authenticated: a bulk UPDATE touching danced and disqualified rows is refused as a whole (nothing changed)',
+  pg_temp.try_as('authenticated', $q$update public.event_competition_heat_entries set status = 'scheduled' where id in ('00000000-0000-0000-0000-cf1018900001', '00000000-0000-0000-0000-cf1018900002', '00000000-0000-0000-0000-cf1018900004')$q$) like '42501 COMP_U18_HEAT_ENTRY_STATUS_WRITER%'
+  and (select count(*) from public.event_competition_heat_entries where id in ('00000000-0000-0000-0000-cf1018900001', '00000000-0000-0000-0000-cf1018900004') and status = 'danced') = 2
+  and (select status from public.event_competition_heat_entries where id = '00000000-0000-0000-0000-cf1018900002') = 'disqualified');
+select pg_temp.chk('authenticated: INSERT ... ON CONFLICT (id) DO UPDATE cannot un-dance a row (refused, row stays danced)',
+  pg_temp.try_as('authenticated', $q$insert into public.event_competition_heat_entries (id, event_id, division_id, heat_id, entry_id, floor_order, status)
+    values ('00000000-0000-0000-0000-cf1018900001', '00000000-0000-0000-0000-cf1018e00001', '00000000-0000-0000-0000-cf1018003001', '00000000-0000-0000-0000-cf1018d00001', '00000000-0000-0000-0000-cf1018800001', 1, 'scheduled')
+    on conflict (id) do update set status = excluded.status$q$) <> 'OK'
+  and (select status from public.event_competition_heat_entries where id = '00000000-0000-0000-0000-cf1018900001') = 'danced');
+-- Documented residual (not tested here): a client DELETE of a danced row on an UNPUBLISHED draft schedule version / unlocked heat followed by a re-INSERT
+-- as scheduled; published versions (comp10d_guard_heat_entry), locked/certified heats (protect_locked_competition_heat_entry) and A6-withdrawn pairs
+-- (cf1_guard_withdrawn_heat_entry) are already protected. Owner decision 2026-11-13: remains a documented residual.
+
 -- review hardening: a client cannot add its own trigger to rewrite the status; an unknown client-like role is refused (allowlist); the trigger is AFTER
 select pg_temp.chk('TRIGGER privilege on the table is revoked from client roles',
   not has_table_privilege('authenticated', 'public.event_competition_heat_entries', 'TRIGGER') and not has_table_privilege('anon', 'public.event_competition_heat_entries', 'TRIGGER')
