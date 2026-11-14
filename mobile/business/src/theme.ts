@@ -1,10 +1,12 @@
+import { Appearance } from "react-native";
+
 /*
   DanceFlow Business tokens, from docs/mobile/Mobile_Design_Direction.md (approved 2026-11-09).
   Light paper surface, plum for actions only. These move to mobile/shared once the
   Student app's stabilization lands; until then they are local to this app.
 */
 
-export const colors = {
+export const lightPalette = {
   surface: "#fff9f3",
   raised: "#ffffff",
   plum: "#5b145e",
@@ -18,7 +20,7 @@ export const colors = {
   error: "#A32A1E",
   onPlum: "#ffffff",
   skeleton: "#f1e6dc",
-} as const;
+};
 
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32, xxxl: 48 } as const;
 
@@ -41,15 +43,9 @@ export type TypeVariant = keyof typeof type;
 // Aligned numerals for times, per the Business type emphasis.
 export const tabularNums = { fontVariant: ["tabular-nums" as const] };
 
-/*
-  Dark palette, proposed (not yet wired). Every text pair is unit-tested for WCAG AA in src/__tests__/contrast.test.ts for
-  both palettes. Turning dark mode on also needs `userInterfaceStyle: "automatic"` in app.json (owned by the release
-  session) and the screens to read colours from a hook instead of this static object. Needs the owner's visual approval.
-*/
-export type Palette = { [K in keyof typeof colors]: string };
+export type Palette = { [K in keyof typeof lightPalette]: string };
 
-export const lightPalette: Palette = colors;
-
+/** Dark palette. Every text pair is WCAG AA, proven in src/__tests__/contrast.test.ts. */
 export const darkPalette: Palette = {
   surface: "#1a1119",
   raised: "#251a24",
@@ -65,3 +61,9 @@ export const darkPalette: Palette = {
   onPlum: "#2b0f2e",
   skeleton: "#33253a",
 };
+
+/**
+ * The palette for the system appearance at launch (app.json userInterfaceStyle is "automatic"). Styles are built at
+ * module load from this object, so a change of the system appearance while the app is open applies on the next launch.
+ */
+export const colors: Palette = Appearance.getColorScheme() === "dark" ? darkPalette : lightPalette;
