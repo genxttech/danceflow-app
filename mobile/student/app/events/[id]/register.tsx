@@ -19,6 +19,7 @@ import {
 } from "@/lib/eventCheckout";
 import { useAuth } from "@/lib/auth";
 import { prepareConnectedPaymentSheet } from "@/lib/stripeConnect";
+import { isPaymentCancelled, paymentSheetError } from "@/lib/paymentSheetOutcome";
 import {
   getPublicEventDetailForMobile,
   type PublicEventDetail,
@@ -88,6 +89,7 @@ export default function EventRegisterScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [checkoutStatusMessage, setCheckoutStatusMessage] = useState<string | null>(null);
+  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [buyerFirstName, setBuyerFirstName] = useState("");
   const [buyerLastName, setBuyerLastName] = useState("");
@@ -190,6 +192,7 @@ export default function EventRegisterScreen() {
 
     setSubmitting(true);
     setErrorMessage(null);
+    setNoticeMessage(null);
     setCheckoutStatusMessage(null);
 
     try {
@@ -282,7 +285,7 @@ export default function EventRegisterScreen() {
 
         const payment = await presentPaymentSheet();
         if (payment.error) {
-          throw new Error(payment.error.message || "Payment was not completed.");
+          throw paymentSheetError(payment.error);
         }
 
         setCheckoutStatusMessage("Payment received. Preparing your tickets...");
@@ -322,7 +325,12 @@ export default function EventRegisterScreen() {
         assertSafeEventCheckoutUrl(result.checkoutUrl),
       );
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Checkout could not be started.");
+      // The attempt id is kept on purpose: a retry reuses the same order instead of creating a second.
+      if (isPaymentCancelled(error)) {
+        setNoticeMessage(error.message);
+      } else {
+        setErrorMessage(error instanceof Error ? error.message : "Checkout could not be started.");
+      }
       setCheckoutStatusMessage(null);
     } finally {
       setSubmitting(false);
@@ -365,6 +373,11 @@ export default function EventRegisterScreen() {
       <AppText variant="caption">{session.user.email}</AppText>
 
       {errorMessage ? <ErrorState error={errorMessage} title="Checkout needs attention" /> : null}
+      {noticeMessage ? (
+        <View accessibilityLiveRegion="polite" style={styles.statusCard}>
+          <AppText variant="caption" style={{ flex: 1 }}>{noticeMessage}</AppText>
+        </View>
+      ) : null}
       {checkoutStatusMessage ? (
         <View style={styles.statusCard}>
           <ActivityIndicator color={colors.primary} />

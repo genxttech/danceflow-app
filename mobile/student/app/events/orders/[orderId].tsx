@@ -15,6 +15,7 @@ import {
   type StudentEventOrderStatus
 } from "@/lib/eventCheckout";
 import { prepareConnectedPaymentSheet } from "@/lib/stripeConnect";
+import { isPaymentCancelled, paymentSheetError } from "@/lib/paymentSheetOutcome";
 
 function formatCurrency(value: number, currency: string) {
   return new Intl.NumberFormat(undefined, {
@@ -79,6 +80,7 @@ export default function EventOrderStatusScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const [pollCount, setPollCount] = useState(0);
   const [resumingPayment, setResumingPayment] = useState(false);
   const [resumeAttempted, setResumeAttempted] = useState(false);
@@ -147,9 +149,7 @@ export default function EventOrderStatusScreen() {
 
         const payment = await presentPaymentSheet();
         if (payment.error) {
-          throw new Error(
-            payment.error.message || "Payment was not completed.",
-          );
+          throw paymentSheetError(payment.error);
         }
 
         await loadOrder(true);
@@ -173,11 +173,16 @@ export default function EventOrderStatusScreen() {
 
     setResumingPayment(true);
     setErrorMessage(null);
+    setNoticeMessage(null);
 
     try {
       const result = await resumeStudentEventCheckout(orderId);
       await continueResumedCheckout(result);
     } catch (error) {
+      if (isPaymentCancelled(error)) {
+        setNoticeMessage(error.message);
+        return;
+      }
       setErrorMessage(
         error instanceof Error
           ? error.message
@@ -264,6 +269,11 @@ export default function EventOrderStatusScreen() {
       </View>
 
       {errorMessage ? <ErrorState error={errorMessage} title="Checkout needs attention" /> : null}
+      {noticeMessage ? (
+        <View accessibilityLiveRegion="polite" style={styles.statusCard}>
+          <AppText variant="caption" style={{ flex: 1 }}>{noticeMessage}</AppText>
+        </View>
+      ) : null}
 
       <View style={styles.actions}>
         <AppButton label="Open Wallet" onPress={() => router.replace("/wallet")} />
