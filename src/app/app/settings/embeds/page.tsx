@@ -1,8 +1,9 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext, requireStudioRole } from "@/lib/auth/studio";
 import { fetchPublicGroupClasses, formatClassWhen } from "@/lib/public/groupClasses";
-import { appearanceDefaults, DEFAULT_EMBED_SETTINGS, parseEmbedSettings } from "@/lib/public/embedSettings";
+import { appearanceDefaults, DEFAULT_EMBED_SETTINGS, parseEmbedSettings, websiteEmbedsAvailable } from "@/lib/public/embedSettings";
 import EmbedBuilder from "./EmbedBuilder";
 import EmbedSettingsPanel from "./EmbedSettingsPanel";
 
@@ -21,6 +22,7 @@ type StudioRow = {
 };
 
 export default async function WebsiteEmbedsPage() {
+  if (!websiteEmbedsAvailable()) notFound(); // dark until WEBSITE_EMBEDS=on
   await requireStudioRole(["studio_owner", "studio_admin"]);
   const context = await getCurrentStudioContext();
   const supabase = await createClient();
