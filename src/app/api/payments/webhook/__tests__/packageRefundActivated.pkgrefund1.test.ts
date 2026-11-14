@@ -51,6 +51,9 @@ function createFakeSupabase(payment: { id: string; studio_id: string; amount: nu
       throw new Error(`Unexpected table: ${table}`);
     },
     async rpc(name: string, params: Record<string, unknown>) {
+      // CI-D R2 webhook routing: no competition orders in this fake.
+      if (name === "observe_competition_stripe_refund") return { data: { handled: false }, error: null };
+      if (name === "is_competition_order_payment_intent") return { data: false, error: null };
       rpcCalls.push({ name, params });
       if (name === "_apply_payment_refund_and_reevaluate") {
         return { data: [{ applied: true, package_deactivated: false, conflict_recorded: false }], error: null };

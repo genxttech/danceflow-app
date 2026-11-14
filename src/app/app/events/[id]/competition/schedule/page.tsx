@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
 import { checkScoringHeatMove, DEFAULT_SCORING_HEAT_CAPACITY, isSchedulableEntry, scoringHeatCapacity } from "@/lib/competition/floorPlanner";
@@ -230,6 +231,11 @@ export default async function SchedulePage({
                           <label className="text-xs font-medium text-slate-600">
                             Max entries per heat for this division
                             <input name="capacity" type="number" min={1} max={100} defaultValue={scoringHeatCapacity(round)} className={`${selectClass} mt-1 w-24`} />
+                          </label>
+                          <input type="hidden" name="requestId" value={randomUUID()} />
+                          <label className="text-xs font-medium text-slate-600">
+                            Reason (required, kept in the audit history)
+                            <input name="reason" required minLength={20} maxLength={500} className={`${selectClass} mt-1 w-64`} />
                           </label>
                           <button className={secondaryButton}>Save</button>
                         </form>
