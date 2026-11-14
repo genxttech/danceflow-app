@@ -338,6 +338,7 @@ export default function RewardsScreen() {
       ) : null}
 
       <Pressable
+        accessibilityRole="button"
         onPress={() => router.back()}
         style={({ pressed }) => [styles.backAction, pressed && { opacity: 0.75 }]}
       >

@@ -62,6 +62,7 @@ function LearnCategoryCard({
   const colors = colorsForScheme(useColorScheme());
   return (
     <Pressable
+      accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [
         styles.categoryCard,
@@ -288,6 +289,7 @@ export default function LearnScreen() {
           </View>
           {digitalContent.slice(0, 6).map((item) => (
             <Pressable
+              accessibilityRole="button"
               key={item.entitlementId}
               onPress={() =>
                 router.push({
@@ -394,6 +396,7 @@ export default function LearnScreen() {
           </View>
 
           <Pressable
+            accessibilityRole="button"
             onPress={() => router.push("/lumi")}
             style={({ pressed }) => [
               styles.lumiActionCard,

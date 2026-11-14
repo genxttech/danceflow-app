@@ -204,11 +204,11 @@ export default function PartnerThreadScreen() {
           </View>
 
           <View style={styles.safetyActions}>
-            <Pressable onPress={reportThread} style={styles.safetyButton}>
+            <Pressable accessibilityRole="button" onPress={reportThread} style={styles.safetyButton}>
               <Ionicons color={colors.accent} name="flag-outline" size={16} />
               <AppText style={styles.safetyButtonText}>Report</AppText>
             </Pressable>
-            <Pressable onPress={blockThread} style={styles.safetyButton}>
+            <Pressable accessibilityRole="button" onPress={blockThread} style={styles.safetyButton}>
               <Ionicons color={colors.danger} name="ban-outline" size={16} />
               <AppText style={styles.safetyButtonText}>Block</AppText>
             </Pressable>

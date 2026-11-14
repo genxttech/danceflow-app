@@ -212,11 +212,11 @@ export default function DiscoverStudiosScreen() {
       />
 
       <View style={styles.locationRow}>
-        <Pressable onPress={useCurrentLocation} style={styles.locationButton}>
+        <Pressable accessibilityRole="button" onPress={useCurrentLocation} style={styles.locationButton}>
           <AppText style={styles.locationButtonText}>Use My Location</AppText>
         </Pressable>
         {currentLocation ? (
-          <Pressable onPress={clearLocation} style={styles.clearButton}>
+          <Pressable accessibilityRole="button" onPress={clearLocation} style={styles.clearButton}>
             <AppText style={styles.clearButtonText}>Clear Location</AppText>
           </Pressable>
         ) : null}
@@ -226,6 +226,8 @@ export default function DiscoverStudiosScreen() {
         <View style={styles.segmentRow}>
           {RADIUS_OPTIONS.map((radius) => (
             <Pressable
+              accessibilityState={{ selected: Boolean(radiusMiles === radius) }}
+              accessibilityRole="button"
               key={radius}
               onPress={() => setRadiusMiles(radius)}
               style={[
@@ -299,7 +301,7 @@ export default function DiscoverStudiosScreen() {
               onPress={() => router.push(`/studios/${studio.id}` as unknown as RouterPushTarget)}
               variant="secondary"
             />
-            <Pressable onPress={() => shareStudio(studio)} style={styles.iconButton}>
+            <Pressable accessibilityLabel={`Share ${studio.name}`} accessibilityRole="button" onPress={() => shareStudio(studio)} style={styles.iconButton}>
               <Ionicons color={colors.primary} name="share-outline" size={20} />
             </Pressable>
           </View>
@@ -349,6 +351,7 @@ export default function DiscoverStudiosScreen() {
 
             <View style={styles.actionRow}>
               <Pressable
+                accessibilityState={{ selected: Boolean(studio.favorited) }}
                 accessibilityLabel={studio.favorited ? "Remove studio from favorites" : "Add studio to favorites"}
                 accessibilityRole="button"
                 onPress={() => toggleFavorite(studio)}
@@ -369,7 +372,7 @@ export default function DiscoverStudiosScreen() {
                 onPress={() => router.push(`/studios/${studio.id}` as unknown as RouterPushTarget)}
                 variant="secondary"
               />
-              <Pressable onPress={() => shareStudio(studio)} style={styles.iconButton}>
+              <Pressable accessibilityLabel={`Share ${studio.name}`} accessibilityRole="button" onPress={() => shareStudio(studio)} style={styles.iconButton}>
                 <Ionicons color={colors.primary} name="share-outline" size={20} />
               </Pressable>
             </View>

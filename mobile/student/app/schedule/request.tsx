@@ -262,6 +262,8 @@ export default function ScheduleRequestScreen() {
 
               return (
                 <Pressable
+                  accessibilityState={{ selected: Boolean(selected) }}
+                  accessibilityRole="button"
                   key={instructor.id}
                   onPress={() => {
                     setSelectedInstructorId(instructor.id);
@@ -366,6 +368,8 @@ export default function ScheduleRequestScreen() {
             {cells.map((cell, index) =>
               cell ? (
                 <Pressable
+                  accessibilityState={{ selected: Boolean(selectedDate === cell.key) }}
+                  accessibilityRole="button"
                   key={cell.key}
                   disabled={!cell.available}
                   onPress={() => {

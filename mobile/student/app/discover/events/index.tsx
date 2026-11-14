@@ -80,6 +80,7 @@ export default function EventsHubScreen() {
       <View style={styles.categoryList}>
         {EVENT_CATEGORY_BUTTONS.map((item) => (
           <Pressable
+            accessibilityRole="button"
             key={item.href}
             onPress={() => router.push(item.href as unknown as RouterPushTarget)}
             style={({ pressed }) => [styles.categoryCard, pressed && styles.cardPressed]}

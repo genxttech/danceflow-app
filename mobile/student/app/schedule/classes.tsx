@@ -62,6 +62,7 @@ function ClassCard({
 
   return (
     <Pressable
+      accessibilityRole="button"
       onPress={() =>
         router.push({
           pathname: "/appointments/[id]",
@@ -251,6 +252,7 @@ export default function ScheduleClassesScreen() {
 
       {session ? (
         <Pressable
+          accessibilityRole="button"
           onPress={loadClasses}
           style={({ pressed }) => [
             styles.refreshLink,

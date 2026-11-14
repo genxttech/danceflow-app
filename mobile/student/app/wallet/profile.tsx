@@ -50,6 +50,7 @@ function ProfileActionCard({
 
   return (
     <Pressable
+      accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [styles.actionCard, pressed && styles.cardPressed]}
     >

@@ -204,6 +204,8 @@ export default function JobsScreen() {
           <View style={styles.optionRow}>
             {[25, 50, 100].map((radius) => (
               <Pressable
+                accessibilityState={{ selected: Boolean(radiusMiles === radius) }}
+                accessibilityRole="button"
                 key={radius}
                 onPress={() => setRadiusMiles(radius)}
                 style={[styles.optionPill, radiusMiles === radius && styles.optionPillActive]}
@@ -213,7 +215,7 @@ export default function JobsScreen() {
                 </AppText>
               </Pressable>
             ))}
-            <Pressable onPress={useMyLocationFilter} style={styles.optionPill}>
+            <Pressable accessibilityRole="button" onPress={useMyLocationFilter} style={styles.optionPill}>
               <AppText style={styles.optionText}>{filterLocation ? "Near me on" : "Use my location"}</AppText>
             </Pressable>
           </View>
@@ -223,6 +225,8 @@ export default function JobsScreen() {
           <View style={styles.optionRow}>
             {["", ...roleOptions].map((role) => (
               <Pressable
+                accessibilityState={{ selected: Boolean(filterRole === role) }}
+                accessibilityRole="button"
                 key={role || "any-role"}
                 onPress={() => setFilterRole(role)}
                 style={[styles.optionPill, filterRole === role && styles.optionPillActive]}
@@ -239,6 +243,8 @@ export default function JobsScreen() {
           <View style={styles.optionRow}>
             {["", ...employmentOptions].map((employment) => (
               <Pressable
+                accessibilityState={{ selected: Boolean(filterEmployment === employment) }}
+                accessibilityRole="button"
                 key={employment || "any-employment"}
                 onPress={() => setFilterEmployment(employment)}
                 style={[styles.optionPill, filterEmployment === employment && styles.optionPillActive]}
@@ -255,6 +261,8 @@ export default function JobsScreen() {
           <View style={styles.optionRow}>
             {["", ...locationOptions].map((locationType) => (
               <Pressable
+                accessibilityState={{ selected: Boolean(filterLocationType === locationType) }}
+                accessibilityRole="button"
                 key={locationType || "any-location"}
                 onPress={() => setFilterLocationType(locationType)}
                 style={[styles.optionPill, filterLocationType === locationType && styles.optionPillActive]}
@@ -274,6 +282,8 @@ export default function JobsScreen() {
               <View style={styles.optionRow}>
                 {group.styles.map((style) => (
                   <Pressable
+                    accessibilityState={{ selected: Boolean(filterStyle === style) }}
+                    accessibilityRole="button"
                     key={style}
                     onPress={() => setFilterStyle(filterStyle === style ? "" : style)}
                     style={[styles.optionPill, filterStyle === style && styles.optionPillActive]}
@@ -287,7 +297,7 @@ export default function JobsScreen() {
             </View>
           ))}
         </View>
-        <Pressable onPress={clearFilters} style={styles.clearFiltersButton}>
+        <Pressable accessibilityRole="button" onPress={clearFilters} style={styles.clearFiltersButton}>
           <AppText style={styles.clearFiltersText}>Clear filters</AppText>
         </Pressable>
       </View>
@@ -330,7 +340,7 @@ export default function JobsScreen() {
             ) : null}
 
             {job.applyUrl || job.applyEmail || job.applyPhone ? (
-              <Pressable onPress={() => openApply(job)} style={styles.applyButton}>
+              <Pressable accessibilityRole="button" onPress={() => openApply(job)} style={styles.applyButton}>
                 <AppText style={styles.applyButtonText}>
                   {job.applyUrl ? "Apply" : job.applyEmail ? "Apply by Email" : "Call to Apply"}
                 </AppText>

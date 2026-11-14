@@ -261,6 +261,7 @@ export default function DigitalContentPlaybackScreen() {
 
             return (
               <Pressable
+                accessibilityState={{ selected: Boolean(selected) }}
                 key={video.catalogItemId}
                 onPress={() => {
                   resumeAppliedForRef.current = null;

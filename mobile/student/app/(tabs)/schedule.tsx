@@ -123,6 +123,7 @@ function CalendarEntryCard({
 
   return (
     <Pressable
+      accessibilityRole="button"
       onPress={() =>
         router.push({
           pathname: "/appointments/[id]",
@@ -328,6 +329,7 @@ export default function ScheduleScreen() {
 
           {signedIn ? (
             <Pressable
+              accessibilityRole="button"
               accessibilityLabel="Refresh schedule"
               onPress={loadSchedule}
               style={({ pressed }) => [
@@ -404,6 +406,7 @@ export default function ScheduleScreen() {
           <View style={styles.calendarCard}>
             <View style={styles.calendarHeader}>
               <Pressable
+                accessibilityRole="button"
                 accessibilityLabel="Previous week"
                 onPress={() => setSelectedDate(shiftDate(selectedDate, -7))}
                 style={({ pressed }) => [
@@ -422,6 +425,7 @@ export default function ScheduleScreen() {
                   }).format(dateFromKey(selectedDate))}
                 </AppText>
                 <Pressable
+                  accessibilityRole="button"
                   onPress={() => setSelectedDate(dateKeyFromDate(new Date()))}
                 >
                   <AppText style={styles.todayLink}>Today</AppText>
@@ -429,6 +433,7 @@ export default function ScheduleScreen() {
               </View>
 
               <Pressable
+                accessibilityRole="button"
                 accessibilityLabel="Next week"
                 onPress={() => setSelectedDate(shiftDate(selectedDate, 7))}
                 style={({ pressed }) => [
@@ -448,6 +453,8 @@ export default function ScheduleScreen() {
 
                 return (
                   <Pressable
+                    accessibilityState={{ selected: Boolean(selected) }}
+                    accessibilityRole="button"
                     key={dateKey}
                     onPress={() => setSelectedDate(dateKey)}
                     style={({ pressed }) => [
@@ -532,6 +539,7 @@ export default function ScheduleScreen() {
 
           {eventCount > 0 ? (
             <Pressable
+              accessibilityRole="button"
               onPress={() => router.push("/schedule/events")}
               style={({ pressed }) => [
                 styles.eventActivityCard,
@@ -587,19 +595,19 @@ export default function ScheduleScreen() {
 
           <View style={styles.secondaryLinks}>
             <Link href="/schedule/lessons" asChild>
-              <Pressable style={styles.secondaryLink}>
+              <Pressable accessibilityRole="button" style={styles.secondaryLink}>
                 <Ionicons color={colors.primary} name="person-outline" size={18} />
                 <AppText style={styles.secondaryLinkText}>All lessons</AppText>
               </Pressable>
             </Link>
             <Link href="/schedule/classes" asChild>
-              <Pressable style={styles.secondaryLink}>
+              <Pressable accessibilityRole="button" style={styles.secondaryLink}>
                 <Ionicons color={colors.success} name="people-outline" size={18} />
                 <AppText style={styles.secondaryLinkText}>All classes</AppText>
               </Pressable>
             </Link>
             <Link href="/schedule/events" asChild>
-              <Pressable style={styles.secondaryLink}>
+              <Pressable accessibilityRole="button" style={styles.secondaryLink}>
                 <Ionicons color={colors.accent} name="ticket-outline" size={18} />
                 <AppText style={styles.secondaryLinkText}>All events</AppText>
               </Pressable>

@@ -91,6 +91,7 @@ export function NotificationPreferencesCard({ userId }: { userId: string }) {
       </View>
 
       <Pressable
+        accessibilityRole="button"
         onPress={() => togglePushNotifications(!preferences.pushEnabled)}
         style={({ pressed }) => [styles.masterOption, pressed && styles.optionPressed]}
       >
@@ -110,6 +111,7 @@ export function NotificationPreferencesCard({ userId }: { userId: string }) {
       <View style={styles.options}>
         {preferenceOptions.map((option) => (
           <Pressable
+            accessibilityRole="button"
             key={option.key}
             disabled={saving || loading || !preferences.pushEnabled}
             onPress={() => updatePreference(option.key, !preferences[option.key])}

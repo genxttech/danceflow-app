@@ -222,6 +222,7 @@ export default function AppointmentDetailScreen() {
   return (
     <Screen>
       <Pressable
+        accessibilityRole="button"
         accessibilityLabel="Back to schedule"
         onPress={() => router.back()}
         style={({ pressed }) => [

@@ -269,11 +269,11 @@ export function EventSearchScreen({ category = "all" }: { category?: EventSearch
       />
 
       <View style={styles.locationRow}>
-        <Pressable onPress={useCurrentLocation} style={styles.locationButton}>
+        <Pressable accessibilityRole="button" onPress={useCurrentLocation} style={styles.locationButton}>
           <AppText style={styles.locationButtonText}>Use My Location</AppText>
         </Pressable>
         {currentLocation ? (
-          <Pressable onPress={clearLocation} style={styles.clearButton}>
+          <Pressable accessibilityRole="button" onPress={clearLocation} style={styles.clearButton}>
             <AppText style={styles.clearButtonText}>Clear Location</AppText>
           </Pressable>
         ) : null}
@@ -283,6 +283,8 @@ export function EventSearchScreen({ category = "all" }: { category?: EventSearch
         <View style={styles.segmentRow}>
           {RADIUS_OPTIONS.map((radius) => (
             <Pressable
+              accessibilityState={{ selected: Boolean(radiusMiles === radius) }}
+              accessibilityRole="button"
               key={radius}
               onPress={() => setRadiusMiles(radius)}
               style={[
@@ -398,6 +400,7 @@ export function EventSearchScreen({ category = "all" }: { category?: EventSearch
 
             <View style={styles.actionRow}>
               <Pressable
+                accessibilityState={{ selected: Boolean(event.favorited) }}
                 accessibilityLabel={event.favorited ? "Remove event from favorites" : "Add event to favorites"}
                 accessibilityRole="button"
                 onPress={() => toggleFavorite(event)}
@@ -418,7 +421,7 @@ export function EventSearchScreen({ category = "all" }: { category?: EventSearch
                 onPress={() => router.push(`/events/${event.id}` as unknown as RouterPushTarget)}
                 variant="secondary"
               />
-              <Pressable onPress={() => shareEvent(event)} style={styles.iconButton}>
+              <Pressable accessibilityLabel={`Share ${event.name}`} accessibilityRole="button" onPress={() => shareEvent(event)} style={styles.iconButton}>
                 <Ionicons color={colors.primary} name="share-outline" size={20} />
               </Pressable>
             </View>

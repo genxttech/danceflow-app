@@ -102,6 +102,7 @@ export default function DigitalPurchasesPage() {
 
             return (
               <Pressable
+                accessibilityRole="button"
                 key={item.id}
                 disabled={!playable}
                 onPress={() =>
