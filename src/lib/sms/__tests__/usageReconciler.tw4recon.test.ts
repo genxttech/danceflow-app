@@ -7,6 +7,7 @@ import {
   classifyEvidenceFailure,
   classifyRecoveredBody,
   laterKeywordFor,
+  startSidLookup,
   reconcileSmsUsage,
   recoverInboundUsage,
   runScheduledUsageReconciliation,
@@ -397,10 +398,79 @@ describe("consent ordering of a recovered STOP (Twilio's own times)", () => {
       tw4_inbound_unrecorded: (args) => ({ data: (args?.p_sids as string[]).filter((sid) => sid !== sidOf(2)) }),
       tw4_inbound_recover: () => ({ data: { outcome: "recovered", basis: "keyword" } }),
       tw4_inbound_scan_advance: () => ({ data: {} }),
+      tw4_inbound_start_sids: () => ({ data: [] }),
     });
     await recoverInboundUsage(admin, lister, { runId: RUN, now });
     const sent = calls.filter((c) => c.fn === "tw4_inbound_recover").map((c) => c.args?.p_evidence as Record<string, unknown>);
     expect(sent.find((e) => e.sid === sidOf(1))).toMatchObject({ keyword_kind: "stop", later_keyword: "start" });
     expect(sent.find((e) => e.sid === sidOf(3))).not.toHaveProperty("later_keyword");
+  });
+});
+
+describe("a custom opt-in keyword is ordered by Twilio's message time, never by when DanceFlow processed it (20270218090000)", () => {
+  const texter = "+15125550142";
+  const at = Date.parse("2026-10-20T10:00:00.000Z");
+  const msg = (n: number, body: string | null, iso: string, from = texter) => inbound(n, { body, from, date_created: iso });
+  const run = (messages: InboundMessageEvidence[], startSids?: Parameters<typeof laterKeywordFor>[1]["startSids"]) =>
+    laterKeywordFor({ listInbound: vi.fn(async () => ({ messages, complete: true })) }, { accountSid: ACCOUNT, to: "+15125550100", from: texter, sid: sidOf(1), at, until: new Date(at + 86_400_000), startSids });
+  const handled = (...sids: string[]) => vi.fn(async (asked: string[]) => new Set(asked.filter((s) => sids.includes(s))));
+
+  it("a later message the webhook handled as a START counts as a START, by Twilio's time", async () => {
+    const lookup = handled(sidOf(2));
+    expect(await run([msg(1, "STOP", "2026-10-20T10:00:00Z"), msg(2, "REJOINDRE", "2026-10-20T11:00:00Z")], lookup)).toBe("start");
+    expect(lookup).toHaveBeenCalledWith([sidOf(2)]);   // only the texter's later non-keyword messages are asked about, never the STOP itself
+    // without DanceFlow's record the same text is no keyword at all
+    expect(await run([msg(2, "REJOINDRE", "2026-10-20T11:00:00Z")], handled())).toBe("none");
+  });
+
+  it("defect (2): a START SENT BEFORE the STOP never suppresses it, however late DanceFlow processed it", async () => {
+    // Twilio's time puts the custom START an hour before the STOP: it is not even asked about, and the STOP stands
+    const lookup = handled(sidOf(2));
+    expect(await run([msg(2, "REJOINDRE", "2026-10-20T09:00:00Z")], lookup)).toBe("none");
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it("a later STOP still wins over an earlier handled START; a body STOP is never reread as a START", async () => {
+    expect(await run([msg(2, "REJOINDRE", "2026-10-20T11:00:00Z"), msg(3, "STOP", "2026-10-20T12:00:00Z")], handled(sidOf(2)))).toBe("stop");
+    expect(await run([msg(2, "stop", "2026-10-20T11:00:00Z")], handled(sidOf(2)))).toBe("stop");   // the loose opt-out reading wins (fail closed)
+  });
+
+  it("DanceFlow's record that cannot be read is 'unknown' (the STOP is then applied and listed); no question is asked when nothing needs it", async () => {
+    expect(await run([msg(2, "REJOINDRE", "2026-10-20T11:00:00Z")], vi.fn(async () => null))).toBe("unknown");
+    const lookup = handled();
+    expect(await run([msg(2, "START", "2026-10-20T11:00:00Z")], lookup)).toBe("start");
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it("startSidLookup: chunks of 500, the subaccount and texter are passed, a missing function is the old behaviour, any other error is unreadable", async () => {
+    const sids = Array.from({ length: 1200 }, (_, i) => `SM${i.toString(16).padStart(32, "0")}`);
+    const { admin, calls } = fakeRpc({ tw4_inbound_start_sids: (args) => ({ data: (args?.p_sids as string[]).filter((s) => s.endsWith("1")) }) });
+    const found = await startSidLookup(admin, ACCOUNT, texter)(sids);
+    expect(calls.map((c) => (c.args?.p_sids as string[]).length)).toEqual([500, 500, 200]);
+    expect(calls[0].args).toMatchObject({ p_account_sid: ACCOUNT, p_from: texter });
+    expect(found).toEqual(new Set(sids.filter((s) => s.endsWith("1"))));
+    expect(await startSidLookup(fakeRpc({ tw4_inbound_start_sids: () => ({ error: { code: "PGRST202" } }) }).admin, ACCOUNT, texter)([sids[0]])).toEqual(new Set());
+    expect(await startSidLookup(fakeRpc({ tw4_inbound_start_sids: () => ({ error: { code: "57014" } }) }).admin, ACCOUNT, texter)([sids[0]])).toBeNull();
+    expect(await startSidLookup(fakeRpc({ tw4_inbound_start_sids: () => ({ data: { not: "an array" } }) }).admin, ACCOUNT, texter)([sids[0]])).toBeNull();
+    expect(await startSidLookup(fakeRpc({}).admin, ACCOUNT, texter)([sids[0]])).toBeNull();   // a thrown call
+  });
+
+  it("recovery asks the database about the texter's custom later messages and passes 'start' for one the webhook handled", async () => {
+    const now = new Date();
+    const stopIso = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString();
+    const startIso = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+    const lister = new FakeBilledSmsProvider().setInbound(ACCOUNT, [inbound(1, { body: "STOP", date_created: stopIso }), inbound(2, { body: "REJOINDRE", date_created: startIso })]);
+    const { admin, calls } = fakeRpc({
+      tw4_inbound_scan_targets: () => ({ data: [{ account_sid: ACCOUNT, legal_entity_id: "e", scanned_through: new Date(now.getTime() - 3 * 60 * 60 * 1000).toISOString(), numbers: ["+15125550100"] }] }),
+      tw4_inbound_unrecorded: (args) => ({ data: (args?.p_sids as string[]).filter((sid) => sid !== sidOf(2)) }),
+      tw4_inbound_recover: () => ({ data: { outcome: "recovered", basis: "keyword" } }),
+      tw4_inbound_scan_advance: () => ({ data: {} }),
+      tw4_inbound_start_sids: (args) => ({ data: (args?.p_sids as string[]).filter((sid) => sid === sidOf(2)) }),
+    });
+    await recoverInboundUsage(admin, lister, { runId: RUN, now });
+    const asked = calls.find((c) => c.fn === "tw4_inbound_start_sids");
+    expect(asked?.args).toMatchObject({ p_account_sid: ACCOUNT, p_sids: [sidOf(2)] });
+    const sent = calls.filter((c) => c.fn === "tw4_inbound_recover").map((c) => c.args?.p_evidence as Record<string, unknown>);
+    expect(sent.find((e) => e.sid === sidOf(1))).toMatchObject({ keyword_kind: "stop", later_keyword: "start" });
   });
 });

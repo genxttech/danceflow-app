@@ -10,6 +10,7 @@ import {
 import { resolveInboundKeyword } from "@/lib/sms/inboundKeywords";
 import { inboundReplyAllowed, parseInboundCounts, recordInboundUsage, type InboundReplyKind } from "@/lib/sms/inboundUsage";
 import { resolveStudioFromInboundSender } from "@/lib/sms/studioSender";
+import { recordInboundStartSignal } from "@/lib/sms/inboundStartSignals";
 import { recordPendingOptOut, supersedePendingOptOuts } from "@/lib/sms/pendingOptOuts";
 import { buildWebhookAccountDeps, receiptSeen, recordWebhookReceipt } from "@/lib/sms/twilioIsv/webhookRuntime";
 import { twilioFormHasDuplicateKeys, twilioFormParams } from "@/lib/sms/twilioWebhook";
@@ -289,6 +290,11 @@ export async function POST(request: Request) {
     // A START is the texter's newest intent: any STOP of theirs still waiting in the pending-opt-out queue must not be applied after it.
     if (keyword === "start" && !(await supersedePendingOptOuts(supabase, { studioId, phone: from })) && !(await supersedePendingOptOuts(supabase, { studioId, phone: from }))) {
       console.warn("sms_pending_opt_out_supersede_failed"); // safe direction: a waiting STOP may still be applied (the texter can START again)
+    }
+    // TW-4F: every START is recorded by MessageSid (also a custom opt-in keyword from a texter with no client/contact row), so the reconciler can order a
+    // recovered STOP against it by Twilio's own message times. Not recorded: safe direction (recovery then applies an older STOP: fail closed).
+    if (keyword === "start" && !(await recordInboundStartSignal(supabase, { studioId, phone: from, messageSid }))) {
+      console.warn("sms_inbound_start_signal_failed");
     }
     const applyConsent = () => supabase.rpc("record_sms_inbound_opt_event", { p_studio_id: studioId, p_phone_e164: from, p_event: keyword });
     let consent = await applyConsent();

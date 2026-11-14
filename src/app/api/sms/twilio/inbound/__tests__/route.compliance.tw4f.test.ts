@@ -282,3 +282,55 @@ describe("webhook authentication fails closed", () => {
     expect(fake.current.rpcCalls).toHaveLength(0);
   });
 });
+
+describe("every START is recorded by MessageSid so recovery can order a STOP against it by Twilio's time (20270218090000)", () => {
+  const signal = () => rpc("sms_inbound_start_signal_record");
+  const recordsTrue = () => ({ data: true, error: null });
+
+  it("a START records its signal: studio, number and SID only", async () => {
+    fake.current = createFakeSupabase();
+    fake.current.overrideRpc("sms_inbound_start_signal_record", recordsTrue);
+    expect((await POST(req("START"))).status).toBe(200);
+    expect(signal()).toHaveLength(1);
+    expect(signal()[0].args).toEqual({ p_studio_id: STUDIO_A, p_phone_e164: PHONE, p_message_sid: SID });
+  });
+
+  it("a custom Advanced Opt-Out opt-in from a texter with no client or contact row is recorded too (the case that used to leave no trace)", async () => {
+    fake.current = createFakeSupabase();
+    fake.current.rows("sms_contact_permissions").length = 0;
+    fake.current.overrideRpc("sms_inbound_start_signal_record", recordsTrue);
+    const res = await POST(req("REJOINDRE", { extra: { OptOutType: "START" } }));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(EMPTY_TWIML);   // Twilio handled it: still silent
+    expect(signal()).toHaveLength(1);
+    expect(fake.current.rows("sms_message_logs")).toHaveLength(0);   // no identity row exists, so only the signal records it
+  });
+
+  it("STOP, HELP and ordinary texts record no START signal", async () => {
+    for (const body of ["STOP", "HELP", "see you at class"]) {
+      fake.current = createFakeSupabase();
+      fake.current.overrideRpc("sms_inbound_start_signal_record", recordsTrue);
+      await POST(req(body));
+      expect(signal(), body).toHaveLength(0);
+    }
+  });
+
+  it("a failed or missing signal write never stops the START (logged; recovery then fails closed)", async () => {
+    for (const handler of [dbError, () => ({ data: null, error: { code: "PGRST202" } }), () => { throw new Error("down"); }]) {
+      fake.current = createFakeSupabase();
+      fake.current.rows("sms_contact_permissions")[0].consent_status = "opted_out";
+      fake.current.overrideRpc("sms_inbound_start_signal_record", handler as never);
+      const res = await POST(req("START"));
+      expect(res.status).toBe(200);
+      expect(rpc("record_sms_inbound_opt_event")).toHaveLength(1);
+      expect(console.warn).toHaveBeenCalledWith("sms_inbound_start_signal_failed");
+    }
+  });
+
+  it("a START without a valid MessageSid is not sent to the database", async () => {
+    fake.current = createFakeSupabase();
+    fake.current.overrideRpc("sms_inbound_start_signal_record", recordsTrue);
+    expect((await POST(req("START", { extra: { MessageSid: "not-a-sid" } }))).status).toBe(200);
+    expect(signal()).toHaveLength(0);
+  });
+});
