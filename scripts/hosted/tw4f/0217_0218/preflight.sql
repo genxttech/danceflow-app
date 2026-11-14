@@ -10,7 +10,9 @@ select jsonb_build_object(
   'recover_acl', (select coalesce(proacl::text, 'default') from pg_proc where oid = to_regprocedure('public.tw4_inbound_recover(uuid, text, jsonb)')),
   'entity_studios_table', to_regclass('public.studio_sms_entity_studios') is not null,
   'start_signals_table', to_regclass('public.studio_sms_inbound_start_signals') is not null,
-  'start_signals_rows', (select count(*) from pg_class c where c.oid = to_regclass('public.studio_sms_inbound_start_signals')),
+  -- table rows are read by postflight_signals.sql (the table may not exist here); this is its catalog entry only
+  'start_signals_rls', (select c.relrowsecurity from pg_class c where c.oid = to_regclass('public.studio_sms_inbound_start_signals')),
+  'start_signals_acl', (select coalesce(c.relacl::text, 'default') from pg_class c where c.oid = to_regclass('public.studio_sms_inbound_start_signals')),
   'start_signal_record_fn', to_regprocedure('public.sms_inbound_start_signal_record(uuid, text, text)') is not null,
   'start_sids_fn', to_regprocedure('public.tw4_inbound_start_sids(text, text, text[])') is not null,
   'start_sids_acl', (select coalesce(proacl::text, 'default') from pg_proc where oid = to_regprocedure('public.tw4_inbound_start_sids(text, text, text[])')),

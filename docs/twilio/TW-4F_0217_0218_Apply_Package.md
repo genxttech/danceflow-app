@@ -57,10 +57,11 @@ The order is the same for each target. Stop at the first deviation.
 4. **Postflight** `preflight.sql` again. It must show:
    - `segments_md5 = f973d4ab41d206e78436bf1ba40e430a`, ACL unchanged;
    - `recover_md5 = 87d6df180eb3eaef7980b1d2b5858e05`, ACL unchanged;
-   - `start_signals_table` true with 0 rows;
+   - `start_signals_table` true, `start_signals_rls` true, `start_signals_acl` `{postgres=arwdDxtm/postgres}` (no API role);
    - `start_signal_record_fn` and `start_sids_fn` true, each ACL `{postgres=X/postgres,service_role=X/postgres}`;
    - `local_qa_marker` false.
-5. **Smoke** `sb.sh <env>-read scripts/hosted/tw4f/0217_0218/smoke.sql`. It must return `ucs2_emoji = 3`, `gsm_extension = 2`, `plain_160 = 1`, `ucs2_70 = 1`.
+5. **Signal table** `sb.sh <env>-read scripts/hosted/tw4f/0217_0218/postflight_signals.sql`. It must return 0 rows and 4 indexes, with every anon / authenticated / service_role privilege false.
+6. **Smoke** `sb.sh <env>-read scripts/hosted/tw4f/0217_0218/smoke.sql`. It must return `ucs2_emoji = 3`, `gsm_extension = 2`, `plain_160 = 1`, `ucs2_70 = 1`.
 
 **Order between targets:** DEV first, then PROD. PROD can follow at any time: there is no live caller (§2), and SQL before the app is the required order.
 
@@ -78,6 +79,18 @@ Afterwards, `preflight.sql` must equal §2 exactly, and `smoke.sql` must return 
 Rollback evidence in Git:
 - the 20270217 round trip on PostgreSQL 17.9: `docs/twilio/evidence/20270217-segments/` (#495) and the CI workflow `sms-segments-sql.yml` (#496);
 - the 20270218 round trip by `md5(prosrc)`: `localStack.tw4recon` R9 (#517, 38/38).
+
+## 4a. DEV apply record (owner-approved 2026-11-14)
+
+| Step | Time (UTC) | Result |
+|---|---|---|
+| Preflight | 23:19Z | Matches §2 exactly. Both files equal main (`1129f251…`, `3d1823b0…`). |
+| `dev-apply` 20270217 | 23:19:55Z | exit 0. `_tw4us_segments` = `f973d4ab…`, ACL unchanged. Smoke 3 / 2 / 1 / 1. |
+| `dev-apply` 20270218 | 23:20:21Z | exit 0 |
+| Postflight | 23:21Z | `segments_md5 f973d4ab…`, `recover_md5 87d6df18…` (both ACLs unchanged). Signal table present, RLS on, owner-only ACL, 0 rows, 4 indexes, no API-role privilege. Both new functions ACL `{postgres=X/postgres,service_role=X/postgres}`. 0 billed senders / usage attempts. QA marker absent. |
+| Smoke | 23:21Z | `ucs2_emoji 3`, `gsm_extension 2`, `plain_160 1`, `ucs2_70 1` |
+
+A first postflight read showed `start_signals_rows: 1`. That was a probe defect: the expression counted the table's catalog entry. It is replaced by `start_signals_rls` / `start_signals_acl`, and the real row count is in `postflight_signals.sql` (0). PROD is not applied.
 
 ## 5. What stays off
 
