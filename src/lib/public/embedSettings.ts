@@ -28,6 +28,14 @@ export const DEFAULT_EMBED_SETTINGS: EmbedSettings = {
   defaultAccent: null,
 };
 
+/**
+ * Release gate. Website Embeds ship DARK: nothing is served, listed or savable until the server environment says WEBSITE_EMBEDS=on.
+ * Read at request time on the server only; the owner turns it on as a separate step from deploying and from applying the migration.
+ */
+export function websiteEmbedsAvailable(env: Record<string, string | undefined> = process.env): boolean {
+  return String(env.WEBSITE_EMBEDS ?? "").trim().toLowerCase() === "on";
+}
+
 export type EmbedGate = { state: "ok"; settings: EmbedSettings } | { state: "off" } | { state: "unavailable" };
 
 /** Strict row parser: a malformed row is rejected rather than guessed at. */
@@ -69,7 +77,12 @@ export function embedGate(result: { data: unknown; error: unknown }): EmbedGate 
   return settings.embedsEnabled ? { state: "ok", settings } : { state: "off" };
 }
 
-export async function fetchEmbedGate(supabase: SupabaseClient, studioSlug: string): Promise<EmbedGate> {
+export async function fetchEmbedGate(
+  supabase: SupabaseClient,
+  studioSlug: string,
+  env: Record<string, string | undefined> = process.env,
+): Promise<EmbedGate> {
+  if (!websiteEmbedsAvailable(env)) return { state: "unavailable" }; // dark: no database call, the page answers 404
   try {
     const result = await supabase.rpc("public_studio_embed_settings", { p_studio_slug: studioSlug });
     return embedGate(result);
