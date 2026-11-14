@@ -1,11 +1,12 @@
 import type React from "react";
 import { useMemo } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { Stack } from "expo-router";
+import { Stack, router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { LayoutProbe } from "@/components/LayoutProbe";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { PushProvider, usePushTaps } from "@/lib/push";
 import { stackAnimation, useReduceMotion } from "@/lib/motion";
 import { StaffApiProvider, StaffSessionProvider } from "@/lib/staff";
 import { createStaffApi } from "@/lib/staffApi";
@@ -15,6 +16,12 @@ const webUrl = process.env.EXPO_PUBLIC_DANCEFLOW_WEB_URL;
 
 if (!webUrl) {
   throw new Error("Missing EXPO_PUBLIC_DANCEFLOW_WEB_URL");
+}
+
+/** Opens the screen a notification names. Inert until a push adapter with a tap source is provided. */
+function PushTapRouter() {
+  usePushTaps((target) => router.push(target as Parameters<typeof router.push>[0]));
+  return null;
 }
 
 function StaffProviders({ children }: { children: React.ReactNode }) {
@@ -28,7 +35,11 @@ function StaffProviders({ children }: { children: React.ReactNode }) {
     <StaffApiProvider api={api}>
       {/* Keyed by user, so a different sign-in never sees the previous person's workspaces. */}
       <StaffSessionProvider key={session?.user.id ?? "signed-out"} signOut={signOut} signOutEverywhere={signOutEverywhere}>
-        {children}
+        {/* The real adapter (expo-notifications) is provided here once the dependency lands; null means no push UI. */}
+        <PushProvider value={null}>
+          <PushTapRouter />
+          {children}
+        </PushProvider>
       </StaffSessionProvider>
     </StaffApiProvider>
   );
