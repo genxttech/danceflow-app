@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import cases from "./fixtures/ucs2SegmentCases.json";
 import { estimateBilledSegments } from "../segments";
 
 const seg = (body: string) => estimateBilledSegments(body).segments;
@@ -40,14 +41,11 @@ describe("estimateBilledSegments", () => {
     expect(seg("😀".repeat(36))).toBe(2);
   });
 
-  it("a pair is never split across parts, so an emoji body uses 66 units per part (the reservation never under-counts)", () => {
-    // 66 'a' + emoji (2) + 66 more = 134 units: part one ends before the pair, the emoji starts part two, so it needs three parts
-    expect(seg("a".repeat(66) + "😀" + "a".repeat(66))).toBe(3);
-    // the same length with a BMP non-GSM character is still two parts
-    expect(seg("a".repeat(66) + "✓" + "a".repeat(67))).toBe(2);
-    expect(seg("😀".repeat(35))).toBe(1); // 70 units: single part, unchanged
-    expect(seg("😀".repeat(66))).toBe(2); // 132 units = 2 x 66
-    expect(seg("😀".repeat(67))).toBe(3); // 134 units
+  it("packs UCS-2 greedily at 67 units per part and never splits an emoji or other character cluster (cases shared with the SQL parity test)", () => {
+    for (const c of cases) {
+      const body = (c.parts as [string | number, number][]).map(([x, n]) => (typeof x === "number" ? String.fromCodePoint(x) : x).repeat(n)).join("");
+      expect(seg(body), c.name).toBe(c.expect);
+    }
   });
 
   it("newline and carriage return are GSM", () => {

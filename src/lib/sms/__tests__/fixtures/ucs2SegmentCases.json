@@ -1,0 +1,378 @@
+[
+ {
+  "name": "66 a + emoji + 66 a: the pair cannot split, three parts",
+  "parts": [
+   [
+    "a",
+    66
+   ],
+   [
+    128512,
+    1
+   ],
+   [
+    "a",
+    66
+   ]
+  ],
+  "expect": 3
+ },
+ {
+  "name": "emoji + 131 a (133 units) still fits two parts",
+  "parts": [
+   [
+    128512,
+    1
+   ],
+   [
+    "a",
+    131
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "emoji at the start: 71 units",
+  "parts": [
+   [
+    128512,
+    1
+   ],
+   [
+    "a",
+    69
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "emoji in the middle: 66 a + emoji + 65 a",
+  "parts": [
+   [
+    "a",
+    66
+   ],
+   [
+    128512,
+    1
+   ],
+   [
+    "a",
+    65
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "emoji at the end: 69 a + emoji",
+  "parts": [
+   [
+    "a",
+    69
+   ],
+   [
+    128512,
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "emoji at the end, still one part: 68 a + emoji = 70 units",
+  "parts": [
+   [
+    "a",
+    68
+   ],
+   [
+    128512,
+    1
+   ]
+  ],
+  "expect": 1
+ },
+ {
+  "name": "35 emoji = 70 units, one part",
+  "parts": [
+   [
+    128512,
+    35
+   ]
+  ],
+  "expect": 1
+ },
+ {
+  "name": "36 emoji = 72 units, two parts",
+  "parts": [
+   [
+    128512,
+    36
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "66 emoji = 132 units, 33 per part, two parts",
+  "parts": [
+   [
+    128512,
+    66
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "67 emoji = 134 units, three parts",
+  "parts": [
+   [
+    128512,
+    67
+   ]
+  ],
+  "expect": 3
+ },
+ {
+  "name": "BMP non-GSM, exactly 70 units",
+  "parts": [
+   [
+    "a",
+    69
+   ],
+   [
+    10003,
+    1
+   ]
+  ],
+  "expect": 1
+ },
+ {
+  "name": "BMP non-GSM, 71 units",
+  "parts": [
+   [
+    "a",
+    70
+   ],
+   [
+    10003,
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "BMP non-GSM, 134 units = 2 x 67",
+  "parts": [
+   [
+    "a",
+    133
+   ],
+   [
+    10003,
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "BMP non-GSM, 135 units",
+  "parts": [
+   [
+    "a",
+    134
+   ],
+   [
+    10003,
+    1
+   ]
+  ],
+  "expect": 3
+ },
+ {
+  "name": "BMP non-GSM then emoji, 66 a + check + 66 a + emoji",
+  "parts": [
+   [
+    "a",
+    66
+   ],
+   [
+    10003,
+    1
+   ],
+   [
+    "a",
+    66
+   ],
+   [
+    128512,
+    1
+   ]
+  ],
+  "expect": 3
+ },
+ {
+  "name": "ZWJ family (8 units) + 62 a = 70 units, one part",
+  "parts": [
+   [
+    128104,
+    1
+   ],
+   [
+    8205,
+    1
+   ],
+   [
+    128105,
+    1
+   ],
+   [
+    8205,
+    1
+   ],
+   [
+    128103,
+    1
+   ],
+   [
+    "a",
+    62
+   ]
+  ],
+  "expect": 1
+ },
+ {
+  "name": "ZWJ family after 63 a = 71 units: the cluster moves whole to part two",
+  "parts": [
+   [
+    "a",
+    63
+   ],
+   [
+    128104,
+    1
+   ],
+   [
+    8205,
+    1
+   ],
+   [
+    128105,
+    1
+   ],
+   [
+    8205,
+    1
+   ],
+   [
+    128103,
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "60 a + family + 60 a: 128 units but the cluster costs a part, three parts",
+  "parts": [
+   [
+    "a",
+    60
+   ],
+   [
+    128104,
+    1
+   ],
+   [
+    8205,
+    1
+   ],
+   [
+    128105,
+    1
+   ],
+   [
+    8205,
+    1
+   ],
+   [
+    128103,
+    1
+   ],
+   [
+    "a",
+    60
+   ]
+  ],
+  "expect": 3
+ },
+ {
+  "name": "flag (two regional indicators, 4 units) after 66 a + b",
+  "parts": [
+   [
+    "a",
+    66
+   ],
+   [
+    127482,
+    1
+   ],
+   [
+    127480,
+    1
+   ],
+   [
+    "b",
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "keycap 1 + VS16 + keycap (3 units) after 68 a",
+  "parts": [
+   [
+    "a",
+    68
+   ],
+   [
+    49,
+    1
+   ],
+   [
+    65039,
+    1
+   ],
+   [
+    8419,
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "skin-tone thumbs up (4 units) after 67 a",
+  "parts": [
+   [
+    "a",
+    67
+   ],
+   [
+    128077,
+    1
+   ],
+   [
+    127997,
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "more than ten parts reports eleven",
+  "parts": [
+   [
+    128512,
+    400
+   ]
+  ],
+  "expect": 11
+ }
+]
