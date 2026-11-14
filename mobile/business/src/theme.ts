@@ -40,3 +40,28 @@ export type TypeVariant = keyof typeof type;
 
 // Aligned numerals for times, per the Business type emphasis.
 export const tabularNums = { fontVariant: ["tabular-nums" as const] };
+
+/*
+  Dark palette, proposed (not yet wired). Every text pair is unit-tested for WCAG AA in src/__tests__/contrast.test.ts for
+  both palettes. Turning dark mode on also needs `userInterfaceStyle: "automatic"` in app.json (owned by the release
+  session) and the screens to read colours from a hook instead of this static object. Needs the owner's visual approval.
+*/
+export type Palette = { [K in keyof typeof colors]: string };
+
+export const lightPalette: Palette = colors;
+
+export const darkPalette: Palette = {
+  surface: "#1a1119",
+  raised: "#251a24",
+  plum: "#e3b5e6",
+  plumDark: "#f0cdf2",
+  tint: "#33213a",
+  border: "#4a3548",
+  text: "#f5ecf3",
+  muted: "#bfaeba",
+  amberInk: "#f0b565",
+  success: "#6fcf9f",
+  error: "#ff9a8d",
+  onPlum: "#2b0f2e",
+  skeleton: "#33253a",
+};
