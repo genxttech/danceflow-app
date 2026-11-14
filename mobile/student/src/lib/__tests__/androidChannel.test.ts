@@ -25,7 +25,7 @@ import {
   resetAndroidChannelForTests,
 } from "@/lib/pushNotifications";
 
-const setChannel = Notifications.setNotificationChannelAsync as jest.Mock;
+const setChannel = (Notifications as unknown as { setNotificationChannelAsync: jest.Mock }).setNotificationChannelAsync;
 const order: string[] = [];
 
 beforeEach(() => {
