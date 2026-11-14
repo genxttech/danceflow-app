@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import { RosterAttendance } from "@/components/RosterAttendance";
-import { StaffApiError, type AttendanceResult } from "@/lib/staffApi";
+import { StaffApiError, type AttendanceResult, type StaffApiErrorCode } from "@/lib/staffApi";
 import { deferred, fakeApi, STUDIO_ID, StaffTestProviders } from "@/test-utils/staff";
 
 const ATTENDEES = [
@@ -87,6 +87,34 @@ describe("RosterAttendance", () => {
       fireEvent.press(radio("Present, Ana Rivera"));
     });
     expect(screen.getByText(text)).toBeTruthy();
+  });
+
+  it.each<[StaffApiErrorCode, number, string, string]>([
+    ["unauthenticated", 401, "Sign in again", "Not saved. Sign in again, then retry."],
+    ["account_inactive", 403, "Sign out", "Not saved. This account is not active."],
+    ["platform_admin_unsupported", 403, "Sign out", "Not saved. Platform admin accounts are not supported in this app."],
+  ])("%s gives the row a way out (%s), reverting the mark", async (code, status, label, text) => {
+    const signOut = jest.fn(async () => undefined);
+    render(
+      <StaffTestProviders api={fakeApi({ setAttendance: jest.fn(async () => Promise.reject(new StaffApiError(status, code, "x"))) })} signOut={signOut}>
+        <RosterAttendance studioId={STUDIO_ID} appointmentId="appt-1" attendees={ATTENDEES} canMark />
+      </StaffTestProviders>,
+    );
+    await act(async () => {
+      fireEvent.press(radio("Present, Ana Rivera"));
+    });
+    expect(screen.getByText(text)).toBeTruthy();
+    expect(radio("Present, Ana Rivera").props.accessibilityState).toMatchObject({ checked: false });
+    fireEvent.press(screen.getByRole("button", { name: label }));
+    expect(signOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers no exit button for an ordinary failure", async () => {
+    renderRoster(fakeApi({ setAttendance: jest.fn(async () => Promise.reject(new Error("net"))) }));
+    await act(async () => {
+      fireEvent.press(radio("Present, Ana Rivera"));
+    });
+    expect(screen.queryByRole("button", { name: /Sign/ })).toBeNull();
   });
 
   it("uses a new key for each separate action", async () => {

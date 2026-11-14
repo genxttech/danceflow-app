@@ -1,19 +1,33 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
+import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { attendanceLabel } from "@/lib/format";
 import { newIdempotencyKey } from "@/lib/features";
-import { useStaffApi } from "@/lib/staff";
+import { useStaffApi, useStaffSession } from "@/lib/staff";
 import { ATTENDANCE_MARKS, staffErrorKind, type AppointmentDetail, type AttendanceMark } from "@/lib/staffApi";
 import { colors, radius, space } from "@/theme";
 
 type Attendee = NonNullable<AppointmentDetail["roster"]>["attendees"][number];
 
-type RowState = { status: string | null; saving: boolean; error: string | null };
+type RowState = { status: string | null; saving: boolean; error: string | null; exit?: "Sign in again" | "Sign out" };
 
 // Button order and words; the values themselves come from the adapter's single ATTENDANCE_MARKS list.
 const MARK_LABELS: Record<AttendanceMark, string> = { attended: "Present", no_show: "No-show" };
 const MARKS = ATTENDANCE_MARKS.map((value) => ({ value, label: MARK_LABELS[value] }));
+
+/** A save that failed because the session or account is gone needs a way out on the row itself, not only words. */
+function exitLabel(error: unknown): RowState["exit"] {
+  switch (staffErrorKind(error)) {
+    case "sign_in_again":
+      return "Sign in again";
+    case "account_inactive":
+    case "platform_admin":
+      return "Sign out";
+    default:
+      return undefined;
+  }
+}
 
 function saveErrorText(error: unknown) {
   switch (staffErrorKind(error)) {
@@ -21,6 +35,10 @@ function saveErrorText(error: unknown) {
       return "Not saved. Sign in again, then retry.";
     case "not_permitted":
       return "Not saved. Your role cannot mark attendance.";
+    case "account_inactive":
+      return "Not saved. This account is not active.";
+    case "platform_admin":
+      return "Not saved. Platform admin accounts are not supported in this app.";
     case "no_access":
     case "paused":
       return "Not saved. You no longer have access to this studio.";
@@ -49,6 +67,7 @@ export function RosterAttendance({
   canMark: boolean;
 }) {
   const api = useStaffApi();
+  const { signOut } = useStaffSession();
   const [rows, setRows] = useState<Record<string, RowState>>(() =>
     Object.fromEntries(attendees.map((a) => [a.clientId, { status: a.attendanceStatus, saving: false, error: null }])),
   );
@@ -61,7 +80,7 @@ export function RosterAttendance({
       const result = await api.setAttendance(studioId, appointmentId, clientId, value, newIdempotencyKey());
       setRows((current) => ({ ...current, [clientId]: { status: result.attendanceStatus ?? value, saving: false, error: null } }));
     } catch (error) {
-      setRows((current) => ({ ...current, [clientId]: { status: before.status, saving: false, error: saveErrorText(error) } }));
+      setRows((current) => ({ ...current, [clientId]: { status: before.status, saving: false, error: saveErrorText(error), exit: exitLabel(error) } }));
     }
   }
 
@@ -131,6 +150,7 @@ export function RosterAttendance({
                 {row.error}
               </AppText>
             ) : null}
+            {row.exit ? <AppButton label={row.exit} variant="secondary" onPress={() => void signOut()} /> : null}
           </View>
         );
       })}
