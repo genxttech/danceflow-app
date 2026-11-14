@@ -16,6 +16,7 @@ import { clearStudioContextAction } from "@/app/platform/actions";
 import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 import AppSidebarShell from "./AppSidebarShell";
 import { isEventPast } from "@/lib/events/eventTiming";
+import { websiteEmbedsAvailable } from "@/lib/public/embedSettings";
 
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
 
@@ -699,11 +700,15 @@ export function buildStudioSections(params: {
                 href: "/app/settings/public-profile",
                 icon: "settings" as const,
               },
-              {
-                label: "Website Embeds",
-                href: "/app/settings/embeds",
-                icon: "settings" as const,
-              },
+              ...(websiteEmbedsAvailable()
+                ? [
+                    {
+                      label: "Website Embeds",
+                      href: "/app/settings/embeds",
+                      icon: "settings" as const,
+                    },
+                  ]
+                : []),
               {
                 label: "View Public Profile",
                 href: publicProfileHref ?? "/discover/studios",

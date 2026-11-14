@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { embedCalendarPath, embedClassPath, parseEmbedOptions } from "../embedOptions";
-import { appearanceDefaults, DEFAULT_EMBED_SETTINGS, embedGate, fetchEmbedGate, parseEmbedSettings, parseSettingsForm } from "../embedSettings";
+import { appearanceDefaults, DEFAULT_EMBED_SETTINGS, embedGate, fetchEmbedGate, parseEmbedSettings, parseSettingsForm, websiteEmbedsAvailable } from "../embedSettings";
 import { eventDays, fetchPublicEmbedEvents, formatEventTimes, groupEventsByDay, parsePublicEmbedEvent } from "../embedEvents";
 import { fetchClassExtras, formatClassPrice, parseClassExtras } from "../embedClassExtras";
 
@@ -41,8 +41,18 @@ describe("stored embed settings", () => {
 
   it("fails closed when the call itself throws", async () => {
     const supabase = { rpc: vi.fn().mockRejectedValue(new Error("network")) };
-    await expect(fetchEmbedGate(supabase as never, "studio")).resolves.toEqual({ state: "unavailable" });
+    await expect(fetchEmbedGate(supabase as never, "studio", { WEBSITE_EMBEDS: "on" })).resolves.toEqual({ state: "unavailable" });
     expect(supabase.rpc).toHaveBeenCalledWith("public_studio_embed_settings", { p_studio_slug: "studio" });
+  });
+
+  it("ships dark: without WEBSITE_EMBEDS=on nothing is served and the database is never called", async () => {
+    for (const env of [{}, { WEBSITE_EMBEDS: "" }, { WEBSITE_EMBEDS: "off" }, { WEBSITE_EMBEDS: "true" }, { WEBSITE_EMBEDS: "1" }]) {
+      expect(websiteEmbedsAvailable(env)).toBe(false);
+      const supabase = { rpc: vi.fn().mockResolvedValue({ data: [{ embeds_enabled: true }], error: null }) };
+      await expect(fetchEmbedGate(supabase as never, "studio", env)).resolves.toEqual({ state: "unavailable" });
+      expect(supabase.rpc).not.toHaveBeenCalled();
+    }
+    expect(websiteEmbedsAvailable({ WEBSITE_EMBEDS: " ON " })).toBe(true);
   });
 
   it("the built-in defaults are: embeds on, events on, description and price off", () => {
