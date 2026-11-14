@@ -1,0 +1,758 @@
+{
+  "note": "Pilot-window deny set. The pilot is local-only: the loop needs only Bash (orchestrator, docker/psql INSIDE cf1pilot- containers, git reads), Read/Edit/Write on worktree files and ScheduleWakeup. Database rules are host/command-qualified so they do not block that work. While these rules are installed this session cannot use sb.sh, ghapp, gh, vercel, git push, the connectors above, Artifact*, SendMessage or Monitor. Remove them after the pilot. The owner installs rules; the pilot never edits settings. The live probe is the authority; the static matcher approximates Claude Code's matcher. Rules use absolute //c/... path forms so they do not depend on the session working directory.",
+  "recommendedRules": [
+    "Bash(*prod-apply*)",
+    "PowerShell(*prod-apply*)",
+    "Bash(*dev-apply*)",
+    "PowerShell(*dev-apply*)",
+    "Bash(*sb.sh*)",
+    "PowerShell(*sb.sh*)",
+    "Bash(*wd-prod*)",
+    "PowerShell(*wd-prod*)",
+    "Bash(*db push*)",
+    "PowerShell(*db push*)",
+    "Bash(*supabase db*)",
+    "PowerShell(*supabase db*)",
+    "Bash(*supabase link*)",
+    "PowerShell(*supabase link*)",
+    "Bash(*supabase login*)",
+    "PowerShell(*supabase login*)",
+    "Bash(*supabase projects*)",
+    "PowerShell(*supabase projects*)",
+    "Bash(*supabase migration*)",
+    "PowerShell(*supabase migration*)",
+    "Bash(*supabase functions*)",
+    "PowerShell(*supabase functions*)",
+    "Bash(*supabase secrets*)",
+    "PowerShell(*supabase secrets*)",
+    "Bash(*pooler.supabase*)",
+    "PowerShell(*pooler.supabase*)",
+    "Bash(*.supabase.co*)",
+    "PowerShell(*.supabase.co*)",
+    "Bash(*DATABASE_URL*)",
+    "PowerShell(*DATABASE_URL*)",
+    "Bash(*POSTGRES_URL*)",
+    "PowerShell(*POSTGRES_URL*)",
+    "Bash(*SUPABASE_*KEY*)",
+    "PowerShell(*SUPABASE_*KEY*)",
+    "Bash(*pr merge*)",
+    "PowerShell(*pr merge*)",
+    "Bash(*pr create*)",
+    "PowerShell(*pr create*)",
+    "Bash(*pr review*)",
+    "PowerShell(*pr review*)",
+    "Bash(*pulls/*/merge*)",
+    "PowerShell(*pulls/*/merge*)",
+    "Bash(*graphql*)",
+    "PowerShell(*graphql*)",
+    "Bash(*ghapp*)",
+    "PowerShell(*ghapp*)",
+    "Bash(*gh api*)",
+    "PowerShell(*gh api*)",
+    "Bash(*gh *merge*)",
+    "PowerShell(*gh *merge*)",
+    "Bash(*gh release*)",
+    "PowerShell(*gh release*)",
+    "Bash(*gh workflow*)",
+    "PowerShell(*gh workflow*)",
+    "Bash(*vercel*)",
+    "PowerShell(*vercel*)",
+    "Bash(*npx vc *)",
+    "PowerShell(*npx vc *)",
+    "Bash(vc *)",
+    "PowerShell(vc *)",
+    "Bash(*git*push*)",
+    "PowerShell(*git*push*)",
+    "Bash(*send-pack*)",
+    "PowerShell(*send-pack*)",
+    "Bash(*git*config*alias*)",
+    "PowerShell(*git*config*alias*)",
+    "Bash(*test-cli*)",
+    "PowerShell(*test-cli*)",
+    "Bash(*PILOT_TEST_SOURCE*)",
+    "PowerShell(*PILOT_TEST_SOURCE*)",
+    "Edit(//c/Users/mcurt/.claude/settings*.json)",
+    "Write(//c/Users/mcurt/.claude/settings*.json)",
+    "Edit(//c/Users/mcurt/.claude/hooks/**)",
+    "Write(//c/Users/mcurt/.claude/hooks/**)",
+    "Edit(//c/Users/mcurt/.claude.json)",
+    "Write(//c/Users/mcurt/.claude.json)",
+    "Edit(//c/Users/mcurt/.claude/CLAUDE.md)",
+    "Write(//c/Users/mcurt/.claude/CLAUDE.md)",
+    "Edit(//c/Users/mcurt/.claude/plugins/**)",
+    "Write(//c/Users/mcurt/.claude/plugins/**)",
+    "Edit(//c/Users/mcurt/.claude/agents/**)",
+    "Write(//c/Users/mcurt/.claude/agents/**)",
+    "Edit(//c/Users/mcurt/.claude/skills/**)",
+    "Write(//c/Users/mcurt/.claude/skills/**)",
+    "Edit(//c/Users/mcurt/.claude/commands/**)",
+    "Write(//c/Users/mcurt/.claude/commands/**)",
+    "Edit(//c/Users/mcurt/.gitconfig)",
+    "Write(//c/Users/mcurt/.gitconfig)",
+    "Edit(//c/Dev/**/.claude/settings*.json)",
+    "Write(//c/Dev/**/.claude/settings*.json)",
+    "Edit(//c/Dev/**/.claude/hooks/**)",
+    "Write(//c/Dev/**/.claude/hooks/**)",
+    "Edit(//c/Dev/**/CLAUDE.md)",
+    "Write(//c/Dev/**/CLAUDE.md)",
+    "Edit(//c/Dev/**/CLAUDE.local.md)",
+    "Write(//c/Dev/**/CLAUDE.local.md)",
+    "Edit(//c/Dev/**/.mcp.json)",
+    "Write(//c/Dev/**/.mcp.json)",
+    "Edit(//c/Dev/**/docs/ops/continuity-pilot/**)",
+    "Write(//c/Dev/**/docs/ops/continuity-pilot/**)",
+    "Edit(//c/Dev/continuity-live/**)",
+    "Write(//c/Dev/continuity-live/**)",
+    "Edit(//c/Users/mcurt/danceflow-ops/**)",
+    "Write(//c/Users/mcurt/danceflow-ops/**)",
+    "Edit(//c/Users/mcurt/d24-app-key/**)",
+    "Write(//c/Users/mcurt/d24-app-key/**)",
+    "Read(//c/Users/mcurt/danceflow-ops/**)",
+    "Read(//c/Users/mcurt/d24-app-key/**)",
+    "Read(//c/Dev/**/.env*)",
+    "Read(//c/Users/mcurt/.ssh/**)",
+    "mcp__terminal",
+    "mcp__ccd_pr",
+    "mcp__claude-in-chrome",
+    "mcp__Claude_Browser",
+    "mcp__ccd_settings",
+    "mcp__scheduled-tasks",
+    "mcp__1a59c906-04da-521d-bda7-7f71b9f9e01c",
+    "mcp__ccd_session_mgmt__set_session_permission_mode",
+    "mcp__ccd_session_mgmt__send_message",
+    "mcp__ccd_session__start_session",
+    "mcp__ccd_session__move_to_cloud",
+    "mcp__ccd_connectors__set_session_connector_enabled",
+    "CronCreate",
+    "RemoteTrigger",
+    "Artifact",
+    "ArtifactData",
+    "ArtifactComments",
+    "NotebookEdit",
+    "SendMessage",
+    "Monitor"
+  ],
+  "bashVariants": [
+    {
+      "id": "prod-direct",
+      "tool": "Bash",
+      "cmd": "sb.sh prod-apply f.sql"
+    },
+    {
+      "id": "prod-bash-winpath",
+      "tool": "Bash",
+      "cmd": "bash C:/Users/mcurt/danceflow-ops/sb.sh prod-apply f.sql deadbeef"
+    },
+    {
+      "id": "prod-bash-msyspath",
+      "tool": "Bash",
+      "cmd": "bash /c/Users/mcurt/danceflow-ops/sb.sh prod-apply f.sql deadbeef"
+    },
+    {
+      "id": "prod-relative",
+      "tool": "Bash",
+      "cmd": "bash ./sb.sh prod-apply f.sql"
+    },
+    {
+      "id": "prod-sh",
+      "tool": "Bash",
+      "cmd": "sh sb.sh prod-apply f.sql"
+    },
+    {
+      "id": "prod-env-prefix",
+      "tool": "Bash",
+      "cmd": "FOO=1 bash sb.sh prod-apply f.sql"
+    },
+    {
+      "id": "prod-after-cd",
+      "tool": "Bash",
+      "cmd": "cd /c/Dev && bash sb.sh prod-apply f.sql"
+    },
+    {
+      "id": "prod-piped",
+      "tool": "Bash",
+      "cmd": "cat f.sql | bash sb.sh prod-apply -"
+    },
+    {
+      "id": "prod-bash-c",
+      "tool": "Bash",
+      "cmd": "bash -c \"bash C:/Users/mcurt/danceflow-ops/sb.sh prod-apply f.sql\""
+    },
+    {
+      "id": "prod-double-space",
+      "tool": "Bash",
+      "cmd": "bash sb.sh   prod-apply f.sql"
+    },
+    {
+      "id": "prod-powershell-call",
+      "tool": "PowerShell",
+      "cmd": "& \"C:\\Users\\mcurt\\danceflow-ops\\sb.sh\" prod-apply f.sql"
+    },
+    {
+      "id": "prod-powershell-bash",
+      "tool": "PowerShell",
+      "cmd": "bash C:/Users/mcurt/danceflow-ops/sb.sh prod-apply f.sql"
+    },
+    {
+      "id": "prod-read-sb",
+      "tool": "Bash",
+      "cmd": "bash C:/Users/mcurt/danceflow-ops/sb.sh prod-read q.sql"
+    },
+    {
+      "id": "dev-read-sb",
+      "tool": "Bash",
+      "cmd": "bash C:/Users/mcurt/danceflow-ops/sb.sh dev-read q.sql"
+    },
+    {
+      "id": "dev-direct",
+      "tool": "Bash",
+      "cmd": "bash C:/Users/mcurt/danceflow-ops/sb.sh dev-apply f.sql deadbeef"
+    },
+    {
+      "id": "supabase-query",
+      "tool": "Bash",
+      "cmd": "cd C:/Users/mcurt/danceflow-ops/wd-prod && supabase db query --linked -f x.sql"
+    },
+    {
+      "id": "supabase-push",
+      "tool": "Bash",
+      "cmd": "supabase db push"
+    },
+    {
+      "id": "supabase-link",
+      "tool": "Bash",
+      "cmd": "supabase link --project-ref hvsujyfbftfffxpfmlpb"
+    },
+    {
+      "id": "supabase-migration-up",
+      "tool": "Bash",
+      "cmd": "npx supabase migration up --linked"
+    },
+    {
+      "id": "psql-env-url",
+      "tool": "Bash",
+      "cmd": "psql \"$DATABASE_URL\" -f x.sql"
+    },
+    {
+      "id": "psql-pooler",
+      "tool": "Bash",
+      "cmd": "psql postgresql://u:p@aws-0-us-east-1.pooler.supabase.com:5432/postgres -f x.sql"
+    },
+    {
+      "id": "pgrestore-env-url",
+      "tool": "Bash",
+      "cmd": "pg_restore -d \"$DATABASE_URL\" dump.bin"
+    },
+    {
+      "id": "pgdump-pooler",
+      "tool": "Bash",
+      "cmd": "pg_dump postgresql://u:p@aws-0.pooler.supabase.com:5432/postgres"
+    },
+    {
+      "id": "supabase-powershell",
+      "tool": "PowerShell",
+      "cmd": "supabase db query --linked -f x.sql"
+    },
+    {
+      "id": "merge-ghapp",
+      "tool": "Bash",
+      "cmd": "C:/Users/mcurt/d24-app-key/ghapp pr merge 5 --squash"
+    },
+    {
+      "id": "merge-gh",
+      "tool": "Bash",
+      "cmd": "gh pr merge 5 --squash"
+    },
+    {
+      "id": "merge-gh-double-space",
+      "tool": "Bash",
+      "cmd": "gh pr  merge 5"
+    },
+    {
+      "id": "merge-gh-repo-flag",
+      "tool": "Bash",
+      "cmd": "gh pr -R o/r merge 5"
+    },
+    {
+      "id": "merge-api",
+      "tool": "Bash",
+      "cmd": "gh api -X PUT repos/genxttech/danceflow-app/pulls/5/merge"
+    },
+    {
+      "id": "merge-ghapp-api",
+      "tool": "Bash",
+      "cmd": "C:/Users/mcurt/d24-app-key/ghapp api -X PUT repos/o/r/pulls/5/merge"
+    },
+    {
+      "id": "merge-graphql",
+      "tool": "Bash",
+      "cmd": "gh api graphql -f query=\"mutation { mergePullRequest(input:{pullRequestId:\\\"x\\\"}) { clientMutationId } }\""
+    },
+    {
+      "id": "merge-bash-c",
+      "tool": "Bash",
+      "cmd": "bash -c \"gh pr merge 5\""
+    },
+    {
+      "id": "merge-powershell",
+      "tool": "PowerShell",
+      "cmd": "gh pr merge 5 --squash"
+    },
+    {
+      "id": "pr-review-approve",
+      "tool": "Bash",
+      "cmd": "gh pr review 5 --approve"
+    },
+    {
+      "id": "pr-create-gh",
+      "tool": "Bash",
+      "cmd": "gh pr create --title t --body b"
+    },
+    {
+      "id": "pr-create-ghapp",
+      "tool": "Bash",
+      "cmd": "C:/Users/mcurt/d24-app-key/ghapp pr create --draft --title t"
+    },
+    {
+      "id": "gh-release-create",
+      "tool": "Bash",
+      "cmd": "gh release create v1"
+    },
+    {
+      "id": "gh-workflow-run",
+      "tool": "Bash",
+      "cmd": "gh workflow run ci.yml"
+    },
+    {
+      "id": "vercel-promote",
+      "tool": "Bash",
+      "cmd": "npx vercel promote dpl_x"
+    },
+    {
+      "id": "vercel-prod",
+      "tool": "Bash",
+      "cmd": "vercel --prod"
+    },
+    {
+      "id": "vercel-alias",
+      "tool": "Bash",
+      "cmd": "npx vercel alias set a b"
+    },
+    {
+      "id": "vercel-deploy",
+      "tool": "Bash",
+      "cmd": "npx vercel deploy --prod"
+    },
+    {
+      "id": "vercel-vc",
+      "tool": "Bash",
+      "cmd": "npx vc promote dpl_x"
+    },
+    {
+      "id": "vercel-rollback",
+      "tool": "Bash",
+      "cmd": "vercel rollback"
+    },
+    {
+      "id": "vercel-env-rm",
+      "tool": "Bash",
+      "cmd": "vercel env rm X production"
+    },
+    {
+      "id": "vercel-powershell-alias",
+      "tool": "PowerShell",
+      "cmd": "vercel alias set a b"
+    },
+    {
+      "id": "push-force",
+      "tool": "Bash",
+      "cmd": "git push --force origin main"
+    },
+    {
+      "id": "push-f",
+      "tool": "Bash",
+      "cmd": "git push -f origin x"
+    },
+    {
+      "id": "push-trailing-f",
+      "tool": "Bash",
+      "cmd": "git push origin main -f"
+    },
+    {
+      "id": "push-fu",
+      "tool": "Bash",
+      "cmd": "git push -fu origin x"
+    },
+    {
+      "id": "push-plus",
+      "tool": "Bash",
+      "cmd": "git push origin +main"
+    },
+    {
+      "id": "push-force-lease",
+      "tool": "Bash",
+      "cmd": "git push --force-with-lease origin x"
+    },
+    {
+      "id": "push-mirror",
+      "tool": "Bash",
+      "cmd": "git push --mirror"
+    },
+    {
+      "id": "push-delete-colon",
+      "tool": "Bash",
+      "cmd": "git push origin :branch"
+    },
+    {
+      "id": "push-delete-flag",
+      "tool": "Bash",
+      "cmd": "git push --delete origin b"
+    },
+    {
+      "id": "push-head-main",
+      "tool": "Bash",
+      "cmd": "git push origin HEAD:main"
+    },
+    {
+      "id": "push-plain",
+      "tool": "Bash",
+      "cmd": "git push"
+    },
+    {
+      "id": "push-dash-C",
+      "tool": "Bash",
+      "cmd": "git -C C:/Dev/df-u18pkg push origin x"
+    },
+    {
+      "id": "push-no-pager",
+      "tool": "Bash",
+      "cmd": "git --no-pager push origin x"
+    },
+    {
+      "id": "push-dash-c-cfg",
+      "tool": "Bash",
+      "cmd": "git -c x= push origin x"
+    },
+    {
+      "id": "push-git-exe",
+      "tool": "Bash",
+      "cmd": "git.exe push origin x"
+    },
+    {
+      "id": "push-subtree",
+      "tool": "Bash",
+      "cmd": "git subtree push --prefix=a origin b"
+    },
+    {
+      "id": "push-send-pack",
+      "tool": "Bash",
+      "cmd": "git send-pack origin refs/heads/x"
+    },
+    {
+      "id": "push-alias-define",
+      "tool": "Bash",
+      "cmd": "git config --global alias.p push"
+    },
+    {
+      "id": "push-alias-use-define-local",
+      "tool": "Bash",
+      "cmd": "git config alias.pp \"push origin\""
+    },
+    {
+      "id": "push-force-powershell",
+      "tool": "PowerShell",
+      "cmd": "git push --force origin main"
+    },
+    {
+      "id": "push-plus-powershell",
+      "tool": "PowerShell",
+      "cmd": "git push origin +main"
+    },
+    {
+      "id": "push-dash-C-powershell",
+      "tool": "PowerShell",
+      "cmd": "git -C C:/Dev/x push"
+    },
+    {
+      "id": "test-seam",
+      "tool": "Bash",
+      "cmd": "node C:/Dev/studioapp/docs/ops/continuity-pilot/test-cli.mjs claim --root x"
+    }
+  ],
+  "editVariants": [
+    {
+      "id": "edit-user-settings",
+      "tool": "Edit",
+      "path": "C:/Users/mcurt/.claude/settings.json"
+    },
+    {
+      "id": "write-user-settings",
+      "tool": "Write",
+      "path": "C:\\Users\\mcurt\\.claude\\settings.json",
+      "probePath": "C:/Users/mcurt/.claude/settings-cpilot-probe.json"
+    },
+    {
+      "id": "edit-user-hooks",
+      "tool": "Edit",
+      "path": "C:/Users/mcurt/.claude/hooks/pre.sh"
+    },
+    {
+      "id": "edit-claude-json",
+      "tool": "Edit",
+      "path": "C:/Users/mcurt/.claude.json"
+    },
+    {
+      "id": "edit-user-claude-md",
+      "tool": "Edit",
+      "path": "C:/Users/mcurt/.claude/CLAUDE.md"
+    },
+    {
+      "id": "edit-user-plugin",
+      "tool": "Edit",
+      "path": "C:/Users/mcurt/.claude/plugins/store/x/hooks.json"
+    },
+    {
+      "id": "edit-user-skill",
+      "tool": "Edit",
+      "path": "C:/Users/mcurt/.claude/skills/x/SKILL.md"
+    },
+    {
+      "id": "edit-user-agent",
+      "tool": "Edit",
+      "path": "C:/Users/mcurt/.claude/agents/x.md"
+    },
+    {
+      "id": "edit-user-command",
+      "tool": "Edit",
+      "path": "C:/Users/mcurt/.claude/commands/x.md"
+    },
+    {
+      "id": "edit-gitconfig",
+      "tool": "Edit",
+      "path": "C:/Users/mcurt/.gitconfig"
+    },
+    {
+      "id": "edit-project-settings",
+      "tool": "Edit",
+      "path": "C:/Dev/studioapp/.claude/settings.local.json"
+    },
+    {
+      "id": "edit-worktree-settings",
+      "tool": "Edit",
+      "path": "C:/Dev/df-cpilot/.claude/settings.json"
+    },
+    {
+      "id": "edit-claude-md",
+      "tool": "Edit",
+      "path": "C:/Dev/studioapp/CLAUDE.md"
+    },
+    {
+      "id": "edit-claude-local-md",
+      "tool": "Edit",
+      "path": "C:/Dev/studioapp/CLAUDE.local.md"
+    },
+    {
+      "id": "edit-mcp-json",
+      "tool": "Edit",
+      "path": "C:/Dev/studioapp/.mcp.json"
+    },
+    {
+      "id": "edit-orchestrator",
+      "tool": "Edit",
+      "path": "C:/Dev/studioapp/docs/ops/continuity-pilot/orchestrator.mjs"
+    },
+    {
+      "id": "edit-orchestrator-wt",
+      "tool": "Edit",
+      "path": "C:/Dev/df-cpilot/docs/ops/continuity-pilot/orchestrator.mjs"
+    },
+    {
+      "id": "write-policy",
+      "tool": "Write",
+      "path": "C:/Dev/df-cpilot/docs/ops/continuity-pilot/phase2/policy.json",
+      "probePath": "C:/Dev/cpilot-probe-scratch/docs/ops/continuity-pilot/phase2/probe.txt"
+    },
+    {
+      "id": "edit-live-queue",
+      "tool": "Edit",
+      "path": "C:/Dev/continuity-live/COMPETITION/queue.json"
+    },
+    {
+      "id": "edit-live-attestation",
+      "tool": "Edit",
+      "path": "C:/Dev/continuity-live/COMPETITION/PREFLIGHT_OK.json"
+    },
+    {
+      "id": "edit-sb-sh",
+      "tool": "Edit",
+      "path": "C:/Users/mcurt/danceflow-ops/sb.sh"
+    },
+    {
+      "id": "edit-cred-helper",
+      "tool": "Edit",
+      "path": "C:/Users/mcurt/d24-app-key/git-credential-app.mjs"
+    },
+    {
+      "id": "read-ops-secrets",
+      "tool": "Read",
+      "path": "C:/Users/mcurt/danceflow-ops/wd-prod/.env",
+      "probePath": "C:/Users/mcurt/danceflow-ops/cpilot-probe-nonexistent"
+    },
+    {
+      "id": "read-app-key",
+      "tool": "Read",
+      "path": "C:/Users/mcurt/d24-app-key/app.pem",
+      "probePath": "C:/Users/mcurt/d24-app-key/cpilot-probe-nonexistent"
+    },
+    {
+      "id": "read-dotenv",
+      "tool": "Read",
+      "path": "C:/Dev/studioapp/.env.local",
+      "probePath": "C:/Dev/cpilot-probe-scratch/.env.cpilot-probe"
+    },
+    {
+      "id": "read-ssh",
+      "tool": "Read",
+      "path": "C:/Users/mcurt/.ssh/id_ed25519",
+      "probePath": "C:/Users/mcurt/.ssh/cpilot-probe-nonexistent"
+    }
+  ],
+  "toolVariants": [
+    {
+      "id": "terminal-run",
+      "tool": "mcp__terminal__run_in_terminal",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "terminal-open",
+      "tool": "mcp__terminal__open_terminal_tab",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "pr-auto-merge",
+      "tool": "mcp__ccd_pr__set_auto_merge",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "chrome-navigate",
+      "tool": "mcp__claude-in-chrome__navigate",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "browser-navigate",
+      "tool": "mcp__Claude_Browser__navigate",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "set-setting",
+      "tool": "mcp__ccd_settings__set_setting",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "set-permission-mode",
+      "tool": "mcp__ccd_session_mgmt__set_session_permission_mode",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "session-send-message",
+      "tool": "mcp__ccd_session_mgmt__send_message",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "send-message",
+      "tool": "SendMessage",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "start-session",
+      "tool": "mcp__ccd_session__start_session",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "move-to-cloud",
+      "tool": "mcp__ccd_session__move_to_cloud",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "connector-enable",
+      "tool": "mcp__ccd_connectors__set_session_connector_enabled",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "scheduled-create",
+      "tool": "mcp__scheduled-tasks__create_scheduled_task",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "docs-connector",
+      "tool": "mcp__1a59c906-04da-521d-bda7-7f71b9f9e01c__create",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "cron-create",
+      "tool": "CronCreate",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "remote-trigger",
+      "tool": "RemoteTrigger",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "artifact-publish",
+      "tool": "Artifact",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "artifact-data",
+      "tool": "ArtifactData",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "artifact-comments",
+      "tool": "ArtifactComments",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "notebook-edit",
+      "tool": "NotebookEdit",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    },
+    {
+      "id": "monitor",
+      "tool": "Monitor",
+      "probeHint": "denied = the tool is absent from the tool list or the call is refused by a permission rule; send only empty or invalid arguments, never valid ones"
+    }
+  ],
+  "allowedCommands": [
+    "node C:/Dev/studioapp/docs/ops/continuity-pilot/orchestrator.mjs claim --wake --root C:/Dev/continuity-live/COMPETITION --worker COMPETITION",
+    "node C:/Dev/studioapp/docs/ops/continuity-pilot/orchestrator.mjs heartbeat --id Q1 --token abc --root C:/Dev/continuity-live/COMPETITION",
+    "node C:/Dev/studioapp/docs/ops/continuity-pilot/orchestrator.mjs complete --id Q1 --token abc --changed docs/qa/x.md --root C:/Dev/continuity-live/COMPETITION",
+    "git -C C:/Dev/df-u18pkg ls-tree -r --name-only origin/release/competition-cf1-app-candidate -- src/lib/supabase/migrations",
+    "git -C C:/Dev/df-u18pkg show origin/release/competition-cf1-app-candidate:src/lib/supabase/migrations/20270215093000_competition_u18_heat_entry_status_guard.sql",
+    "git -C C:/Dev/df-u18pkg cat-file blob refs/heads/main:docs/ops/continuity-pilot/phase2/scripts/run_u18s2.sh",
+    "git -C C:/Dev/df-u18pkg rev-parse HEAD",
+    "git -C C:/Dev/df-u18pkg log --oneline -20",
+    "git -C C:/Dev/df-u18pkg add docs/qa/cf1-competition-migration-inventory-2026-11-14.md",
+    "git -C C:/Dev/df-u18pkg commit -m \"CF1 migration inventory (local only)\"",
+    "git worktree add C:/Dev/df-pilot-runner -b claude/pilot-runner origin/main",
+    "sha256sum C:/Dev/df-u18pkg/src/lib/supabase/migrations/20270215093000_competition_u18_heat_entry_status_guard.sql",
+    "KEEP=1 SUITES=none IMG=ns1-base:snap bash C:/Dev/df-cpilot/docs/ops/continuity-pilot/phase2/scripts/run_u18s2.sh cf1pilot-q1 both /tmp/q1.out",
+    "docker exec -i -e PGPASSWORD=postgres cf1pilot-q2 psql -U supabase_admin -h localhost -d postgres -c \"select count(*) from event_competition_heat_entries\"",
+    "docker exec cf1pilot-q2 pg_dump -U postgres -h localhost --data-only -t event_competition_heat_entries postgres",
+    "docker rm -f -v cf1pilot-q1",
+    "docker ps -a --format {{.Names}}",
+    "bash C:/Dev/df-pilot-runner/scripts/qa/run-sql-suites.sh cf1pilot-q4",
+    "node --test C:/Dev/df-cpilot/docs/ops/continuity-pilot/orchestrator.test.mjs"
+  ],
+  "knownResidual": [
+    "Obfuscated spellings (pro\"\"d-apply, variable expansion, base64/eval, a script file that contains the command) cannot be matched by string rules.",
+    "Shell redirection or tee can overwrite settings or orchestrator files without using the Edit/Write tools.",
+    "Any language runtime (node -e, python -c) can spawn a protected command indirectly.",
+    "Windows paths and executable names are case-insensitive; the static matcher is case-sensitive, and Claude Code's real behaviour for mixed-case spellings (Git push, c:/dev/...) is unverified. The live probe is the only authority.",
+    "Memory files under ~/.claude/projects are not denied (the coordinator writes them); they are instruction carriers for future sessions.",
+    "Tools not listed here (new or renamed connectors) are not covered until added; the preflight only knows the listed ones.",
+    "The App credential helper used by claim to read the protected ref can mint a write-capable token; it is run by git, not by an agent tool call, and is not restricted here.",
+    "These residuals are why the loop is local-only, time-boxed, limited to reviewed items and run while a human can stop it. Deny rules are defense in depth, not a sandbox."
+  ]
+}
