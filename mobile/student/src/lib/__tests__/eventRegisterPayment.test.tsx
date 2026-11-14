@@ -18,6 +18,7 @@ jest.mock("expo-router", () => ({
   useLocalSearchParams: () => ({ id: "ev1" }),
   useRouter: () => mockRouter,
 }));
+jest.mock("@/lib/supabase", () => ({ supabase: { auth: { getSession: jest.fn(), refreshSession: jest.fn(), signOut: jest.fn() } } }));
 jest.mock("@stripe/stripe-react-native", () => ({ useStripe: () => mockSheet }));
 jest.mock("@/lib/auth", () => ({ useAuth: () => ({ session: { user: { id: "u1", email: "d@example.test" } } }) }));
 jest.mock("@/components/Screen", () => ({ Screen: ({ children }: { children: React.ReactNode }) => children }));
