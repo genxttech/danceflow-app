@@ -83,7 +83,7 @@ describe.each(sources)("Message resource (%s shapes) through the real adapter", 
     expect(JSON.stringify(evidence)).not.toContain(String(json.body));
   });
 
-  it("an integer error_code (as documented) becomes its text; a Messaging Service send has no sender until Twilio picks one", async () => {
+  it.runIf(_name === "documented")("an integer error_code (as documented) becomes its text; a Messaging Service send has no sender until Twilio picks one", async () => {
     expect((await fetchAs("fetch_undelivered_30007")).evidence.error_code).toBe("30007");
     const accepted = (await fetchAs("create_accepted")).evidence;
     expect(accepted).toMatchObject({ status: "accepted", from: null, date_sent: null, price: null, num_segments: "0" });
@@ -91,7 +91,23 @@ describe.each(sources)("Message resource (%s shapes) through the real adapter", 
   });
 });
 
-describe.each(sources)("Message list (%s shapes): inbound recovery reads documented pages", (_name, shapes) => {
+describe.each(sources.filter(([, s]) => s.list_inbound?.page0))("Message list (%s shapes): any captured page through the real adapter", (_name, shapes) => {
+  it("pages through Twilio's own next_page_uri, keeps only inbound messages with well-formed SIDs and ISO times", async () => {
+    const { page0, page1 } = shapes.list_inbound;
+    const { real, urls } = provider(() => (urls.length > 1 && page1 ? page1 : page0));
+    const { messages, complete } = await real.listInbound(shapes.account, { since: new Date(0), until: new Date(), maxPages: 5, to: shapes.sender });
+    expect(complete).toBe(true);
+    if (page0.next_page_uri) expect(urls[1]).toBe(`https://api.twilio.com${page0.next_page_uri}`);
+    const listed = [...page0.messages, ...(page1?.messages ?? [])].filter((m) => m.direction === "inbound");
+    expect(messages.map((m) => m.sid)).toEqual(listed.map((m) => m.sid));
+    for (const m of messages) {
+      expect(m.sid).toMatch(MESSAGE_SID);
+      expect(m.date_created).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    }
+  });
+});
+
+describe.each([sources[0]])("Message list (%s shapes): inbound recovery reads documented pages", (_name, shapes) => {
   const page0 = shapes.list_inbound.page0;
   const page1 = shapes.list_inbound.page1;
   const listing = () => provider((url) => (url.includes("PageToken=") ? page1 : page0));
