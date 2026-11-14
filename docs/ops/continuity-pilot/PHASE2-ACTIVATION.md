@@ -1,5 +1,7 @@
 # Phase 2 activation: Competition-only continuity pilot (NOT active)
 
+> **STATUS: BLOCKED (2026-11-14). Do not activate.** The owner requires the pilot's deny rules to apply to the Competition pilot only, not to the global Claude Code user settings (Apps and Twilio must be unaffected), and isolation must be demonstrated by test first. It has not been: see [ISOLATION-BLOCKER.md](ISOLATION-BLOCKER.md). **Step 2 below (installing deny rules in user-level `settings.json`) and step 3's user-settings probe are WITHDRAWN** and will be replaced by the evidence of the isolation option the owner chooses. Merging the pilot PR installs nothing and activates nothing; the preflight cannot pass today, so the loop HALTs.
+
 Merging the pilot PR does **not** activate anything. The shipped `phase2/policy.json` has `pilot.enabled: false`, and `claim` refuses to run without a fresh preflight attestation, so even a started loop HALTs. Activation is a separate, explicit owner decision after independent review and merge. The pilot is **local-only**: no push, no PR, no hosted access of any kind (including PROD reads). Twilio and Apps are excluded. No new coordinator, no archived session resumed.
 
 ## Sequence (each step is a gate; a failure stops here)

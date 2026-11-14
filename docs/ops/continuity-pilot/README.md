@@ -2,6 +2,8 @@
 
 An **advisory scheduler for a cooperative agent**. A self-paced Claude Code `/loop` in the COMPETITION session calls `orchestrator.mjs claim` once per iteration to learn which queue item it may work next. The session does the work and calls `complete`. It is not a sandbox.
 
+> Phase 2 activation is BLOCKED pending a demonstrated, pilot-only isolation of the deny rules: see ISOLATION-BLOCKER.md.
+
 ## What it guarantees
 It never **hands out** a class-G, unauthorized, expired, replayed or out-of-policy item, using only state fetched from a protected remote ref:
 - Trust anchor (`config.mjs`): the repo URL, ref (fully qualified `refs/heads/main`, so a tag named `main` cannot shadow it) and file paths are constants in code. The production CLI has no flag or env var to change them, the TTL, the limits or the authorization.
