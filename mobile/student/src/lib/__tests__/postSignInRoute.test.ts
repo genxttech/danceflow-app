@@ -8,7 +8,7 @@ import { isAllowedPostSignInRoute, rememberPostSignInRoute, takePostSignInRoute 
 beforeEach(() => AsyncStorage.clear());
 
 describe("post sign-in route", () => {
-  it.each(["/(tabs)/discover", "/partners", "/jobs", "/discover/marketplace"])("returns a guest to %s after sign-in", async (path) => {
+  it.each(["/(tabs)/discover", "/partners", "/jobs", "/discover/marketplace", "/events/e1/register", "/events/orders/o1"])("returns a guest to %s after sign-in", async (path) => {
     await rememberPostSignInRoute(path, 1_000);
     await expect(takePostSignInRoute(2_000)).resolves.toBe(path);
   });
@@ -24,7 +24,7 @@ describe("post sign-in route", () => {
     await expect(takePostSignInRoute(60 * 60 * 1000 + 1)).resolves.toBeNull();
   });
 
-  it.each(["/settings", "/wallet", "/(tabs)/wallet", "/partners/abc", "/discover/marketplace/x", "https://example.test/events/e1", "/events/e1/../../settings", "/events/", "//evil.test", "/events/e1?next=x"])(
+  it.each(["/settings", "/wallet", "/(tabs)/wallet", "/partners/abc", "/discover/marketplace/x", "https://example.test/events/e1", "/events/e1/../../settings", "/events/", "//evil.test", "/events/e1?next=x", "/events/e1/register/x", "/events/orders/o1/x", "/events/e1/register?x=1"])(
     "refuses %p",
     async (path) => {
       expect(isAllowedPostSignInRoute(path)).toBe(false);

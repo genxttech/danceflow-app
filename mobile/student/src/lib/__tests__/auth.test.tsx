@@ -138,3 +138,68 @@ describe("sign-out", () => {
     expect(order).toEqual(["unbind", "signOut"]);
   });
 });
+
+describe("emailed link failures", () => {
+  it("verifies a link once when it reaches the app twice (cold start)", async () => {
+    const { handleAuthUrl } = await renderAuth();
+    auth.verifyOtp.mockClear();
+
+    await act(async () => {
+      await Promise.all([
+        handleAuthUrl("danceflow://auth/callback?token_hash=once&type=magiclink"),
+        handleAuthUrl("danceflow://auth/callback?token_hash=once&type=magiclink"),
+      ]);
+    });
+
+    expect(auth.verifyOtp).toHaveBeenCalledTimes(1);
+  });
+
+  it("explains an expired link instead of leaving the dancer waiting", async () => {
+    const Linking = jest.requireMock("expo-linking") as { getInitialURL: jest.Mock };
+    Linking.getInitialURL.mockResolvedValueOnce("danceflow://auth/callback?token_hash=old&type=magiclink");
+    auth.verifyOtp.mockResolvedValueOnce({
+      error: Object.assign(new Error("Email link is invalid or has expired"), { code: "otp_expired" }),
+    } as never);
+
+    const seen: { latest?: ReturnType<typeof useAuth> } = {};
+    function Capture({ onValue }: { onValue: (next: ReturnType<typeof useAuth>) => void }) {
+      onValue(useAuth());
+      return <Text>ready</Text>;
+    }
+    render(
+      <AuthProvider>
+        <Capture
+          onValue={(next) => {
+            seen.latest = next;
+          }}
+        />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => expect(seen.latest?.authLinkError).toMatch(/expired or was already used/));
+  });
+
+  it("reads an error the auth server redirected back with", async () => {
+    const Linking = jest.requireMock("expo-linking") as { getInitialURL: jest.Mock };
+    Linking.getInitialURL.mockResolvedValueOnce(
+      "danceflow://auth/callback#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired",
+    );
+    const seen: { latest?: ReturnType<typeof useAuth> } = {};
+    function Capture({ onValue }: { onValue: (next: ReturnType<typeof useAuth>) => void }) {
+      onValue(useAuth());
+      return <Text>ready</Text>;
+    }
+    render(
+      <AuthProvider>
+        <Capture
+          onValue={(next) => {
+            seen.latest = next;
+          }}
+        />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => expect(seen.latest?.authLinkError).toMatch(/expired or was already used/));
+    expect(auth.verifyOtp).not.toHaveBeenCalled();
+  });
+});

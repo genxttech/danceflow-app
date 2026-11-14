@@ -41,3 +41,30 @@ describe("resolveEmailOtpType", () => {
     expect(resolveEmailOtpType(type)).toBeNull();
   });
 });
+
+import { friendlyAuthLinkError, parseAuthLinkError } from "@/lib/authLink";
+
+describe("parseAuthLinkError", () => {
+  it("reads an expired-link redirect from the fragment and never echoes provider text", () => {
+    const error = parseAuthLinkError(
+      "danceflow://auth/callback#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired",
+    );
+
+    expect(error?.code).toBe("otp_expired");
+    expect(error?.message).toMatch(/expired or was already used/);
+    expect(error?.message).not.toContain("access_denied");
+  });
+
+  it("reads the same from the query", () => {
+    expect(parseAuthLinkError("danceflow://auth/callback?error_code=otp_expired")?.code).toBe("otp_expired");
+  });
+
+  it("is null for a normal link or junk", () => {
+    expect(parseAuthLinkError("danceflow://auth/callback?token_hash=abc&type=magiclink")).toBeNull();
+    expect(parseAuthLinkError("nope")).toBeNull();
+  });
+
+  it("falls back to a generic sentence for an unknown failure", () => {
+    expect(friendlyAuthLinkError("server_error", "boom")).toMatch(/could not finish signing you in/);
+  });
+});

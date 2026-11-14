@@ -36,3 +36,37 @@ export function resolveEmailOtpType(type: string | null): EmailOtpType | null {
 
   return EMAIL_OTP_TYPES.find((allowed) => allowed === type) ?? null;
 }
+
+export type AuthLinkError = { code: string | null; message: string };
+
+export const LINK_EXPIRED_MESSAGE =
+  "That sign-in link has expired or was already used. Request a new link to continue.";
+export const LINK_FAILED_MESSAGE =
+  "We could not finish signing you in from that link. Request a new link and try again.";
+
+/** Turns a provider error (code and/or message) into words for a dancer; never echoes provider text. */
+export function friendlyAuthLinkError(code: string | null | undefined, message?: string | null): string {
+  const haystack = `${code ?? ""} ${message ?? ""}`.toLowerCase();
+  if (/otp_expired|expired|invalid|already|used|not found/.test(haystack)) return LINK_EXPIRED_MESSAGE;
+
+  return LINK_FAILED_MESSAGE;
+}
+
+/**
+ * An error the auth server redirected back with (`#error=access_denied&error_code=otp_expired&...`).
+ * Null when the link carries none.
+ */
+export function parseAuthLinkError(url: string): AuthLinkError | null {
+  try {
+    const parsed = new URL(url);
+    const hash = new URLSearchParams(parsed.hash.replace(/^#/, ""));
+    const read = (name: string) => parsed.searchParams.get(name) ?? hash.get(name);
+    const error = read("error");
+    const code = read("error_code");
+    if (!error && !code) return null;
+
+    return { code, message: friendlyAuthLinkError(code ?? error, read("error_description")) };
+  } catch {
+    return null;
+  }
+}

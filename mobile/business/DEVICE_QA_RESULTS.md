@@ -121,3 +121,34 @@ The check uses DEV GoTrue's email-link endpoint with a deliberately **invalid** 
 | `https://not-allowed.example/cb` | `303` → `http://localhost:3000#error=…` | Refused (negative control) |
 
 Side note: DEV's site URL is `http://localhost:3000`.
+
+## R2 re-walk (2026-11-14, main + PR 497): production web build, new roster states
+
+| # | Check | Result | Evidence |
+| --- | --- | --- | --- |
+| R2-1 | Today, class roster, Present / No-show writes, Clients, client detail at font 1.0 on the emulator (Ida, instructor) | **PASS** | `r2-05-today-1.0`, `r2-06-class-1.0`, `r2-07-class-marked-1.0`, `r2-12-clients-1.0`, `r2-13-client-detail-1.0` |
+| R2-2 | Same screens at font 2.0, cold start | **PASS**: no clipped text, tab bar intact | `r2-08-today-2.0b`, `r2-10-class-2.0-scrolled` (new "1 marked no-show" line), `r2-11-clients-2.0` |
+| R2-3 | Attendance writes reach the database | **PASS**: after tapping, `attendance_records` held Ana = attended, Colin = no_show | psql on the local stack |
+| R2-4 | API refusals against `next build && next start` (no tokens printed) | **PASS** 12/12 expected statuses | `../r2-api-refusal-matrix.txt` |
+| R2-5 | Dark mode | **BLOCKED**: the app is light-only (`userInterfaceStyle: light`, static colour tokens); dark tokens need owner approval (Mobile_Design_Direction) | — |
+
+Setup: iso-qa `--auth` stack `biz`, seeded with `seed-staff.mjs`; `next build --webpack` then `next start -p 3100`; Metro `--clear` on 8083 with the served bundle loaded into the existing debug dev build (`C:\dfb` APK); emulator `df-api35`. Font scale was reset to 1.0 afterwards.
+
+Findings:
+- **Roster names need migration `20270214120000` on the database**, as the contract says: before applying it to the local stack, class detail showed "Temporarily unavailable" (503). Applied to the disposable local stack only.
+- **Changing the system text size while the app is open leaves a stale layout** (`r2-liveswitch-stale-layout-2.0`: glyphs scale, boxes keep the 1.0 heights, so text is clipped, and the tab bar is partly covered) until the app is relaunched. A cold start at 2.0 is correct. Same activity-recreation family as the dev linking warning; Android recreates the activity on a font change and the React root keeps the old layout. Not fixed here; users rarely change text size with the app open, but it is worth a follow-up.
+- **Local workaround, not committed:** `next build` on this checkout fails type-checking `src/app/(auth)/callback/route.ts` (a non-route export, `sortByCreatedAtAscending`), and the build ran out of heap until `--max-old-space-size=8192`. `typescript.ignoreBuildErrors` was set locally for the QA build only. This is outside the Business app; CI on main passes, so check the Next version difference.
+
+## R3: dark mode (PR 509 code), 2026-11-14
+
+| # | Check | Result | Evidence |
+| --- | --- | --- | --- |
+| R3-1 | Every screen in dark (sign-in, Today, class roster before and after marking, private lesson, Clients, client detail, More) rendered in Chrome with `prefers-color-scheme: dark` from the Expo web export of PR 509, signed in through real GoTrue (iso-qa `--auth` stack) against a mock staff API | **PASS** (visual): readable text, plum actions as light plum, status text and borders visible; the roster shows "3 of 3 booked · Full", a "Cancelled" status that the app cannot set, and the no-show count | `dark/dark-01…09-*.png`, light twins `dark/light-01…09-*.png`, mock API `dark/mock-staff-api.mjs` |
+| R3-2 | Contrast of every text pair, both palettes | **PASS** 30 jest cases (`src/__tests__/contrast.test.ts`) | PR 506 |
+| R3-3 | Dark mode on the Android emulator | **BLOCKED** | see below |
+
+R3-3 detail. The Android dev build needs `expo_system_ui_user_interface_style` set to `automatic` (the generated native resource that app.json's `userInterfaceStyle` produces); a scratch rebuild with that value succeeded and `cmd uimode night yes` was on, but the app never loaded this session's Metro bundle (Metro logged no bundle request; the app showed a bundle without the instrumentation added to `theme.ts`, and once the Student app's UI), so no dark device screenshot was captured. The shared emulator, the shared ports, and a debug build whose JavaScript source I could not pin down made the device result untrustworthy, so it is not claimed. Re-run when the release session's `app.json` (PR 513 plus the one-key change in PR 509) is on main and a build from main is installed.
+
+Other observations:
+- **Web tab bar:** in the web render the tab labels are cut off at the bottom edge (dark and light). The Android emulator tab bar was verified in R1 (E3); this looks web-only (the explicit height assumes a native bottom inset) and is not fixed here.
+- **Mid-session appearance change:** styles are built at launch, so switching system dark mode with the app open applies on next launch.
