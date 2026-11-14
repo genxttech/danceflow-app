@@ -236,13 +236,39 @@ export const INBOUND_ACCOUNT_BUDGET_MS = 15_000;
 const PERMANENT = new Set(["22023", "42501"]);
 
 /**
+ * Which of these message SIDs DanceFlow's webhook handled as a START from this texter (migration 20270218090000): a Set, or null when that could not be read.
+ * Before the migration (function missing) it is an empty Set, the previous behaviour.
+ */
+export type StartSidLookup = (sids: string[]) => Promise<ReadonlySet<string> | null>;
+
+export function startSidLookup(admin: Client, accountSid: string, from: string, deadline?: number): StartSidLookup {
+  return async (sids) => {
+    const found = new Set<string>();
+    for (let i = 0; i < sids.length; i += 500) {
+      if (deadline !== undefined && Date.now() > deadline) return null;   // out of time: unknown (the STOP is applied and listed)
+      try {
+        const { data, error } = await admin.rpc("tw4_inbound_start_sids", { p_account_sid: accountSid, p_from: from, p_sids: sids.slice(i, i + 500) });
+        if (error) return missingFunction(error) ? new Set<string>() : null;
+        if (!Array.isArray(data)) return null;
+        for (const sid of data) if (typeof sid === "string") found.add(sid);
+      } catch {
+        return null;
+      }
+    }
+    return found;
+  };
+}
+
+/**
  * Consent ordering for a recovered STOP, by Twilio's own message times: the same texter's LATER messages to the same number, read from the provider
- * (read-only, the subaccount's credentials). The latest later STOP/START keyword decides; 'unknown' when it cannot be established (the read failed or was
- * incomplete, or a keyword shares the STOP's second), and the database then applies the STOP and lists it (fail closed).
+ * (read-only, the subaccount's credentials). The latest later STOP/START decides; 'unknown' when it cannot be established (the read failed or was
+ * incomplete, a keyword shares the STOP's second, or DanceFlow's START record could not be read), and the database then applies the STOP and lists it
+ * (fail closed). A later message is a START when its body is a START keyword, or when DanceFlow's webhook handled THAT message as a START (`startSids`:
+ * a custom Advanced Opt-Out opt-in keyword the body rules cannot recognise), so a START is ordered by Twilio's time, never by when DanceFlow processed it.
  */
 export async function laterKeywordFor(
   lister: InboundMessageLister,
-  input: { accountSid: string; to: string | null; from: string; sid: string; at: number; until: Date; deadline?: number },
+  input: { accountSid: string; to: string | null; from: string; sid: string; at: number; until: Date; deadline?: number; startSids?: StartSidLookup },
 ): Promise<"start" | "stop" | "none" | "unknown"> {
   // without the receiving number the texter's messages to OTHER locations would count: not provable
   if (!input.to || !/^\+1[2-9][0-9]{9}$/.test(input.to)) return "unknown";
@@ -253,13 +279,23 @@ export async function laterKeywordFor(
     return "unknown";
   }
   if (!listed.complete) return "unknown";
+  // an opt-out is read loosely (fail closed); an opt-in only as strictly as the webhook's fallback would honour it ("Yes!" is not a START)
+  const bodyKind = (m: InboundMessageEvidence): "stop" | "start" | null =>
+    classifyRecoveredBody(m.body).keywordKind === "stop" ? "stop" : m.body !== null && classifyInboundKeywordBody(m.body) === "start" ? "start" : null;
+  const later = listed.messages.filter((m) => m.sid !== input.sid && (m.from === null || m.from === input.from));
+  // the texter's other later messages: was any of them handled by DanceFlow's webhook as a START (a custom opt-in keyword)?
+  let startSids: ReadonlySet<string> = new Set<string>();
+  const candidates = later.filter((m) => bodyKind(m) === null && messageTime(m) >= input.at).map((m) => m.sid);
+  if (input.startSids && candidates.length > 0) {
+    const found = await input.startSids(candidates);
+    if (found === null) return "unknown";
+    startSids = found;
+  }
   let latest: { at: number; kind: "stop" | "start" } | null = null;
-  for (const m of listed.messages) {
-    if (m.sid === input.sid || (m.from !== null && m.from !== input.from)) continue;
+  for (const m of later) {
     const at = messageTime(m);
     if (!Number.isFinite(at)) return "unknown";
-    // an opt-out is read loosely (fail closed); an opt-in only as strictly as the webhook's fallback would honour it ("Yes!" is not a START)
-    const keywordKind: "stop" | "start" | null = classifyRecoveredBody(m.body).keywordKind === "stop" ? "stop" : m.body !== null && classifyInboundKeywordBody(m.body) === "start" ? "start" : null;
+    const keywordKind = bodyKind(m) ?? (startSids.has(m.sid) ? "start" : null);
     if (keywordKind === null) continue;
     if (Math.floor(at / 1000) === Math.floor(input.at / 1000)) return "unknown";   // same second as the STOP: order not provable
     if (at < input.at) continue;
@@ -385,7 +421,7 @@ export async function recoverInboundUsage(
       const { classification, keyword, keywordKind, possibleOptOut } = classifyRecoveredBody(m.body, sender !== null);
       // a recovered STOP is ordered against the texter's later keywords by Twilio's own times (a START that changed nothing leaves no history in DanceFlow)
       const laterKeyword = keywordKind === "stop" && sender && Number.isFinite(messageTime(m))
-        ? await laterKeywordFor(lister, { accountSid: target.account_sid, to: m.to, from: sender, sid: m.sid, at: messageTime(m), until: new Date(), deadline })
+        ? await laterKeywordFor(lister, { accountSid: target.account_sid, to: m.to, from: sender, sid: m.sid, at: messageTime(m), until: new Date(), deadline, startSids: startSidLookup(admin, target.account_sid, sender, deadline) })
         : undefined;
       const { data, error } = await admin.rpc("tw4_inbound_recover", {
         p_run_id: options.runId,

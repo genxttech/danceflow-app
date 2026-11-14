@@ -10,6 +10,7 @@ import {
 import { resolveInboundKeyword } from "@/lib/sms/inboundKeywords";
 import { inboundReplyAllowed, parseInboundCounts, recordInboundUsage, type InboundReplyKind } from "@/lib/sms/inboundUsage";
 import { resolveStudioFromInboundSender } from "@/lib/sms/studioSender";
+import { recordInboundStartSignal } from "@/lib/sms/inboundStartSignals";
 import { recordPendingOptOut, supersedePendingOptOuts } from "@/lib/sms/pendingOptOuts";
 import { buildWebhookAccountDeps, receiptSeen, recordWebhookReceipt } from "@/lib/sms/twilioIsv/webhookRuntime";
 import { twilioFormHasDuplicateKeys, twilioFormParams } from "@/lib/sms/twilioWebhook";
@@ -311,6 +312,13 @@ export async function POST(request: Request) {
     if (keyword === "stop") {
       const stopReply = buildSmsStopReply(studioName);
       return finish(reply(stopReply), stopReply);
+    }
+
+    // TW-4F: every START DanceFlow applied is recorded by MessageSid (also a custom opt-in keyword from a texter with no client/contact row), so the
+    // reconciler can order a recovered STOP against it by Twilio's own message times. Only after the consent change succeeded: a START DanceFlow never
+    // acted on is no reason to leave an older STOP unapplied. Not recorded: safe direction (recovery then applies an older STOP: fail closed).
+    if (!consentError && !(await recordInboundStartSignal(supabase, { studioId, phone: from, messageSid }))) {
+      console.warn("sms_inbound_start_signal_failed");
     }
 
     const restored = Number((outcome as { rows_changed?: unknown } | null)?.rows_changed ?? 0) > 0;
