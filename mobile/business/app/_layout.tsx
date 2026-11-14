@@ -6,6 +6,7 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { LayoutProbe } from "@/components/LayoutProbe";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { useFontScale } from "@/lib/fontScale";
 import { PushProvider, usePushTaps } from "@/lib/push";
 import { stackAnimation, useReduceMotion } from "@/lib/motion";
 import { StaffApiProvider, StaffSessionProvider } from "@/lib/staff";
@@ -48,6 +49,7 @@ function StaffProviders({ children }: { children: React.ReactNode }) {
 function RootNavigator() {
   const { session, loading } = useAuth();
   const reduceMotion = useReduceMotion();
+  const fontScale = useFontScale();
 
   if (loading) {
     return (
@@ -61,6 +63,7 @@ function RootNavigator() {
 
   const stack = (
     <Stack
+      key={`font-${fontScale}`}
       screenOptions={{
         headerShown: false,
         animation: stackAnimation(reduceMotion),
