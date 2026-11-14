@@ -73,6 +73,10 @@ Google Play Console Help, "Target API level requirements for Google Play apps" (
 
 Verified here: with the QA key supplied through those variables the AAB signs (section 1). With the variables unset, `gradlew :app:bundleRelease` fails with `Release signing is not configured (task :app:packageReleaseResources)…` and builds nothing debug-signed. With credentials but a placeholder `google-services.json` it fails with `android/app/google-services.json is the QA placeholder; release needs the real Firebase file.` (both runs 2026-11-14).
 
+### EAS cloud builds and the signing guard
+
+The local-signing guard stands down when `EAS_BUILD=true` (EAS cloud sets it), because an EAS production build injects its own signing credentials and never sets `DANCEFLOW_UPLOAD_*`; EAS fails by itself if it has none. Gradle-level proof (2026-11-14, `:app:bundleRelease --dry-run`, no upload variables set): with `EAS_BUILD=true` the guard does **not** throw (BUILD SUCCESSFUL); with `EAS_BUILD=false` it throws `Release signing is not configured`. **UNVERIFIED:** an actual EAS cloud build was not run (not authorized), so that EAS injects credentials into this committed `android/` project and that the `eas-build-post-install` Firebase hook runs as intended are untested. The Firebase placeholder guard still applies on EAS: production needs the real `GOOGLE_SERVICES_JSON` file variable.
+
 ## 5. Findings handed to other owners
 
 1. **Student, `src/lib/pushNotifications.ts`:** no Android notification channel is created and the server sends no `channelId`; add a `default` channel before requesting permission (details in the Firebase doc).
@@ -104,3 +108,48 @@ Installed the bundletool universal APK built from each AAB (Student: the second 
 | A-14 | R8/minified release build | **BLOCKED** (not enabled) | **BLOCKED** | Follow-up. |
 
 Other verification: Business `tsc --noEmit` clean and 159 jest tests pass (in `C:\dfr\r`); `expo install --check` clean for both apps; CI job "Mobile apps typecheck and tests" runs on PR #513.
+
+## 7. Release-candidate re-run on current main (2026-11-14)
+
+Tree: PR branch merged with `origin/main` at `e60925aa` (includes #514 Business icons, #515 Student scrolling sign-in and notification channel, #516 `/account-deletion`, #518 cold-start magic-link fix, #519, #520 Business text-size rebuild), merge commit `68997e94`, plus this branch's commits for Business icon wiring and the EAS guard. Student AAB built at `68997e94`; Business AAB built after `expo prebuild` from the branch with the icon wiring. Both built locally, one Gradle build at a time, QA-only key, outputs outside the repo.
+
+| | Student | Business |
+|---|---|---|
+| AAB | `C:\dfr-out\student-rc.aab`, 99,107,156 B | `C:\dfr-out\business-rc.aab`, 64,696,924 B |
+| versionCode / versionName | 1 / 0.1.0 | 1 / 0.1.0 |
+| targetSdk | 36 | 36 |
+| Universal APK (bundletool) | 146,888,762 B | 97,743,017 B |
+| Signer | QA key, SHA-256 `93:F4:E4:5E:...:F0:99` | same |
+| debuggable | no (`dumpsys` flags `HAS_CODE ALLOW_CLEAR_USER_DATA`) | no |
+| Icon | brand icon, adaptive + monochrome | brand icon wired (`application-icon` is the adaptive `ic_launcher.xml`) |
+| Permissions | location (coarse/fine), `POST_NOTIFICATIONS`, `INTERNET`, `VIBRATE` + library ones; no `CAMERA`, `RECORD_AUDIO`, storage or overlay | `INTERNET`, `VIBRATE`, `POST_NOTIFICATIONS` + library ones (expo-notifications); no `CAMERA` etc. |
+| Firebase file in build | real DEV file (`danceflow-mobile-dev`), package check passed | none (no `google-services.json` yet; push registration lands separately) |
+
+### Re-run matrix (emulator df-api35, API 35, cold-booted; Google Messages disabled to stop its ANR dialog, re-enabled afterwards). Screenshots: `C:\dfr-out\qa2\`
+
+| ID | Check | Student | Business | Notes |
+|---|---|---|---|---|
+| R-1 | Cold start to sign-in, no dev UI, not debuggable | PASS | PASS | Clean screen, no ANR dialog in the evidence. Includes the #518 magic-link cold-start fix path (A-8). |
+| R-2 | Font scale 1.0 | PASS | PASS | |
+| R-3 | Font scale 2.0, **cold start** at 2.0 | PASS (all sign-in text legible, `s3c-font2-coldstart.png`) | PASS (`b2c-font2-coldstart.png`) | Replaces earlier FAIL A-10, which was taken by changing the font size while the app was already running. |
+| R-3b | Font size changed while the app is running | **FAIL** (Student sign-in still clips until the app restarts, same screen as A-10) | not re-run (#520 targets this) | Student needs the same "rebuild on text-size change" fix as #520. |
+| R-4 | Dark mode | PASS | n/a (light-only) | |
+| R-5 | Deep link reaches handler | PASS (`danceflow://auth/callback?code=bogus` → "Sign in needs another try") | PASS (`danceflow-business://...` → "This sign-in link didn't work") | |
+| R-6 | Sign-in with release build against local iso-qa `--auth` stack | PASS (QA-only variant, see below): magic link requested in-app, mail read from Mailpit, GoTrue verify redirect replayed as `danceflow://auth/callback?code=...` PKCE exchange `200`, Settings shows `ida.instructor@example.test` | PASS for auth: password sign-in `POST /auth/v1/token?grant_type=password` `200`; the screen after that is "Temporarily unavailable" because `/api/staff/me` needs the web app, which was not run | The Next.js web API (`/api/student/*`, `/api/staff/*`) was not started, so Today shows loading skeletons and Business stops after auth. Student first launch after sign-in then loaded Today ("Your dancer account is ready"). |
+| R-7 | Firebase wiring in release build | PASS: `FirebaseApp initialization successful` in logcat; package-id guard and placeholder guard exercised | n/a | |
+| R-8 | Notification channel on device | PASS: `NotificationChannel{mId='default', mName=DanceFlow, mImportance=3}` after the in-app permission prompt (`dumpsys notification`) | n/a | #515's channel is created. |
+| R-9 | Push permission prompt | PASS: system "Allow DanceFlow to send you notifications?" appears from the master switch | n/a | One wording issue: before the first prompt the card says "Push notifications are blocked in your device settings." and the notification card renders blank (large empty white area) after "could not be set up" (`s13-allowed.png`). UI finding for the Student session. |
+| R-10 | Push token registration reaches the server | PASS: `claim_mobile_push_token` called; first call `404` because the local baseline schema lacked migration `20270213080000` (applied to the disposable stack only), then `204`; row `mobile_push_tokens(platform=android, app_slug=danceflow-student, enabled)` holds a real `ExponentPushToken[...]` obtained through FCM with the DEV Firebase file | n/a | |
+| R-11 | Push delivery through Expo | **PASS**: `POST https://exp.host/--/api/v2/push/send` returned `ok`, receipt `ok`, and a notification titled "DanceFlow DEV test" was posted on the device (`dumpsys notification`, channel `default`) | n/a | **This shows an FCM v1 credential is already configured in Expo for the Student project.** The earlier assumption that the key upload was still pending is wrong or has since been done. |
+| R-12 | Partner profile photo picker on API 35 | PASS: opens the system photo picker with no permission prompt (`p2-picker.png`); CAMERA and storage permissions are not declared | n/a | Choosing a photo and the upload were not run (no images on the emulator; web API not running): **BLOCKED**. Android 12 and older: **UNTESTED** (no AVD). |
+| R-13 | No cleartext in the shipping builds | PASS (manifest) | PASS (manifest) | See "QA-only HTTP variant". |
+| R-14 | EAS guard: no upload variables | PASS (`EAS_BUILD=true` does not throw, `false` throws; Gradle `--dry-run`) | same script | Section 4. EAS cloud itself UNVERIFIED. |
+| R-15 | 16 KB alignment, R8 | **BLOCKED** (not run) | **BLOCKED** | Follow-ups. |
+| R-16 | Android 12 and older | **UNTESTED** | **UNTESTED** | No AVD. |
+
+### QA-only HTTP variant (never shipping)
+
+The shipping builds above are untouched. For R-6 to R-11 a second build of each app was made in the throwaway worktree `C:\dfr\r` only, with `android:usesCleartextTraffic="true"` added to the generated/committed manifest by hand (not committed; the Student manifest edit was reverted with `git checkout`), and `EXPO_PUBLIC_SUPABASE_URL=http://10.0.2.2:<port>` plus the disposable stack's demo anon key baked into the bundle. Artifacts: `C:\dfr-out\student-qa-http.aab`, `C:\dfr-out\business-qa-http.aab` (QA key; never to be uploaded). Note for repeat runs: the Business bundle first picked up a **stale Metro cache** (the old placeholder URL stayed inlined); building with `TEMP`/`TMP` pointing at an empty folder fixed it.
+
+### Emulator and stack state
+The disposable iso-qa stack (`relqa`) was torn down, the QA apps uninstalled, font scale reset to 1.0 and the emulator shut down. Existing debug builds of both packages that were on the AVD had to be uninstalled (signature mismatch).
