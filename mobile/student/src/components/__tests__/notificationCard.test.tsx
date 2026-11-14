@@ -8,6 +8,12 @@ jest.mock("@react-native-async-storage/async-storage", () =>
   jest.requireActual("@react-native-async-storage/async-storage/jest/async-storage-mock"),
 );
 
+// The real pushNotifications module is used for normalizePermissionStatus; keep its imports inert.
+jest.mock("expo-router", () => ({ router: { push: jest.fn() } }));
+jest.mock("expo-constants", () => ({ __esModule: true, default: { appOwnership: null, expoConfig: { extra: { eas: { projectId: "p" } } } } }));
+jest.mock("expo-notifications", () => ({}));
+jest.mock("@/lib/supabase", () => ({ supabase: {} }));
+
 const mockState = { permissionStatus: "undetermined", message: null as string | null };
 jest.mock("@/lib/pushNotifications", () => ({
   ...jest.requireActual("@/lib/pushNotifications"),
