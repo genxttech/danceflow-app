@@ -1,0 +1,447 @@
+ as_user 
+---------
+ 
+(1 row)
+
+                         add_competition_official                         
+--------------------------------------------------------------------------
+ {"role": "judge", "official_id": "e471131c-5d6d-42f6-a028-8e65eaddcefd"}
+(1 row)
+
+                         add_competition_official                         
+--------------------------------------------------------------------------
+ {"role": "judge", "official_id": "4146d4c2-744f-4cca-9c2f-38feb1853e96"}
+(1 row)
+
+                         add_competition_official                         
+--------------------------------------------------------------------------
+ {"role": "judge", "official_id": "1e9f014e-833b-4edb-a48b-c1ccea46100f"}
+(1 row)
+
+                         add_competition_official                         
+--------------------------------------------------------------------------
+ {"role": "chair", "official_id": "c201d54e-9b65-41ba-a792-cfabc329e265"}
+(1 row)
+
+                         add_competition_official                          
+---------------------------------------------------------------------------
+ {"role": "scorer", "official_id": "b52b217e-16f2-4570-b5a3-5efd0af6b9b0"}
+(1 row)
+
+                         add_competition_official                          
+---------------------------------------------------------------------------
+ {"role": "scorer", "official_id": "d77d9320-df1f-4612-a5f5-4565c9a4ffa6"}
+(1 row)
+
+                         add_competition_official                         
+--------------------------------------------------------------------------
+ {"role": "judge", "official_id": "7c1d838e-7d4e-45a3-8a7d-58cc5839ea29"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "A", "assignment_id": "8ac0d33f-3518-4c70-ad20-37888c1a8564"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "B", "assignment_id": "02a48fc5-4825-470a-889f-bb81087dc8e5"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "C", "assignment_id": "bbe7282d-55eb-4742-9d90-ab10b0d342e8"}
+(1 row)
+
+                         assign_competition_panel_member                         
+---------------------------------------------------------------------------------
+ {"judge_letter": null, "assignment_id": "fd7bcbdb-70dd-480b-b10f-a57b4ddd6cd0"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "A", "assignment_id": "6da840e6-5816-4b16-81e0-e82e8b2a92d6"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "B", "assignment_id": "fe5dd9bd-dd87-4ad9-a3ea-0d9cc357846b"}
+(1 row)
+
+                         assign_competition_panel_member                         
+---------------------------------------------------------------------------------
+ {"judge_letter": null, "assignment_id": "9d98dd21-10e6-411f-9bda-4871e54a20ab"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "A", "assignment_id": "9417bf3f-727f-41b2-9bd9-a298413155ec"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "A", "assignment_id": "93ef58f3-1f1d-4136-8379-fa7cd51d258a"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "A", "assignment_id": "879cb022-b79d-4ea9-8ccc-48ea0e126fa6"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "B", "assignment_id": "0a7b13de-ce15-4fd4-8df3-256065755e71"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "C", "assignment_id": "c0b349f9-c762-4420-a6b7-5aa324f2b56f"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "D", "assignment_id": "f91b82bf-6626-43b5-8c4d-5d6b9c8dac04"}
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                         add_competition_official                         
+--------------------------------------------------------------------------
+ {"role": "judge", "official_id": "30e6bade-5bcc-4cb3-a14d-0b12eac567d2"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "A", "assignment_id": "769d0f63-264a-4382-b52f-c058c8e218c3"}
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                                           submit_competition_ballot                                           
+---------------------------------------------------------------------------------------------------------------
+ {"source": "judge_web", "version": 1, "replayed": false, "ballot_id": "5b4aa06e-9614-44db-91bb-f753c26497cb"}
+(1 row)
+
+                                           submit_competition_ballot                                           
+---------------------------------------------------------------------------------------------------------------
+ {"source": "judge_web", "version": 1, "replayed": false, "ballot_id": "95e19607-0b30-40d9-a200-81cac5912f84"}
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                                           submit_competition_ballot                                           
+---------------------------------------------------------------------------------------------------------------
+ {"source": "judge_web", "version": 1, "replayed": false, "ballot_id": "4b4e00a5-fd78-42bb-895c-ce349a0acaab"}
+(1 row)
+
+                                           submit_competition_ballot                                           
+---------------------------------------------------------------------------------------------------------------
+ {"source": "judge_web", "version": 1, "replayed": false, "ballot_id": "90868918-37b8-4e8e-8d89-9be6e30776e3"}
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                                           submit_competition_ballot                                           
+---------------------------------------------------------------------------------------------------------------
+ {"source": "judge_web", "version": 1, "replayed": false, "ballot_id": "e31a2b50-65b2-497b-a567-4856339c9eb2"}
+(1 row)
+
+                                           submit_competition_ballot                                           
+---------------------------------------------------------------------------------------------------------------
+ {"source": "judge_web", "version": 1, "replayed": false, "ballot_id": "422e2dfb-497e-4d37-ba73-13617f1753f8"}
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ set_competition_heat_lock_state 
+---------------------------------
+ 
+(1 row)
+
+ set_competition_heat_lock_state 
+---------------------------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ hl1_danced 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ hl1_danced 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ERROR:  COMPETITION HL1 HEAT GUARDS SQL SUITE PASS (42 checks)
+CONTEXT:  PL/pgSQL function inline_code_block line 9 at RAISE

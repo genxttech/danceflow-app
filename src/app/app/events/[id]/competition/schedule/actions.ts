@@ -5,6 +5,9 @@ import { revalidatePath } from "next/cache";
 import { requireCompetitionManager } from "@/lib/competition/workspaceServer";
 import { buildFloorPlan, toApplyPayload } from "@/lib/competition/floorPlanner";
 import { loadPlannerInput, loadScheduleVersions } from "@/lib/competition/floorScheduleServer";
+import { isRetryableError, withRetryOnce, errorText } from "@/lib/competition/results/advancement";
+import { hasResultMessage } from "@/lib/competition/results/messages";
+import { competitionFinalsEnabled } from "@/lib/competition/finalsGate";
 
 /* 10D: Schedule & Heats operations. Every change goes through the database authority
    (apply/move/insert/delete RPCs + deferred integrity checks); nothing here is trusted. */
@@ -20,10 +23,16 @@ function schedulePath(eventId: string) {
 }
 
 /** Plain-language message for an organizer; never a raw database error. */
-function friendly(error: { message?: string } | null | undefined) {
+function friendly(error: { message?: string; code?: string | null } | null | undefined) {
   const message = error?.message ?? "";
+  // CF1: a deadlock (40P01) or refused lock wait (55P03) is not a failure of the request; nothing was saved. The schedule RPCs carry no
+  // request id, so they are not repeated automatically: the organizer is told to try again.
+  // Competition Finals is dark by default: with the flag off the organizer copy is exactly the live release copy.
+  const finalsEnabled = competitionFinalsEnabled();
+  if (finalsEnabled && error && isRetryableError({ message, code: error.code })) return errorText({ message, code: error.code });
   const match = message.match(/COMP10D_[A-Z_]+:\s*([\s\S]+)$/);
   if (match) return match[1].replace(/\s+/g, " ").trim();
+  if (finalsEnabled && hasResultMessage(message)) return errorText({ message, code: error?.code });
   // Heat-size refusals from set_competition_round_heat_capacity(round, capacity, reason, request id) are plain sentences.
   const capacity = message.match(/^COMP_CAPACITY_[A-Z0-9_]+:\s*([\s\S]+)$/);
   if (capacity && !message.startsWith("COMP_CAPACITY_FORBIDDEN")) {
@@ -118,7 +127,11 @@ export async function setHeatCapacityAction(formData: FormData): Promise<void> {
   if (!UUID.test(roundId)) back(eventId, { error: "That round could not be found. Refresh and try again.", heat });
   const { data: ownRound, error: ownRoundError } = await supabase.from("event_competition_rounds").select("id").eq("id", roundId).eq("event_id", eventId).maybeSingle();
   if (ownRoundError || !ownRound) back(eventId, { error: "That round could not be found. Refresh and try again.", heat });
-  const { error } = await supabase.rpc("set_competition_round_heat_capacity", {
+  // With Competition Finals on, a deadlock or lock-wait refusal is retried once (safe: the request id makes the call idempotent).
+  // Off, this is exactly the live heat-size fix (bbadbf13, the same patch as ac902c28): one call.
+  const call = (name: string, args: Record<string, unknown>) => supabase.rpc(name, args);
+  const rpc = competitionFinalsEnabled() ? withRetryOnce(call) : call;
+  const { error } = await rpc("set_competition_round_heat_capacity", {
     p_round_id: roundId,
     p_capacity: Number(text(formData, "capacity")),
     p_reason: reason,

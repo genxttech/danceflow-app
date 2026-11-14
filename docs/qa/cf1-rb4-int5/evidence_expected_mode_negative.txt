@@ -1,0 +1,12 @@
+OD-17 runner mode=r2 image=cf1od17-chain:base head=e84d535b 2026-11-07T22:32:39Z
+R2 ledger tables present before CF1: f
+COMPOSED APPLY without OD-17 (A1..RB3R): PASS
+OD-17 20270120105000 apply (preflight + postflight inside): PASS
+OD-17 additive-only: 0 existing fingerprint lines removed/changed, 26 lines added PASS
+OD-17 second apply refused (ERROR:  CF1-OD17 preflight: an OD-17 enforcement object already exists.): PASS
+OD-17 rollback exactness (fingerprint equals pre-OD-17): 0 diff lines PASS
+OD-17 re-apply fingerprint equals first apply: 0 diff lines PASS
+F3 20270122090000 applied: PASS
+REVERSE ROLLBACK (F3, OD-17, RB3R..A0, A1) fingerprint diff vs pre-CF1: 0 lines PASS
+RE-APPLY (sorted order) fingerprint diff vs first composed apply: 0 lines PASS
+EXPECTED MODE (r2_ledger): catalog ledger=f, _cf1_refund_evidence_mode()=absent FAIL -- the chain is not in the mode this run requires; no suite verdict is valid

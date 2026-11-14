@@ -1,0 +1,2611 @@
+{
+  "summary": {
+    "base": "03297304",
+    "int5": "28a7722e",
+    "hotfix": "03297304",
+    "files": 361,
+    "byChange": {
+      "added": 345,
+      "changed": 16
+    },
+    "byArea": {
+      "docs": 94,
+      "e2e harness": 21,
+      "QA script": 8,
+      "app route/page/action": 33,
+      "unit test": 42,
+      "library": 40,
+      "migration (Git-only copy)": 27,
+      "migration rollback (Git-only copy)": 27,
+      "SQL test": 69
+    },
+    "byOrigin": {
+      "int5 28a7722e, byte-identical": 269,
+      "new in this candidate": 36,
+      "int5 28a7722e, edited here": 53,
+      "live release file, edited here (dark gate)": 3
+    },
+    "excluded": 10
+  },
+  "files": [
+    {
+      "status": "A",
+      "path": "docs/competition/callback-to-final-advancement-design.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/competition/cf1-a0-contract.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/competition/cf1-a1-contract.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/competition/cf1-a2-contract.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/competition/cf1-a3-contract.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/competition/cf1-a4a-contract.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/competition/cf1-a5-contract.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/competition/cf1-a6-contract.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/competition/cf1-a7-contract.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/competition/cf1-a7-pr-body.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/competition/cf1-p1-reader-inventory.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/competition/e1-officials-judging-access.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/competition/engine-spec-callback-tally.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "docs/competition/engine-spec-ordinal-majority.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "docs/competition/o1-day-of-operations.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/competition/scoring-method-registry.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/competition/scoring-results-contract.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-acceptance-matrix.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-acceptance-dark-2026-11-09.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-acceptance-dark-rebase-2026-11-10.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-acceptance-on-2026-11-09.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-acceptance-pv1-2026-11-10.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-inventory-2026-11-09.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-inventory-2026-11-09.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-qa-2026-11-09.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-qa-2026-11-09.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-qa-stack-baseline-2026-11-09.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-app-candidate-schema-compat-2026-11-09.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-c-browser-acceptance-2026-11-01.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-c-db-acceptance-2026-10-31.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-c-db-acceptance-2026-10-31b.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-c-db-acceptance-2026-10-31c.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-int5-closeout-2026-11-07.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-pv1-equivalence-2026-11-10.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-applied-chain-2026-11-05.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-hosted-readonly-request-2026-11-07.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-hosted-verification-plan-2026-11-07.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/evidence_a3_probe_results.txt",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/evidence_a3_probe_verdict.txt",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/evidence_composed_r2_e84d535b.txt",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/evidence_expected_mode_negative.txt",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/evidence_pin_coverage.tsv",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/fn_md5.sql",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/fp_ext.sql",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/hosted/expected_new_functions.tsv",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/hosted/expected_redefined_functions.tsv",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/hosted/local_dry_run_base_image.txt",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/hosted/readonly_catalog_check.sql",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/hosted/results_2026-11-07/dev_q1.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/hosted/results_2026-11-07/dev_q2.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/hosted/results_2026-11-07/dev_q3.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/hosted/results_2026-11-07/dev_q4.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/hosted/results_2026-11-07/prod_q1.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/hosted/results_2026-11-07/prod_q2.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/hosted/results_2026-11-07/prod_q3.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/hosted/results_2026-11-07/prod_q4.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/pins_int5.mjs",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-int5/tbl_md5.sql",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-run/fn_md5.sql",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-run/fp_ext.sql",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-run/hl1_post_cf1.out",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-run/hl1_post_hl1_only_no_cf1.out",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-run/hl1_post_reapply_all.out",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-run/migration_files.tsv",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-run/pin_coverage.tsv",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-run/pins.mjs",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-run/rb4.sh",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-run/rb4b.sh",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-run/rb4c.sh",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-run/rb4d.sh",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-run/rb4e.sh",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-run/step_pins.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-rb4-run/steps.mjs",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-release-manifest-2026-11-08.tsv",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-release-plan-2026-11-08.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1-tie-over-capacity-decisions-2026-11-01.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1c-db-run/a3_conc.out",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1c-db-run/gate_audit.tsv",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1c-db-run/report_full.txt",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1c-db-run/report_full_bdc6fb75.txt",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/cf1c-db-run/report_full_integration2.txt",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/competition-acceptance-harness.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/competition-qa-sut3-acceptance-2026-10-29.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/competition-qa-sut3-acceptance-2026-10-29.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/competition-qa-sut5-acceptance-2026-10-29.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/competition-qa-sut5-acceptance-2026-10-29.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/competition-qa-sut6-acceptance-2026-10-30.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/competition-qa-sut6-acceptance-2026-10-30.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/competition-qa-sut6-prod-acceptance-2026-10-30.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/competition-qa-sut6-prod-acceptance-2026-10-30.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/competition-schedule-heats-acceptance-2026-10-25.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/competition-schedule-heats-acceptance-2026-10-25.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/competition-schedule-heats-ns1-acceptance-2026-10-25.json",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "docs/qa/competition-schedule-heats-ns1-acceptance-2026-10-25.md",
+      "change": "added",
+      "area": "docs",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "M",
+      "path": "e2e/README.md",
+      "change": "changed",
+      "area": "e2e harness",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "e2e/helpers/cf1Acceptance.ts",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "e2e/helpers/competitionFullEvent.ts",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "e2e/helpers/competitionFullEventFixture.ts",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "e2e/helpers/competitionFullEventMoney.ts",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "e2e/helpers/competitionScheduleHeats.ts",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "e2e/helpers/qaDbContainer.ts",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "e2e/playwright.acceptance.config.ts",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "e2e/playwright.cf1-dark.config.ts",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "e2e/playwright.cf1.config.ts",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "e2e/tests/competition-cf1-advancement-acceptance.spec.ts",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "e2e/tests/competition-cf1-dark-smoke.spec.ts",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "e2e/tests/competition-cf1-pv1-recompute-acceptance.spec.ts",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "e2e/tests/competition-cf1-regression-acceptance.spec.ts",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "e2e/tests/competition-full-event.spec.ts",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "e2e/tests/competition-schedule-heats-acceptance.spec.ts",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "e2e/tests/competition-scoring-results-acceptance.spec.ts",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "e2e/tools/acceptance-report.mjs",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "e2e/tools/path-scrub.d.mts",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "e2e/tools/path-scrub.mjs",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "e2e/tools/scrub-committed-evidence.mjs",
+      "change": "added",
+      "area": "e2e harness",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "scripts/qa/cf1-candidate-inventory.mjs",
+      "change": "added",
+      "area": "QA script",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "scripts/qa/cf1-schema-compat.mjs",
+      "change": "added",
+      "area": "QA script",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "scripts/qa/oj1/oj1-sql-proof.sql",
+      "change": "added",
+      "area": "QA script",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "scripts/qa/pv1/capture.setup.ts",
+      "change": "added",
+      "area": "QA script",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "scripts/qa/pv1/capture.vitest.mts",
+      "change": "added",
+      "area": "QA script",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "scripts/qa/pv1/compare.mjs",
+      "change": "added",
+      "area": "QA script",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "scripts/qa/pv1/fault-injection.sh",
+      "change": "added",
+      "area": "QA script",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "scripts/qa/pv1/random-corpus.ts",
+      "change": "added",
+      "area": "QA script",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "M",
+      "path": "src/app/app/events/[id]/competition/CompetitionNav.tsx",
+      "change": "changed",
+      "area": "app route/page/action",
+      "origin": "live release file, edited here (dark gate)"
+    },
+    {
+      "status": "M",
+      "path": "src/app/app/events/[id]/competition/actions.ts",
+      "change": "changed",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/events/[id]/competition/advanced/StudioScoringForm.tsx",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "M",
+      "path": "src/app/app/events/[id]/competition/advanced/page.tsx",
+      "change": "changed",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/events/[id]/competition/ballots/BallotDesk.tsx",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/events/[id]/competition/ballots/BallotMarksFields.tsx",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/events/[id]/competition/ballots/LockHeatButton.tsx",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/events/[id]/competition/ballots/[roundId]/page.tsx",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/events/[id]/competition/ballots/actions.ts",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/events/[id]/competition/ballots/page.tsx",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/events/[id]/competition/day-of/actions.ts",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/events/[id]/competition/day-of/page.tsx",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "M",
+      "path": "src/app/app/events/[id]/competition/layout.tsx",
+      "change": "changed",
+      "area": "app route/page/action",
+      "origin": "live release file, edited here (dark gate)"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/events/[id]/competition/officials/actions.ts",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/events/[id]/competition/officials/page.tsx",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "M",
+      "path": "src/app/app/events/[id]/competition/readiness/actions.ts",
+      "change": "changed",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "M",
+      "path": "src/app/app/events/[id]/competition/readiness/page.tsx",
+      "change": "changed",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/events/[id]/competition/results/[roundId]/CallbackPanels.tsx",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/events/[id]/competition/results/[roundId]/page.tsx",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/events/[id]/competition/results/actions.ts",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/events/[id]/competition/results/page.tsx",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "M",
+      "path": "src/app/app/events/[id]/competition/schedule/actions.ts",
+      "change": "changed",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "M",
+      "path": "src/app/app/events/[id]/competition/schedule/page.tsx",
+      "change": "changed",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/events/[id]/competition/scoringActions.ts",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "M",
+      "path": "src/app/app/events/[id]/competition/simpleActions.ts",
+      "change": "changed",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/judging/JudgingShell.tsx",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/judging/[eventId]/rounds/[roundId]/ballot/desk/NoShowPanel.tsx",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/judging/[eventId]/rounds/[roundId]/ballot/desk/actions.ts",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/judging/[eventId]/rounds/[roundId]/ballot/desk/page.tsx",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/judging/[eventId]/rounds/[roundId]/ballot/page.tsx",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/app/app/judging/page.tsx",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "M",
+      "path": "src/app/app/layout.tsx",
+      "change": "changed",
+      "area": "app route/page/action",
+      "origin": "live release file, edited here (dark gate)"
+    },
+    {
+      "status": "A",
+      "path": "src/app/events/[slug]/competition/results/page.tsx",
+      "change": "added",
+      "area": "app route/page/action",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/__tests__/callbackTarget.a4a.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/__tests__/callbackTarget.k1.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/__tests__/dayOf.o1.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/__tests__/finalCapacity.cf1b.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/__tests__/finalsGate.cf1dark.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/__tests__/finalsGate.liveOff.cf1dark.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/__tests__/noShow.ns1.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/__tests__/officials.e1.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/__tests__/pageLoadError.cf1b.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/__tests__/rollbackSchema.cf1rb4.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/ballots/__tests__/ballots.e2.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/ballots/__tests__/heatLock.hl1.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/ballots/__tests__/window.cx1.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/ballots/canonical.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/ballots/formats.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/ballots/heatLock.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/ballots/messages.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/ballots/schemes.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/ballots/status.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/ballots/window.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/callbackTarget.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/dayOf.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/dayOfServer.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/finalCapacity.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/finalsGate.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "M",
+      "path": "src/lib/competition/heatPlanner.ts",
+      "change": "changed",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/noShow.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/officials/__tests__/judgingAccess.oj1.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/officials/__tests__/judgingLinks.cf1review.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/officials/contract.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/officials/judging.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/officials/judgingAccess.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/pageLoadError.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/__tests__/adapter.f2.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/__tests__/advancement.cf1b.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/__tests__/cf1.a0.contract.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/__tests__/contract.k0.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/__tests__/correction.cf1b.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/__tests__/evidence.cf1a3.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/__tests__/evidence.parity.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/__tests__/fixtures/cf1a3-parity.json",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/__tests__/publication.f3.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/__tests__/recompute.pv1.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/__tests__/results.f2.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/__tests__/stubEngine.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/__tests__/unresolvedTie.cf1b.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/__tests__/viewer.f3u66.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/__tests__/wiring.cf1b.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/advancement.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/calculate.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/contract.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/correction.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/engineAdapter.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/engines/__tests__/engineIds.f1.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/engines/__tests__/helpers.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/engines/__tests__/purity.f1.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/engines/__tests__/review.f1.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/engines/__tests__/reviewFixes.f1.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/engines/__tests__/studioCallbackTally.f1.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/engines/__tests__/studioOrdinalMajority.f1.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/engines/common.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/engines/index.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/engines/studioCallbackTally.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/engines/studioOrdinalMajority.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/engines/types.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/evidence.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/messages.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/publication.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/reviewTypes.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/unresolvedTie.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/results/viewer.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/scoring/__tests__/readiness.cf1b.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/scoring/__tests__/registry.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/scoring/__tests__/studioSetup.ss1.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/scoring/registry.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/scoring/studioReadiness.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/scoring/studioReadinessServer.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/competition/scoring/studioSetup.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "M",
+      "path": "src/lib/competition/workspaceNav.ts",
+      "change": "changed",
+      "area": "library",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "M",
+      "path": "src/lib/e2e/guards.test.ts",
+      "change": "changed",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/e2e/qaHarnessPins.test.ts",
+      "change": "added",
+      "area": "unit test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/e2e/runDirGuard.ts",
+      "change": "added",
+      "area": "library",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270101090000_competition_e1_officials.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270102090000_competition_e2_ballots.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270106090000_competition_o1_day_of.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270110090000_competition_k1_setup_fixes.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270113090000_competition_scoring_registry.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270114090000_competition_f2_results_lifecycle.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270115090000_competition_ns1_heat_no_shows.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270116090000_competition_ss1_round_scoring_lock.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270117090000_competition_cx1_correction_ballot_readers.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270118090000_competition_ss1_advancement_freeze.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270119090000_competition_hl1_heat_guards.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270120085000_competition_cf1_a1_eligibility_helpers.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270120090000_competition_cf1_callback_final_advancement.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270120091000_competition_cf1_a4a_callback_target_guard.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270120092000_competition_cf1_a2_lock_check.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270120093000_competition_cf1_a3_results_integrity.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270120094000_competition_cf1_a5_exclusion_action.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270120095000_competition_cf1_a6_withdrawal.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270120095500_competition_cf1_a7_od13_correction_integrity.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270120101000_competition_cf1_a0_review_fixes.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270120102000_competition_cf1_rb3_refund_evidence.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270120103000_competition_cf1_u66_correction_recovery.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270120104000_competition_cf1_rb3_evidence_reconciliation.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270120105000_competition_cf1_od17_enforcement.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270122090000_competition_f3_publication.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270215090000_competition_pv1_result_recompute.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/20270215091000_competition_oj1_official_team_member.sql",
+      "change": "added",
+      "area": "migration (Git-only copy)",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270101090000_competition_e1_officials_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270102090000_competition_e2_ballots_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270106090000_competition_o1_day_of_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270110090000_competition_k1_setup_fixes_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270113090000_competition_scoring_registry_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270114090000_competition_f2_results_lifecycle_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270115090000_competition_ns1_heat_no_shows_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270116090000_competition_ss1_round_scoring_lock_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270117090000_competition_cx1_correction_ballot_readers_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270118090000_competition_ss1_advancement_freeze_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270119090000_competition_hl1_heat_guards_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270120085000_competition_cf1_a1_eligibility_helpers_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270120090000_competition_cf1_callback_final_advancement_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270120091000_competition_cf1_a4a_callback_target_guard_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270120092000_competition_cf1_a2_lock_check_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270120093000_competition_cf1_a3_results_integrity_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270120094000_competition_cf1_a5_exclusion_action_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270120095000_competition_cf1_a6_withdrawal_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270120095500_competition_cf1_a7_od13_correction_integrity_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270120101000_competition_cf1_a0_review_fixes_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270120102000_competition_cf1_rb3_refund_evidence_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270120103000_competition_cf1_u66_correction_recovery_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270120104000_competition_cf1_rb3_evidence_reconciliation_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270120105000_competition_cf1_od17_enforcement_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270122090000_competition_f3_publication_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270215090000_competition_pv1_result_recompute_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/rollback/20270215091000_competition_oj1_official_team_member_rollback.sql",
+      "change": "added",
+      "area": "migration rollback (Git-only copy)",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/concurrency/run_cf1_a2_lock_vs_lifecycle.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/concurrency/run_cf1_a2_rollback_chain.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/concurrency/run_cf1_a3_locks.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/concurrency/run_e2_marks_txn.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/concurrency/run_e2_p1fix_proof.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/concurrency/run_e2_rollback.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/concurrency/run_e2_submit_vs_lock.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/concurrency/run_f2_races.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/concurrency/run_f2_rollback.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/concurrency/run_hl1_reopen_vs_lock_ballots.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/concurrency/run_ns1_races.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/concurrency/run_ss1_advancement_vs_publish.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/concurrency/run_ss1_configure_vs_publish.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/concurrency/verify_cf1_a3_locks.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/fixtures/cf1_a4_concurrency_fixture.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/fixtures/cf1_fingerprint.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/fixtures/cf1_fullchain/bootstrap.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/fixtures/cf1_fullchain/build.mjs",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/fixtures/cf1_fullchain/order_pre.txt",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/fixtures/competition_round_ready.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/run_cf1_f3.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/run_cf1_integration.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/run_cf1_od17.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/run_cf1_od17_lib.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/run_cf1_rb3.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/run_o1_suite.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a0_tie_concurrency.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a0_tie_policy.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a1_helpers.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a2_lock.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a3_results.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a4_concurrency.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a4_minimum_integration.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a4a_target_guard.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a5_concurrency.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a5_exclusion.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a5_u38_composed.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a6_concurrency.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a6_withdrawal.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a7_concurrency.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a7_od13.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_callback_final_advancement.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_concurrency.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_f3_concurrency.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_f3_publication.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_od17_concurrency.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_od17_enforcement.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_rb3_refund_evidence.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_rb3r_concurrency.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_rb3r_reconciliation.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_u66_concurrency.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_u66_recovery.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cx1_correction_readers.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_e1_officials.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_e2_ballots.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_e2_p1fix.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_f2_results.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_hl1_heat_guards.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_k1_setup_fixes.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_ns1_no_show.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, edited here"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_o1_concurrency.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_o1_day_of.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_pv1_recompute.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "new in this candidate"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_scoring_registry.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_ss1_advancement_freeze.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_ss1_round_lock.sql",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "M",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_phase10d1_heat_entry_eligibility.sql",
+      "change": "changed",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "M",
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_phase10d_floor_schedule.sql",
+      "change": "changed",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    },
+    {
+      "status": "A",
+      "path": "src/lib/supabase/migrations/sql-tests/test_run_cf1_od17_classification.sh",
+      "change": "added",
+      "area": "SQL test",
+      "origin": "int5 28a7722e, byte-identical"
+    }
+  ],
+  "excluded": [
+    {
+      "path": "docs/qa/cf1-rb4-int5/evidence_composed_nor2_e84d535b.txt",
+      "status": "A",
+      "reason": "RB4 evidence carrying local machine paths (fails the qaHarnessPins guard); kept on cf1/integration-5"
+    },
+    {
+      "path": "docs/qa/cf1-rb4-int5/evidence_final_order_r2_gate.txt",
+      "status": "A",
+      "reason": "RB4 evidence carrying local machine paths (fails the qaHarnessPins guard); kept on cf1/integration-5"
+    },
+    {
+      "path": "docs/qa/cf1-rb4-int5/rb4_int5.sh",
+      "status": "A",
+      "reason": "RB4 evidence carrying local machine paths (fails the qaHarnessPins guard); kept on cf1/integration-5"
+    },
+    {
+      "path": "docs/twilio/TW-4A_Notes.md",
+      "status": "M",
+      "reason": "TW-4F docs: int5 only scrubbed local paths; TW-4F files are preserved byte-for-byte from the live release"
+    },
+    {
+      "path": "docs/twilio/TW-4F_Completion_Tracker.md",
+      "status": "M",
+      "reason": "TW-4F docs: int5 only scrubbed local paths; TW-4F files are preserved byte-for-byte from the live release"
+    },
+    {
+      "path": "docs/twilio/TW-4F_RFL_Pilot_Approval_Evidence.md",
+      "status": "M",
+      "reason": "TW-4F docs: int5 only scrubbed local paths; TW-4F files are preserved byte-for-byte from the live release"
+    },
+    {
+      "path": "docs/twilio/TW-4_R1_Notes.md",
+      "status": "M",
+      "reason": "TW-4F docs: int5 only scrubbed local paths; TW-4F files are preserved byte-for-byte from the live release"
+    },
+    {
+      "path": "e2e/README.md",
+      "status": "M",
+      "reason": "carried as a 3-way merge of the int5 hunk onto the live README (not the int5 file), so it differs from int5"
+    },
+    {
+      "path": "src/lib/competition/__tests__/render.phase10b.test.ts",
+      "status": "M",
+      "reason": "kept at the live version: int5 changed them to expect the CF1 navigation unconditionally; the dark default keeps the live navigation (flag-on navigation is asserted in finalsGate.cf1dark.test.ts)"
+    },
+    {
+      "path": "src/lib/competition/__tests__/workspace.phase10b.test.ts",
+      "status": "M",
+      "reason": "kept at the live version: int5 changed them to expect the CF1 navigation unconditionally; the dark default keeps the live navigation (flag-on navigation is asserted in finalsGate.cf1dark.test.ts)"
+    }
+  ]
+}

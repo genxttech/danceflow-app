@@ -1,5 +1,9 @@
 import { describe, expect, it, afterEach } from "vitest";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { E2ESafetyError, assertE2EBaseUrlIsSafe, assertE2ESupabaseUrlIsSafe } from "@/lib/e2e/guards";
+import { assertRunDirOutsideRepo } from "@/lib/e2e/runDirGuard";
 
 describe("assertE2EBaseUrlIsSafe", () => {
   afterEach(() => {
@@ -186,5 +190,42 @@ describe("assertE2ESupabaseUrlIsSafe", () => {
     expect(() =>
       assertE2ESupabaseUrlIsSafe("https://danceflow-e2e-staging.supabase.co"),
     ).not.toThrow();
+  });
+});
+
+describe("assertRunDirOutsideRepo (review: artifacts never inside the repository)", () => {
+  const root = path.resolve(os.tmpdir(), "df-runguard-repo");
+  const outside = path.resolve(os.tmpdir(), "df-runguard-outside", "runs", "20261105");
+
+  it("accepts a directory outside the repository root", () => {
+    expect(() => assertRunDirOutsideRepo(outside, root)).not.toThrow();
+  });
+  it("rejects the repository root itself, with or without a trailing separator", () => {
+    expect(() => assertRunDirOutsideRepo(root, root)).toThrow(E2ESafetyError);
+    expect(() => assertRunDirOutsideRepo(root + path.sep, root)).toThrow(E2ESafetyError);
+  });
+  it("rejects any directory inside the repository root, however deep or spelled", () => {
+    expect(() => assertRunDirOutsideRepo(path.join(root, "e2e", "runs", "x"), root)).toThrow(/outside the repository/);
+    expect(() => assertRunDirOutsideRepo(path.join(root, "a", "..", "b"), root)).toThrow(E2ESafetyError);
+  });
+  it("is not fooled by a sibling directory that merely shares the prefix", () => {
+    expect(() => assertRunDirOutsideRepo(`${root}-artifacts`, root)).not.toThrow();
+  });
+  it("rejects a missing value", () => {
+    expect(() => assertRunDirOutsideRepo(undefined, root)).toThrow(/E2E_RUN_DIR is required/);
+    expect(() => assertRunDirOutsideRepo("", root)).toThrow(/E2E_RUN_DIR is required/);
+  });
+  it("rejects a link that points into the repository", () => {
+    const repo = mkdtempSync(path.join(os.tmpdir(), "df-rg-repo-"));
+    const holder = mkdtempSync(path.join(os.tmpdir(), "df-rg-link-"));
+    const link = path.join(holder, "runs");
+    try {
+      symlinkSync(repo, link, "junction");
+      expect(() => assertRunDirOutsideRepo(link, repo)).toThrow(/outside the repository/);
+    } finally {
+      rmSync(link, { force: true });
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(holder, { recursive: true, force: true });
+    }
   });
 });

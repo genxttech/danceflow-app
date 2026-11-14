@@ -1,0 +1,2280 @@
+{
+  "generatedAt": "2026-11-09T22:13:00.041Z",
+  "source": "results.json",
+  "stats": {
+    "startTime": "2026-11-09T21:16:27.907Z",
+    "duration": 2885919.997,
+    "expected": 18,
+    "skipped": 1,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "counts": {
+    "PASS": 18,
+    "BLOCKED": 1
+  },
+  "scenarios": [
+    {
+      "id": "SCN-0",
+      "title": "SCN-0c setup (not a scenario): judges and owner prove their mailbox through the real sign-in link",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 87415,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-advancemen-6caf5-rough-the-real-sign-in-link-chrome/test-finished-1.png",
+        "artifacts/competition-cf1-advancemen-6caf5-rough-the-real-sign-in-link-chrome/test-finished-2.png",
+        "artifacts/competition-cf1-advancemen-6caf5-rough-the-real-sign-in-link-chrome/test-finished-3.png",
+        "artifacts/competition-cf1-advancemen-6caf5-rough-the-real-sign-in-link-chrome/test-finished-4.png",
+        "artifacts/competition-cf1-advancemen-6caf5-rough-the-real-sign-in-link-chrome/test-finished-5.png"
+      ],
+      "trace": "artifacts/competition-cf1-advancemen-6caf5-rough-the-real-sign-in-link-chrome/trace.zip",
+      "evidence": []
+    },
+    {
+      "id": "SCN-11.4",
+      "title": "SCN-11.4a tie within capacity: all tied couples advance (5 of T = 4), one advancement, one audit row, Final heat holds exactly those five",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 345600,
+      "error": [],
+      "screenshots": [
+        null,
+        null,
+        null,
+        "artifacts/competition-cf1-advancemen-83cba-at-holds-exactly-those-five-chrome/attachments/01-calculated-tie-within-capacity-865c1c5a77734740bcab30459dab74e5065c8bd0.png",
+        "artifacts/competition-cf1-advancemen-83cba-at-holds-exactly-those-five-chrome/attachments/02-advanced-761220ad9ff951afccf11facdb478dfd0de11ae5.png",
+        "artifacts/competition-cf1-advancemen-83cba-at-holds-exactly-those-five-chrome/test-finished-1.png",
+        "artifacts/competition-cf1-advancemen-83cba-at-holds-exactly-those-five-chrome/test-finished-2.png",
+        "artifacts/competition-cf1-advancemen-83cba-at-holds-exactly-those-five-chrome/test-finished-4.png",
+        "artifacts/competition-cf1-advancemen-83cba-at-holds-exactly-those-five-chrome/test-finished-5.png",
+        "artifacts/competition-cf1-advancemen-83cba-at-holds-exactly-those-five-chrome/test-finished-3.png",
+        "artifacts/competition-cf1-advancemen-83cba-at-holds-exactly-those-five-chrome/test-finished-6.png"
+      ],
+      "trace": "artifacts/competition-cf1-advancemen-83cba-at-holds-exactly-those-five-chrome/trace.zip",
+      "evidence": [
+        {
+          "judge": 1,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            4
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            true,
+            false
+          ],
+          "ballotRowsBefore": [],
+          "ballotRowsAfter": [
+            {
+              "official_id": "6ea9fa5d-1a13-4e38-9537-ac5c6b7a3c7c",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 2,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            false,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "6ea9fa5d-1a13-4e38-9537-ac5c6b7a3c7c",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "1de2ea48-10b1-4c32-b2be-5acd15454520",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "6ea9fa5d-1a13-4e38-9537-ac5c6b7a3c7c",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 3,
+          "requestedPicks": [
+            0,
+            1,
+            4,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            false,
+            true,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "1de2ea48-10b1-4c32-b2be-5acd15454520",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "6ea9fa5d-1a13-4e38-9537-ac5c6b7a3c7c",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "1de2ea48-10b1-4c32-b2be-5acd15454520",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "6ea9fa5d-1a13-4e38-9537-ac5c6b7a3c7c",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "f4365932-5934-451e-9ba3-738e8fb381d2",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "scenario": "SCN-11.4a",
+          "advanced": 5,
+          "advancement": "7ff10b77-d1f7-4468-b34a-b2d26102cb06",
+          "finalHeat": "0ee6e476-1177-4f00-b9aa-b209963ad432"
+        },
+        {
+          "judge": 1,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            4
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            true,
+            false
+          ],
+          "ballotRowsBefore": [],
+          "ballotRowsAfter": [
+            {
+              "official_id": "6ea9fa5d-1a13-4e38-9537-ac5c6b7a3c7c",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 2,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            false,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "6ea9fa5d-1a13-4e38-9537-ac5c6b7a3c7c",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "1de2ea48-10b1-4c32-b2be-5acd15454520",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "6ea9fa5d-1a13-4e38-9537-ac5c6b7a3c7c",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 3,
+          "requestedPicks": [
+            0,
+            1,
+            4,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            false,
+            true,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "1de2ea48-10b1-4c32-b2be-5acd15454520",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "6ea9fa5d-1a13-4e38-9537-ac5c6b7a3c7c",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "1de2ea48-10b1-4c32-b2be-5acd15454520",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "6ea9fa5d-1a13-4e38-9537-ac5c6b7a3c7c",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "f4365932-5934-451e-9ba3-738e8fb381d2",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "scenario": "SCN-11.4a",
+          "advanced": 5,
+          "advancement": "7ff10b77-d1f7-4468-b34a-b2d26102cb06",
+          "finalHeat": "0ee6e476-1177-4f00-b9aa-b209963ad432"
+        }
+      ]
+    },
+    {
+      "id": "SCN-11.5",
+      "title": "SCN-11.5 Final built from the advanced couples: one heat, starts, three judges rank, calculate, second manager approves, heat certified",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 186607,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-advancemen-01dd8-ger-approves-heat-certified-chrome/attachments/01-final-on-the-floor-d0386360eb10cef8769db2baea7a5578751ad5a0.png",
+        "artifacts/competition-cf1-advancemen-01dd8-ger-approves-heat-certified-chrome/attachments/02-final-approved-be2124315e4142fd4ab3ebf0767e601890c32336.png",
+        "artifacts/competition-cf1-advancemen-01dd8-ger-approves-heat-certified-chrome/test-finished-1.png",
+        "artifacts/competition-cf1-advancemen-01dd8-ger-approves-heat-certified-chrome/test-finished-3.png",
+        "artifacts/competition-cf1-advancemen-01dd8-ger-approves-heat-certified-chrome/test-finished-2.png",
+        "artifacts/competition-cf1-advancemen-01dd8-ger-approves-heat-certified-chrome/test-finished-4.png",
+        "artifacts/competition-cf1-advancemen-01dd8-ger-approves-heat-certified-chrome/test-finished-5.png",
+        "artifacts/competition-cf1-advancemen-01dd8-ger-approves-heat-certified-chrome/test-finished-7.png",
+        "artifacts/competition-cf1-advancemen-01dd8-ger-approves-heat-certified-chrome/test-finished-6.png"
+      ],
+      "trace": "artifacts/competition-cf1-advancemen-01dd8-ger-approves-heat-certified-chrome/trace.zip",
+      "evidence": []
+    },
+    {
+      "id": "SCN-11.4",
+      "title": "SCN-11.4b tie over capacity: the result is saved with its scores, advancement stays unresolved, nothing advances, no approve or advance control is offered",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 194890,
+      "error": [],
+      "screenshots": [
+        null,
+        null,
+        null,
+        "artifacts/competition-cf1-advancemen-b4101--advance-control-is-offered-chrome/attachments/01-tie-over-capacity-unresolved-e1b17e3a7399c2b0ad28e57db00c758ea5518702.png",
+        "artifacts/competition-cf1-advancemen-b4101--advance-control-is-offered-chrome/attachments/02-no-approve-or-advance-control-3ffc11bcd86aaa4cfc51de25f90901cc22077809.png",
+        "artifacts/competition-cf1-advancemen-b4101--advance-control-is-offered-chrome/test-finished-1.png",
+        "artifacts/competition-cf1-advancemen-b4101--advance-control-is-offered-chrome/test-finished-3.png",
+        "artifacts/competition-cf1-advancemen-b4101--advance-control-is-offered-chrome/test-finished-2.png",
+        "artifacts/competition-cf1-advancemen-b4101--advance-control-is-offered-chrome/test-finished-6.png",
+        "artifacts/competition-cf1-advancemen-b4101--advance-control-is-offered-chrome/test-finished-4.png",
+        "artifacts/competition-cf1-advancemen-b4101--advance-control-is-offered-chrome/test-finished-5.png",
+        "artifacts/competition-cf1-advancemen-b4101--advance-control-is-offered-chrome/test-finished-7.png"
+      ],
+      "trace": "artifacts/competition-cf1-advancemen-b4101--advance-control-is-offered-chrome/trace.zip",
+      "evidence": [
+        {
+          "judge": 1,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            4
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            true,
+            false
+          ],
+          "ballotRowsBefore": [],
+          "ballotRowsAfter": [
+            {
+              "official_id": "0b90b2a3-02e2-4e6d-a4b8-a16a18e75cc2",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 2,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            false,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "0b90b2a3-02e2-4e6d-a4b8-a16a18e75cc2",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "0b90b2a3-02e2-4e6d-a4b8-a16a18e75cc2",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "58885b3d-9749-4c0b-8522-af1b045413fe",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 3,
+          "requestedPicks": [
+            0,
+            1,
+            4,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            false,
+            true,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "0b90b2a3-02e2-4e6d-a4b8-a16a18e75cc2",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "58885b3d-9749-4c0b-8522-af1b045413fe",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "0b90b2a3-02e2-4e6d-a4b8-a16a18e75cc2",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "58885b3d-9749-4c0b-8522-af1b045413fe",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "a47d1d94-8496-48a2-9e48-62dae71e1d4a",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 1,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            4
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            true,
+            false
+          ],
+          "ballotRowsBefore": [],
+          "ballotRowsAfter": [
+            {
+              "official_id": "0b90b2a3-02e2-4e6d-a4b8-a16a18e75cc2",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 2,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            false,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "0b90b2a3-02e2-4e6d-a4b8-a16a18e75cc2",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "0b90b2a3-02e2-4e6d-a4b8-a16a18e75cc2",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "58885b3d-9749-4c0b-8522-af1b045413fe",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 3,
+          "requestedPicks": [
+            0,
+            1,
+            4,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            false,
+            true,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "0b90b2a3-02e2-4e6d-a4b8-a16a18e75cc2",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "58885b3d-9749-4c0b-8522-af1b045413fe",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "0b90b2a3-02e2-4e6d-a4b8-a16a18e75cc2",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "58885b3d-9749-4c0b-8522-af1b045413fe",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "a47d1d94-8496-48a2-9e48-62dae71e1d4a",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "SCN-11.4",
+      "title": "SCN-11.4b-cap B5: the Final capacity cannot be raised to fit an unresolved tie",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 10912,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-advancemen-b859f-ed-to-fit-an-unresolved-tie-chrome/attachments/01-capacity-raise-refused-7384c63323a0d8dcb4c4121b57375e7bbea966a2.png",
+        "artifacts/competition-cf1-advancemen-b859f-ed-to-fit-an-unresolved-tie-chrome/test-finished-1.png"
+      ],
+      "trace": "artifacts/competition-cf1-advancemen-b859f-ed-to-fit-an-unresolved-tie-chrome/trace.zip",
+      "evidence": []
+    },
+    {
+      "id": "SCN-11.4",
+      "title": "SCN-11.4b-resolve a judge-entry correction (co-signed) dissolves the tie; the unresolved version and its evidence are kept",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 65830,
+      "error": [],
+      "screenshots": [
+        null,
+        "artifacts/competition-cf1-advancemen-d5af8-n-and-its-evidence-are-kept-chrome/attachments/01-tie-dissolved-48ce945bd5d205ee8c2d695f559f8f413b76cf2b.png",
+        "artifacts/competition-cf1-advancemen-d5af8-n-and-its-evidence-are-kept-chrome/attachments/02-advanced-after-correction-57bf0310ad49d589e3dfed7a10c6340f99f23c46.png",
+        "artifacts/competition-cf1-advancemen-d5af8-n-and-its-evidence-are-kept-chrome/test-finished-2.png",
+        "artifacts/competition-cf1-advancemen-d5af8-n-and-its-evidence-are-kept-chrome/test-finished-1.png",
+        "artifacts/competition-cf1-advancemen-d5af8-n-and-its-evidence-are-kept-chrome/test-finished-3.png",
+        "artifacts/competition-cf1-advancemen-d5af8-n-and-its-evidence-are-kept-chrome/test-finished-4.png",
+        "artifacts/competition-cf1-advancemen-d5af8-n-and-its-evidence-are-kept-chrome/test-finished-5.png"
+      ],
+      "trace": "artifacts/competition-cf1-advancemen-d5af8-n-and-its-evidence-are-kept-chrome/trace.zip",
+      "evidence": [
+        {
+          "judge": 3,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            4
+          ],
+          "sheetCheckedBeforeTicking": [
+            true,
+            true,
+            false,
+            false,
+            true,
+            true
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            true,
+            false
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "0b90b2a3-02e2-4e6d-a4b8-a16a18e75cc2",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "58885b3d-9749-4c0b-8522-af1b045413fe",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "a47d1d94-8496-48a2-9e48-62dae71e1d4a",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "0b90b2a3-02e2-4e6d-a4b8-a16a18e75cc2",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "58885b3d-9749-4c0b-8522-af1b045413fe",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "a47d1d94-8496-48a2-9e48-62dae71e1d4a",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "a47d1d94-8496-48a2-9e48-62dae71e1d4a",
+              "version": 2,
+              "source": "judge_web",
+              "supersedes": true,
+              "correction_reason": "CF1-C: corrected callback picks after review"
+            }
+          ]
+        },
+        {
+          "judge": 3,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            4
+          ],
+          "sheetCheckedBeforeTicking": [
+            true,
+            true,
+            false,
+            false,
+            true,
+            true
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            true,
+            false
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "0b90b2a3-02e2-4e6d-a4b8-a16a18e75cc2",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "58885b3d-9749-4c0b-8522-af1b045413fe",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "a47d1d94-8496-48a2-9e48-62dae71e1d4a",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "0b90b2a3-02e2-4e6d-a4b8-a16a18e75cc2",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "58885b3d-9749-4c0b-8522-af1b045413fe",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "a47d1d94-8496-48a2-9e48-62dae71e1d4a",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "a47d1d94-8496-48a2-9e48-62dae71e1d4a",
+              "version": 2,
+              "source": "judge_web",
+              "supersedes": true,
+              "correction_reason": "CF1-C: corrected callback picks after review"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "SCN-11.5",
+      "title": "SCN-11.5c-cancelled correction with the Final round cancelled (no advancement) is refused COMP_ADVANCEMENT_FINAL_CANCELLED (OD-10, U84)",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 205879,
+      "error": [],
+      "screenshots": [
+        null,
+        null,
+        null,
+        "artifacts/competition-cf1-advancemen-9bd33--FINAL-CANCELLED-OD-10-U84--chrome/attachments/01-correction-refused-final-cancelled-62cb7c0fca7b216770d7bd6f0f2baa4e682d35d2.png",
+        "artifacts/competition-cf1-advancemen-9bd33--FINAL-CANCELLED-OD-10-U84--chrome/test-finished-1.png",
+        "artifacts/competition-cf1-advancemen-9bd33--FINAL-CANCELLED-OD-10-U84--chrome/test-finished-3.png",
+        "artifacts/competition-cf1-advancemen-9bd33--FINAL-CANCELLED-OD-10-U84--chrome/test-finished-5.png",
+        "artifacts/competition-cf1-advancemen-9bd33--FINAL-CANCELLED-OD-10-U84--chrome/test-finished-2.png",
+        "artifacts/competition-cf1-advancemen-9bd33--FINAL-CANCELLED-OD-10-U84--chrome/test-finished-7.png",
+        "artifacts/competition-cf1-advancemen-9bd33--FINAL-CANCELLED-OD-10-U84--chrome/test-finished-6.png",
+        "artifacts/competition-cf1-advancemen-9bd33--FINAL-CANCELLED-OD-10-U84--chrome/test-finished-4.png"
+      ],
+      "trace": "artifacts/competition-cf1-advancemen-9bd33--FINAL-CANCELLED-OD-10-U84--chrome/trace.zip",
+      "evidence": [
+        {
+          "judge": 1,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            4
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            true,
+            false
+          ],
+          "ballotRowsBefore": [],
+          "ballotRowsAfter": [
+            {
+              "official_id": "5fe6d840-850f-4b13-a728-9f30fced1976",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 2,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            false,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "5fe6d840-850f-4b13-a728-9f30fced1976",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "5fe6d840-850f-4b13-a728-9f30fced1976",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "aa579fc7-7da1-4d29-9e22-3cef1a9d0d45",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 3,
+          "requestedPicks": [
+            0,
+            1,
+            4,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            false,
+            true,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "5fe6d840-850f-4b13-a728-9f30fced1976",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "aa579fc7-7da1-4d29-9e22-3cef1a9d0d45",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "0ffcff64-d4b8-4c0d-b22f-904ceb3fd1f4",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "5fe6d840-850f-4b13-a728-9f30fced1976",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "aa579fc7-7da1-4d29-9e22-3cef1a9d0d45",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 1,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            4
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            true,
+            false
+          ],
+          "ballotRowsBefore": [],
+          "ballotRowsAfter": [
+            {
+              "official_id": "5fe6d840-850f-4b13-a728-9f30fced1976",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 2,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            false,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "5fe6d840-850f-4b13-a728-9f30fced1976",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "5fe6d840-850f-4b13-a728-9f30fced1976",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "aa579fc7-7da1-4d29-9e22-3cef1a9d0d45",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 3,
+          "requestedPicks": [
+            0,
+            1,
+            4,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            false,
+            true,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "5fe6d840-850f-4b13-a728-9f30fced1976",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "aa579fc7-7da1-4d29-9e22-3cef1a9d0d45",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "0ffcff64-d4b8-4c0d-b22f-904ceb3fd1f4",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "5fe6d840-850f-4b13-a728-9f30fced1976",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "aa579fc7-7da1-4d29-9e22-3cef1a9d0d45",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "SCN-11.5",
+      "title": "SCN-11.5b correct the callback before Final ballots: the generation 1 Final heat is cancelled, generation 2 builds a new heat with the next heat number",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 265160,
+      "error": [],
+      "screenshots": [
+        null,
+        null,
+        null,
+        "artifacts/competition-cf1-advancemen-0b91d-t-with-the-next-heat-number-chrome/attachments/01-correction-open-ad903fb4e739e356dc9f841a32c3a0fbbc5d4925.png",
+        "artifacts/competition-cf1-advancemen-0b91d-t-with-the-next-heat-number-chrome/attachments/02-cosign-waiting-3bd15e4a1a96a7b0141d2a06827d225f0256e1b8.png",
+        "artifacts/competition-cf1-advancemen-0b91d-t-with-the-next-heat-number-chrome/attachments/03-cosign-done-55010770036d6ced3b3e248810da468b572a0c83.png",
+        null,
+        "artifacts/competition-cf1-advancemen-0b91d-t-with-the-next-heat-number-chrome/attachments/04-generation-2-applied-52d1d690646d646d40b5d713cb0413634efbc9cc.png",
+        "artifacts/competition-cf1-advancemen-0b91d-t-with-the-next-heat-number-chrome/test-finished-1.png",
+        "artifacts/competition-cf1-advancemen-0b91d-t-with-the-next-heat-number-chrome/test-finished-2.png",
+        "artifacts/competition-cf1-advancemen-0b91d-t-with-the-next-heat-number-chrome/test-finished-3.png",
+        "artifacts/competition-cf1-advancemen-0b91d-t-with-the-next-heat-number-chrome/test-finished-6.png",
+        "artifacts/competition-cf1-advancemen-0b91d-t-with-the-next-heat-number-chrome/test-finished-5.png",
+        "artifacts/competition-cf1-advancemen-0b91d-t-with-the-next-heat-number-chrome/test-finished-4.png",
+        "artifacts/competition-cf1-advancemen-0b91d-t-with-the-next-heat-number-chrome/test-finished-7.png",
+        "artifacts/competition-cf1-advancemen-0b91d-t-with-the-next-heat-number-chrome/test-finished-8.png",
+        "artifacts/competition-cf1-advancemen-0b91d-t-with-the-next-heat-number-chrome/test-finished-9.png",
+        "artifacts/competition-cf1-advancemen-0b91d-t-with-the-next-heat-number-chrome/test-finished-11.png",
+        "artifacts/competition-cf1-advancemen-0b91d-t-with-the-next-heat-number-chrome/test-finished-10.png"
+      ],
+      "trace": "artifacts/competition-cf1-advancemen-0b91d-t-with-the-next-heat-number-chrome/trace.zip",
+      "evidence": [
+        {
+          "judge": 1,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            4
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            true,
+            false
+          ],
+          "ballotRowsBefore": [],
+          "ballotRowsAfter": [
+            {
+              "official_id": "fadf101e-b639-4b03-b270-0f9d849a8a08",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 2,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            false,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "fadf101e-b639-4b03-b270-0f9d849a8a08",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "354f3905-500e-4b62-bca4-354df0d78319",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "fadf101e-b639-4b03-b270-0f9d849a8a08",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 3,
+          "requestedPicks": [
+            0,
+            1,
+            4,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            false,
+            true,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "354f3905-500e-4b62-bca4-354df0d78319",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "fadf101e-b639-4b03-b270-0f9d849a8a08",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "354f3905-500e-4b62-bca4-354df0d78319",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "89e5502e-e0c4-4376-bb47-3fae2357fb81",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "fadf101e-b639-4b03-b270-0f9d849a8a08",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 3,
+          "requestedPicks": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "sheetCheckedBeforeTicking": [
+            true,
+            true,
+            false,
+            false,
+            true,
+            true
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            true,
+            true,
+            false,
+            false
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "354f3905-500e-4b62-bca4-354df0d78319",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "89e5502e-e0c4-4376-bb47-3fae2357fb81",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "fadf101e-b639-4b03-b270-0f9d849a8a08",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "354f3905-500e-4b62-bca4-354df0d78319",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "89e5502e-e0c4-4376-bb47-3fae2357fb81",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "89e5502e-e0c4-4376-bb47-3fae2357fb81",
+              "version": 2,
+              "source": "judge_web",
+              "supersedes": true,
+              "correction_reason": "CF1-C: corrected callback picks after review"
+            },
+            {
+              "official_id": "fadf101e-b639-4b03-b270-0f9d849a8a08",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 1,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            4
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            true,
+            false
+          ],
+          "ballotRowsBefore": [],
+          "ballotRowsAfter": [
+            {
+              "official_id": "fadf101e-b639-4b03-b270-0f9d849a8a08",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 2,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            false,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "fadf101e-b639-4b03-b270-0f9d849a8a08",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "354f3905-500e-4b62-bca4-354df0d78319",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "fadf101e-b639-4b03-b270-0f9d849a8a08",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 3,
+          "requestedPicks": [
+            0,
+            1,
+            4,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            false,
+            true,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "354f3905-500e-4b62-bca4-354df0d78319",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "fadf101e-b639-4b03-b270-0f9d849a8a08",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "354f3905-500e-4b62-bca4-354df0d78319",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "89e5502e-e0c4-4376-bb47-3fae2357fb81",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "fadf101e-b639-4b03-b270-0f9d849a8a08",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 3,
+          "requestedPicks": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "sheetCheckedBeforeTicking": [
+            true,
+            true,
+            false,
+            false,
+            true,
+            true
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            true,
+            true,
+            false,
+            false
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "354f3905-500e-4b62-bca4-354df0d78319",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "89e5502e-e0c4-4376-bb47-3fae2357fb81",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "fadf101e-b639-4b03-b270-0f9d849a8a08",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "354f3905-500e-4b62-bca4-354df0d78319",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "89e5502e-e0c4-4376-bb47-3fae2357fb81",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "89e5502e-e0c4-4376-bb47-3fae2357fb81",
+              "version": 2,
+              "source": "judge_web",
+              "supersedes": true,
+              "correction_reason": "CF1-C: corrected callback picks after review"
+            },
+            {
+              "official_id": "fadf101e-b639-4b03-b270-0f9d849a8a08",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "SCN-11.5",
+      "title": "SCN-11.5c-locked correction is refused COMP_ADVANCEMENT_FINAL_LOCKED while the Final heat is early-locked (HL1)",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 60219,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-advancemen-2a25a-l-heat-is-early-locked-HL1--chrome/attachments/01-refused-final-locked-7262349330f9963ca71c76311bc7e3fa0dea2a0a.png",
+        "artifacts/competition-cf1-advancemen-2a25a-l-heat-is-early-locked-HL1--chrome/test-finished-1.png",
+        "artifacts/competition-cf1-advancemen-2a25a-l-heat-is-early-locked-HL1--chrome/test-finished-2.png"
+      ],
+      "trace": "artifacts/competition-cf1-advancemen-2a25a-l-heat-is-early-locked-HL1--chrome/trace.zip",
+      "evidence": []
+    },
+    {
+      "id": "SCN-11.5",
+      "title": "SCN-11.5c-started correction is refused COMP_ADVANCEMENT_FINAL_STARTED once the Final has started (no ballot yet)",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 43032,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-advancemen-3af02--has-started-no-ballot-yet--chrome/attachments/01-refused-final-started-4bd24ae746eb8eb85892de8b10ff72086b110633.png",
+        "artifacts/competition-cf1-advancemen-3af02--has-started-no-ballot-yet--chrome/test-finished-1.png",
+        "artifacts/competition-cf1-advancemen-3af02--has-started-no-ballot-yet--chrome/test-finished-2.png"
+      ],
+      "trace": "artifacts/competition-cf1-advancemen-3af02--has-started-no-ballot-yet--chrome/trace.zip",
+      "evidence": []
+    },
+    {
+      "id": "SCN-11.5",
+      "title": "SCN-11.5c-ballot correction is refused COMP_CORRECTION_LATER_ROUND_BALLOTS (O5) once a Final ballot exists",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 28856,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-advancemen-0b16c--once-a-Final-ballot-exists-chrome/attachments/01-refused-final-ballot-ad30ebb97c734fff834f521aa14ef941592296cc.png",
+        "artifacts/competition-cf1-advancemen-0b16c--once-a-Final-ballot-exists-chrome/test-finished-2.png",
+        "artifacts/competition-cf1-advancemen-0b16c--once-a-Final-ballot-exists-chrome/test-finished-1.png"
+      ],
+      "trace": "artifacts/competition-cf1-advancemen-0b16c--once-a-Final-ballot-exists-chrome/trace.zip",
+      "evidence": []
+    },
+    {
+      "id": "SCN-R81-callback a callback round refuses to lock ballots while a ranked couple is ineligible, and locks once eligibility is restored",
+      "title": "SCN-R81-callback a callback round refuses to lock ballots while a ranked couple is ineligible, and locks once eligibility is restored",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 219718,
+      "error": [],
+      "screenshots": [
+        null,
+        null,
+        null,
+        "artifacts/competition-cf1-advancemen-2037c-nce-eligibility-is-restored-chrome/attachments/01-callback-lock-refused-unavailable-couple-cb6e9e026d895616b9eae7a03c80371da1fe1eb3.png",
+        "artifacts/competition-cf1-advancemen-2037c-nce-eligibility-is-restored-chrome/attachments/02-callback-lock-ok-after-restore-0efb49612f8b0ccd5ce9484614d5d4787aedb6e4.png",
+        "artifacts/competition-cf1-advancemen-2037c-nce-eligibility-is-restored-chrome/test-finished-1.png",
+        "artifacts/competition-cf1-advancemen-2037c-nce-eligibility-is-restored-chrome/test-finished-2.png",
+        "artifacts/competition-cf1-advancemen-2037c-nce-eligibility-is-restored-chrome/test-finished-3.png",
+        "artifacts/competition-cf1-advancemen-2037c-nce-eligibility-is-restored-chrome/test-finished-5.png",
+        "artifacts/competition-cf1-advancemen-2037c-nce-eligibility-is-restored-chrome/test-finished-6.png",
+        "artifacts/competition-cf1-advancemen-2037c-nce-eligibility-is-restored-chrome/test-finished-7.png",
+        "artifacts/competition-cf1-advancemen-2037c-nce-eligibility-is-restored-chrome/test-finished-4.png",
+        "artifacts/competition-cf1-advancemen-2037c-nce-eligibility-is-restored-chrome/test-finished-9.png",
+        "artifacts/competition-cf1-advancemen-2037c-nce-eligibility-is-restored-chrome/test-finished-8.png"
+      ],
+      "trace": "artifacts/competition-cf1-advancemen-2037c-nce-eligibility-is-restored-chrome/trace.zip",
+      "evidence": [
+        {
+          "judge": 1,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            4
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            true,
+            false
+          ],
+          "ballotRowsBefore": [],
+          "ballotRowsAfter": [
+            {
+              "official_id": "e152005b-e76f-4eeb-b926-385f93aa997a",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 2,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            false,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "e152005b-e76f-4eeb-b926-385f93aa997a",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "3a963e42-afab-4789-8046-a255318ebd52",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "e152005b-e76f-4eeb-b926-385f93aa997a",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 3,
+          "requestedPicks": [
+            0,
+            1,
+            4,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            false,
+            true,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "3a963e42-afab-4789-8046-a255318ebd52",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "e152005b-e76f-4eeb-b926-385f93aa997a",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "3a963e42-afab-4789-8046-a255318ebd52",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "dd7905d2-230f-4a24-9e6c-fc81a77eaf1d",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "e152005b-e76f-4eeb-b926-385f93aa997a",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 1,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            4
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            true,
+            false
+          ],
+          "ballotRowsBefore": [],
+          "ballotRowsAfter": [
+            {
+              "official_id": "e152005b-e76f-4eeb-b926-385f93aa997a",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 2,
+          "requestedPicks": [
+            0,
+            1,
+            3,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            true,
+            false,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "e152005b-e76f-4eeb-b926-385f93aa997a",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "3a963e42-afab-4789-8046-a255318ebd52",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "e152005b-e76f-4eeb-b926-385f93aa997a",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        },
+        {
+          "judge": 3,
+          "requestedPicks": [
+            0,
+            1,
+            4,
+            5
+          ],
+          "sheetCheckedBeforeTicking": [
+            false,
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "sheetCheckedAfterSubmit": [
+            true,
+            true,
+            false,
+            false,
+            true,
+            true
+          ],
+          "ballotRowsBefore": [
+            {
+              "official_id": "3a963e42-afab-4789-8046-a255318ebd52",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "e152005b-e76f-4eeb-b926-385f93aa997a",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ],
+          "ballotRowsAfter": [
+            {
+              "official_id": "3a963e42-afab-4789-8046-a255318ebd52",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "dd7905d2-230f-4a24-9e6c-fc81a77eaf1d",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            },
+            {
+              "official_id": "e152005b-e76f-4eeb-b926-385f93aa997a",
+              "version": 1,
+              "source": "judge_web",
+              "supersedes": false,
+              "correction_reason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "SCN-0",
+      "title": "SCN-0c setup (not a scenario): judges and managers prove their mailbox",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 33038,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-regression-b3fcd-anagers-prove-their-mailbox-chrome/test-finished-3.png",
+        "artifacts/competition-cf1-regression-b3fcd-anagers-prove-their-mailbox-chrome/test-finished-2.png",
+        "artifacts/competition-cf1-regression-b3fcd-anagers-prove-their-mailbox-chrome/test-finished-4.png",
+        "artifacts/competition-cf1-regression-b3fcd-anagers-prove-their-mailbox-chrome/test-finished-1.png",
+        "artifacts/competition-cf1-regression-b3fcd-anagers-prove-their-mailbox-chrome/test-finished-5.png"
+      ],
+      "trace": "artifacts/competition-cf1-regression-b3fcd-anagers-prove-their-mailbox-chrome/trace.zip",
+      "evidence": []
+    },
+    {
+      "id": "SCN-R80 non-callback round (Final only, ordinal majority): lock, calculate and approve are unchanged for a clean round on the composed chain",
+      "title": "SCN-R80 non-callback round (Final only, ordinal majority): lock, calculate and approve are unchanged for a clean round on the composed chain",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 184255,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-regression-5e346-round-on-the-composed-chain-chrome/attachments/01-approved-7841379dcaf415d1a06d21f765a85c6382ab1c13.png",
+        "artifacts/competition-cf1-regression-5e346-round-on-the-composed-chain-chrome/test-finished-3.png",
+        "artifacts/competition-cf1-regression-5e346-round-on-the-composed-chain-chrome/test-finished-1.png",
+        "artifacts/competition-cf1-regression-5e346-round-on-the-composed-chain-chrome/test-finished-2.png",
+        "artifacts/competition-cf1-regression-5e346-round-on-the-composed-chain-chrome/test-finished-4.png",
+        "artifacts/competition-cf1-regression-5e346-round-on-the-composed-chain-chrome/test-finished-6.png",
+        "artifacts/competition-cf1-regression-5e346-round-on-the-composed-chain-chrome/test-finished-5.png",
+        "artifacts/competition-cf1-regression-5e346-round-on-the-composed-chain-chrome/test-finished-7.png"
+      ],
+      "trace": "artifacts/competition-cf1-regression-5e346-round-on-the-composed-chain-chrome/trace.zip",
+      "evidence": [
+        {
+          "scenario": "SCN-R80",
+          "versions": [
+            1
+          ]
+        },
+        {
+          "scenario": "SCN-R80",
+          "versions": [
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "id": "SCN-R83 rounds with no exclusion: the stored evidence has no exclusion content and the approve hash check passed",
+      "title": "SCN-R83 rounds with no exclusion: the stored evidence has no exclusion content and the approve hash check passed",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 398,
+      "error": [],
+      "screenshots": [],
+      "trace": "artifacts/competition-cf1-regression-46c60-e-approve-hash-check-passed-chrome/trace.zip",
+      "evidence": [
+        {
+          "scenario": "SCN-R83",
+          "notProvedHere": "Byte-identity with the pre-CF1 text (hashes include run-specific ids); that is U72/U83 in the SQL and vitest parity suites. This test proves the end-to-end consequence only."
+        },
+        {
+          "scenario": "SCN-R83",
+          "notProvedHere": "Byte-identity with the pre-CF1 text (hashes include run-specific ids); that is U72/U83 in the SQL and vitest parity suites. This test proves the end-to-end consequence only."
+        }
+      ]
+    },
+    {
+      "id": "SCN-R81 each scoring setup the UI offers: clean round passes, a couple whose registration was cancelled is refused at lock (COMP_ROSTER_ENTRY_UNAVAILABLE)",
+      "title": "SCN-R81 each scoring setup the UI offers: clean round passes, a couple whose registration was cancelled is refused at lock (COMP_ROSTER_ENTRY_UNAVAILABLE)",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 200449,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-regression-11d2b-P-ROSTER-ENTRY-UNAVAILABLE--chrome/attachments/01-lock-refused-5e62c9ef304785f1f6c89651be58571fbedb5e67.png",
+        "artifacts/competition-cf1-regression-11d2b-P-ROSTER-ENTRY-UNAVAILABLE--chrome/test-finished-2.png",
+        "artifacts/competition-cf1-regression-11d2b-P-ROSTER-ENTRY-UNAVAILABLE--chrome/test-finished-1.png",
+        "artifacts/competition-cf1-regression-11d2b-P-ROSTER-ENTRY-UNAVAILABLE--chrome/test-finished-3.png",
+        "artifacts/competition-cf1-regression-11d2b-P-ROSTER-ENTRY-UNAVAILABLE--chrome/test-finished-4.png",
+        "artifacts/competition-cf1-regression-11d2b-P-ROSTER-ENTRY-UNAVAILABLE--chrome/test-finished-5.png",
+        "artifacts/competition-cf1-regression-11d2b-P-ROSTER-ENTRY-UNAVAILABLE--chrome/test-finished-7.png",
+        "artifacts/competition-cf1-regression-11d2b-P-ROSTER-ENTRY-UNAVAILABLE--chrome/test-finished-8.png",
+        "artifacts/competition-cf1-regression-11d2b-P-ROSTER-ENTRY-UNAVAILABLE--chrome/test-finished-6.png",
+        "artifacts/competition-cf1-regression-11d2b-P-ROSTER-ENTRY-UNAVAILABLE--chrome/test-finished-9.png"
+      ],
+      "trace": "artifacts/competition-cf1-regression-11d2b-P-ROSTER-ENTRY-UNAVAILABLE--chrome/trace.zip",
+      "evidence": [
+        {
+          "scenario": "SCN-R81",
+          "setupsOffered": [
+            "Callbacks + Final",
+            "Final only (ordinal majority)"
+          ]
+        },
+        {
+          "scenario": "SCN-R81",
+          "setupsOffered": [
+            "Callbacks + Final",
+            "Final only (ordinal majority)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "SCN-R82 comped or manual entries without a registration are never refused for lack of refund evidence",
+      "title": "SCN-R82 comped or manual entries without a registration are never refused for lack of refund evidence",
+      "status": "BLOCKED",
+      "note": "No UI path creates an entry without a registration or order; the harness does not insert one (no write shortcut). Covered by SQL gate U82 (A1 suite) until a manual-entry screen exists.",
+      "setupShortcut": false,
+      "durationMs": 27248,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-regression-a4f1a-for-lack-of-refund-evidence-chrome/test-finished-1.png"
+      ],
+      "trace": "artifacts/competition-cf1-regression-a4f1a-for-lack-of-refund-evidence-chrome/trace.zip",
+      "evidence": []
+    },
+    {
+      "id": "SCN-X1 exclusion: a manager requests it, a different person co-signs, the review shows Excluded (never no-show) and the round re-locks after corrected ballots",
+      "title": "SCN-X1 exclusion: a manager requests it, a different person co-signs, the review shows Excluded (never no-show) and the round re-locks after corrected ballots",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 247338,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-regression-76947-cks-after-corrected-ballots-chrome/attachments/01-requested-d0b6d925ab0c326c8dee8d784b2e7fbf34ac3a73.png",
+        "artifacts/competition-cf1-regression-76947-cks-after-corrected-ballots-chrome/attachments/02-cosigned-0ac9b28fe5e6b94d74e3c5f854d3af7f56238541.png",
+        "artifacts/competition-cf1-regression-76947-cks-after-corrected-ballots-chrome/attachments/01-approved-ad2884842e265992e7f582651ee0444702e3e66d.png",
+        "artifacts/competition-cf1-regression-76947-cks-after-corrected-ballots-chrome/test-finished-2.png",
+        "artifacts/competition-cf1-regression-76947-cks-after-corrected-ballots-chrome/test-finished-5.png",
+        "artifacts/competition-cf1-regression-76947-cks-after-corrected-ballots-chrome/test-finished-1.png",
+        "artifacts/competition-cf1-regression-76947-cks-after-corrected-ballots-chrome/test-finished-4.png",
+        "artifacts/competition-cf1-regression-76947-cks-after-corrected-ballots-chrome/test-finished-3.png",
+        "artifacts/competition-cf1-regression-76947-cks-after-corrected-ballots-chrome/test-finished-6.png",
+        "artifacts/competition-cf1-regression-76947-cks-after-corrected-ballots-chrome/test-finished-8.png",
+        "artifacts/competition-cf1-regression-76947-cks-after-corrected-ballots-chrome/test-finished-7.png",
+        "artifacts/competition-cf1-regression-76947-cks-after-corrected-ballots-chrome/test-finished-9.png",
+        "artifacts/competition-cf1-regression-76947-cks-after-corrected-ballots-chrome/test-finished-11.png",
+        "artifacts/competition-cf1-regression-76947-cks-after-corrected-ballots-chrome/test-finished-10.png",
+        "artifacts/competition-cf1-regression-76947-cks-after-corrected-ballots-chrome/test-finished-13.png",
+        "artifacts/competition-cf1-regression-76947-cks-after-corrected-ballots-chrome/test-finished-12.png",
+        "artifacts/competition-cf1-regression-76947-cks-after-corrected-ballots-chrome/test-finished-14.png"
+      ],
+      "trace": "artifacts/competition-cf1-regression-76947-cks-after-corrected-ballots-chrome/trace.zip",
+      "evidence": []
+    },
+    {
+      "id": "SCN-X2 reversal is allowed only while the cause is gone: refused while the couple is still ineligible, accepted after eligibility is restored, co-signed by a different person",
+      "title": "SCN-X2 reversal is allowed only while the cause is gone: refused while the couple is still ineligible, accepted after eligibility is restored, co-signed by a different person",
+      "status": "PASS",
+      "note": null,
+      "setupShortcut": false,
+      "durationMs": 266669,
+      "error": [],
+      "screenshots": [
+        "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/attachments/01-reversal-refused-cause-remains-53aeb874a976070f9ae2558ba3915e187b53fc61.png",
+        "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/attachments/02-reversal-requested-44971ace71b49b4ebcc3ef02a11ffd67495c7e46.png",
+        "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/attachments/03-reversal-cosigned-7945847bf7c35fad8b3f65b5b0472e5874faeb8e.png",
+        "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/attachments/01-approved-aa788aad915a9aa4730e4a0021a6eb6318b8c116.png",
+        "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/test-finished-1.png",
+        "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/test-finished-2.png",
+        "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/test-finished-3.png",
+        "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/test-finished-4.png",
+        "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/test-finished-5.png",
+        "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/test-finished-6.png",
+        "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/test-finished-7.png",
+        "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/test-finished-8.png",
+        "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/test-finished-10.png",
+        "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/test-finished-9.png",
+        "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/test-finished-12.png",
+        "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/test-finished-14.png",
+        "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/test-finished-11.png",
+        "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/test-finished-13.png"
+      ],
+      "trace": "artifacts/competition-cf1-regression-b1939-igned-by-a-different-person-chrome/trace.zip",
+      "evidence": []
+    }
+  ]
+}

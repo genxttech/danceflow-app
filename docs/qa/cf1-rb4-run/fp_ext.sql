@@ -1,0 +1,4 @@
+select 'G '||c.relname||' '||coalesce(c.relacl::text,'') from pg_class c where c.relnamespace='public'::regnamespace and c.relkind in ('r','v','m','S') order by 1;
+select 'E '||t.typname||' '||string_agg(e.enumlabel,',' order by e.enumsortorder) from pg_enum e join pg_type t on t.oid=e.enumtypid where t.typnamespace='public'::regnamespace group by t.typname order by 1;
+select 'D '||c.relname||'.'||a.attname||' '||coalesce(pg_get_expr(d.adbin,d.adrelid),'') from pg_attrdef d join pg_class c on c.oid=d.adrelid join pg_attribute a on a.attrelid=d.adrelid and a.attnum=d.adnum where c.relnamespace='public'::regnamespace order by 1;
+select 'Z '||p.oid::regprocedure::text||' prosecdef='||p.prosecdef||' cfg='||coalesce(p.proconfig::text,'')||' vol='||p.provolatile::text from pg_proc p where p.pronamespace='public'::regnamespace order by 1;

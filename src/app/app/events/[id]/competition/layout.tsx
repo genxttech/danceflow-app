@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { requireCompetitionWorkspace } from "@/lib/competition/workspaceServer";
 import { COMPETITIONS_HREF } from "@/lib/competition/workspaceLink";
+import { competitionFinalsEnabled } from "@/lib/competition/finalsGate";
 import CompetitionNav from "./CompetitionNav";
 
 export default async function CompetitionWorkspaceLayout({
@@ -26,7 +27,7 @@ export default async function CompetitionWorkspaceLayout({
         <h1 className="text-xl font-semibold text-slate-950">{event.name}</h1>
       </div>
       <div className="grid gap-6 lg:grid-cols-[13.5rem_minmax(0,1fr)]">
-        <CompetitionNav eventId={id} />
+        <CompetitionNav eventId={id} finalsEnabled={competitionFinalsEnabled()} />
         <div className="min-w-0">{children}</div>
       </div>
     </div>

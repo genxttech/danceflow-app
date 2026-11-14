@@ -1,0 +1,35 @@
+{
+  "report": "CF1 app candidate: PV-1 database-recompute browser acceptance",
+  "date": "2026-11-10",
+  "gitOnly": true,
+  "candidateHead": "a99806e1 + working tree (committed next as the PV-1 QA commits)",
+  "stack": "cf1c-qa (local), PV-1 20270215090000 + OJ-1 20270215091000 applied (calculate 167529bada8ca5a4dd98e22d4d0a3252, _compe2_round_role a7d7a235d9522a073312807df3ff11f9)",
+  "mode": "next dev, COMPETITION_FINALS_ENABLED=true, system Chrome, 1 worker",
+  "spec": "e2e/tests/competition-cf1-pv1-recompute-acceptance.spec.ts",
+  "freeRamGbBeforeStart": 8.6,
+  "started": "2026-11-10T17:25:30Z",
+  "finished": "2026-11-10T17:56:27Z",
+  "playwrightExit": 0,
+  "results": [
+    {
+      "id": "SCN-0c",
+      "title": "setup (not a scenario): judges and owner prove their mailbox",
+      "result": "pass",
+      "minutes": 1.7
+    },
+    {
+      "id": "SCN-PV1-1",
+      "title": "ordinal Final: swapped placements sent straight to PostgREST are refused; the app path calculates",
+      "result": "pass",
+      "minutes": 14
+    },
+    {
+      "id": "SCN-PV1-2",
+      "title": "callback round: a flipped advanced flag or forged warnings are refused; the app path calculates",
+      "result": "pass",
+      "minutes": 7.5
+    }
+  ],
+  "summary": "3 passed (27.3m)",
+  "evidenceNote": "traces and screenshots stay outside the repository"
+}

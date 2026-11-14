@@ -4,10 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { activeNavKey, competitionNav } from "@/lib/competition/workspaceNav";
 
-export default function CompetitionNav({ eventId }: { eventId: string }) {
+export default function CompetitionNav({ eventId, finalsEnabled = false }: { eventId: string; finalsEnabled?: boolean }) {
   const pathname = usePathname();
   const active = activeNavKey(eventId, pathname ?? "");
-  const items = competitionNav(eventId);
+  const items = competitionNav(eventId, finalsEnabled);
 
   return (
     <nav aria-label="Competition workspace" className="lg:sticky lg:top-4 lg:self-start">

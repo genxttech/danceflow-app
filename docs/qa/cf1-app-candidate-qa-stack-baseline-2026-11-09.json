@@ -1,0 +1,46 @@
+{
+ "q02_F": {
+  "prodCompetitionLines": 308,
+  "identical": 307,
+  "onlyProd": [
+   "F record_competition_checkin_payment(uuid,uuid,numeric,text,text) 70285eaf8c11f4cb34cb487fa1d3f47a postgres {p"
+  ],
+  "onlyQa": [
+   "F record_competition_checkin_payment(uuid,uuid,numeric,text,text) f7ff073516597c474c59189df7b3e0d2 postgres {p"
+  ]
+ },
+ "q03_T": {
+  "prodCompetitionLines": 197,
+  "identical": 197,
+  "onlyProd": [],
+  "onlyQa": []
+ },
+ "q04_R": {
+  "prodCompetitionLines": 86,
+  "identical": 86,
+  "onlyProd": [],
+  "onlyQa": []
+ },
+ "q05_C": {
+  "prodCompetitionLines": 760,
+  "identical": 759,
+  "onlyProd": [
+   "C event_competition_registration_cart_people event_competition_registration_cart_people_name_check 75c8c4fede0"
+  ],
+  "onlyQa": [
+   "C event_competition_registration_cart_people event_competition_registration_cart_people_name_check e92d70bdff6"
+  ]
+ },
+ "q06_P": {
+  "prodCompetitionLines": 87,
+  "identical": 87,
+  "onlyProd": [],
+  "onlyQa": []
+ },
+ "q08_G": {
+  "prodCompetitionLines": 89,
+  "identical": 89,
+  "onlyProd": [],
+  "onlyQa": []
+ }
+}

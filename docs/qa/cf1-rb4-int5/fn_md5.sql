@@ -1,0 +1,1 @@
+select p.oid::regprocedure::text||E'\t'||md5(replace(pg_get_functiondef(p.oid),E'\r',''))||E'\t'||md5(pg_get_functiondef(p.oid))||E'\t'||md5(p.prosrc)||E'\t'||md5(replace(p.prosrc,E'\r',''))||E'\t'||(position(E'\r' in pg_get_functiondef(p.oid))>0)::text from pg_proc p where p.pronamespace='public'::regnamespace order by 1;

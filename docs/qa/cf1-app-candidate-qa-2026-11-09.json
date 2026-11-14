@@ -1,0 +1,354 @@
+{
+  "report": "cf1-app-candidate-qa-2026-11-09.md",
+  "date": "2026-11-09",
+  "gitOnly": true,
+  "candidateBranch": "release/competition-cf1-app-candidate",
+  "base": {
+    "branch": "release/cf1-hotfix-heat-schedulepush",
+    "commit": "ab940288",
+    "tree": "640ba2ab",
+    "liveDeployment": "dpl_6rhE7gAq…",
+    "previousBase": {
+      "branch": "release/tw4f-monitoring-r2-cib",
+      "commit": "a965f477"
+    }
+  },
+  "cf1Source": {
+    "branch": "cf1/integration-5",
+    "commit": "400cce2b",
+    "engineSpecDocsFrom": "28a7722e",
+    "f1EnginesIdenticalTo": "competition-f1-studio-engines ee6bd401"
+  },
+  "hotfix": {
+    "branch": "hotfix/competition-heat-capacity-reason",
+    "commit": "ac902c28",
+    "parent": "a965f477",
+    "files": [
+      "src/app/app/events/[id]/competition/schedule/actions.ts",
+      "src/app/app/events/[id]/competition/schedule/page.tsx",
+      "src/app/app/events/[id]/competition/schedule/__tests__/heatCapacity.hotfix.test.ts"
+    ]
+  },
+  "appCodeUnderBrowserTest": "4ffdede9",
+  "darkGate": {
+    "env": "COMPETITION_FINALS_ENABLED",
+    "publicResultsEnv": "COMPETITION_PUBLIC_RESULTS_ENABLED",
+    "onlyExactTrue": true,
+    "serverOnly": true,
+    "perStudioAllowlist": false,
+    "entryPointFiles": 16
+  },
+  "preservation": {
+    "r2Refunds": 0,
+    "cibDeskBalance": 0,
+    "d7OrganizerGates": 0,
+    "founderPricingBilling": 0,
+    "tw4f": 0,
+    "h1PlatformAdmin": 0,
+    "registrationFlag": 0,
+    "packageBuildConfig": 0
+  },
+  "migrationCopiesMatchManifest": {
+    "cf1Forward": 25,
+    "cf1Rollback": 25,
+    "r2Forward": 2,
+    "r2Rollback": 2,
+    "mismatches": 0
+  },
+  "schemaCompat": {
+    "rpcs": 83,
+    "rpcsInProdWithAuthenticatedExecute": 83,
+    "namedArgSetsMatched": "67/67",
+    "relations": 32,
+    "columns": 222,
+    "problems": 0
+  },
+  "qaStack": {
+    "name": "cf1c-qa",
+    "competitionVsProdPostS3": {
+      "functions": "307/308",
+      "triggers": "197/197",
+      "relations": "86/86",
+      "constraints": "759/760",
+      "policies": "87/87",
+      "grants": "89/89"
+    },
+    "expectedDifferences": [
+      "record_competition_checkin_payment = PROD CI-B md5 f7ff0735 (S3 snapshot predates CI-B)",
+      "event_competition_registration_cart_people_name_check (pre-existing, not CF1)"
+    ],
+    "nonCompetitionDifferences": "4 missing + 5 different TW-4F/monitoring functions (see cf1-app-candidate-qa-stack-baseline-2026-11-09.json)"
+  },
+  "matrix": [
+    {
+      "id": "Q1",
+      "check": "tsc --noEmit",
+      "status": "PASS",
+      "environment": "local"
+    },
+    {
+      "id": "Q2",
+      "check": "eslint changed files (128)",
+      "status": "PASS",
+      "detail": "0 errors, 5 warnings",
+      "environment": "local"
+    },
+    {
+      "id": "Q3",
+      "check": "full vitest",
+      "status": "PASS",
+      "detail": "600 files passed, 57 skipped, 0 failed; 9675 tests passed, 1275 skipped (--maxWorkers=4). Earlier default-parallel runs: 35 and 32 load-timeout failures; the 25 files re-run sequentially 535/535 PASS",
+      "environment": "local"
+    },
+    {
+      "id": "Q4",
+      "check": "dark gate unit tests",
+      "status": "PASS",
+      "detail": "87 incl. hotfix; failing-first 72/81 fail without the gate",
+      "environment": "local"
+    },
+    {
+      "id": "Q5",
+      "check": "heat-size hotfix unit test",
+      "status": "PASS",
+      "detail": "6/6; failing-first 6/6 on a965f477",
+      "environment": "local"
+    },
+    {
+      "id": "Q6",
+      "check": "review P2-1 judging links test",
+      "status": "PASS",
+      "detail": "4/4; failing-first 4/4",
+      "environment": "local"
+    },
+    {
+      "id": "Q7",
+      "check": "static schema compatibility",
+      "status": "PASS",
+      "environment": "PROD post-S3 fingerprints + CI-B md5",
+      "evidence": "cf1-app-candidate-schema-compat-2026-11-09.json"
+    },
+    {
+      "id": "Q8",
+      "check": "CF1-C acceptance, flag ON",
+      "status": "PASS",
+      "detail": "16 scenarios + 2 setup PASS; SCN-R82 BLOCKED (no UI path; SQL U82, owner-accepted)",
+      "environment": "next dev (dev mode), cf1c-qa, Chrome 156",
+      "evidence": "cf1-app-candidate-acceptance-on-2026-11-09.json"
+    },
+    {
+      "id": "Q8-R82",
+      "check": "SCN-R82 comped/manual entries",
+      "status": "BLOCKED",
+      "detail": "no UI creates an entry without a registration"
+    },
+    {
+      "id": "Q9",
+      "check": "dark smoke, flag OFF (SCN-DARK 1-5)",
+      "status": "PASS",
+      "detail": "6/6",
+      "environment": "next dev (dev mode), cf1c-qa, flags unset",
+      "evidence": "cf1-app-candidate-acceptance-dark-2026-11-09.json"
+    },
+    {
+      "id": "Q10",
+      "check": "heat-size hotfix in the browser (SCN-DARK-6)",
+      "status": "PASS",
+      "environment": "as Q9"
+    },
+    {
+      "id": "Q11",
+      "check": "acceptance on a production build",
+      "status": "BLOCKED",
+      "detail": "next build worker OOM (4 GB heap) with 6.9 GB free RAM"
+    },
+    {
+      "id": "Q12",
+      "check": "schedule-heats + scoring-results acceptance",
+      "status": "BLOCKED",
+      "detail": "needs Stripe TEST keys + stripe listen; no Stripe operations in this session"
+    },
+    {
+      "id": "Q13",
+      "check": "public results page with public flag on (browser)",
+      "status": "NOT RUN"
+    },
+    {
+      "id": "Q14",
+      "check": "judge Open ballot / Open desk links (browser)",
+      "status": "NOT RUN"
+    },
+    {
+      "id": "Q15",
+      "check": "SQL test suites",
+      "status": "NOT RUN",
+      "detail": "SQL already live on PROD; prior int5/RB4 evidence"
+    },
+    {
+      "id": "Q16",
+      "check": "two runs back to back",
+      "status": "NOT RUN"
+    }
+  ],
+  "memoryRule": {
+    "floorGb": 6,
+    "runsStartedAtGb": [
+      6.1,
+      7.1,
+      6.5,
+      8.1
+    ],
+    "violation": "one aborted attempt started at 5.0 GB (failed at browser launch, not counted)"
+  },
+  "review": {
+    "p0": 0,
+    "p1": 0,
+    "fixed": [
+      "P2-1 judging links"
+    ],
+    "openForOwner": [
+      "P2-2 organizer-only officials blocked by the /app layout",
+      "P2 trust model: calculate_competition_round accepts app-built rows (live SQL)"
+    ],
+    "accepted": [
+      "P3-a Advanced page needs S1 columns (live)",
+      "P3-b direct URL runs /app layouts before 404"
+    ],
+    "backlog": [
+      "callback target 1 error copy",
+      "Results nav stays Later",
+      "readiness badge ignores two warning rows",
+      "HEAT_PLANNER_VERSION",
+      "scoring setup two writes",
+      "COMP_CAPACITY_FORBIDDEN generic copy"
+    ]
+  },
+  "rebase2026_11_10": {
+    "mergeCommit": "63c83cf1",
+    "head": "15ca8098",
+    "conflicts": [
+      "src/app/app/events/[id]/competition/schedule/actions.ts (kept candidate side; same overlap as de1a8d80)"
+    ],
+    "heatSizeFix": "bbadbf13 in base = same patch-id as ac902c28",
+    "preservationVsAb940288": {
+      "allSection3Areas": 0,
+      "pr441PricingFiles": {
+        "files": 17,
+        "changed": 0
+      },
+      "pr444SchedulePushFiles": {
+        "files": 3,
+        "changed": 0
+      }
+    },
+    "tsc": "PASS",
+    "eslint": {
+      "files": 130,
+      "errors": 0,
+      "warnings": 5
+    },
+    "vitest": {
+      "filesPassed": 597,
+      "filesFailed": 6,
+      "filesSkipped": 59,
+      "testsPassed": 9684,
+      "testsFailed": 6,
+      "testsSkipped": 1290,
+      "failuresAllTimeouts": true,
+      "sequentialRerun": "6 files 138/138 PASS",
+      "closeoutPhase8dAlsoTimesOutOnLiveCode": true
+    },
+    "darkSmoke": {
+      "status": "PASS",
+      "passed": 7,
+      "head": "15ca8098",
+      "freeRamGbAtStart": 6.5,
+      "evidence": "cf1-app-candidate-acceptance-dark-rebase-2026-11-10.json"
+    },
+    "cf1cAcceptanceFlagOn": "NOT RE-RUN (CF1 code unchanged; incoming code outside CF1)",
+    "schemaCompat": "NOT RE-RUN (PR 441 SQL is TW-4F only)",
+    "memoryNote": "tsc started after a 1.5 GB reading without recheck; later heavy runs >= 6 GB"
+  },
+  "oj1pv1_2026_11_10": {
+    "section": "section 10 of cf1-app-candidate-qa-2026-11-09.md",
+    "gitOnly": true,
+    "migrations": [
+      {
+        "file": "20270215090000_competition_pv1_result_recompute.sql",
+        "sha256": "69123627e47e7966a42d6671c0f1ef7ec13472eaf309b25dc2fce7b9b4af1462",
+        "rollbackSha256": "b8226d278e196e3e80ee612a9394ead4cfdbf7475bcecb3695df5ab4ff4c4402",
+        "postPins": {
+          "calculate": "167529bada8ca5a4dd98e22d4d0a3252",
+          "approve": "3cf63c3bb00a78142ea2c8e70a8b4a0c"
+        },
+        "applied": "NOT applied hosted"
+      },
+      {
+        "file": "20270215091000_competition_oj1_official_team_member.sql",
+        "sha256": "4a30f5e22abc9abf2330191aace170cc07ab6f94c4ab9179b208f8847e007a19",
+        "rollbackSha256": "979ea0129ff9e8574ebb2b02de8c656e2fd2dccd535d20476138878af2a4292f",
+        "postPins": {
+          "_compe2_round_role": "a7d7a235d9522a073312807df3ff11f9"
+        },
+        "applied": "NOT applied hosted"
+      }
+    ],
+    "evidence": {
+      "oj1Unit": "10/10",
+      "oj1SqlProof": "P1-P8 as expected",
+      "pv1SqlSuite": "30/30",
+      "equivalenceGolden": {
+        "cases": 1904,
+        "disagreements": 0
+      },
+      "equivalenceRandom": {
+        "cases": 7500,
+        "seeds": [
+          20261110,
+          7,
+          424242
+        ],
+        "disagreements": 0
+      },
+      "composedChain": {
+        "pass": 40,
+        "fail": 0
+      },
+      "a3Probe": "CONC A3 PASS 9/9",
+      "faultInjection": "PASS (F1-F4, every injected error confirmed raised)",
+      "f3": {
+        "classification": "harness timing flake (coordinator verdict 2026-11-10)",
+        "originalScriptBaseline": [
+          "11/11",
+          "11/11"
+        ],
+        "hardenedBaseline": "11/11 order proven",
+        "hardenedPv1Chain": "11/11 order proven",
+        "hardenedScriptSha256Prefix": "cca18ac69a30d1a9"
+      },
+      "browser": "3/3 PASS (cf1-app-candidate-acceptance-pv1-2026-11-10.json)",
+      "tsc": "0 errors",
+      "eslint": {
+        "files": 23,
+        "errors": 0,
+        "warnings": 0
+      },
+      "vitest": {
+        "filesPassed": 604,
+        "filesFailed": 1,
+        "filesSkipped": 59,
+        "testsPassed": 9699,
+        "testsFailed": 1,
+        "testsSkipped": 1290,
+        "failure": "closeout.phase8d 5 s timeout (known, section 0); alone 39/39 PASS"
+      }
+    },
+    "review": {
+      "p0": 0,
+      "p1": "organizer managers: out of scope per coordinator ruling (10A, unchanged)",
+      "p2": "3 fixed (E2 team-member rule, trace-free tie panel, approve re-verify); follow-up review confirmed closed",
+      "p3": "_compe2_round_judges counts a removed judge: recorded, out of scope",
+      "neutralizerAutocommitGuard": "added and proven"
+    }
+  }
+}

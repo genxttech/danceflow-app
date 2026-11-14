@@ -1,0 +1,59 @@
+{
+  "date": "2026-11-10",
+  "decision": "PV-1 (owner decision 2026-11-10)",
+  "sqlUnderTest": "functions installed by 20270215090000_competition_pv1_result_recompute.sql (sha256 69123627...)",
+  "database": "local QA stack cf1c-qa (PROD-aligned competition surface), each comparison in one rolled-back transaction",
+  "definition": "disagreement = outcome (ok/fail) differs, or both ok and the RPC-shaped rows or the warnings differ; failure-reason differences are reported separately",
+  "golden": {
+    "source": "every engine call made by the F1 engine suites and the F2 results suites (scripts/qa/pv1/capture.vitest.mts; capture run: 262 tests passed, the 1 failure was the static wiring label later fixed in d998f368)",
+    "cases": 1904,
+    "tsOk": 1778,
+    "tsFail": 126,
+    "okAgree": 1904,
+    "successEqual": 1778,
+    "disagreements": 0,
+    "failureReasonEqual": 124,
+    "reasonDiffs": [
+      {
+        "id": 110,
+        "engine": "callback",
+        "ts": "malformed_input",
+        "sql": "round_not_callback"
+      },
+      {
+        "id": 1092,
+        "engine": "ordinal",
+        "ts": "malformed_input",
+        "sql": "mark_out_of_range"
+      }
+    ],
+    "bySource": {
+      "golden.jsonl": 1904
+    },
+    "reasonDiffNotes": {
+      "110": "input without a round object (TypeScript TypeError -> malformed_input; SQL round_not_callback); both refuse; database evidence always has a round",
+      "1092": "a JavaScript NaN mark (non-finite; JSON cannot carry it); both refuse; database evidence cannot contain it"
+    }
+  },
+  "random": {
+    "source": "scripts/qa/pv1/random-corpus.ts seeds 20261110, 7, 424242 x 2500 cases",
+    "cases": 7500,
+    "tsOk": 3833,
+    "tsFail": 3667,
+    "okAgree": 7500,
+    "successEqual": 3833,
+    "disagreements": 0,
+    "failureReasonEqual": 3667,
+    "reasonDiffs": [],
+    "bySource": {
+      "random-20261110.jsonl": 2500,
+      "random-7.jsonl": 2500,
+      "random-424242.jsonl": 2500
+    }
+  },
+  "reproduce": [
+    "PV1_CAPTURE=<golden.jsonl> node node_modules/vitest/vitest.mjs run --config scripts/qa/pv1/capture.vitest.mts",
+    "node --import tsx scripts/qa/pv1/random-corpus.ts <seed> 2500 <out.jsonl>",
+    "node scripts/qa/pv1/compare.mjs supabase_db_cf1c-qa installed <out.json> <corpus.jsonl>..."
+  ]
+}
