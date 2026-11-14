@@ -15,6 +15,7 @@ Operations for the scheduled SMS usage reconciler (design: `TW-4F_Usage_Reconcil
    - the token-read parent credentials (see sender readiness §9).
 4. Register the schedule: add `{ "path": "/api/cron/sms-usage-reconcile", "schedule": "*/5 * * * *" }` to `vercel.json` in its own reviewed PR. The unit test that pins "not registered" must be updated in that PR.
 5. Watch two completed runs in the panel (Platform → SMS → Usage reconciliation) before turning on `SMS_BILLED_REAL_SEND` or the database usage switch.
+   - During the first validation, capture and redact real Message, list and webhook samples per `TW-4F_Twilio_Fixture_Capture.md` §4. Run the documented-shape contract tests against them, and record any difference from the documented shapes before switching billed texting on.
 6. From `20261218090000_twilio_usage_reconciler_readiness.sql` (F3) on, the database enforces this gate through `public._tw4usage_reconciler_ready()` (`{ok, detail, last_success_at}`).
    - **Ready** means a completed `usage_reconcile` run that *proved it can settle* finished within 30 minutes, and no expired lease has been left unclosed for 10 minutes. Proved means `evidence_read` is true, and either nothing was due or at least one text was settled or read as pending.
    - The newest run in that window that had texts due must also have proved it. A failed read backs its text off, so a later idle run proves nothing.
